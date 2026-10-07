@@ -23,7 +23,10 @@ Auto-dispatch delivered v2.22 to v2.24 between 2026-10-03 and 2026-10-07. While 
      checkbox. Strike a reference — `~~[<plan-slug>]~~` — to mark an item that
      left the sprint; the plan's own state then says whether it was withdrawn. -->
 
-- [ ] [the-release-train-fixes-what-it-found](../plans/2026-10-07-the-release-train-fixes-what-it-found.md) — twelve fixes, one slice each, ordered by severity: delivery, the corpus pin, continue, unacquired runs, the PR index, spend limits, local checks, charters, the claim release controller, approval findings, the sweep and the vendored helpers.
+- [ ] [delivery-reads-one-source](../plans/2026-10-07-delivery-reads-one-source.md) — delivery reads the plan at the pulse ref and the PR index first (#1280, #1336, #1165).
+- [ ] [the-fleet-loop-reads-its-runs-right](../plans/2026-10-07-the-fleet-loop-reads-its-runs-right.md) — unacquired runs, spend limits in dollars, the charter at hand-over, and runs that wait for approval (#1295, #1328, #1169, #1166, #1338).
+- [ ] [a-controller-owns-what-it-starts](../plans/2026-10-07-a-controller-owns-what-it-starts.md) — continue owns its desk, and a controller releases a claim (#1294, #1307, #1276).
+- [ ] [the-tests-and-sweeps-leave-no-trace](../plans/2026-10-07-the-tests-and-sweeps-leave-no-trace.md) — the corpus pin, local checks in a temp worktree, the double-claim sweep and the vendored helpers (#1259, #1319, #1317, #1343, #1344).
 
 ### Should Have
 
@@ -49,3 +52,4 @@ Auto-dispatch delivered v2.22 to v2.24 between 2026-10-03 and 2026-10-07. While 
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
 
 - 2026-10-07: Created with three plans in the tiers that jwloka chose.
+- 2026-10-07: Split [the-release-train-fixes-what-it-found] into four plans by theme so they run in parallel — direction from jwloka.

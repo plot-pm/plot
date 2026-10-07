@@ -1,0 +1,1 @@
+../2026-10-07-delivery-reads-one-source.md

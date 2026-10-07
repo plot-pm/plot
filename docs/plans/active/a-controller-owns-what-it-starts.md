@@ -1,0 +1,1 @@
+../2026-10-07-a-controller-owns-what-it-starts.md

@@ -43,7 +43,7 @@ Today the supervisor's answers to endings are spread over three rules: `supervis
 
 Every other reason answers `leave`, and the open questions below name them. A desk that a manifest already names answers `leave` for every ending, as `freshAgentAfterCorrections` does today, because something already acts on it.
 
-**A turn that did nothing gets an ending of its own.** Row 12a of `agentLoop` seals a turn only when the branch holds a commit beyond the claim. A turn with no such commit, no PR and no marker ends with the new reason `nothing-done`, and the supervisor releases the claim through `releaseClaim`, the domain workflow that `the-release-train-fixes-what-it-found` slice 9 builds. Slice 1 therefore waits on that branch.
+**A turn that did nothing gets an ending of its own.** Row 12a of `agentLoop` seals a turn only when the branch holds a commit beyond the claim. A turn with no such commit, no PR and no marker ends with the new reason `nothing-done`, and the supervisor releases the claim through `releaseClaim`, the domain workflow that `a-controller-owns-what-it-starts` slice 2 builds. Slice 1 therefore waits on that branch.
 
 **"Ask a person" uses the path a question already uses.** The supervisor writes a `PLOT-BLOCKED.md` marker on the desk that names the ending and its `detail`. `questionEscalation` (from `an-unanswered-question-escalates`) then lists the desk in WAITING ON YOU and notifies through `Notify command` as the question ages. No second escalation path exists.
 
@@ -81,7 +81,7 @@ Each test below fails on `origin/main` (`a778bda0d`) today:
 ## Notes
 
 - 2026-10-07, direction from jwloka: every loop ending gets one supervisor action from a table, either release the claim, a fresh agent, or ask a person, with one slice per ending group; Type infra; reviewed in-session; own branches.
-- Slice 1 waits on `bug/a-claim-has-a-release-controller`, slice 9 of `the-release-train-fixes-what-it-found`. The slices of this plan run in heading order, as every plan's slices do (`packages/domain/src/rules/eligible.ts:131-134`).
+- Slice 1 waits on `bug/a-claim-has-a-release-controller`, slice 2 of `a-controller-owns-what-it-starts`. The slices of this plan run in heading order, as every plan's slices do (`packages/domain/src/rules/eligible.ts:131-134`).
 - Deliverable search, 2026-10-07:
   - Slice 1: no `endingAction`, `nothing-done` or equivalent rule. `rules/desk-lifecycle.ts:175` already answers `holding-work` for a desk's lifecycle; it reads the desk, not the ending, and stays.
   - Slice 2: `freshAgentAfterCorrections` (`rules/fresh-agent.ts`, one caller at `entry/registryd.ts:739`) and `rules/fresh-agent-turn-limit.ts:46` are the two rules this slice folds in. `registryd.ts:717` composes them today with one shared count.
