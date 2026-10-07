@@ -33,15 +33,11 @@
 # A clone whose `origin/HEAD` deliberately names a non-default branch is
 # somebody's choice, and `--auto` would silently overrule it.
 #
-# WHAT LEAVES THE PIN BEHIND IS NOT REPAIRED HERE, and the leave-alone rule is
-# what keeps this safe alongside it. `packages/domain/corpus/refs.corpus.test.ts`
-# repoints `origin/HEAD` at a `plot-corpus-pin` ref it creates in `beforeAll`
-# and restores in `afterAll` — deliberately, so two readings of the estate see
-# one world. While that suite runs the pin RESOLVES, so this repairs nothing and
-# the suite is unaffected. What was measured on 2026-09-04 is the state after a
-# run that never reached its `afterAll`: the symref left behind, the ref it
-# names gone. Fixing that belongs to the suite; this repairs the symptom and
-# reports it loudly enough that the cause stays findable.
+# THE PIN NAME IS REFUSED BY NAME, RESOLVING OR NOT.
+# `packages/domain/corpus/refs.corpus.test.ts` no longer writes this ref in the
+# shared repository — it pins its own clone. A symref naming `plot-corpus-pin`
+# here is therefore always the leftover of an interrupted run, never a live
+# suite, so it is treated as corrupt even while it resolves.
 
 # Whether `refs/remotes/origin/HEAD` names a ref that exists.
 #
@@ -51,10 +47,14 @@
 # Usage: origin_head_resolves [<repo-dir>]
 # Returns: 0 when it resolves — including when there is no symref at all, which
 #          is a FRESH CLONE rather than a corruption and has nothing to repair.
+#          A symref naming `plot-corpus-pin` is corrupt even when it resolves:
+#          that name is left behind only by an interrupted corpus run, never by
+#          a live one, since the corpus pins its own clone.
 origin_head_resolves() {
   local dir="${1:-.}" target
   target=$(git -C "$dir" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) || return 0
   [ -n "$target" ] || return 0
+  [ "$target" != "refs/remotes/origin/plot-corpus-pin" ] || return 1
   git -C "$dir" rev-parse --verify --quiet "${target}^{commit}" >/dev/null 2>&1
 }
 

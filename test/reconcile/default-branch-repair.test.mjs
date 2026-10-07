@@ -47,6 +47,11 @@ const sandbox = (label) => {
   git(seed, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init');
   git(seed, 'push', '-q', 'origin', 'main');
   git(seed, 'push', '-q', 'origin', 'main:other');
+  // A branch that happens to share the pin's name, pushed for real — so a
+  // symref naming it RESOLVES. Only a resolving fixture fails on code that
+  // merely tests `rev-parse`; see default-branch-repair.test.mjs:95 for why an
+  // unresolvable one already passed before this fix existed.
+  git(seed, 'push', '-q', 'origin', 'main:plot-corpus-pin');
   git(root, 'clone', '-q', origin, work);
   git(work, 'fetch', '-q', 'origin');
   return { root, work };
@@ -101,6 +106,49 @@ test('default branch: a RESOLVABLE origin/HEAD is left alone', () => {
   const got = call(work, 'default_branch');
   assert.equal(got.stdout.trim(), 'other', 'the file’s own answer is kept');
   assert.equal(symref(work), 'origin/other', 'and the symref is untouched');
+  assert.equal(got.stderr.trim(), '', `a repair that did not happen says nothing:\n${got.stderr}`);
+
+  rmTree(root);
+});
+
+test('default branch: a RESOLVING plot-corpus-pin symref is repaired, not left alone', () => {
+  // The brief's second assertion: `plot-corpus-pin` is refused BY NAME, even
+  // though the fixture's branch of that name resolves. A fix that only tests
+  // `rev-parse` would read this as the "leave a resolvable symref alone" case
+  // above and pass without repairing — which is why the fixture pushes a real
+  // `plot-corpus-pin` branch rather than leaving the name dangling.
+  const { root, work } = sandbox('pin-resolving');
+  git(work, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/plot-corpus-pin');
+
+  const got = call(work, 'default_branch');
+  assert.equal(got.status, 0, got.stderr);
+  assert.equal(got.stdout.trim(), 'main', `and answers the real default branch:\n${got.stderr}`);
+  assert.equal(symref(work), 'origin/main', 'the symref itself is repaired');
+
+  rmTree(root);
+});
+
+test('default branch: the plot-corpus-pin repair NAMES both refs', () => {
+  const { root, work } = sandbox('pin-names');
+  git(work, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/plot-corpus-pin');
+
+  const got = call(work, 'default_branch');
+  assert.match(got.stderr, /plot-corpus-pin/, `naming what it pointed at:\n${got.stderr}`);
+  assert.match(got.stderr, /origin\/main/, `and what it now points at:\n${got.stderr}`);
+
+  rmTree(root);
+});
+
+test('default branch: a resolving symref to a DIFFERENT non-default branch is still left alone', () => {
+  // Makes the arms disagree: a fix that repairs every resolving symref — not
+  // just the pin — fails this one, because `other` is somebody's deliberate
+  // choice and `plot-corpus-pin` is the one name that never is.
+  const { root, work } = sandbox('pin-vs-other');
+  git(work, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/other');
+
+  const got = call(work, 'default_branch');
+  assert.equal(got.stdout.trim(), 'other', 'a non-pin resolving symref is kept');
+  assert.equal(symref(work), 'origin/other', 'and untouched');
   assert.equal(got.stderr.trim(), '', `a repair that did not happen says nothing:\n${got.stderr}`);
 
   rmTree(root);
