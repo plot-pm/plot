@@ -204,8 +204,6 @@ effectively hardcoded a tool it is not supposed to know (Principle 5).
 | yes | `- **Worker command:** PLOT_UNATTENDED=1 plot-worker-loop.sh` | dispatch starts the loop, which runs `.plot/worker-prompt.sh` |
 | no | `- **Worker command:** none` | asked; this repo starts them by hand |
 
-**`Worker loop`, default `js`.** `plot-worker-loop.sh`'s first lines read this key: `js` `exec`s `board/plot-worker-loop.mjs` beside the script, one long-running process for the agent's whole life, and is the default since `the-worker-loop-runs-in-js` slice 5; `shell` runs the loop's own body, as it always has, for a repository that sets it explicitly. `Worker command` keeps naming `plot-worker-loop.sh` on either value. The key and the launcher's read of it are removed once no repository needs `shell` any more (`the-worker-loop-runs-in-js`, slice 6).
-
 The value is the loop's bare name: `plot-dispatch.sh` puts its own directory
 first on `PATH` when it launches the command, so the name resolves to the loop
 shipped beside it, and a plugin path's version and an absolute path's machine
@@ -218,7 +216,7 @@ absent, say so and name the command that writes it from the shipped template:
 ../plot/scripts/plot-install-prompt.sh
 ```
 
-**Where `Agent runner` reads `sdk`, the prompt file is `.plot/worker-prompt.md`.** The JS loop sends its text as one agent turn through the Agent SDK, fills `{branch}`, `{brief}` and `{scripts}`, and appends the `next` hand-back protocol. Where it is absent, say so: the loop reads Plot's shipped `../plot/templates/worker-prompt.md` and logs that once, and a project copies that file to `.plot/worker-prompt.md` to change the text. The `.md` and the `.sh` hold the same project text for the two runners, a declared duplicate. `Agent runner: sdk` needs `Worker loop: js`: the `dispatch` and `continue` controllers refuse a worker under `Worker loop: shell` with `sdk-needs-js-loop`.
+**Where `Agent runner` reads `sdk`, the prompt file is `.plot/worker-prompt.md`.** The JS loop sends its text as one agent turn through the Agent SDK, fills `{branch}`, `{brief}` and `{scripts}`, and appends the `next` hand-back protocol. Where it is absent, say so: the loop reads Plot's shipped `../plot/templates/worker-prompt.md` and logs that once, and a project copies that file to `.plot/worker-prompt.md` to change the text. The `.md` and the `.sh` hold the same project text for the two runners, a declared duplicate.
 
 > **Unattended (`PLOT_UNATTENDED=1`):** stop, and write **nothing** to
 > `## Plot Config`. Both answers above are durable configuration, so an
