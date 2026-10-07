@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -176,57 +176,57 @@ test('manifest removed on timeout exit (bound fires)', () => {
   }
 });
 
-test('manifest survives SIGKILL (trap cannot catch it)', () => {
-  // This test verifies item 8 from the plan's Done-when:
-  // "a worker killed with SIGKILL still leaves its manifest, and the
-  // reconciliation still clears it"
-  //
-  // This is the assertion a naive implementation fails: deleting the
-  // reconciliation sweep once the trap exists passes item 7 and loses
-  // the SIGKILL case entirely.
-  //
-  // We don't actually spawn and SIGKILL here because it's complex to
-  // coordinate. Instead, we verify the PROPERTY that makes SIGKILL
-  // behave differently: the manifest is removed by a trap, and traps
-  // are only signalled on SIGTERM/SIGINT/EXIT/etc, never on SIGKILL.
-  //
-  // The actual SIGKILL cleanup path is via reconciliation, which is
-  // tested separately in the reconcile tests.
+test('manifest survives SIGKILL (no handler can run), and the reconcile sweep is there to clear it', async () => {
+  // The other half of the property the two cases above hold: the JS loop
+  // removes its manifest on a normal exit, on its bound, and on SIGTERM,
+  // SIGINT or SIGHUP (`onStop` in `entry/worker-loop.ts`). SIGKILL reaches no
+  // handler, so a killed loop leaves its manifest, and the reconciliation
+  // sweep is what clears that orphan.
   const env = makeTestEnv({ name: 'sigkill' });
+  const started = path.join(env.tmp, 'prompt.pid');
+  let promptPid = 0;
   try {
-    // Write the manifest
     assert.ok(fs.existsSync(env.manifestFile), 'precondition: manifest must exist');
 
-    // The reconciliation script (plot-reconcile-scan.sh) is what handles
-    // orphaned manifests from SIGKILL. We verify it exists and would be
-    // called by checking that the manifest cleanup is ONLY in the trap.
-    //
-    // Read the actual script and verify the cleanup is in a trap
-    const loopScript = fs.readFileSync(
-      path.join(SCRIPTS, 'plot-worker-loop.sh'),
-      'utf8',
-    );
+    // The prompt records its pid and then holds, so the loop is mid-slice
+    // when it is killed. `exec` keeps that pid the one to clean up after.
+    fs.writeFileSync(path.join(env.plotDir, 'worker-prompt.sh'), `echo $$ > ${started}\nexec sleep 999\n`);
+    fs.writeFileSync(path.join(env.worktreeDir, 'CLAUDE.md'), '# Test\n\n## Plot Config\n\n- **Worker bound:** 3600\n');
+    // The launcher `exec`s the bundle, so this pid is the JS loop's own.
+    const loop = spawn('bash', [path.join(SCRIPTS, 'plot-worker-loop.sh')], {
+      cwd: env.worktreeDir,
+      env: {
+        ...process.env,
+        PLOT_MANIFEST_FILE: env.manifestFile,
+        PLOT_BRANCH: 'test/branch',
+        PLOT_WORKTREE: env.worktreeDir,
+        PLOT_SLUG: 'test-slug',
+        PATH: `${env.stubBin}:${process.env.PATH}`,
+      },
+      stdio: 'ignore',
+    });
+    const exited = new Promise((resolve) => loop.once('exit', (code, signal) => resolve(signal)));
 
-    // The manifest removal must run from an EXIT trap (which SIGKILL
-    // bypasses). The loop registers it with `plot_on_exit`, and `plot-tmp.sh`
-    // owns the one EXIT trap that runs every registered command.
-    assert.match(loopScript, /^\s*plot_on_exit\s+_cleanup_on_exit\s*$/m,
-      'the loop must register its manifest cleanup with plot_on_exit');
-    const tmpHelper = fs.readFileSync(path.join(SCRIPTS, 'plot-tmp.sh'), 'utf8');
-    assert.match(tmpHelper, /^trap\s+_plot_tmp_on_exit\s+EXIT\s*$/m,
-      'plot-tmp.sh must run the registered commands from an EXIT trap (which SIGKILL cannot trigger)');
+    for (const deadline = Date.now() + 20_000; !fs.existsSync(started) && Date.now() < deadline;) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(fs.existsSync(started), 'precondition: the loop must reach its prompt before it is killed');
+    promptPid = Number(fs.readFileSync(started, 'utf8').trim());
 
-    // The cleanup function must remove the manifest
-    assert.match(loopScript, /_cleanup_on_exit\(\)\s*\{[^}]*PLOT_MANIFEST_FILE/,
-      'the exit cleanup function must reference PLOT_MANIFEST_FILE');
-    assert.match(loopScript, /rm\s+-f\s+"\$PLOT_MANIFEST_FILE"/,
-      'the exit cleanup must remove the manifest file');
+    loop.kill('SIGKILL');
+    assert.equal(await exited, 'SIGKILL', 'the loop must end by the SIGKILL it was sent');
+
+    assert.ok(fs.existsSync(env.manifestFile),
+      'a SIGKILLed loop runs no handler, so its manifest must still be there for the sweep');
 
     // The reconciliation sweep must still exist (it handles SIGKILL cases)
     const reconcileScan = path.join(SCRIPTS, 'plot-reconcile-scan.sh');
     assert.ok(fs.existsSync(reconcileScan),
       'plot-reconcile-scan.sh must exist to handle SIGKILL orphans');
   } finally {
+    if (promptPid > 0) {
+      try { process.kill(promptPid, 'SIGKILL'); } catch { /* already gone */ }
+    }
     env.cleanup();
   }
 });
