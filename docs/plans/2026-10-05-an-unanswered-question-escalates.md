@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Issue:** #1283, #1250
 - **Story:** the-supervisor-delivers-the-approved-scope
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-05, jwloka, `feature/a-question-is-listed-as-waiting-on-you`
 - **Started:** 2026-10-05, jwloka, `feature/a-question-notifies-as-it-ages`
 - **Delivered:** 2026-10-06
+- **Released:** 2026-10-07, v2.24.0
 
 ## Changelog
 
