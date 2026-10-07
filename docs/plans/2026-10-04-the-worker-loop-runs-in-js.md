@@ -17,6 +17,7 @@
 - **Started:** 2026-10-06, jwloka, `infra/the-loop-restarts-on-new-code`
 - **Started:** 2026-10-06, jwloka, `infra/js-is-the-default-loop`
 - **Started:** 2026-10-07, jwloka, `infra/the-shell-loop-goes`
+- **Started:** 2026-10-07, jwloka, `infra/the-shell-loop-goes`
 
 ## Changelog
 
