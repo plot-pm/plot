@@ -4516,24 +4516,17 @@ case "$op" in
           conclusion:(if (.conclusion // "") == "" then null else .conclusion end),
           url:.url, startedAt:.startedAt, databaseId:.databaseId}') || exit 4
     [ -n "$_gh_match" ] || exit 0
-    # ONE MORE CALL, ONLY FOR A CONCLUDED FAILURE (#1295). `jobs[].steps` is
-    # what tells a run no runner ever picked up (every failed/cancelled job
-    # ran 0 steps) apart from a real failure, and that signal is not on `gh
-    # run list` at all — only `gh run view --json jobs` carries it. A run
-    # still going or that succeeded costs no extra call.
-    _gh_concl=$(printf '%s' "$_gh_match" | jq -r '.conclusion // ""')
-    if [ "$_gh_concl" = "failure" ] || [ "$_gh_concl" = "cancelled" ]; then
-      _gh_db_id=$(printf '%s' "$_gh_match" | jq -r '.databaseId')
-      _gh_jobs=$(gh run view "$_gh_db_id" --json jobs 2>/dev/null) \
-        || { echo "plot-host: run-for-sha — gh run view failed for '$_gh_db_id'" >&2; exit 4; }
-      # MERGED THROUGH STDIN (`-s`, SLURP), NEVER `--argjson`: that flag passes
-      # its payload on argv, which Linux caps at 128 KB (`MAX_ARG_STRLEN`).
-      jq -n -c --slurpfile match <(printf '%s' "$_gh_match") --slurpfile run <(printf '%s' "$_gh_jobs") \
-        '$match[0] + {jobs: [$run[0].jobs[] | {conclusion, steps: (.steps | length)}]} | del(.databaseId)' \
-        || exit 4
-    else
-      printf '%s' "$_gh_match" | jq -c 'del(.databaseId)' || exit 4
-    fi
+    # ONE MORE CALL, ONLY FOR A CONCLUDED FAILURE (#1295): `gh run view --json
+    # jobs` is the only place a 0-step job (no runner ever picked up the run)
+    # shows up, apart from a real failure. A run still going or that
+    # succeeded costs no extra call.
+    _gh_db_id=$(printf '%s' "$_gh_match" | jq -r 'if (.conclusion == "failure" or .conclusion == "cancelled") then .databaseId else "" end')
+    _gh_match=$(printf '%s' "$_gh_match" | jq -c 'del(.databaseId)') || exit 4
+    [ -z "$_gh_db_id" ] && { printf '%s' "$_gh_match"; exit 0; }
+    # Slurped via stdin, never `--argjson`: that flag caps at 128 KB on Linux.
+    _gh_jobs=$(gh run view "$_gh_db_id" --json jobs 2>/dev/null) || { echo "plot-host: run-for-sha — gh run view failed" >&2; exit 4; }
+    jq -n -c --slurpfile match <(printf '%s' "$_gh_match") --slurpfile run <(printf '%s' "$_gh_jobs") \
+      '$match[0] + {jobs: [$run[0].jobs[] | {conclusion, steps: (.steps | length)}]}' || exit 4
     ;;
 
   issue-list)
