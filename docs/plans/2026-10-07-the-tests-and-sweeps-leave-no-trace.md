@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Sprint:** the-release-train-fixes-what-it-found
 - **Issue:** #1259, #1319, #1317, #1343, #1344
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-10-07, jwloka, in-session
 
 ## Changelog
 
