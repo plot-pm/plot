@@ -131,7 +131,7 @@ in practice, promote it rather than letting the rules go untested.
 - [x] [the-wave-is-a-thing-the-board-can-hold] Wave *Consumed* — DONE holds the release scope, and the split head counts what is elsewhere without rendering it <!-- pr: #353, branches: 4/4 -->
 - [x] [done-holds-what-is-still-yours] A finished row reports neither a pulse nor a live worker state — the activity mark and the stale worker are one category error in one file <!-- branches: 1/1 -->
 - [x] [a-marker-is-a-file-not-a-mention] A marker is a file, not a mention — `plot_worker_blocked` greps file CONTENTS, so 28 documenting files on main make every clean worker read `waiting` and the board offer a question lifted from a brief <!-- branches: 1/1 -->
-- [ ] [the-pr-list-join-is-silently] Past 50 PRs per state, the Bitbucket join is silently partial — ~780 of 836 merged PRs invisible on a measured client repo, every older branch reading `no PR`, which is the fabricated verdict the scan refuses everywhere else <!-- branches: 0/1 -->
+- [x] [the-pr-list-join-is-silently] Past 50 PRs per state, the Bitbucket join is silently partial — ~780 of 836 merged PRs invisible on a measured client repo, every older branch reading `no PR`, which is the fabricated verdict the scan refuses everywhere else <!-- branches: 0/1 -->
 - [x] [a-worker-registers-where-the-board-reads] An agent registers where the board reads — the manifest writers resolve `$repo_root/.plot/agents` from the dispatcher's own cwd while the reader honours the `Agent registry` key, so auto-dispatch from the board's checkout produced `2 manifests, 9 synthesized` with five live workers and every agent holding a manifest <!-- branches: 0/2 -->
 
 ### Should Have
@@ -145,17 +145,17 @@ in practice, promote it rather than letting the rules go untested.
 - [x] [the-registry-names-a-live-agent] The registry names a live agent — a dead pid displayed beside `running`, nine agents skipped by a gate on a value the classifier never reads, and six worktrees with no entry at all <!-- branches: 1/1 -->
 
 - [x] [a-plan-has-a-phase-and-a-status] A plan carries a phase AND a status — the board derives seven statuses the plan format cannot state, so `Approved` covers everything from nothing-started to every-wave-merged <!-- pr: #374, branches: 1/1 -->
-- [ ] [the-row-says-whether-you-can-start-it] The row says whether you can start it — a reader cannot tell an eligible branch from a blocked one without opening the plan
+- [x] [the-row-says-whether-you-can-start-it] The row says whether you can start it — a reader cannot tell an eligible branch from a blocked one without opening the plan
 
 ### Could Have
 
 - [x] [the-name-track-holds-the-name] The name track holds the name — 80% of plan slugs exceed the visible width while the branch beside them renders in full <!-- branches: 1/1 -->
-- [ ] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live
-- [ ] [the-blocking-wave-is-found-wherever-it-is] The blocked mark finds its target across sections — and says so when it cannot
+- [x] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live
+- [x] [the-blocking-wave-is-found-wherever-it-is] The blocked mark finds its target across sections — and says so when it cannot
 - [x] [the-board-says-which-branch-it-serves] The header names the branch the board is serving from <!-- branches: 1/1 -->
-- [ ] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them
-- [ ] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains
-- [ ] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft
+- [x] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them
+- [x] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains
+- [x] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft
 
 ### Out of scope, and why — 27 open plans, 20 not in this sprint
 

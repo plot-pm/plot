@@ -51,14 +51,14 @@ already found *act*.
 Stories: [[the-master-agent-holds-the-fleet]] (the harness half)
 
 - [x] [a-delivery-that-half-lands-refuses] A delivery writes its phase, its record **and** its index entry, or reports which one it could not write — measured: a phase flip without the symlink made a finished plan read as unfinished for two days **Verified 2026-09-11: `plot-deliver.sh` reports every write by name — `summary: phase=flipped record=written index=moved sprint=updated push=clean` — and names one it could not make.**
-- [ ] [a-merge-without-a-changeset-is-named] A merged branch whose changeset was never committed is reported before the release consumes the estate — measured: 2 in one session, both nearly shipping no release note
+- [x] [a-merge-without-a-changeset-is-named] A merged branch whose changeset was never committed is reported before the release consumes the estate — measured: 2 in one session, both nearly shipping no release note
 - [x] [a-held-worktree-names-what-holds-it] `plot-reap.sh` says *which file* holds a tree it refuses, so an operator can judge it — measured: 3 trees held by one uncommitted file each, all resolved by hand **Verified 2026-09-11: `plot-reap.sh` answers `uncommitted: <file>`, observed refusing a real desk on that file.**
 - [x] ~~[the-board-watches-instead-of-re-asking]~~ **Delivered 2026-08-29, shipped in 2.11.1** (#507, #508) — left this sprint; kept for the record. The board holds branch, plan and worktree state between pulses and re-derives only what changed — measured: **127 git processes every 5 s**, shaped `branches + plans + worktrees + ~30`, of which ~97 sit behind three signals that cost one process each
-- [ ] [one-cap-holds-across-boards] Two boards on one repo cannot exceed `parallelAgents` between them — measured: the budget is `parallelAgents − liveAgentCount`, and each board computes it on its own pulse, so two boards seconds apart both read *0 live, budget 3* and each start 3
+- [x] [one-cap-holds-across-boards] Two boards on one repo cannot exceed `parallelAgents` between them — measured: the budget is `parallelAgents − liveAgentCount`, and each board computes it on its own pulse, so two boards seconds apart both read *0 live, budget 3* and each start 3
 
 ### Should Have
 
-- [ ] [the-scan-drift-counter-is-acted-on] `sprint_drift=27` reaches a reader instead of a footer — the count has been non-zero for weeks and nothing consumes it
+- [x] [the-scan-drift-counter-is-acted-on] `sprint_drift=27` reaches a reader instead of a footer — the count has been non-zero for weeks and nothing consumes it
 
 ### Could Have
 

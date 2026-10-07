@@ -89,7 +89,7 @@ Story: [[the-board-is-blank-where-it-matters]].
       homebrew's `bb` 0.6.0 has no `--json` and shadows 1.0.0 on PATH, the
       error goes to `/dev/null`, and `jq` exits 0. Blocks the plan below —
       truncation detection is meaningless while the adapter reaches nothing.
-- [ ] [the-pr-list-join-is-silently] The Bitbucket 50-per-state page cap
+- [x] [the-pr-list-join-is-silently] The Bitbucket 50-per-state page cap
       (issue #333). Past 50 PRs the join is silently partial and a branch reads
       *no PR* — the fabricated verdict the scan refuses everywhere else. A plan
       exists in **PR #408** — unmerged, so `docs/plans/` on main does not carry
@@ -105,11 +105,11 @@ Story: [[the-board-is-blank-where-it-matters]].
       directly and is not reached by it. Measured 2026-08-26 on
       `quatico/ewz-leg`.
 
-- [ ] [a-dispatch-hands-over-a-brief] A board **Start work** hands the worker its
+- [x] [a-dispatch-hands-over-a-brief] A board **Start work** hands the worker its
       brief. The `Worker command`'s first instruction is to read it, and a
       dispatch that starts without one sends an agent to re-derive settled
       decisions — the race this sprint lost four times in one day.
-- [ ] [the-budget-is-spent-where-it-is-needed] GraphQL sits at 0/5000 while REST
+- [x] [the-budget-is-spent-where-it-is-needed] GraphQL sits at 0/5000 while REST
       is untouched at 4999/5000. The board asks the host the same question
       through the exhausted bucket. Directly relevant to the enterprise stack,
       where a 429 already broke every `bb` call on this machine.
@@ -120,7 +120,7 @@ Story: [[the-board-is-blank-where-it-matters]].
 ### Could Have
 
 - [x] [the-header-names-the-branch-it-is-serving] The Master Agent row names the branch the board is serving, instead of rendering blank where a fact belongs
-- [ ] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live
+- [x] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live
 - [x] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them
 - [x] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains <!-- 2026-08-26 -->
       **No change shipped.** Measured against the running board: the wrapper
@@ -130,23 +130,23 @@ Story: [[the-board-is-blank-where-it-matters]].
 - [x] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft
 - [x] [the-worktrees-live-in-one-place] Worktrees under a configurable root.
       Interrogated twice, Draft, unrelated to the enterprise stack but ready.
-- [ ] [a-closed-sprint-says-what-it-achieved] Closing reconciles the tally
+- [x] [a-closed-sprint-says-what-it-achieved] Closing reconciles the tally
       against plan phases. Written today after two closed sprints were found
       understating their own results.
 
-- [ ] [a-citation-is-not-a-claim] `## Branches` cites other plans' branches to
+- [x] [a-citation-is-not-a-claim] `## Branches` cites other plans' branches to
       declare dependencies, and the parser reads every backticked name as a
       branch to dispatch. A prose mention becomes a work item.
-- [ ] [a-branch-with-work-is-visible] A branch carrying real work is visible to
+- [x] [a-branch-with-work-is-visible] A branch carrying real work is visible to
       the fleet rather than filtered out of it.
-- [ ] [a-ticket-becomes-a-plan-or-a-story] A ticket gets one of two treatments —
+- [x] [a-ticket-becomes-a-plan-or-a-story] A ticket gets one of two treatments —
       `/plot-idea` for a plan, `/story-tracking` for a story — from the board,
       where the operator already is.
-- [ ] [the-plan-file-states-what-the-board-shows] A plan states its interrogation
+- [x] [the-plan-file-states-what-the-board-shows] A plan states its interrogation
       rounds in `## Status`, where every other lifecycle fact lives. Measured
       today: the parser reads `rounds` ONLY from the challenge metadata block, so
       the Status field is decorative.
-- [ ] [release-candidate-publishing] The board package publishes to npm when a
+- [x] [release-candidate-publishing] The board package publishes to npm when a
       release candidate is cut, and at no other time; the per-push prerelease job
       is removed.
 
