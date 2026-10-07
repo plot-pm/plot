@@ -1,0 +1,1 @@
+../2026-09-28-the-persisted-pulse-holds-the-bought-answer.md

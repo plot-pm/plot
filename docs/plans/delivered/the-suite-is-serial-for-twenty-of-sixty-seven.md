@@ -1,0 +1,1 @@
+../2026-08-20-the-suite-is-serial-for-twenty-of-sixty-seven.md

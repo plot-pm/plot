@@ -1,0 +1,1 @@
+../2026-08-31-the-board-answers-while-it-scans.md

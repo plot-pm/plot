@@ -1,0 +1,1 @@
+../2026-09-26-a-parsed-plan-joins-the-index.md

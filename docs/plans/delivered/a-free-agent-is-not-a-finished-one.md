@@ -1,0 +1,1 @@
+../2026-09-22-a-free-agent-is-not-a-finished-one.md

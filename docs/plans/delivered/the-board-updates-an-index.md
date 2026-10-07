@@ -1,0 +1,1 @@
+../2026-09-26-the-board-updates-an-index.md

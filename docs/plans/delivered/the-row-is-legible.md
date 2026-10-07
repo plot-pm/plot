@@ -1,0 +1,1 @@
+../2026-08-20-the-row-is-legible.md
