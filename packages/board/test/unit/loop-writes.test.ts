@@ -11,6 +11,7 @@ import {
   refsFixture,
   treesFixture,
   type AgentsFixture,
+  refusedSlicesFixture,
 } from '@plot-pm/domain/adapters';
 import type { BoundedRun, Write } from '@plot-pm/domain';
 import fs from 'node:fs';
@@ -45,6 +46,7 @@ const ports = (over: Partial<LoopWritePorts> = {}): LoopWritePorts => ({
   refs: refsFixture(),
   processes: noProcesses,
   boundedRun: noBoundedRun,
+  refusedSlices: refusedSlicesFixture(),
   ...over,
 });
 
@@ -52,6 +54,13 @@ const apply = (write: LoopWrite, over: Partial<LoopWritePorts> = {}, worktree = 
   performLoopWrites([write], ports(over), worktree);
 
 describe('performLoopWrites — one arm per write kind', () => {
+  it('refused-slice records the branch, through the refused-slice record', async () => {
+    const refusedSlices = refusedSlicesFixture();
+    const [{ result }] = await apply({ kind: 'refused-slice', branch: 'bug/held' }, { refusedSlices });
+    expect(result.ok).toBe(true);
+    expect(refusedSlices.branches).toEqual(['bug/held']);
+  });
+
   it('desk-reset resets the desk onto the branch, through Trees', async () => {
     const calls: { path: string; branch: string; base: string }[] = [];
     const [{ result }] = await apply(

@@ -5,6 +5,7 @@ import type {
   PortResult,
   Processes,
   Refs,
+  RefusedSliceRecord,
   Trees,
   Write,
 } from '@plot-pm/domain';
@@ -31,6 +32,7 @@ export type LoopWrite = Extract<
       | 'blocked-marker'
       | 'declaration'
       | 'slice-spend'
+      | 'refused-slice'
       | 'assignment-clear'
       | 'loop-end'
       | 'worker-finding';
@@ -45,6 +47,8 @@ export interface LoopWritePorts {
   refs: Refs;
   processes: Processes;
   boundedRun: BoundedRun;
+  /** Where a refused take-up records its branch, for the queue's `refused` hold. */
+  refusedSlices: RefusedSliceRecord;
 }
 
 /** What one applied write answered, paired with the write it came from. */
@@ -184,6 +188,9 @@ const landOne = async (
       // applier does not duplicate — it is out of this slice's scope per the
       // brief, and the caller composes it separately.
       return { ok: true, value: undefined };
+
+    case 'refused-slice':
+      return ports.refusedSlices.record(write.branch);
 
     case 'assignment-clear':
       return ports.agents.clearAssignment(write.session);

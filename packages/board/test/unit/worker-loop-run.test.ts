@@ -14,6 +14,7 @@ import {
   refsFixture,
   transcriptFixture,
   treesFixture,
+  refusedSlicesFixture,
 } from '@plot-pm/domain/adapters';
 import type { BoundedRun, Pr, Trees } from '@plot-pm/domain';
 import { execFileSync } from 'node:child_process';
@@ -150,6 +151,7 @@ const rig = (
       activity: async () => ({ ok: true, value: 'idle' }),
     },
     boundedRun,
+    refusedSlices: refusedSlicesFixture(),
     build: buildFixture({
       shaRuns: { [BRANCH]: [{ sha: 'sha-1', status: 'completed', conclusion: 'success', url: 'u', startedAt: '' }] },
     }),

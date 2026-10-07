@@ -159,7 +159,19 @@ describe('agentLoop — row 4: an assignment', () => {
     expect(result.detail.note).toContain('unknown');
   });
 
-  it.each(['desk-reset', 'commit', 'push'] as const)('clears the assignment and writes nothing else when the %s was refused', (refused) => {
+  it('records the branch as refused and clears the assignment when the desk reset was refused', () => {
+    // THE JS LOOP'S HELD CHECKOUT: the reset fails most often because another
+    // worktree holds the branch, and without the record the queue hands the
+    // slice to the next free agent (250 times for one slice, 2026-10-03).
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, takeUpRefused: 'desk-reset', claim: null });
+    expect(result.writes).toEqual([
+      { kind: 'refused-slice', branch: BRANCH },
+      { kind: 'assignment-clear', session: SESSION },
+    ]);
+    expect(result.detail.exitCode).toBeNull();
+  });
+
+  it.each(['commit', 'push'] as const)('clears the assignment and writes nothing else when the %s was refused', (refused) => {
     const claim = refused === 'push' ? 'held-by-agent' : null;
     const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, takeUpRefused: refused, claim });
     expect(result.writes).toEqual([{ kind: 'assignment-clear', session: SESSION }]);
