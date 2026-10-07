@@ -61,7 +61,7 @@ Only the second row changes behaviour. A green draft PR keeps the fall-through i
 
 ### A pending check outranks mergeability
 
-- `bug/a-pending-check-outranks-mergeability` — `prRowPlacement` in the domain; `classifyGroup` and `prState` call it <!-- builds: prRowPlacement, the PR row's group as a domain rule -->
+- `bug/a-pending-check-outranks-mergeability` — `prRowPlacement` in the domain; `classifyGroup` and `prState` call it <!-- builds: prRowPlacement, the PR row's group as a domain rule --> → #1352
 
 ### Pending checks are asked again
 
