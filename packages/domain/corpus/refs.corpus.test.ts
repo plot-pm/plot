@@ -338,7 +338,13 @@ beforeAll(async () => {
   // is a rare disagreement, and refusing to run at all would trade it for never
   // running.
   if (MAIN) {
-    const head = git('rev-parse', `origin/${MAIN}`);
+    // Resolved from ROOT, not from CLONE: a `git clone` carries the source's
+    // own branches, never the source's remote-tracking refs, so a ROOT that is
+    // itself a checkout of a PR — `origin/<MAIN>` only, no local `<MAIN>`
+    // branch — produces a clone with no `origin/<MAIN>` to rev-parse. ROOT is
+    // exactly where `MAIN` above already proved `refs/remotes/origin/<MAIN>`
+    // resolves, so the SHA is read there and handed to the clone as a value.
+    const head = execFileSync('git', ['rev-parse', `refs/remotes/origin/${MAIN}`], { cwd: ROOT, encoding: 'utf8' }).trim();
     git('branch', PIN, head);
     // `Main branch` is read before `default_branch()` is ever called
     // (`plot-fleet-scan.sh:335-336`), so this line is the whole pin: neither
