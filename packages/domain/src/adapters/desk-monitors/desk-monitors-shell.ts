@@ -8,9 +8,6 @@ import { scriptPath, type ShellContext } from '../scripts.js';
 /** The AgentMonitor script, which watches the agent's pull request. */
 const AGENT_MONITOR = 'plot-agent-monitor.sh';
 
-/** The BuildMonitor script, which watches the agent's CI run. */
-const BUILD_MONITOR = 'plot-build-monitor.sh';
-
 /**
  * The command line of a live pid, or `null` when no process has that pid.
  *
@@ -34,16 +31,16 @@ const isExecutable = (file: string): boolean => {
 };
 
 /**
- * Starts the AgentMonitor and the BuildMonitor as detached processes, with the
- * environment `plot-dispatch.sh`'s wrapper gives them: `PLOT_BRANCH`,
- * `PLOT_WORKTREE`, `PLOT_MANIFEST_FILE` and `PLOT_PID_FILE`.
+ * Starts the AgentMonitor as a detached process, with the environment
+ * `plot-dispatch.sh`'s wrapper gives it: `PLOT_BRANCH`, `PLOT_WORKTREE`,
+ * `PLOT_MANIFEST_FILE` and `PLOT_PID_FILE`.
  *
  * A script that is absent or not executable is skipped and reported as `''`,
  * as the wrapper skips it. `stop` sends SIGTERM only to a live pid whose
- * command line names a monitor script.
+ * command line names the monitor script.
  *
  * @param context - the repository and where its helper scripts live.
- * @returns the monitors port.
+ * @returns the monitor port.
  */
 export const deskMonitorsShell = (context: ShellContext): DeskMonitors => ({
   start: (desk: MonitoredDesk): PortResult<MonitorPids> => {
@@ -69,7 +66,7 @@ export const deskMonitorsShell = (context: ShellContext): DeskMonitors => ({
       return child.pid === undefined ? '' : String(child.pid);
     };
     try {
-      return answered({ agentMonitorPid: startOne(AGENT_MONITOR), buildMonitorPid: startOne(BUILD_MONITOR) });
+      return answered({ agentMonitorPid: startOne(AGENT_MONITOR) });
     } finally {
       closeSync(out);
     }
@@ -81,7 +78,7 @@ export const deskMonitorsShell = (context: ShellContext): DeskMonitors => ({
       const pid = Number(raw);
       if (!/^\d+$/.test(raw) || pid <= 1) continue;
       const command = commandOf(pid);
-      if (command === null || !(command.includes(AGENT_MONITOR) || command.includes(BUILD_MONITOR))) continue;
+      if (command === null || !command.includes(AGENT_MONITOR)) continue;
       try {
         process.kill(pid, 'SIGTERM');
         signalled.push(raw);

@@ -144,8 +144,8 @@
 #                       it does today and names `no-brief-command` as the
 #                       reason, so a project that has never set the key behaves
 #                       exactly as before.
-#   Agent runner        command | sdk: how the JS loop runs a worker's prompt;
-#                       `sdk` needs `Worker loop: js`. Absent = command.
+#   Agent runner        command | sdk: how the JS loop runs a worker's prompt.
+#                       Absent = command.
 #   Agent models        `role = model` list (`worker = sonnet`); a charter wins.
 #   Agent max turns     turns one SDK run may take. Absent = 150.
 #   Slice max runs      SDK runs one slice may start. Absent = 12.

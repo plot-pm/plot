@@ -25,12 +25,13 @@ import {
   processesShell,
   refsGit,
   refsRemoteGit,
+  refusedSlicesFile,
   sliceSpendFile,
   transcriptFs,
   treesGit,
   type ShellContext,
 } from '@plot-pm/domain/adapters';
-import { checksFromRuns, type RemoteTipReading } from '@plot-pm/domain/rules/checks-verdict';
+import { buildFindingFor, checksFromRuns, type BuildFindingWord, type RemoteTipReading } from '@plot-pm/domain/rules/checks-verdict';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { promptExit } from '@plot-pm/domain/rules/prompt-exit';
 import { backgroundGateEnv } from '@plot-pm/domain/rules/agent-run-env';
@@ -55,6 +56,7 @@ import type { ResetRefusal } from '@plot-pm/domain/rules/reapable';
 import type { Agents, BoundedRun, Desk, Processes, Refs, Trees, Write } from '@plot-pm/domain';
 import type { AgentHandBack, AgentRun, AgentRunRequest, AgentRunResult } from '@plot-pm/domain/ports/agent-run';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
+import type { ShaRun } from '@plot-pm/domain/entities/build';
 import type { Host } from '@plot-pm/domain/ports/host';
 import type { RemoteHeadAnswer } from '@plot-pm/domain/ports/refs';
 import type { Reexec } from '@plot-pm/domain/ports/reexec';
@@ -182,6 +184,7 @@ export const workerLoopPorts = async (
     refs,
     processes,
     boundedRun,
+    refusedSlices: refusedSlicesFile({ cwd: context.repoRoot }),
     build,
     host,
     transcriptQuietSeconds: async (worktree: string) => quietReading(await transcript.quietSeconds(worktree)),
@@ -661,7 +664,9 @@ export interface PassConfig {
  * @param prompt - what the caller already knows about this pass's prompt.
  * @param config - the repository's config, read once at start.
  * @param clock - the free/checks wait's own start time, held across passes.
- * @returns the readings {@link agentLoop} decides from.
+ * @returns the readings {@link agentLoop} decides from, plus this pass's own
+ *   build run — `null` outside the CI wait, since {@link AgentLoopReadings}
+ *   carries no field for it and `agentLoop` must not gain one for this.
  */
 export const readPass = async (
   ports: WorkerLoopPorts,
@@ -669,14 +674,15 @@ export const readPass = async (
   prompt: PromptState,
   config: PassConfig,
   clock: WaitClock,
-): Promise<AgentLoopReadings> => {
+): Promise<AgentLoopReadings & { readonly buildRun: ShaRun | null }> => {
   const manifest = await readManifestFields(manifestFile);
   const passAt = new Date().toISOString();
   // ASKED ONLY WHEN A BRANCH IS ASSIGNED — a reading for a place the pass is
   // not in is never asked of the world, `readPass`'s own doc comment.
   const sliceCostUsd = manifest.branch === '' ? null : await ports.sliceCostUsd(manifest.worktree, manifest.branch);
 
-  const base: AgentLoopReadings = {
+  const base: AgentLoopReadings & { buildRun: ShaRun | null } = {
+    buildRun: null,
     assignedBranch: manifest.branch,
     waitedSeconds: 0,
     boundSeconds: config.waitBudgetSeconds,
@@ -812,6 +818,7 @@ export const readPass = async (
     checksPassed,
     correctionText: checksPassed === false && run !== null ? runEvidence(run, pushedSha) : '',
     waitedSeconds,
+    buildRun: checks === 'settled' ? run : null,
   };
 };
 
@@ -1405,6 +1412,14 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
   let previousBranch = deps.hopFrom ?? '';
   let hopFrom = deps.hopFrom ?? '';
   let announcedFree = false;
+  // THE SECOND NAMED EXCEPTION to "no state between passes" (the first is
+  // `clock`): the BuildMonitor finding this loop last published for the
+  // branch it currently holds, kept ONLY to decide whether this pass's
+  // answer is a change worth a new line — never to decide the answer
+  // itself, which `buildFindingFor` re-derives fresh every pass from
+  // `readings.buildRun`. Reset wherever `held` resets to `FRESH`, since a
+  // new branch owes no finding from the one before it.
+  let lastBuildFinding: BuildFindingWord | null = null;
   if (deps.restart !== undefined) await checkRestart(deps.ports, deps.restart, 'first', { waitStartedAt: clock.since, hopFrom });
   for (;;) {
     const prompt: PromptState = {
@@ -1418,6 +1433,33 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     };
     const readings = await readPass(deps.ports, deps.manifestFile, prompt, deps.config, clock);
     const decision = agentLoop(readings);
+    if (readings.assignedBranch !== '') {
+      const answer = readings.buildRun !== null ? buildFindingFor(readings.buildRun) : null;
+      const nextWord = answer?.finding ?? null;
+      if (nextWord !== lastBuildFinding) {
+        const worktreeForFinding = readings.worktree || deps.worktree;
+        if (answer !== null) {
+          await deps.ports.desk.publishBuildFinding(worktreeForFinding, {
+            branch: readings.assignedBranch,
+            finding: answer.finding,
+            since: readings.passAt,
+            evidence: answer.evidence,
+          });
+        } else {
+          // `nextWord` differs from `lastBuildFinding` and is null here, so a
+          // finding is held.
+          await deps.ports.desk.publishBuildFinding(worktreeForFinding, {
+            branch: readings.assignedBranch,
+            finding: 'clear',
+            since: readings.passAt,
+            evidence: `the run this loop was watching for ${readings.assignedBranch} no longer answers ${lastBuildFinding}`,
+          });
+        }
+        lastBuildFinding = nextWord;
+      }
+    } else if (lastBuildFinding !== null) {
+      lastBuildFinding = null;
+    }
     // THE WAIT, NAMED ONCE. A wait an operator cannot see is the stall it avoids
     // being. The shell also names the branches whose landing would open a slice,
     // which needs the fleet scan's `--why-nothing`; this loop never asks it.
@@ -1459,6 +1501,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     if (refused !== null || kinds.has('assignment-clear')) {
       held = { ...FRESH };
       hopFrom = previousBranch;
+      lastBuildFinding = null;
       continue;
     }
 
@@ -1722,7 +1765,6 @@ export const runnerDeps = async (input: RunnerInput): Promise<{ runner: 'command
   const choice = runnerChoice({
     agentRunner: runner === 'sdk' || runner === 'command' ? runner : '',
     isWorker: true,
-    workerLoop: 'js',
     fragment: cfg('Worker command'),
     charterHarness: charter?.harness ?? '',
     defaultsToSdkWhenNamed: false,

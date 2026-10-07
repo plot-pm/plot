@@ -51,6 +51,7 @@ export type Write =
   | CorrectionCountWrite
   | DeclarationWrite
   | SliceSpendWrite
+  | RefusedSliceWrite
   | LoopEndWrite
   | AgentFindingWrite
   | BuildFindingWrite
@@ -496,6 +497,20 @@ export interface SliceSpendWrite {
   readonly branch: string;
   /** The worktree it ran in, absolute. */
   readonly worktree: string;
+}
+
+/**
+ * Records a branch the agent was handed and could not take up, in
+ * `.plot/state/refused-slices.tsv`, so the queue holds the slice rather than
+ * hand it to the next free agent.
+ *
+ * Measured 2026-10-03: one refused slice went to free agents 250 times, at 17
+ * to 19 an hour, while nothing recorded the refusal.
+ */
+export interface RefusedSliceWrite {
+  readonly kind: 'refused-slice';
+  /** The branch the take-up was refused for. */
+  readonly branch: string;
 }
 
 /**

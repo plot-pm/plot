@@ -2855,11 +2855,11 @@ test('dispatch: the launch writes an agent manifest keyed on a session id', () =
   const names = fs.readdirSync(dir).filter((n) => n.endsWith('.json'));
   assert.equal(names.length, 1, `one manifest per launched worker, got ${names.join(',')}`);
 
-  // THE FIVE PID FIELDS ARE THE WRAPPER'S, AND THE DISPATCHER DOES NOT WAIT FOR
+  // THE FOUR PID FIELDS ARE THE WRAPPER'S, AND THE DISPATCHER DOES NOT WAIT FOR
   // THEM. `start_worker` writes the manifest, then the wrapper stamps `pid`,
-  // `wrapperPid` and the three monitor pids into it through a `.plot-pid-tmp`
+  // `wrapperPid` and the two monitor pids into it through a `.plot-pid-tmp`
   // rename — so a read taken the instant the dispatch returns can land before
-  // that rename, and the key list below is short by five.
+  // that rename, and the key list below is short by four.
   //
   // THIS WAIT WAS NOT NEEDED UNTIL 2026-10-01, AND THE REASON IS WORTH KEEPING:
   // the launch used to hold the caller's stdout until the agent exited, so
@@ -2899,9 +2899,9 @@ test('dispatch: the launch writes an agent manifest keyed on a session id', () =
     'the command survives its quotes into valid JSON');
   assert.match(m.startedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
   // The process facts the manifest carries are the ones the DISPATCHER STARTED:
-  // the agent's own pid, plus the wrapper and all three monitors it spawned
-  // beside it. The wrapper stamps them at spawn so the registry can name every
-  // process it is responsible for — and answer liveness in one pass.
+  // the agent's own pid, plus the wrapper and the monitor it spawns beside it.
+  // The wrapper stamps them at spawn so the registry can name every process it
+  // is responsible for — and answer liveness in one pass.
   //
   // The line this test draws is unchanged, and it is `started` against `guessed`:
   // model and context are still absent, because those the dispatcher cannot know
@@ -2916,7 +2916,7 @@ test('dispatch: the launch writes an agent manifest keyed on a session id', () =
   // counter rather than a share of `relaunches`, so a person's manual restarts
   // cannot exhaust an automatic budget.
   assert.deepEqual(Object.keys(m).sort(),
-    ['agentMonitorPid', 'attempts', 'branch', 'buildMonitorPid', 'command', 'pid',
+    ['agentMonitorPid', 'attempts', 'branch', 'command', 'pid',
       'resumeId', 'session', 'startedAt', 'workerMonitorPid', 'worktree', 'wrapperPid'],
     'launch-time facts plus every process the dispatcher started: no model, no context it could only guess');
 });
@@ -2983,7 +2983,7 @@ test('dispatch: the manifest pid is the AGENT pid, matching .plot-worker.pid', (
   fs.rmSync(wt, { recursive: true, force: true });
 });
 
-test('dispatch: the manifest names the wrapper and both remaining monitors, at spawn', () => {
+test('dispatch: the manifest names the wrapper and the remaining monitor, at spawn', () => {
   // THE DEFECT. The manifest recorded the process the registry started LEAST
   // ambiguously — the agent — and none of the others the registry also started.
   // Measured on the estate 2026-08-30: 1 manifest, 76 monitor processes, 0 of
@@ -2994,12 +2994,15 @@ test('dispatch: the manifest names the wrapper and both remaining monitors, at s
   //           ├── AgentMonitor     (7365)  ← in no manifest
   //           └── plot-worker-loop (7366)  ← "pid": "7366"
   //
-  // ONLY TWO MONITORS START NOW. `bug/the-loop-reports-idle` removed the
+  // ONLY ONE MONITOR STARTS NOW. `bug/the-loop-reports-idle` removed the
   // WorkerMonitor process: the loop's own watcher judges `idle` without a
   // resident process to hold it, and the wrapper itself reports `gone`/`clear`
-  // after `wait "$agent"` returns. `workerMonitorPid` stays in the manifest
-  // schema with its `''` default, so a manifest written by an older desk still
-  // parses — this is what that default is FOR, asserted directly below.
+  // after `wait "$agent"` returns. The BuildMonitor process is gone too
+  // (`the-shell-loop-goes`): the JS loop's own CI wait publishes the findings
+  // it used to write. `workerMonitorPid` and `buildMonitorPid` stay in the
+  // manifest schema with their `''` default, so a manifest written by an older
+  // desk still parses — this is what that default is FOR, asserted directly
+  // below.
   //
   // `DESIGN-agent.md` gives the registry *no worktree is left behind*; the same
   // sentence is owed for processes, and nothing could find one to reap.
@@ -3060,17 +3063,20 @@ test('dispatch: the manifest names the wrapper and both remaining monitors, at s
     `the manifest named a WorkerMonitor pid though the wrapper no longer starts one: ${m.workerMonitorPid}`);
   assert.match(m.agentMonitorPid, /^\d+$/,
     `the manifest must name the AgentMonitor, got: ${m.agentMonitorPid}`);
-  // THE THIRD MONITOR IS NOT AN AFTERTHOUGHT. `plot-dispatch.sh` calls the
-  // BuildMonitor "born the same way and for the same reason" as its sibling;
-  // it was captured into `bmon` and then never written, so the manifest named
-  // fewer processes than it spawned while the changeset claimed every one.
-  assert.match(m.buildMonitorPid, /^\d+$/,
-    `the manifest must name the BuildMonitor, got: ${m.buildMonitorPid}`);
+  // NO BUILDMONITOR PID ANY MORE, AND THAT IS THE POINT (`the-shell-loop-goes`).
+  // Unlike `workerMonitorPid` above, the dispatcher's awk writes no
+  // `buildMonitorPid` line at all now — so the raw manifest this test reads
+  // via JSON.parse has no such key, and the field is `undefined` here. A
+  // board read still sees `''`, filled by the schema's default for an older
+  // manifest that still carries the key; that is a separate guarantee,
+  // proved in `registry.test.ts`, not by this raw-file read.
+  assert.equal(m.buildMonitorPid, undefined,
+    `the manifest named a BuildMonitor pid though the wrapper no longer starts one: ${m.buildMonitorPid}`);
 
-  // FOUR DISTINCT PROCESSES. A group whose members collapsed onto one pid would
-  // pass every numeric check above and name nothing useful.
-  const group = [m.pid, m.wrapperPid, m.agentMonitorPid, m.buildMonitorPid];
-  assert.equal(new Set(group).size, 4, `four distinct processes, got: ${group.join(' ')}`);
+  // THREE DISTINCT PROCESSES. A group whose members collapsed onto one pid
+  // would pass every numeric check above and name nothing useful.
+  const group = [m.pid, m.wrapperPid, m.agentMonitorPid];
+  assert.equal(new Set(group).size, 3, `three distinct processes, got: ${group.join(' ')}`);
 
   endDesk(wt);
   fs.rmSync(t, { recursive: true, force: true });

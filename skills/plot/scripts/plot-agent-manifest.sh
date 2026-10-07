@@ -43,41 +43,6 @@ manifest_string() { # $1=manifest $2=field → prints the value, or nothing
   printf '%s' "$value"
 }
 
-# A non-negative integer field, or `0`. The node call itself only ever prints
-# a clean digit string or "0", so a failed call is the one case needing a
-# shell-side fallback.
-manifest_count() { # $1=manifest $2=field → prints a count
-  local manifest="$1"
-  [ -n "$manifest" ] && [ -f "$manifest" ] || { printf '0'; return 0; }
-  node -e '
-    const fs = require("fs");
-    try {
-      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-      const n = manifest[process.argv[2]];
-      process.stdout.write(Number.isInteger(n) && n >= 0 ? String(n) : "0");
-    } catch { process.stdout.write("0"); }
-  ' "$manifest" "$2" 2>/dev/null || printf '0'
-}
-
-# Raise a non-negative integer field by one, leaving every other field verbatim.
-#
-# THROUGH A TEMP FILE AND A RENAME, the shape every writer here takes: a reader
-# never sees a partial manifest. A write that fails leaves the file alone and
-# reports it; an absent manifest is not a failure.
-raise_manifest_count() { # $1=manifest $2=field
-  local manifest="$1" tmp="$1.plot-count-tmp"
-  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
-  node -e '
-    const fs = require("fs");
-    const [file, field, tmp] = process.argv.slice(1);
-    const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
-    const n = manifest[field];
-    manifest[field] = (Number.isInteger(n) && n >= 0 ? n : 0) + 1;
-    fs.writeFileSync(tmp, JSON.stringify(manifest, null, 2) + "\n");
-  ' "$manifest" "$2" "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
-  mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
-}
-
 # Clear `branch` when a slice finishes, so the window before the next one is
 # observable.
 #

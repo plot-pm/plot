@@ -75,6 +75,13 @@ export {
 export { budgetFixture, type BudgetFixture } from './budget/budget-fixture.js';
 
 export {
+  refusedSlicesFile,
+  REFUSED_SLICES_HOME_ENV,
+  type RefusedSlicesFileOptions,
+} from './refused-slices/refused-slices-file.js';
+export { refusedSlicesFixture, type RefusedSlicesFixture } from './refused-slices/refused-slices-fixture.js';
+
+export {
   freshAgentRecordFile,
   decodeFreshAgentRow,
   FRESH_AGENT_RECORD_HOME_ENV,

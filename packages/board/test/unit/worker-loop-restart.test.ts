@@ -21,6 +21,7 @@ import {
   transcriptFixture,
   treesFixture,
   treesGit,
+  refusedSlicesFixture,
 } from '@plot-pm/domain/adapters';
 import type { BoundedRun, BoundedRunResult, PortResult, Pr, Refs, Trees } from '@plot-pm/domain';
 import type { Reexec } from '@plot-pm/domain/ports/reexec';
@@ -535,6 +536,7 @@ const loopPorts = (trees: Trees, boundedRun: BoundedRun, reexec: Reexec): Worker
     activity: async () => ({ ok: true, value: 'idle' }),
   },
   boundedRun,
+  refusedSlices: refusedSlicesFixture(),
   build: buildFixture(),
   host: hostFixture({ prs: [] as Pr[] }),
   transcriptQuietSeconds: async () => 5000,

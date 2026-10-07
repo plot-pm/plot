@@ -1,6 +1,9 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import { refusedSlicesFixture } from '@plot-pm/domain/adapters';
 import { join } from 'node:path';
 
 import {
@@ -1888,5 +1891,34 @@ describe('startFreshAgents', () => {
       () => {},
     );
     expect(applied).toEqual([]);
+  });
+});
+
+describe('queueWorldForRepo — the refused reading', () => {
+  it('reads the record the worker loop writes, under the common git dir', async () => {
+    // THE WRITER RESOLVES `--git-common-dir`; a reader at the checkout's own
+    // `.plot/state/` never sees the line, and the slice is handed out again.
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'plot-refused-reader-')));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: dir });
+      mkdirSync(join(dir, '.git', '.plot', 'state'), { recursive: true });
+      writeFileSync(join(dir, '.git', '.plot', 'state', 'refused-slices.tsv'), 'bug/held\n');
+      const queue = queueWorldForRepo(dir, dir, { calls: 0 });
+      expect(await queue.refused('bug/held')).toBe(true);
+      expect(await queue.refused('bug/free')).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('asks the refused-slice record it is given, by branch', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-refused-reader-'));
+    try {
+      const queue = queueWorldForRepo(dir, dir, { calls: 0 }, undefined, undefined, refusedSlicesFixture(['bug/held']));
+      expect(await queue.refused('bug/held')).toBe(true);
+      expect(await queue.refused('bug/free')).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

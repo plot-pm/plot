@@ -4,10 +4,9 @@ import type { PortResult } from '../port-result.js';
  * One desk's transcript reading, the input {@link idleNow} (`rules/sample.ts`)
  * scores.
  *
- * Mirrors `plot_transcript_quiet_seconds`'s own answer shape
- * (`plot-transcript-quiet.sh`): a duration where a transcript could be read,
- * `unavailable` where none could — never zero, which would read a desk with no
- * transcript at all as freshly active.
+ * A duration where a transcript could be read, `unavailable` where none
+ * could — never zero, which would read a desk with no transcript at all as
+ * freshly active.
  */
 export type QuietReading = { readonly quiet: 'seconds'; readonly seconds: number } | { readonly quiet: 'unavailable' };
 

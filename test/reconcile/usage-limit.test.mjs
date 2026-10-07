@@ -37,7 +37,6 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { excludeDeskFilesOnJs, testWorkerLoop, workerLoopLine } from './loop-switch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -49,9 +48,10 @@ const LIMITED = '.plot-worker.limited';
 // while the spawned processes are not starving each other.
 const serial = { concurrency: false };
 
-// A test the JS loop answers differently, or cannot be asked: it runs on the
-// shell loop and is skipped on `js` with the reason, never adjusted to pass.
-const shellOnly = (reason) => ({ concurrency: false, skip: testWorkerLoop() === 'js' && reason });
+// A test the JS loop answers differently, or cannot be asked: unreachable now
+// that the JS loop is the only loop, skipped with the reason rather than
+// adjusted to pass.
+const shellOnly = (reason) => ({ concurrency: false, skip: reason });
 
 const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd });
 
@@ -186,7 +186,7 @@ function sandbox() {
 - **Plan directory:** docs/plans/
 - **Active index:** docs/plans/active/
 - **Worker bound:** 1800
-${workerLoopLine()}`);
+`);
   fs.mkdirSync(path.join(work, 'docs', 'plans'), { recursive: true });
   fs.writeFileSync(path.join(work, 'docs', 'plans', '2026-10-01-limit.md'), `# Limit
 
@@ -208,7 +208,11 @@ ${workerLoopLine()}`);
   git(work, 'add', '-A');
   git(work, 'commit', '-qm', 'plan');
   git(work, 'push', '-q', 'origin', 'main');
-  excludeDeskFilesOnJs(work, fs.appendFileSync);
+  // The JS loop refuses to take up a desk that holds untracked files, so the
+  // fixture's own `.plot/` and `.plot-worker.*` stay out of `git status`.
+  // A fresh clone has no `.git/info/` yet, so it is made before the append.
+  fs.mkdirSync(`${work}/.git/info`, { recursive: true });
+  fs.appendFileSync(`${work}/.git/info/exclude`, '.plot/\n.plot-worker.*\n');
   return { root, origin, work };
 }
 
@@ -949,123 +953,12 @@ test('--status names a future reset and not a past one', shellOnly('--status is 
   }
 });
 
-// THE MONITOR'S READING IS ASSERTED ON `sample_verdict` DIRECTLY, and that is
-// a deliberate narrowing rather than a shortcut.
-//
-// Driving the whole monitor to an `idle` finding needs FOUR conditions at once
-// — two consecutive quiet passes in ONE process (`prev_verdict` is an
-// in-process variable and nothing is written down), an unchanged tree between
-// them, commits on the branch, and a live pid whose child burns no CPU. A test
-// that arranged all four would be asserting the monitor's two-sample rule,
-// which this slice does not touch; and one that arranged them badly passes
-// whether or not the record is read at all — the first version of this test
-// did exactly that, publishing nothing in BOTH arms.
-//
-// What this slice changes is one subtraction inside `sample_verdict`. So the
-// function is sourced and asked, with and without the record, and the two
-// answers must differ: that is the discriminating assertion, and it is the
-// smallest one that is.
-// REPOINTED AT THE WATCHER'S OWN READING, `bug/the-loop-reports-idle`.
-// `plot-worker-monitor.sh` is deleted; its `sample_verdict` classification
-// (`gone|quiet|busy|unknown|unspoken`) is gone with it. The clamp this test
-// guards moved into `plot_worker_idle_watch_pass` (`plot-worker-state.sh`),
-// which folds the clamp straight into the final `idle`/`silent` verdict rather
-// than stopping at an intermediate word — so this asks the same question
-// ("does the clamp flip the verdict?") through the one function that now
-// answers it, with every OTHER condition satisfied so the clamp is the only
-// thing that can be moving.
-test('plot_worker_idle_watch_pass reads a waiting desk as not-idle and a silent one as idle', shellOnly('plot_worker_idle_watch_pass is a shell function'), () => {
-  const sb = sandbox();
-  try {
-    const { wt } = claim(sb, 'feature/seam');
-    // A REAL FILE-TOUCHING COMMIT, not the empty claim alone. `claim()`'s own
-    // `--allow-empty` commit does not count for `plot_worker_has_commits`
-    // (the `-- .` pathspec excludes it, #538's own exclusion) — without this
-    // the commits condition refuses on every call and the clamp is never the
-    // thing under test.
-    fs.writeFileSync(path.join(wt, 'work.txt'), 'the agent did something\n');
-    git(wt, 'add', '-A');
-    // THE COMMIT IS AN HOUR OLD. On a clean tree `plot_worker_tree_quiet_seconds`
-    // reads HEAD's committer time, so a commit made this second reads 0 against
-    // the 1s window and the control refuses on the tree condition instead of
-    // reaching the clamp (CI measured `not-idle` on the control).
-    const hourAgo = `${nowSeconds() - 3600} +0000`;
-    spawnSync('git', ['-C', wt, 'commit', '-qm', 'work the agent did'], {
-      env: { ...process.env, GIT_AUTHOR_DATE: hourAgo, GIT_COMMITTER_DATE: hourAgo },
-    });
-
-    const home = path.join(sb.root, 'runtime-home');
-    const slug = wt.replace(/[/.]/g, '-');
-    const tdir = path.join(home, '.claude', 'projects', slug);
-    fs.mkdirSync(tdir, { recursive: true });
-
-    // A TRANSCRIPT AN HOUR OLD, which is what a waiting agent's desk looks
-    // like: the loop sleeps, so nothing writes.
-    const tfile = path.join(tdir, `${SESSION}.jsonl`);
-    fs.writeFileSync(tfile, '{}\n');
-    const old = nowSeconds() - 3600;
-    fs.utimesSync(tfile, old, old);
-
-    // A PID THAT IS ALIVE AND HAS NO CHILD ON A CORE — a `sleep`, which is
-    // precisely the shape of a worker inside the wait.
-    const sleeper = spawn('sleep', ['120'], { stdio: 'ignore' });
-    try {
-      // ONE PASS, THROUGH THE SHIPPED FUNCTION. `plot_worker_idle_watch_pass`
-      // returns via exit code (0 idle, 1 not) and publishes a line as a side
-      // effect; a fresh findings file per call keeps each ask's publish from
-      // leaking into the next.
-      const ask = () => {
-        const findings = path.join(sb.root, `findings-${Math.random().toString(36).slice(2)}.jsonl`);
-        const rc = spawnSync('bash', ['-c', `
-          set -u
-          S=${JSON.stringify(scripts)}
-          . "$S/plot-transcript-quiet.sh"
-          . "$S/plot-agent-manifest.sh"
-          . "$S/plot-worker-state.sh"
-          plot_worker_idle_watch_pass ${JSON.stringify(wt)} feature/seam \
-            ${JSON.stringify(findings)} 1 '' ${sleeper.pid}
-        `], {
-          encoding: 'utf8', timeout: 30000,
-          env: {
-            // THE AMBIENT ENVIRONMENT IS BLANKED FIRST. A dispatched worker
-            // running this very suite carries its own `PLOT_MANIFEST_FILE` and
-            // `PLOT_SESSION_ID`, which `session_handle` would read ahead of
-            // the fixture's — asking about the WRONG conversation's transcript
-            // and reading `spoken=0` regardless of what this test sets up.
-            ...process.env,
-            PLOT_MANIFEST_FILE: '',
-            PLOT_TRANSCRIPT_HOME: home, PLOT_SESSION_ID: SESSION,
-          },
-        }).status;
-        return rc === 0 ? 'idle' : 'not-idle';
-      };
-
-      // THE CONTROL: no record, an hour of silence, nothing on a core, real
-      // commits. The transcript alone says this agent stopped — idle.
-      const control = ask();
-      assert.equal(control, 'idle',
-        `control: a silent desk with no limit record and real commits is idle (got ${control})`);
-
-      // THE SAME DESK, WAITING. Silence is measured from the reset instead,
-      // the subtraction clamps to 0, the window (1s) is not reached, and the
-      // verdict flips to not-idle.
-      const ahead = nowSeconds() + 3600;
-      fs.writeFileSync(path.join(wt, LIMITED),
-        `${ahead}\t${new Date(ahead * 1000).toISOString()}\tYou've hit your session limit\n`);
-      assert.equal(ask(), 'not-idle',
-        'a desk waiting on a reset an hour ahead is not idle — the clamp holds the window open');
-
-      // AND A RECORD WHOSE RESET HAS PASSED CHANGES NOTHING, so a worker
-      // SIGKILLed mid-wait cannot hold its desk out of every finding forever.
-      const behind = nowSeconds() - 3600;
-      fs.writeFileSync(path.join(wt, LIMITED),
-        `${behind}\t${new Date(behind * 1000).toISOString()}\tYou've hit your session limit\n`);
-      assert.equal(ask(), control,
-        'a reset that has passed reads exactly as no record at all');
-    } finally {
-      sleeper.kill('SIGKILL');
-    }
-  } finally {
-    fs.rmSync(sb.root, { recursive: true, force: true });
-  }
-});
+// THE SHELL'S USAGE-LIMIT CLAMP ON `idle` IS GONE WITH `plot_worker_idle_watch_pass`,
+// per `the-shell-loop-goes`. This test (previously `shellOnly`, so already
+// never run under the JS default) drove `plot_worker_idle_watch_pass` with and
+// without a `.plot-worker.limited` record to prove the reset clamps silence to
+// 0 and holds the idle window open. The identical property is proved in JS by
+// `idleVerdict`'s own suite — `worker-loop-run.test.ts`'s
+// `'clamps silence by the reset of a usage-limit wait'` (`describe('idleVerdict', ...)`)
+// — which clamps `silenceSeconds` against `nowSeconds - reset` the same way.
+// Nothing here tested a shell-only property; it is deleted rather than ported.

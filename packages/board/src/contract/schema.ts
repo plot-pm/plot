@@ -3490,8 +3490,8 @@ export function isBrokenState(state: string): boolean {
  * pulse, and `pid` is only the launch fact and the value a reader can go check.
  */
 /**
- * The processes one dispatch started beside the agent — the wrapper and both
- * monitors.
+ * The processes one dispatch started beside the agent — the wrapper and the
+ * monitor.
  *
  * Named fields rather than a list or a process-group id: the wrapper inherits the
  * DISPATCHER's process group (verified 2026-08-31, both `pgid=1298`), so a pgid
@@ -3499,13 +3499,14 @@ export function isBrokenState(state: string): boolean {
  * `registry.ts`'s `ProcessGroup` for the full argument.
  *
  * Each member defaults to `''` — that process was never started — so a pulse
- * carrying a partial group still validates.
+ * carrying a partial group still validates. This is a plain `z.object`, not
+ * `.strict()`: an older wire payload that still carries `buildMonitorPid` has
+ * that key ignored rather than refused.
  */
 export const ProcessGroupSchema = z.object({
   wrapperPid: z.string().default(''),
   workerMonitorPid: z.string().default(''),
   agentMonitorPid: z.string().default(''),
-  buildMonitorPid: z.string().default(''),
 });
 
 /**

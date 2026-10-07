@@ -13,7 +13,6 @@ import {
 import { usableCommand } from './idea.js';
 import { localCapability } from './controllers/caller.js';
 import { recordActionReceipt } from './action-receipt.js';
-import { sdkLoopRefusal } from './runner-gate.js';
 
 /**
  * The board's ONE state-changing route.
@@ -375,27 +374,6 @@ export async function handleDispatch(
       slug,
       reason: 'no-implement-command',
       detail: `no \`${IMPLEMENT_COMMAND_KEY}\` in Plot Config — starting work requires a brief, and the brief requires the /plot-implement SKILL; add the key or run /plot-implement yourself first`,
-    });
-    return;
-  }
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // THE RUNNER GATE: `Agent runner: sdk` needs `Worker loop: js`.
-  //
-  // The JS loop is the only caller that reads the SDK port today — the shell
-  // loop still runs a worker through `boundedRun` with no concept of a
-  // connector to ask. Starting a worker on `sdk` under the shell loop would
-  // not run the SDK at all; it would run `plot-dispatch.sh`'s own `Worker
-  // command` fragment regardless, silently ignoring the configured runner.
-  // Refusing here names the mismatch instead.
-  // ──────────────────────────────────────────────────────────────────────────
-  const runnerRefusal = sdkLoopRefusal((key, fallback) => readCfg(opts, key, fallback));
-  if (runnerRefusal !== null) {
-    json(409, {
-      ok: false,
-      slug,
-      reason: 'sdk-needs-js-loop',
-      detail: runnerRefusal,
     });
     return;
   }

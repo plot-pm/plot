@@ -345,10 +345,10 @@ export const useSdkConnector = (connector: SdkConnector | undefined): void => {
  * built for that choice.
  *
  * Built per call for the same reason as {@link refsFor}: the expense is never
- * in constructing the adapter. A board role has no charter and no worker
- * loop, so the choice reads only `Agent runner`, the role's own fragment and
- * `Worker loop` ({@link runnerChoice} with `isWorker: false`) — never a
- * charter harness, which is worker-only. **The SDK connector comes from
+ * in constructing the adapter. A board role has no charter, so the choice
+ * reads only `Agent runner` and the role's own fragment
+ * ({@link runnerChoice} with `isWorker: false`) — never a charter harness,
+ * which is worker-only. **The SDK connector comes from
  * {@link useSdkConnector}**, never from an import here, so that bringing a
  * board role onto the SDK does not put the SDK in every bundle that imports
  * this module.
@@ -376,7 +376,6 @@ export const agentRunFor = async (
   const choice = runnerChoice({
     agentRunner: agentRunner === 'sdk' || agentRunner === 'command' ? agentRunner : '',
     isWorker: false,
-    workerLoop: '',
     fragment,
     charterHarness: '',
     defaultsToSdkWhenNamed: false,

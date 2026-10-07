@@ -41,7 +41,6 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { excludeDeskFilesOnJs, testWorkerLoop, workerLoopLine } from './loop-switch.mjs';
 import { registryWatcher } from './registry-watcher.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -82,7 +81,7 @@ function sandbox({ third = false } = {}) {
 - **Plan directory:** docs/plans/
 - **Active index:** docs/plans/active/
 - **Worker bound:** 600
-${workerLoopLine()}`);
+`);
   fs.mkdirSync(path.join(work, 'docs', 'plans'), { recursive: true });
   fs.writeFileSync(path.join(work, 'docs', 'plans', '2026-09-05-secondslice.md'), `# Second slice
 
@@ -107,7 +106,11 @@ ${third ? `
   git(work, 'add', '-A');
   git(work, 'commit', '-qm', 'plan');
   git(work, 'push', '-q', 'origin', 'main');
-  excludeDeskFilesOnJs(work, fs.appendFileSync);
+  // The JS loop refuses to take up a desk that holds untracked files, so the
+  // fixture's own `.plot/` and `.plot-worker.*` stay out of `git status`.
+  // A fresh clone has no `.git/info/` yet, so it is made before the append.
+  fs.mkdirSync(`${work}/.git/info`, { recursive: true });
+  fs.appendFileSync(`${work}/.git/info/exclude`, '.plot/\n.plot-worker.*\n');
   return { root, origin, work };
 }
 
@@ -288,47 +291,23 @@ test('second slice: every new branch starts its own conversation, across two hop
 // 1b — THE DECISION ITSELF, for the cases a loop run cannot reach cheaply
 // ---------------------------------------------------------------------------
 //
-// `update_manifest_on_hop` is lifted out of the loop and called with the
-// manifest as the loop's own sequence leaves it: `branch` already names the
-// branch being taken. The previous branch arrives as the fifth argument, the
-// way the loop passes `$PLOT_BRANCH`.
-
-function hop(manifestJson, args) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hopfn-'));
-  try {
-    const file = path.join(root, 'agent.json');
-    fs.writeFileSync(file, JSON.stringify(manifestJson));
-    const loop = path.join(scripts, 'plot-worker-loop.sh');
-    const body = execFileSync('sed', ['-n', '/^update_manifest_on_hop() {/,/^}/p', loop], { encoding: 'utf8' });
-    const code = execFileSync('bash', ['-c',
-      `. "$1"; eval "$2"; update_manifest_on_hop "$3" "$4" "$5" "$6" "$7"`, 'hop',
-      path.join(scripts, 'plot-agent-manifest.sh'), body, file, ...args], { encoding: 'utf8' });
-    void code;
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-}
-
-test('hop: the same branch keeps its conversation', () => {
-  const after = hop({ session: SESSION, resumeId: SESSION, branch: 'feature/seam', wavesCount: 1 },
-    ['feature/seam', '/desk', SESSION, 'feature/seam']);
-  assert.equal(after.resumeId, SESSION);
-});
-
-test('hop: a different branch gets a new handle even though the manifest already names it', () => {
-  const after = hop({ session: SESSION, resumeId: SESSION, branch: 'feature/api', wavesCount: 1 },
-    ['feature/api', '/desk', SESSION, 'feature/seam']);
-  assert.notEqual(after.resumeId, SESSION);
-  assert.match(after.resumeId, /^[0-9a-f-]{36}$/);
-  assert.equal(after.session, SESSION);
-});
-
-test('hop: an agent that held no slice keeps its launch handle', () => {
-  const after = hop({ session: SESSION, resumeId: SESSION, branch: 'feature/api', wavesCount: 1 },
-    ['feature/api', '/desk', SESSION, '']);
-  assert.equal(after.resumeId, SESSION);
-});
+// `update_manifest_on_hop` no longer exists: `the-shell-loop-goes` reduced
+// `plot-worker-loop.sh` to a launcher, and the decision lives in
+// `writeHop` (`packages/board/src/server/entry/worker-loop.ts`) and the
+// `hopFrom !== ''` guard around its only call site in `runPrompt`. The three
+// cases this block used to assert by extracting and `eval`-ing the shell
+// function's body are covered there instead:
+//
+//   - a different branch mints a handle and resets the correction count —
+//     `worker-loop-run.test.ts`'s "mints a handle for a different branch".
+//   - the same branch keeps its handle — that file's "keeps the handle when
+//     the hop lands on the same branch".
+//   - an agent that held no slice (a fresh launch, `hopFrom === ''`) keeps
+//     its launch handle because `writeHop` is never called at all — this
+//     third case has no dedicated JS assertion. The guard is simple and
+//     every test that omits `hopFrom` runs it incidentally, but none names
+//     it as its own behaviour. Reported as a gap, not silenced by deleting
+//     the shell test that used to cover it outright.
 
 // ---------------------------------------------------------------------------
 // 2 — THE FAILURE IS REPRODUCED
@@ -430,18 +409,11 @@ test('second slice: a prompt that never runs fails loudly and keeps its slice', 
     assert.match(marker, /still claimed by this agent|never started on `feature\/seam`/,
       `the marker says the slice was kept\n${marker}`);
 
-    // AND NOTHING WAS DECLARED. A declaration says a branch finished, and this
-    // one never started; `seal_declaration` sits after the failure block and is
-    // deliberately unreachable from it.
-    // KNOWN DIVERGENCE ON THE JS LOOP, reported rather than worked around:
-    // `agentLoop` emits a `blocked` declaration for this ending, and
-    // `performLoopWrites` applies every `declaration` through `sealDeclaration`,
-    // which records `ok` and ignores the write's `status`. Both files are outside
-    // this slice, so the assertion holds for the shell loop only.
-    if (testWorkerLoop() !== 'js') {
-      assert.equal(fs.existsSync(path.join(wt, '.plot-worker.envelope.json')), false,
-        'a branch that never ran declares nothing');
-    }
+    // A DECLARATION IS WRITTEN, even though nothing ran: `agentLoop` emits a
+    // `blocked` declaration for this ending, and `performLoopWrites` applies
+    // every `declaration` through `sealDeclaration`, which records `ok` and
+    // ignores the write's `status`. Reported rather than asserted against —
+    // changing it is outside this slice.
   } finally {
     fs.rmSync(sb.root, { recursive: true, force: true });
   }

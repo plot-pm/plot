@@ -24,7 +24,6 @@
     "dist/board-server.mjs",
     "plot-agent-monitor.sh",
     "plot-agent-manifest.sh",
-    "plot-build-monitor.sh",
     "plot-monitor-subject.sh",
     "plot-approve.sh",
     "plot-budget.sh",
@@ -41,7 +40,6 @@
     "plot-release-refs.sh",
     "plot-state-receipt.sh",
     "plot-tmp.sh",
-    "plot-transcript-quiet.sh",
     "plot-worker-state.sh"
   ],
   "scripts": {

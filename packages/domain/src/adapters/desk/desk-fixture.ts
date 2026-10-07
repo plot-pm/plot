@@ -1,5 +1,5 @@
 import { answered, failed, type PortResult } from '../../port-result.js';
-import type { Desk, DeskFinding, EndingRecord } from '../../ports/desk.js';
+import type { BuildFinding, Desk, DeskFinding, EndingRecord } from '../../ports/desk.js';
 
 /** Every call this estate received, for a test to assert against. */
 export interface DeskFixtureCalls {
@@ -12,6 +12,7 @@ export interface DeskFixtureCalls {
   limitedClears: string[];
   moves: { from: string; to: string }[];
   findings: { worktree: string; finding: DeskFinding }[];
+  buildFindings: { worktree: string; finding: BuildFinding }[];
 }
 
 /** What a fixture `Desk` answers from, and what it records having been asked. */
@@ -35,6 +36,7 @@ export const deskFixtureCalls = (): DeskFixtureCalls => ({
   limitedClears: [],
   moves: [],
   findings: [],
+  buildFindings: [],
 });
 
 /**
@@ -101,6 +103,11 @@ export const deskFixture = (fixture: DeskFixture = {}): Desk => {
 
     publishFinding: async (worktree, finding): Promise<PortResult<void>> => {
       calls.findings?.push({ worktree, finding });
+      return answered(undefined);
+    },
+
+    publishBuildFinding: async (worktree, finding): Promise<PortResult<void>> => {
+      calls.buildFindings?.push({ worktree, finding });
       return answered(undefined);
     },
   };

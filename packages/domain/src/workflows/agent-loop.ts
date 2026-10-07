@@ -434,8 +434,13 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
   if (readings.running === null && readings.exit === null) {
     // A REFUSED TAKE-UP WRITE gives the assignment back. The ref on origin
     // still locks the slice, so the slice does not return to the queue.
+    // A REFUSED DESK RESET also records the branch as refused: the reset
+    // fails most often because another worktree holds the branch, and the
+    // next free agent would meet the same refusal.
     if (readings.takeUpRefused !== null) {
-      return decide('agent-loop', [{ kind: 'assignment-clear', session: readings.session }], {
+      const refusal: readonly Write[] =
+        readings.takeUpRefused === 'desk-reset' ? [{ kind: 'refused-slice', branch }] : [];
+      return decide('agent-loop', [...refusal, { kind: 'assignment-clear', session: readings.session }], {
         branch,
         exitCode: null,
         note: `the ${readings.takeUpRefused} at take-up was refused, claim: ${readings.claim ?? 'unknown'}; the assignment is cleared`,

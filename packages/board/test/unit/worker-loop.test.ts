@@ -10,6 +10,7 @@ import {
   processesShell,
   refsFixture,
   treesFixture,
+  refusedSlicesFixture,
 } from '@plot-pm/domain/adapters';
 import type { BoundedRun } from '@plot-pm/domain';
 import {
@@ -47,6 +48,7 @@ const ports = (over: Partial<WorkerLoopPorts> = {}): WorkerLoopPorts => ({
   refs: refsFixture(),
   processes: processesShell({ repoRoot: '/tmp', scriptDir: '/tmp' }),
   boundedRun: noBoundedRun,
+  refusedSlices: refusedSlicesFixture(),
   build: buildFixture(),
   host: hostFixture(),
   transcriptQuietSeconds: async () => 'unavailable',

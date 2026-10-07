@@ -53,7 +53,6 @@ skills/plot/scripts/board/plot-agent-state.mjs -merge
 skills/plot/scripts/board/plot-ask.mjs -merge
 skills/plot/scripts/board/plot-branch-state.mjs -merge
 skills/plot/scripts/board/plot-claim-answer.mjs -merge
-skills/plot/scripts/board/plot-checks-verdict.mjs -merge
 skills/plot/scripts/board/plot-checkout-yield.mjs -merge
 skills/plot/scripts/board/plot-controller-invocation.mjs -merge
 skills/plot/scripts/board/plot-deliver.mjs -merge

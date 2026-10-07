@@ -17,10 +17,12 @@ import {
   notifierCommand,
   notifierNone,
   freshAgentRecordFile,
+  refusedSlicesFile,
   deskFs,
   agentsFs,
 } from '@plot-pm/domain/adapters';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
+import type { RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
 import type { NotifyWrite } from '@plot-pm/domain/workflows/decision';
 import {
   parseQuestionEscalation,
@@ -661,42 +663,6 @@ const queuedHasLandedOf = async (
 };
 
 /**
- * Where the refused-slice record lives: beside the pulse, under `.plot/state/`.
- *
- * Machine-local and gitignored for {@link fleetSettingsPath}'s reason: it
- * describes what THIS estate's workers wrote, not something to commit. One
- * branch per line, appended by `blocked_on_held_checkout` in
- * `plot-worker-loop.sh` — the writer for the measured case, which already
- * holds the branch it refused. A desk's manifest cannot be trusted to still
- * name the branch by the time this is read: of 250 desks measured 2026-10-03
- * behind one refused slice, the manifests had already been cleared.
- */
-export const refusedSlicesPath = (repoRoot: string): string =>
-  join(repoRoot, '.plot', 'state', 'refused-slices.tsv');
-
-/**
- * Whether a branch's line is still in the refused-slices record.
- *
- * **BLANK LINES AND A MISSING FILE BOTH READ AS NOTHING REFUSED.** An absent
- * file is the common case — no refusal has ever been written on this estate —
- * and a line a person removed to clear the hold is indistinguishable from one
- * never written, which is the point: the hold ends when the line is gone, and
- * nothing here ages it out on its own.
- *
- * @param repoRoot - the repository root.
- * @param branch - the branch to ask about.
- * @returns whether the branch's line is present.
- */
-const branchIsRefused = (repoRoot: string, branch: string): boolean => {
-  const text = fileOrNull(refusedSlicesPath(repoRoot));
-  if (text === null) return false;
-  return text
-    .split('\n')
-    .map((line) => line.trim())
-    .includes(branch);
-};
-
-/**
  * Builds the world the QUEUE is read through.
  *
  * A SECOND WORLD RATHER THAN MORE MEMBERS ON THE SUPERVISOR'S, because the two
@@ -722,6 +688,7 @@ export const queueWorldForRepo = (
   tally: HostTally = { calls: 0 },
   merges?: MergeMemo,
   index: PrIndexStore = prIndexFile({ cwd: repoRoot }),
+  refusedSlices: RefusedSliceRecord = refusedSlicesFile({ cwd: repoRoot }),
 ): QueueWorld => {
   const context = { repoRoot, scriptDir: scriptsDir };
   const plans = planStoreShell(context);
@@ -851,7 +818,12 @@ export const queueWorldForRepo = (
       // an agent waiting on a person who has not answered.
       return !answer.ok || answer.value.length > 0;
     },
-    refused: async (branch) => branchIsRefused(repoRoot, branch),
+    refused: async (branch) => {
+      // AN UNREADABLE RECORD READS AS NOTHING REFUSED, as a missing one does:
+      // the hold ends when the line is gone, and nothing ages it out.
+      const answer = await refusedSlices.has(branch);
+      return answer.ok && answer.value;
+    },
     remoteHead: async (branch) => {
       const answer = await refs.remoteHead(branch);
       return answer.ok ? answer.value : 'unknown';

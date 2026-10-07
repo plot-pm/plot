@@ -211,8 +211,6 @@ export interface ProcessGroup {
   workerMonitorPid: string;
   /** The AgentMonitor, which watches the desk. */
   agentMonitorPid: string;
-  /** The BuildMonitor, which watches the run. */
-  buildMonitorPid: string;
 }
 
 /**
@@ -589,13 +587,12 @@ export function parseManifest(json: string): AgentEntry | null {
  * about the wrong thing.
  */
 function readGroup(o: Record<string, unknown>): ProcessGroup | undefined {
-  const keys = ['wrapperPid', 'workerMonitorPid', 'agentMonitorPid', 'buildMonitorPid'] as const;
+  const keys = ['wrapperPid', 'workerMonitorPid', 'agentMonitorPid'] as const;
   if (!keys.some((k) => k in o)) return undefined;
   return {
     wrapperPid: readPid(o.wrapperPid),
     workerMonitorPid: readPid(o.workerMonitorPid),
     agentMonitorPid: readPid(o.agentMonitorPid),
-    buildMonitorPid: readPid(o.buildMonitorPid),
   };
 }
 

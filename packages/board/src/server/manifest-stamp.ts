@@ -57,7 +57,6 @@ export interface Stamp {
   workerMonitorPid?: string;
   /** The AgentMonitor's pid, or `''` when none was attached. */
   agentMonitorPid?: string;
-  buildMonitorPid?: string;
 }
 
 /** The `"pid": "…",` line, capturing whatever pid it already held. */
@@ -75,7 +74,7 @@ const RELAUNCHES_LINE = /^ {2}"relaunches": (\d+),$/;
  * not this is a relaunch. Gating them on relaunch would duplicate the lines when
  * `/api/continue` stamps a manifest a first dispatch had already grouped.
  */
-const GROUP_LINE = /^ {2}"(wrapperPid|workerMonitorPid|agentMonitorPid|buildMonitorPid)": "[^"]*",$/;
+const GROUP_LINE = /^ {2}"(wrapperPid|workerMonitorPid|agentMonitorPid)": "[^"]*",$/;
 
 /**
  * Rewrite a manifest's launch stamp, returning the new text.
@@ -121,7 +120,6 @@ export function stampManifest(text: string, stamp: Stamp): string {
     `  "wrapperPid": "${stamp.wrapperPid ?? ''}",`,
     `  "workerMonitorPid": "${stamp.workerMonitorPid ?? ''}",`,
     `  "agentMonitorPid": "${stamp.agentMonitorPid ?? ''}",`,
-    `  "buildMonitorPid": "${stamp.buildMonitorPid ?? ''}",`,
   ];
 
   // A FIRST dispatch: the placeholder was empty. Fill the pid and write the
