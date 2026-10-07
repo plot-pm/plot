@@ -1,0 +1,1 @@
+../2026-10-07-every-loop-ending-has-a-supervisor-rule.md
