@@ -286,17 +286,31 @@ describe('the process group — every process the registry started, not just one
   //           ├── WorkerMonitor    (7364)  ← in no manifest
   //           ├── AgentMonitor     (7365)  ← in no manifest
   //           └── plot-worker-loop (7366)  ← "pid": "7366"
-  it('carries the wrapper and both monitors a modern dispatcher wrote', async () => {
+  it('carries the wrapper and the monitor a modern dispatcher wrote', async () => {
     manifest('a.json', {
       session: 'g', pid: '7366', worktree: '/wt/g', startedAt: '2026-08-20T10:00:00Z',
+      wrapperPid: '7358', workerMonitorPid: '7364', agentMonitorPid: '7365',
+    });
+    const [e] = await readAgentRegistry(root, home);
+    assert.deepEqual(e.group, {
+      wrapperPid: '7358', workerMonitorPid: '7364', agentMonitorPid: '7365',
+    });
+  });
+
+  // THE BRIEF'S GUARANTEE: an old manifest still carrying `buildMonitorPid`
+  // from before the field was removed must still parse, with the key simply
+  // ignored rather than refusing the whole entry.
+  it('ignores a leftover buildMonitorPid from an old manifest, rather than refusing to parse', async () => {
+    manifest('a.json', {
+      session: 'old-field', pid: '7366', worktree: '/wt/old-field', startedAt: '2026-08-20T10:00:00Z',
       wrapperPid: '7358', workerMonitorPid: '7364', agentMonitorPid: '7365',
       buildMonitorPid: '7367',
     });
     const [e] = await readAgentRegistry(root, home);
     assert.deepEqual(e.group, {
       wrapperPid: '7358', workerMonitorPid: '7364', agentMonitorPid: '7365',
-      buildMonitorPid: '7367',
     });
+    assert.ok(!('buildMonitorPid' in (e.group ?? {})), 'the dropped field does not resurface on the entry');
   });
 
   // THE CONTRACT THE BRIEF NAMES: an old manifest still parses, and reports the
@@ -316,7 +330,7 @@ describe('the process group — every process the registry started, not just one
   it('distinguishes a member never started (empty) from the whole group unknown', async () => {
     manifest('a.json', {
       session: 'nomon', pid: '10', startedAt: '2026-08-20T10:00:00Z',
-      wrapperPid: '11', workerMonitorPid: '', agentMonitorPid: '', buildMonitorPid: '',
+      wrapperPid: '11', workerMonitorPid: '', agentMonitorPid: '',
     });
     const [e] = await readAgentRegistry(root, home);
     assert.notEqual(e.group, undefined, 'the group IS known — the manifest carries it');
@@ -332,7 +346,7 @@ describe('the process group — every process the registry started, not just one
     });
     const [e] = await readAgentRegistry(root, home);
     assert.deepEqual(e.group,
-      { wrapperPid: '11', workerMonitorPid: '', agentMonitorPid: '', buildMonitorPid: '' });
+      { wrapperPid: '11', workerMonitorPid: '', agentMonitorPid: '' });
   });
 
   it('refuses a zero or non-numeric member, reading it as never started', async () => {

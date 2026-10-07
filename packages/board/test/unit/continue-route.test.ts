@@ -375,7 +375,7 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     assert.equal(m.previousPid, firstPid, 'the second relaunch displaced the first');
   });
 
-  it('starts the BuildMonitor for the desk and records its pid (#1255)', async () => {
+  it('starts the AgentMonitor for the desk and records its pid (#1255)', async () => {
     const wt = worktree({ pid: '424242' });
     dirs.push(wt);
     const { root, manifest } = repoWithManifest(wt, '424242');
@@ -386,7 +386,7 @@ describe('answering UPDATES the manifest — the path that produced the defect',
       start: (desk) => {
         calls.push(desk);
         pidAtStart = fs.readFileSync(desk.pidFile, 'utf8');
-        return { ok: true, value: { agentMonitorPid: '7001', buildMonitorPid: '7002' } };
+        return { ok: true, value: { agentMonitorPid: '7001' } };
       },
       stop: () => ({ ok: true, value: [] }),
     };
@@ -406,11 +406,10 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     ]);
     assert.equal(pidAtStart, body.pid, 'the pid file names the new run before a monitor reads it');
     const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
-    assert.equal(m.buildMonitorPid, '7002');
     assert.equal(m.agentMonitorPid, '7001');
   });
 
-  it('a second continue stops the monitor pair the first one started', async () => {
+  it('a second continue stops the monitor the first one started', async () => {
     const wt = worktree({ pid: '424242' });
     dirs.push(wt);
     const { root } = repoWithManifest(wt, '424242');
@@ -418,7 +417,7 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     const stopped: (readonly string[])[] = [];
     let next = 7000;
     const monitors: DeskMonitors = {
-      start: () => ({ ok: true, value: { agentMonitorPid: String(++next), buildMonitorPid: String(++next) } }),
+      start: () => ({ ok: true, value: { agentMonitorPid: String(++next) } }),
       stop: (pids) => {
         stopped.push(pids);
         return { ok: true, value: pids };
@@ -435,7 +434,7 @@ describe('answering UPDATES the manifest — the path that produced the defect',
 
     assert.equal(first.status, 202);
     assert.equal(second.status, 202);
-    assert.deepEqual(stopped, [['7001', '7002']], 'the first continue had no pair to stop; the second stops the first pair');
+    assert.deepEqual(stopped, [['7001']], 'the first continue had none to stop; the second stops the first');
   });
 
   it('logs a monitor start that failed', async () => {
@@ -453,18 +452,18 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     assert.equal(out.status, 202);
     assert.match(
       fs.readFileSync(path.join(wt, '.plot-worker.log'), 'utf8'),
-      /AgentMonitor and BuildMonitor not started: the start answered failed/,
+      /AgentMonitor not started: the start answered failed/,
     );
   });
 
-  it('starts the monitor scripts under the configured scripts directory by default', async () => {
+  it('starts the monitor script under the configured scripts directory by default', async () => {
     const wt = worktree({ pid: '424242' });
     dirs.push(wt);
     const { root, manifest } = repoWithManifest(wt, '424242');
     roots.push(root);
     const scriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-scripts-'));
     roots.push(scriptsDir);
-    for (const name of ['plot-agent-monitor.sh', 'plot-build-monitor.sh']) {
+    for (const name of ['plot-agent-monitor.sh']) {
       const file = path.join(scriptsDir, name);
       fs.writeFileSync(
         file,
@@ -485,14 +484,11 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     assert.equal(started.kind, 'started');
     spawned.add(wt);
 
-    const envFile = path.join(wt, 'plot-build-monitor.sh.env');
-    const deadline = Date.now() + 10_000;
-    while (!fs.existsSync(envFile) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
-    assert.deepEqual(fs.readFileSync(envFile, 'utf8').split('\n').slice(0, 2), [BRANCH, wt]);
     const agentEnv = path.join(wt, 'plot-agent-monitor.sh.env');
+    const deadline = Date.now() + 10_000;
     while (!fs.existsSync(agentEnv) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(fs.readFileSync(agentEnv, 'utf8').split('\n').slice(0, 2), [BRANCH, wt]);
     const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
-    assert.match(m.buildMonitorPid, /^\d+$/);
     assert.match(m.agentMonitorPid, /^\d+$/);
   });
 

@@ -149,7 +149,7 @@ export interface ContinueDeps {
   pulse?: (opts: BuildBoardOptions) => FleetReading | null;
   /** The configured `Worker command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
-  /** Starts the desk's monitors; defaults to the shell scripts under `scriptsDir`. */
+  /** Starts the desk's monitor; defaults to the shell script under `scriptsDir`. */
   monitors?: DeskMonitors;
 }
 
@@ -523,7 +523,7 @@ export interface DeskContinuationInput {
    * so a start that throws afterwards cannot be repeated unrecorded.
    */
   beforeStart?: () => Promise<boolean>;
-  /** Starts the AgentMonitor and the BuildMonitor; defaults to the shell scripts under `scriptsDir`. */
+  /** Starts the AgentMonitor; defaults to the shell script under `scriptsDir`. */
   monitors?: DeskMonitors;
 }
 
@@ -531,7 +531,7 @@ export interface DeskContinuationInput {
 const recordedMonitorPids = (manifestFile: string): string[] => {
   try {
     const m = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
-    return [m.agentMonitorPid, m.buildMonitorPid].filter((p): p is string => typeof p === 'string' && p !== '');
+    return [m.agentMonitorPid].filter((p): p is string => typeof p === 'string' && p !== '');
   } catch {
     return [];
   }
@@ -547,33 +547,33 @@ const logLine = (log: string, line: string): void => {
 };
 
 /**
- * Replaces the desk's monitor pair: stops the pair the manifest records, then
+ * Replaces the desk's monitor: stops the one the manifest records, then
  * starts a new one for the new run.
  *
- * The monitors start only after `.plot-worker.pid` names the new run, because
- * each monitor ends when that pid is gone. The old pair would watch the new
- * pid too, so it is stopped first and the desk keeps one pair (#1255). Every
- * step that does not happen is written to the desk's log.
+ * The monitor starts only after `.plot-worker.pid` names the new run, because
+ * it ends when that pid is gone. The old one would watch the new pid too, so
+ * it is stopped first and the desk keeps one (#1255). Every step that does not
+ * happen is written to the desk's log.
  *
- * @returns the new pair's pids, `''` for a monitor not started.
+ * @returns the new monitor's pid, `''` when it was not started.
  */
 const startMonitors = (input: { monitors: DeskMonitors; desk: MonitoredDesk; pidRecorded: boolean }): MonitorPids => {
   const { monitors, desk } = input;
-  const none: MonitorPids = { agentMonitorPid: '', buildMonitorPid: '' };
+  const none: MonitorPids = { agentMonitorPid: '' };
   const previous = recordedMonitorPids(desk.manifestFile);
   if (previous.length > 0 && !monitors.stop(previous).ok) {
     logLine(desk.log, `could not stop the previous monitors (pids ${previous.join(', ')}); they may still run`);
   }
   if (!input.pidRecorded) {
-    logLine(desk.log, `AgentMonitor and BuildMonitor not started: ${desk.pidFile} could not be written, so they would watch the previous run`);
+    logLine(desk.log, `AgentMonitor not started: ${desk.pidFile} could not be written, so it would watch the previous run`);
     return none;
   }
   const result = monitors.start(desk);
   if (!result.ok) {
-    logLine(desk.log, `AgentMonitor and BuildMonitor not started: the start answered ${result.why}`);
+    logLine(desk.log, `AgentMonitor not started: the start answered ${result.why}`);
     return none;
   }
-  for (const [name, pid] of [['AgentMonitor', result.value.agentMonitorPid], ['BuildMonitor', result.value.buildMonitorPid]]) {
+  for (const [name, pid] of [['AgentMonitor', result.value.agentMonitorPid]]) {
     if (pid === '') logLine(desk.log, `${name} not started: its script is not executable under the scripts directory`);
   }
   return result.value;
@@ -797,7 +797,6 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       wrapperPid: '',
       workerMonitorPid: '',
       agentMonitorPid: started.agentMonitorPid,
-      buildMonitorPid: started.buildMonitorPid,
     });
   }
   return { kind: 'started', pid: String(pid), previousPid: input.previousPid, prompt: promptPath, log };

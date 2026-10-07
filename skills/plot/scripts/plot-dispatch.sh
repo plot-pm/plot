@@ -1374,12 +1374,9 @@ start_worker() {
   #
   # EVERY WORKER IS BORN MONITORED, AND THAT IS ENFORCED HERE OR NOWHERE.
   #
-  # Two monitors start INSIDE the wrapper, as its children, immediately before
-  # the agent: one watches the desk (`plot-agent-monitor.sh`), one watches the
-  # run (`plot-build-monitor.sh`). Each has a subject the other does not and a
-  # cadence it cannot share — minutes on the host, seconds on a run but only
-  # while one is live. The PROCESS is no longer a third monitor's subject:
-  # since `bug/the-loop-reports-idle` the loop's own watcher judges `idle`
+  # The AgentMonitor starts INSIDE the wrapper, as its child, immediately
+  # before the agent, watching the desk. The PROCESS is no longer a monitor's
+  # subject: since `bug/the-loop-reports-idle` the loop's own watcher judges `idle`
   # (`plot-worker-state.sh`'s `plot_worker_idle_watch_pass`), and the wrapper
   # itself reports `gone`/`clear` after `wait "$agent"` returns, below.
   #
@@ -1481,14 +1478,8 @@ start_worker() {
     fi
   fi
 
-  local agent_monitor='' build_monitor=''
+  local agent_monitor=''
   [ -x "$script_dir/plot-agent-monitor.sh" ] && agent_monitor="$script_dir/plot-agent-monitor.sh"
-  # THE THIRD MONITOR, born the same way and for the same reason. It watches the
-  # RUN — a Build is its own entity in the spec, so a monitor per entity is the
-  # pattern rather than an exception to it. Its cadence is the WorkerMonitor's
-  # 30 s rather than the AgentMonitor's 300 s, and it can afford that against a
-  # HOST because it asks nothing while no run is live.
-  [ -x "$script_dir/plot-build-monitor.sh" ] && build_monitor="$script_dir/plot-build-monitor.sh"
   local stamp_now
   stamp_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   # THE THREE NAMES THE CHARTER DECLARED, and they travel as env vars for the
@@ -1563,11 +1554,10 @@ start_worker() {
       PLOT_MANIFEST_FILE="$manifest_dir/$session.json" \
       PLOT_STAMP_STARTED="$stamp_now" \
       PLOT_AGENT_MONITOR="$agent_monitor" \
-      PLOT_BUILD_MONITOR="$build_monitor" \
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
       PLOT_WRAPPER_PID_FILE="$wt/.plot-worker.wrapper.pid" \
       PLOT_SCRIPT_DIR="$script_dir" \
-      exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; trap "" TERM; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
+      exec nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; PATH="$PLOT_SCRIPT_DIR:$PATH"; export PATH; ( '"$cmd"' ) & agent=$!; trap "" TERM; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" '"'"'
         BEGIN { relaunch = 0; count = 1; stamped = 0 }
         FNR == NR {
           if ($0 ~ /^  "pid": "[^"]*",$/) {
@@ -1585,7 +1575,6 @@ start_worker() {
           print "  \"wrapperPid\": \"" wrapper "\","
           print "  \"workerMonitorPid\": \"" wmon "\","
           print "  \"agentMonitorPid\": \"" amon "\","
-          print "  \"buildMonitorPid\": \"" bmon "\","
           if (relaunch) {
             print "  \"previousPid\": \"" displaced "\","
             print "  \"relaunches\": " count ","
@@ -1595,7 +1584,6 @@ start_worker() {
         $0 ~ /^  "wrapperPid": "[^"]*",$/ { next }
         $0 ~ /^  "workerMonitorPid": "[^"]*",$/ { next }
         $0 ~ /^  "agentMonitorPid": "[^"]*",$/ { next }
-        $0 ~ /^  "buildMonitorPid": "[^"]*",$/ { next }
         relaunch && $0 ~ /^  "previousPid": "[^"]*",$/ { next }
         relaunch && $0 ~ /^  "relaunches": [0-9]+,$/ { next }
         relaunch && $0 ~ /^  "startedAt": "[^"]*"$/ { print "  \"startedAt\": \"" started "\""; next }

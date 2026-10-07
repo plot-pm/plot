@@ -85,30 +85,27 @@ const waitFor = async (file: string): Promise<string> => {
 };
 
 describe('deskMonitorsShell.start', () => {
-  it('starts the BuildMonitor with the environment the dispatch wrapper gives it', async () => {
-    const { context, desk } = fixture(['plot-agent-monitor.sh', 'plot-build-monitor.sh']);
+  it('starts the AgentMonitor with the environment the dispatch wrapper gives it', async () => {
+    const { context, desk } = fixture(['plot-agent-monitor.sh']);
 
     const result = deskMonitorsShell(context).start(desk);
 
     expect(result.ok).toBe(true);
-    const pids = result.ok ? result.value : { agentMonitorPid: '', buildMonitorPid: '' };
-    expect(pids.buildMonitorPid).toMatch(/^\d+$/);
+    const pids = result.ok ? result.value : { agentMonitorPid: '' };
     expect(pids.agentMonitorPid).toMatch(/^\d+$/);
     const expected = [desk.branch, desk.worktree, desk.manifestFile, desk.pidFile];
-    const build = (await waitFor(join(desk.worktree, 'plot-build-monitor.sh.env'))).split('\n');
-    expect(build.slice(0, 4)).toEqual(expected);
     const agent = (await waitFor(join(desk.worktree, 'plot-agent-monitor.sh.env'))).split('\n');
     expect(agent.slice(0, 4)).toEqual(expected);
   });
 
-  it('starts each monitor detached, in a process group of its own', async () => {
-    const { context, desk } = fixture(['plot-build-monitor.sh']);
+  it('starts the monitor detached, in a process group of its own', async () => {
+    const { context, desk } = fixture(['plot-agent-monitor.sh']);
     const ownGroup = execFileSync('ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf8' }).trim();
 
     const result = deskMonitorsShell(context).start(desk);
 
-    const pid = result.ok ? result.value.buildMonitorPid : '';
-    const group = (await waitFor(join(desk.worktree, 'plot-build-monitor.sh.env'))).split('\n')[4];
+    const pid = result.ok ? result.value.agentMonitorPid : '';
+    const group = (await waitFor(join(desk.worktree, 'plot-agent-monitor.sh.env'))).split('\n')[4];
     expect(group).toBe(pid);
     expect(group).not.toBe(ownGroup);
   });
@@ -118,16 +115,16 @@ describe('deskMonitorsShell.start', () => {
 
     expect(deskMonitorsShell(context).start(desk)).toEqual({
       ok: true,
-      value: { agentMonitorPid: '', buildMonitorPid: '' },
+      value: { agentMonitorPid: '' },
     });
   });
 
   it('stops a running monitor', async () => {
-    const { context, desk } = fixture(['plot-build-monitor.sh'], () => 'while :; do sleep 0.2; done');
+    const { context, desk } = fixture(['plot-agent-monitor.sh'], () => 'while :; do sleep 0.2; done');
     const monitors = deskMonitorsShell(context);
     const started = monitors.start(desk);
-    const pid = started.ok ? started.value.buildMonitorPid : '';
-    await waitForCommand(Number(pid), 'plot-build-monitor.sh');
+    const pid = started.ok ? started.value.agentMonitorPid : '';
+    await waitForCommand(Number(pid), 'plot-agent-monitor.sh');
 
     expect(monitors.stop([pid])).toEqual({ ok: true, value: [pid] });
     expect(await gone(Number(pid))).toBe(true);
