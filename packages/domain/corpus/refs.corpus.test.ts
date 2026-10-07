@@ -1,4 +1,7 @@
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -29,7 +32,6 @@ import { readFleetScan, type Estate } from './production.js';
  */
 
 const ROOT = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '');
-const estate: Estate = { root: ROOT };
 
 /**
  * TWO FIELDS ARE LIVE SAMPLES, AND A LIVE SAMPLE CANNOT BE COMPARED FOR
@@ -215,31 +217,24 @@ let raw: Record<string, unknown>;
  * One failure became three (2026-08-31, reverted).
  *
  * So both still fetch, and both are pointed at a ref a fetch cannot move. The
- * pin is a real remote-tracking ref at a SHA resolved once here; nothing
- * upstream is named `plot-corpus-pin`, so `git fetch` leaves it alone. The
- * scan takes its branch from `origin/HEAD` when no `Main branch` key is set
- * (`plot-fleet-scan.sh` line 202), and the adapter's `pulse()` shells out to
- * that same script — so repointing that ONE symbolic ref serves both readings.
- *
- * `origin/HEAD` rather than the config key, deliberately: the key lives in the
- * repo-root `CLAUDE.md`, and editing a TRACKED file for the duration of a test
- * run would leave the repository misconfigured if the run died. `origin/HEAD`
- * is per-checkout, untracked, and restored in `afterAll` — and a fetch does not
- * move either it or the pin.
+ * pin lives in a DISPOSABLE CLONE, never in the shared repository — a run
+ * killed before `afterAll` runs leaves nothing in the shared repo to restore,
+ * because nothing in the shared repo was ever written. `beforeAll` clones
+ * `ROOT` into a `mkdtempSync` directory, creates a real local branch there
+ * named `plot-corpus-pin` at the real default branch's tip, and writes
+ * `Main branch: plot-corpus-pin` into the CLONE's own `CLAUDE.md` copy — never
+ * the tracked file. `plot-fleet-scan.sh` reads that key before it ever asks
+ * `origin/HEAD` (`plot-fleet-scan.sh:335-336`), so both scans resolve the pin
+ * from config and `default_branch`'s origin/HEAD-repair path is never
+ * consulted. The clone is a full working-tree clone, so it carries its own
+ * copy of `skills/plot/scripts/*.sh` at the commit it was cloned from — the
+ * same scripts the adapter and production call, resolved from the SAME clone
+ * root, so both readings run the identical script against the identical
+ * estate.
  */
-/**
- * The branch `origin/HEAD` is restored to, or `''` where there is no such ref.
- *
- * `origin/HEAD` IS A CLONE'S CONVENIENCE, NOT A GUARANTEE. `actions/checkout`
- * fetches one ref and never creates it, so on a runner this command fails with
- * *"not a symbolic ref"* — and at module level that failed the whole SUITE
- * rather than one test. Measured on CI 2026-09-01, after the pin passed locally
- * every time: a clone has the ref, a checkout does not.
- *
- * `plot-fleet-scan.sh:204` already treats it that way, discarding the error and
- * falling back to `main`. This copies the command's tolerance, not just the
- * command.
- */
+const PIN = 'plot-corpus-pin';
+
+/** The real default branch, read from the shared repo before cloning. */
 const MAIN = (() => {
   try {
     return execFileSync('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
@@ -273,18 +268,22 @@ const MAIN = (() => {
     return '';
   }
 })();
-const PIN = 'plot-corpus-pin';
-const PIN_REF = `refs/remotes/origin/${PIN}`;
+
+/** The clone's path, set once `beforeAll` has created it. `''` until then. */
+let CLONE = '';
 let pinned = false;
 
 const git = (...args: string[]): string =>
-  execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
+  execFileSync('git', args, { cwd: CLONE, encoding: 'utf8' }).trim();
 
 /**
- * Every remote branch's tip, as one map from branch name to SHA.
+ * Every local branch's tip inside the clone, as one map from branch name to
+ * SHA.
  *
  * Taken twice — once before either scan and once after both — so the pair says
- * which branches were the SAME COMMIT throughout, and which were two.
+ * which branches were the SAME COMMIT throughout, and which were two. The
+ * clone fetches into `refs/remotes/origin/*` exactly as a normal checkout
+ * does, so this reads the same namespace the pre-clone design did.
  */
 const branchTips = (): Map<string, string> => {
   const out = new Map<string, string>();
@@ -325,16 +324,36 @@ const branchTips = (): Map<string, string> => {
 let moved = new Set<string>();
 
 beforeAll(async () => {
-  // Freeze the ref before either scan runs, and tell the scan to use it.
-  // NO `origin/HEAD` MEANS NO PIN, AND THAT IS NOT A FAILURE. On a checkout
-  // that never created the ref there is nothing to repoint and nothing to
-  // restore; the two scans then read the branch directly, exactly as they did
-  // before this pin existed. The race is a rare disagreement, and refusing to
-  // run at all would trade it for never running.
+  // THE CLONE IS THE ONLY THING THAT CAN BE PINNED. A fresh `mkdtempSync`
+  // directory removed by its own exact path in `afterAll` means a run killed
+  // here — before the clone exists, mid-clone, or after — leaves the shared
+  // repository's `.git` untouched: there is no window in which this writes a
+  // ref the shared repo owns.
+  CLONE = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-corpus-'));
+  execFileSync('git', ['clone', '--quiet', ROOT, CLONE], { encoding: 'utf8' });
+
+  // NO `MAIN` MEANS NO PIN, AND THAT IS NOT A FAILURE. On a checkout that never
+  // created `origin/HEAD` there is nothing to freeze; the two scans then read
+  // the branch directly, exactly as they did before this pin existed. The race
+  // is a rare disagreement, and refusing to run at all would trade it for never
+  // running.
   if (MAIN) {
     const head = git('rev-parse', `origin/${MAIN}`);
-    git('update-ref', PIN_REF, head);
-    git('symbolic-ref', 'refs/remotes/origin/HEAD', PIN_REF);
+    git('branch', PIN, head);
+    // `Main branch` is read before `default_branch()` is ever called
+    // (`plot-fleet-scan.sh:335-336`), so this line is the whole pin: neither
+    // scan consults `origin/HEAD`, and `plot-default-branch.sh`'s repair path
+    // is never reached. Inserted right after the `## Plot Config` heading —
+    // `plot-config.sh`'s section extraction runs until the NEXT `##` heading, so
+    // a line appended at EOF, well past `## Architecture` and every other
+    // heading, is outside the section and never seen; `cfg`'s `grep -m1` takes
+    // the first match regardless of what else the section holds. Written into
+    // the CLONE's own copy only — the tracked file at `ROOT` is never opened.
+    const claudeMd = path.join(CLONE, 'CLAUDE.md');
+    fs.writeFileSync(
+      claudeMd,
+      fs.readFileSync(claudeMd, 'utf8').replace(/^(## Plot Config\s*\n)/m, `$1- **Main branch:** ${PIN}\n`),
+    );
     pinned = true;
   }
 
@@ -344,11 +363,11 @@ beforeAll(async () => {
   // Adapter first, production second. The order matters only for the elapsed
   // field, and taking the adapter's reading first makes production's the LATER
   // one — so the tolerance below is one-sided in the direction time runs.
-  const refs = refsGit(shellContext(ROOT));
+  const refs = refsGit(shellContext(CLONE));
   const read = await refs.pulse();
   if (!isAnswered(read)) throw new Error(`the adapter could not read the pulse: ${read.why}`);
   pulse = read.value;
-  raw = readFleetScan(estate);
+  raw = readFleetScan({ root: CLONE } satisfies Estate);
 
   // Anything that is not the same commit it was before both scans was asked
   // about two worlds. An added ref counts too: a branch created mid-suite is
@@ -362,16 +381,10 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-  // The pin is this suite's, and it must not outlive it: a stray
-  // `origin/plot-corpus-pin` would show up in every later `for-each-ref`.
-  if (pinned) {
-    try {
-      git('symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${MAIN}`);
-      git('update-ref', '-d', PIN_REF);
-    } catch {
-      // Already gone. Nothing downstream reads it, so there is nothing to repair.
-    }
-  }
+  // Removed by the EXACT path `mkdtempSync` returned, never a glob over the
+  // shared temp directory — `scripts/owned-run.sh` fails a CI run that leaks
+  // any temp entry under its private `TMPDIR`.
+  if (CLONE) fs.rmSync(CLONE, { recursive: true, force: true });
 });
 
 describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
@@ -575,7 +588,7 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
     expect([...unexpected].sort()).toEqual([]);
   });
 
-  it('pinned the ref, so the two scans were asked about one estate', () => {
+  it('pinned the clone, so the two scans were asked about one estate', () => {
     // THE PIN'S FAILURE MODE IS SILENCE, which is why it needs its own
     // assertion. `MAIN` resolving to '' skips the whole pin block, `pinned`
     // stays false, and every test below still runs — against two moments
@@ -591,7 +604,8 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
     // a warning nobody reads.
     expect(MAIN).not.toBe('');
     expect(pinned).toBe(true);
-    expect(git('symbolic-ref', 'refs/remotes/origin/HEAD')).toBe(PIN_REF);
+    expect(raw.main).toBe(PIN);
+    expect(pulse.main).toBe(PIN);
   });
 
   it('carries the readings the estate actually populates, so this is not vacuous', () => {
