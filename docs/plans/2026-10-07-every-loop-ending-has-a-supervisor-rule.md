@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** infra
 - **Sprint:** the-release-train-fixes-what-it-found
 - **Issue:** #1274, #1288, #1281
 - **Story:** the-supervisor-delivers-the-approved-scope
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-10-07, jwloka, in-session
 
 ## Motivation
 
