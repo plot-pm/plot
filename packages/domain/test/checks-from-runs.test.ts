@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { buildFindingFor, checksFromRuns, checksVerdict, type ChecksFromRunsReadings } from '../src/rules/checks-verdict.js';
+import {
+  buildFindingFor,
+  checksFromRuns,
+  checksVerdict,
+  runWasNotAcquired,
+  type ChecksFromRunsReadings,
+} from '../src/rules/checks-verdict.js';
 import type { ShaRun } from '../src/entities/build.js';
 
 const PUSHED = 'f743e5730000000000000000000000000000000';
@@ -124,6 +130,75 @@ describe('checksFromRuns — the loop asking its own CI wait', () => {
     // the wait leans on.
     const other = concludedRun('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'success');
     expect(checksFromRuns({ ...base, run: other })).toBe('wait');
+  });
+
+  it('waits, then ends no-answer, on a failed run no runner ever picked up (#1295)', () => {
+    // #1295: a GitHub Actions outage cancelled jobs after 15 minutes with 0
+    // steps and an empty runner name. Reading this as `settled` spent a
+    // slice's whole correction budget on an outage.
+    const unacquired = { ...concludedRun(PUSHED, 'failure'), jobs: [{ conclusion: 'cancelled', steps: 0 }] };
+    expect(checksFromRuns({ ...base, run: unacquired })).toBe('wait');
+    expect(checksFromRuns({ ...base, run: unacquired, waitedSeconds: 3600 })).toBe('no-answer');
+  });
+
+  it('settles a mix of one unacquired job and one real failure — the agent is still owed the correction', () => {
+    const mixed = {
+      ...concludedRun(PUSHED, 'failure'),
+      jobs: [
+        { conclusion: 'cancelled', steps: 0 },
+        { conclusion: 'failure', steps: 4 },
+      ],
+    };
+    expect(checksFromRuns({ ...base, run: mixed })).toBe('settled');
+  });
+
+  it('settles a failed run with no jobs field — absent is not 0 steps', () => {
+    expect(checksFromRuns({ ...base, run: concludedRun(PUSHED, 'failure') })).toBe('settled');
+  });
+});
+
+describe('runWasNotAcquired — a failed or cancelled run no runner ever ran a step of', () => {
+  it('answers false for a running or successful run', () => {
+    expect(runWasNotAcquired(runningRun(PUSHED))).toBe(false);
+    expect(runWasNotAcquired(concludedRun(PUSHED, 'success'))).toBe(false);
+  });
+
+  it('answers false when jobs is absent, even for a failed conclusion', () => {
+    expect(runWasNotAcquired(concludedRun(PUSHED, 'failure'))).toBe(false);
+  });
+
+  it('answers false when jobs is present but empty', () => {
+    expect(runWasNotAcquired({ ...concludedRun(PUSHED, 'failure'), jobs: [] })).toBe(false);
+  });
+
+  it('answers true when every failed or cancelled job ran 0 steps', () => {
+    expect(
+      runWasNotAcquired({
+        ...concludedRun(PUSHED, 'cancelled'),
+        jobs: [{ conclusion: 'cancelled', steps: 0 }],
+      }),
+    ).toBe(true);
+  });
+
+  it('answers false when any failed or cancelled job ran at least one step', () => {
+    expect(
+      runWasNotAcquired({
+        ...concludedRun(PUSHED, 'failure'),
+        jobs: [{ conclusion: 'failure', steps: 1 }],
+      }),
+    ).toBe(false);
+  });
+
+  it('ignores a successful job sitting beside the 0-step ones', () => {
+    expect(
+      runWasNotAcquired({
+        ...concludedRun(PUSHED, 'failure'),
+        jobs: [
+          { conclusion: 'success', steps: 12 },
+          { conclusion: 'cancelled', steps: 0 },
+        ],
+      }),
+    ).toBe(true);
   });
 });
 

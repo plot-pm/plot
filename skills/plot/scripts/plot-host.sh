@@ -4508,13 +4508,32 @@ case "$op" in
     # a network failure exits 4 here, the way the Jenkins arm does, so the
     # monitor reads *could not ask* and not *no run yet*.
     _gh_runs=$(gh run list --branch "$branch" --limit "$limit" \
-      --json headSha,conclusion,status,startedAt,url 2>/dev/null) \
+      --json headSha,conclusion,status,startedAt,url,databaseId 2>/dev/null) \
       || { echo "plot-host: run-for-sha — gh run list failed for '$branch'" >&2; exit 4; }
-    printf '%s' "$_gh_runs" | jq -c --arg sha "$sha" \
+    _gh_match=$(printf '%s' "$_gh_runs" | jq -c --arg sha "$sha" \
       '(map(select(.headSha == $sha)) | .[0]) | select(. != null)
        | {sha:.headSha, status:.status,
           conclusion:(if (.conclusion // "") == "" then null else .conclusion end),
-          url:.url, startedAt:.startedAt}' || exit 4
+          url:.url, startedAt:.startedAt, databaseId:.databaseId}') || exit 4
+    [ -n "$_gh_match" ] || exit 0
+    # ONE MORE CALL, ONLY FOR A CONCLUDED FAILURE (#1295). `jobs[].steps` is
+    # what tells a run no runner ever picked up (every failed/cancelled job
+    # ran 0 steps) apart from a real failure, and that signal is not on `gh
+    # run list` at all — only `gh run view --json jobs` carries it. A run
+    # still going or that succeeded costs no extra call.
+    _gh_concl=$(printf '%s' "$_gh_match" | jq -r '.conclusion // ""')
+    if [ "$_gh_concl" = "failure" ] || [ "$_gh_concl" = "cancelled" ]; then
+      _gh_db_id=$(printf '%s' "$_gh_match" | jq -r '.databaseId')
+      _gh_jobs=$(gh run view "$_gh_db_id" --json jobs 2>/dev/null) \
+        || { echo "plot-host: run-for-sha — gh run view failed for '$_gh_db_id'" >&2; exit 4; }
+      # MERGED THROUGH STDIN (`-s`, SLURP), NEVER `--argjson`: that flag passes
+      # its payload on argv, which Linux caps at 128 KB (`MAX_ARG_STRLEN`).
+      jq -n -c --slurpfile match <(printf '%s' "$_gh_match") --slurpfile run <(printf '%s' "$_gh_jobs") \
+        '$match[0] + {jobs: [$run[0].jobs[] | {conclusion, steps: (.steps | length)}]} | del(.databaseId)' \
+        || exit 4
+    else
+      printf '%s' "$_gh_match" | jq -c 'del(.databaseId)' || exit 4
+    fi
     ;;
 
   issue-list)

@@ -155,4 +155,16 @@ export interface ShaRun {
   url: string;
   /** When it started, ISO-8601 as the system reported it; `''` when absent. */
   startedAt: string;
+  /**
+   * Each job's own conclusion and step count, for a run that concluded
+   * `failure` or `cancelled`; `undefined` where the collector did not report
+   * it (a run still going or that succeeded, or a CI system other than
+   * GitHub Actions).
+   *
+   * ABSENT IS NOT EMPTY. A rule reading this field for "every failed job ran
+   * 0 steps" must tell a run with no `jobs` reading apart from a run whose
+   * `jobs` array is empty — the first has not been measured and the second
+   * has been measured as having none, which are different facts.
+   */
+  jobs?: readonly { conclusion: string | null; steps: number }[];
 }

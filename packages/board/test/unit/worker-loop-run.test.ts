@@ -761,6 +761,41 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(r.runs).toHaveLength(2);
   });
 
+  it('never corrects a run no runner picked up, and ends checks-unanswered instead (#1295)', async () => {
+    // A failed run whose every failed/cancelled job ran 0 steps is `wait`,
+    // never `settled` — `runWasNotAcquired` in `checks-verdict.ts`. The loop
+    // must spend no correction on it and publish no failed finding; it keeps
+    // waiting until `checksWaitSeconds` runs out and ends `checks-unanswered`,
+    // the same way an unreadable tip or a `cancelled`-only conclusion already
+    // do, rather than burning a slice's correction budget on a host outage.
+    const r = rig(ASSIGNED, [{}]);
+    r.deps = {
+      ...r.deps,
+      ports: {
+        ...r.ports,
+        build: {
+          ...r.ports.build,
+          runForSha: async () => ({
+            ok: true,
+            value: {
+              sha: 'sha-1',
+              status: 'completed',
+              conclusion: 'failure',
+              url: 'u',
+              startedAt: '',
+              jobs: [{ conclusion: 'cancelled', steps: 0 }],
+            },
+          }),
+        },
+      },
+      config: { ...rigConfig(), checksWaitSeconds: 120, checksPollMs: 7_000 },
+    };
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(r.deskCalls.corrections).toHaveLength(0);
+    expect(r.deskCalls.buildFindings).toHaveLength(0);
+    expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('checks-unanswered');
+  });
+
   it('ends corrections-spent once the correction budget is spent (row 15)', async () => {
     const r = rig({ ...ASSIGNED, correctionAttempts: 2 }, [{}]);
     r.deps = {

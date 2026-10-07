@@ -137,6 +137,33 @@ export interface ChecksFromRunsReadings {
 const SETTLED_CONCLUSIONS: readonly string[] = ['success', 'failure', 'action_required'];
 
 /**
+ * Whether a concluded run is evidence of a host outage rather than of the
+ * agent's own code: every one of its failed or cancelled jobs ran 0 steps.
+ *
+ * ABSENT `jobs` NEVER READS AS "NO STEPS" (#1295). A Jenkins run, a fixture,
+ * or a GitHub run the collector did not ask about job facts for (because its
+ * conclusion was neither `failure` nor `cancelled`) carries no `jobs` field
+ * at all — not an empty one — and this answers false for all three, the same
+ * answer a real build failure gets.
+ *
+ * EVERY FAILED OR CANCELLED JOB, NOT ANY ONE. A run with one job that never
+ * started and one that ran a test and failed is a real failure: the agent is
+ * owed the correction for the job that ran, so one 0-step job beside one
+ * failure with steps must not clear the whole run.
+ *
+ * @param run - the run to read.
+ * @returns true when the run's conclusion and job facts together describe a
+ *   run no runner ever picked up.
+ */
+export const runWasNotAcquired = (run: ShaRun): boolean => {
+  if (run.conclusion !== 'failure' && run.conclusion !== 'cancelled') return false;
+  if (run.jobs === undefined || run.jobs.length === 0) return false;
+  return run.jobs.every(
+    (job) => (job.conclusion !== 'failure' && job.conclusion !== 'cancelled') || job.steps === 0,
+  );
+};
+
+/**
  * The answer to one pass of the loop's own CI wait.
  *
  * - `none`: waiting is disabled (`Checks wait` is `0` or less); no wait
@@ -145,7 +172,9 @@ const SETTLED_CONCLUSIONS: readonly string[] = ['success', 'failure', 'action_re
  *   is still that commit (or unreadable this pass). Keep waiting.
  * - `settled`: the run for the pushed commit concluded. The caller reads
  *   {@link ShaRun.conclusion} to decide pass or fail.
- * - `no-answer`: the wait reached `Checks wait` with nothing conclusive.
+ * - `no-answer`: the wait reached `Checks wait` with nothing conclusive —
+ *   including a run {@link runWasNotAcquired} reads as no runner having run
+ *   it (#1295), which never counts as `settled` however it concluded.
  * - `tip-moved`: the remote tip is no longer the pushed commit. The wait ends
  *   even inside the bound, because no build this loop could read would be
  *   about the agent's own work.
@@ -183,7 +212,12 @@ export const checksFromRuns = (readings: ChecksFromRunsReadings): ChecksFromRuns
 
   const run = readings.run !== null && readings.run.sha === readings.pushedSha ? readings.run : null;
 
-  if (run !== null && run.conclusion !== null && SETTLED_CONCLUSIONS.includes(run.conclusion)) {
+  if (
+    run !== null &&
+    run.conclusion !== null &&
+    SETTLED_CONCLUSIONS.includes(run.conclusion) &&
+    !runWasNotAcquired(run)
+  ) {
     return 'settled';
   }
 
