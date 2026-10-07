@@ -53,7 +53,7 @@ None.
 
 ### The corpus never moves origin/HEAD
 
-- `bug/the-corpus-never-moves-origin-head` — the refs corpus works on its own clone or an injected pin; `default_branch` refuses `plot-corpus-pin` <!-- builds: a corpus pin that writes no shared ref -->
+- `bug/the-corpus-never-moves-origin-head` — the refs corpus works on its own clone or an injected pin; `default_branch` refuses `plot-corpus-pin` <!-- builds: a corpus pin that writes no shared ref --> → #1354
 
 ### Local checks in a temp worktree
 
