@@ -56,11 +56,7 @@ while IFS= read -r line; do
     fi
   fi
 
-  if [ "$FIRST" = true ]; then
-    FIRST=false
-  else
-    RESULT="${RESULT},"
-  fi
+  [ "$FIRST" = true ] && FIRST=false || RESULT="${RESULT},"
 
   RESULT="${RESULT}$(jq -n \
     --arg slug "$ITEM_SLUG" \
