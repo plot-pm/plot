@@ -1445,7 +1445,9 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
             since: readings.passAt,
             evidence: answer.evidence,
           });
-        } else if (lastBuildFinding !== null) {
+        } else {
+          // `nextWord` differs from `lastBuildFinding` and is null here, so a
+          // finding is held.
           await deps.ports.desk.publishBuildFinding(worktreeForFinding, {
             branch: readings.assignedBranch,
             finding: 'clear',

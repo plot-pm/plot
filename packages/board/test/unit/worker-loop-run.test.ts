@@ -652,6 +652,61 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(words).toEqual(['build failed', 'build passed']);
   });
 
+  it('publishes the build finding to the loop\'s own desk when the manifest names none', async () => {
+    const r = rig({ ...ASSIGNED, worktree: undefined }, [{}]);
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(r.deskCalls.buildFindings[0]).toMatchObject({ worktree: r.wt, finding: { finding: 'build passed' } });
+  });
+
+  it('clears a held failed finding when the run no longer answers it', async () => {
+    const r = rig(ASSIGNED, [{}, {}]);
+    const answers = ['failure', null, 'success'];
+    let asks = 0;
+    r.deps = {
+      ...r.deps,
+      ports: {
+        ...r.ports,
+        build: {
+          ...r.ports.build,
+          runForSha: async () => {
+            const conclusion = answers[Math.min(asks++, answers.length - 1)];
+            return {
+              ok: true,
+              value: { sha: 'sha-1', status: conclusion === null ? 'in_progress' : 'completed', conclusion, url: 'u', startedAt: '' },
+            };
+          },
+        },
+      },
+    };
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(r.deskCalls.buildFindings.map((f) => f.finding.finding)).toEqual(['build failed', 'clear', 'build passed']);
+  });
+
+  it('forgets a held finding once the assignment is gone, so the next slice publishes its own', async () => {
+    // The manifest loses its branch during the correction run, from outside
+    // the loop; the next slice on the same branch meets the same failure.
+    const r = rig(ASSIGNED, [{}, { during: () => r.write({ ...r.read(), branch: '' }) }, {}]);
+    let reassigned = false;
+    r.deps = {
+      ...r.deps,
+      ports: {
+        ...r.ports,
+        build: buildFixture({ shaRuns: { [BRANCH]: [{ sha: 'sha-1', status: 'completed', conclusion: 'failure', url: 'u', startedAt: '' }] } }),
+      },
+      sleep: async (ms) => {
+        r.sleeps.push(ms);
+        vi.setSystemTime(Date.now() + ms);
+        if (!reassigned && r.read().branch === '') {
+          reassigned = true;
+          r.write({ ...r.read(), branch: BRANCH, correctionAttempts: 2 });
+        }
+      },
+    };
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(reassigned).toBe(true);
+    expect(r.deskCalls.buildFindings.map((f) => f.finding.finding)).toEqual(['build failed', 'build failed']);
+  });
+
   it('does not republish while the settled answer stays the same across passes', async () => {
     const r = rig(ASSIGNED, [{}], {}, {});
     r.deps = {
