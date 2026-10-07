@@ -616,6 +616,56 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(r.calls.clearedAssignments).toEqual(['sess-1']);
   });
 
+  it('publishes its own build passed finding once the checks wait settles', async () => {
+    const r = rig(ASSIGNED, [{}]);
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    expect(r.deskCalls.buildFindings).toHaveLength(1);
+    expect(r.deskCalls.buildFindings[0]).toMatchObject({
+      worktree: r.wt,
+      finding: { branch: BRANCH, finding: 'build passed' },
+    });
+  });
+
+  it('publishes a failed finding once, then clears it on the retry that passes (row 14)', async () => {
+    const r = rig(ASSIGNED, [{}, {}]);
+    let runs = 0;
+    r.deps = {
+      ...r.deps,
+      ports: {
+        ...r.ports,
+        build: {
+          ...r.ports.build,
+          runForSha: async () => ({
+            ok: true,
+            value: { sha: 'sha-1', status: 'completed', conclusion: runs++ === 0 ? 'failure' : 'success', url: 'u', startedAt: '' },
+          }),
+        },
+      },
+    };
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    const words = r.deskCalls.buildFindings.map((f) => f.finding.finding);
+    // The failed finding publishes once; the retry's own success finding
+    // replaces it directly — there is no board precedent for a `clear`
+    // between two settled answers, only between a held one and none.
+    expect(words).toEqual(['build failed', 'build passed']);
+  });
+
+  it('does not republish while the settled answer stays the same across passes', async () => {
+    const r = rig(ASSIGNED, [{}], {}, {});
+    r.deps = {
+      ...r.deps,
+      ports: {
+        ...r.ports,
+        build: buildFixture({ shaRuns: { [BRANCH]: [{ sha: 'sha-1', status: 'in_progress', conclusion: null, url: 'u', startedAt: '' }] } }),
+      },
+      config: { ...rigConfig(), checksWaitSeconds: 120, checksPollMs: 7_000 },
+    };
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    // Never settles in this run, so buildFindingFor answers null every pass —
+    // nothing held, nothing to clear, and no finding published.
+    expect(r.deskCalls.buildFindings).toHaveLength(0);
+  });
+
   it('keeps waiting while checks are pending, one pass at a time', async () => {
     const r = rig(ASSIGNED, [{}], {}, {});
     r.deps = {
