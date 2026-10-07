@@ -183,12 +183,11 @@ done
 
 # --- hub docs and existing config ---------------------------------------
 hubs=""
-for f in CLAUDE.md AGENTS.md; do
-  [ -f "$f" ] && hubs="${hubs:+$hubs,}$f"
-done
 has_cfg=false
 for f in CLAUDE.md AGENTS.md; do
-  [ -f "$f" ] && grep -q '^## Plot Config' "$f" 2>/dev/null && has_cfg=true
+  [ -f "$f" ] || continue
+  hubs="${hubs:+$hubs,}$f"
+  grep -q '^## Plot Config' "$f" 2>/dev/null && has_cfg=true
 done
 has_settings=false
 [ -f .claude/settings.json ] && has_settings=true
