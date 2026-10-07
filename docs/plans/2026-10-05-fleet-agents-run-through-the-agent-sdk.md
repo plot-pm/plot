@@ -245,7 +245,7 @@ So the default derives from what the project wrote, as `MANIFESTO.md` Principle 
 
 ### The SDK is the default runner
 
-- `infra/the-sdk-is-the-default-runner` — `scripts/count-fleet-turns.mjs` measures both runners; an absent `Agent runner` reads `sdk` where `runnerChoice` finds `claude` named, after the bar below <!-- builds: count-fleet-turns.mjs and the sdk default --> <!-- waits: infra/js-is-the-default-loop --> <!-- waits: infra/a-run-records-its-spend --> <!-- waits: infra/the-board-commands-run-through-the-port -->
+- `infra/the-sdk-is-the-default-runner` — `scripts/count-fleet-turns.mjs` measures both runners; an absent `Agent runner` reads `sdk` where `runnerChoice` finds `claude` named, after the bar below → #1334 <!-- builds: count-fleet-turns.mjs and the sdk default --> <!-- waits: infra/js-is-the-default-loop --> <!-- waits: infra/a-run-records-its-spend --> <!-- waits: infra/the-board-commands-run-through-the-port -->
 
 ## Done When
 
