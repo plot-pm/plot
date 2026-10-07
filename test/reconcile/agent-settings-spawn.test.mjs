@@ -1,30 +1,31 @@
-// Contract test for the ten agent-runner spawn sites and the settings file they
+// Contract test for the ten agent-runner call sites and the settings file they
 // must inherit.
 //
 // THE MECHANISM IS INHERITANCE, NOT AN EDIT. `index.ts` resolves
 // `Agent settings` once at startup and assigns `process.env.PLOT_AGENT_SETTINGS`;
-// all ten spawns inherit it, so none of them is edited. That is what makes the
-// change one line instead of ten, and it is also what makes it FRAGILE in one
-// specific way: a site that grows an explicit `env: { … }` without
-// `...process.env` stops inheriting, silently, and the agent it starts loses the
-// settings file while every test about that route still passes.
+// every site inherits it, so none of them is edited to carry it explicitly.
 //
-// So these tests assert the two SHAPES that carry the variable:
+// All ten sites start their agent through `startBoardRun` (`board-run.ts`),
+// which hands the route's `env` to the `agentRun` port as EXTRA environment.
+// Both adapters merge it over this process's own: `boundedRunProcess` spawns
+// with `{ ...process.env, ...options.env }`, and the SDK connector builds its
+// inherited environment from `process.env` and reads the settings file from
+// `PLOT_AGENT_SETTINGS`. So the shapes these tests assert are:
 //
-//   - eight sites spread `...process.env` into their `env`
-//   - two sites pass NO `env` at all, which in Node means inherit-everything
+//   - each of the ten files calls `startBoardRun(` and holds no `spawn(`
+//   - the command adapter's spawn merges `process.env` under the request's env
+//   - the SDK connector inherits `process.env` and reads `PLOT_AGENT_SETTINGS`
 //
-// THE TWO NO-`env` SITES ARE THE ONES A REFACTOR BREAKS SILENTLY. They work for
-// a different reason from the other eight, and "add `env` for cwd/logging" is an
-// ordinary-looking change that would break exactly them.
+// THE MERGE IS THE ONE PLACE A REFACTOR BREAKS SILENTLY: an adapter that passed
+// the request's `env` alone would start every board role without the settings
+// file while every route test still passes.
 //
-// A RUNTIME TEST OF ALL TEN WAS CONSIDERED AND IS NOT WHAT THIS IS. Each site
-// spawns a project-configured agent command detached, and driving ten of them
-// through a real board means ten detached `sh -c` children per run. The property
-// that matters is structural — does this call site inherit the environment — and
-// a source assertion states it without starting anything. One runtime proof that
-// a spawned command SEES the variable is below, through a stub command, so the
-// inheritance claim itself is measured once rather than assumed.
+// A RUNTIME TEST OF ALL TEN WAS CONSIDERED AND IS NOT WHAT THIS IS. The
+// property that matters is structural — does this call site inherit the
+// environment — and a source assertion states it without starting anything.
+// One runtime proof that a started command SEES the variable is below,
+// through a stub command, so the inheritance claim itself is measured once
+// rather than assumed.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -39,53 +40,53 @@ const serverDir = path.join(repoRoot, 'packages', 'board', 'src', 'server');
 
 const source = (file) => readFileSync(path.join(serverDir, `${file}.ts`), 'utf8');
 
-/** The eight sites that spread `process.env` into an explicit `env`. */
-const SPREADING = [
+/** The ten board-role sites; each starts its agent through `startBoardRun`. */
+const SITES = [
   'idea',
+  'commission',
+  'reslice',
+  'deliver',
+  'story',
+  'brief-ask',
   'implement',
   'interrogate',
-  'story',
+  'approve',
   'auto-deliver',
-  'commission',
-  'deliver',
-  'reslice',
 ];
 
-/** The two sites that pass no `env` and inherit the whole environment. */
-const INHERITING = ['brief-ask', 'approve'];
-
-for (const file of SPREADING) {
-  test(`${file}.ts spreads process.env into its agent spawn`, () => {
+for (const file of SITES) {
+  test(`${file}.ts starts its agent through startBoardRun, never a raw spawn`, () => {
     const text = source(file);
-    assert.ok(text.includes('spawn('), `${file}.ts should spawn an agent command`);
-    assert.ok(
-      text.includes('...process.env'),
-      `${file}.ts must spread ...process.env, or the agent it starts loses PLOT_AGENT_SETTINGS`,
-    );
+    assert.ok(text.includes('startBoardRun('), `${file}.ts should start its agent through startBoardRun`);
+    assert.ok(!/\bspawn\(/.test(text), `${file}.ts must not spawn its agent itself`);
   });
 }
 
-for (const file of INHERITING) {
-  test(`${file}.ts passes no env to its agent spawn, so it inherits`, () => {
-    const text = source(file);
-    assert.ok(text.includes('spawn('), `${file}.ts should spawn an agent command`);
-    // A site here that GAINS an `env` must gain the spread with it. Testing for
-    // the absence of `env:` is what catches the silent case: an added
-    // `env: { PLOT_X: '1' }` replaces the environment rather than extending it.
-    if (text.includes('env:')) {
-      assert.ok(
-        text.includes('...process.env'),
-        `${file}.ts gained an env: block — it must spread ...process.env, or it stops inheriting PLOT_AGENT_SETTINGS`,
-      );
-    }
-  });
-}
+test('the command adapter merges this process environment under the request env', () => {
+  const text = readFileSync(
+    path.join(repoRoot, 'packages', 'domain', 'src', 'adapters', 'bounded-run', 'bounded-run-process.ts'),
+    'utf8',
+  );
+  assert.ok(
+    text.includes('{ ...process.env, ...options.env }'),
+    'boundedRunProcess must spread process.env under the request env, or every command role loses PLOT_AGENT_SETTINGS',
+  );
+});
+
+test('the SDK connector inherits this process environment and reads the settings file', () => {
+  const text = source('sdk-runner');
+  assert.ok(text.includes('Object.entries(process.env)'), 'sdk-runner.ts must inherit process.env');
+  assert.ok(
+    text.includes('process.env.PLOT_AGENT_SETTINGS'),
+    'sdk-runner.ts must read PLOT_AGENT_SETTINGS, or an SDK role starts with the operator plugins',
+  );
+});
 
 test('the board resolves the settings file once, through the shared prime', () => {
   const index = source('index');
   assert.ok(
     index.includes('primeAgentSettings'),
-    'index.ts must prime PLOT_AGENT_SETTINGS at startup, or no spawn site can inherit it',
+    'index.ts must prime PLOT_AGENT_SETTINGS at startup, or no site can inherit it',
   );
 });
 
@@ -116,10 +117,10 @@ test('entry/main.ts primes the settings file in its own process too', () => {
   );
 });
 
-// THE ONE RUNTIME PROOF. `spawn` with no `env`, and `spawn` spreading
-// `process.env`, both hand a child the variable — asserted against a real
-// process rather than trusted, because the whole design rests on it.
-test('a spawned command sees PLOT_AGENT_SETTINGS through both shapes', () => {
+// THE ONE RUNTIME PROOF. A child started with `process.env` merged in sees
+// the variable — asserted against a real process rather than trusted, because
+// the whole design rests on it.
+test('a started command sees PLOT_AGENT_SETTINGS, and none when it is unset', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'plot-agent-settings-spawn-'));
   try {
     const stub = path.join(dir, 'stub.sh');
@@ -133,7 +134,7 @@ test('a spawned command sees PLOT_AGENT_SETTINGS through both shapes', () => {
 
     const settings = path.join(dir, 'agent-settings.json');
 
-    // Shape 1: no `env` at all — brief-ask.ts and approve.ts.
+    // Shape 1: the variable present in the merged environment.
     const inherited = spawnSync('sh', ['-c', `${stub} "$@"`, 'stub'], {
       encoding: 'utf8',
       env: { ...process.env, PLOT_AGENT_SETTINGS: settings },

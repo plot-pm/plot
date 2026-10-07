@@ -10,15 +10,14 @@
  * `promptExit` reads it today, so a project on `Agent runner: command` sees no
  * change in behaviour from before this port existed.
  *
- * **`request.prompt` IS TEXT, NOT A PATH** — the port's own doc names it
- * "the prompt text," the same string a fresh SDK run passes to `query()`. A
- * shell command has no way to run a string directly, so this adapter writes
- * it to a scratch file beside the log file and sources THAT, the way the loop
- * sources its resolved prompt file today.
+ * **THE FRAGMENT RUNS WITH `request.prompt` AS ITS OWN ARGUMENT, NEVER
+ * INTERPOLATED INTO A SHELL STRING.** `deps.fragment` is a shell FRAGMENT
+ * (e.g. `claude -p`) from the project's own config, run as
+ * `bash -c '<fragment> "$@"' _ <prompt>` — the shape the board routes used
+ * before this adapter existed. The prompt is a positional argument, so a
+ * prompt containing a quote or a `$` is never read as shell syntax.
  */
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { AgentRun, AgentRunRequest, AgentRunResult } from '../../ports/agent-run.js';
@@ -29,6 +28,8 @@ import { promptExit, type LimitPatterns } from '../../rules/prompt-exit.js';
 /** What this adapter needs beyond the request itself. */
 export interface AgentRunCommandDeps {
   readonly boundedRun: BoundedRun;
+  /** The shell fragment to run, e.g. `claude -p` — read once, not per request. */
+  readonly fragment: string;
   /** The command's own basename, for reading its limit-line patterns. */
   readonly limitPatterns: LimitPatterns | undefined;
   /** Epoch milliseconds, for the exit classification's `now`. */
@@ -36,36 +37,36 @@ export interface AgentRunCommandDeps {
 }
 
 /**
- * An `AgentRun` that runs the request's command through `boundedRun`.
+ * An `AgentRun` that runs `deps.fragment` through `boundedRun`, with
+ * `request.prompt` passed as that fragment's own argument.
  *
- * `request.harness` names the command fragment to run (the loop resolves this
- * from the project's configured command before calling in); this adapter does
- * not interpret `request.model` or `request.effort` — a shell fragment either
- * already names a model (e.g. `PLOT_MODEL=sonnet`) or does not, and this
- * adapter has no CLI flag vocabulary to inject one with.
+ * This adapter does not interpret `request.model` or `request.effort` — a
+ * shell fragment either already names a model (e.g. `PLOT_MODEL=sonnet`) or
+ * does not, and this adapter has no CLI flag vocabulary to inject one with.
  *
- * @param deps - the bounded-run port, this harness's limit patterns, and a clock.
+ * @param deps - the bounded-run port, the fragment to run, this harness's
+ *   limit patterns, and a clock.
  * @returns an `AgentRun` backed by `boundedRun`.
  */
 export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
   run: async (request: AgentRunRequest): Promise<PortResult<AgentRunResult>> => {
-    await writeFile(request.logFile, '', 'utf8');
-    const scratchDir = await mkdtemp(join(tmpdir(), 'plot-agent-run-command-'));
-    const promptFile = join(scratchDir, 'prompt.sh');
-    await writeFile(promptFile, request.prompt, 'utf8');
-
-    let result;
-    try {
-      result = await deps.boundedRun.run('env', ['-u', 'PLOT_REPO_ROOT', 'bash', '-c', '. "$1"', '_', promptFile], {
+    // APPENDED, NEVER TRUNCATED, as the SDK adapter appends: the caller owns
+    // the log, and a board log shared by two entrances is appended to.
+    //
+    // NO SCRATCH FILE: a file this run wrote would outlive a caller that is
+    // killed mid-run, because nothing then reaches the code that removes it.
+    const result = await deps.boundedRun.run(
+      'env',
+      ['-u', 'PLOT_REPO_ROOT', 'bash', '-c', `${deps.fragment} "$@"`, '_', request.prompt],
+      {
         cwd: request.worktree,
         env: { ...request.env, ...backgroundGateEnv() },
         boundSeconds: request.boundSeconds,
         outFile: request.logFile,
-      });
-    } finally {
-      await rm(scratchDir, { recursive: true, force: true });
-    }
+      },
+    );
     if (!result.ok) return failed();
+    if (result.value.timedOut) return answered(unasked(request, { answer: 'bound' }));
 
     let output = '';
     try {
@@ -74,6 +75,7 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
       /* an unreadable output is an exit with no limit line */
     }
 
+    const signalled = result.value.status === null;
     const status = result.value.status ?? 124;
     const exit = promptExit(
       {
@@ -95,7 +97,7 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
         case 'end-limited':
           return { answer: 'end-limited', cause: exit.cause };
         case 'unstarted':
-          return { answer: 'unstarted', detail: 'the command exited without the agent doing any work' };
+          return { answer: 'unstarted', detail: `the command exited ${signalled ? 'on a signal' : `with status ${status}`}` };
         case 'dropped':
           return { answer: 'dropped', line: exit.line };
         case 'ran':
@@ -105,20 +107,30 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
       }
     })();
 
-    return answered({
-      sessionId: request.resumeId,
-      end,
-      // UNASKABLE, NOT EMPTY-AS-ZERO: a shell command's stdout is free-form
-      // text this adapter does not parse for usage. `{}` means "none
-      // reported" on this port (see AgentRunResult's own doc), which is
-      // exactly this adapter's situation — it never asked.
-      usageByModel: {},
-      costUsd: null,
-      costUsdByModel: {},
-      turns: 0,
-      limitReadings: [],
-      // UNASKABLE, AS ABOVE: a `command` run has no connector to ask.
-      account: null,
-    });
+    return answered(unasked(request, end));
   },
+});
+
+/**
+ * A result carrying only the end: a shell command reports no session, usage,
+ * cost, turns, limit readings or account.
+ *
+ * @param request - the request, for the session it named.
+ * @param end - why the run ended.
+ * @returns the result.
+ */
+const unasked = (request: AgentRunRequest, end: AgentRunResult['end']): AgentRunResult => ({
+  sessionId: request.resumeId,
+  end,
+  // UNASKABLE, NOT EMPTY-AS-ZERO: a shell command's stdout is free-form
+  // text this adapter does not parse for usage. `{}` means "none
+  // reported" on this port (see AgentRunResult's own doc), which is
+  // exactly this adapter's situation — it never asked.
+  usageByModel: {},
+  costUsd: null,
+  costUsdByModel: {},
+  turns: 0,
+  limitReadings: [],
+  // UNASKABLE, AS ABOVE: a `command` run has no connector to ask.
+  account: null,
 });

@@ -79,11 +79,12 @@ interface World {
 const readingsFrom = (world: World): AgentLoopReadings => {
   const end = world.lastRun?.end ?? null;
   const handBack = end !== null && end.answer === 'ran' ? end.handBack : null;
+  const workerHandBack = handBack !== null && 'next' in handBack ? handBack : null;
   return {
     ...freeLoop,
     exit: world.lastRun === null ? null : { answer: 'ran' },
-    handBack: handBack?.next ?? null,
-    handBackSummary: handBack?.summary ?? '',
+    handBack: workerHandBack?.next ?? null,
+    handBackSummary: workerHandBack?.summary ?? '',
     checksResumeId: world.lastRun?.sessionId ?? '',
     localChecks: world.localChecks,
     pushed: world.pushed,

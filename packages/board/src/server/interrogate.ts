@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { agentLogPath } from './agent-log.js';
 import { readConfig, type BuildBoardOptions } from './board.js';
+import { markBoardRun, readRunState, startBoardRun, STOPPED_RECORD } from './board-run.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { readPhase } from './transition.js';
 import { ideaAvailability, lastLines, usableCommand, type IdeaState } from './idea.js';
@@ -12,9 +12,10 @@ import { ideaAvailability, lastLines, usableCommand, type IdeaState } from './id
  * Interrogating a Draft plan: `POST /api/interrogate` runs the configured
  * `Interrogate command` with a prompt asking for `/challenge-the-plan <plan path>`.
  *
- * The shape is `commission.ts`'s: slug-scoped, Draft-only, a detached plot
- * agent answered 202, and a slug-keyed status read-back. The guards are
- * imported from `dispatch.ts` and `idea.ts`, not copied.
+ * The shape is `commission.ts`'s: slug-scoped, Draft-only, a plot agent
+ * started through the `agentRun` port and answered 202, and a slug-keyed
+ * status read-back. The guards are imported from `dispatch.ts` and `idea.ts`,
+ * not copied.
  *
  * The route decides nothing. The skill writes five artifacts: the verdict
  * files, `panel.md`, the plan's `Rounds:` increment, the Open Points section in
@@ -60,8 +61,9 @@ export const interrogateLogPath = (repoRoot: string, slug: string): string =>
   agentLogPath(repoRoot, 'interrogate', slug, 'log');
 
 /**
- * Where the run's state goes: `running <pid>` from spawn until exit, then the
- * exit code (`0`, `1`, `signal SIGTERM`).
+ * Where the run's state goes: `running <board pid>` from the start until the
+ * run ends, then its code (`0`, `1`, `124` on the bound, or the board's own
+ * exit code where the board stopped first).
  */
 const interrogateStatePath = (repoRoot: string, slug: string): string =>
   agentLogPath(repoRoot, 'interrogate', slug, 'state');
@@ -134,42 +136,24 @@ export interface InterrogateStatus {
   log: string;
 }
 
-/** Whether a process with this pid exists. */
-const alive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    // EPERM: the process exists and belongs to someone else.
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-};
-
 /**
  * Read back what an earlier POST started. Never spawns, never blocks.
  *
- * `running` holds only while the recorded pid is alive. A `running <pid>` state
- * whose process is gone reads `failed`: the board that held the exit listener
- * stopped before the command ended, so no exit code was recorded.
+ * `running` holds only while the board that started the run still holds it. A
+ * `running <pid>` state whose board is gone reads `failed`: the board stopped
+ * before the command ended, and the command ended with it.
  */
 export const interrogateStatus = (opts: BuildBoardOptions, slug: string): InterrogateStatus => {
   const log = interrogateLogPath(opts.repoRoot, slug);
-  let recorded = '';
-  try {
-    recorded = fs.readFileSync(interrogateStatePath(opts.repoRoot, slug), 'utf8').trim();
-  } catch {
-    return { state: 'unknown', message: '', log };
-  }
-  const running = /^running (\d+)$/.exec(recorded);
-  if (running) {
-    if (alive(Number(running[1]))) return { state: 'running', message: '', log };
+  const { state, recorded } = readRunState(interrogateStatePath(opts.repoRoot, slug), log);
+  if (state !== 'failed') return { state, message: '', log };
+  if (recorded === STOPPED_RECORD) {
     return {
       state: 'failed',
       message: 'the interrogate command stopped without recording an exit code — see its log',
       log,
     };
   }
-  if (recorded === '0') return { state: 'done', message: '', log };
   let text = '';
   try {
     text = fs.readFileSync(log, 'utf8');
@@ -193,7 +177,8 @@ export interface InterrogateDeps {
 
 /**
  * Handle `POST /api/interrogate` with body `{ slug }`: refuse, or write the
- * prompt and spawn the configured command detached, answering 202.
+ * prompt and start the configured command through the `agentRun` port,
+ * answering 202.
  *
  * Refusals, each with a `detail` sentence:
  *
@@ -306,58 +291,35 @@ export const handleInterrogate = async (
 
   const log = interrogateLogPath(opts.repoRoot, slug);
   const statePath = interrogateStatePath(opts.repoRoot, slug);
-  let out: number;
   try {
+    // Truncated, not appended — this log is read back AS the answer. Created
+    // and marked BEFORE the 202, so a second POST reads this run as running.
     fs.rmSync(statePath, { force: true });
-    out = fs.openSync(log, 'w');
+    fs.writeFileSync(log, '', 'utf8');
+    markBoardRun(statePath, log);
   } catch (err) {
     json(500, { error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` });
     return;
   }
 
-  // `Interrogate command` is a shell fragment. Nothing from the request is
-  // interpolated into it: the prompt travels as a file, its path as one "$@"
-  // argument and in the environment.
-  const child = spawn(
-    'sh',
-    ['-c', `${usable} "$@"`, 'plot-interrogate', `Read ${promptPath} and follow it.`],
-    {
-      cwd: opts.repoRoot,
-      detached: true,
-      stdio: ['ignore', out, out],
-      env: {
-        ...process.env,
-        PLOT_UNATTENDED: '1',
-        PLOT_INTERROGATE_PROMPT: promptPath,
-        PLOT_PLAN_SLUG: slug,
-      },
+  // THROUGH THE `agentRun` PORT, in the board's process group; the run is not
+  // awaited before the 202. `Interrogate command` is a shell fragment, and
+  // nothing from the request is interpolated into it: the prompt travels as a
+  // file, its path as one argument and in the environment.
+  await startBoardRun(opts, {
+    role: 'interrogate',
+    fragmentKey: INTERROGATE_COMMAND_KEY,
+    readCfg,
+    tree: opts.repoRoot,
+    prompt: `Read ${promptPath} and follow it.`,
+    env: {
+      PLOT_UNATTENDED: '1',
+      PLOT_INTERROGATE_PROMPT: promptPath,
+      PLOT_PLAN_SLUG: slug,
     },
-  );
-  if (child.pid !== undefined) {
-    try {
-      fs.writeFileSync(statePath, `running ${child.pid}`, 'utf8');
-    } catch {
-      /* without it the status reads unknown, and the log still records the run */
-    }
-  }
-  child.on('exit', (code, signal) => {
-    try {
-      fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
-    } catch {
-      /* the state file is a convenience; the log is the record */
-    }
+    logFile: log,
+    statePath,
   });
-  child.on('error', (err) => {
-    console.error('interrogate failed to spawn:', err);
-    try {
-      fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
-      fs.writeFileSync(statePath, '1', 'utf8');
-    } catch {
-      /* nothing further to do */
-    }
-  });
-  // Detached without `unref`: the handle keeps the exit listener alive.
-  fs.closeSync(out);
 
   json(202, { ok: true, slug, prompt: promptPath, log });
 };

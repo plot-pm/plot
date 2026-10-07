@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { agentLogDir, agentLogPath } from './agent-log.js';
-import { spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
+import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
 import {
   dispatchAvailability,
   isSameOrigin,
@@ -221,17 +221,8 @@ export function lastLines(text: string, max = 3, maxChars = 400): string {
 export function approveStatus(opts: BuildBoardOptions, slug: string): ApproveStatus {
   const log = approveLogPath(opts.repoRoot, slug);
   const statePath = approveStatePath(opts.repoRoot, slug);
-  let recorded = '';
-  try {
-    recorded = fs.readFileSync(statePath, 'utf8').trim();
-  } catch {
-    // No state file at all: either nothing was ever started for this slug, or a
-    // run is in flight and has not written one yet. The log tells them apart.
-    return fs.existsSync(log)
-      ? { state: 'running', message: '', log }
-      : { state: 'unknown', message: '', log };
-  }
-  if (recorded === '0') return { state: 'done', message: '', log };
+  const { state, recorded } = readRunState(statePath, log);
+  if (state !== 'failed') return { state, message: '', log };
   let text = '';
   try {
     text = fs.readFileSync(log, 'utf8');
@@ -334,35 +325,25 @@ export async function handleApprove(
   }
 
   // TWO ENTRANCES, ONE IMPLEMENTATION. With `Approve command` declared the
-  // board asks for the skill by name and the project says what runs it; without
-  // one it runs the script Plot ships. The skill itself calls that same script,
-  // so the mechanical steps happen once either way and cannot drift.
+  // board asks for the skill by name and the project says what runs it,
+  // ROUTED THROUGH THE `agentRun` PORT rather than a raw `spawn`; without one
+  // it runs the script Plot ships, through the `Scripts` port as before. The
+  // skill itself calls that same script, so the mechanical steps happen once
+  // either way and cannot drift.
   //
-  // In the command case the prompt is passed as ONE argument, never
-  // interpolated into the command string. `sh -c "$cmd /plot-approve $slug"`
-  // would make a slug a shell injection point; `"$@"` makes it data. The slug is
-  // already validated, so this is defence in depth rather than the only barrier
-  // — which is precisely when it is worth having. The script case never builds a
-  // shell string at all.
-  // The exit code is written by a listener in THIS process rather than by a
-  // shell wrapper around the command, so a command that itself spawns and exits
-  // is timed the same way any other is.
-  const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
-    try {
-      fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
-    } catch {
-      /* the state file is a convenience; the log is the record */
-    }
-  };
-  const onError = (err: Error): void => {
-    console.error('approve failed to spawn:', err);
-    try {
-      fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
-      fs.writeFileSync(statePath, '1', 'utf8');
-    } catch {
-      /* nothing further to do */
-    }
-  };
+  // In the command case the prompt is passed as its own request field, never
+  // interpolated into a shell string. The script case never builds one at all.
+  //
+  // THE OUTCOME HAND-BACK DOES NOT CHANGE STATE. `outcome: 'done'` or
+  // `'refused'` decides only the code the card reads; the plan's phase is
+  // still read from git exactly as before — this route asserts nothing about
+  // the host from the agent's own claim.
+  //
+  // A BOARD STOP ENDS THE AGENT ARM, which runs in the board's process group.
+  // A stop between the PR merge and the `Approved:` record leaves the plan
+  // merged and unrecorded; `plot-approve.sh` finds each step already done and
+  // writes only what is missing, so approving again is the repair.
+  //
   // ABOVE BOTH ARMS, because both are this controller acting.
   // `plot-controller-gate.sh` refuses `plot-approve.sh` invoked with no
   // receipt, and the agent arm reaches it too: a spawned `claude -p` inherits
@@ -370,19 +351,47 @@ export async function handleApprove(
   // agent's own script call is gated exactly as a master agent's is.
   recordActionReceipt(opts.repoRoot, 'approve', slug);
   if (command) {
-    const child = spawn(
-      'sh',
-      ['-c', `${command} "$@"`, 'plot-approve', approvePrompt(slug)],
-      { cwd: opts.repoRoot, detached: true, stdio: ['ignore', out, out] },
-    );
-    child.on('exit', onExit);
-    child.on('error', onError);
+    fs.closeSync(out);
+    // A REFUSED OUTCOME IS NOT DONE. `startBoardRun` records `outcome:
+    // 'refused'` as code 1 with the summary, so the card reports the refusal;
+    // the plan's phase is still read from git, never from the hand-back.
+    try {
+      markBoardRun(statePath, log);
+    } catch (err) {
+      json(500, { error: `cannot write ${statePath}: ${err instanceof Error ? err.message : String(err)}` });
+      return;
+    }
+    await startBoardRun(opts, {
+      role: 'approve',
+      fragmentKey: APPROVE_COMMAND_KEY,
+      tree: opts.repoRoot,
+      prompt: approvePrompt(slug),
+      env: {},
+      logFile: log,
+      statePath,
+    });
   } else {
     // `--who` TRAVELS AS AN ARGUMENT, not folded into a shell string: this arm
     // never builds one at all, and `plot-approve.sh` itself refuses an empty
     // or undeclared handle on an in-session plan — this route supplies
     // whatever the caller sent, unvalidated, because the script is the one
     // place that rule is asked.
+    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      try {
+        fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
+      } catch {
+        /* the state file is a convenience; the log is the record */
+      }
+    };
+    const onError = (err: Error): void => {
+      console.error('approve failed to spawn:', err);
+      try {
+        fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
+        fs.writeFileSync(statePath, '1', 'utf8');
+      } catch {
+        /* nothing further to do */
+      }
+    };
     const args = who ? [slug, '--who', who] : [slug];
     scriptsFor(opts).start(APPROVE_SCRIPT, args, {
       log: out,
@@ -393,22 +402,22 @@ export async function handleApprove(
       // terminal run of the same script.
       env: { ...process.env, PLOT_APPROVE_ENTRY: 'board' },
     });
+    // `detached` WITHOUT `unref`, which is deliberate and not the contradiction
+    // it looks like — the two flags answer different questions.
+    //
+    // `detached` puts the command in its own process group, so a Ctrl-C in the
+    // board's terminal does not land on it. An approval interrupted midway is
+    // the worst outcome available here: it can have merged the PR and not yet
+    // written the `Approved:` record, which is a plan whose file disagrees
+    // with its host. Finishing is strictly better than stopping.
+    //
+    // No `unref`, unlike the dispatcher's worker: that one must outlive the
+    // board by design (a fleet keeps running when the board is closed), while
+    // this one is short and its EXIT CODE is what the card is waiting for.
+    // Dropping the handle would drop the listener above with it, and every
+    // approval would read as `running` forever.
+    fs.closeSync(out);
   }
-  // `detached` WITHOUT `unref`, which is deliberate and not the contradiction
-  // it looks like — the two flags answer different questions.
-  //
-  // `detached` puts the command in its own process group, so a Ctrl-C in the
-  // board's terminal does not land on it. An approval interrupted midway is the
-  // worst outcome available here: it can have merged the PR and not yet written
-  // the `Approved:` record, which is a plan whose file disagrees with its host.
-  // Finishing is strictly better than stopping.
-  //
-  // No `unref`, unlike the dispatcher's worker: that one must outlive the board
-  // by design (a fleet keeps running when the board is closed), while this one
-  // is short and its EXIT CODE is what the card is waiting for. Dropping the
-  // handle would drop the listener above with it, and every approval would read
-  // as `running` forever.
-  fs.closeSync(out);
 
   json(202, { slug, log });
 }

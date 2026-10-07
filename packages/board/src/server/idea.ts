@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { agentLogDir, agentLogPath } from './agent-log.js';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { readConfig, scriptsFor, type BuildBoardOptions } from './board.js';
+import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { localCapability } from './controllers/caller.js';
 
@@ -370,15 +371,8 @@ export function lastLines(text: string, max = 3, maxChars = 400): string {
 export function ideaStatus(opts: BuildBoardOptions, number: number): IdeaStatus {
   const log = ideaLogPath(opts.repoRoot, number);
   const statePath = ideaStatePath(opts.repoRoot, number);
-  let recorded = '';
-  try {
-    recorded = fs.readFileSync(statePath, 'utf8').trim();
-  } catch {
-    return fs.existsSync(log)
-      ? { state: 'running', message: '', log }
-      : { state: 'unknown', message: '', log };
-  }
-  if (recorded === '0') return { state: 'done', message: '', log };
+  const { state, recorded } = readRunState(statePath, log);
+  if (state !== 'failed') return { state, message: '', log };
   let text = '';
   try {
     text = fs.readFileSync(log, 'utf8');
@@ -608,13 +602,14 @@ export async function handleIdea(
 
   const log = ideaLogPath(opts.repoRoot, number);
   const statePath = ideaStatePath(opts.repoRoot, number);
-  let out: number;
   try {
     // Truncated, not appended — this log is read back AS the answer, and an
     // appended one would show a previous attempt's error after a later
     // success. The same choice `approve.ts` makes, for the same reason.
+    // The run appends to it; this write is also the 500-on-unwritable-log check, run
+    // before the worktree gets created.
     fs.rmSync(statePath, { force: true });
-    out = fs.openSync(log, 'w');
+    fs.writeFileSync(log, '', 'utf8');
   } catch (err) {
     json(500, { error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` });
     return;
@@ -708,47 +703,34 @@ export async function handleIdea(
     return;
   }
 
-  const child = spawn(
-    'sh',
-    ['-c', `${usable} "$@"`, 'plot-idea', `Read ${promptPath} and follow it.`],
-    {
-      cwd: ideaTree,
-      detached: true,
-      stdio: ['ignore', out, out],
-      env: {
-        ...process.env,
-        // THE DECLARATION, not a switch. There is nobody at this board to
-        // answer `AskUserQuestion`, and under `claude -p` that tool is not even
-        // registered — so a skill that improvises here exits 0 having written
-        // nothing. Setting it makes each skipped question take the shape its
-        // author chose and name itself in the log.
-        PLOT_UNATTENDED: '1',
-        [IDEA_PROMPT_ENV]: promptPath,
-        PLOT_ISSUE: String(number),
-      },
+  // THROUGH THE `agentRun` PORT, never a raw `spawn`: `startBoardRun` asks
+  // `runnerChoice` for the role and starts the `command` or `sdk` connector.
+  //
+  // STAYS IN THE BOARD'S PROCESS GROUP — no `detached`. The run is NOT awaited
+  // before the 202 answers: this server is single-threaded, and awaiting an
+  // agent would freeze every viewer's board for the length of somebody else's
+  // click. A board stop or restart now ends this run, and the state file then
+  // reads failed rather than running.
+  try {
+    markBoardRun(statePath, log);
+  } catch (err) {
+    json(500, { error: `cannot write ${statePath}: ${err instanceof Error ? err.message : String(err)}` });
+    return;
+  }
+  await startBoardRun(opts, {
+    role: 'idea',
+    fragmentKey: IDEA_COMMAND_KEY,
+    readCfg,
+    tree: ideaTree,
+    prompt: `Read ${promptPath} and follow it.`,
+    env: {
+      PLOT_UNATTENDED: '1',
+      [IDEA_PROMPT_ENV]: promptPath,
+      PLOT_ISSUE: String(number),
     },
-  );
-  child.on('exit', (code, signal) => {
-    try {
-      fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
-    } catch {
-      /* the state file is a convenience; the log is the record */
-    }
+    logFile: log,
+    statePath,
   });
-  child.on('error', (err) => {
-    console.error('idea failed to spawn:', err);
-    try {
-      fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
-      fs.writeFileSync(statePath, '1', 'utf8');
-    } catch {
-      /* nothing further to do */
-    }
-  });
-  // `detached` WITHOUT `unref`, exactly as `approve.ts` is and for its reason:
-  // detached keeps a Ctrl-C in the board's terminal off the agent, and keeping
-  // the handle keeps the exit listener above alive — dropping it would make
-  // every creation read as `running` forever.
-  fs.closeSync(out);
 
   json(202, { ok: true, number, prompt: promptPath, log });
 }

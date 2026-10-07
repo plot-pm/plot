@@ -56,6 +56,11 @@ export type SdkHandBack =
   | { readonly next: 'blocked'; readonly summary: string }
   | { readonly next: 'done'; readonly summary: string };
 
+/** A board role's hand-back, once `structuredOutput` is known to match its own schema. */
+export type SdkBoardHandBack =
+  | { readonly written: string; readonly summary: string }
+  | { readonly outcome: 'done' | 'refused'; readonly summary: string };
+
 /** What `sdkRunExit` answers. */
 export type SdkRunExit =
   | { readonly answer: 'unstarted'; readonly detail: string }
@@ -65,7 +70,11 @@ export type SdkRunExit =
   | { readonly answer: 'bound' }
   | { readonly answer: 'turn-limit' }
   | { readonly answer: 'spend-limit' }
-  | { readonly answer: 'ran'; readonly handBack: SdkHandBack | null; readonly detail: string };
+  | {
+      readonly answer: 'ran';
+      readonly handBack: SdkHandBack | SdkBoardHandBack | null;
+      readonly detail: string;
+    };
 
 /** The `terminal_reason` values that mean a usage limit without a `rate_limit_event`. */
 const LIMIT_TERMINAL_REASONS = new Set(['blocking_limit', 'rapid_refill_breaker']);
@@ -86,6 +95,20 @@ const asHandBack = (value: unknown): SdkHandBack | null => {
 };
 
 /**
+ * Parses a board role's hand-back from a `structured_output` value: either
+ * `{ written, summary }` or `{ outcome, summary }`, whichever the value
+ * matches; `null` where it matches neither.
+ */
+export const asBoardHandBack = (value: unknown): SdkBoardHandBack | null => {
+  if (value === null || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const summary = typeof record.summary === 'string' ? record.summary : '';
+  if (typeof record.written === 'string' && record.written !== '') return { written: record.written, summary };
+  if (record.outcome === 'done' || record.outcome === 'refused') return { outcome: record.outcome, summary };
+  return null;
+};
+
+/**
  * Classifies one SDK run's end.
  *
  * Rows apply in this order: a bound abort; a usage limit (a rejected
@@ -95,9 +118,15 @@ const asHandBack = (value: unknown): SdkHandBack | null => {
  * any other `is_error` result; and `success`.
  *
  * @param reading - what the caller measured about the result.
+ * @param parseHandBack - parses `reading.structuredOutput` on success; the
+ *   worker's `{ next, summary }` parser by default, so a caller naming none
+ *   sees today's behaviour unchanged. A board role passes {@link asBoardHandBack}.
  * @returns the run's end, mapped to the loop's existing exit vocabulary.
  */
-export const sdkRunExit = (reading: SdkRunReading): SdkRunExit => {
+export const sdkRunExit = (
+  reading: SdkRunReading,
+  parseHandBack: (value: unknown) => SdkHandBack | SdkBoardHandBack | null = asHandBack,
+): SdkRunExit => {
   // ROW 1 — this run was aborted on its own bound, whether or not a result
   // message arrived.
   if (reading.abortedOnBound) {
@@ -168,6 +197,6 @@ export const sdkRunExit = (reading: SdkRunReading): SdkRunExit => {
 
   // ROW 8 — success: a hand-back where `structured_output` matches the
   // schema, else `ran` with no hand-back.
-  const handBack = reading.subtype === 'success' ? asHandBack(reading.structuredOutput) : null;
+  const handBack = reading.subtype === 'success' ? parseHandBack(reading.structuredOutput) : null;
   return { answer: 'ran', handBack, detail: handBack === null ? 'success with no structured_output' : '' };
 };

@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { readConfig, allSlicesConfirmed, allSlicesMerged, type BuildBoardOptions } from './board.js';
 import { usableCommand } from './idea.js';
 import { deliverLogPath } from './deliver.js';
 import type { PlanMeta, FleetReading } from '../contract/schema.js';
 import { scriptsFor } from './board.js';
 import { recordActionReceipt } from './action-receipt.js';
+import { startBoardRun } from './board-run.js';
 
 /**
  * A finished plan delivers itself, and its desks are cleared behind it.
@@ -429,15 +429,18 @@ export function runAutoDeliver(
     // delivery route would be refused by the gate the board itself installs.
     recordActionReceipt(opts.repoRoot, 'deliver', plan.slug);
     if (command) {
-      const child = spawn(
-        'sh',
-        ['-c', `${command} "$@"`, 'plot-deliver', deliverPrompt(plan.slug)],
+      // THROUGH THE `agentRun` PORT, in this process's group. A `refused`
+      // outcome is not a delivery: `boardRunEnd` records it as code 1, so the
+      // reap below never runs after one.
+      void startBoardRun(
+        opts,
         {
-          cwd: opts.repoRoot,
-          detached: true,
-          stdio: ['ignore', out, out],
+          role: 'auto-deliver',
+          fragmentKey: DELIVER_COMMAND_KEY,
+          readCfg: (o, key, fallback) => (key === DELIVER_COMMAND_KEY ? command : readConfig(o, key, fallback)),
+          tree: opts.repoRoot,
+          prompt: deliverPrompt(plan.slug),
           env: {
-            ...process.env,
             // THE DECLARATION, not a switch. An unattended /plot-deliver must
             // STOP at a branch it cannot confirm merged rather than delivering
             // anyway; setting this makes a skipped check name itself in the log
@@ -445,18 +448,17 @@ export function runAutoDeliver(
             PLOT_UNATTENDED: '1',
             PLOT_PLAN_SLUG: plan.slug,
           },
+          logFile: log,
+          statePath: null,
         },
+        (record) => onExit(record.code, null),
       );
-      child.on('exit', onExit);
-      child.on('error', onError);
     } else {
       scriptsFor(opts).start(DELIVER_SCRIPT, [plan.slug], { log: out, onExit, onError });
     }
-    // No `unref`: the EXIT CODE is what the reap is waiting for, and dropping
-    // the handle would drop the listener above with it — every delivery would
-    // land and nothing would ever be reaped. `detached` still keeps a Ctrl-C in
-    // the board's terminal off a delivery that has merged a PR and not yet
-    // written its record.
+    // The script arm keeps its handle: the EXIT CODE is what the reap waits
+    // for. `detached` there keeps a Ctrl-C in the board's terminal off a
+    // delivery that has merged a PR and not yet written its record.
     fs.closeSync(out);
     started.push(plan.slug);
   }

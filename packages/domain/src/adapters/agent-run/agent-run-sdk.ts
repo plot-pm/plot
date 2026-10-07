@@ -41,6 +41,7 @@ import type {
 } from '../../ports/agent-run.js';
 import type { Processes } from '../../ports/processes.js';
 import { agentSettingsRefusal } from '../../rules/agent-settings.js';
+import { boardHandBackKind } from '../../rules/board-run-end.js';
 import {
   agentRunEnv,
   BACKGROUND_DISALLOWED_TOOLS,
@@ -48,7 +49,7 @@ import {
   type SettingsEnvReading,
 } from '../../rules/agent-run-env.js';
 import { pollRefusal } from '../../rules/poll-refusal.js';
-import { sdkRunExit, type SdkRunReading } from '../../rules/sdk-run-exit.js';
+import { asBoardHandBack, sdkRunExit, type SdkBoardHandBack, type SdkHandBack, type SdkRunReading } from '../../rules/sdk-run-exit.js';
 import { killTree, killTreeSync } from '../bounded-run/bounded-run-process.js';
 
 /** The tools a fleet run disallows outright; the one list both runners read, from `rules/agent-run-env.ts`. */
@@ -79,6 +80,74 @@ const HAND_BACK_SCHEMA = {
   },
   required: ['next', 'summary'],
 } as const;
+
+/** The protocol a board role hands back a written file's path under; appended to its prompt. */
+const WRITTEN_PROTOCOL = [
+  'End your turn with the structured hand-back `{ written, summary }`.',
+  '`written` is the path, relative to the repository root, of the file you wrote.',
+  '`summary` is one or two sentences on what you did.',
+  'Never wait or poll: background tasks are disabled.',
+].join(' ');
+
+/** The JSON schema a `{ written, summary }` hand-back is validated against. */
+const WRITTEN_SCHEMA = {
+  type: 'object',
+  properties: {
+    written: { type: 'string' },
+    summary: { type: 'string' },
+  },
+  required: ['written', 'summary'],
+} as const;
+
+/** The protocol a board role hands back a done/refused outcome under; appended to its prompt. */
+const OUTCOME_PROTOCOL = [
+  'End your turn with the structured hand-back `{ outcome, summary }`.',
+  '`outcome: done` means you completed the action.',
+  '`outcome: refused` means you did not — the plan\'s state is unchanged.',
+  '`summary` is one or two sentences on what happened.',
+  'Never wait or poll: background tasks are disabled.',
+].join(' ');
+
+/** The JSON schema a `{ outcome, summary }` hand-back is validated against. */
+const OUTCOME_SCHEMA = {
+  type: 'object',
+  properties: {
+    outcome: { type: 'string', enum: ['done', 'refused'] },
+    summary: { type: 'string' },
+  },
+  required: ['outcome', 'summary'],
+} as const;
+
+/** One role's hand-back protocol: the prompt paragraph, its schema, and how to parse a match. */
+interface HandBackProtocol {
+  readonly text: string;
+  readonly schema: typeof HAND_BACK_SCHEMA | typeof WRITTEN_SCHEMA | typeof OUTCOME_SCHEMA;
+  readonly parse: (value: unknown) => SdkHandBack | SdkBoardHandBack | null;
+}
+
+const WORKER_HAND_BACK: HandBackProtocol = {
+  text: HAND_BACK_PROTOCOL,
+  schema: HAND_BACK_SCHEMA,
+  parse: (value) => {
+    if (value === null || typeof value !== 'object') return null;
+    const record = value as Record<string, unknown>;
+    const next = record.next;
+    const summary = typeof record.summary === 'string' ? record.summary : '';
+    if (next === 'checks' || next === 'pushed' || next === 'blocked' || next === 'done') return { next, summary };
+    return null;
+  },
+};
+
+const WRITTEN_HAND_BACK: HandBackProtocol = { text: WRITTEN_PROTOCOL, schema: WRITTEN_SCHEMA, parse: asBoardHandBack };
+const OUTCOME_HAND_BACK: HandBackProtocol = { text: OUTCOME_PROTOCOL, schema: OUTCOME_SCHEMA, parse: asBoardHandBack };
+
+/**
+ * The hand-back protocol for one role: the worker's `{ next, summary }` for
+ * `'worker'`, and the board role's own schema ({@link boardHandBackKind})
+ * for every other role.
+ */
+const handBackProtocolFor = (role: string): HandBackProtocol =>
+  role === 'worker' ? WORKER_HAND_BACK : boardHandBackKind(role) === 'outcome' ? OUTCOME_HAND_BACK : WRITTEN_HAND_BACK;
 
 /** What this adapter needs beyond the request itself. */
 export interface AgentRunSdkDeps {
@@ -307,6 +376,7 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
 
     let child: SpawnedProcess | null = null;
     const abortController = new AbortController();
+    const protocol = handBackProtocolFor(request.role);
     const options: Options = {
       cwd: request.worktree,
       env: agentRunEnv(deps.inheritedEnv, request.env),
@@ -328,7 +398,7 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
       // settings object beside the project's `Agent settings`, never as `env`.
       settings: Object.keys(settings).length > 0 ? (settings as Options['settings']) : undefined,
       settingSources: ['user', 'project', 'local'],
-      outputFormat: { type: 'json_schema', schema: HAND_BACK_SCHEMA },
+      outputFormat: { type: 'json_schema', schema: protocol.schema },
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
     };
@@ -370,7 +440,7 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
           }, request.boundSeconds * 1000)
         : undefined;
 
-    const stream = query({ prompt: `${request.prompt}\n\n${HAND_BACK_PROTOCOL}`, options });
+    const stream = query({ prompt: `${request.prompt}\n\n${protocol.text}`, options });
     try {
       for await (const message of stream) {
         await log(JSON.stringify(message));
@@ -410,15 +480,18 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
       (stream as { close?: () => void }).close?.();
     }
 
-    const exit = sdkRunExit({
-      ...reading,
-      abortedOnBound: aborted,
-      boundSeconds: request.boundSeconds,
-      ranSeconds: Math.max(0, deps.now() - startedAt),
-      afterWait: deps.afterWait,
-      commitsSinceWait: deps.commitsSinceWait(),
-      now: deps.now(),
-    });
+    const exit = sdkRunExit(
+      {
+        ...reading,
+        abortedOnBound: aborted,
+        boundSeconds: request.boundSeconds,
+        ranSeconds: Math.max(0, deps.now() - startedAt),
+        afterWait: deps.afterWait,
+        commitsSinceWait: deps.commitsSinceWait(),
+        now: deps.now(),
+      },
+      protocol.parse,
+    );
     if (exit.answer === 'unstarted' || (exit.answer === 'ran' && exit.detail !== '')) {
       await log(`plot-agent-run: ${exit.answer}: ${exit.detail}`);
     }

@@ -63,7 +63,7 @@ export interface AgentRunRequest {
   readonly capabilities: readonly string[];
   /** Extra environment on top of the run's own inherited one; merged, never a replacement. */
   readonly env: Readonly<Record<string, string>>;
-  /** Where this run's combined output is written as it runs. */
+  /** Where this run's combined output is appended as it runs; the caller truncates it where it wants a fresh log. */
   readonly logFile: string;
 }
 
@@ -115,6 +115,19 @@ export type AgentHandBack =
   | { readonly next: 'done'; readonly summary: string };
 
 /**
+ * The hand-back a board role's turn ended with.
+ *
+ * Distinguished from {@link AgentHandBack} by shape rather than by a shared
+ * discriminant field: a board role's vocabulary (a written path, or a
+ * done/refused outcome) has nothing in common with the worker's `next` enum,
+ * so a reader tells the two apart with `'next' in handBack` /
+ * `'written' in handBack` / `'outcome' in handBack`.
+ */
+export type BoardHandBack =
+  | { readonly written: string; readonly summary: string }
+  | { readonly outcome: 'done' | 'refused'; readonly summary: string };
+
+/**
  * Why a run ended, mapped to the loop's existing vocabulary.
  *
  * `sdkRunExit` is what classifies an SDK result into one of these; a
@@ -131,7 +144,7 @@ export type AgentRunEnd =
   | { readonly answer: 'spend-limit' }
   /** The turn ended with its background work dropped; `line` is the output line that shows it. */
   | { readonly answer: 'dropped'; readonly line: string }
-  | { readonly answer: 'ran'; readonly handBack: AgentHandBack | null };
+  | { readonly answer: 'ran'; readonly handBack: AgentHandBack | BoardHandBack | null };
 
 /**
  * What one agent run produced.

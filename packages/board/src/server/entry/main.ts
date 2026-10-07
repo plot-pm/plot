@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { scriptsFor, primeAgentSettings, type BuildBoardOptions } from '../board.js';
 import { estateFromEnv } from '../estate.js';
+import { boardRunsSettled } from '../board-run.js';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 
 /**
@@ -154,8 +155,16 @@ export const run = async (
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   // `run` awaits ports now, so the exit code arrives as a promise. Awaiting it
   // at the entry keeps the contract a NUMBER for every other caller.
+  //
+  // THE AGENTS A SCAN STARTED END WITH THIS PROCESS, so it waits for them
+  // after the answer is written: `maybeAutoDispatch` can ask for a brief and
+  // `maybeAutoDeliver` can start a delivery, and both run in this process's
+  // group. Exiting first would end a delivery between its merge and its record.
   void run(process.argv.slice(2), path.dirname(fileURLToPath(import.meta.url)))
-    .then((code) => process.exit(code));
+    .then(async (code) => {
+      await boardRunsSettled();
+      process.exit(code);
+    });
 }
 
 export { askOnce, askOncePerEstate, newMemory };

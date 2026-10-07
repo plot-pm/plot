@@ -7,6 +7,9 @@ import { isAnswered } from '@plot-pm/domain';
 import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
 import { boardState, fleetState } from './controllers/fleet-state.js';
 import { estateFromEnv } from './estate.js';
+// THE ONE ENTRY THAT REGISTERS THE SDK CONNECTOR: board roles on `Agent runner:
+// sdk` start from this process, so only `board-server.mjs` carries the SDK.
+import './sdk-runner.js';
 import { buildAttention } from './attention.js';
 import { dispatchAvailability, dispatchLog, dispatchLogPath, handleDispatch, SLUG_RE } from './dispatch.js';
 import { agentLogDir, isUnderAgentLogDir, migrateAgentLogs, primeWorktreeRoot } from './agent-log.js';

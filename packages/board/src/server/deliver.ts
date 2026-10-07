@@ -2,14 +2,21 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { agentLogPath } from './agent-log.js';
-import { spawn } from 'node:child_process';
-import { readConfig, allSlicesConfirmed, deliveryPulse, scriptsFor, type BuildBoardOptions } from './board.js';
+import {
+  readConfig,
+  allSlicesConfirmed,
+  deliveryPulse,
+  scriptsFor,
+  type BuildBoardOptions,
+} from './board.js';
+import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
 import { recordActionReceipt } from './action-receipt.js';
 import { pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { PlanMetaSchema } from '../contract/schema.js';
 import {
   IDEA_COMMAND_KEY,
+  IDEA_PROMPT_ENV,
   ideaAvailability,
   lastLines,
   usableCommand,
@@ -334,15 +341,8 @@ export interface DeliverStatus {
 export function deliverStatus(opts: BuildBoardOptions, slug: string): DeliverStatus {
   const log = deliverLogPath(opts.repoRoot, slug);
   const statePath = deliverStatePath(opts.repoRoot, slug);
-  let recorded = '';
-  try {
-    recorded = fs.readFileSync(statePath, 'utf8').trim();
-  } catch {
-    return fs.existsSync(log)
-      ? { state: 'running', message: '', log }
-      : { state: 'unknown', message: '', log };
-  }
-  if (recorded === '0') return { state: 'done', message: '', log };
+  const { state, recorded } = readRunState(statePath, log);
+  if (state !== 'failed') return { state, message: '', log };
   let text = '';
   try {
     text = fs.readFileSync(log, 'utf8');
@@ -524,71 +524,51 @@ export async function handleDeliver(
 
   const log = deliverLogPath(opts.repoRoot, slug);
   const statePath = deliverStatePath(opts.repoRoot, slug);
-  let out: number;
   try {
     // Truncated, not appended — this log is read back AS the answer, and an
     // appended one would show a previous attempt's error after a later success.
     // The same choice `reslice.ts` makes, for the same reason.
+    // The run appends to it; this write is also the 500-on-unwritable-log check.
     fs.rmSync(statePath, { force: true });
-    out = fs.openSync(log, 'w');
+    fs.writeFileSync(log, '', 'utf8');
   } catch (err) {
     json(500, { error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` });
     return;
   }
 
-  // Through `sh -c` because `Idea command` is a shell FRAGMENT, the same
-  // interpretation `reslice.ts` gives it. NOTHING from the request is
-  // interpolated into that string: the prompt reached the repo as a file, and
-  // its PATH travels in the environment and as ONE argument via `"$@"`. The slug
-  // is SLUG_RE-bounded, so even it carries nothing a shell would interpret.
   // THE RECEIPT, BEFORE THE AGENT STARTS. This route spawns an agent rather
   // than the script, and that agent runs `plot-deliver.sh` itself — from the
   // repository root, inheriting these same plugin hooks, so its call reaches
   // `plot-controller-gate.sh` exactly as a master agent's does. The controller
   // authorised the action here; the receipt is what says so.
   recordActionReceipt(opts.repoRoot, 'deliver', slug);
-  const child = spawn(
-    'sh',
-    ['-c', `${usable} "$@"`, 'plot-deliver', `Read ${promptPath} and follow it.`],
-    {
-      cwd: opts.repoRoot,
-      detached: true,
-      stdio: ['ignore', out, out],
-      env: {
-        ...process.env,
-        // THE DECLARATION, not a switch — the same one `reslice.ts` sets.
-        // /plot-deliver unattended must STOP at a branch it cannot confirm
-        // merged rather than delivering anyway; setting this makes a skipped
-        // check name itself in the log rather than the agent improvising.
-        PLOT_UNATTENDED: '1',
-        // Reuses `PLOT_IDEA_PROMPT` because this IS the idea binding — the same
-        // runner reads the same variable to find its prompt file.
-        PLOT_IDEA_PROMPT: promptPath,
-        PLOT_PLAN_SLUG: slug,
-      },
+
+  try {
+    markBoardRun(statePath, log);
+  } catch (err) {
+    json(500, { error: `cannot write ${statePath}: ${err instanceof Error ? err.message : String(err)}` });
+    return;
+  }
+  await startBoardRun(opts, {
+    role: 'deliver',
+    fragmentKey: IDEA_COMMAND_KEY,
+    readCfg,
+    tree: opts.repoRoot,
+    prompt: `Read ${promptPath} and follow it.`,
+    env: {
+      // THE DECLARATION, not a switch — the same one `reslice.ts` sets.
+      // /plot-deliver unattended must STOP at a branch it cannot confirm
+      // merged rather than delivering anyway; setting this makes a skipped
+      // check name itself in the log rather than the agent improvising.
+      PLOT_UNATTENDED: '1',
+      // Reuses `PLOT_IDEA_PROMPT` because this IS the idea binding — the
+      // same runner reads the same variable to find its prompt file.
+      [IDEA_PROMPT_ENV]: promptPath,
+      PLOT_PLAN_SLUG: slug,
     },
-  );
-  child.on('exit', (code, signal) => {
-    try {
-      fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
-    } catch {
-      /* the state file is a convenience; the log is the record */
-    }
+    logFile: log,
+    statePath,
   });
-  child.on('error', (err) => {
-    console.error('deliver failed to spawn:', err);
-    try {
-      fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
-      fs.writeFileSync(statePath, '1', 'utf8');
-    } catch {
-      /* nothing further to do */
-    }
-  });
-  // `detached` WITHOUT `unref`, exactly as `reslice.ts` is and for its reason:
-  // detached keeps a Ctrl-C in the board's terminal off the agent, and keeping
-  // the handle keeps the exit listener above alive — dropping it would make
-  // every delivery read as `running` forever.
-  fs.closeSync(out);
 
   json(202, { ok: true, slug, prompt: promptPath, log });
 }

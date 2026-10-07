@@ -15,7 +15,7 @@
 // its resolvability, so one test runs `deliverability` against real plan files
 // to pin those. The merged/deliverable refusals are then asserted with the
 // verdict injected, which keeps them raceless and independent of a pulse.
-import { afterEach, describe, it } from 'vitest';
+import { afterEach, describe, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -32,7 +32,9 @@ import {
   type DeliverDeps,
   type DeliverRefusal,
 } from '../../src/server/deliver.js';
+import { deliverStatus } from '../../src/server/deliver.js';
 import { rmTree } from '../helpers.mjs';
+import { lastModel, settled, useFakeClaude } from './fake-claude.js';
 
 const SCRIPTS = path.resolve(__dirname, '../../../../skills/plot/scripts');
 
@@ -125,12 +127,13 @@ async function post(
     command?: string;
     check?: (() => Deliverability);
     host?: string;
+    runner?: string;
   },
 ): Promise<Captured> {
   const { res, got } = response();
   const deps: DeliverDeps = {
     config: (_o, key, fallback) =>
-      key === 'Idea command' ? (opts.command ?? 'true') : fallback,
+      key === 'Idea command' ? (opts.command ?? 'true') : key === 'Agent runner' && opts.runner ? opts.runner : fallback,
     check: () => (opts.check ? opts.check() : { verdict: 'deliverable' }),
   };
   await handleDeliver(
@@ -424,5 +427,35 @@ describe('the Deliver control reads a confirmed landing, not a merge subject', (
       deliverability({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG).verdict,
       'deliverable',
     );
+  });
+});
+
+describe('on the SDK runner, a refused delivery is not a done one', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('records done as done, on the model the fragment names', async () => {
+    const dir = repo();
+    mergedPlan(dir);
+    const argvLog = useFakeClaude(path.dirname(dir), { outcome: 'done', summary: 'delivered' });
+    const got = await post({ repoRoot: dir, command: 'claude -p --model haiku', runner: 'sdk' });
+    assert.equal(got.status, 202);
+    const status = await settled(() => deliverStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG));
+    assert.equal(status.state, 'done', status.message);
+    assert.equal(lastModel(argvLog), 'haiku');
+  });
+
+  it('records refused as failed, with the summary as its message', async () => {
+    const dir = repo();
+    mergedPlan(dir);
+    const before = fs.readFileSync(path.join(dir, 'docs/plans', `2026-08-21-${SLUG}.md`), 'utf8');
+    useFakeClaude(path.dirname(dir), { outcome: 'refused', summary: 'feature/one has no merged PR' });
+    const got = await post({ repoRoot: dir, command: 'claude -p', runner: 'sdk' });
+    assert.equal(got.status, 202);
+    const status = await settled(() => deliverStatus({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG));
+    assert.equal(status.state, 'failed');
+    assert.match(status.message, /the deliver run refused: feature\/one has no merged PR/);
+    assert.equal(fs.readFileSync(path.join(dir, 'docs/plans', `2026-08-21-${SLUG}.md`), 'utf8'), before);
   });
 });

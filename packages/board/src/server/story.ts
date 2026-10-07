@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { agentLogPath } from './agent-log.js';
-import { spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
+import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { usableCommand, readIssue, lastLines, BODY_MAX, type IssueDetail } from './idea.js';
 import { localCapability } from './controllers/caller.js';
@@ -307,15 +307,8 @@ export interface StoryStatus {
 export function storyStatus(opts: BuildBoardOptions, number: number): StoryStatus {
   const log = storyLogPath(opts.repoRoot, number);
   const statePath = storyStatePath(opts.repoRoot, number);
-  let recorded = '';
-  try {
-    recorded = fs.readFileSync(statePath, 'utf8').trim();
-  } catch {
-    return fs.existsSync(log)
-      ? { state: 'running', message: '', log }
-      : { state: 'unknown', message: '', log };
-  }
-  if (recorded === '0') return { state: 'done', message: '', log };
+  const { state, recorded } = readRunState(statePath, log);
+  if (state !== 'failed') return { state, message: '', log };
   let text = '';
   try {
     text = fs.readFileSync(log, 'utf8');
@@ -478,72 +471,49 @@ export async function handleStory(
 
   const log = storyLogPath(opts.repoRoot, number);
   const statePath = storyStatePath(opts.repoRoot, number);
-  let out: number;
   try {
     // Truncated, not appended — this log is read back AS the answer, and an
     // appended one would show a previous attempt's error after a later success.
+    // The run appends to it; this write is also the 500-on-unwritable-log check.
     fs.rmSync(statePath, { force: true });
-    out = fs.openSync(log, 'w');
+    fs.writeFileSync(log, '', 'utf8');
   } catch (err) {
     json(500, { error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` });
     return;
   }
 
-  // Through `sh -c` because `Story command` is a shell FRAGMENT, the same
-  // interpretation `Idea command` and `Worker command` get. NOTHING from the
-  // issue is interpolated into that string: the brief reached the disk as a
-  // file, and its PATH travels in the environment. The prompt is passed as ONE
-  // argument via `"$@"` — already the shape `idea.ts` uses, and here it carries
-  // only a path this server itself composed.
-  //
   // `cwd: opts.repoRoot`, and NOT a worktree of its own. `/api/idea` needs one
   // because `/plot-idea` checks out the branch it creates, so the board's own
   // checkout is the one that would move. `/story-tracking` writes a directory
   // of markdown and commits it on the branch already checked out; it moves HEAD
   // nowhere. This is the same choice approve, deliver and reslice make.
-  const child = spawn(
-    'sh',
-    ['-c', `${usable} "$@"`, 'plot-story', `Read ${promptPath} and follow it.`],
-    {
-      cwd: opts.repoRoot,
-      detached: true,
-      stdio: ['ignore', out, out],
-      env: {
-        ...process.env,
-        // THE DECLARATION, not a switch. There is nobody at this board to
-        // answer `AskUserQuestion`, and under `claude -p` that tool is not even
-        // registered — so a skill that improvises here exits 0 having written
-        // nothing. Setting it makes each skipped question take the shape its
-        // author chose and name itself in the log. This is the contract that
-        // makes the whole route possible: `/story-tracking` is run this way
-        // several times a day from the prompt.
-        PLOT_UNATTENDED: '1',
-        [STORY_PROMPT_ENV]: promptPath,
-        PLOT_ISSUE: String(number),
-      },
+  try {
+    markBoardRun(statePath, log);
+  } catch (err) {
+    json(500, { error: `cannot write ${statePath}: ${err instanceof Error ? err.message : String(err)}` });
+    return;
+  }
+  await startBoardRun(opts, {
+    role: 'story',
+    fragmentKey: STORY_COMMAND_KEY,
+    readCfg,
+    tree: opts.repoRoot,
+    prompt: `Read ${promptPath} and follow it.`,
+    env: {
+      // THE DECLARATION, not a switch. There is nobody at this board to
+      // answer `AskUserQuestion`, and under `claude -p` that tool is not
+      // even registered — so a skill that improvises here exits 0 having
+      // written nothing. Setting it makes each skipped question take the
+      // shape its author chose and name itself in the log. This is the
+      // contract that makes the whole route possible: `/story-tracking`
+      // is run this way several times a day from the prompt.
+      PLOT_UNATTENDED: '1',
+      [STORY_PROMPT_ENV]: promptPath,
+      PLOT_ISSUE: String(number),
     },
-  );
-  child.on('exit', (code, signal) => {
-    try {
-      fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
-    } catch {
-      /* the state file is a convenience; the log is the record */
-    }
+    logFile: log,
+    statePath,
   });
-  child.on('error', (err) => {
-    console.error('story failed to spawn:', err);
-    try {
-      fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
-      fs.writeFileSync(statePath, '1', 'utf8');
-    } catch {
-      /* nothing further to do */
-    }
-  });
-  // `detached` WITHOUT `unref`, exactly as `idea.ts` is and for its reason:
-  // detached keeps a Ctrl-C in the board's terminal off the agent, and keeping
-  // the handle keeps the exit listener above alive — dropping it would make
-  // every creation read as `running` forever.
-  fs.closeSync(out);
 
   json(202, { ok: true, number, prompt: promptPath, log });
 }
