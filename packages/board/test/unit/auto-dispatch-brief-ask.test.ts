@@ -22,7 +22,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { maybeAutoDispatch, firstBrieflessBranch } from '../../src/server/auto-dispatch.js';
-import { briefAskPrompt } from '../../src/server/brief-ask.js';
+import { askForBriefLogPath, briefAskPrompt } from '../../src/server/brief-ask.js';
+import { boardRunsSettled, leaveBoardRunsToTheBoard } from '../../src/server/board-run.js';
+import { run as askEntry } from '../../src/server/entry/main.js';
 import { FleetReadingSchema, type FleetReading } from '../../src/contract/schema.js';
 import type { AgentEntry } from '../../src/server/registry.js';
 import type { FleetSettings } from '../../src/server/fleet-settings.js';
@@ -488,5 +490,27 @@ describe('firstBrieflessBranch', () => {
       slice('W', 'blocked', [['feature/a', 'open']]),
     ]]]);
     expect(firstBrieflessBranch(blocked, 'blocked', new Set(['feature/a']))).toBeUndefined();
+  });
+});
+
+describe('the one-shot entry leaves the brief to the running board', () => {
+  it('starts no brief writer, records why, and leaves nothing to wait for', async () => {
+    const f = fixture([], { briefCommand: '@writer' });
+    // The entry's `run` sets the switch first; a usage error returns before any scan.
+    const code = await askEntry([], f.opts.scriptsDir, () => undefined);
+    try {
+      expect(code).toBe(2);
+      maybeAutoDispatch(f.opts, brieflessPulse(), on(5), [], new Set(), undefined, new Set());
+      const started = Date.now();
+      await boardRunsSettled();
+      expect(Date.now() - started).toBeLessThan(1000);
+      await new Promise((r) => setTimeout(r, 300));
+      expect(f.askArgv()).toEqual([]);
+      expect(fs.readFileSync(askForBriefLogPath(f.opts.repoRoot, 'needs-a-brief'), 'utf8')).toContain(
+        'the brief run was left to the running board',
+      );
+    } finally {
+      leaveBoardRunsToTheBoard(false);
+    }
   });
 });
