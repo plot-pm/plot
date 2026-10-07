@@ -45,7 +45,7 @@ Two lifecycle acts have no controller that owns their result. *The Master Agent 
 
 ### Continue owns the desk it starts
 
-- `bug/continue-owns-the-desk-it-starts` — refuse a desk with a live loop; start the continued loop detached, outside the board's process tree <!-- builds: the loop-alive refusal and a detached continue -->
+- `bug/continue-owns-the-desk-it-starts` — refuse a desk with a live loop; start the continued loop detached, outside the board's process tree <!-- builds: the loop-alive refusal and a detached continue --> → #1351
 
 ### A claim has a release controller
 
