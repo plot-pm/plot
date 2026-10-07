@@ -29,6 +29,9 @@ const WORKER_RECORD_NAMES = ['.plot-worker.pid', '.plot-worker.wrapper.pid'];
 /** The desk's WorkerMonitor log: the file `plot-worker-loop.sh` writes and `findings.ts` reads. */
 const FINDINGS_FILE = '.plot-worker.monitor.worker.jsonl';
 
+/** The desk's BuildMonitor log: the file `plot-build-monitor.sh` used to write and `findings.ts` reads. */
+const BUILD_FINDINGS_FILE = '.plot-worker.monitor.build.jsonl';
+
 /** Best-effort file write: answers regardless of whether the write landed. */
 const bestEffortWrite = (path: string, content: string): PortResult<void> => {
   try {
@@ -211,6 +214,17 @@ export const deskFs = (trees: Trees): Desk => {
       const line = JSON.stringify({ monitor: 'WorkerMonitor', branch, worktree, finding, since, evidence, measuredAt });
       try {
         appendFileSync(join(worktree, FINDINGS_FILE), `${line}\n`);
+      } catch {
+        /* best effort */
+      }
+      return answered(undefined);
+    },
+
+    publishBuildFinding: async (worktree, { branch, finding, since, evidence }): Promise<PortResult<void>> => {
+      const measuredAt = new Date().toISOString();
+      const line = JSON.stringify({ monitor: 'BuildMonitor', branch, worktree, finding, since, evidence, measuredAt });
+      try {
+        appendFileSync(join(worktree, BUILD_FINDINGS_FILE), `${line}\n`);
       } catch {
         /* best effort */
       }

@@ -189,3 +189,59 @@ export const checksFromRuns = (readings: ChecksFromRunsReadings): ChecksFromRuns
 
   return readings.waitedSeconds >= readings.boundSeconds ? 'no-answer' : 'wait';
 };
+
+/** The BuildMonitor finding words, verbatim as `FindingNameSchema` carries them. */
+export type BuildFindingWord = 'build passed' | 'build failed' | 'build needs approval';
+
+/** One pass's build finding: the word to publish and the evidence sentence behind it. */
+export interface BuildFindingAnswer {
+  readonly finding: BuildFindingWord;
+  readonly evidence: string;
+}
+
+/**
+ * Translates a run's status and conclusion into the finding the BuildMonitor
+ * used to publish, in the same three words and the same evidence shape.
+ *
+ * MIRRORS `sample_finding` (`plot-build-monitor.sh:327`), MINUS ITS FIRST ARM.
+ * The shell decides `head moved` before reading a conclusion, because
+ * `monitor_run_for_sha` can answer about a sha other than the one asked. This
+ * loop's `run` reading already excludes that case — {@link checksFromRuns}
+ * discards a run whose sha is not `pushedSha` before this is ever called — so
+ * there is no `head moved` arm here: the reading this function receives is
+ * never about a stale commit.
+ *
+ * `action_required` is checked in both fields, as the shell's combined
+ * `status:conclusion` case did, because a run awaiting approval has reported
+ * it in either place depending on where the run sits.
+ *
+ * **NARROWER THAN THE SHELL ON `build failed`.** `sample_finding` reads any
+ * terminal conclusion other than `success`/`action_required` — including
+ * `timed_out`, `cancelled`, `startup_failure` — as `build failed`. This
+ * function does not, because {@link SETTLED_CONCLUSIONS} (shared with
+ * {@link checksFromRuns}) only names `success`/`failure`/`action_required` as
+ * settled; the loop's own call site never reaches a `timed_out` or
+ * `cancelled` run through `buildFindingFor` — `checksFromRuns` keeps it at
+ * `wait`/`no-answer` instead. A documented gap, not ported here.
+ *
+ * @param run - the settled run `checksFromRuns` found for the pushed sha.
+ * @returns the finding and its evidence sentence, or `null` while the run has
+ *   not reached a word this function recognises (expected for a run
+ *   `checksFromRuns` itself does not call `settled` — see above).
+ */
+export const buildFindingFor = (run: ShaRun): BuildFindingAnswer | null => {
+  const url = run.url || 'an unknown url';
+  if (run.status === 'waiting' || run.status.includes('action_required') || run.conclusion === 'action_required') {
+    return {
+      finding: 'build needs approval',
+      evidence: `the run at ${url} for ${run.sha} is waiting for a manual approval before it can start`,
+    };
+  }
+  if (run.conclusion === 'success') {
+    return { finding: 'build passed', evidence: `the run at ${url} for ${run.sha} concluded success` };
+  }
+  if (run.conclusion !== null && SETTLED_CONCLUSIONS.includes(run.conclusion)) {
+    return { finding: 'build failed', evidence: `the run at ${url} for ${run.sha} concluded ${run.conclusion}` };
+  }
+  return null;
+};

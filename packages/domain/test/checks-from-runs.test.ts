@@ -1,15 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { checksFromRuns, checksVerdict, type ChecksFromRunsReadings } from '../src/rules/checks-verdict.js';
+import { buildFindingFor, checksFromRuns, checksVerdict, type ChecksFromRunsReadings } from '../src/rules/checks-verdict.js';
 import type { ShaRun } from '../src/entities/build.js';
 
 const PUSHED = 'f743e5730000000000000000000000000000000';
 const OTHER = '0e64fafd0000000000000000000000000000000';
+const URL = 'https://example.invalid/runs/1';
 
 const runningRun = (sha: string): ShaRun => ({
   sha,
   status: 'in_progress',
   conclusion: null,
-  url: 'https://example.invalid/runs/1',
+  url: URL,
   startedAt: '2026-10-04T12:00:00.000Z',
 });
 
@@ -17,7 +18,7 @@ const concludedRun = (sha: string, conclusion: string): ShaRun => ({
   sha,
   status: 'completed',
   conclusion,
-  url: 'https://example.invalid/runs/1',
+  url: URL,
   startedAt: '2026-10-04T12:00:00.000Z',
 });
 
@@ -123,5 +124,62 @@ describe('checksFromRuns — the loop asking its own CI wait', () => {
     // the wait leans on.
     const other = concludedRun('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'success');
     expect(checksFromRuns({ ...base, run: other })).toBe('wait');
+  });
+});
+
+// Each case maps to one of `plot-build-monitor.sh`'s `sample_finding` arms.
+// `head moved` has no case here: that arm fires when `monitor_run_for_sha`
+// answers about a sha other than the head, which this rule's own `run`
+// reading (`checksFromRuns`, above) already excludes before `buildFindingFor`
+// is ever called — `run.sha` here is always `pushedSha`.
+describe('buildFindingFor — the loop\'s own BuildMonitor finding, from a settled run', () => {
+  it('reports build passed for a successful conclusion, mirroring "build passed"', () => {
+    expect(buildFindingFor(concludedRun(PUSHED, 'success'))).toEqual({
+      finding: 'build passed',
+      evidence: `the run at ${URL} for ${PUSHED} concluded success`,
+    });
+  });
+
+  it('reports build failed for a failing conclusion, mirroring "build failed"', () => {
+    expect(buildFindingFor(concludedRun(PUSHED, 'failure'))).toEqual({
+      finding: 'build failed',
+      evidence: `the run at ${URL} for ${PUSHED} concluded failure`,
+    });
+  });
+
+  it('answers null for a conclusion checksFromRuns itself never settles on', () => {
+    // The shell's `sample_finding` reads `timed_out`/`cancelled`/`startup_failure`
+    // as `build failed` too, but `checksFromRuns` only calls a run settled on
+    // `success`/`failure`/`action_required` (SETTLED_CONCLUSIONS) — a `timed_out`
+    // or `cancelled` run keeps the loop at `wait`/`no-answer` and never reaches
+    // `buildFindingFor` through the loop's own call site. Documented as a gap
+    // from the shell's wider vocabulary, not ported here.
+    expect(buildFindingFor(concludedRun(PUSHED, 'timed_out'))).toBeNull();
+    expect(buildFindingFor(concludedRun(PUSHED, 'cancelled'))).toBeNull();
+  });
+
+  it('reports build needs approval for an action_required conclusion, mirroring "build needs approval"', () => {
+    expect(buildFindingFor(concludedRun(PUSHED, 'action_required'))).toEqual({
+      finding: 'build needs approval',
+      evidence: `the run at ${URL} for ${PUSHED} is waiting for a manual approval before it can start`,
+    });
+  });
+
+  it('reports build needs approval for a waiting status even with no conclusion yet', () => {
+    expect(buildFindingFor({ ...runningRun(PUSHED), status: 'waiting' })).toEqual({
+      finding: 'build needs approval',
+      evidence: `the run at ${URL} for ${PUSHED} is waiting for a manual approval before it can start`,
+    });
+  });
+
+  it('answers null for a run with no conclusion and no approval wait — nothing has changed yet', () => {
+    expect(buildFindingFor(runningRun(PUSHED))).toBeNull();
+  });
+
+  it('answers an unknown-url placeholder sentence when the run names no url', () => {
+    expect(buildFindingFor({ ...concludedRun(PUSHED, 'success'), url: '' })).toEqual({
+      finding: 'build passed',
+      evidence: `the run at an unknown url for ${PUSHED} concluded success`,
+    });
   });
 });

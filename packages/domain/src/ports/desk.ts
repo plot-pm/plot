@@ -196,4 +196,35 @@ export interface Desk {
    * @returns nothing; always answers rather than failing.
    */
   publishFinding(worktree: string, finding: DeskFinding): Promise<PortResult<void>>;
+
+  /**
+   * Appends one `BuildMonitor` finding line to the desk's
+   * `.plot-worker.monitor.build.jsonl`, the file `plot-build-monitor.sh` used
+   * to write and the board still reads. The line carries every field
+   * `FindingSchema` requires: `monitor` is `BuildMonitor`, `worktree` is the
+   * desk, and `measuredAt` is the moment of the write.
+   *
+   * A SIBLING OF {@link publishFinding}, NOT A WIDENING OF IT. `DeskFinding`
+   * is typed to the WorkerMonitor's own three words; a build finding has a
+   * different vocabulary and a different file, so it gets its own method
+   * rather than a union that would let either caller publish the other
+   * monitor's word.
+   *
+   * @param worktree - the worktree the finding is about, absolute.
+   * @param finding - the branch, finding word, `since` and evidence.
+   * @returns nothing; always answers rather than failing.
+   */
+  publishBuildFinding(worktree: string, finding: BuildFinding): Promise<PortResult<void>>;
+}
+
+/** One finding `publishBuildFinding` appends, in the fields `FindingSchema` requires beside the ones the adapter fills. */
+export interface BuildFinding {
+  /** The branch the finding is about. */
+  branch: string;
+  /** The finding word. */
+  finding: 'build passed' | 'build failed' | 'build needs approval' | 'clear';
+  /** When the finding first held, ISO-8601. */
+  since: string;
+  /** One sentence naming the measurement behind the finding. */
+  evidence: string;
 }

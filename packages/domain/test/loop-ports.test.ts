@@ -483,4 +483,26 @@ describe('deskFs: ending, marker, declaration, correction, limited record, moved
     });
     fs.rmSync(log);
   });
+
+  it('publishBuildFinding appends a line FindingSchema accepts to the BuildMonitor log', async () => {
+    const result = await deskPort().publishBuildFinding(desk, {
+      branch: 'infra/x',
+      finding: 'build passed',
+      since: '2026-10-05T10:00:00.000Z',
+      evidence: 'the run at https://example.test/run/1 for abc123 concluded success',
+    });
+    expect(result).toEqual({ ok: true, value: undefined });
+    const log = path.join(desk, '.plot-worker.monitor.build.jsonl');
+    const lines = fs.readFileSync(log, 'utf8').trim().split('\n');
+    const last = FindingSchema.parse(JSON.parse(lines.at(-1)!));
+    expect(last).toMatchObject({
+      monitor: 'BuildMonitor',
+      branch: 'infra/x',
+      worktree: desk,
+      finding: 'build passed',
+      since: '2026-10-05T10:00:00.000Z',
+      evidence: 'the run at https://example.test/run/1 for abc123 concluded success',
+    });
+    fs.rmSync(log);
+  });
 });
