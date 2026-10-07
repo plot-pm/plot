@@ -1377,8 +1377,9 @@ start_worker() {
   # The AgentMonitor starts INSIDE the wrapper, as its child, immediately
   # before the agent, watching the desk. The PROCESS is no longer a monitor's
   # subject: since `bug/the-loop-reports-idle` the loop's own watcher judges `idle`
-  # (`plot-worker-state.sh`'s `plot_worker_idle_watch_pass`), and the wrapper
-  # itself reports `gone`/`clear` after `wait "$agent"` returns, below.
+  # (`board/plot-worker-loop.mjs`'s `idleVerdict`, built from the domain's
+  # `idleNow`), and the wrapper itself reports `gone`/`clear` after
+  # `wait "$agent"` returns, below.
   #
   # WHY INSIDE THE WRAPPER RATHER THAN BESIDE IT. The wrapper already outlives
   # its agent by construction — it must, or there would be no exit code to

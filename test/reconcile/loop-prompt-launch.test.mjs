@@ -1,6 +1,5 @@
 // What a running prompt receives from the loop, and what a stop during one
-// leaves behind, driven through `plot-worker-loop.sh` on whichever loop
-// `PLOT_TEST_WORKER_LOOP` names.
+// leaves behind, driven through `plot-worker-loop.sh`.
 //
 // THE SETTINGS FILE. `Agent settings` names a file the loop resolves once per
 // agent start and hands every prompt as `PLOT_AGENT_SETTINGS`; the prompt
@@ -16,7 +15,6 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { workerLoopLine } from './loop-switch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const loop = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-worker-loop.sh');
@@ -50,7 +48,7 @@ const sandbox = (prompt, configLines = '') => {
 
 - **Plan directory:** docs/plans/
 - **Worker bound:** 120
-${configLines}${workerLoopLine()}`);
+${configLines}`);
   fs.mkdirSync(path.join(work, '.plot'), { recursive: true });
   fs.writeFileSync(path.join(work, '.plot', 'worker-prompt.sh'), prompt);
   fs.writeFileSync(path.join(work, '.plot', 'agent-settings.json'), '{ "enabledPlugins": { "other@market": false } }\n');

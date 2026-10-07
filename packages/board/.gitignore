@@ -5,7 +5,6 @@ dist/
 # is standalone (see build.mjs). Build output — not source; shipped via `files`.
 /plot-agent-monitor.sh
 /plot-approve.sh
-/plot-build-monitor.sh
 /plot-monitor-subject.sh
 /plot-budget.sh
 /plot-config.sh
@@ -19,7 +18,6 @@ dist/
 /plot-reap.sh
 /plot-release-refs.sh
 /plot-worker-state.sh
-/plot-transcript-quiet.sh
 /plot-state-receipt.sh
 /plot-agent-manifest.sh
 /plot-tmp.sh

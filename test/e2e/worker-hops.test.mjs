@@ -37,7 +37,6 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { makeSandbox, runScript, SCRIPTS, sh } from './helpers.mjs';
 import { registryWatcher } from '../reconcile/registry-watcher.mjs';
-import { testWorkerLoop } from '../reconcile/loop-switch.mjs';
 
 const CONFIG = [
   '- **Plan directory:** docs/plans/',
@@ -341,10 +340,6 @@ test('flow: a worker with no next branch reports itself free and waits', () => {
     assert.match(r.stderr, /free on nonext/,
       'a worker offered nothing reports itself free rather than exiting on the silence');
     // THE JS LOOP NEVER ASKS THE FLEET SCAN, so it cannot name the blocker.
-    if (testWorkerLoop() === 'shell') {
-      assert.match(r.stderr, /feature\/seam has still to land/,
-        'the wait names the branch whose landing would open the blocked slice');
-    }
 
     // AND IT ENDED ON ITS BOUND, not on the silence. The two are different
     // endings and the message keeps them apart: this one says nothing was cut

@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Plot helper: the ONE answer to "is this monitor's subject still there?"
 #
-# SOURCED, NOT RUN, by `plot-agent-monitor.sh` and `plot-build-monitor.sh`.
-# Both need the same computation and neither renders it the same way, which is
-# the same shape as `plot-worker-state.sh` and `plot-pr-merged.sh` — and the
-# same reason. `plot-worker-state.sh` carried five of its six states in
-# duplicate until 2026-08-18, and the copies had already drifted on the sixth.
-# Two monitors deciding independently when to stop would drift the same way, and
-# the failure would be silent: one monitor left running forever while its twin
-# exits is exactly the leak this file exists to close, half-fixed.
+# SOURCED, NOT RUN, by `plot-agent-monitor.sh`. The same shape as
+# `plot-worker-state.sh` and `plot-pr-merged.sh` — and the same reason.
+# `plot-worker-state.sh` carried five of its six states in duplicate until
+# 2026-08-18, and the copies had already drifted on the sixth. A monitor
+# deciding independently when to stop, with its computation copied rather than
+# shared, would drift the same way, and the failure would be silent: a monitor
+# left running forever is exactly the leak this file exists to close.
 #
 # ═══════════════════════════════════════════════════════════════════════════
 # WHY A MONITOR NEEDS THIS AT ALL

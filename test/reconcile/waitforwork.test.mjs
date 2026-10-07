@@ -31,7 +31,6 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { excludeDeskFilesOnJs, testWorkerLoop, workerLoopLine } from './loop-switch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -82,7 +81,7 @@ function sandbox() {
 - **Plan directory:** docs/plans/
 - **Active index:** docs/plans/active/
 - **Worker bound:** 600
-${workerLoopLine()}`);
+`);
   fs.mkdirSync(path.join(work, 'docs', 'plans'), { recursive: true });
   fs.writeFileSync(path.join(work, 'docs', 'plans', '2026-09-03-waitwork.md'), `# Wait for work
 
@@ -104,7 +103,11 @@ ${workerLoopLine()}`);
   git(work, 'add', '-A');
   git(work, 'commit', '-qm', 'plan');
   git(work, 'push', '-q', 'origin', 'main');
-  excludeDeskFilesOnJs(work, fs.appendFileSync);
+  // The JS loop refuses to take up a desk that holds untracked files, so the
+  // fixture's own `.plot/` and `.plot-worker.*` stay out of `git status`.
+  // A fresh clone has no `.git/info/` yet, so it is made before the append.
+  fs.mkdirSync(`${work}/.git/info`, { recursive: true });
+  fs.appendFileSync(`${work}/.git/info/exclude`, '.plot/\n.plot-worker.*\n');
   return { root, origin, work };
 }
 
@@ -197,10 +200,6 @@ test('a free agent waits instead of exiting, and can still be stopped', async ()
       'the wait says what it is waiting FOR — an assignment, not a branch to shop for');
     // SHELL-ONLY: naming the blocking branch needs the fleet scan's
     // `--why-nothing`, which the JS loop never asks.
-    if (testWorkerLoop() !== 'js') {
-      assert.match(logged, /feature\/seam has still to land/,
-        'and it still names the branch whose landing would open the blocked slice');
-    }
     assert.match(logged, /--stop/, 'the wait tells an operator how to end it');
 
     // IT IS STILL RUNNING. This is the assertion the old `|| break` fails: the

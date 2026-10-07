@@ -33,7 +33,6 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { excludeDeskFilesOnJs, workerLoopLine } from './loop-switch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -64,7 +63,7 @@ function sandbox() {
 - **Plan directory:** docs/plans/
 - **Active index:** docs/plans/active/
 - **Worker bound:** 600
-${workerLoopLine()}`);
+`);
   fs.mkdirSync(path.join(work, 'docs', 'plans'), { recursive: true });
   fs.writeFileSync(path.join(work, 'docs', 'plans', '2026-09-02-freewin.md'), `# Free window
 
@@ -86,7 +85,11 @@ ${workerLoopLine()}`);
   git(work, 'add', '-A');
   git(work, 'commit', '-qm', 'plan');
   git(work, 'push', '-q', 'origin', 'main');
-  excludeDeskFilesOnJs(work, fs.appendFileSync);
+  // The JS loop refuses to take up a desk that holds untracked files, so the
+  // fixture's own `.plot/` and `.plot-worker.*` stay out of `git status`.
+  // A fresh clone has no `.git/info/` yet, so it is made before the append.
+  fs.mkdirSync(`${work}/.git/info`, { recursive: true });
+  fs.appendFileSync(`${work}/.git/info/exclude`, '.plot/\n.plot-worker.*\n');
   return { root, origin, work };
 }
 

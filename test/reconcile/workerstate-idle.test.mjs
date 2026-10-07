@@ -1,6 +1,6 @@
 // Contract test for the idle-judging functions in
-// skills/plot/scripts/plot-worker-state.sh — `plot_worker_idle_now`,
-// `plot_worker_idle_watch_pass`, and the readings they are built from.
+// skills/plot/scripts/plot-worker-state.sh — `plot_worker_idle_now` and the
+// readings it is built from.
 //
 // REPOINTED FROM THE WORKERMONITOR PROCESS (`bug/the-loop-reports-idle`). The
 // WorkerMonitor process (`plot-worker-monitor.sh`) is gone: its logic moved
@@ -11,8 +11,25 @@
 // `plot_worker_has_commits`, `json_escape`, `plot_worker_publish_finding`,
 // `plot_worker_idle_watch_pass`). This file was `workermonitor.test.mjs`,
 // 1211 lines sourcing the now-deleted script with `PLOT_MONITOR_NO_MAIN=1`
-// and stubbing `monitor_*` ports; it is rewritten here against the functions
+// and stubbing `monitor_*` ports; it was rewritten here against the functions
 // those ports fed, sourced directly from `plot-worker-state.sh`.
+//
+// `the-shell-loop-goes` REMOVED `plot_worker_idle_watch_pass`,
+// `plot_worker_conversation_spoken` and `plot_worker_publish_finding` from
+// `plot-worker-state.sh` (the brief's own scope line). The one-sample
+// orchestration this file drove through `plot_worker_idle_watch_pass` —
+// publish once, publish on change, idle-then-clear, the finding's field
+// shape, the no-host-call guarantee — tested a long-running watcher subshell
+// sampling repeatedly in one process. The JS loop has no such process: each
+// pass is a fresh invocation, `idleNow` (`rules/sample.ts`) answers once, and
+// the loop ends immediately on `idle` rather than holding a finding open
+// across passes — there is no recovery-while-running to publish a `clear`
+// for. `workflows-agent-loop.test.ts`'s "row 5: prompt running, idleNow
+// answers idle" asserts the `worker-finding` write's shape (`finding`,
+// `since`, `evidence`) and the `exit 124`/`quiet` ending; `sample.test.ts`
+// covers `idleNow` itself exhaustively. The orchestration tests are dropped
+// rather than ported — the property they tested (a watcher that samples
+// without ending) does not exist on the JS side to test.
 //
 // WHAT WAS DROPPED AS REDUNDANT WITH `test/reconcile/workeridle.test.mjs`,
 // which already builds a REAL desk (a git repo, an `origin/main` ref, an aged
@@ -33,32 +50,21 @@
 //     covered by workeridle's "a transcript inside the window publishes
 //     nothing, however quiet the tree" and "a working child vetoes" cases.
 //   - the whole "unspoken:" block (hop desks, manifest corrections, the
-//     race clamp) — covered by workeridle's two race-clamp cases plus this
-//     file's own `plot_worker_conversation_spoken` unit tests below, which
-//     keep the reasoning about the port's three answers without re-deriving
-//     the loop/manifest plumbing workeridle already drives end to end.
+//     race clamp) — covered by workeridle's two race-clamp cases. The port
+//     itself, `plot_worker_conversation_spoken`, went with the other two
+//     functions named above; its three-answer behaviour (spoken / unspoken /
+//     no handle) is ported to `packages/domain/test/transcript-fs.test.ts`'s
+//     `transcriptFs.spoken` tests, which had no prior JS coverage.
 // Kept here instead: pure boundary/unit tests that do not need a real desk at
 // all (the window boundary on `plot_worker_idle_now` directly, the #538
-// claim-commit exclusion, the pid-liveness-window `subject:` tests — though
-// `plot-monitor-subject.sh` is the old monitor's own file and is dropped, see
-// below), plus the one-sample orchestration properties (publish once, publish
-// on change, never "stalled") driven through `plot_worker_idle_watch_pass`
-// with a loop of stubbed-activity passes, the way `workeridle.test.mjs`'s own
-// `publishedOver` helper does.
+// claim-commit exclusion).
 //
 // `subject: ...` tests (pid-liveness startup window) tested
 // `plot-monitor-subject.sh`, a file that belonged to the old monitor process
 // and has no surviving counterpart — the loop's watcher is started with its
-// OWN pid, which is alive by construction for as long as the watcher runs
-// (see `plot_worker_idle_watch_pass`'s header comment), so there is no
-// "subject gone" question left to ask. Dropped rather than ported.
-//
-// `transcript-quiet: ...` and most of `unspoken: ...` test
-// `plot_transcript_quiet_seconds` / `plot_transcript_exists` /
-// `session_handle` directly and are UNCHANGED in entry point — those
-// functions still live in `plot-transcript-quiet.sh` and
-// `plot-agent-manifest.sh` and are kept here nearly verbatim, since this file
-// is a sourcing site for them either way.
+// OWN pid, which is alive by construction for as long as the watcher runs,
+// so there is no "subject gone" question left to ask. Dropped rather than
+// ported.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -70,235 +76,7 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
 const stateLib = path.join(scripts, 'plot-worker-state.sh');
-const transcriptLib = path.join(scripts, 'plot-transcript-quiet.sh');
 const manifestLib = path.join(scripts, 'plot-agent-manifest.sh');
-
-/**
- * What N calls to `plot_worker_idle_watch_pass` publish, over a worktree whose
- * readings are entirely stubbed (`ports`). The window, pid, branch and
- * findings file are the caller's; `plot_worker_activity` defaults to printing
- * nothing unless `ports` overrides it.
- *
- * MIRRORS `workeridle.test.mjs`'s `publishedOver` HELPER, but drives a bare
- * worktree rather than a real desk — these tests stub every reading
- * `plot_worker_idle_watch_pass` takes, including the tree and the commit
- * question, so no git repository or transcript is needed.
- */
-function publishedOver(ports, passes, { worktree, branch = 'feature/watched', window = '900', startedAt = '', pid = '4242' } = {}) {
-  const dir = worktree ?? fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wstate-idle-'));
-  const file = path.join(dir, 'findings.jsonl');
-  try {
-    execFileSync('bash', ['-c', `
-      set -u
-      . ${JSON.stringify(transcriptLib)}
-      . ${JSON.stringify(manifestLib)}
-      . ${JSON.stringify(stateLib)}
-      ${ports}
-      for _i in $(seq 1 ${passes}); do
-        plot_worker_idle_watch_pass "$WT" "$BRANCH" "$FINDINGS" "$WINDOW" "$STARTED_AT" "$PID" || true
-      done
-    `], {
-      encoding: 'utf8',
-      timeout: 30_000,
-      env: {
-        ...process.env,
-        PLOT_SESSION_ID: '', PLOT_MANIFEST_FILE: '',
-        WT: dir, BRANCH: branch, FINDINGS: file, WINDOW: window, STARTED_AT: String(startedAt), PID: String(pid),
-      },
-    });
-    if (!fs.existsSync(file)) return [];
-    return fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
-  } finally {
-    if (!worktree) fs.rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-/**
- * Every reading a quiet, idle, committed worker produces — the stub analogue
- * of `workermonitor.test.mjs`'s `QUIET` ports constant, repointed at the
- * functions `plot_worker_idle_watch_pass` actually calls:
- * `plot_transcript_quiet_seconds`, `plot_worker_conversation_spoken`,
- * `plot_worker_activity`, `plot_worker_tree_quiet_seconds`,
- * `plot_worker_has_commits`.
- *
- * BOTH DURATIONS ARE 99999, well past the 900s default, so the window's exact
- * value is not baked into every test that merely needs *quiet*.
- */
-const QUIET = `
-  plot_transcript_quiet_seconds() { printf '99999'; }
-  plot_worker_conversation_spoken() { return 0; }
-  plot_worker_activity() { printf 'idle'; }
-  plot_worker_tree_quiet_seconds() { printf '99999'; }
-  plot_worker_has_commits() { return 0; }
-`;
-
-// ═══════════════════════════════════════════════════════════════════════════
-// THE ONE-SAMPLE ORCHESTRATION — plot_worker_idle_watch_pass over stubbed reads
-// ═══════════════════════════════════════════════════════════════════════════
-
-test('idle-watch: ONE idle reading reports idle, on the first pass', () => {
-  // Every duration in the rule is a SPAN (at least the window), not a
-  // snapshot, so one reading answers and a process does not have to exist to
-  // hold a previous one.
-  const published = publishedOver(QUIET, 1);
-  assert.equal(published.length, 1,
-    `one idle reading should publish exactly one finding, got ${JSON.stringify(published)}`);
-  assert.equal(published[0].finding, 'idle');
-  assert.equal(published[0].monitor, 'WorkerMonitor',
-    'the finding does not identify its monitor — the attention slice cannot tell it from an AgentMonitor entry');
-  assert.equal(published[0].branch, 'feature/watched');
-});
-
-test('idle-watch: the finding is published once, however many passes run', () => {
-  // A property of the CHANNEL, not of a two-sample rule: a watcher that
-  // republished `idle` every pass would bury the one line that matters.
-  const published = publishedOver(QUIET, 4);
-  assert.equal(published.length, 1,
-    `a held finding was republished, got ${published.length} lines`);
-  assert.equal(published[0].finding, 'idle');
-});
-
-test('idle-watch: it is called idle and never stalled', () => {
-  // A CONTRACT WITH THE SPEC, not a spelling preference. `stalled` is an AGENT
-  // fact — "exited 0, unlanded work, no PR" (DESIGN-agent.md) — and an idle
-  // worker may just be waiting on the network, which is the exact confusion
-  // CLAUDE.md's Machine/Registry split exists to prevent.
-  const published = publishedOver(QUIET, 1);
-  assert.equal(published[0].finding, 'idle');
-  const blob = JSON.stringify(published);
-  assert.doesNotMatch(blob, /stall/i,
-    'the idle watch used the word `stalled`, which the spec reserves for an Agent fact');
-
-  // And the source itself, because the finding string is only one place it
-  // could leak in — an `evidence` line calling it a stall would mislead just
-  // as effectively as the word in the `finding` field.
-  const src = fs.readFileSync(stateLib, 'utf8');
-  const findingLines = src.split('\n').filter((l) => /finding=|evidence=/.test(l));
-  for (const line of findingLines) {
-    assert.doesNotMatch(line, /stall/i,
-      `a finding or evidence assignment names a stall: ${line.trim()}`);
-  }
-});
-
-test('idle-watch: a busy transcript publishes nothing, however long it runs', () => {
-  // SILENCE MEANS HEALTHY. A watcher that emitted a line per pass would bury
-  // the one line that matters under a hundred that do not.
-  const busy = QUIET.replace("plot_worker_activity() { printf 'idle'; }",
-    "plot_worker_activity() { printf 'working'; }");
-  assert.deepEqual(publishedOver(busy, 6), [],
-    'a healthy worker produced findings — silence no longer means healthy');
-});
-
-test('idle-watch: past the window, a live pid with NO child is idle', () => {
-  // THE EMPTY ANSWER IS NOT A REFUSAL HERE. Reaching this line already
-  // establishes the agent has written nothing for over 900s; a live pid with
-  // no child process behind it is precisely an agent that has stopped, not a
-  // measurement that is missing. Refusing here would leave the commonest real
-  // stall unreported.
-  const nothing = QUIET.replace("plot_worker_activity() { printf 'idle'; }",
-    "plot_worker_activity() { printf ''; }");
-  const published = publishedOver(nothing, 1);
-  assert.equal(published.length, 1,
-    `expected one idle finding, got ${JSON.stringify(published)}`);
-  assert.equal(published[0].finding, 'idle');
-});
-
-test('idle-watch: it publishes the moment a finding holds and nothing when nothing changed', () => {
-  // `idle` holds from the FIRST pass, and every pass after says the same
-  // thing — so exactly one line is published, at the moment it first held.
-  const published = publishedOver(QUIET, 8);
-  assert.equal(published.length, 1,
-    `a held finding was republished on every pass, got ${published.length} lines`);
-  assert.equal(published[0].finding, 'idle');
-});
-
-test('idle-watch: a finding that stops holding is published as clear', () => {
-  // THE CLEARING CASE IS NEWS TOO. A board that only ever hears about the
-  // onset leaves a stale entry up after the worker recovered, and an operator
-  // learns that entries are not to be believed — the same cost as a false
-  // positive, arriving later.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wstate-idle-recover-'));
-  try {
-    const recovers = `
-      plot_transcript_quiet_seconds() { printf '99999'; }
-      plot_worker_conversation_spoken() { return 0; }
-      plot_worker_tree_quiet_seconds() { printf '99999'; }
-      plot_worker_has_commits() { return 0; }
-      plot_worker_activity() {
-        _n=$(cat "${dir}/.a" 2>/dev/null || echo 0)
-        _n=$((_n + 1)); printf '%s' "$_n" > "${dir}/.a"
-        if [ "$_n" -ge 4 ]; then printf 'working'; else printf 'idle'; fi
-      }
-    `;
-    const published = publishedOver(recovers, 6, { worktree: dir });
-    assert.equal(published.length, 2,
-      `expected an idle then a clear, got ${JSON.stringify(published)}`);
-    assert.equal(published[0].finding, 'idle');
-    assert.equal(published[1].finding, 'clear');
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('idle-watch: every finding carries finding, since, evidence and measuredAt', () => {
-  // THE RECORD SHAPE `plot_worker_publish_finding` emits, pinned directly
-  // rather than through the watch pass, so a reader checking the publish
-  // function's own contract does not also have to drive six readings.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wstate-idle-shape-'));
-  const file = path.join(dir, 'findings.jsonl');
-  try {
-    execFileSync('bash', ['-c', `
-      . ${JSON.stringify(stateLib)}
-      plot_worker_publish_finding "$FILE" "feature/watched" "$WT" "idle" "the evidence" ""
-    `], { encoding: 'utf8', env: { ...process.env, FILE: file, WT: dir } });
-    const [record] = fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
-    assert.ok(record, 'plot_worker_publish_finding wrote nothing');
-    for (const field of ['finding', 'since', 'evidence', 'measuredAt']) {
-      assert.ok(record[field] && String(record[field]).length > 0,
-        `the published finding is missing ${field}`);
-    }
-    assert.equal(record.monitor, 'WorkerMonitor',
-      'the finding does not identify its monitor — the board reader keys on this exact name');
-    assert.match(record.measuredAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
-      'the finding has an unusable measuredAt');
-    assert.match(record.since, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
-      'the finding has an unusable since');
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('idle-watch: it makes no host call at all', () => {
-  // NOT "FEW" — NONE. A watcher that asks the host on every pass has become an
-  // AgentMonitor with a fast loop, and the rate problem follows it.
-  //
-  // Asserted over the SOURCE of plot-worker-state.sh's idle-judging region
-  // rather than by observing a run, because a host call on a branch this test
-  // happens not to take would pass unobserved. `gh`/`bb` are the two host
-  // CLIs; `plot-host.sh` is the adapter that wraps them. The slice is read
-  // from `plot_worker_idle_now` through the end of `plot_worker_idle_watch_pass`
-  // — the functions a watch pass actually calls — rather than the whole file,
-  // which also holds `plot_worker_task_state` and friends with their own
-  // established properties.
-  const src = fs.readFileSync(stateLib, 'utf8');
-  const start = src.indexOf('plot_worker_idle_now()');
-  const end = src.indexOf('plot_worker_cpu_centis()');
-  assert.ok(start > 0 && end > start, 'could not locate the idle-watch region to scope the check');
-  const region = src.slice(start, end)
-    .split('\n')
-    .filter((l) => !/^\s*#/.test(l))   // comments may name what it must not do
-    .join('\n');
-  assert.doesNotMatch(region, /\bplot-host\.sh\b/, 'the idle watch calls the host adapter');
-  assert.doesNotMatch(region, /(^|[^-\w])(gh|bb)\s+(pr|issue|api|repo)\b/m,
-    'the idle watch invokes a host CLI directly');
-  // `git fetch` is the other network call, and it is the tempting one: "are
-  // there commits?" reads like a question about the remote. It is not — the
-  // local ref answers it, and `plot_worker_has_commits` answers
-  // *unanswerable* when there is no local ref rather than reaching for the
-  // network.
-  assert.doesNotMatch(region, /git\s[^\n]*\bfetch\b/,
-    'the idle watch fetches — "commits present" must be answered from local refs or not at all');
-});
 
 // ═══════════════════════════════════════════════════════════════════════════
 // plot_worker_idle_now — THE BOUNDARY, over the function directly
@@ -464,153 +242,10 @@ test('plot_worker_has_commits: no origin ref at all is unanswerable, not yes', (
     'a repo with no origin ref answered the commit question — it must answer *unanswerable*');
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// plot_worker_conversation_spoken — THE THREE-ANSWER PORT
-// ═══════════════════════════════════════════════════════════════════════════
-// Kept here as a direct unit test of the function itself (the `unspoken:`
-// block's `workermonitor.test.mjs` tests that drove it end-to-end through the
-// loop and the manifest live on, unchanged, as `workeridle.test.mjs`'s desk
-// fixtures and this port's own home in plot-agent-manifest.sh /
-// plot-transcript-quiet.sh; this is the narrow "does the port itself answer
-// its three cases" check).
-
-const hopDesk = () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wstate-hop-'));
-  const home = path.join(root, 'home');
-  const worktree = path.join(root, 'desk');
-  fs.mkdirSync(worktree, { recursive: true });
-  const dir = path.join(home, '.claude', 'projects', worktree.replace(/[/.]/g, '-'));
-  fs.mkdirSync(dir, { recursive: true });
-  const manifestFile = path.join(root, 'agent.json');
-  const transcript = (name, age) => {
-    const file = path.join(dir, `${name}.jsonl`);
-    fs.writeFileSync(file, '{}\n');
-    const t = new Date(Date.now() - age * 1000);
-    fs.utimesSync(file, t, t);
-    return file;
-  };
-  const manifest = (fields) => fs.writeFileSync(manifestFile,
-    JSON.stringify({ session: 'launch-id', branch: 'bug/next', ...fields }, null, 2) + '\n');
-  return {
-    root, dir, worktree, manifestFile, transcript, manifest,
-    env: {
-      PLOT_TRANSCRIPT_HOME: home,
-      PLOT_WORKTREE: worktree,
-      PLOT_SESSION_ID: 'launch-id',
-      PLOT_MANIFEST_FILE: manifestFile,
-    },
-    done: () => fs.rmSync(root, { recursive: true, force: true }),
-  };
-};
-
-test('conversation-spoken: the port separates no file from no handle', () => {
-  // `plot_transcript_exists` reads *no handle* as *no file*, which suits
-  // `session_flag`. The port must not: a watcher with no handle that read
-  // every quiet worker as unspoken would disable `idle` silently.
-  const desk = hopDesk();
-  const rc = (env) => execFileSync('bash', ['-c', `
-    . ${JSON.stringify(transcriptLib)}
-    . ${JSON.stringify(manifestLib)}
-    . ${JSON.stringify(stateLib)}
-    plot_worker_conversation_spoken "$PLOT_WORKTREE"; printf '%s' "$?"
-  `], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, ...desk.env, ...env } });
-  try {
-    desk.manifest({ resumeId: 'worker' });
-    assert.equal(rc({}), '1', 'a handle with no file did not answer unspoken');
-    desk.transcript('worker', 5000);
-    assert.equal(rc({}), '0', 'a handle with a file did not answer spoken');
-    assert.equal(rc({ PLOT_SESSION_ID: '', PLOT_MANIFEST_FILE: '' }), '2',
-      'no handle was read as no file');
-    // A manifest with no `resumeId` falls back to the launch id — the
-    // prompt's order.
-    desk.manifest({});
-    assert.equal(rc({}), '1', 'the launch id fallback was not asked');
-    desk.transcript('launch-id', 5000);
-    assert.equal(rc({}), '0');
-  } finally {
-    desk.done();
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// transcript-quiet — plot_transcript_quiet_seconds, unchanged entry point
-// ═══════════════════════════════════════════════════════════════════════════
-
-test('transcript-quiet: it reads a REAL session directory, by worktree path', () => {
-  // THE JOIN, against the real layout rather than a description of it.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-tq-home-'));
-  const worktree = '/Users/someone/repo/.worktrees/feature-x';
-  const slug = worktree.replace(/[/.]/g, '-');
-  const dir = path.join(home, '.claude', 'projects', slug);
-  fs.mkdirSync(dir, { recursive: true });
-  try {
-    fs.writeFileSync(path.join(dir, 'sess.jsonl'), '{}\n');
-    const read = () => execFileSync('bash', ['-c', `
-      . ${JSON.stringify(transcriptLib)}
-      plot_transcript_quiet_seconds ${JSON.stringify(worktree)}
-    `], { encoding: 'utf8', env: { ...process.env, PLOT_TRANSCRIPT_HOME: home } });
-
-    const quiet = read();
-    assert.match(quiet, /^\d+$/, `expected seconds, got ${quiet}`);
-    assert.ok(Number(quiet) < 60, `a file just written read as ${quiet}s quiet`);
-
-    // A DIRECTORY THAT EXISTS BUT HOLDS NO SESSION is still unavailable. The
-    // runtime creates it when the project is first opened, so an empty one
-    // means nothing has written here — not "quiet for a very long time".
-    fs.rmSync(path.join(dir, 'sess.jsonl'));
-    assert.equal(read(), 'unavailable',
-      'an empty session directory read as a very long silence');
-  } finally {
-    fs.rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('transcript-quiet: an `agent-` prefixed transcript is not the worker', () => {
-  // WAVE 1'S FILTER, kept for its reason: a subagent's transcript is a true
-  // statement about the WRONG process. A worker whose subagent is chatting
-  // while the worker itself has stopped must still read as quiet — otherwise
-  // the busiest stall on the estate is the one that never reports.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-tq-sub-'));
-  const worktree = '/Users/someone/repo/.worktrees/feature-y';
-  const dir = path.join(home, '.claude', 'projects', worktree.replace(/[/.]/g, '-'));
-  fs.mkdirSync(dir, { recursive: true });
-  try {
-    fs.writeFileSync(path.join(dir, 'agent-sub.jsonl'), '{}\n');
-    const out = execFileSync('bash', ['-c', `
-      . ${JSON.stringify(transcriptLib)}
-      plot_transcript_quiet_seconds ${JSON.stringify(worktree)}
-    `], { encoding: 'utf8', env: { ...process.env, PLOT_TRANSCRIPT_HOME: home } });
-    assert.equal(out, 'unavailable',
-      'a subagent transcript was read as the worker\'s own — the wrong process was measured');
-  } finally {
-    fs.rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('transcript-quiet: the newest session across a desk is the reading', () => {
-  // A WORKTREE CAN HOLD SEVERAL SESSIONS — a worker that hopped waves, or an
-  // operator who opened one at the same desk. Taking the maximum timestamp is
-  // what stops a live session being ended because a stale sibling sits
-  // beside it.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-tq-many-'));
-  const worktree = '/Users/someone/repo/.worktrees/feature-z';
-  const dir = path.join(home, '.claude', 'projects', worktree.replace(/[/.]/g, '-'));
-  fs.mkdirSync(dir, { recursive: true });
-  try {
-    const stale = path.join(dir, 'old.jsonl');
-    fs.writeFileSync(stale, '{}\n');
-    // Two hours ago — past any window.
-    const old = new Date(Date.now() - 7200_000);
-    fs.utimesSync(stale, old, old);
-    fs.writeFileSync(path.join(dir, 'live.jsonl'), '{}\n');
-
-    const out = execFileSync('bash', ['-c', `
-      . ${JSON.stringify(transcriptLib)}
-      plot_transcript_quiet_seconds ${JSON.stringify(worktree)}
-    `], { encoding: 'utf8', env: { ...process.env, PLOT_TRANSCRIPT_HOME: home } });
-    assert.ok(Number(out) < 60,
-      `a desk with one live and one stale session read as ${out}s quiet — the stale sibling won`);
-  } finally {
-    fs.rmSync(home, { recursive: true, force: true });
-  }
-});
+// plot_worker_conversation_spoken (THE THREE-ANSWER PORT: spoken / unspoken /
+// no handle) and transcript-quiet (`plot_transcript_quiet_seconds`) both went
+// with `the-shell-loop-goes` — the JS loop reads transcripts through
+// `adapters/transcript/transcript-fs.ts` instead (`Transcript.spoken` and
+// `.quietSeconds`). All four scenarios (spoken/unspoken/no-handle, real
+// session directory, `agent-*` exclusion, newest-session-wins) are ported to
+// `packages/domain/test/transcript-fs.test.ts`, which had no prior coverage.

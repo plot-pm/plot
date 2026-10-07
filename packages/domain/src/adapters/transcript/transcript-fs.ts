@@ -20,10 +20,9 @@ const isSubagentFile = (name: string): boolean => name.startsWith('agent-');
 /**
  * Reads transcripts from the filesystem — the production {@link Transcript}.
  *
- * Matches `plot_transcript_quiet_seconds` (`plot-transcript-quiet.sh`) exactly:
- * the newest mtime across every non-`agent-*` `*.jsonl` file directly inside
- * the worktree's transcript directory, clamped at zero for a clock skewed into
- * the future.
+ * Reads the newest mtime across every non-`agent-*` `*.jsonl` file directly
+ * inside the worktree's transcript directory, clamped at zero for a clock
+ * skewed into the future.
  *
  * @param options - the transcript home and environment seams.
  * @returns a `Transcript` reading this machine's `~/.claude/projects`.

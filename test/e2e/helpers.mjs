@@ -9,7 +9,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { workerLoopLine } from '../reconcile/loop-switch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(here, '..', '..');
@@ -32,7 +31,7 @@ export function makeSandbox({ config = '', name = 'sandbox' } = {}) {
   execSync(`git init -q --bare ${origin}`);
   fs.mkdirSync(work);
   sh(work, 'git init -q -b main && git config user.email t@t && git config user.name t && git config commit.gpgsign false');
-  fs.writeFileSync(path.join(work, 'CLAUDE.md'), `# Sandbox\n\n## Plot Config\n\n${config}\n${workerLoopLine()}`);
+  fs.writeFileSync(path.join(work, 'CLAUDE.md'), `# Sandbox\n\n## Plot Config\n\n${config}\n`);
   sh(work, `git add -A && git commit -qm init && git remote add origin ${origin} && git push -qu origin main`);
   sh(work, 'git remote set-head origin main');
   return { root, origin, work, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };

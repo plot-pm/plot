@@ -25,7 +25,6 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { testWorkerLoop, workerLoopLine } from './loop-switch.mjs';
 import { registryWatcher } from './registry-watcher.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -49,7 +48,7 @@ const sandbox = (leave) => {
 - **Plan directory:** docs/plans/
 - **Active index:** docs/plans/active/
 - **Worker bound:** 600
-${workerLoopLine()}`);
+`);
   fs.mkdirSync(path.join(work, 'docs', 'plans'), { recursive: true });
   fs.writeFileSync(path.join(work, 'docs', 'plans', '2026-10-02-movedpid.md'), `# Moved pid
 
@@ -172,11 +171,12 @@ const read = (file) => fs.readFileSync(file, 'utf8');
 
 const sleeper = () => spawn('sleep', ['300'], { stdio: 'ignore' });
 
-// SHELL-BOUND: a held desk after a finished slice needs a `PLOT-BLOCKED.md` the
-// agent left AND a hand-over after it. `agentLoop` row 10 ends the worker on that
-// marker before any seal, so the JS loop never reaches the hop this test measures.
+// UNREACHABLE ON THE JS LOOP: a held desk after a finished slice needs a
+// `PLOT-BLOCKED.md` the agent left AND a hand-over after it. `agentLoop` row
+// 10 ends the worker on that marker before any seal, so the JS loop — the
+// only loop now — never reaches the hop this test measures.
 test('moved worker: the new desk names the pid and the old desk names none', {
-  skip: testWorkerLoop() === 'js' && 'the JS loop ends on the marker before it hops (agentLoop row 10)',
+  skip: 'the JS loop ends on the marker before it hops (agentLoop row 10)',
 }, () => {
   const sb = sandbox(true);
   const agent = sleeper();

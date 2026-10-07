@@ -33,7 +33,6 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { workerLoopLine } from './loop-switch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -78,7 +77,7 @@ function sandbox() {
 
 - **Plan directory:** docs/plans/
 - **Worker bound:** 20
-${workerLoopLine()}`);
+`);
   fs.mkdirSync(path.join(work, '.plot'), { recursive: true });
   // The loop sources this and the hop must complete before the prompt
   // matters, so it only needs to exist and exit cleanly.

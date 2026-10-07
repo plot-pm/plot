@@ -415,10 +415,9 @@ fs.copyFileSync(registrydArtifact, shippedRegistryd);
 fs.chmodSync(shippedRegistryd, 0o755);
 
 // The agent's own loop: `plot-worker-loop.mjs`, one process for an agent's
-// whole life, behind `Worker loop: js`. The launcher at the top of
-// `plot-worker-loop.sh` `exec`s this bundle; `shell` remains the default and
-// runs no Node at all. See `entry/worker-loop.ts` for what it decides and
-// what it does not.
+// whole life. The launcher at the top of `plot-worker-loop.sh` `exec`s this
+// bundle unconditionally — there is no shell loop body left to fall back to.
+// See `entry/worker-loop.ts` for what it decides and what it does not.
 //
 // ONE OF TWO BUNDLES THAT CARRY `@anthropic-ai/claude-agent-sdk`, for the SDK
 // runner (`Agent runner: sdk`) — `board-server.mjs` above is the other, for a
@@ -973,28 +972,6 @@ await esbuild.build({
 
 fs.copyFileSync(localChecksArtifact, shippedLocalChecks);
 fs.chmodSync(shippedLocalChecks, 0o755);
-// plot-checks-verdict.mjs — whether an agent that finished a prompt still waits
-// for its PR's checks, for `plot-worker-loop.sh`. Its own bundle for the reason
-// the prompt-exit block gives: `plot-ask.mjs` runs the fleet scan to answer
-// anything. The loop asks once a minute while an agent waits; the entry reads
-// stdin, spawns nothing and opens nothing.
-const checksVerdictArtifact = path.join(here, 'dist/plot-checks-verdict.mjs');
-const shippedChecksVerdict = path.join(here, '../../skills/plot/scripts/board/plot-checks-verdict.mjs');
-
-await esbuild.build({
-  entryPoints: [path.join(here, 'src/server/entry/checks-verdict.ts')],
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  target: 'node20',
-  outfile: checksVerdictArtifact,
-  minify: true,
-  legalComments: 'none',
-  banner: { js: '#!/usr/bin/env node' },
-});
-
-fs.copyFileSync(checksVerdictArtifact, shippedChecksVerdict);
-fs.chmodSync(shippedChecksVerdict, 0o755);
 
 // plot-checkout-yield.mjs — whether the worktree holding a branch may be
 // removed so the agent handed that branch can take it, for
@@ -1262,28 +1239,20 @@ fs.chmodSync(shippedDeliver, 0o755);
 // derives this from the server sources and fails on any difference.
 const vendoredScripts = [
   'plot-agent-monitor.sh',
-  // Sourced BY plot-agent-monitor.sh as a `$script_dir` sibling since the two
-  // slice monitors merged on 2026-09-06 — the desk and the run are watched by
-  // one loop now, and the run's half lives here. Missing, the merged monitor
-  // does not crash: it reports that no build subject is attached and watches the
-  // desk alone, which is the silent half-blindness the vendoring exists to
-  // prevent. A gate derived from the server's own spawns cannot see a SOURCED
-  // file, so it is listed by hand, exactly as `plot-budget.sh` below is.
-  'plot-build-monitor.sh',
-  // Sourced BY both remaining monitors (`plot-agent-monitor.sh`,
-  // `plot-build-monitor.sh`) as a `$script_dir` sibling — it is "the ONE
+  // Sourced BY plot-agent-monitor.sh as a `$script_dir` sibling — it is "the ONE
   // answer to is this monitor's subject still there?", and it is what ends a
   // monitor with its agent. It was on NO list, measured 2026-09-06, so the npm
   // layout has shipped without it: `plot_monitor_wait` is then undefined and the
-  // `while` driving every monitor's loop fails on the first call, so a monitor
+  // `while` driving the monitor's loop fails on the first call, so the monitor
   // starts, takes one pass and exits — leaving a worker that reads as monitored
-  // and is watched by nothing after its first second. A third monitor,
-  // `plot-worker-monitor.sh`, sourced this too until
-  // `bug/the-loop-reports-idle` removed the process entirely.
+  // and is watched by nothing after its first second. A second monitor,
+  // `plot-build-monitor.sh`, sourced this too until `the-shell-loop-goes`
+  // removed the process entirely; a third, `plot-worker-monitor.sh`, sourced
+  // this too until `bug/the-loop-reports-idle` removed it the same way.
   'plot-monitor-subject.sh',
   'plot-approve.sh',
   // Sourced BY plot-host.sh as a `$here` sibling — the same shape as
-  // `plot-transcript-quiet.sh` below, and the same failure. Missing, the source
+  // `plot-pr-merged.sh` below, and the same failure. Missing, the source
   // prints one line to stderr and every budget function is then undefined:
   // `graphql_budget_spent` calls `budget_rate`, so in the npm layout every
   // `pr-state` would route on a `command not found`. The gate that derives this
@@ -1317,14 +1286,6 @@ const vendoredScripts = [
   'plot-reap.sh',
   'plot-release-refs.sh',
   'plot-worker-state.sh',
-  // Sourced BY plot-worker-loop.sh as a `$script_dir` sibling — it holds the
-  // watcher's own readings, including `plot_worker_idle_watch_pass`. Missing,
-  // the loop does not crash: its guard answers `unavailable`, which is the
-  // honest word for a reader that is not there — but every worker in the npm
-  // layout would then fall back to `Worker bound` alone, silently. Until
-  // `bug/the-loop-reports-idle` this was sourced by the now-deleted
-  // `plot-worker-monitor.sh`; the loop has sourced it since.
-  'plot-transcript-quiet.sh',
   // Sourced BY plot-approve.sh, plot-deliver.sh and plot-dispatch.sh as a
   // `$script_dir` sibling — they spend their controller receipt through it on
   // their own exit 0. Missing, all three ABORT: the source line is
@@ -1393,7 +1354,6 @@ const agentSettingsKb = (fs.statSync(shippedAgentSettings).size / 1024).toFixed(
 const startCommandKb = (fs.statSync(shippedStartCommand).size / 1024).toFixed(1);
 const promptExitKb = (fs.statSync(shippedPromptExit).size / 1024).toFixed(1);
 const localChecksKb = (fs.statSync(shippedLocalChecks).size / 1024).toFixed(1);
-const checksVerdictKb = (fs.statSync(shippedChecksVerdict).size / 1024).toFixed(1);
 const checkoutYieldKb = (fs.statSync(shippedCheckoutYield).size / 1024).toFixed(1);
 const emptyClaimKb = (fs.statSync(shippedEmptyClaim).size / 1024).toFixed(1);
 const controllerInvocationKb = (fs.statSync(shippedControllerInvocation).size / 1024).toFixed(1);
@@ -1430,7 +1390,6 @@ console.log(`Built plot-agent-settings.mjs (${agentSettingsKb} KB) → skills/pl
 console.log(`Built plot-start-command.mjs (${startCommandKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-prompt-exit.mjs (${promptExitKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-local-checks.mjs (${localChecksKb} KB) → skills/plot/scripts/board/`);
-console.log(`Built plot-checks-verdict.mjs (${checksVerdictKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-checkout-yield.mjs (${checkoutYieldKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-empty-claim.mjs (${emptyClaimKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-controller-invocation.mjs (${controllerInvocationKb} KB) → skills/plot/scripts/board/`);
