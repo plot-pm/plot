@@ -54,7 +54,7 @@ The JS worker loop replaced the shell loop in v2.24.0 (#1337). Four readings in 
 
 ### A run no runner took is no answer
 
-- `bug/a-run-no-runner-took-is-no-answer` — a 0-step or not-acquired run reads `no-answer` and spends no correction <!-- builds: the unacquired-run reading in checks-verdict.ts -->
+- `bug/a-run-no-runner-took-is-no-answer` — a 0-step or not-acquired run reads `no-answer` and spends no correction <!-- builds: the unacquired-run reading in checks-verdict.ts --> → #1353
 
 ### A spend limit reads its dollars
 
