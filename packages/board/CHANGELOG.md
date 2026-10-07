@@ -1,5 +1,112 @@
 # @plot-pm/board
 
+## 0.17.0
+
+### Minor Changes
+
+- [#1287](https://github.com/plot-pm/plot/pull/1287) [`c9f8c80`](https://github.com/plot-pm/plot/commit/c9f8c807eabbd96f138980dcb73aa19525ca8b53) Thanks [@jwloka](https://github.com/jwloka)! - A desk holding a `PLOT-BLOCKED*` marker now lands under WAITING ON YOU with the question and its age, whatever the agent's loop is doing — fixing the failure measured 2026-10-05 where a question asked at 13:36 sat unanswered until 18:20 because the row read `worker running` under WORKING with no sign anyone was needed. `workerQuestions` widened from `worker === 'waiting'` to every branch holding a local worktree, reading the marker's first line and its modification time from one `stat` via the new `markerReading`; `classify` routes any branch carrying a question to WAITING ON YOU ahead of its own worker-state arms, keeping a `failed` row's exit code in the note as evidence. The fleet row gains `question: { firstLine, askedAt } | null`.
+
+  <!--
+  plan: docs/plans/2026-10-05-an-unanswered-question-escalates.md
+  -->
+
+- [#1296](https://github.com/plot-pm/plot/pull/1296) [`2baccf7`](https://github.com/plot-pm/plot/commit/2baccf731402edb7101e8009f85373d72c768c08) Thanks [@jwloka](https://github.com/jwloka)! - A desk's unanswered question now notifies a person once per configured age — fixing the failure measured 2026-10-05 where a question asked at 13:36 sat unanswered until 18:20 with `person=0` on every one of 10,521 ticks, because nothing read a question's age or told anyone. `questionEscalation` reads the marker's age against the `Question escalation` config (default `15m, 1h, 4h`) and the rungs already recorded for that exact marker, and answers the highest rung reached and whether it is new; the registry tick calls it for every desk holding a marker, after `supervise`, whatever the agent's loop is doing. `Question escalation: none` turns notification off. A new rung sends through the `Notifier` port: the `Notify command` runs through `sh -c` like `Worker command`, with the message only in `PLOT_NOTIFY_MESSAGE`, and `notifierNone` answers for a repository with no `Notify command`. The daemon reads `Notify command` each time it notifies, so adding one needs no restart. Each reached rung is recorded once in `.plot/state/escalations.tsv`, so a repeat tick never resends it; a failed send is retried at the next rung rather than every minute.
+
+  <!--
+  plan: docs/plans/2026-10-05-an-unanswered-question-escalates.md
+  -->
+
+- [#1337](https://github.com/plot-pm/plot/pull/1337) [`f60a9da`](https://github.com/plot-pm/plot/commit/f60a9da7555e0c920988406018f16bf45125ebeb) Thanks [@jwloka](https://github.com/jwloka)! - The board stops reading and writing `buildMonitorPid`. The manifest schema, `continue`, the registry, and the manifest-stamp helper all drop the field — a manifest that still carries one from before this change parses without it rather than refusing. `entry/worker-loop.ts` now writes its own CI-wait finding directly instead of waiting on a BuildMonitor process that no longer exists.
+
+  <!--
+  plan: docs/plans/2026-10-04-the-worker-loop-runs-in-js.md
+  -->
+
+- [#1314](https://github.com/plot-pm/plot/pull/1314) [`99db7bf`](https://github.com/plot-pm/plot/commit/99db7bf42cef48b7001b4b70253c692b70693b8a) Thanks [@jwloka](https://github.com/jwloka)! - The JS worker loop restarts itself on the newer bundle in this repository's main checkout. It checks once before its first pass, and between passes while it waits for work. A restart needs the main checkout on the default branch, its bundle directory clean, its `HEAD` containing the commit it was on when the loop started, and a bundle whose content differs. A loop in a free wait above 300 MB resident memory restarts on its own bundle. The candidate bundle runs `--self-check` first, and a candidate that fails it is logged once and not used. The restart keeps the pid through `process.execve`, and `PLOT_WAIT_STARTED` carries the free wait's start, so a restart does not extend `Worker bound`. On a Node without `process.execve` the loop logs that once and does not restart.
+
+  <!--
+  plan: docs/plans/2026-10-04-the-worker-loop-runs-in-js.md
+  -->
+
+- [#1321](https://github.com/plot-pm/plot/pull/1321) [`ef2ffa5`](https://github.com/plot-pm/plot/commit/ef2ffa53999ceee6ee7fa506685ba63da716a3fd) Thanks [@jwloka](https://github.com/jwloka)! - The JS worker loop runs an agent's prompt through the Claude Agent SDK when `Agent runner: sdk` is set. The loop, not the model, waits: a turn ends with a `next` hand-back, and on `next: checks` the loop runs the commands `plot-local-checks.mjs` prints and resumes the session with the result. Each SDK run disables background tasks, disallows `Monitor`, `ScheduleWakeup`, `CronCreate`, `TaskStop` and `ListAgents`, and refuses poll shapes through a `PreToolUse` hook. New config keys: `Agent runner`, `Agent models`, `Agent max turns` (150), `Slice max runs` (12) and `Agent context window` (200000). The prompt is read from `.plot/worker-prompt.md`, else from the shipped `templates/worker-prompt.md`. The `dispatch` and `continue` controllers refuse `Agent runner: sdk` under `Worker loop: shell`. An absent `Agent runner` reads `command`, so nothing changes until a project sets it.
+
+  <!--
+  plan: docs/plans/2026-10-05-fleet-agents-run-through-the-agent-sdk.md
+  bumps:
+    skills:
+      plot: minor
+      plot-dispatch: minor
+  -->
+
+### Patch Changes
+
+- [#1272](https://github.com/plot-pm/plot/pull/1272) [`7f451da`](https://github.com/plot-pm/plot/commit/7f451dafff699ac1a671941ffe0d3129c68fad6e) Thanks [@jwloka](https://github.com/jwloka)! - A slice whose brief the dispatch controller is writing through the implement route now reads "a brief was asked for `<age>` ago" on the board instead of "approved — nobody has taken it", and a brief writer that recorded a non-zero exit reads "the brief writer failed" and names its log.
+
+  <!--
+  plan: docs/plans/2026-10-04-a-brief-the-fleet-writes-shows-as-asked.md
+  -->
+
+- [#1313](https://github.com/plot-pm/plot/pull/1313) [`e4757ba`](https://github.com/plot-pm/plot/commit/e4757ba7119c326caf69d7b33d86a40095284abf) Thanks [@jwloka](https://github.com/jwloka)! - A branch whose `<!-- waits: … -->` prerequisite is a slice some plan names now reads `waiting` when the host has no pull request for that slice, because nobody has started it yet. `blocked` stays for a name that no plan contains. `plot-fleet-scan.sh` passes the rule a twelfth field per branch, whether each prerequisite is a named slice, and `plot-dispatch.sh` refuses a branch waiting on an unstarted sibling slice as `waiting on …` instead of `blocked — no PR found for …` ([#1305](https://github.com/plot-pm/plot/issues/1305)).
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+      plot-dispatch: patch
+  -->
+
+- [#1299](https://github.com/plot-pm/plot/pull/1299) [`cb88bfd`](https://github.com/plot-pm/plot/commit/cb88bfde1b1b35fdc191d11afacdcbc8b67fddb5) Thanks [@jwloka](https://github.com/jwloka)! - A continued agent gets its AgentMonitor and BuildMonitor. `POST /api/continue` and the registry's fresh-agent continuation now start both monitors for the desk with the environment the dispatch wrapper gives them, and the manifest records their pids. A continuation first stops the pair the manifest records, so a desk keeps one pair, and a monitor that does not start is named in `.plot-worker.log`. Before, a continued agent's CI wait read a findings file no process wrote and always ran out ([#1255](https://github.com/plot-pm/plot/issues/1255)).
+
+- [#1315](https://github.com/plot-pm/plot/pull/1315) [`bff3570`](https://github.com/plot-pm/plot/commit/bff357095deb5ac4476e1e82c17ceeeff2b7db71) Thanks [@jwloka](https://github.com/jwloka)! - A rejected claim push no longer refuses the next assignment on the JS worker loop: the reset refusal counts commits ahead of the branch's upstream, so the unpushed empty claim commit is not read as held work.
+
+- [#1326](https://github.com/plot-pm/plot/pull/1326) [`3362feb`](https://github.com/plot-pm/plot/commit/3362febd218d02cf9b62707526e6f03842a4a01f) Thanks [@jwloka](https://github.com/jwloka)! - Each SDK run appends one run line to the slice-spend record: the session's cumulative tokens and cost per model, its total cost, and the run's own turns. `readSpend` and `planSpend` sum each session's increases, so a resumed session counts once and a zeroed run adds nothing; the seal line covers only the sessions with no run line. Each `rate_limit_event` appends one budget entry under the `claude` connector. `Agent max spend` bounds one run and `Slice max spend` stops a slice before its next run with `spend-limit`; neither key has a default. A run that ends `turn-limit` gets one fresh session from the registry tick, shared with the `corrections-spent` allowance. The board's plan cost tooltip names the slices read from run lines, which include subagents and compaction. A sourced `plot-worker-loop.sh` defines its functions and no longer `exec`s the JS loop under `Worker loop: js`.
+
+  <!--
+  plan: docs/plans/2026-10-05-fleet-agents-run-through-the-agent-sdk.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1291](https://github.com/plot-pm/plot/pull/1291) [`9c632e7`](https://github.com/plot-pm/plot/commit/9c632e7c798c18dfdcd62ba45c92c3df7100e42e) Thanks [@jwloka](https://github.com/jwloka)! - A slice that spends its correction budget gets one fresh agent session before a person is asked. The worker loop ends the spent-budget desk with the reason `corrections-spent` (it was `unstarted`), and `agentLoop` row 15 emits the same reason. With `--start-agents`, the registry tick reads each plan-named desk that has no manifest and ended `corrections-spent`. The first time for a slice, it registers a new agent for the desk (`Agents.register`, a manifest in the shape the dispatcher writes, with a new session id), then starts a fresh session through the continue workflow, with every correction from `PLOT-CORRECTION.md` and the failing run in the answer. The session gets a new resume id, so it does not resume the spent conversation. The tick appends a row to `.plot/state/fresh-agents.tsv`, keyed on plan and branch, after continue accepts the desk and before the session starts. A manifest whose start did not happen is removed. A second spent budget for the same slice writes a `blocked` declaration once. If the registration fails or continue refuses the desk, the tick records nothing and logs the reason. `/api/continue` still refuses a desk no manifest names.
+
+  <!--
+  plan: docs/plans/2026-10-05-a-spent-correction-budget-gets-a-fresh-agent.md
+  -->
+
+- [#1302](https://github.com/plot-pm/plot/pull/1302) [`bf29cdc`](https://github.com/plot-pm/plot/commit/bf29cdc47d0a9e4f707247e8022cacbb8487bbe3) Thanks [@jwloka](https://github.com/jwloka)! - A slice whose branch state is `waiting` or `blocked` (it declares `<!-- waits: … -->`) now renders in NOT STARTED as a slice row with its status word and its waiting age, and its plan head shows the age too. The server decides once, through `hasNoWork`, that `open`, `waiting` and `blocked` branches carry no work, and carries the answer on the row as `unbegun`; `waitingDays`, `waitingOnFor` and the client's `isUnbegun` read it. `unknown` stays outside the set. A plan head now counts its own slices and the slices elsewhere from one set, the slices its rows belong to, so a slice in WORKING no longer counts both here and elsewhere ([#1297](https://github.com/plot-pm/plot/issues/1297), [#1301](https://github.com/plot-pm/plot/issues/1301)).
+
+- [#1303](https://github.com/plot-pm/plot/pull/1303) [`1fd1f1f`](https://github.com/plot-pm/plot/commit/1fd1f1fbebd57ed43051025730e9524c1120977f) Thanks [@jwloka](https://github.com/jwloka)! - A `waiting` or `blocked` branch reads as unbegun only where the state under it is `open`. The fleet scan now emits each branch's `own_state`, the state before its `waits:` prerequisite, from a third column of `plot-branch-state.mjs`, and `hasNoWork` reads it: a held branch over `unknown`, or from a scan with no `own_state`, is not unbegun, because the host could not say it is empty. A `waiting` or `blocked` branch waits on `time` even in an eligible slice and names no blocking slice. Follows [#1302](https://github.com/plot-pm/plot/issues/1302).
+
+- [#1330](https://github.com/plot-pm/plot/pull/1330) [`bbfa4f2`](https://github.com/plot-pm/plot/commit/bbfa4f2a16f41bff3cef45e465ffd6c1b5ebc67e) Thanks [@jwloka](https://github.com/jwloka)! - The `Worker loop` config key's default moves from `shell` to `js`: the launcher, the board's `sdkLoopRefusal` gate, and `runnerChoice` now all read an absent key as `js`, and only an explicit `shell` still runs the shell loop body or refuses `Agent runner: sdk`. A new read-only script, `scripts/count-master-diagnosis.mjs`, reports a window's master-session diagnosis cost (matching Bash calls, their result characters, and a labelled token estimate) for the fleet measurement that gates this flip.
+
+  <!--
+  plan: docs/plans/2026-10-04-the-worker-loop-runs-in-js.md
+  bumps:
+    skills:
+      plot-dispatch: patch
+  -->
+
+- [#1337](https://github.com/plot-pm/plot/pull/1337) [`f60a9da`](https://github.com/plot-pm/plot/commit/f60a9da7555e0c920988406018f16bf45125ebeb) Thanks [@jwloka](https://github.com/jwloka)! - The JS worker loop records a refused slice. A desk reset refused at take-up appends the branch to `.plot/state/refused-slices.tsv` under the common git dir, once per branch, so the queue holds the slice instead of handing it to the next free agent. The shell loop's `record_refused_slice` was the only writer before, and on 2026-10-03 one refused slice went to free agents 250 times. The queue's `refused` reading now reads the same file through the same adapter; before, it read the checkout's own `.plot/state/` and missed the writer's line.
+
+  <!--
+  plan: docs/plans/2026-10-04-the-worker-loop-runs-in-js.md
+  -->
+
+- [#1325](https://github.com/plot-pm/plot/pull/1325) [`a5a1b97`](https://github.com/plot-pm/plot/commit/a5a1b979fbd912e4e4897098d8c6b95c43f37c80) Thanks [@jwloka](https://github.com/jwloka)! - The JS worker loop's restart keeps a pending hop, so the slice after a restart starts a new conversation and a new correction count ([#1324](https://github.com/plot-pm/plot/issues/1324)). A restart onto the main checkout now needs its `skills/plot/scripts/` paths free of every uncommitted or untracked change, a locally rebuilt bundle included, and a main `HEAD` that contains the commit of the running bundle, so a loop does not move onto older code. Each blocked restart is logged once with its reason. A memory restart re-runs only the content the loop loaded. The `--self-check` builds the loop's ports and reads its configuration, and a candidate is rejected after two failed checks or one failed replace.
+
+- [#1292](https://github.com/plot-pm/plot/pull/1292) [`8849232`](https://github.com/plot-pm/plot/commit/8849232b7f063a74630fe8c218da77bd85eafbc4) Thanks [@jwloka](https://github.com/jwloka)! - `packages/board/src/server/entry/worker-loop.ts` gathers one pass's `AgentLoopReadings` through ports — the manifest, the desk's reset refusals and markers, the host's PR lookup, and the build connector's run for the pushed commit against the branch's live remote tip — in the table's own order, reading only what the place a pass is in calls for. A new `Transcript` port and its `transcriptFs` adapter (`packages/domain/src/ports/transcript.ts`, `adapters/transcript/`) answer the idle watch's transcript-silence reading, matching `plot_transcript_quiet_seconds` exactly, with a corpus pair (`corpus/transcript.corpus.test.ts`) holding the two in agreement. The launcher at the top of `plot-worker-loop.sh` reads `Worker loop` and `exec`s `board/plot-worker-loop.mjs` on `js`, exiting 2 with no silent fallback where the bundle is missing; `shell` stays the default and runs no Node. An absent manifest `loop` field reads as `shell`.
+
+  <!--
+  plan: docs/plans/2026-10-04-the-worker-loop-runs-in-js.md
+  -->
+
+- [#1282](https://github.com/plot-pm/plot/pull/1282) [`30d695d`](https://github.com/plot-pm/plot/commit/30d695d423f30e7b37641e9a22c154314b36114c) Thanks [@jwloka](https://github.com/jwloka)! - `performLoopWrites` in `packages/board/src/server/entry/loop-writes.ts` applies the loop's decided writes through ports, one arm per `Write` kind `agentLoop` emits, with an exhaustive `switch` that fails `tsc` on an unhandled kind rather than a runtime `default`. Two new ports carry the writes no existing port could: `boundedRun`, which runs the prompt without `detached` so an external group stop still reaches it and its descendants, reading those descendants before it signals the root on its own bound or on the caller's exit; and `desk`, which writes the ending, the `PLOT-BLOCKED` marker, the declaration, the correction file, the limited record, the moved worker record and the findings lines, preserving each file's own best-effort or temp-file-and-rename property. `refs.remoteTip` reads the branch's live remote tip through `git ls-remote` (in `refs-remote-git.ts`, composed at the loop's wiring; the board's `refsGit` answers `unaskable`, so the poll path stays off the network) rather than the last-fetched local mirror, answering `unknown` rather than `other` on a failed or timed-out read. `Trees` gained `resetOnto`, `commit` and `push` for the claim sequence, and `Agents` gained `raiseAttempts`, `raiseCorrections` and `clearAssignment` for the counters and the assignment clear — each carrying the new value rather than an increment, so applying either twice lands the same number. `Processes.childrenOf` reads a pid's direct children, read-only, for the descendants a group stop snapshots before it kills the root.
+
+  <!--
+  plan: docs/plans/2026-10-04-the-worker-loop-runs-in-js.md
+  -->
+
 ## 0.16.3
 
 ### Patch Changes
@@ -1608,11 +1715,11 @@ O_EXCL` is exclusive but publishes the NAME before the CONTENT: a second process
   flight and room for three more. A cap that refuses nothing and reports nothing
   is indistinguishable from no cap at all.
 
-                          <!--
-                          bumps:
-                            skills:
-                              plot: minor
-                          -->
+                            <!--
+                            bumps:
+                              skills:
+                                plot: minor
+                            -->
 
 - [#644](https://github.com/plot-pm/plot/pull/644) [`a7e2be8`](https://github.com/plot-pm/plot/commit/a7e2be8107adbe8081e69a3ac0af9050d5dc1ec0) Thanks [@jwloka](https://github.com/jwloka)! - The PR refresh asks through the `Host` port instead of calling `plot-host.sh` directly, so a board handed a fixture host asks no CLI and spends no budget. The port gains a `runs` op that names its refusal, and one adapter is bound per refresh rather than defaulted independently by each caller.
 
@@ -4327,11 +4434,11 @@ HEAD..origin/main` with `0`, indistinguishable from a genuinely current
 command` in CLAUDE.md is tightened to name the `PLOT-BLOCKED.md` file it asks
   workers to write, so the instruction and the classifier agree.
 
-                                    <!--
-                                    bumps:
-                                      skills:
-                                        plot: patch
-                                    -->
+                                      <!--
+                                      bumps:
+                                        skills:
+                                          plot: patch
+                                      -->
 
 - [#352](https://github.com/plot-pm/plot/pull/352) [`299b4e1`](https://github.com/plot-pm/plot/commit/299b4e19c0b8093418b61053e70de0c6044df2ed) Thanks [@jwloka](https://github.com/jwloka)! - board: a release row's fallback number says it is a PR
 
@@ -5648,11 +5755,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   controls and their shared state on top of wave 1's live registry, and it
   dispatches nothing — the dispatch loop is wave 3.
 
-                                      <!--
-                                      bumps:
-                                        skills:
-                                          plot: minor
-                                      -->
+                                        <!--
+                                        bumps:
+                                          skills:
+                                            plot: minor
+                                        -->
 
 ### Patch Changes
 
@@ -5850,11 +5957,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   never mounted, and it fails against the pre-fix code for the stated reason:
   the Commission design item is absent without the prop.
 
-                                      <!--
-                                      bumps:
-                                        skills:
-                                          plot: patch
-                                      -->
+                                        <!--
+                                        bumps:
+                                          skills:
+                                            plot: patch
+                                        -->
 
   ## And a wave said _nobody has taken it_ over finished work
 
@@ -6713,10 +6820,10 @@ has taken it`. The server was right on every field — the row sat in
   Nothing new reads the prose: `verdict` and `blockedBy` remain the fields a
   consumer reads, and this only sharpens the sentence a person sees.
 
-                                        <!--
-                                        bumps:
-                                          skills:
-                                        -->
+                                          <!--
+                                          bumps:
+                                            skills:
+                                          -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched. `blockedNote` gains an optional argument, so every existing caller is
@@ -6806,10 +6913,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   PR for this branch_, which was never a decision about the contract so much as
   this cache filter leaking into it.
 
-                                        <!--
-                                        bumps:
-                                          skills:
-                                        -->
+                                          <!--
+                                          bumps:
+                                            skills:
+                                          -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and `plot-fleet-scan.sh` already resolves each branch's PR to decide
@@ -7019,10 +7126,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   order, a new status flashes then sorts in, the panel is absent when there is
   nothing to report, and the footer line stays at the foot and unchanged.
 
-                                        <!--
-                                        bumps:
-                                          skills:
-                                        -->
+                                          <!--
+                                          bumps:
+                                            skills:
+                                          -->
 
 - [#287](https://github.com/plot-pm/plot/pull/287) [`50ef368`](https://github.com/plot-pm/plot/commit/50ef3681fb332ecc2b862af18a6722d1ca9dd9f6) Thanks [@jwloka](https://github.com/jwloka)! - board: a failing check shows its step and its age, and its file list moves to the menu
 
@@ -7421,10 +7528,10 @@ bottom 801.3125 in 800px` — the footer really is past the fold there, by 1.3px
   the test says in a comment why it does not — and the defect gets its own plan,
   `2026-08-21-the-page-is-as-tall-as-the-screen.md`.
 
-                                        <!--
-                                        bumps:
-                                          skills:
-                                        -->
+                                          <!--
+                                          bumps:
+                                            skills:
+                                          -->
 
   No skill version bumps: this is a board-side rendering change only. No helper
   script decides how a section is drawn, `/api/fleet` loses and gains no field,
@@ -7772,11 +7879,11 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   by construction (a plan's branches move through the lifecycle together), so the
   predicate can demand that every row be wave-grouped rather than handle a mixture.
 
-                                        <!--
-                                        bumps:
-                                          skills:
-                                            plot: patch
-                                        -->
+                                          <!--
+                                          bumps:
+                                            skills:
+                                              plot: patch
+                                          -->
 
 - [#300](https://github.com/plot-pm/plot/pull/300) [`93a1e41`](https://github.com/plot-pm/plot/commit/93a1e415ca5903a50280ade19899bb21ecb06b98) Thanks [@jwloka](https://github.com/jwloka)! - board: an agent is the machine, so it never appears in WAITING ON A MACHINE
 
@@ -7968,10 +8075,10 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   on the pulse, so a brief written between two scans shows up on the next pulse
   instead of waiting out the scan's cadence.
 
-                                        <!--
-                                        bumps:
-                                          skills:
-                                        -->
+                                          <!--
+                                          bumps:
+                                            skills:
+                                          -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and the `/api/fleet` payload gains a field rather than changing one —
@@ -8474,10 +8581,10 @@ spawn`. Every number is measured, not estimated — the worktree count and the
   field — the estate is appended to the existing `error` string, which the tab
   already renders as `Last scan failed: …`.
 
-                                        <!--
-                                        bumps:
-                                          skills:
-                                        -->
+                                          <!--
+                                          bumps:
+                                            skills:
+                                          -->
 
   The estate report is board-side only. `plot-fleet-scan.sh` is deliberately not
   changed: a SIGKILLed scan cannot append its own diagnosis, so the measurement is
@@ -9107,10 +9214,10 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   as the follow-up: this change's job is to stop asserting a false cause, not to
   find the true one.
 
-                                        <!--
-                                        bumps:
-                                          skills:
-                                        -->
+                                          <!--
+                                          bumps:
+                                            skills:
+                                          -->
 
   Board-side only, and no schema change: the estate rides the existing `error`
   string. `plot-fleet-scan.sh` is untouched for the same reason it was untouched
@@ -9396,12 +9503,12 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   a row's `⋯` menu holds — so no skill's behaviour changed.
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-                                            bumps:
-                                              skills:
-                                                plot: minor
-                                                plot-dispatch: minor
-                                                plot-fleet: minor
-                                            -->
+                                              bumps:
+                                                skills:
+                                                  plot: minor
+                                                  plot-dispatch: minor
+                                                  plot-fleet: minor
+                                              -->
 
   plot: `finished` is not a verdict
 
@@ -9551,10 +9658,10 @@ failing` since the previous day, and [#203](https://github.com/plot-pm/plot/issu
   than a review comment — the window where rows are git-fresh and host-unfetched
   is not an edge case, it is most of every minute.
 
-                                            <!--
-                                            bumps:
-                                              skills:
-                                            -->
+                                              <!--
+                                              bumps:
+                                                skills:
+                                              -->
 
   No skill version bumps: this is a board-side change only. Nothing under
   `skills/` reads or documents what the Agents tab prints in an empty section,
@@ -10061,11 +10168,11 @@ time`), computed server-side where the wave verdict and the plan phase
   here, because this same change reworded a neighbouring note. The client
   no longer imports any note constant.
 
-                                                <!--
-                                                bumps:
-                                                  skills:
-                                                    plot: patch
-                                                -->
+                                                  <!--
+                                                  bumps:
+                                                    skills:
+                                                      plot: patch
+                                                  -->
 
 - [#182](https://github.com/plot-pm/plot/pull/182) [`07eeceb`](https://github.com/plot-pm/plot/commit/07eecebe6b1d915e1d05fe8d35391c1bbb02f903) Thanks [@jwloka](https://github.com/jwloka)! - A row on the Agents tab now marks itself when something is actually being written to it, rather than when it happens to sit in the WORKING group.
 
