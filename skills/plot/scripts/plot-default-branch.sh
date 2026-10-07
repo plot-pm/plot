@@ -53,8 +53,7 @@
 origin_head_resolves() {
   local dir="${1:-.}" target
   target=$(git -C "$dir" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) || return 0
-  [ -n "$target" ] || return 0
-  [ "$target" != "refs/remotes/origin/plot-corpus-pin" ] || return 1
+  case "$target" in '') return 0 ;; refs/remotes/origin/plot-corpus-pin) return 1 ;; esac
   git -C "$dir" rev-parse --verify --quiet "${target}^{commit}" >/dev/null 2>&1
 }
 
