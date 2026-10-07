@@ -276,7 +276,7 @@ The rest of `plot-worker-state.sh` stays, `plot_worker_idle_now` included, becau
 
 ### The shell loop goes
 
-- `infra/the-shell-loop-goes` — the shell body, `plot-transcript-quiet.sh`, `plot-build-monitor.sh`, `buildMonitorPid`, three manifest functions, the findings form of `checksVerdict` and the tests that source the shell body are removed, checked by one `git grep` <!-- builds: plot-worker-loop.sh as a launcher only -->
+- `infra/the-shell-loop-goes` — the shell body, `plot-transcript-quiet.sh`, `plot-build-monitor.sh`, `buildMonitorPid`, three manifest functions, the findings form of `checksVerdict` and the tests that source the shell body are removed, checked by one `git grep` → #1337 <!-- builds: plot-worker-loop.sh as a launcher only -->
 
 ## Notes
 
