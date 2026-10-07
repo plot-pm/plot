@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #1275, #1255
 - **Story:** the-supervisor-delivers-the-approved-scope
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-05, jwloka, in-session
 - **Started:** 2026-10-05, jwloka, `bug/the-build-monitor-asks-for-the-pushed-commit`
 - **Delivered:** 2026-10-05
+- **Released:** 2026-10-07, v2.24.0
 
 ## Changelog
 
