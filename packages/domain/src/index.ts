@@ -43,6 +43,7 @@ export * from './rules/reapable.js';
 export * from './rules/channel.js';
 export * from './rules/eligible.js';
 export * from './rules/draft-placement.js';
+export * from './rules/pr-row.js';
 export * from './rules/gates.js';
 export * from './rules/resume.js';
 export * from './rules/fresh-agent.js';

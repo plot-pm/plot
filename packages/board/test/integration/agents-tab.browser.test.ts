@@ -3112,6 +3112,32 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  it('renders a PR with running checks in WAITING ON A MACHINE, mergeability unreadable or not', async () => {
+    // #1164: GitHub answers `mergeable: unknown` while it recomputes after
+    // every push, which is exactly when CI starts. The group itself is decided
+    // in `classifyGroup`/`prRowPlacement` (unit-tested); what only a browser
+    // can show is that the row this fixture states lands in the section a
+    // reader actually sees, not in WAITING ON YOU where #1164 found it.
+    const page = await openAgents(fleet({
+      rows: [row({
+        branch: 'feature/ci-running', plan: 'beans', group: 'waiting-on-machine',
+        ageMinutes: 5, note: 'PR #203, CI running',
+        pr: { number: 203, url: `${GH}feature/ci-running`.replace('/tree/', '/pull/'), draft: false, state: 'pending' },
+        branchUrl: `${GH}feature/ci-running`,
+      })],
+    }));
+    try {
+      await expect.poll(() => group(page, 'Waiting on a machine').locator('[data-branch="feature/ci-running"]').count())
+        .toBe(1);
+      await expect.poll(() => group(page, '^Waiting on you$').locator('[data-branch="feature/ci-running"]').count())
+        .toBe(0);
+      const li = rowFor(page, 'feature/ci-running');
+      expect(await li.locator('[data-pr-state="pending"]').textContent()).toBe('CI running');
+    } finally {
+      await page.close();
+    }
+  });
+
   it('keeps the icon from being the sole carrier', async () => {
     // The repo's rule is *symbol AND word*: the glyph replaces the label `PR`,
     // never the state. The number stays, the state stays as a word, and the

@@ -24,6 +24,7 @@ import {
 } from '../../src/contract/schema.js';
 import { showsWorkerLog } from '../../src/app/components/AgentList.js';
 import type { PrRecord } from '../../src/server/fleet.js';
+import { prRowPlacement } from '@plot-pm/domain';
 
 // The classifier is where the tab's judgments live: which group a branch lands
 // in IS the answer to "what should I do next". Tested as pure functions rather
@@ -3321,15 +3322,25 @@ describe('prState', () => {
     expect(prState(pr({ checks: 'green', mergeable: 'unknown' }))).toBe('unknown');
   });
 
-  it('says unknown for EVERY checks value when mergeability is unknown', () => {
+  it('says unknown for EVERY non-pending checks value when mergeability is unknown', () => {
     // The pairing that matters: an implementation special-casing only `green`
-    // passes the assertion above and leaves `pending`, `failing`, `none` and the
-    // rest claiming more than the host said. `checks` is not consulted at all
+    // passes the assertion above and leaves `failing`, `none` and the rest
+    // claiming more than the host said. `checks` is not consulted at all
     // here — the two fields answer DIFFERENT questions, and a green check says
     // nothing about whether a branch merges.
-    for (const checks of ['green', 'pending', 'failing', 'none', 'unknown', 'something-new']) {
+    for (const checks of ['green', 'failing', 'none', 'unknown', 'something-new']) {
       expect(prState(pr({ checks, mergeable: 'unknown' }))).toBe('unknown');
     }
+  });
+
+  it('says pending, not unknown, when a check already runs under unknown mergeability', () => {
+    // THE FIX: GitHub answers unknown for `mergeable` while it recomputes after
+    // every push, which is exactly when CI starts — #1164, observed on #1157 and
+    // #1159. A run already in flight is evidence the row can act on regardless
+    // of what `mergeable` says, so `pending` escapes the "unknown poisons
+    // everything" rule the test above still holds for every other value.
+    expect(prState(pr({ checks: 'pending', mergeable: 'unknown' }))).toBe('pending');
+    expect(prState(pr({ checks: 'pending', mergeable: undefined }))).toBe('pending');
   });
 
   it('says unknown for a record written before the field existed', () => {
@@ -5004,5 +5015,73 @@ describe('minutesSince', () => {
 
   it('returns null for a string that does not parse', () => {
     expect(minutesSince('not a date', NOW)).toBeNull();
+  });
+});
+
+describe('a pending check outranks an unreadable mergeable', () => {
+  // #1164: GitHub answers `mergeable: unknown` while it recomputes after every
+  // push, which is exactly when CI starts. `classifyGroup`'s group and
+  // `prStates`' word must agree with `prRowPlacement` for the same row, or the
+  // board names one group and reads out a different sentence for it.
+  const pr = (over: Partial<PrRecord> = {}): PrRecord => ({
+    number: 1164, head: 'feature/x', state: 'OPEN', draft: false, checks: 'green', review: '',
+    mergeable: 'mergeable', url: 'https://example.test/pr/1164', ...over,
+  });
+
+  it('sends unknown mergeability with a running check to waiting-on-machine', () => {
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ mergeable: 'unknown', checks: 'pending' }));
+    expect(r.group).toBe('waiting-on-machine');
+    expect(r.note).toMatch(/CI running/);
+  });
+
+  it('sends absent mergeability with a running check to waiting-on-machine, same as unknown', () => {
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ mergeable: undefined, checks: 'pending' }));
+    expect(r.group).toBe('waiting-on-machine');
+    expect(r.note).toMatch(/CI running/);
+  });
+
+  it('keeps a conflicting PR on waiting-on-you even with a running check', () => {
+    // The conflict is read before the pending-escapes-unknown carve-out: a
+    // branch the host already knows does not merge gets no workflow run, so a
+    // `pending` rollup here would be stale rather than a run in flight.
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ mergeable: 'conflicting', checks: 'pending' }));
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toMatch(/conflicts/);
+  });
+
+  it('keeps unknown mergeability with green checks on waiting-on-you', () => {
+    // Every other checks value stays behind "cannot say whether it merges" —
+    // only a check already running escapes.
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ mergeable: 'unknown', checks: 'green' }));
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toMatch(/cannot say whether it merges/);
+  });
+
+  it('agrees with prState on the same two escape rows', () => {
+    expect(prState(pr({ mergeable: 'unknown', checks: 'pending' }))).toBe('pending');
+    expect(prState(pr({ mergeable: undefined, checks: 'pending' }))).toBe('pending');
+  });
+
+  it('agrees with prRowPlacement, group and clause, over the whole mergeable x checks matrix', () => {
+    // THE CROSS-CHECK: `classifyGroup`'s group and `prStates`' word are two
+    // separate call sites reading the same domain rule. A naive edit to one
+    // without the other is exactly how a row's group and its sentence come to
+    // disagree — the failure #1164 reported in the first place.
+    for (const mergeable of ['mergeable', 'conflicting', 'unknown', undefined, 'some-future-word']) {
+      for (const checks of ['green', 'pending', 'failing', 'none', 'unknown']) {
+        const placement = prRowPlacement({ mergeable, checks });
+        const record = pr({ mergeable, checks });
+        const r = classify('wip', 'eligible', 3, QUIET, record);
+        expect(r.group).toBe(placement.group);
+        // The word agrees with the clause wherever the clause names a checks
+        // state directly; `prStates` has no word for "conflicts" or "cannot say
+        // whether it merges" (`prState` answers those from `mergeable` alone),
+        // so only the clauses that map onto a `PrStateWord` are cross-checked.
+        if (placement.clause === 'CI running') expect(prStates(record)[0]).toBe('pending');
+        if (placement.clause === 'checks failing') expect(prStates(record)[0]).toBe('failing');
+        if (placement.clause === 'no checks') expect(prStates(record)[0]).toBe('none');
+        if (placement.clause === 'green') expect(prStates(record)[0]).toBe('green');
+      }
+    }
   });
 });
