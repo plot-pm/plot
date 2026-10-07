@@ -417,7 +417,23 @@ describe('the named-slice set', () => {
     });
     const first = compare();
     const second = first.shell.join() === first.rule.join() ? first : compare();
-    expect(second.rule.length).toBeGreaterThan(0);
+    // THE VACUITY GUARD READS A THIRD SOURCE, NOT A FLOOR. An estate with no
+    // plan in flight names no slice, and both readers then answer the empty
+    // set correctly: measured 2026-10-07 on c5f12b244, after the last two
+    // in-flight plans were delivered. A floor of one fails that estate. Two
+    // checks catch a reader that returns nothing instead: the rule's reader
+    // must find plans, and when both sets are empty, the plans the full scan
+    // reports must name no live slice either.
+    expect(readEstatePlanSlices(estate, mainBranch).length).toBeGreaterThan(0);
+    if (second.rule.length === 0) {
+      const scanned = pulse.plans.map((plan) => ({
+        phase: plan.phase,
+        slices: plan.slices.flatMap((slice) =>
+          slice.branches.map((b) => ({ branch: b.branch, deferred: b.deferred })),
+        ),
+      }));
+      expect([...namedSlices(scanned)]).toEqual([]);
+    }
     // The failure names the FIRST reading too: a difference that changed
     // between the reads is a plan that landed mid-run, one that held is the
     // rule against the shell.
