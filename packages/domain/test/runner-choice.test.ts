@@ -3,14 +3,12 @@ import {
   fragmentCommandWord,
   runnerChoice,
   SDK_NEEDS_FRAGMENT_REASON,
-  SDK_NEEDS_JS_LOOP_REASON,
   type RunnerChoiceReading,
 } from '../src/rules/runner-choice.js';
 
 const boardReading = (over: Partial<RunnerChoiceReading> = {}): RunnerChoiceReading => ({
   agentRunner: '',
   isWorker: false,
-  workerLoop: '',
   fragment: 'claude -p --model opus',
   charterHarness: '',
   defaultsToSdkWhenNamed: false,
@@ -20,7 +18,6 @@ const boardReading = (over: Partial<RunnerChoiceReading> = {}): RunnerChoiceRead
 const workerReading = (over: Partial<RunnerChoiceReading> = {}): RunnerChoiceReading => ({
   agentRunner: '',
   isWorker: true,
-  workerLoop: 'js',
   fragment: 'PLOT_MODEL=sonnet skills/plot/scripts/plot-worker-loop.sh',
   charterHarness: '',
   defaultsToSdkWhenNamed: false,
@@ -36,19 +33,8 @@ describe('runnerChoice', () => {
     expect(runnerChoice(boardReading({ agentRunner: 'sdk' }))).toMatchObject({ runner: 'sdk' });
   });
 
-  it('refuses a worker under Worker loop: shell with Agent runner: sdk, with the exact reason', () => {
-    const result = runnerChoice(workerReading({ agentRunner: 'sdk', workerLoop: 'shell' }));
-    expect(result).toEqual({ runner: 'refused', reason: SDK_NEEDS_JS_LOOP_REASON });
-  });
-
-  it('runs the SDK for a worker under Worker loop: js with Agent runner: sdk', () => {
-    expect(runnerChoice(workerReading({ agentRunner: 'sdk', workerLoop: 'js' }))).toMatchObject({
-      runner: 'sdk',
-    });
-  });
-
-  it('runs the SDK for a worker under an absent Worker loop with Agent runner: sdk — absent reads js', () => {
-    expect(runnerChoice(workerReading({ agentRunner: 'sdk', workerLoop: '' }))).toMatchObject({
+  it('runs the SDK for a worker with Agent runner: sdk', () => {
+    expect(runnerChoice(workerReading({ agentRunner: 'sdk' }))).toMatchObject({
       runner: 'sdk',
     });
   });
@@ -63,12 +49,6 @@ describe('runnerChoice', () => {
     expect(runnerChoice(workerReading({ agentRunner: 'sdk', charterHarness: 'claude' }))).toMatchObject({
       runner: 'sdk',
     });
-  });
-
-  it('a board role is unaffected by Worker loop — sdk runs regardless', () => {
-    expect(
-      runnerChoice(boardReading({ agentRunner: 'sdk', isWorker: false, workerLoop: 'shell' })),
-    ).toMatchObject({ runner: 'sdk' });
   });
 
   describe('absent Agent runner', () => {
@@ -88,20 +68,7 @@ describe('runnerChoice', () => {
     it('answers command for a charter that names another harness', () => {
       const reading = workerReading({
         agentRunner: '',
-        workerLoop: 'js',
         charterHarness: 'gemini',
-        defaultsToSdkWhenNamed: true,
-      });
-      expect(runnerChoice(reading)).toMatchObject({ runner: 'command' });
-    });
-
-    it('answers command for a worker under Worker loop: shell, whatever PATH holds', () => {
-      // PATH is not even part of the reading — this is the port-level
-      // guarantee that PATH cannot influence the answer.
-      const reading = workerReading({
-        agentRunner: '',
-        workerLoop: 'shell',
-        charterHarness: '',
         defaultsToSdkWhenNamed: true,
       });
       expect(runnerChoice(reading)).toMatchObject({ runner: 'command' });
@@ -130,31 +97,19 @@ describe('runnerChoice', () => {
         expect(runnerChoice(reading)).toMatchObject({ runner: 'sdk' });
       });
 
-      it('the worker role with Worker loop: js and an unstated charter harness answers sdk', () => {
+      it('the worker role with an unstated charter harness answers sdk', () => {
         const reading = workerReading({
           agentRunner: '',
-          workerLoop: 'js',
           charterHarness: '',
           defaultsToSdkWhenNamed: true,
         });
         expect(runnerChoice(reading)).toMatchObject({ runner: 'sdk' });
       });
 
-      it('the worker role with Worker loop: js and charterHarness: claude answers sdk', () => {
+      it('the worker role with charterHarness: claude answers sdk', () => {
         const reading = workerReading({
           agentRunner: '',
-          workerLoop: 'js',
           charterHarness: 'claude',
-          defaultsToSdkWhenNamed: true,
-        });
-        expect(runnerChoice(reading)).toMatchObject({ runner: 'sdk' });
-      });
-
-      it('the worker role with an absent Worker loop answers sdk — absent reads js', () => {
-        const reading = workerReading({
-          agentRunner: '',
-          workerLoop: '',
-          charterHarness: '',
           defaultsToSdkWhenNamed: true,
         });
         expect(runnerChoice(reading)).toMatchObject({ runner: 'sdk' });

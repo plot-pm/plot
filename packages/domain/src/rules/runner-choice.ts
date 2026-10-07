@@ -14,14 +14,8 @@ export type Runner = 'command' | 'sdk';
 export interface RunnerChoiceReading {
   /** `Agent runner`, as the project wrote it; `''` where the key is absent. */
   readonly agentRunner: 'command' | 'sdk' | '';
-  /** Whether this role is the worker — the one role a loop kind can refuse. */
+  /** Whether this role is the worker. */
   readonly isWorker: boolean;
-  /**
-   * `Worker loop`, as the project wrote it; irrelevant for a non-worker role.
-   * `''` is an absent key, read as `js` — the launcher's own default since
-   * the-worker-loop-runs-in-js slice 5.
-   */
-  readonly workerLoop: 'js' | 'shell' | '';
   /** The role's own command fragment, verbatim; `''` or `none` where the role has none. */
   readonly fragment: string;
   /** The worker's charter harness; `''` when unstated or this role is not the worker. */
@@ -38,10 +32,6 @@ export type RunnerChoiceAnswer =
   | { readonly runner: 'command'; readonly reason: string }
   | { readonly runner: 'sdk'; readonly reason: string }
   | { readonly runner: 'refused'; readonly reason: string };
-
-/** The refusal's exact text — a worker under `Worker loop: shell` cannot run on the SDK. */
-export const SDK_NEEDS_JS_LOOP_REASON =
-  "`Agent runner: sdk` needs `Worker loop: js`; set `Worker loop: js`, or set `Agent runner: command`";
 
 /** The refusal's exact text — a role with no command fragment has nothing configured to run. */
 export const SDK_NEEDS_FRAGMENT_REASON =
@@ -73,15 +63,11 @@ const hasNoFragment = (fragment: string): boolean => {
  * Whether a project already names `claude` for a role.
  *
  * A board role matches by its fragment's command word. The worker role
- * matches by its loop and its charter: `Worker loop` is `js`, and the
- * charter's harness is `claude` or unstated.
+ * matches by its charter: unstated, or naming `claude`.
  */
 const projectNamesClaude = (reading: RunnerChoiceReading): boolean => {
   if (reading.isWorker) {
-    return (
-      reading.workerLoop !== 'shell' &&
-      (reading.charterHarness === '' || reading.charterHarness === 'claude')
-    );
+    return reading.charterHarness === '' || reading.charterHarness === 'claude';
   }
   return fragmentCommandWord(reading.fragment) === 'claude';
 };
@@ -99,12 +85,6 @@ export const runnerChoice = (reading: RunnerChoiceReading): RunnerChoiceAnswer =
   }
 
   if (reading.agentRunner === 'sdk') {
-    // AN ABSENT `Worker loop` NO LONGER REFUSES: since slice 5 of
-    // the-worker-loop-runs-in-js, '' is read as `js`, the launcher's own
-    // default. Only an EXPLICIT `shell` refuses.
-    if (reading.isWorker && reading.workerLoop === 'shell') {
-      return { runner: 'refused', reason: SDK_NEEDS_JS_LOOP_REASON };
-    }
     // THE CHARTER WINS OVER THE KEY: the SDK runs only `claude`, so a worker
     // whose charter names another harness keeps its configured fragment.
     if (reading.isWorker && reading.charterHarness !== '' && reading.charterHarness !== 'claude') {

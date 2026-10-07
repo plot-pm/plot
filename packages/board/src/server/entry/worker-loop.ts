@@ -1761,7 +1761,6 @@ export const runnerDeps = async (input: RunnerInput): Promise<{ runner: 'command
   const choice = runnerChoice({
     agentRunner: runner === 'sdk' || runner === 'command' ? runner : '',
     isWorker: true,
-    workerLoop: 'js',
     fragment: cfg('Worker command'),
     charterHarness: charter?.harness ?? '',
     defaultsToSdkWhenNamed: false,
