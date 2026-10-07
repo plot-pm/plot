@@ -6,6 +6,11 @@
 // the way an adopting repository's would. `plot-config.sh` has no override:
 // the switch lives in the test helpers only, and slice 6 removes it with the key.
 //
+// AN UNSET SWITCH IS `shell`, AND THE LINE IS WRITTEN. `validate` runs these
+// files unset and `loop-js` runs them with `js`, so the shell body keeps its
+// coverage until slice 6. Since slice 5 an absent key runs the JS loop, so an
+// unset switch writes `- **Worker loop:** shell` rather than leaving the key out.
+//
 // Not named `*.test.mjs`, so `node --test test/reconcile/*.test.mjs` does not
 // run it as a test file.
 
@@ -15,12 +20,12 @@ const VALUES = ['js', 'shell'];
  * The loop this run drives.
  *
  * @param {NodeJS.ProcessEnv} [env] - the environment to read.
- * @returns {'js' | 'shell' | ''} the value; `''` where the run leaves the choice to the key's default.
+ * @returns {'js' | 'shell'} the value; `shell` where the switch is unset or empty.
  * @throws {Error} on a value that names neither loop.
  */
 export const testWorkerLoop = (env = process.env) => {
-  const value = env.PLOT_TEST_WORKER_LOOP ?? '';
-  if (value !== '' && !VALUES.includes(value)) {
+  const value = env.PLOT_TEST_WORKER_LOOP || 'shell';
+  if (!VALUES.includes(value)) {
     throw new Error(`PLOT_TEST_WORKER_LOOP must be one of ${VALUES.join(', ')}, got '${value}'`);
   }
   return value;
@@ -30,12 +35,9 @@ export const testWorkerLoop = (env = process.env) => {
  * The `Worker loop` line a sandbox's `## Plot Config` carries.
  *
  * @param {NodeJS.ProcessEnv} [env] - the environment to read.
- * @returns {string} a full config line ending in a newline, or `''` where the switch is unset.
+ * @returns {string} a full config line ending in a newline, naming the loop {@link testWorkerLoop} returns.
  */
-export const workerLoopLine = (env = process.env) => {
-  const value = testWorkerLoop(env);
-  return value === '' ? '' : `- **Worker loop:** ${value}\n`;
-};
+export const workerLoopLine = (env = process.env) => `- **Worker loop:** ${testWorkerLoop(env)}\n`;
 
 /**
  * Keeps a desk's own files out of `git status` on the JS loop.

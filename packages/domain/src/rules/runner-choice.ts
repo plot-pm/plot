@@ -16,7 +16,11 @@ export interface RunnerChoiceReading {
   readonly agentRunner: 'command' | 'sdk' | '';
   /** Whether this role is the worker — the one role a loop kind can refuse. */
   readonly isWorker: boolean;
-  /** `Worker loop`, as the project wrote it; irrelevant for a non-worker role. */
+  /**
+   * `Worker loop`, as the project wrote it; irrelevant for a non-worker role.
+   * `''` is an absent key, read as `js` — the launcher's own default since
+   * the-worker-loop-runs-in-js slice 5.
+   */
   readonly workerLoop: 'js' | 'shell' | '';
   /** The role's own command fragment, verbatim; `''` or `none` where the role has none. */
   readonly fragment: string;
@@ -75,7 +79,7 @@ const hasNoFragment = (fragment: string): boolean => {
 const projectNamesClaude = (reading: RunnerChoiceReading): boolean => {
   if (reading.isWorker) {
     return (
-      reading.workerLoop === 'js' &&
+      reading.workerLoop !== 'shell' &&
       (reading.charterHarness === '' || reading.charterHarness === 'claude')
     );
   }
@@ -95,6 +99,9 @@ export const runnerChoice = (reading: RunnerChoiceReading): RunnerChoiceAnswer =
   }
 
   if (reading.agentRunner === 'sdk') {
+    // AN ABSENT `Worker loop` NO LONGER REFUSES: since slice 5 of
+    // the-worker-loop-runs-in-js, '' is read as `js`, the launcher's own
+    // default. Only an EXPLICIT `shell` refuses.
     if (reading.isWorker && reading.workerLoop === 'shell') {
       return { runner: 'refused', reason: SDK_NEEDS_JS_LOOP_REASON };
     }
