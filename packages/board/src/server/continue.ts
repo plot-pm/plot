@@ -14,6 +14,8 @@ import { localCapability } from './controllers/caller.js';
 import { briefPath } from './brief-path.js';
 import { deskMonitorsShell } from '@plot-pm/domain/adapters';
 import type { DeskMonitors, MonitoredDesk, MonitorPids } from '@plot-pm/domain';
+import { deskLoopAlive, type DeskPidReading } from '@plot-pm/domain/rules/desk-loop-alive';
+import { readDeskPid } from './registry.js';
 
 /**
  * Continuing an answered agent — the board's SECOND state-changing route, and
@@ -127,7 +129,19 @@ export type ContinueRefusal =
    * one worktree. Neither is tie-broken: a first match would hide the defect,
    * and the plan's second Open Point keeps this refusal rather than a guess.
    */
-  | 'no-manifest';
+  | 'no-manifest'
+  /**
+   * A live process already holds this desk.
+   *
+   * **Refuse, never stop.** A stop can land mid-turn and lose work in
+   * progress, so this route never signals the old loop — the caller who wants
+   * it gone stops it and asks again. The detail names the pid found alive and
+   * which of the three sources recorded it, so a person can act on it; a
+   * recycled pid (a stale record whose number a new, unrelated process now
+   * holds) reads the same way and is accepted, because a wrongly-skipped
+   * refusal — a second loop on the desk — is the worse failure.
+   */
+  | 'loop-alive';
 
 export interface ContinueOptions extends BuildBoardOptions {
   host: string;
@@ -537,6 +551,44 @@ const recordedMonitorPids = (manifestFile: string): string[] => {
   }
 };
 
+/**
+ * The manifest's `pid` and `wrapperPid`, as {@link DeskPidReading}s; empty
+ * strings when the manifest cannot be read, so {@link deskLoopAlive} treats a
+ * read failure as nothing to refuse on rather than throwing.
+ */
+const recordedLoopPids = (manifestFile: string): DeskPidReading[] => {
+  let m: Record<string, unknown> = {};
+  try {
+    m = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
+  } catch {
+    /* no manifest to read — both readings fall through as empty */
+  }
+  const field = (name: string): string => (typeof m[name] === 'string' ? (m[name] as string) : '');
+  return [
+    { source: 'manifest pid', pid: field('pid') },
+    { source: 'manifest wrapperPid', pid: field('wrapperPid') },
+  ];
+};
+
+/**
+ * Whether a pid is alive, reading an unanswerable signal as alive.
+ *
+ * **The opposite direction from {@link deskPidAlive}.** There, `EPERM` reads
+ * as not-alive because an invented worker only ever narrows a budget on no
+ * evidence. Here a wrong *not-alive* starts a second loop on a desk that
+ * already holds one — the defect {@link deskLoopAlive} exists to refuse — so
+ * `EPERM` (alive, not ours to signal) reads as alive and only `ESRCH` (the
+ * process is gone) reads as not-alive.
+ */
+const pidAliveEverywhere = (pid: string): boolean => {
+  try {
+    process.kill(Number(pid), 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+};
+
 /** Appends one line to the desk's log, or to the board's stderr when the log cannot take it. */
 const logLine = (log: string, line: string): void => {
   try {
@@ -643,6 +695,27 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     );
   }
 
+  // REFUSE A LIVE LOOP; NEVER STOP IT. The plan's one Open Question is
+  // answered: a stop can lose a turn in progress, so this checks for a live
+  // pid and refuses rather than signalling one. Still before any write — see
+  // the comment above `manifestAnswer`, which this check shares the reason
+  // with. `deskLoopAlive` is the pure decision; the three readings — the desk
+  // pid file and the manifest's two fields — are read here, and `EPERM` reads
+  // as alive (the opposite of `deskPidAlive`'s direction — see
+  // `desk-loop-alive`'s docblock for why).
+  const loopPids: DeskPidReading[] = [
+    { source: '.plot-worker.pid', pid: await readDeskPid(worktree) },
+    ...recordedLoopPids(manifestAnswer.path),
+  ];
+  const loop = deskLoopAlive({ pids: loopPids, alive: pidAliveEverywhere });
+  if (loop.kind === 'alive') {
+    return refused(
+      409,
+      'loop-alive',
+      `pid ${loop.pid} (from ${loop.source}) is already running in this worktree`,
+    );
+  }
+
   if (input.beforeStart !== undefined && !(await input.beforeStart())) {
     return { kind: 'failed', error: 'the caller stopped the start before it began' };
   }
@@ -730,10 +803,33 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
   // works under `/plot-dispatch` works here unchanged. Nothing from the request
   // is interpolated into that string: the answer reached the worktree as a
   // file, and its PATH travels in the environment.
+  //
+  // RE-PARENTED, NOT MERELY DETACHED. `detached: true` alone calls `setsid`
+  // and leaves the SPAWNING NODE PROCESS as `ppid` — measured 2026-10-07 on
+  // Darwin 24.6 (see the brief) — so `plot-boardctl.sh`'s `tree_pids`, which
+  // walks `ppid`, still finds this loop under the board and a `stop` reaches
+  // it. A second process level is what escapes that walk: the outer `sh -c`
+  // backgrounds the whole `( cmd ); rc=$?; printf ...` sequence as ONE
+  // subshell, writes ITS pid (`$!`) to `.plot-worker.pid` itself, and exits —
+  // so `init`/pid 1 adopts the backgrounded subshell rather than Node's direct
+  // child. The outer parens around that whole sequence are load-bearing: `&`
+  // binds to the nearest command list, so without them only `( cmd )` is
+  // backgrounded and `rc=$?; printf ...` runs in the OUTER shell's foreground
+  // immediately after — reporting `&`'s own exit status, not the real
+  // command's, and writing the exit file while the command is still running
+  // (measured: a 2s `sleep` left an exit file within 0.3s). `child.pid` below
+  // names the OUTER shell, which has exited by the time this function
+  // returns; it is never recorded anywhere a reader would mistake it for the
+  // loop.
   const exitFile = path.join(worktree, '.plot-worker.exit');
+  const pidFile = path.join(worktree, '.plot-worker.pid');
   const child = spawn(
     'sh',
-    ['-c', `( ${cmd} ); rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"`],
+    [
+      '-c',
+      `( ( ${cmd} ); rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE" ) &` +
+        ` printf "%s" "$!" > "$PLOT_PID_FILE"`,
+    ],
     {
       cwd: worktree,
       detached: true,
@@ -743,6 +839,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
         PLOT_BRANCH: branch,
         PLOT_WORKTREE: worktree,
         PLOT_EXIT_FILE: exitFile,
+        PLOT_PID_FILE: pidFile,
         // THE MANIFEST THAT NAMES THIS DESK, so the loop's own wait can end
         // honestly if that file later vanishes — `loopRegistration`'s `gone`.
         // Refused above when none or several name the desk, so `manifestAnswer`
@@ -753,10 +850,16 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     },
   );
   child.on('error', (err) => console.error('continuation failed to spawn:', err));
+  // AWAITED, NOT UNREF'D YET. The outer shell only backgrounds the real
+  // command and writes a pid file — no `wait` in its own body — so it exits
+  // almost immediately, well before the agent it started finishes. Only once
+  // it has exited is `.plot-worker.pid` guaranteed written, which is the pid
+  // every caller (the 202 reply, the manifest stamp, the monitors) must use.
+  await new Promise<void>((resolve) => child.once('exit', () => resolve()));
   child.unref();
   fs.closeSync(out);
 
-  const pid = child.pid ?? 0;
+  const pid = Number(await readDeskPid(worktree)) || 0;
   if (pid > 0) {
     let pidRecorded = true;
     try {

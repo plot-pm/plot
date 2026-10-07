@@ -46,6 +46,8 @@ export function refusalWord(reason: ContinueRefusal): string {
       return 'No `Worker command` is configured, so the board cannot start one — continue it yourself in the worktree.';
     case 'no-manifest':
       return 'No manifest names this worktree, or more than one does — the registry cannot vouch for this desk.';
+    case 'loop-alive':
+      return 'A loop is already running in this worktree — stop it first, then continue.';
   }
 }
 

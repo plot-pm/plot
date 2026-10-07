@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { writeGate } from '../../src/server/write-gate.js';
 import {
@@ -356,6 +356,10 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     roots.push(root);
 
     const first = await postTo(root, { branch: BRANCH, answer: 'go' }, deps(wt));
+    // The first run must have EXITED before the second continues: the new
+    // `loop-alive` refusal reads the pid the first one started, and `true`
+    // runs so briefly that the race goes the wrong way more often than not.
+    await settle(wt);
     // The marker must exist for the second continuation to be accepted. The
     // `true` worker never cleared the first run's marker, so a PLOT-BLOCKED* FILE
     // is still in the tree — but write a fresh one by name to be explicit, since
@@ -425,6 +429,10 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     };
 
     const first = await postTo(root, { branch: BRANCH, answer: 'go' }, { ...deps(wt), monitors });
+    // The first run must have EXITED before the second continues: the new
+    // `loop-alive` refusal reads the pid the first one started, and `true`
+    // runs so briefly that the race goes the wrong way more often than not.
+    await settle(wt);
     fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED-again.md'), 'PLOT-BLOCKED: and again?');
     const second = await postTo(root, { branch: BRANCH, answer: 'go' }, {
       pulse: () => pulseWith2(wt, (first.body as { pid: string }).pid),
@@ -974,6 +982,281 @@ describe('continueOnDesk, as the registry tick calls it', () => {
     assert.equal(asked, 0);
     assert.equal(result.kind, 'refused');
     assert.equal(result.kind === 'refused' ? result.reason : '', 'no-manifest');
+  });
+});
+
+describe('refusing a live loop — #1294, a second loop on one desk', () => {
+  /** A real, short-lived process this test controls — never an invented pid. */
+  const liveProcesses: number[] = [];
+
+  function startRealProcess(): number {
+    const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+    const pid = child.pid;
+    assert.ok(pid !== undefined, 'the fixture itself must spawn successfully');
+    liveProcesses.push(pid);
+    return pid;
+  }
+
+  afterEach(() => {
+    while (liveProcesses.length) {
+      const pid = liveProcesses.pop()!;
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }
+  });
+
+  const input = (wt: string, dir: string) => ({
+    opts: { ...opts, manifestDir: dir },
+    readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'true' : fallback),
+    branch: BRANCH,
+    worktree: wt,
+    main: 'main',
+    previousPid: '424242',
+    answer: 'the composed answer',
+  });
+
+  /** A manifest naming `wt`, with `pid`/`wrapperPid` set as given — `''` to omit. */
+  function manifestWithLoopPids(wt: string, fields: { pid?: string; wrapperPid?: string }): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-loop-alive-'));
+    manifestDirs.push(dir);
+    fs.writeFileSync(
+      path.join(dir, 'sess.json'),
+      JSON.stringify({
+        session: 'sess',
+        branch: BRANCH,
+        worktree: wt,
+        pid: fields.pid ?? '',
+        wrapperPid: fields.wrapperPid ?? '',
+      }),
+    );
+    return dir;
+  }
+
+  it('refuses with the pid file, before any write to the desk', async () => {
+    const livePid = startRealProcess();
+    const wt = worktree({ pid: String(livePid) });
+    dirs.push(wt);
+    const dir = manifestWithLoopPids(wt, {});
+    const manifestFile = path.join(dir, 'sess.json');
+    const manifestBefore = fs.readFileSync(manifestFile, 'utf8');
+    const logBefore = fs.readFileSync(path.join(wt, '.plot-worker.log'), 'utf8');
+
+    const result = await continueOnDesk(input(wt, dir));
+
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'loop-alive');
+    assert.ok(
+      result.kind === 'refused' && result.detail.includes(String(livePid)),
+      'the refusal names the live pid',
+    );
+    assert.ok(
+      result.kind === 'refused' && result.detail.includes('.plot-worker.pid'),
+      'and the source it came from',
+    );
+    // EXACTLY ONE PROCESS HOLDS THE DESK — a refusal that still spawned a
+    // second loop would be worse than no refusal at all.
+    assert.doesNotThrow(() => process.kill(livePid, 0), 'the original loop is still the only one alive');
+    assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false, 'no prompt was written');
+    assert.equal(fs.readFileSync(path.join(wt, '.plot-worker.log'), 'utf8'), logBefore, 'the log is untouched');
+    assert.equal(fs.readFileSync(manifestFile, 'utf8'), manifestBefore, 'the manifest is untouched');
+  });
+
+  it('refuses on the manifest pid alone', async () => {
+    const livePid = startRealProcess();
+    const wt = worktree({ pid: '424242' });
+    dirs.push(wt);
+    const dir = manifestWithLoopPids(wt, { pid: String(livePid) });
+
+    const result = await continueOnDesk(input(wt, dir));
+
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'loop-alive');
+    assert.ok(result.kind === 'refused' && result.detail.includes('manifest pid'));
+  });
+
+  it('refuses on the manifest wrapperPid alone', async () => {
+    const livePid = startRealProcess();
+    const wt = worktree({ pid: '424242' });
+    dirs.push(wt);
+    const dir = manifestWithLoopPids(wt, { wrapperPid: String(livePid) });
+
+    const result = await continueOnDesk(input(wt, dir));
+
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'loop-alive');
+    assert.ok(result.kind === 'refused' && result.detail.includes('manifest wrapperPid'));
+  });
+
+  it('continues when every recorded pid is dead', async () => {
+    // '424242' is too large to be a real pid on this machine (confirmed: `ps`
+    // itself refuses it), and the manifest's two fields are blank — the normal
+    // shape for a desk nothing has stamped as a loop yet.
+    const wt = worktree({ pid: '424242' });
+    dirs.push(wt);
+    const dir = manifestWithLoopPids(wt, {});
+
+    const result = await continueOnDesk(input(wt, dir));
+
+    assert.equal(result.kind, 'started');
+    spawned.add(wt);
+  });
+
+  it('does not call beforeStart for a desk whose loop is alive', async () => {
+    const livePid = startRealProcess();
+    const wt = worktree({ pid: String(livePid) });
+    dirs.push(wt);
+    const dir = manifestWithLoopPids(wt, {});
+    let asked = 0;
+
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      beforeStart: async () => {
+        asked += 1;
+        return true;
+      },
+    });
+
+    assert.equal(asked, 0);
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'loop-alive');
+  });
+});
+
+describe('the continued loop escapes the board\'s process tree — #1307', () => {
+  function ppidOf(pid: string): string {
+    return execFileSync('ps', ['-o', 'ppid=', '-p', pid], { encoding: 'utf8' }).trim();
+  }
+
+  /** A manifest directory naming `wt`, with the resume id the loop would read. */
+  function resumableManifestDir(wt: string): { dir: string; file: string } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-reparent-'));
+    manifestDirs.push(dir);
+    const file = path.join(dir, 'sess.json');
+    fs.writeFileSync(
+      file,
+      `${JSON.stringify(
+        { session: 'sess', branch: BRANCH, worktree: wt, pid: '424242', resumeId: 'the-spent-session' },
+        null,
+        2,
+      )}\n`,
+    );
+    return { dir, file };
+  }
+
+  const input = (wt: string, dir: string) => ({
+    opts: { ...opts, manifestDir: dir },
+    readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? fallback : fallback),
+    branch: BRANCH,
+    worktree: wt,
+    main: 'main',
+    previousPid: '424242',
+    answer: 'the composed answer',
+  });
+
+  it('starts a loop whose ppid is 1, not this process', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir, file } = resumableManifestDir(wt);
+
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'sleep 2' : fallback),
+    });
+    assert.equal(result.kind, 'started');
+    spawned.add(wt);
+    const pid = result.kind === 'started' ? result.pid : '';
+
+    assert.equal(ppidOf(pid), '1', 'the loop is adopted by init, not left under this process');
+
+    // THE SAME NUMBER EVERYWHERE: the reply, the pid file and the manifest all
+    // name the grandchild — never the intermediate shell, which has exited.
+    assert.equal(fs.readFileSync(path.join(wt, '.plot-worker.pid'), 'utf8').trim(), pid);
+    const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.equal(manifest.pid, pid);
+  });
+
+  it('leaves the exit file holding a non-zero exit code', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir } = resumableManifestDir(wt);
+
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'exit 3' : fallback),
+    });
+    assert.equal(result.kind, 'started');
+    spawned.add(wt);
+
+    const exit = path.join(wt, '.plot-worker.exit');
+    const deadline = Date.now() + 5_000;
+    while (!fs.existsSync(exit) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    assert.equal(fs.readFileSync(exit, 'utf8'), '3');
+  });
+
+  /**
+   * `plot-boardctl.sh`'s `tree_pids` (`:173`) answers *every descendant of this
+   * pid* from one `ps -eo pid=,ppid=` snapshot — reimplemented here rather than
+   * shelling to the script, which is out of this branch's scope (see the
+   * brief's Scope guard). The walk itself is the fixture under test in
+   * `boardctl.test.mjs`; here it is the measuring stick applied to a stand-in
+   * board, so a loop that is alive only because the TERM missed it by timing
+   * cannot pass — it would still be IN the tree, just not yet signalled.
+   */
+  function descendants(root: string): Set<string> {
+    const table = execFileSync('ps', ['-eo', 'pid=,ppid='], { encoding: 'utf8' })
+      .trim()
+      .split('\n')
+      .map((line) => line.trim().split(/\s+/));
+    const parentOf = new Map(table.map(([pid, ppid]) => [pid, ppid]));
+    const found = new Set<string>();
+    for (const [pid] of table) {
+      let p = pid;
+      for (let hop = 0; hop < 12 && p; hop++) {
+        if (p === root) {
+          found.add(pid);
+          break;
+        }
+        p = parentOf.get(p) ?? '';
+      }
+    }
+    return found;
+  }
+
+  it('survives a stop: a board TERMing its own tree does not reach the loop', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir, file } = resumableManifestDir(wt);
+
+    // THIS PROCESS IS THE BOARD: `registryd-main.ts` calls `continueOnDesk` in
+    // the board's own process, not from a spawned stand-in — the route handler
+    // runs in-process, same as here. So the board `tree_pids` walks from on a
+    // real stop is THIS pid, and the question is whether the loop shows up
+    // among its descendants once the spawn returns, the way it would with
+    // `detached: true` alone (a same-session child, still under this pid in
+    // the process table) and must not with the re-parenting fix (adopted by
+    // init before `continueOnDesk` returns).
+    const boardPid = String(process.pid);
+
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'sleep 2' : fallback),
+    });
+    assert.equal(result.kind, 'started');
+    spawned.add(wt);
+    const pid = result.kind === 'started' ? result.pid : '';
+
+    // THE WALK, NOT THE SIGNAL: `--stop` sends TERM down exactly this set.
+    // Asserting on delivery would pass a loop still in the tree that simply
+    // outran the signal — the timing failure the brief calls out by name.
+    const tree = descendants(boardPid);
+    assert.equal(tree.has(pid), false, `loop pid ${pid} must not be a descendant of the board (${boardPid})`);
+
+    void file;
   });
 });
 
