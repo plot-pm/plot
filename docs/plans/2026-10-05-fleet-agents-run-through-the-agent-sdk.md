@@ -15,6 +15,7 @@
 - **Started:** 2026-10-06, jwloka, `infra/the-loop-waits-not-the-model`
 - **Started:** 2026-10-06, jwloka, `infra/a-run-records-its-spend`
 - **Started:** 2026-10-06, jwloka, `infra/the-board-commands-run-through-the-port`
+- **Started:** 2026-10-07, jwloka, `infra/the-sdk-is-the-default-runner`
 
 ## Changelog
 
