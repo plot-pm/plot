@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Issue:** #1255, #1199
 - **Review:** in-session
@@ -18,6 +18,7 @@
 - **Started:** 2026-10-06, jwloka, `infra/js-is-the-default-loop`
 - **Started:** 2026-10-07, jwloka, `infra/the-shell-loop-goes`
 - **Started:** 2026-10-07, jwloka, `infra/the-shell-loop-goes`
+- **Delivered:** 2026-10-07
 
 ## Changelog
 
