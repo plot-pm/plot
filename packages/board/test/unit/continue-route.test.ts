@@ -1244,6 +1244,138 @@ describe('refusing a live loop — #1294, a second loop on one desk', () => {
   });
 });
 
+describe('a free-waiting loop is stopped, then the continuation starts — #1373', () => {
+  const liveProcesses: number[] = [];
+
+  function startRealProcess(): number {
+    const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+    const pid = child.pid;
+    assert.ok(pid !== undefined, 'the fixture itself must spawn successfully');
+    liveProcesses.push(pid);
+    return pid;
+  }
+
+  afterEach(() => {
+    while (liveProcesses.length) {
+      const pid = liveProcesses.pop()!;
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }
+  });
+
+  const input = (wt: string, dir: string) => ({
+    opts: { ...opts, manifestDir: dir },
+    readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'true' : fallback),
+    branch: BRANCH,
+    worktree: wt,
+    main: 'main',
+    previousPid: '424242',
+    answer: 'the composed answer',
+  });
+
+  /** A manifest naming `wt`, with `pid` set as given. */
+  function manifestWithPid(wt: string, pid: string): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-freewait-'));
+    manifestDirs.push(dir);
+    fs.writeFileSync(
+      path.join(dir, 'sess.json'),
+      // PRETTY-PRINTED, matching `stampManifest`'s `PID_LINE` regex, which
+      // looks for the two-space-indented `"pid": "...",` shape — a compact
+      // `JSON.stringify` has no line the stamp can find, so it would silently
+      // no-op rather than ever touching the file.
+      `${JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid, wrapperPid: '' }, null, 2)}\n`,
+    );
+    return dir;
+  }
+
+  it('is still refused loop-alive, and left running, when it reports no free wait — mid-turn', async () => {
+    const livePid = startRealProcess();
+    const wt = worktree({ pid: String(livePid) });
+    dirs.push(wt);
+    const dir = manifestWithPid(wt, String(livePid));
+    // NO `.plot-worker.freewait` written — the mid-turn case.
+
+    const result = await continueOnDesk(input(wt, dir));
+
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'loop-alive');
+    assert.doesNotThrow(() => process.kill(livePid, 0), 'a mid-turn loop is never signalled, let alone stopped');
+  });
+
+  it('is refused loop-alive, and left running, when a DIFFERENT pid holds the free-wait record', async () => {
+    const livePid = startRealProcess();
+    const wt = worktree({ pid: String(livePid) });
+    dirs.push(wt);
+    const dir = manifestWithPid(wt, String(livePid));
+    fs.writeFileSync(path.join(wt, '.plot-worker.freewait'), '999999\n');
+
+    const result = await continueOnDesk(input(wt, dir));
+
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'loop-alive');
+    assert.doesNotThrow(() => process.kill(livePid, 0), 'a free wait recorded for a different pid licenses no stop here');
+  });
+
+  it('stops the pid, waits for it to exit, then starts — the manifest it stamps still names the desk', async () => {
+    const livePid = startRealProcess();
+    const wt = worktree({ pid: String(livePid) });
+    dirs.push(wt);
+    const dir = manifestWithPid(wt, String(livePid));
+    const manifestFile = path.join(dir, 'sess.json');
+    const manifestBeforeStop = fs.readFileSync(manifestFile, 'utf8');
+    fs.writeFileSync(path.join(wt, '.plot-worker.freewait'), `${livePid}\n`);
+
+    let manifestUnchangedDuringStop = false;
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      // `sleep 2` outlives this test's own assertions, matching the #1307
+      // fixture's own reason for the same choice: a command that exits
+      // immediately races the manifest stamp against its own disappearance.
+      readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'sleep 2' : fallback),
+      stopLoop: async (pid) => {
+        assert.equal(pid, String(livePid), 'only the pid the reading named is ever signalled');
+        process.kill(Number(pid), 'SIGKILL');
+        manifestUnchangedDuringStop = fs.readFileSync(manifestFile, 'utf8') === manifestBeforeStop;
+      },
+    });
+
+    assert.equal(result.kind, 'started');
+    spawned.add(wt);
+    assert.ok(manifestUnchangedDuringStop, 'the stop ran before the manifest was stamped with the new pid');
+    assert.throws(() => process.kill(livePid, 0), 'the old loop is gone after the stop');
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+    assert.equal(manifest.pid, result.kind === 'started' ? result.pid : '', 'the manifest now names the NEW pid');
+    const found = deskManifestFor('/tmp', wt, { manifestDir: dir });
+    assert.equal(found.kind, 'named', 'deskManifestFor still answers named for this desk after the stop-and-restart');
+  });
+
+  it('does not stop the old loop when a later refusal fires — no-worker-command leaves it running, untouched', async () => {
+    const livePid = startRealProcess();
+    const wt = worktree({ pid: String(livePid) });
+    dirs.push(wt);
+    const dir = manifestWithPid(wt, String(livePid));
+    fs.writeFileSync(path.join(wt, '.plot-worker.freewait'), `${livePid}\n`);
+    let stopCalled = false;
+
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? '' : fallback),
+      stopLoop: async () => {
+        stopCalled = true;
+      },
+    });
+
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'no-worker-command');
+    assert.equal(stopCalled, false, 'a refusal that fires before continueTarget is ever asked must not stop anything');
+    assert.doesNotThrow(() => process.kill(livePid, 0), 'the old loop is still running — the refusal did not touch it');
+    assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false);
+  });
+});
+
 describe('the continued loop escapes the board\'s process tree — #1307', () => {
   function ppidOf(pid: string): string {
     return execFileSync('ps', ['-o', 'ppid=', '-p', pid], { encoding: 'utf8' }).trim();

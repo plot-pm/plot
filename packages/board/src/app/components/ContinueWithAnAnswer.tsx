@@ -47,7 +47,10 @@ export function refusalWord(reason: ContinueRefusal): string {
     case 'no-manifest':
       return 'No manifest names this worktree, or more than one does — the registry cannot vouch for this desk.';
     case 'loop-alive':
-      return 'A loop is already running in this worktree — stop it first, then continue.';
+      // A loop merely waiting free for its next turn is stopped and replaced
+      // by the route itself (#1373) — a refusal here means the loop is
+      // actually working a turn, which the route will not interrupt.
+      return 'A loop is already working a turn in this worktree — wait for it to finish, then continue.';
   }
 }
 

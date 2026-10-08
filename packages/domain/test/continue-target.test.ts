@@ -24,12 +24,18 @@ const reading = (overrides: Partial<ContinueTargetReading>): ContinueTargetReadi
   ending: ABSENT,
   question: true,
   loop: NO_LOOP,
+  loopWaitsFree: false,
   ...overrides,
 });
 
 describe('continueTarget', () => {
   it('continues by stamping the manifest that already names the desk', () => {
     const r = reading({ manifest: NAMED });
+    expect(continueTarget(r)).toEqual({ kind: 'continue', manifest: 'stamp', path: NAMED.path });
+  });
+
+  it('carries no stop when no loop holds the desk, even if loopWaitsFree reads true', () => {
+    const r = reading({ manifest: NAMED, loop: NO_LOOP, loopWaitsFree: true });
     expect(continueTarget(r)).toEqual({ kind: 'continue', manifest: 'stamp', path: NAMED.path });
   });
 
@@ -66,6 +72,45 @@ describe('continueTarget', () => {
   it('refuses loop-alive even when the ending would otherwise route a write', () => {
     const r = reading({ manifest: UNNAMED, ending: blocked('feature/x'), loop: LOOP_ALIVE });
     expect(continueTarget(r)).toEqual({ kind: 'refused', reason: 'loop-alive' });
+  });
+
+  it('refuses loop-alive when the loop is mid-turn — no free-wait record names its pid', () => {
+    const r = reading({ manifest: NAMED, loop: LOOP_ALIVE, loopWaitsFree: false });
+    expect(continueTarget(r)).toEqual({ kind: 'refused', reason: 'loop-alive' });
+  });
+
+  it('stops then stamps when the live loop reports a free wait and a manifest names the desk', () => {
+    const r = reading({ manifest: NAMED, loop: LOOP_ALIVE, loopWaitsFree: true });
+    expect(continueTarget(r)).toEqual({
+      kind: 'continue',
+      manifest: 'stamp',
+      path: NAMED.path,
+      stop: { pid: LOOP_ALIVE.pid },
+    });
+  });
+
+  it('stops then writes when the live loop reports a free wait and the ending falls back to a write', () => {
+    const r = reading({ manifest: UNNAMED, ending: blocked('feature/x'), loop: LOOP_ALIVE, loopWaitsFree: true });
+    expect(continueTarget(r)).toEqual({
+      kind: 'continue',
+      manifest: 'write',
+      stop: { pid: LOOP_ALIVE.pid },
+    });
+  });
+
+  it('refuses several even when the live loop reports a free wait — several is not a case the stop resolves', () => {
+    const r = reading({ manifest: SEVERAL, loop: LOOP_ALIVE, loopWaitsFree: true });
+    expect(continueTarget(r)).toEqual({ kind: 'refused', reason: 'several' });
+  });
+
+  it('refuses no-manifest even when the live loop reports a free wait, with no usable ending', () => {
+    const r = reading({ manifest: UNNAMED, ending: ABSENT, loop: LOOP_ALIVE, loopWaitsFree: true });
+    expect(continueTarget(r)).toEqual({ kind: 'refused', reason: 'no-manifest' });
+  });
+
+  it('refuses no-question first, even when the live loop reports a free wait', () => {
+    const r = reading({ manifest: NAMED, loop: LOOP_ALIVE, loopWaitsFree: true, question: false });
+    expect(continueTarget(r)).toEqual({ kind: 'refused', reason: 'no-question' });
   });
 
   it('refuses no-manifest when the ending reads blocked for a different branch — wrong-branch ending refused', () => {

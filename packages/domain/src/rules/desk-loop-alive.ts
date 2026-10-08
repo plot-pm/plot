@@ -81,3 +81,43 @@ export const deskLoopAlive = (reading: DeskLoopReading): DeskLoop => {
   }
   return { kind: 'none' };
 };
+
+/**
+ * The free-wait record's filename, matching `desk-fs.ts`'s own constant.
+ *
+ * A caller outside the `Desk` port — `continueOnDesk` reads this file
+ * directly, the same way it reads `ENDING_FILENAME` via `deskEnding` rather
+ * than through a port method, because the `Desk` port exposes writes only.
+ */
+export const FREE_WAIT_FILENAME = '.plot-worker.freewait';
+
+/**
+ * What the caller read of a desk's `.plot-worker.freewait` record.
+ *
+ * `null` is how a caller says the file was not there — the same convention
+ * {@link readEnding} uses, and for the same reason: a missing record and an
+ * empty one are different facts, even though this rule treats both as "not a
+ * free wait."
+ */
+export interface FreeWaitReading {
+  /** The record's text, verbatim; `null` when the file does not exist. */
+  readonly text: string | null;
+}
+
+/**
+ * Whether a desk's recorded free wait belongs to a given pid.
+ *
+ * **ABSENT IS NOT A FREE WAIT.** A missing file, an empty file, or one that
+ * does not hold `pid` exactly (whitespace trimmed, nothing else forgiven)
+ * answers false — the same *absent is not false* reading `desk-manifest` and
+ * `ending` both apply to their own records. A loop whose free-wait record
+ * cannot be trusted stays a `loop-alive` refusal rather than a stop.
+ *
+ * @param reading - the record's text, or that none was found.
+ * @param pid - the pid `deskLoopAlive` named for this desk.
+ * @returns whether the record names exactly this pid as waiting free.
+ */
+export const deskWaitsFree = (reading: FreeWaitReading, pid: string): boolean => {
+  if (reading.text === null) return false;
+  return reading.text.trim() === pid.trim() && pid.trim() !== '';
+};

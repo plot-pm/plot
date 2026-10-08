@@ -2,6 +2,12 @@ import type { DeskManifest } from './desk-manifest.js';
 import type { DeskLoop } from './desk-loop-alive.js';
 import type { EndingReading } from '../entities/ending.js';
 
+/** A pid the route must stop before it resolves the manifest. */
+export interface StopFirst {
+  /** The pid `deskLoopAlive` named for this desk — the one to signal, and no other. */
+  readonly pid: string;
+}
+
 /**
  * Which desk a continuation's answer goes to, and what blocks it.
  *
@@ -19,6 +25,12 @@ import type { EndingReading } from '../entities/ending.js';
  * when one exists, and it never fires for `several` — two manifests on one
  * desk stay an estate defect, not a case the ending record resolves.
  *
+ * A live loop still refuses `loop-alive` by default — a stop can land
+ * mid-turn. The one exception is a loop that recorded its OWN pid as
+ * waiting free: no branch assigned, asleep in its poll loop, holding no
+ * turn to lose. For that pid alone, {@link ContinueTarget} carries a
+ * `stop` the route must act on before it writes anything.
+ *
  * @concept continue-target
  */
 
@@ -28,12 +40,20 @@ export interface ContinueStamp {
   readonly manifest: 'stamp';
   /** The manifest's own path, as {@link DeskManifest}'s `named` case gives it. */
   readonly path: string;
+  /**
+   * Present when a live loop reports a free wait on this desk: the route
+   * must stop that pid before it stamps the manifest, so the loop's own
+   * cleanup cannot remove what the stamp is about to write to.
+   */
+  readonly stop?: StopFirst;
 }
 
 /** Continue by writing a manifest that names the desk — none names it yet. */
 export interface ContinueWrite {
   readonly kind: 'continue';
   readonly manifest: 'write';
+  /** See {@link ContinueStamp.stop} — the same licence, for the write path. */
+  readonly stop?: StopFirst;
 }
 
 /** The named refusals `/api/continue` already reports, asked by this rule instead. */
@@ -60,6 +80,15 @@ export interface ContinueTargetReading {
   readonly question: boolean;
   /** Whether a loop already holds the desk, and which pid. */
   readonly loop: DeskLoop;
+  /**
+   * Whether the desk's own free-wait record names the SAME pid `loop` named.
+   *
+   * The caller reads the record and asks {@link deskWaitsFree} for this —
+   * the rule stays pure and does no I/O of its own, matching every other
+   * field here. `false` for an absent, unreadable, or wrong-pid record: a
+   * free wait this rule cannot confirm for THIS pid is not a free wait.
+   */
+  readonly loopWaitsFree: boolean;
 }
 
 /**
@@ -74,10 +103,15 @@ export interface ContinueTargetReading {
  *    waiting for an answer — the marker IS the question, and the ending alone
  *    is never sufficient. This also means a desk whose manifest is `named` but
  *    whose marker is gone is `no-question`, exactly as today.
- * 2. **A live loop refuses, whichever path would have continued.** Checked
- *    before the manifest answer is read for its own meaning, because a loop
- *    already on the desk is the one fact that blocks both stamping and
- *    writing alike.
+ * 2. **A live loop refuses, UNLESS it reports a free wait.** A loop already on
+ *    the desk is checked before the manifest answer is read for its own
+ *    meaning, because it is the one fact that can block both stamping and
+ *    writing alike. But a free wait holds no turn, so stopping it loses no
+ *    work — the licence `loop-alive`'s own rationale ("a stop can land
+ *    mid-turn") does not extend to it. A live loop whose `loopWaitsFree` is
+ *    true yields `stop: { pid }` on whichever outcome the manifest and ending
+ *    would otherwise have produced; every other live loop still yields
+ *    `loop-alive`, unconditionally.
  * 3. **The manifest answers.** `named` continues by stamping it. `several`
  *    refuses — two manifests on one desk is an estate defect the ending record
  *    does not resolve. `unnamed` falls to the ending record.
@@ -89,21 +123,29 @@ export interface ContinueTargetReading {
  * ABSENT IS NOT A FALLBACK. An ending the caller could not read
  * (`read: 'unreadable'`) or never wrote (`read: 'absent'`) answers
  * `no-manifest`, never `write` — a record that cannot be trusted is not
- * evidence the desk is waiting for this branch's answer.
+ * evidence the desk is waiting for this branch's answer. The same reading
+ * applies to `loopWaitsFree`: it is the caller's job to answer `false` for an
+ * absent, unreadable or wrong-pid free-wait record, and this rule trusts that
+ * answer without re-deriving it.
  *
  * @param reading - the branch asked about, and what the desk holds.
  * @returns where the answer goes, or why it cannot.
  */
 export const continueTarget = (reading: ContinueTargetReading): ContinueTarget => {
   if (!reading.question) return { kind: 'refused', reason: 'no-question' };
-  if (reading.loop.kind === 'alive') return { kind: 'refused', reason: 'loop-alive' };
 
-  if (reading.manifest.kind === 'named') return { kind: 'continue', manifest: 'stamp', path: reading.manifest.path };
+  const stop: StopFirst | undefined =
+    reading.loop.kind === 'alive' && reading.loopWaitsFree ? { pid: reading.loop.pid } : undefined;
+  if (reading.loop.kind === 'alive' && !stop) return { kind: 'refused', reason: 'loop-alive' };
+
+  if (reading.manifest.kind === 'named') {
+    return { kind: 'continue', manifest: 'stamp', path: reading.manifest.path, ...(stop ? { stop } : {}) };
+  }
   if (reading.manifest.kind === 'several') return { kind: 'refused', reason: 'several' };
 
   const { ending } = reading;
   if (ending.read === 'ended' && ending.ending.reason === 'blocked' && ending.ending.branch === reading.branch) {
-    return { kind: 'continue', manifest: 'write' };
+    return { kind: 'continue', manifest: 'write', ...(stop ? { stop } : {}) };
   }
   return { kind: 'refused', reason: 'no-manifest' };
 };
