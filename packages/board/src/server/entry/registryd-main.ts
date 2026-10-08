@@ -1456,6 +1456,7 @@ export const startFreshAgents = async (
     deskFile: (worktree: string, name: string) => string | null;
     record: Pick<FreshAgentRecordStore, 'rowsFor'>;
     heldFiles: (worktree: string) => Promise<readonly string[] | null>;
+    hasMarker: (worktree: string) => Promise<boolean>;
     ports: FreshAgentPorts;
     budget: number;
   },
@@ -1465,7 +1466,7 @@ export const startFreshAgents = async (
   try {
     const candidates = freshAgentCandidateTrees(report.trees ?? []);
     if (candidates.length === 0) return [];
-    const readings = await readFreshAgentCandidates(candidates, deps.deskFile, deps.record, deps.heldFiles);
+    const readings = await readFreshAgentCandidates(candidates, deps.deskFile, deps.record, deps.heldFiles, deps.hasMarker);
     const applied = await applyFreshAgentDecisions(
       freshAgentDecisions(readings, deps.budget),
       deps.ports,
@@ -1752,6 +1753,10 @@ export const run = async (
             const answer = await treesGit({ repoRoot, scriptDir: scriptsDir }).dirtyPaths(worktree);
             return answer.ok ? answer.value : null;
           },
+          // `escalated` MEANS "A MARKER ALREADY EXISTS", not "a declaration
+          // says blocked" — a marker this same step wrote on a prior tick must
+          // stop a second write, whatever the declaration file holds.
+          hasMarker: async (worktree) => (await markerReading(worktree)) !== null,
           ports: freshAgentPorts,
           budget: Number.isInteger(budget) && budget >= 0 ? budget : 2,
         },

@@ -8,11 +8,11 @@ import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
 import { freshAgentAnswer } from '@plot-pm/domain/rules/fresh-agent';
 import { freshAgentTurnLimitAnswer } from '@plot-pm/domain/rules/fresh-agent-turn-limit';
 import { readEnding, ENDING_FILENAME, type EndingReason } from '@plot-pm/domain/entities/ending';
-import { readDeclaration, DECLARATION_FILENAME } from '@plot-pm/domain/entities/declaration';
 import {
   endingAction,
   endingReleaseBranch,
   holdingWorkAnswer,
+  needsPersonMarker,
   type EndingActionVerdict,
   type PrOpenReading,
 } from '@plot-pm/domain/rules/ending-action';
@@ -626,9 +626,21 @@ export interface FreshAgentCandidateReadings {
   /** The failing run's URL and conclusion, parsed from the ending's own `detail`. */
   runUrl: string;
   conclusion: string;
+  /** The ending's own `detail`, verbatim — what {@link needsPersonMarker} reads for `checks-unanswered`. */
+  detail: string;
   /** How many fresh sessions this slice already had. */
   priorFreshSessions: number;
-  /** Whether the desk's declaration already says `blocked`. */
+  /**
+   * Whether the desk already carries a `PLOT-BLOCKED*` marker.
+   *
+   * **THE MARKER, NOT THE DECLARATION.** `questionEscalation` reads the
+   * marker file, and the marker file is what a repeat write must not
+   * overwrite — a declaration saying `blocked` answers a different question
+   * (`supervise`'s own `isBlocked`, for a desk a manifest still names) and a
+   * desk here has none. Reading the declaration for this field would miss a
+   * marker written with no declaration, and the no-overwrite guard this
+   * reading feeds would then double-write it.
+   */
   escalated: boolean;
   /**
    * Every dirty path `Trees.dirtyPaths` read for this desk, or `null` where
@@ -665,14 +677,15 @@ export const runFromEndingDetail = (detail: string): { runUrl: string; conclusio
 /**
  * Reads what one tick needs about every fresh-agent candidate desk.
  *
- * Takes one read of the ending, the correction file and the declaration from
- * each desk, and one read of the record per candidate. The candidate list
+ * Takes one read of the ending and the correction file from each desk, one
+ * read of the record per candidate, and one marker read. The candidate list
  * holds only desks whose worker ended with its manifest gone.
  *
  * @param candidates - the desks {@link freshAgentCandidateTrees} named.
  * @param deskFile - reads one file from a desk, or null where it is not there.
  * @param freshAgents - the `.plot/state/fresh-agents.tsv` store.
  * @param heldFiles - reads a desk's dirty paths, or null where the read failed.
+ * @param hasMarker - whether the desk already carries a `PLOT-BLOCKED*` marker.
  * @returns one reading per candidate, in the order given.
  */
 export const readFreshAgentCandidates = async (
@@ -680,6 +693,7 @@ export const readFreshAgentCandidates = async (
   deskFile: (worktree: string, name: string) => string | null,
   freshAgents: Pick<FreshAgentRecordStore, 'rowsFor'>,
   heldFiles: (worktree: string) => Promise<readonly string[] | null>,
+  hasMarker: (worktree: string) => Promise<boolean>,
 ): Promise<readonly FreshAgentCandidateReadings[]> => {
   const out: FreshAgentCandidateReadings[] = [];
   for (const tree of candidates) {
@@ -689,7 +703,6 @@ export const readFreshAgentCandidates = async (
     const { runUrl, conclusion } = runFromEndingDetail(detail);
     const plan = tree.plan ?? '';
     const rows = await freshAgents.rowsFor(plan, tree.branch);
-    const declaration = readDeclaration(deskFile(tree.path, DECLARATION_FILENAME));
     out.push({
       plan,
       branch: tree.branch,
@@ -699,10 +712,11 @@ export const readFreshAgentCandidates = async (
       correctionsText: deskFile(tree.path, CORRECTION_FILENAME) ?? '',
       runUrl,
       conclusion,
+      detail,
       // An unanswerable store reads as zero rows: absence can start one
       // session too many and never strands a slice at a person.
       priorFreshSessions: rows.ok ? rows.value.length : 0,
-      escalated: declaration.read === 'declared' && declaration.declaration.status === 'blocked',
+      escalated: await hasMarker(tree.path),
       heldFiles: await heldFiles(tree.path),
     });
   }
@@ -720,13 +734,25 @@ export interface FreshAgentDecision {
   /** The failing run's URL, for the record; `''` where none was read. */
   runUrl: string;
   /**
-   * Whether this tick declares the slice blocked.
+   * Whether this tick writes the desk's `PLOT-BLOCKED.md` marker.
    *
-   * True for `needs-a-person` where the desk's declaration does not already
-   * say `blocked`, so the next tick does not repeat the write.
+   * True for `needs-a-person` where the desk does not already carry one, so
+   * the next tick does not repeat the write.
    */
   escalate: boolean;
+  /**
+   * The marker's text for an outright `needs-a-person` ending (`blocked`,
+   * `spend-limit`, `unstarted`, `run-limit`, `checks-unanswered`); `''` for
+   * every other verdict, including the `needs-a-person` a second
+   * `corrections-spent`/`turn-limit`/`holding-work` answers — those compose
+   * no marker text here, carrying over `applyFreshAgentDecisions`'s existing
+   * wording for a spent fresh session instead.
+   */
+  markerText: string;
 }
+
+/** The three ending reasons whose `needs-a-person` already had wording before this change. */
+const FRESH_SESSION_NEEDS_PERSON = new Set<EndingReason>(['corrections-spent', 'turn-limit', 'holding-work']);
 
 /**
  * Decides every fresh-agent candidate this tick read.
@@ -781,6 +807,16 @@ export const freshAgentDecisions = (
                 runUrl: reading.runUrl,
                 conclusion: reading.conclusion,
               });
+    // THE MARKER'S WORDING FOLLOWS THE SAME SPLIT THE ANSWER ABOVE DOES.
+    // `needsPersonMarker` only composes for the five endings that go straight
+    // to `needs-a-person`; the three that earn one fresh session first ask a
+    // simpler question, naming the ending and the slice's spent allowance.
+    const markerText =
+      verdict !== 'needs-a-person'
+        ? ''
+        : reading.ending !== null && FRESH_SESSION_NEEDS_PERSON.has(reading.ending)
+          ? `The slice on \`${reading.branch}\` already had its one fresh session (${reading.ending}) and reached it again. Decide how it should proceed.`
+          : needsPersonMarker(reading.ending as EndingReason, reading.branch, reading.detail);
     return {
       plan: reading.plan,
       branch: reading.branch,
@@ -789,6 +825,7 @@ export const freshAgentDecisions = (
       answer,
       runUrl: reading.runUrl,
       escalate: verdict === 'needs-a-person' && !reading.escalated,
+      markerText,
     };
   });
 
@@ -810,8 +847,8 @@ export interface FreshAgentApplied {
 export interface FreshAgentPorts {
   /** The `.plot/state/fresh-agents.tsv` store. */
   record: Pick<FreshAgentRecordStore, 'append'>;
-  /** Writes the `blocked` declaration. */
-  desk: Pick<Desk, 'sealDeclaration'>;
+  /** Writes the `PLOT-BLOCKED.md` marker. */
+  desk: Pick<Desk, 'writeBlockedMarker'>;
   /**
    * Starts the fresh session through the continue workflow.
    *
@@ -838,8 +875,8 @@ export interface FreshAgentPorts {
  * workflow (for example `no-manifest`) happens before the row is written, so
  * a refused desk records nothing.
  *
- * **`needs-a-person` WRITES A `blocked` DECLARATION ONCE.** The decision
- * carries `escalate: false` once the declaration exists.
+ * **`needs-a-person` WRITES A `PLOT-BLOCKED.md` MARKER ONCE.** The decision
+ * carries `escalate: false` once the marker exists.
  *
  * **ONE DESK THROWING DOES NOT STOP THE OTHERS.** The throw is reported as
  * `threw`.
@@ -888,18 +925,18 @@ export const applyFreshAgentDecisions = async (
           out.push({ branch: decision.branch, outcome: 'start-failed', detail: started.error });
         }
       } else if (decision.escalate) {
-        const sealed = await ports.desk.sealDeclaration(decision.worktree, decision.branch, 'blocked');
+        const marked = await ports.desk.writeBlockedMarker(decision.worktree, decision.markerText);
         out.push(
-          sealed.ok
+          marked.ok
             ? {
                 branch: decision.branch,
                 outcome: 'escalated',
-                detail: 'the slice already had its fresh session: declared blocked for a person',
+                detail: 'wrote a PLOT-BLOCKED.md marker asking a person to decide',
               }
             : {
                 branch: decision.branch,
                 outcome: 'escalation-failed',
-                detail: 'the blocked declaration could not be written',
+                detail: 'the PLOT-BLOCKED.md marker could not be written',
               },
         );
       }

@@ -143,7 +143,7 @@ describe('nothingDoneDecisions', () => {
 
   it('leaves every ending but nothing-done alone', async () => {
     const [decision] = await nothingDoneDecisions(
-      [candidate({ ending: 'unstarted' })],
+      [candidate({ ending: 'bound' })],
       async () => 'no',
       async () => false,
       noFreshSessions,
@@ -261,6 +261,17 @@ describe('applyNothingDoneDecisions', () => {
 
   it('skips every desk decided leave', async () => {
     const decisions: NothingDoneDecision[] = [{ branch: 'feature/x', worktree: '/w', verdict: 'leave' }];
+    let calls = 0;
+    const applied = await applyNothingDoneDecisions(decisions, async () => {
+      calls += 1;
+      return { released: true, detail: 'released' };
+    });
+    expect(applied).toEqual([]);
+    expect(calls).toBe(0);
+  });
+
+  it('skips a needs-a-person desk too — the marker write belongs to the fresh-agent pipeline\'s apply step, the only one holding a Desk, so one tick writes one marker and not two', async () => {
+    const decisions: NothingDoneDecision[] = [{ branch: 'feature/x', worktree: '/w', verdict: 'needs-a-person' }];
     let calls = 0;
     const applied = await applyNothingDoneDecisions(decisions, async () => {
       calls += 1;
