@@ -61,6 +61,7 @@ describe('every refusal says something different', () => {
     'no-question',
     'no-worker-command',
     'no-manifest',
+    'loop-alive',
   ];
 
   it('renders a distinct sentence for each', () => {
@@ -88,5 +89,15 @@ describe('every refusal says something different', () => {
     // cause is that someone else answered it — not that the reader did anything
     // wrong.
     assert.ok(/already/i.test(refusalWord('no-question')));
+  });
+
+  it('tells a loop-alive reader the loop is working a turn, not merely running — #1373', () => {
+    // A loop reporting its own free wait is stopped and replaced by the route
+    // itself; a refusal here can only mean the loop is mid-turn, so the old
+    // "stop it first" instruction would send the reader to interrupt work
+    // the route would never have interrupted on its own.
+    const word = refusalWord('loop-alive');
+    assert.ok(/working a turn/i.test(word), 'should describe the loop as working a turn');
+    assert.ok(!/stop it/i.test(word), 'should not tell the reader to stop a loop the route would stop itself');
   });
 });

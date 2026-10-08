@@ -1614,10 +1614,17 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       await deps.ports.desk.clearLimitedRecord(worktree);
     } else if (!kinds.has('prompt-run') && !kinds.has('agent-attempt') && resume === undefined) {
       const onChecks = readings.assignedBranch !== '' && readings.exit?.answer === 'ran';
-      if (readings.assignedBranch === '' && deps.restart !== undefined) {
+      const free = readings.assignedBranch === '';
+      if (free && deps.restart !== undefined) {
         await checkRestart(deps.ports, deps.restart, 'later', { waitStartedAt: clock.since, hopFrom });
       }
+      // THE FREE-WAIT RECORD NAMES THIS PID WHILE IT HOLDS NO TURN, matching
+      // `writeLimitedRecord`/`clearLimitedRecord`'s own bracket around the
+      // usage-limit sleep above. `continueTarget` reads it to tell this wait
+      // (no turn, so a stop loses no work) from every other live loop.
+      if (free) await deps.ports.desk.writeFreeWaitRecord(worktree, String(process.pid));
       await deps.sleep(onChecks ? deps.config.checksPollMs : deps.config.passIntervalMs);
+      if (free) await deps.ports.desk.clearFreeWaitRecord(worktree);
       continue;
     }
 

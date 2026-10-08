@@ -444,6 +444,18 @@ describe('deskFs: ending, marker, declaration, correction, limited record, moved
     expect(fs.existsSync(path.join(desk, '.plot-worker.limited'))).toBe(false);
   });
 
+  it('writeFreeWaitRecord overwrites on a second pid, and clearFreeWaitRecord removes it', async () => {
+    const port = deskPort();
+    await port.writeFreeWaitRecord(desk, '111');
+    await port.writeFreeWaitRecord(desk, '222');
+    const text = fs.readFileSync(path.join(desk, '.plot-worker.freewait'), 'utf8');
+    expect(text).not.toContain('111');
+    expect(text).toContain('222');
+    const cleared = await port.clearFreeWaitRecord(desk);
+    expect(cleared).toEqual({ ok: true, value: undefined });
+    expect(fs.existsSync(path.join(desk, '.plot-worker.freewait'))).toBe(false);
+  });
+
   it('moveWorkerRecord moves pid records and empties the source, never deleting it', async () => {
     const from = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loop-ports-from-'));
     const to = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loop-ports-to-'));

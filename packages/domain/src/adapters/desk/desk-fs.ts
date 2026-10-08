@@ -23,6 +23,9 @@ const CORRECTION_FILE = 'PLOT-CORRECTION.md';
 /** What desk holds waiting out a usage limit. */
 const LIMITED_FILE = '.plot-worker.limited';
 
+/** Which pid, if any, holds this desk waiting free — no branch assigned. */
+const FREE_WAIT_FILE = '.plot-worker.freewait';
+
 /** The worker's own pid records, moved rather than deleted between desks. */
 const WORKER_RECORD_NAMES = ['.plot-worker.pid', '.plot-worker.wrapper.pid'];
 
@@ -173,6 +176,20 @@ export const deskFs = (trees: Trees): Desk => {
     clearLimitedRecord: async (worktree): Promise<PortResult<void>> => {
       try {
         rmSync(join(worktree, LIMITED_FILE), { force: true });
+      } catch {
+        /* best effort */
+      }
+      return answered(undefined);
+    },
+
+    writeFreeWaitRecord: async (worktree, pid): Promise<PortResult<void>> => {
+      bestEffortWrite(join(worktree, FREE_WAIT_FILE), `${pid}\n`);
+      return answered(undefined);
+    },
+
+    clearFreeWaitRecord: async (worktree): Promise<PortResult<void>> => {
+      try {
+        rmSync(join(worktree, FREE_WAIT_FILE), { force: true });
       } catch {
         /* best effort */
       }

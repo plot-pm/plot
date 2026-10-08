@@ -35,7 +35,7 @@ Auto-dispatch delivered v2.22 to v2.24 between 2026-10-03 and 2026-10-07. While 
 
 ### Could Have
 
-- [ ] [the-board-reads-a-pr-while-its-ci-runs](../plans/2026-10-07-the-board-reads-a-pr-while-its-ci-runs.md) — the PR-row decision moves into the domain; running CI reads as waiting on a machine (#1164, #1277, #1240). <!-- pr: #0, branch: bug/a-pending-check-is-asked-again -->
+- [x] [the-board-reads-a-pr-while-its-ci-runs](../plans/2026-10-07-the-board-reads-a-pr-while-its-ci-runs.md) — the PR-row decision moves into the domain; running CI reads as waiting on a machine (#1164, #1277, #1240). <!-- pr: #0, branch: bug/a-pending-check-is-asked-again -->
 
 ### Deferred
 

@@ -10,6 +10,8 @@ export interface DeskFixtureCalls {
   appendedCorrections: { worktree: string; correction: string }[];
   limitedRecords: { worktree: string; resetEpoch: number; resetIso: string; limitLine: string }[];
   limitedClears: string[];
+  freeWaitRecords: { worktree: string; pid: string }[];
+  freeWaitClears: string[];
   moves: { from: string; to: string }[];
   findings: { worktree: string; finding: DeskFinding }[];
   buildFindings: { worktree: string; finding: BuildFinding }[];
@@ -34,6 +36,8 @@ export const deskFixtureCalls = (): DeskFixtureCalls => ({
   appendedCorrections: [],
   limitedRecords: [],
   limitedClears: [],
+  freeWaitRecords: [],
+  freeWaitClears: [],
   moves: [],
   findings: [],
   buildFindings: [],
@@ -93,6 +97,16 @@ export const deskFixture = (fixture: DeskFixture = {}): Desk => {
 
     clearLimitedRecord: async (worktree): Promise<PortResult<void>> => {
       calls.limitedClears?.push(worktree);
+      return answered(undefined);
+    },
+
+    writeFreeWaitRecord: async (worktree, pid): Promise<PortResult<void>> => {
+      calls.freeWaitRecords?.push({ worktree, pid });
+      return answered(undefined);
+    },
+
+    clearFreeWaitRecord: async (worktree): Promise<PortResult<void>> => {
+      calls.freeWaitClears?.push(worktree);
       return answered(undefined);
     },
 

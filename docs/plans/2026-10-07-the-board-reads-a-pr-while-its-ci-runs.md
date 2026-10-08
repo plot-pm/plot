@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** the-release-train-fixes-what-it-found
 - **Issue:** #1164, #1277, #1240
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-08, Jan Wloka, `bug/a-pending-check-is-asked-again`
 - **Started:** 2026-10-08, Jan Wloka, `bug/a-pending-check-is-asked-again`
 - **Started:** 2026-10-08, Jan Wloka, `bug/a-pr-fetch-older-than-the-branch-reads-unknown`
+- **Delivered:** 2026-10-08
 
 ## Changelog
 

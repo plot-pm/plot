@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { stampManifest, writeManifestStamp, writeResumeId } from '../../src/server/manifest-stamp.js';
+import { stampManifest, writeDeskManifest, writeManifestStamp, writeResumeId } from '../../src/server/manifest-stamp.js';
 import { rmTree } from '../helpers.mjs';
 
 /** The manifest a first dispatch writes — two-space indent, no trailing comma. */
@@ -190,6 +190,68 @@ describe('writeResumeId', () => {
       assert.equal(fs.readFileSync(array, 'utf8'), '[1]');
     } finally {
       for (const f of [file, notJson, array]) rmTree(path.dirname(f));
+    }
+  });
+});
+
+describe('writeDeskManifest', () => {
+  const manifestDir = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'plot-write-desk-manifest-'));
+
+  it('writes a manifest naming the desk, with the caller-supplied resumeId', () => {
+    const dir = manifestDir();
+    try {
+      const file = writeDeskManifest(dir, {
+        worktree: '/wt/x',
+        branch: 'feature/x',
+        command: 'claude -p "go"',
+        resumeId: 'the-recovered-session',
+      });
+      assert.ok(file !== null);
+      const written = JSON.parse(fs.readFileSync(file!, 'utf8'));
+      assert.equal(written.branch, 'feature/x');
+      assert.equal(written.worktree, '/wt/x');
+      assert.equal(written.command, 'claude -p "go"');
+      assert.equal(written.resumeId, 'the-recovered-session');
+      assert.equal(written.loop, 'js');
+      assert.equal(written.session, path.basename(file!, '.json'));
+      assert.notEqual(written.session, written.resumeId, 'session is this write\'s own key, not the conversation to resume');
+    } finally {
+      rmTree(dir);
+    }
+  });
+
+  it('names the file after a freshly minted session, never the resumeId', () => {
+    const dir = manifestDir();
+    try {
+      const a = writeDeskManifest(dir, { worktree: '/wt/a', branch: 'feature/a', command: 'true', resumeId: '' });
+      const b = writeDeskManifest(dir, { worktree: '/wt/b', branch: 'feature/b', command: 'true', resumeId: '' });
+      assert.notEqual(a, b, 'two writes for two desks never collide');
+    } finally {
+      rmTree(dir);
+    }
+  });
+
+  it('creates the directory when it does not exist yet', () => {
+    const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-write-desk-manifest-parent-')), 'agents');
+    try {
+      const file = writeDeskManifest(dir, { worktree: '/wt/x', branch: 'feature/x', command: 'true', resumeId: '' });
+      assert.ok(file !== null);
+      assert.ok(fs.existsSync(file!));
+    } finally {
+      rmTree(path.dirname(dir));
+    }
+  });
+
+  it('returns null where the directory cannot be created', () => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-write-desk-manifest-readonly-'));
+    const dir = path.join(parent, 'agents');
+    fs.chmodSync(parent, 0o555);
+    try {
+      const file = writeDeskManifest(dir, { worktree: '/wt/x', branch: 'feature/x', command: 'true', resumeId: '' });
+      assert.equal(file, null);
+    } finally {
+      fs.chmodSync(parent, 0o755);
+      rmTree(parent);
     }
   });
 });
