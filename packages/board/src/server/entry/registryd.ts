@@ -5,18 +5,17 @@ import { holdCounts, QUEUE_HOLDS } from '@plot-pm/domain/rules/queue';
 import { unclaimedNotice } from '@plot-pm/domain/rules/unclaimed';
 import { questionEscalation, type Rung } from '@plot-pm/domain/rules/question-escalation';
 import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
-import {
-  freshAgentAfterCorrections,
-  freshAgentAnswer,
-  type FreshAgentVerdict,
-} from '@plot-pm/domain/rules/fresh-agent';
-import {
-  freshAgentAfterTurnLimit,
-  freshAgentTurnLimitAnswer,
-} from '@plot-pm/domain/rules/fresh-agent-turn-limit';
+import { freshAgentAnswer } from '@plot-pm/domain/rules/fresh-agent';
+import { freshAgentTurnLimitAnswer } from '@plot-pm/domain/rules/fresh-agent-turn-limit';
 import { readEnding, ENDING_FILENAME, type EndingReason } from '@plot-pm/domain/entities/ending';
 import { readDeclaration, DECLARATION_FILENAME } from '@plot-pm/domain/entities/declaration';
-import { endingAction, endingReleaseBranch, type PrOpenReading } from '@plot-pm/domain/rules/ending-action';
+import {
+  endingAction,
+  endingReleaseBranch,
+  holdingWorkAnswer,
+  type EndingActionVerdict,
+  type PrOpenReading,
+} from '@plot-pm/domain/rules/ending-action';
 import type { CommitReading } from '@plot-pm/domain/rules/sample';
 import type { PortResult, Pr } from '@plot-pm/domain';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
@@ -585,8 +584,8 @@ export const unclaimedLines = (report: TickReport): string[] => {
 
 /**
  * A desk whose worker ended, no manifest names it, and some plan claims its
- * branch — the ONE population {@link freshAgentAfterCorrections} can answer
- * about, and the one neither `supervise` nor {@link unclaimedTrees} sees.
+ * branch — the ONE population {@link endingAction} can answer about for a
+ * fresh-session ending, and the one neither `supervise` nor {@link unclaimedTrees} sees.
  *
  * **WHY NEITHER EXISTING READING NAMES THIS DESK.** `supervise` reads the
  * REGISTRY, and the exit trap that runs on every ending already removed this
@@ -616,6 +615,12 @@ export interface FreshAgentCandidateReadings {
   worktree: string;
   /** The desk's own ending reason, or `null` where none was written or it could not be read. */
   ending: EndingReason | null;
+  /**
+   * The assignment a take-up refused because the desk held unlanded work, as
+   * the ending recorded it; `''` for every other ending, and for an
+   * after-prompt `holding-work` ending.
+   */
+  refusedAssignment: string;
   /** `PLOT-CORRECTION.md`'s text, verbatim; `''` where it could not be read. */
   correctionsText: string;
   /** The failing run's URL and conclusion, parsed from the ending's own `detail`. */
@@ -625,6 +630,14 @@ export interface FreshAgentCandidateReadings {
   priorFreshSessions: number;
   /** Whether the desk's declaration already says `blocked`. */
   escalated: boolean;
+  /**
+   * Every dirty path `Trees.dirtyPaths` read for this desk, or `null` where
+   * the read failed. Read for every candidate, though only an after-prompt
+   * `holding-work` decision's composed answer uses it — the same way every
+   * other field here is a reading taken once per candidate rather than only
+   * where the verdict is known to need it.
+   */
+  heldFiles: readonly string[] | null;
 }
 
 /** `PLOT-CORRECTION.md`'s filename — the desk's own account of every attempt. */
@@ -659,12 +672,14 @@ export const runFromEndingDetail = (detail: string): { runUrl: string; conclusio
  * @param candidates - the desks {@link freshAgentCandidateTrees} named.
  * @param deskFile - reads one file from a desk, or null where it is not there.
  * @param freshAgents - the `.plot/state/fresh-agents.tsv` store.
+ * @param heldFiles - reads a desk's dirty paths, or null where the read failed.
  * @returns one reading per candidate, in the order given.
  */
 export const readFreshAgentCandidates = async (
   candidates: readonly RegisteredTreeReadings[],
   deskFile: (worktree: string, name: string) => string | null,
   freshAgents: Pick<FreshAgentRecordStore, 'rowsFor'>,
+  heldFiles: (worktree: string) => Promise<readonly string[] | null>,
 ): Promise<readonly FreshAgentCandidateReadings[]> => {
   const out: FreshAgentCandidateReadings[] = [];
   for (const tree of candidates) {
@@ -680,6 +695,7 @@ export const readFreshAgentCandidates = async (
       branch: tree.branch,
       worktree: tree.path,
       ending,
+      refusedAssignment: endingReading.read === 'ended' ? endingReading.ending.refusedAssignment : '',
       correctionsText: deskFile(tree.path, CORRECTION_FILENAME) ?? '',
       runUrl,
       conclusion,
@@ -687,6 +703,7 @@ export const readFreshAgentCandidates = async (
       // session too many and never strands a slice at a person.
       priorFreshSessions: rows.ok ? rows.value.length : 0,
       escalated: declaration.read === 'declared' && declaration.declaration.status === 'blocked',
+      heldFiles: await heldFiles(tree.path),
     });
   }
   return out;
@@ -697,7 +714,7 @@ export interface FreshAgentDecision {
   plan: string;
   branch: string;
   worktree: string;
-  verdict: FreshAgentVerdict;
+  verdict: EndingActionVerdict;
   /** The fresh session's composed answer; `''` where the verdict is not `start-fresh`. */
   answer: string;
   /** The failing run's URL, for the record; `''` where none was read. */
@@ -717,14 +734,16 @@ export interface FreshAgentDecision {
  * Takes readings and returns a verdict per desk. It touches no file and no
  * process; {@link applyFreshAgentDecisions} applies the verdicts.
  *
- * **TWO RULES, ONE SHARED COUNT, AT MOST ONE ANSWER.** `freshAgentAfterCorrections`
- * and `freshAgentAfterTurnLimit` each answer `'none'` for every ending but
- * their own, and an ending is exactly one value — so trying the corrections
- * rule first and falling back to the turn-limit rule only when it answered
- * `'none'` can never run both against a live verdict. Both read the same
- * `priorFreshSessions` count, so a slice that already spent its one fresh
- * session on one ending gets `needs-a-person` from the other rather than a
- * second fresh session.
+ * **ONE RULE, ONE SHARED COUNT, AT MOST ONE ANSWER.** `endingAction` answers
+ * `start-fresh` or `needs-a-person` for `corrections-spent`, `turn-limit` and
+ * an after-prompt `holding-work` ending alike, reading the same
+ * `priorFreshSessions` count for all three — so a slice that already spent
+ * its one fresh session on one ending gets `needs-a-person` from another
+ * rather than a second fresh session. A candidate is `!registered` by
+ * construction (see {@link freshAgentCandidateTrees}), so every reading
+ * carries `hasManifest: false`; `commitBeyondClaim`/`prOpen` are filler
+ * values this population's endings never read, since none of them is
+ * `nothing-done`.
  *
  * @param candidates - what {@link readFreshAgentCandidates} read.
  * @param budget - the repository's `Correction budget`, for the composed answer.
@@ -735,38 +754,33 @@ export const freshAgentDecisions = (
   budget: number,
 ): readonly FreshAgentDecision[] =>
   candidates.map((reading) => {
-    // A candidate is `!registered` by construction (see
-    // `freshAgentCandidateTrees`), so every reading carries
-    // `hasManifest: false`. A desk a manifest names before the next tick is
-    // supervised by that tick's registry read instead.
-    const corrections = freshAgentAfterCorrections({
+    const verdict = endingAction({
       ending: reading.ending,
+      branch: reading.branch,
+      refusedAssignment: reading.refusedAssignment,
       hasManifest: false,
       priorFreshSessions: reading.priorFreshSessions,
+      commitBeyondClaim: 'no',
+      prOpen: false,
     });
-    const firedTurnLimit = corrections === 'none';
-    const verdict: FreshAgentVerdict = firedTurnLimit
-      ? freshAgentAfterTurnLimit({
-          ending: reading.ending,
-          priorFreshSessions: reading.priorFreshSessions,
-        })
-      : corrections;
-    // THE COMPOSED ANSWER FOLLOWS WHICH RULE FIRED, NOT JUST THE VERDICT.
-    // `freshAgentAnswer`'s whole text is about a spent correction budget, which
-    // a `turn-limit` ending never had — reusing it here would tell the fresh
-    // session a budget was spent that was not.
+    // THE COMPOSED ANSWER FOLLOWS WHICH ENDING FIRED, NOT JUST THE VERDICT.
+    // `freshAgentAnswer`'s whole text is about a spent correction budget, and
+    // `holdingWorkAnswer`'s is about uncommitted work — reusing either for an
+    // ending that never had that problem would misdescribe the session.
     const answer =
       verdict !== 'start-fresh'
         ? ''
-        : firedTurnLimit
+        : reading.ending === 'turn-limit'
           ? freshAgentTurnLimitAnswer(reading.branch)
-          : freshAgentAnswer({
-              branch: reading.branch,
-              budget,
-              correctionsText: reading.correctionsText,
-              runUrl: reading.runUrl,
-              conclusion: reading.conclusion,
-            });
+          : reading.ending === 'holding-work'
+            ? holdingWorkAnswer(reading.branch, reading.heldFiles)
+            : freshAgentAnswer({
+                branch: reading.branch,
+                budget,
+                correctionsText: reading.correctionsText,
+                runUrl: reading.runUrl,
+                conclusion: reading.conclusion,
+              });
     return {
       plan: reading.plan,
       branch: reading.branch,
@@ -936,6 +950,8 @@ export const nothingDoneCandidateTrees = (
 
 /** What one tick read of one `nothing-done` candidate desk, before deciding. */
 export interface NothingDoneCandidateReadings {
+  /** The plan that names the branch, as its file name without `.md`; `''` where unread. */
+  plan: string;
   /** The branch the desk holds. */
   branch: string;
   /** The desk, absolute. */
@@ -965,6 +981,7 @@ export const readNothingDoneCandidates = (
   candidates.map((tree) => {
     const endingReading = readEnding(deskFile(tree.path, ENDING_FILENAME));
     return {
+      plan: tree.plan ?? '',
       branch: tree.branch,
       worktree: tree.path,
       ending: endingReading.read === 'ended' ? endingReading.ending.reason : null,
@@ -1014,12 +1031,16 @@ export interface NothingDoneDecision {
  *   beyond its claim, keyed by worktree.
  * @param prOpen - reads whether an open PR still carries a branch, keyed by
  *   branch; `'unanswerable'` where the host could not be asked.
+ * @param priorFreshSessions - how many fresh sessions this slice already had,
+ *   keyed by plan and branch — the same store {@link readFreshAgentCandidates}
+ *   reads, so the allowance is shared whichever pipeline asks first.
  * @returns one decision per candidate, in the order given.
  */
 export const nothingDoneDecisions = async (
   candidates: readonly NothingDoneCandidateReadings[],
   commitBeyondClaim: (worktree: string) => Promise<CommitReading>,
   prOpen: (branch: string) => Promise<PrOpenReading>,
+  priorFreshSessions: (plan: string, branch: string) => Promise<number>,
 ): Promise<readonly NothingDoneDecision[]> => {
   const out: NothingDoneDecision[] = [];
   for (const reading of candidates) {
@@ -1032,10 +1053,7 @@ export const nothingDoneDecisions = async (
       // `hasManifest: false` — the same reasoning `freshAgentDecisions` already
       // states for its own candidates.
       hasManifest: false,
-      // UNUSED BY THE ROWS THIS BRANCH IMPLEMENTS. `endingAction` reads it only
-      // for rows wave 2 adds; zero is its own safe default, the one
-      // `readFreshAgentCandidates` uses for the same field.
-      priorFreshSessions: 0,
+      priorFreshSessions: await priorFreshSessions(reading.plan, reading.branch),
       commitBeyondClaim: await commitBeyondClaim(reading.worktree),
       prOpen: await prOpen(reading.branch),
     };

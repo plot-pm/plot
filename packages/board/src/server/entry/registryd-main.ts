@@ -1443,8 +1443,8 @@ export const startFreshSession = async (
  * the record again.
  *
  * @param report - the completed tick, whose `trees` name the candidates.
- * @param deps - how to read a desk file, the record, the ports to act through,
- *   and the repository's `Correction budget`.
+ * @param deps - how to read a desk file, the record, a desk's held files, the
+ *   ports to act through, and the repository's `Correction budget`.
  * @param write - where a started session or an escalation is reported.
  * @param warn - where a refusal or a failure is reported.
  * @returns what was applied, in desk order.
@@ -1454,6 +1454,7 @@ export const startFreshAgents = async (
   deps: {
     deskFile: (worktree: string, name: string) => string | null;
     record: Pick<FreshAgentRecordStore, 'rowsFor'>;
+    heldFiles: (worktree: string) => Promise<readonly string[] | null>;
     ports: FreshAgentPorts;
     budget: number;
   },
@@ -1463,7 +1464,7 @@ export const startFreshAgents = async (
   try {
     const candidates = freshAgentCandidateTrees(report.trees ?? []);
     if (candidates.length === 0) return [];
-    const readings = await readFreshAgentCandidates(candidates, deps.deskFile, deps.record);
+    const readings = await readFreshAgentCandidates(candidates, deps.deskFile, deps.record, deps.heldFiles);
     const applied = await applyFreshAgentDecisions(
       freshAgentDecisions(readings, deps.budget),
       deps.ports,
@@ -1482,6 +1483,12 @@ export interface NothingDoneReleasePorts {
   commitBeyondClaim: (worktree: string) => Promise<CommitReading>;
   /** Reads whether an open PR still carries the branch; `'unanswerable'` where the host could not be asked. */
   prOpen: (branch: string) => Promise<PrOpenReading>;
+  /**
+   * How many fresh sessions this slice already had, keyed by plan and branch
+   * — the same store {@link startFreshAgents} reads, so the allowance is
+   * shared whichever pipeline asks first.
+   */
+  priorFreshSessions: (plan: string, branch: string) => Promise<number>;
   /** Decides and, where releasable, releases the branch's claim. */
   release: (branch: string) => Promise<{ released: boolean; detail: string }>;
 }
@@ -1518,7 +1525,12 @@ export const startNothingDoneReleases = async (
     const candidates = nothingDoneCandidateTrees(report.trees ?? []);
     if (candidates.length === 0) return [];
     const readings = readNothingDoneCandidates(candidates, deps.deskFile);
-    const decisions = await nothingDoneDecisions(readings, deps.ports.commitBeyondClaim, deps.ports.prOpen);
+    const decisions = await nothingDoneDecisions(
+      readings,
+      deps.ports.commitBeyondClaim,
+      deps.ports.prOpen,
+      deps.ports.priorFreshSessions,
+    );
     const applied = await applyNothingDoneDecisions(decisions, deps.ports.release);
     for (const { line, error } of nothingDoneLines(applied)) (error ? warn : write)(`${line}\n`);
     return applied;
@@ -1730,6 +1742,15 @@ export const run = async (
         {
           deskFile: (worktree, name) => fileOrNull(join(worktree, name)),
           record: freshAgentRecord,
+          // A DEDICATED READ, NOT `world`'s `dirtyPaths` OR `dirtyCountOf`
+          // BELOW. Both collapse a failed read into a lossy value (`[]` or a
+          // count of `1`) for their own consumers; `holdingWorkAnswer` needs
+          // `null` preserved so it can say the files could not be listed
+          // rather than claiming none are held.
+          heldFiles: async (worktree) => {
+            const answer = await treesGit({ repoRoot, scriptDir: scriptsDir }).dirtyPaths(worktree);
+            return answer.ok ? answer.value : null;
+          },
           ports: freshAgentPorts,
           budget: Number.isInteger(budget) && budget >= 0 ? budget : 2,
         },
@@ -1750,6 +1771,13 @@ export const run = async (
               return commits.ok ? commits.value : 'unanswerable';
             },
             prOpen: async (branch) => prOpenReading(await hostShell(nothingDoneContext).prState(branch)),
+            // THE SAME STORE `startFreshAgents` READS, so a slice's one fresh
+            // session is shared regardless of which pipeline asks about it
+            // first.
+            priorFreshSessions: async (plan, branch) => {
+              const rows = await freshAgentRecord.rowsFor(plan, branch);
+              return rows.ok ? rows.value.length : 0;
+            },
             release: async (branch) => {
               const { result } = await gatherReadingsAndRelease(branch, nothingDoneContext);
               return { released: result.released, detail: result.detail };

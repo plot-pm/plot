@@ -83,6 +83,8 @@ const emptyStore: Pick<FreshAgentRecordStore, 'rowsFor'> = {
   rowsFor: async () => answeredRows([]),
 };
 
+const noHeldFiles = async (): Promise<readonly string[] | null> => [];
+
 const endingFile = (reason: string, detail = '') =>
   JSON.stringify({ reason, actor: 'agent', branch: 'feature/x', detail });
 
@@ -90,24 +92,24 @@ describe('readFreshAgentCandidates', () => {
   it('reads the ending reason off the desk', async () => {
     const deskFile = (worktree: string, name: string) =>
       name === ENDING_FILENAME ? endingFile('corrections-spent') : null;
-    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore);
+    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles);
     expect(reading?.ending).toBe('corrections-spent');
   });
 
   it('reads null where no ending was written', async () => {
-    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore);
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, noHeldFiles);
     expect(reading?.ending).toBeNull();
   });
 
   it('reads the corrections file text verbatim', async () => {
     const deskFile = (worktree: string, name: string) =>
       name === CORRECTION_FILENAME ? '## Correction 1 of 2\n\n' : null;
-    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore);
+    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles);
     expect(reading?.correctionsText).toContain('Correction 1 of 2');
   });
 
   it('a missing corrections file reads as empty text, never a failure', async () => {
-    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore);
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, noHeldFiles);
     expect(reading?.correctionsText).toBe('');
   });
 
@@ -120,7 +122,7 @@ describe('readFreshAgentCandidates', () => {
             : [],
         ),
     };
-    const [reading] = await readFreshAgentCandidates([tree()], () => null, store);
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, store, noHeldFiles);
     expect(reading?.priorFreshSessions).toBe(1);
   });
 
@@ -128,7 +130,7 @@ describe('readFreshAgentCandidates', () => {
     const failedStore: Pick<FreshAgentRecordStore, 'rowsFor'> = {
       rowsFor: async () => ({ ok: false, why: 'failed' }),
     };
-    const [reading] = await readFreshAgentCandidates([tree()], () => null, failedStore);
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, failedStore, noHeldFiles);
     expect(reading?.priorFreshSessions).toBe(0);
   });
 });
@@ -143,10 +145,12 @@ describe('freshAgentDecisions', () => {
           branch: 'feature/x',
           worktree: tree().path,
           ending: 'corrections-spent',
+          refusedAssignment: '',
           correctionsText: '## Correction 1 of 2\n\n',
           runUrl: 'https://github.com/plot-pm/plot/actions/runs/123',
           conclusion: 'failure',
           priorFreshSessions: 0,
+          heldFiles: [],
         },
       ],
       2,
@@ -165,10 +169,12 @@ describe('freshAgentDecisions', () => {
           branch: 'feature/x',
           worktree: tree().path,
           ending: 'corrections-spent',
+          refusedAssignment: '',
           correctionsText: '',
           runUrl: '',
           conclusion: '',
           priorFreshSessions: 1,
+          heldFiles: [],
         },
       ],
       2,
@@ -177,7 +183,7 @@ describe('freshAgentDecisions', () => {
     expect(decision?.answer).toBe('');
   });
 
-  it('decides none for every other ending', () => {
+  it('leaves every other ending alone', () => {
     const [decision] = freshAgentDecisions(
       [
         {
@@ -186,15 +192,17 @@ describe('freshAgentDecisions', () => {
           branch: 'feature/x',
           worktree: tree().path,
           ending: 'unstarted',
+          refusedAssignment: '',
           correctionsText: '',
           runUrl: '',
           conclusion: '',
           priorFreshSessions: 0,
+          heldFiles: [],
         },
       ],
       2,
     );
-    expect(decision?.verdict).toBe('none');
+    expect(decision?.verdict).toBe('leave');
     expect(decision?.answer).toBe('');
   });
 
@@ -207,10 +215,12 @@ describe('freshAgentDecisions', () => {
           branch: 'feature/x',
           worktree: tree().path,
           ending: 'turn-limit',
+          refusedAssignment: '',
           correctionsText: '',
           runUrl: '',
           conclusion: '',
           priorFreshSessions: 0,
+          heldFiles: [],
         },
       ],
       2,
@@ -229,10 +239,12 @@ describe('freshAgentDecisions', () => {
           branch: 'feature/x',
           worktree: tree().path,
           ending: 'turn-limit',
+          refusedAssignment: '',
           correctionsText: '',
           runUrl: '',
           conclusion: '',
           priorFreshSessions: 1,
+          heldFiles: [],
         },
       ],
       2,
@@ -255,10 +267,12 @@ describe('freshAgentDecisions', () => {
           branch: 'feature/x',
           worktree: tree().path,
           ending: 'turn-limit',
+          refusedAssignment: '',
           correctionsText: '',
           runUrl: '',
           conclusion: '',
           priorFreshSessions: 1,
+          heldFiles: [],
         },
       ],
       2,
@@ -275,10 +289,12 @@ describe('freshAgentDecisions', () => {
           branch: 'feature/x',
           worktree: tree().path,
           ending: 'corrections-spent',
+          refusedAssignment: '',
           correctionsText: '',
           runUrl: '',
           conclusion: '',
           priorFreshSessions: 1,
+          heldFiles: [],
         },
       ],
       2,
@@ -293,25 +309,25 @@ describe('readFreshAgentCandidates, the declaration and the plan', () => {
   it('reads a blocked declaration as already escalated', async () => {
     const deskFile = (_worktree: string, name: string) =>
       name === DECLARATION_FILENAME ? declared('blocked') : null;
-    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore);
+    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles);
     expect(reading?.escalated).toBe(true);
   });
 
   it('reads an ok declaration, an absent one and an unreadable one as not escalated', async () => {
     for (const text of [declared('ok'), null, 'not json']) {
       const deskFile = (_worktree: string, name: string) => (name === DECLARATION_FILENAME ? text : null);
-      const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore);
+      const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles);
       expect(reading?.escalated).toBe(false);
     }
   });
 
   it('carries the plan the tree names', async () => {
-    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore);
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, noHeldFiles);
     expect(reading?.plan).toBe(PLAN);
   });
 
   it('reads an empty plan where the tree names none', async () => {
-    const [reading] = await readFreshAgentCandidates([tree({ plan: undefined })], () => null, emptyStore);
+    const [reading] = await readFreshAgentCandidates([tree({ plan: undefined })], () => null, emptyStore, noHeldFiles);
     expect(reading?.plan).toBe('');
   });
 });
@@ -321,11 +337,13 @@ const spentReading = (over: Partial<FreshAgentCandidateReadings> = {}): FreshAge
   branch: 'feature/x',
   worktree: '/estate/.worktrees/feature-x',
   ending: 'corrections-spent',
+  refusedAssignment: '',
   correctionsText: '## Correction 1 of 2\n\nCI reported: x\n',
   runUrl: 'https://github.com/plot-pm/plot/actions/runs/123',
   conclusion: 'failure',
   priorFreshSessions: 0,
   escalated: false,
+  heldFiles: [],
   ...over,
 });
 
@@ -376,7 +394,12 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
   };
   /** One tick over one desk: read through the real record, decide, apply. */
   const tickOver = async (deskFile: (worktree: string, name: string) => string | null) => {
-    const readings = await readFreshAgentCandidates(freshAgentCandidateTrees([tree()]), deskFile, record);
+    const readings = await readFreshAgentCandidates(
+      freshAgentCandidateTrees([tree()]),
+      deskFile,
+      record,
+      noHeldFiles,
+    );
     return applyFreshAgentDecisions(freshAgentDecisions(readings, 2), ports);
   };
   return { record, ports, sealed, starts, tickOver };

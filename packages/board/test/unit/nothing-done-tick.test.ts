@@ -78,6 +78,7 @@ describe('readNothingDoneCandidates', () => {
 });
 
 const candidate = (over: Partial<NothingDoneCandidateReadings> = {}): NothingDoneCandidateReadings => ({
+  plan: PLAN,
   branch: 'feature/x',
   worktree: '/estate/.worktrees/feature-x',
   ending: 'nothing-done',
@@ -85,12 +86,15 @@ const candidate = (over: Partial<NothingDoneCandidateReadings> = {}): NothingDon
   ...over,
 });
 
+const noFreshSessions = async (): Promise<number> => 0;
+
 describe('nothingDoneDecisions', () => {
   it('decides release-claim for a clean nothing-done desk', async () => {
     const [decision] = await nothingDoneDecisions(
       [candidate()],
       async () => 'no',
       async () => false,
+      noFreshSessions,
     );
     expect(decision?.verdict).toBe('release-claim');
     expect(decision?.branch).toBe('feature/x');
@@ -102,6 +106,7 @@ describe('nothingDoneDecisions', () => {
       [candidate()],
       async () => 'yes',
       async () => false,
+      noFreshSessions,
     );
     expect(decision?.verdict).toBe('leave');
   });
@@ -111,6 +116,7 @@ describe('nothingDoneDecisions', () => {
       [candidate()],
       async () => 'no',
       async () => true,
+      noFreshSessions,
     );
     expect(decision?.verdict).toBe('leave');
   });
@@ -120,6 +126,7 @@ describe('nothingDoneDecisions', () => {
       [candidate()],
       async () => 'no',
       async () => 'unanswerable',
+      noFreshSessions,
     );
     expect(decision?.verdict).toBe('leave');
   });
@@ -129,6 +136,7 @@ describe('nothingDoneDecisions', () => {
       [candidate({ ending: 'holding-work', refusedAssignment: 'infra/assigned' })],
       async () => 'yes',
       async () => false,
+      noFreshSessions,
     );
     expect(decision).toEqual({ branch: 'infra/assigned', worktree: '/estate/.worktrees/feature-x', verdict: 'release-claim' });
   });
@@ -138,6 +146,7 @@ describe('nothingDoneDecisions', () => {
       [candidate({ ending: 'unstarted' })],
       async () => 'no',
       async () => false,
+      noFreshSessions,
     );
     expect(decision?.verdict).toBe('leave');
   });
@@ -147,6 +156,7 @@ describe('nothingDoneDecisions', () => {
       [candidate({ ending: null })],
       async () => 'no',
       async () => false,
+      noFreshSessions,
     );
     expect(decision?.verdict).toBe('leave');
   });
@@ -164,9 +174,29 @@ describe('nothingDoneDecisions', () => {
         prAsked.push(branch);
         return false;
       },
+      noFreshSessions,
     );
     expect(commitAsked).toEqual(['/wa', '/wb']);
     expect(prAsked).toEqual(['a', 'b']);
+  });
+
+  it('asks the shared fresh-session store by plan and branch for a holding-work ending', async () => {
+    // THE CROSS-PIPELINE SHARE: a holding-work ending that already used its
+    // one fresh session (via the fresh-agent pipeline) must not also release
+    // the claim as though nothing happened — it answers needs-a-person, same
+    // as freshAgentDecisions would for the identical reading.
+    const asked: Array<[string, string]> = [];
+    const [decision] = await nothingDoneDecisions(
+      [candidate({ ending: 'holding-work', refusedAssignment: '' })],
+      async () => 'no',
+      async () => false,
+      async (plan, branch) => {
+        asked.push([plan, branch]);
+        return 1;
+      },
+    );
+    expect(asked).toEqual([[PLAN, 'feature/x']]);
+    expect(decision?.verdict).toBe('needs-a-person');
   });
 });
 
