@@ -46,15 +46,11 @@ IS_DRAFT=$(printf '%s' "$PR_JSON" | jq -r '.draft')
 NUMBER=$(printf '%s' "$PR_JSON" | jq -r '.number')
 MERGE_COMMIT=$(printf '%s' "$PR_JSON" | jq -r '.mergeCommit // empty')
 
-if [ "$STATE" = "MERGED" ]; then
-  STATUS="merged"
-elif [ "$STATE" = "CLOSED" ]; then
-  STATUS="closed"
-elif [ "$IS_DRAFT" = "true" ]; then
-  STATUS="draft"
-else
-  STATUS="ready"
-fi
+case "$STATE" in
+  MERGED) STATUS="merged" ;;
+  CLOSED) STATUS="closed" ;;
+  *) [ "$IS_DRAFT" = "true" ] && STATUS="draft" || STATUS="ready" ;;
+esac
 
 jq -n \
   --argjson found true \

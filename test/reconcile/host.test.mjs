@@ -1038,16 +1038,20 @@ test('host: run-for-sha on a repository that declared no CI exits 4', () => {
 
 test('host: run-for-sha reads github-actions runs when the CI key names it', () => {
   // The unchanged half: a repository that declares github-actions on a GitHub
-  // remote gets exactly today's answer, through the same `gh` call.
+  // remote gets exactly today's answer, through the same `gh` call. A
+  // `success` conclusion, not `failure`, because `makeStubs` answers every
+  // invocation with the same JSON and cannot stand in for the extra
+  // `gh run view` call #1295 makes on a failed or cancelled run — that call
+  // is covered by `makeRunForShaStub`'s dispatching tests below.
   const stubs = makeStubs({
     ghJson: JSON.stringify([
-      { headSha: 'abc123', conclusion: 'failure', status: 'completed', startedAt: '2026-09-08T10:00:00Z', url: 'u1' },
+      { headSha: 'abc123', conclusion: 'success', status: 'completed', startedAt: '2026-09-08T10:00:00Z', url: 'u1' },
     ]),
   });
   const out = JSON.parse(run(['run-for-sha', 'feature/x', 'abc123'],
     { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs }).trim());
   assert.equal(out.sha, 'abc123');
-  assert.equal(out.conclusion, 'failure');
+  assert.equal(out.conclusion, 'success');
 });
 
 test('host: run-for-sha exits 4 when gh fails, never empty', () => {
@@ -1060,6 +1064,90 @@ test('host: run-for-sha exits 4 when gh fails, never empty', () => {
   assert.equal(res.code, 4);
   assert.equal(res.stdout.trim(), '');
   assert.match(res.stderr, /gh run list failed/);
+});
+
+// A `gh` stub that tells `run list` apart from `run view`, which `makeStubs`
+// cannot: both are "the same canned JSON for any argv". #1295's whole
+// contract is WHETHER the second call happens at all, so each case needs its
+// own answer and a record of which sub-commands actually ran.
+//
+// It appends (`>>`), like `makeStubsRateAware`, so a test can assert both
+// what WAS called and what was NOT — "no `run view` call" is itself a claim
+// a test here makes.
+function makeRunForShaStub({ listJson = '[]', jobsJson = '{"jobs":[]}', viewFail = null } = {}) {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-runforsha-')));
+  const callsFile = path.join(dir, 'gh.calls');
+  const q = (v) => String(v).replace(/'/g, `'\\''`);
+  const viewBody = viewFail != null
+    ? `printf '%s\\n' '${q(viewFail)}' >&2; exit 1`
+    : `printf '%s' '${q(jobsJson)}'`;
+  const body = `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${callsFile}"
+case "$1 $2" in
+  "run list") printf '%s' '${q(listJson)}' ;;
+  "run view") ${viewBody} ;;
+  *) printf '%s' '{}' ;;
+esac
+`;
+  writeFileSync(path.join(dir, 'gh'), body);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  return { dir, ghArgv: path.join(dir, 'gh.argv'), bbArgv: path.join(dir, 'bb.argv'), callsFile };
+}
+
+test('host: run-for-sha prints jobs for a failed run, read from one extra gh run view call (#1295)', () => {
+  const stubs = makeRunForShaStub({
+    listJson: JSON.stringify([
+      { headSha: 'abc123', conclusion: 'failure', status: 'completed', startedAt: '2026-10-05T10:00:00Z', url: 'u1', databaseId: 999 },
+    ]),
+    jobsJson: JSON.stringify({ jobs: [{ conclusion: 'cancelled', steps: [] }] }),
+  });
+  const out = JSON.parse(run(['run-for-sha', 'feature/x', 'abc123'],
+    { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs }).trim());
+  assert.equal(out.sha, 'abc123');
+  assert.equal(out.conclusion, 'failure');
+  assert.deepEqual(out.jobs, [{ conclusion: 'cancelled', steps: 0 }]);
+  const calls = callsOf(stubs.callsFile);
+  assert.ok(calls.some((c) => c.startsWith('run view 999')), 'gh run view was asked about the matched run');
+});
+
+test('host: run-for-sha makes no gh run view call for a run still going or that passed', () => {
+  const stubs = makeRunForShaStub({
+    listJson: JSON.stringify([
+      { headSha: 'abc123', conclusion: null, status: 'in_progress', startedAt: '2026-10-05T10:00:00Z', url: 'u1', databaseId: 1 },
+    ]),
+  });
+  const out = JSON.parse(run(['run-for-sha', 'feature/x', 'abc123'],
+    { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs }).trim());
+  assert.equal(out.conclusion, null);
+  assert.equal(out.jobs, undefined, 'a running run carries no jobs field at all');
+  assert.ok(!callsOf(stubs.callsFile).some((c) => c.startsWith('run view')),
+    'a run still going costs no extra call');
+
+  const passed = makeRunForShaStub({
+    listJson: JSON.stringify([
+      { headSha: 'abc123', conclusion: 'success', status: 'completed', startedAt: '2026-10-05T10:00:00Z', url: 'u1', databaseId: 2 },
+    ]),
+  });
+  const outPassed = JSON.parse(run(['run-for-sha', 'feature/x', 'abc123'],
+    { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs: passed }).trim());
+  assert.equal(outPassed.conclusion, 'success');
+  assert.equal(outPassed.jobs, undefined, 'a passing run carries no jobs field at all');
+  assert.ok(!callsOf(passed.callsFile).some((c) => c.startsWith('run view')),
+    'a run that passed costs no extra call');
+});
+
+test('host: run-for-sha exits 4 when gh run view fails, never reporting an unacquired run as empty', () => {
+  const stubs = makeRunForShaStub({
+    listJson: JSON.stringify([
+      { headSha: 'abc123', conclusion: 'failure', status: 'completed', startedAt: '2026-10-05T10:00:00Z', url: 'u1', databaseId: 999 },
+    ]),
+    viewFail: 'HTTP 401: Bad credentials',
+  });
+  const res = runAllowFail(['run-for-sha', 'feature/x', 'abc123'],
+    { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs });
+  assert.equal(res.code, 4);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /gh run view failed/);
 });
 
 // --- bb --state vocabulary -------------------------------------------------

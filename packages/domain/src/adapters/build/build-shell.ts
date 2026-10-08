@@ -19,6 +19,7 @@ interface RawShaRun {
   conclusion?: string | null;
   url?: string;
   startedAt?: string;
+  jobs?: readonly { conclusion?: string | null; steps?: number }[];
 }
 
 /** One limit reading as `plot-host.sh ci-limit` reports it. */
@@ -67,6 +68,7 @@ export const shaRunOf = (raw: RawShaRun): ShaRun => ({
   conclusion: raw.conclusion === undefined || raw.conclusion === '' ? null : raw.conclusion,
   url: raw.url ?? '',
   startedAt: raw.startedAt ?? '',
+  jobs: raw.jobs?.map((job) => ({ conclusion: job.conclusion ?? null, steps: job.steps ?? 0 })),
 });
 
 /**

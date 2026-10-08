@@ -204,6 +204,28 @@ describe('a CI connector reads the run for one commit', () => {
     ).runForSha('feature/x', 'abc', 20);
     expect(answer).toEqual({ ok: true, value: null });
   });
+
+  it('carries jobs through for a failed run', async () => {
+    const answer = await buildActions(
+      hostThat(
+        `echo '{"sha":"abc123","status":"completed","conclusion":"failure",` +
+          `"url":"https://x.invalid/9","startedAt":"2026-09-07T10:00:00Z",` +
+          `"jobs":[{"conclusion":"cancelled","steps":0}]}'`,
+      ),
+    ).runForSha('feature/x', 'abc123');
+    expect(answer).toMatchObject({ ok: true, value: { jobs: [{ conclusion: 'cancelled', steps: 0 }] } });
+  });
+
+  it('leaves jobs undefined when the script reports none', async () => {
+    // ABSENT, NOT EMPTY. A running or successful run, or a Jenkins run, prints
+    // no `jobs` key at all, and the adapter must not invent an empty array —
+    // the rule reading this field tells the two facts apart.
+    const answer = await buildActions(run('abc123', 'completed', 'success')).runForSha(
+      'feature/x',
+      'abc123',
+    );
+    expect(answer).toMatchObject({ ok: true, value: { jobs: undefined } });
+  });
 });
 
 describe('a CI connector answers for its OWN limit', () => {
