@@ -74,13 +74,21 @@ import {
   freshAgentDecisions,
   applyFreshAgentDecisions,
   freshAgentLines,
+  nothingDoneCandidateTrees,
+  readNothingDoneCandidates,
+  nothingDoneDecisions,
+  applyNothingDoneDecisions,
+  nothingDoneLines,
   type FreshAgentPorts,
   type FreshAgentApplied,
+  type NothingDoneApplied,
   TICK_INTERVAL_MS,
   type TickReport,
   type TickSpend,
   type EscalationWorld,
 } from './registryd.js';
+import { gatherReadingsAndRelease } from '../release-claim.js';
+import type { CommitReading } from '@plot-pm/domain/rules/sample';
 import { boardSharePerHour } from '@plot-pm/domain/rules/cadence';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import {
@@ -1466,6 +1474,65 @@ export const startFreshAgents = async (
   }
 };
 
+/** The reads and the one write {@link startNothingDoneReleases} performs, injected so a test needs no git or host. */
+export interface NothingDoneReleasePorts {
+  /** Reads whether a branch's worktree holds a commit beyond its claim. */
+  hasCommits: (worktree: string) => Promise<CommitReading>;
+  /** Reads whether an open PR still carries the branch. */
+  prOpen: (branch: string) => Promise<boolean>;
+  /** Decides and, where releasable, releases the branch's claim. */
+  release: (branch: string) => Promise<{ released: boolean; detail: string }>;
+}
+
+/**
+ * Releases the claim on every desk this tick decided `release-claim` for.
+ *
+ * Mirrors {@link startFreshAgents}'s shape: a pure filter and a pure decision
+ * from `registryd.js`, an apply step that reaches a port, and one warn/write
+ * line per outcome. {@link NothingDoneReleasePorts.release} is expected to be
+ * backed by {@link gatherReadingsAndRelease} — the same
+ * readings-gather-then-decide-then-release sequence the board's own release
+ * route uses — so this tick and a person releasing a claim by hand reach one
+ * decision about releasability rather than two.
+ *
+ * @param report - this tick's report; `report.trees` names every registered
+ *   desk.
+ * @param deps.deskFile - reads one file from a desk, or null where absent.
+ * @param deps.ports - the reads and the release write.
+ * @param write - the normal log sink.
+ * @param warn - the error log sink.
+ * @returns what was applied, in decision order.
+ */
+export const startNothingDoneReleases = async (
+  report: TickReport,
+  deps: {
+    deskFile: (worktree: string, name: string) => string | null;
+    ports: NothingDoneReleasePorts;
+  },
+  write: (s: string) => void,
+  warn: (s: string) => void,
+): Promise<readonly NothingDoneApplied[]> => {
+  try {
+    const candidates = nothingDoneCandidateTrees(report.trees ?? []);
+    if (candidates.length === 0) return [];
+    const readings = readNothingDoneCandidates(candidates, deps.deskFile);
+    const decisions = await nothingDoneDecisions(
+      readings,
+      async (branch) => {
+        const candidate = readings.find((r) => r.branch === branch);
+        return candidate ? deps.ports.hasCommits(candidate.worktree) : 'unanswerable';
+      },
+      deps.ports.prOpen,
+    );
+    const applied = await applyNothingDoneDecisions(decisions, deps.ports.release);
+    for (const { line, error } of nothingDoneLines(applied)) (error ? warn : write)(`${line}\n`);
+    return applied;
+  } catch (err) {
+    warn(`plot-registryd: the nothing-done step failed: ${err instanceof Error ? err.message : String(err)}\n`);
+    return [];
+  }
+};
+
 /**
  * Runs the temp sweep when an hour has passed since the last one.
  *
@@ -1670,6 +1737,32 @@ export const run = async (
           record: freshAgentRecord,
           ports: freshAgentPorts,
           budget: Number.isInteger(budget) && budget >= 0 ? budget : 2,
+        },
+        write,
+        warn,
+      );
+      // GATED THE SAME WAY: A TICK THAT MAY NOT START AN AGENT MAY NOT RELEASE
+      // A CLAIM EITHER, and an incomplete tick's `report.trees` cannot be
+      // trusted to name every desk.
+      const nothingDoneContext = { repoRoot, scriptDir: scriptsDir };
+      await startNothingDoneReleases(
+        report,
+        {
+          deskFile: (worktree, name) => fileOrNull(join(worktree, name)),
+          ports: {
+            hasCommits: async (worktree) => {
+              const commits = await treesGit(nothingDoneContext).hasCommits(worktree);
+              return commits.ok ? commits.value : 'unanswerable';
+            },
+            prOpen: async (branch) => {
+              const state = await hostShell(nothingDoneContext).prState(branch);
+              return state.ok && state.value !== null && state.value.state === 'OPEN';
+            },
+            release: async (branch) => {
+              const { result } = await gatherReadingsAndRelease(branch, nothingDoneContext);
+              return { released: result.released, detail: result.detail };
+            },
+          },
         },
         write,
         warn,

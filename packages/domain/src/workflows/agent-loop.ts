@@ -3,7 +3,7 @@ import type { ChecksFromRuns, RemoteTipReading } from '../rules/checks-verdict.j
 import type { LoopRegistration } from '../rules/desk-manifest.js';
 import type { PromptExit } from '../rules/prompt-exit.js';
 import type { ResetRefusal } from '../rules/reapable.js';
-import type { MonitorVerdict } from '../rules/sample.js';
+import type { CommitReading, MonitorVerdict } from '../rules/sample.js';
 import { backgroundDropCorrection } from '../rules/background-drop.js';
 import { runLimitRefusal } from '../rules/run-limit.js';
 import { sliceSpendRefusal } from '../rules/slice-spend-refusal.js';
@@ -35,6 +35,20 @@ export interface AgentLoopReadings {
    * and a free loop holds none.
    */
   readonly assignedBranch: string;
+  /**
+   * The branch this desk's checkout is actually on before {@link assignedBranch}
+   * resets it, read only at take-up (ROW 4). `''` where the checkout could
+   * not be read — the caller's `end()` falls back to {@link assignedBranch}
+   * rather than name an ending with no branch at all.
+   *
+   * **A TAKE-UP'S `holding-work` NAMES THE DESK, NOT THE ASSIGNMENT.** The
+   * unlanded work ROW 4 finds was left by whatever this desk ran before — the
+   * new assignment never started — so an ending naming {@link assignedBranch}
+   * blamed a slice that was never taken up for a correction that belongs to
+   * the one before it. `#1281` measured `supervise` charging a correction
+   * against a slice that had not yet run a single prompt.
+   */
+  readonly deskBranch: string;
   /** Seconds this free wait, or this `Worker bound` window, has run so far. */
   readonly waitedSeconds: number;
   /** `Worker bound` in seconds; `0` disables the floor. */
@@ -161,6 +175,16 @@ export interface AgentLoopReadings {
    * non-null this reading is not consulted.
    */
   readonly prOpen: boolean;
+  /**
+   * Whether the branch holds a commit beyond its claim, from `Trees.hasCommits`.
+   * Read only where {@link pushed} is `true` and {@link prOpen} is `false` —
+   * the one case ROW 12a cannot otherwise tell apart: a turn that pushed only
+   * the claim and did nothing else, from a turn that pushed real work and
+   * simply never opened a PR. `'unanswerable'` takes the SAME arm as `'yes'`
+   * — releasing a claim on a failed git read is the destructive direction,
+   * `rules/ending-action.ts`'s own rule for an unreadable commit count.
+   */
+  readonly commitBeyondClaim: CommitReading;
 
   /**
    * What the build connector and the tip reading answer for the pushed
@@ -448,11 +472,15 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
     }
     // A desk holding unlanded work ends the loop before anything is written
     // over it, the same `holding-work` ending row 11 gives after a prompt.
+    // THE ENDING NAMES THE DESK'S OWN BRANCH, NOT THE NEW ASSIGNMENT: the
+    // unlanded work was left by whatever this desk ran before, and `branch`
+    // never started (`#1281`). An unreadable desk branch falls back to the
+    // assignment rather than naming an ending with no branch at all.
     const unlanded = readings.resetRefusals.filter((r) => r !== 'blocked-marker');
     if (unlanded.length > 0) {
       return end(
         worktree,
-        branch,
+        readings.deskBranch !== '' ? readings.deskBranch : branch,
         'holding-work',
         'agent',
         `the desk holds unlanded work (${unlanded.join(', ')}); \`${branch}\` is not taken up`,
@@ -632,6 +660,23 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
   // `checksVerdict` answers `none` for the same readings, and the shell seals
   // the slice on it. Once the wait has started, rows 13-18 decide alone: a
   // moved or unreadable tip and a closed PR are readings inside the wait.
+  //
+  // ONLY THE CLAIM-ONLY ARM CHANGES. `pushed && !prOpen` with no commit beyond
+  // the claim means the turn did nothing but push its own claim commit — the
+  // old table sealed this as if the slice had finished, leaving the claimed
+  // ref stuck (`#1274`). A branch with real commits and no PR still seals
+  // exactly as before: releasing that claim would delete a ref other work
+  // depends on.
+  if (
+    exit !== null &&
+    exit.answer === 'ran' &&
+    readings.checks === null &&
+    readings.pushed &&
+    !readings.prOpen &&
+    readings.commitBeyondClaim === 'no'
+  ) {
+    return end(worktree, branch, 'nothing-done', 'agent', 'the claim is pushed, nothing else is, no checks wait', 0);
+  }
   if (
     exit !== null &&
     exit.answer === 'ran' &&

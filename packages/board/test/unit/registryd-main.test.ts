@@ -11,6 +11,7 @@ import {
   argsFrom,
   sweepTempIfDue,
   startFreshAgents,
+  startNothingDoneReleases,
   mergeMemoOver,
   escalationWorldForRepo,
   notifierFor,
@@ -1887,6 +1888,111 @@ describe('startFreshAgents', () => {
     const applied = await startFreshAgents(
       { incomplete: '' } as unknown as Parameters<typeof startFreshAgents>[0],
       deps(calls),
+      () => {},
+      () => {},
+    );
+    expect(applied).toEqual([]);
+  });
+});
+
+describe('startNothingDoneReleases', () => {
+  const desk = {
+    path: '/estate/.worktrees/feature-x',
+    branch: 'feature/x',
+    isMain: false,
+    prunable: false,
+    registered: false,
+    planNamed: true,
+    plan: '2026-10-05-a-plan',
+    dirtyCount: 0,
+  };
+  const report = (trees: readonly (typeof desk)[]) =>
+    ({ incomplete: '', trees }) as unknown as Parameters<typeof startNothingDoneReleases>[0];
+  const nothingDoneDeskFile = (_worktree: string, name: string): string | null =>
+    name === '.plot-worker.ending.json'
+      ? JSON.stringify({ reason: 'nothing-done', actor: 'agent', branch: 'feature/x', detail: '' })
+      : null;
+
+  const deps = (released: string[]) => ({
+    deskFile: nothingDoneDeskFile,
+    ports: {
+      hasCommits: async () => 'no' as const,
+      prOpen: async () => false,
+      release: async (branch: string) => {
+        released.push(branch);
+        return { released: true, detail: 'released' };
+      },
+    },
+  });
+
+  it('starts nothing and reads no desk where the tick named no candidate', async () => {
+    const released: string[] = [];
+    const applied = await startNothingDoneReleases(
+      report([{ ...desk, registered: true }]),
+      deps(released),
+      () => {},
+      () => {},
+    );
+    expect(applied).toEqual([]);
+    expect(released).toEqual([]);
+  });
+
+  it('releases the claim for a clean nothing-done desk and reports it on the log', async () => {
+    const released: string[] = [];
+    const out: string[] = [];
+    const applied = await startNothingDoneReleases(report([desk]), deps(released), (s) => out.push(s), () => {});
+    expect(released).toEqual(['feature/x']);
+    expect(applied.map((a) => a.outcome)).toEqual(['released']);
+    expect(out.join('')).toContain('nothing-done feature/x: released');
+  });
+
+  it('leaves a desk with a commit beyond its claim alone', async () => {
+    const released: string[] = [];
+    const left = deps(released);
+    left.ports.hasCommits = async () => 'yes' as const;
+    const applied = await startNothingDoneReleases(report([desk]), left, () => {}, () => {});
+    expect(applied).toEqual([]);
+    expect(released).toEqual([]);
+  });
+
+  it('leaves a desk with an open PR alone', async () => {
+    const released: string[] = [];
+    const left = deps(released);
+    left.ports.prOpen = async () => true;
+    const applied = await startNothingDoneReleases(report([desk]), left, () => {}, () => {});
+    expect(applied).toEqual([]);
+    expect(released).toEqual([]);
+  });
+
+  it('reports a refusal on the error stream without retrying it', async () => {
+    const errors: string[] = [];
+    let calls = 0;
+    const refusing = deps([]);
+    refusing.ports.release = async () => {
+      calls += 1;
+      return { released: false, detail: 'a live worker still holds this desk' };
+    };
+    await startNothingDoneReleases(report([desk]), refusing, () => {}, (s) => errors.push(s));
+    expect(errors.join('')).toContain('a live worker still holds this desk');
+    expect(calls).toBe(1);
+  });
+
+  it('reports a step that throws and does not rethrow', async () => {
+    const errors: string[] = [];
+    const broken = deps([]);
+    broken.ports.hasCommits = async () => {
+      throw new Error('git exploded');
+    };
+    const applied = await startNothingDoneReleases(report([desk]), broken, () => {}, (s) => errors.push(s));
+    expect(applied).toEqual([]);
+    expect(errors.join('')).toContain('the nothing-done step failed: git exploded');
+  });
+
+  it('treats a tick that carries no trees as having no candidates', async () => {
+    const released: string[] = [];
+    const applied = await startNothingDoneReleases(
+      { incomplete: '' } as unknown as Parameters<typeof startNothingDoneReleases>[0],
+      deps(released),
       () => {},
       () => {},
     );

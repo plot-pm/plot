@@ -96,12 +96,21 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   `Slice max spend`. Unlike `turn-limit`, this goes to a person directly:
  *   a fresh session would read the same slice spend or start a new count
  *   against the same work, and a person decides whether to spend more.
+ * - `nothing-done` — a turn exited `ran` with the claim commit still its only
+ *   commit, no PR open and no marker. `holding-work` already covers unlanded
+ *   work and `blocked` already covers a question; this is the third thing
+ *   ROW 12a could find and the one the old table sealed as if the slice had
+ *   finished — `#1274` measured a claimed ref left stuck behind a seal that
+ *   freed the loop but never released it. The loop ends here and writes no
+ *   seal; the supervisor's tick is the one that may release the claim, since
+ *   `releaseClaim` refuses a live peer the loop cannot see from inside itself.
  *
  * `unstarted`, `limited`, `unregistered`, `holding-work`, `blocked`,
- * `checks-unanswered`, `corrections-spent`, `turn-limit`, `run-limit` AND
- * `spend-limit` ARE THE REASONS NO WATCHER PRODUCED. The other four are the
- * floor firing or the monitor publishing; these ten are the agent's own loop
- * reporting what it found, which is why their actor is `agent`.
+ * `checks-unanswered`, `corrections-spent`, `turn-limit`, `run-limit`,
+ * `spend-limit` AND `nothing-done` ARE THE REASONS NO WATCHER PRODUCED. The
+ * other four are the floor firing or the monitor publishing; these eleven are
+ * the agent's own loop reporting what it found, which is why their actor is
+ * `agent`.
  *
  * **THEY ARE KEPT APART BECAUSE THE REPAIR DIFFERS.** Both are a non-zero
  * prompt exit, and collapsing them is exactly what #1141 reported: `unstarted`
@@ -132,6 +141,7 @@ export const EndingReasonSchema = z.enum([
   'turn-limit',
   'run-limit',
   'spend-limit',
+  'nothing-done',
 ]);
 export type EndingReason = z.infer<typeof EndingReasonSchema>;
 
