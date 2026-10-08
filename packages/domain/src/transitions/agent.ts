@@ -419,6 +419,13 @@ export interface EndingAttributionInput {
  * count is what ended it, the same shape `unstarted` and `limited` already
  * establish for a non-zero prompt exit and a harness's own usage limit.
  *
+ * **`nothing-done` IS THE ELEVENTH.** A turn exited `ran` with the claim
+ * commit still its only commit, no PR open and no marker — the loop's own
+ * ROW 12a reading, not a clock or a monitor. `#1274` is the ending this value
+ * exists to give a name: the old table sealed this case as if the slice had
+ * finished, leaving the claimed ref stuck behind a seal that freed the loop
+ * but never released it.
+ *
  * The check survives every enum change because it reads STRINGS: an ending file
  * on a desk is bytes until something validates them, and a worker of an older
  * vintage may have written a value no type admits.
@@ -444,12 +451,13 @@ export const endingIsAttributable = (
     input.reason !== 'corrections-spent' &&
     input.reason !== 'turn-limit' &&
     input.reason !== 'run-limit' &&
-    input.reason !== 'spend-limit'
+    input.reason !== 'spend-limit' &&
+    input.reason !== 'nothing-done'
   ) {
     return refuse(
       session,
       'ending-self-attributed',
-      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted', 'limited', 'unregistered', 'holding-work', 'blocked', 'checks-unanswered', 'corrections-spent', 'turn-limit', 'run-limit' or 'spend-limit' ending names the agent, because no watcher produces those.`,
+      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted', 'limited', 'unregistered', 'holding-work', 'blocked', 'checks-unanswered', 'corrections-spent', 'turn-limit', 'run-limit', 'spend-limit' or 'nothing-done' ending names the agent, because no watcher produces those.`,
     );
   }
 

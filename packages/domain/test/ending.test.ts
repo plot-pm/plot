@@ -41,7 +41,7 @@ describe('the ending sits beside the exit code', () => {
 });
 
 describe('a bound expiry and a context exhaustion are different endings', () => {
-  it('reads the fourteen reasons apart', () => {
+  it('reads the fifteen reasons apart', () => {
     expect(EndingReasonSchema.options).toEqual([
       'bound',
       'quiet',
@@ -57,6 +57,7 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
       'turn-limit',
       'run-limit',
       'spend-limit',
+      'nothing-done',
     ]);
   });
 
@@ -294,18 +295,19 @@ describe('what a worker knew at the time', () => {
         actor: 'monitor',
         branch: 'feature/x',
         detail: 'the WorkerMonitor reported idle',
+        refusedAssignment: '',
       },
     });
   });
 
-  it('defaults branch and detail to empty rather than refusing', () => {
+  it('defaults branch, detail and the refused assignment to empty rather than refusing', () => {
     // A worker that ended before it claimed anything holds no branch, and that
     // is an absence rather than a malformed record.
     const reading = readEnding(JSON.stringify({ reason: 'bound', actor: 'bound' }));
 
     expect(reading).toEqual({
       read: 'ended',
-      ending: { reason: 'bound', actor: 'bound', branch: '', detail: '' },
+      ending: { reason: 'bound', actor: 'bound', branch: '', detail: '', refusedAssignment: '' },
     });
   });
 
@@ -329,6 +331,12 @@ describe('what a worker knew at the time', () => {
       actor: 'monitor',
       branch: '',
       detail: '',
+      refusedAssignment: '',
     });
+  });
+
+  it('reads the assignment a take-up refused, beside the desk\'s own branch', () => {
+    const reading = readEnding(ended({ reason: 'holding-work', actor: 'agent', branch: 'infra/prior', refusedAssignment: 'infra/x' }));
+    expect(reading.read === 'ended' && reading.ending).toMatchObject({ branch: 'infra/prior', refusedAssignment: 'infra/x' });
   });
 });

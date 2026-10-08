@@ -228,6 +228,19 @@ describe('readPass — ROW 4, take-up', () => {
     expect(readings.resetRefusals).toEqual([]);
     expect(readings.base).toBe('origin/main');
   });
+
+  it('reads the desk branch the tree names, where the read succeeds', async () => {
+    const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: '/tmp/desk' });
+    const clock = { since: null as number | null };
+    const readings = await readPass(
+      ports({ trees: treesFixture({ branches: { '/tmp/desk': 'infra/x' } }) }),
+      file,
+      RUNNING_NONE,
+      CONFIG,
+      clock,
+    );
+    expect(readings.deskBranch).toBe('infra/x');
+  });
 });
 
 describe('readPass — ROWS 5-6, a prompt is running', () => {

@@ -692,6 +692,7 @@ export const readPass = async (
   const base: AgentLoopReadings & { buildRun: ShaRun | null } = {
     buildRun: null,
     assignedBranch: manifest.branch,
+    deskBranch: '',
     waitedSeconds: 0,
     boundSeconds: config.waitBudgetSeconds,
     registration: 'registered',
@@ -717,6 +718,7 @@ export const readPass = async (
     resetRefusals: [],
     pushed: false,
     prOpen: false,
+    commitBeyondClaim: 'unanswerable',
     checks: null,
     checksPassed: null,
     tip: 'unknown',
@@ -753,10 +755,20 @@ export const readPass = async (
     // ROWS 5-6 — a prompt is running this pass; its idle reading is already in
     // `prompt.running`, so nothing further is read.
     if (prompt.running !== null) return base;
-    // ROW 4 — an assignment was just read, no prompt has run on it yet.
-    const refusals = await readResetRefusals(ports, worktree);
+    // ROW 4 — an assignment was just read, no prompt has run on it yet. The
+    // desk's own branch is read before the reset touches it, so an unlanded-
+    // work ending can name what the desk actually held (`#1281`).
+    const [refusals, deskBranchAnswer] = await Promise.all([
+      readResetRefusals(ports, worktree),
+      ports.trees.currentBranch(worktree),
+    ]);
     const markerText = refusals.includes('blocked-marker') ? await readMarkerText(worktree) : '';
-    return { ...base, resetRefusals: refusals, markerText };
+    return {
+      ...base,
+      resetRefusals: refusals,
+      markerText,
+      deskBranch: deskBranchAnswer.ok ? deskBranchAnswer.value : '',
+    };
   }
 
   // ROWS 7-9 — the prompt exited `unstarted`, `wait` or `end-limited`. None of
@@ -788,7 +800,17 @@ export const readPass = async (
     // ON ENTRY, A HOST THAT CANNOT BE ASKED READS AS NO PR, as the shell's
     // `pr_is_open` reads it: no CI answer can be waited for without one.
     if (!pushed || !prOpen) {
-      return { ...base, pushed, prOpen, pr: prNumber };
+      // ASKED ONLY WHERE THE CLAIM WAS PUSHED AND NO PR IS OPEN — the one case
+      // `agentLoop` cannot otherwise tell a claim-only turn from a turn that
+      // pushed real work and never opened a PR.
+      const commitBeyondClaim = pushed ? await ports.trees.commitBeyondClaim(worktree) : null;
+      return {
+        ...base,
+        pushed,
+        prOpen,
+        pr: prNumber,
+        commitBeyondClaim: commitBeyondClaim !== null && commitBeyondClaim.ok ? commitBeyondClaim.value : 'unanswerable',
+      };
     }
     clock.since = Date.now();
     clock.pr = prNumber;

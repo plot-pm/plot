@@ -11,6 +11,8 @@ export interface EndingRecord {
   branch: string;
   /** One sentence naming the reading. */
   detail: string;
+  /** The assignment a take-up refused; absent for every other ending. */
+  refusedAssignment?: string;
 }
 
 /** One finding `publishFinding` appends, in the fields `FindingSchema` requires beside the ones the adapter fills. */

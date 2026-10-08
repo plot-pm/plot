@@ -141,6 +141,23 @@ export interface Trees {
   hasCommits(path: string): Promise<PortResult<CommitReading>>;
 
   /**
+   * Whether the branch holds a commit that is not an empty claim marker.
+   *
+   * Reads every commit from the local `origin/<default>` ref to HEAD and
+   * counts the ones {@link isEmptyClaim} does not name a claim, so an empty
+   * claim committed on top of earlier work still answers `yes`. Where that
+   * range is empty — a branch merged directly, with no PR — HEAD alone
+   * answers, so merged work never reads as nothing done. No network call is
+   * made.
+   *
+   * @param path - the worktree's absolute path.
+   * @returns `yes` where at least one commit is not a claim marker; `no`
+   *   where every commit is; `unanswerable` where the directory is missing,
+   *   no `origin/<default>` ref exists, or git cannot list the commits.
+   */
+  commitBeyondClaim(path: string): Promise<PortResult<CommitReading>>;
+
+  /**
    * How many commits a checkout's HEAD holds that its configured upstream does
    * not: `git rev-list --count @{upstream}..HEAD`, the shell's
    * `desk_reset_refusal` form.

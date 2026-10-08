@@ -560,6 +560,11 @@ export interface LoopEndWrite {
   readonly detail: string;
   /** The process exit code the table gives this reason. */
   readonly exitCode: number;
+  /**
+   * The assignment a take-up refused because the desk held unlanded work.
+   * Absent for every other ending.
+   */
+  readonly refusedAssignment?: string;
 }
 
 /**

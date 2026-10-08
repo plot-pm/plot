@@ -21,6 +21,7 @@ const SESSION = 'sess-the-loop-has-a-workflow';
 /** A full readings object, idle and free, that every test starts from and overrides. */
 const freeLoop: AgentLoopReadings = {
   assignedBranch: '',
+  deskBranch: '',
   waitedSeconds: 0,
   boundSeconds: 28800,
   registration: 'unset',
@@ -45,6 +46,7 @@ const freeLoop: AgentLoopReadings = {
   resetRefusals: [],
   pushed: false,
   prOpen: false,
+  commitBeyondClaim: 'unanswerable',
   checks: null,
   checksPassed: null,
   tip: 'pushed',
@@ -214,9 +216,11 @@ describe('agentLoop — row 4: a desk holding only an unanswered PLOT-BLOCKED qu
 });
 
 describe('agentLoop — row 4: a desk holding unlanded work at take-up', () => {
+  const PRIOR_BRANCH = 'infra/the-desk-held-this-before';
+
   for (const held of [['uncommitted-changes'], ['unpushed-commits'], ['blocked-marker', 'unpushed-commits']] as const) {
     it(`ends holding-work over ${held.join(' + ')}: no reset, no claim, no prompt, no declaration`, () => {
-      const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, resetRefusals: held });
+      const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, deskBranch: PRIOR_BRANCH, resetRefusals: held });
       expect(kindsOf(result.writes)).toEqual(['loop-end']);
       const end = endWrite(result.writes);
       expect(end?.reason).toBe('holding-work');
@@ -232,13 +236,48 @@ describe('agentLoop — row 4: a desk holding unlanded work at take-up', () => {
     const result = agentLoop({
       ...freeLoop,
       assignedBranch: BRANCH,
+      deskBranch: PRIOR_BRANCH,
       resetRefusals: ['uncommitted-changes', 'unpushed-commits'],
     });
     expect(endWrite(result.writes)?.detail).toContain('uncommitted-changes, unpushed-commits');
   });
 
+  it('names the desk it was actually holding, not the new assignment (#1281)', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      deskBranch: PRIOR_BRANCH,
+      resetRefusals: ['uncommitted-changes'],
+    });
+    const end = endWrite(result.writes);
+    expect(end?.branch).toBe(PRIOR_BRANCH);
+    expect(end?.detail).toContain(BRANCH);
+    expect(end?.refusedAssignment).toBe(BRANCH);
+  });
+
+  it('records no refused assignment on an ending that refused none', () => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, resetRefusals: ['blocked-marker'] });
+    expect(endWrite(result.writes)?.reason).toBe('blocked');
+    expect(endWrite(result.writes)?.refusedAssignment).toBeUndefined();
+  });
+
+  it('falls back to the new assignment when the desk branch could not be read', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      deskBranch: '',
+      resetRefusals: ['uncommitted-changes'],
+    });
+    expect(endWrite(result.writes)?.branch).toBe(BRANCH);
+  });
+
   it('supervise answers correct — with no declaration, the agent is handed land-your-work', () => {
-    const result = superviseAfter({ ...freeLoop, assignedBranch: BRANCH, resetRefusals: ['uncommitted-changes'] });
+    const result = superviseAfter({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      deskBranch: PRIOR_BRANCH,
+      resetRefusals: ['uncommitted-changes'],
+    });
     expect(result.detail.correcting).toEqual([BRANCH]);
   });
 });
@@ -628,10 +667,34 @@ describe('agentLoop — row 12a: prompt exit ran, nothing pushed or no PR open',
     expect(result.detail.note).toBe('nothing pushed, no checks wait');
   });
 
-  it('seals and frees the slice with no checks wait when no PR is open', () => {
-    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, exit: { answer: 'ran' }, pushed: true, prOpen: false });
+  it('seals and frees the slice with no checks wait when no PR is open but real commits exist', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: false,
+      commitBeyondClaim: 'yes',
+    });
     expect(kindsOf(result.writes)).toEqual(['declaration', 'slice-spend', 'assignment-clear']);
     expect(result.detail.note).toBe('no PR open, no checks wait');
+  });
+
+  it('ends nothing-done with no seal when only the claim was pushed and no PR is open (#1274)', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: false,
+      commitBeyondClaim: 'no',
+    });
+    expect(kindsOf(result.writes)).toEqual(['loop-end']);
+    const end = endWrite(result.writes);
+    expect(end?.reason).toBe('nothing-done');
+    expect(end?.actor).toBe('agent');
+    expect(end?.branch).toBe(BRANCH);
+    expect(declarationWrite(result.writes)).toBeUndefined();
   });
 
   it('still ends holding-work first when the desk holds unlanded work', () => {

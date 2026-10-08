@@ -201,6 +201,7 @@ const landOne = async (
         actor: write.actor,
         branch: write.branch,
         detail: write.detail,
+        ...(write.refusedAssignment !== undefined ? { refusedAssignment: write.refusedAssignment } : {}),
       });
 
     case 'worker-finding':

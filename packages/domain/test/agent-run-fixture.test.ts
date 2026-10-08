@@ -27,6 +27,7 @@ const request = (over: Partial<AgentRunRequest> = {}): AgentRunRequest => ({
 
 const freeLoop: AgentLoopReadings = {
   assignedBranch: BRANCH,
+  deskBranch: '',
   waitedSeconds: 0,
   boundSeconds: 28800,
   registration: 'unset',
@@ -51,6 +52,7 @@ const freeLoop: AgentLoopReadings = {
   resetRefusals: [],
   pushed: false,
   prOpen: false,
+  commitBeyondClaim: 'unanswerable',
   checks: null,
   checksPassed: null,
   tip: 'pushed',

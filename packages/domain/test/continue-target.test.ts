@@ -15,7 +15,7 @@ const UNREADABLE: EndingReading = { read: 'unreadable', why: 'not JSON' };
 
 const blocked = (branch: string): EndingReading => ({
   read: 'ended',
-  ending: { reason: 'blocked', actor: 'agent', branch, detail: '' },
+  ending: { reason: 'blocked', actor: 'agent', branch, detail: '', refusedAssignment: '' },
 });
 
 const reading = (overrides: Partial<ContinueTargetReading>): ContinueTargetReading => ({
@@ -121,7 +121,7 @@ describe('continueTarget', () => {
   it('refuses no-manifest when the ending reads a reason other than blocked', () => {
     const r = reading({
       manifest: UNNAMED,
-      ending: { read: 'ended', ending: { reason: 'quiet', actor: 'monitor', branch: 'feature/x', detail: '' } },
+      ending: { read: 'ended', ending: { reason: 'quiet', actor: 'monitor', branch: 'feature/x', detail: '', refusedAssignment: '' } },
     });
     expect(continueTarget(r)).toEqual({ kind: 'refused', reason: 'no-manifest' });
   });

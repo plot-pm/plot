@@ -96,12 +96,21 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   `Slice max spend`. Unlike `turn-limit`, this goes to a person directly:
  *   a fresh session would read the same slice spend or start a new count
  *   against the same work, and a person decides whether to spend more.
+ * - `nothing-done` — a turn exited `ran` with the claim commit still its only
+ *   commit, no PR open and no marker. `holding-work` already covers unlanded
+ *   work and `blocked` already covers a question; this is the third thing
+ *   ROW 12a could find and the one the old table sealed as if the slice had
+ *   finished — `#1274` measured a claimed ref left stuck behind a seal that
+ *   freed the loop but never released it. The loop ends here and writes no
+ *   seal; the supervisor's tick is the one that may release the claim, since
+ *   `releaseClaim` refuses a live peer the loop cannot see from inside itself.
  *
  * `unstarted`, `limited`, `unregistered`, `holding-work`, `blocked`,
- * `checks-unanswered`, `corrections-spent`, `turn-limit`, `run-limit` AND
- * `spend-limit` ARE THE REASONS NO WATCHER PRODUCED. The other four are the
- * floor firing or the monitor publishing; these ten are the agent's own loop
- * reporting what it found, which is why their actor is `agent`.
+ * `checks-unanswered`, `corrections-spent`, `turn-limit`, `run-limit`,
+ * `spend-limit` AND `nothing-done` ARE THE REASONS NO WATCHER PRODUCED. The
+ * other four are the floor firing or the monitor publishing; these eleven are
+ * the agent's own loop reporting what it found, which is why their actor is
+ * `agent`.
  *
  * **THEY ARE KEPT APART BECAUSE THE REPAIR DIFFERS.** Both are a non-zero
  * prompt exit, and collapsing them is exactly what #1141 reported: `unstarted`
@@ -132,6 +141,7 @@ export const EndingReasonSchema = z.enum([
   'turn-limit',
   'run-limit',
   'spend-limit',
+  'nothing-done',
 ]);
 export type EndingReason = z.infer<typeof EndingReasonSchema>;
 
@@ -182,8 +192,8 @@ export type EndingActor = z.infer<typeof EndingActorSchema>;
  * The ending record's wire form.
  *
  * `reason` and `actor` are required — a record naming neither has said nothing.
- * `branch` and `detail` are what the worker knew at the time and default to
- * empty: a worker ended before it claimed anything holds no branch, and that is
+ * `branch`, `detail` and `refusedAssignment` are what the worker knew at the
+ * time and default to empty: a worker ended before it claimed anything holds no branch, and that is
  * an absence rather than a malformed record.
  *
  * Unknown keys are dropped rather than refused, the same choice
@@ -195,6 +205,7 @@ export const EndingSchema = z.object({
   actor: EndingActorSchema,
   branch: z.string().default(''),
   detail: z.string().default(''),
+  refusedAssignment: z.string().default(''),
 });
 
 /**
@@ -214,6 +225,12 @@ export interface Ending {
   branch: string;
   /** One sentence naming the reading; `''` when none was written. */
   detail: string;
+  /**
+   * The assignment a take-up refused because the desk held unlanded work;
+   * `''` for every other ending. `branch` names the desk's own branch, so this
+   * is the only place the refused assignment is recorded as a field.
+   */
+  refusedAssignment: string;
 }
 
 /**

@@ -115,6 +115,76 @@ describe('treesGit().hasCommits', () => {
   });
 });
 
+describe('treesGit().commitBeyondClaim', () => {
+  /** A fresh clone of `bare`, on a branch from `origin/main`, so each case starts from no commits of its own. */
+  const freshDesk = (name: string): string => {
+    const at = path.join(root, name);
+    git(root, ['clone', '--quiet', bare, at]);
+    git(at, ['config', 'user.email', 'test@example.com']);
+    git(at, ['config', 'user.name', 'Test']);
+    git(at, ['checkout', '--quiet', '-b', 'infra/some-branch']);
+    return at;
+  };
+  const claim = (at: string): void => {
+    git(at, ['commit', '--quiet', '--allow-empty', '-m', 'plot: claim infra/some-branch']);
+  };
+  const work = (at: string, file: string): void => {
+    fs.writeFileSync(path.join(at, file), 'w\n');
+    git(at, ['add', '-A']);
+    git(at, ['commit', '--quiet', '-m', `work on ${file}`]);
+  };
+
+  it('is unanswerable for an empty path and for a path that is not a directory', async () => {
+    expect(await trees().commitBeyondClaim('')).toEqual({ ok: true, value: 'unanswerable' });
+    expect(await trees().commitBeyondClaim(path.join(root, 'nothing-here'))).toEqual({
+      ok: true,
+      value: 'unanswerable',
+    });
+  });
+
+  it('answers no where the branch holds only empty claim commits', async () => {
+    const at = freshDesk('claim-only');
+    claim(at);
+    claim(at);
+    expect(await trees().commitBeyondClaim(at)).toEqual({ ok: true, value: 'no' });
+  });
+
+  it('answers yes once HEAD is a commit that touched a file', async () => {
+    const at = freshDesk('work-at-head');
+    claim(at);
+    work(at, 'beyond.txt');
+    expect(await trees().commitBeyondClaim(at)).toEqual({ ok: true, value: 'yes' });
+  });
+
+  it('answers yes where a re-taken branch put an empty claim on top of earlier work', async () => {
+    const at = freshDesk('retaken');
+    claim(at);
+    work(at, 'earlier.txt');
+    claim(at);
+    expect(await trees().commitBeyondClaim(at)).toEqual({ ok: true, value: 'yes' });
+  });
+
+  it('answers from HEAD alone where the branch holds nothing beyond origin/<default>', async () => {
+    const at = freshDesk('merged');
+    expect(await trees().commitBeyondClaim(at)).toEqual({ ok: true, value: 'yes' });
+  });
+
+  it('is unanswerable where no origin/<default> ref exists', async () => {
+    const lone = path.join(root, 'lone-claim');
+    git(root, ['init', '--quiet', '--initial-branch=main', lone]);
+    git(lone, ['config', 'user.email', 'test@example.com']);
+    git(lone, ['config', 'user.name', 'Test']);
+    git(lone, ['commit', '--quiet', '--allow-empty', '-m', 'plot: claim some-branch']);
+    expect(await trees().commitBeyondClaim(lone)).toEqual({ ok: true, value: 'unanswerable' });
+  });
+
+  it('is unanswerable where HEAD cannot be listed', async () => {
+    const unborn = freshDesk('unborn');
+    git(unborn, ['checkout', '--quiet', '--orphan', 'nothing-yet']);
+    expect(await trees().commitBeyondClaim(unborn)).toEqual({ ok: true, value: 'unanswerable' });
+  });
+});
+
 describe('treesFixture quiet and commits', () => {
   const fixture = treesFixture({ quiet: { '/a': 12, '/b': null }, commits: { '/a': 'yes' } });
 

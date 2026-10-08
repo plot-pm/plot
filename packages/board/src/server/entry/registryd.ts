@@ -16,6 +16,9 @@ import {
 } from '@plot-pm/domain/rules/fresh-agent-turn-limit';
 import { readEnding, ENDING_FILENAME, type EndingReason } from '@plot-pm/domain/entities/ending';
 import { readDeclaration, DECLARATION_FILENAME } from '@plot-pm/domain/entities/declaration';
+import { endingAction, endingReleaseBranch, type PrOpenReading } from '@plot-pm/domain/rules/ending-action';
+import type { CommitReading } from '@plot-pm/domain/rules/sample';
+import type { PortResult, Pr } from '@plot-pm/domain';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { Desk } from '@plot-pm/domain/ports/desk';
 
@@ -910,4 +913,207 @@ export const freshAgentLines = (
   applied.map((entry) => ({
     line: `plot-registryd fresh-agent ${entry.branch}: ${entry.outcome} — ${entry.detail}`,
     error: entry.outcome !== 'started' && entry.outcome !== 'escalated',
+  }));
+
+/**
+ * A desk whose worker ended with no manifest left — the population
+ * {@link endingAction} answers about. The same join {@link freshAgentCandidateTrees}
+ * already takes, because a `nothing-done` ending and a `corrections-spent` one
+ * are both found on a desk no manifest names and some plan still claims.
+ *
+ * **NOT NARROWED TO `nothing-done` HERE.** The filter stays the population —
+ * unregistered, plan-named, not the main checkout — and {@link endingAction}
+ * is what reads the ending and answers `leave` for every other reason. Narrowing
+ * here would duplicate that answer in two places.
+ *
+ * @param trees - every registered tree this tick read.
+ * @returns the candidates, in the order given.
+ */
+export const nothingDoneCandidateTrees = (
+  trees: readonly RegisteredTreeReadings[],
+): readonly RegisteredTreeReadings[] =>
+  trees.filter((tree) => !tree.isMain && !tree.registered && tree.planNamed);
+
+/** What one tick read of one `nothing-done` candidate desk, before deciding. */
+export interface NothingDoneCandidateReadings {
+  /** The branch the desk holds. */
+  branch: string;
+  /** The desk, absolute. */
+  worktree: string;
+  /** The desk's own ending reason, or `null` where none was written or it could not be read. */
+  ending: EndingReason | null;
+  /** The assignment a take-up refused, as the ending recorded it; `''` where it recorded none. */
+  refusedAssignment: string;
+}
+
+/**
+ * Reads what one tick needs about every `nothing-done` candidate desk.
+ *
+ * Takes one read of the ending from each desk — the same shape
+ * {@link readFreshAgentCandidates} takes, narrowed to the one field
+ * {@link endingAction} reads that {@link readFreshAgentCandidates} does not
+ * already carry under another name.
+ *
+ * @param candidates - the desks {@link nothingDoneCandidateTrees} named.
+ * @param deskFile - reads one file from a desk, or null where it is not there.
+ * @returns one reading per candidate, in the order given.
+ */
+export const readNothingDoneCandidates = (
+  candidates: readonly RegisteredTreeReadings[],
+  deskFile: (worktree: string, name: string) => string | null,
+): readonly NothingDoneCandidateReadings[] =>
+  candidates.map((tree) => {
+    const endingReading = readEnding(deskFile(tree.path, ENDING_FILENAME));
+    return {
+      branch: tree.branch,
+      worktree: tree.path,
+      ending: endingReading.read === 'ended' ? endingReading.ending.reason : null,
+      refusedAssignment: endingReading.read === 'ended' ? endingReading.ending.refusedAssignment : '',
+    };
+  });
+
+/**
+ * Whether an open PR carries a branch, read from the host's answer.
+ *
+ * @param state - the host's PR state for the branch: `null` where no PR
+ *   exists, or a failed answer where the host could not be asked.
+ * @returns `true` for an open PR, `false` where the host answered with no
+ *   open PR, and `'unanswerable'` where it gave no answer — a failed read is
+ *   never "no PR open".
+ */
+export const prOpenReading = (state: PortResult<Pr | null>): PrOpenReading =>
+  state.ok ? state.value !== null && state.value.state === 'OPEN' : 'unanswerable';
+
+/** What this tick decided about one `nothing-done` candidate. */
+export interface NothingDoneDecision {
+  /**
+   * The branch a `release-claim` verdict releases — {@link endingReleaseBranch}'s
+   * answer, which for a take-up `holding-work` is the refused assignment and
+   * not the desk's own branch.
+   */
+  branch: string;
+  worktree: string;
+  verdict: ReturnType<typeof endingAction>;
+}
+
+/**
+ * Decides every `nothing-done` candidate this tick read.
+ *
+ * Takes readings and returns a verdict per desk. It touches no file and no
+ * process; {@link applyNothingDoneDecisions} applies the verdicts.
+ *
+ * **A SECOND, INDEPENDENT `Trees.commitBeyondClaim` CALL, NOT THE LOOP'S
+ * OWN READING.** The loop's reading lives inside the worker process that
+ * already exited; this tick reads the same desk again from the registry
+ * daemon, after that process is gone. Both ask through
+ * `Trees.commitBeyondClaim`, so the two readings are one implementation asked
+ * twice.
+ *
+ * @param candidates - what {@link readNothingDoneCandidates} read.
+ * @param commitBeyondClaim - reads whether a desk's branch holds a commit
+ *   beyond its claim, keyed by worktree.
+ * @param prOpen - reads whether an open PR still carries a branch, keyed by
+ *   branch; `'unanswerable'` where the host could not be asked.
+ * @returns one decision per candidate, in the order given.
+ */
+export const nothingDoneDecisions = async (
+  candidates: readonly NothingDoneCandidateReadings[],
+  commitBeyondClaim: (worktree: string) => Promise<CommitReading>,
+  prOpen: (branch: string) => Promise<PrOpenReading>,
+): Promise<readonly NothingDoneDecision[]> => {
+  const out: NothingDoneDecision[] = [];
+  for (const reading of candidates) {
+    const readings = {
+      ending: reading.ending,
+      branch: reading.branch,
+      refusedAssignment: reading.refusedAssignment,
+      // A CANDIDATE IS `!registered` BY CONSTRUCTION (see
+      // `nothingDoneCandidateTrees`), so every reading carries
+      // `hasManifest: false` — the same reasoning `freshAgentDecisions` already
+      // states for its own candidates.
+      hasManifest: false,
+      // UNUSED BY THE ROWS THIS BRANCH IMPLEMENTS. `endingAction` reads it only
+      // for rows wave 2 adds; zero is its own safe default, the one
+      // `readFreshAgentCandidates` uses for the same field.
+      priorFreshSessions: 0,
+      commitBeyondClaim: await commitBeyondClaim(reading.worktree),
+      prOpen: await prOpen(reading.branch),
+    };
+    out.push({ branch: endingReleaseBranch(readings), worktree: reading.worktree, verdict: endingAction(readings) });
+  }
+  return out;
+};
+
+/** What the `nothing-done` step applied for one desk. */
+export interface NothingDoneApplied {
+  branch: string;
+  outcome: 'released' | 'refused' | 'release-failed' | 'threw';
+  /** One line saying why, or what happened. */
+  detail: string;
+}
+
+/**
+ * Releases the claim for every decision that answered `release-claim`.
+ *
+ * **THE SUPERVISOR RELEASES THE CLAIM; THE LOOP NAMES ONLY WHAT TO DO.** This
+ * is the one caller in this file that reaches a port rather than deciding —
+ * `release` is {@link ClaimRelease.release}, reached through
+ * {@link gatherReadingsAndRelease}'s own readings-gather-then-decide sequence
+ * so this tick and the board's `/api/release-claim` route reach one decision
+ * about releasability rather than two.
+ *
+ * **A REFUSAL IS NEVER RETRIED OR BYPASSED.** `releaseClaim` (the domain
+ * decision `release` wraps) refuses for four shell-enforced reasons — a live
+ * worker pid, a file-changing remote commit, unpushed or dirty desk work, a
+ * `PLOT-BLOCKED` marker — and a refusal here is reported exactly like every
+ * other refusal this tick already leaves for a person or the next pass; it is
+ * not acted around.
+ *
+ * **ONE DESK THROWING DOES NOT STOP THE OTHERS**, the same property
+ * {@link applyFreshAgentDecisions} has.
+ *
+ * @param decisions - what {@link nothingDoneDecisions} decided.
+ * @param release - releases one branch's claim; `gatherReadingsAndRelease`'s
+ *   shape, narrowed to what this step calls.
+ * @returns one entry per desk whose decision was `release-claim`, in decision
+ *   order; desks decided `leave` have no entry.
+ */
+export const applyNothingDoneDecisions = async (
+  decisions: readonly NothingDoneDecision[],
+  release: (branch: string) => Promise<{ released: boolean; detail: string }>,
+): Promise<readonly NothingDoneApplied[]> => {
+  const out: NothingDoneApplied[] = [];
+  for (const decision of decisions) {
+    if (decision.verdict !== 'release-claim') continue;
+    try {
+      const result = await release(decision.branch);
+      out.push({
+        branch: decision.branch,
+        outcome: result.released ? 'released' : 'refused',
+        detail: result.detail,
+      });
+    } catch (error) {
+      out.push({
+        branch: decision.branch,
+        outcome: 'threw',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return out;
+};
+
+/**
+ * One log line per applied `nothing-done` outcome.
+ *
+ * @param applied - what {@link applyNothingDoneDecisions} returned.
+ * @returns the lines without newlines, each saying whether it belongs on the
+ *   error stream.
+ */
+export const nothingDoneLines = (
+  applied: readonly NothingDoneApplied[],
+): readonly { line: string; error: boolean }[] =>
+  applied.map((entry) => ({
+    line: `plot-registryd nothing-done ${entry.branch}: ${entry.outcome} — ${entry.detail}`,
+    error: entry.outcome !== 'released',
   }));

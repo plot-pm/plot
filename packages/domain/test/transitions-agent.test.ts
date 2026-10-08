@@ -350,6 +350,13 @@ describe('endingIsAttributable refuses an agent that recorded itself as the acto
     }
   });
 
+  it('accepts actor agent on nothing-done, the claim pushed and nothing else (#1274)', () => {
+    expect(isDecision(endingIsAttributable(SESSION, {
+      actor: 'agent',
+      reason: 'nothing-done',
+    }))).toBe(true);
+  });
+
   it('accepts the two actors the watcher paths write', () => {
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'bound' }))).toBe(true);
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'monitor' }))).toBe(true);

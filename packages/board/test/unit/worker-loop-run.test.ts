@@ -705,6 +705,34 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('holding-work');
   });
 
+  it('names the desk\'s own branch, read from the desk, when a take-up finds unlanded work (#1281)', async () => {
+    const r = rig(ASSIGNED, []);
+    const trees = treesFixture({ quiet: { [r.wt]: 5000 }, branches: { [r.wt]: 'infra/prior' }, dirty: { [r.wt]: ['x.txt'] } });
+    r.deps = { ...r.deps, ports: { ...r.ports, trees } };
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(r.runs).toHaveLength(0);
+    expect(r.deskCalls.endings.at(-1)?.record).toMatchObject({ reason: 'holding-work', branch: 'infra/prior', refusedAssignment: BRANCH });
+  });
+
+  it('ends nothing-done and writes no seal when the pushed branch holds only its claim and no PR (#1274)', async () => {
+    const r = rig(ASSIGNED, [{}]);
+    const trees = treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'no' }, claimCommits: { [r.wt]: 'no' } });
+    r.deps = { ...r.deps, ports: { ...r.ports, trees, host: hostFixture({ prs: [] }) } };
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(r.runs).toHaveLength(1);
+    expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('nothing-done');
+    expect(r.deskCalls.declarations).toHaveLength(0);
+  });
+
+  it('still seals a pushed branch that holds a commit beyond its claim and no PR', async () => {
+    const r = rig(ASSIGNED, [{}]);
+    const trees = treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'yes' }, claimCommits: { [r.wt]: 'yes' } });
+    r.deps = { ...r.deps, ports: { ...r.ports, trees, host: hostFixture({ prs: [] }) } };
+    await runWorkerLoop(r.deps);
+    expect(r.deskCalls.endings.map((e) => e.record.reason)).not.toContain('nothing-done');
+    expect(r.deskCalls.declarations).toHaveLength(1);
+  });
+
   it('settles green checks and seals the slice (rows 12-18)', async () => {
     const r = rig(ASSIGNED, [{}]);
     expect(await runWorkerLoop(r.deps)).toBe(124);
