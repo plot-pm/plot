@@ -5,7 +5,7 @@
 ## Status
 
 - **State:** Draft
-- **Type:** feature
+- **Type:** infra
 - **Issue:** #1404
 - **Review:** in-session
 - **Impl:** own branches
@@ -39,7 +39,7 @@ Measured on `main` at `0b749ca9e`, 2026-10-09:
 
 **Three slices: a gate, then two launchers.** The gate comes first, for the reason the predecessor's ratchet came first: a migration with no gate loses to the next brief. The reaper comes before approval, because each slice holds one branch and the two may add writes to the same ports.
 
-**Slice 1: the gate counts decisions.** A check script reads the *Kind* column of the README script table at the merge base and at `HEAD`. It counts the rows whose kind is neither *launcher* nor *readings*, and it fails when the count at `HEAD` is higher. Like `check-shell-lines.sh`, it stores no number, takes the CI event as a mode argument (`pr`, `push`) and fails when it cannot read the base. A new script row with kind *decision* or *orchestration* raises the count, so a new deciding script pays by converting another one in the same change. The slice also corrects the `plot-worker-loop.sh` row to *launcher*, replaced by `board/plot-worker-loop.mjs`, and that correction lowers the count from 22 to 21. The brief decides whether the check is a sibling script or a mode of `check-shell-lines.sh`. The deliverable search found no existing check of that kind.
+**Slice 1: the gate counts decisions.** A check script reads the *Kind* column of the README script table at the merge base and at `HEAD`. It counts the rows whose kind is none of *launcher*, *readings* or *paired*, and it fails when the count at `HEAD` is higher. Like `check-shell-lines.sh`, it stores no number, takes the CI event as a mode argument (`pr`, `push`) and fails when it cannot read the base. A new script row with kind *decision* or *orchestration* raises the count, so a new deciding script pays by converting another one in the same change. The slice also corrects the `plot-worker-loop.sh` row to *launcher*, replaced by `board/plot-worker-loop.mjs`, and that correction lowers the count from 22 to 21. The brief decides whether the check is a sibling script or a mode of `check-shell-lines.sh`. The deliverable search found no existing check of that kind.
 
 **What the gate counts is a label, and a label can be wrong.** The gate counts what the README says. It does not read the scripts. `plot-approve.sh` merges a plan PR, flips the phase and pushes `main`, and its row reads *readings*. Changing *decision* to *readings* in a row lowers the count without moving a rule. The slice therefore makes a change of kind toward *readings* or *launcher* name its evidence in the same row: for *launcher*, the bundle in *Replaced by*; for *readings*, the bundle that holds the decision. The brief decides whether the check enforces this or leaves it to the reviewer, and records the choice.
 
@@ -57,8 +57,8 @@ Measured on `main` at `0b749ca9e`, 2026-10-09:
 
 ### Open Questions
 
-- [ ] Which kind does a declared duplicate take: a per-agent-per-pass script whose rule is in the domain and whose corpus test holds the pair (`plot-worker-state.sh`)? If it counts as *decision*, the gate's floor is the number of such scripts and not 0. If it gets its own kind, the README states what qualifies a script for it.
-- [ ] Does slice 1 enforce the evidence rule for a change of kind, or does it print the changed rows for the reviewer? An enforced rule refuses a correct relabel that has no bundle to name, such as a script that was mislabelled from the start.
+- [x] Which kind does a declared duplicate take? — *answered 2026-10-09, jwloka: a kind of its own, **paired**.* A row qualifies for *paired* when it names the domain rule export and the corpus test that holds the pair. The gate does not count *paired* rows, so its floor is 0. `plot-worker-state.sh` (`rules/agent-state.ts`, `agent-state.corpus.test.ts`) moves to *paired* in slice 1 and names both.
+- [x] Does slice 1 enforce the evidence rule for a change of kind? — *answered 2026-10-09, jwloka: enforce.* The gate refuses a row whose kind changes to *launcher*, *readings* or *paired* without its evidence: the bundle in *Replaced by* for *launcher*, the bundle that holds the decision for *readings*, the rule export and corpus test for *paired*. A row mislabelled from the start is corrected by naming the bundle that already exists.
 
 ## Slices
 
