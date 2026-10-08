@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Issue:** #1255, #1199
 - **Review:** in-session
@@ -19,6 +19,7 @@
 - **Started:** 2026-10-07, jwloka, `infra/the-shell-loop-goes`
 - **Started:** 2026-10-07, jwloka, `infra/the-shell-loop-goes`
 - **Delivered:** 2026-10-07
+- **Released:** 2026-10-07, v2.24.0
 
 ## Changelog
 
