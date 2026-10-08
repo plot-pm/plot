@@ -7,6 +7,7 @@
 - **State:** Approved
 - **Type:** infra
 - **Issue:** #1404
+- **Story:** the-shell-holds-no-behavior
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-10-09, jwloka, in-session
@@ -67,6 +68,10 @@ Measured on `main` at `0b749ca9e`, 2026-10-09:
 ### The gate counts decisions
 
 - `feature/the-gate-counts-decisions` — a CI check counts the README rows whose kind is neither *launcher* nor *readings* at the merge base and at `HEAD`, and fails when the count grows; the `plot-worker-loop.sh` row becomes *launcher* → #1405 <!-- builds: a decision-count gate over the README kind column -->
+
+### The gate counts every script
+
+- `feature/the-gate-counts-every-script` — the decision gate counts every README row whose kind is not *launcher*, *paired* included, so its target is 0 and a reading script counts like a deciding one (story `the-shell-holds-no-behavior`) <!-- builds: a wider count in the decision gate -->
 
 ### The reaper becomes a command
 
