@@ -88,6 +88,13 @@ export {
   type FreshAgentRecordFileOptions,
 } from './fresh-agent-record/fresh-agent-record-file.js';
 
+export {
+  endingAskRecordFile,
+  decodeEndingAskRow,
+  ENDING_ASK_RECORD_HOME_ENV,
+  type EndingAskRecordFileOptions,
+} from './ending-ask-record/ending-ask-record-file.js';
+
 export { slotsFile, SLOTS_HOME_ENV, type SlotsFileOptions } from './slots/slots-file.js';
 
 // THE PR STORE'S FILE ADAPTER. One file per connector under the COMMON git

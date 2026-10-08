@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,6 +17,7 @@ import {
   notifierCommand,
   notifierNone,
   freshAgentRecordFile,
+  endingAskRecordFile,
   refusedSlicesFile,
   deskFs,
   agentsFs,
@@ -41,6 +42,8 @@ import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
+import type { EndingAskRecordStore } from '@plot-pm/domain/ports/ending-ask-record';
+import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { mergeSubjectForms } from '@plot-pm/domain/adapters/host/merge-subjects';
 import { mergedBySubject } from '@plot-pm/domain/rules/merge-subject';
 import { ownerOfRemote } from '@plot-pm/domain/rules/remote-owner';
@@ -78,9 +81,11 @@ import {
   readNothingDoneCandidates,
   nothingDoneDecisions,
   prOpenReading,
+  prMergedReading,
   applyNothingDoneDecisions,
   nothingDoneLines,
   type FreshAgentPorts,
+  type FreshAgentAskReads,
   type FreshAgentApplied,
   type NothingDoneApplied,
   TICK_INTERVAL_MS,
@@ -1434,18 +1439,64 @@ export const startFreshSession = async (
 };
 
 /**
+ * The desk reads {@link startFreshAgents} takes in production.
+ *
+ * @param context - the repository and its scripts directory.
+ * @param asks - the `.plot/state/ending-asks.tsv` store.
+ * @param askMerged - asks the host whether a PR for a branch merged.
+ * @returns the desk-file, held-files, marker and ask reads.
+ */
+export const freshAgentDeskReads = (
+  context: { repoRoot: string; scriptDir: string },
+  asks: Pick<EndingAskRecordStore, 'asked'>,
+  askMerged: (branch: string) => ReturnType<Host['prMerged']>,
+): {
+  deskFile: (worktree: string, name: string) => string | null;
+  heldFiles: (worktree: string) => Promise<readonly string[] | null>;
+  hasMarker: (worktree: string) => Promise<boolean>;
+  asks: FreshAgentAskReads;
+} => ({
+  deskFile: (worktree, name) => fileOrNull(join(worktree, name)),
+  // A DEDICATED READ, NOT `world`'s `dirtyPaths` OR `dirtyCountOf`. Both
+  // collapse a failed read into a lossy value (`[]` or a count of `1`) for
+  // their own consumers; `holdingWorkAnswer` needs `null` preserved so it can
+  // say the files could not be listed rather than claiming none are held.
+  heldFiles: async (worktree) => {
+    const answer = await treesGit(context).dirtyPaths(worktree);
+    return answer.ok ? answer.value : null;
+  },
+  // A MARKER, NOT A DECLARATION: a marker written on a prior tick stops a
+  // second write, whatever the declaration file holds.
+  hasMarker: async (worktree) => (await markerReading(worktree)) !== null,
+  asks: {
+    endingAt: async (worktree) => {
+      try {
+        return (await stat(join(worktree, ENDING_FILENAME))).mtime.toISOString();
+      } catch {
+        return null;
+      }
+    },
+    record: asks,
+    prMerged: async (branch) => prMergedReading(await askMerged(branch)),
+  },
+});
+
+/**
  * Reads, decides and applies the fresh-agent step for one completed tick.
  *
  * Desks whose worker ended `corrections-spent`, `turn-limit`, or an
  * after-prompt `holding-work` with no manifest left get one fresh session
- * through the continue workflow; a second such ending for the same slice is
- * declared `blocked`. A failure anywhere in the step is reported
- * on stderr and never ends the daemon: the next tick reads the same desks and
- * the record again.
+ * through the continue workflow. A second such ending for the same slice, and
+ * a `blocked`, `spend-limit`, `unstarted`, `run-limit` or `checks-unanswered`
+ * ending, gets a `PLOT-BLOCKED.md` marker and one row in
+ * `.plot/state/ending-asks.tsv`, once per ending. A failure anywhere in the
+ * step is reported on stderr and never ends the daemon: the next tick reads
+ * the same desks and the records again.
  *
  * @param report - the completed tick, whose `trees` name the candidates.
- * @param deps - how to read a desk file, the record, a desk's held files, the
- *   ports to act through, and the repository's `Correction budget`.
+ * @param deps - how to read a desk file, the record, a desk's held files and
+ *   marker, the ask reads, the ports to act through, and the repository's
+ *   `Correction budget`.
  * @param write - where a started session or an escalation is reported.
  * @param warn - where a refusal or a failure is reported.
  * @returns what was applied, in desk order.
@@ -1456,6 +1507,8 @@ export const startFreshAgents = async (
     deskFile: (worktree: string, name: string) => string | null;
     record: Pick<FreshAgentRecordStore, 'rowsFor'>;
     heldFiles: (worktree: string) => Promise<readonly string[] | null>;
+    hasMarker: (worktree: string) => Promise<boolean>;
+    asks: FreshAgentAskReads;
     ports: FreshAgentPorts;
     budget: number;
   },
@@ -1465,7 +1518,14 @@ export const startFreshAgents = async (
   try {
     const candidates = freshAgentCandidateTrees(report.trees ?? []);
     if (candidates.length === 0) return [];
-    const readings = await readFreshAgentCandidates(candidates, deps.deskFile, deps.record, deps.heldFiles);
+    const readings = await readFreshAgentCandidates(
+      candidates,
+      deps.deskFile,
+      deps.record,
+      deps.heldFiles,
+      deps.hasMarker,
+      deps.asks,
+    );
     const applied = await applyFreshAgentDecisions(
       freshAgentDecisions(readings, deps.budget),
       deps.ports,
@@ -1622,8 +1682,11 @@ export const run = async (
   // so the `--git-common-dir` lookup is forked once.
   const freshAgentRecord = freshAgentRecordFile({ cwd: repoRoot });
   const boardOpts = { repoRoot, scriptsDir };
+  // THE DAEMON IS THE ONLY WRITER OF THE ASK RECORD, for the same reason.
+  const endingAsks = endingAskRecordFile({ cwd: repoRoot });
   const freshAgentPorts: FreshAgentPorts = {
     record: freshAgentRecord,
+    asks: endingAsks,
     desk: deskFs(treesGit({ repoRoot, scriptDir: scriptsDir })),
     now: () => new Date(),
     start: async ({ branch, worktree, answer, beforeStart }) => {
@@ -1741,17 +1804,8 @@ export const run = async (
       await startFreshAgents(
         report,
         {
-          deskFile: (worktree, name) => fileOrNull(join(worktree, name)),
+          ...freshAgentDeskReads({ repoRoot, scriptDir: scriptsDir }, endingAsks, (branch) => merges.ask(branch)),
           record: freshAgentRecord,
-          // A DEDICATED READ, NOT `world`'s `dirtyPaths` OR `dirtyCountOf`
-          // BELOW. Both collapse a failed read into a lossy value (`[]` or a
-          // count of `1`) for their own consumers; `holdingWorkAnswer` needs
-          // `null` preserved so it can say the files could not be listed
-          // rather than claiming none are held.
-          heldFiles: async (worktree) => {
-            const answer = await treesGit({ repoRoot, scriptDir: scriptsDir }).dirtyPaths(worktree);
-            return answer.ok ? answer.value : null;
-          },
           ports: freshAgentPorts,
           budget: Number.isInteger(budget) && budget >= 0 ? budget : 2,
         },

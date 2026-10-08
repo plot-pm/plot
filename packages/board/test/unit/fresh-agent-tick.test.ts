@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
@@ -9,7 +9,11 @@ import type { PortResult } from '@plot-pm/domain';
 import type { FreshAgentRecord, FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { DECLARATION_FILENAME } from '@plot-pm/domain/entities/declaration';
-import { freshAgentRecordFile } from '@plot-pm/domain/adapters';
+import { freshAgentRecordFile, endingAskRecordFile, deskFs } from '@plot-pm/domain/adapters';
+import type { Trees } from '@plot-pm/domain/ports/trees';
+import type { PrMergedReading } from '@plot-pm/domain/rules/ending-action';
+import { deskFixture, deskFixtureCalls } from '@plot-pm/domain/adapters/desk/desk-fixture';
+import { questionEscalation, parseQuestionEscalation } from '@plot-pm/domain/rules/question-escalation';
 
 import {
   freshAgentCandidateTrees,
@@ -18,11 +22,16 @@ import {
   freshAgentDecisions,
   applyFreshAgentDecisions,
   freshAgentLines,
+  markerTextFor,
+  prMergedReading,
+  type FreshAgentDecision,
   type FreshAgentPorts,
+  type FreshAgentAskReads,
   type FreshAgentCandidateReadings,
 } from '../../src/server/entry/registryd.js';
 import type { DeskContinuation } from '../../src/server/continue.js';
-import { startFreshSession } from '../../src/server/entry/registryd-main.js';
+import { startFreshSession, freshAgentDeskReads } from '../../src/server/entry/registryd-main.js';
+import { markerReading } from '../../src/server/worker-question.js';
 import { agentsFixture } from '@plot-pm/domain/adapters/agents/agents-fixture';
 
 const PLAN = '2026-10-05-a-plan';
@@ -84,6 +93,12 @@ const emptyStore: Pick<FreshAgentRecordStore, 'rowsFor'> = {
 };
 
 const noHeldFiles = async (): Promise<readonly string[] | null> => [];
+const noMarker = async (): Promise<boolean> => false;
+const noAsks: FreshAgentAskReads = {
+  endingAt: async () => null,
+  record: { asked: async () => ({ ok: true, value: false }) },
+  prMerged: async () => 'unanswerable',
+};
 
 const endingFile = (reason: string, detail = '') =>
   JSON.stringify({ reason, actor: 'agent', branch: 'feature/x', detail });
@@ -92,24 +107,24 @@ describe('readFreshAgentCandidates', () => {
   it('reads the ending reason off the desk', async () => {
     const deskFile = (worktree: string, name: string) =>
       name === ENDING_FILENAME ? endingFile('corrections-spent') : null;
-    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles);
+    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles, noMarker, noAsks);
     expect(reading?.ending).toBe('corrections-spent');
   });
 
   it('reads null where no ending was written', async () => {
-    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, noHeldFiles);
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, noHeldFiles, noMarker, noAsks);
     expect(reading?.ending).toBeNull();
   });
 
   it('reads the corrections file text verbatim', async () => {
     const deskFile = (worktree: string, name: string) =>
       name === CORRECTION_FILENAME ? '## Correction 1 of 2\n\n' : null;
-    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles);
+    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles, noMarker, noAsks);
     expect(reading?.correctionsText).toContain('Correction 1 of 2');
   });
 
   it('a missing corrections file reads as empty text, never a failure', async () => {
-    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, noHeldFiles);
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, noHeldFiles, noMarker, noAsks);
     expect(reading?.correctionsText).toBe('');
   });
 
@@ -122,7 +137,7 @@ describe('readFreshAgentCandidates', () => {
             : [],
         ),
     };
-    const [reading] = await readFreshAgentCandidates([tree()], () => null, store, noHeldFiles);
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, store, noHeldFiles, noMarker, noAsks);
     expect(reading?.priorFreshSessions).toBe(1);
   });
 
@@ -130,8 +145,15 @@ describe('readFreshAgentCandidates', () => {
     const failedStore: Pick<FreshAgentRecordStore, 'rowsFor'> = {
       rowsFor: async () => ({ ok: false, why: 'failed' }),
     };
-    const [reading] = await readFreshAgentCandidates([tree()], () => null, failedStore, noHeldFiles);
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, failedStore, noHeldFiles, noMarker, noAsks);
     expect(reading?.priorFreshSessions).toBe(0);
+  });
+
+  it('reads the detail the ending carries', async () => {
+    const deskFile = (worktree: string, name: string) =>
+      name === ENDING_FILENAME ? endingFile('run-limit', 'Slice max runs reached: 5') : null;
+    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles, noMarker, noAsks);
+    expect(reading?.detail).toBe('Slice max runs reached: 5');
   });
 });
 
@@ -149,8 +171,12 @@ describe('freshAgentDecisions', () => {
           correctionsText: '## Correction 1 of 2\n\n',
           runUrl: 'https://github.com/plot-pm/plot/actions/runs/123',
           conclusion: 'failure',
+          detail: '',
           priorFreshSessions: 0,
           heldFiles: [],
+          endingAt: '',
+          endingAsked: false,
+          prMerged: 'unanswerable',
         },
       ],
       2,
@@ -173,8 +199,12 @@ describe('freshAgentDecisions', () => {
           correctionsText: '',
           runUrl: '',
           conclusion: '',
+          detail: '',
           priorFreshSessions: 1,
           heldFiles: [],
+          endingAt: '',
+          endingAsked: false,
+          prMerged: 'unanswerable',
         },
       ],
       2,
@@ -191,13 +221,17 @@ describe('freshAgentDecisions', () => {
           escalated: false,
           branch: 'feature/x',
           worktree: tree().path,
-          ending: 'unstarted',
+          ending: 'bound',
           refusedAssignment: '',
           correctionsText: '',
           runUrl: '',
           conclusion: '',
+          detail: '',
           priorFreshSessions: 0,
           heldFiles: [],
+          endingAt: '',
+          endingAsked: false,
+          prMerged: 'unanswerable',
         },
       ],
       2,
@@ -219,8 +253,12 @@ describe('freshAgentDecisions', () => {
           correctionsText: '',
           runUrl: '',
           conclusion: '',
+          detail: '',
           priorFreshSessions: 0,
           heldFiles: [],
+          endingAt: '',
+          endingAsked: false,
+          prMerged: 'unanswerable',
         },
       ],
       2,
@@ -243,8 +281,12 @@ describe('freshAgentDecisions', () => {
           correctionsText: '',
           runUrl: '',
           conclusion: '',
+          detail: '',
           priorFreshSessions: 1,
           heldFiles: [],
+          endingAt: '',
+          endingAsked: false,
+          prMerged: 'unanswerable',
         },
       ],
       2,
@@ -271,8 +313,12 @@ describe('freshAgentDecisions', () => {
           correctionsText: '',
           runUrl: '',
           conclusion: '',
+          detail: '',
           priorFreshSessions: 1,
           heldFiles: [],
+          endingAt: '',
+          endingAsked: false,
+          prMerged: 'unanswerable',
         },
       ],
       2,
@@ -293,41 +339,84 @@ describe('freshAgentDecisions', () => {
           correctionsText: '',
           runUrl: '',
           conclusion: '',
+          detail: '',
           priorFreshSessions: 1,
           heldFiles: [],
+          endingAt: '',
+          endingAsked: false,
+          prMerged: 'unanswerable',
         },
       ],
       2,
     );
     expect(decision?.verdict).toBe('needs-a-person');
   });
+
+  const needsPersonReading = (ending: FreshAgentCandidateReadings['ending'], priorFreshSessions: number): FreshAgentCandidateReadings => ({
+    plan: PLAN,
+    escalated: false,
+    branch: 'feature/x',
+    worktree: tree().path,
+    ending,
+    refusedAssignment: '',
+    correctionsText: '',
+    runUrl: '',
+    conclusion: '',
+    detail: 'the detail',
+    priorFreshSessions,
+    heldFiles: [],
+    endingAt: '',
+    endingAsked: false,
+    prMerged: 'unanswerable',
+  });
+
+  it('answers needs-a-person for after-prompt holding-work, corrections-spent and turn-limit on their second reach, together with the five outright reasons — no row keyed on ending alone', () => {
+    // A TABLE, SO A ROW KEYED LOOSELY ON `ending` ALONE (ignoring
+    // `priorFreshSessions`) FAILS HERE RATHER THAN IN PRODUCTION:
+    // after-prompt holding-work, corrections-spent and turn-limit need one
+    // prior fresh session to reach needs-a-person; the five outright reasons
+    // need none.
+    const earnedFirst = (['holding-work', 'corrections-spent', 'turn-limit'] as const).map((ending) =>
+      needsPersonReading(ending, 1),
+    );
+    const outright = (['blocked', 'spend-limit', 'unstarted', 'run-limit', 'checks-unanswered'] as const).map((ending) =>
+      needsPersonReading(ending, 0),
+    );
+    const decisions = freshAgentDecisions([...earnedFirst, ...outright], 2);
+    expect(decisions.map((d) => d.verdict)).toEqual(Array(decisions.length).fill('needs-a-person'));
+    expect(decisions.map((d) => d.escalate)).toEqual(Array(decisions.length).fill(true));
+    expect(decisions.every((d) => d.markerText !== '')).toBe(true);
+  });
 });
 
-describe('readFreshAgentCandidates, the declaration and the plan', () => {
-  const declared = (status: string) => JSON.stringify({ branch: 'feature/x', status });
-
-  it('reads a blocked declaration as already escalated', async () => {
-    const deskFile = (_worktree: string, name: string) =>
-      name === DECLARATION_FILENAME ? declared('blocked') : null;
-    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles);
+describe('readFreshAgentCandidates, the marker and the plan', () => {
+  it('reads a worktree the marker reader names as already escalated', async () => {
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, noHeldFiles, async () => true, noAsks);
     expect(reading?.escalated).toBe(true);
   });
 
-  it('reads an ok declaration, an absent one and an unreadable one as not escalated', async () => {
-    for (const text of [declared('ok'), null, 'not json']) {
-      const deskFile = (_worktree: string, name: string) => (name === DECLARATION_FILENAME ? text : null);
-      const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles);
-      expect(reading?.escalated).toBe(false);
-    }
+  it('reads a worktree with no marker as not escalated', async () => {
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, noHeldFiles, noMarker, noAsks);
+    expect(reading?.escalated).toBe(false);
+  });
+
+  it('reads escalated off the marker even where a stale blocked declaration says otherwise — a declaration is no longer the source', async () => {
+    // THE BUG A DECLARATION-BASED READ WOULD HIDE: a run-limit desk from
+    // before this change may hold a `status: 'ok'` declaration (or none at
+    // all) and still need a marker written for the first time.
+    const deskFile = (_worktree: string, name: string) =>
+      name === 'PLOT-DECLARATION.md' ? JSON.stringify({ branch: 'feature/x', status: 'ok' }) : null;
+    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles, async () => true, noAsks);
+    expect(reading?.escalated).toBe(true);
   });
 
   it('carries the plan the tree names', async () => {
-    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, noHeldFiles);
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, noHeldFiles, noMarker, noAsks);
     expect(reading?.plan).toBe(PLAN);
   });
 
   it('reads an empty plan where the tree names none', async () => {
-    const [reading] = await readFreshAgentCandidates([tree({ plan: undefined })], () => null, emptyStore, noHeldFiles);
+    const [reading] = await readFreshAgentCandidates([tree({ plan: undefined })], () => null, emptyStore, noHeldFiles, noMarker, noAsks);
     expect(reading?.plan).toBe('');
   });
 });
@@ -341,9 +430,13 @@ const spentReading = (over: Partial<FreshAgentCandidateReadings> = {}): FreshAge
   correctionsText: '## Correction 1 of 2\n\nCI reported: x\n',
   runUrl: 'https://github.com/plot-pm/plot/actions/runs/123',
   conclusion: 'failure',
+  detail: '',
   priorFreshSessions: 0,
   escalated: false,
   heldFiles: [],
+  endingAt: '',
+  endingAsked: false,
+  prMerged: 'unanswerable',
   ...over,
 });
 
@@ -353,12 +446,12 @@ describe('the holding-work readings and decisions', () => {
 
   it('reads the refused assignment off the ending', async () => {
     const deskFile = (_w: string, name: string) => (name === ENDING_FILENAME ? holdingFile('feature/y') : null);
-    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles);
+    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles, noMarker, noAsks);
     expect(reading?.refusedAssignment).toBe('feature/y');
   });
 
   it('reads the held files the desk reports', async () => {
-    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, async () => ['a.ts']);
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, async () => ['a.ts'], noMarker, noAsks);
     expect(reading?.heldFiles).toEqual(['a.ts']);
   });
 
@@ -373,10 +466,10 @@ describe('the holding-work readings and decisions', () => {
     const reading = spentReading({ ending: 'holding-work', refusedAssignment: 'feature/y', heldFiles: ['a.ts'] });
     const decisions = freshAgentDecisions([reading], 2);
     expect(decisions.map((d) => [d.verdict, d.answer, d.escalate])).toEqual([['release-claim', '', false]]);
-    const { starts, sealed, ports } = rig(started);
+    const { starts, calls, ports } = rig(started);
     expect(await applyFreshAgentDecisions(decisions, ports)).toEqual([]);
     expect(starts).toEqual([]);
-    expect(sealed).toEqual([]);
+    expect(calls.blockedMarkers).toEqual([]);
   });
 });
 
@@ -389,12 +482,19 @@ describe('freshAgentDecisions, escalation', () => {
     expect(second?.escalate).toBe(false);
   });
 
-  it('never escalates a first spent budget or another ending', () => {
+  it('never escalates a first spent budget or an ending that stays leave', () => {
     const decisions = freshAgentDecisions(
-      [spentReading(), spentReading({ ending: 'unstarted', priorFreshSessions: 3 })],
+      [spentReading(), spentReading({ ending: 'bound', priorFreshSessions: 3 })],
       2,
     );
     expect(decisions.map((d) => d.escalate)).toEqual([false, false]);
+  });
+
+  it('escalates outright for unstarted, with no prior fresh session needed', () => {
+    const [decision] = freshAgentDecisions([spentReading({ ending: 'unstarted', detail: 'exit 1' })], 2);
+    expect(decision?.verdict).toBe('needs-a-person');
+    expect(decision?.escalate).toBe(true);
+    expect(decision?.markerText).toContain('never ran a slice');
   });
 });
 
@@ -409,14 +509,27 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
   const home = mkdtempSync(join(tmpdir(), 'plot-fresh-tick-'));
   homes.push(home);
   const record = freshAgentRecordFile({ home });
-  const sealed: { worktree: string; branch: string; status?: string }[] = [];
+  const asks = endingAskRecordFile({ home });
+  /** What the tick reads of the ending's time and the host; a test changes them between ticks. */
+  const world: { endingAt: string | null; merged: PrMergedReading; mergedAsks: number } = {
+    endingAt: '2026-10-05T11:00:00.000Z',
+    merged: 'not-merged',
+    mergedAsks: 0,
+  };
   const starts: { branch: string; answer: string }[] = [];
+  // MUTATED AFTER EACH WRITE, so a marker written on tick N makes tick N+1's
+  // read see `escalated: true` — the same no-overwrite behaviour a real
+  // `PLOT-BLOCKED.md` file gives through `hasMarker`.
+  const markedWorktrees = new Set<string>();
+  const calls = deskFixtureCalls();
   const ports: FreshAgentPorts = {
     record,
+    asks,
     desk: {
-      sealDeclaration: async (worktree, branch, status) => {
-        sealed.push({ worktree, branch, status });
-        return { ok: true, value: undefined };
+      writeBlockedMarker: async (worktree, text) => {
+        const result = await deskFixture({ markedWorktrees: [...markedWorktrees], calls }).writeBlockedMarker(worktree, text);
+        markedWorktrees.add(worktree);
+        return result;
       },
     },
     now: () => new Date('2026-10-05T12:00:00.000Z'),
@@ -426,19 +539,28 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
     },
   };
   /** One tick over one desk: read through the real record, decide, apply. */
-  const tickOver = async (deskFile: (worktree: string, name: string) => string | null) => {
+  const tickOver = async (deskFile: (worktree: string, name: string) => string | null, path = tree().path) => {
     const readings = await readFreshAgentCandidates(
-      freshAgentCandidateTrees([tree()]),
+      freshAgentCandidateTrees([tree({ path })]),
       deskFile,
       record,
       noHeldFiles,
+      async (worktree) => markedWorktrees.has(worktree),
+      {
+        endingAt: async () => world.endingAt,
+        record: asks,
+        prMerged: async () => {
+          world.mergedAsks += 1;
+          return world.merged;
+        },
+      },
     );
     return applyFreshAgentDecisions(freshAgentDecisions(readings, 2), ports);
   };
-  return { record, ports, sealed, starts, tickOver };
+  return { record, asks, world, ports, calls, markedWorktrees, starts, tickOver };
 };
 
-const spentDesk = (declaration: string | null = null) => (_worktree: string, name: string) => {
+const spentDesk = () => (_worktree: string, name: string) => {
   if (name === ENDING_FILENAME) {
     return endingFile(
       'corrections-spent',
@@ -446,7 +568,6 @@ const spentDesk = (declaration: string | null = null) => (_worktree: string, nam
     );
   }
   if (name === CORRECTION_FILENAME) return '## Correction 1 of 2\n\nCI reported: gate\n';
-  if (name === DECLARATION_FILENAME) return declaration;
   return null;
 };
 
@@ -468,24 +589,24 @@ describe('the tick starts one fresh session through continue', () => {
     expect(starts[0]?.answer).toContain('https://github.com/plot-pm/plot/actions/runs/123');
   });
 
-  it('starts none on the next tick once the start is recorded, and declares the slice blocked', async () => {
-    const { starts, sealed, tickOver } = rig(started);
+  it('starts none on the next tick once the start is recorded, and writes a marker asking a person', async () => {
+    const { starts, calls, tickOver } = rig(started);
     await tickOver(spentDesk());
     const second = await tickOver(spentDesk());
     expect(starts).toHaveLength(1);
     expect(second.map((a) => a.outcome)).toEqual(['escalated']);
-    expect(sealed).toEqual([
-      { worktree: tree().path, branch: 'feature/x', status: 'blocked' },
+    expect(calls.blockedMarkers).toEqual([
+      { worktree: tree().path, text: expect.stringContaining('already had its one fresh session') },
     ]);
   });
 
-  it('declares blocked once: a desk whose declaration already says blocked is left alone', async () => {
-    const { starts, sealed, tickOver } = rig(started);
+  it('writes the marker once: a desk the marker already names gets a second-tick no-op with the text unchanged', async () => {
+    const { starts, calls, tickOver } = rig(started);
     await tickOver(spentDesk());
     await tickOver(spentDesk());
-    const third = await tickOver(spentDesk(JSON.stringify({ branch: 'feature/x', status: 'blocked' })));
+    const third = await tickOver(spentDesk());
     expect(third).toEqual([]);
-    expect(sealed).toHaveLength(1);
+    expect(calls.blockedMarkers).toHaveLength(1);
     expect(starts).toHaveLength(1);
   });
 
@@ -533,22 +654,48 @@ describe('the tick starts one fresh session through continue', () => {
     expect((await stopped.tickOver(spentDesk())).map((a) => a.outcome)).toEqual(['start-failed']);
   });
 
-  it('reports a declaration that could not be written', async () => {
+  it('reports a marker that could not be written', async () => {
     const { ports, tickOver } = rig(started);
-    ports.desk = { sealDeclaration: async () => ({ ok: false, why: 'failed' }) };
+    ports.desk = { writeBlockedMarker: async () => ({ ok: false, why: 'failed' }) };
     await tickOver(spentDesk());
     expect((await tickOver(spentDesk())).map((a) => a.outcome)).toEqual(['escalation-failed']);
   });
 
-  it('starts nothing for a desk whose ending is not corrections-spent', async () => {
-    const { starts, tickOver } = rig(started);
-    const applied = await tickOver((_w, name) => (name === ENDING_FILENAME ? endingFile('unstarted') : null));
-    expect(applied).toEqual([]);
+  it('starts nothing but writes a marker for an unstarted desk — it asks a person outright, with no fresh session first', async () => {
+    const { starts, calls, tickOver } = rig(started);
+    const applied = await tickOver((_w, name) => (name === ENDING_FILENAME ? endingFile('unstarted', 'exit 1: boom') : null));
+    expect(applied.map((a) => a.outcome)).toEqual(['escalated']);
     expect(starts).toEqual([]);
+    expect(calls.blockedMarkers).toHaveLength(1);
+    expect(calls.blockedMarkers[0]?.text).toContain('never ran a slice');
+  });
+
+  it('writes a marker for an unstarted desk that the real questionEscalation rule lists and later notifies on', async () => {
+    // THE REAL DESK ADAPTER AND THE REAL MARKER READER: the marker this tick
+    // writes is the file `escalationWrites` reads, with its own `askedAt`.
+    const desk = mkdtempSync(join(tmpdir(), 'plot-fresh-marker-'));
+    homes.push(desk);
+    const { ports, tickOver } = rig(started);
+    ports.desk = deskFs({} as Trees);
+    const applied = await tickOver((_w, name) => (name === ENDING_FILENAME ? endingFile('unstarted', 'exit 1: boom') : null), desk);
+    expect(applied.map((a) => a.outcome)).toEqual(['escalated']);
+    const marker = await markerReading(desk);
+    expect(marker?.firstLine).toContain('never ran a slice');
+
+    const ages = parseQuestionEscalation('15m, 1h, 4h');
+    const askedMs = Date.parse(marker?.askedAt ?? '');
+    expect(questionEscalation({ marker: marker!, ageMs: Date.now() - askedMs, ages, recordedRungs: new Set() })).toEqual({
+      rung: 'listed',
+      isNew: false,
+    });
+    expect(questionEscalation({ marker: marker!, ageMs: 60 * 60_000, ages, recordedRungs: new Set() })).toEqual({
+      rung: 'notified-1',
+      isNew: true,
+    });
   });
 
   it('starts one fresh session for a turn-limit desk, and none on the next tick', async () => {
-    const { starts, sealed, tickOver } = rig(started);
+    const { starts, calls, tickOver } = rig(started);
     const turnLimit = (_w: string, name: string) =>
       name === ENDING_FILENAME ? endingFile('turn-limit', 'the run reached Agent max turns') : null;
     const first = await tickOver(turnLimit);
@@ -557,17 +704,91 @@ describe('the tick starts one fresh session through continue', () => {
     expect(starts).toHaveLength(1);
     expect(starts[0]?.answer).toContain('Agent max turns');
     expect(second.map((a) => a.outcome)).toEqual(['escalated']);
-    expect(sealed).toHaveLength(1);
+    expect(calls.blockedMarkers).toHaveLength(1);
   });
 
-  it('starts no fresh session for a spend-limit or run-limit desk, whatever the record holds', async () => {
+  it('writes a marker outright for a spend-limit or run-limit desk, with no fresh session started — a declaration-only read would miss this', async () => {
+    // THE EXACT BUG A DECLARATION-BASED `escalated` READ WOULD HIDE: this desk
+    // never ran a fresh session and holds no declaration at all, yet still
+    // needs the marker on the FIRST tick it is seen, because these two
+    // reasons skip straight to needs-a-person.
     for (const reason of ['spend-limit', 'run-limit']) {
-      const { starts, sealed, tickOver } = rig(started);
-      const applied = await tickOver((_w, name) => (name === ENDING_FILENAME ? endingFile(reason) : null));
-      expect(applied).toEqual([]);
+      const { starts, calls, tickOver } = rig(started);
+      const applied = await tickOver((_w, name) => (name === ENDING_FILENAME ? endingFile(reason, 'limit detail') : null));
+      expect(applied.map((a) => a.outcome)).toEqual(['escalated']);
       expect(starts).toEqual([]);
-      expect(sealed).toEqual([]);
+      expect(calls.blockedMarkers).toHaveLength(1);
     }
+  });
+
+  it('a desk asked once and then answered is not asked again about the same ending, and is asked about a newer one', async () => {
+    const { calls, markedWorktrees, world, tickOver } = rig(started);
+    const runLimit = (_w: string, name: string) =>
+      name === ENDING_FILENAME ? endingFile('run-limit', 'Slice max runs reached: 5') : null;
+    expect((await tickOver(runLimit)).map((a) => a.outcome)).toEqual(['escalated']);
+    // THE PERSON ANSWERS: the continuation deletes the marker, the loop it
+    // started exits on the bound and writes no ending, so the old one stays.
+    markedWorktrees.delete(tree().path);
+    expect(await tickOver(runLimit)).toEqual([]);
+    expect(calls.blockedMarkers).toHaveLength(1);
+    // A NEW ENDING IS A NEW QUESTION.
+    world.endingAt = '2026-10-05T13:00:00.000Z';
+    expect((await tickOver(runLimit)).map((a) => a.outcome)).toEqual(['escalated']);
+    expect(calls.blockedMarkers).toHaveLength(2);
+  });
+
+  it('records the ask for a marker the loop wrote itself, so the answered desk is not asked again either', async () => {
+    const { asks, calls, markedWorktrees, tickOver } = rig(started);
+    const unstarted = (_w: string, name: string) => (name === ENDING_FILENAME ? endingFile('unstarted', 'exit 1') : null);
+    markedWorktrees.add(tree().path);
+    expect(await tickOver(unstarted)).toEqual([]);
+    expect(await asks.asked(PLAN, 'feature/x', '2026-10-05T11:00:00.000Z')).toEqual({ ok: true, value: true });
+    markedWorktrees.delete(tree().path);
+    expect(await tickOver(unstarted)).toEqual([]);
+    expect(calls.blockedMarkers).toEqual([]);
+  });
+
+  it('asks again where the ask could not be recorded, and says so', async () => {
+    const { ports, calls, markedWorktrees, tickOver } = rig(started);
+    ports.asks = { append: async () => ({ ok: false, why: 'failed' }) };
+    const runLimit = (_w: string, name: string) => (name === ENDING_FILENAME ? endingFile('run-limit', 'r') : null);
+    const first = await tickOver(runLimit);
+    expect(first.map((a) => [a.outcome, a.detail])).toEqual([
+      ['escalation-failed', 'the ask could not be recorded in ending-asks.tsv; the next tick asks again'],
+    ]);
+    markedWorktrees.delete(tree().path);
+    expect((await tickOver(runLimit)).map((a) => a.outcome)).toEqual(['escalation-failed']);
+    expect(calls.blockedMarkers).toHaveLength(2);
+  });
+
+  it('writes no marker for an outright ending whose PR merged, and asks where the host could not say', async () => {
+    const merged = rig(started);
+    merged.world.merged = 'merged';
+    const runLimit = (_w: string, name: string) => (name === ENDING_FILENAME ? endingFile('run-limit', 'r') : null);
+    expect(await merged.tickOver(runLimit)).toEqual([]);
+    expect(merged.calls.blockedMarkers).toEqual([]);
+    expect(merged.world.mergedAsks).toBe(1);
+
+    const unknown = rig(started);
+    unknown.world.merged = 'unanswerable';
+    expect((await unknown.tickOver(runLimit)).map((a) => a.outcome)).toEqual(['escalated']);
+  });
+
+  it('asks the host about a merge only for an outright needs-a-person ending', async () => {
+    const { world, tickOver } = rig(started);
+    await tickOver(spentDesk());
+    expect(world.mergedAsks).toBe(0);
+  });
+
+  it('writes the marker for a run-limit desk that holds a blocked declaration and no marker', async () => {
+    const { calls, tickOver } = rig(started);
+    const deskFile = (_w: string, name: string) => {
+      if (name === ENDING_FILENAME) return endingFile('run-limit', 'Slice max runs reached: 5');
+      if (name === DECLARATION_FILENAME) return JSON.stringify({ branch: 'feature/x', status: 'blocked' });
+      return null;
+    };
+    expect((await tickOver(deskFile)).map((a) => a.outcome)).toEqual(['escalated']);
+    expect(calls.blockedMarkers[0]?.text).toContain('run limit');
   });
 
   it('reports a thrown non-Error by its text', async () => {
@@ -575,6 +796,70 @@ describe('the tick starts one fresh session through continue', () => {
       throw 'plain string';
     });
     expect((await tickOver(spentDesk()))[0]?.detail).toBe('plain string');
+  });
+});
+
+describe('one desk\'s missing marker text', () => {
+  it('composes no text for an ending the composer refuses, instead of throwing for the tick', () => {
+    expect(markerTextFor(spentReading({ ending: 'bound' }))).toBe('');
+  });
+
+  it('reports that desk and still applies the next one', async () => {
+    const { ports, calls } = rig(started);
+    const decision = (worktree: string, markerText: string): FreshAgentDecision => ({
+      plan: PLAN,
+      branch: 'feature/x',
+      worktree,
+      verdict: 'needs-a-person',
+      answer: '',
+      runUrl: '',
+      escalate: true,
+      markerText,
+      endingAt: '',
+    });
+    const applied = await applyFreshAgentDecisions([decision('/a', ''), decision('/b', 'a question')], ports);
+    expect(applied.map((a) => a.outcome)).toEqual(['escalation-failed', 'escalated']);
+    expect(calls.blockedMarkers).toEqual([{ worktree: '/b', text: 'a question' }]);
+  });
+});
+
+describe('freshAgentDeskReads', () => {
+  const reads = () =>
+    freshAgentDeskReads(
+      { repoRoot: '/nowhere', scriptDir: '/nowhere' },
+      { asked: async () => ({ ok: true, value: false }) },
+      async () => ({ ok: true, value: 'merged' }),
+    );
+
+  it('reads a PLOT-BLOCKED.md marker on the desk as escalated, and its absence as not', async () => {
+    const desk = mkdtempSync(join(tmpdir(), 'plot-fresh-reads-'));
+    homes.push(desk);
+    expect(await reads().hasMarker(desk)).toBe(false);
+    writeFileSync(join(desk, 'PLOT-BLOCKED.md'), 'which adapter?\n');
+    expect(await reads().hasMarker(desk)).toBe(true);
+  });
+
+  it('reads the ending file\'s time, and null where there is no ending', async () => {
+    const desk = mkdtempSync(join(tmpdir(), 'plot-fresh-reads-'));
+    homes.push(desk);
+    expect(await reads().asks.endingAt(desk)).toBeNull();
+    writeFileSync(join(desk, ENDING_FILENAME), endingFile('run-limit'));
+    const at = new Date('2026-10-05T11:00:00.000Z');
+    utimesSync(join(desk, ENDING_FILENAME), at, at);
+    expect(await reads().asks.endingAt(desk)).toBe('2026-10-05T11:00:00.000Z');
+  });
+
+  it('maps the host\'s merge answer to a reading', async () => {
+    expect(await reads().asks.prMerged('feature/x')).toBe('merged');
+  });
+});
+
+describe('prMergedReading', () => {
+  it('reads merged and not-merged as the host said, and a failed or unknown answer as unanswerable — never merged', () => {
+    expect(prMergedReading({ ok: true, value: 'merged' })).toBe('merged');
+    expect(prMergedReading({ ok: true, value: 'not-merged' })).toBe('not-merged');
+    expect(prMergedReading({ ok: true, value: 'unknown' })).toBe('unanswerable');
+    expect(prMergedReading({ ok: false, why: 'failed' })).toBe('unanswerable');
   });
 });
 

@@ -1832,10 +1832,17 @@ describe('the tick starts a fresh session on a desk whose ending asks for one, w
       },
       record,
       async () => ['a.ts'],
+      async () => false,
+      {
+        endingAt: async () => '2026-10-08T11:00:00.000Z',
+        record: { asked: async () => ({ ok: true, value: false }) },
+        prMerged: async () => 'not-merged',
+      },
     );
     const applied = await applyFreshAgentDecisions(freshAgentDecisions(readings, 2), {
       record,
-      desk: { sealDeclaration: async () => ({ ok: true, value: undefined }) },
+      asks: { append: async () => ({ ok: true, value: undefined }) },
+      desk: { writeBlockedMarker: async () => ({ ok: true, value: undefined }) },
       now: () => new Date('2026-10-08T12:00:00.000Z'),
       start: ({ branch, worktree, answer, beforeStart }) =>
         startFreshSession(

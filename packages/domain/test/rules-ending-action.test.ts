@@ -4,9 +4,12 @@ import {
   endingAsksFreshStart,
   endingReleaseBranch,
   holdingWorkAnswer,
+  needsPersonMarker,
+  secondFreshSessionMarker,
+  NEEDS_PERSON_ENDINGS,
   type EndingActionReadings,
 } from '../src/rules/ending-action.js';
-import { EndingReasonSchema, type EndingReading } from '../src/entities/ending.js';
+import { EndingReasonSchema, type EndingReading, type EndingReason } from '../src/entities/ending.js';
 
 const readings = (over: Partial<EndingActionReadings> = {}): EndingActionReadings => ({
   ending: 'nothing-done',
@@ -16,6 +19,8 @@ const readings = (over: Partial<EndingActionReadings> = {}): EndingActionReading
   priorFreshSessions: 0,
   commitBeyondClaim: 'no',
   prOpen: false,
+  prMerged: 'not-merged',
+  endingAsked: false,
   ...over,
 });
 
@@ -85,11 +90,47 @@ describe('endingAction', () => {
     expect(endingAction(readings({ ending: 'holding-work', branch: 'infra/prior', priorFreshSessions: 1 }))).toBe('needs-a-person');
   });
 
-  it('leaves every ending but nothing-done, corrections-spent, turn-limit and holding-work alone', () => {
-    const handled = new Set(['nothing-done', 'corrections-spent', 'turn-limit', 'holding-work']);
+  const NEEDS_PERSON_OUTRIGHT = ['blocked', 'spend-limit', 'unstarted', 'run-limit', 'checks-unanswered'];
+
+  it('leaves every ending but nothing-done, corrections-spent, turn-limit, holding-work and the five outright needs-a-person reasons alone', () => {
+    const handled = new Set(['nothing-done', 'corrections-spent', 'turn-limit', 'holding-work', ...NEEDS_PERSON_OUTRIGHT]);
     for (const ending of EndingReasonSchema.options.filter((r) => !handled.has(r))) {
       expect(endingAction(readings({ ending }))).toBe('leave');
     }
+  });
+
+  it('asks a person outright for blocked, spend-limit, unstarted, run-limit and checks-unanswered, with no fresh session first', () => {
+    for (const ending of NEEDS_PERSON_OUTRIGHT) {
+      expect(endingAction(readings({ ending: ending as EndingReason }))).toBe('needs-a-person');
+      // NO priorFreshSessions BRANCH: a slice's first time at one of these five
+      // still goes straight to a person, unlike corrections-spent/turn-limit/holding-work.
+      expect(endingAction(readings({ ending: ending as EndingReason, priorFreshSessions: 0 }))).toBe('needs-a-person');
+    }
+  });
+
+  it('leaves an outright needs-a-person ending alone once its PR merged — nobody sees a merged row, and a marker would refuse the reap', () => {
+    for (const ending of NEEDS_PERSON_OUTRIGHT) {
+      expect(endingAction(readings({ ending: ending as EndingReason, prMerged: 'merged' }))).toBe('leave');
+    }
+  });
+
+  it('still asks a person where the host could not say whether the PR merged — absent is not false', () => {
+    for (const ending of NEEDS_PERSON_OUTRIGHT) {
+      expect(endingAction(readings({ ending: ending as EndingReason, prMerged: 'unanswerable' }))).toBe('needs-a-person');
+    }
+  });
+
+  it('leaves an ending a person was already asked about — the answer removes the marker, not the ending', () => {
+    for (const ending of [...NEEDS_PERSON_OUTRIGHT, 'corrections-spent', 'turn-limit', 'holding-work']) {
+      const asked = readings({ ending: ending as EndingReason, priorFreshSessions: 1, endingAsked: true });
+      expect(endingAction(asked)).toBe('leave');
+      expect(endingAction({ ...asked, endingAsked: false })).toBe('needs-a-person');
+    }
+  });
+
+  it('an asked ending never stops a release or a first fresh session — the reading only answers for a person', () => {
+    expect(endingAction(readings({ endingAsked: true }))).toBe('release-claim');
+    expect(endingAction(readings({ ending: 'corrections-spent', endingAsked: true }))).toBe('start-fresh');
   });
 
   it('leaves a nothing-done ending with a commit beyond the claim alone', () => {
@@ -112,6 +153,86 @@ describe('endingAction', () => {
     for (const ending of EndingReasonSchema.options) {
       expect(endingAction(readings({ ending, hasManifest: true, branch: 'infra/prior', refusedAssignment: 'infra/x' }))).toBe('leave');
     }
+  });
+});
+
+describe('needsPersonMarker', () => {
+  it('names a broken invocation and a prompt or command fix for unstarted', () => {
+    const text = needsPersonMarker('unstarted', 'infra/x', 'exit 1: Session ID is already in use');
+    expect(text).toContain('infra/x');
+    expect(text).toContain('never ran a slice');
+    expect(text).toContain('fix the prompt or command');
+    expect(text).toContain('exit 1: Session ID is already in use');
+  });
+
+  it('names a spent spend-limit and asks whether to continue', () => {
+    const text = needsPersonMarker('spend-limit', 'infra/x', 'Agent max spend reached: $12.00');
+    expect(text).toContain('spend limit');
+    expect(text).toContain('$12.00');
+    expect(text).toContain('raise the spend limit');
+  });
+
+  it('names a spent run-limit and asks whether to continue', () => {
+    const text = needsPersonMarker('run-limit', 'infra/x', 'Slice max runs reached: 5');
+    expect(text).toContain('run limit');
+    expect(text).toContain('5');
+    expect(text).toContain('used every run');
+  });
+
+  it('names a no-answer checks-unanswered as an unwatched build', () => {
+    const text = needsPersonMarker('checks-unanswered', 'infra/x', 'no-answer: Checks wait expired after 1800s');
+    expect(text).toContain('No build ever answered');
+    expect(text).toContain('nothing from the build connector');
+    expect(text).not.toContain('remote tip moved');
+  });
+
+  it('names a tip-moved checks-unanswered as another commit shadowing this one', () => {
+    const text = needsPersonMarker('checks-unanswered', 'infra/x', 'tip-moved: remote tip is 0e64fafd, agent pushed f743e573');
+    expect(text).toContain('remote tip moved');
+    expect(text).toContain('0e64fafd');
+    expect(text).not.toContain('nothing from the build connector');
+  });
+
+  it('names a blocked agent\'s own report and asks how it should proceed', () => {
+    const text = needsPersonMarker('blocked', 'infra/x', 'the agent asked whether to drop the migration');
+    expect(text).toContain('reported it could not proceed');
+    expect(text).toContain('whether to drop the migration');
+    expect(text).toContain('how it should proceed');
+  });
+
+  it('gives every reason meaningfully distinct wording — no two share a sentence', () => {
+    const reasons: EndingReason[] = ['unstarted', 'spend-limit', 'run-limit', 'checks-unanswered', 'blocked'];
+    const texts = reasons.map((reason) => needsPersonMarker(reason, 'infra/x', 'the same detail'));
+    expect(new Set(texts).size).toBe(texts.length);
+  });
+
+  it('composes non-empty text naming the branch for every reason in NEEDS_PERSON_ENDINGS', () => {
+    expect(NEEDS_PERSON_ENDINGS.size).toBe(5);
+    for (const reason of NEEDS_PERSON_ENDINGS) {
+      const text = needsPersonMarker(reason, 'infra/x', 'd');
+      expect(text).toContain('infra/x');
+      expect(text).toContain('Decide');
+    }
+  });
+
+  it('composes the second-fresh-session question for corrections-spent, turn-limit and holding-work', () => {
+    for (const reason of ['corrections-spent', 'turn-limit', 'holding-work'] as const) {
+      const text = needsPersonMarker(reason, 'infra/x', 'ignored');
+      expect(text).toBe(secondFreshSessionMarker(reason, 'infra/x'));
+      expect(text).toContain('already had its one fresh session');
+      expect(text).toContain(`(${reason})`);
+    }
+  });
+
+  it('refuses to compose for an ending outside its five', () => {
+    expect(() => needsPersonMarker('nothing-done', 'infra/x', '')).toThrow();
+  });
+
+  it('says no detail was recorded when the ending carried none, for every reason that can fall back', () => {
+    for (const ending of ['unstarted', 'spend-limit', 'run-limit', 'blocked'] as const) {
+      expect(needsPersonMarker(ending, 'infra/x', '')).toContain('no detail was recorded');
+    }
+    expect(needsPersonMarker('checks-unanswered', 'infra/x', '')).toContain('no detail was recorded');
   });
 });
 
