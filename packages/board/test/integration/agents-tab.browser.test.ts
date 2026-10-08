@@ -6,6 +6,7 @@ import {
   fleet as buildFleet, type Catalogue,
 } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentEntry, type AgentRow, type Fleet, type Slice } from '../../src/contract/schema.js';
+import { agentPr, classify, type PrRecord } from '../../src/server/fleet.js';
 
 /**
  * The Agents tab, driven in a REAL browser against the shipped artifact.
@@ -3107,6 +3108,34 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => li.getByRole('link', { name: 'Pull request 149' }).count()).toBe(1);
       expect(await li.locator('[data-pr-state]').count()).toBe(0);
       expect(await li.textContent()).not.toContain('unknown');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders a PR with running checks and unknown mergeability in WAITING ON A MACHINE', async () => {
+    // #1164. The row's group, note and PR word come from the server's own
+    // `classify` and `agentPr` over the raw facts, so the page shows what the
+    // rule decides. On origin/main the same facts give `waiting-on-you`,
+    // "cannot say whether it merges" and the word `unknown`.
+    const record: PrRecord = {
+      number: 203, head: 'feature/ci-running', state: 'OPEN', draft: false, checks: 'pending',
+      review: '', mergeable: 'unknown', url: 'https://github.com/tiny/garden/pull/203',
+    };
+    const placed = classify('wip', 'eligible', 5, 30, record);
+    const page = await openAgents(fleet({
+      rows: [row({
+        branch: 'feature/ci-running', plan: 'beans', group: placed.group, ageMinutes: 5, note: placed.note,
+        pr: agentPr(record), branchUrl: `${GH}feature/ci-running`,
+      })],
+    }));
+    try {
+      await expect.poll(() => group(page, 'Waiting on a machine').locator('[data-branch="feature/ci-running"]').count())
+        .toBe(1);
+      await expect.poll(() => group(page, '^Waiting on you$').locator('[data-branch="feature/ci-running"]').count())
+        .toBe(0);
+      const li = rowFor(page, 'feature/ci-running');
+      expect(await li.locator('[data-pr-state="pending"]').textContent()).toBe('CI running');
     } finally {
       await page.close();
     }

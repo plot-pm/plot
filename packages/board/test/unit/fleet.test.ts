@@ -24,6 +24,7 @@ import {
 } from '../../src/contract/schema.js';
 import { showsWorkerLog } from '../../src/app/components/AgentList.js';
 import type { PrRecord } from '../../src/server/fleet.js';
+import { prRowPlacement } from '@plot-pm/domain';
 
 // The classifier is where the tab's judgments live: which group a branch lands
 // in IS the answer to "what should I do next". Tested as pure functions rather
@@ -3321,15 +3322,25 @@ describe('prState', () => {
     expect(prState(pr({ checks: 'green', mergeable: 'unknown' }))).toBe('unknown');
   });
 
-  it('says unknown for EVERY checks value when mergeability is unknown', () => {
+  it('says unknown for EVERY non-pending checks value when mergeability is unknown', () => {
     // The pairing that matters: an implementation special-casing only `green`
-    // passes the assertion above and leaves `pending`, `failing`, `none` and the
-    // rest claiming more than the host said. `checks` is not consulted at all
+    // passes the assertion above and leaves `failing`, `none` and the rest
+    // claiming more than the host said. `checks` is not consulted at all
     // here — the two fields answer DIFFERENT questions, and a green check says
     // nothing about whether a branch merges.
-    for (const checks of ['green', 'pending', 'failing', 'none', 'unknown', 'something-new']) {
+    for (const checks of ['green', 'failing', 'none', 'unknown', 'something-new']) {
       expect(prState(pr({ checks, mergeable: 'unknown' }))).toBe('unknown');
     }
+  });
+
+  it('says pending, not unknown, when a check already runs under unknown mergeability', () => {
+    // THE FIX: GitHub answers unknown for `mergeable` while it recomputes after
+    // every push, which is exactly when CI starts — #1164, observed on #1157 and
+    // #1159. A run already in flight is evidence the row can act on regardless
+    // of what `mergeable` says, so `pending` escapes the "unknown poisons
+    // everything" rule the test above still holds for every other value.
+    expect(prState(pr({ checks: 'pending', mergeable: 'unknown' }))).toBe('pending');
+    expect(prState(pr({ checks: 'pending', mergeable: undefined }))).toBe('pending');
   });
 
   it('says unknown for a record written before the field existed', () => {
@@ -5005,4 +5016,99 @@ describe('minutesSince', () => {
   it('returns null for a string that does not parse', () => {
     expect(minutesSince('not a date', NOW)).toBeNull();
   });
+});
+
+describe('a pending check outranks an unreadable mergeable', () => {
+  // #1164: GitHub answers `mergeable: unknown` while it recomputes after every
+  // push, which is exactly when CI starts. `classifyGroup`'s group and
+  // `prStates`' word must agree with `prRowPlacement` for the same row, or the
+  // board names one group and reads out a different sentence for it.
+  const pr = (over: Partial<PrRecord> = {}): PrRecord => ({
+    number: 1164, head: 'feature/x', state: 'OPEN', draft: false, checks: 'green', review: '',
+    mergeable: 'mergeable', url: 'https://example.test/pr/1164', ...over,
+  });
+
+  it('sends unknown mergeability with a running check to waiting-on-machine', () => {
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ mergeable: 'unknown', checks: 'pending' }));
+    expect(r.group).toBe('waiting-on-machine');
+    expect(r.note).toMatch(/CI running/);
+  });
+
+  it('sends absent mergeability with a running check to waiting-on-machine, same as unknown', () => {
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ mergeable: undefined, checks: 'pending' }));
+    expect(r.group).toBe('waiting-on-machine');
+    expect(r.note).toMatch(/CI running/);
+  });
+
+  it('keeps a conflicting PR on waiting-on-you even with a running check', () => {
+    // The conflict is read before the pending-escapes-unknown carve-out: a
+    // branch the host already knows does not merge gets no workflow run, so a
+    // `pending` rollup here would be stale rather than a run in flight.
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ mergeable: 'conflicting', checks: 'pending' }));
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toMatch(/conflicts/);
+  });
+
+  it('keeps unknown mergeability with green checks on waiting-on-you', () => {
+    // Every other checks value stays behind "cannot say whether it merges" —
+    // only a check already running escapes.
+    const r = classify('wip', 'eligible', 3, QUIET, pr({ mergeable: 'unknown', checks: 'green' }));
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toMatch(/cannot say whether it merges/);
+  });
+
+  it('agrees with prState on the same two escape rows', () => {
+    expect(prState(pr({ mergeable: 'unknown', checks: 'pending' }))).toBe('pending');
+    expect(prState(pr({ mergeable: undefined, checks: 'pending' }))).toBe('pending');
+  });
+
+  // The plan's table, one entry per (mergeable, checks) pair: the group, the
+  // clause, and the `prStates` word the row must show.
+  const CHECKS = ['green', 'pending', 'failing', 'none', 'unknown'] as const;
+  const UNREADABLE = ['unknown', undefined, 'some-future-word'] as const;
+  type Expected = { group: string; clause: string; word: string };
+  const TABLE: { mergeable: string | undefined; checks: string; expected: Expected }[] = [
+    ...CHECKS.map((checks) => ({
+      mergeable: 'conflicting', checks,
+      expected: { group: 'waiting-on-you', clause: 'conflicts', word: 'conflicts' },
+    })),
+    ...UNREADABLE.flatMap((mergeable) => CHECKS.map((checks) => ({
+      mergeable, checks,
+      expected: checks === 'pending'
+        ? { group: 'waiting-on-machine', clause: 'CI running', word: 'pending' }
+        : { group: 'waiting-on-you', clause: 'cannot say whether it merges', word: 'unknown' },
+    }))),
+    { mergeable: 'mergeable', checks: 'pending', expected: { group: 'waiting-on-machine', clause: 'CI running', word: 'pending' } },
+    { mergeable: 'mergeable', checks: 'failing', expected: { group: 'waiting-on-you', clause: 'checks failing', word: 'failing' } },
+    { mergeable: 'mergeable', checks: 'none', expected: { group: 'waiting-on-you', clause: 'no checks', word: 'none' } },
+    { mergeable: 'mergeable', checks: 'unknown', expected: { group: 'waiting-on-you', clause: 'cannot read the checks', word: 'unknown' } },
+    { mergeable: 'mergeable', checks: 'green', expected: { group: 'waiting-on-you', clause: 'green', word: 'green' } },
+  ];
+
+  for (const { mergeable, checks, expected } of TABLE) {
+    const name = `mergeable=${String(mergeable)} checks=${checks}`;
+    const sentence = (base: string) => (expected.clause === 'green' ? `${base} green` : `${base}, ${expected.clause}`);
+
+    it(`${name}: the rule, classifyGroup and prStates give ${expected.group}, "${expected.clause}", ${expected.word}`, () => {
+      const record = pr({ mergeable, checks });
+      expect(prRowPlacement({ mergeable, checks })).toEqual({ group: expected.group, clause: expected.clause });
+      const r = classify('wip', 'eligible', 3, QUIET, record);
+      expect(r.group).toBe(expected.group);
+      expect(r.note).toBe(sentence('PR #1164'));
+      expect(prStates(record)[0]).toBe(expected.word);
+    });
+
+    it(`${name}: prEvidence after a worker question says "${expected.clause}"`, () => {
+      const r = classify(
+        'wip', 'eligible', 3, QUIET, pr({ mergeable, checks }),
+        false, 0, 'approved', 'running', '', '', false, [], 'which way?');
+      expect(r.group).toBe('waiting-on-you');
+      expect(r.note).toBe(`waiting on you: which way? · ${sentence('PR #1164')}`);
+    });
+
+    it(`${name}: draftNote says ${expected.clause === 'green' ? 'nothing extra' : `"${expected.clause}"`}`, () => {
+      const note = draftNote(pr({ mergeable, checks, draft: true }));
+      expect(note).toBe(expected.clause === 'green' ? 'PR #1164, draft' : `PR #1164, draft, ${expected.clause}`);
+    });
+  }
 });

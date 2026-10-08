@@ -69,6 +69,7 @@ import {
   type PrIndex,
   type PrIndexRow,
   draftPlacement,
+  prRowPlacement,
 } from '@plot-pm/domain';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
@@ -4455,15 +4456,8 @@ const hasQuestion = (workerQuestion: string, questionAgeMinutes: number | null):
 const prEvidence = (pr: PrRecord): string => {
   if (pr.draft) return draftNote(pr);
   const base = `PR #${pr.number}`;
-  const clause =
-    pr.mergeable === 'conflicting' ? ', conflicts'
-      : pr.mergeable !== 'mergeable' ? ', cannot say whether it merges'
-        : pr.checks === 'pending' ? ', CI running'
-          : pr.checks === 'failing' ? ', checks failing'
-            : pr.checks === 'none' ? ', no checks'
-              : pr.checks === 'unknown' ? ', cannot read the checks'
-                : ' green';
-  return withNote(`${base}${clause}`, reviewNote(pr));
+  const { clause } = prRowPlacement({ mergeable: pr.mergeable, checks: pr.checks });
+  return withNote(clause === 'green' ? `${base} green` : `${base}, ${clause}`, reviewNote(pr));
 };
 
 /**
@@ -4957,49 +4951,18 @@ function classifyGroup(
     // open-only, so a closed PR never arrives — an arm for it would be dead code.
     // I wrote one on 2026-08-21 before reading that line; `prState` is where the
     // closed case belongs, and it is handled there.
-    if (pr.mergeable === 'conflicting') {
-      return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, conflicts`, note) };
-    }
-    // UNKNOWN MERGEABILITY, AND THE NOTE SAYS WHICH FACT IS MISSING.
     //
-    // Below `conflicting` and above the `checks` switch, mirroring `prState` —
-    // the row's word and its sentence must not be able to disagree.
-    //
-    // *cannot say whether it merges* rather than *checks unavailable*, because
-    // the two are not equally actionable and one label for both is the pattern
-    // this repo has spent the day removing: a missing `mergeable` sends a reader
-    // to check for a rebase, a missing `checks` sends them nowhere but back
-    // later. The checks may well be fine on this row — reporting them as
-    // unavailable would be a second false statement layered on the first.
-    //
-    // `!== 'mergeable'` rather than `=== 'unknown'`, matching `prState` exactly:
-    // the row's word and its sentence are derived separately and must agree on
-    // every input, including an adapter that omitted the field.
-    if (pr.mergeable !== 'mergeable') {
-      return {
-        group: 'waiting-on-you',
-        note: withNote(`PR #${pr.number}, cannot say whether it merges`, note),
-      };
-    }
-    switch (pr.checks) {
-      case 'pending':
-        return { group: 'waiting-on-machine', note: withNote(`PR #${pr.number}, CI running`, note) };
-      case 'failing':
-        return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, checks failing`, note) };
-      case 'none':
-        // Not green and not running: GitHub starts no workflow for a bot PR
-        // until a person approves the run. Saying why beats implying green.
-        return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, no checks`, note) };
-      case 'unknown':
-        // The host cannot report checks (Bitbucket). Unavailable, not green.
-        //
-        // *cannot read the checks*, paired with *cannot say whether it merges*
-        // above so the two absences are distinguishable in the sentence. This
-        // one is the less actionable of the pair: nothing to do yet, look again.
-        return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, cannot read the checks`, note) };
-      case 'green':
-        if (pr.draft) break; // a draft is still the author's, not yours
-        return { group: 'waiting-on-you', note: withNote(`PR #${pr.number} green`, note) };
+    // `prRowPlacement` decides the group AND the precedence that reaches it —
+    // conflict, then unknown mergeability, then the checks — so this arm no
+    // longer re-derives the order itself. Only the sentence is built here, from
+    // the rule's clause, keeping the exact wording each case already had.
+    const placement = prRowPlacement({ mergeable: pr.mergeable, checks: pr.checks });
+    // A green draft keeps its fall-through: still the author's, not yours, so
+    // nothing returns here and the function reads on to the arms below.
+    if (!(placement.clause === 'green' && pr.draft)) {
+      const sentence =
+        placement.clause === 'green' ? `PR #${pr.number} green` : `PR #${pr.number}, ${placement.clause}`;
+      return { group: placement.group, note: withNote(sentence, note) };
     }
   }
   if (state === 'open') {
@@ -5929,7 +5892,7 @@ export function reviewNote(pr: PrRecord): string {
  */
 export function draftNote(pr: PrRecord): string {
   const base = `PR #${pr.number}, draft`;
-  // Same precedence as `classify`, and for the same reason: a conflicting draft
+  // Same precedence as `classify`, via the same rule: a conflicting draft
   // reports an empty rollup, so reading `checks` first would say *no checks* on
   // every one of them. A draft is not exempt from needing a rebase.
   //
@@ -5938,14 +5901,8 @@ export function draftNote(pr: PrRecord): string {
   // read falls to its `checks`, and a green one then says nothing extra — the
   // silence that means *not ready for you, but otherwise fine* on a row where
   // the host declined to say so.
-  const checks =
-    pr.mergeable === 'conflicting' ? 'conflicts'
-      : pr.mergeable !== 'mergeable' ? 'cannot say whether it merges'
-        : pr.checks === 'failing' ? 'checks failing'
-          : pr.checks === 'pending' ? 'CI running'
-            : pr.checks === 'none' ? 'no checks'
-              : pr.checks === 'unknown' ? 'cannot read the checks'
-                : '';
+  const { clause } = prRowPlacement({ mergeable: pr.mergeable, checks: pr.checks });
+  const checks = clause === 'green' ? '' : clause;
   return withNote(checks ? `${base}, ${checks}` : base, reviewNote(pr));
 }
 
@@ -6027,12 +5984,19 @@ export type PrStateWord =
  * could not express, and it is not hypothetical: a run can complete before main
  * moves underneath the branch.
  *
- * `unknown` AND `green` ARE ALWAYS ALONE, and the two early returns are what
- * guarantee it. Unknown mergeability poisons the checks answer as well — the
- * `green-never-outranks-unknown` rule this function has carried since #165 —
- * so it answers `['unknown']` and appends nothing: a second entry beside it
- * would claim a knowledge the row does not have. Green is the absence of every
- * errand rather than a peer of one, so nothing composes with it either.
+ * `unknown` AND `green` ARE ALWAYS ALONE except for one case, and the early
+ * return below is what guarantees the rest. Unknown mergeability poisons the
+ * checks answer — the `green-never-outranks-unknown` rule this function has
+ * carried since #165 — so it answers `['unknown']` and appends nothing: a
+ * second entry beside it would claim a knowledge the row does not have. Green
+ * is the absence of every errand rather than a peer of one, so nothing
+ * composes with it either.
+ *
+ * `pending` is the one checks value unknown mergeability does NOT poison,
+ * matching `prRowPlacement`: a check already running is evidence the row's
+ * group reports regardless of what `mergeable` says, so the word agrees with
+ * the group instead of calling the same row `unknown` in one place and
+ * *waiting on a machine* in another.
  */
 export function prStates(pr: PrRecord): [PrStateWord, ...PrStateWord[]] {
   // CLOSED OUTRANKS EVERY CHECK, and it has to come first — the same rule the
@@ -6066,7 +6030,9 @@ export function prStates(pr: PrRecord): [PrStateWord, ...PrStateWord[]] {
   // of precedence: `mergeable === 'conflicting'` and `mergeable !== 'mergeable'`
   // are disjoint, so no input reaches a different answer. It reads in the order
   // the field is actually consulted.
-  if (pr.mergeable !== 'mergeable' && pr.mergeable !== 'conflicting') return ['unknown'];
+  if (pr.mergeable !== 'mergeable' && pr.mergeable !== 'conflicting') {
+    return pr.checks === 'pending' ? ['pending'] : ['unknown'];
+  }
   const checks = checkWord(pr.checks);
   if (pr.mergeable === 'conflicting') {
     // The conflict leads. The checks follow it ONLY where they are an errand of

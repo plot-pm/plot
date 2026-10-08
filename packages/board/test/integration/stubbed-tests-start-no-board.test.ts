@@ -647,7 +647,11 @@ const EXPECTED_FILES = 60;
 // 546 → 548 on 2026-10-05: two `it(` in the new
 // `question-renders-waiting-on-you.browser.test.ts` (#1287). A file was added,
 // so `EXPECTED_FILES` moves too.
-const EXPECTED_TESTS = 548;
+// 548 → 549 on 2026-10-07: one `it(` in `agents-tab.browser.test.ts`, for a PR
+// with running checks and unknown mergeability landing in WAITING ON A MACHINE
+// (#1164). It joins a file that already drove a page, so `EXPECTED_FILES` is
+// unchanged.
+const EXPECTED_TESTS = 549;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
