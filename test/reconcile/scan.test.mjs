@@ -1944,16 +1944,143 @@ before(() => {
 - \`feature/repeated\` — and again here, by the same plan
 `);
 
+  // A MOVED LISTING plus a LIVE listing of the same branch. The moved plan
+  // gave the branch away — its own reason says so — and does not claim it, so
+  // this pair must be silent. Distinguishes "filter before group_by" from
+  // "filter after": filtered after, the moved listing still raised the
+  // claimant count to 2 before being dropped, and the group still printed.
+  w('plans/2026-03-06-gave-it-away.md', `# Gave it away
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### Handoff
+- \`feature/handed-off\` <!-- deferred: moved to 2026-03-07-took-it-on on 2026-03-06 — the other plan owns this now --> — moved, not claimed
+`);
+  w('plans/2026-03-07-took-it-on.md', `# Took it on
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### Received
+- \`feature/handed-off\` — the live claimant
+`);
+
+  // A RELEASED plan and an APPROVED plan sharing a branch. Both are terminal
+  // only if phase is read loosely as "any claimant finished" — the plan says
+  // ALL, and the live Approved plan can still move this branch, so the pair
+  // must still report. Catches `any` in place of `all`.
+  w('plans/2026-03-08-done-already.md', `# Done already
+
+## Status
+
+- **Phase:** Released
+- **Type:** feature
+
+## Branches
+
+### Shipped
+- \`feature/mixed-terminal\` — this plan is finished
+`);
+  w('plans/2026-03-09-still-live.md', `# Still live
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### Active
+- \`feature/mixed-terminal\` — this plan is not finished
+`);
+
+  // A BARE \`deferred\` (no reason) and a \`deferred: waits on …\` reason that
+  // does NOT start with "moved to" — both still mean the plan holds the
+  // branch, so both stay claims and this pair must still report. Catches a
+  // filter keyed on the \`deferred\` flag instead of the \`moved to\` prefix.
+  w('plans/2026-03-10-bare-defer.md', `# Bare defer
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### Waiting
+- \`feature/still-held\` <!-- deferred --> — flagged, but still held
+`);
+  w('plans/2026-03-11-waits-on-defer.md', `# Waits on defer
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### Blocked
+- \`feature/still-held\` <!-- deferred: waits on 2026-03-10-bare-defer landing first --> — flagged, still held
+`);
+
+  // A pair of plans at the OTHER terminal phases — delivered, superseded,
+  // rejected — not just released. Catches a terminal set that stops at
+  // "released".
+  w('plans/2026-03-12-finished-delivered.md', `# Finished delivered
+
+## Status
+
+- **Phase:** Delivered
+- **Type:** feature
+
+## Branches
+
+### Done
+- \`feature/all-terminal\` — delivered
+`);
+  w('plans/2026-03-13-finished-superseded.md', `# Finished superseded
+
+## Status
+
+- **Phase:** Superseded
+- **Type:** feature
+
+## Branches
+
+### Done
+- \`feature/all-terminal\` — superseded
+`);
+
   fs.mkdirSync(path.join(dcRepo, 'plans', 'active'), { recursive: true });
   fs.mkdirSync(path.join(dcRepo, 'plans', 'delivered'), { recursive: true });
   // Link every plan so index drift stays silent — keeps this fixture's footer
-  // focused on double_claims without unrelated noise.
+  // focused on double_claims without unrelated noise. Plans at a terminal
+  // phase link under delivered/, the rest under active/.
   for (const [link, target] of [
     ['first-claimant.md', '../2026-03-01-first-claimant.md'],
     ['second-claimant.md', '../2026-03-02-second-claimant.md'],
     ['citing.md', '../2026-03-03-citing.md'],
     ['self-repeat.md', '../2026-03-05-self-repeat.md'],
+    ['gave-it-away.md', '../2026-03-06-gave-it-away.md'],
+    ['took-it-on.md', '../2026-03-07-took-it-on.md'],
+    ['still-live.md', '../2026-03-09-still-live.md'],
+    ['bare-defer.md', '../2026-03-10-bare-defer.md'],
+    ['waits-on-defer.md', '../2026-03-11-waits-on-defer.md'],
   ]) fs.symlinkSync(target, path.join(dcRepo, 'plans', 'active', link));
+  for (const [link, target] of [
+    ['done-already.md', '../2026-03-08-done-already.md'],
+    ['finished-delivered.md', '../2026-03-12-finished-delivered.md'],
+    ['finished-superseded.md', '../2026-03-13-finished-superseded.md'],
+  ]) fs.symlinkSync(target, path.join(dcRepo, 'plans', 'delivered', link));
 
   git(dcRepo, 'add', '-A');
   git(dcRepo, 'commit', '-q', '-m', 'plans');
@@ -2002,14 +2129,50 @@ test('scan: section 14 does not report a plan colliding with itself', () => {
   assert.doesNotMatch(dcSections['14'], /feature\/repeated/);
 });
 
+test('scan: section 14 is silent for a moved listing plus a live listing', () => {
+  // gave-it-away.md's reason starts with "moved to" — it gave the branch away
+  // and does not claim it, leaving took-it-on.md as the sole claimant. Catches
+  // a filter placed after group_by: filtered late, the moved listing still
+  // raises the claimant count to 2 before being dropped, and the group prints.
+  assert.doesNotMatch(dcSections['14'], /feature\/handed-off/);
+});
+
+test('scan: section 14 still reports a released plan plus an approved plan', () => {
+  // done-already.md (Released) and still-live.md (Approved) share a branch.
+  // The live plan can still move it, so "all claimants terminal" must not
+  // trigger on this pair. Catches `any` in place of `all`.
+  const hits = dcSections['14'].split('\n').filter((l) => l.includes('feature/mixed-terminal') && l.includes('claimed by'));
+  assert.equal(hits.length, 1, `expected exactly one collision finding, got:\n${hits.join('\n')}`);
+  assert.match(hits[0], /claimed by 2 plans/);
+});
+
+test('scan: section 14 still reports a bare deferred and a waits-on deferred as claims', () => {
+  // bare-defer.md's `<!-- deferred -->` carries no reason, and
+  // waits-on-defer.md's reason does not start with "moved to" — both still
+  // hold the branch. Catches a filter keyed on the `deferred` flag rather than
+  // the `moved to` prefix.
+  const hits = dcSections['14'].split('\n').filter((l) => l.includes('feature/still-held') && l.includes('claimed by'));
+  assert.equal(hits.length, 1, `expected exactly one collision finding, got:\n${hits.join('\n')}`);
+  assert.match(hits[0], /claimed by 2 plans/);
+});
+
+test('scan: section 14 is silent for a pair of delivered and superseded plans', () => {
+  // finished-delivered.md and finished-superseded.md are both terminal, just
+  // not Released. Catches a terminal set that stops at "released".
+  assert.doesNotMatch(dcSections['14'], /feature\/all-terminal/);
+});
+
 test('scan: section 14 footer counter matches the number of findings', () => {
-  // One collision (feature/contested). The counter must be wired to the same
-  // variable the body increments — a footer wired to a different variable is a
-  // bug no single-finding assertion above can see.
+  // Three collisions: feature/contested (two live Approved plans),
+  // feature/mixed-terminal (Released + Approved) and feature/still-held
+  // (bare deferred + waits-on deferred). The moved listing and the
+  // delivered+superseded pair stay silent. The counter must be wired to the
+  // same variable the body increments — a footer wired to a different
+  // variable is a bug no single-finding assertion above can see.
   const bodyFindings = dcSections['14'].split('\n').filter((l) => l.includes('claimed by')).length;
-  assert.equal(bodyFindings, 1, `expected 1 body finding, got ${bodyFindings}`);
+  assert.equal(bodyFindings, 3, `expected 3 body findings, got ${bodyFindings}`);
   const footer = dcReport.trim().split('\n').at(-1);
-  assert.match(footer, /\bdouble_claims=1\b/);
+  assert.match(footer, /\bdouble_claims=3\b/);
 });
 
 test('scan: a double claim leaves attention= unchanged — the section does NOT gate', () => {
