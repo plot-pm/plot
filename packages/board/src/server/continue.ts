@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
@@ -9,13 +10,15 @@ import { pulseFor } from './fleet.js';
 import type { FleetReading } from '../contract/schema.js';
 import { branchFromPulse } from './agent-panel.js';
 import { markerIn } from './worker-question.js';
-import { deskManifestFor, writeManifestStamp, writeResumeId } from './manifest-stamp.js';
+import { deskManifestFor, writeDeskManifest, writeManifestStamp, writeResumeId } from './manifest-stamp.js';
 import { localCapability } from './controllers/caller.js';
 import { briefPath } from './brief-path.js';
-import { deskMonitorsShell } from '@plot-pm/domain/adapters';
+import { deskMonitorsShell, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
 import type { DeskMonitors, MonitoredDesk, MonitorPids } from '@plot-pm/domain';
 import { deskLoopAlive, type DeskPidReading } from '@plot-pm/domain/rules/desk-loop-alive';
-import { readDeskPid } from './registry.js';
+import { continueTarget } from '@plot-pm/domain/rules/continue-target';
+import { readEnding, ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
+import { readDeskPid, resolveManifestDir } from './registry.js';
 
 /**
  * Continuing an answered agent — the board's SECOND state-changing route, and
@@ -579,6 +582,54 @@ const recordedLoopPids = (manifestFile: string): DeskPidReading[] => {
   ];
 };
 
+/** The desk's `.plot-worker.ending.json`, read as a value — `readEnding` as `registryd.ts` reads it. */
+const deskEnding = (worktree: string): ReturnType<typeof readEnding> => {
+  let text: string | null;
+  try {
+    text = fs.readFileSync(path.join(worktree, ENDING_FILENAME), 'utf8');
+  } catch {
+    text = null;
+  }
+  return readEnding(text);
+};
+
+/**
+ * The newest non-subagent transcript's own handle for this desk, or `''`.
+ *
+ * A blocked desk's manifest is gone — the whole premise of a `write` verdict
+ * — so the conversation to resume cannot be read off it. The runtime still
+ * keeps the transcript under `~/.claude/projects/<slug>/<handle>.jsonl`, named
+ * by `transcriptDirFor`, and a subagent's own file (`agent-*`) is excluded for
+ * the reason `Transcript.quietSeconds` excludes it: it is a true statement
+ * about the wrong process. The newest by mtime is the conversation the loop
+ * most recently wrote, which is the one a continuation should resume.
+ */
+const resumeIdFromTranscript = (worktree: string): string => {
+  const home = process.env[TRANSCRIPT_HOME_ENV] ?? os.homedir();
+  const dir = transcriptDirFor(worktree, home);
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return '';
+  }
+  let newest = '';
+  let newestMs = -1;
+  for (const name of names) {
+    if (!name.endsWith('.jsonl') || name.startsWith('agent-')) continue;
+    try {
+      const mtimeMs = fs.statSync(path.join(dir, name)).mtimeMs;
+      if (mtimeMs > newestMs) {
+        newestMs = mtimeMs;
+        newest = name.slice(0, -'.jsonl'.length);
+      }
+    } catch {
+      continue;
+    }
+  }
+  return newest;
+};
+
 /**
  * Whether a pid is alive, reading an unanswerable signal as alive.
  *
@@ -689,12 +740,36 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
   // ASKED BEFORE ANY WRITE, and that is the decision: a refused continuation
   // must leave no `.plot-continuation.md`, no appended log and no removed
   // `.plot-worker.exit`, or a reader finds a trace that looks like a started
-  // run. `deskManifestFor` answers `unnamed`/`several` apart so the sentence
-  // can name which one — see `ContinueRefusal.no-manifest`. `several` is
-  // refused rather than tie-broken: a first match would hide an estate defect
-  // the plan's second Open Point leaves open.
+  // run. `continueTarget` is the domain rule for all four refusals below —
+  // see its own docblock for the order and for why the ending record is a
+  // fallback rather than a second registry.
   const manifestAnswer = deskManifestFor(opts.repoRoot, worktree, opts);
-  if (manifestAnswer.kind !== 'named') {
+  const loopPids: DeskPidReading[] = [
+    { source: '.plot-worker.pid', pid: await readDeskPid(worktree) },
+    ...(manifestAnswer.kind === 'named' ? recordedLoopPids(manifestAnswer.path) : []),
+  ];
+  const loop = deskLoopAlive({ pids: loopPids, alive: pidAliveEverywhere });
+  const target = continueTarget({
+    branch,
+    manifest: manifestAnswer,
+    ending: deskEnding(worktree),
+    // Always true here — the route already refused `no-question` above,
+    // before `Worker command` was even read. `continueTarget` still asks the
+    // marker as its own first check (see its docblock), so this reading keeps
+    // the rule's own order intact for any other caller.
+    question: true,
+    loop,
+  });
+
+  if (target.kind === 'refused') {
+    if (target.reason === 'loop-alive') {
+      return refused(409, 'loop-alive', `pid ${loop.kind === 'alive' ? loop.pid : ''} (from ${loop.kind === 'alive' ? loop.source : ''}) is already running in this worktree`);
+    }
+    // `no-manifest` or `several` — `deskManifestFor` answers them apart so the
+    // sentence can name which one. `several` is refused rather than
+    // tie-broken: a first match would hide an estate defect the plan's second
+    // Open Point leaves open. A `blocked` ending for a different branch, or no
+    // usable ending at all, reads the same as `unnamed` always did.
     return refused(
       409,
       'no-manifest',
@@ -704,29 +779,30 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     );
   }
 
-  // REFUSE A LIVE LOOP; NEVER STOP IT. The plan's one Open Question is
-  // answered: a stop can lose a turn in progress, so this checks for a live
-  // pid and refuses rather than signalling one. Still before any write — see
-  // the comment above `manifestAnswer`, which this check shares the reason
-  // with. `deskLoopAlive` is the pure decision; the three readings — the desk
-  // pid file and the manifest's two fields — are read here, and `EPERM` reads
-  // as alive (the opposite of `deskPidAlive`'s direction — see
-  // `desk-loop-alive`'s docblock for why).
-  const loopPids: DeskPidReading[] = [
-    { source: '.plot-worker.pid', pid: await readDeskPid(worktree) },
-    ...recordedLoopPids(manifestAnswer.path),
-  ];
-  const loop = deskLoopAlive({ pids: loopPids, alive: pidAliveEverywhere });
-  if (loop.kind === 'alive') {
-    return refused(
-      409,
-      'loop-alive',
-      `pid ${loop.pid} (from ${loop.source}) is already running in this worktree`,
-    );
-  }
-
   if (input.beforeStart !== undefined && !(await input.beforeStart())) {
     return { kind: 'failed', error: 'the caller stopped the start before it began' };
+  }
+
+  // THE MANIFEST THIS RUN USES, FROM HERE ON — either the one `continueTarget`
+  // found, stamped in place, or a new one written because the desk's ending
+  // record says it is waiting for exactly this answer and none names it yet.
+  // `resumeId` is recovered from the desk's own transcript directory rather
+  // than minted, so the new loop resumes the blocked agent's conversation
+  // instead of starting a stranger's.
+  let manifestPath: string;
+  if (target.manifest === 'stamp') {
+    manifestPath = target.path;
+  } else {
+    const written = writeDeskManifest(resolveManifestDir(opts.repoRoot, opts), {
+      worktree,
+      branch,
+      command: cmd,
+      resumeId: resumeIdFromTranscript(worktree),
+    });
+    if (written === null) {
+      return { kind: 'failed', error: `cannot write a manifest naming ${worktree}; a start now would run unregistered` };
+    }
+    manifestPath = written;
   }
 
   // A FRESH SESSION IS DECIDED BEFORE ANY WRITE TO THE DESK. The loop resumes
@@ -734,10 +810,10 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
   // exists for it; a new id has no transcript, so the loop creates a session.
   // A manifest that cannot take the new id would resume the spent session, so
   // the start does not happen.
-  if (input.fresh === true && !writeResumeId(manifestAnswer.path, randomUUID())) {
+  if (input.fresh === true && !writeResumeId(manifestPath, randomUUID())) {
     return {
       kind: 'failed',
-      error: `cannot replace the resume id in ${manifestAnswer.path}; a start now would resume the previous session`,
+      error: `cannot replace the resume id in ${manifestPath}; a start now would resume the previous session`,
     };
   }
 
@@ -851,9 +927,9 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
         PLOT_PID_FILE: pidFile,
         // THE MANIFEST THAT NAMES THIS DESK, so the loop's own wait can end
         // honestly if that file later vanishes — `loopRegistration`'s `gone`.
-        // Refused above when none or several name the desk, so `manifestAnswer`
-        // is `named` here and this is never empty.
-        PLOT_MANIFEST_FILE: manifestAnswer.path,
+        // Refused above unless `continueTarget` found one to stamp or wrote a
+        // new one, so `manifestPath` is never empty here.
+        PLOT_MANIFEST_FILE: manifestPath,
         [CONTINUATION_ENV]: promptPath,
       },
     },
@@ -885,7 +961,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       desk: {
         branch,
         worktree,
-        manifestFile: manifestAnswer.path,
+        manifestFile: manifestPath,
         pidFile: path.join(worktree, '.plot-worker.pid'),
         log,
       },
@@ -896,14 +972,14 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // fix does not reach it; the manifest that names this worktree would keep
     // pointing at the process that already exited. `stampManifest` is the same
     // contract the awk implements (parity-tested), so a continued worker and a
-    // dispatched one leave an identical manifest. `manifestAnswer` is already
-    // `named` — refused above otherwise — so its path is reused rather than
-    // re-reading the registry directory a second time.
+    // dispatched one leave an identical manifest. `manifestPath` already names
+    // either the manifest `continueTarget` found or the one just written, so
+    // it is reused rather than re-reading the registry directory a second time.
     //
     // No wrapper and no WorkerMonitor exist for a continued run, so those two
     // are recorded `''`; omitting them would leave the previous dispatch's
     // pids on the row. The stamp re-emits the whole group on every write.
-    writeManifestStamp(manifestAnswer.path, {
+    writeManifestStamp(manifestPath, {
       pid: String(pid),
       startedAt: new Date().toISOString(),
       wrapperPid: '',

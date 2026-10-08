@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { resolveManifestDir } from './registry.js';
 import {
   deskManifest,
@@ -339,5 +340,82 @@ export const writeResumeId = (manifestPath: string, resumeId: string): boolean =
       /* nothing to clean up */
     }
     return false;
+  }
+};
+
+/** What {@link writeDeskManifest} needs to name a desk that no manifest names yet. */
+export interface DeskManifestFields {
+  /** The desk, absolute — written as `worktree` and matched by {@link deskManifestFor} afterwards. */
+  worktree: string;
+  /** The branch the desk holds. */
+  branch: string;
+  /** The configured `Worker command`. */
+  command: string;
+  /**
+   * The conversation to resume, or `''` to mint a fresh one.
+   *
+   * Never the manifest's own `session` — that field is this write's registry
+   * key, unrelated to which transcript the loop resumes. A blocked desk's
+   * conversation outlives its manifest, so the caller recovers it from the
+   * desk's transcript directory before calling this, and passes `''` only
+   * when none exists or a fresh session was asked for.
+   */
+  resumeId: string;
+}
+
+/**
+ * Write a manifest naming a desk that none names yet — the write
+ * {@link continueTarget}'s `write` verdict asks for.
+ *
+ * Mirrors `write_agent_manifest`'s field shape (`session`, `resumeId`,
+ * `branch`, `worktree`, `command`, `pid`, `attempts`, `startedAt`), with two
+ * differences from that shell writer and from {@link Agents.register}: the
+ * `resumeId` is the caller's, not forced to equal `session`, and `loop` /
+ * `slug` are written alongside — `loop` to match what every running loop
+ * stamps onto its own manifest after launch (`stampManifestLoopJs`), `slug`
+ * empty because nothing at registration time knows one.
+ *
+ * `session` is minted here (a fresh `randomUUID`) because this write has no
+ * dispatcher-assigned session to reuse — it only has the desk and the
+ * conversation to resume, which are different things. The filename is
+ * `<session>.json`, so two writes for the same desk never collide.
+ *
+ * Atomic: a temp file in the same directory, then `rename` — the discipline
+ * every manifest writer here shares, so a reader never sees a half-written
+ * file.
+ *
+ * @param dir - the registry directory, as {@link resolveManifestDir} answers.
+ * @param fields - the desk, its branch, its command, and the resumeId to carry.
+ * @returns the new manifest's path, or `null` where the directory could not be
+ *   created or the file could not be written.
+ */
+export const writeDeskManifest = (dir: string, fields: DeskManifestFields): string | null => {
+  const session = randomUUID();
+  const file = path.join(dir, `${session}.json`);
+  const tmp = `${file}.plot-tmp`;
+  const manifest = {
+    session,
+    resumeId: fields.resumeId,
+    branch: fields.branch,
+    worktree: fields.worktree,
+    command: fields.command,
+    loop: 'js',
+    slug: '',
+    pid: '',
+    attempts: 0,
+    startedAt: new Date().toISOString(),
+  };
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    fs.renameSync(tmp, file);
+    return file;
+  } catch {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      /* nothing to clean up */
+    }
+    return null;
   }
 };
