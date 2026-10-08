@@ -1,7 +1,5 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -10,6 +8,7 @@ import { shellContext } from '../src/adapters/scripts.js';
 import type { FleetReading } from '../src/entities/fleet.js';
 import { isAnswered } from '../src/port-result.js';
 import { compareField, describeDisagreement, type Disagreement } from './compare.js';
+import { PIN, pinClone, type PinnedClone } from './pin-clone.js';
 import { readFleetScan, type Estate } from './production.js';
 
 /**
@@ -216,62 +215,19 @@ let raw: Record<string, unknown>;
  * reads stale local refs and reports `open` where the adapter reads `merged`.
  * One failure became three (2026-08-31, reverted).
  *
- * So both still fetch, and both are pointed at a ref a fetch cannot move. The
- * pin lives in a DISPOSABLE CLONE, never in the shared repository — a run
- * killed before `afterAll` runs leaves nothing in the shared repo to restore,
- * because nothing in the shared repo was ever written. `beforeAll` clones
- * `ROOT` into a `mkdtempSync` directory, creates a real local branch there
- * named `plot-corpus-pin` at the real default branch's tip, and writes
- * `Main branch: plot-corpus-pin` into the CLONE's own `CLAUDE.md` copy — never
- * the tracked file. `plot-fleet-scan.sh` reads that key before it ever asks
- * `origin/HEAD` (`plot-fleet-scan.sh:335-336`), so both scans resolve the pin
- * from config and `default_branch`'s origin/HEAD-repair path is never
- * consulted. The clone is a full working-tree clone, so it carries its own
- * copy of `skills/plot/scripts/*.sh` at the commit it was cloned from — the
- * same scripts the adapter and production call, resolved from the SAME clone
- * root, so both readings run the identical script against the identical
- * estate.
+ * So both scans still fetch, and both read a disposable clone that
+ * {@link pinClone} builds. The clone's `origin` is a bare `source.git` whose
+ * branches are ROOT's `refs/remotes/origin/*` plus `plot-corpus-pin` at ROOT's
+ * `origin/<main>`. The scan's fetch (`plot-fleet-scan.sh:392`) therefore
+ * succeeds and moves nothing, and `Main branch: plot-corpus-pin` in the
+ * clone's own `CLAUDE.md` makes `cfg` answer before `default_branch` is asked
+ * (`plot-fleet-scan.sh:335-336`). Nothing in ROOT's `.git` is written, so a
+ * run killed at any point leaves nothing in the shared repository to restore.
  */
-const PIN = 'plot-corpus-pin';
-
-/** The real default branch, read from the shared repo before cloning. */
-const MAIN = (() => {
-  try {
-    return execFileSync('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
-      { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-      .trim().replace(/^origin\//, '');
-  } catch {
-    // NO `origin/HEAD` IS THE RUNNER'S NORMAL STATE, NOT AN ODD ONE, so falling
-    // back to '' here left the pin inert on EVERY CI run — the one environment
-    // where the race actually bites, because a runner clones while the estate
-    // is being merged into.
-    //
-    // Measured 2026-09-01 on PR #610, which already carried the branch-tip fix:
-    // six disagreements, all one cause. `read_ref` read `e0705bd9` against
-    // `4194d300` — two consecutive main commits — `eligible` differed by one,
-    // and four branches reported `conflicts: adapter=[] production=[the two
-    // board artifacts]`, which is exactly the window in which #608 merged and
-    // made them conflict. A working pin makes that impossible by construction.
-    //
-    // So ask the same question a second way rather than giving up on it. The
-    // scan itself falls back to `main` (`plot-fleet-scan.sh:204`), and the
-    // remote-tracking refs a checkout DOES have answer it directly.
-    for (const guess of ['main', 'master']) {
-      try {
-        execFileSync('git', ['rev-parse', '--verify', `refs/remotes/origin/${guess}`],
-          { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-        return guess;
-      } catch {
-        // Not this one; try the next.
-      }
-    }
-    return '';
-  }
-})();
+let pinned: PinnedClone | undefined;
 
 /** The clone's path, set once `beforeAll` has created it. `''` until then. */
 let CLONE = '';
-let pinned = false;
 
 const git = (...args: string[]): string =>
   execFileSync('git', args, { cwd: CLONE, encoding: 'utf8' }).trim();
@@ -299,15 +255,15 @@ const branchTips = (): Map<string, string> => {
  * The branches whose tip changed while the two scans ran — asked about two
  * commits, so compared for nothing that depends on which.
  *
- * THE PIN ABOVE FREEZES ONE ENDPOINT AND THIS COVERS THE OTHER. Every
- * per-branch reading is taken from `origin/<main>...origin/<branch>`: the pin
- * holds the left side still across both scans, and nothing can hold the right
- * side, because any of this estate's branches may gain a commit at any moment
- * and the two scans each fetch. Measured on CI 2026-09-01: PR #601 pushed its
- * second commit at 16:21:38Z, the corpus job started at 16:21:39Z, and the two
- * scans 36 s apart read that branch at its claim-only tip and then at its real
- * tip — disagreeing on `changed_paths` by exactly the changeset file that
- * landed between them.
+ * Every per-branch reading is taken from `origin/<main>...origin/<branch>`. The
+ * clone's `source.git` freezes BOTH endpoints: its branches are a copy of
+ * ROOT's remote-tracking refs, and nothing pushes to it while the scans fetch
+ * from it. So this set is empty on a working pin, and it reads the CLONE's
+ * `refs/remotes/origin/*` to prove that rather than assume it. It was needed
+ * before the clone: on CI 2026-09-01, PR #601 pushed its second commit at
+ * 16:21:38Z, the corpus job started at 16:21:39Z, and the two scans 36 s apart
+ * read that branch at two tips — disagreeing on `changed_paths` by exactly the
+ * changeset file that landed between them.
  *
  * A MEASUREMENT, NOT AN EXEMPTION, and that distinction is the whole design.
  * Adding `changed_paths` to the live-sample list would stop comparing the one
@@ -324,44 +280,10 @@ const branchTips = (): Map<string, string> => {
 let moved = new Set<string>();
 
 beforeAll(async () => {
-  // THE CLONE IS THE ONLY THING THAT CAN BE PINNED. A fresh `mkdtempSync`
-  // directory removed by its own exact path in `afterAll` means a run killed
-  // here — before the clone exists, mid-clone, or after — leaves the shared
-  // repository's `.git` untouched: there is no window in which this writes a
-  // ref the shared repo owns.
-  CLONE = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-corpus-'));
-  execFileSync('git', ['clone', '--quiet', ROOT, CLONE], { encoding: 'utf8' });
-
-  // NO `MAIN` MEANS NO PIN, AND THAT IS NOT A FAILURE. On a checkout that never
-  // created `origin/HEAD` there is nothing to freeze; the two scans then read
-  // the branch directly, exactly as they did before this pin existed. The race
-  // is a rare disagreement, and refusing to run at all would trade it for never
-  // running.
-  if (MAIN) {
-    // Resolved from ROOT, not from CLONE: a `git clone` carries the source's
-    // own branches, never the source's remote-tracking refs, so a ROOT that is
-    // itself a checkout of a PR — `origin/<MAIN>` only, no local `<MAIN>`
-    // branch — produces a clone with no `origin/<MAIN>` to rev-parse. ROOT is
-    // exactly where `MAIN` above already proved `refs/remotes/origin/<MAIN>`
-    // resolves, so the SHA is read there and handed to the clone as a value.
-    const head = execFileSync('git', ['rev-parse', `refs/remotes/origin/${MAIN}`], { cwd: ROOT, encoding: 'utf8' }).trim();
-    git('branch', PIN, head);
-    // `Main branch` is read before `default_branch()` is ever called
-    // (`plot-fleet-scan.sh:335-336`), so this line is the whole pin: neither
-    // scan consults `origin/HEAD`, and `plot-default-branch.sh`'s repair path
-    // is never reached. Inserted right after the `## Plot Config` heading —
-    // `plot-config.sh`'s section extraction runs until the NEXT `##` heading, so
-    // a line appended at EOF, well past `## Architecture` and every other
-    // heading, is outside the section and never seen; `cfg`'s `grep -m1` takes
-    // the first match regardless of what else the section holds. Written into
-    // the CLONE's own copy only — the tracked file at `ROOT` is never opened.
-    const claudeMd = path.join(CLONE, 'CLAUDE.md');
-    fs.writeFileSync(
-      claudeMd,
-      fs.readFileSync(claudeMd, 'utf8').replace(/^(## Plot Config\s*\n)/m, `$1- **Main branch:** ${PIN}\n`),
-    );
-    pinned = true;
-  }
+  // Throws with the reason when ROOT has no default branch to pin or a git
+  // call fails: a suite that cannot pin fails, it does not compare two worlds.
+  pinned = pinClone(ROOT);
+  CLONE = pinned.clone;
 
   // The right-side endpoint, before either scan reads it.
   const tipsBefore = branchTips();
@@ -390,7 +312,7 @@ afterAll(() => {
   // Removed by the EXACT path `mkdtempSync` returned, never a glob over the
   // shared temp directory — `scripts/owned-run.sh` fails a CI run that leaks
   // any temp entry under its private `TMPDIR`.
-  if (CLONE) fs.rmSync(CLONE, { recursive: true, force: true });
+  if (pinned) fs.rmSync(pinned.dir, { recursive: true, force: true });
 });
 
 describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
@@ -595,23 +517,25 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
   });
 
   it('pinned the clone, so the two scans were asked about one estate', () => {
-    // THE PIN'S FAILURE MODE IS SILENCE, which is why it needs its own
-    // assertion. `MAIN` resolving to '' skips the whole pin block, `pinned`
-    // stays false, and every test below still runs — against two moments
-    // instead of one. Nothing reports it; the suite simply becomes flaky in
-    // proportion to how busy the estate is.
+    // THE PIN'S FAILURE MODE IS SILENCE. Every comparison above passes when both
+    // scans read the same nothing: on 2026-10-08 a clone whose pin was a local
+    // branch gave `read_ref: unknown`, `plan_source: worktree` and
+    // `changed_paths: []` on all 18 branches, on both sides.
     //
-    // It was inert on EVERY CI run until 2026-09-01, because `actions/checkout`
-    // never creates `origin/HEAD` and the lookup fell back to ''. PR #610
-    // measured the cost: six disagreements in one run, all of them main moving
-    // between the two scans.
-    //
-    // Asserted rather than merely logged, because a warning in a green run is
-    // a warning nobody reads.
-    expect(MAIN).not.toBe('');
-    expect(pinned).toBe(true);
+    // `raw.main` fails if `cfg` stops answering `Main branch` and the scan asks
+    // `default_branch` instead. `read_ref` fails if `origin/plot-corpus-pin` is
+    // absent in the clone. `changed_paths` fails if the clone's
+    // `refs/remotes/origin/*` hold none of ROOT's branches.
+    const wireBranches = asArray(raw.plans)
+      .flatMap((plan) => wireSlices(plan))
+      .flatMap((slice) => asArray(slice.branches));
     expect(raw.main).toBe(PIN);
     expect(pulse.main).toBe(PIN);
+    expect(raw.fetch_failed).toBe(false);
+    expect(raw.plan_source).toBe('ref');
+    expect(raw.read_ref).not.toBe('unknown');
+    expect(pinned?.pinned.startsWith(String(raw.read_ref))).toBe(true);
+    expect(wireBranches.filter((branch) => asArray(branch.changed_paths).length > 0).length).toBeGreaterThan(0);
   });
 
   it('carries the readings the estate actually populates, so this is not vacuous', () => {

@@ -1,0 +1,133 @@
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+/**
+ * The branch name the corpus pins its clone's default branch to.
+ */
+export const PIN = 'plot-corpus-pin';
+
+/** What {@link pinClone} built, all of it under `dir`. */
+export type PinnedClone = {
+  /** The `mkdtempSync` directory that holds `source` and `clone`. Remove it by this exact path. */
+  readonly dir: string;
+  /** A bare repository whose branches are the shared repository's `refs/remotes/origin/*`, plus the pin. */
+  readonly source: string;
+  /** A working clone of `source`, checked out at the shared repository's `HEAD`. */
+  readonly clone: string;
+  /** The real default branch, read from the shared repository. */
+  readonly main: string;
+  /** The commit the pin names: the shared repository's `origin/<main>`. */
+  readonly pinned: string;
+};
+
+/** The setup steps, in order. `step` is called once after each. */
+export const PIN_STEPS = ['dir', 'source', 'clone', 'config'] as const;
+
+export type PinStep = (typeof PIN_STEPS)[number];
+
+const git = (cwd: string, args: readonly string[], input?: string): string =>
+  execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    input,
+    stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+  }).trim();
+
+const tryGit = (cwd: string, args: readonly string[]): string | undefined => {
+  try {
+    return git(cwd, args);
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * The shared repository's default branch: the target of `origin/HEAD`, else
+ * `main` or `master` when `refs/remotes/origin/<name>` exists.
+ *
+ * @throws when none of the three answers — an `actions/checkout` runner has no
+ *   `origin/HEAD`, so the fallback is the normal path there, not an odd one.
+ */
+export const defaultBranchOf = (root: string): string => {
+  const head = tryGit(root, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
+  if (head) return head.replace(/^origin\//, '');
+  for (const guess of ['main', 'master']) {
+    if (tryGit(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${guess}`])) return guess;
+  }
+  throw new Error(`pinClone: ${root} has no origin/HEAD, origin/main or origin/master to pin`);
+};
+
+/**
+ * Builds a disposable clone of `root` whose default branch is frozen at
+ * `plot-corpus-pin`, and writes nothing in `root`.
+ *
+ * Under one new `mkdtempSync` directory it creates:
+ *
+ * - `source.git`, a bare repository that borrows `root`'s objects through
+ *   `objects/info/alternates`. Its branches are `root`'s `refs/remotes/origin/*`
+ *   and `plot-corpus-pin` at `root`'s `origin/<main>`. Nothing moves them, so a
+ *   fetch from it is a no-op.
+ * - `clone`, a clone of `source.git`. Its `refs/remotes/origin/*` are `root`'s
+ *   remote-tracking refs plus `origin/plot-corpus-pin`, its `origin/HEAD` names
+ *   `origin/<main>`, and its tree is `root`'s `HEAD` with one line added to the
+ *   `## Plot Config` section of `CLAUDE.md`: `Main branch: plot-corpus-pin`.
+ *
+ * `root` is only read: `for-each-ref`, `rev-parse` and `symbolic-ref`.
+ *
+ * @param root - the shared repository.
+ * @param options.under - the parent of the new directory; the system temp directory by default.
+ * @param options.step - called after each of {@link PIN_STEPS}.
+ * @returns the paths and refs it built.
+ * @throws when `root` has no default branch to pin or a git call fails; the new
+ *   directory is removed first.
+ */
+export const pinClone = (
+  root: string,
+  { under = os.tmpdir(), step = () => {} }: { under?: string; step?: (name: PinStep) => void } = {},
+): PinnedClone => {
+  const main = defaultBranchOf(root);
+  const pinned = git(root, ['rev-parse', `refs/remotes/origin/${main}^{commit}`]);
+  const head = git(root, ['rev-parse', 'HEAD^{commit}']);
+  const objects = path.join(git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']), 'objects');
+
+  const dir = fs.mkdtempSync(path.join(under, 'plot-corpus-'));
+  try {
+    step('dir');
+
+    const source = path.join(dir, 'source.git');
+    git(dir, ['init', '--quiet', '--bare', source]);
+    fs.writeFileSync(path.join(source, 'objects', 'info', 'alternates'), `${objects}\n`);
+    const creates = git(root, ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/remotes/origin/'])
+      .split('\n')
+      .filter((line) => line && !line.endsWith(' refs/remotes/origin/HEAD'))
+      .map((line) => {
+        const [sha, ref] = line.split(' ');
+        return `create refs/heads/${ref.slice('refs/remotes/origin/'.length)} ${sha}`;
+      });
+    creates.push(`create refs/heads/${PIN} ${pinned}`);
+    git(source, ['update-ref', '--stdin'], `${creates.join('\n')}\n`);
+    git(source, ['symbolic-ref', 'HEAD', `refs/heads/${main}`]);
+    step('source');
+
+    const clone = path.join(dir, 'clone');
+    git(dir, ['clone', '--quiet', '--no-checkout', source, clone]);
+    git(clone, ['checkout', '--quiet', '--detach', head]);
+    step('clone');
+
+    // `plot-config.sh` reads a section up to the NEXT `##` heading, so the line
+    // goes directly under `## Plot Config`, and `cfg`'s `grep -m1` takes it.
+    const claudeMd = path.join(clone, 'CLAUDE.md');
+    const text = fs.readFileSync(claudeMd, 'utf8');
+    const edited = text.replace(/^(## Plot Config\s*\n)/m, `$1- **Main branch:** ${PIN}\n`);
+    if (edited === text) throw new Error(`pinClone: ${claudeMd} has no "## Plot Config" heading`);
+    fs.writeFileSync(claudeMd, edited);
+    step('config');
+
+    return { dir, source, clone, main, pinned };
+  } catch (error) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
+};
