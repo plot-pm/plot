@@ -60,8 +60,8 @@ export type EndingActionVerdict = 'release-claim' | 'start-fresh' | 'needs-a-per
 /**
  * Decides what the supervisor's tick should do about a desk whose worker
  * ended — this branch answers `release-claim` for `nothing-done` and
- * `leave` for everything else; later waves add rows for `corrections-spent`
- * and `turn-limit` without changing this signature.
+ * `leave` for everything else; a later change adds rows for
+ * `corrections-spent` and `turn-limit` without changing this signature.
  *
  * **THE LOOP ENDS, THE TICK RELEASES.** `agentLoop` cannot tell a live peer
  * from itself, and `releaseClaim` refuses an `agent-live` read from the
