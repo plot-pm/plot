@@ -50,7 +50,7 @@ Two lifecycle acts have no controller that owns their result. *The Master Agent 
 
 ### A claim has a release controller
 
-- `bug/a-claim-has-a-release-controller` — `releaseClaim` in the domain, `POST /api/release-claim`, `plot-ask.mjs release-claim` <!-- builds: POST /api/release-claim -->
+- `bug/a-claim-has-a-release-controller` — `releaseClaim` in the domain, `POST /api/release-claim`, `plot-ask.mjs release-claim` <!-- builds: POST /api/release-claim --> → #1363
 
 ## Done when
 
