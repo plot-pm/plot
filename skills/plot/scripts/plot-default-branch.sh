@@ -29,19 +29,12 @@
 # now points at, so a second occurrence is visible in a log rather than
 # invisible in a working system.
 #
-# IT DOES NOT REPAIR A SYMREF THAT RESOLVES. Only an unresolvable one is broken.
-# A clone whose `origin/HEAD` deliberately names a non-default branch is
-# somebody's choice, and `--auto` would silently overrule it.
-#
-# WHAT LEAVES THE PIN BEHIND IS NOT REPAIRED HERE, and the leave-alone rule is
-# what keeps this safe alongside it. `packages/domain/corpus/refs.corpus.test.ts`
-# repoints `origin/HEAD` at a `plot-corpus-pin` ref it creates in `beforeAll`
-# and restores in `afterAll` — deliberately, so two readings of the estate see
-# one world. While that suite runs the pin RESOLVES, so this repairs nothing and
-# the suite is unaffected. What was measured on 2026-09-04 is the state after a
-# run that never reached its `afterAll`: the symref left behind, the ref it
-# names gone. Fixing that belongs to the suite; this repairs the symptom and
-# reports it loudly enough that the cause stays findable.
+# IT REPAIRS A SYMREF THAT RESOLVES ONLY WHEN IT NAMES `plot-corpus-pin`. A
+# clone whose `origin/HEAD` deliberately names another non-default branch is
+# somebody's choice, and `--auto` would silently overrule it. No operator
+# chooses the pin: `packages/domain/corpus/refs.corpus.test.ts` pins its own
+# disposable clone, so a symref naming it in any other repository is the
+# leftover of an interrupted run.
 
 # Whether `refs/remotes/origin/HEAD` names a ref that exists.
 #
@@ -51,14 +44,17 @@
 # Usage: origin_head_resolves [<repo-dir>]
 # Returns: 0 when it resolves — including when there is no symref at all, which
 #          is a FRESH CLONE rather than a corruption and has nothing to repair.
+#          A symref naming `plot-corpus-pin` is corrupt even when it resolves:
+#          that name is left behind only by an interrupted corpus run, never by
+#          a live one, since the corpus pins its own clone.
 origin_head_resolves() {
   local dir="${1:-.}" target
   target=$(git -C "$dir" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null) || return 0
-  [ -n "$target" ] || return 0
+  case "$target" in '') return 0 ;; refs/remotes/origin/plot-corpus-pin) return 1 ;; esac
   git -C "$dir" rev-parse --verify --quiet "${target}^{commit}" >/dev/null 2>&1
 }
 
-# Repairs an unresolvable `refs/remotes/origin/HEAD`, and says what it did.
+# Repairs a `refs/remotes/origin/HEAD` that `origin_head_resolves` refuses, and says what it did.
 #
 # The repair is `git remote set-head origin --auto`, which asks the remote. It
 # is cheap — measured under a second — and it is the same command that fixed
@@ -70,16 +66,16 @@ origin_head_resolves() {
 #          this is a self-heal on a path that has its own refusal downstream,
 #          so it must never become a second way to stop.
 repair_origin_head() {
-  local dir="${1:-.}" was now
+  local dir="${1:-.}" was why
   origin_head_resolves "$dir" && return 0
 
   was=$(git -C "$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
+  why="does not resolve"; [ "$was" != origin/plot-corpus-pin ] || why="is the corpus pin, left by an interrupted corpus run"
   if ! git -C "$dir" remote set-head origin --auto >/dev/null 2>&1; then
-    echo "plot: origin/HEAD points at '$was', which does not resolve, and 'git remote set-head origin --auto' failed — the remote could not be asked." >&2
+    echo "plot: origin/HEAD points at '$was', which $why, and 'git remote set-head origin --auto' failed — the remote could not be asked." >&2
     return 0
   fi
-  now=$(git -C "$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
-  echo "plot: repaired origin/HEAD — it pointed at '$was', which does not exist on the remote; it now points at '${now:-<unset>}'." >&2
+  echo "plot: repaired origin/HEAD — it pointed at '$was', which $why; it now points at '$(git -C "$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo '<unset>')'." >&2
   return 0
 }
 
