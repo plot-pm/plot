@@ -33,6 +33,15 @@ const BASE = [
   row('d.sh', 'launcher', 'execs', 'board/d.mjs'),
 ];
 
+/** The files a Replaced by cell may name; the gate looks each one up in HEAD. */
+const EVIDENCE = [
+  'skills/plot/scripts/board/a.mjs',
+  'skills/plot/scripts/board/c.mjs',
+  'skills/plot/scripts/board/d.mjs',
+  'packages/domain/src/rules/a.ts',
+  'packages/domain/corpus/a.corpus.test.ts',
+];
+
 const put = (work, text) => {
   mkdirSync(path.dirname(path.join(work, README)), { recursive: true });
   writeFileSync(path.join(work, README), text);
@@ -53,6 +62,10 @@ const fixture = (text = readme(...BASE)) => {
   git(work, 'config', 'user.name', 'Fixture');
   git(work, 'config', 'user.email', 'fixture@example.com');
   put(work, text);
+  for (const file of EVIDENCE) {
+    mkdirSync(path.dirname(path.join(work, file)), { recursive: true });
+    writeFileSync(path.join(work, file), '// evidence\n');
+  }
   commit(work, 'initial');
   git(work, 'push', '-q', 'origin', 'HEAD:refs/heads/main');
   git(work, 'fetch', '-q', '--no-tags', 'origin', 'main:refs/remotes/origin/main');
@@ -118,20 +131,70 @@ test('a launcher needs the bundle in Replaced by, not in Purpose', withFixture((
 }));
 
 test('paired naming only a rule fails', withFixture(({ work }) => {
-  change(work, row('a.sh', 'paired', 'pairs with rules/a.ts'), ...BASE.slice(1));
+  change(work, row('a.sh', 'paired', 'pairs', 'rules/a.ts'), ...BASE.slice(1));
   assert.equal(run(work, ['pr']).status, 1);
 }));
 
 test('paired naming only a corpus test fails', withFixture(({ work }) => {
-  change(work, row('a.sh', 'paired', 'held by corpus/a.corpus.test.ts'), ...BASE.slice(1));
+  change(work, row('a.sh', 'paired', 'pairs', 'held by corpus/a.corpus.test.ts'), ...BASE.slice(1));
   assert.equal(run(work, ['pr']).status, 1);
 }));
 
 test('paired naming the rule and the corpus test passes', withFixture(({ work }) => {
-  change(work, row('a.sh', 'paired', 'rules/a.ts held by corpus/a.corpus.test.ts'), ...BASE.slice(1));
+  change(work, row('a.sh', 'paired', 'pairs', '`rules/a.ts` held by `packages/domain/corpus/a.corpus.test.ts`'), ...BASE.slice(1));
   const r = run(work, ['pr']);
   assert.equal(r.status, 0, r.out);
 }));
+
+test('paired naming the rule and the corpus test only in Purpose fails', withFixture(({ work }) => {
+  change(work, row('a.sh', 'paired', 'rules/a.ts held by corpus/a.corpus.test.ts'), ...BASE.slice(1));
+  assert.equal(run(work, ['pr']).status, 1);
+}));
+
+test('paired naming a rule file absent from HEAD fails', withFixture(({ work }) => {
+  change(work, row('a.sh', 'paired', 'pairs', 'rules/nope.ts held by corpus/a.corpus.test.ts'), ...BASE.slice(1));
+  assert.equal(run(work, ['pr']).status, 1);
+}));
+
+test('a decorated first cell still counts its script', withFixture(({ work }) => {
+  change(work, ...BASE, '| `e.sh` (sourced) | Does a thing | decision | once per operator command |  |\n');
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /3 scripts still decide or orchestrate now, 2 at merge base/);
+}));
+
+test('a table row whose first cell names no backticked script fails', withFixture(({ work }) => {
+  change(work, ...BASE, '| e.sh | Does a thing | decision | once per operator command |  |\n');
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /names no backticked \.sh script/);
+}));
+
+test('a gap inside the table fails rather than hiding the rows after it', withFixture(({ work }) => {
+  change(work, BASE[0], BASE[1], '\n', BASE[2], BASE[3], row('e.sh', 'decision'));
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /outside the Kind table: c\.sh/);
+}));
+
+test('a readings flip naming its bundle only in Purpose fails', withFixture(({ work }) => {
+  change(work, row('a.sh', 'readings', 'asks board/a.mjs'), ...BASE.slice(1));
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /a\.sh -> readings/);
+}));
+
+test('a launcher naming a bundle absent from HEAD fails', withFixture(({ work }) => {
+  change(work, row('a.sh', 'launcher', 'execs', 'board/nope.mjs'), ...BASE.slice(1));
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /a\.sh -> launcher/);
+}));
+
+test('a base row that keeps its kind needs no evidence', withFixture(({ work }) => {
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 0, r.out);
+}, readme(...BASE.slice(0, 2), row('f.sh', 'readings'), ...BASE.slice(2))));
 
 test('one row converted with its bundle and one new decision row is equal and passes', withFixture(({ work }) => {
   change(work, row('a.sh', 'launcher', 'execs', 'board/a.mjs'), BASE[1], BASE[2], BASE[3], row('e.sh', 'decision'));
