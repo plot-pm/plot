@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { deskLoopAlive, type DeskLoopReading, type DeskPidReading } from '../src/rules/desk-loop-alive.js';
+import { deskLoopAlive, deskWaitsFree, type DeskLoopReading, type DeskPidReading } from '../src/rules/desk-loop-alive.js';
 
 const reading = (pids: readonly DeskPidReading[], aliveSet: ReadonlySet<string>): DeskLoopReading => ({
   pids,
@@ -84,5 +84,27 @@ describe('deskLoopAlive', () => {
       new Set(['', '0', '-5', 'notapid', '12.5', '0123']),
     );
     expect(deskLoopAlive(r)).toEqual({ kind: 'none' });
+  });
+});
+
+describe('deskWaitsFree', () => {
+  it('answers false when the record is absent — absent is not a free wait', () => {
+    expect(deskWaitsFree({ text: null }, '111')).toBe(false);
+  });
+
+  it('answers false when the record is empty', () => {
+    expect(deskWaitsFree({ text: '' }, '111')).toBe(false);
+  });
+
+  it('answers true when the record names exactly this pid, whitespace trimmed', () => {
+    expect(deskWaitsFree({ text: '111\n' }, '111')).toBe(true);
+  });
+
+  it('answers false when the record names a different pid', () => {
+    expect(deskWaitsFree({ text: '222\n' }, '111')).toBe(false);
+  });
+
+  it('answers false when asked about an empty pid, even with a record present', () => {
+    expect(deskWaitsFree({ text: '' }, '')).toBe(false);
   });
 });

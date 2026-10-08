@@ -15,7 +15,13 @@ import { localCapability } from './controllers/caller.js';
 import { briefPath } from './brief-path.js';
 import { deskMonitorsShell, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
 import type { DeskMonitors, MonitoredDesk, MonitorPids } from '@plot-pm/domain';
-import { deskLoopAlive, type DeskPidReading } from '@plot-pm/domain/rules/desk-loop-alive';
+import {
+  deskLoopAlive,
+  deskWaitsFree,
+  FREE_WAIT_FILENAME,
+  type DeskPidReading,
+  type FreeWaitReading,
+} from '@plot-pm/domain/rules/desk-loop-alive';
 import { continueTarget } from '@plot-pm/domain/rules/continue-target';
 import { readEnding, ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { readDeskPid, resolveManifestDir } from './registry.js';
@@ -542,6 +548,14 @@ export interface DeskContinuationInput {
   beforeStart?: () => Promise<boolean>;
   /** Starts the AgentMonitor; defaults to the shell script under `scriptsDir`. */
   monitors?: DeskMonitors;
+  /**
+   * Stops a pid and waits for it to be gone; defaults to {@link stopAndAwaitExit}.
+   *
+   * Injected so a test can stop a real short-lived process without waiting on
+   * production's poll interval, and so a test can assert the order — stop
+   * completes before the manifest is touched — without a real exit to race.
+   */
+  stopLoop?: (pid: string) => Promise<void>;
 }
 
 /**
@@ -649,6 +663,52 @@ const pidAliveEverywhere = (pid: string): boolean => {
   }
 };
 
+/** The desk's `.plot-worker.freewait` record, read as a value — `''` when it cannot be read. */
+const deskFreeWait = (worktree: string): FreeWaitReading => {
+  try {
+    return { text: fs.readFileSync(path.join(worktree, FREE_WAIT_FILENAME), 'utf8') };
+  } catch {
+    return { text: null };
+  }
+};
+
+/**
+ * Signals a pid and waits for it to be gone — the stop `continueTarget`'s
+ * `stop` instructs, run before the manifest is touched.
+ *
+ * **ORDER IS THE WHOLE POINT.** `onStop` in `worker-loop.ts` removes
+ * `PLOT_MANIFEST_FILE` on `SIGTERM` before it exits, so a stamp or write that
+ * ran first would race the old loop's own cleanup and could be deleted by it.
+ * Waiting for the pid to actually exit — not merely sending the signal — is
+ * what closes that race: by the time this returns, the old loop's cleanup has
+ * already run or will never run.
+ *
+ * A pid already gone by the time this is called is success, not an error —
+ * the free wait may have ended on its own between the reading and the stop.
+ *
+ * @param pid - the exact pid `deskLoopAlive` named; never any other.
+ * @param pollMs - how often to re-check; overridable in tests.
+ * @returns once the pid no longer answers `kill -0` at all (reads `ESRCH`).
+ */
+const stopAndAwaitExit = async (pid: string, pollMs = 50): Promise<void> => {
+  const n = Number(pid);
+  try {
+    process.kill(n, 'SIGTERM');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ESRCH') return;
+    throw err;
+  }
+  for (;;) {
+    try {
+      process.kill(n, 0);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ESRCH') return;
+      throw err;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+};
+
 /** Appends one line to the desk's log, or to the board's stderr when the log cannot take it. */
 const logLine = (log: string, line: string): void => {
   try {
@@ -749,6 +809,10 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     ...(manifestAnswer.kind === 'named' ? recordedLoopPids(manifestAnswer.path) : []),
   ];
   const loop = deskLoopAlive({ pids: loopPids, alive: pidAliveEverywhere });
+  // Asked only when a loop is actually alive — a desk with none holds no
+  // pid for the record to name, so `deskWaitsFree` would only ever answer
+  // false and the read is wasted.
+  const loopWaitsFree = loop.kind === 'alive' && deskWaitsFree(deskFreeWait(worktree), loop.pid);
   const target = continueTarget({
     branch,
     manifest: manifestAnswer,
@@ -759,11 +823,13 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // the rule's own order intact for any other caller.
     question: true,
     loop,
+    loopWaitsFree,
   });
 
   if (target.kind === 'refused') {
     if (target.reason === 'loop-alive') {
-      return refused(409, 'loop-alive', `pid ${loop.kind === 'alive' ? loop.pid : ''} (from ${loop.kind === 'alive' ? loop.source : ''}) is already running in this worktree`);
+      const alive = loop.kind === 'alive' ? loop : undefined;
+      return refused(409, 'loop-alive', `pid ${alive?.pid ?? ''} (from ${alive?.source ?? ''}) is already running in this worktree`);
     }
     // `no-manifest` or `several` — `deskManifestFor` answers them apart so the
     // sentence can name which one. `several` is refused rather than
@@ -781,6 +847,17 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
 
   if (input.beforeStart !== undefined && !(await input.beforeStart())) {
     return { kind: 'failed', error: 'the caller stopped the start before it began' };
+  }
+
+  // THE STOP, BEFORE ANYTHING ELSE TOUCHES THE DESK. `continueTarget` carries
+  // `stop` only for a loop that reported its own pid waiting free — no turn to
+  // lose — and only after `beforeStart` ran, matching every other write below.
+  // Waiting for the pid to actually exit (not merely signalling it) is what
+  // keeps the old loop's own `SIGTERM` cleanup from deleting the manifest this
+  // function is about to stamp or write; see `stopAndAwaitExit`'s own doc.
+  if (target.stop !== undefined) {
+    const stop = input.stopLoop ?? stopAndAwaitExit;
+    await stop(target.stop.pid);
   }
 
   // THE MANIFEST THIS RUN USES, FROM HERE ON — either the one `continueTarget`

@@ -169,6 +169,32 @@ export interface Desk {
   clearLimitedRecord(worktree: string): Promise<PortResult<void>>;
 
   /**
+   * Records that the pid holding this desk now waits free — no branch
+   * assigned, asleep in its poll loop — OVERWRITING any earlier record.
+   *
+   * **A desk-local fact the loop holding the wait writes about itself.**
+   * `continueTarget` reads it to tell a free wait (which holds no turn, so
+   * stopping it loses no work) from every other live loop (which may be
+   * mid-turn, so stopping it can lose work). Matches
+   * {@link writeLimitedRecord}'s overwrite semantics: the file answers *is
+   * THIS pid free right now*, not a history of waits.
+   *
+   * @param worktree - the worktree the record lands in, absolute.
+   * @param pid - the waiting loop's own pid, as it would be signalled.
+   * @returns nothing; always answers rather than failing.
+   */
+  writeFreeWaitRecord(worktree: string, pid: string): Promise<PortResult<void>>;
+
+  /**
+   * Removes the free-wait record — a branch was assigned, or the loop is
+   * leaving.
+   *
+   * @param worktree - the worktree to clear, absolute.
+   * @returns nothing; always answers, matching {@link clearLimitedRecord}.
+   */
+  clearFreeWaitRecord(worktree: string): Promise<PortResult<void>>;
+
+  /**
    * Moves a worker's own `.plot-worker.pid` and `.plot-worker.wrapper.pid`
    * records from the desk it left to the desk it took.
    *
