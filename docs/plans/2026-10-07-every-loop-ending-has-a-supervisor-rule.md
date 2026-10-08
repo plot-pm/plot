@@ -65,7 +65,7 @@ Every other reason answers `leave`, and the open questions below name them. A de
 
 ### Endings that get a fresh agent
 
-- `infra/held-work-gets-a-fresh-agent` — the `holding-work` row with its commit-check-push answer, and `corrections-spent` and `turn-limit` moved from their two rules into `endingAction` <!-- builds: the fresh-agent rows of endingAction -->
+- `infra/held-work-gets-a-fresh-agent` — the `holding-work` row with its commit-check-push answer, and `corrections-spent` and `turn-limit` moved from their two rules into `endingAction` <!-- builds: the fresh-agent rows of endingAction --> → #1384
 
 ### Endings that ask a person
 
