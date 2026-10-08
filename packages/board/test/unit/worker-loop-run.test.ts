@@ -1143,9 +1143,18 @@ describe('configuration readers', () => {
     for (const raw of [undefined, '', '0', '-5', '0.5']) expect(positive(raw, 60)).toBe(60);
   });
 
-  it('reads a dollar amount, and an absent or unusable one as no limit rather than 0', () => {
-    expect(dollarsOrUnset('12.5')).toBe(12.5);
-    for (const raw of [undefined, '', '0', '-3', 'x']) expect(dollarsOrUnset(raw)).toBeNull();
+  it('reads a dollar amount, accepting a leading $ and/or trailing USD', () => {
+    for (const raw of ['20', '$20', '20 USD', '$ 20', '$20 usd', '$20USD']) expect(dollarsOrUnset(raw)).toEqual({ kind: 'value', amount: 20 });
+    expect(dollarsOrUnset('12.5')).toEqual({ kind: 'value', amount: 12.5 });
+    expect(dollarsOrUnset('$12.50 USD')).toEqual({ kind: 'value', amount: 12.5 });
+  });
+
+  it('reads an absent or blank key as unset, never as a limit of 0', () => {
+    for (const raw of [undefined, '', '  ']) expect(dollarsOrUnset(raw)).toEqual({ kind: 'unset' });
+  });
+
+  it('reads 0, a negative amount, and unparseable text as unreadable — not unset', () => {
+    for (const raw of ['0', '-3', 'x', '$20 USD extra']) expect(dollarsOrUnset(raw)).toEqual({ kind: 'unreadable' });
   });
 
   it('reads an integer of either sign for an offset', () => {
@@ -1186,6 +1195,31 @@ describe('main', () => {
     ).catch((e: unknown) => (e as Error).message);
     expect(typeof code === 'number' || typeof code === 'string').toBe(true);
   });
+
+  it('refuses to start on an unreadable Agent max spend or Slice max spend, before any take-up or runner start', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    for (const [key, raw] of [['Agent max spend', 'x'], ['Slice max spend', '0']] as const) {
+      const r = rig({ ...ASSIGNED, branch: '' }, []);
+      const config = (_root: string, k: string) => (k === key ? raw : undefined);
+      const code = await main({ PLOT_WORKTREE: r.wt, PLOT_MANIFEST_FILE: r.manifestFile }, r.dir, config, noStop);
+      expect(code).not.toBe(0);
+      expect(stderr).toHaveBeenCalledWith(`plot-worker-loop: unreadable ${key} "${raw}" — refusing to start\n`);
+      expect(r.read()).toEqual({ ...ASSIGNED, branch: '', worktree: r.wt });
+      expect(r.calls.clearedAssignments).toEqual([]);
+      expect(r.runs).toEqual([]);
+      stderr.mockClear();
+    }
+    stderr.mockRestore();
+  });
+
+  it('starts normally when both spend keys are absent, and when both read a dollar amount', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] });
+    vi.setSystemTime(ZURICH_NOON);
+    for (const config of [() => undefined, (_root: string, k: string) => (k.includes('max spend') ? '$20' : undefined)]) {
+      const r = rig({ ...ASSIGNED, branch: '' }, []);
+      expect(await driven(main({ PLOT_WORKTREE: r.wt, PLOT_MANIFEST_FILE: r.manifestFile, PLOT_WORKER_BOUND: '1' }, r.dir, config, noStop))).toBe(124);
+    }
+  });
 });
 
 describe('main — configuration', () => {
@@ -1201,6 +1235,8 @@ describe('main — configuration', () => {
     };
     expect(await driven(main({}, r.dir, config, noStop))).toBe(124);
     expect(asked).toEqual([
+      'Agent max spend',
+      'Slice max spend',
       'Worker bound',
       'Agent runner',
       'Worker command',
