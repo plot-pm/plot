@@ -27,6 +27,7 @@ import {
   CONTINUATION_NAME,
   handleContinue,
   continueOnDesk,
+  stopAndAwaitExit,
   type ContinueRefusal,
 } from '../../src/server/continue.js';
 import type { ContinueDeps } from '../../src/server/continue.js';
@@ -1339,6 +1340,7 @@ describe('a free-waiting loop is stopped, then the continuation starts — #1373
         assert.equal(pid, String(livePid), 'only the pid the reading named is ever signalled');
         process.kill(Number(pid), 'SIGKILL');
         manifestUnchangedDuringStop = fs.readFileSync(manifestFile, 'utf8') === manifestBeforeStop;
+        return { ok: true };
       },
     });
 
@@ -1365,6 +1367,7 @@ describe('a free-waiting loop is stopped, then the continuation starts — #1373
       readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? '' : fallback),
       stopLoop: async () => {
         stopCalled = true;
+        return { ok: true };
       },
     });
 
@@ -1372,6 +1375,187 @@ describe('a free-waiting loop is stopped, then the continuation starts — #1373
     assert.equal(result.kind === 'refused' ? result.reason : '', 'no-worker-command');
     assert.equal(stopCalled, false, 'a refusal that fires before continueTarget is ever asked must not stop anything');
     assert.doesNotThrow(() => process.kill(livePid, 0), 'the old loop is still running — the refusal did not touch it');
+    assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false);
+  });
+});
+
+describe('a stopped loop that removes its own manifest — #1376 review', () => {
+  // A FAKE LOOP WITH THE REAL LOOP'S `SIGTERM` CLEANUP: `worker-loop.ts`'s
+  // `leaveNow` removes `PLOT_MANIFEST_FILE` before the process exits, and that
+  // file is the manifest `continueOnDesk` stamps. No `stopLoop` is injected,
+  // so the production stop sends the signal and the handler runs.
+  const loops: number[] = [];
+
+  afterEach(() => {
+    while (loops.length) {
+      const pid = loops.pop()!;
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }
+  });
+
+  const startFakeLoop = async (manifestFile: string, ready: string): Promise<number> => {
+    const script = [
+      "const fs = require('node:fs');",
+      'const [manifest, ready] = process.argv.slice(1);',
+      "process.once('SIGTERM', () => { fs.rmSync(manifest, { force: true }); process.exit(143); });",
+      'fs.writeFileSync(ready, String(process.pid));',
+      'setInterval(() => {}, 1000);',
+    ].join('\n');
+    const child = spawn(process.execPath, ['-e', script, manifestFile, ready], { stdio: 'ignore' });
+    assert.ok(child.pid !== undefined, 'the fake loop must spawn');
+    loops.push(child.pid);
+    const deadline = Date.now() + 10_000;
+    while (!fs.existsSync(ready) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    assert.ok(fs.existsSync(ready), 'the fake loop installed its SIGTERM handler within 10s');
+    return child.pid;
+  };
+
+  /** A desk whose loop waits free, and a pretty-printed manifest naming it. */
+  const freeWaitingDesk = async (): Promise<{ wt: string; dir: string; file: string; pid: number }> => {
+    const wt = worktree();
+    dirs.push(wt);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-leaving-'));
+    manifestDirs.push(dir);
+    const file = path.join(dir, 'sess.json');
+    const pid = await startFakeLoop(file, path.join(dir, 'ready'));
+    fs.writeFileSync(
+      file,
+      `${JSON.stringify(
+        {
+          session: 'sess',
+          resumeId: 'the-blocked-conversation',
+          branch: BRANCH,
+          worktree: wt,
+          pid: String(pid),
+          wrapperPid: '',
+          agentMonitorPid: '777777',
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    fs.writeFileSync(path.join(wt, '.plot-worker.pid'), String(pid));
+    fs.writeFileSync(path.join(wt, '.plot-worker.freewait'), `${pid}\n`);
+    return { wt, dir, file, pid };
+  };
+
+  it('POST /api/continue keeps the manifest and its resumeId after the stop', async () => {
+    const { wt, dir, file, pid } = await freeWaitingDesk();
+    const { res, out } = response();
+
+    // The manifest records a made-up monitor pid, so no real monitor script may stop it.
+    const monitors: DeskMonitors = { start: () => ({ ok: true, value: { agentMonitorPid: '' } }), stop: () => ({ ok: true, value: [] }) };
+    await handleContinue(request({ branch: BRANCH, answer: 'go' }), res, { ...opts, manifestDir: dir }, { ...deps(wt, 'sleep 2'), monitors });
+    if (out.status === 202) spawned.add(wt);
+
+    assert.equal(out.status, 202, JSON.stringify(out.body));
+    assert.throws(() => process.kill(pid, 0), 'the free-waiting loop is gone');
+    assert.ok(fs.existsSync(file), 'the manifest the stopped loop removed is back');
+    const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.equal(manifest.resumeId, 'the-blocked-conversation');
+    assert.equal(manifest.pid, (out.body as { pid: string }).pid, 'the manifest names the new run');
+    assert.equal(deskManifestFor('/tmp', wt, { manifestDir: dir }).kind, 'named');
+  });
+
+  it('a fresh start (the registry tick) replaces the resumeId and stops the old monitor', async () => {
+    const { wt, dir, file } = await freeWaitingDesk();
+    const stopped: string[][] = [];
+    const monitors: DeskMonitors = {
+      start: () => ({ ok: true, value: { agentMonitorPid: '' } }),
+      stop: (pids) => {
+        stopped.push([...pids]);
+        return { ok: true, value: [] };
+      },
+    };
+
+    const result = await continueOnDesk({
+      opts: { ...opts, manifestDir: dir },
+      readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'sleep 2' : fallback),
+      branch: BRANCH,
+      worktree: wt,
+      main: 'main',
+      previousPid: '',
+      answer: 'the composed answer',
+      fresh: true,
+      monitors,
+    });
+    if (result.kind === 'started') spawned.add(wt);
+
+    assert.equal(result.kind, 'started', JSON.stringify(result));
+    const resumeId = JSON.parse(fs.readFileSync(file, 'utf8')).resumeId as string;
+    assert.notEqual(resumeId, 'the-blocked-conversation');
+    assert.match(resumeId, /^[0-9a-f-]{36}$/);
+    assert.deepEqual(stopped, [['777777']], 'the monitor the old manifest recorded is stopped');
+  });
+
+  it('refuses loop-alive, and sends no signal, when the free wait ended before the stop', async () => {
+    const { wt, dir, pid } = await freeWaitingDesk();
+    const result = await continueOnDesk({
+      opts: { ...opts, manifestDir: dir },
+      readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'true' : fallback),
+      branch: BRANCH,
+      worktree: wt,
+      main: 'main',
+      previousPid: '',
+      answer: 'the composed answer',
+      // The loop takes up a turn between the reading and the stop.
+      beforeStart: async () => {
+        fs.rmSync(path.join(wt, '.plot-worker.freewait'));
+        return true;
+      },
+    });
+
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'loop-alive');
+    assert.doesNotThrow(() => process.kill(pid, 0), 'a loop that left its free wait is never signalled');
+  });
+
+  it('stopAndAwaitExit gives up past its deadline, naming the pid', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-stubborn-'));
+    manifestDirs.push(dir);
+    const ready = path.join(dir, 'ready');
+    const script = "process.on('SIGTERM', () => {}); require('node:fs').writeFileSync(process.argv[1], ''); setInterval(() => {}, 1000);";
+    const child = spawn(process.execPath, ['-e', script, ready], { stdio: 'ignore' });
+    assert.ok(child.pid !== undefined);
+    loops.push(child.pid);
+    const deadline = Date.now() + 10_000;
+    while (!fs.existsSync(ready) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+
+    const result = await stopAndAwaitExit(String(child.pid), 20, 300);
+
+    assert.deepEqual(result, { ok: false, why: `pid ${child.pid} did not exit within 300 ms of SIGTERM` });
+    assert.doesNotThrow(() => process.kill(child.pid!, 0), 'the stubborn process still runs');
+  });
+
+  it('stopAndAwaitExit answers ok for a pid that is already gone', async () => {
+    const child = spawn('true', [], { stdio: 'ignore' });
+    await new Promise((r) => child.once('exit', r));
+    assert.deepEqual(await stopAndAwaitExit(String(child.pid)), { ok: true });
+  });
+
+  it('refuses loop-alive, naming the pid, when the stop does not end the loop', async () => {
+    const { wt, dir, file, pid } = await freeWaitingDesk();
+    const result = await continueOnDesk({
+      opts: { ...opts, manifestDir: dir },
+      readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'true' : fallback),
+      branch: BRANCH,
+      worktree: wt,
+      main: 'main',
+      previousPid: '',
+      answer: 'the composed answer',
+      stopLoop: async (p) => ({ ok: false, why: `pid ${p} did not exit within 10s of SIGTERM` }),
+    });
+
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'loop-alive');
+    assert.match(result.kind === 'refused' ? result.detail : '', new RegExp(`pid ${pid}`));
+    assert.ok(fs.existsSync(file), 'a refused stop writes nothing');
     assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false);
   });
 });
