@@ -24,6 +24,13 @@ The plan is canonical; this is orientation.
 
 **Reproduce before fixing.** `git rev-parse --show-toplevel` often already returns the real path, so the mismatch may come from `cwd` (passed through `process.cwd()` or the caller) rather than from `root`. Make the failing fixture first: a repository created under a symlinked directory (`fs.symlinkSync` to a real directory, then `cwd` = the symlink path), assert the printed command, and watch it fail on `main`. Fix the side the fixture shows to be wrong. Do not normalise blindly on both sides if only one differs.
 
+**Answered 2026-10-08 (plan Notes, direction from jwloka): #1317 does not reproduce through the entry point.** On macOS with git 2.55.0 and Node 18 to 24, `process.cwd()` and `git rev-parse --show-toplevel` already return the real path, so `repoRoot` is never the symlinked form. This ends the reproduction question above; do not spend more time trying to reproduce it end to end. Instead:
+
+- Keep the `realpathSync` fix as a defensive change, in the `desk-manifest.ts` pattern.
+- Meet the "fails on `origin/main`" criterion at a seam: give the code that builds the `{changed}` paths a symlinked root, and assert the printed path is the real path. That test fails on `main`.
+- Keep the vitest root-versus-argument fixture as evidence of the mechanism.
+- State the deviation in the PR body and write `Refs #1317`, not `Closes #1317`.
+
 **A path that does not exist cannot be realpath-ed.** A changed file that the branch deleted has no real path. Resolve the real directory of the root and join the relative path; do not call `realpath` on a deleted file, and do not drop it from `changed`.
 
 **Rules carried over unchanged.**
