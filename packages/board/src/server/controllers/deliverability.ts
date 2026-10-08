@@ -1,6 +1,6 @@
 import { deliver, refused, type DeliverBranchReading } from '@plot-pm/domain';
 import type { Host, PlanStore, Refs } from '@plot-pm/domain';
-import type { PrIndex, PrIndexRow } from '@plot-pm/domain/entities/pr-index';
+import { mergedRowByHead } from '@plot-pm/domain/rules/merged-row';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 
 /**
@@ -65,45 +65,6 @@ const branchesOf = (
   }
   return [...seen].map(([branch, deferred]) => ({ branch, deferred }));
 };
-
-/**
- * The one state a stored row may be trusted for, however old the row is.
- *
- * A MERGED PR CANNOT REVERT ON THE HOST — `PLOT_TERMINAL_CACHE`'s licence
- * (`plot-fleet-scan.sh:1234`), adopted here for the same reason
- * `entry/pr-index-lookup-answer.ts` adopted it: `OPEN`, `CLOSED` and a draft
- * are all reachable from one another, so a stored one is stale in EITHER
- * direction and the host gets the last word on it.
- */
-const TERMINAL = 'MERGED';
-
-/**
- * Whether a row may be answered from without asking the host.
- *
- * @param row - the row the store holds.
- * @returns whether the row's answer can no longer change.
- */
-const isTerminal = (row: PrIndexRow): boolean =>
-  row.state.toUpperCase() === TERMINAL && !row.draft;
-
-/**
- * The MERGED row whose head is this branch, or undefined where none is.
- *
- * Shared with `entry/pr-index-lookup-answer.ts`'s shell consumer rather than
- * duplicated: `controllers/` cannot import from `entry/`, so the pure
- * function lives here and that file calls it.
- *
- * MERGED ONLY, AND THE LOWEST NUMBER WINS where a branch carries several —
- * arbitrary but stable, which is all a delivery gate needs from it.
- *
- * @param held - the store, already read.
- * @param branch - the branch to match against heads.
- * @returns the lowest-numbered merged row for the branch, or undefined.
- */
-export const mergedRowByHead = (held: PrIndex, branch: string): PrIndexRow | undefined =>
-  held.rows
-    .filter((row) => row.head === branch && isTerminal(row))
-    .sort((a, b) => a.number - b.number)[0];
 
 /** How one branch's merge state resolved. */
 type BranchMergeState = 'merged' | 'not-merged' | 'unknown';
@@ -270,10 +231,13 @@ export const deliverabilityOf = async (
   // under the wrong name would read (or write) a different host's rows.
   const backend = await ports.host.backend();
   const connector = backend.ok ? backend.value : 'github';
+  // A DEFERRED BRANCH IS NOT ASKED. It is silent by rule, so its merge state
+  // decides nothing, and asking it could only spend a host call or turn an
+  // `unknown` into a `cannot-tell` refusal for a branch delivery ignores.
   const merged = await mergedBranches(
     { host: ports.host, prIndex: ports.prIndex },
     connector,
-    named.map((b) => b.branch),
+    named.filter((b) => !b.deferred).map((b) => b.branch),
   );
 
   // A HOST THAT COULD NOT ANSWER REFUSES AS `cannot-tell`, NEVER AS UNMERGED.

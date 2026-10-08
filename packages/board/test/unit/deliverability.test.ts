@@ -19,7 +19,6 @@ import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 
 import {
   deliverabilityOf,
-  mergedRowByHead,
   type DeliverabilityPorts,
 } from '../../src/server/controllers/deliverability.js';
 
@@ -164,6 +163,38 @@ describe('deliverabilityOf reads the PR store before the host', () => {
     expect(answer.refusal).toContain(unresolved);
   });
 
+  it('does not refuse as cannot-tell for a deferred branch the host cannot answer', async () => {
+    const owed = 'feature/owed';
+    const parked = 'feature/parked';
+    const host: Host = {
+      ...throwingHostExceptMergeCommit(),
+      prMerged: async (branch: string) =>
+        branch === parked
+          ? ({ ok: true, value: 'unknown' } as const)
+          : ({ ok: true, value: 'merged' } as const),
+    };
+    const deferredPlan = planRecord({
+      file: FILE,
+      slices: [
+        {
+          name: 'one',
+          branches: [
+            { branch: owed, deferred: false, deferredReason: '', claimed: '', waitsOn: [] },
+            { branch: parked, deferred: true, deferredReason: 'later', claimed: '', waitsOn: [] },
+          ],
+        },
+      ],
+    });
+    const p = ports([deferredPlan], host, prIndexFixture(null));
+
+    const answer = await deliverabilityOf(p, SLUG, FILE);
+
+    expect(answer.reason).not.toBe('cannot-tell');
+    expect(answer.deliverable).toBe(true);
+    expect(answer.merged).toBe(1);
+    expect(answer.deferred).toBe(1);
+  });
+
   it('asks the host when the stored row is OPEN, giving the host the last word', async () => {
     const branch = 'feature/reopened';
     const host: Host = {
@@ -218,17 +249,5 @@ describe('deliverabilityOf reads the PR store before the host', () => {
 
     expect(answer.deliverable).toBe(true);
     expect(answer.merged).toBe(1);
-  });
-});
-
-describe('mergedRowByHead', () => {
-  it('is undefined for a branch with no terminal row', () => {
-    const held = store([openRow(1, 'feature/a')]);
-    expect(mergedRowByHead(held, 'feature/a')).toBeUndefined();
-  });
-
-  it('picks the lowest-numbered merged row where several match', () => {
-    const held = store([mergedRow(5, 'feature/a'), mergedRow(2, 'feature/a')]);
-    expect(mergedRowByHead(held, 'feature/a')?.number).toBe(2);
   });
 });
