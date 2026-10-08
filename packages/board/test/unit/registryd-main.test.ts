@@ -1916,8 +1916,8 @@ describe('startNothingDoneReleases', () => {
   const deps = (released: string[]) => ({
     deskFile: nothingDoneDeskFile,
     ports: {
-      hasCommits: async () => 'no' as const,
-      prOpen: async () => false,
+      commitBeyondClaim: async (): Promise<'yes' | 'no' | 'unanswerable'> => 'no',
+      prOpen: async (): Promise<boolean | 'unanswerable'> => false,
       release: async (branch: string) => {
         released.push(branch);
         return { released: true, detail: 'released' };
@@ -1949,7 +1949,7 @@ describe('startNothingDoneReleases', () => {
   it('leaves a desk with a commit beyond its claim alone', async () => {
     const released: string[] = [];
     const left = deps(released);
-    left.ports.hasCommits = async () => 'yes' as const;
+    left.ports.commitBeyondClaim = async () => 'yes';
     const applied = await startNothingDoneReleases(report([desk]), left, () => {}, () => {});
     expect(applied).toEqual([]);
     expect(released).toEqual([]);
@@ -1961,6 +1961,38 @@ describe('startNothingDoneReleases', () => {
     left.ports.prOpen = async () => true;
     const applied = await startNothingDoneReleases(report([desk]), left, () => {}, () => {});
     expect(applied).toEqual([]);
+    expect(released).toEqual([]);
+  });
+
+  it('leaves a desk alone when the host could not say whether a PR is open', async () => {
+    const released: string[] = [];
+    const left = deps(released);
+    left.ports.prOpen = async () => 'unanswerable';
+    const applied = await startNothingDoneReleases(report([desk]), left, () => {}, () => {});
+    expect(applied).toEqual([]);
+    expect(released).toEqual([]);
+  });
+
+  it('releases the refused assignment of a take-up holding-work and never the desk\'s own branch (#1281)', async () => {
+    const released: string[] = [];
+    const takeUp = deps(released);
+    takeUp.deskFile = (_worktree: string, name: string): string | null =>
+      name === '.plot-worker.ending.json'
+        ? JSON.stringify({ reason: 'holding-work', actor: 'agent', branch: 'feature/x', detail: '', refusedAssignment: 'infra/assigned' })
+        : null;
+    const applied = await startNothingDoneReleases(report([desk]), takeUp, () => {}, () => {});
+    expect(released).toEqual(['infra/assigned']);
+    expect(applied.map((a) => a.branch)).toEqual(['infra/assigned']);
+  });
+
+  it('releases nothing for a holding-work ending that refused no assignment', async () => {
+    const released: string[] = [];
+    const held = deps(released);
+    held.deskFile = (_worktree: string, name: string): string | null =>
+      name === '.plot-worker.ending.json'
+        ? JSON.stringify({ reason: 'holding-work', actor: 'agent', branch: 'feature/x', detail: '' })
+        : null;
+    expect(await startNothingDoneReleases(report([desk]), held, () => {}, () => {})).toEqual([]);
     expect(released).toEqual([]);
   });
 
@@ -1980,7 +2012,7 @@ describe('startNothingDoneReleases', () => {
   it('reports a step that throws and does not rethrow', async () => {
     const errors: string[] = [];
     const broken = deps([]);
-    broken.ports.hasCommits = async () => {
+    broken.ports.commitBeyondClaim = async () => {
       throw new Error('git exploded');
     };
     const applied = await startNothingDoneReleases(report([desk]), broken, () => {}, (s) => errors.push(s));

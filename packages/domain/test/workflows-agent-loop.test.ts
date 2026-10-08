@@ -252,6 +252,13 @@ describe('agentLoop — row 4: a desk holding unlanded work at take-up', () => {
     const end = endWrite(result.writes);
     expect(end?.branch).toBe(PRIOR_BRANCH);
     expect(end?.detail).toContain(BRANCH);
+    expect(end?.refusedAssignment).toBe(BRANCH);
+  });
+
+  it('records no refused assignment on an ending that refused none', () => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, resetRefusals: ['blocked-marker'] });
+    expect(endWrite(result.writes)?.reason).toBe('blocked');
+    expect(endWrite(result.writes)?.refusedAssignment).toBeUndefined();
   });
 
   it('falls back to the new assignment when the desk branch could not be read', () => {

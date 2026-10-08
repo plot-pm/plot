@@ -9,6 +9,7 @@ import {
   nothingDoneDecisions,
   applyNothingDoneDecisions,
   nothingDoneLines,
+  prOpenReading,
   type NothingDoneCandidateReadings,
   type NothingDoneDecision,
 } from '../../src/server/entry/registryd.js';
@@ -27,8 +28,8 @@ const tree = (over: Partial<RegisteredTreeReadings> = {}): RegisteredTreeReading
   ...over,
 });
 
-const endingFile = (reason: string, detail = '') =>
-  JSON.stringify({ reason, actor: 'agent', branch: 'feature/x', detail });
+const endingFile = (reason: string, detail = '', over: Record<string, string> = {}) =>
+  JSON.stringify({ reason, actor: 'agent', branch: 'feature/x', detail, ...over });
 
 describe('nothingDoneCandidateTrees', () => {
   it('names an unregistered, plan-named, non-main desk — the same join freshAgentCandidateTrees takes', () => {
@@ -59,6 +60,14 @@ describe('readNothingDoneCandidates', () => {
   it('reads null where no ending was written', async () => {
     const [reading] = readNothingDoneCandidates([tree()], () => null);
     expect(reading?.ending).toBeNull();
+    expect(reading?.refusedAssignment).toBe('');
+  });
+
+  it('reads the assignment a take-up refused off the ending', async () => {
+    const deskFile = (_worktree: string, name: string) =>
+      name === ENDING_FILENAME ? endingFile('holding-work', '', { refusedAssignment: 'infra/assigned' }) : null;
+    const [reading] = readNothingDoneCandidates([tree()], deskFile);
+    expect(reading).toMatchObject({ ending: 'holding-work', branch: 'feature/x', refusedAssignment: 'infra/assigned' });
   });
 
   it('carries the branch and worktree the tree names', async () => {
@@ -72,6 +81,7 @@ const candidate = (over: Partial<NothingDoneCandidateReadings> = {}): NothingDon
   branch: 'feature/x',
   worktree: '/estate/.worktrees/feature-x',
   ending: 'nothing-done',
+  refusedAssignment: '',
   ...over,
 });
 
@@ -105,6 +115,24 @@ describe('nothingDoneDecisions', () => {
     expect(decision?.verdict).toBe('leave');
   });
 
+  it('leaves a desk alone when the host could not say whether a PR is open', async () => {
+    const [decision] = await nothingDoneDecisions(
+      [candidate()],
+      async () => 'no',
+      async () => 'unanswerable',
+    );
+    expect(decision?.verdict).toBe('leave');
+  });
+
+  it('decides release-claim for the refused assignment of a take-up holding-work, never the desk\'s branch (#1281)', async () => {
+    const [decision] = await nothingDoneDecisions(
+      [candidate({ ending: 'holding-work', refusedAssignment: 'infra/assigned' })],
+      async () => 'yes',
+      async () => false,
+    );
+    expect(decision).toEqual({ branch: 'infra/assigned', worktree: '/estate/.worktrees/feature-x', verdict: 'release-claim' });
+  });
+
   it('leaves every ending but nothing-done alone', async () => {
     const [decision] = await nothingDoneDecisions(
       [candidate({ ending: 'unstarted' })],
@@ -123,13 +151,13 @@ describe('nothingDoneDecisions', () => {
     expect(decision?.verdict).toBe('leave');
   });
 
-  it('asks the commit and PR readers once per candidate, keyed by branch', async () => {
+  it('asks the commit reader by desk and the PR reader by branch, once per candidate', async () => {
     const commitAsked: string[] = [];
     const prAsked: string[] = [];
     await nothingDoneDecisions(
-      [candidate({ branch: 'a' }), candidate({ branch: 'b' })],
-      async (branch) => {
-        commitAsked.push(branch);
+      [candidate({ branch: 'a', worktree: '/wa' }), candidate({ branch: 'b', worktree: '/wb' })],
+      async (worktree) => {
+        commitAsked.push(worktree);
         return 'no';
       },
       async (branch) => {
@@ -137,8 +165,21 @@ describe('nothingDoneDecisions', () => {
         return false;
       },
     );
-    expect(commitAsked).toEqual(['a', 'b']);
+    expect(commitAsked).toEqual(['/wa', '/wb']);
     expect(prAsked).toEqual(['a', 'b']);
+  });
+});
+
+describe('prOpenReading', () => {
+  it('reads an open PR as true, a closed one and no PR as false', () => {
+    expect(prOpenReading({ ok: true, value: { number: 1, head: 'a', state: 'OPEN' } as never })).toBe(true);
+    expect(prOpenReading({ ok: true, value: { number: 1, head: 'a', state: 'CLOSED' } as never })).toBe(false);
+    expect(prOpenReading({ ok: true, value: null })).toBe(false);
+  });
+
+  it('reads a host that could not be asked as unanswerable, never as no PR', () => {
+    expect(prOpenReading({ ok: false, why: 'failed' })).toBe('unanswerable');
+    expect(prOpenReading({ ok: false, why: 'unaskable' })).toBe('unanswerable');
   });
 });
 

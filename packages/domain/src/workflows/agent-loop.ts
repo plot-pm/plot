@@ -476,15 +476,27 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
     // unlanded work was left by whatever this desk ran before, and `branch`
     // never started (`#1281`). An unreadable desk branch falls back to the
     // assignment rather than naming an ending with no branch at all.
+    // `refusedAssignment` records `branch` as a field, so the supervisor's
+    // tick can release its claim without parsing `detail`.
     const unlanded = readings.resetRefusals.filter((r) => r !== 'blocked-marker');
     if (unlanded.length > 0) {
-      return end(
-        worktree,
-        readings.deskBranch !== '' ? readings.deskBranch : branch,
-        'holding-work',
-        'agent',
-        `the desk holds unlanded work (${unlanded.join(', ')}); \`${branch}\` is not taken up`,
-        0,
+      const deskBranch = readings.deskBranch !== '' ? readings.deskBranch : branch;
+      const detail = `the desk holds unlanded work (${unlanded.join(', ')}); \`${branch}\` is not taken up`;
+      return decide(
+        'agent-loop',
+        [
+          {
+            kind: 'loop-end',
+            worktree,
+            branch: deskBranch,
+            reason: 'holding-work',
+            actor: 'agent',
+            detail,
+            exitCode: 0,
+            refusedAssignment: branch,
+          },
+        ],
+        { branch: deskBranch, exitCode: 0, note: detail },
       );
     }
     // A desk holding only a `PLOT-BLOCKED` marker holds an unanswered

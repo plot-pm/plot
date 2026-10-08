@@ -5,9 +5,9 @@ import type { Worktree } from '../../entities/worktree.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { Trees } from '../../ports/trees.js';
 import type { TreePresence } from '../../rules/reapable.js';
-import { isEmptyClaim } from '../../rules/empty-claim.js';
+import { realCommits, type CommitReading as ClaimCommit } from '../../rules/empty-claim.js';
 import type { CommitReading } from '../../rules/sample.js';
-import { asLines, asText, runProcess, runScript, runScriptSync } from '../run-script.js';
+import { asLines, asText, runProcess, runScript, runScriptSync, type ScriptRun } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
 /** Thirty-two megabytes: 22 worktrees' porcelain and status in one reply. */
@@ -18,6 +18,54 @@ const DECLARATION_FILE_NAME = '.plot-worker.envelope.json';
 
 /** The build gate's own account, removed with the declaration — matches `reset_desk` step 0. */
 const CORRECTION_FILE_NAME = 'PLOT-CORRECTION.md';
+
+/** Runs one git command in a checkout. */
+type GitIn = (args: readonly string[]) => Promise<ScriptRun>;
+
+/**
+ * The local `origin/<default>` ref a checkout counts its own commits from:
+ * `origin/HEAD` where the clone names one, else `origin/main`.
+ *
+ * @returns the ref, or `''` where neither exists.
+ */
+const defaultBase = async (git: GitIn): Promise<string> => {
+  const head = await git(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
+  if (head.code === 0 && head.stdout.trim() !== '') return head.stdout.trim();
+  const main = await git(['rev-parse', '--verify', '--quiet', 'origin/main']);
+  return main.code === 0 ? 'origin/main' : '';
+};
+
+/**
+ * Every commit `git log` lists for `range`, each with its subject, its tree
+ * and its first parent's tree, in the shape `isEmptyClaim` reads.
+ *
+ * A parent tree that cannot be read is `null`, which `isEmptyClaim` never
+ * reads as a claim, so the commit counts as real work.
+ *
+ * @returns the commits, or `null` where git could not list them.
+ */
+const commitsIn = async (git: GitIn, range: readonly string[]): Promise<readonly ClaimCommit[] | null> => {
+  const log = await git(['log', '--format=%T%x09%P%x09%s', ...range]);
+  if (log.code !== 0) return null;
+  const rows = log.stdout
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line) => {
+      const [tree = '', parents = '', ...subject] = line.split('\t');
+      return { tree, parent: parents.split(' ')[0] ?? '', subject: subject.join('\t') };
+    });
+  const parents = [...new Set(rows.map((row) => row.parent).filter((parent) => parent !== ''))];
+  const trees = new Map<string, string>();
+  if (parents.length > 0) {
+    const read = await git(['rev-parse', ...parents.map((parent) => `${parent}^{tree}`)]);
+    const lines = read.code === 0 ? read.stdout.split('\n') : [];
+    parents.forEach((parent, at) => {
+      const tree = lines[at]?.trim() ?? '';
+      if (tree !== '') trees.set(parent, tree);
+    });
+  }
+  return rows.map((row) => ({ subject: row.subject, tree: row.tree, parentTree: trees.get(row.parent) ?? null }));
+};
 
 /**
  * The generated board bundle paths a worktree's own `packages/board/build.mjs`
@@ -281,25 +329,20 @@ export const treesGit = (context: ShellContext): Trees => {
         directory = false;
       }
       if (path === '' || !directory) return unanswerable;
-      const git = (args: readonly string[]) => runProcess('git', ['-C', path, ...args], inRepo);
-      let base = '';
-      const head = await git(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
-      if (head.code === 0) base = head.stdout.trim();
-      if (base === '') {
-        const main = await git(['rev-parse', '--verify', '--quiet', 'origin/main']);
-        if (main.code === 0) base = 'origin/main';
-      }
+      const git: GitIn = (args) => runProcess('git', ['-C', path, ...args], inRepo);
+      const base = await defaultBase(git);
       if (base === '') return unanswerable;
       const count = await git(['rev-list', '--count', `${base}..HEAD`, '--', '.']);
       if (count.code !== 0 || !/^\d+$/.test(count.stdout.trim())) return unanswerable;
       return answered<CommitReading>(Number(count.stdout.trim()) > 0 ? 'yes' : 'no');
     },
 
-    // ASKS NOTHING ABOUT MAIN. `hasCommits` above collapses to `no` once the
-    // branch is merged with no PR — `origin/<default>..HEAD` is empty either
-    // way. This instead reads one commit — HEAD's subject, tree and first
-    // parent's tree — and hands it to `isEmptyClaim`, the vocabulary's one
-    // home, rather than re-testing the subject here.
+    // COUNTS EVERY COMMIT FROM `origin/<default>` TO HEAD, not HEAD alone: a
+    // take-up attaches an existing branch and commits an empty claim on top,
+    // so a re-taken branch with pushed work has a claim at HEAD and real
+    // commits under it. `realCommits` is the vocabulary's one count. Where
+    // the range is empty — the branch merged with no PR — HEAD alone answers,
+    // so merged work never reads as nothing done.
     commitBeyondClaim: async (path) => {
       const unanswerable = answered<CommitReading>('unanswerable');
       let directory = false;
@@ -309,17 +352,14 @@ export const treesGit = (context: ShellContext): Trees => {
         directory = false;
       }
       if (path === '' || !directory) return unanswerable;
-      const git = (args: readonly string[]) => runProcess('git', ['-C', path, ...args], inRepo);
-      const head = await git(['log', '-1', '--format=%s%n%T%n%P']);
-      if (head.code !== 0) return unanswerable;
-      const [subject = '', tree = '', parent = ''] = head.stdout.split('\n');
-      let parentTree: string | null = null;
-      if (parent.trim() !== '') {
-        const parentRead = await git(['rev-parse', '--verify', '--quiet', `${parent.trim()}^{tree}`]);
-        if (parentRead.code === 0) parentTree = parentRead.stdout.trim();
-      }
-      const isClaim = isEmptyClaim({ subject, tree: tree.trim(), parentTree });
-      return answered<CommitReading>(isClaim ? 'no' : 'yes');
+      const git: GitIn = (args) => runProcess('git', ['-C', path, ...args], inRepo);
+      const base = await defaultBase(git);
+      if (base === '') return unanswerable;
+      const ahead = await commitsIn(git, [`${base}..HEAD`]);
+      if (ahead === null) return unanswerable;
+      const commits = ahead.length > 0 ? ahead : await commitsIn(git, ['-1', 'HEAD']);
+      if (commits === null || commits.length === 0) return unanswerable;
+      return answered<CommitReading>(realCommits(commits) > 0 ? 'yes' : 'no');
     },
     prune: async () => {
       const run = await runProcess('git', ['worktree', 'prune'], inRepo);

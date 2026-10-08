@@ -16,6 +16,11 @@ export interface EndingActionReadings {
   /** The branch the ending names. */
   readonly branch: string;
   /**
+   * The assignment a take-up refused because the desk held unlanded work, as
+   * the ending recorded it; `''` for every other ending.
+   */
+  readonly refusedAssignment: string;
+  /**
    * Whether a manifest already names this desk.
    *
    * **A DESK THE TICK IS ABOUT TO START IS NOT A DESK WITH NO MANIFEST.**
@@ -35,16 +40,24 @@ export interface EndingActionReadings {
    * releasing a claim on a failed git read is the destructive direction.
    */
   readonly commitBeyondClaim: CommitReading;
-  /** Whether an open pull request still carries the branch. */
-  readonly prOpen: boolean;
+  /**
+   * Whether an open pull request still carries the branch; `'unanswerable'`
+   * where the host could not be asked, which takes the same arm as `true`.
+   */
+  readonly prOpen: PrOpenReading;
 }
+
+/** Whether an open PR carries a branch, or `'unanswerable'` where the host could not be asked. */
+export type PrOpenReading = boolean | 'unanswerable';
 
 /**
  * What the supervisor's tick should do about a desk whose worker ended.
  *
- * - `release-claim` — the claim this ending's branch holds is this tick's to
- *   release through `ClaimRelease`, because nothing it did survives: no
- *   commit beyond the claim and no open PR.
+ * - `release-claim` — a claim is this tick's to release through
+ *   `ClaimRelease`; {@link endingReleaseBranch} names which. For
+ *   `nothing-done` it is the ending's branch, which holds no commit beyond
+ *   the claim and no open PR. For a take-up `holding-work` it is the refused
+ *   assignment, which the desk never started.
  * - `start-fresh` — not implemented by this branch; the rows that answer it
  *   belong to `corrections-spent` and `turn-limit`, wave 2's to add.
  * - `needs-a-person` — not implemented by this branch either, for the same
@@ -58,9 +71,19 @@ export interface EndingActionReadings {
 export type EndingActionVerdict = 'release-claim' | 'start-fresh' | 'needs-a-person' | 'leave';
 
 /**
+ * Whether a `holding-work` ending came from a take-up that refused an
+ * assignment other than the desk's own branch.
+ *
+ * An assignment equal to the ending's branch is the desk's own branch, so
+ * releasing it would reach the unlanded work the ending reports.
+ */
+const takeUpRefused = (readings: EndingActionReadings): boolean =>
+  readings.refusedAssignment !== '' && readings.refusedAssignment !== readings.branch;
+
+/**
  * Decides what the supervisor's tick should do about a desk whose worker
- * ended — this branch answers `release-claim` for `nothing-done` and
- * `leave` for everything else; a later change adds rows for
+ * ended — this branch answers `release-claim` for `nothing-done` and for a
+ * take-up `holding-work`, and `leave` for everything else; a later change adds rows for
  * `corrections-spent` and `turn-limit` without changing this signature.
  *
  * **THE LOOP ENDS, THE TICK RELEASES.** `agentLoop` cannot tell a live peer
@@ -74,7 +97,8 @@ export type EndingActionVerdict = 'release-claim' | 'start-fresh' | 'needs-a-per
  * has in flight must not have its claim released out from under it.
  *
  * **ABSENT IS NOT FALSE.** A missing or unreadable ending answers `leave`;
- * `commitBeyondClaim: 'unanswerable'` takes the same arm as `'yes'`, for the
+ * `commitBeyondClaim: 'unanswerable'` takes the same arm as `'yes'` and
+ * `prOpen: 'unanswerable'` the same arm as `true`, for the
  * same reason `priorFreshSessions` reads `0` rather than refusing — a failed
  * read must never point toward the destructive action.
  *
@@ -85,8 +109,20 @@ export type EndingActionVerdict = 'release-claim' | 'start-fresh' | 'needs-a-per
  */
 export const endingAction = (readings: EndingActionReadings): EndingActionVerdict => {
   if (readings.hasManifest) return 'leave';
+  if (readings.ending === 'holding-work') return takeUpRefused(readings) ? 'release-claim' : 'leave';
   if (readings.ending !== 'nothing-done') return 'leave';
   if (readings.commitBeyondClaim !== 'no') return 'leave';
-  if (readings.prOpen) return 'leave';
+  if (readings.prOpen !== false) return 'leave';
   return 'release-claim';
 };
+
+/**
+ * The branch whose claim a `release-claim` answer from {@link endingAction}
+ * releases.
+ *
+ * @param readings - the same readings {@link endingAction} answered.
+ * @returns the refused assignment for a take-up `holding-work` ending, and
+ *   the ending's own branch for every other ending.
+ */
+export const endingReleaseBranch = (readings: EndingActionReadings): string =>
+  readings.ending === 'holding-work' ? readings.refusedAssignment : readings.branch;

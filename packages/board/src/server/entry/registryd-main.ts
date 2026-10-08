@@ -77,6 +77,7 @@ import {
   nothingDoneCandidateTrees,
   readNothingDoneCandidates,
   nothingDoneDecisions,
+  prOpenReading,
   applyNothingDoneDecisions,
   nothingDoneLines,
   type FreshAgentPorts,
@@ -89,6 +90,7 @@ import {
 } from './registryd.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
 import type { CommitReading } from '@plot-pm/domain/rules/sample';
+import type { PrOpenReading } from '@plot-pm/domain/rules/ending-action';
 import { boardSharePerHour } from '@plot-pm/domain/rules/cadence';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import {
@@ -1476,10 +1478,10 @@ export const startFreshAgents = async (
 
 /** The reads and the one write {@link startNothingDoneReleases} performs, injected so a test needs no git or host. */
 export interface NothingDoneReleasePorts {
-  /** Reads whether a branch's worktree holds a commit beyond its claim. */
-  hasCommits: (worktree: string) => Promise<CommitReading>;
-  /** Reads whether an open PR still carries the branch. */
-  prOpen: (branch: string) => Promise<boolean>;
+  /** Reads whether a desk's branch holds a commit beyond its claim, through `Trees.commitBeyondClaim`. */
+  commitBeyondClaim: (worktree: string) => Promise<CommitReading>;
+  /** Reads whether an open PR still carries the branch; `'unanswerable'` where the host could not be asked. */
+  prOpen: (branch: string) => Promise<PrOpenReading>;
   /** Decides and, where releasable, releases the branch's claim. */
   release: (branch: string) => Promise<{ released: boolean; detail: string }>;
 }
@@ -1516,14 +1518,7 @@ export const startNothingDoneReleases = async (
     const candidates = nothingDoneCandidateTrees(report.trees ?? []);
     if (candidates.length === 0) return [];
     const readings = readNothingDoneCandidates(candidates, deps.deskFile);
-    const decisions = await nothingDoneDecisions(
-      readings,
-      async (branch) => {
-        const candidate = readings.find((r) => r.branch === branch);
-        return candidate ? deps.ports.hasCommits(candidate.worktree) : 'unanswerable';
-      },
-      deps.ports.prOpen,
-    );
+    const decisions = await nothingDoneDecisions(readings, deps.ports.commitBeyondClaim, deps.ports.prOpen);
     const applied = await applyNothingDoneDecisions(decisions, deps.ports.release);
     for (const { line, error } of nothingDoneLines(applied)) (error ? warn : write)(`${line}\n`);
     return applied;
@@ -1750,14 +1745,11 @@ export const run = async (
         {
           deskFile: (worktree, name) => fileOrNull(join(worktree, name)),
           ports: {
-            hasCommits: async (worktree) => {
-              const commits = await treesGit(nothingDoneContext).hasCommits(worktree);
+            commitBeyondClaim: async (worktree) => {
+              const commits = await treesGit(nothingDoneContext).commitBeyondClaim(worktree);
               return commits.ok ? commits.value : 'unanswerable';
             },
-            prOpen: async (branch) => {
-              const state = await hostShell(nothingDoneContext).prState(branch);
-              return state.ok && state.value !== null && state.value.state === 'OPEN';
-            },
+            prOpen: async (branch) => prOpenReading(await hostShell(nothingDoneContext).prState(branch)),
             release: async (branch) => {
               const { result } = await gatherReadingsAndRelease(branch, nothingDoneContext);
               return { released: result.released, detail: result.detail };

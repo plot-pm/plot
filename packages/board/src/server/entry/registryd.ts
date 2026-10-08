@@ -16,8 +16,9 @@ import {
 } from '@plot-pm/domain/rules/fresh-agent-turn-limit';
 import { readEnding, ENDING_FILENAME, type EndingReason } from '@plot-pm/domain/entities/ending';
 import { readDeclaration, DECLARATION_FILENAME } from '@plot-pm/domain/entities/declaration';
-import { endingAction } from '@plot-pm/domain/rules/ending-action';
+import { endingAction, endingReleaseBranch, type PrOpenReading } from '@plot-pm/domain/rules/ending-action';
 import type { CommitReading } from '@plot-pm/domain/rules/sample';
+import type { PortResult, Pr } from '@plot-pm/domain';
 import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-record';
 import type { Desk } from '@plot-pm/domain/ports/desk';
 
@@ -941,6 +942,8 @@ export interface NothingDoneCandidateReadings {
   worktree: string;
   /** The desk's own ending reason, or `null` where none was written or it could not be read. */
   ending: EndingReason | null;
+  /** The assignment a take-up refused, as the ending recorded it; `''` where it recorded none. */
+  refusedAssignment: string;
 }
 
 /**
@@ -965,11 +968,29 @@ export const readNothingDoneCandidates = (
       branch: tree.branch,
       worktree: tree.path,
       ending: endingReading.read === 'ended' ? endingReading.ending.reason : null,
+      refusedAssignment: endingReading.read === 'ended' ? endingReading.ending.refusedAssignment : '',
     };
   });
 
+/**
+ * Whether an open PR carries a branch, read from the host's answer.
+ *
+ * @param state - the host's PR state for the branch: `null` where no PR
+ *   exists, or a failed answer where the host could not be asked.
+ * @returns `true` for an open PR, `false` where the host answered with no
+ *   open PR, and `'unanswerable'` where it gave no answer — a failed read is
+ *   never "no PR open".
+ */
+export const prOpenReading = (state: PortResult<Pr | null>): PrOpenReading =>
+  state.ok ? state.value !== null && state.value.state === 'OPEN' : 'unanswerable';
+
 /** What this tick decided about one `nothing-done` candidate. */
 export interface NothingDoneDecision {
+  /**
+   * The branch a `release-claim` verdict releases — {@link endingReleaseBranch}'s
+   * answer, which for a take-up `holding-work` is the refused assignment and
+   * not the desk's own branch.
+   */
   branch: string;
   worktree: string;
   verdict: ReturnType<typeof endingAction>;
@@ -981,31 +1002,31 @@ export interface NothingDoneDecision {
  * Takes readings and returns a verdict per desk. It touches no file and no
  * process; {@link applyNothingDoneDecisions} applies the verdicts.
  *
- * **A SECOND, INDEPENDENT `Trees.hasCommits` CALL, NOT THE LOOP'S OWN
- * READING.** The loop's `commitBeyondClaim` lives inside the worker process
- * that already exited; this tick reads the same branch fresh; from the
- * registry daemon, after that process is gone. Both ask through
- * `Trees.hasCommits`, and asking twice — once inside the loop, once here —
- * is the shell/domain duplication `docs/shell-and-domain.md` already permits,
- * not a second implementation of one answer.
+ * **A SECOND, INDEPENDENT `Trees.commitBeyondClaim` CALL, NOT THE LOOP'S
+ * OWN READING.** The loop's reading lives inside the worker process that
+ * already exited; this tick reads the same desk again from the registry
+ * daemon, after that process is gone. Both ask through
+ * `Trees.commitBeyondClaim`, so the two readings are one implementation asked
+ * twice.
  *
  * @param candidates - what {@link readNothingDoneCandidates} read.
- * @param commitBeyondClaim - reads whether a branch holds a commit beyond its
- *   claim, keyed by branch.
+ * @param commitBeyondClaim - reads whether a desk's branch holds a commit
+ *   beyond its claim, keyed by worktree.
  * @param prOpen - reads whether an open PR still carries a branch, keyed by
- *   branch.
+ *   branch; `'unanswerable'` where the host could not be asked.
  * @returns one decision per candidate, in the order given.
  */
 export const nothingDoneDecisions = async (
   candidates: readonly NothingDoneCandidateReadings[],
-  commitBeyondClaim: (branch: string) => Promise<CommitReading>,
-  prOpen: (branch: string) => Promise<boolean>,
+  commitBeyondClaim: (worktree: string) => Promise<CommitReading>,
+  prOpen: (branch: string) => Promise<PrOpenReading>,
 ): Promise<readonly NothingDoneDecision[]> => {
   const out: NothingDoneDecision[] = [];
   for (const reading of candidates) {
-    const verdict = endingAction({
+    const readings = {
       ending: reading.ending,
       branch: reading.branch,
+      refusedAssignment: reading.refusedAssignment,
       // A CANDIDATE IS `!registered` BY CONSTRUCTION (see
       // `nothingDoneCandidateTrees`), so every reading carries
       // `hasManifest: false` — the same reasoning `freshAgentDecisions` already
@@ -1015,10 +1036,10 @@ export const nothingDoneDecisions = async (
       // for rows wave 2 adds; zero is its own safe default, the one
       // `readFreshAgentCandidates` uses for the same field.
       priorFreshSessions: 0,
-      commitBeyondClaim: await commitBeyondClaim(reading.branch),
+      commitBeyondClaim: await commitBeyondClaim(reading.worktree),
       prOpen: await prOpen(reading.branch),
-    });
-    out.push({ branch: reading.branch, worktree: reading.worktree, verdict });
+    };
+    out.push({ branch: endingReleaseBranch(readings), worktree: reading.worktree, verdict: endingAction(readings) });
   }
   return out;
 };

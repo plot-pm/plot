@@ -192,8 +192,8 @@ export type EndingActor = z.infer<typeof EndingActorSchema>;
  * The ending record's wire form.
  *
  * `reason` and `actor` are required — a record naming neither has said nothing.
- * `branch` and `detail` are what the worker knew at the time and default to
- * empty: a worker ended before it claimed anything holds no branch, and that is
+ * `branch`, `detail` and `refusedAssignment` are what the worker knew at the
+ * time and default to empty: a worker ended before it claimed anything holds no branch, and that is
  * an absence rather than a malformed record.
  *
  * Unknown keys are dropped rather than refused, the same choice
@@ -205,6 +205,7 @@ export const EndingSchema = z.object({
   actor: EndingActorSchema,
   branch: z.string().default(''),
   detail: z.string().default(''),
+  refusedAssignment: z.string().default(''),
 });
 
 /**
@@ -224,6 +225,12 @@ export interface Ending {
   branch: string;
   /** One sentence naming the reading; `''` when none was written. */
   detail: string;
+  /**
+   * The assignment a take-up refused because the desk held unlanded work;
+   * `''` for every other ending. `branch` names the desk's own branch, so this
+   * is the only place the refused assignment is recorded as a field.
+   */
+  refusedAssignment: string;
 }
 
 /**

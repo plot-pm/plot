@@ -141,18 +141,19 @@ export interface Trees {
   hasCommits(path: string): Promise<PortResult<CommitReading>>;
 
   /**
-   * Whether HEAD is something other than an empty claim marker.
+   * Whether the branch holds a commit that is not an empty claim marker.
    *
-   * Unlike {@link hasCommits}, this never reads `origin/<default>`: a branch
-   * the agent finished and merged directly, with no PR, collapses
-   * `origin/<default>..HEAD` to nothing and would otherwise read as if no
-   * work had happened. This instead asks whether HEAD itself is a claim
-   * marker per {@link isEmptyClaim} — a fact about one commit, never about
-   * main.
+   * Reads every commit from the local `origin/<default>` ref to HEAD and
+   * counts the ones {@link isEmptyClaim} does not name a claim, so an empty
+   * claim committed on top of earlier work still answers `yes`. Where that
+   * range is empty — a branch merged directly, with no PR — HEAD alone
+   * answers, so merged work never reads as nothing done. No network call is
+   * made.
    *
    * @param path - the worktree's absolute path.
-   * @returns `yes` where HEAD is not a claim marker; `no` where it is;
-   *   `unanswerable` where the directory is missing or git cannot read HEAD.
+   * @returns `yes` where at least one commit is not a claim marker; `no`
+   *   where every commit is; `unanswerable` where the directory is missing,
+   *   no `origin/<default>` ref exists, or git cannot list the commits.
    */
   commitBeyondClaim(path: string): Promise<PortResult<CommitReading>>;
 
