@@ -5,7 +5,7 @@
 ## Status
 
 - **State:** Draft
-- **Type:** feature
+- **Type:** infra
 - **Issue:** #1407
 - **Story:** the-shell-holds-no-behavior
 - **Review:** in-session
@@ -85,10 +85,10 @@ fleet process (plot-registryd)          board process
 
 ### Open Questions
 
-- [ ] **The display scan in slice 3.** When no fleet process runs, the board can scan on demand or show *no fleet running* and nothing else. Scanning keeps today's experience for a board-only user, but leaves a spawn in the board. The recommendation is to scan on demand, write nothing, and name the absent fleet in the header.
-- [ ] **Package or entry for the controllers (slice 5).** Lifecycle controllers such as approve and idea are not fleet behaviour. They may belong in a third place, for example `packages/domain` entries or a `@plot-pm/commands` package, and not in `@plot-pm/fleet`.
-- [ ] **Is `plot-registryd` the right name for a process that dispatches?** Renaming it touches `plot-fleetctl.sh`, the service label and every installed unit, so the default is to keep the name.
-- [ ] **Ordering against Phase 2.** The story's Phase 2 measures per-pass cost and may put per-pass answers into the fleet's long-lived process. Slice 3 creates that process's clock. This plan does not wait for Phase 2, and Phase 2's outcome adds to the fleet package and not to the board.
+- [x] The display scan in slice 3 — *answered 2026-10-09, jwloka: with no fleet process running, the board scans on demand, writes nothing, and names the absent fleet in its header.*
+- [x] Package or entry for the controllers (slice 5) — *answered 2026-10-09, jwloka: lifecycle controllers that are not fleet behaviour (approve, idea, deliver, release) go to a third package, `@plot-pm/commands`. Fleet controllers (dispatch, continue) go to `@plot-pm/fleet`. The master agent, the skills and the board call the same entries.*
+- [x] Is `plot-registryd` the right name? — *answered 2026-10-09, jwloka: rename it to `plot-fleetd`. The slice *The supervisor is plot-fleetd* renames the bundle, `plot-fleetctl.sh`'s references and the service label, and migrates installed units.*
+- [x] Ordering against Phase 2 — *this plan does not wait for `one-agent-pass-costs-what-its`; that plan's route 2 runs in the agent's JS loop or in the fleet package, never in the board.*
 
 ## Slices
 
@@ -99,6 +99,10 @@ fleet process (plot-registryd)          board process
 ### The fleet package exists
 
 - `feature/the-fleet-package-exists` — `@plot-pm/fleet` holds the fleet entries and builds the same three bundle names; CI ratchets cover it <!-- builds: @plot-pm/fleet, a workspace package -->
+
+### The supervisor is plot-fleetd
+
+- `feature/the-supervisor-is-plot-fleetd` — `plot-registryd` becomes `plot-fleetd`: the bundle, `plot-fleetctl.sh`, the service label and the docs use the new name, and an installed unit under the old label is migrated, not orphaned <!-- builds: plot-fleetd.mjs and a unit migration in plot-fleetctl.sh -->
 
 ### The fleet owns the scan and the PR index
 

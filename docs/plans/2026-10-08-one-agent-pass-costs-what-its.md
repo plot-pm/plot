@@ -5,7 +5,7 @@
 ## Status
 
 - **State:** Draft
-- **Type:** feature
+- **Type:** infra
 - **Issue:** #1406
 - **Story:** the-shell-holds-no-behavior
 - **Review:** in-session
@@ -52,10 +52,10 @@ The same change corrects §1's statement that `plot-worker-loop.sh` is the per-p
 
 ### Open Questions
 
-- [ ] Which scripts does one pass reach through the adapters, and how often? The grep above names seven; the trace decides.
-- [ ] What threshold separates the routes? A proposal: route 1 if the launcher variant adds less than 5 % CPU per pass at 8 agents, else route 2. The reader sets the number before the measurement, so the result cannot choose its own bar.
-- [ ] Do 1, 4 and 8 agents stay the right sample? `Worker bound` and the fleet size on this machine may suggest another top value.
-- [ ] Does route 2 need the fleet process of Phase 3 first, or can the JS loop answer its own per-pass questions in process today? The loop is already one long-lived process per agent.
+- [x] Which scripts does one pass reach through the adapters, and how often? — *the slice's trace decides; the grep above is the starting list.*
+- [x] What threshold separates the routes? — *answered 2026-10-09, jwloka: route 1 (launchers) if the launcher variant adds less than 5 % CPU per pass at 8 agents, else route 2 (in-process answers). Set before the measurement.*
+- [x] Which agent counts? — *answered 2026-10-09, jwloka: 1, 4 and 8.*
+- [x] Does route 2 need the Phase 3 fleet process first? — *answered 2026-10-09, jwloka: no. The JS worker loop is one long-lived process per agent and answers its own per-pass questions in process; the measurement includes that variant and does not wait for `the-fleet-runs-without-the-board`.*
 
 ## Slices
 
