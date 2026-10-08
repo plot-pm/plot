@@ -53,4 +53,11 @@ Open the PR with `../plot/scripts/plot-open-pr.sh` (add `--draft` while the work
 
 This branch owns `packages/domain/src/rules/` (the new rule and its test), `packages/board/src/server/continue.ts`, `packages/board/src/server/manifest-stamp.ts` if the manifest writer needs it, and their tests. Wave 2 owns `ContinueWithAnAnswer.tsx` and the free-wait handling; leave both alone. `worker-loop.ts` is read-only for this branch except for the Open Question 3 measurement. No other branch of this plan is in flight.
 
+Branches of other plans that touch the same files, verified 2026-10-08:
+
+- `bug/a-waiting-run-needs-approval-again` changes `continue.ts` (+11 −2, in `recordedMonitorPids` near line 541) and `continue-route.test.ts`. Its hunks sit away from the manifest check near line 687. Rebase onto `main` before the PR, and keep both sides on a conflict.
+- `infra/an-ending-that-held-nothing-releases-its-claim` changes `packages/domain/src/entities/ending.ts`, `ending-action.ts` and `worker-loop.ts`. Re-read `readEnding` and `EndingReason` from `main` before the PR, because the reason list may have moved.
+
+For the manifest write, `AgentsPort.register` (`packages/domain/src/ports/agents.ts:212`) already writes `<session>.json` through a temp file and a rename, and `corpus/agent-manifest.corpus.test.ts` holds it against the shell writer. Check it before writing a second writer.
+
 Related plans that built the readings you call: `a-desk-and-its-manifest-name-each-other` (`deskManifestFor`, `loopRegistration`, the `no-manifest` refusal) and `every-loop-ending-has-a-supervisor-rule` (what each ending does). If you find something the plan did not anticipate, report it rather than improvising outside scope.
