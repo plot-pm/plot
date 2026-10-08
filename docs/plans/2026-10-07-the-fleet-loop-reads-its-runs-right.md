@@ -59,7 +59,7 @@ The JS worker loop replaced the shell loop in v2.24.0 (#1337). Four readings in 
 
 ### A spend limit reads its dollars
 
-- `bug/a-spend-limit-reads-its-dollars` — `dollarsOrUnset` accepts `$20` and `20 USD`; an unreadable value is logged and refused <!-- builds: a dollar parser that never drops a cap -->
+- `bug/a-spend-limit-reads-its-dollars` — `dollarsOrUnset` accepts `$20` and `20 USD`; an unreadable value is logged and refused <!-- builds: a dollar parser that never drops a cap --> → #1360
 
 ### A handed slice carries its charter
 
