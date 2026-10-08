@@ -327,20 +327,68 @@ describe('runWorkerLoop on the SDK runner — the hand-back rows', () => {
 });
 
 describe('runWorkerLoop on the SDK runner — a continuation resumes the blocked session', () => {
-  it('resumes with the continuation file’s text and the manifest resumeId, and removes the file once the turn is dispatched', async () => {
-    const r = rig([ran('pushed')], async () => ({ passed: true }));
+  /** A desk on `BRANCH` holding a marker and `.plot-worker.continue.md`, whose transcripts are `spoken`. */
+  const continued = (r: Rig, spoken: readonly string[]): string => {
+    Object.assign(r.deps.ports, {
+      trees: treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'no' }, branches: { [r.wt]: BRANCH } }),
+    });
+    r.deps = { ...r.deps, idle: { ...r.deps.idle, transcript: transcriptFixture({ spoken: spoken.map((h) => `${r.wt}\t${h}`) }) } };
     fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?\n');
-    const continuationFile = path.join(r.wt, '.plot-worker.continue.md');
-    fs.writeFileSync(continuationFile, 'use fetch');
+    const file = path.join(r.wt, '.plot-worker.continue.md');
+    fs.writeFileSync(file, 'use fetch');
+    return file;
+  };
+
+  /** Wraps the rig's run so `seen` records the desk at the moment the turn starts. */
+  const watchStart = (r: Rig, file: string): { endings: number; file: boolean }[] => {
+    const seen: { endings: number; file: boolean }[] = [];
+    const inner = r.deps.sdk!.agentRun;
+    r.deps = {
+      ...r.deps,
+      sdk: {
+        ...r.deps.sdk!,
+        agentRun: (o) => ({
+          run: async (request) => {
+            seen.push({ endings: r.deskCalls.endings.length, file: fs.existsSync(file) });
+            return inner(o).run(request);
+          },
+        }),
+      },
+    };
+    return seen;
+  };
+
+  it('resumes the manifest session with the file’s text where its transcript exists, and removes the file after the turn', async () => {
+    const r = rig([ran('pushed')], async () => ({ passed: true }));
+    const file = continued(r, ['h-1']);
+    const seen = watchStart(r, file);
 
     await runWorkerLoop(r.deps);
 
-    expect(r.requests).toHaveLength(1);
     expect(r.requests[0]).toMatchObject({ prompt: 'use fetch', resumeId: 'h-1' });
-    expect(fs.existsSync(continuationFile)).toBe(false);
-    // A continuation answer is not a CI correction and not a dropped-turn
-    // correction — nothing is written to the desk for it.
+    expect(seen[0]).toEqual({ endings: 0, file: true });
+    expect(fs.existsSync(file)).toBe(false);
     expect(r.deskCalls.corrections).toEqual([]);
+  });
+
+  it('starts a new session with the file’s text where the manifest resumeId has no transcript', async () => {
+    const r = rig([ran('pushed')], async () => ({ passed: true }), { ...ASSIGNED, resumeId: 'fresh-1' });
+    const file = continued(r, []);
+
+    await runWorkerLoop(r.deps);
+
+    expect(r.requests[0]).toMatchObject({ prompt: 'use fetch', resumeId: '', sessionId: 'fresh-1' });
+    expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it('leaves the continuation file on the desk when the run never starts', async () => {
+    const r = rig([], async () => ({ passed: true }));
+    const file = continued(r, ['h-1']);
+    r.deps = { ...r.deps, sdk: { ...r.deps.sdk!, agentRun: () => ({ run: async () => ({ ok: false, why: 'failed' }) as never }) } };
+
+    await runWorkerLoop(r.deps);
+
+    expect(fs.existsSync(file)).toBe(true);
   });
 });
 

@@ -1804,3 +1804,37 @@ describe('runWorkerLoop — remaining branches', () => {
     expect(r.logs.some((l) => l.includes('failed'))).toBe(true);
   });
 });
+
+describe('runWorkerLoop on the command runner — a continuation resumes the blocked session', () => {
+  it('appends the file’s text to PLOT-CORRECTION.md before the command starts, resumes the session, and removes the file after', async () => {
+    const atStart: { corrections: unknown[]; endings: number; file: boolean }[] = [];
+    const r = rig({ ...ASSIGNED, resumeId: 'h-1' }, [
+      {
+        during: () => {
+          atStart.push({
+            corrections: [...r.deskCalls.appendedCorrections],
+            endings: r.deskCalls.endings.length,
+            file: fs.existsSync(path.join(r.wt, '.plot-worker.continue.md')),
+          });
+        },
+      },
+    ]);
+    Object.assign(r.ports, {
+      trees: treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'no' }, branches: { [r.wt]: BRANCH } }),
+    });
+    r.deps = { ...r.deps, idle: { ...r.deps.idle, transcript: transcriptFixture({ spoken: [`${r.wt}\th-1`] }) } };
+    fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?\n');
+    const file = path.join(r.wt, '.plot-worker.continue.md');
+    fs.writeFileSync(file, 'use fetch');
+
+    await runWorkerLoop(r.deps);
+
+    expect(atStart[0]).toEqual({ corrections: [{ worktree: r.wt, correction: 'use fetch' }], endings: 0, file: true });
+    expect(r.runs[0].env).toMatchObject({
+      PLOT_SESSION_FLAG: '--resume',
+      PLOT_SESSION_ID: 'h-1',
+      PLOT_CORRECTION_FILE: path.join(r.wt, 'PLOT-CORRECTION.md'),
+    });
+    expect(fs.existsSync(file)).toBe(false);
+  });
+});

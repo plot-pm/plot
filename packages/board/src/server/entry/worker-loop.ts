@@ -620,12 +620,8 @@ export const readMarkerText = async (worktree: string): Promise<string> => {
 };
 
 /**
- * The answer waiting in the desk's `.plot-worker.continue.md`, if any.
- *
- * `continue.ts` writes this file and the manifest's `resumeId` together, so
- * the resume id comes from the manifest already read this pass rather than a
- * second file read — the file carries only the text the resumed turn is
- * given as its prompt.
+ * The answer waiting in the desk's `.plot-worker.continue.md`, if any. The
+ * file holds the prompt text; the resume id is the manifest's.
  *
  * @param worktree - the desk to read.
  * @param resumeId - this pass's manifest `resumeId`.
@@ -644,20 +640,19 @@ export const readContinuation = async (
 };
 
 /**
- * The branch the desk is actually checked out on; `''` for detached or
- * unreadable, matching {@link AgentLoopReadings.deskBranch}'s own contract —
- * absent is not own.
+ * Removes the desk's `.plot-worker.continue.md` after a run that consumed it
+ * has started. Best effort: a failed removal leaves the file for the next pass.
  *
- * @param ports - where the reading comes from.
- * @param worktree - the desk to read.
- * @returns the checked-out branch, or `''`.
+ * @param resume - the run's resume parameter; only a continuation removes the file.
+ * @param worktree - the desk.
  */
-export const readDeskBranch = async (
-  ports: Pick<WorkerLoopPorts, 'trees'>,
-  worktree: string,
-): Promise<string> => {
-  const branch = await ports.trees.currentBranch(worktree);
-  return branch.ok ? branch.value : '';
+const consumeContinuation = async (resume: { readonly continuation: boolean } | null, worktree: string): Promise<void> => {
+  if (resume === null || !resume.continuation) return;
+  try {
+    await rm(join(worktree, CONTINUATION_NAME), { force: true });
+  } catch {
+    /* the next pass reads the file again */
+  }
 };
 
 /** What `boundedRun`'s caller has already measured about this pass's prompt, if any is running or just exited. */
@@ -799,17 +794,13 @@ export const readPass = async (
     // `prompt.running`, so nothing further is read.
     if (prompt.running !== null) return base;
     // ROW 4 — an assignment was just read, no prompt has run on it yet. The
-    // continuation is read FIRST, before anything about take-up: a desk
-    // carrying an answer resumes on it regardless of what unlanded work or
-    // marker also sits there, so those two readings cost nothing this pass
-    // once a continuation is found.
-    const continuation = await readContinuation(worktree, manifest.resumeId);
-    if (continuation !== null) return { ...base, continuation };
-    // The desk's own branch is read before the reset touches it, so an
-    // unlanded-work ending can name what the desk actually held (`#1281`).
-    const [refusals, deskBranchAnswer] = await Promise.all([
+    // desk's own branch is read before the reset touches it, so an
+    // unlanded-work ending can name what the desk actually held (`#1281`), and
+    // `agentLoop` uses a continuation only on that branch.
+    const [refusals, deskBranchAnswer, continuation] = await Promise.all([
       readResetRefusals(ports, worktree),
       ports.trees.currentBranch(worktree),
+      readContinuation(worktree, manifest.resumeId),
     ]);
     const markerText = refusals.includes('blocked-marker') ? await readMarkerText(worktree) : '';
     return {
@@ -817,6 +808,7 @@ export const readPass = async (
       resetRefusals: refusals,
       markerText,
       deskBranch: deskBranchAnswer.ok ? deskBranchAnswer.value : '',
+      continuation,
     };
   }
 
@@ -832,10 +824,7 @@ export const readPass = async (
 
   // ROW 11 — unlanded work with no marker.
   const refusals = await readResetRefusals(ports, worktree);
-  if (refusals.length > 0) {
-    const deskBranch = await readDeskBranch(ports, worktree);
-    return { ...base, resetRefusals: refusals, deskBranch };
-  }
+  if (refusals.length > 0) return { ...base, resetRefusals: refusals };
 
   // ROW 12a — before the wait starts: is the head pushed, and is a PR open?
   // ASKED ONCE PER WAIT. Inside the wait the answers read on entry hold, so a
@@ -1344,8 +1333,11 @@ export const sdkOutcome = (
  * SDK runner, through `boundedRun` otherwise.
  *
  * @param resume - the session and the text an `agent-resume` write names;
- *   `null` for a fresh prompt. Read on the SDK runner only: the `command`
- *   runner's prompt file resumes by its own session flag.
+ *   `null` for a fresh prompt. On the SDK runner the text is the prompt. With
+ *   `continuation`, the SDK request resumes the manifest's handle only where a
+ *   transcript exists for it, the `command` runner receives the text as an
+ *   appended `PLOT-CORRECTION.md` entry, and `.plot-worker.continue.md` is
+ *   removed once the run has started.
  * @returns the prompt's exit as {@link promptExit} or the SDK connector
  *   classifies it, or `'idle'` where the watch ended the worker.
  */
@@ -1354,7 +1346,7 @@ const runPrompt = async (
   worktree: string,
   held: Held,
   hopFrom: string,
-  resume: { readonly resumeId: string; readonly text: string } | null,
+  resume: { readonly resumeId: string; readonly text: string; readonly continuation: boolean } | null,
 ): Promise<RunOutcome> => {
   const sdk = deps.runner === 'sdk' ? deps.sdk : undefined;
   const resolved = (deps.resolvePrompt ?? promptAnswer)(deps.repoRoot, deps.agent).split('\t');
@@ -1423,7 +1415,12 @@ const runPrompt = async (
     const request: AgentRunRequest = {
       worktree,
       prompt: resume !== null ? resume.text : sdk.prompt(manifest.branch),
-      resumeId: resume !== null && resume.resumeId !== '' ? resume.resumeId : spoken.ok && spoken.value === true ? handle : '',
+      resumeId:
+        resume !== null && !resume.continuation && resume.resumeId !== ''
+          ? resume.resumeId
+          : spoken.ok && spoken.value === true
+            ? handle
+            : '',
       sessionId: handle,
       role: 'worker',
       harness: 'claude',
@@ -1437,19 +1434,16 @@ const runPrompt = async (
       env,
       logFile: deps.outFile,
     };
-    // THE CONTINUATION FILE IS REMOVED ONLY NOW — once `request` is built and
-    // the turn is about to be dispatched, never before. A crash between
-    // `readContinuation` and this point leaves the file on disk, so the next
-    // pass reads the same answer again rather than losing it; a loop that
-    // deletes it earlier (at read time, or before deciding) risks losing the
-    // answer to exactly that crash.
-    if (resume !== null) await rm(join(worktree, CONTINUATION_NAME), { force: true });
     const sdkRun = sdk.agentRun({ afterWait: held.afterWait, commitsSinceWait }).run(request);
     const raced = await Promise.race([sdkRun.then((r) => ({ run: r })), watcher.then(() => ({ idle: true }))]);
-    if ('idle' in raced) return { ended: 'idle' };
+    if ('idle' in raced) {
+      await consumeContinuation(resume, worktree);
+      return { ended: 'idle' };
+    }
     ended = true;
     if (!raced.run.ok) return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, handBack: null, sessionId: handle };
     const result = raced.run.value;
+    if (result.end.answer !== 'unstarted') await consumeContinuation(resume, worktree);
     await recordRunRecords(deps, worktree, manifest.branch, result);
     const end = result.end;
     if (end.answer === 'unstarted') deps.log(`plot-worker-loop: the SDK run did not start on ${manifest.branch} — ${end.detail}`);
@@ -1464,6 +1458,9 @@ const runPrompt = async (
     };
   }
 
+  // THE COMMAND RUNNER'S PROMPT IS THE PROJECT'S FILE, which reads
+  // `PLOT-CORRECTION.md` first; the answer reaches the resumed session there.
+  if (resume !== null && resume.continuation) await deps.ports.desk.appendCorrection(worktree, resume.text);
   const unset = settings === '' ? ['-u', 'PLOT_REPO_ROOT', '-u', 'PLOT_AGENT_SETTINGS'] : ['-u', 'PLOT_REPO_ROOT'];
   const run = deps.ports.boundedRun.run('env', [...unset, 'bash', '-c', '. "$1"', '_', file], {
     cwd: worktree,
@@ -1473,11 +1470,17 @@ const runPrompt = async (
   });
 
   const first = await Promise.race([run.then((r) => ({ run: r })), watcher.then(() => ({ idle: true }))]);
-  if ('idle' in first) return { ended: 'idle' };
+  if ('idle' in first) {
+    await consumeContinuation(resume, worktree);
+    return { ended: 'idle' };
+  }
   const result = first.run;
   ended = true;
   // THE BOUND KILLED THE PROMPT: `agentLoop` row 6 names it, so it is not read as a prompt that never started.
-  if (result.ok && result.value.timedOut) return { ended: 'bound' };
+  if (result.ok && result.value.timedOut) {
+    await consumeContinuation(resume, worktree);
+    return { ended: 'bound' };
+  }
 
   let output = '';
   try {
@@ -1487,24 +1490,20 @@ const runPrompt = async (
   }
   const status = result.ok ? (result.value.status ?? 124) : 1;
   const ranSeconds = result.ok ? result.value.ranSeconds : 0;
-  return {
-    ended: 'exit',
-    status,
-    handBack: null,
-    sessionId: handle,
-    exit: promptExit(
-      {
-        status,
-        output,
-        now: Math.floor(deps.now() / 1000),
-        boundSeconds: deps.config.boundSeconds,
-        ranSeconds,
-        afterWait: held.afterWait,
-        commitsSinceWait: commitsSinceWait(),
-      },
-      HARNESS_LIMIT_LINES[deps.harness],
-    ),
-  };
+  const exit = promptExit(
+    {
+      status,
+      output,
+      now: Math.floor(deps.now() / 1000),
+      boundSeconds: deps.config.boundSeconds,
+      ranSeconds,
+      afterWait: held.afterWait,
+      commitsSinceWait: commitsSinceWait(),
+    },
+    HARNESS_LIMIT_LINES[deps.harness],
+  );
+  if (exit.answer !== 'unstarted') await consumeContinuation(resume, worktree);
+  return { ended: 'exit', status, handBack: null, sessionId: handle, exit };
 };
 
 /**
@@ -1643,11 +1642,9 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     }
 
     const resume = decision.writes.find((w) => w.kind === 'agent-resume');
-    // A CONTINUATION ANSWER IS CONSUMED BY THE RESUMED TURN ITSELF, through
-    // `runPrompt`'s own `resume` parameter below — nothing is written to the
-    // desk here. Checked first: `readings.exit` is `null` at take-up, so the
-    // dropped-turn branch below would not match it, but the CI-correction
-    // branch's `handBack !== 'checks'` would, and a continuation is neither.
+    // A CONTINUATION ANSWER reaches the resumed turn through `runPrompt`'s
+    // `resume` parameter. Checked first: it is neither a dropped turn nor a CI
+    // correction.
     if (resume !== undefined && resume.kind === 'agent-resume' && readings.continuation !== null) {
       deps.log(`plot-worker-loop: ${resume.branch} resumes its blocked session with the continuation answer`);
     }
@@ -1730,7 +1727,9 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       worktree,
       held,
       hopFrom,
-      resume !== undefined && resume.kind === 'agent-resume' ? { resumeId: resume.resumeId, text: resume.correction } : null,
+      resume !== undefined && resume.kind === 'agent-resume'
+        ? { resumeId: resume.resumeId, text: resume.correction, continuation: readings.continuation !== null }
+        : null,
     );
     previousBranch = readings.assignedBranch;
     hopFrom = '';
