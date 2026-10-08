@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { scriptsFor, primeAgentSettings, type BuildBoardOptions } from '../board.js';
 import { estateFromEnv } from '../estate.js';
 import { leaveBoardRunsToTheBoard } from '../board-run.js';
+import { gatherReadingsAndRelease } from '../release-claim.js';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 
 /**
@@ -13,7 +14,18 @@ import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
  * node skills/plot/scripts/board/plot-ask.mjs board
  * node skills/plot/scripts/board/plot-ask.mjs fleet
  * node skills/plot/scripts/board/plot-ask.mjs deliverable <slug> <plan-file>
+ * node skills/plot/scripts/board/plot-ask.mjs release-claim <branch>
  * ```
+ *
+ * **`release-claim` is a WRITE, not a `Question`.** The three questions above
+ * answer `Board | Fleet | DeliverabilityAnswer` through `askOnce`'s ternary;
+ * this one runs {@link gatherReadingsAndRelease} — the SAME function
+ * `POST /api/release-claim` calls — directly, so there is exactly one
+ * computation of "is this branch releasable" reached from two callers. It does
+ * not join `Question`/`askOnce`: that machinery is built around read-only
+ * answers with no action to perform, and widening it for one write would make
+ * it the general action dispatcher the plan this implements explicitly rules
+ * out.
  *
  * **A SECOND artifact rather than a flag on the board's.** `index.ts` binds a
  * port the moment it is imported, so a `--json` flag on it would mean a skill
@@ -104,9 +116,27 @@ export const run = async (
   // the caller for the agent's whole run. The running board starts them on its
   // next pass.
   leaveBoardRunsToTheBoard(true);
+
+  if (argv[0] === 'release-claim') {
+    const branch = argv[1];
+    if (!branch) {
+      process.stderr.write('usage: plot-ask.mjs release-claim <branch>\n');
+      return 2;
+    }
+    const { opts } = contextFrom(here);
+    const { result } = await gatherReadingsAndRelease(branch, {
+      repoRoot: opts.repoRoot,
+      scriptDir: opts.scriptsDir,
+    });
+    write(`${JSON.stringify(result)}\n`);
+    return 0;
+  }
+
   const question = questionFrom(argv);
   if (!question) {
-    process.stderr.write('usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file>\n');
+    process.stderr.write(
+      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch>\n',
+    );
     return 2;
   }
   // The plan is named by the CALLER rather than resolved here. `plot-deliver.sh`
