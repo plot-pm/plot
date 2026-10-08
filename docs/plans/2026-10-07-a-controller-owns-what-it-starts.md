@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-07, jwloka, in-session
 - **Started:** 2026-10-07, jwloka, `bug/continue-owns-the-desk-it-starts`
+- **Started:** 2026-10-08, jwloka, `bug/a-claim-has-a-release-controller`
 
 ## Changelog
 
