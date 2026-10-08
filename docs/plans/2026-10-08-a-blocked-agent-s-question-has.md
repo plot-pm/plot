@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-08, jwloka, in-session
 - **Started:** 2026-10-08, jwloka, `feature/a-blocked-ending-routes-its-answer`
 - **Started:** 2026-10-08, jwloka, `feature/a-blocked-desk-is-not-held-by-a-free-wait`
+- **Started:** 2026-10-08, jwloka, `bug/the-loop-resumes-a-continuation`
 
 ## Changelog
 
