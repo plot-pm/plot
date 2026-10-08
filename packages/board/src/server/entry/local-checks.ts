@@ -86,7 +86,13 @@ export const run = async (
     warn('plot-local-checks: not inside a git repository\n');
     return EXIT.notRepository;
   }
-  const context = { repoRoot: probe.value, scriptDir };
+  let repoRoot = probe.value;
+  try {
+    repoRoot = realpathSync(probe.value);
+  } catch {
+    /* the root may be gone mid-run; fill still has a value to join against */
+  }
+  const context = { repoRoot, scriptDir };
   const refs = refsGit(context);
   const scripts = scriptsShell(context);
 
@@ -127,7 +133,7 @@ export const run = async (
         references,
         checks,
         limit: Number.isFinite(limit) && limit >= 0 ? limit : DEFAULT_LOCAL_CHECKS_LIMIT,
-        root: probe.value,
+        root: repoRoot,
       }),
       parseList(rawSuites.ok ? rawSuites.value.trim() : ''),
     ),
