@@ -1,0 +1,1 @@
+../2026-10-08-a-blocked-agent-s-question-has.md
