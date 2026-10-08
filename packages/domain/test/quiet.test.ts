@@ -3,6 +3,7 @@ import {
   quietKind,
   quietNote,
   quietNeedsPerson,
+  fetchPredatesTip,
   type QuietBranchReadings,
   type QuietKind,
 } from '../src/index.js';
@@ -196,6 +197,39 @@ describe('quietNeedsPerson — which of them is still somebody’s to answer', (
       const kind = quietKind(r);
       expect(quietNeedsPerson(r)).toBe(kind !== 'closed-pr' && kind !== 'merged');
     }
+  });
+});
+
+describe('fetchPredatesTip — whether a PR fetch can speak about this branch', () => {
+  it('says yes when the tip landed after the last fetch', () => {
+    // #1240: a branch pushed at 10:04 and fetched at 10:00 has an answer
+    // 8 minutes stale by the time anyone reads it.
+    expect(fetchPredatesTip(1_000, 2_000)).toBe(true);
+  });
+
+  it('says no when the fetch landed after the tip', () => {
+    expect(fetchPredatesTip(2_000, 1_000)).toBe(false);
+  });
+
+  it('says no on the exact boundary — equal is not newer', () => {
+    // THE STRICT BOUNDARY. A lazy `>=` flips a row at the one second a push
+    // and a fetch land together, and nothing here would catch it without
+    // this case asserting the equal instant by name.
+    expect(fetchPredatesTip(1_000, 1_000)).toBe(false);
+  });
+
+  it('says no when the fetch time is unknown', () => {
+    // Absent is not false. A null fetch instant must never read as older
+    // than any tip — that would manufacture a reading nobody took.
+    expect(fetchPredatesTip(null, 1_000)).toBe(false);
+  });
+
+  it('says no when the tip time is unknown', () => {
+    expect(fetchPredatesTip(1_000, null)).toBe(false);
+  });
+
+  it('says no when both instants are unknown', () => {
+    expect(fetchPredatesTip(null, null)).toBe(false);
   });
 });
 
