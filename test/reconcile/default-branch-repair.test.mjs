@@ -135,6 +135,7 @@ test('default branch: the plot-corpus-pin repair NAMES both refs', () => {
   const got = call(work, 'default_branch');
   assert.match(got.stderr, /plot-corpus-pin/, `naming what it pointed at:\n${got.stderr}`);
   assert.match(got.stderr, /origin\/main/, `and what it now points at:\n${got.stderr}`);
+  assert.match(got.stderr, /which is the corpus pin/, `and states the pin case, not "does not resolve":\n${got.stderr}`);
 
   rmTree(root);
 });

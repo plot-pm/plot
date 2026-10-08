@@ -29,15 +29,12 @@
 # now points at, so a second occurrence is visible in a log rather than
 # invisible in a working system.
 #
-# IT DOES NOT REPAIR A SYMREF THAT RESOLVES. Only an unresolvable one is broken.
-# A clone whose `origin/HEAD` deliberately names a non-default branch is
-# somebody's choice, and `--auto` would silently overrule it.
-#
-# THE PIN NAME IS REFUSED BY NAME, RESOLVING OR NOT.
-# `packages/domain/corpus/refs.corpus.test.ts` no longer writes this ref in the
-# shared repository — it pins its own clone. A symref naming `plot-corpus-pin`
-# here is therefore always the leftover of an interrupted run, never a live
-# suite, so it is treated as corrupt even while it resolves.
+# IT REPAIRS A SYMREF THAT RESOLVES ONLY WHEN IT NAMES `plot-corpus-pin`. A
+# clone whose `origin/HEAD` deliberately names another non-default branch is
+# somebody's choice, and `--auto` would silently overrule it. No operator
+# chooses the pin: `packages/domain/corpus/refs.corpus.test.ts` pins its own
+# disposable clone, so a symref naming it in any other repository is the
+# leftover of an interrupted run.
 
 # Whether `refs/remotes/origin/HEAD` names a ref that exists.
 #
@@ -57,7 +54,7 @@ origin_head_resolves() {
   git -C "$dir" rev-parse --verify --quiet "${target}^{commit}" >/dev/null 2>&1
 }
 
-# Repairs an unresolvable `refs/remotes/origin/HEAD`, and says what it did.
+# Repairs a `refs/remotes/origin/HEAD` that `origin_head_resolves` refuses, and says what it did.
 #
 # The repair is `git remote set-head origin --auto`, which asks the remote. It
 # is cheap — measured under a second — and it is the same command that fixed
@@ -69,16 +66,17 @@ origin_head_resolves() {
 #          this is a self-heal on a path that has its own refusal downstream,
 #          so it must never become a second way to stop.
 repair_origin_head() {
-  local dir="${1:-.}" was now
+  local dir="${1:-.}" was now why
   origin_head_resolves "$dir" && return 0
 
   was=$(git -C "$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
+  why="does not resolve"; [ "$was" != origin/plot-corpus-pin ] || why="is the corpus pin, left by an interrupted corpus run"
   if ! git -C "$dir" remote set-head origin --auto >/dev/null 2>&1; then
-    echo "plot: origin/HEAD points at '$was', which does not resolve, and 'git remote set-head origin --auto' failed — the remote could not be asked." >&2
+    echo "plot: origin/HEAD points at '$was', which $why, and 'git remote set-head origin --auto' failed — the remote could not be asked." >&2
     return 0
   fi
   now=$(git -C "$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
-  echo "plot: repaired origin/HEAD — it pointed at '$was', which does not exist on the remote; it now points at '${now:-<unset>}'." >&2
+  echo "plot: repaired origin/HEAD — it pointed at '$was', which $why; it now points at '${now:-<unset>}'." >&2
   return 0
 }
 
