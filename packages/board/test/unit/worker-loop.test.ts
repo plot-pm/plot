@@ -229,17 +229,45 @@ describe('readPass — ROW 4, take-up', () => {
     expect(readings.base).toBe('origin/main');
   });
 
-  it('reads the desk branch the tree names, where the read succeeds', async () => {
+  it('reads the branch the desk is checked out on, alongside the reset refusals', async () => {
     const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: '/tmp/desk' });
     const clock = { since: null as number | null };
     const readings = await readPass(
-      ports({ trees: treesFixture({ branches: { '/tmp/desk': 'infra/x' } }) }),
+      ports({ trees: treesFixture({ branches: { '/tmp/desk': 'infra/x' }, dirty: { '/tmp/desk': ['a.txt'] } }) }),
       file,
       RUNNING_NONE,
       CONFIG,
       clock,
     );
     expect(readings.deskBranch).toBe('infra/x');
+  });
+
+  it('reads an empty desk branch for a detached or unreadable checkout', async () => {
+    const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: '/tmp/desk' });
+    const clock = { since: null as number | null };
+    const readings = await readPass(ports(), file, RUNNING_NONE, CONFIG, clock);
+    expect(readings.deskBranch).toBe('');
+  });
+});
+
+describe('readPass — ROW 4, a continuation answer waiting on the desk', () => {
+  it('reads the continuation beside the take-up readings, carrying the manifest resumeId', async () => {
+    const dir = tempDir('plot-worker-loop-desk-');
+    fs.writeFileSync(path.join(dir, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?\n');
+    fs.writeFileSync(path.join(dir, '.plot-worker.continue.md'), 'use fetch');
+    const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: dir, resumeId: 'sess-abc123' });
+    const clock = { since: null as number | null };
+    const readings = await readPass(ports(), file, RUNNING_NONE, CONFIG, clock);
+    expect(readings.continuation).toEqual({ resumeId: 'sess-abc123', text: 'use fetch' });
+    expect(readings.deskBranch).toBe('');
+  });
+
+  it('reads no continuation where no file sits on the desk, and reads the ordinary take-up fields instead', async () => {
+    const dir = tempDir('plot-worker-loop-desk-');
+    const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: dir });
+    const clock = { since: null as number | null };
+    const readings = await readPass(ports(), file, RUNNING_NONE, CONFIG, clock);
+    expect(readings.continuation).toBeNull();
   });
 });
 

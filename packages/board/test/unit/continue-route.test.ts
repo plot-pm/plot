@@ -38,6 +38,16 @@ import type { DeskMonitors, MonitoredDesk } from '@plot-pm/domain';
 import { startFreshSession } from '../../src/server/entry/registryd-main.js';
 import { deskManifestFor } from '../../src/server/manifest-stamp.js';
 import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
+import {
+  agentsFixture,
+  buildFixture,
+  deskFixture,
+  hostFixture,
+  refsFixture,
+  refusedSlicesFixture,
+  treesFixture,
+} from '@plot-pm/domain/adapters';
+import { readPass, type WorkerLoopPorts } from '../../src/server/entry/worker-loop.js';
 
 const BRANCH = 'feature/continue-with-an-answer';
 
@@ -1430,7 +1440,8 @@ describe('a stopped loop that removes its own manifest — #1376 review', () => 
         {
           session: 'sess',
           resumeId: 'the-blocked-conversation',
-          branch: BRANCH,
+          // A FREE LOOP'S MANIFEST NAMES NO BRANCH.
+          branch: '',
           worktree: wt,
           pid: String(pid),
           wrapperPid: '',
@@ -1459,8 +1470,50 @@ describe('a stopped loop that removes its own manifest — #1376 review', () => 
     assert.ok(fs.existsSync(file), 'the manifest the stopped loop removed is back');
     const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
     assert.equal(manifest.resumeId, 'the-blocked-conversation');
+    assert.equal(manifest.branch, BRANCH, 'the free manifest names the asked branch');
     assert.equal(manifest.pid, (out.body as { pid: string }).pid, 'the manifest names the new run');
     assert.equal(deskManifestFor('/tmp', wt, { manifestDir: dir }).kind, 'named');
+  });
+
+  it('the loop started on a stopped free waiter reads the continuation on the asked branch', async () => {
+    const { wt, dir, file } = await freeWaitingDesk();
+    const monitors: DeskMonitors = { start: () => ({ ok: true, value: { agentMonitorPid: '' } }), stop: () => ({ ok: true, value: [] }) };
+    const result = await continueOnDesk({
+      opts: { ...opts, manifestDir: dir },
+      readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'sleep 2' : fallback),
+      branch: BRANCH,
+      worktree: wt,
+      main: 'main',
+      previousPid: '',
+      answer: 'go',
+      monitors,
+    });
+    if (result.kind === 'started') spawned.add(wt);
+    assert.equal(result.kind, 'started', JSON.stringify(result));
+
+    const ports: WorkerLoopPorts = {
+      trees: treesFixture({ branches: { [wt]: BRANCH } }),
+      agents: agentsFixture(),
+      desk: deskFixture(),
+      refs: refsFixture(),
+      processes: {} as WorkerLoopPorts['processes'],
+      boundedRun: { run: async () => ({ ok: false, why: 'failed' }) },
+      refusedSlices: refusedSlicesFixture(),
+      build: buildFixture(),
+      host: hostFixture(),
+      transcriptQuietSeconds: async () => 'unavailable',
+      recordSpend: async () => undefined,
+      recordRun: async () => null,
+      recordLimits: async () => 0,
+      sliceCostUsd: async () => null,
+    };
+    const config = { boundSeconds: 28_800, maxStartRetries: 3, checksWaitSeconds: 1_800, correctionBudget: 2, sliceMaxRuns: 12, sliceMaxSpendUsd: null, base: 'origin/main' };
+    const readings = await readPass(ports, file, { running: null, exit: null, pushedSha: '' }, config, { since: null });
+
+    assert.equal(readings.assignedBranch, BRANCH);
+    assert.equal(readings.deskBranch, BRANCH);
+    assert.equal(readings.continuation?.resumeId, 'the-blocked-conversation');
+    assert.equal(readings.continuation?.text, fs.readFileSync(path.join(wt, CONTINUATION_NAME), 'utf8'));
   });
 
   it('a fresh start (the registry tick) replaces the resumeId and stops the old monitor', async () => {

@@ -10,7 +10,7 @@ import { pulseFor } from './fleet.js';
 import type { FleetReading } from '../contract/schema.js';
 import { branchFromPulse } from './agent-panel.js';
 import { markerIn } from './worker-question.js';
-import { deskManifestFor, writeDeskManifest, writeManifestStamp, writeResumeId } from './manifest-stamp.js';
+import { deskManifestFor, assignEmptyManifestBranch, writeDeskManifest, writeManifestStamp, writeResumeId } from './manifest-stamp.js';
 import { localCapability } from './controllers/caller.js';
 import { briefPath } from './brief-path.js';
 import { deskMonitorsShell, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
@@ -938,6 +938,13 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       return { kind: 'failed', error: `cannot write a manifest naming ${worktree}; a start now would run unregistered` };
     }
     manifestPath = written;
+  }
+
+  // A FREE LOOP'S MANIFEST NAMES NO BRANCH, and a loop started on it waits
+  // free without reading the continuation. The asked branch is written before
+  // the start.
+  if (target.manifest === 'stamp' && !assignEmptyManifestBranch(manifestPath, branch)) {
+    return { kind: 'failed', error: `cannot write the branch into ${manifestPath}; a start now would wait free` };
   }
 
   // A FRESH SESSION IS DECIDED BEFORE ANY WRITE TO THE DESK. The loop resumes

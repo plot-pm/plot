@@ -18,6 +18,11 @@ const blocked = (branch: string): EndingReading => ({
   ending: { reason: 'blocked', actor: 'agent', branch, detail: '', refusedAssignment: '' },
 });
 
+const holdingWork = (branch: string): EndingReading => ({
+  read: 'ended',
+  ending: { reason: 'holding-work', actor: 'agent', branch, detail: '', refusedAssignment: '' },
+});
+
 const reading = (overrides: Partial<ContinueTargetReading>): ContinueTargetReading => ({
   branch: 'feature/x',
   manifest: UNNAMED,
@@ -52,6 +57,21 @@ describe('continueTarget', () => {
   it('refuses no-question when the ending reads blocked for this branch but no marker is in the tree', () => {
     const r = reading({ manifest: UNNAMED, ending: blocked('feature/x'), question: false });
     expect(continueTarget(r)).toEqual({ kind: 'refused', reason: 'no-question' });
+  });
+
+  it('continues by writing a manifest when unnamed but the ending reads holding-work for this branch, marker present', () => {
+    const r = reading({ manifest: UNNAMED, ending: holdingWork('feature/x'), question: true });
+    expect(continueTarget(r)).toEqual({ kind: 'continue', manifest: 'write' });
+  });
+
+  it('refuses no-question when the ending reads holding-work for this branch but no marker is in the tree', () => {
+    const r = reading({ manifest: UNNAMED, ending: holdingWork('feature/x'), question: false });
+    expect(continueTarget(r)).toEqual({ kind: 'refused', reason: 'no-question' });
+  });
+
+  it('refuses no-manifest when the ending reads holding-work for a different branch', () => {
+    const r = reading({ manifest: UNNAMED, ending: holdingWork('bug/other-branch') });
+    expect(continueTarget(r)).toEqual({ kind: 'refused', reason: 'no-manifest' });
   });
 
   it('refuses no-manifest when unnamed and there is no usable ending', () => {

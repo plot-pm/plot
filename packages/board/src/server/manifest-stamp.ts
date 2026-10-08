@@ -343,6 +343,38 @@ export const writeResumeId = (manifestPath: string, resumeId: string): boolean =
   }
 };
 
+/**
+ * Writes `branch` into a manifest whose `branch` is empty or absent,
+ * atomically. A free loop's manifest holds `branch: ''`, and a loop started on
+ * it reads no assignment. Every other field is kept, and a non-empty `branch`
+ * is left as it is.
+ *
+ * @param manifestPath - the manifest file.
+ * @param branch - the branch the desk holds, non-empty.
+ * @returns true when the manifest names a branch afterwards, false where it
+ *   could not be read, parsed or written, or where `branch` is empty.
+ */
+export const assignEmptyManifestBranch = (manifestPath: string, branch: string): boolean => {
+  if (branch === '') return false;
+  const tmp = `${manifestPath}.plot-branch-tmp`;
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
+    if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) return false;
+    if (typeof manifest.branch === 'string' && manifest.branch !== '') return true;
+    manifest.branch = branch;
+    fs.writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    fs.renameSync(tmp, manifestPath);
+    return true;
+  } catch {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      /* nothing to clean up */
+    }
+    return false;
+  }
+};
+
 /** What {@link writeDeskManifest} needs to name a desk that no manifest names yet. */
 export interface DeskManifestFields {
   /** The desk, absolute — written as `worktree` and matched by {@link deskManifestFor} afterwards. */

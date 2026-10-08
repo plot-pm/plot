@@ -35,20 +35,6 @@ export interface AgentLoopReadings {
    * and a free loop holds none.
    */
   readonly assignedBranch: string;
-  /**
-   * The branch this desk's checkout is actually on before {@link assignedBranch}
-   * resets it, read only at take-up (ROW 4). `''` where the checkout could
-   * not be read — the caller's `end()` falls back to {@link assignedBranch}
-   * rather than name an ending with no branch at all.
-   *
-   * **A TAKE-UP'S `holding-work` NAMES THE DESK, NOT THE ASSIGNMENT.** The
-   * unlanded work ROW 4 finds was left by whatever this desk ran before — the
-   * new assignment never started — so an ending naming {@link assignedBranch}
-   * blamed a slice that was never taken up for a correction that belongs to
-   * the one before it. `#1281` measured `supervise` charging a correction
-   * against a slice that had not yet run a single prompt.
-   */
-  readonly deskBranch: string;
   /** Seconds this free wait, or this `Worker bound` window, has run so far. */
   readonly waitedSeconds: number;
   /** `Worker bound` in seconds; `0` disables the floor. */
@@ -80,6 +66,16 @@ export interface AgentLoopReadings {
    * take-up only.
    */
   readonly base: string;
+  /**
+   * The answer waiting in `.plot-worker.continue.md`, read at take-up only.
+   * `null` where no continuation file sits on the desk.
+   *
+   * Used only where {@link deskBranch} reads a branch equal to
+   * {@link assignedBranch}: take-up then writes one `agent-resume` and no
+   * ending. Any other desk branch ignores it and takes the slice up as if no
+   * file existed.
+   */
+  readonly continuation: { readonly resumeId: string; readonly text: string } | null;
 
   /**
    * Whether a prompt is running this pass, and if so, what the idle watch
@@ -155,12 +151,28 @@ export interface AgentLoopReadings {
   readonly sliceMaxSpendUsd: number | null;
   /**
    * Why this desk may not be reset — empty when nothing holds it. Read at
-   * take-up and after a `ran` exit. At either point, `uncommitted-changes` or
-   * `unpushed-commits` ends the loop `holding-work`. At take-up, a list that
-   * names only `blocked-marker` ends the loop `blocked`: the desk holds an
-   * unanswered question, so the slice is not taken up.
+   * take-up and after a `ran` exit. After a `ran` exit, any entry ends the
+   * loop `holding-work`. At take-up, `uncommitted-changes` or
+   * `unpushed-commits` ends the loop `holding-work` unless {@link deskBranch}
+   * equals {@link AgentLoopReadings.assignedBranch}; a `blocked-marker` entry
+   * ends it `blocked`.
    */
   readonly resetRefusals: readonly ResetRefusal[];
+  /**
+   * The branch the desk's checkout is on before {@link assignedBranch} resets
+   * it, read at take-up only (ROW 4). `''` where the checkout is detached or
+   * could not be read; `''` never equals an assignment, so such a desk's
+   * unlanded work counts as foreign. The caller's `end()` falls back to
+   * {@link assignedBranch} rather than name an ending with no branch at all.
+   *
+   * **A TAKE-UP'S `holding-work` NAMES THE DESK, NOT THE ASSIGNMENT.** The
+   * unlanded work ROW 4 finds was left by whatever this desk ran before — the
+   * new assignment never started — so an ending naming {@link assignedBranch}
+   * blamed a slice that was never taken up for a correction that belongs to
+   * the one before it. `#1281` measured `supervise` charging a correction
+   * against a slice that had not yet run a single prompt.
+   */
+  readonly deskBranch: string;
   /**
    * Whether the desk's `HEAD` is on the remote, read after a `ran` exit and
    * before the CI wait starts. With `false` no CI answer can come, so the
@@ -283,6 +295,30 @@ const blockedDeclaration = (worktree: string, branch: string, summary: string): 
   status: 'blocked',
   summary,
 });
+
+/**
+ * Whether the desk's checkout is on the assigned branch. `''` (detached or
+ * unreadable) answers false.
+ *
+ * @param deskBranch - the branch the desk is checked out on, or `''`.
+ * @param assignedBranch - the branch this slice is assigned.
+ * @returns true only for a read branch equal to the assignment.
+ */
+const onOwnBranch = (deskBranch: string, assignedBranch: string): boolean =>
+  deskBranch !== '' && deskBranch === assignedBranch;
+
+/**
+ * The take-up refusals that are unlanded work of another branch: every
+ * `uncommitted-changes` and `unpushed-commits` entry, except on a desk whose
+ * checkout is the assigned branch (see {@link onOwnBranch}). `blocked-marker`
+ * is never included.
+ *
+ * @param resetRefusals - this pass's `resetRefusals` reading.
+ * @param ownBranch - whether the desk is on the assigned branch.
+ * @returns the refusals that end the take-up `holding-work`.
+ */
+const foreignResetRefusals = (resetRefusals: readonly ResetRefusal[], ownBranch: boolean): readonly ResetRefusal[] =>
+  ownBranch ? [] : resetRefusals.filter((r) => r !== 'blocked-marker');
 
 /**
  * The `run-limit` ending where this slice may start no further run, or `null`
@@ -470,15 +506,36 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
         note: `the ${readings.takeUpRefused} at take-up was refused, claim: ${readings.claim ?? 'unknown'}; the assignment is cleared`,
       });
     }
-    // A desk holding unlanded work ends the loop before anything is written
-    // over it, the same `holding-work` ending row 11 gives after a prompt.
+    const ownBranch = onOwnBranch(readings.deskBranch, branch);
+    // A CONTINUATION ON THE DESK'S OWN BRANCH RESUMES THE BLOCKED SESSION
+    // before any take-up reading is decided, and writes no ending: the resumed
+    // turn's exit decides the ending.
+    if (readings.continuation !== null && ownBranch) {
+      return decide(
+        'agent-loop',
+        [
+          {
+            kind: 'agent-resume',
+            branch,
+            worktree,
+            resumeId: readings.continuation.resumeId,
+            correction: readings.continuation.text,
+          },
+        ],
+        { branch, exitCode: null, note: 'resuming the blocked session with its continuation answer' },
+      );
+    }
+
+    // A desk holding unlanded work of another branch ends the loop before
+    // anything is written over it, the same `holding-work` ending row 11 gives
+    // after a prompt. Unlanded work on the assigned branch is the slice's own.
     // THE ENDING NAMES THE DESK'S OWN BRANCH, NOT THE NEW ASSIGNMENT: the
     // unlanded work was left by whatever this desk ran before, and `branch`
     // never started (`#1281`). An unreadable desk branch falls back to the
     // assignment rather than naming an ending with no branch at all.
     // `refusedAssignment` records `branch` as a field, so the supervisor's
     // tick can release its claim without parsing `detail`.
-    const unlanded = readings.resetRefusals.filter((r) => r !== 'blocked-marker');
+    const unlanded = foreignResetRefusals(readings.resetRefusals, ownBranch);
     if (unlanded.length > 0) {
       const deskBranch = readings.deskBranch !== '' ? readings.deskBranch : branch;
       const detail = `the desk holds unlanded work (${unlanded.join(', ')}); \`${branch}\` is not taken up`;
@@ -499,10 +556,10 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
         { branch: deskBranch, exitCode: 0, note: detail },
       );
     }
-    // A desk holding only a `PLOT-BLOCKED` marker holds an unanswered
-    // question: the slice is not taken up, and the blocked declaration lets
-    // `supervise` answer needs-a-person.
-    if (readings.resetRefusals.length > 0) {
+    // A desk holding a `PLOT-BLOCKED` marker holds an unanswered question,
+    // whatever own work sits beside it, and the slice is not taken up; the
+    // blocked declaration lets `supervise` answer needs-a-person.
+    if (readings.resetRefusals.includes('blocked-marker')) {
       return end(
         worktree,
         branch,
@@ -517,6 +574,15 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
     if (limited !== null) return limited;
     const overspent = spendLimitEnding(readings, branch);
     if (overspent !== null) return overspent;
+    // OWN UNLANDED WORK IS KEPT: no desk reset and no claim commit, because the
+    // checkout is already the claimed branch and a reset would discard the work.
+    if (ownBranch && readings.resetRefusals.some((r) => r !== 'blocked-marker')) {
+      return decide('agent-loop', [{ kind: 'prompt-run', worktree, branch }], {
+        branch,
+        exitCode: null,
+        note: `the desk holds its own unlanded work on \`${branch}\`; no reset, no claim commit`,
+      });
+    }
     return decide(
       'agent-loop',
       [
