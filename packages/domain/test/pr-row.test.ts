@@ -40,7 +40,7 @@ describe('prRowPlacement — unknown mergeability', () => {
     });
   });
 
-  it('answers waiting-on-you/cannot say whether it merges for a word that is not a known mergeable value', () => {
+  it('answers waiting-on-machine/CI running for an unrecognised mergeable word with pending checks', () => {
     expect(prRowPlacement(readings({ mergeable: 'some-future-word', checks: 'pending' }))).toEqual({
       group: 'waiting-on-machine',
       clause: 'CI running',

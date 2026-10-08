@@ -24,17 +24,13 @@ export type PrRowPlacement =
 /**
  * Which group an open PR's row belongs to, and the clause naming why.
  *
- * The conflict outranks the checks, and unknown mergeability outranks a
- * pending check: `mergeable === 'conflicting'` is read first, then
- * `mergeable !== 'mergeable'`, and only then `checks`. GitHub starts no
- * workflow for a branch that does not merge, so a conflicting PR reports an
- * empty rollup — reading `checks` first would misreport that as "no checks"
- * and, for `unknown` + `pending`, as CI running on a PR nobody can rebase yet.
- *
- * `checks: 'pending'` with `mergeable === 'mergeable'` is the one row this
- * rule moves away from `prState`'s and `classifyGroup`'s older behaviour: it
- * answers `waiting-on-machine`, not `waiting-on-you`. Every other input keeps
- * the placement those functions already gave it.
+ * The rule reads `mergeable === 'conflicting'` first, then a `pending` check,
+ * then `mergeable !== 'mergeable'`, and only then the other `checks` values.
+ * A conflicting PR answers `conflicts` whatever its checks say. A PR whose
+ * mergeability is unknown or absent answers `CI running` when its checks are
+ * `pending`, and `cannot say whether it merges` for every other checks value.
+ * A mergeable PR answers from its checks; an unrecognised checks word answers
+ * `cannot read the checks`.
  *
  * @param readings What the row knows about the PR's mergeability and checks.
  * @returns The group the row belongs to and the clause for its note.
@@ -43,13 +39,6 @@ export const prRowPlacement = (readings: PrRowReadings): PrRowPlacement => {
   if (readings.mergeable === 'conflicting') {
     return { group: 'waiting-on-you', clause: 'conflicts' };
   }
-  // A PENDING CHECK ESCAPES UNKNOWN MERGEABILITY, and it is the one thing that
-  // does: GitHub answers `unknown` for `mergeable` while it recomputes after
-  // every push, which is exactly when CI starts, so a run already in flight is
-  // evidence the row can act on regardless of what `mergeable` says. Every
-  // other checks value stays behind "cannot say whether it merges" — the
-  // checks may well be fine, but reporting them would be a second guess
-  // layered on the first.
   if (readings.mergeable !== 'mergeable' && readings.checks === 'pending') {
     return { group: 'waiting-on-machine', clause: 'CI running' };
   }

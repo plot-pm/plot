@@ -6,6 +6,7 @@ import {
   fleet as buildFleet, type Catalogue,
 } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentEntry, type AgentRow, type Fleet, type Slice } from '../../src/contract/schema.js';
+import { agentPr, classify, type PrRecord } from '../../src/server/fleet.js';
 
 /**
  * The Agents tab, driven in a REAL browser against the shipped artifact.
@@ -3112,18 +3113,20 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  it('renders a PR with running checks in WAITING ON A MACHINE, mergeability unreadable or not', async () => {
-    // #1164: GitHub answers `mergeable: unknown` while it recomputes after
-    // every push, which is exactly when CI starts. The group itself is decided
-    // in `classifyGroup`/`prRowPlacement` (unit-tested); what only a browser
-    // can show is that the row this fixture states lands in the section a
-    // reader actually sees, not in WAITING ON YOU where #1164 found it.
+  it('renders a PR with running checks and unknown mergeability in WAITING ON A MACHINE', async () => {
+    // #1164. The row's group, note and PR word come from the server's own
+    // `classify` and `agentPr` over the raw facts, so the page shows what the
+    // rule decides. On origin/main the same facts give `waiting-on-you`,
+    // "cannot say whether it merges" and the word `unknown`.
+    const record: PrRecord = {
+      number: 203, head: 'feature/ci-running', state: 'OPEN', draft: false, checks: 'pending',
+      review: '', mergeable: 'unknown', url: 'https://github.com/tiny/garden/pull/203',
+    };
+    const placed = classify('wip', 'eligible', 5, 30, record);
     const page = await openAgents(fleet({
       rows: [row({
-        branch: 'feature/ci-running', plan: 'beans', group: 'waiting-on-machine',
-        ageMinutes: 5, note: 'PR #203, CI running',
-        pr: { number: 203, url: `${GH}feature/ci-running`.replace('/tree/', '/pull/'), draft: false, state: 'pending' },
-        branchUrl: `${GH}feature/ci-running`,
+        branch: 'feature/ci-running', plan: 'beans', group: placed.group, ageMinutes: 5, note: placed.note,
+        pr: agentPr(record), branchUrl: `${GH}feature/ci-running`,
       })],
     }));
     try {

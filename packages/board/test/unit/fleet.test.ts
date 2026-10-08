@@ -5062,26 +5062,53 @@ describe('a pending check outranks an unreadable mergeable', () => {
     expect(prState(pr({ mergeable: undefined, checks: 'pending' }))).toBe('pending');
   });
 
-  it('agrees with prRowPlacement, group and clause, over the whole mergeable x checks matrix', () => {
-    // THE CROSS-CHECK: `classifyGroup`'s group and `prStates`' word are two
-    // separate call sites reading the same domain rule. A naive edit to one
-    // without the other is exactly how a row's group and its sentence come to
-    // disagree — the failure #1164 reported in the first place.
-    for (const mergeable of ['mergeable', 'conflicting', 'unknown', undefined, 'some-future-word']) {
-      for (const checks of ['green', 'pending', 'failing', 'none', 'unknown']) {
-        const placement = prRowPlacement({ mergeable, checks });
-        const record = pr({ mergeable, checks });
-        const r = classify('wip', 'eligible', 3, QUIET, record);
-        expect(r.group).toBe(placement.group);
-        // The word agrees with the clause wherever the clause names a checks
-        // state directly; `prStates` has no word for "conflicts" or "cannot say
-        // whether it merges" (`prState` answers those from `mergeable` alone),
-        // so only the clauses that map onto a `PrStateWord` are cross-checked.
-        if (placement.clause === 'CI running') expect(prStates(record)[0]).toBe('pending');
-        if (placement.clause === 'checks failing') expect(prStates(record)[0]).toBe('failing');
-        if (placement.clause === 'no checks') expect(prStates(record)[0]).toBe('none');
-        if (placement.clause === 'green') expect(prStates(record)[0]).toBe('green');
-      }
-    }
-  });
+  // The plan's table, one entry per (mergeable, checks) pair: the group, the
+  // clause, and the `prStates` word the row must show.
+  const CHECKS = ['green', 'pending', 'failing', 'none', 'unknown'] as const;
+  const UNREADABLE = ['unknown', undefined, 'some-future-word'] as const;
+  type Expected = { group: string; clause: string; word: string };
+  const TABLE: { mergeable: string | undefined; checks: string; expected: Expected }[] = [
+    ...CHECKS.map((checks) => ({
+      mergeable: 'conflicting', checks,
+      expected: { group: 'waiting-on-you', clause: 'conflicts', word: 'conflicts' },
+    })),
+    ...UNREADABLE.flatMap((mergeable) => CHECKS.map((checks) => ({
+      mergeable, checks,
+      expected: checks === 'pending'
+        ? { group: 'waiting-on-machine', clause: 'CI running', word: 'pending' }
+        : { group: 'waiting-on-you', clause: 'cannot say whether it merges', word: 'unknown' },
+    }))),
+    { mergeable: 'mergeable', checks: 'pending', expected: { group: 'waiting-on-machine', clause: 'CI running', word: 'pending' } },
+    { mergeable: 'mergeable', checks: 'failing', expected: { group: 'waiting-on-you', clause: 'checks failing', word: 'failing' } },
+    { mergeable: 'mergeable', checks: 'none', expected: { group: 'waiting-on-you', clause: 'no checks', word: 'none' } },
+    { mergeable: 'mergeable', checks: 'unknown', expected: { group: 'waiting-on-you', clause: 'cannot read the checks', word: 'unknown' } },
+    { mergeable: 'mergeable', checks: 'green', expected: { group: 'waiting-on-you', clause: 'green', word: 'green' } },
+  ];
+
+  for (const { mergeable, checks, expected } of TABLE) {
+    const name = `mergeable=${String(mergeable)} checks=${checks}`;
+    const sentence = (base: string) => (expected.clause === 'green' ? `${base} green` : `${base}, ${expected.clause}`);
+
+    it(`${name}: the rule, classifyGroup and prStates give ${expected.group}, "${expected.clause}", ${expected.word}`, () => {
+      const record = pr({ mergeable, checks });
+      expect(prRowPlacement({ mergeable, checks })).toEqual({ group: expected.group, clause: expected.clause });
+      const r = classify('wip', 'eligible', 3, QUIET, record);
+      expect(r.group).toBe(expected.group);
+      expect(r.note).toBe(sentence('PR #1164'));
+      expect(prStates(record)[0]).toBe(expected.word);
+    });
+
+    it(`${name}: prEvidence after a worker question says "${expected.clause}"`, () => {
+      const r = classify(
+        'wip', 'eligible', 3, QUIET, pr({ mergeable, checks }),
+        false, 0, 'approved', 'running', '', '', false, [], 'which way?');
+      expect(r.group).toBe('waiting-on-you');
+      expect(r.note).toBe(`waiting on you: which way? · ${sentence('PR #1164')}`);
+    });
+
+    it(`${name}: draftNote says ${expected.clause === 'green' ? 'nothing extra' : `"${expected.clause}"`}`, () => {
+      const note = draftNote(pr({ mergeable, checks, draft: true }));
+      expect(note).toBe(expected.clause === 'green' ? 'PR #1164, draft' : `PR #1164, draft, ${expected.clause}`);
+    });
+  }
 });
