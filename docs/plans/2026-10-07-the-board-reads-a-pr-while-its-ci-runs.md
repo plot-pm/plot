@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-07, jwloka, in-session
 - **Started:** 2026-10-07, Jan Wloka, `bug/a-pending-check-outranks-mergeability`
+- **Started:** 2026-10-08, Jan Wloka, `bug/a-pending-check-is-asked-again`
 
 ## Changelog
 
