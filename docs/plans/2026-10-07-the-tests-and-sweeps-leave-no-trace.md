@@ -15,6 +15,7 @@
 - **Started:** 2026-10-08, jwloka, `bug/local-checks-find-tests-in-a-temp-worktree`
 - **Started:** 2026-10-08, jwloka, `bug/the-sweep-counts-a-moved-claim-once`
 - **Started:** 2026-10-08, jwloka, `bug/helpers-stay-out-of-the-board-package`
+- **Started:** 2026-10-08, jwloka, `bug/helpers-stay-out-of-the-board-package`
 
 ## Changelog
 
