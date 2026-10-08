@@ -66,7 +66,7 @@ Measured on `main` at `0b749ca9e`, 2026-10-09:
 
 ### The gate counts decisions
 
-- `feature/the-gate-counts-decisions` — a CI check counts the README rows whose kind is neither *launcher* nor *readings* at the merge base and at `HEAD`, and fails when the count grows; the `plot-worker-loop.sh` row becomes *launcher* <!-- builds: a decision-count gate over the README kind column -->
+- `feature/the-gate-counts-decisions` — a CI check counts the README rows whose kind is neither *launcher* nor *readings* at the merge base and at `HEAD`, and fails when the count grows; the `plot-worker-loop.sh` row becomes *launcher* → #1405 <!-- builds: a decision-count gate over the README kind column -->
 
 ### The reaper becomes a command
 
