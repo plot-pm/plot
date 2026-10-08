@@ -1901,7 +1901,7 @@ export const runnerDeps = async (input: RunnerInput): Promise<{ runner: 'command
  * @param branch - the branch to search for.
  * @returns the `.md` paths under `planDir` whose text contains `branch`.
  */
-const plansMentioning = (planDir: string, branch: string): readonly string[] => {
+export const plansMentioning = (planDir: string, branch: string): readonly string[] => {
   let names: readonly string[];
   try {
     names = readdirSync(planDir).filter((n) => n.endsWith('.md'));
@@ -1945,7 +1945,7 @@ interface RawPlanMeta {
  * @returns the declared agent name, or `null` where the branch names none or
  *   cannot be found.
  */
-const sliceAgentOf = (repoRoot: string, scriptDir: string, planDir: string, branch: string): string | null => {
+export const sliceAgentOf = (repoRoot: string, scriptDir: string, planDir: string, branch: string): string | null => {
   const candidates = plansMentioning(planDir, branch);
   if (candidates.length === 0) return null;
   const read = scriptsShell({ repoRoot, scriptDir }).planMetaSync(candidates);
@@ -2197,6 +2197,11 @@ export const main = async (
     restart,
     waitStartedAt,
     hopFrom,
+    // Invoking either closure requires a real prompt-run against an assigned
+    // branch, which only happens with the real, non-fixture ports `main`
+    // builds above — `main`'s own tests cannot drive that without starting a
+    // real process. `sliceAgentOf` and `runnerDeps` are exercised directly.
+    /* v8 ignore start */
     sliceAgent: (branch) => sliceAgentOf(repoRoot, scriptDir, planDir, branch),
     runnerFor: (agent) =>
       runnerDeps({
@@ -2213,6 +2218,7 @@ export const main = async (
         now,
         log: stderrLog,
       }),
+    /* v8 ignore stop */
     idle: {
       selfPid: process.pid,
       windowSeconds: count(env.PLOT_MONITOR_QUIET_SECONDS, IDLE_WINDOW_SECONDS),
