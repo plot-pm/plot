@@ -63,7 +63,7 @@ The same change corrects §1's statement that `plot-worker-loop.sh` is the per-p
 
 ### The pass is measured
 
-- `feature/the-pass-is-measured` — inventories the scripts one agent pass calls, measures today, launcher and in-process variants at 1, 4 and 8 agents by CPU and wall time, and records the chosen route in `docs/shell-and-domain.md` and the story <!-- builds: scripts/measure-pass.mjs, a per-pass cost measurement -->
+- `feature/the-pass-is-measured` — inventories the scripts one agent pass calls, measures today, launcher and in-process variants at 1, 4 and 8 agents by CPU and wall time, and records the chosen route in `docs/shell-and-domain.md` and the story <!-- builds: scripts/measure-pass.mjs, a per-pass cost measurement --> → #1410
 
 ## Notes
 
