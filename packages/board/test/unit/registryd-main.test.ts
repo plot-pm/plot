@@ -1833,10 +1833,17 @@ describe('startFreshAgents', () => {
     deskFile: spentDeskFile,
     record: { rowsFor: async () => ({ ok: true as const, value: [] }) },
     heldFiles: async (): Promise<readonly string[] | null> => [],
+    hasMarker: async () => false,
+    asks: {
+      endingAt: async () => '2026-10-05T11:00:00.000Z',
+      record: { asked: async () => ({ ok: true as const, value: false }) },
+      prMerged: async () => 'not-merged' as const,
+    },
     budget: 2,
     ports: {
       record: { append: async () => ({ ok: true as const, value: undefined }) },
-      desk: { sealDeclaration: async () => ({ ok: true as const, value: undefined }) },
+      asks: { append: async () => ({ ok: true as const, value: undefined }) },
+      desk: { writeBlockedMarker: async () => ({ ok: true as const, value: undefined }) },
       now: () => new Date('2026-10-05T12:00:00.000Z'),
       start: async (input: { branch: string; beforeStart: () => Promise<boolean> }) => {
         calls.push(input.branch);

@@ -5,6 +5,8 @@ import {
   endingReleaseBranch,
   holdingWorkAnswer,
   needsPersonMarker,
+  secondFreshSessionMarker,
+  NEEDS_PERSON_ENDINGS,
   type EndingActionReadings,
 } from '../src/rules/ending-action.js';
 import { EndingReasonSchema, type EndingReading, type EndingReason } from '../src/entities/ending.js';
@@ -17,6 +19,8 @@ const readings = (over: Partial<EndingActionReadings> = {}): EndingActionReading
   priorFreshSessions: 0,
   commitBeyondClaim: 'no',
   prOpen: false,
+  prMerged: 'not-merged',
+  endingAsked: false,
   ...over,
 });
 
@@ -104,6 +108,31 @@ describe('endingAction', () => {
     }
   });
 
+  it('leaves an outright needs-a-person ending alone once its PR merged — nobody sees a merged row, and a marker would refuse the reap', () => {
+    for (const ending of NEEDS_PERSON_OUTRIGHT) {
+      expect(endingAction(readings({ ending: ending as EndingReason, prMerged: 'merged' }))).toBe('leave');
+    }
+  });
+
+  it('still asks a person where the host could not say whether the PR merged — absent is not false', () => {
+    for (const ending of NEEDS_PERSON_OUTRIGHT) {
+      expect(endingAction(readings({ ending: ending as EndingReason, prMerged: 'unanswerable' }))).toBe('needs-a-person');
+    }
+  });
+
+  it('leaves an ending a person was already asked about — the answer removes the marker, not the ending', () => {
+    for (const ending of [...NEEDS_PERSON_OUTRIGHT, 'corrections-spent', 'turn-limit', 'holding-work']) {
+      const asked = readings({ ending: ending as EndingReason, priorFreshSessions: 1, endingAsked: true });
+      expect(endingAction(asked)).toBe('leave');
+      expect(endingAction({ ...asked, endingAsked: false })).toBe('needs-a-person');
+    }
+  });
+
+  it('an asked ending never stops a release or a first fresh session — the reading only answers for a person', () => {
+    expect(endingAction(readings({ endingAsked: true }))).toBe('release-claim');
+    expect(endingAction(readings({ ending: 'corrections-spent', endingAsked: true }))).toBe('start-fresh');
+  });
+
   it('leaves a nothing-done ending with a commit beyond the claim alone', () => {
     expect(endingAction(readings({ commitBeyondClaim: 'yes' }))).toBe('leave');
   });
@@ -175,6 +204,24 @@ describe('needsPersonMarker', () => {
     const reasons: EndingReason[] = ['unstarted', 'spend-limit', 'run-limit', 'checks-unanswered', 'blocked'];
     const texts = reasons.map((reason) => needsPersonMarker(reason, 'infra/x', 'the same detail'));
     expect(new Set(texts).size).toBe(texts.length);
+  });
+
+  it('composes non-empty text naming the branch for every reason in NEEDS_PERSON_ENDINGS', () => {
+    expect(NEEDS_PERSON_ENDINGS.size).toBe(5);
+    for (const reason of NEEDS_PERSON_ENDINGS) {
+      const text = needsPersonMarker(reason, 'infra/x', 'd');
+      expect(text).toContain('infra/x');
+      expect(text).toContain('Decide');
+    }
+  });
+
+  it('composes the second-fresh-session question for corrections-spent, turn-limit and holding-work', () => {
+    for (const reason of ['corrections-spent', 'turn-limit', 'holding-work'] as const) {
+      const text = needsPersonMarker(reason, 'infra/x', 'ignored');
+      expect(text).toBe(secondFreshSessionMarker(reason, 'infra/x'));
+      expect(text).toContain('already had its one fresh session');
+      expect(text).toContain(`(${reason})`);
+    }
   });
 
   it('refuses to compose for an ending outside its five', () => {

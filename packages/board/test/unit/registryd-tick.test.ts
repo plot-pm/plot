@@ -1239,6 +1239,45 @@ describe('the tick escalates a desk\'s aged question, for every verdict includin
     expect(report.decision.writes.filter((w) => w.kind === 'notify')).toEqual([]);
   });
 
+  it('notifies for a marker on a desk no manifest names — the fresh-agent step\'s own markers reach `Notify command`', async () => {
+    const ended = {
+      path: '/estate/.worktrees/feature-two',
+      branch: 'feature/two',
+      isMain: false,
+      prunable: false,
+      planNamed: true,
+      plan: '2026-10-05-a-plan',
+      dirtyCount: 0,
+    };
+    const marker: MarkerReading = { firstLine: 'The worker on `feature/two` stopped on a run limit', askedAt: askedMinutesAgo(16) };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true, trees: async () => [ended] }),
+      escalation: escalation({
+        marker: async (worktree) => (worktree === ended.path ? marker : null),
+        now: () => NOW,
+      }),
+    });
+    expect(report.decision.writes.filter((w) => w.kind === 'notify')).toEqual([
+      expect.objectContaining({ kind: 'notify', worktree: ended.path, askedAt: marker.askedAt, rung: 'notified-1' }),
+    ]);
+  });
+
+  it('reads a registry desk once, even where the trees name it too', async () => {
+    const marker: MarkerReading = { firstLine: 'x', askedAt: askedMinutesAgo(16) };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({
+        workerAlive: async () => true,
+        trees: async () => [
+          { path: '/estate/.worktrees/feature-one', branch: 'feature/one', isMain: false, prunable: false, planNamed: true, plan: 'p', dirtyCount: 0 },
+        ],
+      }),
+      escalation: escalation({ marker: async () => marker, now: () => NOW }),
+    });
+    expect(report.decision.writes.filter((w) => w.kind === 'notify')).toHaveLength(1);
+  });
+
   it('writes nothing with no escalation world — nobody asked', async () => {
     const report = await tick({
       registry: async () => [manifest()],
