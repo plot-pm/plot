@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** the-release-train-fixes-what-it-found
 - **Issue:** #1294, #1307, #1276
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-07, jwloka, in-session
 - **Started:** 2026-10-07, jwloka, `bug/continue-owns-the-desk-it-starts`
 - **Started:** 2026-10-08, jwloka, `bug/a-claim-has-a-release-controller`
+- **Delivered:** 2026-10-08
 
 ## Changelog
 
