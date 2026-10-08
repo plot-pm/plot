@@ -63,7 +63,7 @@ None.
 
 ### The sweep counts a moved claim once
 
-- `bug/the-sweep-counts-a-moved-claim-once` — section 14 skips moved listings and pairs of terminal plans <!-- builds: the moved-listing filter in reconcile section 14 -->
+- `bug/the-sweep-counts-a-moved-claim-once` — section 14 skips moved listings and pairs of terminal plans → #1390 <!-- builds: the moved-listing filter in reconcile section 14 -->
 
 ### Helpers stay out of packages/board
 
