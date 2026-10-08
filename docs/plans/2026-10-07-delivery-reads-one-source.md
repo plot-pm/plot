@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-07, jwloka, in-session
 - **Started:** 2026-10-07, jwloka, `bug/deliver-reads-the-plan-at-the-pulse-ref`
 - **Started:** 2026-10-08, jwloka, `bug/deliver-reads-the-pr-index-first`
+- **Started:** 2026-10-08, jwloka, `bug/deliver-reads-the-pr-index-first`
 
 ## Changelog
 

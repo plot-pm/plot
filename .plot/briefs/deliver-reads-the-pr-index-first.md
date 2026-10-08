@@ -1,80 +1,60 @@
-## Implementation brief — delivery-reads-one-source (slice 2: Deliver reads the PR index first)
+## Implementation brief — delivery-reads-one-source (wave 2: Deliver reads the PR index first)
 
 - **Plan (canonical):** `docs/plans/2026-10-07-delivery-reads-one-source.md` on `main`
 - **Approved:** 2026-10-07, jwloka, in-session
 - **Branch:** `bug/deliver-reads-the-pr-index-first` (base: `main`)
-- **Ends as:** one PR to `main`
-- **Review of the code:** per repo convention — PR review on GitHub
+- **Ends as:** one PR to `main`, opened with `skills/plot/scripts/plot-open-pr.sh`
+- **Review of the code:** per repo convention — the PR is reviewed as code; CI is the authority for e2e
 
-Second and last slice. It waited on `bug/deliver-reads-the-plan-at-the-pulse-ref`, which merged as #1350 (`c60ff3cee`). Slice 1 changed the board route in `packages/board/src/server/deliver.ts`; this slice changes the other path, `packages/board/src/server/controllers/deliverability.ts`, so the two share no file.
+This is the second of two waves. Wave 1, `bug/deliver-reads-the-plan-at-the-pulse-ref`, merged as #1350; nothing waits on this branch.
 
 ### What to build
 
-`mergedBranches` in `controllers/deliverability.ts` (`:80`) reads the PR store first and asks `host.prMerged` only for the branches the store does not answer, and a host answer of `unknown` refuses the delivery as `cannot-tell` instead of counting as not merged.
+`POST /api/deliver` counts a slice as merged only when `host.prMerged` answers `merged`, and it asks once per branch (`packages/board/src/server/controllers/deliverability.ts`, `mergedBranches`). An `unknown` answer counts as not merged. A 12-slice plan on Bitbucket sends about 60 requests, gets 12 `unknown` answers under a 429, and the refusal reports the plan as unmerged (#1165).
 
-The failure, measured in #1165: a 12-slice plan on Bitbucket sends about 60 requests (`prMerged`, `prMergeCommit` and a `commitFiles` read per branch) and gets 12 `unknown` answers. Each `unknown` counts as not merged, so the refusal reads "12 branch(es) not merged" for a plan whose slices all merged. The store already holds those answers: `fleet.ts` is the only writer of `PrIndexStore`, and `plot-impl-status.sh` already answers a fully merged plan from it with zero host calls (`impl-status-index.test.mjs`, *"a fully merged plan is answered from the store with no host call"*).
+The change: `mergedBranches` reads the PR store's rows through the `PrIndexStore` port first and asks `host.prMerged` only for the branches the store does not answer. A branch with a `MERGED` row is merged with no host call. Any branch the host answers `unknown` for refuses the delivery as `cannot-tell`, names the host's words, and reports the real merged count. The plan is canonical; this brief adds what it leaves out.
 
-The pieces that exist: `PrIndexStore.read(connector)` (`packages/domain/src/ports/pr-index.ts`), `decodePrIndex` behind it, `prIndexFile({ cwd })` as the adapter, and `mergedRowByHead` in `entry/pr-index-lookup-answer.ts:82` as the merged-only lookup both shell consumers share. The controller receives `{ planStore, host, refs }` (`DeliverabilityPorts`) and has no store port yet. It gains one, and the two callers wire it: `entry/deliver.ts:390` and `entry/ask.ts:128`.
+### The decisions the plan settles — do not re-derive them
 
-The plan is canonical; this is orientation.
+**Only a terminal `MERGED` row answers.** `OPEN`, `CLOSED` and draft rows are stale in either direction and carry no SHA to revalidate, so the host gets the last word on them. `entry/pr-index-lookup-answer.ts` holds this rule already (`TERMINAL`, `rowByNumber`, `mergedRowByHead`) for the shell consumers. Reuse its decision rather than writing a third copy, or, if a controller cannot import from `entry/`, move the pure function to where both can reach it and leave the entry file calling it. Never read the store with `jq` or by hand: `decodePrIndex` owns the version check.
 
-### Decisions the plan settles — do not re-derive them
+**The index never says no.** The store supplies `merged`, never `not-merged`. A missing store, a missing row, a wrong-version or unparseable store (`read` returns `ok: false` or `null`) all mean *ask the host*. Measured 2026-08-27, an empty result read as "no PRs" refused four fully-merged plans. A test pins each of those arms.
 
-**Only a `MERGED` row answers, from the index.** `OPEN`, `CLOSED` and draft rows go to the host. A merged PR cannot revert on the host; the other states are stale in either direction and the rows record no SHA to revalidate against (`CLAUDE.md`, *A Decision Reads The Index*). Reuse the merged-only lookup the shell consumers use. A second implementation of "which row is the merged one" is free to drift from `PR_INDEX_VERSION`.
+**The controller reads a port and never the disk.** `controllers/deliverability.ts` takes `DeliverabilityPorts` (`planStore`, `host`, `refs`). Add `prIndex: PrIndexStore` to it and wire it at `entry/deliver.ts:390`; the adapter is `prIndexFile()` from `@plot-pm/domain/adapters`. Measure whether the request context already holds a `PrIndexStore` before adding one. The connector name is the host's backend (`github` or `bitbucket`), the same string `pr-index-lookup.ts` takes.
 
-**The index supplies `merged` and never `not-merged`.** A missing store, a missing row, a wrong-version file and an unreadable file all mean *ask the host*. `PrIndexStore.read` already folds the first three into `answered(null)` and reserves `failed` for a file that exists and cannot be read — treat `failed` as *ask the host* too, not as an error. Measured 2026-08-27: an empty result read as *no PRs* refused four fully merged plans.
+**This slice reads and never writes.** `fleet.ts` is the only caller of `foldPrIndex`. A second writer races: `rename` makes each write atomic, not the read-fold-write sequence around it. Do not fold the host's answers back.
 
-**`unknown` refuses as `cannot-tell`; it does not count as not merged.** Today `mergedBranches` drops every non-`merged` answer into one bucket (`:85-87`), so `unknown` and `not-merged` look the same to `deliver`. They must stay apart: `not-merged` is `branches-unmerged` (a person merges something), `unknown` is *the host did not answer* (a person waits or retries). The refusal names the host's own words, and its `merged` figure is the count of slices that really merged — `merged: 11` for a 12-branch plan with one `unknown` — not `0`.
+**`unknown` is not `not-merged`.** `Host.prMerged` returns `'merged' | 'not-merged' | 'unknown'`. Today `unknown` falls into the not-merged set, which is the defect. `cannot-tell` is not a reason the `deliver` workflow knows (`packages/domain/src/workflows/deliver.ts` lists `plan-not-found`, `plan-unparseable`, `state-terminal` and the branch reasons). Decide where the refusal is produced: either the controller returns `reason: 'cannot-tell'` itself before asking `deliver`, or the workflow gains the reason. Pick one, state it in the PR, and keep `allSlicesConfirmed`'s three-way mapping (`rules/deliverable.ts`) untouched — #1113 measured why.
 
-**Where the new reason lives.** `deliver`'s reason union (`workflows/deliver.ts:10-16`) has no `cannot-tell`, and `DeliverBranchReading.merged` is a `boolean`, so a third state does not fit through `deliver()` as written. Decide the smallest change and say which in the commit message: widen the reading, or refuse in the controller before `deliver()` runs. Whichever you pick, the refusal must carry `reason: 'cannot-tell'` through `DeliverabilityAnswer`, and `deliverable` stays `false`.
+**Rules carried over unchanged.** Absent is not false. A failed port call (`!answer.ok`) is `unknown`, not `not-merged`. `carriedWorkOf` is asked only for merged, non-deferred branches; a branch answered from the store still needs its merge commit, and `host.prMergeCommit` is a host call. Say in the PR whether the zero-host-call claim covers that read, and measure it: the plan's Done-when says zero host calls for 12 `MERGED` rows, so either the store row supplies the merge commit or `carriedWork` stays `unknown` for store-answered branches. Check the row's fields before choosing; do not let the finding silently change. `emptySlices` is a finding, not a refusal.
 
-**One host call per branch stays where the store does not answer.** `Host.prMerged` is the question the domain owns (it reads `mergedAt`, never `state`, and covers every PR on the branch). Do not batch or replace it. The saving is the calls the store removes.
-
-### The tension to settle before writing code: `carriedWorkOf` is a host call too
-
-The plan's second assertion says a 12-branch plan whose store holds 12 `MERGED` rows is deliverable with **zero host calls**. `carriedWorkOf` (`:112-127`) calls `host.prMergeCommit(branch)` for every merged, non-deferred branch, and the store rows hold no merge commit (`PrIndexRowSchema` has `number`, `head`, `state`, `draft`, `checks`, `review`, `url` and optional fields — no SHA). So answering `merged` from the store does not by itself reach zero: the empty-slice finding still spends a host call per branch, which is the rate-limit cost #1165 reports.
-
-Do not drop the finding silently to make the count pass. `emptySlices` is a reported finding (`deliverable` stays `true` beside it), and passing `'unknown'` for it on the store path would hide an empty slice that today is named. Pick one and state it in the commit message and the PR:
-
-- **Skip the finding on the store path and say so.** The branch reports `carriedWork: 'unknown'`, and the delivery output notes that the empty-slice check did not run for store-answered branches. Costs the finding; meets "zero host calls" literally.
-- **Keep the finding and change the assertion.** Zero `prMerged` calls, with `prMergeCommit` still asked. Costs the plan's wording; report the difference rather than editing the plan.
-- **Stop.** If neither is acceptable to you, write a `PLOT-BLOCKED` marker naming the choice. The plan's Open Questions say *None*, and this one was found at dispatch.
-
-Whichever you choose, the test counts `prMerged` **and** `prMergeCommit` separately so the assertion says what it measures.
-
-**Rules carried over unchanged.**
-
-- **Absent is not false.** No row, no store and no host answer are never `not-merged`.
-- **The controller asks ports and never spawns.** The store is a port (`PrIndexStore`); do not read the file or shell out from the controller (`CLAUDE.md`, *The Layering Rule*). `check-host-cli-callers.sh` and the CI spawn ratchet (`allowed=28`) both stay as they are.
-- **The shell consumers read and never write.** This slice reads the store and writes nothing back. `fleet.ts` stays the only caller of `foldPrIndex`.
-- **A function you write is an arrow** (`export const f = (…) => …`), including helpers in board files and tests.
-- **No hand edit of a plan's `State:` line** — `plot-state-gate.sh` refuses it. This slice has no reason to touch one.
+**Domain style.** Arrow functions for anything you write. The domain takes readings as values. A TSDoc block states what the export does, not the history.
 
 ### Done when
 
-The plan's `## Done when` slice-2 list is the specification:
+The plan's `## Done when` list is the specification. Each test fails on `origin/main` today.
 
-- a 12-branch plan whose store holds 12 `MERGED` rows is deliverable with zero host calls (see the tension above for what *zero* counts);
-- a host `unknown` for one branch refuses as `cannot-tell` with `merged: 11`.
+- A 12-branch plan whose store holds 12 `MERGED` rows is deliverable with zero host calls.
+- A host `unknown` for one branch refuses as `cannot-tell` with `merged: 11`.
 
 Assertions that exist because a naive implementation passes without them:
 
-- **The `unknown` test uses a store that does NOT hold the unknown branch.** A store holding all 12 rows never reaches the host, so it passes today's code and proves nothing about the refusal. Give the store 11 rows and let the host answer `unknown` for the twelfth.
-- **A second arm: a host `not-merged` for the twelfth refuses as `branches-unmerged`, not `cannot-tell`.** Without it a fix that turns every non-`merged` answer into `cannot-tell` passes.
-- **An `OPEN` row, a `CLOSED` row and a draft row each go to the host.** Mirror the shell consumers' tests (*"a store row that is OPEN gives the host the last word"*). A fix that trusts any row passes the all-`MERGED` test.
-- **A wrong-version store (`v` ≠ `PR_INDEX_VERSION`) and a store with no file both ask the host for every branch.** `PR_INDEX_VERSION` is 3 today; a fixture hard-coding `v: 1` hides a store the decoder rejects (the live store on one machine read `v: 1` and every read fell through to the host).
-- **Mutation-test the store arm.** Commit first, then revert the index read in place and confirm the zero-call test goes red; revert the `unknown` handling and confirm the `cannot-tell` test goes red.
+- **The host double throws on any call in the 12-row test.** A counter that is read after the fact passes when the double swallows the call.
+- **A store row that is `OPEN` gives the host the last word.** Without it, matching any state widens the store's answer past the host's.
+- **A missing store, a missing row and a wrong-version store each ask the host.** Without them, `null` read as "no PR" refuses a finished plan.
+- **The `unknown` test has 11 merged rows and one `unknown`, and asserts `merged: 11`.** With `merged: 0` in the refusal, the count is still the defect.
+- **Mutation-test both fixes**: revert the store read and the `unknown` arm in place, one at a time, and confirm the matching test fails.
 
-Plus: a changeset (`.changeset/<slug>.md`, package `plot`, description first and the `bumps:` block last, with the `plan:` line), and the board rebuilds on `main` after the merge — commit no generated bundle (`scripts/check-no-bundle-diff.sh`). The slice touches no `.sh` file, so `scripts/check-shell-lines.sh` has nothing to charge. For tests, run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints. The suites in the `CI suites` config key run in CI, and a failure there comes back as a correction. List no full suite.
+Plus: a changeset for `'@plot-pm/board'` as `patch`, description first and the `bumps:` block last, with a `plan: docs/plans/2026-10-07-delivery-reads-one-source.md` line inside that block (`./scripts/check-changeset-packages.sh` checks the form). The change is under `packages/board/`, so main rebuilds the shipped bundles after the merge: commit no generated bundle (`scripts/check-no-bundle-diff.sh`).
+
+For tests, run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints. The suites in the `CI suites` config key run in CI, and a failure there comes back as a correction. Do not run `test:e2e` locally. Use Node 24 (`nvm use`). Never run board tests while the operator's board is open: use the `vitest related` command the local checks print, not `pnpm test:board`. This slice touches no `.sh` file, so `scripts/check-shell-lines.sh` has nothing to count; if you edit one, pay for the growth in the same change.
 
 ### Bookkeeping
 
-Open the PR with `skills/plot/scripts/plot-open-pr.sh` (`--draft` while the work moves), never `gh pr create`. When the PR exists, append `→ #<number>` to this branch's line in the plan's `## Slices` section. Push the first real commit as soon as it exists.
+Push the first real commit as soon as it exists. Open the PR with `skills/plot/scripts/plot-open-pr.sh` (add `--draft` while the work moves), never `gh pr create`. When the PR exists, append `→ #<number>` to this branch's line in the plan's `## Slices` section. Where a project board is configured, set the PR to "Ready" with `plot-update-board.sh`. The PR body names: the choice for where `cannot-tell` is produced, the zero-call measurement including the merge-commit read, and the tests that fail on `main`.
 
 ### Scope guard
 
-This branch owns `packages/board/src/server/controllers/deliverability.ts`, its two callers (`entry/deliver.ts`, `entry/ask.ts`), the estate wiring that hands them a `PrIndexStore` (`estate.ts`), the `cannot-tell` reason in `packages/domain/src/workflows/deliver.ts` if you widen it, their tests, and one changeset.
-
-It does not own `packages/board/src/server/deliver.ts` (slice 1, merged), `fleet.ts` (the store's only writer), `entry/pr-index-lookup*.ts` (the shell consumers' bundle — read from it, do not change it) or `auto-dispatch.ts:162`, which has its own `mergedBranches` over the pulse. The plan's Notes record that duplicate as a candidate for one shared resolver; leave it. Other plans in flight (`the-fleet-loop-reads-its-runs-right`, `a-controller-owns-what-it-starts`, `the-tests-and-sweeps-leave-no-trace`) own none of these files as of dispatch, but `entry/ask.ts` is shared ground — rebase before you push.
+This branch owns `packages/board/src/server/controllers/deliverability.ts`, its wiring in `packages/board/src/server/entry/deliver.ts`, the pure store-decision function it shares with `entry/pr-index-lookup-answer.ts`, their tests, and one changeset. It does not touch `deliver.ts` plan resolution (wave 1, merged), `approve.ts`, `commission.ts`, `rules/deliverable.ts`'s `allSlicesConfirmed`, or `fleet.ts`. `auto-dispatch.ts:162` has a second `mergedBranches` over the pulse with different inputs: leave it. No other branch of this plan is in flight.
 
 If you find something the plan did not anticipate, report it rather than improvising outside scope.
