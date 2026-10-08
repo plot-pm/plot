@@ -3606,8 +3606,7 @@ case "$op" in
       esac
     done
     # NO REMOTE, NO PR: no repository holds one, so nothing merged, whatever gh's auth says.
-    if [ ${#repo_args[@]} -eq 0 ] && [ -z "$(git remote 2>/dev/null)" ]; then echo "not-merged"
-    elif [ "$be" = "github" ]; then
+    if [ ${#repo_args[@]} -eq 0 ] && [ -z "$(git remote 2>/dev/null)" ]; then echo "not-merged"; elif [ "$be" = "github" ]; then
       # --state all, because a merged PR reports CLOSED and the default `open`
       # would hide every one of them. --limit 100 rather than 1: the newest PR
       # is not the merge, exactly as the state is not the merge.
@@ -3621,8 +3620,9 @@ case "$op" in
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # A LOOKUP MISS IS AN ANSWER — the branch has no PR, so nothing merged.
-        # Anything else is the host failing to be asked: `unknown` rather than
-        # exit 3, a third value for exactly this case, failing safe toward keeping.
+        # Anything else is the host failing to be asked, and that is `unknown`
+        # rather than exit 3: the caller asked a question with a third value
+        # for exactly this case, and the answer fails safe toward keeping.
         if [ -z "$err" ] || is_lookup_miss "$err"; then
           echo "not-merged"
         else
