@@ -60,7 +60,7 @@ Every other reason answers `leave`, and the open questions below name them. A de
 
 ### Endings that release the claim
 
-- `infra/an-ending-that-held-nothing-releases-its-claim` <!-- waits: bug/a-claim-has-a-release-controller --> — the `nothing-done` ending reason, the take-up `holding-work` that names the desk's own branch, `endingAction` with its `release-claim` rows, and the registry tick that calls `releaseClaim` <!-- builds: endingAction, the supervisor's rule per ending -->
+- `infra/an-ending-that-held-nothing-releases-its-claim` <!-- waits: bug/a-claim-has-a-release-controller --> — the `nothing-done` ending reason, the take-up `holding-work` that names the desk's own branch, `endingAction` with its `release-claim` rows, and the registry tick that calls `releaseClaim` <!-- builds: endingAction, the supervisor's rule per ending --> → #1371
 
 ### Endings that get a fresh agent
 
