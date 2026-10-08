@@ -724,6 +724,15 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(r.deskCalls.declarations).toHaveLength(0);
   });
 
+  it('still seals a pushed branch that holds a commit beyond its claim and no PR', async () => {
+    const r = rig(ASSIGNED, [{}]);
+    const trees = treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'yes' }, claimCommits: { [r.wt]: 'yes' } });
+    r.deps = { ...r.deps, ports: { ...r.ports, trees, host: hostFixture({ prs: [] }) } };
+    await runWorkerLoop(r.deps);
+    expect(r.deskCalls.endings.map((e) => e.record.reason)).not.toContain('nothing-done');
+    expect(r.deskCalls.declarations).toHaveLength(1);
+  });
+
   it('settles green checks and seals the slice (rows 12-18)', async () => {
     const r = rig(ASSIGNED, [{}]);
     expect(await runWorkerLoop(r.deps)).toBe(124);
