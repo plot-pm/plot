@@ -222,7 +222,7 @@ export interface BuildFinding {
   /** The branch the finding is about. */
   branch: string;
   /** The finding word. */
-  finding: 'build passed' | 'build failed' | 'build needs approval' | 'clear';
+  finding: 'build passed' | 'build failed' | 'build needs approval' | 'head moved' | 'clear';
   /** When the finding first held, ISO-8601. */
   since: string;
   /** One sentence naming the measurement behind the finding. */

@@ -445,6 +445,32 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     assert.deepEqual(stopped, [['7001']], 'the first continue had none to stop; the second stops the first');
   });
 
+  it('stops a desk\'s recorded BuildMonitor pid too, from before #1337 (#1338)', async () => {
+    const wt = worktree({ pid: '424242' });
+    dirs.push(wt);
+    const { root, manifest } = repoWithManifest(wt, '424242');
+    roots.push(root);
+    const raw = fs.readFileSync(manifest, 'utf8');
+    fs.writeFileSync(manifest, raw.replace('"startedAt"', '"agentMonitorPid": "5001",\n  "buildMonitorPid": "5002",\n  "startedAt"'));
+    const stopped: (readonly string[])[] = [];
+    const monitors: DeskMonitors = {
+      start: () => ({ ok: true, value: { agentMonitorPid: '7001' } }),
+      stop: (pids) => {
+        stopped.push(pids);
+        return { ok: true, value: pids };
+      },
+    };
+
+    const out = await postTo(root, { branch: BRANCH, answer: 'go' }, { ...deps(wt), monitors });
+
+    assert.equal(out.status, 202);
+    assert.deepEqual(
+      stopped,
+      [['5001', '5002']],
+      'a manifest from before #1337 still carries buildMonitorPid; both pids are handed to the one stop path',
+    );
+  });
+
   it('logs a monitor start that failed', async () => {
     const wt = worktree({ pid: '424242' });
     dirs.push(wt);

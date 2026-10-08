@@ -541,11 +541,20 @@ export interface DeskContinuationInput {
   monitors?: DeskMonitors;
 }
 
-/** The monitor pids a manifest records; `[]` when it cannot be read. */
+/**
+ * The monitor pids a manifest records; `[]` when it cannot be read.
+ *
+ * READS `buildMonitorPid` TOO, though no current schema or type declares it
+ * (`ProcessGroupSchema`'s own doc comment: an older wire payload still
+ * carries the key). A desk dispatched before #1337 recorded one for a
+ * `plot-build-monitor.sh` that no longer exists; its pid may be dead or
+ * reused, so it is handed to the same `monitors.stop` the AgentMonitor pid
+ * uses rather than signalled separately.
+ */
 const recordedMonitorPids = (manifestFile: string): string[] => {
   try {
     const m = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
-    return [m.agentMonitorPid].filter((p): p is string => typeof p === 'string' && p !== '');
+    return [m.agentMonitorPid, m.buildMonitorPid].filter((p): p is string => typeof p === 'string' && p !== '');
   } catch {
     return [];
   }

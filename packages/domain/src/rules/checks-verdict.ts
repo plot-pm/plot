@@ -225,7 +225,7 @@ export const checksFromRuns = (readings: ChecksFromRunsReadings): ChecksFromRuns
 };
 
 /** The BuildMonitor finding words, verbatim as `FindingNameSchema` carries them. */
-export type BuildFindingWord = 'build passed' | 'build failed' | 'build needs approval';
+export type BuildFindingWord = 'build passed' | 'build failed' | 'build needs approval' | 'head moved';
 
 /** One pass's build finding: the word to publish and the evidence sentence behind it. */
 export interface BuildFindingAnswer {
