@@ -5,6 +5,7 @@ import type { Worktree } from '../../entities/worktree.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { Trees } from '../../ports/trees.js';
 import type { TreePresence } from '../../rules/reapable.js';
+import { isEmptyClaim } from '../../rules/empty-claim.js';
 import type { CommitReading } from '../../rules/sample.js';
 import { asLines, asText, runProcess, runScript, runScriptSync } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
@@ -296,9 +297,10 @@ export const treesGit = (context: ShellContext): Trees => {
 
     // ASKS NOTHING ABOUT MAIN. `hasCommits` above collapses to `no` once the
     // branch is merged with no PR — `origin/<default>..HEAD` is empty either
-    // way. This instead reads one commit: HEAD is the claim where its subject
-    // is exactly the dispatcher's own message and it touched no file.
-    commitBeyondClaim: async (path, branch) => {
+    // way. This instead reads one commit — HEAD's subject, tree and first
+    // parent's tree — and hands it to `isEmptyClaim`, the vocabulary's one
+    // home, rather than re-testing the subject here.
+    commitBeyondClaim: async (path) => {
       const unanswerable = answered<CommitReading>('unanswerable');
       let directory = false;
       try {
@@ -308,11 +310,15 @@ export const treesGit = (context: ShellContext): Trees => {
       }
       if (path === '' || !directory) return unanswerable;
       const git = (args: readonly string[]) => runProcess('git', ['-C', path, ...args], inRepo);
-      const subject = await git(['log', '-1', '--format=%s']);
-      if (subject.code !== 0) return unanswerable;
-      const names = await git(['show', '--quiet', '--format=', '--name-only', 'HEAD']);
-      if (names.code !== 0) return unanswerable;
-      const isClaim = subject.stdout.trim() === `plot: claim ${branch}` && names.stdout.trim() === '';
+      const head = await git(['log', '-1', '--format=%s%n%T%n%P']);
+      if (head.code !== 0) return unanswerable;
+      const [subject = '', tree = '', parent = ''] = head.stdout.split('\n');
+      let parentTree: string | null = null;
+      if (parent.trim() !== '') {
+        const parentRead = await git(['rev-parse', '--verify', '--quiet', `${parent.trim()}^{tree}`]);
+        if (parentRead.code === 0) parentTree = parentRead.stdout.trim();
+      }
+      const isClaim = isEmptyClaim({ subject, tree: tree.trim(), parentTree });
       return answered<CommitReading>(isClaim ? 'no' : 'yes');
     },
     prune: async () => {
