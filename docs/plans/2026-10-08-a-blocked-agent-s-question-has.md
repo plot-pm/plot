@@ -6,7 +6,7 @@
 
 - **State:** Approved
 - **Type:** feature
-- **Issue:** #1366
+- **Issue:** #1366, #1375
 - **Sprint:** the-release-train-fixes-what-it-found
 - **Review:** in-session
 - **Impl:** own branches
@@ -75,9 +75,15 @@ One domain rule answers *which desk does an answer for this branch go to, and wh
 
 - `feature/a-blocked-desk-is-not-held-by-a-free-wait` — the answer to the first Open Question, and the `loop-alive` sentence in `ContinueWithAnAnswer.tsx` → #1376 <!-- waits: feature/a-blocked-ending-routes-its-answer -->
 
+### The loop resumes a continuation
+
+- `bug/the-loop-resumes-a-continuation` — the JS worker loop reads `.plot-worker.continue.md` and resumes the blocked session (`resumeId`) with the answer instead of taking the slice up again; uncommitted work on the desk's own assigned branch is the slice's own work, not foreign unlanded work; and an answer routes to a desk whose ending reads `holding-work` while its `PLOT-BLOCKED.md` is still unanswered (#1375) <!-- waits: feature/a-blocked-desk-is-not-held-by-a-free-wait --> <!-- builds: the loop's continuation path -->
+
 ## Notes
 
 **Done when:**
+
+- A continuation reaches the JS loop: given a desk with `PLOT-BLOCKED.md`, uncommitted work on its own branch and `.plot-worker.continue.md`, the loop resumes the blocked session with the continuation text, does not end `holding-work`, and does not overwrite the ending before the turn runs. Observed failure: #1375, desk `free-b5f1581a`, 2026-10-08 16:43.
 
 - A desk with a `blocked` ending record for branch B, an unanswered marker, no manifest and no live loop: `POST /api/continue {branch: B}` starts a loop with a manifest that names the desk.
 - The same desk with an ending record for a different branch is refused, and nothing is written.
