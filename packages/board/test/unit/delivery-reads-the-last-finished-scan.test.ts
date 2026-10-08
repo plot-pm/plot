@@ -207,7 +207,7 @@ describe('a delivery is judged against the last scan that finished', () => {
 
     // THE DEFECT'S FIX. Judged against the last finished scan, the plan whose
     // one branch merged is deliverable.
-    expect(deliverability(opts, MERGED_SLUG).verdict).toBe('deliverable');
+    expect((await deliverability(opts, MERGED_SLUG)).verdict).toBe('deliverable');
   }, 60_000);
 
   it('answers scan-incomplete for a plan that gained a slice since that scan', async () => {
@@ -219,10 +219,10 @@ describe('a delivery is judged against the last scan that finished', () => {
     await until(() => lastCompletePulseFor(opts), Boolean, 'the first scan to finish');
     await until(() => pulseCompleteFor(opts), (c) => c === false, 'the next scan to publish a fragment');
 
-    expect(deliverability(opts, GAINED_SLUG).verdict).toBe('scan-incomplete');
+    expect((await deliverability(opts, GAINED_SLUG)).verdict).toBe('scan-incomplete');
     // Asserted TOGETHER with the plan beside it, in the same paused state: a
     // rule that refused both, or permitted both, would pass one test alone.
-    expect(deliverability(opts, MERGED_SLUG).verdict).toBe('deliverable');
+    expect((await deliverability(opts, MERGED_SLUG)).verdict).toBe('deliverable');
   }, 60_000);
 
   it('shows the card as deliverable during the paused scan', async () => {
@@ -263,6 +263,6 @@ describe('a delivery is judged against the last scan that finished', () => {
     // writer is the defect this asserts against.
     expect(lastCompletePulseFor(opts)).toBe(landed);
     // So a delivery is still judged, rather than refused because a scan failed.
-    expect(deliverability(opts, MERGED_SLUG).verdict).toBe('deliverable');
+    expect((await deliverability(opts, MERGED_SLUG)).verdict).toBe('deliverable');
   }, 60_000);
 });

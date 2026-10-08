@@ -22,6 +22,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
+import { refsFixture } from '@plot-pm/domain/adapters';
 import {
   composeDeliverPrompt,
   deliverability,
@@ -285,7 +286,7 @@ describe('an action that cannot work is not offered', () => {
 });
 
 describe('deliverability is read through the real plan parser for the pulse-free verdicts', () => {
-  it('reads an already-delivered plan from its phase, and a missing slug as not-found', () => {
+  it('reads an already-delivered plan from its phase, and a missing slug as not-found', async () => {
     // THE TWO VERDICTS A PULSE IS NOT NEEDED FOR, run against real plan files.
     // `already-delivered` is decided by the plan's own phase — a delivered plan
     // has every wave merged too, so the phase check must come first — and
@@ -298,7 +299,7 @@ describe('deliverability is read through the real plan parser for the pulse-free
       '', '## Branches', '', '### Only', '- `feature/done` — the merged branch',
       '', '## Changelog', '', '- delivered already', '',
     ].join('\n'), 'utf8');
-    assert.equal(deliverability(opts, 'shipped').verdict, 'already-delivered');
+    assert.equal((await deliverability(opts, 'shipped')).verdict, 'already-delivered');
 
     // A released plan is past delivered — also answered `already-delivered`.
     fs.writeFileSync(path.join(dir, 'docs/plans', '2026-08-21-released.md'), [
@@ -306,11 +307,11 @@ describe('deliverability is read through the real plan parser for the pulse-free
       '', '## Branches', '', '### Only', '- `feature/done` — the merged branch',
       '', '## Changelog', '', '- released already', '',
     ].join('\n'), 'utf8');
-    assert.equal(deliverability(opts, 'released').verdict, 'already-delivered');
+    assert.equal((await deliverability(opts, 'released')).verdict, 'already-delivered');
 
     // A slug that resolves to no file is not-found, which the route refuses as
     // plan-unreadable.
-    assert.equal(deliverability(opts, 'does-not-exist').verdict, 'not-found');
+    assert.equal((await deliverability(opts, 'does-not-exist')).verdict, 'not-found');
 
     // An Approved plan with NO PULSE is `scan-incomplete`, not `not-merged`.
     // Git has said nothing — and since 2026-08-27 "nothing said" is neither "all
@@ -324,7 +325,151 @@ describe('deliverability is read through the real plan parser for the pulse-free
     // (`allSlicesMerged(m, null, true)` is `unknown`); leaving this line as it was
     // would have one input answered two ways in one run.
     mergedPlan(dir);
-    assert.equal(deliverability(opts, SLUG).verdict, 'scan-incomplete');
+    assert.equal((await deliverability(opts, SLUG)).verdict, 'scan-incomplete');
+  });
+});
+
+/**
+ * Seeds `.plot/state/last-pulse.json` with one approved plan whose only branch
+ * is `merged`, naming the given dated file and read ref.
+ *
+ * A standalone writer rather than a reuse of the later `bridge()` helper,
+ * which is scoped to `SLUG`/`2026-08-21-${SLUG}.md` and defined further down
+ * this file — this one takes the dated file so the symlink and stale-checkout
+ * tests below can each name their own.
+ */
+function pulseNaming(dir: string, datedFile: string, readRef?: string): void {
+  const file = path.join(dir, '.plot', 'state', 'last-pulse.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({
+    version: 1,
+    at: Date.now(),
+    pulse: {
+      main: 'main',
+      head: 'abc1234',
+      ...(readRef === undefined ? {} : { read_ref: readRef }),
+      plans: [{
+        file: datedFile,
+        phase: 'approved',
+        slices: [{
+          name: 'Implementation',
+          verdict: 'complete',
+          branches: [{ branch: 'feature/one', state: 'merged', deferred: false, claimed: '' }],
+        }],
+      }],
+      summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    },
+    ages: [],
+    branchUrlBase: '',
+    approvedAt: [],
+    ideaPlans: [],
+  }), 'utf8');
+}
+
+/** A plan file's content at a given phase, in the shape the real parser reads. */
+function planBody(title: string, phase: string): string {
+  return [
+    `# ${title}`, '', '## Status', '',
+    `- **Phase:** ${phase}`,
+    '- **Type:** feature',
+    '', '## Branches', '',
+    '### Implementation',
+    '- `feature/one` — the first branch',
+    '', '## Changelog', '', `- a plan at phase ${phase}`, '',
+  ].join('\n');
+}
+
+describe('deliverability resolves the real dated file, not a symlink naming it', () => {
+  const RESOLVE_SLUG = 'a-resolve-plan';
+  const DATED = `2026-09-01-${RESOLVE_SLUG}.md`;
+
+  it('answers deliverable for a plan reached through docs/plans/active/ (issue #1280)', async () => {
+    // THE DEFECT: the pulse names plans by their DATED basename, but the old
+    // `resolvePlanBySlug` returned the active symlink's own path — a basename
+    // that never matches, so the join always failed and the plan always read
+    // as `not-merged`. Reproduced here with the symlink actually present,
+    // which the pre-existing fixtures (`repo()`/`mergedPlan()`) never created.
+    const dir = repo();
+    fs.writeFileSync(path.join(dir, 'docs/plans', DATED), planBody('A resolve plan', 'Approved'), 'utf8');
+    fs.mkdirSync(path.join(dir, 'docs/plans/active'), { recursive: true });
+    fs.symlinkSync(
+      path.join(dir, 'docs/plans', DATED),
+      path.join(dir, 'docs/plans/active', `${RESOLVE_SLUG}.md`),
+    );
+    pulseNaming(dir, DATED);
+
+    const got = await deliverability({ repoRoot: dir, scriptsDir: SCRIPTS }, RESOLVE_SLUG);
+    assert.equal(got.verdict, 'deliverable');
+  });
+
+  it('still resolves a plan already moved into docs/plans/delivered/', async () => {
+    // A plan being delivered may already have moved — the candidate order puts
+    // the delivered index ahead of the directory scan for exactly this case.
+    // Without following the symlink to its real target here too, the same
+    // basename mismatch would misjoin this plan as well.
+    const dir = repo();
+    fs.writeFileSync(path.join(dir, 'docs/plans', DATED), planBody('A resolve plan', 'delivered'), 'utf8');
+    fs.mkdirSync(path.join(dir, 'docs/plans/delivered'), { recursive: true });
+    fs.symlinkSync(
+      path.join(dir, 'docs/plans', DATED),
+      path.join(dir, 'docs/plans/delivered', `${RESOLVE_SLUG}.md`),
+    );
+
+    const got = await deliverability({ repoRoot: dir, scriptsDir: SCRIPTS }, RESOLVE_SLUG);
+    assert.equal(got.verdict, 'already-delivered');
+  });
+});
+
+describe('deliverability reads the plan\'s phase at the pulse\'s own read ref', () => {
+  const STALE_SLUG = 'a-stale-checkout-plan';
+  const DATED = `2026-09-02-${STALE_SLUG}.md`;
+
+  it('answers already-delivered when origin shows Delivered and the checkout is behind', async () => {
+    // TWO DIFFERENT PHASES in two different places: `Delivered` at the read
+    // ref, `Approved` in the working tree. A rule that read only the working
+    // tree would answer `deliverable` here, which is exactly what a naive
+    // fix — resolving the file correctly but still reading its phase from
+    // disk — would still get wrong.
+    const dir = repo();
+    fs.writeFileSync(path.join(dir, 'docs/plans', DATED), planBody('A stale checkout plan', 'Approved'), 'utf8');
+    pulseNaming(dir, DATED, 'origin/main');
+
+    const refs = refsFixture({
+      files: { [`origin/main:docs/plans/${DATED}`]: planBody('A stale checkout plan', 'delivered') },
+    });
+    const got = await deliverability({ repoRoot: dir, scriptsDir: SCRIPTS, refs }, STALE_SLUG);
+    assert.equal(got.verdict, 'already-delivered');
+  });
+
+  it('falls back to the working tree when readRef is null (absent is not false)', async () => {
+    // WITHOUT a readRef, there is no pulse to compare against — the phase must
+    // come from the working tree exactly as it did before this behaviour
+    // existed. A fixture `Refs` is injected anyway, holding content that would
+    // answer `already-delivered` if it were ever consulted — proving the null
+    // readRef is what prevents the read, not an absent fixture entry.
+    const dir = repo();
+    fs.writeFileSync(path.join(dir, 'docs/plans', DATED), planBody('A stale checkout plan', 'Approved'), 'utf8');
+    pulseNaming(dir, DATED); // no read_ref at all
+
+    const refs = refsFixture({
+      files: { [`origin/main:docs/plans/${DATED}`]: planBody('A stale checkout plan', 'delivered') },
+    });
+    const got = await deliverability({ repoRoot: dir, scriptsDir: SCRIPTS, refs }, STALE_SLUG);
+    assert.equal(got.verdict, 'deliverable');
+  });
+
+  it('falls back to the working tree when the ref read fails (cannot read, never not delivered)', async () => {
+    // A `git show` that fails — missing ref, missing file at that ref, a git
+    // error — must fall through to the working tree, never answer
+    // `already-delivered` and never `not-found` for a plan that exists on
+    // disk. The real `refsGit` adapter against a non-repo directory (`repo()`
+    // never runs `git init`) is the failing read; no fixture is injected.
+    const dir = repo();
+    fs.writeFileSync(path.join(dir, 'docs/plans', DATED), planBody('A stale checkout plan', 'Approved'), 'utf8');
+    pulseNaming(dir, DATED, 'origin/main');
+
+    const got = await deliverability({ repoRoot: dir, scriptsDir: SCRIPTS }, STALE_SLUG);
+    assert.equal(got.verdict, 'deliverable');
   });
 });
 
@@ -402,7 +547,7 @@ describe('the Deliver control reads a confirmed landing, not a merge subject', (
     }), 'utf8');
   }
 
-  it('answers scan-incomplete while only a merge subject proves the landing', () => {
+  it('answers scan-incomplete while only a merge subject proves the landing', async () => {
     const dir = repo();
     mergedPlan(dir);
     bridge(dir, 'subject');
@@ -411,12 +556,12 @@ describe('the Deliver control reads a confirmed landing, not a merge subject', (
     // which is the word an operator already reads for a scan that has not
     // finished.
     assert.equal(
-      deliverability({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG).verdict,
+      (await deliverability({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG)).verdict,
       'scan-incomplete',
     );
   });
 
-  it('answers deliverable once the host has confirmed the same landing', () => {
+  it('answers deliverable once the host has confirmed the same landing', async () => {
     // THE DISCRIMINATING HALF. Identical pulse but for the one field, so a
     // rule that ignored it would answer `deliverable` above too and this pair
     // would not separate.
@@ -424,7 +569,7 @@ describe('the Deliver control reads a confirmed landing, not a merge subject', (
     mergedPlan(dir);
     bridge(dir);
     assert.equal(
-      deliverability({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG).verdict,
+      (await deliverability({ repoRoot: dir, scriptsDir: SCRIPTS }, SLUG)).verdict,
       'deliverable',
     );
   });

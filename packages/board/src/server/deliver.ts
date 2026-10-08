@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
+import { type Refs } from '@plot-pm/domain';
+import { refsGit } from '@plot-pm/domain/adapters';
 import { agentLogPath } from './agent-log.js';
 import {
   readConfig,
@@ -147,11 +150,17 @@ export interface DeliverOptions extends BuildBoardOptions {
  * A PRIVATE copy of `transition.ts`'s `resolvePlanBySlug` rather than an import,
  * for the reason `reslice.ts` states about its own copy: that module does not
  * export it, and this route needs the same candidates in the same order (the
- * active index first, then the date-prefixed file in the plan directory, then
- * the delivered index — because a plan being delivered may already have moved)
+ * active index first, then the delivered index, then the date-prefixed file in
+ * the plan directory — because a plan being delivered may already have moved)
  * so the slices it reads back belong to the file the delivering agent will act
  * on. Reaching across to export it there would edit a module another worker
  * owns; a short copy that agrees by construction is the smaller change.
+ *
+ * **Resolved to its REAL dated file, never a symlink's own path.** The active
+ * and delivered candidates are symlinks named by the slug; their basename never
+ * matches the dated basename the pulse reports plans by (issue #1280), so this
+ * follows the link with `fs.realpathSync` before returning. The directory-scan
+ * candidate is already the dated file and needs no such step.
  */
 function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null {
   const repoRoot = opts.repoRoot;
@@ -160,9 +169,9 @@ function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null
   const deliveredDir = readConfig(opts, 'Delivered index', 'docs/plans/delivered/');
 
   const active = path.join(repoRoot, activeDir, `${slug}.md`);
-  if (fs.existsSync(active)) return active;
+  if (fs.existsSync(active)) return fs.realpathSync(active);
   const delivered = path.join(repoRoot, deliveredDir, `${slug}.md`);
-  if (fs.existsSync(delivered)) return delivered;
+  if (fs.existsSync(delivered)) return fs.realpathSync(delivered);
 
   let entries: string[];
   try {
@@ -173,6 +182,65 @@ function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null
   const hit = entries.find((e) => e.endsWith(`${slug}.md`));
   return hit ? path.join(repoRoot, planDir, hit) : null;
 }
+
+/**
+ * The ref reader for these options — the caller's, or this machine's.
+ *
+ * The same seam `board.ts`'s own `refsFor` opens, copied rather than imported
+ * because that helper is not exported and this route already keeps its own
+ * private copy of `resolvePlanBySlug` for the same reason.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @returns the injected reader, or one backed by git in `opts.repoRoot`.
+ */
+const refsFor = (opts: BuildBoardOptions): Refs =>
+  opts.refs ?? refsGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/**
+ * The plan's phase at `readRef`, or `null` when it cannot be read there.
+ *
+ * **Absence here is "cannot read," never "not delivered."** A `null` `readRef`
+ * (the scan sent none), a `showFile` that fails (missing ref, missing file at
+ * that ref, a git error), and a phase the real parser rejects all return `null`
+ * — the exit code decides, never the emptiness of the content — so the caller
+ * falls back to the working tree exactly as it did before this existed.
+ *
+ * The content is staged into a temp file under the plan's own basename before
+ * parsing, matching `board.ts`'s staging for ref-read plan content: the one
+ * parser of the plan format, `plot-plan-meta.sh`, takes a real file path and
+ * cannot take a string.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @param readRef - the ref the pulse was read from, or `null`.
+ * @param file - the plan's real (dated) file path, as resolved on disk.
+ * @returns the lowercased phase at `readRef`, or `null`.
+ */
+const phaseAtRef = async (
+  opts: BuildBoardOptions,
+  readRef: string | null,
+  file: string,
+): Promise<string | null> => {
+  if (readRef === null) return null;
+  const relPath = path.relative(opts.repoRoot, file);
+  const blob = await refsFor(opts).showFile(readRef, relPath);
+  if (!blob.ok || !blob.value) return null;
+  let stageDir: string | null = null;
+  try {
+    stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-deliver-phase-'));
+    const staged = path.join(stageDir, path.basename(file));
+    fs.writeFileSync(staged, blob.value, 'utf8');
+    const answer = scriptsFor(opts).planMetaSync([staged], { maxBuffer: 8 * 1024 * 1024 });
+    if (!answer.ok) return null;
+    const line = answer.value.split('\n').map((l) => l.trim()).find(Boolean);
+    if (!line) return null;
+    const meta = PlanMetaSchema.parse(JSON.parse(line));
+    return meta.phase.toLowerCase();
+  } catch {
+    return null;
+  } finally {
+    if (stageDir) fs.rmSync(stageDir, { recursive: true, force: true });
+  }
+};
 
 /**
  * Whether a plan is deliverable, and if not, why — the precondition the route
@@ -210,7 +278,7 @@ export type Deliverability =
   | { verdict: 'scan-incomplete' }
   | { verdict: 'deliverable' };
 
-export function deliverability(opts: BuildBoardOptions, slug: string): Deliverability {
+export async function deliverability(opts: BuildBoardOptions, slug: string): Promise<Deliverability> {
   const file = resolvePlanBySlug(opts, slug);
   if (!file) return { verdict: 'not-found' };
   let meta;
@@ -223,11 +291,34 @@ export function deliverability(opts: BuildBoardOptions, slug: string): Deliverab
   } catch {
     return { verdict: 'not-found' };
   }
+  // THE PULSE IS CHOSEN FIRST, so the phase check below reads the SAME world
+  // the measurement does. `pulseFor` holds a fragment for most of every scan —
+  // 18 to 37 s of each 5 s cadence — and a fragment makes the rule answer
+  // `unknown`, which this route reports as `scan-incomplete`. Measured
+  // 2026-09-30 (#1113): a plan whose every branch had merged was refused on 20
+  // of 20 calls, one a minute, while `/api/fleet` read between scans reported
+  // the same branch complete.
+  //
+  // `complete: true` beside the chosen pulse, because `deliveryPulse` returns
+  // only a pulse a finished scan produced — the live one where its scan
+  // finished, else the last that did and that named every branch this plan
+  // names now. A null answer keeps `unknown`, and `scan-incomplete` then means
+  // what the changelog says: no scan has finished, or the plan gained a slice
+  // the last finished scan never reported.
+  const judging = deliveryPulse(meta, pulseFor(opts), pulseCompleteFor(opts), lastCompletePulseFor(opts));
   // The plan's own phase decides `already-delivered` FIRST — a delivered plan
   // has every slice merged too, so the measurement alone would read it as
   // deliverable. `delivered`/`released` are the phases past Development where
   // the decision is already recorded.
-  const phase = meta.phase.toLowerCase();
+  //
+  // READ AT THE PULSE'S OWN `read_ref`, not at the working tree: a checkout
+  // behind `origin` can hold a stale `Approved` while origin already shows
+  // `Delivered` (issue #1280's second half). `phaseAtRef` answers `null` for
+  // "cannot read" — no read ref, a failed `git show`, an unparseable result —
+  // and ONLY then does this fall back to the working tree's own phase, which
+  // is what every call made before this existed.
+  const atRef = await phaseAtRef(opts, judging?.read_ref ?? null, file);
+  const phase = atRef ?? meta.phase.toLowerCase();
   if (phase === 'delivered' || phase === 'released') return { verdict: 'already-delivered' };
   // Then the measurement, against the same pulse the board renders from, so the
   // route agrees with the card by construction.
@@ -241,20 +332,6 @@ export function deliverability(opts: BuildBoardOptions, slug: string): Deliverab
   // not offer a delivery the re-gate behind it would refuse: `/plot-deliver`
   // asks the host, where a throttled answer counts as not merged. The wave
   // gate still reads the subject and still opens the next slice.
-  // THE PULSE IS CHOSEN, NOT TAKEN. `pulseFor` holds a fragment for most of
-  // every scan — 18 to 37 s of each 5 s cadence — and a fragment makes the rule
-  // answer `unknown`, which this route reports as `scan-incomplete`. Measured
-  // 2026-09-30 (#1113): a plan whose every branch had merged was refused on 20
-  // of 20 calls, one a minute, while `/api/fleet` read between scans reported
-  // the same branch complete.
-  //
-  // `complete: true` beside the chosen pulse, because `deliveryPulse` returns
-  // only a pulse a finished scan produced — the live one where its scan
-  // finished, else the last that did and that named every branch this plan
-  // names now. A null answer keeps `unknown`, and `scan-incomplete` then means
-  // what the changelog says: no scan has finished, or the plan gained a slice
-  // the last finished scan never reported.
-  const judging = deliveryPulse(meta, pulseFor(opts), pulseCompleteFor(opts), lastCompletePulseFor(opts));
   switch (allSlicesConfirmed(meta, judging, judging !== null)) {
     case 'merged':
       return { verdict: 'deliverable' };
@@ -368,7 +445,7 @@ export interface DeliverDeps {
   /** The configured `Idea command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
   /** The plan's deliverability, or a refusal reason. */
-  check?: (opts: BuildBoardOptions, slug: string) => Deliverability;
+  check?: (opts: BuildBoardOptions, slug: string) => Promise<Deliverability>;
 }
 
 /**
@@ -453,7 +530,7 @@ export async function handleDeliver(
   // from — never inferred — because delivering a plan whose work is not done is
   // exactly the gate #350 kept, and offering it on such a plan would spawn an
   // agent to refuse. The four verdicts map to three refusals and the happy path.
-  const state = readCheck(opts, slug);
+  const state = await readCheck(opts, slug);
   if (state.verdict === 'not-found') {
     refuse(
       409,
