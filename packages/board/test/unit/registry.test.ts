@@ -17,11 +17,11 @@ import { fileURLToPath } from 'node:url';
 
 import {
   parseManifest, readAgentRegistry, gitWorktrees, bashCleanliness, AGENT_MANIFEST_DIR,
-} from '../../src/server/registry.js';
+} from '../../src/shared/registry.js';
 import { execFileSync } from 'node:child_process';
 import { AgentStateSchema as DomainAgentStateSchema } from '@plot-pm/domain';
 import { isLiveState } from '../../src/contract/schema.js';
-import { projectSlug } from '../../src/server/transcript.js';
+import { projectSlug } from '../../src/shared/transcript.js';
 import { rmTree } from '../helpers.mjs';
 
 /** The real helper scripts, so the integration block can source the shell. */

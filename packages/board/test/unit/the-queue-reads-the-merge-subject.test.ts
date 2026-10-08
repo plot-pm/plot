@@ -5,7 +5,7 @@ import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { whyNotReady } from '@plot-pm/domain/rules/queue';
 
-import { readQueue, type QueueWorld } from '../../src/server/queue-reading.js';
+import { readQueue, type QueueWorld } from '../../src/shared/queue-reading.js';
 import { subjectProvenOf } from '../../src/server/entry/registryd-main.js';
 
 /**

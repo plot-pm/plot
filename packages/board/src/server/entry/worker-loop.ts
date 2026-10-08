@@ -72,7 +72,7 @@ import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import { answer as promptAnswer, read as readAgentCharter } from './prompt.js';
 import { resolveLaunch } from '@plot-pm/domain/rules/prompt';
 import { performLoopWrites, type AppliedWrite, type LoopWritePorts, type LoopWrite } from './loop-writes.js';
-import { CONTINUATION_NAME } from '../continue.js';
+import { CONTINUATION_NAME } from '../../shared/continuation.js';
 
 /**
  * `plot-worker-loop.mjs` — the JS loop, one process for an agent's whole life.

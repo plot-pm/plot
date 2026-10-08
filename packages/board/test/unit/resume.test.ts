@@ -14,8 +14,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { readResumeAvailability } from '../../src/server/resume.js';
-import { parseManifest } from '../../src/server/registry.js';
-import { projectSlug } from '../../src/server/transcript.js';
+import { parseManifest } from '../../src/shared/registry.js';
+import { projectSlug } from '../../src/shared/transcript.js';
 import { rmTree } from '../helpers.mjs';
 
 const SESSION = '3f7a1c88-2b4e-4d61-9a03-5e7c8f1b2d64';

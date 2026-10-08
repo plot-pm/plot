@@ -4,13 +4,13 @@ import {
   readQueue,
   type MergedListing,
   type QueueWorld,
-} from '../../src/server/queue-reading.js';
+} from '../../src/shared/queue-reading.js';
 import type { PlanRecord } from '@plot-pm/domain';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { whyNotReady } from '@plot-pm/domain/rules/queue';
 import { VIEWS_PER_PASS } from '@plot-pm/domain/rules/known-pr';
-import type { AgentEntry } from '../../src/server/registry.js';
+import type { AgentEntry } from '../../src/shared/registry.js';
 
 /** One registry manifest, in the shape `plot-dispatch.sh` writes it. */
 const manifest = (over: Partial<AgentEntry> = {}): AgentEntry =>

@@ -25,11 +25,11 @@ import type { FreshAgentRecordStore } from '@plot-pm/domain/ports/fresh-agent-re
 import type { EndingAskRecordStore } from '@plot-pm/domain/ports/ending-ask-record';
 import type { Desk } from '@plot-pm/domain/ports/desk';
 
-import { readTick, type SupervisorWorld } from '../supervisor.js';
-import { readQueue, type QueueWorld } from '../queue-reading.js';
-import type { AgentEntry } from '../registry.js';
-import type { MarkerReading } from '../worker-question.js';
-import type { DeskContinuation } from '../continue.js';
+import { readTick, type SupervisorWorld } from '../../shared/supervisor.js';
+import { readQueue, type QueueWorld } from '../../shared/queue-reading.js';
+import type { AgentEntry } from '../../shared/registry.js';
+import type { MarkerReading } from '../../shared/worker-question.js';
+import type { DeskContinuation } from '../../shared/continuation.js';
 
 /**
  * How long the daemon waits between ticks, in milliseconds.

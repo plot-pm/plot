@@ -11,7 +11,7 @@ import {
   readEscalations,
   recordedRungsFor,
   type EscalationRecord,
-} from '../../src/server/escalations.js';
+} from '../../src/shared/escalations.js';
 import { rmTree } from '../helpers.mjs';
 
 // EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
