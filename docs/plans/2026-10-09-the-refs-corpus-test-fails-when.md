@@ -52,7 +52,7 @@ The commit is built with `git commit-tree` in `source.git`, so no working tree a
 
 ### The Pin Carries Its Own Branch
 
-- `feature/the-refs-corpus-test-fails-when` — `pinClone` adds one fixture branch with one changed path to the clone, and the guard at `refs.corpus.test.ts:538` asserts on that branch by name <!-- builds: a fixture branch in pinClone's source.git -->
+- `feature/the-refs-corpus-test-fails-when` — `pinClone` adds one fixture branch with one changed path to the clone, and the guard at `refs.corpus.test.ts:538` asserts on that branch by name <!-- builds: a fixture branch in pinClone's source.git --> → #1408
 
 ## Notes
 
