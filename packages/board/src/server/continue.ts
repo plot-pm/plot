@@ -555,7 +555,7 @@ export interface DeskContinuationInput {
    * production's poll interval, and so a test can assert the order — stop
    * completes before the manifest is touched — without a real exit to race.
    */
-  stopLoop?: (pid: string) => Promise<void>;
+  stopLoop?: (pid: string) => Promise<LoopStop>;
 }
 
 /**
@@ -672,40 +672,78 @@ const deskFreeWait = (worktree: string): FreeWaitReading => {
   }
 };
 
+/** What {@link stopAndAwaitExit} answers: the pid is gone, or why it is not. */
+export type LoopStop = { ok: true } | { ok: false; why: string };
+
+/** How long {@link stopAndAwaitExit} waits for a signalled loop to exit. */
+const STOP_DEADLINE_MS = 10_000;
+
 /**
- * Signals a pid and waits for it to be gone — the stop `continueTarget`'s
- * `stop` instructs, run before the manifest is touched.
+ * Signals a pid with `SIGTERM` and waits for it to be gone — the stop
+ * `continueTarget`'s `stop` instructs.
  *
- * **ORDER IS THE WHOLE POINT.** `onStop` in `worker-loop.ts` removes
- * `PLOT_MANIFEST_FILE` on `SIGTERM` before it exits, so a stamp or write that
- * ran first would race the old loop's own cleanup and could be deleted by it.
- * Waiting for the pid to actually exit — not merely sending the signal — is
- * what closes that race: by the time this returns, the old loop's cleanup has
- * already run or will never run.
- *
- * A pid already gone by the time this is called is success, not an error —
- * the free wait may have ended on its own between the reading and the stop.
+ * `onStop` in `worker-loop.ts` removes `PLOT_MANIFEST_FILE` on `SIGTERM`, so
+ * the caller restores that manifest after this returns.
  *
  * @param pid - the exact pid `deskLoopAlive` named; never any other.
- * @param pollMs - how often to re-check; overridable in tests.
- * @returns once the pid no longer answers `kill -0` at all (reads `ESRCH`).
+ * @param pollMs - how often to re-check.
+ * @param deadlineMs - how long to wait for the exit.
+ * @returns `ok` once the pid reads `ESRCH`, including when it was gone before
+ *   the signal; otherwise the reason, naming the pid — `EPERM` on the signal,
+ *   or no exit within `deadlineMs`.
  */
-const stopAndAwaitExit = async (pid: string, pollMs = 50): Promise<void> => {
+export const stopAndAwaitExit = async (pid: string, pollMs = 50, deadlineMs = STOP_DEADLINE_MS): Promise<LoopStop> => {
   const n = Number(pid);
   try {
     process.kill(n, 'SIGTERM');
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ESRCH') return;
-    throw err;
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH') return { ok: true };
+    return { ok: false, why: `pid ${pid} cannot be signalled from the board (${code ?? String(err)})` };
   }
+  const deadline = Date.now() + deadlineMs;
   for (;;) {
     try {
       process.kill(n, 0);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ESRCH') return;
-      throw err;
+      if ((err as NodeJS.ErrnoException).code === 'ESRCH') return { ok: true };
+    }
+    if (Date.now() >= deadline) {
+      return { ok: false, why: `pid ${pid} did not exit within ${deadlineMs} ms of SIGTERM` };
     }
     await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+};
+
+/** A manifest's text, or `null` when it cannot be read. */
+const manifestText = (file: string): string | null => {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Writes `text` back to `file` when the file is gone, atomically.
+ *
+ * @returns true when the file exists afterwards, false when it is gone and
+ *   could not be written.
+ */
+const restoreManifest = (file: string, text: string): boolean => {
+  if (fs.existsSync(file)) return true;
+  const tmp = `${file}.plot-restore-tmp`;
+  try {
+    fs.writeFileSync(tmp, text, 'utf8');
+    fs.renameSync(tmp, file);
+    return true;
+  } catch {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      /* nothing to clean up */
+    }
+    return false;
   }
 };
 
@@ -727,12 +765,18 @@ const logLine = (log: string, line: string): void => {
  * it is stopped first and the desk keeps one (#1255). Every step that does not
  * happen is written to the desk's log.
  *
+ * @param input.previous - the monitor pids the manifest recorded before any
+ *   stop, since a stopped loop removes its manifest.
  * @returns the new monitor's pid, `''` when it was not started.
  */
-const startMonitors = (input: { monitors: DeskMonitors; desk: MonitoredDesk; pidRecorded: boolean }): MonitorPids => {
-  const { monitors, desk } = input;
+const startMonitors = (input: {
+  monitors: DeskMonitors;
+  desk: MonitoredDesk;
+  pidRecorded: boolean;
+  previous: string[];
+}): MonitorPids => {
+  const { monitors, desk, previous } = input;
   const none: MonitorPids = { agentMonitorPid: '' };
-  const previous = recordedMonitorPids(desk.manifestFile);
   if (previous.length > 0 && !monitors.stop(previous).ok) {
     logLine(desk.log, `could not stop the previous monitors (pids ${previous.join(', ')}); they may still run`);
   }
@@ -849,15 +893,29 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     return { kind: 'failed', error: 'the caller stopped the start before it began' };
   }
 
+  // READ BEFORE THE STOP. The stopped loop's `SIGTERM` handler removes
+  // `PLOT_MANIFEST_FILE`, which is the manifest `continueTarget` found, so its
+  // text and the monitor pids it records are taken now and the file is
+  // restored after the stop.
+  const stampPath = target.manifest === 'stamp' ? target.path : '';
+  const manifestBeforeStop = stampPath === '' ? null : manifestText(stampPath);
+  const previousMonitors = stampPath === '' ? [] : recordedMonitorPids(stampPath);
+
   // THE STOP, BEFORE ANYTHING ELSE TOUCHES THE DESK. `continueTarget` carries
-  // `stop` only for a loop that reported its own pid waiting free — no turn to
-  // lose — and only after `beforeStart` ran, matching every other write below.
-  // Waiting for the pid to actually exit (not merely signalling it) is what
-  // keeps the old loop's own `SIGTERM` cleanup from deleting the manifest this
-  // function is about to stamp or write; see `stopAndAwaitExit`'s own doc.
+  // `stop` only for a loop that reported its own pid waiting free, and only
+  // after `beforeStart` ran. The free-wait record is read again here, because
+  // `beforeStart` awaits and the loop can take up a turn in that time.
   if (target.stop !== undefined) {
+    const { pid } = target.stop;
+    if (!deskWaitsFree(deskFreeWait(worktree), pid)) {
+      return refused(409, 'loop-alive', `pid ${pid} left its free wait before the stop; it may be working a turn`);
+    }
     const stop = input.stopLoop ?? stopAndAwaitExit;
-    await stop(target.stop.pid);
+    const stopped = await stop(pid);
+    if (!stopped.ok) return refused(409, 'loop-alive', stopped.why);
+    if (stampPath !== '' && (manifestBeforeStop === null || !restoreManifest(stampPath, manifestBeforeStop))) {
+      return { kind: 'failed', error: `pid ${pid} stopped and removed ${stampPath}, which could not be written back` };
+    }
   }
 
   // THE MANIFEST THIS RUN USES, FROM HERE ON — either the one `continueTarget`
@@ -1043,6 +1101,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
         log,
       },
       pidRecorded,
+      previous: previousMonitors,
     });
     // STAMP THE MANIFEST — the path the reported defect came from. This route
     // spawns directly and never runs `plot-dispatch.sh`, so the dispatcher's awk
@@ -1056,13 +1115,20 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // No wrapper and no WorkerMonitor exist for a continued run, so those two
     // are recorded `''`; omitting them would leave the previous dispatch's
     // pids on the row. The stamp re-emits the whole group on every write.
-    writeManifestStamp(manifestPath, {
+    const stamped = writeManifestStamp(manifestPath, {
       pid: String(pid),
       startedAt: new Date().toISOString(),
       wrapperPid: '',
       workerMonitorPid: '',
       agentMonitorPid: started.agentMonitorPid,
     });
+    // The run is already started, so a failed stamp is reported rather than
+    // answered `failed`: a `failed` answer invites a second spawn on this desk.
+    if (!stamped) {
+      const line = `started pid ${pid}, but ${manifestPath} could not be stamped; the registry still names the previous run`;
+      logLine(log, line);
+      console.error(`continuation: ${line}`);
+    }
   }
   return { kind: 'started', pid: String(pid), previousPid: input.previousPid, prompt: promptPath, log };
 };

@@ -239,6 +239,26 @@ describe('runWorkerLoop — a free loop', () => {
     expect(r.logs[0]).toContain('free on ? —');
   });
 
+  it('names its pid in the free-wait record during each sleep, and clears it after', async () => {
+    const r = rig({ ...ASSIGNED, branch: '' }, [], { config: { ...rigConfig(), waitBudgetSeconds: 100 } });
+    const atSleep: { records: number; clears: number }[] = [];
+    const sleep = r.deps.sleep;
+    r.deps = {
+      ...r.deps,
+      sleep: async (ms) => {
+        atSleep.push({ records: r.deskCalls.freeWaitRecords.length, clears: r.deskCalls.freeWaitClears.length });
+        await sleep(ms);
+      },
+    };
+
+    await runWorkerLoop(r.deps);
+
+    expect(atSleep.length).toBeGreaterThan(0);
+    expect(atSleep).toEqual(atSleep.map((_, i) => ({ records: i + 1, clears: i })));
+    expect(r.deskCalls.freeWaitRecords).toEqual(atSleep.map(() => ({ worktree: r.wt, pid: String(process.pid) })));
+    expect(r.deskCalls.freeWaitClears).toEqual(atSleep.map(() => r.wt));
+  });
+
   it('ends 124 once its manifest is gone (row 3)', async () => {
     const r = rig(null, []);
     r.deps = { ...r.deps, manifestFile: path.join(r.dir, 'gone.json') };
