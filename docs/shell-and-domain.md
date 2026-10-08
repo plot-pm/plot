@@ -17,7 +17,25 @@ It settles the estate's existing practice. `plot-pr-merged.sh` is sourced by fou
 | once per operator command | **calls the domain.** 39 ms against a command a person waited to type is free. |
 | once per agent per pass | **duplicates the rule**, and a test holds the pair. |
 
-`plot-approve.sh` and `plot-deliver.sh` are the first case: each pays one hop through `board/plot-transition.mjs`, and `plot-deliver.sh` pays a second through `board/plot-ask.mjs`. `plot-worker-loop.sh` is the second case and is what forced the question — it runs per agent on every pass, and a hop there is paid by every agent forever.
+`plot-approve.sh` and `plot-deliver.sh` are the first case: each pays one hop through `board/plot-transition.mjs`, and `plot-deliver.sh` pays a second through `board/plot-ask.mjs`. The per-pass case that forced the question is no longer `plot-worker-loop.sh` — since `the-worker-loop-runs-in-js` (v2.24.0) that script is an 18-line launcher that resolves `board/plot-worker-loop.mjs` and `exec`s it, and the loop itself runs in JS. The per-pass case is now the loop's own shell-outs: `plot-config.sh`, `plot-host.sh`, `plot-worker-state.sh` and the rest of the scripts `readPass` reaches on a busy pass, each still a `bash` start the loop pays per agent per pass.
+
+**`the-pass-is-measured` (2026-10-09) measured those shell-outs against a launcher conversion, at 1, 4 and 8 concurrent synthetic agents, on this machine (16 cores):**
+
+| variant | agents | wall ms/pass | cpu ms/pass | load avg |
+|---|---|---|---|---|
+| today (bash + script) | 1 | 400 | 50 | 21.0 |
+| launcher (bash + launcher + node + bundle) | 1 | 1140 | 660 | 21.0 |
+| in-process (one long-lived process, no start) | 1 | 0.01 | 0.01 | 21.0 |
+| today | 4 | 270 | 40 | 21.0 |
+| launcher | 4 | 3695 | 680 | 21.0 |
+| in-process | 4 | 0.00 | 0.00 | 21.0 |
+| today | 8 | 660 | 40 | 21.0 |
+| launcher | 8 | 6945 | 740 | 21.0 |
+| in-process | 8 | 0.00 | 0.00 | 21.0 |
+
+Medians over 7 runs per cell, taken by `scripts/measure-pass.mjs`. **The launcher variant adds 1750 % CPU per pass at 8 agents** (40 ms today against 740 ms launcher) — the `node` start dominates every cell regardless of concurrency, because a `node` process start costs roughly the same whether 1 or 8 of them run at once; what concurrency changes is the WALL time (660 ms → 6945 ms at 8 agents), not the per-start CPU.
+
+**The threshold fixed in advance (jwloka, 2026-10-09) was: route 1 (amend this cost rule, convert the per-pass scripts to launchers) if the launcher variant adds less than 5 % CPU per pass at 8 agents, else route 2 (answer per-pass questions inside the fleet's own long-lived process, no shell/bundle hop at all). Measured overhead is 1750 %, three orders of magnitude over the threshold — so this is route 2.** The per-agent-per-pass row of the table above stands: a script reached once per agent per pass still duplicates the rule in shell rather than paying a `node` start, and the fleet's own long-lived worker-loop process is where a per-pass question is answered directly, in-process, once the loop itself owns that reading (`the-fleet-runs-without-the-board`).
 
 **The boundary is the frequency, not the caller's language and not the rule's importance.** `plot-reap.sh` runs once per sweep and calls `rules/reapable.ts` for the most destructive decision Plot makes. `plot-pr-merged.sh` answers the same class of question and is duplicated, because it is sourced inside loops.
 
