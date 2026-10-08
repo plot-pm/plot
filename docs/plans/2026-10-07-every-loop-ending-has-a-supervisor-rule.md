@@ -67,6 +67,7 @@ Every other reason answers `leave`, and the open questions below name them. A de
 ### Endings that get a fresh agent
 
 - `infra/held-work-gets-a-fresh-agent` — the `holding-work` row with its commit-check-push answer, and `corrections-spent` and `turn-limit` moved from their two rules into `endingAction` <!-- builds: the fresh-agent rows of endingAction --> → #1384
+- `infra/a-fresh-start-has-its-question` — the fix for the HIGH post-merge finding on #1384: the registry's fresh start for `holding-work` after a prompt and for `turn-limit` goes through `continueOnDesk`, which refuses `no-question` on a desk with no `PLOT-BLOCKED` marker, so no fresh agent ever starts
 
 ### Endings that ask a person
 
