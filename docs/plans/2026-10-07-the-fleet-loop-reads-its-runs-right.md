@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-07, jwloka, in-session
 - **Started:** 2026-10-07, jwloka, `bug/a-run-no-runner-took-is-no-answer`
 - **Started:** 2026-10-07, jwloka, `bug/a-run-no-runner-took-is-no-answer`
+- **Started:** 2026-10-08, jwloka, `bug/a-spend-limit-reads-its-dollars`
 
 ## Changelog
 
