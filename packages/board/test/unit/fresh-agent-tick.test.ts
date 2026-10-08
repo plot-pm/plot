@@ -406,12 +406,12 @@ describe('the holding-work readings and decisions', () => {
 
   it('reads the refused assignment off the ending', async () => {
     const deskFile = (_w: string, name: string) => (name === ENDING_FILENAME ? holdingFile('feature/y') : null);
-    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles);
+    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles, noMarker);
     expect(reading?.refusedAssignment).toBe('feature/y');
   });
 
   it('reads the held files the desk reports', async () => {
-    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, async () => ['a.ts']);
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, async () => ['a.ts'], noMarker);
     expect(reading?.heldFiles).toEqual(['a.ts']);
   });
 
@@ -426,10 +426,10 @@ describe('the holding-work readings and decisions', () => {
     const reading = spentReading({ ending: 'holding-work', refusedAssignment: 'feature/y', heldFiles: ['a.ts'] });
     const decisions = freshAgentDecisions([reading], 2);
     expect(decisions.map((d) => [d.verdict, d.answer, d.escalate])).toEqual([['release-claim', '', false]]);
-    const { starts, sealed, ports } = rig(started);
+    const { starts, calls, ports } = rig(started);
     expect(await applyFreshAgentDecisions(decisions, ports)).toEqual([]);
     expect(starts).toEqual([]);
-    expect(sealed).toEqual([]);
+    expect(calls.blockedMarkers).toEqual([]);
   });
 });
 
