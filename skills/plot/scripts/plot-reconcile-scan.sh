@@ -1872,21 +1872,15 @@ if [ -n "$plan_json" ]; then
     n_double=$((n_double + 1))
   done < <(printf '%s\n' "$plan_json" \
     | jq -s -r --arg US "$US" '
-        [ .[] | select(.phase != "NONE") as $p
-          | $p.waves[]? as $w
-          | $w.branches[]?
+        [ .[] | select(.phase != "NONE") as $p | $p.waves[]? as $w | $w.branches[]?
           | select(((.deferred_reason // "") | startswith("moved to")) | not)
           | { branch: .branch, phase: $p.phase,
-              slug: ($p.file | sub("^.*/"; "") | sub("\\.md$"; "")
-                              | sub("^[0-9]{4}-[0-9]{2}-[0-9]{2}-"; "")),
+              slug: ($p.file | sub("^.*/"; "") | sub("\\.md$"; "") | sub("^[0-9]{4}-[0-9]{2}-[0-9]{2}-"; "")),
               wave: (if ($w.name // "") == "" then "(unnamed wave)" else $w.name end) } ]
-        | group_by(.branch)[]
-        | unique_by(.slug) as $per_plan
+        | group_by(.branch)[] | unique_by(.slug) as $per_plan
         | select(($per_plan | length) > 1)
         | select(($per_plan | map(.phase) | any(. as $ph | ["delivered","released","superseded","rejected"] | index($ph) | not)))
-        | [ ($per_plan[0].branch),
-            ($per_plan | map(.slug + " (" + .wave + ")") | join(", ")),
-            ($per_plan | length | tostring) ]
+        | [ ($per_plan[0].branch), ($per_plan | map(.slug + " (" + .wave + ")") | join(", ")), ($per_plan | length | tostring) ]
         | join($US)')
 fi
 if [ -n "$double_out" ]; then printf '%b' "$double_out"; else echo "  (none — every branch is claimed by exactly one plan)"; fi
