@@ -7,6 +7,7 @@
 - **State:** Approved
 - **Type:** feature
 - **Issue:** #1366
+- **Sprint:** the-release-train-fixes-what-it-found
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-10-08, jwloka, in-session

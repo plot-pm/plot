@@ -27,6 +27,7 @@ Auto-dispatch delivered v2.22 to v2.24 between 2026-10-03 and 2026-10-07. While 
 - [ ] [the-fleet-loop-reads-its-runs-right](../plans/2026-10-07-the-fleet-loop-reads-its-runs-right.md) — unacquired runs, spend limits in dollars, the charter at hand-over, and runs that wait for approval (#1295, #1328, #1169, #1166, #1338). <!-- pr: #0, branch: bug/a-handed-slice-carries-its-charter -->
 - [x] [a-controller-owns-what-it-starts](../plans/2026-10-07-a-controller-owns-what-it-starts.md) — continue owns its desk, and a controller releases a claim (#1294, #1307, #1276). <!-- pr: #0, branch: bug/a-claim-has-a-release-controller -->
 - [ ] [the-tests-and-sweeps-leave-no-trace](../plans/2026-10-07-the-tests-and-sweeps-leave-no-trace.md) — the corpus pin, local checks in a temp worktree, the double-claim sweep and the vendored helpers (#1259, #1319, #1317, #1343, #1344). <!-- pr: #0, branch: bug/helpers-stay-out-of-the-board-package -->
+- [ ] [a-blocked-agent-s-question-has](../plans/2026-10-08-a-blocked-agent-s-question-has.md) — an answer reaches a blocked desk whose loop has ended, through its ending record (#1366).
 
 ### Should Have
 
