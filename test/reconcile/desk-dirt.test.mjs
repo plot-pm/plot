@@ -106,6 +106,24 @@ test('desk_dirt: the PLOT-CORRECTION.md and tiny-garden exclusions still apply b
   assert.equal(r.stdout.trim(), '', `neither exclusion should fire together:\n${r.stdout}`);
 });
 
+test('desk_dirt: a desk holding only .plot-worker.continue.md reads clean', () => {
+  const dir = repo();
+  writeFileSync(path.join(dir, '.plot-worker.continue.md'), 'a continuation\n');
+  const r = call('desk_dirt', dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), '', `the continuation file alone is not unlanded work:\n${r.stdout}`);
+});
+
+test('desk_dirt: a real file beside .plot-worker.continue.md still reads dirty', () => {
+  const dir = repo();
+  writeFileSync(path.join(dir, '.plot-worker.continue.md'), 'a continuation\n');
+  writeFileSync(path.join(dir, 'my-source.ts'), 'real work\n');
+  const r = call('desk_dirt', dir);
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /my-source\.ts/, `the source change must still be named:\n${r.stdout}`);
+  assert.doesNotMatch(r.stdout, /plot-worker\.continue\.md/, `the continuation file must not be:\n${r.stdout}`);
+});
+
 test('exclude_bundle_paths: an empty bundle set excludes nothing', () => {
   const dir = scratch(); // no build.mjs at all
   execFileSync('git', ['-C', dir, 'init', '-q', '-b', 'main']);

@@ -1,5 +1,5 @@
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { readFileSync, realpathSync, rmSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { constants, homedir, tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -63,6 +63,7 @@ import type { Reexec } from '@plot-pm/domain/ports/reexec';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 import { answer as promptAnswer, read as readAgentCharter } from './prompt.js';
+import { resolveLaunch } from '@plot-pm/domain/rules/prompt';
 import { performLoopWrites, type AppliedWrite, type LoopWritePorts, type LoopWrite } from './loop-writes.js';
 
 /**
@@ -1060,6 +1061,19 @@ export interface LoopDeps {
   readonly runner?: 'command' | 'sdk';
   /** What the SDK runner needs; read only where {@link runner} is `sdk`. */
   readonly sdk?: SdkRunDeps;
+  /**
+   * The agent name a freshly taken-up slice declares in its plan's `agent:`
+   * annotation; `null` where it names none or none can be found. Defaults to
+   * {@link sliceAgentOf} against the configured plan directory.
+   */
+  readonly sliceAgent?: (branch: string) => string | null;
+  /**
+   * Rebuilds {@link runner} and {@link sdk} for a named agent — the same
+   * resolution {@link runnerDeps} made once at start, run again for a slice's
+   * own charter. Defaults to {@link runnerDeps} closed over this process's
+   * fixed inputs, varying only the agent name.
+   */
+  readonly runnerFor?: (agent: string) => Promise<{ runner: 'command' | 'sdk'; sdk?: SdkRunDeps }>;
 }
 
 /** What one SDK run's context tells the connector about the usage-limit wait it follows. */
@@ -1554,8 +1568,38 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       continue;
     }
 
+    // A FRESH TAKE-UP RESOLVES THE SLICE'S OWN CHARTER, never the one `PLOT_AGENT`
+    // named at start: one process serves many slices, so `deps.agent` names the
+    // process and not what this slice itself declared. No annotation, or the
+    // same name already running, changes nothing — `runDeps` stays `deps`.
+    let runDeps = deps;
+    if (deps.sliceAgent !== undefined && kinds.has('prompt-run') && readings.assignedBranch !== '') {
+      const branch = readings.assignedBranch;
+      const named = deps.sliceAgent(branch);
+      if (named !== null && named !== deps.agent) {
+        const launch = resolveLaunch(readAgentCharter(deps.repoRoot, named));
+        if (launch.resolve === 'refused') {
+          deps.log(`plot-worker-loop: ${branch} names agent '${named}' and its charter ${launch.why} — refusing the take-up`);
+          const session = readings.session;
+          await performLoopWrites(
+            loopWritesOf([{ kind: 'refused-slice', branch }, { kind: 'assignment-clear', session }], deps.sdk !== undefined),
+            deps.ports,
+            worktree,
+          );
+          held = { ...FRESH };
+          hopFrom = previousBranch;
+          lastBuildFinding = null;
+          continue;
+        }
+        if (deps.runnerFor !== undefined) {
+          const rebuilt = await deps.runnerFor(named);
+          runDeps = { ...deps, agent: named, ...rebuilt };
+        }
+      }
+    }
+
     const ran = await runPrompt(
-      deps,
+      runDeps,
       worktree,
       held,
       hopFrom,
@@ -1845,6 +1889,85 @@ export const runnerDeps = async (input: RunnerInput): Promise<{ runner: 'command
   };
 };
 
+/**
+ * Which plan files might name `branch` at all — a cheap textual prefilter,
+ * never the answer. Mirrors `plan_declared_agent`'s own `grep -lF` in
+ * `plot-dispatch.sh`, which the parser call below exists to narrow: the
+ * ANNOTATION'S OWNER is decided by `plot-plan-meta.sh` alone, since a
+ * substring match cannot tell a branch's own line from prose that mentions it
+ * or from a different branch's annotation in the same file.
+ *
+ * @param planDir - the configured plan directory, absolute.
+ * @param branch - the branch to search for.
+ * @returns the `.md` paths under `planDir` whose text contains `branch`.
+ */
+const plansMentioning = (planDir: string, branch: string): readonly string[] => {
+  let names: readonly string[];
+  try {
+    names = readdirSync(planDir).filter((n) => n.endsWith('.md'));
+  } catch {
+    return [];
+  }
+  return names.map((n) => join(planDir, n)).filter((path) => (readOrNull(path) ?? '').includes(branch));
+};
+
+/**
+ * One branch's row inside `plot-plan-meta.sh`'s `waves[].branches[]`, read
+ * verbatim off the parser's JSON — the shape `agent_set`/`agent_of` emit.
+ */
+interface RawPlanBranch {
+  readonly branch?: string;
+  readonly agent?: string;
+}
+
+/** One plan document, as `plot-plan-meta.sh` emits it — only the field this reads. */
+interface RawPlanMeta {
+  readonly waves?: readonly { readonly branches?: readonly RawPlanBranch[] }[];
+}
+
+/**
+ * Resolves a slice's own `agent:` charter name from the plan that declares it.
+ *
+ * READS THE PRESENCE OF THE KEY, NOT ITS TRUTHINESS, the same contract
+ * `plan_declared_agent` reads: `plot-plan-meta.sh` emits no `agent` key at all
+ * for a branch that names none, so `'agent' in row` is what tells *no
+ * annotation* apart from an annotation whose value happens to be `''`.
+ *
+ * THE PARSER ANSWERS, NEVER A GREP OF THE PLAN FILE. {@link plansMentioning}
+ * only narrows which files are worth asking; the branch-to-annotation binding
+ * is `plot-plan-meta.sh`'s alone to make, since it alone knows which `###`
+ * wave and which line the branch belongs to.
+ *
+ * @param repoRoot - the repo root the plan directory is relative to.
+ * @param scriptDir - where the helper scripts live.
+ * @param planDir - the configured plan directory, absolute.
+ * @param branch - the branch a fresh take-up just assigned.
+ * @returns the declared agent name, or `null` where the branch names none or
+ *   cannot be found.
+ */
+const sliceAgentOf = (repoRoot: string, scriptDir: string, planDir: string, branch: string): string | null => {
+  const candidates = plansMentioning(planDir, branch);
+  if (candidates.length === 0) return null;
+  const read = scriptsShell({ repoRoot, scriptDir }).planMetaSync(candidates);
+  if (!read.ok) return null;
+  for (const line of read.value.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed === '') continue;
+    let meta: RawPlanMeta;
+    try {
+      meta = JSON.parse(trimmed) as RawPlanMeta;
+    } catch {
+      continue;
+    }
+    for (const wave of meta.waves ?? []) {
+      for (const row of wave.branches ?? []) {
+        if (row.branch === branch && 'agent' in row) return row.agent ?? '';
+      }
+    }
+  }
+  return null;
+};
+
 /** A thrown value's message, or its text where it is not an `Error`. */
 const reasonOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -2067,12 +2190,29 @@ export const main = async (
     now,
     log: stderrLog,
   });
+  const planDir = resolve(repoRoot, configKey(worktree, 'Plan directory') ?? 'docs/plans/');
   const code = await runWorkerLoop({
     ...runner,
     ports,
     restart,
     waitStartedAt,
     hopFrom,
+    sliceAgent: (branch) => sliceAgentOf(repoRoot, scriptDir, planDir, branch),
+    runnerFor: (agent) =>
+      runnerDeps({
+        env,
+        scriptDir,
+        repoRoot,
+        worktree,
+        agent,
+        configKey,
+        ports,
+        boundSeconds,
+        agentSettings,
+        checksOutFile,
+        now,
+        log: stderrLog,
+      }),
     idle: {
       selfPid: process.pid,
       windowSeconds: count(env.PLOT_MONITOR_QUIET_SECONDS, IDLE_WINDOW_SECONDS),

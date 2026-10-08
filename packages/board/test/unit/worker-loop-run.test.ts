@@ -317,6 +317,88 @@ describe('runWorkerLoop — a prompt', () => {
     expect(r.logs.join('\n')).toContain('bad charter');
   });
 
+  describe('a slice carries its own charter', () => {
+    /** Writes a real charter file at the rig's `.plot/charters/<name>.json`. */
+    const writeCharter = (r: { dir: string }, name: string, fields: Record<string, unknown> = {}) => {
+      const dir = path.join(r.dir, '.plot', 'charters');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify({ name, prompt: '.plot/other-prompt.sh', ...fields }));
+    };
+
+    it('runs the command runner with the slice charter\'s prompt file, not the start-time one', async () => {
+      const r = rig(ASSIGNED, [{ during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') }], {
+        agent: 'start-agent',
+        sliceAgent: () => 'slice-agent',
+        resolvePrompt: (_root, agent) => (agent === 'slice-agent' ? 'declared\t.plot/other-prompt.sh\tx' : 'declared\t.plot/worker-prompt.sh\tx'),
+        runnerFor: async () => ({ runner: 'command' }),
+      });
+      writeCharter(r, 'slice-agent');
+      await runWorkerLoop(r.deps);
+      expect(r.runs).toHaveLength(1);
+      expect(r.runs[0].args.join(' ')).toContain('.plot/other-prompt.sh');
+    });
+
+    it('rebuilds the sdk runner deps for the slice charter, reaching the model on the request', async () => {
+      const requests: { model: string; effort: string }[] = [];
+      const sdkFor = (model: string) => ({
+        prompt: () => 'go',
+        model,
+        effort: 'high',
+        maxTurns: null,
+        maxSpendUsd: null,
+        contextWindow: 0,
+        capabilities: [],
+        runChecks: async () => ({ passed: true, command: '' }),
+        agentRun: () => ({
+          run: async (request: { model: string; effort: string }) => {
+            requests.push({ model: request.model, effort: request.effort });
+            return { ok: true, value: { end: { answer: 'ran', handBack: null }, handBack: null, sessionId: '' } };
+          },
+        }),
+      });
+      const r = rig(ASSIGNED, [], {
+        agent: 'start-agent',
+        runner: 'sdk',
+        sdk: sdkFor('start-model') as unknown as LoopDeps['sdk'],
+        sliceAgent: () => 'slice-agent',
+        runnerFor: async (agent) => ({ runner: 'sdk', sdk: sdkFor(agent === 'slice-agent' ? 'slice-model' : 'start-model') as unknown as LoopDeps['sdk'] }),
+      });
+      writeCharter(r, 'slice-agent', { model: 'slice-model' });
+      await runWorkerLoop(r.deps);
+      expect(requests).toEqual([{ model: 'slice-model', effort: 'high' }]);
+    });
+
+    it('leaves the start-time charter in place when the slice names no agent', async () => {
+      const r = rig(ASSIGNED, [{ during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') }], {
+        agent: 'start-agent',
+        sliceAgent: () => null,
+        runnerFor: async () => {
+          throw new Error('runnerFor must not be called when the slice names no agent');
+        },
+      });
+      await runWorkerLoop(r.deps);
+      expect(r.runs).toHaveLength(1);
+    });
+
+    it('refuses the take-up when the slice names an unreadable charter, running no prompt', async () => {
+      const r = rig(ASSIGNED, [], {
+        agent: 'start-agent',
+        sliceAgent: () => 'bad-agent',
+        runnerFor: async () => {
+          throw new Error('runnerFor must not be called on a refused charter');
+        },
+      });
+      const dir = path.join(r.dir, '.plot', 'charters');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'bad-agent.json'), 'not json');
+      await runWorkerLoop(r.deps);
+      expect(r.runs).toHaveLength(0);
+      expect(r.logs.join('\n')).toMatch(/bad-agent.*refusing the take-up/);
+      expect(r.ports.refusedSlices).toMatchObject({ branches: [BRANCH] });
+      expect(r.calls.clearedAssignments).toEqual([ASSIGNED.session]);
+    });
+  });
+
   it('retries a prompt that never started, then ends 1 (row 7)', async () => {
     const r = rig(ASSIGNED, [{ status: 1 }, { status: 1 }, { status: 1 }], {});
     r.deps = { ...r.deps, config: { ...rigConfig(), maxStartRetries: 2 } };
@@ -1240,6 +1322,7 @@ describe('main — configuration', () => {
       'Worker bound',
       'Agent runner',
       'Worker command',
+      'Plan directory',
       'Checks wait',
       'Correction budget',
       'Slice max runs',

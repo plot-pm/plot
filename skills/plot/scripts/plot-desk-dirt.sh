@@ -33,6 +33,14 @@
 #                             still counts. Only the untracked `??` form is
 #                             excused: the loop never stages the file, so a
 #                             staged or tracked copy is somebody's decision.
+#   ?? .plot-worker.continue.md
+#                             the board writes it (`CONTINUATION_NAME`,
+#                             `continue.ts`) for a hop between passes, and a
+#                             merged desk that holds only this file has nothing
+#                             left for an agent to read. Matched the same way as
+#                             `PLOT-CORRECTION.md` above, whole line and
+#                             untracked form only, so `docs/.plot-worker.continue.md`
+#                             still counts.
 #   each generated bundle     `main` rebuilds and pushes every one of them
 #                             (`bug/main-builds-its-bundles`, #1249), so a desk
 #                             that locally rebuilt one to test holds nothing an
@@ -99,7 +107,7 @@ exclude_bundle_paths() { # $1=worktree, stdin=porcelain lines
 desk_dirt() {
   git -C "$1" status --porcelain 2>/dev/null \
     | grep -v 'tiny-garden/\.plot/state' \
-    | grep -vxF '?? PLOT-CORRECTION.md' \
+    | grep -vxFf <(printf '%s\n' '?? PLOT-CORRECTION.md' '?? .plot-worker.continue.md') \
     | exclude_bundle_paths "$1" \
     || true
 }

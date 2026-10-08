@@ -66,6 +66,7 @@ node_modules/
 .plot-worker.monitor.build.jsonl
 .plot-worker.envelope.json
 .plot-worker.ending.json
+.plot-worker.continue.md
 
 # The board's own console log, written by `/plot-board --start`. Machine-local
 # for the same reason as the worker traces above — and untracked-but-unignored
