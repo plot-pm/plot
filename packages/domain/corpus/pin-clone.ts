@@ -22,6 +22,8 @@ export const FIXTURE_BRANCH = 'infra/plot-corpus-fixture';
  */
 export const FIXTURE_PATH = 'docs/plans/zzz-plot-corpus-fixture.md';
 
+const FIXTURE_DATE = '2026-01-01T00:00:00Z';
+
 const FIXTURE_PLAN = `# Plot corpus fixture
 
 > A disposable plan the pinned clone carries so one branch always has changed paths.
@@ -97,7 +99,8 @@ const tryGit = (cwd: string, args: readonly string[]): string | undefined => {
  * Builds, in `source`, one commit on top of `base` that adds
  * {@link FIXTURE_PATH}, and returns its SHA. No working tree or checkout: the
  * tree is built through a throwaway index file, since `git mktree` rejects a
- * nested path given flatly.
+ * nested path given flatly. The commit carries a fixed identity and date, so a
+ * runner with no git user can build it and the SHA is stable across runs.
  */
 const fixtureCommit = (source: string, base: string): string => {
   const blob = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: source, input: FIXTURE_PLAN, encoding: 'utf8' }).trim();
@@ -107,7 +110,16 @@ const fixtureCommit = (source: string, base: string): string => {
     execFileSync('git', ['read-tree', base], { cwd: source, env });
     execFileSync('git', ['update-index', '--add', '--cacheinfo', `100644,${blob},${FIXTURE_PATH}`], { cwd: source, env });
     const tree = execFileSync('git', ['write-tree'], { cwd: source, env, encoding: 'utf8' }).trim();
-    return git(source, ['commit-tree', tree, '-p', base, '-m', 'fixture: plot-corpus-fixture-branch']);
+    const identity = {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'plot-corpus',
+      GIT_AUTHOR_EMAIL: 'plot-corpus@localhost',
+      GIT_AUTHOR_DATE: FIXTURE_DATE,
+      GIT_COMMITTER_NAME: 'plot-corpus',
+      GIT_COMMITTER_EMAIL: 'plot-corpus@localhost',
+      GIT_COMMITTER_DATE: FIXTURE_DATE,
+    };
+    return execFileSync('git', ['commit-tree', tree, '-p', base, '-m', 'fixture: plot-corpus-fixture-branch'], { cwd: source, env: identity, encoding: 'utf8' }).trim();
   } finally {
     fs.rmSync(indexFile, { force: true });
   }
