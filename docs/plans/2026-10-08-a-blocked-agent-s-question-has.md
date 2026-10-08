@@ -56,7 +56,7 @@ One domain rule answers *which desk does an answer for this branch go to, and wh
 
 - [x] **A free wait on a blocked desk.** *Answered 2026-10-08, jwloka: (b). `continue` stops a loop that reports a free wait and refuses every other live loop; the loop's life cycle stays as it is.* In the measured case the restarted loop waited free on the desk that holds the question, and `continue` would refuse it `loop-alive` even with a manifest. A free wait holds no turn, so stopping it loses no work — which the `loop-alive` rationale (*"a stop can land mid-turn"*) does not cover. Two answers: (a) a loop whose desk holds an unanswered `PLOT-BLOCKED` marker does not wait for a hand-over on that desk and exits; (b) `continue` stops a loop that reports a free wait and refuses every other live loop. (a) keeps "refuse, never stop" whole; (b) needs the loop's wait state as a reading.
 - [x] **Keep the manifest instead.** *Answered 2026-10-08, jwloka: read the ending record; the manifest keeps its meaning.* The issue proposes that a blocked ending keeps its manifest until the question is answered or released. That changes what a manifest means — today a manifest with no live loop reads as a registered agent to `registryd` and `/plot-fleet --status` — so this plan reads the ending record instead. Confirm, or name the reader that needs the manifest.
-- [ ] **Why the registry was empty while pid 43381 ran.** The loop was alive and waiting, yet no manifest named its desk. Either the restart onto a newer bundle (`worker-loop.ts:335`, `reexec`) ran `leave`, or the restarted process lost `PLOT_MANIFEST_FILE`. The first slice measures which before it writes the rule.
+- [x] **Why the registry was empty while pid 43381 ran.** *Measured 2026-10-08, before the first slice wrote the rule: neither hypothesis holds.* An `execve`-based restart (`worker-loop.ts:335`, `reexec`) does not run `leave`/`leaveNow`, and does not drop `PLOT_MANIFEST_FILE` — it is spread through explicitly via `{...deps.env, PLOT_WAIT_STARTED, PLOT_HOP_FROM}`. `leave`/`leaveNow` run only behind `onStop`'s `SIGTERM`/`SIGINT`/`SIGHUP` handlers, so at some point in pid 43381's lifetime — which an `execve` restart does not interrupt, since the pid is unchanged — the process received one of those signals, which deleted the manifest. Nothing downstream recreates it: a later restart's `main()` only re-reads `env.PLOT_MANIFEST_FILE` and calls `stampManifestLoopJs`, which no-ops silently against a missing file.
 - [ ] **Release.** A blocked desk whose question is never answered is released through #1276's controller. This plan adds no release path; it states that the ending record stops routing once the claim is released.
 
 ### What this does NOT do
@@ -68,7 +68,7 @@ One domain rule answers *which desk does an answer for this branch go to, and wh
 
 ### The ending record routes an answer
 
-- `feature/a-blocked-ending-routes-its-answer` — `continueTarget` in the domain with one test per answer, `/api/continue` calling it, and the manifest written for a continuation found by its ending record <!-- builds: continueTarget, the desk an answer goes to -->
+- `feature/a-blocked-ending-routes-its-answer` — `continueTarget` in the domain with one test per answer, `/api/continue` calling it, and the manifest written for a continuation found by its ending record → #1372 <!-- builds: continueTarget, the desk an answer goes to -->
 
 ### A blocked desk is not held by a free wait
 
