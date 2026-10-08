@@ -57,7 +57,7 @@ Only the second row changes behaviour. A green draft PR keeps the fall-through i
 
 ### Open Questions
 
-- [ ] Slice 2: does GitHub's `pr-list` accept a set of numbers in one search, or does the adapter need one `pr-view` per pending PR? The answer decides the request cost.
+- [x] Slice 2: does GitHub's `pr-list` accept a set of numbers in one search, or does the adapter need one `pr-view` per pending PR? The answer decides the request cost. **Answered 2026-10-08: neither.** `host-shell.ts`'s `pr-list` takes no number filter at all — it accepts only `--state`/`--since`/`--limit`/`--rich`/`--rich-open`. The adapter cannot ask "these specific numbers" in one call, and one `pr-view` per pending PR would cost as many requests as pending PRs. The re-ask instead repeats the question the primary delta already asks (`pr-list --rich --state open`, no `--since`) and the domain rule `pendingOpenPrNumbers` filters the answer down to the numbers that were actually pending — one extra request per delta that has a stuck-pending OPEN row, zero otherwise, bounded to 5 consecutive re-asks per number (`PR_PENDING_REASK_LIMIT`) so a permanently-stuck PR does not cost one more request forever.
 
 ## Slices
 
@@ -67,7 +67,7 @@ Only the second row changes behaviour. A green draft PR keeps the fall-through i
 
 ### Pending checks are asked again
 
-- `bug/a-pending-check-is-asked-again` — the delta refresh asks for open PRs with pending checks by number <!-- builds: the pending-check re-ask in the delta refresh -->
+- `bug/a-pending-check-is-asked-again` — the delta refresh asks for open PRs with pending checks by number <!-- builds: the pending-check re-ask in the delta refresh --> → #1364
 
 ### A branch newer than the PR fetch
 

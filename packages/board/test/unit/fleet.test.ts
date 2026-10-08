@@ -2103,19 +2103,26 @@ describe('rowsFromPulse', () => {
       //
       // READ OUT OF THE SOURCE, following `a row's actions all live in its menu`
       // in agent-list.test.ts and for its stated reason: a behavioural assertion
-      // catches only what a fixture happens to reach, while a second `pr-list`
+      // catches only what a fixture happens to reach, while a THIRD `pr-list`
       // added on the row path would sit behind the poll timer and a cache, where
       // no unit fixture goes. This sees it whether or not any test data does.
       //
       // The board polls every 5 s against GitHub's metered API, so a per-row or
       // per-pulse lookup here is not a small regression — it is the cost model
       // `plot-fleet-scan.sh` already went to some trouble to avoid.
+      //
+      // TWO IS THE BUDGET, NOT ONE, SINCE #1277. The pending-check re-ask in
+      // `refreshPrs` is the second deliberate call site: it fires only on a
+      // delta, and only when the store holds an OPEN PR whose checks are still
+      // `pending`, bounded by `PR_PENDING_REASK_LIMIT`. It is not a per-row or
+      // per-pulse lookup — the thing this test guards against — it is a second,
+      // bounded question asked by the same timer-gated function.
       const source = readFileSync(
         new URL('../../src/server/fleet.ts', import.meta.url), 'utf8');
       const calls = source.split('\n')
         .filter((l) => l.includes("'pr-list'"));
-      expect(calls, `expected exactly one pr-list call site, saw:\n${calls.join('\n')}`)
-        .toHaveLength(1);
+      expect(calls, `expected exactly two pr-list call sites, saw:\n${calls.join('\n')}`)
+        .toHaveLength(2);
       // And all three indexes are built from THAT one answer's loop, so a fourth
       // consumer costs nothing either. `prsByHead` is assigned beside its two
       // siblings — moving it out of this function is what a second fetch would

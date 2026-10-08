@@ -874,3 +874,192 @@ describe('the full read asks verdicts of open PRs only', () => {
     expect(entry.prs?.get('feature/closed')).toBeUndefined();
   });
 });
+
+describe('a pending check is asked again (#1277)', () => {
+  // THE DEFECT: a completed check does not move `updatedAt`, so a plain delta
+  // never sees it — a PR that finished CI stayed `pending` on screen for as
+  // long as 24h, until the next full read. The fix asks the host a SECOND
+  // question on a delta: by number, about every stored OPEN+`pending` row.
+  //
+  // THE DONE-WHEN THIS WAVE EXISTS FOR: a double answering every call
+  // identically proves nothing, because the plain delta's own rows could
+  // carry the fix by accident. `twoFacedHost` answers the PLAIN delta
+  // (carries `--since`, no `--state open`-only shape) with one set of rows
+  // and the RE-ASK (`--state open`, no `--since`) with a different set, so a
+  // test can tell which call actually produced the PR landing as green.
+
+  /** The `pr-list` invocation from one recorded argv line. */
+  const prListCall = (scriptsDir: string, nth = 0): string =>
+    argvOf(scriptsDir).filter((l) => l.startsWith('pr-list'))[nth] ?? '';
+
+  const reaskArgv = 'pr-list --rich --state open';
+
+  /**
+   * A fake host that answers the re-ask (`--state open`, no `--since`)
+   * differently from every other `pr-list` shape.
+   *
+   * Matches by the EXACT re-ask argv rather than "contains `--state open`",
+   * because the plain full-read-from-cold call also has no `--since` and must
+   * not be confused with a re-ask that only ever fires on a delta.
+   */
+  const twoFacedHost = (plainRows: readonly string[], reaskRows: readonly string[]): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-pr-store-'));
+    const plainBody = plainRows.map((r) => `printf '%s\\n' ${JSON.stringify(r)}`).join('\n') || ':';
+    const reaskBody = reaskRows.map((r) => `printf '%s\\n' ${JSON.stringify(r)}`).join('\n') || ':';
+    fs.writeFileSync(
+      path.join(dir, 'plot-host.sh'),
+      '#!/usr/bin/env bash\n'
+      + `printf '%s\\n' "$*" >> ${JSON.stringify(path.join(dir, 'argv'))}\n`
+      + 'if [ "$1" = pr-list ]; then\n'
+      + `  if [ "$*" = ${JSON.stringify(reaskArgv)} ]; then\n${reaskBody}\n`
+      + `  else\n${plainBody}\n  fi\n`
+      + 'fi\nexit 0\n',
+    );
+    fs.chmodSync(path.join(dir, 'plot-host.sh'), 0o755);
+    dirs.push(dir);
+    return dir;
+  };
+
+  /** A stored row, written by a full read, with the given `checks`/`state`. */
+  const seedStore = async (home: string, over: Record<string, unknown> = {}): Promise<void> => {
+    await refresh(host([line({
+      number: 9, head: 'feature/nine', state: 'OPEN', checks: 'pending',
+      updatedAt: '2026-09-20T12:00:00Z', ...over,
+    })]), home);
+  };
+
+  it('re-asks by number when a stored OPEN PR is still pending', async () => {
+    const home = storeHome();
+    await seedStore(home);
+    expect(onDisk(home)?.rows[0]).toMatchObject({ number: 9, checks: 'pending' });
+
+    // A delta follows, carrying `--since`; nothing in ITS window mentions #9,
+    // but the stored row is OPEN and `pending` so the re-ask fires too.
+    const scripts = twoFacedHost(
+      [],
+      [line({
+        number: 9, head: 'feature/nine', state: 'OPEN', checks: 'green',
+        updatedAt: '2026-09-20T12:00:00Z',
+      })],
+    );
+    const entry = await refresh(scripts, home, freshCacheEntry());
+
+    const calls = argvOf(scripts).filter((l) => l.startsWith('pr-list'));
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toBe(reaskArgv);
+    expect(onDisk(home)?.rows.find((r) => r.number === 9)?.checks).toBe('green');
+    expect(entry.prsByNumber?.get(9)?.checks).toBe('green');
+  });
+
+  it('does not re-ask a stored OPEN PR whose checks are already green', async () => {
+    const home = storeHome();
+    await refresh(host([line({ number: 9, head: 'feature/nine', checks: 'green' })]), home);
+
+    const scripts = twoFacedHost([], [line({ number: 9, head: 'feature/nine', checks: 'green' })]);
+    await refresh(scripts, home, freshCacheEntry());
+    expect(argvOf(scripts).filter((l) => l.startsWith('pr-list'))).toHaveLength(1);
+  });
+
+  it('does not re-ask a stored MERGED PR even if it is stored as pending', async () => {
+    // A terminal row is never re-asked — merged or closed is the host's last
+    // word, and `pendingOpenPrNumbers` filters on `state === 'OPEN'` for
+    // exactly this reason.
+    const home = storeHome();
+    await refresh(host([line({
+      number: 9, head: 'feature/nine', state: 'MERGED', checks: 'pending',
+    })]), home);
+
+    const scripts = twoFacedHost([], [line({ number: 9, head: 'feature/nine', checks: 'green' })]);
+    await refresh(scripts, home, freshCacheEntry());
+    expect(argvOf(scripts).filter((l) => l.startsWith('pr-list'))).toHaveLength(1);
+  });
+
+  it('does not re-ask on a full read — the cold call already covers it', async () => {
+    // `window.since === null` on a cold store, so `pendingOpenPrNumbers` is
+    // never consulted: there is nothing stored yet to be pending FROM, and the
+    // full read's own `--rich-open` already asks every open PR's verdict.
+    const scripts = twoFacedHost([line()], [line({ checks: 'green' })]);
+    await refresh(scripts, storeHome());
+    expect(argvOf(scripts).filter((l) => l.startsWith('pr-list'))).toHaveLength(1);
+    expect(prListCall(scripts)).toBe('pr-list --rich-open --state all --limit 1000');
+  });
+
+  it('keeps pending, the watermark, and the next --since when still unresolved', async () => {
+    const home = storeHome();
+    await seedStore(home);
+    const watermarkBefore = onDisk(home)?.watermark;
+
+    // The re-ask answers, and the PR is STILL pending with the SAME updatedAt
+    // — no progress.
+    const scripts = twoFacedHost(
+      [],
+      [line({
+        number: 9, head: 'feature/nine', state: 'OPEN', checks: 'pending',
+        updatedAt: '2026-09-20T12:00:00Z',
+      })],
+    );
+    await refresh(scripts, home, freshCacheEntry());
+
+    expect(onDisk(home)?.rows.find((r) => r.number === 9)?.checks).toBe('pending');
+    expect(onDisk(home)?.watermark).toBe(watermarkBefore);
+
+    // And the NEXT delta's --since is unchanged by the re-ask having run.
+    const next = twoFacedHost([], []);
+    await refresh(next, home, freshCacheEntry());
+    expect(prListCall(next)).toBe(`pr-list --rich --state all --limit 1000 --since ${watermarkBefore}`);
+  });
+
+  it('leaves the stored pending row untouched when the re-ask call fails', async () => {
+    const home = storeHome();
+    await seedStore(home);
+    const before = fs.readFileSync(path.join(home, 'github.json'), 'utf8');
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-pr-store-'));
+    dirs.push(dir);
+    fs.writeFileSync(
+      path.join(dir, 'plot-host.sh'),
+      '#!/usr/bin/env bash\n'
+      + `printf '%s\\n' "$*" >> ${JSON.stringify(path.join(dir, 'argv'))}\n`
+      + 'if [ "$1" = pr-list ]; then\n'
+      + `  if [ "$*" = ${JSON.stringify(reaskArgv)} ]; then\n`
+      + '    printf \'%s\\n\' "plot-host: pr-list: gh: rate limited" >&2\n'
+      + '    exit 3\n'
+      + '  fi\n'
+      + `${[line({
+        number: 1, head: 'feature/one', updatedAt: '2026-09-20T13:00:00Z',
+      })].map((r) => `printf '%s\\n' ${JSON.stringify(r)}`).join('\n')}\n`
+      + 'fi\nexit 0\n',
+    );
+    fs.chmodSync(path.join(dir, 'plot-host.sh'), 0o755);
+
+    const entry = await refresh(dir, home, freshCacheEntry());
+    expect(fs.readFileSync(path.join(home, 'github.json'), 'utf8')).not.toBe(before);
+    expect(onDisk(home)?.rows.find((r) => r.number === 9)?.checks).toBe('pending');
+    // A failed re-ask is not a failed FULL read — only `window.kind ===
+    // 'whole'` sets this latch, and a re-ask never is one.
+    expect(entry.prFullReadFailedAt).toBeNull();
+  });
+
+  it('stops re-asking a number once it has been stuck past the bound', async () => {
+    const home = storeHome();
+    await seedStore(home);
+
+    const stillPending = [line({
+      number: 9, head: 'feature/nine', state: 'OPEN', checks: 'pending',
+      updatedAt: '2026-09-20T12:00:00Z',
+    })];
+    let entry = freshCacheEntry();
+    const scriptDirs: string[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      const scripts = twoFacedHost([], stillPending);
+      scriptDirs.push(scripts);
+      entry = await refresh(scripts, home, entry);
+    }
+
+    // The limit is 5 consecutive no-progress answers: the 6th refresh's delta
+    // must not carry a re-ask call anymore.
+    const lastCalls = argvOf(scriptDirs[5]).filter((l) => l.startsWith('pr-list'));
+    expect(lastCalls).toHaveLength(1);
+    expect(lastCalls[0]).not.toBe(reaskArgv);
+  });
+});

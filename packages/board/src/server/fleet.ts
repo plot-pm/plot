@@ -64,6 +64,7 @@ import {
   handedTo,
   issueAbsence,
   issueSource,
+  pendingOpenPrNumbers,
   prWindowFor,
   type PrAnswerKind,
   type PrIndex,
@@ -204,6 +205,17 @@ const PR_CONCURRENCY_START = null;
  * A backend absent from this table costs 1 — the naive assumption, kept as the
  * default so a host added later behaves exactly as every host did before, and
  * is slowed only once someone measures what it really costs.
+ *
+ * THE PENDING-CHECK RE-ASK (#1277) IS DELIBERATELY NOT COUNTED HERE. Every
+ * other row in this table prices a request this file makes on EVERY refresh;
+ * the re-ask fires only on a delta, and only when the store holds an OPEN PR
+ * whose `checks` is still `pending` — on a quiet estate with no PR mid-CI, the
+ * cost stays what it always was. Baking it into this static table would
+ * stretch every GitHub refresh to pay for a question most refreshes never
+ * ask, the over-declaring failure the paragraph above already names. What
+ * bounds its real cost instead is `PR_PENDING_REASK_LIMIT`: a PR cannot be
+ * re-asked more than a fixed number of consecutive times, so the worst case
+ * is small and finite rather than one more request forever.
  */
 const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
   // One `gh pr list --state all` call, whatever the states asked for; the
@@ -251,6 +263,20 @@ const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
   // requests and account-wide `HTTP 429` this table's own header records.
   bitbucket: 4,
 };
+
+/**
+ * How many consecutive re-asks a stuck-`pending` open PR survives before the
+ * delta stops asking about it by number.
+ *
+ * A check queue that never runs would otherwise be re-asked every delta
+ * forever — one more request per refresh with no answer ever arriving. 5
+ * consecutive no-progress answers, at the GitHub cadence this table prices
+ * above (one delta roughly every 60 s), is on the order of five minutes of
+ * asking before the bound gives up; the PR falls back to being caught by the
+ * next full read, the same ceiling every OPEN PR already had before this
+ * slice.
+ */
+const PR_PENDING_REASK_LIMIT = 5;
 
 /**
  * How many PRs to ask the host for. The CLI's own default is 30, which is
@@ -922,6 +948,20 @@ export interface CacheEntry {
    * does not make the board repeat its heaviest query every 60 s.
    */
   prFullReadFailedAt: number | null;
+  /**
+   * How many consecutive re-asks a still-`pending` open PR has survived,
+   * keyed by number — see {@link PR_PENDING_REASK_LIMIT}.
+   *
+   * **IN MEMORY, LIKE {@link prFullReadFailedAt}, AND FOR THE SAME REASON.**
+   * It is this process's count of what it asked; a restart has asked nothing
+   * yet and starts the bound over rather than inheriting a stranger's streak.
+   *
+   * **CLEARED THE MOMENT THE ROW STOPS BEING STUCK.** A PR whose checks left
+   * `pending`, or whose `updatedAt` moved, is making progress — the re-ask in
+   * `refreshPrs` deletes its entry the same pass it notices — and a number
+   * absent from this map has never been asked or was last seen moving.
+   */
+  prPendingReaskStreak: Map<number, number>;
   /** How the limit reading was come by — `actual`, `predicted`, or `unknown`. */
   prLimitBasis: LimitBasis;
   /**
@@ -3167,6 +3207,81 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
         if (!held || prOutranks(pr, held)) byHead.set(pr.head, pr);
       }
     }
+    // A COMPLETED CHECK DOES NOT TOUCH `updatedAt`, so a delta keyed on that
+    // field never sees it — the PR sits `pending` on screen until the next
+    // FULL read, as long as 24h (#1277). `window.since === null` means this
+    // pass already asked `--rich-open` about every open PR, so the re-ask
+    // would be the same question twice; it fires only on a delta.
+    //
+    // ONLY `OPEN` AND ONLY `pending` — `pendingOpenPrNumbers` is the same rule
+    // a unit test proves against a held store with no I/O. MERGED/CLOSED rows
+    // are terminal and are never re-asked even if stored as `pending`.
+    if (window.since !== null) {
+      const pending = pendingOpenPrNumbers(stored);
+      // STUCK-PENDING BOUND: a PR whose check queue never runs would be
+      // re-asked every delta forever. A number is asked again only while its
+      // streak of "still pending, same updatedAt" answers is under the limit;
+      // re-asked only while its streak (below) is under the limit.
+      const askable = pending.filter((n) => (entry.prPendingReaskStreak.get(n) ?? 0)
+        < PR_PENDING_REASK_LIMIT);
+      if (askable.length > 0) {
+        try {
+          const reasked = await withHostSlot(
+            entry, () => scriptsFor(opts).hostSaid(['pr-list', '--rich', '--state', 'open']),
+          );
+          // A REFUSAL OR A PARTIAL ANSWER IS TREATED AS NO ANSWER HERE, not as
+          // the outer catch's failure. The primary call already answered this
+          // pass; a re-ask that cannot be trusted simply leaves the stored
+          // `pending` rows as they were; the delta-merge's "keep what it did
+          // not see" rule carries them forward unchanged.
+          if (reasked.answer === 'answered') {
+            const stillPending = new Set(askable);
+            for (const line of reasked.stdout.split('\n')) {
+              if (!line.trim()) continue;
+              const pr = JSON.parse(line) as PrRecord;
+              if (!stillPending.has(pr.number)) continue;
+              if (typeof pr.url !== 'string') pr.url = '';
+              if (typeof pr.mergeable !== 'string' || !pr.mergeable) pr.mergeable = 'unknown';
+              if (!Array.isArray(pr.failing_checks)) pr.failing_checks = [];
+              if (typeof pr.author !== 'string') pr.author = '';
+              if (pr.head && pr.state === 'OPEN') map.set(pr.head, pr);
+              byNumber.set(pr.number, pr);
+              rows.push(storeRow(pr));
+              if (pr.head) {
+                const held = byHead.get(pr.head);
+                if (!held || prOutranks(pr, held)) byHead.set(pr.head, pr);
+              }
+              // STILL PENDING WITH THE SAME `updatedAt` IS NO PROGRESS: the
+              // streak grows. Anything else — checks moved, or the PR itself
+              // moved — clears it, so a PR that starts failing is asked about
+              // again exactly as a fresh pending one would be.
+              const storedRow = stored?.rows.find((row) => row.number === pr.number);
+              const noProgress = pr.checks === 'pending'
+                && storedRow !== undefined && storedRow.updatedAt === pr.updatedAt;
+              if (noProgress) {
+                entry.prPendingReaskStreak.set(
+                  pr.number, (entry.prPendingReaskStreak.get(pr.number) ?? 0) + 1,
+                );
+              } else {
+                entry.prPendingReaskStreak.delete(pr.number);
+              }
+              stillPending.delete(pr.number);
+            }
+            // ASKED ABOUT AND ABSENT FROM THE ANSWER: the PR is gone from the
+            // open listing (closed or merged between the two calls within this
+            // one refresh). Nothing to merge — the primary call's own rows, or
+            // the next delta, settle its terminal state.
+            for (const number of stillPending) entry.prPendingReaskStreak.delete(number);
+          }
+        } catch {
+          // THE SAME POLICY AS A REFUSAL ABOVE: keep the last good map, touch
+          // neither `entry.prFullReadFailedAt` (gated on `window.kind ===
+          // 'whole'`, which this never is) nor the stored `pending` rows. The
+          // outer catch owns the primary call's backoff; this one owns its own
+          // and stops here.
+        }
+      }
+    }
     // CONTENT-BASED TRIGGER: an all-unknown PR map is the shape a quota failure
     // takes when gh returns successfully. The host answered, but every PR came
     // back `state: 'unknown'`, which is indistinguishable from "could not reach
@@ -3815,7 +3930,8 @@ export function freshCacheEntry(): CacheEntry {
     briefsAsked: new Set(),
     prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null, prSpendPerHour: null,
     prResetAt: null, prConcurrency: PR_CONCURRENCY_START,
-    prLimit: null, prFullReadFailedAt: null, prLimitBasis: 'unknown',
+    prLimit: null, prFullReadFailedAt: null, prPendingReaskStreak: new Map(),
+    prLimitBasis: 'unknown',
     prAccount: null, prSlotsHeld: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false, prIntervalMs: PR_REFRESH_MS,

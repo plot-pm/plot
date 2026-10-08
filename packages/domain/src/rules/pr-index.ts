@@ -271,6 +271,31 @@ const wholenessAfter = (held: PrIndex | null, kind: PrAnswerKind): boolean => {
   return held?.complete ?? false;
 };
 
+/**
+ * The numbers of the open PRs a delta must ask about again.
+ *
+ * **`pending` IS THE ONE NON-TERMINAL ANSWER.** `green`, `failing`, `none` and
+ * `unknown` are all answers the host already gave; `--since` asks about them
+ * again the moment `updatedAt` moves, exactly as it does today. `pending`
+ * means *the host had not finished computing it*, so nothing but asking again
+ * ever replaces it — `updatedAt` does not move when a check run completes
+ * (#1277).
+ *
+ * **ONLY `OPEN`.** A `MERGED` or `CLOSED` row is terminal — *A Decision Reads
+ * The Index* states "a `MERGED` row cannot revert" — so re-asking one spends a
+ * question on a head nobody can act on. A stored `pending` on a merged or
+ * closed row is left exactly as held.
+ *
+ * @param held - the store as it was read, or null where there was none.
+ * @returns the numbers of the `OPEN` rows whose stored `checks` is `pending`.
+ */
+export const pendingOpenPrNumbers = (held: PrIndex | null): readonly number[] => {
+  if (held === null) return [];
+  return held.rows
+    .filter((row) => row.state === 'OPEN' && row.checks === 'pending')
+    .map((row) => row.number);
+};
+
 /** What a refresh may ask the host for. */
 export interface PrWindow {
   /**
