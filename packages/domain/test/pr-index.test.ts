@@ -7,7 +7,9 @@ import {
   type PrIndex,
   type PrIndexRow,
 } from '../src/entities/pr-index.js';
-import { answerKind, foldPrIndex, prWindowFor, watermarkOf } from '../src/rules/pr-index.js';
+import {
+  answerKind, foldPrIndex, pendingOpenPrNumbers, prWindowFor, watermarkOf,
+} from '../src/rules/pr-index.js';
 
 /**
  * A row carrying only what every host answers, so a test adding an optional
@@ -388,6 +390,46 @@ describe('the encoding', () => {
       rows: [row(1, { updatedAt: '2026-09-20T00:00:00Z', mergeable: 'mergeable' })],
     });
     expect(decodePrIndex(encodePrIndex(original))).toEqual(original);
+  });
+});
+
+describe('the numbers a delta re-asks about', () => {
+  // THE RULE SLICE 2 ADDS. `pending` is the one non-terminal answer — nothing
+  // but asking again ever replaces it, because a completed check run does not
+  // move `updatedAt` (#1277). `green`, `failing`, `none` and `unknown` are all
+  // asked again by the next `updatedAt` change, as today.
+
+  it('returns an open PR whose stored checks are pending', () => {
+    const held = store([row(1, { state: 'OPEN', checks: 'pending' })]);
+    expect(pendingOpenPrNumbers(held)).toEqual([1]);
+  });
+
+  it('does not return a stored green open PR', () => {
+    // THE DONE-WHEN: a rule that re-asks everything non-terminal would catch
+    // this too. Only `pending` qualifies.
+    const held = store([row(1, { state: 'OPEN', checks: 'green' })]);
+    expect(pendingOpenPrNumbers(held)).toEqual([]);
+  });
+
+  it('does not return a stored pending MERGED PR', () => {
+    // THE DONE-WHEN: a rule that re-asks everything pending, regardless of
+    // state, would catch this too. A MERGED row is terminal — see `A Decision
+    // Reads The Index`: "a MERGED row cannot revert".
+    const held = store([row(1, { state: 'MERGED', checks: 'pending' })]);
+    expect(pendingOpenPrNumbers(held)).toEqual([]);
+  });
+
+  it('returns nothing where there is no store', () => {
+    expect(pendingOpenPrNumbers(null)).toEqual([]);
+  });
+
+  it('returns every pending open PR, in row order', () => {
+    const held = store([
+      row(1, { state: 'OPEN', checks: 'pending' }),
+      row(2, { state: 'OPEN', checks: 'green' }),
+      row(3, { state: 'OPEN', checks: 'pending' }),
+    ]);
+    expect(pendingOpenPrNumbers(held)).toEqual([1, 3]);
   });
 });
 
