@@ -58,7 +58,7 @@ None.
 
 ### Local checks in a temp worktree
 
-- `bug/local-checks-find-tests-in-a-temp-worktree` — realpath-normalise `repoRoot` and the `{changed}` paths <!-- builds: realpath-normalised changed paths -->
+- `bug/local-checks-find-tests-in-a-temp-worktree` — realpath-normalise `repoRoot` and the `{changed}` paths → #1385 <!-- builds: realpath-normalised changed paths -->
 
 ### The sweep counts a moved claim once
 
