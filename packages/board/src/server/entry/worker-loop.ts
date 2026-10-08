@@ -1648,16 +1648,31 @@ export const integer = (raw: string | undefined, fallback: number): number =>
   raw !== undefined && /^-?\d+$/.test(raw) ? Number(raw) : fallback;
 
 /**
- * A positive amount in dollars, or `null` where the key is absent — unlike
- * {@link count}/{@link positive}/{@link integer}, this takes no fallback:
- * `Slice max spend` and `Agent max spend` have none, an absent key means no
- * limit rather than a limit of `0`.
+ * A dollar amount read from `Slice max spend` or `Agent max spend`: `unset`
+ * where the key is absent or blank (no limit); `value` for a positive amount,
+ * read with an optional leading `$` and/or trailing `USD` (case-insensitive,
+ * surrounding blanks allowed); `unreadable` for anything else present —
+ * including `0` and a negative number, which name a cap the loop cannot
+ * honour rather than "no limit".
  */
-export const dollarsOrUnset = (raw: string | undefined): number | null => {
-  if (raw === undefined) return null;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : null;
+export type DollarsReading = { readonly kind: 'unset' } | { readonly kind: 'value'; readonly amount: number } | { readonly kind: 'unreadable' };
+
+/**
+ * Reads a `## Plot Config` dollar amount. Unlike {@link count}/{@link positive}/
+ * {@link integer}, this takes no fallback: an absent or blank key is `unset`,
+ * never a limit of `0`. A present value this cannot read is `unreadable` —
+ * the caller refuses the start rather than running with no limit.
+ */
+export const dollarsOrUnset = (raw: string | undefined): DollarsReading => {
+  if (raw === undefined || raw.trim() === '') return { kind: 'unset' };
+  const match = /^\s*\$?\s*(-?\d+(?:\.\d+)?)\s*(?:usd)?\s*$/i.exec(raw);
+  const n = match ? Number(match[1]) : NaN;
+  return Number.isFinite(n) && n > 0 ? { kind: 'value', amount: n } : { kind: 'unreadable' };
 };
+
+/** A {@link DollarsReading}'s amount, or `fallback` where it is not `value`. */
+const dollarsOrFallback = <T,>(reading: DollarsReading, fallback: T): number | T =>
+  reading.kind === 'value' ? reading.amount : fallback;
 
 /**
  * The ref a desk reset cuts a new branch from: `origin/<default branch>`, the
@@ -1822,7 +1837,7 @@ export const runnerDeps = async (input: RunnerInput): Promise<{ runner: 'command
       model: settings.model,
       effort: settings.effort,
       maxTurns: positive(cfg('Agent max turns'), DEFAULT_AGENT_MAX_TURNS),
-      maxSpendUsd: dollarsOrUnset(cfg('Agent max spend')) ?? 0,
+      maxSpendUsd: dollarsOrFallback(dollarsOrUnset(cfg('Agent max spend')), 0),
       contextWindow: settings.contextWindow,
       capabilities: charter?.capabilities ?? [],
       runChecks: localChecksRunner(input.ports.boundedRun, input.scriptDir, input.boundSeconds, input.checksOutFile),
@@ -1995,6 +2010,13 @@ export const main = async (
 ): Promise<number> => {
   const worktree = env.PLOT_WORKTREE ?? process.cwd();
   const repoRoot = env.PLOT_REPO_ROOT ?? worktree;
+  for (const key of ['Agent max spend', 'Slice max spend'] as const) {
+    const raw = configKey(worktree, key);
+    if (dollarsOrUnset(raw).kind === 'unreadable') {
+      stderrLog(`plot-worker-loop: unreadable ${key} "${raw}" — refusing to start`);
+      return 1;
+    }
+  }
   const boundSeconds = count(env.PLOT_WORKER_BOUND, count(configKey(worktree, 'Worker bound'), 28800));
   const manifestFile = env.PLOT_MANIFEST_FILE ?? '';
   const ports = await workerLoopPorts(
@@ -2071,7 +2093,7 @@ export const main = async (
       checksWaitSeconds: count(env.PLOT_CHECKS_WAIT_SECONDS, count(configKey(worktree, 'Checks wait'), 1800)),
       correctionBudget: count(env.PLOT_CORRECTION_BUDGET, count(configKey(worktree, 'Correction budget'), 2)),
       sliceMaxRuns: positive(configKey(worktree, 'Slice max runs'), DEFAULT_SLICE_MAX_RUNS),
-      sliceMaxSpendUsd: dollarsOrUnset(configKey(worktree, 'Slice max spend')),
+      sliceMaxSpendUsd: dollarsOrFallback(dollarsOrUnset(configKey(worktree, 'Slice max spend')), null),
       base,
     },
     limitMarginSeconds: integer(env.PLOT_LIMIT_MARGIN_SECONDS, 60),
