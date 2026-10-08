@@ -1,0 +1,1 @@
+../2026-10-09-the-shell-sheds-its-decisions.md
