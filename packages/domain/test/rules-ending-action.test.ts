@@ -180,6 +180,13 @@ describe('needsPersonMarker', () => {
   it('refuses to compose for an ending outside its five', () => {
     expect(() => needsPersonMarker('nothing-done', 'infra/x', '')).toThrow();
   });
+
+  it('says no detail was recorded when the ending carried none, for every reason that can fall back', () => {
+    for (const ending of ['unstarted', 'spend-limit', 'run-limit', 'blocked'] as const) {
+      expect(needsPersonMarker(ending, 'infra/x', '')).toContain('no detail was recorded');
+    }
+    expect(needsPersonMarker('checks-unanswered', 'infra/x', '')).toContain('no detail was recorded');
+  });
 });
 
 describe('holdingWorkAnswer', () => {
