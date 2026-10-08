@@ -72,7 +72,7 @@ Only the second row changes behaviour. A green draft PR keeps the fall-through i
 
 ### A branch newer than the PR fetch
 
-- `bug/a-pr-fetch-older-than-the-branch-reads-unknown` — the quiet-branch readings compare the PR fetch time with the branch's last commit <!-- builds: the PR-fetch age reading in rules/quiet.ts -->
+- `bug/a-pr-fetch-older-than-the-branch-reads-unknown` — the quiet-branch readings compare the PR fetch time with the branch's last commit <!-- builds: the PR-fetch age reading in rules/quiet.ts --> → #1368
 
 ## Done when
 
