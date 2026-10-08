@@ -95,6 +95,11 @@ const WRITE_ROUTES = [
   // same and gated by the same loopback boundary: a control that removes a
   // record must not be reachable by a phone reading the board over Tailscale.
   { path: '/api/registry/drop', body: { session: 'test-session-id' } },
+  // Release-claim runs plot-dispatch.sh --release directly — a different act
+  // from /api/release above, which cuts a versioned release. It is a write all
+  // the same and gated by the same loopback boundary: releasing a branch's
+  // claim must not be reachable by a phone reading the board over Tailscale.
+  { path: '/api/release-claim', body: { branch: 'feature/x' } },
 ];
 
 /** Give a spawn that should NOT have happened time to leave its mark. */

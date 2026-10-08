@@ -55,7 +55,8 @@ export type Write =
   | LoopEndWrite
   | AgentFindingWrite
   | BuildFindingWrite
-  | NotifyWrite;
+  | NotifyWrite
+  | ClaimReleaseWrite;
 
 /** Sets a plan's `**State:**` field, inside its `## Status` section only. */
 export interface PlanPhaseWrite {
@@ -353,6 +354,26 @@ export interface ManifestClearWrite {
   readonly kind: 'manifest-clear';
   /** The worktree the manifest named, absolute. */
   readonly worktree: string;
+}
+
+/**
+ * Releases a branch's claim back to the queue: clears the manifests that name
+ * it, then deletes its remote ref, then detaches its desk.
+ *
+ * ONE WRITE NAMING THE WHOLE ACT, not three. The adapter that applies it runs
+ * `plot-dispatch.sh --release`, which already orders those three steps
+ * (manifests first, so a ref deletion that fails still locks via the ref
+ * rather than double-handing the branch out) and enforces four refusals the
+ * domain does not read from these values — a live worker pid, a file-changing
+ * commit on the remote, uncommitted or unpushed desk work, and a
+ * `PLOT-BLOCKED` marker. Splitting this into `manifest-clear` plus a new
+ * ref-delete write would let a caller apply one without the other, which is
+ * exactly the double-handout this write exists to prevent.
+ */
+export interface ClaimReleaseWrite {
+  readonly kind: 'claim-release';
+  /** The branch whose claim is released. */
+  readonly branch: string;
 }
 
 /**

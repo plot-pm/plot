@@ -1,6 +1,7 @@
 import { type Outcome, type Write, decide, refuse } from './decision.js';
 import type { WorkerState } from '../entities/fleet.js';
 import type { DispatchRefusal } from './dispatch.js';
+import { type PortResult, isAnswered } from '../port-result.js';
 
 /**
  * The three verbs that run BEFORE the phase gate, and why they must.
@@ -383,4 +384,126 @@ const migrationRefusal = (
   if (tree.dirty) return 'uncommitted';
   if (unpushedCommits) return 'unpushed-commits';
   return undefined;
+};
+
+/** What the host answered about a branch's pull request, for a release. */
+export interface ClaimReleasePrReading {
+  /** Whether a PR exists for the branch, in any open state. */
+  open: boolean;
+  /** Whether a PR for the branch has ever merged. */
+  merged: boolean;
+  /** The PR's number, 0 where none. */
+  number: number;
+  /** The state as the host reports it, `''` where none exists. */
+  state: string;
+}
+
+/** What `--release` reads. */
+export interface ClaimReleaseReadings {
+  /** The branch named on the command line; `''` where none was. */
+  branch: string;
+  /**
+   * Whether anything names this branch as claimed — a remote ref, or a
+   * manifest, independent of whether an agent on it is alive.
+   *
+   * Asked so a branch that holds NO claim at all answers success with
+   * nothing to do, matching the script's own `Nothing to release.` exit 0,
+   * rather than refusing or claiming a write it never makes.
+   */
+  claimed: boolean;
+  /**
+   * Every agent session whose manifest names this branch.
+   *
+   * READ FROM THE MANIFEST, never from whether `origin/<branch>` exists. The
+   * shell's own degraded `claim_answer` call measures the case this guards:
+   * an agent just handed the branch has no worktree and no remote ref yet,
+   * and a ref-only check would wave it through.
+   */
+  holders: readonly string[];
+  /** What the host answered about the branch's pull requests. */
+  pr: PortResult<ClaimReleasePrReading>;
+}
+
+/** What releasing decided. */
+export interface ClaimReleaseDetail {
+  /** The branch. */
+  branch: string;
+  /** Whether the branch held a claim at all. */
+  hadClaim: boolean;
+}
+
+/**
+ * Decides whether a branch's claim may be released back to the queue.
+ *
+ * TWO REFUSALS, NOT THE SCRIPT'S SIX. `agent-live` and `pr-open` are the only
+ * ones this function can decide from readings it already owns; a live worker
+ * pid, a file-changing commit on the remote, unpushed or dirty desk work, and
+ * a `PLOT-BLOCKED` marker stay enforced in `plot-dispatch.sh --release`, which
+ * the adapter still calls to perform the release this decides.
+ *
+ * `pr-open` COVERS A MERGED PR, rather than a third reason. The shell treats
+ * an open PR, a merged PR, and a host that cannot say either way as one
+ * undifferentiated refusal — a merged branch's ref belongs to
+ * `plot-release-refs.sh`, not to this release, and a host that cannot answer
+ * is not permission to proceed. So `pr.ok === false` and `pr.value.merged`
+ * both refuse here exactly as `pr.value.open` does.
+ *
+ * `agent-live` READS `holders` DIRECTLY, not the shared `claimAnswer` rule.
+ * That rule checks `holders.length > 0` first and returns before its other
+ * parameters are read, and the shell's own call passes them stub values for
+ * exactly this reason — so routing through it here would add a dependency on
+ * fields neither caller needs.
+ *
+ * A branch holding no claim at all is a DECISION WITH NO WRITES, not a
+ * refusal: `readings.claimed` false means the operator asked for the claim
+ * gone and it already is, which is the `Nothing to release.` the script
+ * answers with exit 0 — checked before `agent-live` and `pr-open`, since
+ * neither question applies to a branch nothing names.
+ *
+ * @param readings - the branch, whether it is claimed, its manifest holders
+ *   and its PR reading.
+ * @returns a decision naming the release, or `branch-missing`, `agent-live`
+ *   or `pr-open`.
+ */
+export const releaseClaim = (
+  readings: ClaimReleaseReadings,
+): Outcome<ClaimReleaseDetail, DispatchRefusal> => {
+  const no = (reason: DispatchRefusal, detail: string) => refuse('dispatch', reason, detail);
+
+  if (readings.branch === '') {
+    return no(
+      'branch-missing',
+      "plot-dispatch: --release needs a branch name. Refusing to guess — releasing the wrong claim hands someone else's work out from under them.",
+    );
+  }
+
+  if (!readings.claimed) {
+    return decide('dispatch', [], { branch: readings.branch, hadClaim: false });
+  }
+
+  if (readings.holders.length > 0) {
+    return no(
+      'agent-live',
+      `plot-dispatch: ${readings.branch} is held by a live agent (${readings.holders.join(', ')}) — stopping is not abandoning; refusing to release a claim an agent still holds.`,
+    );
+  }
+
+  if (!isAnswered(readings.pr)) {
+    return no(
+      'pr-open',
+      `plot-dispatch: could not ask the host about ${readings.branch}'s pull requests — a release deletes a ref that cannot be re-created, so silence is not permission.`,
+    );
+  }
+  const { open, merged, number, state } = readings.pr.value;
+  if (open || merged) {
+    return no(
+      'pr-open',
+      `plot-dispatch: ${readings.branch} has a pull request (#${number}, ${state}) — an open PR is work under review; a merged branch's ref is released by plot-release-refs.sh.`,
+    );
+  }
+
+  return decide('dispatch', [{ kind: 'claim-release', branch: readings.branch }], {
+    branch: readings.branch,
+    hadClaim: true,
+  });
 };

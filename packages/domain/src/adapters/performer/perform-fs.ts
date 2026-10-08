@@ -77,6 +77,7 @@ const BEYOND_THE_FILESYSTEM: ReadonlySet<Write['kind']> = new Set([
   'worker-finding',
   'build-finding',
   'notify',
+  'claim-release',
 ]);
 
 /**

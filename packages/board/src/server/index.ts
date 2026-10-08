@@ -36,6 +36,7 @@ import { handleReslice, resliceAvailability, resliceStatus } from './reslice.js'
 import { handleDeliver, deliverAvailability, deliverStatus } from './deliver.js';
 import { handleImplement, implementAvailability, implementStatus } from './implement.js';
 import { dropAvailability, handleDrop } from './drop.js';
+import { handleReleaseClaim } from './release-claim.js';
 import { logDir, processLog, truncateInherited } from './process-log.js';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
@@ -399,6 +400,20 @@ async function handleRequest(
     // for why a surviving per-handler copy would let the named opt-in mean
     // different things on different routes.
     { path: '/api/registry/drop', verb: 'dropping agent', handle: handleDrop },
+    // POST /api/release-claim — release a branch's claim: clear the manifests
+    // naming it, delete its remote ref, detach its desk.
+    //
+    // A DIFFERENT ACT FROM /api/release above, which cuts a versioned release
+    // through `plot-deliver.sh --release`. This runs `plot-dispatch.sh
+    // --release`, the dispatcher's own claim-abandonment verb — unrelated
+    // code, sharing only a word. It refuses a live agent or an open/merged PR
+    // from the same readings `releaseClaim` (the domain decision) reads; the
+    // script's other four refusals stay enforced in the shell it still calls.
+    //
+    // Synchronous, unlike the agent-spawning routes above: the adapter's
+    // script call blocks rather than polling a log, so this answers once,
+    // with no 202 and no background process.
+    { path: '/api/release-claim', verb: 'releasing a claim', handle: handleReleaseClaim },
   ] as const;
 
   const writeRoute = WRITE_ROUTES.find((r) => r.path === url.pathname);
