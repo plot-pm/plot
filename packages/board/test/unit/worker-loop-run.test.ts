@@ -777,6 +777,53 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(r.deskCalls.buildFindings.map((f) => f.finding.finding)).toEqual(['build failed', 'clear', 'build passed']);
   });
 
+  it('publishes a needs-approval finding once for a waiting run, then clears it once the run settles (#1338)', async () => {
+    // `status: 'waiting'` is what a GitHub Actions run reports while it sits on
+    // a manual approval gate — `conclusion: null`, never settled. Before this
+    // fix `readPass` only carried `buildRun` once `checks === 'settled'`, so a
+    // waiting run's `buildFindingFor` answer never reached the desk at all.
+    const r = rig(ASSIGNED, [{}, {}, {}]);
+    let asks = 0;
+    r.deps = {
+      ...r.deps,
+      ports: {
+        ...r.ports,
+        build: {
+          ...r.ports.build,
+          runForSha: async () => {
+            const waiting = asks++ < 2;
+            return {
+              ok: true,
+              value: { sha: 'sha-1', status: waiting ? 'waiting' : 'completed', conclusion: waiting ? null : 'success', url: 'u', startedAt: '' },
+            };
+          },
+        },
+      },
+      config: { ...rigConfig(), checksWaitSeconds: 1_800, checksPollMs: 7_000 },
+    };
+    expect(await runWorkerLoop(r.deps)).toBe(124);
+    // Two passes read the same `waiting` run and publish `build needs
+    // approval` only once — one line per word-change, not one per pass.
+    expect(r.deskCalls.buildFindings.map((f) => f.finding.finding)).toEqual(['build needs approval', 'build passed']);
+  });
+
+  it('spends no correction and ends no slice while a run waits for approval (#1338)', async () => {
+    const r = rig(ASSIGNED, [{}], {}, {});
+    r.deps = {
+      ...r.deps,
+      ports: {
+        ...r.ports,
+        build: buildFixture({ shaRuns: { [BRANCH]: [{ sha: 'sha-1', status: 'waiting', conclusion: null, url: 'u', startedAt: '' }] } }),
+      },
+      config: { ...rigConfig(), checksWaitSeconds: 120, checksPollMs: 7_000 },
+    };
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    // Same decision a pending (never-settled) run gets: the correction budget
+    // is untouched and the slice is still open when the wait bound runs out.
+    expect(r.deskCalls.corrections).toHaveLength(0);
+    expect(r.deskCalls.buildFindings).toEqual([expect.objectContaining({ finding: expect.objectContaining({ finding: 'build needs approval' }) })]);
+  });
+
   it('forgets a held finding once the assignment is gone, so the next slice publishes its own', async () => {
     // The manifest loses its branch during the correction run, from outside
     // the loop; the next slice on the same branch meets the same failure.
@@ -913,6 +960,10 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(await runWorkerLoop(r.deps)).toBe(0);
     expect(r.deskCalls.endings.at(-1)?.record).toMatchObject({ reason: 'checks-unanswered' });
     expect(r.deskCalls.endings.at(-1)?.record.detail).toContain('tip-moved');
+    // The same `tip-moved` reading publishes `head moved` (#1338, option b):
+    // the loop reads it from its own `checks` verdict, never from a run for
+    // the superseded sha.
+    expect(r.deskCalls.buildFindings).toEqual([expect.objectContaining({ finding: expect.objectContaining({ branch: BRANCH, finding: 'head moved' }) })]);
   });
 
   it('keeps the pushed sha it had when HEAD cannot be read', async () => {

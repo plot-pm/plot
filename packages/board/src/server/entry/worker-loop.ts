@@ -31,7 +31,14 @@ import {
   treesGit,
   type ShellContext,
 } from '@plot-pm/domain/adapters';
-import { buildFindingFor, checksFromRuns, type BuildFindingWord, type RemoteTipReading } from '@plot-pm/domain/rules/checks-verdict';
+import {
+  buildFindingFor,
+  checksFromRuns,
+  runWasNotAcquired,
+  type BuildFindingAnswer,
+  type BuildFindingWord,
+  type RemoteTipReading,
+} from '@plot-pm/domain/rules/checks-verdict';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { promptExit } from '@plot-pm/domain/rules/prompt-exit';
 import { backgroundGateEnv } from '@plot-pm/domain/rules/agent-run-env';
@@ -805,9 +812,13 @@ export const readPass = async (
   ]);
   const tip: RemoteTipReading = tipAnswer.ok ? tipAnswer.value : 'unknown';
   const run = runAnswer.ok ? runAnswer.value : null;
+  // A RUN IS EVIDENCE ONLY FOR ITS OWN SHA (`checksFromRuns`'s own doc
+  // comment) — the same filter that rule applies internally, repeated here so
+  // `buildRun` never carries a run for a commit the pushed sha has moved past.
+  const runForPushedSha = run !== null && run.sha === pushedSha ? run : null;
 
   const checks = checksFromRuns({ pushedSha, run, tip, waitedSeconds, boundSeconds: config.checksWaitSeconds });
-  const checksPassed = checks === 'settled' && run !== null ? run.conclusion === 'success' : null;
+  const checksPassed = checks === 'settled' && runForPushedSha !== null ? runForPushedSha.conclusion === 'success' : null;
 
   return {
     ...base,
@@ -819,7 +830,16 @@ export const readPass = async (
     checksPassed,
     correctionText: checksPassed === false && run !== null ? runEvidence(run, pushedSha) : '',
     waitedSeconds,
-    buildRun: checks === 'settled' ? run : null,
+    // CARRIES WHENEVER THE WAIT READ A RUN FOR THE PUSHED SHA, NOT ONLY ON
+    // SETTLE — `checks` and `checksPassed` keep their `settled` guards above;
+    // this field feeds only the finding the loop publishes, never a decision
+    // (`agentLoop` reads `checks`/`checksPassed`/`correctionText`, never this).
+    // EXCLUDES A RUN `runWasNotAcquired` READS AS A HOST OUTAGE (#1295), the
+    // same exclusion `checksFromRuns` applies before it would ever call this
+    // one `settled` — without it, a never-acquired run's terminal `conclusion`
+    // (e.g. `failure`) reaches `buildFindingFor` and publishes a false
+    // `build failed` the loop itself still reads as unanswered.
+    buildRun: runForPushedSha !== null && !runWasNotAcquired(runForPushedSha) ? runForPushedSha : null,
   };
 };
 
@@ -1430,9 +1450,10 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
   // `clock`): the BuildMonitor finding this loop last published for the
   // branch it currently holds, kept ONLY to decide whether this pass's
   // answer is a change worth a new line — never to decide the answer
-  // itself, which `buildFindingFor` re-derives fresh every pass from
-  // `readings.buildRun`. Reset wherever `held` resets to `FRESH`, since a
-  // new branch owes no finding from the one before it.
+  // itself, which is re-derived fresh every pass from `readings.checks` and
+  // `readings.buildRun` (`buildFindingFor` for the latter). Reset wherever
+  // `held` resets to `FRESH`, since a new branch owes no finding from the one
+  // before it.
   let lastBuildFinding: BuildFindingWord | null = null;
   if (deps.restart !== undefined) await checkRestart(deps.ports, deps.restart, 'first', { waitStartedAt: clock.since, hopFrom });
   for (;;) {
@@ -1448,7 +1469,17 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     const readings = await readPass(deps.ports, deps.manifestFile, prompt, deps.config, clock);
     const decision = agentLoop(readings);
     if (readings.assignedBranch !== '') {
-      const answer = readings.buildRun !== null ? buildFindingFor(readings.buildRun) : null;
+      // `tip-moved` IS READ BEFORE `buildRun`: it is the loop's own reading of
+      // "the remote tip is no longer the pushed commit" (`checksFromRuns`),
+      // the same condition the shell's `sample_finding` names `head moved` —
+      // and a run for the superseded sha, if `buildRun` even carried one,
+      // would answer about code the agent no longer owns.
+      const answer: BuildFindingAnswer | null =
+        readings.checks === 'tip-moved'
+          ? { finding: 'head moved', evidence: `the remote tip for ${readings.assignedBranch} is no longer the pushed commit` }
+          : readings.buildRun !== null
+            ? buildFindingFor(readings.buildRun)
+            : null;
       const nextWord = answer?.finding ?? null;
       if (nextWord !== lastBuildFinding) {
         const worktreeForFinding = readings.worktree || deps.worktree;

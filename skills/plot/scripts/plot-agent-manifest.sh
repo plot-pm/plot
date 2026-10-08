@@ -48,7 +48,7 @@ manifest_string() { # $1=manifest $2=field → prints the value, or nothing
 #
 # WHY THIS EXISTS. `free = process alive AND manifest names no branch`, and the
 # second half was unreachable. `seal_declaration` runs the moment a branch is
-# done; `update_manifest_on_hop` runs after `--next` answers and a worktree is
+# done; the hop that follows runs after `--next` answers and a worktree is
 # built. Between those two points the agent genuinely holds no slice and the
 # manifest still named the last one, so `isFree`'s empty-branch arm — written,
 # exported and unit-tested since `a-dispatch-asks-for-a-free-agent` — had no
@@ -60,7 +60,7 @@ manifest_string() { # $1=manifest $2=field → prints the value, or nothing
 # and the liveness check with it, since both are keyed on the worktree path.
 # `wavesCount` counts hops and no hop has happened yet. The node one-liner
 # round-trips the whole object, so every other field survives verbatim, the same
-# property `update_manifest_on_hop` records.
+# property the hop's own write records.
 #
 # ADDED, NOT SUBSTITUTED. The hop still rewrites `branch` and `worktree`
 # together; this writes the empty value that sits between two slices. A worker
@@ -69,7 +69,7 @@ manifest_string() { # $1=manifest $2=field → prints the value, or nothing
 #
 # ABSENT IS NOT A FAILURE. No manifest — a hand-started loop, an older
 # dispatcher — means there is nothing to clear and nothing to report, so this
-# returns 0 like `update_manifest_on_hop` does.
+# returns 0 like the hop's own write does.
 clear_manifest_branch() { # $1=manifest
   local manifest="$1"
   [ -f "$manifest" ] || return 0
@@ -114,13 +114,13 @@ plot_session_id() {
 # into both, and they part at the first hop to a new branch: `session` names the
 # agent and its manifest file for the agent's whole life, while `resumeId` names
 # the current slice's conversation and is what the board joins the transcript
-# on. Reading this field rather than `$PLOT_SESSION_ID` is what makes the
-# hop's write (`update_manifest_on_hop` in `plot-worker-loop.sh`) mean anything:
-# a reader asks for the handle, and gets the one the hop last wrote.
+# on. Reading this field rather than `$PLOT_SESSION_ID` is what makes the hop's
+# write (`writeResumeId` in `manifest-stamp.ts`) mean anything: a reader asks
+# for the handle, and gets the one the hop last wrote.
 #
-# A PARSE FAILURE AND AN ABSENT MANIFEST ARE ONE ANSWER, the shape
-# `assigned_branch` in `plot-worker-loop.sh` already takes: no handle. A hand-started loop has no
-# manifest, and a manifest nobody can read is not a handle.
+# A PARSE FAILURE AND AN ABSENT MANIFEST ARE ONE ANSWER: no handle. A
+# hand-started loop has no manifest, and a manifest nobody can read is not a
+# handle.
 manifest_resume_id() { # $1=manifest → prints the handle, or nothing
   manifest_string "$1" resumeId
 }
