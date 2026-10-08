@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** the-release-train-fixes-what-it-found
 - **Issue:** #1259, #1319, #1317, #1343, #1344
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-08, jwloka, `bug/the-sweep-counts-a-moved-claim-once`
 - **Started:** 2026-10-08, jwloka, `bug/helpers-stay-out-of-the-board-package`
 - **Started:** 2026-10-08, jwloka, `bug/helpers-stay-out-of-the-board-package`
+- **Delivered:** 2026-10-08
 
 ## Changelog
 
