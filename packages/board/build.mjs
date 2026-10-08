@@ -10,6 +10,7 @@ import esbuild from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pruneStaleVendoredHelpers } from './vendored-helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const clientHtml = path.join(here, 'dist/client/index.html');
@@ -1316,6 +1317,9 @@ const vendoredScripts = [
   // sourced file above is.
   'plot-desk-root.sh',
 ];
+for (const removed of pruneStaleVendoredHelpers(here, vendoredScripts)) {
+  console.log(`Removed stale vendored helper ${removed}`);
+}
 for (const name of vendoredScripts) {
   const src = path.join(here, '../../skills/plot/scripts', name);
   const dest = path.join(here, name); // package root — matches scriptsDir resolution
