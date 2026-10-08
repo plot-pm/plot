@@ -76,6 +76,7 @@ One domain rule answers *which desk does an answer for this branch go to, and wh
 ### A blocked desk is not held by a free wait
 
 - `feature/a-blocked-desk-is-not-held-by-a-free-wait` — the answer to the first Open Question, and the `loop-alive` sentence in `ContinueWithAnAnswer.tsx` → #1376 <!-- waits: feature/a-blocked-ending-routes-its-answer -->
+- `bug/a-stopped-loop-keeps-its-manifest` — the fix for the two HIGH review findings on #1376, which merged with them open: a stopped loop's manifest is read before the stop and written back after it, the free wait is re-read before the signal, the wait for exit is bounded, and Open Question 3 is open again (#1377)
 
 ### The loop resumes a continuation
 
