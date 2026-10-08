@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** infra
 - **Issue:** #1407
 - **Story:** the-shell-holds-no-behavior
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-10-09, jwloka, in-session
 
 ## Changelog
 
