@@ -115,6 +115,37 @@ describe('treesGit().hasCommits', () => {
   });
 });
 
+describe('treesGit().commitBeyondClaim', () => {
+  it('is unanswerable for an empty path and for a path that is not a directory', async () => {
+    expect(await trees().commitBeyondClaim('')).toEqual({ ok: true, value: 'unanswerable' });
+    expect(await trees().commitBeyondClaim(path.join(root, 'nothing-here'))).toEqual({
+      ok: true,
+      value: 'unanswerable',
+    });
+  });
+
+  it('answers no where HEAD is an empty claim commit', async () => {
+    git(desk, ['commit', '--quiet', '--allow-empty', '-m', 'plot: claim some-branch']);
+    expect(await trees().commitBeyondClaim(desk)).toEqual({ ok: true, value: 'no' });
+  });
+
+  it('answers yes once HEAD is a commit that touched a file', async () => {
+    fs.writeFileSync(path.join(desk, 'beyond.txt'), 'w\n');
+    git(desk, ['add', '-A']);
+    git(desk, ['commit', '--quiet', '-m', 'work']);
+    expect(await trees().commitBeyondClaim(desk)).toEqual({ ok: true, value: 'yes' });
+  });
+
+  it('answers yes for a root commit, which has no parent tree to match', async () => {
+    const root2 = path.join(root, 'root-commit');
+    git(root, ['init', '--quiet', '--initial-branch=main', root2]);
+    git(root2, ['config', 'user.email', 'test@example.com']);
+    git(root2, ['config', 'user.name', 'Test']);
+    git(root2, ['commit', '--quiet', '--allow-empty', '-m', 'plot: claim some-branch']);
+    expect(await trees().commitBeyondClaim(root2)).toEqual({ ok: true, value: 'yes' });
+  });
+});
+
 describe('treesFixture quiet and commits', () => {
   const fixture = treesFixture({ quiet: { '/a': 12, '/b': null }, commits: { '/a': 'yes' } });
 
