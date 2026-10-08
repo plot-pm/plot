@@ -73,7 +73,7 @@ One domain rule answers *which desk does an answer for this branch go to, and wh
 
 ### A blocked desk is not held by a free wait
 
-- `feature/a-blocked-desk-is-not-held-by-a-free-wait` — the answer to the first Open Question, and the `loop-alive` sentence in `ContinueWithAnAnswer.tsx` <!-- waits: feature/a-blocked-ending-routes-its-answer -->
+- `feature/a-blocked-desk-is-not-held-by-a-free-wait` — the answer to the first Open Question, and the `loop-alive` sentence in `ContinueWithAnAnswer.tsx` → #1376 <!-- waits: feature/a-blocked-ending-routes-its-answer -->
 
 ## Notes
 
