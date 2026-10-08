@@ -66,7 +66,7 @@ origin_head_resolves() {
 #          this is a self-heal on a path that has its own refusal downstream,
 #          so it must never become a second way to stop.
 repair_origin_head() {
-  local dir="${1:-.}" was now why
+  local dir="${1:-.}" was why
   origin_head_resolves "$dir" && return 0
 
   was=$(git -C "$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
@@ -75,8 +75,7 @@ repair_origin_head() {
     echo "plot: origin/HEAD points at '$was', which $why, and 'git remote set-head origin --auto' failed — the remote could not be asked." >&2
     return 0
   fi
-  now=$(git -C "$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
-  echo "plot: repaired origin/HEAD — it pointed at '$was', which $why; it now points at '${now:-<unset>}'." >&2
+  echo "plot: repaired origin/HEAD — it pointed at '$was', which $why; it now points at '$(git -C "$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo '<unset>')'." >&2
   return 0
 }
 
