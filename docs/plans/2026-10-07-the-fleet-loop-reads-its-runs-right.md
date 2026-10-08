@@ -69,7 +69,7 @@ The JS worker loop replaced the shell loop in v2.24.0 (#1337). Four readings in 
 
 ### A waiting run needs approval again
 
-- `bug/a-waiting-run-needs-approval-again` — `buildRun` for a waiting run, the head-moved test, the stale comments and skipped tests removed, continue stops the build monitor <!-- builds: buildRun for an unsettled run -->
+- `bug/a-waiting-run-needs-approval-again` — `buildRun` for a waiting run, the head-moved test, the stale comments and skipped tests removed, continue stops the build monitor <!-- builds: buildRun for an unsettled run --> → #1367
 
 ## Done when
 
