@@ -67,15 +67,18 @@ export type PrOpenReading = boolean | 'unanswerable';
  * - `start-fresh` — the first fresh session this slice has had, for
  *   `corrections-spent`, `turn-limit`, or an after-prompt `holding-work`
  *   (one that refused no assignment, or refused its own branch).
- * - `needs-a-person` — a second fresh session would be owed on the same
- *   slice, whichever of the three endings above asks for it. One fresh
- *   session per slice, shared across every ending reason that can trigger
- *   one — never one allowance per reason.
+ * - `needs-a-person` — either a second fresh session would be owed on the
+ *   same slice (whichever of `corrections-spent`, `turn-limit`, or an
+ *   after-prompt `holding-work` asks for it — one fresh session per slice,
+ *   shared across every ending reason that can trigger one, never one
+ *   allowance per reason), or the ending is one of `blocked`, `spend-limit`,
+ *   `unstarted`, `run-limit`, `checks-unanswered` — none of which earns a
+ *   fresh session at all; a person is asked the first time any of these five
+ *   is seen.
  * - `leave` — every other case, including a desk a manifest already names,
  *   and the default where no row of this table answers otherwise: `bound`,
- *   `quiet`, `unreadable`, `spent`, `unstarted`, `limited`, `unregistered`,
- *   `blocked`, `checks-unanswered`, `run-limit`, `spend-limit`, and a
- *   take-up `holding-work` whose desk never started.
+ *   `quiet`, `unreadable`, `spent`, `limited`, `unregistered`, and a take-up
+ *   `holding-work` whose desk never started.
  */
 export type EndingActionVerdict = 'release-claim' | 'start-fresh' | 'needs-a-person' | 'leave';
 
@@ -84,6 +87,26 @@ export type EndingActionVerdict = 'release-claim' | 'start-fresh' | 'needs-a-per
  * condition; `holding-work`, the third, earns one only after a prompt.
  */
 const FRESH_SESSION_ENDINGS = new Set<EndingReason>(['corrections-spent', 'turn-limit']);
+
+/**
+ * The five ending reasons that go straight to a person, never a fresh
+ * session.
+ *
+ * Unlike {@link FRESH_SESSION_ENDINGS}, none of these draws on
+ * {@link EndingActionReadings.priorFreshSessions} — a broken invocation
+ * (`unstarted`), a budget already spent (`spend-limit`, `run-limit`), an
+ * unanswered build (`checks-unanswered`), or an agent that already said it
+ * could not proceed (`blocked`) is not made right by starting the slice over,
+ * so the first tick that sees one of these asks a person rather than
+ * spending a fresh session on it.
+ */
+const NEEDS_PERSON_ENDINGS = new Set<EndingReason>([
+  'blocked',
+  'spend-limit',
+  'unstarted',
+  'run-limit',
+  'checks-unanswered',
+]);
 
 /**
  * Whether a `holding-work` ending came from a take-up that refused an
@@ -99,7 +122,9 @@ const takeUpRefused = (refusedAssignment: string, branch: string): boolean =>
  * Decides what the supervisor's tick should do about a desk whose worker
  * ended: `release-claim` for `nothing-done` and for a take-up `holding-work`;
  * `start-fresh` or `needs-a-person` for `corrections-spent`, `turn-limit`,
- * and an after-prompt `holding-work`; `leave` for everything else.
+ * and an after-prompt `holding-work`; `needs-a-person` outright for `blocked`,
+ * `spend-limit`, `unstarted`, `run-limit`, and `checks-unanswered`; `leave`
+ * for everything else.
  *
  * **THE LOOP ENDS, THE TICK RELEASES, AND THE TICK STARTS.** `agentLoop`
  * cannot tell a live peer from itself, and `releaseClaim` refuses an
@@ -141,6 +166,7 @@ export const endingAction = (readings: EndingActionReadings): EndingActionVerdic
   if (readings.ending !== null && FRESH_SESSION_ENDINGS.has(readings.ending)) {
     return readings.priorFreshSessions > 0 ? 'needs-a-person' : 'start-fresh';
   }
+  if (readings.ending !== null && NEEDS_PERSON_ENDINGS.has(readings.ending)) return 'needs-a-person';
   if (readings.ending !== 'nothing-done') return 'leave';
   if (readings.commitBeyondClaim !== 'no') return 'leave';
   if (readings.prOpen !== false) return 'leave';
@@ -220,4 +246,66 @@ export const holdingWorkAnswer = (branch: string, heldFiles: readonly string[] |
     parts.push(...heldFiles.map((file) => `- ${file}`));
   }
   return parts.join('\n');
+};
+
+/**
+ * Composes the `PLOT-BLOCKED.md` text for an ending {@link endingAction}
+ * answered `needs-a-person` outright — `blocked`, `spend-limit`, `unstarted`,
+ * `run-limit`, or `checks-unanswered` — naming the reason and the one
+ * decision a person owes it.
+ *
+ * **ONE SENTENCE OF DECISION PER REASON, NOT ONE SHARED SENTENCE.** A broken
+ * invocation is fixed by a different hand than a spent budget: `unstarted`
+ * names a prompt or command to repair, `spend-limit` and `run-limit` name
+ * money or a run count already spent and ask whether to continue, and
+ * `checks-unanswered` names a build that never answered. Collapsing these
+ * into one sentence would read correctly for none of them.
+ *
+ * **`checks-unanswered` READS `detail`,** because the ending's own two
+ * readings — `no-answer` and `tip-moved` — are different problems: the first
+ * is a build nobody watched, the second is work a later push shadowed. No
+ * other reason here branches on `detail`.
+ *
+ * **NOT CALLED FOR `corrections-spent`, `turn-limit`, OR `holding-work`.**
+ * Those three can also answer `needs-a-person`, but only after a fresh
+ * session already ran — a different marker, composed elsewhere, for a
+ * different question.
+ *
+ * @param ending - the ending reason; must be one of the five this function
+ *   names, or it throws.
+ * @param branch - the branch the desk holds.
+ * @param detail - the ending's own `detail`, verbatim.
+ * @returns the marker text, ready for `Desk.writeBlockedMarker`.
+ */
+export const needsPersonMarker = (ending: EndingReason, branch: string, detail: string): string => {
+  switch (ending) {
+    case 'unstarted':
+      return (
+        `The worker on \`${branch}\` never ran a slice: its command exited before doing any work ` +
+        `(${detail || 'no detail was recorded'}). Decide: fix the prompt or command this worker launches, then restart it.`
+      );
+    case 'spend-limit':
+      return (
+        `The worker on \`${branch}\` stopped on a spend limit (${detail || 'no detail was recorded'}). ` +
+        `A fresh session would spend against the same slice. Decide: raise the spend limit, or leave this slice as it stands.`
+      );
+    case 'run-limit':
+      return (
+        `The worker on \`${branch}\` stopped on a run limit (${detail || 'no detail was recorded'}): the slice has used every run it was allowed. ` +
+        `Decide: raise the run limit, or leave this slice as it stands.`
+      );
+    case 'checks-unanswered':
+      return detail.includes('tip-moved')
+        ? `No build ever answered for \`${branch}\`'s own work: the branch's remote tip moved to a commit this worker did not push (${detail}). ` +
+            `Decide: whether the newer commit is this worker's to continue from, or someone else's.`
+        : `No build ever answered for \`${branch}\` (${detail || 'no detail was recorded'}): the wait for CI ran out with nothing from the build connector. ` +
+            `Decide: whether to wait longer, check the build connector, or resume without a CI answer.`;
+    case 'blocked':
+      return (
+        `The worker on \`${branch}\` reported it could not proceed (${detail || 'no detail was recorded'}). ` +
+        `Decide how it should proceed, or close out the slice.`
+      );
+    default:
+      throw new Error(`needsPersonMarker does not compose for ending "${ending}"`);
+  }
 };
