@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-07, jwloka, in-session
 - **Started:** 2026-10-07, jwloka, `bug/the-corpus-never-moves-origin-head`
 - **Started:** 2026-10-08, jwloka, `bug/local-checks-find-tests-in-a-temp-worktree`
+- **Started:** 2026-10-08, jwloka, `bug/the-sweep-counts-a-moved-claim-once`
 
 ## Changelog
 
