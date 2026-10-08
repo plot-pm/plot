@@ -31,7 +31,7 @@ Auto-dispatch delivered v2.22 to v2.24 between 2026-10-03 and 2026-10-07. While 
 
 ### Should Have
 
-- [ ] [every-loop-ending-has-a-supervisor-rule](../plans/2026-10-07-every-loop-ending-has-a-supervisor-rule.md) — every loop ending gets one supervisor action: release the claim, a fresh agent, or ask a person (#1274, #1288, #1281). <!-- pr: #0, branch: infra/an-ending-that-held-nothing-releases-its-claim -->
+- [x] [every-loop-ending-has-a-supervisor-rule](../plans/2026-10-07-every-loop-ending-has-a-supervisor-rule.md) — every loop ending gets one supervisor action: release the claim, a fresh agent, or ask a person (#1274, #1288, #1281). <!-- pr: #0, branch: infra/an-ending-that-held-nothing-releases-its-claim -->
 
 ### Could Have
 
