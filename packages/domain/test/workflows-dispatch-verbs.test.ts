@@ -3,11 +3,14 @@ import {
   stopWorker,
   restartWorker,
   migrateWorktrees,
+  releaseClaim,
   decided,
   refused,
   type WorktreeReading,
   type BranchPrReading,
+  type ClaimReleaseReadings,
 } from '../src/workflows/index.js';
+import { answered, failed, unaskable } from '../src/port-result.js';
 
 /**
  * The three verbs that run BEFORE the phase gate, asserted as values.
@@ -249,6 +252,76 @@ describe('--migrate: every refusal is a measurement, and a dry run writes nothin
     if (decided(out)) {
       expect(out.detail.moving).toHaveLength(2);
       expect(out.writes).toHaveLength(2);
+    }
+  });
+});
+
+describe('--release: two refusals, not the script\'s six', () => {
+  const readings = (over: Partial<ClaimReleaseReadings> = {}): ClaimReleaseReadings => ({
+    branch: 'feature/x',
+    claimed: true,
+    holders: [],
+    pr: answered({ open: false, merged: false, number: 0, state: '' }),
+    ...over,
+  });
+
+  it('refuses an empty branch rather than guessing which claim to release', () => {
+    const out = releaseClaim(readings({ branch: '' }));
+    expect(refused(out)).toBe(true);
+    if (refused(out)) expect(out.reason).toBe('branch-missing');
+  });
+
+  it('decides WITHOUT a write when the branch holds no claim at all', () => {
+    // Neither a live agent nor a PR applies to a branch nothing names — this
+    // is the script's own `Nothing to release.`, exit 0.
+    const out = releaseClaim(readings({ claimed: false, holders: ['session-1'] }));
+    expect(decided(out)).toBe(true);
+    if (decided(out)) {
+      expect(out.detail).toEqual({ branch: 'feature/x', hadClaim: false });
+      expect(out.writes).toEqual([]);
+    }
+  });
+
+  it('refuses a live agent, read from the manifest holders — stopping is not abandoning', () => {
+    const out = releaseClaim(readings({ holders: ['session-42'] }));
+    expect(refused(out)).toBe(true);
+    if (refused(out)) expect(out.reason).toBe('agent-live');
+  });
+
+  it('refuses an open PR', () => {
+    const out = releaseClaim(
+      readings({ pr: answered({ open: true, merged: false, number: 7, state: 'OPEN' }) }),
+    );
+    expect(refused(out)).toBe(true);
+    if (refused(out)) expect(out.reason).toBe('pr-open');
+  });
+
+  it('refuses a MERGED pr-open — a merged ref is plot-release-refs.sh\'s to release, not this one\'s', () => {
+    const out = releaseClaim(
+      readings({ pr: answered({ open: false, merged: true, number: 7, state: 'MERGED' }) }),
+    );
+    expect(refused(out)).toBe(true);
+    if (refused(out)) expect(out.reason).toBe('pr-open');
+  });
+
+  it('refuses when the host could not answer — silence is not permission', () => {
+    const out = releaseClaim(readings({ pr: failed() }));
+    expect(refused(out)).toBe(true);
+    if (refused(out)) expect(out.reason).toBe('pr-open');
+  });
+
+  it('refuses when the host is unaskable, exactly as a failed call does', () => {
+    const out = releaseClaim(readings({ pr: unaskable() }));
+    expect(refused(out)).toBe(true);
+    if (refused(out)) expect(out.reason).toBe('pr-open');
+  });
+
+  it('releases a claimed branch with no live agent and no PR, naming one write', () => {
+    const out = releaseClaim(readings());
+    expect(decided(out)).toBe(true);
+    if (decided(out)) {
+      expect(out.detail).toEqual({ branch: 'feature/x', hadClaim: true });
+      expect(out.writes).toEqual([{ kind: 'claim-release', branch: 'feature/x' }]);
     }
   });
 });

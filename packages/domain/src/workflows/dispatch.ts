@@ -32,7 +32,16 @@ export type DispatchRefusal =
   | 'worker-alive'
   | 'blocked-marker'
   | 'root-unconfigured'
-  | 'root-is-legacy';
+  | 'root-is-legacy'
+  /** `--release`: a live agent's own manifest names the branch. */
+  | 'agent-live'
+  /**
+   * `--release`: a pull request exists for the branch, open or merged, or the
+   * host could not say. A merged PR's ref belongs to `plot-release-refs.sh`,
+   * and a host that cannot answer is not permission — both read as this one
+   * reason, matching the shell's own undifferentiated refusal.
+   */
+  | 'pr-open';
 
 /**
  * Why one branch was not dispatched, while the run went on.

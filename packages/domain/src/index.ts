@@ -533,6 +533,7 @@ export type * from './ports/scripts.js';
 export type * from './ports/bounded-run.js';
 export type * from './ports/desk.js';
 export type * from './ports/desk-monitors.js';
+export type * from './ports/claim-release.js';
 export type * from './ports/agent-run.js';
 export type { MachineReading } from './ports/machine.js';
 export type { Machine as MachinePort } from './ports/machine.js';
