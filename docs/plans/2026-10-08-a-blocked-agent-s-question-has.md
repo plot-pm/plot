@@ -80,7 +80,7 @@ One domain rule answers *which desk does an answer for this branch go to, and wh
 
 ### The loop resumes a continuation
 
-- `bug/the-loop-resumes-a-continuation` — the JS worker loop reads `.plot-worker.continue.md` and resumes the blocked session (`resumeId`) with the answer instead of taking the slice up again; uncommitted work on the desk's own assigned branch is the slice's own work, not foreign unlanded work; and an answer routes to a desk whose ending reads `holding-work` while its `PLOT-BLOCKED.md` is still unanswered (#1375) <!-- waits: feature/a-blocked-desk-is-not-held-by-a-free-wait --> <!-- builds: the loop's continuation path -->
+- `bug/the-loop-resumes-a-continuation` — the JS worker loop reads `.plot-worker.continue.md` and resumes the blocked session (`resumeId`) with the answer instead of taking the slice up again; uncommitted work on the desk's own assigned branch is the slice's own work, not foreign unlanded work; and an answer routes to a desk whose ending reads `holding-work` while its `PLOT-BLOCKED.md` is still unanswered (#1375) → #1380 <!-- waits: feature/a-blocked-desk-is-not-held-by-a-free-wait --> <!-- builds: the loop's continuation path -->
 
 ## Notes
 
