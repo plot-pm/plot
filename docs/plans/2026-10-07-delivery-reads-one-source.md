@@ -51,7 +51,7 @@ None.
 
 ### Deliver reads the PR index first
 
-- `bug/deliver-reads-the-pr-index-first` — `MERGED` rows from the PR store first, the host for the rest, `unknown` refuses as `cannot-tell` with the real merged count <!-- builds: mergedBranches over the PR store -->
+- `bug/deliver-reads-the-pr-index-first` — `MERGED` rows from the PR store first, the host for the rest, `unknown` refuses as `cannot-tell` with the real merged count → #1361 <!-- builds: mergedBranches over the PR store -->
 
 ## Done when
 
