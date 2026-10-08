@@ -75,7 +75,7 @@ Every other reason answers `leave`, and the open questions below name them. A de
 
 ### Endings that ask a person
 
-- `infra/an-unrepaired-ending-asks-a-person` — the `needs-a-person` rows, and the supervisor's marker that hands them to `questionEscalation` <!-- builds: the ask-a-person rows of endingAction -->
+- `infra/an-unrepaired-ending-asks-a-person` — the `needs-a-person` rows, and the supervisor's marker that hands them to `questionEscalation` <!-- builds: the ask-a-person rows of endingAction --> → #1391
 
 ## Done when
 
