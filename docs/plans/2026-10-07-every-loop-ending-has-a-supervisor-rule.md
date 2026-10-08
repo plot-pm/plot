@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Sprint:** the-release-train-fixes-what-it-found
 - **Issue:** #1274, #1288, #1281
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-08, jwloka, `infra/an-unrepaired-ending-asks-a-person`
 - **Started:** 2026-10-08, jwloka, `infra/a-fresh-start-has-its-question`
 - **Delivered:** 2026-10-08
+- **Released:** 2026-10-08, v2.24.1
 
 ## Motivation
 
