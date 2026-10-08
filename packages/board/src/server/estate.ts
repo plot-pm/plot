@@ -3,10 +3,12 @@ import {
   hostShell,
   planStoreFixture,
   planStoreShell,
+  prIndexFile,
   refsFixture,
   refsGit,
 } from '@plot-pm/domain/adapters';
 import type { Host, PlanStore, Refs } from '@plot-pm/domain';
+import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 
 import type { EstateSource } from './controllers/fleet-state.js';
 import { realEstateSource } from './controllers/fleet-state.js';
@@ -32,6 +34,14 @@ export interface Estate {
    * not be one.
    */
   host: Host;
+  /**
+   * The checkout's record of what the host last said about its PRs.
+   *
+   * Added when `deliverabilityOf` was migrated to read it first: a branch the
+   * store answers from a `MERGED` row costs the host nothing, so the port
+   * travels beside `host` for the same reason that one does.
+   */
+  prIndex: PrIndexStore;
   /**
    * The same estate in the shape the synchronous board still reads it.
    *
@@ -63,6 +73,7 @@ export const realEstate = (opts: EstateOptions): Estate => {
     planStore: planStoreShell(context),
     refs: refsGit(context),
     host: hostShell(context),
+    prIndex: prIndexFile({ cwd: opts.repoRoot }),
     source: realEstateSource,
   };
 };
@@ -91,6 +102,14 @@ export const mockEstate = (): Estate => {
     // Every branch the mock's plans name reads as merged: the mock estate is a
     // finished one, and a fixture knows its own world rather than guessing at it.
     host: hostFixture({ merged: plans.flatMap((plan) => [...plan.branches]) }),
+    // No store to read, which per the port's own contract means ask the host
+    // for everything — exactly what a mock board, which never ran a refresh,
+    // should do.
+    prIndex: {
+      location: async () => ({ ok: true, value: '' }),
+      read: async () => ({ ok: true, value: null }),
+      write: async () => ({ ok: true, value: undefined }),
+    },
     // `fleet` answers a resolved promise because the port made the real one
     // awaited; the fixture reads nothing and waits for nothing, which is
     // exactly what a caller cannot tell from the outside.

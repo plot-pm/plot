@@ -1,4 +1,5 @@
 import type { PrIndex, PrIndexRow } from '@plot-pm/domain/entities/pr-index';
+import { mergedRowByHead } from '../controllers/deliverability.js';
 
 /**
  * What one query asks the store about a branch of a plan.
@@ -58,31 +59,6 @@ const NONE = '-';
  */
 const rowByNumber = (held: PrIndex, number: number): PrIndexRow | undefined =>
   held.rows.find((row) => row.number === number);
-
-/**
- * The MERGED row whose head is this branch, or undefined where none is.
- *
- * **MERGED ONLY, WHICH MIRRORS THE HOST CALL IT REPLACES.** The shell's
- * un-annotated arm asks `pr-list --state merged` and matches heads against that
- * list, so a branch carrying only an open PR resolves to nothing there and must
- * resolve to nothing here. Matching any state would make the store's answer
- * WIDER than the host's, which is a behaviour change dressed as a cache.
- *
- * **THE LOWEST NUMBER WINS, WHICH IS ARBITRARY AND MUST BE STABLE.** A branch
- * may carry several merged PRs over its life — a slice re-opened after a
- * revert, or the duplicate PRs the fleet has been measured opening for itself.
- * The shell's `awk` takes the FIRST line of a host list it does not sort, so
- * neither side promises which; sorting by number at least makes this side
- * repeatable, and the delivery gate reads only that a merged PR exists.
- *
- * @param held - the store, already read.
- * @param branch - the branch to match against heads.
- * @returns the lowest-numbered merged row for the branch, or undefined.
- */
-const mergedRowByHead = (held: PrIndex, branch: string): PrIndexRow | undefined =>
-  held.rows
-    .filter((row) => row.head === branch && row.state.toUpperCase() === TERMINAL)
-    .sort((a, b) => a.number - b.number)[0];
 
 /**
  * Whether a row may be answered from without asking the host.

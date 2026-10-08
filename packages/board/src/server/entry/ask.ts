@@ -126,7 +126,7 @@ export const askOnce = async (
   const value =
     ask.question === 'deliverable'
       ? await deliverabilityOf(
-          { planStore: ports.planStore, host: ports.host, refs: ports.refs },
+          { planStore: ports.planStore, host: ports.host, refs: ports.refs, prIndex: ports.prIndex },
           ask.slug ?? '',
           ask.planFile ?? '',
         )

@@ -7,7 +7,9 @@ import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
+import { prIndexFile } from '@plot-pm/domain/adapters/pr-index/pr-index-file';
 import type { Host, PlanStore, Refs, Scripts, Trees } from '@plot-pm/domain';
+import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import {
   deliver,
   isRefusal,
@@ -110,6 +112,7 @@ interface Context {
   planStore: PlanStore;
   scripts: Scripts;
   trees: Trees;
+  prIndex: PrIndexStore;
 }
 
 /**
@@ -387,7 +390,12 @@ const runDeliver = async (
   }
 
   const deliverability = await deliverabilityOf(
-    { planStore: ctx.planStore, host: ctx.host, refs: ctx.refs } satisfies DeliverabilityPorts,
+    {
+      planStore: ctx.planStore,
+      host: ctx.host,
+      refs: ctx.refs,
+      prIndex: ctx.prIndex,
+    } satisfies DeliverabilityPorts,
     args.slug,
     planFile,
   );
@@ -669,6 +677,7 @@ export const run = async (
     planStore: planStoreShell(context),
     scripts: scriptsShell(context),
     trees: treesGit(context),
+    prIndex: prIndexFile({ cwd: repoRoot }),
   };
 
   const [planDirCfg, activeDirCfg, deliveredDirCfg] = await Promise.all([
