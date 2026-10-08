@@ -326,6 +326,24 @@ describe('runWorkerLoop on the SDK runner — the hand-back rows', () => {
   });
 });
 
+describe('runWorkerLoop on the SDK runner — a continuation resumes the blocked session', () => {
+  it('resumes with the continuation file’s text and the manifest resumeId, and removes the file once the turn is dispatched', async () => {
+    const r = rig([ran('pushed')], async () => ({ passed: true }));
+    fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?\n');
+    const continuationFile = path.join(r.wt, '.plot-worker.continue.md');
+    fs.writeFileSync(continuationFile, 'use fetch');
+
+    await runWorkerLoop(r.deps);
+
+    expect(r.requests).toHaveLength(1);
+    expect(r.requests[0]).toMatchObject({ prompt: 'use fetch', resumeId: 'h-1' });
+    expect(fs.existsSync(continuationFile)).toBe(false);
+    // A continuation answer is not a CI correction and not a dropped-turn
+    // correction — nothing is written to the desk for it.
+    expect(r.deskCalls.corrections).toEqual([]);
+  });
+});
+
 describe('runWorkerLoop on the SDK runner — how a run ends', () => {
   const withRun = (r: Rig, run: (request: AgentRunRequest) => Promise<unknown>): Rig => {
     r.deps = { ...r.deps, sdk: { ...r.deps.sdk!, agentRun: () => ({ run: run as never }) } };

@@ -72,6 +72,7 @@ import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import { answer as promptAnswer, read as readAgentCharter } from './prompt.js';
 import { resolveLaunch } from '@plot-pm/domain/rules/prompt';
 import { performLoopWrites, type AppliedWrite, type LoopWritePorts, type LoopWrite } from './loop-writes.js';
+import { CONTINUATION_NAME } from '../continue.js';
 
 /**
  * `plot-worker-loop.mjs` — the JS loop, one process for an agent's whole life.
@@ -618,6 +619,47 @@ export const readMarkerText = async (worktree: string): Promise<string> => {
   }
 };
 
+/**
+ * The answer waiting in the desk's `.plot-worker.continue.md`, if any.
+ *
+ * `continue.ts` writes this file and the manifest's `resumeId` together, so
+ * the resume id comes from the manifest already read this pass rather than a
+ * second file read — the file carries only the text the resumed turn is
+ * given as its prompt.
+ *
+ * @param worktree - the desk to read.
+ * @param resumeId - this pass's manifest `resumeId`.
+ * @returns the continuation reading; `null` where no file sits on the desk.
+ */
+export const readContinuation = async (
+  worktree: string,
+  resumeId: string,
+): Promise<AgentLoopReadings['continuation']> => {
+  try {
+    const text = await readFile(join(worktree, CONTINUATION_NAME), 'utf8');
+    return { resumeId, text };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The branch the desk is actually checked out on; `''` for detached or
+ * unreadable, matching {@link AgentLoopReadings.deskBranch}'s own contract —
+ * absent is not own.
+ *
+ * @param ports - where the reading comes from.
+ * @param worktree - the desk to read.
+ * @returns the checked-out branch, or `''`.
+ */
+export const readDeskBranch = async (
+  ports: Pick<WorkerLoopPorts, 'trees'>,
+  worktree: string,
+): Promise<string> => {
+  const branch = await ports.trees.currentBranch(worktree);
+  return branch.ok ? branch.value : '';
+};
+
 /** What `boundedRun`'s caller has already measured about this pass's prompt, if any is running or just exited. */
 export interface PromptState {
   /** What the idle watch found this pass, or `null` once the prompt has exited or before any has run. */
@@ -692,13 +734,13 @@ export const readPass = async (
   const base: AgentLoopReadings & { buildRun: ShaRun | null } = {
     buildRun: null,
     assignedBranch: manifest.branch,
-    deskBranch: '',
     waitedSeconds: 0,
     boundSeconds: config.waitBudgetSeconds,
     registration: 'registered',
     claim: null,
     takeUpRefused: null,
     base: config.base,
+    continuation: null,
     running: prompt.running,
     exit: prompt.exit,
     startRetries: manifest.attempts,
@@ -716,6 +758,7 @@ export const readPass = async (
     sliceCostUsd,
     sliceMaxSpendUsd: config.sliceMaxSpendUsd,
     resetRefusals: [],
+    deskBranch: '',
     pushed: false,
     prOpen: false,
     commitBeyondClaim: 'unanswerable',
@@ -756,8 +799,14 @@ export const readPass = async (
     // `prompt.running`, so nothing further is read.
     if (prompt.running !== null) return base;
     // ROW 4 — an assignment was just read, no prompt has run on it yet. The
-    // desk's own branch is read before the reset touches it, so an unlanded-
-    // work ending can name what the desk actually held (`#1281`).
+    // continuation is read FIRST, before anything about take-up: a desk
+    // carrying an answer resumes on it regardless of what unlanded work or
+    // marker also sits there, so those two readings cost nothing this pass
+    // once a continuation is found.
+    const continuation = await readContinuation(worktree, manifest.resumeId);
+    if (continuation !== null) return { ...base, continuation };
+    // The desk's own branch is read before the reset touches it, so an
+    // unlanded-work ending can name what the desk actually held (`#1281`).
     const [refusals, deskBranchAnswer] = await Promise.all([
       readResetRefusals(ports, worktree),
       ports.trees.currentBranch(worktree),
@@ -783,7 +832,10 @@ export const readPass = async (
 
   // ROW 11 — unlanded work with no marker.
   const refusals = await readResetRefusals(ports, worktree);
-  if (refusals.length > 0) return { ...base, resetRefusals: refusals };
+  if (refusals.length > 0) {
+    const deskBranch = await readDeskBranch(ports, worktree);
+    return { ...base, resetRefusals: refusals, deskBranch };
+  }
 
   // ROW 12a — before the wait starts: is the head pushed, and is a PR open?
   // ASKED ONCE PER WAIT. Inside the wait the answers read on entry hold, so a
@@ -1385,6 +1437,13 @@ const runPrompt = async (
       env,
       logFile: deps.outFile,
     };
+    // THE CONTINUATION FILE IS REMOVED ONLY NOW — once `request` is built and
+    // the turn is about to be dispatched, never before. A crash between
+    // `readContinuation` and this point leaves the file on disk, so the next
+    // pass reads the same answer again rather than losing it; a loop that
+    // deletes it earlier (at read time, or before deciding) risks losing the
+    // answer to exactly that crash.
+    if (resume !== null) await rm(join(worktree, CONTINUATION_NAME), { force: true });
     const sdkRun = sdk.agentRun({ afterWait: held.afterWait, commitsSinceWait }).run(request);
     const raced = await Promise.race([sdkRun.then((r) => ({ run: r })), watcher.then(() => ({ idle: true }))]);
     if ('idle' in raced) return { ended: 'idle' };
@@ -1584,9 +1643,17 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     }
 
     const resume = decision.writes.find((w) => w.kind === 'agent-resume');
+    // A CONTINUATION ANSWER IS CONSUMED BY THE RESUMED TURN ITSELF, through
+    // `runPrompt`'s own `resume` parameter below — nothing is written to the
+    // desk here. Checked first: `readings.exit` is `null` at take-up, so the
+    // dropped-turn branch below would not match it, but the CI-correction
+    // branch's `handBack !== 'checks'` would, and a continuation is neither.
+    if (resume !== undefined && resume.kind === 'agent-resume' && readings.continuation !== null) {
+      deps.log(`plot-worker-loop: ${resume.branch} resumes its blocked session with the continuation answer`);
+    }
     // A DROPPED TURN'S CORRECTION IS WRITTEN AS THE DOMAIN BUILT IT, and the
     // branch is held so the next drop on it ends the slice.
-    if (resume !== undefined && resume.kind === 'agent-resume' && readings.exit?.answer === 'dropped') {
+    else if (resume !== undefined && resume.kind === 'agent-resume' && readings.exit?.answer === 'dropped') {
       await deps.ports.desk.appendCorrection(resume.worktree, resume.correction);
       held = { ...held, droppedOn: resume.branch };
       deps.log(`plot-worker-loop: the turn on ${resume.branch} ended with its background work dropped; resuming the session once`);

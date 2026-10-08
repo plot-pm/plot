@@ -21,13 +21,13 @@ const SESSION = 'sess-the-loop-has-a-workflow';
 /** A full readings object, idle and free, that every test starts from and overrides. */
 const freeLoop: AgentLoopReadings = {
   assignedBranch: '',
-  deskBranch: '',
   waitedSeconds: 0,
   boundSeconds: 28800,
   registration: 'unset',
   claim: null,
   takeUpRefused: null,
   base: 'origin/main',
+  continuation: null,
   running: null,
   exit: null,
   startRetries: 0,
@@ -44,6 +44,7 @@ const freeLoop: AgentLoopReadings = {
   sliceCostUsd: null,
   sliceMaxSpendUsd: null,
   resetRefusals: [],
+  deskBranch: '',
   pushed: false,
   prOpen: false,
   commitBeyondClaim: 'unanswerable',
@@ -279,6 +280,112 @@ describe('agentLoop — row 4: a desk holding unlanded work at take-up', () => {
       resetRefusals: ['uncommitted-changes'],
     });
     expect(result.detail.correcting).toEqual([BRANCH]);
+  });
+});
+
+describe('agentLoop — row 4: the desk is already on the assigned branch — own work, not foreign', () => {
+  it.each(['uncommitted-changes', 'unpushed-commits'] as const)(
+    'takes the slice up over its own %s instead of ending holding-work',
+    (reason) => {
+      const result = agentLoop({
+        ...freeLoop,
+        assignedBranch: BRANCH,
+        deskBranch: BRANCH,
+        resetRefusals: [reason],
+        claim: 'absent',
+      });
+      expect(kindsOf(result.writes)).toEqual(['desk-reset', 'commit', 'push', 'prompt-run']);
+    },
+  );
+
+  it('still ends blocked when the only refusal is the marker, even on the desk\'s own branch', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      deskBranch: BRANCH,
+      resetRefusals: ['blocked-marker'],
+      markerText: 'PLOT-BLOCKED: which adapter?',
+    });
+    const end = endWrite(result.writes);
+    expect(end?.reason).toBe('blocked');
+  });
+
+  it('still ends holding-work when the marker sits beside the desk\'s own uncommitted changes', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      deskBranch: BRANCH,
+      resetRefusals: ['blocked-marker', 'uncommitted-changes'],
+      markerText: 'PLOT-BLOCKED: which adapter?',
+    });
+    const end = endWrite(result.writes);
+    expect(end?.reason).toBe('blocked');
+  });
+
+  it('ends holding-work when uncommitted work sits on a different branch than the assignment', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      deskBranch: 'bug/some-other-branch',
+      resetRefusals: ['uncommitted-changes'],
+    });
+    const end = endWrite(result.writes);
+    expect(end?.reason).toBe('holding-work');
+  });
+
+  it('ends holding-work when the desk branch cannot be read — absent is not own', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      deskBranch: '',
+      resetRefusals: ['uncommitted-changes'],
+    });
+    const end = endWrite(result.writes);
+    expect(end?.reason).toBe('holding-work');
+  });
+
+  it('ends holding-work when the desk is detached — a detached checkout reads as foreign', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      deskBranch: '',
+      resetRefusals: ['unpushed-commits'],
+    });
+    const end = endWrite(result.writes);
+    expect(end?.reason).toBe('holding-work');
+  });
+});
+
+describe('agentLoop — row 4: a continuation answer resumes the blocked session', () => {
+  it('emits agent-resume with the file text and the manifest resumeId, and writes no ending', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      resetRefusals: ['blocked-marker', 'uncommitted-changes'],
+      markerText: 'PLOT-BLOCKED: which adapter?',
+      continuation: { resumeId: 'sess-abc123', text: 'use fetch' },
+    });
+    expect(result.writes).toEqual([
+      { kind: 'agent-resume', branch: BRANCH, worktree: WORKTREE, resumeId: 'sess-abc123', correction: 'use fetch' },
+    ]);
+    expect(endWrite(result.writes)).toBeUndefined();
+    expect(declarationWrite(result.writes)).toBeUndefined();
+  });
+
+  it('resumes even when the desk holds foreign uncommitted work, ahead of the take-up unlanded-work check', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      deskBranch: 'bug/some-other-branch',
+      resetRefusals: ['uncommitted-changes'],
+      continuation: { resumeId: 'sess-abc123', text: 'use fetch' },
+    });
+    expect(kindsOf(result.writes)).toEqual(['agent-resume']);
+  });
+
+  it('takes the ordinary take-up path once the continuation reading is absent', () => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, claim: 'absent', continuation: null });
+    expect(kindsOf(result.writes)).toEqual(['desk-reset', 'commit', 'push', 'prompt-run']);
   });
 });
 
@@ -640,6 +747,19 @@ describe('agentLoop — row 11: prompt exit ran, no marker, resetRefusals names 
     );
     expect(lifecycle.state).toBe('refused-with-work');
     expect(lifecycle.state).not.toBe('refused-empty');
+  });
+
+  it('does not end holding-work when the desk sits on its own assigned branch', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      deskBranch: BRANCH,
+      exit: { answer: 'ran' },
+      resetRefusals: ['uncommitted-changes'],
+      pushed: true,
+      prOpen: false,
+    });
+    expect(endWrite(result.writes)?.reason).not.toBe('holding-work');
   });
 });
 

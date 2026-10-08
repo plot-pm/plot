@@ -19,11 +19,15 @@ export interface StopFirst {
  * the answer.
  *
  * This rule adds the desk's ending record as a FALLBACK, read only when the
- * manifest names nobody: a `blocked` ending for the asked branch, with an
- * unanswered marker still in the tree, is a desk whose own record says it is
- * waiting for exactly this. The fallback never substitutes for the manifest
- * when one exists, and it never fires for `several` — two manifests on one
- * desk stay an estate defect, not a case the ending record resolves.
+ * manifest names nobody: a `blocked` OR `holding-work` ending for the asked
+ * branch, with an unanswered marker still in the tree, is a desk whose own
+ * record says it is waiting for exactly this. `holding-work` reaches here the
+ * same way `blocked` does — a take-up or a post-run pass that found unlanded
+ * work and no marker ends `holding-work` with no manifest left to answer, but
+ * the marker a person is answering can still be sitting on the desk from an
+ * earlier pass. The fallback never substitutes for the manifest when one
+ * exists, and it never fires for `several` — two manifests on one desk stay an
+ * estate defect, not a case the ending record resolves.
  *
  * A live loop still refuses `loop-alive` by default — a stop can land
  * mid-turn. The one exception is a loop that recorded its OWN pid as
@@ -115,10 +119,10 @@ export interface ContinueTargetReading {
  * 3. **The manifest answers.** `named` continues by stamping it. `several`
  *    refuses — two manifests on one desk is an estate defect the ending record
  *    does not resolve. `unnamed` falls to the ending record.
- * 4. **The fallback.** Only for `unnamed`: an ending that read `blocked` for
- *    THIS branch continues by writing a manifest. Anything else — a different
- *    branch, a different reason, or no ending at all — is `no-manifest`, the
- *    same refusal `unnamed` always gave.
+ * 4. **The fallback.** Only for `unnamed`: an ending that read `blocked` OR
+ *    `holding-work` for THIS branch continues by writing a manifest. Anything
+ *    else — a different branch, a different reason, or no ending at all — is
+ *    `no-manifest`, the same refusal `unnamed` always gave.
  *
  * ABSENT IS NOT A FALLBACK. An ending the caller could not read
  * (`read: 'unreadable'`) or never wrote (`read: 'absent'`) answers
@@ -144,7 +148,11 @@ export const continueTarget = (reading: ContinueTargetReading): ContinueTarget =
   if (reading.manifest.kind === 'several') return { kind: 'refused', reason: 'several' };
 
   const { ending } = reading;
-  if (ending.read === 'ended' && ending.ending.reason === 'blocked' && ending.ending.branch === reading.branch) {
+  if (
+    ending.read === 'ended' &&
+    (ending.ending.reason === 'blocked' || ending.ending.reason === 'holding-work') &&
+    ending.ending.branch === reading.branch
+  ) {
     return { kind: 'continue', manifest: 'write', ...(stop ? { stop } : {}) };
   }
   return { kind: 'refused', reason: 'no-manifest' };

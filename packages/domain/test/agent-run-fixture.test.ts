@@ -27,13 +27,13 @@ const request = (over: Partial<AgentRunRequest> = {}): AgentRunRequest => ({
 
 const freeLoop: AgentLoopReadings = {
   assignedBranch: BRANCH,
-  deskBranch: '',
   waitedSeconds: 0,
   boundSeconds: 28800,
   registration: 'unset',
   claim: 'held-by-agent',
   takeUpRefused: null,
   base: 'origin/main',
+  continuation: null,
   running: null,
   exit: null,
   startRetries: 0,
@@ -50,6 +50,7 @@ const freeLoop: AgentLoopReadings = {
   sliceCostUsd: null,
   sliceMaxSpendUsd: null,
   resetRefusals: [],
+  deskBranch: BRANCH,
   pushed: false,
   prOpen: false,
   commitBeyondClaim: 'unanswerable',
