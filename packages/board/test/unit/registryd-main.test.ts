@@ -1832,6 +1832,7 @@ describe('startFreshAgents', () => {
   const deps = (calls: string[]) => ({
     deskFile: spentDeskFile,
     record: { rowsFor: async () => ({ ok: true as const, value: [] }) },
+    heldFiles: async (): Promise<readonly string[] | null> => [],
     budget: 2,
     ports: {
       record: { append: async () => ({ ok: true as const, value: undefined }) },
@@ -1918,6 +1919,7 @@ describe('startNothingDoneReleases', () => {
     ports: {
       commitBeyondClaim: async (): Promise<'yes' | 'no' | 'unanswerable'> => 'no',
       prOpen: async (): Promise<boolean | 'unanswerable'> => false,
+      priorFreshSessions: async (): Promise<number> => 0,
       release: async (branch: string) => {
         released.push(branch);
         return { released: true, detail: 'released' };
