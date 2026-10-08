@@ -763,6 +763,14 @@ jobs:
             ./scripts/check-shell-lines.sh pr
           fi
 
+      - name: The shell that decides does not grow
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            ./scripts/check-decision-count.sh push "${{ github.event.before }}"
+          else
+            ./scripts/check-decision-count.sh pr
+          fi
+
       # ONE ANSWER TO "DID THIS LAND", AND IT IS THE HOST'S.
       #
       # `plot-pr-merged.sh` reads `mergedAt` — never `state`, never ancestry.
