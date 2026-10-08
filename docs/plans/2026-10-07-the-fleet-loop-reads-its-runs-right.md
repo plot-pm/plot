@@ -64,7 +64,7 @@ The JS worker loop replaced the shell loop in v2.24.0 (#1337). Four readings in 
 
 ### A handed slice carries its charter
 
-- `bug/a-handed-slice-carries-its-charter` — resolve the charter at take-up; ignore and excuse `.plot-worker.continue.md` <!-- builds: the charter resolved at take-up -->
+- `bug/a-handed-slice-carries-its-charter` — resolve the charter at take-up; ignore and excuse `.plot-worker.continue.md` <!-- builds: the charter resolved at take-up --> → #1365
 
 ### A waiting run needs approval again
 
