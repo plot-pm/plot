@@ -69,7 +69,7 @@ None.
 
 ### Helpers stay out of packages/board
 
-- `bug/helpers-stay-out-of-the-board-package` — `build.mjs` prunes helper copies it no longer vendors; one `.gitignore` pattern <!-- builds: the vendored-helper prune in build.mjs -->
+- `bug/helpers-stay-out-of-the-board-package` — `build.mjs` prunes helper copies it no longer vendors; one `.gitignore` pattern <!-- builds: the vendored-helper prune in build.mjs --> → #1395
 
 ## Done when
 
