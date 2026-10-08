@@ -114,11 +114,16 @@
 #                                 both plans and the wave each lists it under.
 #                                 Only meaningful since the matcher anchored
 #                                 (#490): before that a dependency CITED in
-#                                 prose read as a second claim. REPORTS AND
-#                                 NEVER GATES — a double claim is a shape for a
-#                                 person to resolve, not a branch that cannot
-#                                 move — so it carries `double_claims=` and
-#                                 stays out of `attention`.
+#                                 prose read as a second claim. A listing MOVED
+#                                 to another plan is not a claim, and a group
+#                                 where every claimant is terminal (delivered,
+#                                 released, superseded, rejected) is history,
+#                                 not a decision — neither prints (#1343).
+#                                 REPORTS AND NEVER GATES — a double claim is a
+#                                 shape for a person to resolve, not a branch
+#                                 that cannot move — so it carries
+#                                 `double_claims=` and stays out of
+#                                 `attention`.
 #  15. Stale interrogation rounds — a DRAFT plan whose recorded `Rounds:` value
 #                                 predates its own last amendment, naming the
 #                                 round, the commit that last wrote it, and the
@@ -1815,6 +1820,14 @@ echo
 #
 # ONE FINDING PER BRANCH, not one per claimant: the finding IS the collision, so
 # a branch claimed by three plans is one line naming three, not three lines.
+#
+# TWO SHAPES NEED NO DECISION, so neither prints (#1343). A listing whose
+# `deferred_reason` starts with "moved to" is a handover, not a claim, so it is
+# dropped before grouping — late, it would still have raised the count past 1.
+# A bare `deferred` or a `deferred: waits on …` reason still holds the branch
+# and stays a claim. And a group where every claimant plan's phase is terminal
+# (delivered/released/superseded/rejected) is history nobody can act on; one
+# live claimant among terminal ones still prints.
 echo "== 14. Double-claimed branches (one branch, two plans — a person decides) =="
 double_out=""
 if [ -n "$plan_json" ]; then
@@ -1859,16 +1872,18 @@ if [ -n "$plan_json" ]; then
     n_double=$((n_double + 1))
   done < <(printf '%s\n' "$plan_json" \
     | jq -s -r --arg US "$US" '
-        [ .[] | select(.phase != "NONE")
-          | (.file | sub("^.*/"; "") | sub("\\.md$"; "")
-                   | sub("^[0-9]{4}-[0-9]{2}-[0-9]{2}-"; "")) as $slug
-          | .waves[]? as $w
+        [ .[] | select(.phase != "NONE") as $p
+          | $p.waves[]? as $w
           | $w.branches[]?
-          | { branch: .branch, slug: $slug,
+          | select(((.deferred_reason // "") | startswith("moved to")) | not)
+          | { branch: .branch, phase: $p.phase,
+              slug: ($p.file | sub("^.*/"; "") | sub("\\.md$"; "")
+                              | sub("^[0-9]{4}-[0-9]{2}-[0-9]{2}-"; "")),
               wave: (if ($w.name // "") == "" then "(unnamed wave)" else $w.name end) } ]
         | group_by(.branch)[]
         | unique_by(.slug) as $per_plan
         | select(($per_plan | length) > 1)
+        | select(($per_plan | map(.phase) | any(. as $ph | ["delivered","released","superseded","rejected"] | index($ph) | not)))
         | [ ($per_plan[0].branch),
             ($per_plan | map(.slug + " (" + .wave + ")") | join(", ")),
             ($per_plan | length | tostring) ]
