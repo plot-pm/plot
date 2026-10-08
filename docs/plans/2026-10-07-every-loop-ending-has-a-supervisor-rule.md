@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-07, jwloka, in-session
 - **Started:** 2026-10-08, jwloka, `infra/an-ending-that-held-nothing-releases-its-claim`
+- **Started:** 2026-10-08, jwloka, `infra/held-work-gets-a-fresh-agent`
 
 ## Motivation
 
