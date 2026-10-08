@@ -293,6 +293,28 @@ export const treesGit = (context: ShellContext): Trees => {
       if (count.code !== 0 || !/^\d+$/.test(count.stdout.trim())) return unanswerable;
       return answered<CommitReading>(Number(count.stdout.trim()) > 0 ? 'yes' : 'no');
     },
+
+    // ASKS NOTHING ABOUT MAIN. `hasCommits` above collapses to `no` once the
+    // branch is merged with no PR — `origin/<default>..HEAD` is empty either
+    // way. This instead reads one commit: HEAD is the claim where its subject
+    // is exactly the dispatcher's own message and it touched no file.
+    commitBeyondClaim: async (path, branch) => {
+      const unanswerable = answered<CommitReading>('unanswerable');
+      let directory = false;
+      try {
+        directory = statSync(path).isDirectory();
+      } catch {
+        directory = false;
+      }
+      if (path === '' || !directory) return unanswerable;
+      const git = (args: readonly string[]) => runProcess('git', ['-C', path, ...args], inRepo);
+      const subject = await git(['log', '-1', '--format=%s']);
+      if (subject.code !== 0) return unanswerable;
+      const names = await git(['show', '--quiet', '--format=', '--name-only', 'HEAD']);
+      if (names.code !== 0) return unanswerable;
+      const isClaim = subject.stdout.trim() === `plot: claim ${branch}` && names.stdout.trim() === '';
+      return answered<CommitReading>(isClaim ? 'no' : 'yes');
+    },
     prune: async () => {
       const run = await runProcess('git', ['worktree', 'prune'], inRepo);
       return run.code === 0 ? answered(undefined) : failed<void>();

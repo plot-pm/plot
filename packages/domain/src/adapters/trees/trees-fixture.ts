@@ -88,6 +88,11 @@ export interface TreesFixture {
    * reads `unanswerable`, the direction the git adapter fails in.
    */
   commits?: Readonly<Record<string, CommitReading>>;
+  /**
+   * What `commitBeyondClaim` answers, keyed by path. A path absent from the
+   * table reads `unanswerable`, the direction the git adapter fails in.
+   */
+  claimCommits?: Readonly<Record<string, CommitReading>>;
   /** Paths where `resetOnto` refuses — the checkout-failure case. */
   resetRefusedAt?: readonly string[];
   /** Paths where `commit` fails. */
@@ -162,6 +167,9 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
 
     hasCommits: async (path) =>
       answered<CommitReading>(fixture.commits?.[path] ?? 'unanswerable'),
+
+    commitBeyondClaim: async (path) =>
+      answered<CommitReading>(fixture.claimCommits?.[path] ?? 'unanswerable'),
 
     currentBranch: async (path) => {
       const branch = branches[path];

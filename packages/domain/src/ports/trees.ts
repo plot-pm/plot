@@ -141,6 +141,23 @@ export interface Trees {
   hasCommits(path: string): Promise<PortResult<CommitReading>>;
 
   /**
+   * Whether HEAD is something other than the dispatcher's own claim commit.
+   *
+   * Unlike {@link hasCommits}, this never reads `origin/<default>`: a branch
+   * the agent finished and merged directly, with no PR, collapses
+   * `origin/<default>..HEAD` to nothing and would otherwise read as if no
+   * work had happened. This instead asks whether HEAD itself is the empty
+   * `plot: claim <branch>` commit the dispatcher writes before the agent
+   * starts — a fact about one commit, never about main.
+   *
+   * @param path - the worktree's absolute path.
+   * @param branch - the branch the claim commit names.
+   * @returns `yes` where HEAD is not that claim commit; `no` where it is;
+   *   `unanswerable` where the directory is missing or git cannot read HEAD.
+   */
+  commitBeyondClaim(path: string, branch: string): Promise<PortResult<CommitReading>>;
+
+  /**
    * How many commits a checkout's HEAD holds that its configured upstream does
    * not: `git rev-list --count @{upstream}..HEAD`, the shell's
    * `desk_reset_refusal` form.

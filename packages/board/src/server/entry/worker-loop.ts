@@ -803,7 +803,7 @@ export const readPass = async (
       // ASKED ONLY WHERE THE CLAIM WAS PUSHED AND NO PR IS OPEN — the one case
       // `agentLoop` cannot otherwise tell a claim-only turn from a turn that
       // pushed real work and never opened a PR.
-      const commitBeyondClaim = pushed ? await ports.trees.hasCommits(worktree) : null;
+      const commitBeyondClaim = pushed ? await ports.trees.commitBeyondClaim(worktree, branch) : null;
       return {
         ...base,
         pushed,
