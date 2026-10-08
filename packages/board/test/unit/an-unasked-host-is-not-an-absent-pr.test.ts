@@ -73,6 +73,119 @@ const headRow = (branch: string, prState: string) => {
   return row;
 };
 
+/**
+ * A loose branch with a known fetch time and tip time, no PR either map
+ * knows about — the fixture for #1240, a fetch that landed before the
+ * branch's own tip commit.
+ *
+ * `tipAt` AND `prAt` ARE THE LAST TWO PARAMETERS, appended after
+ * `supervision` for the reason every parameter here is: a caller that passes
+ * neither gets today's behaviour unchanged.
+ */
+const agedRow = (branch: string, tipAtMs: number, prAtMs: number, renderNow = Date.now()) => {
+  const row = rowsFromPulse(
+    pulse, new Map([[branch, 3 * 24 * 60]]), 'plot', QUIET, new Map(), '', null, renderNow,
+    null, null, null, null, null, '', null, new Set([branch]), undefined,
+    new Map([[branch, tipAtMs]]), prAtMs,
+  ).find((r) => r.branch === branch);
+  if (!row) throw new Error(`no row built for ${branch}`);
+  return row;
+};
+
+/**
+ * A loose branch whose PR is known only to the ALL-STATES map, with a tip
+ * and fetch time to exercise the new rule against the merge/close arms.
+ */
+const headRowAged = (branch: string, prState: string, tipAtMs: number, prAtMs: number) => {
+  const byHead = new Map([
+    [branch, { number: 1, head: branch, state: prState, draft: false, checks: 'none' }],
+  ]);
+  const row = rowsFromPulse(
+    pulse, new Map([[branch, 3 * 24 * 60]]), 'plot', QUIET, null as never, '', null, Date.now(),
+    null, null, null, null, byHead as never, '', null, new Set([branch]), undefined,
+    new Map([[branch, tipAtMs]]), prAtMs,
+  ).find((r) => r.branch === branch);
+  if (!row) throw new Error(`no row built for ${branch}`);
+  return row;
+};
+
+describe('a branch whose last commit is newer than the PR fetch', () => {
+  const T = 1_000_000;
+
+  it('reads unknown, not abandoned, when the tip landed after the fetch', () => {
+    // #1240: pushed at T, fetched at T-5min — the fetch cannot speak for it.
+    const row = agedRow('infra/pushed-after-fetch', T, T - 5 * 60_000);
+    expect(row.quietKind).not.toBe('abandoned');
+    expect(row.note).not.toContain('no PR ever opened');
+  });
+
+  it('reads abandoned once a later fetch finds no PR, same ages and prs map', () => {
+    // THE OTHER HALF, same fixture but for `prAt`. Only this input differs.
+    const row = agedRow('infra/pushed-after-fetch', T, T + 5 * 60_000);
+    expect(row.quietKind).toBe('abandoned');
+    expect(row.note).toContain('no PR ever opened');
+  });
+
+  it('reads abandoned on the exact boundary — equal is not newer', () => {
+    const row = agedRow('infra/pushed-at-fetch', T, T);
+    expect(row.quietKind).toBe('abandoned');
+  });
+
+  it('is not fooled by reconstructing the tip from a stale age map', () => {
+    // THE RENDER CLOCK CASE. Ages read at T, rendered at T+10min, fetch at
+    // T+5min, tip at T-1min: the tip is OLDER than the fetch, so the row
+    // reads abandoned. `now - ageMinutes * 60_000` at render time would
+    // compute the tip as freshly as `now`, call it newer, and fail this.
+    const renderNow = T + 10 * 60_000;
+    const row = agedRow('infra/old-tip-stale-age-map', T - 60_000, T + 5 * 60_000, renderNow);
+    expect(row.quietKind).toBe('abandoned');
+  });
+
+  it('agrees on sentence and kind for a claimed branch landing at unknown', () => {
+    const claimedPulse = {
+      plans: [{
+        file: '2026-01-01-p.md',
+        phase: 'approved',
+        slices: [{
+          name: 'Carry',
+          verdict: 'eligible',
+          branches: [
+            { branch: 'feature/claimed-fresh', state: 'claimed', deferred: false, claimed: '', worker: 'none' },
+          ],
+        }],
+      }],
+      summary: { plans: 1, waves: 1, branches: 1, claimed: 1, eligible: 0, blocked: 0, deferred: 0 },
+    } as unknown as FleetReading;
+    const row = rowsFromPulse(
+      claimedPulse, new Map([['feature/claimed-fresh', 3 * 24 * 60]]), 'plot', QUIET,
+      new Map(), '', null, Date.now(), null, null, null, null, null, '', null, null,
+      undefined, new Map([['feature/claimed-fresh', T]]), T - 5 * 60_000,
+    ).find((r) => r.branch === 'feature/claimed-fresh');
+    if (!row) throw new Error('no row built');
+    expect(row.quietKind).not.toBe('abandoned');
+    expect(row.note).not.toContain('no PR ever opened');
+  });
+
+  it('leaves an OPEN PR branch unchanged whatever the tip and fetch say', () => {
+    const byHead = new Map([
+      ['feature/open-while-aged', { number: 1, head: 'feature/open-while-aged', state: 'OPEN', draft: false, checks: 'none' }],
+    ]);
+    const row = rowsFromPulse(
+      pulse, new Map([['feature/open-while-aged', 3 * 24 * 60]]), 'plot', QUIET, byHead as never,
+      '', null, Date.now(), null, null, null, null, byHead as never, '', null,
+      new Set(['feature/open-while-aged']), undefined,
+      new Map([['feature/open-while-aged', T]]), T - 5 * 60_000,
+    ).find((r) => r.branch === 'feature/open-while-aged');
+    if (!row) throw new Error('no row built');
+    expect(row.quietKind).not.toBe('abandoned');
+  });
+
+  it('leaves a MERGED PR branch unchanged whatever the tip and fetch say', () => {
+    const row = headRowAged('feature/merged-while-aged', 'MERGED', T, T - 5 * 60_000);
+    expect(row.group).toBe('done');
+  });
+});
+
 describe('a branch whose PR could not be fetched', () => {
   it('is not called abandoned when the fetch never landed', () => {
     // THE DEFECT, on the path most exposed to it. #358 was open the whole time.

@@ -203,3 +203,31 @@ export const quietNeedsPerson = (readings: QuietBranchReadings): boolean => {
   const kind = quietKind(readings);
   return kind !== 'closed-pr' && kind !== 'merged';
 };
+
+/**
+ * Whether the last PR fetch is too old to say anything about this branch.
+ *
+ * #1240: a fetch that landed before the branch's tip commit answers a
+ * question about an earlier version of the branch. `infra/agents-md-mirrors-
+ * claude-md` read "commits, no PR ever opened" for about 8 minutes while
+ * #1239 was open, because a fetch at 10:00 was read as proof for a branch
+ * pushed at 10:04.
+ *
+ * STRICT, AND NAMED FOR IT. Equal instants are not newer — only a tip
+ * strictly later than the fetch outruns it.
+ *
+ * NEITHER INSTANT IS EVER MISSING EVIDENCE. `null` means the caller could not
+ * read the clock, not that the clock read zero, so a missing fetch time or a
+ * missing tip time answers `false` here and leaves whatever reading already
+ * existed in place.
+ *
+ * @param fetchAt - epoch milliseconds of the last successful PR fetch, or
+ *   `null` where none has landed or it could not be read.
+ * @param tipAt - epoch milliseconds of the branch's tip commit, or `null`
+ *   where it could not be read.
+ * @returns true when the fetch predates the tip and so cannot speak for it.
+ */
+export const fetchPredatesTip = (fetchAt: number | null, tipAt: number | null): boolean => {
+  if (fetchAt === null || tipAt === null) return false;
+  return fetchAt < tipAt;
+};

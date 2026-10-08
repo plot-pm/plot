@@ -672,6 +672,17 @@ export interface CacheEntry {
   listingReusedAgeMs: number | null;
   pulse: FleetReading | null;
   ages: Map<string, number | null>;
+  /**
+   * Each branch's tip commit time, epoch milliseconds, or null — read on the
+   * same `for-each-ref` pass as {@link ages}, #1240.
+   *
+   * ITS OWN MAP RATHER THAN A WIDER `ages`. `now - ageMinutes * 60_000` moves
+   * the tip forward by however long this entry has sat in the cache between
+   * the scan and the render that reads it — two different clocks — and
+   * `ages`'s existing shape is read by three render-time consumers this fix
+   * does not otherwise touch. See `branchAges`.
+   */
+  tipAt: Map<string, number | null>;
   at: number | null;
   error: string | null;
   /**
@@ -1445,12 +1456,21 @@ export function pulseShrink(
 
 
 /**
- * Minutes since each branch's tip commit. Read from local refs in one batch —
+ * Minutes since each branch's tip commit, and the tip's own epoch
+ * milliseconds beside it. Read from local refs in one batch —
  * `for-each-ref` costs one process for every branch rather than one each, and
  * the scan has already fetched, so the refs are as fresh as the pulse is.
+ *
+ * TWO MAPS FROM ONE PASS, NOT ONE MAP WIDENED. `ages`'s value type is read by
+ * `CacheEntry.ages`, the cache-init default and three render-time consumers
+ * that want only the minutes; `tipAt` is the newer, narrower reading #1240
+ * needs and travels beside it rather than replacing it.
  */
-async function branchAges(opts: BuildBoardOptions): Promise<Map<string, number | null>> {
+async function branchAges(
+  opts: BuildBoardOptions,
+): Promise<{ ages: Map<string, number | null>; tipAt: Map<string, number | null> }> {
   const ages = new Map<string, number | null>();
+  const tipAt = new Map<string, number | null>();
   try {
     const out = await run('git',
       ['for-each-ref', '--format=%(refname:short)\t%(committerdate:unix)', 'refs/remotes/origin'],
@@ -1461,11 +1481,12 @@ async function branchAges(opts: BuildBoardOptions): Promise<Map<string, number |
       if (!ref || !ts) continue;
       const short = ref.replace(/^origin\//, '');
       ages.set(short, Math.max(0, Math.round((now - Number(ts)) / 60)));
+      tipAt.set(short, Math.round(Number(ts) * 1000));
     }
   } catch {
     /* no refs readable — every age stays null, and the UI says so */
   }
-  return ages;
+  return { ages, tipAt };
 }
 
 /**
@@ -3761,7 +3782,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // with a fragment. Written beside the flag it mirrors so the two can never
     // disagree about which document finished.
     entry.lastComplete = complete;
-    entry.ages = await branchAges(opts);
+    ({ ages: entry.ages, tipAt: entry.tipAt } = await branchAges(opts));
     entry.branchUrlBase = await readBranchUrlBase(opts);
     entry.approvedAt = await approvalDates(opts, complete);
     // From the REFS, not from `entry.prs`. The PR map is filled on its own
@@ -3894,7 +3915,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
  */
 export function freshCacheEntry(): CacheEntry {
   return {
-    pulse: null, ages: new Map(), at: null, error: null, shrink: null, branchUrlBase: '',
+    pulse: null, ages: new Map(), tipAt: new Map(), at: null, error: null, shrink: null, branchUrlBase: '',
     // Empty until the first SUCCESSFUL scan. A restart therefore remembers no
     // section, so every row is unplaced until one completes — which is the
     // honest answer rather than a section invented from a pulse this process
@@ -4413,6 +4434,7 @@ import {
   createPulse,
   divisorFor,
   doubleClaimedBranches,
+  fetchPredatesTip,
   quietKind,
   quietNeedsPerson,
   reportedCause,
@@ -4890,6 +4912,23 @@ function classifyGroup(
    * marker's modification time; `null` where no marker was read.
    */
   questionAgeMinutes: number | null = null,
+  /**
+   * The branch's tip commit time, epoch milliseconds, or `null` where it
+   * could not be read — see `branchAges`.
+   *
+   * LAST, BECAUSE IT IS THE NEWEST. Used for exactly one thing, below: beside
+   * {@link fetchAt}, to tell `claimedReadings` and `wipReadings` whether the
+   * last PR fetch landed before this branch's own tip, in which case the
+   * fetch cannot speak for it and `hostUnasked`'s `'none'` would be invented.
+   * See `fetchPredatesTip`.
+   */
+  tipAt: number | null = null,
+  /**
+   * Epoch milliseconds of the last successful PR fetch for the whole pulse —
+   * `CacheEntry.prAt`. LAST, BECAUSE IT IS THE NEWEST, beside {@link tipAt}
+   * and for the same one use.
+   */
+  fetchAt: number | null = null,
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is never `working` — the group is about the claim the row
   // makes, not about the age of its last commit, so a fresh commit does not
@@ -5522,7 +5561,7 @@ function classifyGroup(
     // two renderings of one reading, so a fetch that never landed has to reach
     // both or the row says *no PR ever opened* beside a kind that declines to
     // say it.
-    const orphaned = quietNote(claimedReadings(pr, hostUnasked));
+    const orphaned = quietNote(claimedReadings(pr, hostUnasked, tipAt, fetchAt));
     return {
       group: 'waiting-on-you',
       note:
@@ -5640,7 +5679,7 @@ function classifyGroup(
   // note is where the defect was visible — *"commits, no PR ever opened"* on
   // seven branches, three of them carrying pull requests, measured 2026-09-20 —
   // so the sentence is asked of the same fact the kind is.
-  const readings = wipReadings(pr, hasMergedPr, hostUnasked);
+  const readings = wipReadings(pr, hasMergedPr, hostUnasked, tipAt, fetchAt);
   const abandoned = quietNote(readings);
   // MERGED IS DONE, AND THIS ARM IS WHERE IT HAS TO BE SAID. `quietNeedsPerson`
   // releases only `closed-pr`, and `quiet.test.ts` states why: a merged branch
@@ -5684,11 +5723,21 @@ function classifyGroup(
  * @param hostUnasked - whether the PR fetch never landed for this pulse. A
  * null map is an ABSENCE OF EVIDENCE, and `pr ? 'open' : 'none'` read it as
  * evidence of absence — see {@link QuietBranchReadings.prState}.
+ * @param tipAt - the branch's tip commit time, epoch ms, or null.
+ * @param fetchAt - the last successful PR fetch time for this pulse, epoch
+ * ms, or null. #1240: a fetch that landed BEFORE this tip answers a question
+ * about an earlier version of the branch, and `hostUnasked` alone cannot
+ * tell — see {@link fetchPredatesTip}.
  * @returns the readings for a claim nobody has worked.
  */
-const claimedReadings = (pr?: PrRecord | null, hostUnasked = false): QuietBranchReadings => ({
+const claimedReadings = (
+  pr?: PrRecord | null,
+  hostUnasked = false,
+  tipAt: number | null = null,
+  fetchAt: number | null = null,
+): QuietBranchReadings => ({
   branch: '',
-  prState: pr ? 'open' : hostUnasked ? 'unknown' : 'none',
+  prState: pr ? 'open' : hostUnasked || fetchPredatesTip(fetchAt, tipAt) ? 'unknown' : 'none',
   hasMergedPr: false,
   isEmptyClaim: true,
 });
@@ -5706,6 +5755,11 @@ const claimedReadings = (pr?: PrRecord | null, hostUnasked = false): QuietBranch
  * would be the rule re-derived on this side.
  * @param hasMergedPr - whether the host merged ANY PR from this branch.
  * @param hostUnasked - whether the PR fetch never landed for this pulse.
+ * @param tipAt - the branch's tip commit time, epoch ms, or null.
+ * @param fetchAt - the last successful PR fetch time for this pulse, epoch
+ * ms, or null. #1240: a fetch that landed BEFORE this tip answers a question
+ * about an earlier version of the branch, and `hostUnasked` alone cannot
+ * tell — see {@link fetchPredatesTip}.
  *
  * THIS IS THE SECOND HARDCODED CONSTANT REMOVED FROM THIS FUNCTION, and the
  * first is why the second was worth looking for. `hasMergedPr` was pinned
@@ -5720,9 +5774,11 @@ const wipReadings = (
   pr?: PrRecord | null,
   hasMergedPr = false,
   hostUnasked = false,
+  tipAt: number | null = null,
+  fetchAt: number | null = null,
 ): QuietBranchReadings => ({
   branch: '',
-  prState: pr ? 'open' : hostUnasked ? 'unknown' : 'none',
+  prState: pr ? 'open' : hostUnasked || fetchPredatesTip(fetchAt, tipAt) ? 'unknown' : 'none',
   hasMergedPr,
   isEmptyClaim: false,
 });
@@ -5803,14 +5859,25 @@ const rowQuietKind = (
    * about a host nobody reached.
    */
   hostUnasked = false,
+  /**
+   * The branch's tip commit time, epoch ms, or null — see `branchAges`. Last,
+   * because it is the newest, beside {@link fetchAt} and for the one use
+   * `classifyGroup`'s own `tipAt`/`fetchAt` pair documents.
+   */
+  tipAt: number | null = null,
+  /**
+   * The last successful PR fetch time for this pulse, epoch ms, or null —
+   * `CacheEntry.prAt`.
+   */
+  fetchAt: number | null = null,
 ): QuietKind | null => {
   if (closed) return quietKind(closedReadings());
   if (group !== 'waiting-on-you') return null;
   // ABSENT IS THE ONLY ANSWER THAT REACHES THE FALLTHROUGH. Every other worker
   // state is handled by an arm above it, and each of those means something ran.
   if (worker !== 'none' && worker !== 'elsewhere') return null;
-  if (state === 'claimed') return quietKind(claimedReadings(pr, hostUnasked));
-  if (state === 'wip' && !pr) return quietKind(wipReadings(pr, merged, hostUnasked));
+  if (state === 'claimed') return quietKind(claimedReadings(pr, hostUnasked, tipAt, fetchAt));
+  if (state === 'wip' && !pr) return quietKind(wipReadings(pr, merged, hostUnasked, tipAt, fetchAt));
   return null;
 };
 
@@ -6915,6 +6982,36 @@ export function rowsFromPulse(
    * claim that every desk is fine.
    */
   supervision: SupervisionReportReadings = NO_SUPERVISION_REPORT,
+  /**
+   * Each branch's tip commit time, epoch milliseconds — see `branchAges`,
+   * which reads `%(committerdate:unix)` beside the minutes it already
+   * returns. A branch absent from the map, or a null entry, means the tip
+   * could not be read.
+   *
+   * CARRIED AS ITS OWN MAP RATHER THAN RECONSTRUCTED FROM `ages`.
+   * `now - ageMinutes * 60_000` moves the tip forward by however long the
+   * age map has sat in the cache between the git refresh and this render —
+   * `ages` and `now` are read on two different clocks. #1240.
+   *
+   * Last in the parameter list because it is the newest, so every existing
+   * caller is unchanged: a caller passing nothing has not looked, and every
+   * row reads exactly as it did before this field existed.
+   */
+  tipAt?: Map<string, number | null> | null,
+  /**
+   * Epoch milliseconds of the last successful PR fetch for this pulse, or
+   * null where none has landed — `CacheEntry.prAt`. Paired with {@link tipAt}
+   * for the one use `fetchPredatesTip` documents: a fetch older than a
+   * branch's own tip cannot assert that no PR exists for it.
+   *
+   * PER PULSE, NOT PER BRANCH, the same scope `hostUnasked` already has — one
+   * fetch answers for every row.
+   *
+   * Last in the parameter list because it is the newest. A caller passing
+   * nothing has not looked, and every row reads exactly as it did before this
+   * field existed.
+   */
+  prAt?: number | null,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   // WHETHER THE HOST WAS ASKED AT ALL, read once for the whole pulse because
@@ -7135,7 +7232,11 @@ export function rowsFromPulse(
           // row names the prerequisite rather than only that there is one.
           b.waits_on,
           // Minutes from the marker's `askedAt` to this render's `now`.
-          questionReading ? minutesSince(questionReading.askedAt, now) : null);
+          questionReading ? minutesSince(questionReading.askedAt, now) : null,
+          // THIS BRANCH'S TIP, and the PULSE'S FETCH TIME — #1240. A fetch
+          // that landed before this branch's own tip cannot assert that no
+          // PR exists for it; see `fetchPredatesTip`.
+          tipAt?.get(b.branch) ?? null, prAt ?? null);
         // THE CLOSED PR, READ HERE BECAUSE `classifyGroup` CANNOT SEE ONE.
         //
         // That function states the rule twice and records the mistake being
@@ -7217,7 +7318,10 @@ export function rowsFromPulse(
           // fetch reads as *no PR was ever opened* — the same absence the
           // constructors were inventing, and the word that tells a person the
           // branch can be deleted.
-          hostUnasked);
+          hostUnasked,
+          // THIS BRANCH'S TIP, and the PULSE'S FETCH TIME — #1240, so the kind
+          // agrees with the sentence `classify` just built from the same pair.
+          tipAt?.get(b.branch) ?? null, prAt ?? null);
         // Derived once, read twice below — and derived from `group` rather than
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.
@@ -7930,7 +8034,12 @@ export function rowsFromPulse(
       // asked — the same absence-read-as-evidence the quiet readings made one
       // field over. It now carries the pulse's own answer.
       false, 0, '', 'elsewhere', '', '', false, [], '', false, '', hostUnasked, '',
-      prMerged, hostUnasked);
+      prMerged, hostUnasked, [], null,
+      // THIS BRANCH'S TIP, and the PULSE'S FETCH TIME — #1240. The loose path
+      // reaches the board through the refs, the population :6585 already
+      // names as most exposed to an outage the plan-branch call site alone
+      // would not fix.
+      tipAt?.get(branch) ?? null, prAt ?? null);
     // Asked of the same facts the group came from. `elsewhere` is what this
     // loop knows about a worker: it reaches the branch through the REFS and
     // visits no worktree, so nothing here looked for a process.
@@ -7951,7 +8060,11 @@ export function rowsFromPulse(
     // opened"* through an outage. Loose branches are the population most
     // exposed to it — they reach the board through the refs, so a failed fetch
     // is the only thing standing between the row and a PR it cannot see.
-    const kind = rowQuietKind(prClosed, 'wip', placed, 'elsewhere', null, prMerged, hostUnasked);
+    const kind = rowQuietKind(
+      prClosed, 'wip', placed, 'elsewhere', null, prMerged, hostUnasked,
+      // THIS BRANCH'S TIP, and the PULSE'S FETCH TIME — #1240, so the kind
+      // agrees with the sentence `classify` just built from the same pair.
+      tipAt?.get(branch) ?? null, prAt ?? null);
     rows.push({
       repo,
       // `branch` — and NOT a new `orphan` kind. `RowKindSchema` has seven kinds
@@ -8400,7 +8513,12 @@ export async function buildFleet(
       // WHY EACH DESK HAS NO LIVE WORKER, from the daemon's per-tick report.
       // Awaited above rather than read here, because this function is synchronous
       // — the rule the sprint map above follows.
-      supervision), entry.agents)
+      supervision,
+      // EACH BRANCH'S TIP, and THE PULSE'S OWN FETCH TIME — #1240. Both come
+      // off the cache entry, on the two independent timers that created the
+      // defect: the git refresh that fills `tipAt` and the PR-fetch timer that
+      // stamps `prAt`.
+      entry.tipAt, entry.prAt), entry.agents)
     : [];
 
   // THE SECTIONS, REMEMBERED OR CARRIED FORWARD — the whole of this fix, in the
