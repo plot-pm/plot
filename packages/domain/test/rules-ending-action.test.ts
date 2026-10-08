@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   endingAction,
+  endingAsksFreshStart,
   endingReleaseBranch,
   holdingWorkAnswer,
   type EndingActionReadings,
 } from '../src/rules/ending-action.js';
-import { EndingReasonSchema } from '../src/entities/ending.js';
+import { EndingReasonSchema, type EndingReading } from '../src/entities/ending.js';
 
 const readings = (over: Partial<EndingActionReadings> = {}): EndingActionReadings => ({
   ending: 'nothing-done',
@@ -131,5 +132,42 @@ describe('holdingWorkAnswer', () => {
   it('says so when the ending reported held work but no file was listed', () => {
     const answer = holdingWorkAnswer('infra/prior', []);
     expect(answer).toContain('No file was listed as held');
+  });
+});
+
+describe('endingAsksFreshStart', () => {
+  const ended = (reason: string, branch = 'infra/x', refusedAssignment = ''): EndingReading => ({
+    read: 'ended',
+    ending: { reason, actor: 'agent', branch, detail: '', refusedAssignment } as never,
+  });
+
+  it('answers true for exactly the endings endingAction starts a first fresh session for', () => {
+    for (const reason of EndingReasonSchema.options) {
+      const expected = endingAction(readings({ ending: reason })) === 'start-fresh';
+      expect(endingAsksFreshStart(ended(reason), 'infra/x'), reason).toBe(expected);
+    }
+  });
+
+  it('answers true for an after-prompt holding-work, turn-limit and corrections-spent', () => {
+    for (const reason of ['holding-work', 'turn-limit', 'corrections-spent']) {
+      expect(endingAsksFreshStart(ended(reason), 'infra/x'), reason).toBe(true);
+    }
+  });
+
+  it('answers true for a holding-work whose refused assignment is its own branch', () => {
+    expect(endingAsksFreshStart(ended('holding-work', 'infra/x', 'infra/x'), 'infra/x')).toBe(true);
+  });
+
+  it('answers false for a take-up holding-work', () => {
+    expect(endingAsksFreshStart(ended('holding-work', 'infra/x', 'infra/other'), 'infra/x')).toBe(false);
+  });
+
+  it('answers false for an ending written for another branch', () => {
+    expect(endingAsksFreshStart(ended('holding-work', 'infra/other'), 'infra/x')).toBe(false);
+  });
+
+  it('answers false for an absent or unreadable ending', () => {
+    expect(endingAsksFreshStart({ read: 'absent' }, 'infra/x')).toBe(false);
+    expect(endingAsksFreshStart({ read: 'unreadable', why: 'not JSON' }, 'infra/x')).toBe(false);
   });
 });

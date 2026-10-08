@@ -80,8 +80,8 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   back, and the loop stops rather than spend a budget that is not its own to
  *   extend. Until this value existed the ending was `unstarted`, which already
  *   meant something else — a prompt that never ran — and the two were told
- *   apart only by reading `detail`'s prose. `freshAgentAfterCorrections`
- *   (`rules/fresh-agent.ts`) is the one reader of this value: it answers
+ *   apart only by reading `detail`'s prose. `endingAction`
+ *   (`rules/ending-action.ts`) is the one reader of this value: it answers
  *   `start-fresh` the first time a slice reaches it and `needs-a-person`
  *   thereafter, which is the one-fresh-session-then-a-person rule
  *   `a-spent-correction-budget-gets-a-fresh-agent` settles.

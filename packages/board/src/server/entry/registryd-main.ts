@@ -1436,9 +1436,10 @@ export const startFreshSession = async (
 /**
  * Reads, decides and applies the fresh-agent step for one completed tick.
  *
- * Desks whose worker ended `corrections-spent` with no manifest left get one
- * fresh session through the continue workflow; a second spent budget for the
- * same slice is declared `blocked`. A failure anywhere in the step is reported
+ * Desks whose worker ended `corrections-spent`, `turn-limit`, or an
+ * after-prompt `holding-work` with no manifest left get one fresh session
+ * through the continue workflow; a second such ending for the same slice is
+ * declared `blocked`. A failure anywhere in the step is reported
  * on stderr and never ends the daemon: the next tick reads the same desks and
  * the record again.
  *

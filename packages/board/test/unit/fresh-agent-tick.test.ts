@@ -347,6 +347,39 @@ const spentReading = (over: Partial<FreshAgentCandidateReadings> = {}): FreshAge
   ...over,
 });
 
+describe('the holding-work readings and decisions', () => {
+  const holdingFile = (refusedAssignment: string) =>
+    JSON.stringify({ reason: 'holding-work', actor: 'agent', branch: 'feature/x', detail: '', refusedAssignment });
+
+  it('reads the refused assignment off the ending', async () => {
+    const deskFile = (_w: string, name: string) => (name === ENDING_FILENAME ? holdingFile('feature/y') : null);
+    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles);
+    expect(reading?.refusedAssignment).toBe('feature/y');
+  });
+
+  it('reads the held files the desk reports', async () => {
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, async () => ['a.ts']);
+    expect(reading?.heldFiles).toEqual(['a.ts']);
+  });
+
+  it('composes the held-work answer, naming each held file, for an after-prompt holding-work', () => {
+    const [decision] = freshAgentDecisions([spentReading({ ending: 'holding-work', heldFiles: ['a.ts'] })], 2);
+    expect(decision?.verdict).toBe('start-fresh');
+    expect(decision?.answer).toMatch(/^- a\.ts$/m);
+    expect(decision?.answer).not.toContain('correction budget');
+  });
+
+  it('a take-up holding-work gives release-claim, no answer, and no start', async () => {
+    const reading = spentReading({ ending: 'holding-work', refusedAssignment: 'feature/y', heldFiles: ['a.ts'] });
+    const decisions = freshAgentDecisions([reading], 2);
+    expect(decisions.map((d) => [d.verdict, d.answer, d.escalate])).toEqual([['release-claim', '', false]]);
+    const { starts, sealed, ports } = rig(started);
+    expect(await applyFreshAgentDecisions(decisions, ports)).toEqual([]);
+    expect(starts).toEqual([]);
+    expect(sealed).toEqual([]);
+  });
+});
+
 describe('freshAgentDecisions, escalation', () => {
   it('escalates a second spent budget once and not again after the declaration exists', () => {
     const [first] = freshAgentDecisions([spentReading({ priorFreshSessions: 1 })], 2);

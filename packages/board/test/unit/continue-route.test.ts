@@ -33,9 +33,15 @@ import {
 import type { ContinueDeps } from '../../src/server/continue.js';
 import type { FleetReading } from '../../src/contract/schema.js';
 import { rmTree } from '../helpers.mjs';
-import { agentsFs } from '@plot-pm/domain/adapters';
+import { agentsFs, freshAgentRecordFile } from '@plot-pm/domain/adapters';
 import type { DeskMonitors, MonitoredDesk } from '@plot-pm/domain';
 import { startFreshSession } from '../../src/server/entry/registryd-main.js';
+import {
+  applyFreshAgentDecisions,
+  freshAgentCandidateTrees,
+  freshAgentDecisions,
+  readFreshAgentCandidates,
+} from '../../src/server/entry/registryd.js';
 import { deskManifestFor } from '../../src/server/manifest-stamp.js';
 import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import {
@@ -1787,5 +1793,137 @@ describe('startFreshSession over the real registry, for a desk with no manifest'
     const result = await run(wt, dir);
     assert.equal(result.kind, 'refused');
     assert.deepEqual(fs.readdirSync(dir), []);
+  });
+});
+
+describe('the tick starts a fresh session on a desk whose ending asks for one, with no marker', () => {
+  const PLAN = '2026-10-07-every-loop-ending-has-a-supervisor-rule';
+
+  /** A marker-less desk whose loop ended `reason`, holding the uncommitted `a.ts`. */
+  const endedDesk = (reason: string, refusedAssignment = ''): string => {
+    const wt = worktree({ marker: false });
+    dirs.push(wt);
+    fs.writeFileSync(
+      path.join(wt, ENDING_FILENAME),
+      JSON.stringify({ reason, actor: 'agent', branch: BRANCH, detail: 'the loop ended', refusedAssignment }),
+    );
+    fs.writeFileSync(path.join(wt, 'a.ts'), 'export const held = 1;\n');
+    return wt;
+  };
+
+  /** One tick over one desk: the real record, the real registry, the real continue. */
+  const tickOver = async (wt: string) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fresh-tick-registry-'));
+    manifestDirs.push(dir);
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fresh-tick-home-'));
+    manifestDirs.push(home);
+    const record = freshAgentRecordFile({ home });
+    const candidates = freshAgentCandidateTrees([
+      { path: wt, branch: BRANCH, isMain: false, prunable: false, registered: false, planNamed: true, plan: PLAN, dirtyCount: 1 },
+    ]);
+    const readings = await readFreshAgentCandidates(
+      candidates,
+      (worktree, name) => {
+        try {
+          return fs.readFileSync(path.join(worktree, name), 'utf8');
+        } catch {
+          return null;
+        }
+      },
+      record,
+      async () => ['a.ts'],
+    );
+    const applied = await applyFreshAgentDecisions(freshAgentDecisions(readings, 2), {
+      record,
+      desk: { sealDeclaration: async () => ({ ok: true, value: undefined }) },
+      now: () => new Date('2026-10-08T12:00:00.000Z'),
+      start: ({ branch, worktree, answer, beforeStart }) =>
+        startFreshSession(
+          { branch, worktree, answer, main: 'main', beforeStart },
+          {
+            agents: agentsFs({ repoRoot: dir, scriptDir: dir }, { manifestDir: dir }),
+            command: 'true',
+            newSession: () => 'fresh-tick-1',
+            continueDesk: (i) =>
+              continueOnDesk({ ...i, readCfg: (_o, key, fallback) => (key === 'Worker command' ? 'true' : fallback) }),
+            opts: { ...opts, manifestDir: dir },
+          },
+        ),
+    });
+    if (applied.some((a) => a.outcome === 'started')) spawned.add(wt);
+    const rows = await record.rowsFor(PLAN, BRANCH);
+    return { applied, rows: rows.ok ? rows.value : [] };
+  };
+
+  it('starts one session for an after-prompt holding-work desk, records it, and names the held file', async () => {
+    const wt = endedDesk('holding-work');
+    const { applied, rows } = await tickOver(wt);
+    assert.deepEqual(applied.map((a) => a.outcome), ['started'], JSON.stringify(applied));
+    assert.equal(rows.length, 1);
+    const prompt = fs.readFileSync(path.join(wt, CONTINUATION_NAME), 'utf8');
+    assert.match(prompt, /^- a\.ts$/m);
+    assert.equal(fs.readFileSync(path.join(wt, 'a.ts'), 'utf8'), 'export const held = 1;\n', 'the held work is kept');
+  });
+
+  it('starts one session for a turn-limit desk and records it', async () => {
+    const wt = endedDesk('turn-limit');
+    const { applied, rows } = await tickOver(wt);
+    assert.deepEqual(applied.map((a) => a.outcome), ['started'], JSON.stringify(applied));
+    assert.equal(rows.length, 1);
+    assert.match(fs.readFileSync(path.join(wt, CONTINUATION_NAME), 'utf8'), /Agent max turns/);
+    assert.equal(fs.existsSync(path.join(wt, 'a.ts')), true, 'the held work is kept');
+  });
+
+  it('starts nothing and records nothing for a take-up holding-work desk', async () => {
+    const wt = endedDesk('holding-work', 'feature/another-slice');
+    const { applied, rows } = await tickOver(wt);
+    assert.deepEqual(applied, []);
+    assert.equal(rows.length, 0);
+    assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false);
+  });
+});
+
+describe('a fresh start takes its precondition from the ending, an answer from the marker', () => {
+  const ended = (reason: string, branch = BRANCH, refusedAssignment = ''): string => {
+    const wt = worktree({ marker: false });
+    dirs.push(wt);
+    fs.writeFileSync(
+      path.join(wt, ENDING_FILENAME),
+      JSON.stringify({ reason, actor: 'agent', branch, detail: '', refusedAssignment }),
+    );
+    return wt;
+  };
+  const call = (wt: string, fresh: boolean) =>
+    continueOnDesk({
+      opts: optsFor(wt),
+      readCfg: (_o, key, fallback) => (key === 'Worker command' ? 'true' : fallback),
+      branch: BRANCH,
+      worktree: wt,
+      main: 'main',
+      previousPid: '',
+      answer: 'go',
+      fresh,
+    });
+
+  it('a non-fresh continue on a marker-less holding-work desk still refuses no-question', async () => {
+    const result = await call(ended('holding-work'), false);
+    assert.equal(result.kind === 'refused' && result.reason, 'no-question');
+  });
+
+  it('a fresh start refuses no-question where the ending names another branch', async () => {
+    const result = await call(ended('holding-work', 'feature/elsewhere'), true);
+    assert.equal(result.kind === 'refused' && result.reason, 'no-question');
+  });
+
+  it('a fresh start refuses no-question for an ending no fresh session answers', async () => {
+    for (const reason of ['blocked', 'spend-limit', 'nothing-done']) {
+      const result = await call(ended(reason), true);
+      assert.equal(result.kind === 'refused' && result.reason, 'no-question', reason);
+    }
+  });
+
+  it('a fresh start refuses no-question for a take-up holding-work ending', async () => {
+    const result = await call(ended('holding-work', BRANCH, 'feature/another-slice'), true);
+    assert.equal(result.kind === 'refused' && result.reason, 'no-question');
   });
 });
