@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Approved:** 2026-10-02, jwloka, in-session
 - **Type:** infra
 - **Sprint:** the-fleet-runs-through-its-limits
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-03, jwloka, `infra/a-worker-starts-without-unused-context`
 - **Started:** 2026-10-03, jwloka, `docs/the-master-agent-briefs-rather-than-forks`
 - **Delivered:** 2026-10-03
+- **Released:** 2026-10-04, v2.23.0
 
 ## Changelog
 
