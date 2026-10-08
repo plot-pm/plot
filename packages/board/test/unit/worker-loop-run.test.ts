@@ -44,6 +44,8 @@ import {
   quietReading,
   readPass,
   runEvidence,
+  plansMentioning,
+  sliceAgentOf,
   stderrLog,
   systemSleep,
   readResetRefusals,
@@ -315,6 +317,99 @@ describe('runWorkerLoop — a prompt', () => {
     expect(await runWorkerLoop(r.deps)).toBe(1);
     expect(r.runs).toHaveLength(0);
     expect(r.logs.join('\n')).toContain('bad charter');
+  });
+
+  describe('a slice carries its own charter', () => {
+    /** Writes a real charter file at the rig's `.plot/charters/<name>.json`. */
+    const writeCharter = (r: { dir: string }, name: string, fields: Record<string, unknown> = {}) => {
+      const dir = path.join(r.dir, '.plot', 'charters');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify({ name, prompt: '.plot/other-prompt.sh', ...fields }));
+    };
+
+    it('runs the command runner with the slice charter\'s prompt file, not the start-time one', async () => {
+      const r = rig(ASSIGNED, [{ during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') }], {
+        agent: 'start-agent',
+        sliceAgent: () => 'slice-agent',
+        resolvePrompt: (_root, agent) => (agent === 'slice-agent' ? 'declared\t.plot/other-prompt.sh\tx' : 'declared\t.plot/worker-prompt.sh\tx'),
+        runnerFor: async () => ({ runner: 'command' }),
+      });
+      writeCharter(r, 'slice-agent');
+      await runWorkerLoop(r.deps);
+      expect(r.runs).toHaveLength(1);
+      expect(r.runs[0].args.join(' ')).toContain('.plot/other-prompt.sh');
+    });
+
+    it('rebuilds the sdk runner deps for the slice charter, reaching the model on the request', async () => {
+      const requests: { model: string; effort: string }[] = [];
+      const sdkFor = (model: string) => ({
+        prompt: () => 'go',
+        model,
+        effort: 'high',
+        maxTurns: null,
+        maxSpendUsd: null,
+        contextWindow: 0,
+        capabilities: [],
+        runChecks: async () => ({ passed: true, command: '' }),
+        agentRun: () => ({
+          run: async (request: { model: string; effort: string }) => {
+            requests.push({ model: request.model, effort: request.effort });
+            return { ok: true, value: { end: { answer: 'ran', handBack: null }, handBack: null, sessionId: '' } };
+          },
+        }),
+      });
+      const r = rig(ASSIGNED, [], {
+        agent: 'start-agent',
+        runner: 'sdk',
+        sdk: sdkFor('start-model') as unknown as LoopDeps['sdk'],
+        sliceAgent: () => 'slice-agent',
+        runnerFor: async (agent) => ({ runner: 'sdk', sdk: sdkFor(agent === 'slice-agent' ? 'slice-model' : 'start-model') as unknown as LoopDeps['sdk'] }),
+      });
+      writeCharter(r, 'slice-agent', { model: 'slice-model' });
+      await runWorkerLoop(r.deps);
+      expect(requests).toEqual([{ model: 'slice-model', effort: 'high' }]);
+    });
+
+    it('leaves the start-time charter in place when the slice names no agent', async () => {
+      const r = rig(ASSIGNED, [{ during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: q\n') }], {
+        agent: 'start-agent',
+        sliceAgent: () => null,
+        runnerFor: async () => {
+          throw new Error('runnerFor must not be called when the slice names no agent');
+        },
+      });
+      await runWorkerLoop(r.deps);
+      expect(r.runs).toHaveLength(1);
+    });
+
+    it('refuses the take-up when the slice names an unreadable charter, running no prompt', async () => {
+      const r = rig(ASSIGNED, [], {
+        agent: 'start-agent',
+        sliceAgent: () => 'bad-agent',
+        runnerFor: async () => {
+          throw new Error('runnerFor must not be called on a refused charter');
+        },
+      });
+      const dir = path.join(r.dir, '.plot', 'charters');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'bad-agent.json'), 'not json');
+      await runWorkerLoop(r.deps);
+      expect(r.runs).toHaveLength(0);
+      expect(r.logs.join('\n')).toMatch(/bad-agent.*refusing the take-up/);
+      expect(r.ports.refusedSlices).toMatchObject({ branches: [BRANCH] });
+      expect(r.calls.clearedAssignments).toEqual([ASSIGNED.session]);
+    });
+
+    it('keeps the start-time runner deps when the slice names a readable agent and deps carries no runnerFor', async () => {
+      const r = rig(ASSIGNED, [], {
+        agent: 'start-agent',
+        sliceAgent: () => 'slice-agent',
+        runnerFor: undefined,
+      });
+      writeCharter(r, 'slice-agent');
+      await runWorkerLoop(r.deps);
+      expect(r.runs).toHaveLength(1);
+    });
   });
 
   it('retries a prompt that never started, then ends 1 (row 7)', async () => {
@@ -1220,6 +1315,103 @@ describe('main', () => {
       expect(await driven(main({ PLOT_WORKTREE: r.wt, PLOT_MANIFEST_FILE: r.manifestFile, PLOT_WORKER_BOUND: '1' }, r.dir, config, noStop))).toBe(124);
     }
   });
+
+});
+
+describe('plansMentioning and sliceAgentOf — the real charter resolver', () => {
+  const scripts = path.join(__dirname, '../../../../skills/plot/scripts');
+  const writePlan = (planDir: string, name: string, body: string): void => {
+    fs.mkdirSync(planDir, { recursive: true });
+    fs.writeFileSync(path.join(planDir, name), body);
+  };
+  const slicesPlan = (branch: string, agentNote: string): string =>
+    ['# A fixture plan', '', '## Status', '', '- **State:** Approved', '', '## Slices', '', '### One', '', `- \`${branch}\`${agentNote} — does a thing.`, ''].join('\n');
+
+  it('finds no files in a directory that does not exist, and none in one with no mention of the branch', () => {
+    const r = rig(null, []);
+    expect(plansMentioning(path.join(r.dir, 'absent'), BRANCH)).toEqual([]);
+    const planDir = path.join(r.dir, 'plans');
+    writePlan(planDir, 'p.md', slicesPlan('infra/other', ' <!-- agent: reviewer -->'));
+    expect(plansMentioning(planDir, BRANCH)).toEqual([]);
+  });
+
+  it('finds only the .md files whose text mentions the branch, ignoring non-markdown files', () => {
+    const r = rig(null, []);
+    const planDir = path.join(r.dir, 'plans');
+    writePlan(planDir, 'a.md', slicesPlan(BRANCH, ' <!-- agent: reviewer -->'));
+    writePlan(planDir, 'b.md', slicesPlan('infra/other', ''));
+    fs.writeFileSync(path.join(planDir, 'notes.txt'), BRANCH);
+    expect(plansMentioning(planDir, BRANCH)).toEqual([path.join(planDir, 'a.md')]);
+  });
+
+  it('skips a .md entry it cannot read as text, such as a directory named *.md', () => {
+    const r = rig(null, []);
+    const planDir = path.join(r.dir, 'plans');
+    fs.mkdirSync(path.join(planDir, 'unreadable.md'), { recursive: true });
+    writePlan(planDir, 'a.md', slicesPlan(BRANCH, ' <!-- agent: reviewer -->'));
+    expect(plansMentioning(planDir, BRANCH)).toEqual([path.join(planDir, 'a.md')]);
+  });
+
+  it("resolves the declared agent off the real parser, and null for a branch with no agent annotation", () => {
+    const r = rig(null, []);
+    const planDir = path.join(r.dir, 'plans');
+    writePlan(planDir, 'a.md', slicesPlan(BRANCH, ' <!-- agent: reviewer -->'));
+    expect(sliceAgentOf(r.dir, scripts, planDir, BRANCH)).toBe('reviewer');
+
+    const noAgentDir = path.join(r.dir, 'no-agent');
+    writePlan(noAgentDir, 'a.md', slicesPlan(BRANCH, ''));
+    expect(sliceAgentOf(r.dir, scripts, noAgentDir, BRANCH)).toBeNull();
+  });
+
+  it('answers null for a branch with no mentioning plan, and for a plan that mentions it outside any Slices row', () => {
+    const r = rig(null, []);
+    const planDir = path.join(r.dir, 'plans');
+    expect(sliceAgentOf(r.dir, scripts, planDir, BRANCH)).toBeNull();
+    writePlan(planDir, 'a.md', `the text names ${BRANCH} in prose with no Slices section at all\n`);
+    expect(sliceAgentOf(r.dir, scripts, planDir, BRANCH)).toBeNull();
+  });
+
+  it('answers null where the shell call itself fails', () => {
+    const r = rig(null, []);
+    const planDir = path.join(r.dir, 'plans');
+    writePlan(planDir, 'a.md', slicesPlan(BRANCH, ' <!-- agent: reviewer -->'));
+    expect(sliceAgentOf(r.dir, path.join(os.tmpdir(), 'no-such-scripts-dir'), planDir, BRANCH)).toBeNull();
+  });
+
+  it('skips a malformed JSON line and a wave or row missing its array, reading on to the next line', () => {
+    const r = rig(null, []);
+    const planDir = path.join(r.dir, 'plans');
+    writePlan(planDir, 'a.md', slicesPlan(BRANCH, ' <!-- agent: reviewer -->'));
+    const stubDir = path.join(r.dir, 'stub-scripts');
+    fs.mkdirSync(stubDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stubDir, 'plot-plan-meta.sh'),
+      [
+        '#!/usr/bin/env bash',
+        'echo "not json"',
+        'echo \'{}\'',
+        'echo \'{"waves":[{}]}\'',
+        `echo '{"waves":[{"branches":[{}]}]}'`,
+        `echo '{"waves":[{"branches":[{"branch":"${BRANCH}"}]}]}'`,
+      ].join('\n'),
+      { mode: 0o755 },
+    );
+    expect(sliceAgentOf(r.dir, stubDir, planDir, BRANCH)).toBeNull();
+  });
+
+  it('reads a declared but falsy agent as the empty string rather than falling through', () => {
+    const r = rig(null, []);
+    const planDir = path.join(r.dir, 'plans');
+    writePlan(planDir, 'a.md', slicesPlan(BRANCH, ' <!-- agent: reviewer -->'));
+    const stubDir = path.join(r.dir, 'stub-scripts-null-agent');
+    fs.mkdirSync(stubDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stubDir, 'plot-plan-meta.sh'),
+      ['#!/usr/bin/env bash', `echo '{"waves":[{"branches":[{"branch":"${BRANCH}","agent":null}]}]}'`].join('\n'),
+      { mode: 0o755 },
+    );
+    expect(sliceAgentOf(r.dir, stubDir, planDir, BRANCH)).toBe('');
+  });
 });
 
 describe('main — configuration', () => {
@@ -1240,6 +1432,7 @@ describe('main — configuration', () => {
       'Worker bound',
       'Agent runner',
       'Worker command',
+      'Plan directory',
       'Checks wait',
       'Correction budget',
       'Slice max runs',
