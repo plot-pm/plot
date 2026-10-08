@@ -1,14 +1,13 @@
-import type { EndingReason } from '../entities/ending.js';
+import type { EndingReading, EndingReason } from '../entities/ending.js';
 import type { CommitReading } from './sample.js';
 
 /**
  * What one tick read of a desk whose worker ended, for {@link endingAction}
  * alone to answer.
  *
- * **THE DESK, NOT THE REGISTRY.** The same reason `FreshAgentReadings`
- * (`rules/fresh-agent.ts`) reads the desk rather than an agent entry: a
- * manifest is gone by the time a worker's loop has ended, and a rule keyed on
- * a registry entry never sees this ending at all.
+ * **THE DESK, NOT THE REGISTRY.** A manifest is gone by the time a worker's
+ * loop has ended, so a rule keyed on a registry entry never sees this ending
+ * at all.
  */
 export interface EndingActionReadings {
   /** The ending this desk's worker wrote, or `null` where none was written or it could not be read. */
@@ -24,18 +23,14 @@ export interface EndingActionReadings {
    * Whether a manifest already names this desk.
    *
    * **A DESK THE TICK IS ABOUT TO START IS NOT A DESK WITH NO MANIFEST.**
-   * Mirrors `FreshAgentReadings.hasManifest`'s own reasoning: the ending and
-   * the manifest's removal are not one atomic write, so a desk a start
-   * already has in flight answers `leave` for every reason — acting on the
-   * ending here would race that start.
+   * The ending and the manifest's removal are not one atomic write, so a
+   * desk a start already has in flight answers `leave` for every reason —
+   * acting on the ending here would race that start.
    */
   readonly hasManifest: boolean;
   /**
    * How many fresh sessions this slice already had, from
-   * `.plot/state/fresh-agents.tsv`, counted across every ending reason —
-   * the same count {@link FreshAgentReadings} and
-   * {@link FreshAgentTurnLimitReadings} already shared before this file took
-   * over their rows.
+   * `.plot/state/fresh-agents.tsv`, counted across every ending reason.
    *
    * **A MISSING OR UNREADABLE RECORD IS `0`, NEVER A REFUSAL AND NEVER A
    * SECOND SESSION'S PROOF.** Absence can start one session too many; it
@@ -84,7 +79,10 @@ export type PrOpenReading = boolean | 'unanswerable';
  */
 export type EndingActionVerdict = 'release-claim' | 'start-fresh' | 'needs-a-person' | 'leave';
 
-/** The three ending reasons that can earn a slice one fresh session. */
+/**
+ * The two ending reasons that earn a slice one fresh session without a
+ * condition; `holding-work`, the third, earns one only after a prompt.
+ */
 const FRESH_SESSION_ENDINGS = new Set<EndingReason>(['corrections-spent', 'turn-limit']);
 
 /**
@@ -94,8 +92,8 @@ const FRESH_SESSION_ENDINGS = new Set<EndingReason>(['corrections-spent', 'turn-
  * An assignment equal to the ending's branch is the desk's own branch, so
  * releasing it would reach the unlanded work the ending reports.
  */
-const takeUpRefused = (readings: EndingActionReadings): boolean =>
-  readings.refusedAssignment !== '' && readings.refusedAssignment !== readings.branch;
+const takeUpRefused = (refusedAssignment: string, branch: string): boolean =>
+  refusedAssignment !== '' && refusedAssignment !== branch;
 
 /**
  * Decides what the supervisor's tick should do about a desk whose worker
@@ -137,7 +135,7 @@ const takeUpRefused = (readings: EndingActionReadings): boolean =>
 export const endingAction = (readings: EndingActionReadings): EndingActionVerdict => {
   if (readings.hasManifest) return 'leave';
   if (readings.ending === 'holding-work') {
-    if (takeUpRefused(readings)) return 'release-claim';
+    if (takeUpRefused(readings.refusedAssignment, readings.branch)) return 'release-claim';
     return readings.priorFreshSessions > 0 ? 'needs-a-person' : 'start-fresh';
   }
   if (readings.ending !== null && FRESH_SESSION_ENDINGS.has(readings.ending)) {
@@ -147,6 +145,28 @@ export const endingAction = (readings: EndingActionReadings): EndingActionVerdic
   if (readings.commitBeyondClaim !== 'no') return 'leave';
   if (readings.prOpen !== false) return 'leave';
   return 'release-claim';
+};
+
+/**
+ * Whether a desk's ending is one {@link endingAction} answers `start-fresh`
+ * for while the slice has had no fresh session: `corrections-spent`,
+ * `turn-limit`, or an after-prompt `holding-work`, written for `branch`.
+ *
+ * A fresh start reads this as its precondition in place of a `PLOT-BLOCKED`
+ * marker. `holding-work` and `turn-limit` end with no marker in the tree, so
+ * a precondition that asks only for a marker refuses every such start.
+ *
+ * @param ending - the desk's `.plot-worker.ending.json`, read as a value.
+ * @param branch - the branch the start is for.
+ * @returns true where the ending was read, names `branch`, and is one of the
+ *   three; false for an absent or unreadable ending, another branch, a
+ *   take-up `holding-work`, and every other reason.
+ */
+export const endingAsksFreshStart = (ending: EndingReading, branch: string): boolean => {
+  if (ending.read !== 'ended' || ending.ending.branch !== branch) return false;
+  const { reason, refusedAssignment } = ending.ending;
+  if (reason === 'holding-work') return !takeUpRefused(refusedAssignment, branch);
+  return FRESH_SESSION_ENDINGS.has(reason);
 };
 
 /**

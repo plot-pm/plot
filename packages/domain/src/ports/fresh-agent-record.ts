@@ -19,12 +19,12 @@ export interface FreshAgentRecord {
 
 /**
  * Reads and appends `.plot/state/fresh-agents.tsv` — one row per fresh
- * session the supervisor started for a slice that spent its correction
- * budget.
+ * session the supervisor started for a slice whose ending earned one:
+ * `corrections-spent`, `turn-limit`, or an after-prompt `holding-work`.
  *
  * **A PORT, NOT A FILE WRITE IN THE TICK.** The layering rule points inward:
  * the tick is a controller and must call the domain and never reach the
- * world itself. This is the one write {@link freshAgentAfterCorrections}'s
+ * world itself. This is the one write `endingAction`'s
  * `start-fresh` verdict needs — recording that a slice already had its one
  * fresh session — and the adapter is the only thing allowed to touch the
  * disk for it.

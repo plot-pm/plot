@@ -406,7 +406,7 @@ export interface EndingAttributionInput {
  * clock expired and no monitor published anything, because the loop itself
  * counts corrections and decides when the budget is gone. It was folded into
  * `unstarted` until `a-spent-correction-budget-gets-a-fresh-agent`, which gave
- * it its own value so `freshAgentAfterCorrections` could tell *the build kept
+ * it its own value so `endingAction` could tell *the build kept
  * failing* apart from *the prompt never ran* without parsing `detail`'s prose.
  *
  * **`turn-limit`, `run-limit` AND `spend-limit` ARE THE EIGHTH, NINTH AND

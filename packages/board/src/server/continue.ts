@@ -24,6 +24,7 @@ import {
 } from '@plot-pm/domain/rules/desk-loop-alive';
 import { continueTarget } from '@plot-pm/domain/rules/continue-target';
 import { readEnding, ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
+import { endingAsksFreshStart } from '@plot-pm/domain/rules/ending-action';
 import { readDeskPid, resolveManifestDir } from './registry.js';
 
 /**
@@ -537,6 +538,9 @@ export interface DeskContinuationInput {
    * transcript exists for it. With `fresh`, the manifest's `resumeId` is
    * replaced by a new id before the start, so the loop finds no transcript and
    * creates a session. Absent or false, the manifest is left as it is.
+   *
+   * With `fresh`, the desk's ending can stand in for a missing
+   * `PLOT-BLOCKED` marker; see {@link continueOnDesk}.
    */
   fresh?: boolean;
   /**
@@ -800,10 +804,15 @@ const startMonitors = (input: {
  * marker, with `answer` in its prompt.
  *
  * Both callers share this: `POST /api/continue` after it has found the desk
- * through the pulse, and the registry tick for a desk whose correction budget
- * is spent. The refusals are the route's own, in the route's own order: no
- * marker, no `Worker command`, no single manifest naming the desk. Each
+ * through the pulse, and the registry tick for a desk whose ending earns a
+ * fresh session. The refusals are the route's own, in the route's own order:
+ * no marker, no `Worker command`, no single manifest naming the desk. Each
  * refusal happens before any write to the desk.
+ *
+ * With `fresh`, a desk with no marker is accepted where its ending is one
+ * `endingAsksFreshStart` names for `branch`: `corrections-spent`,
+ * `turn-limit`, or an after-prompt `holding-work`. A marker that is present
+ * is still the prompt's question.
  *
  * @param input - the desk, the answer, and how to start.
  * @returns the started run, a refusal with its HTTP status and reason, or a
@@ -820,8 +829,13 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
 
   // Read the question BEFORE spawning, and refuse when there is none. This is
   // both the precondition and the prompt's first section — see the header.
+  // A FRESH START TAKES ITS PRECONDITION FROM THE ENDING INSTEAD, because
+  // `holding-work` and `turn-limit` write no marker. The non-fresh path still
+  // requires the marker.
   const question = await markerIn(worktree);
-  if (!question) {
+  const ending = deskEnding(worktree);
+  const freshAsked = input.fresh === true && endingAsksFreshStart(ending, branch);
+  if (!question && !freshAsked) {
     return refused(
       409,
       'no-question',
@@ -860,11 +874,12 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
   const target = continueTarget({
     branch,
     manifest: manifestAnswer,
-    ending: deskEnding(worktree),
+    ending,
     // Always true here — the route already refused `no-question` above,
-    // before `Worker command` was even read. `continueTarget` still asks the
-    // marker as its own first check (see its docblock), so this reading keeps
-    // the rule's own order intact for any other caller.
+    // before `Worker command` was even read, for a desk with neither a marker
+    // nor an ending that asks for a fresh start. `continueTarget` still asks
+    // the marker as its own first check (see its docblock), so this reading
+    // keeps the rule's own order intact for any other caller.
     question: true,
     loop,
     loopWaitsFree,
