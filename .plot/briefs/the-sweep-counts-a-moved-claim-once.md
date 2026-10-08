@@ -31,7 +31,7 @@ Update the section 14 prose, the header entry at `:113-121` and the comment bloc
 
 **Terminal is four phases, not two.** Issue #1343 lists `delivered`, `released`, `superseded`, `rejected`. A test that only covers `released` passes an implementation that stops at `released`.
 
-**The section reads the parser, never a second grep.** The claim set, the wave and the phase all come from `plot_json` of `plot-plan-meta.sh`. Re-deriving "is this plan finished" from a `State:` line here reproduces the defect section 14's own comment names. Do not add a second reader.
+**The section reads the parser, never a second grep.** The claim set, the wave and the phase all come from `plan_json`, the output of `plot-plan-meta.sh`. Re-deriving "is this plan finished" from a `State:` line here reproduces the defect section 14's own comment names. Do not add a second reader.
 
 **The section still does not gate.** It stays below the `== blocking sections end ==` marker and `attention=` is unchanged. The existing tests *"a double claim leaves attention= unchanged"* and *"sits below the blocking-sections marker"* hold this; keep them green.
 
@@ -65,6 +65,6 @@ Open the PR with `skills/plot/scripts/plot-open-pr.sh` (`--draft` while the work
 
 ### Scope guard
 
-This branch owns `skills/plot/scripts/plot-reconcile-scan.sh` (section 14 and its prose), `test/reconcile/scan.test.mjs` (the section 14 fixture) and one changeset. Wave 4 holds `packages/board/build.mjs` and `packages/board/.gitignore`; waves 1 and 2 have merged. Verified at brief time: no commit on `main` has touched the scan or its test since the plan's approval commit `a778bda0d`.
+This branch owns `skills/plot/scripts/plot-reconcile-scan.sh` (section 14 and its prose), `test/reconcile/scan.test.mjs` (the section 14 fixture) and one changeset. Wave 4 holds `packages/board/build.mjs` and `packages/board/.gitignore`; waves 1 and 2 have merged. Verified at brief time: no commit on `main` has touched the scan or its test since `a778bda0d`, the commit the plan measures against.
 
 If you find something the plan did not anticipate, report it rather than improvising outside scope.
