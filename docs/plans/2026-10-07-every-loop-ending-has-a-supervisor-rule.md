@@ -15,6 +15,7 @@
 - **Started:** 2026-10-08, jwloka, `infra/an-ending-that-held-nothing-releases-its-claim`
 - **Started:** 2026-10-08, jwloka, `infra/held-work-gets-a-fresh-agent`
 - **Started:** 2026-10-08, jwloka, `infra/an-unrepaired-ending-asks-a-person`
+- **Started:** 2026-10-08, jwloka, `infra/a-fresh-start-has-its-question`
 
 ## Motivation
 
