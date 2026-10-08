@@ -62,4 +62,6 @@ Branches of other plans that touch the same files, verified 2026-10-08 against `
 - `infra/an-ending-that-held-nothing-releases-its-claim` changes `packages/board/src/server/entry/worker-loop.ts`. Rebase onto `main` before the PR, keep both sides on a conflict, and re-read `EndingReason` and `readEnding` from `main` because the reason list may have moved.
 - `bug/local-checks-find-tests-in-a-temp-worktree` is the blocked desk of the measured case. It touches none of this wave's files. Do not answer its question or edit its desk from this branch.
 
+Issue #1373 lists nine follow-up findings from the review of #1372, several in code this branch edits. Fix only the one on the `loop-alive` detail: `continue.ts:766` builds it with `loop.kind === 'alive' ? loop.pid : ''` twice, so narrow `loop.kind` once while that line changes. The rest (manifest cleanup after a failed step, the resume-id test, the third manifest writer outside the corpus parity test, the refusal order, the declaration helper in `continue-route.test.ts`, the narrating TSDoc) belong to #1373. Report any this branch makes worse instead of folding them in.
+
 If you find something the plan did not anticipate, report it rather than improvising outside scope.
