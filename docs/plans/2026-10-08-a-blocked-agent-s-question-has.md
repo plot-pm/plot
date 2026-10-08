@@ -11,6 +11,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-10-08, jwloka, in-session
+- **Started:** 2026-10-08, jwloka, `feature/a-blocked-ending-routes-its-answer`
 
 ## Changelog
 
