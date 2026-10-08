@@ -3605,7 +3605,8 @@ case "$op" in
         *) die "pr-merged: unknown arg $1" ;;
       esac
     done
-    if [ "$be" = "github" ]; then
+    # NO REMOTE, NO PR: no repository holds one, so nothing merged, whatever gh's auth says.
+    if [ ${#repo_args[@]} -eq 0 ] && [ -z "$(git remote 2>/dev/null)" ]; then echo "not-merged"; elif [ "$be" = "github" ]; then
       # --state all, because a merged PR reports CLOSED and the default `open`
       # would hide every one of them. --limit 100 rather than 1: the newest PR
       # is not the merge, exactly as the state is not the merge.

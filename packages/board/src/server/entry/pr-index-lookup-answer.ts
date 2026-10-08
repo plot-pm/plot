@@ -1,4 +1,5 @@
 import type { PrIndex, PrIndexRow } from '@plot-pm/domain/entities/pr-index';
+import { isTerminalRow, mergedRowByHead } from '@plot-pm/domain/rules/merged-row';
 
 /**
  * What one query asks the store about a branch of a plan.
@@ -13,26 +14,6 @@ export interface PrIndexQuery {
   /** The branch to match against heads, or null where the number is given. */
   branch: string | null;
 }
-
-/**
- * The one state a stored row may be trusted for, however old the row is.
- *
- * **A MERGED PR CANNOT REVERT ON THE HOST.** That is the whole licence, and it
- * is `PLOT_TERMINAL_CACHE`'s (`plot-fleet-scan.sh:1234`) rather than a new one:
- * an entry records what a tool said, and an answer that cannot change is the
- * only kind that stays true without being revalidated.
- *
- * `OPEN`, `CLOSED` and a draft are all reachable from one another — an open PR
- * merges, a closed one reopens, a draft is marked ready — so a stored one is
- * stale in EITHER direction and the host is asked, exactly as today. Trusting a
- * stale `OPEN` would hold up a delivery whose PR had landed; trusting a stale
- * `CLOSED` would report abandoned work as finished.
- *
- * The effect on the case that matters: `/plot-deliver` runs when every slice
- * has merged, so the common path reads every branch from the store and makes
- * ZERO host calls.
- */
-const TERMINAL = 'MERGED';
 
 /**
  * The word that tells the shell to ask the host.
@@ -59,44 +40,6 @@ const NONE = '-';
 const rowByNumber = (held: PrIndex, number: number): PrIndexRow | undefined =>
   held.rows.find((row) => row.number === number);
 
-/**
- * The MERGED row whose head is this branch, or undefined where none is.
- *
- * **MERGED ONLY, WHICH MIRRORS THE HOST CALL IT REPLACES.** The shell's
- * un-annotated arm asks `pr-list --state merged` and matches heads against that
- * list, so a branch carrying only an open PR resolves to nothing there and must
- * resolve to nothing here. Matching any state would make the store's answer
- * WIDER than the host's, which is a behaviour change dressed as a cache.
- *
- * **THE LOWEST NUMBER WINS, WHICH IS ARBITRARY AND MUST BE STABLE.** A branch
- * may carry several merged PRs over its life — a slice re-opened after a
- * revert, or the duplicate PRs the fleet has been measured opening for itself.
- * The shell's `awk` takes the FIRST line of a host list it does not sort, so
- * neither side promises which; sorting by number at least makes this side
- * repeatable, and the delivery gate reads only that a merged PR exists.
- *
- * @param held - the store, already read.
- * @param branch - the branch to match against heads.
- * @returns the lowest-numbered merged row for the branch, or undefined.
- */
-const mergedRowByHead = (held: PrIndex, branch: string): PrIndexRow | undefined =>
-  held.rows
-    .filter((row) => row.head === branch && row.state.toUpperCase() === TERMINAL)
-    .sort((a, b) => a.number - b.number)[0];
-
-/**
- * Whether a row may be answered from without asking the host.
- *
- * A draft is asked about whatever its state says: a draft PR is by definition
- * one still being changed, and the shell reports `draft` to a gate that reads
- * it. A merged row is never a draft on any host, so this costs nothing in the
- * case the slice exists for.
- *
- * @param row - the row the store holds.
- * @returns whether the row's answer can no longer change.
- */
-const isTerminal = (row: PrIndexRow): boolean =>
-  row.state.toUpperCase() === TERMINAL && !row.draft;
 
 /**
  * One answer line: the row's fields, or `ask`.
@@ -115,7 +58,7 @@ const isTerminal = (row: PrIndexRow): boolean =>
  * @returns `<number>\t<state>\t<draft>\t<url>\t<head>`, or the ask line.
  */
 const lineFor = (row: PrIndexRow | undefined): string => {
-  if (row === undefined || !isTerminal(row)) {
+  if (row === undefined || !isTerminalRow(row)) {
     return `${NONE}\t${ASK}\t${NONE}\t${NONE}\t${NONE}\n`;
   }
   // The url may be `''` where the host's CLI predates it, and that absence
