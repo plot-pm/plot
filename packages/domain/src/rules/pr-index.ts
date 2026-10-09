@@ -281,10 +281,11 @@ const wholenessAfter = (held: PrIndex | null, kind: PrAnswerKind): boolean => {
  * ever replaces it — `updatedAt` does not move when a check run completes
  * (#1277).
  *
- * **ONLY `OPEN`.** A `MERGED` or `CLOSED` row is terminal — *A Decision Reads
- * The Index* states "a `MERGED` row cannot revert" — so re-asking one spends a
- * question on a head nobody can act on. A stored `pending` on a merged or
- * closed row is left exactly as held.
+ * **ONLY `OPEN`.** A `MERGED` row is terminal in the sense that matters here —
+ * its head will never move again — but its CHECKS verdict can still be the
+ * host's unfinished answer at the moment it merged, which is what
+ * {@link pendingMergedPrNumbers} re-asks about. A `CLOSED` row is left exactly
+ * as held: nothing reads a closed PR's checks, so there is no reader to fix.
  *
  * @param held - the store as it was read, or null where there was none.
  * @returns the numbers of the `OPEN` rows whose stored `checks` is `pending`.
@@ -293,6 +294,28 @@ export const pendingOpenPrNumbers = (held: PrIndex | null): readonly number[] =>
   if (held === null) return [];
   return held.rows
     .filter((row) => row.state === 'OPEN' && row.checks === 'pending')
+    .map((row) => row.number);
+};
+
+/**
+ * The numbers of the merged PRs a delta must ask about again.
+ *
+ * **A PR CAN MERGE WHILE ITS LAST CHECK RUN IS STILL GOING.** `updatedAt`
+ * moves at merge and never again, so the host's `pending` from that instant
+ * is the store's last word on the row's checks — nothing but asking again
+ * ever replaces it (#1418, the `MERGED` half of #1277's fix).
+ *
+ * **ONLY `MERGED`.** `prStates` already answers `['closed']` for a `CLOSED`
+ * row before it reads `checks` at all, so a closed PR's stored word has no
+ * reader to fix. A stored `pending` on a closed row is left exactly as held.
+ *
+ * @param held - the store as it was read, or null where there was none.
+ * @returns the numbers of the `MERGED` rows whose stored `checks` is `pending`.
+ */
+export const pendingMergedPrNumbers = (held: PrIndex | null): readonly number[] => {
+  if (held === null) return [];
+  return held.rows
+    .filter((row) => row.state === 'MERGED' && row.checks === 'pending')
     .map((row) => row.number);
 };
 

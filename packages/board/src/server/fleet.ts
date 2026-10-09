@@ -64,6 +64,7 @@ import {
   handedTo,
   issueAbsence,
   issueSource,
+  pendingMergedPrNumbers,
   pendingOpenPrNumbers,
   prWindowFor,
   type PrAnswerKind,
@@ -207,16 +208,17 @@ const PR_CONCURRENCY_START = null;
  * default so a host added later behaves exactly as every host did before, and
  * is slowed only once someone measures what it really costs.
  *
- * THE PENDING-CHECK RE-ASK (#1277) IS DELIBERATELY NOT COUNTED HERE. Every
- * other row in this table prices a request this file makes on EVERY refresh;
- * the re-ask fires only on a delta, and only when the store holds an OPEN PR
- * whose `checks` is still `pending` — on a quiet estate with no PR mid-CI, the
- * cost stays what it always was. Baking it into this static table would
- * stretch every GitHub refresh to pay for a question most refreshes never
- * ask, the over-declaring failure the paragraph above already names. What
- * bounds its real cost instead is `PR_PENDING_REASK_LIMIT`: a PR cannot be
- * re-asked more than a fixed number of consecutive times, so the worst case
- * is small and finite rather than one more request forever.
+ * THE PENDING-CHECK RE-ASKS (#1277, #1418) ARE DELIBERATELY NOT COUNTED HERE.
+ * Every other row in this table prices a request this file makes on EVERY
+ * refresh; both re-asks fire only on a delta, and only when the store holds a
+ * row — OPEN for #1277, MERGED for #1418 — whose `checks` is still `pending`
+ * — on a quiet estate with no PR mid-CI, the cost stays what it always was.
+ * Baking either into this static table would stretch every GitHub refresh to
+ * pay for a question most refreshes never ask, the over-declaring failure the
+ * paragraph above already names. What bounds their real cost instead is
+ * `PR_PENDING_REASK_LIMIT`, shared by both: a PR cannot be re-asked more than
+ * a fixed number of consecutive times, so the worst case is small and finite
+ * rather than one more request forever.
  */
 const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
   // One `gh pr list --state all` call, whatever the states asked for; the
@@ -266,8 +268,9 @@ const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
 };
 
 /**
- * How many consecutive re-asks a stuck-`pending` open PR survives before the
- * delta stops asking about it by number.
+ * How many consecutive re-asks a stuck-`pending` PR survives before the delta
+ * stops asking about it by number — shared by the OPEN re-ask (#1277) and the
+ * MERGED re-ask (#1418), each keyed by number in its own streak map.
  *
  * A check queue that never runs would otherwise be re-asked every delta
  * forever — one more request per refresh with no answer ever arriving. 5
@@ -278,6 +281,26 @@ const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
  * slice.
  */
 const PR_PENDING_REASK_LIMIT = 5;
+
+/**
+ * How many merged PRs the `MERGED`+`pending` re-ask (#1418) asks the host to
+ * list, newest first.
+ *
+ * **A FIXED WINDOW, NOT A SEARCH.** `pr-list` takes no number filter for
+ * `--state merged`, so this re-ask cannot ask "what is #1413 now" directly —
+ * it asks "list the newest N merged PRs, rich" and keeps only the askable
+ * numbers found in that page (#1228, ~190 PRs older than #1413, is left held
+ * rather than reached by raising this).
+ *
+ * **50, MEASURED ON THIS REPOSITORY 2026-10-09**: `pr-list --rich --state
+ * merged --limit 50` took 4.6 s. A pending check at merge belongs to a PR
+ * that merged minutes ago, so the newest-50 window reaches it by
+ * construction — the one row that matters is never far from the top of a
+ * newest-first page. Slice 1 (#1423) already stops a stale `pending` row from
+ * rendering, so a legacy row outside this window costs no screen, only an
+ * unfixed index entry.
+ */
+const PR_MERGED_REASK_LIMIT = 50;
 
 /**
  * How many PRs to ask the host for. The CLI's own default is 30, which is
@@ -961,8 +984,14 @@ export interface CacheEntry {
    */
   prFullReadFailedAt: number | null;
   /**
-   * How many consecutive re-asks a still-`pending` open PR has survived,
-   * keyed by number — see {@link PR_PENDING_REASK_LIMIT}.
+   * How many consecutive re-asks a still-`pending` PR has survived, keyed by
+   * number — see {@link PR_PENDING_REASK_LIMIT}.
+   *
+   * **ONE MAP FOR BOTH RE-ASKS.** A PR number is unique across the index
+   * regardless of state, so the OPEN re-ask (#1277) and the MERGED re-ask
+   * (#1418) share this map rather than each keeping their own — a PR cannot
+   * be both at once, so there is no number whose streak the two could
+   * disagree about.
    *
    * **IN MEMORY, LIKE {@link prFullReadFailedAt}, AND FOR THE SAME REASON.**
    * It is this process's count of what it asked; a restart has asked nothing
@@ -3236,8 +3265,11 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
     // would be the same question twice; it fires only on a delta.
     //
     // ONLY `OPEN` AND ONLY `pending` — `pendingOpenPrNumbers` is the same rule
-    // a unit test proves against a held store with no I/O. MERGED/CLOSED rows
-    // are terminal and are never re-asked even if stored as `pending`.
+    // a unit test proves against a held store with no I/O. `CLOSED` rows are
+    // never re-asked even if stored as `pending`: nothing reads a closed PR's
+    // checks. `MERGED` rows get their own re-ask below (#1418) — a PR's head
+    // is terminal at merge, but its checks verdict can still be the host's
+    // unfinished answer from that instant.
     if (window.since !== null) {
       const pending = pendingOpenPrNumbers(stored);
       // STUCK-PENDING BOUND: a PR whose check queue never runs would be
@@ -3301,6 +3333,80 @@ export async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Pr
           // 'whole'`, which this never is) nor the stored `pending` rows. The
           // outer catch owns the primary call's backoff; this one owns its own
           // and stops here.
+        }
+      }
+    }
+    // A PR CAN MERGE WHILE ITS LAST CHECK RUN IS STILL GOING, and `updatedAt`
+    // moves at merge and never again — so a `MERGED` row's stored `pending`
+    // is, like an `OPEN` one, the host's unfinished answer rather than its
+    // last word (#1418). `--rich --state open` above never returns a merged
+    // PR, so this is a second, separate question; `--rich-open` on a merged
+    // row answers `checks: 'unknown'`, which `withHeldVerdicts` would fold
+    // back into the held `pending` — the reason this asks `--rich` with
+    // `--state merged` rather than widening the open re-ask's own call.
+    //
+    // ONLY `MERGED` AND ONLY `pending` — `pendingMergedPrNumbers` is the same
+    // rule a unit test proves against a held store with no I/O.
+    if (window.since !== null) {
+      const pendingMerged = pendingMergedPrNumbers(stored);
+      // SAME BOUND, SAME MAP as the open re-ask above: a PR number is unique
+      // across the index regardless of state, so there is no number whose
+      // streak the two re-asks could disagree about.
+      const askableMerged = pendingMerged.filter((n) => (entry.prPendingReaskStreak.get(n) ?? 0)
+        < PR_PENDING_REASK_LIMIT);
+      if (askableMerged.length > 0) {
+        try {
+          const reaskedMerged = await withHostSlot(
+            entry, () => scriptsFor(opts).hostSaid(
+              ['pr-list', '--rich', '--state', 'merged', '--limit', String(PR_MERGED_REASK_LIMIT)],
+            ),
+          );
+          // THE SAME TREATMENT AS THE OPEN RE-ASK: a refusal or a partial
+          // answer leaves the stored `pending` rows exactly as held.
+          if (reaskedMerged.answer === 'answered') {
+            const stillPendingMerged = new Set(askableMerged);
+            for (const line of reaskedMerged.stdout.split('\n')) {
+              if (!line.trim()) continue;
+              const pr = JSON.parse(line) as PrRecord;
+              if (!stillPendingMerged.has(pr.number)) continue;
+              if (typeof pr.url !== 'string') pr.url = '';
+              if (typeof pr.mergeable !== 'string' || !pr.mergeable) pr.mergeable = 'unknown';
+              if (!Array.isArray(pr.failing_checks)) pr.failing_checks = [];
+              if (typeof pr.author !== 'string') pr.author = '';
+              // NEVER `map.set(pr.head, pr)`: a merged PR must not reach
+              // `classify` by head — the guard on the open re-ask above
+              // exists for exactly this, and a merged row has no business
+              // answering a question only an open head's verdict settles.
+              byNumber.set(pr.number, pr);
+              rows.push(storeRow(pr));
+              if (pr.head) {
+                const held = byHead.get(pr.head);
+                if (!held || prOutranks(pr, held)) byHead.set(pr.head, pr);
+              }
+              // THE SAME NO-PROGRESS TEST as the open re-ask: still `pending`
+              // with the same stored `updatedAt` grows the streak; anything
+              // else clears it.
+              const storedRow = stored?.rows.find((row) => row.number === pr.number);
+              const noProgress = pr.checks === 'pending'
+                && storedRow !== undefined && storedRow.updatedAt === pr.updatedAt;
+              if (noProgress) {
+                entry.prPendingReaskStreak.set(
+                  pr.number, (entry.prPendingReaskStreak.get(pr.number) ?? 0) + 1,
+                );
+              } else {
+                entry.prPendingReaskStreak.delete(pr.number);
+              }
+              stillPendingMerged.delete(pr.number);
+            }
+            // ASKED ABOUT AND ABSENT FROM THE ANSWER: outside the window this
+            // call's `--limit` reaches. Left held, same as the open re-ask's
+            // equivalent case — the next delta tries again.
+            for (const number of stillPendingMerged) entry.prPendingReaskStreak.delete(number);
+          }
+        } catch {
+          // THE SAME POLICY AS EVERY OTHER CATCH IN THIS FUNCTION: keep the
+          // last good map, touch nothing else, and let the outer catch own
+          // the primary call's backoff.
         }
       }
     }

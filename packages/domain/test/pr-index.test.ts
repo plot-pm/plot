@@ -8,7 +8,7 @@ import {
   type PrIndexRow,
 } from '../src/entities/pr-index.js';
 import {
-  answerKind, foldPrIndex, pendingOpenPrNumbers, prWindowFor, watermarkOf,
+  answerKind, foldPrIndex, pendingMergedPrNumbers, pendingOpenPrNumbers, prWindowFor, watermarkOf,
 } from '../src/rules/pr-index.js';
 
 /**
@@ -430,6 +430,55 @@ describe('the numbers a delta re-asks about', () => {
       row(3, { state: 'OPEN', checks: 'pending' }),
     ]);
     expect(pendingOpenPrNumbers(held)).toEqual([1, 3]);
+  });
+});
+
+describe('the numbers a delta re-asks about, merged (#1418)', () => {
+  // THE RULE THIS WAVE ADDS, mirroring pendingOpenPrNumbers but for MERGED: a
+  // PR can merge while its last check run is still going, and nothing but
+  // asking again ever replaces that stored `pending`.
+
+  it('returns a merged PR whose stored checks are pending', () => {
+    const held = store([row(1, { state: 'MERGED', checks: 'pending' })]);
+    expect(pendingMergedPrNumbers(held)).toEqual([1]);
+  });
+
+  it('does not return a stored green merged PR', () => {
+    const held = store([row(1, { state: 'MERGED', checks: 'green' })]);
+    expect(pendingMergedPrNumbers(held)).toEqual([]);
+  });
+
+  it('does not return a stored failing merged PR', () => {
+    const held = store([row(1, { state: 'MERGED', checks: 'failing' })]);
+    expect(pendingMergedPrNumbers(held)).toEqual([]);
+  });
+
+  it('does not return a stored none merged PR', () => {
+    const held = store([row(1, { state: 'MERGED', checks: 'none' })]);
+    expect(pendingMergedPrNumbers(held)).toEqual([]);
+  });
+
+  it('does not return a stored unknown merged PR', () => {
+    const held = store([row(1, { state: 'MERGED', checks: 'unknown' })]);
+    expect(pendingMergedPrNumbers(held)).toEqual([]);
+  });
+
+  it('does not return a stored pending OPEN PR', () => {
+    // THE DONE-WHEN: a rule that drops the state filter would double-ask the
+    // open rows pendingOpenPrNumbers already covers.
+    const held = store([row(1, { state: 'OPEN', checks: 'pending' })]);
+    expect(pendingMergedPrNumbers(held)).toEqual([]);
+  });
+
+  it('does not return a stored pending CLOSED PR', () => {
+    // No reader asks a CLOSED row's checks — prStates answers 'closed' first
+    // — so there is nothing to fix there.
+    const held = store([row(1, { state: 'CLOSED', checks: 'pending' })]);
+    expect(pendingMergedPrNumbers(held)).toEqual([]);
+  });
+
+  it('returns nothing where there is no store', () => {
+    expect(pendingMergedPrNumbers(null)).toEqual([]);
   });
 });
 

@@ -960,10 +960,11 @@ describe('a pending check is asked again (#1277)', () => {
     expect(argvOf(scripts).filter((l) => l.startsWith('pr-list'))).toHaveLength(1);
   });
 
-  it('does not re-ask a stored MERGED PR even if it is stored as pending', async () => {
-    // A terminal row is never re-asked — merged or closed is the host's last
-    // word, and `pendingOpenPrNumbers` filters on `state === 'OPEN'` for
-    // exactly this reason.
+  it('does not re-ask a MERGED pending row through the OPEN call', async () => {
+    // THE OPEN RE-ASK'S OWN BOUNDARY: `pendingOpenPrNumbers` filters on
+    // `state === 'OPEN'`, so a MERGED+pending row never reaches `twoFacedHost`'s
+    // `--state open` shape — it is the MERGED re-ask's job (#1418) instead, which
+    // this exact scenario now also triggers.
     const home = storeHome();
     await refresh(host([line({
       number: 9, head: 'feature/nine', state: 'MERGED', checks: 'pending',
@@ -971,7 +972,7 @@ describe('a pending check is asked again (#1277)', () => {
 
     const scripts = twoFacedHost([], [line({ number: 9, head: 'feature/nine', checks: 'green' })]);
     await refresh(scripts, home, freshCacheEntry());
-    expect(argvOf(scripts).filter((l) => l.startsWith('pr-list'))).toHaveLength(1);
+    expect(argvOf(scripts)).not.toContain(reaskArgv);
   });
 
   it('does not re-ask on a full read — the cold call already covers it', async () => {
@@ -1061,5 +1062,236 @@ describe('a pending check is asked again (#1277)', () => {
     const lastCalls = argvOf(scriptDirs[5]).filter((l) => l.startsWith('pr-list'));
     expect(lastCalls).toHaveLength(1);
     expect(lastCalls[0]).not.toBe(reaskArgv);
+  });
+});
+
+describe('a merged pending check is asked again (#1418)', () => {
+  // THE DEFECT: a PR can merge while its last check run is still going.
+  // `updatedAt` moves at merge and never again, so the stored `pending` from
+  // that instant is never replaced — #1413 merged with checks still pending
+  // and stayed that way in the store for however long the next full read took
+  // to come around. The fix mirrors #1277's OPEN re-ask, but for MERGED rows,
+  // asking `--state merged` rather than widening the open call (which never
+  // returns a merged PR).
+  //
+  // THE DONE-WHEN THIS WAVE EXISTS FOR: a host double answering `--rich-open`
+  // or the plain delta identically would prove nothing, because `--rich-open`
+  // answers a MERGED row's checks as `unknown` and `withHeldVerdicts` folds
+  // the HELD `pending` right back in — a test using `unknown` on the merged
+  // re-ask call would pass even with no re-ask wired up at all. So the merged
+  // re-ask double answers `green`, which is not `unknown` and therefore wins
+  // the fold on its own.
+
+  /** The `pr-list` invocation from one recorded argv line. */
+  const prListCall = (scriptsDir: string, nth = 0): string =>
+    argvOf(scriptsDir).filter((l) => l.startsWith('pr-list'))[nth] ?? '';
+
+  const mergedReaskArgv = 'pr-list --rich --state merged --limit 50';
+
+  /**
+   * A fake host that answers the merged re-ask (`--state merged`, `--limit
+   * 50`) differently from every other `pr-list` shape — the same `plainRows`
+   * / `reaskRows` split `twoFacedHost` above uses for the OPEN case, so a
+   * passing test can only be explained by the merged re-ask's own call.
+   */
+  const twoFacedMergedHost = (plainRows: readonly string[], reaskRows: readonly string[]): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-pr-store-'));
+    const plainBody = plainRows.map((r) => `printf '%s\\n' ${JSON.stringify(r)}`).join('\n') || ':';
+    const reaskBody = reaskRows.map((r) => `printf '%s\\n' ${JSON.stringify(r)}`).join('\n') || ':';
+    fs.writeFileSync(
+      path.join(dir, 'plot-host.sh'),
+      '#!/usr/bin/env bash\n'
+      + `printf '%s\\n' "$*" >> ${JSON.stringify(path.join(dir, 'argv'))}\n`
+      + 'if [ "$1" = pr-list ]; then\n'
+      + `  if [ "$*" = ${JSON.stringify(mergedReaskArgv)} ]; then\n${reaskBody}\n`
+      + `  else\n${plainBody}\n  fi\n`
+      + 'fi\nexit 0\n',
+    );
+    fs.chmodSync(path.join(dir, 'plot-host.sh'), 0o755);
+    dirs.push(dir);
+    return dir;
+  };
+
+  /** A stored MERGED row, written by a full read, with the given `checks`. */
+  const seedMergedStore = async (home: string, over: Record<string, unknown> = {}): Promise<void> => {
+    await refresh(host([line({
+      number: 13, head: 'feature/thirteen', state: 'MERGED', checks: 'pending',
+      updatedAt: '2026-09-20T12:00:00Z', ...over,
+    })]), home);
+  };
+
+  it('re-asks by number when a stored MERGED PR is still pending', async () => {
+    const home = storeHome();
+    await seedMergedStore(home);
+    expect(onDisk(home)?.rows[0]).toMatchObject({ number: 13, checks: 'pending' });
+
+    const scripts = twoFacedMergedHost(
+      [],
+      [line({
+        number: 13, head: 'feature/thirteen', state: 'MERGED', checks: 'green',
+        updatedAt: '2026-09-20T12:00:00Z',
+      })],
+    );
+    const entry = await refresh(scripts, home, freshCacheEntry());
+
+    const calls = argvOf(scripts).filter((l) => l.startsWith('pr-list'));
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toBe(mergedReaskArgv);
+    expect(onDisk(home)?.rows.find((r) => r.number === 13)?.checks).toBe('green');
+    expect(entry.prsByNumber?.get(13)?.checks).toBe('green');
+  });
+
+  it('leaves a stored MERGED pending row untouched when the re-ask answers unknown', async () => {
+    // THE LOCK: `--rich-open` on a merged row answers `checks: 'unknown'`,
+    // and `withHeldVerdicts` would fold the held `pending` back in — so an
+    // implementation that reused `--rich-open` instead of `--rich --state
+    // merged` would look identical to a passing test unless this answers
+    // `unknown` specifically and asserts `pending` survives unchanged.
+    const home = storeHome();
+    await seedMergedStore(home);
+
+    const scripts = twoFacedMergedHost(
+      [],
+      [line({
+        number: 13, head: 'feature/thirteen', state: 'MERGED', checks: 'unknown',
+        updatedAt: '2026-09-20T12:00:00Z',
+      })],
+    );
+    await refresh(scripts, home, freshCacheEntry());
+    expect(onDisk(home)?.rows.find((r) => r.number === 13)?.checks).toBe('pending');
+  });
+
+  it('does not re-ask a stored MERGED PR whose checks are already green', async () => {
+    const home = storeHome();
+    await refresh(host([line({ number: 13, head: 'feature/thirteen', state: 'MERGED', checks: 'green' })]), home);
+
+    const scripts = twoFacedMergedHost(
+      [], [line({ number: 13, head: 'feature/thirteen', state: 'MERGED', checks: 'green' })],
+    );
+    await refresh(scripts, home, freshCacheEntry());
+    expect(argvOf(scripts).filter((l) => l.startsWith('pr-list'))).toHaveLength(1);
+  });
+
+  it('does not re-ask a stored OPEN PR through the merged call even if pending', async () => {
+    // THE DONE-WHEN: an OPEN+pending row is the other re-ask's job
+    // (`pendingOpenPrNumbers`), which this scenario also triggers. This proves
+    // the MERGED call specifically is never made for it.
+    const home = storeHome();
+    await refresh(host([line({ number: 9, head: 'feature/nine', state: 'OPEN', checks: 'pending' })]), home);
+
+    const scripts = twoFacedMergedHost(
+      [], [line({ number: 9, head: 'feature/nine', state: 'OPEN', checks: 'green' })],
+    );
+    await refresh(scripts, home, freshCacheEntry());
+    expect(argvOf(scripts)).not.toContain(mergedReaskArgv);
+  });
+
+  it('does not re-ask on a full read — the cold call already covers it', async () => {
+    const scripts = twoFacedMergedHost([line({ state: 'MERGED', checks: 'pending' })], [line({ checks: 'green' })]);
+    await refresh(scripts, storeHome());
+    expect(argvOf(scripts).filter((l) => l.startsWith('pr-list'))).toHaveLength(1);
+    expect(prListCall(scripts)).toBe('pr-list --rich-open --state all --limit 1000');
+  });
+
+  it('keeps pending, the watermark, and the next --since when still unresolved', async () => {
+    const home = storeHome();
+    await seedMergedStore(home);
+    const watermarkBefore = onDisk(home)?.watermark;
+
+    const scripts = twoFacedMergedHost(
+      [],
+      [line({
+        number: 13, head: 'feature/thirteen', state: 'MERGED', checks: 'pending',
+        updatedAt: '2026-09-20T12:00:00Z',
+      })],
+    );
+    await refresh(scripts, home, freshCacheEntry());
+
+    expect(onDisk(home)?.rows.find((r) => r.number === 13)?.checks).toBe('pending');
+    expect(onDisk(home)?.watermark).toBe(watermarkBefore);
+
+    const next = twoFacedMergedHost([], []);
+    await refresh(next, home, freshCacheEntry());
+    expect(prListCall(next)).toBe(`pr-list --rich --state all --limit 1000 --since ${watermarkBefore}`);
+  });
+
+  it('leaves the stored pending row untouched when the re-ask call fails', async () => {
+    const home = storeHome();
+    await seedMergedStore(home);
+    const before = fs.readFileSync(path.join(home, 'github.json'), 'utf8');
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-pr-store-'));
+    dirs.push(dir);
+    fs.writeFileSync(
+      path.join(dir, 'plot-host.sh'),
+      '#!/usr/bin/env bash\n'
+      + `printf '%s\\n' "$*" >> ${JSON.stringify(path.join(dir, 'argv'))}\n`
+      + 'if [ "$1" = pr-list ]; then\n'
+      + `  if [ "$*" = ${JSON.stringify(mergedReaskArgv)} ]; then\n`
+      + '    printf \'%s\\n\' "plot-host: pr-list: gh: rate limited" >&2\n'
+      + '    exit 3\n'
+      + '  fi\n'
+      + `${[line({
+        number: 1, head: 'feature/one', updatedAt: '2026-09-20T13:00:00Z',
+      })].map((r) => `printf '%s\\n' ${JSON.stringify(r)}`).join('\n')}\n`
+      + 'fi\nexit 0\n',
+    );
+    fs.chmodSync(path.join(dir, 'plot-host.sh'), 0o755);
+
+    const entry = await refresh(dir, home, freshCacheEntry());
+    expect(fs.readFileSync(path.join(home, 'github.json'), 'utf8')).not.toBe(before);
+    expect(onDisk(home)?.rows.find((r) => r.number === 13)?.checks).toBe('pending');
+    expect(entry.prFullReadFailedAt).toBeNull();
+  });
+
+  it('stops re-asking a number once it has been stuck past the bound', async () => {
+    const home = storeHome();
+    await seedMergedStore(home);
+
+    const stillPending = [line({
+      number: 13, head: 'feature/thirteen', state: 'MERGED', checks: 'pending',
+      updatedAt: '2026-09-20T12:00:00Z',
+    })];
+    let entry = freshCacheEntry();
+    const scriptDirs: string[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      const scripts = twoFacedMergedHost([], stillPending);
+      scriptDirs.push(scripts);
+      entry = await refresh(scripts, home, entry);
+    }
+
+    const lastCalls = argvOf(scriptDirs[5]).filter((l) => l.startsWith('pr-list'));
+    expect(lastCalls).toHaveLength(1);
+    expect(lastCalls[0]).not.toBe(mergedReaskArgv);
+  });
+
+  it('a merged PR answered by the re-ask is absent from the by-head map', async () => {
+    // THE DONE-WHEN: catches a `map.set(pr.head, pr)` that would let a merged
+    // PR reach `classify` by head — the guard on the OPEN re-ask exists for
+    // exactly this, and the merged re-ask must never do what that guard
+    // refuses.
+    const home = storeHome();
+    await seedMergedStore(home);
+
+    const scripts = twoFacedMergedHost(
+      [],
+      [line({
+        number: 13, head: 'feature/thirteen', state: 'MERGED', checks: 'green',
+        updatedAt: '2026-09-20T12:00:00Z',
+      })],
+    );
+    const entry = await refresh(scripts, home, freshCacheEntry());
+    expect(entry.prs?.get('feature/thirteen')).toBeUndefined();
+  });
+
+  it('a delta with no MERGED+pending row makes no --state merged call', async () => {
+    const home = storeHome();
+    await refresh(host([line({ number: 20, head: 'feature/twenty', state: 'MERGED', checks: 'green' })]), home);
+
+    const scripts = twoFacedMergedHost(
+      [], [line({ number: 20, head: 'feature/twenty', state: 'MERGED', checks: 'green' })],
+    );
+    await refresh(scripts, home, freshCacheEntry());
+    expect(argvOf(scripts).filter((l) => l.startsWith('pr-list'))).toHaveLength(1);
   });
 });
