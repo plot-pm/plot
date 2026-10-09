@@ -69,7 +69,7 @@ The rule stays pure: it reads the ending, the branch readings and the fresh-sess
 
 ### A working desk never reads free
 
-- `bug/a-working-desk-never-reads-free` — the hand-over sets the loop's assigned branch, so a loop whose agent works a slice never counts a free wait and its free-wait bound never ends a working agent (#1409); reproduce the 2026-10-09 case on `feature/the-fleet-package-exists` first <!-- builds: the assigned branch a handed-over loop reads -->
+- `bug/a-working-desk-never-reads-free` — the hand-over sets the loop's assigned branch, so a loop whose agent works a slice never counts a free wait and its free-wait bound never ends a working agent (#1409); reproduce the 2026-10-09 case on `feature/the-fleet-package-exists` first → #1429 <!-- builds: the assigned branch a handed-over loop reads -->
 
 ### A time-out writes its ending
 
