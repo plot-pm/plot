@@ -1,6 +1,6 @@
 # The fleet reports what changed on the host
 
-> A PR row names the commit its checks read, the default branch has its own row, and the supervisor writes one event per change so that no session polls the host.
+> A PR row names the commit its checks read, the default branch has its own row, the supervisor writes one event per change, and the board and the operator's session follow those events instead of polling.
 
 ## Status
 
@@ -14,10 +14,12 @@
 - A PR's check state names the commit it read, so a merge on green merges the commit that was green.
 - The fleet reads the default branch's CI and hands no slice over while the default branch is red.
 - The supervisor writes `.plot/logs/fleet-events.jsonl`: one line per change of a PR, a check or the default branch.
+- The board follows the event feed and refreshes when an event arrives, not only every 30 seconds.
+- The board shows the default branch's CI state in a banner, and each slice row shows its PR's checks for a named commit.
 - A merge controller merges a PR only when its head, its checks and the default branch agree.
 - An optional Claude Code mod shows the fleet's events in the operator's session and starts a turn on the events a person asked for.
 
-<!-- Board impact: the PR index schema moves from v3 to v4, and the board reads it through FleetState. The board gains a "default branch is red" banner from a domain property. No change to the plan format, the plan template or docs/plans. -->
+<!-- Board impact: the PR index schema moves from v3 to v4, and the board reads it through FleetState. The board gains an event route (`/api/events`) and named render sites; every site shows a domain property. No change to the plan format, the plan template or docs/plans. -->
 
 ## Motivation
 
@@ -42,16 +44,19 @@ Claude Code 2.1.287 added mods: in-process JS handlers that can draw panes, show
 1. **Rows name their commit.** `PrIndexRowSchema` gains `headSha`. The check state is recorded for that SHA. A row whose host gave no SHA leaves the field absent, never `''`, by the rule the schema already states for `author`. `PR_INDEX_VERSION` moves to 4; a v3 store reads as "ask the host", as every version mismatch does today.
 2. **The default branch has a row.** The index gains one `defaultBranch` entry: name, HEAD SHA, check state for that SHA, failing checks, `at`. The fleet reads it through the build port's `runForSha` (`packages/domain/src/ports/build.ts:103`), which exists and is the connector for CI. A domain rule `defaultBranchRed` answers `red | green | pending | unknown`. Auto-dispatch hands no new slice over while the answer is `red`, and the hold has its own key in the tick's counts. `unknown` holds nothing: an unreadable CI is not a red one.
 3. **Every change is an event.** On each fold, a domain rule `indexTransitions(before, after)` compares the two stores and returns a list of events. Fleetd appends them to `.plot/logs/fleet-events.jsonl`, one JSON object per line: `{at, kind, pr?, branch?, sha?, from?, to?}`. The kinds: `pr-opened`, `pr-ready`, `checks-changed`, `merged`, `closed`, `head-moved`, `default-branch-changed`. The rule is pure and has unit tests; the file adapter only appends. The file has a size ceiling, as `fleetd.log` has.
-4. **A merge is a controller.** `plot-ask.mjs merge <pr> <sha>` asks a domain workflow that reads the index and refuses unless all of these hold: the row's `headSha` equals `<sha>`; checks are `green` for that SHA; the PR is not a draft; `defaultBranchRed` is not `red`. On a pass it writes one `pr-merge` through the performer, which `approve.ts:256` already uses. Each refusal names its reason and the reading it came from.
-5. **An optional mod listens.** A Claude Code mod reads `fleet-events.jsonl` on a timer and makes zero host calls. It draws a pane (default branch state, and each open slice PR with `checks@sha`), shows a toast on `merged`, `checks-changed` to `failing`, and a new `PLOT-BLOCKED`, and starts a turn on the event kinds the operator names. It never loads in a fleet agent's session. The fleet does not depend on it.
+4. **The board follows the feed.** The board polls `/api/board` every 30 s and the fleet every 4 s (`packages/board/src/app/App.tsx:30`). The board server reads new lines of `fleet-events.jsonl` and sends them on `/api/events` as server-sent events. The page fetches `/api/board` when an event arrives. The 30 s poll stays as the fallback for a lost connection, so a board with no feed behaves as today. The server reads a file; it calls no host.
+5. **The board has named render sites.** Borrowed from the mods' render sites (`Pane`, `AbovePrompt`): the page gets a fixed set of named places, each fed by one domain property and nothing else. The first three: a **banner** (the default branch is red, from `defaultBranchRed`), a **row badge** (a slice PR's checks for its `headSha`, for example `green@a048b6f`), and a **feed pane** (the last N events). A site that needs a decision gets a domain property first, by the rule *Every rendered state is a domain property*; a unit test asserts each property, and one browser test per site proves it shows.
+6. **A merge is a controller.** `plot-ask.mjs merge <pr> <sha>` asks a domain workflow that reads the index and refuses unless all of these hold: the row's `headSha` equals `<sha>`; checks are `green` for that SHA; the PR is not a draft; `defaultBranchRed` is not `red`. On a pass it writes one `pr-merge` through the performer, which `approve.ts:256` already uses. Each refusal names its reason and the reading it came from.
+7. **An optional mod listens.** A Claude Code mod reads `fleet-events.jsonl` on a timer and makes zero host calls. It draws a pane (default branch state, and each open slice PR with `checks@sha`), shows a toast on `merged`, `checks-changed` to `failing`, and a new `PLOT-BLOCKED`, and starts a turn on the event kinds the operator names. It never loads in a fleet agent's session. The fleet does not depend on it.
 
 **What stays out.** Fleetd emits events and runs no handlers: a listener is a reader of a file, so no plugin code runs in the supervisor. The five PreToolUse gates stay shell hooks: they also guard Codex through `AGENTS.md`, and they cost about 40 ms per call.
 
 ### Open Questions
 
-- [ ] Slice 5: the mod API facts in this plan come from one research pass. The slice's brief verifies them against the mods reference before any code: the `register(on)` signature, `$.clock.every`, `$.prompt.submit`, the render sites.
-- [ ] Slice 5: the Plot plugin is also loaded by fleet agents for its gates. Does the mod ship in the Plot plugin and do nothing under `PLOT_UNATTENDED=1`, or ship as a separate plugin that only the operator installs?
-- [ ] Slice 3: does the board read `fleet-events.jsonl` for a live feed in this plan, or in a later one? The board reads the index through `FleetState` today.
+- [ ] Slice 7: the mod API facts in this plan come from one research pass. The slice's brief verifies them against the mods reference before any code: the `register(on)` signature, `$.clock.every`, `$.prompt.submit`, the render sites.
+- [ ] Slice 7: the Plot plugin is also loaded by fleet agents for its gates. Does the mod ship in the Plot plugin and do nothing under `PLOT_UNATTENDED=1`, or ship as a separate plugin that only the operator installs?
+- [ ] Slice 4: a board opened before the first event, or after the feed file rotated, must not miss a change. Does the page re-fetch `/api/board` on every reconnect, or does the event route replay from an offset the page sends?
+- [ ] Slice 5: which render sites exist after the first three? This plan names a banner, a row badge and a feed pane; the agent-lifecycle sites (prompt start, prompt end with exit code, spend) belong to a separate plan about agent rows, because the worker loop and not the host produces them.
 - [ ] Slice 2: Bitbucket. `runForSha` answers for `github-actions`; the brief records what a Jenkins or Bitbucket Pipelines repository gets, which must be `unknown` and never `green`.
 
 ## Slices
@@ -68,6 +73,14 @@ Claude Code 2.1.287 added mods: in-process JS handlers that can draw panes, show
 
 - `feature/the-supervisor-writes-events` — `indexTransitions` compares two index stores and fleetd appends the result to `.plot/logs/fleet-events.jsonl` with a size ceiling <!-- builds: indexTransitions, a domain rule, and the fleet-events.jsonl adapter -->
 
+### The board follows the event feed
+
+- `feature/the-board-follows-the-event-feed` — the board server sends new `fleet-events.jsonl` lines on `/api/events` as server-sent events; the page fetches `/api/board` on an event and keeps the 30 s poll as the fallback <!-- builds: /api/events, a server-sent event route -->
+
+### The board has named render sites
+
+- `feature/the-board-has-named-render-sites` — the page has a banner, a row badge and a feed pane, each fed by one domain property: `defaultBranchRed`, a slice PR's checks for its `headSha`, and the last events <!-- builds: named render sites in packages/board/src/app -->
+
 ### A merge is a controller
 
 - `feature/a-merge-is-a-controller` — `plot-ask.mjs merge <pr> <sha>` merges only when the head SHA, the checks for that SHA, the draft state and the default branch agree; each refusal names its reason <!-- builds: a merge workflow in packages/domain and its plot-ask.mjs verb -->
@@ -78,5 +91,5 @@ Claude Code 2.1.287 added mods: in-process JS handlers that can draw panes, show
 
 ## Notes
 
-- Waits on `the-fleet-runs-without-the-board`: slice 4 takes its controller shape from `feature/the-controllers-are-commands`. Slices 1 to 3 need only #1444, which merged.
+- Waits on `the-fleet-runs-without-the-board`: the merge controller (slice 6) takes its shape from `feature/the-controllers-are-commands`. Slices 1 to 5 need only #1444, which merged; the merge slice sits after the board slices so that this wait holds up nothing else.
 - The adapter parts exist: `plot-host.sh` `pr-merge` (called by `approve.ts`) and `run-for-sha` (called by `build-shell.ts:161`).
