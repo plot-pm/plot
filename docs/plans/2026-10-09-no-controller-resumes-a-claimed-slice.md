@@ -92,5 +92,5 @@ Each test below fails on `origin/main` (`3d45ebd2a`) today:
 
 - Overlapping plans: `every-loop-ending-has-a-supervisor-rule` (Released, v2.24.1) built `endingAction` and lists `bound` among the reasons that answer `leave`; this plan adds the row it left open. `a-blocked-agent-s-question-has` (Released) built the continue route a fresh start uses. No Draft or Approved plan overlaps the title.
 - Deliverable search, 2026-10-09: `endingAction` (`packages/domain/src/rules/ending-action.ts`) and its registry caller (`packages/fleet/src/server/entry/registryd.ts:844-975`) are the code slice 2 extends, not duplicates. `agentLoop` row 6 (`agent-loop.ts:617`) already writes `bound` for one exit path; slice 1 extends it to the path that missed it. No `bound` row exists in `endingAction`.
-- #1409 (a desk's loop reads itself free while its branch waits on checks) is related and out of scope here.
+- #1409 (a desk's loop reads itself free while its branch waits on checks) is the root cause of the time-out and is in scope: slice *A working desk never reads free*.
 - 2026-10-09, jwloka, in-session: the root-cause slice *A working desk never reads free* comes first; the ending and the fresh agent stay as the fallback. Type `bug`, not the `feature` the idea controller wrote (#1419).
