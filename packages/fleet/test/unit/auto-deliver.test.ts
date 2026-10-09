@@ -23,15 +23,10 @@ import { afterEach, describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { rmTree } from '../helpers.mjs';
-import {
-  planAutoDeliver,
-  pruneDelivering,
-  maybeAutoDeliver,
-  planSlug,
-  DELIVER_COMMAND_KEY,
-} from '../../src/server/auto-deliver.js';
-import { FleetReadingSchema, type FleetReading } from '../../src/contract/schema.js';
+import { removeTree as rmTree } from '../rm-tree.mjs';
+import { planSlug } from '@plot-pm/domain';
+import { planAutoDeliver, pruneDelivering, maybeAutoDeliver, DELIVER_COMMAND_KEY } from '../../src/shared/auto-deliver.js';
+import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
 import { allSlicesMerged } from '@plot-pm/domain';
 
 const made: string[] = [];

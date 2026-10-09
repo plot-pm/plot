@@ -2,35 +2,19 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {
-  planAutoDispatch,
-  startableBranches,
-  liveAgentCount,
-  liveAgentBranches,
-  freeAgentCount,
-  pruneInFlight,
-  freeAgentLabels,
-  mergedBranches,
-  planSlug,
-  briefPath,
-  dispatchCandidates,
-  machineDefers,
-  machineIsClear,
-  skippedPlans,
-  sharedInFlightBlocks,
-  type AutoDispatchPlan,
-} from '../../src/server/auto-dispatch.js';
+import { planAutoDispatch, startableBranches, liveAgentCount, liveAgentBranches, freeAgentCount, pruneInFlight, freeAgentLabels, mergedBranches, planSlug, dispatchCandidates, machineDefers, machineIsClear, skippedPlans, sharedInFlightBlocks, type AutoDispatchPlan } from '@plot-pm/domain';
+import { briefPath } from '../../src/shared/auto-dispatch.js';
 import {
   readInFlight,
   writeInFlight,
   inFlightPath,
   IN_FLIGHT_TTL_MS,
-} from '../../src/server/in-flight-store.js';
+} from '../../src/shared/in-flight-store.js';
 import { measureMachine, ceilingFor, HEADROOM_THRESHOLDS, type Machine as MachineEntity } from '@plot-pm/domain';
-import { FleetReadingSchema, type FleetReading } from '../../src/contract/schema.js';
-import type { AgentEntry } from '@plot-pm/fleet/shared/registry';
-import type { FleetSettings } from '../../src/server/fleet-settings.js';
-import { rmTree } from '../helpers.mjs';
+import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
+import type { AgentEntry } from '../../src/shared/registry.js';
+import type { FleetSettings } from '../../src/shared/fleet-settings-store.js';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 
 // Wave 3 of approval-hands-the-work-to-agents. The planner is the DECISION half
 // of auto-dispatch: given the controls, the pulse, and how many workers are

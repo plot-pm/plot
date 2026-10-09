@@ -116,7 +116,7 @@ describe('ITEM 7: the board writes no lifecycle transition', () => {
   });
 
   it('the auto-deliverer calls the script and never a phase write of its own', () => {
-    const src = fs.readFileSync(path.join(srcDir, 'server/auto-deliver.ts'), 'utf8');
+    const src = fs.readFileSync(path.join(srcDir, '../../fleet/src/shared/auto-deliver.ts'), 'utf8');
     // It names the script Plot ships…
     expect(src).toContain('plot-deliver.sh');
     // …and the reaper, rather than re-deriving merge state from ancestry. A

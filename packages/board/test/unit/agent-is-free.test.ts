@@ -23,7 +23,7 @@ import path from 'node:path';
 
 import { readAgentRegistry, AGENT_MANIFEST_DIR, type AgentEntry } from '@plot-pm/fleet/shared/registry';
 import { agentAvailability, agentStateStatus } from '../../src/app/lib/tuple-row.js';
-import { freeAgentCount, freeAgentLabels } from '../../src/server/auto-dispatch.js';
+import { freeAgentCount, freeAgentLabels } from '@plot-pm/domain';
 import type { FleetReading } from '../../src/contract/schema.js';
 import { rmTree } from '../helpers.mjs';
 

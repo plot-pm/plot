@@ -8,7 +8,7 @@ import {
   buildFleet, mergePlan, partialSummary, pulseShrink, runStreaming, stopFleetRefresh,
 } from '../../src/server/fleet.js';
 import { summariseFromPulse } from '../../src/server/board.js';
-import { inFlightPath } from '../../src/server/in-flight-store.js';
+import { inFlightPath } from '@plot-pm/fleet/shared/in-flight-store';
 import { FleetSchema, PlanMetaSchema, type FleetReading } from '../../src/contract/schema.js';
 
 // The measurement this file exists for, taken on this repo 2026-08-19: the
