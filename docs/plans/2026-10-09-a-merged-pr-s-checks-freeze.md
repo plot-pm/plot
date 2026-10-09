@@ -71,7 +71,7 @@ The re-ask is bounded the same way the open re-ask is: `PR_PENDING_REASK_LIMIT` 
 
 ### A merged slice shows no CI state
 
-- `feature/a-merged-pr-shows-no-ci-state` — a domain rule answers no check state for a `MERGED` PR; `prStates` and the plan row's aggregate read it <!-- builds: the merged-PR arm of the PR row's check state, as a domain rule -->
+- `feature/a-merged-pr-shows-no-ci-state` — a domain rule answers no check state for a `MERGED` PR; `prStates` and the plan row's aggregate read it <!-- builds: the merged-PR arm of the PR row's check state, as a domain rule --> → #1423
 
 ### A merged pending check is re-asked
 
