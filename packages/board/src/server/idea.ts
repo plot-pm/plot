@@ -157,10 +157,8 @@ export function ideaAvailability(host: string): { available: boolean; reason: st
  * A pure function of the string so the route and the test agree by
  * construction rather than by both remembering the sentinel.
  */
-export function usableCommand(configured: string): string {
-  const cmd = (configured || '').trim();
-  return cmd === 'none' || cmd === 'NONE' || cmd === 'None' ? '' : cmd;
-}
+export { usableCommand } from '@plot-pm/fleet/shared/usable-command';
+import { usableCommand } from '@plot-pm/fleet/shared/usable-command';
 
 /** Read the configured command, or "" — the one place that key is looked up. */
 export function ideaCommand(opts: BuildBoardOptions): string {

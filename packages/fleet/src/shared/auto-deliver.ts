@@ -1,10 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { readConfig, allSlicesConfirmed, allSlicesMerged, type BuildBoardOptions } from './board.js';
-import { usableCommand } from './idea.js';
-import { deliverLogPath } from './deliver.js';
-import type { PlanMeta, FleetReading } from '../contract/schema.js';
-import { scriptsFor } from './board.js';
+import { allSlicesConfirmed, allSlicesMerged, type FleetReading, type PlanFile } from '@plot-pm/domain';
+import { readConfig } from './config-reader.js';
+import { usableCommand } from './usable-command.js';
+import { deliverLogPath, scriptsOf, type ActOptions } from './action-log.js';
 import { recordActionReceipt } from './action-receipt.js';
 import { startBoardRun } from './board-run.js';
 
@@ -114,7 +113,7 @@ export function deliverPrompt(slug: string): string {
 }
 
 /** Read the configured command, or "" — the one place that key is looked up. */
-export function deliverCommand(opts: BuildBoardOptions): string {
+export function deliverCommand(opts: ActOptions): string {
   return usableCommand(readConfig(opts, DELIVER_COMMAND_KEY, ''));
 }
 
@@ -180,8 +179,8 @@ export interface PlanAutoDeliverInput {
  * plan file again is what keeps this actor on the pulse's clock: the function is
  * called with the scan's own answer, not with a second opinion about it.
  */
-function joinKey(file: string): PlanMeta {
-  return { file } as PlanMeta;
+function joinKey(file: string): PlanFile {
+  return { file } as PlanFile;
 }
 
 /**
@@ -378,7 +377,7 @@ export function pruneDelivering(
  * automatic.
  */
 export function runAutoDeliver(
-  opts: BuildBoardOptions,
+  opts: ActOptions,
   plans: AutoDeliverPlan[],
 ): string[] {
   const command = deliverCommand(opts);
@@ -454,7 +453,7 @@ export function runAutoDeliver(
         (record) => onExit(record.code, null),
       );
     } else {
-      scriptsFor(opts).start(DELIVER_SCRIPT, [plan.slug], { log: out, onExit, onError });
+      scriptsOf(opts).start(DELIVER_SCRIPT, [plan.slug], { log: out, onExit, onError });
     }
     // The script arm keeps its handle: the EXIT CODE is what the reap waits
     // for. `detached` there keeps a Ctrl-C in the board's terminal off a
@@ -476,7 +475,7 @@ export function runAutoDeliver(
  * slug travels so the log line says which delivery caused the sweep, AND
  * because the ref release chained to this exit is not slug-blind at all.
  */
-function reap(opts: BuildBoardOptions, slug: string): void {
+function reap(opts: ActOptions, slug: string): void {
   const log = deliverLogPath(opts.repoRoot, slug);
   let out: number;
   try {
@@ -496,7 +495,7 @@ function reap(opts: BuildBoardOptions, slug: string): void {
   // host about each branch and checks the worktree list again. A reap that
   // failed halfway leaves a worktree in place, which the release then SEES and
   // refuses on. The guards are the gate here, not the exit code.
-  scriptsFor(opts).start(REAP_SCRIPT, ['--yes'], {
+  scriptsOf(opts).start(REAP_SCRIPT, ['--yes'], {
     log: out,
     onExit: () => releaseRefs(opts, slug),
     onError: (err) => console.error('auto-deliver reap failed to spawn:', err),
@@ -528,7 +527,7 @@ function reap(opts: BuildBoardOptions, slug: string): void {
  * next delivery's run — or a typed one — removes, because every gate is
  * re-derived from the host and from git rather than from a progress file.
  */
-function releaseRefs(opts: BuildBoardOptions, slug: string): void {
+function releaseRefs(opts: ActOptions, slug: string): void {
   const log = deliverLogPath(opts.repoRoot, slug);
   let out: number;
   try {
@@ -537,7 +536,7 @@ function releaseRefs(opts: BuildBoardOptions, slug: string): void {
     console.error(`auto-deliver could not open ${log} for the ref release:`, err);
     return;
   }
-  scriptsFor(opts).start(RELEASE_REFS_SCRIPT, ['--yes', slug], {
+  scriptsOf(opts).start(RELEASE_REFS_SCRIPT, ['--yes', slug], {
     log: out,
     onError: (err) => console.error('auto-deliver ref release failed to spawn:', err),
   });
@@ -558,7 +557,7 @@ function releaseRefs(opts: BuildBoardOptions, slug: string): void {
  * the set of finished plans is not something the board can run out of room for.
  */
 export function maybeAutoDeliver(
-  opts: BuildBoardOptions,
+  opts: ActOptions,
   pulse: FleetReading | null,
   inFlight: Set<string>,
 ): Set<string> {

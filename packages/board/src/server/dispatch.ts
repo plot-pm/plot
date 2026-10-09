@@ -38,7 +38,8 @@ import { recordActionReceipt } from './action-receipt.js';
  */
 
 /** The fan-out Plot ships — the one this package starts, never a path a caller holds. */
-export const DISPATCH_SCRIPT = 'plot-dispatch.sh';
+export { DISPATCH_SCRIPT, dispatchLogPath } from '@plot-pm/fleet/shared/action-log';
+import { DISPATCH_SCRIPT, dispatchLogPath } from '@plot-pm/fleet/shared/action-log';
 
 /** `--max 1`: a button is ONE decision. Fanning out a slice stays with /plot-dispatch. */
 const MAX_PER_CLICK = '1';
@@ -141,9 +142,6 @@ export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
  * other — the first records what the dispatcher did, the second what the agent
  * is doing.
  */
-export function dispatchLogPath(repoRoot: string, slug: string): string {
-  return agentLogPath(repoRoot, 'dispatch', slug, 'log');
-}
 
 /**
  * What the dispatcher log read can say — the SAME shape as `WorkerLog`, keyed by
