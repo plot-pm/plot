@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #1420, #1409
 - **Sprint:** the-release-train-fixes-what-it-found
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-09, jwloka, `feature/a-time-out-writes-its-ending`
 - **Started:** 2026-10-09, jwloka, `feature/a-time-out-writes-its-ending`
 - **Started:** 2026-10-09, jwloka, `feature/a-timed-out-slice-gets-a-fresh-agent`
+- **Delivered:** 2026-10-09
 
 ## Changelog
 
