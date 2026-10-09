@@ -52,6 +52,18 @@ export interface EndingActionReadings {
    */
   readonly prOpen: PrOpenReading;
   /**
+   * Whether the desk's worktree holds dirty paths, from `Trees.dirtyPaths` —
+   * a `bound` or `unreadable` ending's own third reading, alongside
+   * `commitBeyondClaim` and `prOpen`.
+   *
+   * A time-out can strand a dirty tree with no commit at all, which
+   * `commitBeyondClaim` alone cannot see. `'unanswerable'` takes the same arm
+   * as `'yes'`, for the reason every other reading here does: an unreadable
+   * tree is not a clean tree, and the destructive answer must never follow a
+   * failed read.
+   */
+  readonly dirtyTree: CommitReading;
+  /**
    * Whether the host merged a PR for the branch; `'unanswerable'` where the
    * host could not be asked, which takes the same arm as `'not-merged'`.
    *
@@ -83,33 +95,59 @@ export type PrMergedReading = 'merged' | 'not-merged' | 'unanswerable';
  *
  * - `release-claim` — a claim is this tick's to release through
  *   `ClaimRelease`; {@link endingReleaseBranch} names which. For
- *   `nothing-done` it is the ending's branch, which holds no commit beyond
- *   the claim and no open PR. For a take-up `holding-work` it is the refused
+ *   `nothing-done`, and for a first `bound`/`unreadable` ending, it is the
+ *   ending's branch, which holds no commit beyond the claim, no open PR and
+ *   no dirty tree. For a take-up `holding-work` it is the refused
  *   assignment, which the desk never started.
  * - `start-fresh` — the first fresh session this slice has had, for
- *   `corrections-spent`, `turn-limit`, or an after-prompt `holding-work`
- *   (one that refused no assignment, or refused its own branch).
+ *   `corrections-spent`, `turn-limit`, an after-prompt `holding-work` (one
+ *   that refused no assignment, or refused its own branch), or a first
+ *   `bound`/`unreadable` ending whose branch holds a commit beyond its
+ *   claim, an open PR, or a dirty tree.
  * - `needs-a-person` — either a second fresh session would be owed on the
- *   same slice (whichever of `corrections-spent`, `turn-limit`, or an
- *   after-prompt `holding-work` asks for it — one fresh session per slice,
- *   shared across every ending reason that can trigger one, never one
- *   allowance per reason), or the ending is one of `blocked`, `spend-limit`,
- *   `unstarted`, `run-limit`, `checks-unanswered` — none of which earns a
- *   fresh session at all; a person is asked the first time any of these five
- *   is seen, unless the branch's PR merged. Either way, at most once per
- *   ending: an ending a person was already asked about answers `leave`.
+ *   same slice (whichever of `corrections-spent`, `turn-limit`,
+ *   `bound`/`unreadable`, or an after-prompt `holding-work` asks for it —
+ *   one fresh session per slice, shared across every ending reason that can
+ *   trigger one, never one allowance per reason), or the ending is one of
+ *   `blocked`, `spend-limit`, `unstarted`, `run-limit`, `checks-unanswered`
+ *   — none of which earns a fresh session at all; a person is asked the
+ *   first time any of these five is seen, unless the branch's PR merged.
+ *   Either way, at most once per ending: an ending a person was already
+ *   asked about answers `leave`.
  * - `leave` — every other case, including a desk a manifest already names,
- *   and the default where no row of this table answers otherwise: `bound`,
- *   `quiet`, `unreadable`, `spent`, `limited`, `unregistered`, and a take-up
- *   `holding-work` whose desk never started.
+ *   and the default where no row of this table answers otherwise: `quiet`,
+ *   `spent`, `limited`, `unregistered`, and a take-up `holding-work` whose
+ *   desk never started.
  */
 export type EndingActionVerdict = 'release-claim' | 'start-fresh' | 'needs-a-person' | 'leave';
 
 /**
  * The two ending reasons that earn a slice one fresh session without a
- * condition; `holding-work`, the third, earns one only after a prompt.
+ * condition; `holding-work`, the third, earns one only after a prompt, and
+ * `bound`/`unreadable`, the fourth and fifth, earn one only where the branch
+ * holds something beyond its claim.
  */
 const FRESH_SESSION_ENDINGS = new Set<EndingReason>(['corrections-spent', 'turn-limit']);
+
+/**
+ * The two ending reasons a time-out leaves: the floor firing with a
+ * transcript to explain it (`bound`) and without one (`unreadable`).
+ *
+ * `unreadable` shares `bound`'s row exactly — the work stranded on the desk
+ * is the same either way, and only the explanation for the time-out differs.
+ */
+const BOUND_ENDINGS = new Set<EndingReason>(['bound', 'unreadable']);
+
+/**
+ * Whether any of a `bound`/`unreadable` desk's three readings shows
+ * something beyond the claim: a commit, an open PR, or a dirty tree.
+ *
+ * Every one of the three takes `'unanswerable'` on the same arm as its
+ * positive value — a failed read must never point toward `release-claim`,
+ * the destructive answer.
+ */
+const boundBranchHoldsWork = (readings: EndingActionReadings): boolean =>
+  readings.commitBeyondClaim !== 'no' || readings.prOpen !== false || readings.dirtyTree !== 'no';
 
 /**
  * The five ending reasons that go straight to a person, never a fresh
@@ -154,11 +192,13 @@ const takeUpRefused = (refusedAssignment: string, branch: string): boolean =>
 
 /**
  * Decides what the supervisor's tick should do about a desk whose worker
- * ended: `release-claim` for `nothing-done` and for a take-up `holding-work`;
- * `start-fresh` or `needs-a-person` for `corrections-spent`, `turn-limit`,
- * and an after-prompt `holding-work`; `needs-a-person` outright for `blocked`,
- * `spend-limit`, `unstarted`, `run-limit`, and `checks-unanswered`; `leave`
- * for everything else.
+ * ended: `release-claim` for `nothing-done`, for a take-up `holding-work`,
+ * and for a first `bound`/`unreadable` ending whose branch holds nothing
+ * beyond its claim; `start-fresh` or `needs-a-person` for `corrections-spent`,
+ * `turn-limit`, an after-prompt `holding-work`, and a `bound`/`unreadable`
+ * ending whose branch holds something beyond its claim; `needs-a-person`
+ * outright for `blocked`, `spend-limit`, `unstarted`, `run-limit`, and
+ * `checks-unanswered`; `leave` for everything else.
  *
  * **THE LOOP ENDS, THE TICK RELEASES, AND THE TICK STARTS.** `agentLoop`
  * cannot tell a live peer from itself, and `releaseClaim` refuses an
@@ -171,14 +211,18 @@ const takeUpRefused = (refusedAssignment: string, branch: string): boolean =>
  * has in flight must not have its claim released, or a second session
  * started, out from under it.
  *
- * **ONE FRESH SESSION PER SLICE, SHARED ACROSS THREE ENDINGS.**
- * `corrections-spent`, `turn-limit`, and an after-prompt `holding-work` (one
- * that refused no assignment, or refused its own branch) all draw on the same
- * {@link EndingActionReadings.priorFreshSessions} count: the first one of the
- * three a slice reaches answers `start-fresh`, and any of the three reached
- * afterward — on the same slice, whichever ending — answers `needs-a-person`.
- * A take-up `holding-work` is not in this set: it answers `release-claim`
- * from {@link takeUpRefused} before the fresh-session rows are reached at all.
+ * **ONE FRESH SESSION PER SLICE, SHARED ACROSS FIVE ENDINGS.**
+ * `corrections-spent`, `turn-limit`, an after-prompt `holding-work` (one that
+ * refused no assignment, or refused its own branch), and a `bound`/
+ * `unreadable` ending whose branch holds something beyond its claim all draw
+ * on the same {@link EndingActionReadings.priorFreshSessions} count: the
+ * first one of the five a slice reaches answers `start-fresh`, and any of
+ * the five reached afterward — on the same slice, whichever ending — answers
+ * `needs-a-person`. A take-up `holding-work` is not in this set: it answers
+ * `release-claim` from {@link takeUpRefused} before the fresh-session rows
+ * are reached at all. A `bound`/`unreadable` ending whose branch holds
+ * nothing beyond its claim answers `release-claim` the same way, and never
+ * draws on the count either.
  *
  * **ONE ASK PER ENDING.** Every `needs-a-person` answer becomes `leave`
  * where {@link EndingActionReadings.endingAsked} says a person was already
@@ -186,11 +230,12 @@ const takeUpRefused = (refusedAssignment: string, branch: string): boolean =>
  * `leave` where {@link EndingActionReadings.prMerged} is `'merged'`.
  *
  * **ABSENT IS NOT FALSE.** A missing or unreadable ending answers `leave`;
- * `commitBeyondClaim: 'unanswerable'` takes the same arm as `'yes'` and
- * `prOpen: 'unanswerable'` the same arm as `true`, `prMerged: 'unanswerable'`
- * the same arm as `'not-merged'`, for the same reason
- * `priorFreshSessions` reads `0` rather than refusing — a failed read must
- * never point toward the destructive or escalating action.
+ * `commitBeyondClaim: 'unanswerable'` takes the same arm as `'yes'`,
+ * `prOpen: 'unanswerable'` the same arm as `true`, `dirtyTree:
+ * 'unanswerable'` the same arm as `'yes'`, and `prMerged: 'unanswerable'` the
+ * same arm as `'not-merged'`, for the same reason `priorFreshSessions` reads
+ * `0` rather than refusing — a failed read must never point toward the
+ * destructive or escalating action.
  *
  * Pure: it reads no disk and holds nothing between calls.
  *
@@ -212,6 +257,10 @@ const endingTableAnswer = (readings: EndingActionReadings): EndingActionVerdict 
   if (readings.ending !== null && FRESH_SESSION_ENDINGS.has(readings.ending)) {
     return readings.priorFreshSessions > 0 ? 'needs-a-person' : 'start-fresh';
   }
+  if (readings.ending !== null && BOUND_ENDINGS.has(readings.ending)) {
+    if (!boundBranchHoldsWork(readings)) return 'release-claim';
+    return readings.priorFreshSessions > 0 ? 'needs-a-person' : 'start-fresh';
+  }
   if (endingAsksPersonOutright(readings.ending)) {
     return readings.prMerged === 'merged' ? 'leave' : 'needs-a-person';
   }
@@ -224,23 +273,35 @@ const endingTableAnswer = (readings: EndingActionReadings): EndingActionVerdict 
 /**
  * Whether a desk's ending is one {@link endingAction} answers `start-fresh`
  * for while the slice has had no fresh session: `corrections-spent`,
- * `turn-limit`, or an after-prompt `holding-work`, written for `branch`.
+ * `turn-limit`, `bound`, `unreadable`, or an after-prompt `holding-work`,
+ * written for `branch`.
  *
  * A fresh start reads this as its precondition in place of a `PLOT-BLOCKED`
- * marker. `holding-work` and `turn-limit` end with no marker in the tree, so
- * a precondition that asks only for a marker refuses every such start.
+ * marker. `holding-work`, `turn-limit`, `bound` and `unreadable` end with no
+ * marker in the tree, so a precondition that asks only for a marker refuses
+ * every such start.
+ *
+ * **THIS FUNCTION DOES NOT READ THE BRANCH'S WORK.** `bound`/`unreadable`'s
+ * `start-fresh` answer from {@link endingAction} is conditional on
+ * {@link EndingActionReadings.commitBeyondClaim}, `prOpen` and `dirtyTree` —
+ * readings this function has no access to, by design: it answers only
+ * whether a fresh start is an ending this reason *could* ask for, not
+ * whether the tick's own readings actually asked for one. A `bound` ending
+ * whose branch held nothing answers `release-claim` from the rule itself and
+ * starts no continuation at all, so a `true` answer here never strands a
+ * clean branch — nothing calls `continueOnDesk` with `fresh: true` for it.
  *
  * @param ending - the desk's `.plot-worker.ending.json`, read as a value.
  * @param branch - the branch the start is for.
  * @returns true where the ending was read, names `branch`, and is one of the
- *   three; false for an absent or unreadable ending, another branch, a
+ *   five; false for an absent or unreadable ending, another branch, a
  *   take-up `holding-work`, and every other reason.
  */
 export const endingAsksFreshStart = (ending: EndingReading, branch: string): boolean => {
   if (ending.read !== 'ended' || ending.ending.branch !== branch) return false;
   const { reason, refusedAssignment } = ending.ending;
   if (reason === 'holding-work') return !takeUpRefused(refusedAssignment, branch);
-  return FRESH_SESSION_ENDINGS.has(reason);
+  return FRESH_SESSION_ENDINGS.has(reason) || BOUND_ENDINGS.has(reason);
 };
 
 /**
@@ -297,9 +358,45 @@ export const holdingWorkAnswer = (branch: string, heldFiles: readonly string[] |
 };
 
 /**
+ * Composes the one fresh session's answer for a `bound` or `unreadable`
+ * ending: commit, check and push what the timed-out session left, naming
+ * every file the desk still holds, then continue the slice.
+ *
+ * **NOT {@link holdingWorkAnswer}, BECAUSE THE CAUSE DIFFERS.** A
+ * `holding-work` desk refused a prompt's assignment; a `bound`/`unreadable`
+ * desk ran out its `Worker bound` mid-session. The instruction to commit,
+ * check, push and continue is the same shape, but the opening sentence names
+ * the time-out rather than a refused prompt.
+ *
+ * **`null` IS NOT `[]`**, for the same reason {@link holdingWorkAnswer}
+ * keeps them apart: an unreadable listing says so, and an empty one lists no
+ * file at all — never silence where disk gave no answer.
+ *
+ * @param branch - the branch the desk holds.
+ * @param heldFiles - every dirty path `Trees.dirtyPaths` read for this desk,
+ *   or `null` where the read failed.
+ * @returns the answer, ready to hand to a continuation alongside its brief.
+ */
+export const boundAnswer = (branch: string, heldFiles: readonly string[] | null): string => {
+  const parts: string[] = [
+    `The previous session on \`${branch}\` ran out its time bound mid-session: commit what it left, run the checks it touches, push, and continue the slice.`,
+    '',
+  ];
+  parts.push('## Files this desk still holds', '');
+  if (heldFiles === null) {
+    parts.push('The held files could not be listed — read the worktree yourself before starting.');
+  } else if (heldFiles.length === 0) {
+    parts.push('No file was listed as held — read the worktree yourself before starting.');
+  } else {
+    parts.push(...heldFiles.map((file) => `- ${file}`));
+  }
+  return parts.join('\n');
+};
+
+/**
  * Composes the `PLOT-BLOCKED.md` text for a slice that reached
- * `corrections-spent`, `turn-limit` or an after-prompt `holding-work` after
- * its one fresh session already ran.
+ * `corrections-spent`, `turn-limit`, `bound`, `unreadable`, or an
+ * after-prompt `holding-work` after its one fresh session already ran.
  *
  * @param ending - the ending reason the slice reached again.
  * @param branch - the branch the desk holds.
@@ -325,13 +422,13 @@ export const secondFreshSessionMarker = (ending: EndingReason, branch: string): 
  * is a build nobody watched, the second is work a later push shadowed. No
  * other reason here branches on `detail`.
  *
- * **`corrections-spent`, `turn-limit` AND `holding-work` COMPOSE
- * {@link secondFreshSessionMarker}.** Those three answer `needs-a-person`
- * only after a fresh session already ran, so their question is a different
- * one.
+ * **`corrections-spent`, `turn-limit`, `bound`, `unreadable` AND
+ * `holding-work` COMPOSE {@link secondFreshSessionMarker}.** Those five
+ * answer `needs-a-person` only after a fresh session already ran, so their
+ * question is a different one.
  *
  * @param ending - the ending reason; one of {@link NEEDS_PERSON_ENDINGS} or
- *   the three fresh-session endings, or it throws.
+ *   the five fresh-session endings, or it throws.
  * @param branch - the branch the desk holds.
  * @param detail - the ending's own `detail`, verbatim.
  * @returns the marker text, ready for `Desk.writeBlockedMarker`.
@@ -367,6 +464,8 @@ export const needsPersonMarker = (ending: EndingReason, branch: string, detail: 
     case 'corrections-spent':
     case 'turn-limit':
     case 'holding-work':
+    case 'bound':
+    case 'unreadable':
       return secondFreshSessionMarker(ending, branch);
     default:
       throw new Error(`needsPersonMarker does not compose for ending "${ending}"`);
