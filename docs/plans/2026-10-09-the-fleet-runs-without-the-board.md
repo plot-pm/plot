@@ -109,6 +109,10 @@ fleet process (plot-registryd)          board process
 
 - `feature/the-supervisor-is-plot-fleetd` — `plot-registryd` becomes `plot-fleetd`: the bundle, `plot-fleetctl.sh`, the service label and the docs use the new name, and an installed unit under the old label is migrated, not orphaned → #1428 <!-- builds: plot-fleetd.mjs and a unit migration in plot-fleetctl.sh -->
 
+### The supervisor logs as fleetd
+
+- `bug/the-supervisor-logs-as-fleetd` — the daemon and the launchd unit write `.plot/logs/fleetd.log` and `.plot/logs/fleetd.err`; `plot-fleetctl.sh --status` reads the tick age from `fleetd.log` and from `registryd.log` while a unit filled before the rename has not been filled again <!-- builds: the fleetd.log and fleetd.err log names -->
+
 ### The fleet owns the scan and the PR index
 
 - `feature/the-fleet-owns-the-scan-and-pr-index` — `plot-registryd` runs the scan on its own clock, writes the pulse bridge and is the only caller of `foldPrIndex`; the board reads both through a `FleetState` port <!-- builds: FleetState, a domain port with a file adapter -->

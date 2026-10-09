@@ -736,6 +736,10 @@ test('the filled plist is valid XML', () => {
     assert.match(filled, /<key>Label<\/key>\s*<string>com\.example\.supplied<\/string>/,
       'the filled Label is not the one the fill supplied');
     assert.match(filled, /<key>KeepAlive<\/key>\s*<true\/>/);
+    assert.match(filled, /<key>StandardOutPath<\/key>\s*<string>\/tmp\/repo\/\.plot\/logs\/fleetd\.log<\/string>/,
+      'the launchd unit does not send stdout to fleetd.log');
+    assert.match(filled, /<key>StandardErrorPath<\/key>\s*<string>\/tmp\/repo\/\.plot\/logs\/fleetd\.err<\/string>/,
+      'the launchd unit does not send stderr to fleetd.err');
   } finally {
     fs.rmSync(tmp, { force: true });
   }
@@ -1018,7 +1022,7 @@ test('--status says a supervisor DIED where a start finished and nothing unloade
   // THE LOG IS THE POINT, not the restart. `--start` works here; what an
   // operator skips when told *not installed* is reading why it died, and a
   // supervisor that crashed once crashes again after a start.
-  assert.match(r.out, /registryd\.log/,
+  assert.match(r.out, /fleetd\.log/,
     'the reader is sent to restart without being sent to the log first');
 });
 
@@ -1249,7 +1253,7 @@ test('--status exits 0 and says up where the init system holds the label', () =>
 });
 
 test('--status carries the tick age on the running summary line, and only with a log', () => {
-  // 2026-09-23: `--status` said running while `registryd.log` was 25 hours
+  // 2026-09-23: `--status` said running while the supervisor's log was 25 hours
   // old. The field is evidence for the board's rule; the shell judges nothing.
   const { root, box, ctl, fleetLabel, guardBin } = sandbox('tick-age-stale');
   const home = fakeHome(box, { unit: true, label: fleetLabel });
@@ -1264,7 +1268,7 @@ test('--status carries the tick age on the running summary line, and only with a
   assert.doesNotMatch(bare.out, /tick_age=/, 'a missing log produced a tick age');
   assert.doesNotMatch(bare.out, /last tick:/, 'a missing log printed a last tick line');
 
-  const log = path.join(root, '.plot', 'logs', 'registryd.log');
+  const log = path.join(root, '.plot', 'logs', 'fleetd.log');
   fs.mkdirSync(path.dirname(log), { recursive: true });
   fs.writeFileSync(log, 'tick\n');
   const past = new Date(Date.now() - 90_061_000);
@@ -1281,11 +1285,38 @@ test('--status carries the tick age on the running summary line, and only with a
   assert.ok(Number(line[1]) >= 90_000, `last tick: ${line[1]}s does not reflect the backdated log`);
 });
 
+test('--status reads the tick age from registryd.log while fleetd.log is absent', () => {
+  // A unit filled before the rename keeps writing registryd.log until
+  // `--stop` then `--start` fills it again.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('tick-age-old-log');
+  const home = fakeHome(box, { unit: true, label: fleetLabel });
+  const bin = stubPlatform(box, { loaded: true });
+  const env = { HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, bin, process.env.PATH) };
+  const logs = path.join(root, '.plot', 'logs');
+  fs.mkdirSync(logs, { recursive: true });
+  const old = path.join(logs, 'registryd.log');
+  fs.writeFileSync(old, 'tick\n');
+  const past = new Date(Date.now() - 90_061_000);
+  fs.utimesSync(old, past, past);
+
+  const r = run(ctl, ['--status'], root, guardBin, env);
+  assert.equal(r.status, 0);
+  const age = Number((/^summary:.* tick_age=(\d+)$/m.exec(r.out) ?? [])[1]);
+  assert.ok(age >= 90_000, `registryd.log alone gave no tick age: ${r.out}`);
+
+  // Once fleetd.log exists it is the reading, and the old file is left alone.
+  fs.writeFileSync(path.join(logs, 'fleetd.log'), 'tick\n');
+  const fresh = run(ctl, ['--status'], root, guardBin, env);
+  const freshAge = Number((/^summary:.* tick_age=(\d+)$/m.exec(fresh.out) ?? [])[1]);
+  assert.ok(freshAge < 90_000, `tick_age=${freshAge} still reads registryd.log beside fleetd.log`);
+  assert.ok(fs.existsSync(old), '--status moved or removed registryd.log');
+});
+
 test('--status prints no tick age outside the running arm', () => {
   const { root, box, ctl, fleetLabel, guardBin } = sandbox('tick-age-dead');
   const home = fakeHome(box, { unit: true, label: fleetLabel });
   const bin = stubPlatform(box, { loaded: 'no-pid' });
-  const log = path.join(root, '.plot', 'logs', 'registryd.log');
+  const log = path.join(root, '.plot', 'logs', 'fleetd.log');
   fs.mkdirSync(path.dirname(log), { recursive: true });
   fs.writeFileSync(log, 'tick\n');
   const r = run(ctl, ['--status'], root, guardBin, {

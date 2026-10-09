@@ -58,8 +58,8 @@ Check it:
 
 ```bash
 launchctl print "gui/$(id -u)/com.plot-pm.fleetd" | head -20
-tail -f .plot/logs/registryd.log     # the tick lines
-tail -f .plot/logs/registryd.err     # the ticks that could not be taken
+tail -f .plot/logs/fleetd.log        # the tick lines
+tail -f .plot/logs/fleetd.err        # the ticks that could not be taken
 ```
 
 Stop it, or reload it after editing the file:
