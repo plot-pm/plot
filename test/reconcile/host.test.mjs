@@ -390,6 +390,41 @@ test('host: an absent CLI is not a lookup miss', () => {
   assert.equal(res.stdout.trim(), 'unknown', 'an absent binary cannot answer not-merged');
 });
 
+// `pr-merged-heads` sends the reaper to a weaker reading when it answers
+// empty, so a silent CLI failure must fail rather than read as a lookup miss.
+test('host: pr-merged-heads prints only the heads of merged PRs', () => {
+  const stubs = makeStubs({ ghJson: JSON.stringify([
+    { mergedAt: '2026-10-01T00:00:00Z', headRefOid: 'aaa111' },
+    { mergedAt: null, headRefOid: 'bbb222' },
+  ]) });
+  const out = run(['pr-merged-heads', 'feature/x'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(out.trim(), 'aaa111');
+  assert.deepEqual(argvOf(stubs.ghArgv), [
+    'pr', 'list', '--head', 'feature/x', '--state', 'all', '--limit', '100', '--json', 'mergedAt,headRefOid',
+  ]);
+});
+
+test('host: pr-merged-heads fails on a silent CLI failure, and answers empty on a lookup miss', () => {
+  const silent = runAllowFail(['pr-merged-heads', 'feature/x'],
+    { env: { PLOT_HOST: 'github' }, stubs: makeStubs({ ghFail: '' }) });
+  assert.equal(silent.code, 3, 'silence is not an empty answer');
+  assert.equal(silent.stdout.trim(), '');
+
+  const miss = runAllowFail(['pr-merged-heads', 'feature/x'],
+    { env: { PLOT_HOST: 'github' }, stubs: makeStubs({ ghFail: 'no pull requests found for branch "feature/x"' }) });
+  assert.equal(miss.code, 0);
+  assert.equal(miss.stdout.trim(), '');
+});
+
+test('host: pr-merged-heads on bitbucket matches the branch and reads source.commit.hash', () => {
+  const stubs = makeStubs({ bbJson: JSON.stringify([
+    { source: { branch: { name: 'feature/x' }, commit: { hash: 'ccc333' } } },
+    { source: { branch: { name: 'feature/y' }, commit: { hash: 'ddd444' } } },
+  ]) });
+  const out = run(['pr-merged-heads', 'feature/x'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  assert.equal(out.trim(), 'ccc333');
+});
+
 // Bitbucket runs the same rule through the same helper — one place decides, so
 // the two backends cannot drift into disagreeing about what silence means.
 test('host: bitbucket separates the two the same way', () => {

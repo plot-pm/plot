@@ -30,9 +30,9 @@ export interface Transcript {
    * file the runtime holds for it — a worker that hopped to another slice, or an
    * operator's own session at the same desk, can leave more than one.
    *
-   * A subagent's own transcript (a file named `agent-*`) is excluded: it is a
-   * true statement about the wrong process, and a worker whose subagent is
-   * still writing while the worker itself has stopped must read as quiet.
+   * A session's subagents write to `<session>/subagents/*.jsonl` from inside
+   * the session's own process, so those files count as the session's lines. A
+   * top-level `agent-*` file belongs to no session and is excluded.
    *
    * @param worktree - the desk's absolute path.
    * @returns the quiet duration, or `unavailable` where no transcript directory

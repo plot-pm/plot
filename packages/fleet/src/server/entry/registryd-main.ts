@@ -1478,6 +1478,15 @@ export const freshAgentDeskReads = (
     },
     record: asks,
     prMerged: async (branch) => prMergedReading(await askMerged(branch)),
+    // THE SAME READ `startNothingDoneReleases` MAKES OF THE SAME PORT — one
+    // implementation of `Trees.commitBeyondClaim`/`hostShell(...).prState`
+    // asked from two pipelines, matching `nothingDoneDecisions`'s own doc
+    // comment on the duplicate `commitBeyondClaim` call.
+    commitBeyondClaim: async (worktree) => {
+      const commits = await treesGit(context).commitBeyondClaim(worktree);
+      return commits.ok ? commits.value : 'unanswerable';
+    },
+    prOpen: async (branch) => prOpenReading(await hostShell(context).prState(branch)),
   },
 });
 
@@ -1684,6 +1693,13 @@ export const run = async (
   const boardOpts = { repoRoot, scriptsDir };
   // THE DAEMON IS THE ONLY WRITER OF THE ASK RECORD, for the same reason.
   const endingAsks = endingAskRecordFile({ cwd: repoRoot });
+  // ONE RELEASE PATH FOR BOTH STEPS: the fresh-agent step releases a
+  // timed-out desk, the nothing-done step every other `release-claim`.
+  const releaseContext = { repoRoot, scriptDir: scriptsDir };
+  const releaseClaimOf = async (branch: string) => {
+    const { result } = await gatherReadingsAndRelease(branch, releaseContext);
+    return { released: result.released, detail: result.detail };
+  };
   const freshAgentPorts: FreshAgentPorts = {
     record: freshAgentRecord,
     asks: endingAsks,
@@ -1702,6 +1718,7 @@ export const run = async (
         },
       );
     },
+    release: releaseClaimOf,
   };
 
   write(`plot-registryd: supervising ${registryDir}\n`);
@@ -1833,10 +1850,7 @@ export const run = async (
               const rows = await freshAgentRecord.rowsFor(plan, branch);
               return rows.ok ? rows.value.length : 0;
             },
-            release: async (branch) => {
-              const { result } = await gatherReadingsAndRelease(branch, nothingDoneContext);
-              return { released: result.released, detail: result.detail };
-            },
+            release: releaseClaimOf,
           },
         },
         write,

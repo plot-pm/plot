@@ -99,6 +99,24 @@ export interface Trees {
   dirtyPaths(path: string): Promise<PortResult<readonly string[]>>;
 
   /**
+   * Lists the uncommitted paths a desk holds, counted as unlanded work, each
+   * still carrying its two-byte `git status --porcelain` status code.
+   *
+   * NOT {@link dirtyPaths}, which strips the status code for a monitor
+   * comparing two passes. The reaper's refusal text names the status a
+   * person would see running `git status` themselves — `?? half-done.txt`,
+   * not `half-done.txt` — so this keeps what that reading drops. The
+   * exclusions differ too: Plot's own `.plot/state` pulse fixture and two
+   * named cleanup files, read from the worktree's own `build.mjs` for
+   * generated bundles, rather than {@link dirtyPaths}'s worker-record and
+   * editor-leftover patterns.
+   *
+   * @param path - the worktree's absolute path.
+   * @returns the porcelain lines, status code and path together.
+   */
+  dirtyPathsWithStatus(path: string): Promise<PortResult<readonly string[]>>;
+
+  /**
    * Lists the changed and untracked paths a checkout holds under the given
    * pathspecs, with nothing filtered out.
    *
@@ -276,6 +294,68 @@ export interface Trees {
    *   best-effort cleanup the shell performed.
    */
   removeWithBranch(path: string, branch: string): Promise<PortResult<void>>;
+
+  /**
+   * Removes a worktree, leaving the branch it was checked out on untouched.
+   *
+   * NOT {@link Trees.removeWithBranch} with a flag. That operation is
+   * best-effort cleanup of a booking worktree this package created and always
+   * owns both halves of; this one is the reaper clearing a desk whose BRANCH
+   * is somebody else's lifecycle object — a merged plan's slice, a dispatched
+   * agent's work — and deleting it is not this call's business. A reap that
+   * reused the two-step operation would delete a branch the ref-deletion rule
+   * in `reapable.ts` was never asked about.
+   *
+   * FORCES, MATCHING THE SHELL'S OWN REMOVAL SITE. A marker file left in an
+   * otherwise-landed desk — `PLOT-BLOCKED.md` beside no other uncommitted
+   * work — is exactly the uncommitted content `git worktree remove` alone
+   * would refuse, and the reaper's own refusals (`firstReapRefusal`) have
+   * already decided this tree is safe to clear before this call is reached.
+   * A plain, unforced removal would re-litigate that decision at the git
+   * level and leave a desk this package already approved removing.
+   *
+   * @param path - the worktree's absolute path.
+   * @returns nothing; a failure means git refused even with `--force` —
+   *   the path was not a worktree at all, or a process still holds it.
+   */
+  removeOnly(path: string): Promise<PortResult<void>>;
+
+  /**
+   * Deletes a local branch ref with `git branch -D`. Remote refs are never
+   * touched, so the branch stays re-fetchable from the remote.
+   *
+   * @param branch - the local branch name.
+   * @returns nothing; a failure means git refused, such as for a branch a
+   *   worktree has checked out or one that does not exist.
+   */
+  deleteBranch(branch: string): Promise<PortResult<void>>;
+
+  /**
+   * The commits on a checkout's `HEAD` that no remote-tracking ref holds,
+   * as abbreviated shas, newest first.
+   *
+   * @param path - the checkout's absolute path.
+   * @param exclude - further commits whose ancestors also count as pushed,
+   *   such as a merged PR's head.
+   * @returns the abbreviated shas; empty where every commit is on a remote.
+   *   A failed result where git cannot read the range, such as an `exclude`
+   *   entry that names no commit.
+   */
+  unpushedCommits(path: string, exclude: readonly string[]): Promise<PortResult<readonly string[]>>;
+
+  /**
+   * The commits on a checkout's `HEAD` that no remote-tracking ref holds AND
+   * whose patch `upstream` does not carry, as abbreviated shas.
+   *
+   * Compares by patch id (`git cherry`), so a commit whose change a squash
+   * merge already took is not listed.
+   *
+   * @param path - the checkout's absolute path.
+   * @param upstream - the ref to compare patches against, such as `origin/main`.
+   * @returns the abbreviated shas; a failed result where git cannot read
+   *   either range.
+   */
+  unpushedPatches(path: string, upstream: string): Promise<PortResult<readonly string[]>>;
 
   /**
    * Resets a desk onto a branch at take-up — `reset_desk`'s common path

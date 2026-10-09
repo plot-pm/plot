@@ -1175,6 +1175,29 @@ await esbuild.build({
 fs.copyFileSync(deliverArtifact, shippedDeliver);
 fs.chmodSync(shippedDeliver, 0o755);
 
+// The estate sweep's mechanical half — same reason as plot-deliver.mjs above:
+// `plot-reap.sh` gathered its readings and asked `rules/reapable.ts` through a
+// path derived from its own checkout, which resolves only inside the plot
+// checkout and not the published npm layout. `plot-reap.sh` keeps its name as
+// a launcher, because the skills, hooks and tests below name its `.sh` path.
+const reapArtifact = path.join(here, 'dist/plot-reap.mjs');
+const shippedReap = path.join(here, '../../skills/plot/scripts/board/plot-reap.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/reap.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: reapArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(reapArtifact, shippedReap);
+fs.chmodSync(shippedReap, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -1268,6 +1291,13 @@ const vendoredScripts = [
   // resolve" refusal. Listed by hand for the reason every
   // sourced file above is.
   'plot-desk-root.sh',
+  // Sourced BY plot-reap.sh's own entry (`reap.ts`, `trees-git.ts`'s
+  // `dirtyPathsWithStatus`) as a `$script_dir` sibling: it holds `desk_dirt`,
+  // the reaper's own uncommitted-paths reading, status code kept. Missing,
+  // the source prints one line to stderr and `desk_dirt` is then undefined,
+  // so the refusal this reading drives sees every desk as clean. Listed by
+  // hand for the reason every sourced file above is.
+  'plot-desk-dirt.sh',
 ];
 for (const removed of pruneStaleVendoredHelpers(here, vendoredScripts)) {
   console.log(`Removed stale vendored helper ${removed}`);
@@ -1315,6 +1345,7 @@ const emptyClaimKb = (fs.statSync(shippedEmptyClaim).size / 1024).toFixed(1);
 const controllerInvocationKb = (fs.statSync(shippedControllerInvocation).size / 1024).toFixed(1);
 const deliverKb = (fs.statSync(shippedDeliver).size / 1024).toFixed(1);
 const claimAnswerKb = (fs.statSync(shippedClaimAnswer).size / 1024).toFixed(1);
+const reapKb = (fs.statSync(shippedReap).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1351,4 +1382,5 @@ console.log(`Built plot-empty-claim.mjs (${emptyClaimKb} KB) → skills/plot/scr
 console.log(`Built plot-controller-invocation.mjs (${controllerInvocationKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-deliver.mjs (${deliverKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-claim-answer.mjs (${claimAnswerKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-reap.mjs (${reapKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

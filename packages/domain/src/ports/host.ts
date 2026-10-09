@@ -191,6 +191,19 @@ export interface Host {
   prMergeCommit(branch: string): Promise<PortResult<string>>;
 
   /**
+   * The head commit of every merged PR for a branch.
+   *
+   * Reads the merge timestamp, never the state, and asks about every PR on the
+   * branch rather than the newest.
+   *
+   * @param branch - the branch to ask about.
+   * @returns one sha per merged PR, newest first; empty where no PR for this
+   *   branch merged. A host that could not be asked fails the result, so an
+   *   empty list is never read from silence.
+   */
+  prMergedHeads(branch: string): Promise<PortResult<readonly string[]>>;
+
+  /**
    * Opens a PR for a branch.
    *
    * THE ONE WRITE ON THIS PORT, and the reason it is allowed here while

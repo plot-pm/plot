@@ -106,7 +106,7 @@ fleet process (plot-registryd)          board process
 
 ### The supervisor is plot-fleetd
 
-- `feature/the-supervisor-is-plot-fleetd` — `plot-registryd` becomes `plot-fleetd`: the bundle, `plot-fleetctl.sh`, the service label and the docs use the new name, and an installed unit under the old label is migrated, not orphaned <!-- builds: plot-fleetd.mjs and a unit migration in plot-fleetctl.sh -->
+- `feature/the-supervisor-is-plot-fleetd` — `plot-registryd` becomes `plot-fleetd`: the bundle, `plot-fleetctl.sh`, the service label and the docs use the new name, and an installed unit under the old label is migrated, not orphaned → #1428 <!-- builds: plot-fleetd.mjs and a unit migration in plot-fleetctl.sh -->
 
 ### The fleet owns the scan and the PR index
 

@@ -13,6 +13,7 @@
 // copied by hand — a test that lists its own paths would keep passing when a
 // fourth asker logs elsewhere, which is exactly the defect measured above.
 import { afterEach, describe, it, expect } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -21,7 +22,10 @@ import {
   briefAskLogPaths, briefReading, DISPATCH_SCRIPT_ASK_LOG,
 } from '../../src/server/brief-ask-log.js';
 import { askForBriefLogPath } from '../../src/server/brief-ask.js';
-import { implementLogPath, implementStatePath } from '../../src/server/implement.js';
+import { markBoardRun } from '../../src/server/board-run.js';
+import {
+  implementBranchRecordPath, implementBranchStatePath, implementLogPath, implementStatePath,
+} from '../../src/server/implement.js';
 import { rmTree } from '../helpers.mjs';
 
 const BRANCH = 'bug/a-brief-the-fleet-writes-shows-as-asked';
@@ -219,5 +223,76 @@ describe('briefFailed reads the recorded exit, never a process', () => {
     touchAt(implementStatePath(root, PLAN_SLUG), now);
 
     expect(briefFailed(root, BRANCH, PLAN_SLUG)).toBe(path.relative(root, implementLogPath(root, PLAN_SLUG)));
+  });
+});
+
+describe('a writer given a branch is attributed to that branch only', () => {
+  const FIRST = 'feature/the-first-slice';
+  const SECOND = 'feature/the-second-slice';
+
+  /** A run that was given FIRST: its record, its log, and its own state. */
+  const runGiven = (root: string, state: string): void => {
+    write(implementLogPath(root, PLAN_SLUG));
+    write(implementStatePath(root, PLAN_SLUG), state);
+    write(implementBranchRecordPath(root, PLAN_SLUG), FIRST);
+    write(implementBranchStatePath(root, PLAN_SLUG, FIRST), state);
+  };
+  /** A pid that is alive and is not this process: the one that started this test run. */
+  const livePid = process.ppid;
+  /** A pid that belonged to a process that has ended. */
+  const deadPid = (): number => spawnSync(process.execPath, ['-e', '']).pid;
+
+  it('reads a running writer for the first branch and no ask for its sibling', () => {
+    const root = repo();
+    runGiven(root, `running ${livePid}`);
+
+    expect(briefReading(root, FIRST, PLAN_SLUG).askedAt).not.toBeNull();
+    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null });
+  });
+
+  it('reads a running writer held by this board as running', () => {
+    const root = repo();
+    write(implementLogPath(root, PLAN_SLUG));
+    write(implementBranchRecordPath(root, PLAN_SLUG), FIRST);
+    markBoardRun(implementBranchStatePath(root, PLAN_SLUG, FIRST), implementLogPath(root, PLAN_SLUG));
+
+    expect(briefReading(root, FIRST, PLAN_SLUG).askedAt).not.toBeNull();
+    expect(briefReading(root, FIRST, PLAN_SLUG).failed).toBeNull();
+    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null });
+  });
+
+  it('reads a run that named no branch as an ask on every brief-less sibling', () => {
+    const root = repo();
+    write(implementLogPath(root, PLAN_SLUG));
+    write(implementStatePath(root, PLAN_SLUG), `running ${livePid}`);
+
+    expect(briefReading(root, FIRST, PLAN_SLUG).askedAt).not.toBeNull();
+    expect(briefReading(root, SECOND, PLAN_SLUG).askedAt).not.toBeNull();
+  });
+
+  it('reads `running <pid>` with a dead pid as failed, for that branch only', () => {
+    const root = repo();
+    runGiven(root, `running ${deadPid()}`);
+
+    expect(briefReading(root, FIRST, PLAN_SLUG).failed).toBe(path.relative(root, implementLogPath(root, PLAN_SLUG)));
+    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null });
+  });
+
+  it('reads a recorded exit of 0 as no ask for any branch', () => {
+    const root = repo();
+    runGiven(root, '0');
+
+    expect(briefReading(root, FIRST, PLAN_SLUG)).toEqual({ askedAt: null, failed: null });
+    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null });
+  });
+
+  it('keeps the first branch\'s failure after a later run briefed its sibling', () => {
+    const root = repo();
+    runGiven(root, '1');
+    write(implementBranchRecordPath(root, PLAN_SLUG), SECOND);
+    write(implementStatePath(root, PLAN_SLUG), '0');
+
+    expect(briefReading(root, FIRST, PLAN_SLUG).failed).toBe(path.relative(root, implementLogPath(root, PLAN_SLUG)));
+    expect(briefReading(root, SECOND, PLAN_SLUG).failed).toBeNull();
   });
 });

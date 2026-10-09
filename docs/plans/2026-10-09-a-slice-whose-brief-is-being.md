@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-09, jwloka, in-session
 - **Started:** 2026-10-09, jwloka, `feature/the-brief-ask-names-its-branch`
 - **Started:** 2026-10-09, jwloka, `feature/the-brief-ask-names-its-branch`
+- **Started:** 2026-10-09, jwloka, `feature/the-row-shows-the-brief-writer`
 
 ## Changelog
 
@@ -45,21 +46,25 @@ Two causes are known:
 
 ### Open Questions
 
-- [ ] Where did `briefAskedAt` = 01:03 UTC come from? Measured 2026-10-09 ~10:30 on the main checkout: `.worktrees/plot-implement-the-fleet-runs-without-the-board.state` holds `0`, and `briefReading` does not count a run that recorded `0`. No `.plot/brief-<branch>.log` or `.plot-brief-the-fleet-runs-without-the-board.log` exists for the four slices. Either the board serving `/api/fleet` ran older code, or a fourth asker writes elsewhere. The first slice measures this before it changes the reading.
-- [ ] Which condition hid the note while a writer ran: `needsBrief` false, the row in another section, or no row before the slice appears? Not yet measured.
-- [ ] A writer started by the fleet supervisor rather than the board: does it write the same state file with its own pid? If not, the process reading needs the supervisor's record too.
+- [x] Where did `briefAskedAt` = 01:03 UTC come from? Measured 2026-10-09 ~10:30 on the main checkout: `.worktrees/plot-implement-the-fleet-runs-without-the-board.state` holds `0`, and `briefReading` does not count a run that recorded `0`. No `.plot/brief-<branch>.log` or `.plot-brief-the-fleet-runs-without-the-board.log` exists for the four slices. Either the board serving `/api/fleet` ran older code, or a fourth asker writes elsewhere. The first slice measures this before it changes the reading.
+  - Answer, 2026-10-09: not confirmed against the original incident. The likely source is the board's own asker (`askForBrief` in `auto-dispatch.ts`): it asks once per branch but logs to the plan-keyed `.plot-brief-<plan-slug>.log`, which `briefAskLogPaths` reads for every sibling, and it writes no state file, so the process reading does not cover it. This slice does not change that asker.
+- [x] Which condition hid the note while a writer ran: `needsBrief` false, the row in another section, or no row before the slice appears? Not yet measured.
+  - Answer, 2026-10-09: none of the three. `startabilityVerdict` answers `needs-brief` for an open, eligible, brief-less branch of an approved plan, so `needsBrief` was true and the row sat in NOT STARTED. The note was hidden because `briefAskedAt` was null for the branch: the plan-keyed reading carried no per-branch record.
+- [x] A writer started by the fleet supervisor rather than the board: does it write the same state file with its own pid? If not, the process reading needs the supervisor's record too.
+  - Answer, 2026-10-09 (static reading): no. `startImplement` and `markBoardRun` are called only from board server modules (`implement.ts`, `dispatch.ts`, and the other board roles); no supervisor or worker-loop script writes `plot-implement-<plan>.state`. A supervisor-started worker is a loop-worker and does not run `--brief-only` through the board.
 
 ## Slices
 
 ### The ask names its branch
 
-- `feature/the-brief-ask-names-its-branch` — a `--brief-only` run records the branch it briefs, and the brief reading attributes a running or failed writer to that branch only; measures the 01:03 source and the hidden-note condition first <!-- builds: a per-branch brief writer reading in brief-ask-log.ts -->
+- `feature/the-brief-ask-names-its-branch` — a `--brief-only` run records the branch it briefs, and the brief reading attributes a running or failed writer to that branch only; measures the 01:03 source and the hidden-note condition first <!-- builds: a per-branch brief writer reading in brief-ask-log.ts --> → #1424
 
 ### The row shows the writer
 
-- `feature/the-row-shows-the-brief-writer` — a domain rule answers `writing`/`failed`/`asked`/`none` for a slice from readings, the fleet payload carries it, and a NOT STARTED row shows a working indicator while the answer is `writing`, with one browser test <!-- builds: briefWriterState, a domain rule in @plot-pm/domain -->
+- `feature/the-row-shows-the-brief-writer` — a domain rule answers `writing`/`failed`/`asked`/`none` for a slice from readings, the fleet payload carries it, and a NOT STARTED row shows a working indicator while the answer is `writing`, with one browser test <!-- builds: briefWriterState, a domain rule in @plot-pm/domain --> → #1430
 
 ## Notes
 
 - 2026-10-09, from issue #1417, created unattended by `/plot-idea`. Type `feature` was given in the request. Review `in-session` and Impl `own branches` follow the precedent of the other issue-sourced plans on this estate (#1404, #1406, #1407).
 - Deliverable search, 2026-10-09: `briefWriting` and "brief writer pid" find no existing artifact by that name. The pid check this plan reuses is `readRunState` in `packages/board/src/server/board-run.ts`.
+- 2026-10-09, wave 1: the controller chooses the branch before it spawns (the first `startableBranches` entry of the plan's pulse), passes it as `PLOT_BRIEF_BRANCH`, records it in `plot-implement-<plan>.state.branch`, and marks a per-branch state file `plot-implement-<plan>.<branch-suffix>.state`. A run with no resolvable branch keeps the per-plan reading.

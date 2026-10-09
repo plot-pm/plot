@@ -38,8 +38,10 @@
 # THE EXCEPTIONS, each matched by file, rule and a fragment of the line
 # ---------------------------------------------------------------------------
 #
-# `plot-reap.sh` — `/private/tmp/*|…) p=${p#/private}`, a `case` pattern that
-#   normalises a path macOS spells two ways. It writes nothing.
+# None today. `plot-reap.sh`'s `/private/tmp` normalisation moved to
+# `packages/board/src/server/entry/reap.ts` with `the-reaper-becomes-a-command`
+# — outside the trees this gate scans — and the shell file left behind is a
+# launcher with no temp-path handling of its own.
 #
 # An exception whose file exists and whose line no longer matches FAILS the
 # gate, so the list can only shrink.
@@ -50,7 +52,7 @@ set -uo pipefail
 # explicit root lets test/reconcile/temp-paths-gate.test.mjs prove the refusals.
 cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 
-EXCEPTIONS='skills/plot/scripts/plot-reap.sh	tmp-literal	/private/tmp/*|'
+EXCEPTIONS=''
 
 files=""
 for f in skills/plot/scripts/*.sh scripts/*.sh; do

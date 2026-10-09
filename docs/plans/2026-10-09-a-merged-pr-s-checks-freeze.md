@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #1418
 - **Sprint:** the-release-train-fixes-what-it-found
@@ -12,6 +12,8 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-09, jwloka, in-session
 - **Started:** 2026-10-09, jwloka, `feature/a-merged-pr-shows-no-ci-state`
+- **Started:** 2026-10-09, jwloka, `feature/a-merged-pending-check-is-asked-again`
+- **Delivered:** 2026-10-09
 
 ## Changelog
 
@@ -63,7 +65,7 @@ The re-ask is bounded the same way the open re-ask is: `PR_PENDING_REASK_LIMIT` 
 
 ### Open Questions
 
-- [ ] **Does slice 2 earn its request once slice 1 lands?** After slice 1, nothing on the board renders a merged PR's checks. The issue asks for slice 2 so that *"the index holds the final answer for every other reader"*. A grep for readers of `checks` on a `MERGED` row answers this: if none exists, slice 2 buys correctness of a stored field nobody reads, and the plan can drop it.
+- [x] **Does slice 2 earn its request once slice 1 lands?** — *answered 2026-10-09: no.* A grep of `packages/board`, `packages/domain`, `packages/fleet` and the shell finds no reader of a `MERGED` row's `checks`: #1423 suppresses it on the Agents tab, and the Plans tab payload (`/api/board`) carries no merged PR rows. Slice 2 is deferred, as this question's own rule says.
 - [ ] **Which question reaches the five rows today?** #1228 is about 190 PRs older than #1413. A `--state merged --limit` small enough to be cheap does not reach it. Either the limit covers the oldest pending number, or the five legacy rows are left as held and only rows written after the fix are asked. The answer decides `<n>` and the request cost.
 - [ ] **Why did a full read not overwrite #1228?** The store says `pending` five weeks after the merge. Either the full read keeps a held merged row's checks, or it never re-reads merged rows richly. The answer decides whether slice 2 must also change the fold, or only the delta.
 
@@ -75,7 +77,7 @@ The re-ask is bounded the same way the open re-ask is: `PR_PENDING_REASK_LIMIT` 
 
 ### A merged pending check is re-asked
 
-- `feature/a-merged-pending-check-is-asked-again` — the delta refresh asks the host for `MERGED` rows whose stored checks are `pending`, bounded by `PR_PENDING_REASK_LIMIT` <!-- builds: pendingMergedPrNumbers and its re-ask in the delta refresh -->
+- `feature/a-merged-pending-check-is-asked-again` — the delta refresh asks the host for `MERGED` rows whose stored checks are `pending`, bounded by `PR_PENDING_REASK_LIMIT` <!-- builds: pendingMergedPrNumbers and its re-ask in the delta refresh --> <!-- deferred: 2026-10-09, no reader of a merged row's checks exists after #1423 (the Agents tab hides them; the Plans tab payload carries no merged PR rows), so the re-ask buys a permanent host call for a field nobody reads; PR #1425 closed, review findings in #1426 --> → #1425
 
 ## Done when
 

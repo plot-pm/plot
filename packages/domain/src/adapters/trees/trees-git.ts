@@ -177,6 +177,7 @@ const worktreesOf = (stdout: string): Worktree[] => {
 export const treesGit = (context: ShellContext): Trees => {
   const inRepo = { cwd: context.repoRoot };
   const workerState = scriptPath(context, 'plot-worker-state.sh');
+  const deskDirt = scriptPath(context, 'plot-desk-dirt.sh');
 
   const isClean = async (path: string): Promise<PortResult<boolean>> => {
     const run = await runProcess('git', ['-C', path, 'status', '--porcelain'], inRepo);
@@ -263,6 +264,17 @@ export const treesGit = (context: ShellContext): Trees => {
         'bash',
         ['-c', '. "$1" && plot_worker_dirty "$2"', 'bash', workerState, path],
         asLines,
+        inRepo,
+      ),
+    // `desk_dirt` is SOURCED and called, never reimplemented here, for the
+    // reason `dirtyPaths` above gives: its bundle and named-file exclusions
+    // are stated once in `plot-desk-dirt.sh`. Not `asLines`, which trims the
+    // status column this reading exists to keep.
+    dirtyPathsWithStatus: (path) =>
+      runScript(
+        'bash',
+        ['-c', '. "$1" && desk_dirt "$2"', 'bash', deskDirt, path],
+        (stdout) => stdout.split('\n').filter((line) => line.length > 0),
         inRepo,
       ),
     // THE SHELL'S `plot_worker_tree_quiet_seconds`, with the dirty filter
@@ -392,6 +404,38 @@ export const treesGit = (context: ShellContext): Trees => {
       await runProcess('git', ['worktree', 'remove', '--force', path], inRepo);
       await runProcess('git', ['branch', '-D', branch], inRepo);
       return answered(undefined);
+    },
+
+    removeOnly: async (path) =>
+      runScript('git', ['worktree', 'remove', '--force', path], () => undefined, inRepo),
+
+    deleteBranch: async (branch) =>
+      runScript('git', ['branch', '-D', branch], () => undefined, inRepo),
+
+    unpushedCommits: async (path, exclude) =>
+      runScript(
+        'git',
+        ['-C', path, 'rev-list', '--abbrev-commit', 'HEAD', '--not', '--remotes', ...exclude],
+        asLines,
+        { ...inRepo, maxBuffer: STATUS_MAX_BUFFER },
+      ),
+
+    unpushedPatches: async (path, upstream): Promise<PortResult<readonly string[]>> => {
+      const git = (args: readonly string[]) =>
+        runProcess('git', ['-C', path, ...args], { ...inRepo, maxBuffer: STATUS_MAX_BUFFER });
+      const local = await git(['rev-list', 'HEAD', '--not', '--remotes']);
+      if (local.code !== 0) return failed<readonly string[]>();
+      const cherry = await git(['cherry', upstream, 'HEAD']);
+      if (cherry.code !== 0) return failed<readonly string[]>();
+      const held = new Set(asLines(local.stdout));
+      const unpushed = asLines(cherry.stdout)
+        .filter((line) => line.startsWith('+ '))
+        .map((line) => line.slice(2).trim())
+        .filter((sha) => held.has(sha));
+      if (unpushed.length === 0) return answered<readonly string[]>([]);
+      const short = await git(['rev-parse', '--short', ...unpushed]);
+      if (short.code !== 0) return failed<readonly string[]>();
+      return answered<readonly string[]>(asLines(short.stdout));
     },
 
     // `git -C <path>`, so an unreadable checkout is reported by git's own exit

@@ -11,7 +11,8 @@ import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { DECLARATION_FILENAME } from '@plot-pm/domain/entities/declaration';
 import { freshAgentRecordFile, endingAskRecordFile, deskFs } from '@plot-pm/domain/adapters';
 import type { Trees } from '@plot-pm/domain/ports/trees';
-import type { PrMergedReading } from '@plot-pm/domain/rules/ending-action';
+import type { PrMergedReading, PrOpenReading } from '@plot-pm/domain/rules/ending-action';
+import type { CommitReading } from '@plot-pm/domain/rules/sample';
 import { deskFixture, deskFixtureCalls } from '@plot-pm/domain/adapters/desk/desk-fixture';
 import { questionEscalation, parseQuestionEscalation } from '@plot-pm/domain/rules/question-escalation';
 
@@ -29,7 +30,7 @@ import {
   type FreshAgentAskReads,
   type FreshAgentCandidateReadings,
 } from '../../src/server/entry/registryd.js';
-import type { DeskContinuation } from '../../src/shared/continuation.js';
+import { continueOnDesk, type DeskContinuation } from '../../src/shared/continuation.js';
 import { startFreshSession, freshAgentDeskReads } from '../../src/server/entry/registryd-main.js';
 import { markerReading } from '../../src/shared/worker-question.js';
 import { agentsFixture } from '@plot-pm/domain/adapters/agents/agents-fixture';
@@ -98,6 +99,8 @@ const noAsks: FreshAgentAskReads = {
   endingAt: async () => null,
   record: { asked: async () => ({ ok: true, value: false }) },
   prMerged: async () => 'unanswerable',
+  commitBeyondClaim: async () => 'unanswerable',
+  prOpen: async () => 'unanswerable',
 };
 
 const endingFile = (reason: string, detail = '') =>
@@ -177,6 +180,8 @@ describe('freshAgentDecisions', () => {
           endingAt: '',
           endingAsked: false,
           prMerged: 'unanswerable',
+          commitBeyondClaim: 'unanswerable',
+          prOpen: 'unanswerable',
         },
       ],
       2,
@@ -205,6 +210,8 @@ describe('freshAgentDecisions', () => {
           endingAt: '',
           endingAsked: false,
           prMerged: 'unanswerable',
+          commitBeyondClaim: 'unanswerable',
+          prOpen: 'unanswerable',
         },
       ],
       2,
@@ -214,6 +221,9 @@ describe('freshAgentDecisions', () => {
   });
 
   it('leaves every other ending alone', () => {
+    // `quiet` stays `leave` deliberately — its cause was fixed on
+    // `bug/a-working-desk-never-reads-free` (#1429), and the plan's Open
+    // Questions do not ask for a row.
     const [decision] = freshAgentDecisions(
       [
         {
@@ -221,7 +231,7 @@ describe('freshAgentDecisions', () => {
           escalated: false,
           branch: 'feature/x',
           worktree: tree().path,
-          ending: 'bound',
+          ending: 'quiet',
           refusedAssignment: '',
           correctionsText: '',
           runUrl: '',
@@ -232,6 +242,8 @@ describe('freshAgentDecisions', () => {
           endingAt: '',
           endingAsked: false,
           prMerged: 'unanswerable',
+          commitBeyondClaim: 'unanswerable',
+          prOpen: 'unanswerable',
         },
       ],
       2,
@@ -437,6 +449,8 @@ const spentReading = (over: Partial<FreshAgentCandidateReadings> = {}): FreshAge
   endingAt: '',
   endingAsked: false,
   prMerged: 'unanswerable',
+  commitBeyondClaim: 'unanswerable',
+  prOpen: 'unanswerable',
   ...over,
 });
 
@@ -466,8 +480,9 @@ describe('the holding-work readings and decisions', () => {
     const reading = spentReading({ ending: 'holding-work', refusedAssignment: 'feature/y', heldFiles: ['a.ts'] });
     const decisions = freshAgentDecisions([reading], 2);
     expect(decisions.map((d) => [d.verdict, d.answer, d.escalate])).toEqual([['release-claim', '', false]]);
-    const { starts, calls, ports } = rig(started);
+    const { starts, releases, calls, ports } = rig(started);
     expect(await applyFreshAgentDecisions(decisions, ports)).toEqual([]);
+    expect(releases).toEqual([]);
     expect(starts).toEqual([]);
     expect(calls.blockedMarkers).toEqual([]);
   });
@@ -484,7 +499,7 @@ describe('freshAgentDecisions, escalation', () => {
 
   it('never escalates a first spent budget or an ending that stays leave', () => {
     const decisions = freshAgentDecisions(
-      [spentReading(), spentReading({ ending: 'bound', priorFreshSessions: 3 })],
+      [spentReading(), spentReading({ ending: 'quiet', priorFreshSessions: 3 })],
       2,
     );
     expect(decisions.map((d) => d.escalate)).toEqual([false, false]);
@@ -511,12 +526,25 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
   const record = freshAgentRecordFile({ home });
   const asks = endingAskRecordFile({ home });
   /** What the tick reads of the ending's time and the host; a test changes them between ticks. */
-  const world: { endingAt: string | null; merged: PrMergedReading; mergedAsks: number } = {
+  const world: {
+    endingAt: string | null;
+    merged: PrMergedReading;
+    mergedAsks: number;
+    commitBeyondClaim: CommitReading;
+    prOpen: PrOpenReading;
+    heldFiles: readonly string[] | null;
+    workAsks: number;
+  } = {
     endingAt: '2026-10-05T11:00:00.000Z',
     merged: 'not-merged',
     mergedAsks: 0,
+    commitBeyondClaim: 'no',
+    prOpen: false,
+    heldFiles: [],
+    workAsks: 0,
   };
   const starts: { branch: string; answer: string }[] = [];
+  const releases: string[] = [];
   // MUTATED AFTER EACH WRITE, so a marker written on tick N makes tick N+1's
   // read see `escalated: true` — the same no-overwrite behaviour a real
   // `PLOT-BLOCKED.md` file gives through `hasMarker`.
@@ -537,6 +565,10 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
       starts.push({ branch: input.branch, answer: input.answer });
       return continues(input);
     },
+    release: async (branch) => {
+      releases.push(branch);
+      return { released: true, detail: `released ${branch}` };
+    },
   };
   /** One tick over one desk: read through the real record, decide, apply. */
   const tickOver = async (deskFile: (worktree: string, name: string) => string | null, path = tree().path) => {
@@ -544,7 +576,7 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
       freshAgentCandidateTrees([tree({ path })]),
       deskFile,
       record,
-      noHeldFiles,
+      async () => world.heldFiles,
       async (worktree) => markedWorktrees.has(worktree),
       {
         endingAt: async () => world.endingAt,
@@ -553,12 +585,23 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
           world.mergedAsks += 1;
           return world.merged;
         },
+        commitBeyondClaim: async () => {
+          world.workAsks += 1;
+          return world.commitBeyondClaim;
+        },
+        prOpen: async () => {
+          world.workAsks += 1;
+          return world.prOpen;
+        },
       },
     );
     return applyFreshAgentDecisions(freshAgentDecisions(readings, 2), ports);
   };
-  return { record, asks, world, ports, calls, markedWorktrees, starts, tickOver };
+  return { record, asks, world, ports, calls, markedWorktrees, starts, releases, tickOver };
 };
+
+const boundDesk = (reason: 'bound' | 'unreadable' = 'bound') => (_worktree: string, name: string) =>
+  name === ENDING_FILENAME ? endingFile(reason) : null;
 
 const spentDesk = () => (_worktree: string, name: string) => {
   if (name === ENDING_FILENAME) {
@@ -799,9 +842,100 @@ describe('the tick starts one fresh session through continue', () => {
   });
 });
 
+describe('a timed-out desk through the tick', () => {
+  for (const reason of ['bound', 'unreadable'] as const) {
+    it(`starts one fresh session for a ${reason} desk with a dirty tree and no commit, naming the held files`, async () => {
+      const { starts, tickOver, world } = rig(started);
+      world.heldFiles = ['a.ts', 'b.ts'];
+      const applied = await tickOver(boundDesk(reason));
+      expect(applied.map((a) => a.outcome)).toEqual(['started']);
+      expect(starts).toHaveLength(1);
+      expect(starts[0]?.answer).toContain('- a.ts');
+      expect(starts[0]?.answer).toContain('- b.ts');
+    });
+
+    it(`releases the claim for a ${reason} desk with nothing beyond the claim`, async () => {
+      const { tickOver, starts, releases, calls } = rig(started);
+      const applied = await tickOver(boundDesk(reason));
+      expect(releases).toEqual([tree().branch]);
+      expect(applied).toEqual([{ branch: tree().branch, outcome: 'released', detail: `released ${tree().branch}` }]);
+      expect(starts).toEqual([]);
+      expect(calls.blockedMarkers).toEqual([]);
+    });
+
+    it(`starts a fresh session rather than releasing where a ${reason} desk's facts could not be read`, async () => {
+      const { starts, tickOver, world } = rig(started);
+      world.commitBeyondClaim = 'unanswerable';
+      world.prOpen = 'unanswerable';
+      world.heldFiles = null;
+      const applied = await tickOver(boundDesk(reason));
+      expect(applied.map((a) => a.outcome)).toEqual(['started']);
+      expect(starts).toHaveLength(1);
+      expect(starts[0]?.answer).toContain('could not be listed');
+    });
+
+    it(`asks a person on a second ${reason} time-out, through the same marker path`, async () => {
+      const { starts, calls, tickOver, world } = rig(started);
+      world.heldFiles = ['a.ts'];
+      await tickOver(boundDesk(reason));
+      const second = await tickOver(boundDesk(reason));
+      expect(starts).toHaveLength(1);
+      expect(second.map((a) => a.outcome)).toEqual(['escalated']);
+      expect(calls.blockedMarkers).toEqual([
+        { worktree: tree().path, text: expect.stringContaining('already had its one fresh session') },
+      ]);
+    });
+
+    it(`reports a refused release for a ${reason} desk and starts nothing`, async () => {
+      const { tickOver, starts, ports } = rig(started);
+      ports.release = async () => ({ released: false, detail: 'a live worker pid holds the desk' });
+      const applied = await tickOver(boundDesk(reason));
+      expect(applied).toEqual([{ branch: tree().branch, outcome: 'refused', detail: 'a live worker pid holds the desk' }]);
+      expect(starts).toEqual([]);
+    });
+
+    it(`reads no branch work for a ${reason} ending a person was already asked about`, async () => {
+      const { tickOver, starts, releases, world } = rig(started);
+      world.heldFiles = ['a.ts'];
+      await tickOver(boundDesk(reason));
+      await tickOver(boundDesk(reason));
+      const asksBefore = world.workAsks;
+      const third = await tickOver(boundDesk(reason));
+      expect(world.workAsks).toBe(asksBefore);
+      expect(third).toEqual([]);
+      expect(starts).toHaveLength(1);
+      expect(releases).toEqual([]);
+    });
+
+    it(`does not start a fresh session for a merged ${reason} branch`, async () => {
+      const { starts, calls, tickOver, world } = rig(started);
+      world.heldFiles = ['a.ts'];
+      world.merged = 'merged';
+      const applied = await tickOver(boundDesk(reason));
+      expect(applied).toEqual([]);
+      expect(starts).toEqual([]);
+      expect(calls.blockedMarkers).toEqual([]);
+      expect(world.mergedAsks).toBe(1);
+    });
+  }
+
+  it('shares its one fresh session with holding-work and corrections-spent: a prior session on either answers needs-a-person for a bound desk', async () => {
+    const { starts, calls, tickOver, world } = rig(started);
+    await tickOver(spentDesk());
+    world.heldFiles = ['a.ts'];
+    const second = await tickOver((w, name) => {
+      if (name === ENDING_FILENAME) return endingFile('bound');
+      return null;
+    });
+    expect(starts).toHaveLength(1);
+    expect(second.map((a) => a.outcome)).toEqual(['escalated']);
+    expect(calls.blockedMarkers).toHaveLength(1);
+  });
+});
+
 describe('one desk\'s missing marker text', () => {
   it('composes no text for an ending the composer refuses, instead of throwing for the tick', () => {
-    expect(markerTextFor(spentReading({ ending: 'bound' }))).toBe('');
+    expect(markerTextFor(spentReading({ ending: 'quiet' }))).toBe('');
   });
 
   it('reports that desk and still applies the next one', async () => {
@@ -816,6 +950,7 @@ describe('one desk\'s missing marker text', () => {
       escalate: true,
       markerText,
       endingAt: '',
+      releaseBranch: '',
     });
     const applied = await applyFreshAgentDecisions([decision('/a', ''), decision('/b', 'a question')], ports);
     expect(applied.map((a) => a.outcome)).toEqual(['escalation-failed', 'escalated']);
@@ -864,13 +999,14 @@ describe('prMergedReading', () => {
 });
 
 describe('freshAgentLines', () => {
-  it('sends started and escalated to the log and every other outcome to the error stream', () => {
+  it('sends started, escalated and released to the log and every other outcome to the error stream', () => {
     const lines = freshAgentLines([
       { branch: 'a', outcome: 'started', detail: 'ok' },
       { branch: 'b', outcome: 'escalated', detail: 'ok' },
       { branch: 'c', outcome: 'refused', detail: 'no' },
+      { branch: 'd', outcome: 'released', detail: 'ok' },
     ]);
-    expect(lines.map((l) => l.error)).toEqual([false, false, true]);
+    expect(lines.map((l) => l.error)).toEqual([false, false, true, false]);
     expect(lines[2]?.line).toBe('plot-registryd fresh-agent c: refused — no');
   });
 });
@@ -975,4 +1111,62 @@ describe('startFreshSession registers the agent a spent desk lacks', () => {
     ).rejects.toThrow('spawn died');
     expect(c.deregistered).toEqual(['new-session']);
   });
+});
+
+describe('continueOnDesk reads endingAsksFreshStart for a bound/unreadable ending', () => {
+  const desks: string[] = [];
+  afterEach(() => {
+    for (const desk of desks.splice(0)) rmTree(desk);
+  });
+
+  const deskFor = (reason: 'bound' | 'unreadable', branch: string) => {
+    const desk = mkdtempSync(join(tmpdir(), 'plot-continue-fresh-'));
+    desks.push(desk);
+    writeFileSync(
+      join(desk, ENDING_FILENAME),
+      JSON.stringify({ reason, actor: 'agent', branch, detail: '', refusedAssignment: '' }),
+      'utf8',
+    );
+    return desk;
+  };
+
+  for (const reason of ['bound', 'unreadable'] as const) {
+    it(`accepts a fresh start on a ${reason} desk's own branch with no marker`, async () => {
+      const worktree = deskFor(reason, 'feature/x');
+      const result = await continueOnDesk({
+        opts: { repoRoot: '/r', scriptsDir: '/s' },
+        branch: 'feature/x',
+        worktree,
+        main: '',
+        previousPid: '',
+        answer: 'the answer',
+        fresh: true,
+        readCfg: () => '',
+      });
+      // No `Worker command` is configured, so a precondition that passed
+      // surfaces as the NEXT refusal in the chain, never `no-question` —
+      // proving `endingAsksFreshStart` accepted this desk.
+      expect(result.kind === 'refused' ? result.reason : result.kind).not.toBe('no-question');
+    });
+
+    it(`refuses a fresh start on a ${reason} desk written for a different branch`, async () => {
+      const worktree = deskFor(reason, 'feature/other');
+      const result = await continueOnDesk({
+        opts: { repoRoot: '/r', scriptsDir: '/s' },
+        branch: 'feature/x',
+        worktree,
+        main: '',
+        previousPid: '',
+        answer: 'the answer',
+        fresh: true,
+        readCfg: () => '',
+      });
+      expect(result).toEqual({
+        kind: 'refused',
+        status: 409,
+        reason: 'no-question',
+        detail: 'no unanswered PLOT-BLOCKED marker in that worktree — nothing is waiting on an answer',
+      });
+    });
+  }
 });
