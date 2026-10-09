@@ -2111,18 +2111,20 @@ describe('rowsFromPulse', () => {
       // per-pulse lookup here is not a small regression — it is the cost model
       // `plot-fleet-scan.sh` already went to some trouble to avoid.
       //
-      // TWO IS THE BUDGET, NOT ONE, SINCE #1277. The pending-check re-ask in
-      // `refreshPrs` is the second deliberate call site: it fires only on a
-      // delta, and only when the store holds an OPEN PR whose checks are still
-      // `pending`, bounded by `PR_PENDING_REASK_LIMIT`. It is not a per-row or
-      // per-pulse lookup — the thing this test guards against — it is a second,
-      // bounded question asked by the same timer-gated function.
+      // THREE IS THE BUDGET, NOT ONE, SINCE #1277 AND #1418. The pending-check
+      // re-asks in `refreshPrs` are the second and third deliberate call
+      // sites: each fires only on a delta, and only when the store holds a
+      // PR whose checks are still `pending` — OPEN for the second (#1277),
+      // MERGED for the third (#1418) — both bounded by
+      // `PR_PENDING_REASK_LIMIT`. Neither is a per-row or per-pulse lookup —
+      // the thing this test guards against — they are bounded questions
+      // asked by the same timer-gated function.
       const source = readFileSync(
         new URL('../../src/server/fleet.ts', import.meta.url), 'utf8');
       const calls = source.split('\n')
         .filter((l) => l.includes("'pr-list'"));
-      expect(calls, `expected exactly two pr-list call sites, saw:\n${calls.join('\n')}`)
-        .toHaveLength(2);
+      expect(calls, `expected exactly three pr-list call sites, saw:\n${calls.join('\n')}`)
+        .toHaveLength(3);
       // And all three indexes are built from THAT one answer's loop, so a fourth
       // consumer costs nothing either. `prsByHead` is assigned beside its two
       // siblings — moving it out of this function is what a second fetch would
