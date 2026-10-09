@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Issue:** #1246
 - **Review:** in-session
@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-04, jwloka, in-session
 - **Started:** 2026-10-04, jwloka, `infra/the-shell-loop-holds-unlanded-work`
 - **Delivered:** 2026-10-05
+- **Released:** 2026-10-07, v2.24.0
 
 ## Changelog
 
