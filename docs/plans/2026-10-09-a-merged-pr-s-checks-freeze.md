@@ -76,7 +76,7 @@ The re-ask is bounded the same way the open re-ask is: `PR_PENDING_REASK_LIMIT` 
 
 ### A merged pending check is re-asked
 
-- `feature/a-merged-pending-check-is-asked-again` — the delta refresh asks the host for `MERGED` rows whose stored checks are `pending`, bounded by `PR_PENDING_REASK_LIMIT` <!-- builds: pendingMergedPrNumbers and its re-ask in the delta refresh -->
+- `feature/a-merged-pending-check-is-asked-again` — the delta refresh asks the host for `MERGED` rows whose stored checks are `pending`, bounded by `PR_PENDING_REASK_LIMIT` <!-- builds: pendingMergedPrNumbers and its re-ask in the delta refresh --> → #1425
 
 ## Done when
 
