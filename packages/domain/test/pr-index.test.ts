@@ -335,12 +335,16 @@ describe('an unreadable store is nothing to start from', () => {
     // One full read re-asks every PR, so a quiet PR the incremental window
     // would never re-ask still gains the fields the newer format needs.
     //
-    // VERSION 3 IS WHAT MAKES THE NEW RULE SAFE. A version-2 store carries no
+    // VERSION 4 ADDS `headSha`, `headSince`, `checksSha` AND `mergedAt`; a v3
+    // file fails the literal parse and reads as *ask the host*. Version 3 was
+    // what made the `wholeAt` rule safe: A version-2 store carries no
     // `wholeAt`, and a reader accepting it would have to guess whether its full
     // read was due — against `at`, the clock this slice removed. Refusing it
     // costs exactly one full read per machine, and `prWindowFor` would have
     // answered a full read for a store with no `wholeAt` in any case.
-    expect(PR_INDEX_VERSION).toBe(3);
+    expect(PR_INDEX_VERSION).toBe(4);
+    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 3 }))).toBeNull();
+    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 4 }))).not.toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 1 }))).toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 2 }))).toBeNull();
   });
@@ -394,10 +398,10 @@ describe('the encoding', () => {
 });
 
 describe('the numbers a delta re-asks about', () => {
-  // THE RULE SLICE 2 ADDS. `pending` is the one non-terminal answer — nothing
-  // but asking again ever replaces it, because a completed check run does not
-  // move `updatedAt` (#1277). `green`, `failing`, `none` and `unknown` are all
-  // asked again by the next `updatedAt` change, as today.
+  // `pending` and `failing` are the non-terminal answers — nothing but asking
+  // again replaces them, because a completed check run does not move
+  // `updatedAt` (#1277). `green`, `none` and `unknown` are asked again by the
+  // next `updatedAt` change, as today.
 
   it('returns an open PR whose stored checks are pending', () => {
     const held = store([row(1, { state: 'OPEN', checks: 'pending' })]);
@@ -409,6 +413,14 @@ describe('the numbers a delta re-asks about', () => {
     // this too. Only `pending` qualifies.
     const held = store([row(1, { state: 'OPEN', checks: 'green' })]);
     expect(pendingOpenPrNumbers(held)).toEqual([]);
+  });
+
+  it('returns an open PR whose stored checks are failing — a re-run can turn it green', () => {
+    expect(pendingOpenPrNumbers(store([row(1, { state: 'OPEN', checks: 'failing' })]))).toEqual([1]);
+  });
+
+  it('does not return a draft PR', () => {
+    expect(pendingOpenPrNumbers(store([row(1, { state: 'OPEN', draft: true, checks: 'pending' })]))).toEqual([]);
   });
 
   it('does not return a stored pending MERGED PR', () => {
@@ -430,6 +442,21 @@ describe('the numbers a delta re-asks about', () => {
       row(3, { state: 'OPEN', checks: 'pending' }),
     ]);
     expect(pendingOpenPrNumbers(held)).toEqual([1, 3]);
+  });
+});
+
+describe('the commit fields a row carries', () => {
+  it('round-trips headSha, headSince, checksSha and mergedAt through the schema', () => {
+    const full = row(1, {
+      headSha: 'a'.repeat(40), headSince: '2026-10-10T10:00:00.000Z',
+      checksSha: 'a'.repeat(40), mergedAt: '2026-10-10T11:00:00Z',
+    });
+    const decoded = decodePrIndex(JSON.stringify(store([full])));
+    expect(decoded?.rows[0]).toEqual(full);
+  });
+
+  it('accepts a row that carries none of them', () => {
+    expect(decodePrIndex(JSON.stringify(store([row(1)])))?.rows[0]).toEqual(row(1));
   });
 });
 

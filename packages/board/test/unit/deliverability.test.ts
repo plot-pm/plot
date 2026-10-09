@@ -13,7 +13,7 @@
 // takes values, so this file needs neither a scratch repo nor real git.
 import { describe, it, expect } from 'vitest';
 import { hostFixture, planRecord, planStoreFixture } from '@plot-pm/domain/adapters';
-import type { Host } from '@plot-pm/domain';
+import { PR_INDEX_VERSION, type Host } from '@plot-pm/domain';
 import type { PrIndex, PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 
@@ -48,7 +48,7 @@ const openRow = (number: number, head: string): PrIndexRow => ({
 });
 
 const store = (rows: readonly PrIndexRow[]): PrIndex => ({
-  v: 3,
+  v: PR_INDEX_VERSION,
   connector: 'github',
   watermark: null,
   complete: true,

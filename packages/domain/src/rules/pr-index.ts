@@ -274,12 +274,12 @@ const wholenessAfter = (held: PrIndex | null, kind: PrAnswerKind): boolean => {
 /**
  * The numbers of the open PRs a delta must ask about again.
  *
- * **`pending` IS THE ONE NON-TERMINAL ANSWER.** `green`, `failing`, `none` and
- * `unknown` are all answers the host already gave; `--since` asks about them
- * again the moment `updatedAt` moves, exactly as it does today. `pending`
- * means *the host had not finished computing it*, so nothing but asking again
- * ever replaces it — `updatedAt` does not move when a check run completes
- * (#1277).
+ * **`pending` AND `failing` ARE THE NON-TERMINAL ANSWERS.** `green`, `none` and
+ * `unknown` are answers the host already gave; `--since` asks about them again
+ * the moment `updatedAt` moves. `pending` means *the host had not finished
+ * computing it*, and `failing` can turn green on a re-run; `updatedAt` moves on
+ * neither when a check run completes (#1277), so only asking again replaces
+ * them.
  *
  * **ONLY `OPEN`.** A `MERGED` or `CLOSED` row is terminal — *A Decision Reads
  * The Index* states "a `MERGED` row cannot revert" — so re-asking one spends a
@@ -287,12 +287,13 @@ const wholenessAfter = (held: PrIndex | null, kind: PrAnswerKind): boolean => {
  * closed row is left exactly as held.
  *
  * @param held - the store as it was read, or null where there was none.
- * @returns the numbers of the `OPEN` rows whose stored `checks` is `pending`.
+ * @returns the numbers of the open, non-draft rows whose stored `checks` is `pending` or `failing`.
  */
 export const pendingOpenPrNumbers = (held: PrIndex | null): readonly number[] => {
   if (held === null) return [];
   return held.rows
-    .filter((row) => row.state === 'OPEN' && row.checks === 'pending')
+    .filter((row) => row.state === 'OPEN' && !row.draft
+      && (row.checks === 'pending' || row.checks === 'failing'))
     .map((row) => row.number);
 };
 
