@@ -10,6 +10,7 @@ import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 import { fleetScan, startFleetClock } from '../../src/shared/fleet-clock.js';
 import { freshScanState, REFRESH_MS } from '../../src/shared/fleet-scan.js';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 
 const READING: FleetReading = {
   main: 'main',
@@ -47,7 +48,7 @@ beforeEach(() => {
   repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-scan-clock-'));
 });
 afterEach(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
+  rmTree(repo);
 });
 
 const worldOver = (scripts: Scripts) => ({ repoRoot: repo, scripts, refs: refsFake, backend: async () => 'github' });

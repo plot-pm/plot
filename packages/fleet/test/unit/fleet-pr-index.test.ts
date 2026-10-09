@@ -9,6 +9,7 @@ import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 import { fleetPrs } from '../../src/shared/fleet-clock.js';
 import { freshPrState, memoryOverlay, type PrWorld } from '../../src/shared/pr-refresh.js';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 
 const ROW = {
   number: 7, head: 'feature/a', state: 'OPEN', draft: false, checks: 'pass',
@@ -31,7 +32,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   delete process.env.PLOT_PR_INDEX_HOME;
-  fs.rmSync(home, { recursive: true, force: true });
+  rmTree(home);
 });
 
 const world = (calls: string[][], answer: () => { answer: string; stdout: string; said?: string }): PrWorld => ({
