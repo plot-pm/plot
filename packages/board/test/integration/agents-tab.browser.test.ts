@@ -4243,4 +4243,47 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.close();
     }
   });
+
+  // #1417: A NOT STARTED row whose own writer is running shows the working
+  // indicator; a sibling slice of the same plan, with no writer running for
+  // it, stays quiet — the row reads `briefWriting` alone, and one row's
+  // reading never widens onto another's.
+  it('shows the working indicator on a not-started row with a running writer, and not on its sibling', async () => {
+    const payload = fleet({
+      rows: [
+        ...scenario('ten-rows-one-kind-each').fleet.rows,
+        row({
+          branch: 'feature/brief-writing-sole', wave: 'writing-slice', plan: 'brief-sole',
+          planFile: '2026-10-05-brief-sole.md', group: 'not-started', state: 'open',
+          phase: 'Design', ageMinutes: null, waitingOn: 'click', note: ELIGIBLE_NOTE,
+          verdict: 'eligible', brief: 'missing', startability: 'needs-brief',
+          branchUrl: '', waitingDays: 3, briefWriting: 'writing',
+        }),
+        row({
+          branch: 'feature/brief-writing-sibling', wave: 'sibling-slice', plan: 'brief-sole',
+          planFile: '2026-10-05-brief-sole.md', group: 'not-started', state: 'open',
+          phase: 'Design', ageMinutes: null, waitingOn: 'click', note: ELIGIBLE_NOTE,
+          verdict: 'eligible', brief: 'missing', startability: 'needs-brief',
+          branchUrl: '', waitingDays: 3, briefWriting: 'none',
+        }),
+      ],
+    });
+    const page = await cat.open('ten-rows-one-kind-each', { tab: 'agents', over: { fleet: payload } });
+    try {
+      const writingRow = page.locator('[data-slice-list="brief-sole"] [data-slice-row="writing-slice"]');
+      await expect.poll(async () => {
+        await expandAgentFolds(page);
+        return writingRow.count();
+      }, { timeout: 20_000 }).toBe(1);
+      const writing = writingRow.locator('[data-brief-writing]');
+      await expect.poll(() => writing.count()).toBe(1);
+      expect(await writing.textContent()).toContain('working');
+
+      const siblingRow = page.locator('[data-slice-list="brief-sole"] [data-slice-row="sibling-slice"]');
+      await expect.poll(() => siblingRow.count()).toBe(1);
+      expect(await siblingRow.locator('[data-brief-writing]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
 });

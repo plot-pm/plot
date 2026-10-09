@@ -4432,6 +4432,7 @@ export function waitingOnFor(
 // the second, and tsc reports it as an arity error rather than as the wrong
 // function — which is what it actually is.
 import {
+  briefWriterState,
   createPulse,
   divisorFor,
   doubleClaimedBranches,
@@ -7358,6 +7359,11 @@ export function rowsFromPulse(
         const planSlug = plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
         // ONE READING of the brief askers' logs per row, for both fields below.
         const askReading = repoRoot ? briefReading(repoRoot, b.branch, planSlug) : null;
+        // ONE READING of the brief's presence, for `brief`, `startability` and
+        // `briefWriting` below — so a sibling cannot disagree with itself about
+        // whether the brief is there.
+        const briefReadingState = repoRoot ? briefState(repoRoot, b.branch) : 'unknown';
+        const rowStartability = startabilityVerdict(b.state, plan.phase, wave.verdict, briefReadingState);
         rows.push({
           repo,
           // WHAT THIS ROW IS — decided here, where the branch name, the PR and
@@ -7509,7 +7515,7 @@ export function rowsFromPulse(
           //
           // `unknown` where no root was passed: a caller that did not look, and
           // the renderer says nothing at all for it.
-          brief: repoRoot ? briefState(repoRoot, b.branch) : 'unknown',
+          brief: briefReadingState,
           // AND WHETHER ANYONE ASKED FOR IT — the state `brief: 'missing'`
           // could not tell apart. A slice nobody asked about and a slice whose
           // brief is being written right now both read `missing`, and both read
@@ -7531,6 +7537,19 @@ export function rowsFromPulse(
           // look from). See
           // `briefReading` in `brief-ask-log.ts`.
           briefFailed: askReading?.failed ?? null,
+          // #1417: WHAT THE BRIEF WRITER IS DOING — an age cannot say a writer
+          // is still at it, or that it is done. Read from one reading of
+          // `briefReadingState` (this branch's own brief) and `askReading`
+          // (this branch's own writer process, via `brief-ask-log.ts`), never
+          // widened by a branchless run that marks every sibling — see
+          // `briefWriterState` in `@plot-pm/domain`.
+          briefWriting: repoRoot
+            ? briefWriterState({
+                needsBrief: rowStartability === 'needs-brief',
+                runState: askReading?.writing ? 'running' : askReading?.failed ? 'failed' : 'none',
+                askedAt: askReading?.askedAt ?? null,
+              })
+            : 'none',
           // And by WHICH slice, where that is the answer. Only the server can
           // say: `verdict` lives on the slice, the row carries only its own
           // name. Null on every row that is not blocked, and on a blocked row
@@ -7566,12 +7585,7 @@ export function rowsFromPulse(
           // disagree.
           //
           // `brief` is computed a few lines above — the fact this field completes.
-          startability: startabilityVerdict(
-            b.state,
-            plan.phase,
-            wave.verdict,
-            repoRoot ? briefState(repoRoot, b.branch) : 'unknown',
-          ),
+          startability: rowStartability,
           // WHETHER IT CAN MOVE — a fact ADDED beside the group, never folded
           // into it. `classify` above answered what this branch IS; nothing it
           // can say means *this cannot advance without someone doing
@@ -7847,6 +7861,9 @@ export function rowsFromPulse(
       // field above. No plan names this row, so no implement route was ever
       // keyed on it.
       briefFailed: null,
+      // AND SO NOTHING WRITING EITHER — same absence, same reason: no plan
+      // names this row, so `needsBrief` can never hold for it.
+      briefWriting: 'none',
       blockedBy: null,
       // NO SLICE, SO NO VERDICT — null, and for the same reason as the two
       // fields above rather than as a placeholder. This row is built from the PR
@@ -8145,6 +8162,8 @@ export function rowsFromPulse(
       // And so no writer to have failed — the ask follows the plan that names
       // the branch, and no plan names this one.
       briefFailed: null,
+      // And so nothing writing either — same reason: no plan names this row.
+      briefWriting: 'none',
       blockedBy: null,
       verdict: null,
       startability: null,
