@@ -5,7 +5,7 @@
 - **Branch:** `feature/the-gate-counts-every-script` (base: `main`)
 - **Ends as:** one PR to main
 - **Review of the code:** per repo convention
-- **Ordering:** this slice follows `feature/the-gate-counts-decisions` (#1405, merged as `03d0f9e26`). `feature/the-reaper-becomes-a-command` and `feature/approval-becomes-a-command` wait on it, because the wider count is what makes their conversions to *launcher* lower a number.
+- **Ordering:** this slice follows `feature/the-gate-counts-decisions` (#1405, merged as `03d0f9e26`) and `feature/a-declared-bundle-is-evidence`, the wave the plan gained in `71d8d9e9b`. That wave edits `has_evidence` in the same script, so this slice starts from its merge, not from `a8901c764`. `feature/the-reaper-becomes-a-command` and `feature/approval-becomes-a-command` wait on it, because the wider count is what makes their conversions to *launcher* lower a number.
 
 ### What to build
 
@@ -25,12 +25,7 @@ The plan is canonical; this brief is orientation.
 
 **The gate keeps the contract of #1405 unchanged.** Modes `pr` and `push <before>`, the base read from git, no override, no allowance literal, no environment variable, and no stored number. An unreadable base, a missing `origin/main`, a table with no *Kind* header and a README absent at the base each fail. The *Kind* cell is read from the end of the row. Absent is not zero. `has_evidence`, `named_paths_exist` and `rows` already do this; do not rewrite them.
 
-**What changes about the evidence rule is a decision for you. Record the choice in the PR.** The rule exists because a flip to an uncounted kind lowered the count without moving a rule. After this slice only *launcher* is uncounted, so only a move to *launcher* lowers the count. The options:
-
-- **Recommended:** require evidence for *launcher* only (the `.mjs` bundle in *Replaced by*, present in the HEAD tree), and keep the two-name evidence for *paired* because the evidence is the definition of the kind (a rule export and a corpus test that holds the pair). Drop the bundle requirement for *readings*, which no longer buys anything.
-- Keep all three as shipped. Cheaper to change, but it leaves a rule that guards nothing.
-
-Whichever you choose, the tests for the kinds you keep must stay, and the tests for a requirement you drop must be deleted with it, not left asserting a refusal that no longer exists.
+**The evidence rule is not this slice's.** `feature/a-declared-bundle-is-evidence` owns `has_evidence` and `named_paths_exist`, and it widens what counts as a bundle for *launcher* and *readings*. Leave both functions and their tests as they are after that merge. Only *launcher* lowers the widened count, and the existing rule already guards it. A requirement that guards nothing (*readings*) is a finding to report in the PR, not an edit to make here.
 
 **The README text and the `plot-worker-loop.sh` convention move with the gate.** Line 5 of `skills/plot/scripts/README.md` says *"`scripts/check-decision-count.sh` counts the rows of those two kinds"*. After this slice it counts every row that is not *launcher*. Correct that sentence, and correct the gate's header comment and the CI step name `The shell that decides does not grow` if it no longer describes the count (`ci.yml:766`). A header that still says "none of launcher, readings or paired" is a gate whose documentation lies.
 
@@ -40,7 +35,7 @@ The plan's `## Slices` entry is the specification: the decision gate counts ever
 
 - **A new row of kind *readings* fails.** Catches a gate that still treats *readings* as free. The #1405 test `a new row that starts as readings without a bundle fails` passes for the wrong reason after the change (it fails on evidence, not on count); make a test that fails on the count with the evidence present.
 - **A new row of kind *paired*, naming both its rule and its corpus test, fails.** Catches a gate that counts *paired* only when the evidence is missing.
-- **A flip from *decision* to *readings* no longer lowers the count and no longer passes as a conversion.** With one such flip and one new *decision* row, `HEAD` is one higher than the base and the gate fails. Catches a count still computed on the old set.
+- **A flip from *decision* to *readings* no longer lowers the count.** With one such flip and one new *decision* row, `HEAD` is one higher than the base and the gate fails. Catches a count still computed on the old set.
 - **Converting one row to *launcher* with its bundle, while adding one new *readings* row, passes** (count equal). Catches `>` versus `>=` on the widened set.
 - **The gate prints 54 on `main` unchanged, with the base count beside it.** The number in the output is what lets a reader tell a working gate from a skipped one. A passing exit code alone cannot prove it ran.
 - **The #1405 fixture tests that survive keep passing**: a purpose cell containing `|`, a missing `origin/main`, a base with no README, a gap inside the table, a first cell with no backticked script.
@@ -65,11 +60,11 @@ Open the PR with `skills/plot/scripts/plot-open-pr.sh` (`--draft` while the work
 
 This branch owns:
 
-- `scripts/check-decision-count.sh` and its fixture test `test/reconcile/decision-count.test.mjs`;
+- the `counted` function and the report text of `scripts/check-decision-count.sh` (not `has_evidence` or `named_paths_exist`) and its fixture test `test/reconcile/decision-count.test.mjs`;
 - the Kind paragraph at the top of `skills/plot/scripts/README.md`;
 - the CI step name at `.github/workflows/ci.yml:766`, if it no longer describes the count;
 - one changeset.
 
-Do not convert any script to a launcher and do not change a row's Kind. Do not edit `plot-reap.sh` or `plot-approve.sh`: `feature/the-reaper-becomes-a-command` and `feature/approval-becomes-a-command` own those, and neither is started (no remote ref on origin at dispatch, 2026-10-09). Do not edit generated bundles under `skills/plot/scripts/board/` (`scripts/check-no-bundle-diff.sh` refuses them). Other plans' branches in flight may touch `skills/plot/scripts/README.md` rows; this slice edits only the paragraph above the table, so a rebase conflict there is unlikely.
+Do not convert any script to a launcher and do not change a row's Kind. Do not edit `has_evidence` or the declared-bundle logic: `feature/a-declared-bundle-is-evidence` owns them. Do not edit `plot-reap.sh` or `plot-approve.sh`: `feature/the-reaper-becomes-a-command` and `feature/approval-becomes-a-command` own those, and neither is started (no remote ref on origin at dispatch, 2026-10-09). Do not edit generated bundles under `skills/plot/scripts/board/` (`scripts/check-no-bundle-diff.sh` refuses them). Other plans' branches in flight may touch `skills/plot/scripts/README.md` rows; this slice edits only the paragraph above the table, so a rebase conflict there is unlikely.
 
 If you find something the plan did not anticipate, report it rather than improvising outside scope.
