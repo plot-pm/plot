@@ -76,6 +76,27 @@ function makeRepo() {
 }
 
 /**
+ * A `plot-fleetctl.sh` that reports no supervisor. The board reads the
+ * supervisor through that script, and a developer machine runs a real one: left
+ * real, a fresh bridge there makes the board treat the fleet as the scan's
+ * owner and spawn none, which these tests are not about.
+ */
+function writeNoFleet(dir) {
+  fs.writeFileSync(path.join(dir, 'plot-fleetctl.sh'), '#!/usr/bin/env bash\nexit 1\n', { mode: 0o755 });
+}
+
+/** The real helper scripts with no supervisor reading — a board that scans for itself. */
+function makeNoFleetScripts() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-nofleet-'));
+  for (const name of fs.readdirSync(SCRIPTS_DIR)) {
+    if (name === 'plot-fleetctl.sh') continue;
+    fs.symlinkSync(path.join(SCRIPTS_DIR, name), path.join(dir, name));
+  }
+  writeNoFleet(dir);
+  return { dir, cleanup: () => rmTree(dir) };
+}
+
+/**
  * A scripts dir whose `plot-fleet-scan.sh` always fails, every other helper
  * symlinked from the real one.
  *
@@ -87,15 +108,37 @@ function makeRepo() {
 function makeBrokenScan() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-brokenscan-'));
   for (const name of fs.readdirSync(SCRIPTS_DIR)) {
-    if (name === 'plot-fleet-scan.sh') continue;
+    if (name === 'plot-fleet-scan.sh' || name === 'plot-fleetctl.sh') continue;
     fs.symlinkSync(path.join(SCRIPTS_DIR, name), path.join(dir, name));
   }
+  writeNoFleet(dir);
   fs.writeFileSync(
     path.join(dir, 'plot-fleet-scan.sh'),
     '#!/usr/bin/env bash\necho "scan is broken on purpose" >&2\nexit 3\n',
     { mode: 0o755 },
   );
   return { dir, cleanup: () => rmTree(dir) };
+}
+
+/**
+ * Stand in for `plot-fleetd`, the bridge's only writer. The board reads the
+ * bridge and writes none, so a restart test needs the fleet's half done by
+ * hand: one real scan of the repo, recorded in the version-1 shape the file
+ * adapter reads.
+ */
+function fleetdWrites(repo) {
+  const out = execFileSync('bash', [path.join(SCRIPTS_DIR, 'plot-fleet-scan.sh'), '--json'], {
+    cwd: repo,
+    env: { ...process.env, PLOT_SCAN_RECORD: '0' },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const file = path.join(repo, BRIDGE);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({
+    version: 1, at: Date.now(), pulse: JSON.parse(out),
+    ages: [], branchUrlBase: '', approvedAt: [], ideaPlans: [],
+  }), 'utf8');
 }
 
 const fetchFleet = async (port) => JSON.parse((await fetchRaw(port, '/api/fleet')).body);
@@ -159,7 +202,6 @@ const WAIT_MS = 120_000;
  * the restart below can only be served by something already on disk.
  */
 async function waitForBridge(repo, port, { rows = 1 } = {}) {
-  const file = path.join(repo, BRIDGE);
   // A BOUND THAT EXPIRES MUST SAY SO. 80 x 250 ms was 20 seconds, and a runner
   // slower than this machine reached it: the loop returned a fleet that had not
   // scanned yet, and an assertion two lines later reported the SYMPTOM -- a
@@ -170,23 +212,27 @@ async function waitForBridge(repo, port, { rows = 1 } = {}) {
   let last;
   while (Date.now() < deadline) {
     last = await fetchFleet(port);
-    if (last.ready && last.rows.length >= rows && fs.existsSync(file)) return last;
+    if (last.ready && last.rows.length >= rows) {
+      fleetdWrites(repo);
+      return last;
+    }
     await new Promise((r) => setTimeout(r, 250));
   }
   assert.fail(
-    `the scan did not land within ${WAIT_MS}ms: ready=${last?.ready} rows=${last?.rows?.length ?? 0} file=${fs.existsSync(file)}`,
+    `the scan did not land within ${WAIT_MS}ms: ready=${last?.ready} rows=${last?.rows?.length ?? 0}`,
   );
 }
 
 describe('bridge: the last good pulse outlives the process', () => {
-  let fixture, broken, first, second, beforeRestart, firstRequest, afterRestart;
+  let fixture, broken, nofleet, first, second, beforeRestart, firstRequest, afterRestart;
 
   before(async () => {
     fixture = makeRepo();
     broken = makeBrokenScan();
 
     // ONE: a healthy server, a real scan, a real pulse.
-    first = await startServer(fixture.repo);
+    nofleet = makeNoFleetScripts();
+    first = await startServer(fixture.repo, { PLOT_SCRIPTS_DIR: nofleet.dir });
     beforeRestart = await waitForBridge(fixture.repo, first.port);
     first.kill();
     first = null;
@@ -220,12 +266,13 @@ describe('bridge: the last good pulse outlives the process', () => {
     first?.kill();
     second?.kill();
     broken?.cleanup();
+    nofleet?.cleanup();
     fixture?.cleanup();
   });
 
-  it('writes the pulse to .plot/state/last-pulse.json on a successful scan', () => {
+  it('holds the pulse the fleet recorded in .plot/state/last-pulse.json', () => {
     const file = path.join(fixture.repo, BRIDGE);
-    assert.ok(fs.existsSync(file), `${BRIDGE} should exist after a successful scan`);
+    assert.ok(fs.existsSync(file), `${BRIDGE} should exist once the fleet has recorded a scan`);
     const payload = JSON.parse(fs.readFileSync(file, 'utf8'));
     assert.equal(typeof payload.at, 'number');
     assert.ok(payload.pulse.plans.length >= 1, 'the written pulse should carry the plan');
@@ -288,7 +335,7 @@ describe('bridge: the last good pulse outlives the process', () => {
 });
 
 describe('bridge: a real scan wins immediately over the file', () => {
-  let fixture, server, fleet;
+  let fixture, nofleet, server, fleet;
 
   before(async () => {
     fixture = makeRepo();
@@ -301,7 +348,8 @@ describe('bridge: a real scan wins immediately over the file', () => {
       branch: 'feature/a-branch-that-is-gone',
     });
 
-    server = await startServer(fixture.repo);
+    nofleet = makeNoFleetScripts();
+    server = await startServer(fixture.repo, { PLOT_SCRIPTS_DIR: nofleet.dir });
     // Wait for the REAL scan to land AND be written down — identified by the
     // branch only git knows about. The two moments differ (see
     // `waitForBridge`), and the second assertion below is about the file.
@@ -326,8 +374,7 @@ describe('bridge: a real scan wins immediately over the file', () => {
       // passing and only `no bridged row may survive a completed scan`
       // failing. The scan had landed; the snapshot was taken one poll early.
       const stale = fleet.rows.some((r) => r.branch === 'feature/a-branch-that-is-gone');
-      const written = fs.readFileSync(path.join(fixture.repo, BRIDGE), 'utf8');
-      if (live && !stale && written.includes('board-bridges-its-restart')) {
+      if (live && !stale) {
         landed = true;
         break;
       }
@@ -338,6 +385,7 @@ describe('bridge: a real scan wins immediately over the file', () => {
 
   after(() => {
     server?.kill();
+    nofleet?.cleanup();
     fixture?.cleanup();
   });
 
@@ -352,11 +400,11 @@ describe('bridge: a real scan wins immediately over the file', () => {
     );
   });
 
-  it('rewrites the file with the fresh answer', () => {
+  it('leaves the file alone — the fleet is its only writer', () => {
     const written = JSON.parse(fs.readFileSync(path.join(fixture.repo, BRIDGE), 'utf8'));
     assert.ok(
-      !JSON.stringify(written).includes('a-branch-that-is-gone'),
-      'a successful scan replaces the bridge',
+      JSON.stringify(written).includes('a-branch-that-is-gone'),
+      'the board must not rewrite the bridge after its own scan',
     );
   });
 

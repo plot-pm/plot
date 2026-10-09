@@ -2878,7 +2878,8 @@ describe('the change marker costs nothing outside the client', () => {
     expect(read('../../src/app/App.tsx')).toContain('FLEET_POLL_MS = 4_000');
     const fleetSrc = read('../../src/server/fleet.ts');
     expect(fleetSrc).toContain('PR_REFRESH_MS = 60_000');
-    expect(fleetSrc).toContain('PR_BACKOFF_MAX_MS = 120_000');
+    // The backoff ceiling moved with the PR reader into the fleet package.
+    expect(read('../../../fleet/src/shared/pr-refresh.ts')).toContain('PR_BACKOFF_MAX_MS = 120_000');
   });
 
   it('adds no MEMORY field to the contract — remembering is the CLIENT\'s job', () => {

@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   applyReaction,
-  freshCacheEntry,
+  freshPrState,
   hostReaction,
   prNextDueAt,
   prRefreshMsFor,
   waitOf,
-} from '../../src/server/fleet.js';
+} from '../../src/shared/pr-refresh.js';
 
 /**
  * THE DEFECT THIS FILE EXISTS FOR: nothing reacted to a refusal. `plot-host.sh`
@@ -139,7 +139,7 @@ describe('hostReaction — an ordinary failure keeps the ordinary rhythm', () =>
 
   /** An outage is not a burst, so it lowers nothing either. */
   it('leaves concurrency where it was', () => {
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     const before = entry.prConcurrency;
     applyReaction(entry, hostReaction(ORDINARY, null, NOW));
     expect(entry.prConcurrency).toBe(before);
@@ -149,7 +149,7 @@ describe('hostReaction — an ordinary failure keeps the ordinary rhythm', () =>
 describe('applyReaction — concurrency falls, frequency does not', () => {
   /** The Done-when line: a secondary limit lowers concurrency. */
   it('halves the bound on a secondary refusal', () => {
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prConcurrency = 8;
     applyReaction(entry, hostReaction(SECONDARY_BARE, null, NOW));
     expect(entry.prConcurrency).toBe(4);
@@ -157,7 +157,7 @@ describe('applyReaction — concurrency falls, frequency does not', () => {
 
   /** A quota is an hourly ceiling one caller reaches alone; concurrency is not the lever. */
   it('leaves the bound alone on a spent quota', () => {
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prConcurrency = 8;
     applyReaction(entry, hostReaction(QUOTA, NOW + 60_000, NOW));
     expect(entry.prConcurrency).toBe(8);
@@ -165,7 +165,7 @@ describe('applyReaction — concurrency falls, frequency does not', () => {
 
   /** Eight refused on 2026-08-27; halving converges without a compiled-in cap. */
   it('converges to one from the estate\'s one measured population', () => {
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prConcurrency = 8;
     for (let i = 0; i < 5; i += 1) {
       applyReaction(entry, hostReaction(SECONDARY_BARE, null, NOW));
@@ -181,7 +181,7 @@ describe('applyReaction — concurrency falls, frequency does not', () => {
    */
   it('never touches the refresh interval', () => {
     for (const message of [QUOTA, SECONDARY_NAMED, SECONDARY_BARE, ORDINARY]) {
-      const entry = freshCacheEntry();
+      const entry = freshPrState();
       const before = entry.prIntervalMs;
       applyReaction(entry, hostReaction(message, NOW + 60_000, NOW));
       expect(entry.prIntervalMs).toBe(before);

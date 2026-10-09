@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyReaction, freshCacheEntry, hostReaction, prConcurrencyBound } from '../../src/server/fleet.js';
+import { applyReaction, freshPrState, hostReaction, prConcurrencyBound } from '../../src/shared/pr-refresh.js';
 
 /**
  * THE DEFECT THIS FILE EXISTS FOR: nothing bounded how many host calls were open
@@ -27,11 +27,11 @@ describe('prConcurrencyBound — discovered, never compiled in', () => {
   it('is unbounded before any limit has been read', () => {
     // The board runs as it did before this slice: no reading, no refusal, no
     // evidence for any number.
-    expect(prConcurrencyBound(freshCacheEntry())).toBeNull();
+    expect(prConcurrencyBound(freshPrState())).toBeNull();
   });
 
   it("derives a cap from GitHub's own 5000 an hour", () => {
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prLimit = 5000;
     entry.prLimitBasis = 'actual';
     // Below the eight that was refused, which is the region the starting point
@@ -42,7 +42,7 @@ describe('prConcurrencyBound — discovered, never compiled in', () => {
   it('derives a different cap from a different ceiling', () => {
     // THE PROPERTY A CONSTANT CANNOT HAVE. A vendor that changes its limit
     // changes this; a seven shipped in Plot would not move.
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prLimitBasis = 'actual';
     entry.prLimit = 5000;
     const github = prConcurrencyBound(entry);
@@ -51,7 +51,7 @@ describe('prConcurrencyBound — discovered, never compiled in', () => {
   });
 
   it('derives one from a prediction as readily as from a measurement', () => {
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prLimit = 1000;
     entry.prLimitBasis = 'predicted';
     expect(prConcurrencyBound(entry)).toBe(1);
@@ -60,14 +60,14 @@ describe('prConcurrencyBound — discovered, never compiled in', () => {
   it('stays unbounded where the connector reports nothing', () => {
     // `unknown` IS NOT A NUMBER. Inventing a bound here would be the
     // compiled-in seven under another name.
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prLimit = 5000;
     entry.prLimitBasis = 'unknown';
     expect(prConcurrencyBound(entry)).toBeNull();
   });
 
   it('lets a refusal outrank the connector proposal', () => {
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prLimit = 5000;
     entry.prLimitBasis = 'actual';
     entry.prConcurrency = 2;
@@ -75,7 +75,7 @@ describe('prConcurrencyBound — discovered, never compiled in', () => {
   });
 
   it('never lets a reading raise what a refusal established', () => {
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prLimit = 5000;
     entry.prLimitBasis = 'actual';
     entry.prConcurrency = 1;
@@ -86,7 +86,7 @@ describe('prConcurrencyBound — discovered, never compiled in', () => {
 
 describe('applyReaction — a first refusal establishes a bound where none existed', () => {
   it("halves the connector's proposal on the first secondary refusal", () => {
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prLimit = 5000;
     entry.prLimitBasis = 'actual';
     expect(entry.prConcurrency).toBeNull();
@@ -97,7 +97,7 @@ describe('applyReaction — a first refusal establishes a bound where none exist
   });
 
   it('converges toward one under repeated refusals', () => {
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prLimit = 5000;
     entry.prLimitBasis = 'actual';
     for (let i = 0; i < 5; i += 1) applyReaction(entry, hostReaction(SECONDARY, null, NOW));
@@ -108,7 +108,7 @@ describe('applyReaction — a first refusal establishes a bound where none exist
     // A refusal against an `unknown` ceiling gives nothing to halve, and a
     // number picked here would be the guess this slice refuses to ship. The
     // refusal's own wait is the whole reaction.
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     applyReaction(entry, hostReaction(SECONDARY, null, NOW));
     expect(entry.prConcurrency).toBeNull();
     expect(prConcurrencyBound(entry)).toBeNull();
@@ -117,7 +117,7 @@ describe('applyReaction — a first refusal establishes a bound where none exist
   it('leaves the bound alone on a spent quota', () => {
     // A quota is an hourly ceiling one caller reaches alone, so lowering how
     // many run at once corrects a number the refusal is not evidence about.
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prLimit = 5000;
     entry.prLimitBasis = 'actual';
     applyReaction(entry, hostReaction(QUOTA, NOW + 60_000, NOW));
@@ -129,7 +129,7 @@ describe('applyReaction — a first refusal establishes a bound where none exist
     // THE CONSTRAINT SLICE 4 AND SLICE 8 BOTH STATE. This slice lowers
     // concurrency; frequency is left alone, or the two divisions compound and
     // drift downward with nothing to restore them.
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prLimit = 5000;
     entry.prLimitBasis = 'actual';
     const interval = entry.prIntervalMs;
@@ -144,7 +144,7 @@ describe('the 2026-08-27 shape', () => {
     // Eight workers, each shelling `plot-host.sh` once, against GitHub's 5000
     // an hour. The cap is 5, so three wait — the cadence degrades, and no 403
     // is produced.
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prLimit = 5000;
     entry.prLimitBasis = 'actual';
     const cap = prConcurrencyBound(entry);
@@ -156,7 +156,7 @@ describe('the 2026-08-27 shape', () => {
   it('carries no seven anywhere in the derivation', () => {
     // The number is a quotient of a reading, so no ceiling in this estate
     // produces it by accident of a constant.
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     entry.prLimitBasis = 'actual';
     for (const limit of [1000, 5000, 15_000]) {
       entry.prLimit = limit;

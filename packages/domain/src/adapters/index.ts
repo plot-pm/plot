@@ -107,6 +107,17 @@ export {
   type PrIndexFileOptions,
 } from './pr-index/pr-index-file.js';
 
+// THE FLEET BRIDGE'S FILE ADAPTER. One file per repository under
+// `.plot/state/last-pulse.json`, written by `plot-fleetd` on the scan's
+// success path and read by the board — the same shape `pulse-bridge.ts`
+// (`packages/board`) defined before this port existed.
+export {
+  fleetStateFile,
+  bridgePath,
+  BRIDGE_MAX_AGE_MS,
+  type FleetStateFileOptions,
+} from './fleet-state/fleet-state-file.js';
+
 // THE SUPERVISION REPORT'S FILE ADAPTER. One file under the COMMON git dir's
 // `.plot/state/`, written by the daemon each tick and read by the board on
 // refresh — the one channel between two processes that shared none.

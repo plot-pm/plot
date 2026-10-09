@@ -38,6 +38,7 @@ import { boardState } from '../../src/server/controllers/fleet-state.js';
 import type { Board, Column } from '../../src/contract/schema.js';
 import type { EstateSource } from '../../src/server/controllers/fleet-state.js';
 import { rmTree } from '../helpers.mjs';
+import { stopFleetRefresh } from '../../src/server/fleet.js';
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const SCRIPTS_DIR = path.join(REPO_ROOT, 'skills/plot/scripts');
@@ -98,6 +99,18 @@ const countingSource = (columns: Column[]) => {
   return { source, state };
 };
 
+/**
+ * Removes a scratch repo after stopping the board's refresh. Every question put
+ * through `boardState` starts a background scan of the repo it names, and the
+ * scan's auto-dispatch step writes `.plot/state/auto-in-flight.json` when it
+ * ends; a write after `rmTree` recreates the directory, which `owned-run.sh`
+ * reports as a leaked entry. A stopped cache skips that write.
+ */
+const removeRepo = (dir: string): void => {
+  stopFleetRefresh();
+  rmTree(dir);
+};
+
 const COLUMNS: Column[] = [
   { name: 'Approved', cards: [{ slug: 'a-plan-the-gate-can-read' }] } as unknown as Column,
 ];
@@ -125,7 +138,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
       expect(state.reads, 'the estate was read once, not twice').toBe(1);
       expect(second.value, 'the re-used answer is the same answer').toBe(first.value);
     } finally {
-      rmTree(dir);
+      removeRepo(dir);
     }
   });
 
@@ -150,7 +163,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
       expect(after.measured, 'a plan edit is an estate change').toBe(true);
       expect(state.reads, 'the changed estate was measured again').toBe(2);
     } finally {
-      rmTree(dir);
+      removeRepo(dir);
     }
   });
 
@@ -179,7 +192,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
       expect(after.measured, 'a moved ref is an estate change').toBe(true);
       expect(state.reads, 'the changed estate was measured again').toBe(2);
     } finally {
-      rmTree(dir);
+      removeRepo(dir);
     }
   });
 
@@ -223,7 +236,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
         'but measured three times — one per DISTINCT estate, not one per ask',
       ).toBe(3);
     } finally {
-      rmTree(dir);
+      removeRepo(dir);
     }
   });
 
@@ -248,7 +261,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
       await askOncePerEstate(memory, ask);
       expect(state.reads, 'so every ask measures').toBe(2);
     } finally {
-      rmTree(dir);
+      removeRepo(dir);
     }
   });
 });
@@ -285,7 +298,7 @@ describe("the gate's answer is identical to the board's", () => {
       expect(typeof entryAt, 'the entry point still stamps the answer').toBe('string');
       expect(typeof routeAt, 'and so does the route').toBe('string');
     } finally {
-      rmTree(dir);
+      removeRepo(dir);
     }
   });
 
@@ -322,7 +335,7 @@ describe("the gate's answer is identical to the board's", () => {
         'a stated refusal is not an absence',
       ).toBe(false);
     } finally {
-      rmTree(dir);
+      removeRepo(dir);
     }
   });
 });

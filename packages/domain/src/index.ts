@@ -541,3 +541,4 @@ export type * from './ports/agent-run.js';
 export type { MachineReading } from './ports/machine.js';
 export type { Machine as MachinePort } from './ports/machine.js';
 export type * from './ports/reexec.js';
+export type * from './ports/fleet-state.js';

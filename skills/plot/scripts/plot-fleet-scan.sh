@@ -220,7 +220,7 @@
 #    every run.
 #
 # 2. `.plot/state/last-pulse.json` — the bridge, written by `write_bridge` on
-#    the success path of `--stream` (what the board spawns) and `--log-pulse`
+#    the success path of `--stream` (unless PLOT_SCAN_RECORD=0) and `--log-pulse`
 #    (what /plot-pulse passes). Those are the two callers that produce a pulse
 #    for somebody to READ; plain `--json` is a query and records nothing. That
 #    is a CACHE WITH AN EXPIRY: `pulse-bridge.ts` discards it after 15 minutes
@@ -311,7 +311,7 @@ while [ $# -gt 0 ]; do
     # caught this: `conflicts: the scan writes NOTHING` and `fleet: scan is
     # read-only`, both of which drive `--json`.
     --json) as_json=1; build_doc=1 ;;
-    --stream) as_json=1; stream=1; build_doc=1; record=1 ;;
+    --stream) as_json=1; stream=1; build_doc=1; [ "${PLOT_SCAN_RECORD:-1}" = 0 ] || record=1 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) slug="$1" ;;
   esac

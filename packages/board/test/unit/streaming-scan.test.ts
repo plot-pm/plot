@@ -147,8 +147,7 @@ async function until<T>(
  * Wait for a successful scan's last write.
  *
  * `complete` is set before the refresh's success path finishes: it still reads
- * git, writes `.plot/state/last-pulse.json`, and last writes
- * `.plot/state/auto-in-flight.json` from the auto-dispatch pass. A case that
+ * git and last writes `.plot/state/auto-in-flight.json` from the auto-dispatch pass. A case that
  * ends at `complete` hands `afterEach` a directory those writes recreate.
  */
 const landed = (dir: string) => until(() => fs.existsSync(inFlightPath(dir)), Boolean);
