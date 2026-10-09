@@ -21,7 +21,7 @@
 // that expired on a clock would pass the hit cases and fail none of the miss
 // cases — which is precisely why the miss cases are content changes rather than
 // waits.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -99,12 +99,7 @@ const countingSource = (columns: Column[]) => {
   return { source, state };
 };
 
-const lateWriteProbe = async (dir: string): Promise<void> => {
-  await new Promise((resolve) => setTimeout(resolve, 4000));
-  if (!fs.existsSync(dir)) return;
-  console.error('LATE-WRITE', execFileSync('find', [dir], { encoding: 'utf8' }));
-  rmTree(dir);
-};
+const lateWriteProbe = async (_dir: string): Promise<void> => {};
 
 const COLUMNS: Column[] = [
   { name: 'Approved', cards: [{ slug: 'a-plan-the-gate-can-read' }] } as unknown as Column,
@@ -342,3 +337,12 @@ describe("the gate's answer is identical to the board's", () => {
     }
   });
 });
+
+afterAll(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 25_000));
+  for (const name of fs.readdirSync(os.tmpdir())) {
+    if (name.startsWith('plot-gate-')) {
+      console.error('LATE-WRITE', name, execFileSync('find', [path.join(os.tmpdir(), name), '-ls'], { encoding: 'utf8' }));
+    }
+  }
+}, 60_000);
