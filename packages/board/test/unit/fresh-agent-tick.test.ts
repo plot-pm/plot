@@ -31,7 +31,7 @@ import {
 } from '../../src/server/entry/registryd.js';
 import type { DeskContinuation } from '../../src/server/continue.js';
 import { startFreshSession, freshAgentDeskReads } from '../../src/server/entry/registryd-main.js';
-import { markerReading } from '../../src/server/worker-question.js';
+import { markerReading } from '../../src/shared/worker-question.js';
 import { agentsFixture } from '@plot-pm/domain/adapters/agents/agents-fixture';
 
 const PLAN = '2026-10-05-a-plan';

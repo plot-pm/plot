@@ -13,7 +13,7 @@ import {
   changesetsIn,
   worldFrom,
   type SupervisorWorld,
-} from '../../src/server/supervisor.js';
+} from '../../src/shared/supervisor.js';
 import {
   tick,
   tickLine,
@@ -22,10 +22,10 @@ import {
   type EscalationWorld,
   type TickReport,
 } from '../../src/server/entry/registryd.js';
-import type { QueueWorld } from '../../src/server/queue-reading.js';
-import type { AgentEntry } from '../../src/server/registry.js';
-import { markerReading, type MarkerReading } from '../../src/server/worker-question.js';
-import { escalationMemory, readEscalations, recordedRungsFor } from '../../src/server/escalations.js';
+import type { QueueWorld } from '../../src/shared/queue-reading.js';
+import type { AgentEntry } from '../../src/shared/registry.js';
+import { markerReading, type MarkerReading } from '../../src/shared/worker-question.js';
+import { escalationMemory, readEscalations, recordedRungsFor } from '../../src/shared/escalations.js';
 import { notifyEscalations } from '../../src/server/entry/registryd-main.js';
 import { parseQuestionEscalation } from '@plot-pm/domain/rules/question-escalation';
 import { deskFs, treesGit } from '@plot-pm/domain/adapters';

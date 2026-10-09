@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import type { BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
-import { KNOWN_STATES, deskPidAlive, parseManifest, resolveManifestDir, rowState, type AgentEntry, type LivenessResolver, type PidLiveness } from './registry.js';
+import { KNOWN_STATES, deskPidAlive, parseManifest, resolveManifestDir, rowState, type AgentEntry, type LivenessResolver, type PidLiveness } from '../shared/registry.js';
 import { LIVE_STATES } from '../contract/schema.js';
 import { localCapability } from './controllers/caller.js';
 

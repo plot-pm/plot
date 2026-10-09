@@ -18,7 +18,7 @@ import {
   transcriptDir,
   transcriptFacts,
   transcriptFile,
-} from '../../src/server/transcript.js';
+} from '../../src/shared/transcript.js';
 import { rmTree } from '../helpers.mjs';
 
 /** An assistant line shaped exactly as the runtime writes one. */

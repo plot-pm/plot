@@ -22,10 +22,10 @@ import {
   CONTINUATION_NAME,
   briefPathFor,
   composeContinuation,
-  continueAvailability,
   landedCommits,
   readBrief,
-} from '../../src/server/continue.js';
+} from '../../src/shared/continuation.js';
+import { continueAvailability } from '../../src/server/continue.js';
 import { rmTree } from '../helpers.mjs';
 
 /** A composed prompt with every part present, for the assertions below. */

@@ -14,7 +14,7 @@ import {
   CONTINUE_LABEL,
   refusalWord,
 } from '../../src/app/components/ContinueWithAnAnswer.js';
-import type { ContinueRefusal } from '../../src/server/continue.js';
+import type { ContinueRefusal } from '../../src/shared/continuation.js';
 
 describe('the control is named as a continuation', () => {
   it('is called “Continue with an answer”, the plan’s own words', () => {

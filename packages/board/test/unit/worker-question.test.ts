@@ -10,7 +10,7 @@ import {
   waitingWorktrees,
   workerQuestions,
   QUESTION_MAX,
-} from '../../src/server/worker-question.js';
+} from '../../src/shared/worker-question.js';
 import type { FleetReading, WorkerState } from '../../src/contract/schema.js';
 
 // WHAT A DESK IS WAITING ON — read from the marker FILE a worker wrote, not

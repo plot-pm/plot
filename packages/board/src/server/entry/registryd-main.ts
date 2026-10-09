@@ -49,10 +49,10 @@ import { mergedBySubject } from '@plot-pm/domain/rules/merge-subject';
 import { ownerOfRemote } from '@plot-pm/domain/rules/remote-owner';
 import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gates';
 
-import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../registry.js';
-import { readFleetSettings } from '../fleet-settings.js';
-import { readConfigAsync } from '../board.js';
-import { markerReading } from '../worker-question.js';
+import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../../shared/registry.js';
+import { readFleetSettings } from '../../shared/fleet-settings-store.js';
+import { readConfigAsync } from '../../shared/config-reader.js';
+import { markerReading } from '../../shared/worker-question.js';
 import {
   appendEscalation,
   escalationMemory,
@@ -60,14 +60,14 @@ import {
   readEscalations,
   recordedRungsFor,
   type EscalationMemory,
-} from '../escalations.js';
+} from '../../shared/escalations.js';
 import {
   fileOrNull,
   worldFrom,
   type SupervisorWorld,
   type TreeReading,
-} from '../supervisor.js';
-import type { QueueWorld, HandOverWorld } from '../queue-reading.js';
+} from '../../shared/supervisor.js';
+import type { QueueWorld, HandOverWorld } from '../../shared/queue-reading.js';
 import {
   tick,
   tickLine,
@@ -93,7 +93,7 @@ import {
   type TickSpend,
   type EscalationWorld,
 } from './registryd.js';
-import { gatherReadingsAndRelease } from '../release-claim.js';
+import { gatherReadingsAndRelease } from '../../shared/release-claim-reader.js';
 import type { CommitReading } from '@plot-pm/domain/rules/sample';
 import type { PrOpenReading } from '@plot-pm/domain/rules/ending-action';
 import { boardSharePerHour } from '@plot-pm/domain/rules/cadence';
@@ -109,9 +109,9 @@ import {
   type SupervisionReport,
 } from '@plot-pm/domain/entities/supervision-report';
 import type { SupervisionReportStore } from '@plot-pm/domain/ports/supervision-report';
-import { logDir, processLog, truncateInherited } from '../process-log.js';
-import { readConfig } from '../board.js';
-import { continueOnDesk, type DeskContinuation, type DeskContinuationInput } from '../continue.js';
+import { logDir, processLog, truncateInherited } from '../../shared/process-log.js';
+import { readConfig } from '../../shared/config-reader.js';
+import { continueOnDesk, type DeskContinuation, type DeskContinuationInput } from '../../shared/continuation.js';
 import { randomUUID } from 'node:crypto';
 import type { Agents } from '@plot-pm/domain/ports/agents';
 

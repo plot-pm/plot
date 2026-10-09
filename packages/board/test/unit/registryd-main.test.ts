@@ -25,20 +25,20 @@ import {
   worldForRepo,
   writeSupervisionReport,
 } from '../../src/server/entry/registryd-main.js';
-import { escalationMemory, readEscalations } from '../../src/server/escalations.js';
+import { escalationMemory, readEscalations } from '../../src/shared/escalations.js';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { PortResult } from '@plot-pm/domain';
 import { whyNotReady } from '@plot-pm/domain/rules/queue';
-import { readQueue, type QueueWorld, type HandOverWorld } from '../../src/server/queue-reading.js';
+import { readQueue, type QueueWorld, type HandOverWorld } from '../../src/shared/queue-reading.js';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { HostAnswer, Scripts } from '@plot-pm/domain/ports/scripts';
 import { QUEUE_HOLDS, type HeldSlice } from '@plot-pm/domain/rules/queue';
 import { answered, failed, unaskable } from '@plot-pm/domain';
 import { TICK_INTERVAL_MS, type TickReport } from '../../src/server/entry/registryd.js';
-import { readTick, worldFrom, type SupervisorWorld } from '../../src/server/supervisor.js';
-import type { AgentEntry } from '../../src/server/registry.js';
+import { readTick, worldFrom, type SupervisorWorld } from '../../src/shared/supervisor.js';
+import type { AgentEntry } from '../../src/shared/registry.js';
 
 const manifest = (over: Record<string, unknown> = {}) =>
   JSON.stringify({

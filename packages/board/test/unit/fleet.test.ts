@@ -16,7 +16,7 @@ import {
   estateReport,
   minutesSince,
 } from '../../src/server/fleet.js';
-import { workerQuestions } from '../../src/server/worker-question.js';
+import { workerQuestions } from '../../src/shared/worker-question.js';
 import { rmTree } from '../helpers.mjs';
 import {
   AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, PR_UNKNOWN_NOTE, toBoardPhase, unknownPhaseNote,

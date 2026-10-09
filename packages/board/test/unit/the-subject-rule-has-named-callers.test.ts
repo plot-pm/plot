@@ -106,7 +106,7 @@ describe('the subject rule has named callers', () => {
   it('names `subjectProven` only in the queue and the world that answers it', () => {
     expect(callersOf('subjectProven')).toEqual([
       'packages/board/src/server/entry/registryd-main.ts',
-      'packages/board/src/server/queue-reading.ts',
+      'packages/board/src/shared/queue-reading.ts',
     ]);
   });
 
@@ -137,8 +137,8 @@ describe('the subject rule has named callers', () => {
 
   // THE FORMS, which carry the vendor words. They belong to the host adapter
   // and to the two entries that ask it — a domain rule holding one would fail
-  // the vendor gate, and `queue-reading.ts` holding one would put a vendor word
-  // outside the vendor gate's root.
+  // the vendor gate, and `shared/queue-reading.ts` holding one would put a
+  // vendor word outside the vendor gate's root.
   it('names `mergeSubjectForms` only in the adapter and the two entries', () => {
     expect(callersOf('mergeSubjectForms')).toEqual([
       'packages/board/src/server/entry/merge-subject.ts',

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ContinueRefusal } from '../../server/continue.js';
+import type { ContinueRefusal } from '../../shared/continuation.js';
 
 /**
  * The control that answers a stopped agent — **named as a continuation, and the

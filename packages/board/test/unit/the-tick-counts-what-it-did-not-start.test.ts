@@ -5,9 +5,9 @@ import {
   worldFrom,
   type SupervisorWorld,
   type TreeReading,
-} from '../../src/server/supervisor.js';
+} from '../../src/shared/supervisor.js';
 import { tick, tickLine, unclaimedLines } from '../../src/server/entry/registryd.js';
-import type { AgentEntry } from '../../src/server/registry.js';
+import type { AgentEntry } from '../../src/shared/registry.js';
 
 /** One registry manifest, in the shape `plot-dispatch.sh` writes it. */
 const manifest = (over: Partial<AgentEntry> = {}): AgentEntry =>

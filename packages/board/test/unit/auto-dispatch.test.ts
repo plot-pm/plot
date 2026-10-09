@@ -28,7 +28,7 @@ import {
 } from '../../src/server/in-flight-store.js';
 import { measureMachine, ceilingFor, HEADROOM_THRESHOLDS, type Machine as MachineEntity } from '@plot-pm/domain';
 import { FleetReadingSchema, type FleetReading } from '../../src/contract/schema.js';
-import type { AgentEntry } from '../../src/server/registry.js';
+import type { AgentEntry } from '../../src/shared/registry.js';
 import type { FleetSettings } from '../../src/server/fleet-settings.js';
 import { rmTree } from '../helpers.mjs';
 

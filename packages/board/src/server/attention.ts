@@ -43,7 +43,7 @@ import {
 } from '../contract/index.js';
 import { type BuildBoardOptions } from './board.js';
 import { buildFleet } from './fleet.js';
-import { briefPath } from './brief-path.js';
+import { briefPath } from '../shared/brief-path.js';
 
 /**
  * Does the brief exist? Answered by looking, and answered `false` on any error.

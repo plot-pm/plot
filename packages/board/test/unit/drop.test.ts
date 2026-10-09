@@ -26,7 +26,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 
 import { handleDrop, type DropOptions, type DropResult } from '../../src/server/drop.js';
-import { AGENT_MANIFEST_DIR, type LivenessResolver } from '../../src/server/registry.js';
+import { AGENT_MANIFEST_DIR, type LivenessResolver } from '../../src/shared/registry.js';
 import { rmTree } from '../helpers.mjs';
 
 /** The real helper scripts, so a test can resolve the directory through the shell. */

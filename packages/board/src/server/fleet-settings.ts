@@ -1,237 +1,27 @@
-import fs from 'node:fs';
 import http from 'node:http';
-import path from 'node:path';
-import { readConfigAsync, type BuildBoardOptions } from './board.js';
+import type { BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
+import { readFleetSettings, writeFleetSettings, type FleetSettings } from '../shared/fleet-settings-store.js';
 
 /**
- * THE TWO FLEET SETTINGS AND THEIR SHARED STATE.
+ * `POST /api/fleet-controls` — the HTTP half of the fleet settings.
  *
- * Named `fleet-settings` rather than `fleet-controls`: this module holds the
- * settings, while the surface an operator clicks is `FleetControls.tsx`. Two
- * modules whose names differ by one letter — one holding config, one answering
- * every question about the estate — is a confusion that costs somebody an hour.
- *
- * A switch — *is the queue being served?* — and a cap — *how many agents at
- * once?* Two numbers behind the two section headers they describe, and the one
- * departure this slice makes from the board's usual state rules.
- *
- * ## Shared, not per-viewer — deliberately, against the board's convention
- *
- * The board's rule is that view state lives in the URL (shareable) and
- * per-viewer convenience in `localStorage` (private). The collapse state's own
- * comment draws the line: *a URL is shareable, and collapse state should not
- * be… collapse is convenience, not subject matter.* These two controls fail
- * that test in the opposite direction. Auto-dispatch spawns agents that write
- * code and open PRs; the cap bounds how many. Two people reading one board must
- * not disagree about whether the fleet is running or how wide it runs — so the
- * state is one file on disk, read by every board process, not a preference each
- * browser keeps to itself. A `localStorage` implementation would let two tabs
- * hold two answers, which is exactly the failure that makes this subject matter
- * rather than convenience.
- *
- * ## In `.plot/state/`, beside the pulse — never in a committed file
- *
- * `bridgePath` already puts `last-pulse.json` here for the same reason: it
- * describes THIS machine's fleet, so it is gitignored rather than committed. A
- * switch written into `CLAUDE.md` would arrive in a commit — the board teaching
- * itself to edit a human-authored file — so `## Plot Config` supplies the
- * DEFAULT at startup and nothing more. The file is the running answer; the
- * config is where that answer begins on a machine that has never touched it.
- *
- * ## This slice dispatches nothing
- *
- * A switch that is on starts no agent here. It records an intention that slice 3
- * reads. Turning either control off is a promise about the FUTURE only — it
- * never signals a running worker, whose home is the agent panel.
+ * The settings themselves, their defaults, their file and the reader/writer
+ * that touch neither `node:http` nor the board's entry points live in
+ * `fleet-settings-store.ts` — re-exported here unchanged so an existing
+ * import of this module keeps working.
  */
-
-/**
- * The `## Plot Config` keys that seed the defaults, and the defaults themselves.
- *
- * Read through `readConfigAsync` — the one door to `plot-config.sh` — so an adopting
- * project can seed a different starting point without this file knowing where
- * Plot configuration lives. The switch defaults OFF: a board that has never been
- * told to serve the queue must not begin serving it, and slice 3 will only act
- * while it is on. The cap defaults to 3.
- */
-export const AUTO_DISPATCH_KEY = 'Auto-dispatch';
-export const PARALLEL_AGENTS_KEY = 'Parallel agents';
-/**
- * The key that lets an operator say *now anyway* to a starved machine.
- *
- * `DESIGN-machine.md` §10 makes the machine's `starved` reading a DEFERRAL and
- * not a veto — *"the dispatch stands, the dial keeps its value… the operator
- * can always say now anyway, and that is what keeps this a deferral rather
- * than a veto."* Without an override the reading would be exactly the refusal
- * §7 forbids, so this key is what makes the whole gate legal.
- */
-export const MACHINE_OVERRIDE_KEY = 'Machine override';
-const AUTO_DISPATCH_DEFAULT = false;
-const PARALLEL_AGENTS_DEFAULT = 3;
-/**
- * The override defaults OFF, so the deferral is in force on a machine nobody
- * has configured. The measurement is the point; a default that ignored it
- * would ship the reading with nothing reading it.
- */
-const MACHINE_OVERRIDE_DEFAULT = false;
-
-/**
- * The cap refuses to go below 1. A cap of zero is a stopped fleet expressed as
- * a number, which the switch already says better — two controls saying one
- * thing is how they drift into disagreeing. The floor is enforced HERE, at the
- * write, not merely in the stepper's UI: the endpoint is a second door to this
- * state and a value that never passed through the spinbutton must still land
- * above the floor.
- */
-export const MIN_PARALLEL_AGENTS = 1;
-
-/** The current settings, as every reader sees them. */
-export interface FleetSettings {
-  /** Whether the queue is being served. This slice records it; slice 3 acts on it. */
-  autoDispatch: boolean;
-  /** How many agents may run at once — never below {@link MIN_PARALLEL_AGENTS}. */
-  parallelAgents: number;
-  /**
-   * Whether to dispatch even while the machine reads `starved` — the operator's
-   * *now anyway*. See {@link MACHINE_OVERRIDE_KEY}.
-   */
-  machineOverride: boolean;
-}
-
-/**
- * Where the file lives: beside the pulse, under `.plot/state/`.
- *
- * Machine-local by construction and gitignored for it, the same as
- * `bridgePath`. A checked-in copy would be one machine telling another whether
- * its fleet is running.
- */
-export function fleetSettingsPath(repoRoot: string): string {
-  return path.join(repoRoot, '.plot', 'state', 'fleet-controls.json');
-}
-
-/**
- * The defaults, read from `## Plot Config`. The starting point for a machine
- * whose state file does not yet exist — and the fallback for one whose file is
- * unreadable or malformed, since a broken file is not a reason to invent a
- * running fleet.
- *
- * `plot-config.sh` hands back strings; the switch is `true` only for the exact
- * literal `true`, so a typo or an empty value reads as OFF rather than as some
- * truthy coercion. The cap is parsed and floored: a non-numeric or sub-floor
- * config value falls back to the default rather than seeding an illegal state.
- */
-export async function defaultFleetSettings(opts: BuildBoardOptions): Promise<FleetSettings> {
-  // THREE CONFIG READS, ASKED TOGETHER AND OFF THE LOOP. They ran as three
-  // synchronous `bash plot-config.sh` forks until 2026-09-01, unconditionally,
-  // on every `buildFleet` — so the fleet's 4 s pulse paid them whether or not a
-  // state file existed to override them. A synchronous spawn cannot yield, and
-  // `sample` on a wedged board caught exactly this shape under the request
-  // handler. Concurrent rather than sequential because the three keys are
-  // independent; the parse below is unchanged.
-  const [rawSwitch, rawCap, rawOverride] = (
-    await Promise.all([
-      readConfigAsync(opts, AUTO_DISPATCH_KEY, String(AUTO_DISPATCH_DEFAULT)),
-      readConfigAsync(opts, PARALLEL_AGENTS_KEY, String(PARALLEL_AGENTS_DEFAULT)),
-      readConfigAsync(opts, MACHINE_OVERRIDE_KEY, String(MACHINE_OVERRIDE_DEFAULT)),
-    ])
-  ).map((raw) => raw.trim());
-  const parsedCap = Number.parseInt(rawCap, 10);
-  return {
-    autoDispatch: rawSwitch === 'true',
-    parallelAgents:
-      Number.isInteger(parsedCap) && parsedCap >= MIN_PARALLEL_AGENTS
-        ? parsedCap
-        : PARALLEL_AGENTS_DEFAULT,
-    // The same exact-literal rule the switch uses: a typo or an empty value
-    // reads as OFF, so a malformed config cannot silently disable the gate.
-    machineOverride: rawOverride === 'true',
-  };
-}
-
-/**
- * Coerce anything on disk into a valid pair, falling back per-field to the
- * defaults. Forgiving in one direction only, the rule `readBridge` and
- * `pulse-bridge`'s `toMap` both keep: a field that is not the right shape is
- * DROPPED to its default, never guessed at. A cap below the floor is raised to
- * the floor — the same clamp the write applies, so a file hand-edited to 0 does
- * not read back as a stopped fleet the switch did not ask for.
- */
-function coerce(raw: unknown, fallback: FleetSettings): FleetSettings {
-  if (typeof raw !== 'object' || raw === null) return fallback;
-  const obj = raw as Record<string, unknown>;
-  const autoDispatch =
-    typeof obj.autoDispatch === 'boolean' ? obj.autoDispatch : fallback.autoDispatch;
-  const parallelAgents =
-    typeof obj.parallelAgents === 'number' && Number.isInteger(obj.parallelAgents)
-      ? Math.max(MIN_PARALLEL_AGENTS, obj.parallelAgents)
-      : fallback.parallelAgents;
-  // Additive: a file written before this field existed drops to the fallback
-  // rather than reading as an override nobody asked for.
-  const machineOverride =
-    typeof obj.machineOverride === 'boolean' ? obj.machineOverride : fallback.machineOverride;
-  return { autoDispatch, parallelAgents, machineOverride };
-}
-
-/**
- * The current settings: the file if it holds a well-shaped answer, else the
- * config-seeded defaults.
- *
- * Read fresh on every call — this is on `buildFleet`'s render clock, not
- * cached — so a write through the endpoint is visible on the very next poll
- * without a cache to invalidate. That is what makes *a second board process
- * reads the same values* true: neither process holds authoritative state in
- * memory; both read this file, and the file is the shared answer.
- */
-export async function readFleetSettings(opts: BuildBoardOptions): Promise<FleetSettings> {
-  const fallback = await defaultFleetSettings(opts);
-  let raw: string;
-  try {
-    raw = fs.readFileSync(fleetSettingsPath(opts.repoRoot), 'utf8');
-  } catch {
-    // No file is the ordinary first state, not an error: the machine has never
-    // touched a control, so the config defaults ARE the answer.
-    return fallback;
-  }
-  try {
-    return coerce(JSON.parse(raw), fallback);
-  } catch {
-    // A file that exists and will not parse falls back rather than throwing: the
-    // board serving stale-but-valid defaults beats a poll that 500s on a byte a
-    // hand-edit corrupted.
-    return fallback;
-  }
-}
-
-/**
- * Write the settings, atomically, so two board processes on one repo cannot
- * hand each other a torn file.
- *
- * Temp file plus `rename`, the discipline `writeBridge` documents: `rename` is
- * atomic within a filesystem, so a reader mid-write sees the old file whole or
- * the new file whole, never half of either. The temp name carries the pid for
- * the same reason it does there — two writers must not collide on one temp path
- * and produce the torn payload the rename exists to prevent.
- *
- * The cap is floored on the way in: this is the second door to the state (the
- * endpoint being the first), and a caller that hands a sub-floor number must
- * still land a legal one. Unlike `writeBridge`, a failure is NOT swallowed — a
- * control write is a person's explicit act on the fleet, and silently dropping
- * it would leave the board rendering the old answer with no sign the write was
- * lost. The endpoint turns a throw here into a 500 the operator can see.
- */
-export function writeFleetSettings(repoRoot: string, controls: FleetSettings): void {
-  const file = fleetSettingsPath(repoRoot);
-  const clamped: FleetSettings = {
-    autoDispatch: controls.autoDispatch,
-    parallelAgents: Math.max(MIN_PARALLEL_AGENTS, Math.trunc(controls.parallelAgents)),
-    machineOverride: controls.machineOverride,
-  };
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(clamped), 'utf8');
-  fs.renameSync(tmp, file);
-}
+export {
+  AUTO_DISPATCH_KEY,
+  PARALLEL_AGENTS_KEY,
+  MACHINE_OVERRIDE_KEY,
+  MIN_PARALLEL_AGENTS,
+  type FleetSettings,
+  fleetSettingsPath,
+  defaultFleetSettings,
+  readFleetSettings,
+  writeFleetSettings,
+} from '../shared/fleet-settings-store.js';
 
 export interface FleetSettingsOptions extends BuildBoardOptions {
   host: string;

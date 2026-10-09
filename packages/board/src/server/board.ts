@@ -66,6 +66,10 @@ import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics } from './topics.js';
+import {
+  readConfig as readConfigReader,
+  readConfigAsync as readConfigAsyncReader,
+} from '../shared/config-reader.js';
 
 /**
  * Where to look. `repoRoot` is the adopting project (source of plans / sprints
@@ -519,8 +523,7 @@ function readChecklist(repoRoot: string, releaseDir: string): { done: number; to
  * radius, and only the second one made a static file time out at 15 s.
  */
 export function readConfig(opts: BuildBoardOptions, key: string, fallback: string): string {
-  const answer = scriptsFor(opts).configSync(key, fallback);
-  return answer.ok ? answer.value.trim() || fallback : fallback;
+  return readConfigReader(opts, key, fallback);
 }
 
 /**
@@ -540,8 +543,7 @@ export async function readConfigAsync(
   key: string,
   fallback: string,
 ): Promise<string> {
-  const answer = await scriptsFor(opts).config(key, fallback);
-  return answer.ok ? answer.value.trim() || fallback : fallback;
+  return readConfigAsyncReader(opts, key, fallback);
 }
 
 /**

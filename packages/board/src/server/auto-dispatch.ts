@@ -18,10 +18,10 @@ import {
   briefAskBudget,
   type Machine as MachineEntity,
 } from '@plot-pm/domain';
-import type { AgentEntry } from './registry.js';
+import type { AgentEntry } from '../shared/registry.js';
 import { dispatchLogPath } from './dispatch.js';
 import { readInFlight, writeInFlight } from './in-flight-store.js';
-import { briefPath } from './brief-path.js';
+import { briefPath } from '../shared/brief-path.js';
 import { DISPATCH_SCRIPT } from './dispatch.js';
 
 export { briefPath };
