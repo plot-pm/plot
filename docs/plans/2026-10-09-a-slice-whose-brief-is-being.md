@@ -61,7 +61,7 @@ Two causes are known:
 
 ### The row shows the writer
 
-- `feature/the-row-shows-the-brief-writer` — a domain rule answers `writing`/`failed`/`asked`/`none` for a slice from readings, the fleet payload carries it, and a NOT STARTED row shows a working indicator while the answer is `writing`, with one browser test <!-- builds: briefWriterState, a domain rule in @plot-pm/domain -->
+- `feature/the-row-shows-the-brief-writer` — a domain rule answers `writing`/`failed`/`asked`/`none` for a slice from readings, the fleet payload carries it, and a NOT STARTED row shows a working indicator while the answer is `writing`, with one browser test <!-- builds: briefWriterState, a domain rule in @plot-pm/domain --> → #1430
 
 ## Notes
 
