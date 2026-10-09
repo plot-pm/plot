@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-09, jwloka, in-session
 - **Started:** 2026-10-09, jwloka, `feature/a-merged-pr-shows-no-ci-state`
+- **Started:** 2026-10-09, jwloka, `feature/a-merged-pending-check-is-asked-again`
 
 ## Changelog
 
