@@ -115,7 +115,7 @@ fleet process (plot-registryd)          board process
 
 ### The fleet owns the scan and the PR index
 
-- `feature/the-fleet-owns-the-scan-and-pr-index` — `plot-registryd` runs the scan on its own clock, writes the pulse bridge and is the only caller of `foldPrIndex`; the board reads both through a `FleetState` port <!-- builds: FleetState, a domain port with a file adapter -->
+- `feature/the-fleet-owns-the-scan-and-pr-index` — `plot-registryd` runs the scan on its own clock, writes the pulse bridge and is the only caller of `foldPrIndex`; the board reads both through a `FleetState` port → #1444 <!-- builds: FleetState, a domain port with a file adapter -->
 
 ### The fleet owns its automatic writes
 
