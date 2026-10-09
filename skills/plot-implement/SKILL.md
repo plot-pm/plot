@@ -115,7 +115,8 @@ Verdict, per the guidance principle (name the signal, advise):
 branch, push no ref, cut no worktree, and do not run
 `plot-fleet-scan.sh --next`. Which branch the brief names comes from the
 plan's `## Slices` section — the wave whose every prior wave has merged,
-read without claiming it. The supervisor hands the slice to a free agent,
+read without claiming it. When `PLOT_BRIEF_BRANCH` is set, the brief names
+that branch instead of resolving one. The supervisor hands the slice to a free agent,
 and that agent pushes the claim when it takes the slice up.
 
 A claim this step pushes is worked by nobody: `claimedBranches` reads

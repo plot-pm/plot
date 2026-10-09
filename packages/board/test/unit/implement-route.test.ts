@@ -23,6 +23,8 @@ import {
   composeImplementPrompt,
   handleImplement,
   implementAvailability,
+  implementBranchRecordPath,
+  implementBranchStatePath,
   implementLogPath,
   IMPLEMENT_COMMAND_KEY,
   type ImplementDeps,
@@ -91,6 +93,8 @@ async function post(
     repoRoot: string;
     body?: unknown;
     command?: string;
+    /** The branch the controller resolves; none by default, so no scan is read. */
+    branch?: string | null;
     host?: string;
     headers?: http.IncomingHttpHeaders;
   },
@@ -99,6 +103,7 @@ async function post(
   const deps: ImplementDeps = {
     config: (_o, key, fallback) =>
       key === IMPLEMENT_COMMAND_KEY ? (opts.command ?? 'true') : fallback,
+    briefBranch: () => opts.branch ?? null,
   };
   await handleImplement(
     request(opts.body ?? { slug: SLUG }, opts.headers),
@@ -197,5 +202,35 @@ describe('an action that cannot work is not offered', () => {
     assert.match(implementAvailability('0.0.0.0').reason, /not localhost/);
     assert.equal(implementAvailability('localhost').available, true);
     assert.equal(implementAvailability('127.0.0.1').available, true);
+  });
+});
+
+describe('the controller names the branch before the writer starts', () => {
+  const BRANCH = 'feature/the-first-slice';
+
+  it('records the branch and its own state before it answers 202', async () => {
+    const dir = repo();
+    const got = await post({ repoRoot: dir, branch: BRANCH });
+    assert.equal(got.status, 202);
+    assert.equal(fs.readFileSync(implementBranchRecordPath(dir, SLUG), 'utf8'), BRANCH);
+    assert.ok(fs.existsSync(implementBranchStatePath(dir, SLUG, BRANCH)), 'the branch has its own state file');
+    assert.ok(
+      !fs.existsSync(implementBranchStatePath(dir, SLUG, 'feature/a-sibling-slice')),
+      'a sibling slice of the same plan has none',
+    );
+  });
+
+  it('keeps today\'s behaviour where no branch resolves', async () => {
+    const dir = repo();
+    const got = await post({ repoRoot: dir, branch: null });
+    assert.equal(got.status, 202);
+    assert.ok(!fs.existsSync(implementBranchRecordPath(dir, SLUG)), 'no branch is recorded');
+  });
+
+  it('forgets an earlier run\'s branch when a later run names none', async () => {
+    const dir = repo();
+    await post({ repoRoot: dir, branch: BRANCH });
+    await post({ repoRoot: dir, branch: null });
+    assert.ok(!fs.existsSync(implementBranchRecordPath(dir, SLUG)));
   });
 });
