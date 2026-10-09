@@ -1,10 +1,11 @@
 /**
  * The `.plot/hold` file kept, with every entry for a named branch removed.
  *
- * An entry's first field is matched by exact string equality against the
- * plan's branches, never as a pattern — `plot-phase-gate.sh` reads the same
- * field the same way, so a pattern here would release a hold the plan never
- * named.
+ * An entry's first field is its first whitespace-separated word, with leading
+ * whitespace ignored as awk's `$1` ignores it. That field is matched by exact
+ * string equality against the plan's branches, never as a pattern —
+ * `plot-phase-gate.sh` reads the same field the same way, so a pattern here
+ * would release a hold the plan never named.
  *
  * @param content - the hold file's current content, or `undefined` when the
  *   file does not exist.
@@ -27,7 +28,7 @@ export const clearHolds = (
 
   let removed = 0;
   const kept = body.filter((line) => {
-    const branch = line.split(/\s/, 1).join('');
+    const branch = line.trim().split(/\s+/, 1).join('');
     if (named.has(branch)) {
       removed += 1;
       return false;

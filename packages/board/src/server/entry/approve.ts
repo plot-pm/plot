@@ -14,6 +14,7 @@ import { unnamedBranchDetail, unnamedBranches } from '@plot-pm/domain/rules/slic
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
 import {
   commitAndPush,
+  localDate,
   realPlanPath,
   recordStateReceipt,
   Refused,
@@ -203,7 +204,7 @@ const readPlanPr = async (ctx: Context, slug: string, branch: string): Promise<P
     if (lookup.why === 'unaskable') {
       throw new Refused(`the host backend has no answer for the PR state of '${branch}' (plot-host.sh pr-state exited 4).\n  ${reason}\n  This backend cannot report a PR's state, so the approval cannot read its gate. The plan was not approved and its phase is unchanged.`);
     }
-    throw new Refused(`the host could not be asked for the PR of '${branch}' (plot-host.sh pr-state exited 3).\n  ${reason}\n  The plan was not approved and its phase is unchanged. Wait for the host to answer again, then re-run the approval.`);
+    throw new Refused(`the host could not be asked for the PR of '${branch}' (plot-host.sh pr-state refused the call).\n  ${reason}\n  The plan was not approved and its phase is unchanged. Wait for the host to answer again, then re-run the approval.`);
   }
   const pr = lookup.value;
   if (pr === null || (pr.state !== 'MERGED' && pr.state !== 'OPEN' && pr.state !== 'CLOSED')) {
@@ -515,7 +516,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   const who = inSession
     ? args.who
     : args.who || process.env.PLOT_APPROVE_WHO || (await userNameOf(ctx));
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDate();
   const branches = plan.branches;
 
   if (args.dryRun) {
@@ -662,7 +663,9 @@ const bookApproval = async (
   if (!added.ok) {
     throw new Refused(`could not prepare a booking worktree at ${tmpwt}.\n  Most often origin/${main} is not fetched, or '${bookbr}' is checked out in\n  another worktree. Check both: git fetch origin ${main} && git worktree list\n  Nothing has been written locally; the plan is untouched.`);
   }
-  const cleanup = () => ctx.trees.removeWithBranch(tmpwt, bookbr);
+  // The booking worktree and branch are removed on every way out except a
+  // rejected push, which keeps the branch so the committed approval survives.
+  let keepBranch = false;
 
   try {
     const request = flow.request(tmpwt);
@@ -689,16 +692,13 @@ const bookApproval = async (
     if ('rejected' in landed) {
       const stranded = inSession ? 'the in-session approval IS DECIDED' : `PR #${prNumber} IS MERGED`;
       warn(`plot-approve: the approval is committed on '${bookbr}' but could not reach ${main}.\n  ${stranded} — the plan must not stay at Phase: Draft.\n  Land '${bookbr}' by hand, or re-run this command once the push works.\n`);
+      keepBranch = true;
       await ctx.trees.removeOnly(tmpwt);
       return { report, exit: 1 };
     }
-    await cleanup();
     return { report, push: landed.pushed };
-  } catch (err) {
-    if (err instanceof Refused) {
-      await cleanup();
-    }
-    throw err;
+  } finally {
+    if (!keepBranch) await ctx.trees.removeWithBranch(tmpwt, bookbr);
   }
 };
 

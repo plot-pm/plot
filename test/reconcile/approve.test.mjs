@@ -701,7 +701,8 @@ test('approve: a rate-limited host stops the approval with its own reason, and p
   const shaBefore = git(repo, 'rev-parse', 'origin/main').trim();
   const { code, err } = run(['approve-me'], { expectFail: true });
   assert.equal(code, 1);
-  assert.match(err, /pr-state exited 3\b/, `the incident's exit code is 3:\n${err}`);
+  assert.match(err, /could not be asked/);
+  assert.doesNotMatch(err, /exited \d/, `the port carries no exit code, so the refusal names none:\n${err}`);
   assert.match(err, /HTTP 429: API rate limit exceeded/, 'the host\'s own words must reach the operator');
   assert.doesNotMatch(err, /no PR found/i);
   assert.doesNotMatch(err, /push/i, `a throttled read must prescribe no push:\n${err}`);
@@ -720,6 +721,7 @@ for (const [code, reason] of [
     assert.equal(rc, 1);
     assert.match(err, /could not be asked/);
     assert.ok(err.includes(reason), `the host's reason must be printed verbatim:\n${err}`);
+    assert.doesNotMatch(err, /exited \d/, `the port carries no exit code, so the refusal names none:\n${err}`);
     assert.doesNotMatch(err, /no PR found/i);
     assert.doesNotMatch(err, /push/i);
     assertNothingWritten(shaBefore);

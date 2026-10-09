@@ -114,6 +114,26 @@ test('controller gate: a deliver receipt clears the bundle call, the same receip
   assert.equal(r.status, 0, `must allow (stderr: ${r.stderr})`);
 });
 
+// `plot-approve.sh` became a launcher in `approval-becomes-a-command`; its
+// bundle is the same action and must be refused the same way.
+test('controller gate: a direct call to the approve bundle refuses, naming /api/approve', () => {
+  const r = run(repo(), 'node skills/plot/scripts/board/plot-approve.mjs some-slug');
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /POST \/api\/approve/);
+});
+
+test('controller gate: an approve receipt clears the bundle call, the same receipt the launcher uses', () => {
+  const dir = repo();
+  recordReceipt(dir, 'plot-approve.sh', 'some-slug');
+  const r = run(dir, 'node skills/plot/scripts/board/plot-approve.mjs some-slug');
+  assert.equal(r.status, 0, `must allow (stderr: ${r.stderr})`);
+});
+
+test('controller gate: --dry-run on the approve bundle is allowed, as on the launcher', () => {
+  const r = run(repo(), 'node skills/plot/scripts/board/plot-approve.mjs --dry-run some-slug');
+  assert.equal(r.status, 0, `must allow (stderr: ${r.stderr})`);
+});
+
 test('controller gate: --release on the bundle refuses naming /api/release, not /api/deliver', () => {
   const r = run(repo(), 'node skills/plot/scripts/board/plot-deliver.mjs --release 1.2.3 some-slug');
   assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
