@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-release-train-fixes-what-it-found
 - **Issue:** #1295, #1328, #1169, #1166, #1338
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-08, jwloka, `bug/a-handed-slice-carries-its-charter`
 - **Started:** 2026-10-08, jwloka, `bug/a-waiting-run-needs-approval-again`
 - **Delivered:** 2026-10-08
+- **Released:** 2026-10-08, v2.24.1
 
 ## Changelog
 

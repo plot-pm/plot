@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Issue:** #1366, #1375
 - **Sprint:** the-release-train-fixes-what-it-found
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-08, jwloka, `feature/a-blocked-desk-is-not-held-by-a-free-wait`
 - **Started:** 2026-10-08, jwloka, `bug/the-loop-resumes-a-continuation`
 - **Delivered:** 2026-10-08
+- **Released:** 2026-10-08, v2.24.1
 
 ## Changelog
 
