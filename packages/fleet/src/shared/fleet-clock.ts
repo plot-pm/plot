@@ -3,6 +3,7 @@ import type { Clock } from '@plot-pm/domain/ports/clock';
 
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 
+import { prGateOpen, refreshPrs, type PrState, type PrWorld } from './pr-refresh.js';
 import { PR_REFRESH_MS, REFRESH_MS, scanOnce, writeScan, type ScanState, type ScanWorld } from './fleet-scan.js';
 
 /**
@@ -94,5 +95,30 @@ export const fleetScan = (
     if (!(await writeScan(fleetState, result, now()))) warn('plot-fleetd: bridge write refused');
   } catch (e) {
     warn(`plot-fleetd: scan failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+};
+
+/**
+ * Builds the PR pass the fleet's clock runs: one host read behind the cadence
+ * gate, folded into the PR index.
+ *
+ * The gate is the one the board used: an ordinary beat opens it within a slack
+ * of the interval, and a backoff the host named holds for its full delay.
+ *
+ * @param world - what the pass reaches; the fleet is the index's only writer.
+ * @param state - the cadence, backoff and limit reading carried between passes.
+ * @param warn - receives a one-line reason when a pass throws.
+ * @returns the function to hand to {@link startFleetClock} as `prs`.
+ */
+export const fleetPrs = (
+  world: PrWorld,
+  state: PrState,
+  warn: (line: string) => void,
+): (() => Promise<void>) => async () => {
+  if (!prGateOpen(state.prNextAt, state.prNextIsBackoff)) return;
+  try {
+    await refreshPrs(world, state);
+  } catch (e) {
+    warn(`plot-fleetd: PR read failed: ${e instanceof Error ? e.message : String(e)}`);
   }
 };

@@ -52,7 +52,8 @@ import { ownerOfRemote } from '@plot-pm/domain/rules/remote-owner';
 import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gates';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../../shared/registry.js';
-import { fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
+import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
+import { freshPrState } from '../../shared/pr-refresh.js';
 import { freshScanState } from '../../shared/fleet-scan.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
@@ -1744,6 +1745,15 @@ export const run = async (
           fleetStateFile({ repoRoot }),
           freshScanState(),
           () => Date.now(),
+          warn,
+        ),
+        prs: fleetPrs(
+          {
+            scripts,
+            host: hostShell({ repoRoot, scriptDir: scriptsDir }),
+            store: prIndexFile({ cwd: repoRoot }),
+          },
+          freshPrState(),
           warn,
         ),
       });
