@@ -911,9 +911,7 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$mode" = "once" ]; then
   [ -f "$fleetd" ] || {
-    echo "plot-fleetctl: no supervisor artifact at $fleetd" >&2
-    echo "  Every bundle is tracked in git, so this is a broken or partial installation of Plot." >&2
-    echo "  Reinstall or update the Plot plugin. In a development checkout of Plot, run 'pnpm build:board'." >&2
+    printf 'plot-fleetctl: no supervisor artifact at %s\n  Every bundle is tracked in git, so this is a broken or partial installation of Plot.\n  Reinstall or update the Plot plugin. In a development checkout of Plot, run '"'"'pnpm build:board'"'"'.\n' "$fleetd" >&2
     exit 1
   }
   exec node "$fleetd" --once
@@ -925,10 +923,7 @@ fi
 if [ "$mode" = "start" ]; then
   # REFUSAL 1 — nothing to start.
   [ -f "$fleetd" ] || {
-    echo "plot-fleetctl: no supervisor artifact at $fleetd" >&2
-    echo "  The unit would name a file that does not exist." >&2
-    echo "  Every bundle is tracked in git, so this is a broken or partial installation of Plot." >&2
-    echo "  Reinstall or update the Plot plugin. In a development checkout of Plot, run 'pnpm build:board'." >&2
+    printf 'plot-fleetctl: no supervisor artifact at %s\n  The unit would name a file that does not exist.\n  Every bundle is tracked in git, so this is a broken or partial installation of Plot.\n  Reinstall or update the Plot plugin. In a development checkout of Plot, run '"'"'pnpm build:board'"'"'.\n' "$fleetd" >&2
     exit 1
   }
 
@@ -942,19 +937,12 @@ if [ "$mode" = "start" ]; then
   # "no pin" is exactly how this refusal went silent in every consumer.
   want=$(pinned_major)
   if [ -z "$want" ]; then
-    echo "plot-fleetctl: cannot read Plot's node pin at $plot_nvmrc" >&2
-    echo "  The unit bakes '$node_bin' in permanently, and without the pin nothing checks it." >&2
-    echo "  Plot tracks .nvmrc in git, so this is a broken or partial installation of Plot." >&2
-    echo "  Reinstall or update the Plot plugin, then run this again." >&2
+    printf 'plot-fleetctl: cannot read Plot'"'"'s node pin at %s\n  The unit bakes '"'"'%s'"'"' in permanently, and without the pin nothing checks it.\n  Plot tracks .nvmrc in git, so this is a broken or partial installation of Plot.\n  Reinstall or update the Plot plugin, then run this again.\n' "$plot_nvmrc" "$node_bin" >&2
     exit 1
   fi
   have=$(running_major) || have=""
   if [ "$have" != "$want" ]; then
-    echo "plot-fleetctl: node on PATH is ${have:-unreadable}, Plot pins $want ($plot_nvmrc)" >&2
-    echo "  The unit bakes '$node_bin' in permanently, so a wrong one here is a" >&2
-    echo "  daemon that keeps failing after you have moved on." >&2
-    echo "  Fix it: put node $want first on PATH (with nvm: nvm install $want && nvm use $want)," >&2
-    echo "  then run this again." >&2
+    printf 'plot-fleetctl: node on PATH is %s, Plot pins %s (%s)\n  The unit bakes '"'"'%s'"'"' in permanently, so a wrong one here is a\n  daemon that keeps failing after you have moved on.\n  Fix it: put node %s first on PATH (with nvm: nvm install %s && nvm use %s),\n  then run this again.\n' "${have:-unreadable}" "$want" "$plot_nvmrc" "$node_bin" "$want" "$want" "$want" >&2
     exit 1
   fi
 
