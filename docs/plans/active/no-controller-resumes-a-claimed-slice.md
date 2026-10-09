@@ -1,0 +1,1 @@
+../2026-10-09-no-controller-resumes-a-claimed-slice.md

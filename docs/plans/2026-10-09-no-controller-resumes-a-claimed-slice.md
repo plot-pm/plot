@@ -1,0 +1,90 @@
+# No controller resumes a claimed slice whose agent timed out
+
+> An agent that ends on its time bound (exit 124) always leaves a `bound` ending, and the supervisor answers that ending as it answers `holding-work`: one fresh agent continues the claimed branch, and a second time-out asks a person.
+
+## Status
+
+- **State:** Draft
+- **Type:** feature
+- **Issue:** #1420
+- **Review:** in-session
+- **Impl:** own branches
+
+## Changelog
+
+- An agent that runs out its time bound no longer strands its slice. The loop records a `bound` ending on every time-out, and the supervisor starts one fresh agent on the claimed branch to commit, check and push what the first agent left. A second time-out on the same slice asks a person through `WAITING ON YOU`.
+
+<!-- Board impact: none to the plan format, template or docs/plans layout. The
+     board's fleet row for a desk reads the ending through `/api/fleet`; a
+     `bound` ending replaces `ending: null` there, and a desk that gets a fresh
+     agent leaves "worker crashed — exited 124". -->
+
+## Motivation
+
+On 2026-10-09 the agent on `feature/the-fleet-package-exists` (plan `the-fleet-runs-without-the-board`) ended with exit 124 at 09:27. It left one unpushed commit (`dec27bb26`) and 50 uncommitted files at desk `.worktrees/free-1c9c57a0`, and it wrote no ending record. The board showed "worker crashed — exited 124" with "someone is on it". `/api/fleet` read `worker: failed`, `ending: null`.
+
+The supervisor took no action. The master agent committed the tree as `888dc0e7d` and pushed it by hand. After that, every controller refused or did nothing:
+
+| Controller | Answer | Why |
+|---|---|---|
+| `POST /api/dispatch` | `dispatched=0 skipped=0` | the slice reads as claimed |
+| `POST /api/continue` | `no-question` | it needs an unanswered `PLOT-BLOCKED` marker |
+| `releaseClaim` | not called | it deletes the claim ref, and a fresh dispatch would then start from the default branch instead of the pushed work |
+
+Two gaps combine here:
+
+1. **No ending was written.** `agentLoop` row 6 (`packages/domain/src/workflows/agent-loop.ts:617-635`) ends a run that exceeds the bound as `bound` (or `unreadable` with no transcript), and `packages/fleet/src/server/entry/worker-loop.ts:1743-1759` performs that write. The 09:27 desk still had no ending file, so the process that hit exit 124 did not pass through that path. Where the 124 came from — the run's own bound, the idle watch at `worker-loop.ts:1737-1741`, or something that killed the whole loop — is not yet measured.
+2. **A `bound` ending answers `leave`.** `endingAction` (`packages/domain/src/rules/ending-action.ts:101-104`) lists `bound` among the reasons with no row. So even with the ending written, the supervisor does nothing and the slice stays claimed with nobody on it.
+
+`every-loop-ending-has-a-supervisor-rule` set the rule that no ending leaves a slice claimed with nobody working on it, and #1384 gave `holding-work` after a prompt a fresh agent. A time-out is the same situation — work on a desk, an agent gone — reached through a different exit. #1409 is the same family: a desk's loop reads itself free while its branch waits on checks.
+
+## Design
+
+### Approach
+
+**Slice 1: every time-out leaves an ending.** The slice first reproduces the 09:27 case and names the exit path that wrote `124` to `.plot-worker.exit` without an ending file. Then it makes that path write the ending through `agentLoop`, as row 6 already does for the run's own bound. The ending reason is `bound`, or `unreadable` where no transcript exists, and the actor is `bound`. A worker that a signal kills outright (SIGKILL) still leaves no ending; "absent is absent" in `plot-worker-state.sh` stays true, and this plan does not read an exit code of 124 as an ending.
+
+**Slice 2: `bound` gets a row in `endingAction`.** The row follows the `holding-work`-after-a-prompt row:
+
+| Ending | Branch holds | Action |
+|---|---|---|
+| `bound` or `unreadable`, first on this slice | a commit beyond the claim, an open PR, or a dirty tree | `start-fresh`: one fresh agent on the same desk, told to commit, check and push the held work, then continue the slice |
+| `bound` or `unreadable`, first on this slice | nothing beyond the claim | `release-claim`, as `nothing-done` does |
+| `bound` or `unreadable`, after a fresh session | anything | `needs-a-person`, through the `PLOT-BLOCKED.md` marker and `questionEscalation` |
+
+`bound` joins the set that shares one fresh session per slice (`FRESH_SESSION_ENDINGS` plus after-prompt `holding-work`), so a slice that times out, gets a fresh agent, and then ends `holding-work` asks a person instead of starting a third agent. The fresh start goes through the same registry path that `a-fresh-start-has-its-question` (#1388) fixed for `turn-limit`, so `continueOnDesk` does not refuse it `no-question`.
+
+The rule stays pure: it reads the ending, the branch readings and the fresh-session count, and reads no disk.
+
+### Open Questions
+
+- [ ] Which process wrote exit 124 at 09:27 without an ending? Slice 1 measures this first. If the cause is the outer `Worker bound` killing the whole loop, the loop cannot write its own ending, and the ending must come from the process that enforces the bound.
+- [ ] Should a fresh agent after a time-out get a shorter or longer bound than the first? This plan keeps `Worker bound` (28800 s) unchanged.
+- [ ] Should `unreadable` share the `bound` row? This plan says yes, because the work on the desk is the same; an `unreadable` ending only says no transcript explained the time-out.
+
+## Slices
+
+### A time-out writes its ending
+
+- `feature/a-time-out-writes-its-ending` — reproduce the exit-124-without-an-ending case from 2026-10-09 and route that exit path through `agentLoop` so it writes a `bound` or `unreadable` ending <!-- builds: the bound ending on every time-out exit path of the worker loop -->
+
+### A timed-out slice gets a fresh agent
+
+- `feature/a-timed-out-slice-gets-a-fresh-agent` — the `bound` and `unreadable` rows of `endingAction`, their share of the one fresh session per slice, and the registry tick that starts the fresh agent or writes the marker <!-- builds: the bound rows of endingAction -->
+
+## Done when
+
+Each test below fails on `origin/main` (`3d45ebd2a`) today:
+
+- The worker loop: the exit path found in slice 1 writes an ending file with reason `bound` (or `unreadable`) and actor `bound`, and `/api/fleet` reads that ending for the desk.
+- `endingAction`: a first `bound` ending on a branch with a commit beyond the claim answers `start-fresh`; with a dirty tree and no commit it answers `start-fresh`; with nothing beyond the claim it answers `release-claim`; after one fresh session it answers `needs-a-person`; a desk a manifest names answers `leave`.
+- The registry tick: a `bound` ending starts one fresh agent whose answer names the held files, and `continueOnDesk` does not refuse it `no-question`.
+- `node skills/plot/scripts/board/plot-local-checks.mjs` and the commands it prints pass on each branch.
+
+## Notes
+
+**Created unattended, 2026-10-09**, from issue #1420. Ceremony follows this repo's practice for issue plans: `in-session` review, `own branches`, plan committed to `main`. Type `feature` came from the prompt.
+
+- Overlapping plans: `every-loop-ending-has-a-supervisor-rule` (Released, v2.24.1) built `endingAction` and lists `bound` among the reasons that answer `leave`; this plan adds the row it left open. `a-blocked-agent-s-question-has` (Released) built the continue route a fresh start uses. No Draft or Approved plan overlaps the title.
+- Deliverable search, 2026-10-09: `endingAction` (`packages/domain/src/rules/ending-action.ts`) and its registry caller (`packages/fleet/src/server/entry/registryd.ts:844-975`) are the code slice 2 extends, not duplicates. `agentLoop` row 6 (`agent-loop.ts:617`) already writes `bound` for one exit path; slice 1 extends it to the path that missed it. No `bound` row exists in `endingAction`.
+- #1409 (a desk's loop reads itself free while its branch waits on checks) is related and out of scope here.
