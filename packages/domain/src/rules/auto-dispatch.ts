@@ -60,7 +60,7 @@ export interface AutoDispatchPlan {
  * `plan`.
  */
 export const planSlug = (file: string): string => {
-  return (file.split('/').pop() ?? file).replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
+  return file.replace(/^.*\//, '').replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
 };
 
 /**
