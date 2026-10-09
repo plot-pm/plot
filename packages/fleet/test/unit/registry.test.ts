@@ -701,9 +701,8 @@ describe('a worker runs at one desk — a desk its worker left is not working', 
     });
     assert.equal(got.find((e) => e.worktree === '/wt/new')!.state, 'running');
     assert.equal(got.find((e) => e.worktree === '/wt/old')!.state, 'ended');
-    // ONE LIVE WORKER: `running` is live, `ended` is not — the two states
-    // asserted above account for both entries, so counting them directly
-    // needs no live/not-live predicate of its own.
+    // The board's `isLiveState` reads `running` as live and `ended` as not.
+    // The fleet does not import the board, so the test counts `running`.
     assert.equal(got.filter((e) => e.state === 'running').length, 1);
   });
 
