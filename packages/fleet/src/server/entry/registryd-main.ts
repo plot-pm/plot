@@ -116,14 +116,14 @@ import { randomUUID } from 'node:crypto';
 import type { Agents } from '@plot-pm/domain/ports/agents';
 
 /**
- * `plot-registryd` — the supervisor, one per repository.
+ * `plot-fleetd` — the supervisor, one per repository.
  *
  * ```
- * node skills/plot/scripts/board/plot-registryd.mjs           # loop
- * node skills/plot/scripts/board/plot-registryd.mjs --once    # one tick
- * node skills/plot/scripts/board/plot-registryd.mjs --dry-run # decide, write nothing
- * node skills/plot/scripts/board/plot-registryd.mjs --start-agents  # and start them
- * node skills/plot/scripts/board/plot-registryd.mjs --sweep-temp    # and sweep temp paths hourly
+ * node skills/plot/scripts/board/plot-fleetd.mjs           # loop
+ * node skills/plot/scripts/board/plot-fleetd.mjs --once    # one tick
+ * node skills/plot/scripts/board/plot-fleetd.mjs --dry-run # decide, write nothing
+ * node skills/plot/scripts/board/plot-fleetd.mjs --start-agents  # and start them
+ * node skills/plot/scripts/board/plot-fleetd.mjs --sweep-temp    # and sweep temp paths hourly
  * ```
  *
  * **A FIFTH artifact rather than a flag on the board's.** `index.ts` binds a
@@ -149,7 +149,7 @@ import type { Agents } from '@plot-pm/domain/ports/agents';
  * flag changes nothing on the machine.
  *
  * ```
- * node skills/plot/scripts/board/plot-registryd.mjs --once --start-agents
+ * node skills/plot/scripts/board/plot-fleetd.mjs --once --start-agents
  * ```
  */
 
@@ -316,7 +316,7 @@ export const readRegistry = async (
     if (entry === null) {
       skipped += 1;
       if (!looping || skipped <= NAMED_BAD_MANIFESTS) {
-        warn(`plot-registryd: ${name} is not a manifest this parse understands — skipped\n`);
+        warn(`plot-fleetd: ${name} is not a manifest this parse understands — skipped\n`);
       }
       continue;
     }
@@ -324,7 +324,7 @@ export const readRegistry = async (
   }
   const unnamed = skipped - NAMED_BAD_MANIFESTS;
   if (looping && unnamed > 0) {
-    warn(`plot-registryd: … and ${unnamed} more manifests this parse does not understand\n`);
+    warn(`plot-fleetd: … and ${unnamed} more manifests this parse does not understand\n`);
   }
   return entries;
 };
@@ -1186,7 +1186,7 @@ export const startAgents = async (
     const answer = await performer.assignSlice(item.session, item.branch, item.slug);
     if (!answer.ok) {
       warn(
-        `plot-registryd: ${item.branch} could not be handed over; the next tick re-derives the queue\n`,
+        `plot-fleetd: ${item.branch} could not be handed over; the next tick re-derives the queue\n`,
       );
       continue;
     }
@@ -1213,8 +1213,8 @@ export const startAgents = async (
       // every sixty seconds.
       warn(
         answer.why === 'unaskable'
-          ? 'plot-registryd: nothing starts free agents in this repository — set `Worker command` in Plot Config to `PLOT_UNATTENDED=1 plot-worker-loop.sh`; `/plot-fleet --start 1` names what is configured now\n'
-          : 'plot-registryd: an agent could not be started; the next tick re-derives the queue and tries again\n',
+          ? 'plot-fleetd: nothing starts free agents in this repository — set `Worker command` in Plot Config to `PLOT_UNATTENDED=1 plot-worker-loop.sh`; `/plot-fleet --start 1` names what is configured now\n'
+          : 'plot-fleetd: an agent could not be started; the next tick re-derives the queue and tries again\n',
       );
       continue;
     }
@@ -1266,7 +1266,7 @@ export const notifyEscalations = async (
     if (!appendEscalation(repoRoot, record) && !memory.appendFailureReported) {
       memory.appendFailureReported = true;
       warn(
-        `plot-registryd: could not append to ${escalationsPath(repoRoot)}; ` +
+        `plot-fleetd: could not append to ${escalationsPath(repoRoot)}; ` +
           'escalated rungs are held in memory until the daemon restarts\n',
       );
     }
@@ -1358,13 +1358,13 @@ export const writeSupervisionReport = async (
 ): Promise<void> => {
   try {
     const written = await store.write(reportFor(report));
-    if (!written.ok) warn('plot-registryd: could not write the supervision report\n');
+    if (!written.ok) warn('plot-fleetd: could not write the supervision report\n');
   } catch (err) {
     // A THROWN WRITE IS THE SAME FACT AS A FAILED ONE: the board gets no cause.
     // Caught here rather than at the loop, so a filesystem that rejects cannot
     // take the tick's own recovery path with it.
     warn(
-      `plot-registryd: could not write the supervision report: ${err instanceof Error ? err.message : String(err)}\n`,
+      `plot-fleetd: could not write the supervision report: ${err instanceof Error ? err.message : String(err)}\n`,
     );
   }
 };
@@ -1542,7 +1542,7 @@ export const startFreshAgents = async (
     for (const { line, error } of freshAgentLines(applied)) (error ? warn : write)(`${line}\n`);
     return applied;
   } catch (err) {
-    warn(`plot-registryd: the fresh-agent step failed: ${err instanceof Error ? err.message : String(err)}\n`);
+    warn(`plot-fleetd: the fresh-agent step failed: ${err instanceof Error ? err.message : String(err)}\n`);
     return [];
   }
 };
@@ -1605,7 +1605,7 @@ export const startNothingDoneReleases = async (
     for (const { line, error } of nothingDoneLines(applied)) (error ? warn : write)(`${line}\n`);
     return applied;
   } catch (err) {
-    warn(`plot-registryd: the nothing-done step failed: ${err instanceof Error ? err.message : String(err)}\n`);
+    warn(`plot-fleetd: the nothing-done step failed: ${err instanceof Error ? err.message : String(err)}\n`);
     return [];
   }
 };
@@ -1630,8 +1630,8 @@ export const sweepTempIfDue = async (
 ): Promise<boolean> => {
   if (!tempSweepDue(await sweep.lastAt(), now)) return false;
   const result = await sweep.sweep();
-  if (result.ok) write(`plot-registryd: ${result.value}\n`);
-  else warn('plot-registryd: the temp sweep did not run (plot-reap.sh --sweep-temp)\n');
+  if (result.ok) write(`plot-fleetd: ${result.value}\n`);
+  else warn('plot-fleetd: the temp sweep did not run (plot-reap.sh --sweep-temp)\n');
   return true;
 };
 
@@ -1647,7 +1647,7 @@ export const run = async (
   const args = argsFrom(argv);
   if (args === null) {
     process.stderr.write(
-      'usage: plot-registryd.mjs [--once] [--dry-run] [--start-agents] [--sweep-temp] [--max N] [--interval SECONDS]\n',
+      'usage: plot-fleetd.mjs [--once] [--dry-run] [--start-agents] [--sweep-temp] [--max N] [--interval SECONDS]\n',
     );
     return 2;
   }
@@ -1721,7 +1721,7 @@ export const run = async (
     release: releaseClaimOf,
   };
 
-  write(`plot-registryd: supervising ${registryDir}\n`);
+  write(`plot-fleetd: supervising ${registryDir}\n`);
 
   for (;;) {
     if (stop()) return 0;
@@ -2068,7 +2068,7 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
     // the same empty `registryd.err` that made the tick deaths invisible.
     .catch((err: unknown) => {
       process.stderr.write(
-        `plot-registryd failed to start: ${err instanceof Error ? err.message : String(err)}\n`,
+        `plot-fleetd failed to start: ${err instanceof Error ? err.message : String(err)}\n`,
       );
       process.exit(1);
     });

@@ -1866,8 +1866,9 @@ out=$(supervisor_workdir); rc=$?; printf '%s|%s|%s' "$rc" "$out" "$(supervisor_c
  *   such line (the "cannot determine" case)
  * @returns the file every non-`print` launchctl call is appended to
  */
-function holdOldLabelOnly(box, guardBin, oldWorkdir) {
+function holdOldLabelOnly(box, guardBin, oldWorkdir, { unloads = false } = {}) {
   const calls = path.join(box, 'launchctl.calls');
+  const gone = path.join(box, 'old-label.gone');
   const write = (name, body) => {
     const p = path.join(guardBin, name);
     fs.writeFileSync(p, `#!/bin/sh\n${body}\n`);
@@ -1884,39 +1885,114 @@ function holdOldLabelOnly(box, guardBin, oldWorkdir) {
   write('launchctl', [
     'if [ "$1" = print ]; then',
     '  case "$2" in',
-    `    */com.plot-pm.registryd) ${printed}; exit 0 ;;`,
+    `    */com.plot-pm.registryd) [ -f '${gone}' ] && exit 113; ${printed}; exit 0 ;;`,
     '    *) exit 113 ;;',
     '  esac',
     'fi',
     `echo "$*" >> '${calls}'`,
+    ...(unloads ? [`case "$*" in "bootout "*/com.plot-pm.registryd) : > '${gone}'; exit 0 ;; esac`] : []),
     'exit 113',
   ].join('\n'));
   return calls;
 }
 
-/** Run `--start` with no label override, so the migration branch's own guard fires. */
-function startUnderNewDefault(label, oldWorkdir) {
+/**
+ * Run fleetctl with no label override, so the old-label branch's own guard
+ * fires. The fake home holds the old label's plist, so a removal is visible.
+ *
+ * @param args - the verb and its flags; `--wait 1` bounds an unload that never lands
+ * @param opts.unloads - whether a bootout of the old label takes effect
+ */
+function underNewDefault(label, oldWorkdir, args = ['--start'], { unloads = false } = {}) {
   const s = sandbox(label);
-  const calls = holdOldLabelOnly(s.box, s.guardBin, typeof oldWorkdir === 'function' ? oldWorkdir(s) : oldWorkdir);
-  const home = fakeHome(s.box);
-  const r = run(s.ctl, ['--start'], s.root, s.guardBin, { HOME: home });
-  return { ...s, r, calls: launchctlCalls(calls) };
+  const calls = holdOldLabelOnly(s.box, s.guardBin, typeof oldWorkdir === 'function' ? oldWorkdir(s) : oldWorkdir, { unloads });
+  const home = fakeHome(s.box, { unit: true, label: 'com.plot-pm.registryd' });
+  const r = run(s.ctl, args, s.root, s.guardBin, { HOME: home });
+  const oldPlist = path.join(home, 'Library', 'LaunchAgents', 'com.plot-pm.registryd.plist');
+  return { ...s, r, calls: launchctlCalls(calls), oldPlist };
 }
+const startUnderNewDefault = (label, oldWorkdir, opts) => underNewDefault(label, oldWorkdir, ['--start', '--wait', '1'], opts);
+const OLD_BOOTOUT = `bootout gui/${process.getuid()}/com.plot-pm.registryd`;
 
 test('migration: an old-label unit serving this checkout is booted out and removed', () => {
-  const { r, calls, box, root } = startUnderNewDefault('migrate-this', (s) => s.root);
-  assert.match(r.out, /migrating the old label 'com.plot-pm.registryd' — it serves this repository/, r.out);
-  assert.match(r.out, /unloaded and removed — continuing under 'com.plot-pm.fleetd'/, r.out);
-  assert.ok(calls.some((c) => c === `bootout gui/${process.getuid()}/com.plot-pm.registryd`),
-    `no bootout of the old label was recorded:\n${calls.join('\n')}`);
-  assert.equal(fs.existsSync(path.join(box, 'home', 'Library', 'LaunchAgents', 'com.plot-pm.registryd.plist')), false,
-    "the old label's plist survived the migration");
-  // THE RUN STILL CONTINUES UNDER THE NEW LABEL afterward — the migration
-  // restores `$LABEL`/`$UNIT_NAME` before refusal 4, so this is not a refusal
-  // in itself. It exits 1 later, at the real `launchctl bootstrap` the
-  // sandbox's own guard refuses (exit 113) — the same boundary every other
-  // `--start` test in this file stops at without reaching a live load.
+  const { r, calls, oldPlist } = startUnderNewDefault('migrate-this', (s) => s.root, { unloads: true });
+  assert.match(r.out, /unloading the old label 'com.plot-pm.registryd' — it serves this repository/, r.out);
+  assert.match(r.out, /^  unloaded and removed$/m, r.out);
+  assert.ok(calls.includes(OLD_BOOTOUT), `no bootout of the old label was recorded:\n${calls.join('\n')}`);
+  assert.equal(fs.existsSync(oldPlist), false, "the old label's plist survived the migration");
+  // THE RUN CONTINUES UNDER THE NEW LABEL and exits 1 later, at the
+  // `launchctl bootstrap` the sandbox's guard refuses (exit 113).
   assert.match(r.out, /filled .*com\.plot-pm\.fleetd\.plist/, r.out);
+});
+
+test('migration: an old-label unit that does not unload refuses, keeps its plist and installs nothing', () => {
+  // `bootout` exits 113 and the label stays loaded past the `--wait` bound.
+  // Installing beside it would run two supervisors over one estate.
+  const { r, calls, oldPlist } = startUnderNewDefault('migrate-stuck', (s) => s.root);
+  assert.equal(r.status, 1, r.out);
+  assert.ok(calls.includes(OLD_BOOTOUT), calls.join('\n'));
+  assert.match(r.out, /did NOT unload within 1s/, r.out);
+  assert.doesNotMatch(r.out, /unloaded and removed/, r.out);
+  assert.ok(fs.existsSync(oldPlist), 'the old plist was removed although its job is still loaded');
+  assert.doesNotMatch(r.out, /filled .*com\.plot-pm\.fleetd\.plist/, r.out);
+});
+
+test('migration: --dry-run names the migration and boots out nothing', () => {
+  const dry = underNewDefault('migrate-dry', (s) => s.root, ['--start', '--dry-run'], { unloads: true });
+  assert.equal(dry.r.status, 0, dry.r.out);
+  assert.match(dry.r.out, /would migrate the old label 'com.plot-pm.registryd'/, dry.r.out);
+  assert.deepEqual(dry.calls, [], 'a dry run called launchctl beyond print');
+  assert.ok(fs.existsSync(dry.oldPlist), 'a dry run removed the old plist');
+});
+
+test('migration: an old-label unit naming no working directory refuses rather than installing beside it', () => {
+  const { r, calls, oldPlist } = startUnderNewDefault('migrate-unknown', null, { unloads: true });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /com\.plot-pm\.registryd.*cannot be determined/, r.out);
+  assert.match(r.out, /launchctl print gui\/\$\(id -u\)\/com\.plot-pm\.registryd/, r.out);
+  assert.deepEqual(calls, [], 'nothing was booted out or bootstrapped');
+  assert.ok(fs.existsSync(oldPlist));
+});
+
+test('old label: --status names a supervisor still running under it', () => {
+  const { r, calls } = underNewDefault('old-status', (s) => s.root, ['--status']);
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /supervisor: running \(pid 4242\) — com\.plot-pm\.registryd/, r.out);
+  assert.match(r.out, /^  under the old label; \/plot-fleet --start migrates it$/m, r.out);
+  assert.doesNotMatch(r.out, /not installed/, r.out);
+  assert.deepEqual(calls, []);
+});
+
+test('old label: --status leaves an old-label supervisor of another checkout out', () => {
+  const other = fs.realpathSync(scratch('plot-fleetctl-other-'));
+  const { r } = underNewDefault('old-status-other', other, ['--status']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /not installed \(com\.plot-pm\.fleetd\)/, r.out);
+});
+
+test('old label: --stop unloads it, confirmed, and removes its plist', () => {
+  const { r, calls, oldPlist } = underNewDefault('old-stop', (s) => s.root, ['--stop', '--wait', '1'], { unloads: true });
+  assert.equal(r.status, 0, r.out);
+  assert.ok(calls.includes(OLD_BOOTOUT), calls.join('\n'));
+  assert.match(r.out, /unloading the old label 'com\.plot-pm\.registryd'/, r.out);
+  assert.match(r.out, /^  unloaded and removed$/m, r.out);
+  assert.ok(!fs.existsSync(oldPlist), r.out);
+});
+
+test('old label: --stop exits 1 and keeps the plist when the unload is never confirmed', () => {
+  const { r, calls, oldPlist } = underNewDefault('old-stop-stuck', (s) => s.root, ['--stop', '--wait', '1']);
+  assert.equal(r.status, 1, r.out);
+  assert.ok(calls.includes(OLD_BOOTOUT), calls.join('\n'));
+  assert.match(r.out, /'com\.plot-pm\.registryd' did NOT unload within 1s/, r.out);
+  assert.ok(fs.existsSync(oldPlist));
+});
+
+test('old label: --stop never touches an old-label supervisor of another checkout', () => {
+  const other = fs.realpathSync(scratch('plot-fleetctl-other-'));
+  const { r, calls, oldPlist } = underNewDefault('old-stop-other', other, ['--stop', '--wait', '1'], { unloads: true });
+  assert.equal(r.status, 0, r.out);
+  assert.deepEqual(calls, []);
+  assert.ok(fs.existsSync(oldPlist));
 });
 
 test('migration: an old-label unit serving another checkout is never touched', () => {
@@ -1925,12 +2001,11 @@ test('migration: an old-label unit serving another checkout is never touched', (
   // unrelated call this test must not mistake for evidence against it. What
   // must never appear is a call NAMING THE OLD LABEL.
   const other = fs.realpathSync(scratch('plot-fleetctl-other-'));
-  const { r, calls, box } = startUnderNewDefault('migrate-another', other);
-  assert.doesNotMatch(r.out, /migrating the old label/, r.out);
+  const { r, calls, oldPlist } = startUnderNewDefault('migrate-another', other);
+  assert.doesNotMatch(r.out, /unloading the old label/, r.out);
   assert.ok(!calls.some((c) => c.includes('com.plot-pm.registryd') || c.includes('plot-registryd')),
     `the old label was touched: ${calls.join('\n')}`);
-  assert.equal(fs.existsSync(path.join(box, 'home', 'Library', 'LaunchAgents', 'com.plot-pm.registryd.plist')), false,
-    'nothing was ever written for a label this run never held');
+  assert.ok(fs.existsSync(oldPlist), "another checkout's old plist was removed");
 });
 
 test('migration: no old-label unit loaded is silently skipped', () => {
@@ -1940,7 +2015,7 @@ test('migration: no old-label unit loaded is silently skipped', () => {
   const { root, box, ctl, guardBin } = sandbox('migrate-none');
   const home = fakeHome(box);
   const r = run(ctl, ['--start'], root, guardBin, { HOME: home });
-  assert.doesNotMatch(r.out, /migrating the old label/, r.out);
+  assert.doesNotMatch(r.out, /unloading the old label/, r.out);
 });
 
 test('migration: a custom label never enters the migration branch', () => {
@@ -1953,7 +2028,7 @@ test('migration: a custom label never enters the migration branch', () => {
   const calls = holdOldLabelOnly(box, guardBin, root);
   const home = fakeHome(box);
   const r = run(ctl, ['--start'], root, guardBin, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
-  assert.doesNotMatch(r.out, /migrating the old label/, r.out);
+  assert.doesNotMatch(r.out, /unloading the old label/, r.out);
   // The run still bootstraps the CUSTOM label itself normally — this asserts
   // only that the bare OLD DEFAULT, distinct from this sandbox's own minted
   // label, is never named in a recorded call.

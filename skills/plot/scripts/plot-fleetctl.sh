@@ -253,10 +253,7 @@ supervisor_bundle_path() {
 supervisor_checkout() {
   local served here there
   served=$(supervisor_workdir)
-  if [ -z "$served" ]; then
-    echo unknown
-    return 0
-  fi
+  [ -n "$served" ] || { echo unknown; return 0; }
   here=$(cd "$repo_root" && pwd -P)
   there=$(cd "$served" 2>/dev/null && pwd -P) || there="$served"
   if [ "$here" = "$there" ]; then
@@ -543,6 +540,77 @@ unit_target() {
   esac
 }
 
+# The init system's command that prints the job under `$LABEL`, for a refusal
+# to name.
+read_cmd() {
+  case "$(platform)" in
+    launchd) printf 'launchctl print gui/$(id -u)/%s' "$LABEL" ;;
+    *)       printf 'systemctl --user show %s' "$UNIT_NAME" ;;
+  esac
+}
+
+# Runs the command every 0.5 s while it succeeds, bounded by `--wait`. Returns
+# 0 once it fails and 1 while it still succeeds at the bound.
+poll_while() {
+  local started
+  started=$(date +%s)
+  while [ $(( $(date +%s) - started )) -lt "$wait_bound" ]; do "$@" || return 0; sleep 0.5; done
+  return 1
+}
+
+# Whether the agent at the desk $1 is running.
+desk_running() { [ "$(plot_worker_state "$1" | cut -f1)" = running ]; }
+
+# Unloads the job under `$LABEL`, then polls until the init system no longer
+# holds the label, bounded by `--wait`. Returns 0 once the label is gone and 1
+# while it is still loaded at the bound. Sets `unload_rc` to the unload
+# command's own status, which a refusal names; the poll decides, because
+# `bootout` can return before the label is released (see `--stop`).
+unload_supervisor() {
+  case "$(platform)" in
+    launchd) launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null ;;
+    systemd) systemctl --user disable --now "$UNIT_NAME" >/dev/null 2>&1 ;;
+  esac
+  unload_rc=$?
+  poll_while supervisor_loaded
+}
+
+# THE OLD DEFAULT LABEL. `com.plot-pm.registryd` was the default before the
+# rename to `com.plot-pm.fleetd`, and a unit installed under it keeps running
+# under it. Under the new default only, prints `supervisor_checkout`'s answer
+# for a job loaded under the old label, or nothing when none is loaded. A
+# custom label never asks.
+old_label_checkout() {
+  [ "$LABEL" = com.plot-pm.fleetd ] || return 0
+  local LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd
+  ! supervisor_loaded || supervisor_checkout
+}
+
+# Retires a supervisor loaded under the old default label, for `--start`'s
+# migration and for `--stop`. Only one serving THIS checkout is touched: it is
+# unloaded through `unload_supervisor`, and its unit file and the start marker
+# are removed only once the unload is confirmed. One serving another checkout is
+# that checkout's and is left alone. A dry run names the step and changes
+# nothing. Returns 1 after printing why when the old label is still loaded at
+# the bound, or when which checkout it serves cannot be read.
+retire_old_label() {
+  local served
+  served=$(old_label_checkout)
+  local LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd
+  case "$served" in
+    this\ *) ;;
+    unknown) printf 'plot-fleetctl: '"'"'%s'"'"' (the old default label) is loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it is left loaded and nothing runs beside it.\n  Read it: %s\n' "$LABEL" "$(platform)" "$(read_cmd)" >&2
+             return 1 ;;
+    *) return 0 ;;
+  esac
+  [ "$dry_run" = 0 ] || { echo "would migrate the old label '$LABEL' — it serves this repository: unload it, then remove its unit file"; return 0; }
+  echo "plot-fleetctl: unloading the old label '$LABEL' — it serves this repository"
+  unload_supervisor || { printf 'plot-fleetctl: '"'"'%s'"'"' did NOT unload within %ss (the unload exited %s) — it is still loaded\n  Its unit file is kept, so two supervisors would serve one estate. Read it: %s\n' "$LABEL" "$wait_bound" "$unload_rc" "$(read_cmd)" >&2; return 1; }
+  rm -f "$(unit_target)" "$(start_marker)"
+  [ "$(platform)" != systemd ] || systemctl --user daemon-reload 2>/dev/null
+  echo "  unloaded and removed"
+}
+
 # THE TWO READINGS, RESOLVED TOGETHER — which is what settles the fresh-clone
 # case. `.plot/state/` is machine-local and gitignored, so a machine that never
 # ran `--start` has no marker either; the marker ALONE cannot tell that machine
@@ -697,6 +765,7 @@ if [ "$mode" = "status" ]; then
   # machine with no init system, and that is the state whose printed repair the
   # board gets wrong. `--start` refuses it by design at REFUSAL 3.
   install_state=none
+  tick_age=$(tick_age_seconds)
   # BOTH READINGS, TAKEN ONCE. The label and the process are different facts and
   # the arm needs both in three places — the prose, the `install=` field and the
   # exit code — so each is asked for exactly once here. `supervisor_loaded` was
@@ -705,8 +774,14 @@ if [ "$mode" = "status" ]; then
   # the right sentence and still exited 0.
   sup_loaded=1
   sup_pid=""
+  old_note=""
   if [ "$plat" != "none" ]; then
     supervisor_loaded && sup_loaded=0
+    # A JOB STILL UNDER THE OLD DEFAULT LABEL IS THIS FLEET'S SUPERVISOR when it
+    # serves this checkout, so the reading below is taken from it and says so.
+    [ "$sup_loaded" = 0 ] || case "$(old_label_checkout)" in
+      this\ *) LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd sup_loaded=0 old_note="  under the old label; /plot-fleet --start migrates it" ;;
+    esac
     [ "$sup_loaded" = 0 ] && sup_pid=$(supervisor_pid)
   fi
   if [ "$plat" = "none" ]; then
@@ -714,13 +789,11 @@ if [ "$mode" = "status" ]; then
   elif [ "$sup_loaded" = 0 ] && [ -n "$sup_pid" ]; then
     install_state=running
     echo "supervisor: running (pid $sup_pid) — $LABEL"
+    [ -z "$old_note" ] || echo "$old_note"
     serves_line "$(supervisor_checkout)"
     # A pid is not a tick: measured 2026-09-23, this arm printed `running`
     # over a 25-hour-old log. The age is evidence and the state word stays.
-    tick_age=$(tick_age_seconds)
-    if [ -n "$tick_age" ]; then
-      echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
-    fi
+    [ -z "$tick_age" ] || echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
     # THE RUNNING PROCESS ALREADY HOLDS THE OLD FILE OPEN, so a bundle removed
     # out from under it is invisible to the pid check above — the process does
     # not notice until it next restarts and the file is gone. Named here rather
@@ -740,17 +813,14 @@ if [ "$mode" = "status" ]; then
     # belongs to `--stop`, where a wrong guess kills a process.
     install_state="loaded-not-running"
     printf 'supervisor: LOADED, NOT RUNNING (%s) — %s holds the label and no process is behind it\n  label:   loaded\n  process: absent\n' "$LABEL" "$(platform)"
+    [ -z "$old_note" ] || echo "$old_note"
     serves_line "$(supervisor_checkout)"
     # THE TICK AGE IS EVIDENCE AND NEVER THE VERDICT. A log's mtime says when
     # the daemon last wrote, and a healthy supervisor between ticks has not
     # written for up to 60 s — so a reader gets the number and this derives
     # nothing from it.
-    tick_log="$repo_root/.plot/logs/registryd.log"
-    tick_age=$(tick_age_seconds)
-    if [ -n "$tick_age" ]; then
-      echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
-    fi
-    printf '  Most often a crash loop: KeepAlive restarts it and it exits again, so the label stays held.\n  Read why before restarting: %s\n  then repair it: /plot-fleet --stop, then /plot-fleet --start\n' "$tick_log"
+    [ -z "$tick_age" ] || echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
+    printf '  Most often a crash loop: KeepAlive restarts it and it exits again, so the label stays held.\n  Read why before restarting: %s\n  then repair it: /plot-fleet --stop, then /plot-fleet --start\n' "$repo_root/.plot/logs/registryd.log"
   else
     # THREE STATES WHERE THERE WERE TWO, AND THE REPAIR IS PRINTED. The two
     # failures read identically to a person and cost differently: an operator
@@ -871,10 +941,7 @@ if [ "$mode" = "status" ]; then
   # `tick_age=` ONLY IN THE RUNNING ARM, and only where a log exists. The board
   # reads an absent field as no reading, so a missing log never becomes 0.
   tick_field=""
-  if [ "$install_state" = running ]; then
-    tick_age=$(tick_age_seconds)
-    [ -n "$tick_age" ] && tick_field=" tick_age=$tick_age"
-  fi
+  [ "$install_state" != running ] || [ -z "$tick_age" ] || tick_field=" tick_age=$tick_age"
   echo "summary: agents_running=$n_run agents_other=$n_other supervisor=$sup_word install=$install_state$tick_field"
   # EVERY PLOT PROCESS ON THE MACHINE, AFTER THE SUMMARY AND NEVER BEFORE IT.
   # The board reads the first `summary:` line; this block changes neither that
@@ -974,29 +1041,10 @@ if [ "$mode" = "start" ]; then
   # THE OLD DEFAULT LABEL IS MIGRATED, NOT ORPHANED, and only on the new
   # default's own `--start` — a custom label never reaches this branch. A unit
   # still loaded under `com.plot-pm.registryd` and serving THIS checkout is the
-  # same fleet under its old name; booting it out and removing its unit file
-  # clears the way for the rename rather than leaving two supervisors' worth of
-  # history for an operator to reconcile by hand. A unit under that old label
-  # serving ANOTHER checkout is that checkout's lifecycle and is never touched.
-  if [ "$LABEL" = com.plot-pm.fleetd ]; then
-    new_label=$LABEL new_unit_name=$UNIT_NAME
-    LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd
-    if supervisor_loaded; then
-      case "$(supervisor_checkout)" in
-        this\ *)
-          echo "plot-fleetctl: migrating the old label 'com.plot-pm.registryd' — it serves this repository"
-          case "$plat" in
-            launchd) launchctl bootout "gui/$(id -u)/com.plot-pm.registryd" 2>/dev/null
-                      rm -f "$HOME/Library/LaunchAgents/com.plot-pm.registryd.plist" ;;
-            systemd) systemctl --user disable --now plot-registryd 2>/dev/null
-                      rm -f "$HOME/.config/systemd/user/plot-registryd.service"
-                      systemctl --user daemon-reload 2>/dev/null ;;
-          esac
-          echo "  unloaded and removed — continuing under 'com.plot-pm.fleetd'" ;;
-      esac
-    fi
-    LABEL=$new_label UNIT_NAME=$new_unit_name
-  fi
+  # same fleet under its old name. One whose checkout cannot be read is refused,
+  # as refusal 4 refuses it, because installing beside it may run two
+  # supervisors over one estate.
+  retire_old_label || exit 1
 
   # REFUSAL 4 — the label is taken. launchd keys a job by LABEL, so loading a
   # second repository's unit over the first supervises the wrong estate without
@@ -1014,11 +1062,7 @@ if [ "$mode" = "start" ]; then
         printf 'plot-fleetctl: '"'"'%s'"'"' is already loaded, serving ANOTHER checkout (%s)\n  This repository is %s. That supervisor is not yours to stop.\n  Give this checkout its own label — skills/plot/units/README.md\n' "$LABEL" "${served#another }" "$repo_root" >&2
         ;;
       *)
-        case "$plat" in
-          launchd) how="launchctl print gui/\$(id -u)/$LABEL" ;;
-          *)       how="systemctl --user show $UNIT_NAME" ;;
-        esac
-        printf 'plot-fleetctl: '"'"'%s'"'"' is already loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it may be another checkout'"'"'s.\n  Read it before stopping it: %s\n  Or, for a second checkout, give it its own label — skills/plot/units/README.md\n' "$LABEL" "$plat" "$how" >&2
+        printf 'plot-fleetctl: '"'"'%s'"'"' is already loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it may be another checkout'"'"'s.\n  Read it before stopping it: %s\n  Or, for a second checkout, give it its own label — skills/plot/units/README.md\n' "$LABEL" "$plat" "$(read_cmd)" >&2
         ;;
     esac
     exit 1
@@ -1197,14 +1241,10 @@ if [ "$mode" = "stop" ]; then
       continue
     fi
     started=$(date +%s)
-    exited=0
-    while [ $(( $(date +%s) - started )) -lt "$wait_bound" ]; do
-      row=$(plot_worker_state "$wt")
-      [ "$(printf '%s' "$row" | cut -f1)" = "running" ] || { exited=1; break; }
-      sleep 0.5
-    done
+    poll_while desk_running "$wt"
+    exited=$?
     elapsed=$(( $(date +%s) - started ))
-    if [ "$exited" = 1 ]; then
+    if [ "$exited" = 0 ]; then
       # A REBUILT BUNDLE ALONE IS NOT "UNCOMMITTED WORK" — `main` rebuilds and
       # pushes every generated board bundle (`bug/main-builds-its-bundles`,
       # #1249), so a desk that locally rebuilt one to test holds nothing an
@@ -1231,10 +1271,6 @@ EOF
   # unloading it first leaves the agents unwatched for the length of the
   # shutdown, and a stop that fails partway leaves an unsupervised remainder.
   if supervisor_loaded; then
-    case "$(platform)" in
-      launchd) launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null ;;
-      systemd) systemctl --user disable --now "$UNIT_NAME" >/dev/null 2>&1 ;;
-    esac
     # THE UNLOAD IS VERIFIED TO A BOUND, NEVER ASKED ONCE. Measured 2026-09-24:
     # a single `supervisor_loaded` after `bootout` answered *loaded*, this
     # printed `supervisor did NOT unload`, and `launchctl print` moments later
@@ -1253,16 +1289,9 @@ EOF
     # `registryd-main.ts` registers no signal handler — so a real teardown has
     # an upper bound and the existing 30 s default covers it with margin.
     #
-    # THE SHAPE IS THE AGENT LOOP'S, thirty lines above. Three open-coded
-    # copies of it exist here and in `plot-boardctl.sh`; this is the fourth,
-    # deliberately, rather than a helper extracted for one caller.
-    started=$(date +%s)
-    unloaded=0
-    while [ $(( $(date +%s) - started )) -lt "$wait_bound" ]; do
-      supervisor_loaded || { unloaded=1; break; }
-      sleep 0.5
-    done
-    if [ "$unloaded" = 1 ]; then
+    # THE POLL IS `unload_supervisor`, shared with the old label's migration
+    # and its `--stop` below.
+    if unload_supervisor; then
       echo "  supervisor unloaded"
       # THE MARKER GOES WITH THE SUPERVISOR, and only once it is actually gone.
       # It records that a `--start` finished; a deliberate stop ends the run it
@@ -1287,6 +1316,10 @@ EOF
   else
     echo "  supervisor was not loaded"
   fi
+  # A SUPERVISOR STILL UNDER THE OLD DEFAULT LABEL keeps starting agents under
+  # `KeepAlive`, so a stop under the new default unloads it too — only when it
+  # serves this checkout, and with the same confirmed unload as the migration.
+  retire_old_label || sup_unconfirmed=1
 
   if [ "$n_still" -gt 0 ]; then
     echo "$n_still agent(s) did not exit within ${wait_bound}s:"
