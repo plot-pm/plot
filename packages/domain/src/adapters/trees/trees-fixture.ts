@@ -119,11 +119,34 @@ export interface TreesFixture {
   commitFailsAt?: readonly string[];
   /** Paths where `push` fails. */
   pushFailsAt?: readonly string[];
+  /**
+   * Which paths {@link hasStagedChanges} answers `true` for. A path absent
+   * from the set answers `false` — nothing staged — matching a fresh
+   * checkout rather than an unreadable one.
+   */
+  staged?: readonly string[];
+  /** Paths where `hasStagedChanges` fails outright — git could not be asked. */
+  stagedCheckFailsAt?: readonly string[];
+  /** Paths where `commitAs` fails. */
+  commitAsFailsAt?: readonly string[];
+  /** Paths where `stage` fails. */
+  stageFailsAt?: readonly string[];
+  /** Paths where `commitStaged` fails. */
+  commitStagedFailsAt?: readonly string[];
+  /** The branch `originHead` answers; absent reads `failed`, as an unset `origin/HEAD` does. */
+  originHead?: string;
+  /** The `user.name` each checkout reports, keyed by path; a path absent from the table has none. */
+  names?: Readonly<Record<string, string>>;
+  /** The refs `hasRef` answers `true` for. */
+  refs?: readonly string[];
   /** Every call received, for a test to assert against. */
   calls?: {
     resets: { path: string; branch: string; base: string }[];
     commits: { path: string; message: string }[];
     pushes: { path: string; branch: string }[];
+    commitsAs: { path: string; who: string; message: string }[];
+    fetches?: { path: string; branch: string }[];
+    stages: { path: string; pathspecs: readonly string[] }[];
   };
 }
 
@@ -255,5 +278,43 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
       fixture.calls?.pushes.push({ path, branch });
       return answered(undefined);
     },
+
+    stage: async (path, pathspecs): Promise<PortResult<void>> => {
+      if ((fixture.stageFailsAt ?? []).includes(path)) return failed<void>();
+      fixture.calls?.stages.push({ path, pathspecs });
+      return answered(undefined);
+    },
+
+    hasStagedChanges: async (path): Promise<PortResult<boolean>> => {
+      if ((fixture.stagedCheckFailsAt ?? []).includes(path)) return failed<boolean>();
+      return answered((fixture.staged ?? []).includes(path));
+    },
+
+    commitAs: async (path, who, message): Promise<PortResult<void>> => {
+      if ((fixture.commitAsFailsAt ?? []).includes(path)) return failed<void>();
+      fixture.calls?.commitsAs.push({ path, who, message });
+      return answered(undefined);
+    },
+
+    commitStaged: async (path, message): Promise<PortResult<void>> => {
+      if ((fixture.commitStagedFailsAt ?? []).includes(path)) return failed<void>();
+      fixture.calls?.commits.push({ path, message });
+      return answered(undefined);
+    },
+
+    fetch: async (path, branch): Promise<PortResult<void>> => {
+      fixture.calls?.fetches?.push({ path, branch });
+      return answered(undefined);
+    },
+
+    originHead: async (): Promise<PortResult<string>> =>
+      fixture.originHead === undefined ? failed<string>() : answered(fixture.originHead),
+
+    userName: async (path): Promise<PortResult<string>> => {
+      const name = fixture.names?.[path];
+      return name === undefined ? failed<string>() : answered(name);
+    },
+
+    hasRef: async (_path, ref): Promise<PortResult<boolean>> => answered((fixture.refs ?? []).includes(ref)),
   };
 };

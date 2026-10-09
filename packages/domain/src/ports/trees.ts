@@ -417,4 +417,106 @@ export interface Trees {
    * @returns nothing; a failure means the push was rejected or could not run.
    */
   push(path: string, branch: string): Promise<PortResult<void>>;
+
+  /**
+   * Stages one or more paths in a checkout's index.
+   *
+   * `git -C <path> add -- <pathspecs>` — a lifecycle write stages the plan
+   * file, the hold file and the sprint file it edited before asking
+   * {@link hasStagedChanges} and committing. A pathspec naming a file that was
+   * deleted stages the deletion, matching plain `git add`'s own behaviour.
+   *
+   * @param path - the checkout to stage in, absolute.
+   * @param pathspecs - the paths to stage, repository-relative to `path`.
+   * @returns nothing; a failure means git refused to stage one of them.
+   */
+  stage(path: string, pathspecs: readonly string[]): Promise<PortResult<void>>;
+
+  /**
+   * Whether a checkout holds staged changes.
+   *
+   * `git -C <path> diff --cached --quiet` — a lifecycle write stages a plan
+   * edit and then asks this before committing, to answer `nothing-to-commit`
+   * without a commit that would carry no change. Unstaged and untracked
+   * changes outside the index answer nothing here; a caller that cares about
+   * them stages first.
+   *
+   * @param path - the checkout to check, absolute.
+   * @returns `true` when the index holds staged changes, `false` when it holds
+   *   none; a failure means git could not be asked.
+   */
+    hasStagedChanges(path: string): Promise<PortResult<boolean>>;
+
+  /**
+   * Commits whatever is staged, attributing the commit to `who`.
+   *
+   * **NOT {@link commit}.** That operation is `--allow-empty` with no author
+   * override, matching the claim marker it exists for. This one fails on an
+   * empty index — the caller already asked {@link hasStagedChanges} — and
+   * sets `user.name` for the one commit rather than the checkout's identity,
+   * matching a lifecycle write's `git -C <path> -c user.name=<who> commit -q
+   * -m <message>`.
+   *
+   * @param path - the checkout to commit in, absolute.
+   * @param who - the name to attribute the commit to.
+   * @param message - the commit message.
+   * @returns nothing; a failure means git refused the commit.
+   */
+  commitAs(path: string, who: string, message: string): Promise<PortResult<void>>;
+
+  /**
+   * Commits whatever is staged under the checkout's own identity.
+   *
+   * `git -C <path> commit -q -m <message>` — the commit an `Impl: same branch`
+   * approval makes on the work branch, attributed to whoever the checkout
+   * says they are. Fails on an empty index.
+   *
+   * @param path - the checkout to commit in, absolute.
+   * @param message - the commit message.
+   * @returns nothing; a failure means git refused the commit.
+   */
+  commitStaged(path: string, message: string): Promise<PortResult<void>>;
+
+  /**
+   * Fetches one branch from `origin` into its remote-tracking ref.
+   *
+   * `git -C <path> fetch -q origin <branch>`. A lifecycle write fetches before
+   * it books against `origin/<branch>`, because a stale ref guarantees a
+   * non-fast-forward push.
+   *
+   * @param path - the checkout to fetch in, absolute.
+   * @param branch - the branch to fetch.
+   * @returns nothing; a failure means the fetch did not complete.
+   */
+  fetch(path: string, branch: string): Promise<PortResult<void>>;
+
+  /**
+   * The default branch `origin` points at, as last fetched.
+   *
+   * `git -C <path> symbolic-ref --short refs/remotes/origin/HEAD` with the
+   * `origin/` prefix removed. A local read.
+   *
+   * @param path - the checkout to ask, absolute.
+   * @returns the branch name; a failure where `origin/HEAD` is not set.
+   */
+  originHead(path: string): Promise<PortResult<string>>;
+
+  /**
+   * The `user.name` a checkout reports.
+   *
+   * @param path - the checkout to ask, absolute.
+   * @returns the name; a failure where none is configured.
+   */
+  userName(path: string): Promise<PortResult<string>>;
+
+  /**
+   * Whether a fully qualified ref exists in a checkout's repository.
+   *
+   * `git -C <path> show-ref --verify --quiet <ref>`.
+   *
+   * @param path - the checkout to ask, absolute.
+   * @param ref - the ref, such as `refs/heads/feature/x`.
+   * @returns `true` where the ref exists, `false` where it does not.
+   */
+  hasRef(path: string, ref: string): Promise<PortResult<boolean>>;
 }

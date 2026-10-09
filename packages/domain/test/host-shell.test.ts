@@ -149,6 +149,12 @@ describe('a host that refuses', () => {
     expect(host.lastRefusal()?.said).toContain('4');
   });
 
+  it('keeps the script\'s words when pr-state exits 4', async () => {
+    const host = hostShell(hostThat("echo 'this backend has no PR state' >&2; exit 4"));
+    expect(await host.prState('feature/x')).toEqual({ ok: false, why: 'unaskable' });
+    expect(host.lastRefusal()?.said).toBe('this backend has no PR state');
+  });
+
   it('holds no refusal once the script names a host it drove', async () => {
     // The other half: a refusal that never clears would report the last
     // unknown host forever, and every caller reading `lastRefusal` after a

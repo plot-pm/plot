@@ -22,17 +22,23 @@ import { tickSprintItem } from '@plot-pm/domain/rules/sprint-tick';
 import { indexSymlinkPlacement } from '@plot-pm/domain/rules/index-symlink';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { deliverabilityOf, type DeliverabilityPorts } from '../controllers/deliverability.js';
-import { createHash } from 'node:crypto';
+import {
+  commitAndPush,
+  realPlanPath,
+  recordStateReceipt,
+  Refused,
+  spendActionReceipt,
+  unlinkSyncSafe,
+  type Printer,
+} from './ladder.js';
 import {
   existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
-  readlinkSync,
   realpathSync,
   symlinkSync,
-  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
@@ -169,158 +175,6 @@ const findPlanFile = (
   }
   return '';
 };
-
-/** Resolves a plan path's symlink to the canonical file it names, repository-relative. */
-const realPlanPath = (repoRoot: string, relPath: string): string | null => {
-  const abs = path.join(repoRoot, relPath);
-  let dir = path.dirname(abs);
-  let base = path.basename(abs);
-  try {
-    const target = readlinkSync(abs);
-    const targetAbs = path.isAbsolute(target) ? target : path.join(dir, target);
-    dir = path.dirname(targetAbs);
-    base = path.basename(targetAbs);
-  } catch {
-    // Not a symlink — use the path as given.
-  }
-  const real = path.join(dir, base);
-  if (!real.startsWith(`${repoRoot}${path.sep}`) && real !== repoRoot) return null;
-  return path.relative(repoRoot, real);
-};
-
-/** The `push:` outcome word `plot-push-main.sh` printed, or `'unknown'` where none was found. */
-const pushReportOf = (stdout: string): string => {
-  for (const line of stdout.split('\n')) {
-    const match = line.match(/^push: ([a-z]*)/);
-    if (match) return match[1] || 'unknown';
-  }
-  return 'unknown';
-};
-
-/**
- * The git blob object name of a string, as `git hash-object --stdin` computes
- * it: `sha1("blob " + byteLength + "\0" + content)`.
- *
- * NOT {@link Refs.hashFilesSync} — that operation is `--stdin-paths`, which
- * hashes the CONTENT OF THE FILE each path names, where the shell's
- * `_receipt_file` hashes the PATH STRING ITSELF (`printf '%s' "$1" |
- * git hash-object --stdin`). The two answer different questions and a
- * corpus comparison against the shell is what caught the substitution.
- *
- * @param content - the bytes to hash, as `git hash-object` would receive them on stdin.
- * @returns the 40-character hex object name.
- */
-const gitBlobOid = (content: string): string => {
-  const bytes = Buffer.from(content, 'utf8');
-  const hash = createHash('sha1');
-  hash.update(`blob ${bytes.length}\0`);
-  hash.update(bytes);
-  return hash.digest('hex');
-};
-
-/**
- * Writes a state receipt the way `plot-state-receipt.sh`'s `record_state_receipt`
- * does: one file per receipt, named by the git blob oid of the repo-relative
- * path, holding `<rel>\t<value>\n`.
- *
- * WRITTEN AGAINST THE MAIN REPOSITORY, not the booking worktree — a receipt is
- * read by `plot-state-gate.sh` in the caller's own checkout, and `.plot/state/`
- * is untracked, so the booking worktree's copy would vanish with it.
- */
-const recordStateReceipt = (repoRoot: string, relPath: string, value: string): void => {
-  const oid = gitBlobOid(relPath);
-  const dir = path.join(repoRoot, '.plot', 'state', 'state-receipts');
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, oid), `${relPath}\t${value}\n`);
-};
-
-/**
- * Spends the action receipt, the file `plot-controller-gate.sh`'s
- * `spend_action_receipt` deletes on completion.
- *
- * KEYED ON THE ACTION WORD (`deliver`/`release`), NOT THE SCRIPT NAME. The
- * shell function takes either spelling and normalises through `_action_of`
- * before touching a path — `spend_action_receipt('plot-deliver.sh')` deletes
- * `.plot/state/action-receipts/deliver`, never a file literally named
- * `plot-deliver.sh`. This entry has no shell left to source that function
- * from, so it writes the already-normalised filename directly: the caller
- * passes `'deliver'` or `'release'`, never the `.sh` name.
- *
- * @param repoRoot - the main repository, where `.plot/state/` lives.
- * @param action - `'deliver'` or `'release'`.
- */
-const spendActionReceipt = (repoRoot: string, action: 'deliver' | 'release'): void => {
-  const file = path.join(repoRoot, '.plot', 'state', 'action-receipts', action);
-  try {
-    unlinkSync(file);
-  } catch {
-    // Not present — nothing to spend, and nothing this run should fail on.
-  }
-};
-
-/** Removes a scratch file, ignoring an error — it may already be gone. */
-const unlinkSyncSafe = (file: string): void => {
-  try {
-    unlinkSync(file);
-  } catch {
-    // Already gone — nothing this run should fail on.
-  }
-};
-
-/** Prints to stdout, matching the script's unprefixed `step:`/`summary:` lines. */
-type Printer = (s: string) => void;
-
-/**
- * Runs a booking commit+push: stage paths, commit, push to the default branch,
- * and fall back to a micro-PR on rejection — the ladder every lifecycle write
- * in this script climbs.
- *
- * @returns the push outcome word.
- */
-const commitAndPush = async (
-  ctx: Context,
-  tmpwt: string,
-  bookbr: string,
-  main: string,
-  who: string,
-  message: string,
-  title: string,
-  body: string,
-  noun: 'delivery' | 'release',
-  nothingMessage: string,
-  write: Printer,
-): Promise<{ pushed: string } | { rejected: true }> => {
-  const diff = await runGit(['-C', tmpwt, 'diff', '--cached', '--quiet']);
-  if (diff.code === 0) {
-    write(`step: ${nothingMessage}\n`);
-    return { pushed: 'nothing-to-commit' };
-  }
-
-  const commit = await runGit(['-C', tmpwt, '-c', `user.name=${who}`, 'commit', '-q', '-m', message]);
-  if (commit.code !== 0) throw new Refused(`could not commit the ${noun}.\n  See what git refused: git -C ${tmpwt} status\n  Nothing was pushed; re-run this — it is idempotent.`);
-
-  const pushOut = await ctx.scripts.awaited('plot-push-main.sh', [bookbr, main]);
-  for (const line of `${pushOut.stdout}${pushOut.stderr}`.split('\n')) {
-    if (line.length > 0) write(`  ${line}\n`);
-  }
-  if (pushOut.code === 0) {
-    return { pushed: pushReportOf(pushOut.stdout) };
-  }
-
-  write('step: push rejected — opening a micro-PR instead\n');
-  const pushed = await runGit(['push', '-q', 'origin', bookbr]);
-  if (pushed.code !== 0) return { rejected: true };
-  const created = await ctx.host.prCreate({ head: bookbr, title, body, base: main });
-  if (!created.ok) return { rejected: true };
-  const num = created.value.split('/').pop() ?? '';
-  const merged = await ctx.scripts.host(['pr-merge', num, '--delete-branch']);
-  if (!merged.ok) return { rejected: true };
-  write(`step: ${noun} landed via micro-PR ${created.value}\n`);
-  return { pushed: 'micro-pr' };
-};
-
-/** A refusal carrying the sentence to print on stderr, and the exit code to use. */
-class Refused extends Error {}
 
 /** `git` run in the repository, discarding nothing from the caller. */
 const runGit = async (args: readonly string[]): Promise<{ code: number; stdout: string; stderr: string }> => {
@@ -540,10 +394,9 @@ const runDeliver = async (
     // Tick the sprint item.
     const sprintReport = await tickSprint(tmpwt, sprintDir, args.slug, sprint);
 
-    await runGit(['-C', tmpwt, 'add', '--', rel]);
-    await runGit(['-C', tmpwt, 'add', '--', activeDir]);
-    await runGit(['-C', tmpwt, 'add', '--', deliveredDir]);
-    if (sprintReport === 'updated') await runGit(['-C', tmpwt, 'add', '--', sprintDir]);
+    for (const p of [rel, activeDir, deliveredDir, ...(sprintReport === 'updated' ? [sprintDir] : [])]) {
+      await ctx.trees.stage(tmpwt, [p]);
+    }
 
     // THE BOOKED PLAN, KEPT FOR THE TRACKER. The booking worktree is removed
     // on every exit below, and the caller's working tree may still read
@@ -844,7 +697,7 @@ const runRelease = async (
     recordStateReceipt(ctx.repoRoot, rel, 'Released');
   }
 
-  await runGit(['-C', tmpwt, 'add', '--', rel]);
+  await ctx.trees.stage(tmpwt, [rel]);
 
   const pushResult = await commitAndPush(
     ctx,
