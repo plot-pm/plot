@@ -72,7 +72,7 @@ Measured on `main` at `0b749ca9e`, 2026-10-09:
 
 ### A declared bundle is evidence
 
-- `feature/a-declared-bundle-is-evidence` — the decision gate accepts a bundle that `packages/board/build.mjs` declares, with its entry source present, as evidence for *launcher* and *readings*, so a conversion PR can flip its row in the same change that adds the bundle <!-- builds: declared-bundle evidence in check-decision-count.sh -->
+- `feature/a-declared-bundle-is-evidence` — the decision gate accepts a bundle that `packages/board/build.mjs` declares, with its entry source present, as evidence for *launcher* and *readings*, so a conversion PR can flip its row in the same change that adds the bundle → #1414 <!-- builds: declared-bundle evidence in check-decision-count.sh -->
 
 ### The gate counts every script
 
