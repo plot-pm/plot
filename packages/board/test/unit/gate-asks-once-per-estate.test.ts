@@ -21,18 +21,7 @@
 // that expired on a clock would pass the hit cases and fail none of the miss
 // cases — which is precisely why the miss cases are content changes rather than
 // waits.
-import { describe, it, expect, afterAll, vi } from 'vitest';
-
-vi.mock('../../src/server/in-flight-store.js', async (importOriginal) => {
-  const orig = await importOriginal<typeof import('../../src/server/in-flight-store.js')>();
-  return {
-    ...orig,
-    writeInFlight: (...a: Parameters<typeof orig.writeInFlight>) => {
-      console.error('WIF', Date.now(), String(a[0]), new Error('trace').stack);
-      return orig.writeInFlight(...a);
-    },
-  };
-});
+import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -110,7 +99,17 @@ const countingSource = (columns: Column[]) => {
   return { source, state };
 };
 
-const lateWriteProbe = async (_dir: string): Promise<void> => {};
+/**
+ * Removes a scratch repo after stopping the board's refresh. Every question put
+ * through `boardState` starts a background scan of the repo it names, and the
+ * scan's auto-dispatch step writes `.plot/state/auto-in-flight.json` when it
+ * ends; a write after `rmTree` recreates the directory, which `owned-run.sh`
+ * reports as a leaked entry. A stopped cache skips that write.
+ */
+const removeRepo = (dir: string): void => {
+  stopFleetRefresh();
+  rmTree(dir);
+};
 
 const COLUMNS: Column[] = [
   { name: 'Approved', cards: [{ slug: 'a-plan-the-gate-can-read' }] } as unknown as Column,
@@ -139,7 +138,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
       expect(state.reads, 'the estate was read once, not twice').toBe(1);
       expect(second.value, 'the re-used answer is the same answer').toBe(first.value);
     } finally {
-      rmTree(dir);
+      removeRepo(dir);
     }
   });
 
@@ -164,7 +163,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
       expect(after.measured, 'a plan edit is an estate change').toBe(true);
       expect(state.reads, 'the changed estate was measured again').toBe(2);
     } finally {
-      rmTree(dir);
+      removeRepo(dir);
     }
   });
 
@@ -193,7 +192,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
       expect(after.measured, 'a moved ref is an estate change').toBe(true);
       expect(state.reads, 'the changed estate was measured again').toBe(2);
     } finally {
-      rmTree(dir);
+      removeRepo(dir);
     }
   });
 
@@ -237,7 +236,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
         'but measured three times — one per DISTINCT estate, not one per ask',
       ).toBe(3);
     } finally {
-      rmTree(dir);
+      removeRepo(dir);
     }
   });
 
@@ -262,7 +261,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
       await askOncePerEstate(memory, ask);
       expect(state.reads, 'so every ask measures').toBe(2);
     } finally {
-      rmTree(dir);
+      removeRepo(dir);
     }
   });
 });
@@ -299,11 +298,7 @@ describe("the gate's answer is identical to the board's", () => {
       expect(typeof entryAt, 'the entry point still stamps the answer').toBe('string');
       expect(typeof routeAt, 'and so does the route').toBe('string');
     } finally {
-      // A scan the board question started ends by writing `.plot/state`; a
-      // stopped cache skips that write, which would recreate the removed repo.
-      console.error('STOP', Date.now(), dir);
-      stopFleetRefresh();
-      rmTree(dir);
+      removeRepo(dir);
     }
   });
 
@@ -340,20 +335,7 @@ describe("the gate's answer is identical to the board's", () => {
         'a stated refusal is not an absence',
       ).toBe(false);
     } finally {
-      // A scan the board question started ends by writing `.plot/state`; a
-      // stopped cache skips that write, which would recreate the removed repo.
-      console.error('STOP', Date.now(), dir);
-      stopFleetRefresh();
-      rmTree(dir);
+      removeRepo(dir);
     }
   });
 });
-
-afterAll(async () => {
-  await new Promise((resolve) => setTimeout(resolve, 25_000));
-  for (const name of fs.readdirSync(os.tmpdir())) {
-    if (name.startsWith('plot-gate-')) {
-      console.error('LATE-WRITE', name, execFileSync('find', [path.join(os.tmpdir(), name), '-ls'], { encoding: 'utf8' }));
-    }
-  }
-}, 60_000);
