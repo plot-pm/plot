@@ -5,8 +5,9 @@
 ## Status
 
 - **State:** Draft
-- **Type:** feature
-- **Issue:** #1420
+- **Type:** bug
+- **Issue:** #1420, #1409
+- **Sprint:** the-release-train-fixes-what-it-found
 - **Review:** in-session
 - **Impl:** own branches
 
@@ -58,11 +59,15 @@ The rule stays pure: it reads the ending, the branch readings and the fresh-sess
 
 ### Open Questions
 
-- [ ] Which process wrote exit 124 at 09:27 without an ending? Slice 1 measures this first. If the cause is the outer `Worker bound` killing the whole loop, the loop cannot write its own ending, and the ending must come from the process that enforces the bound.
+- [x] Which process wrote exit 124 at 09:27 without an ending? — *answered 2026-10-09, jwloka, from the code:* `packages/fleet/src/server/entry/worker-loop.ts:1610` ends the loop with 124 when `readings.assignedBranch === ''` and `readings.waitedSeconds >= readings.bound` (`Worker bound`, 28800 s). A loop whose agent works a slice reads its assigned branch as empty (#1409: its log repeats `free on ? — nothing handed over yet`, and the AgentMonitor records `"branch":""`), so it counts a free wait while its agent works, and at the bound it exits and ends that agent. The new first slice removes this cause; the two slices after it are the fallback for any other time-out.
 - [ ] Should a fresh agent after a time-out get a shorter or longer bound than the first? This plan keeps `Worker bound` (28800 s) unchanged.
 - [ ] Should `unreadable` share the `bound` row? This plan says yes, because the work on the desk is the same; an `unreadable` ending only says no transcript explained the time-out.
 
 ## Slices
+
+### A working desk never reads free
+
+- `bug/a-working-desk-never-reads-free` — the hand-over sets the loop's assigned branch, so a loop whose agent works a slice never counts a free wait and its free-wait bound never ends a working agent (#1409); reproduce the 2026-10-09 case on `feature/the-fleet-package-exists` first <!-- builds: the assigned branch a handed-over loop reads -->
 
 ### A time-out writes its ending
 
@@ -88,3 +93,4 @@ Each test below fails on `origin/main` (`3d45ebd2a`) today:
 - Overlapping plans: `every-loop-ending-has-a-supervisor-rule` (Released, v2.24.1) built `endingAction` and lists `bound` among the reasons that answer `leave`; this plan adds the row it left open. `a-blocked-agent-s-question-has` (Released) built the continue route a fresh start uses. No Draft or Approved plan overlaps the title.
 - Deliverable search, 2026-10-09: `endingAction` (`packages/domain/src/rules/ending-action.ts`) and its registry caller (`packages/fleet/src/server/entry/registryd.ts:844-975`) are the code slice 2 extends, not duplicates. `agentLoop` row 6 (`agent-loop.ts:617`) already writes `bound` for one exit path; slice 1 extends it to the path that missed it. No `bound` row exists in `endingAction`.
 - #1409 (a desk's loop reads itself free while its branch waits on checks) is related and out of scope here.
+- 2026-10-09, jwloka, in-session: the root-cause slice *A working desk never reads free* comes first; the ending and the fresh agent stay as the fallback. Type `bug`, not the `feature` the idea controller wrote (#1419).
