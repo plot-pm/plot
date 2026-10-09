@@ -99,6 +99,24 @@ export interface Trees {
   dirtyPaths(path: string): Promise<PortResult<readonly string[]>>;
 
   /**
+   * Lists the uncommitted paths a desk holds, counted as unlanded work, each
+   * still carrying its two-byte `git status --porcelain` status code.
+   *
+   * NOT {@link dirtyPaths}, which strips the status code for a monitor
+   * comparing two passes. The reaper's refusal text names the status a
+   * person would see running `git status` themselves — `?? half-done.txt`,
+   * not `half-done.txt` — so this keeps what that reading drops. The
+   * exclusions differ too: Plot's own `.plot/state` pulse fixture and two
+   * named cleanup files, read from the worktree's own `build.mjs` for
+   * generated bundles, rather than {@link dirtyPaths}'s worker-record and
+   * editor-leftover patterns.
+   *
+   * @param path - the worktree's absolute path.
+   * @returns the porcelain lines, status code and path together.
+   */
+  dirtyPathsWithStatus(path: string): Promise<PortResult<readonly string[]>>;
+
+  /**
    * Lists the changed and untracked paths a checkout holds under the given
    * pathspecs, with nothing filtered out.
    *
@@ -288,15 +306,17 @@ export interface Trees {
    * reused the two-step operation would delete a branch the ref-deletion rule
    * in `reapable.ts` was never asked about.
    *
-   * REFUSES RATHER THAN FORCES. Where git itself refuses the removal — a
-   * worktree holding uncommitted changes `--force` would discard, a path that
-   * is not a worktree at all — this answers failed and removes nothing, unlike
-   * {@link Trees.removeWithBranch}'s best-effort shape. The reaper's own
-   * refusals are supposed to have already kept this call from being reached on
-   * such a tree; a git-level refusal here is a second guard, not routine.
+   * FORCES, MATCHING THE SHELL'S OWN REMOVAL SITE. A marker file left in an
+   * otherwise-landed desk — `PLOT-BLOCKED.md` beside no other uncommitted
+   * work — is exactly the uncommitted content `git worktree remove` alone
+   * would refuse, and the reaper's own refusals (`firstReapRefusal`) have
+   * already decided this tree is safe to clear before this call is reached.
+   * A plain, unforced removal would re-litigate that decision at the git
+   * level and leave a desk this package already approved removing.
    *
    * @param path - the worktree's absolute path.
-   * @returns nothing; a failure means git refused and the worktree remains.
+   * @returns nothing; a failure means git refused even with `--force` —
+   *   the path was not a worktree at all, or a process still holds it.
    */
   removeOnly(path: string): Promise<PortResult<void>>;
 

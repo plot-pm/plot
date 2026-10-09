@@ -313,7 +313,7 @@ describe('treesGit: removing a worktree without touching its branch', () => {
     }
   });
 
-  it('refuses rather than forcing through a tree git will not remove', async () => {
+  it('forces through uncommitted content, matching the shell\'s own removal call', async () => {
     const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-trees-removeonly-dirty-')));
     const desk = path.join(parent, 'desk');
     try {
@@ -321,13 +321,22 @@ describe('treesGit: removing a worktree without touching its branch', () => {
       expect(await port.addBranch(desk, 'plot/dirty-kept', 'HEAD')).toEqual({ ok: true, value: undefined });
       fs.writeFileSync(path.join(desk, 'untracked.txt'), 'unlanded');
 
-      const answer = await port.removeOnly(desk);
+      expect(await port.removeOnly(desk)).toEqual({ ok: true, value: undefined });
 
-      expect(answer.ok).toBe(false);
-      expect(fs.existsSync(desk)).toBe(true);
+      expect(fs.existsSync(desk)).toBe(false);
+      expect(git(repo, ['branch', '--list', 'plot/dirty-kept']).trim()).not.toBe('');
     } finally {
-      git(repo, ['worktree', 'remove', '--force', desk]);
       git(repo, ['branch', '-D', 'plot/dirty-kept']);
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it('reports a failure for a path that was never a worktree, even with force', async () => {
+    const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-trees-removeonly-never-')));
+    try {
+      const answer = await trees().removeOnly(path.join(parent, 'never-a-worktree'));
+      expect(answer.ok).toBe(false);
+    } finally {
       fs.rmSync(parent, { recursive: true, force: true });
     }
   });

@@ -240,7 +240,11 @@ export const refsGit = (context: ShellContext): Refs => {
   const defaultBranch = (): Promise<PortResult<string>> =>
     runScript(
       'bash',
-      ['-c', 'git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed "s|^origin/||" || git rev-parse --abbrev-ref HEAD'],
+      // A BARE `A | B || C` NEVER FALLS BACK: the pipeline's exit code is `sed`'s,
+      // and `sed` exits 0 on empty stdin even when `symbolic-ref` found nothing —
+      // the shape every bare-init-then-clone test fixture takes, since `clone`
+      // only sets `origin/HEAD` when the remote already had commits at clone time.
+      ['-c', 'name=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) && printf \'%s\\n\' "${name#origin/}" || git rev-parse --abbrev-ref HEAD'],
       asText,
       inRepo,
     );

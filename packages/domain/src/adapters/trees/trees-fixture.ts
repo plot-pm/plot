@@ -43,6 +43,12 @@ export interface TreesFixture {
    */
   dirty?: Readonly<Record<string, readonly string[]>>;
   /**
+   * The porcelain lines {@link dirtyPathsWithStatus} would read, keyed by
+   * path, status code included (`?? half-done.txt`). A path absent from the
+   * table holds none.
+   */
+  dirtyWithStatus?: Readonly<Record<string, readonly string[]>>;
+  /**
    * The unfiltered changed paths each checkout holds, keyed by path; read by
    * `changedUnder`, which answers those under a given pathspec. A path absent
    * from the table holds none.
@@ -162,6 +168,7 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
       answered((markers[path] ?? []).filter((name) => name.startsWith(prefix))),
 
     dirtyPaths: async (path) => answered(dirty[path] ?? []),
+    dirtyPathsWithStatus: async (path) => answered(fixture.dirtyWithStatus?.[path] ?? []),
     changedUnder: async (path, pathspecs) =>
       answered((fixture.changed?.[path] ?? []).filter((file) => pathspecs.some((spec) => file.startsWith(spec)))),
 
