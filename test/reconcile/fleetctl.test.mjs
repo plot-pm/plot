@@ -1907,7 +1907,7 @@ test('migration: an old-label unit serving this checkout is booted out and remov
   const { r, calls, box, root } = startUnderNewDefault('migrate-this', (s) => s.root);
   assert.match(r.out, /migrating the old label 'com.plot-pm.registryd' — it serves this repository/, r.out);
   assert.match(r.out, /unloaded and removed — continuing under 'com.plot-pm.fleetd'/, r.out);
-  assert.ok(calls.some((c) => c === `bootout gui/501/com.plot-pm.registryd`),
+  assert.ok(calls.some((c) => c === `bootout gui/${process.getuid()}/com.plot-pm.registryd`),
     `no bootout of the old label was recorded:\n${calls.join('\n')}`);
   assert.equal(fs.existsSync(path.join(box, 'home', 'Library', 'LaunchAgents', 'com.plot-pm.registryd.plist')), false,
     "the old label's plist survived the migration");
@@ -1957,7 +1957,7 @@ test('migration: a custom label never enters the migration branch', () => {
   // The run still bootstraps the CUSTOM label itself normally — this asserts
   // only that the bare OLD DEFAULT, distinct from this sandbox's own minted
   // label, is never named in a recorded call.
-  assert.ok(!launchctlCalls(calls).some((c) => c === 'bootout gui/501/com.plot-pm.registryd'),
+  assert.ok(!launchctlCalls(calls).some((c) => c === `bootout gui/${process.getuid()}/com.plot-pm.registryd`),
     `the bare old default was booted out under a custom label: ${launchctlCalls(calls).join('\n')}`);
 });
 

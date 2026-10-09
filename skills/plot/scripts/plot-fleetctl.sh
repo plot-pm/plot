@@ -108,16 +108,10 @@ unit_name() {
   case "$LABEL" in
     com.plot-pm.fleetd) printf '%s' plot-fleetd; return ;;
     com.plot-pm.registryd) printf '%s' plot-registryd; return ;;
+    com.plot-pm.fleetd.*) prefix=plot-fleetd rest=${LABEL#com.plot-pm.fleetd.} ;;
+    *) prefix=plot-registryd rest=${LABEL#com.plot-pm.registryd.} ;;
   esac
-  case "$LABEL" in
-    com.plot-pm.fleetd.*)
-      rest=${LABEL#com.plot-pm.fleetd.}
-      printf 'plot-fleetd-%s' "$(printf '%s' "$rest" | LC_ALL=C tr -c 'A-Za-z0-9:_.-' '-')"
-      return
-      ;;
-  esac
-  rest=${LABEL#com.plot-pm.registryd.}
-  printf 'plot-registryd-%s' "$(printf '%s' "$rest" | LC_ALL=C tr -c 'A-Za-z0-9:_.-' '-')"
+  printf '%s-%s' "$prefix" "$(printf '%s' "$rest" | LC_ALL=C tr -c 'A-Za-z0-9:_.-' '-')"
 }
 UNIT_NAME=$(unit_name)
 
@@ -439,28 +433,24 @@ plot_processes_block() { # $1=pid to skip
       *)          suffix=/skills/plot/scripts/plot-fleet-scan.sh ;;
     esac
     inst="cannot determine"
+    old_suffix=/skills/plot/scripts/board/plot-registryd.mjs
+    matched=""
     case "$full" in
-      ?*"$suffix")
-        full=${full%"$suffix"}
-        if [ "$full" = "$repo_root" ] || [ "$full" = "$here" ]; then
-          inst="THIS repository"
-        else
-          inst=$(home_short "$full")
-        fi ;;
+      ?*"$suffix") matched=$suffix ;;
       # THE OLD SUFFIX IS KEPT INDEFINITELY: another, unrelated installation
       # may still run the old-named bundle forever (it has its own lifecycle,
       # not this checkout's to force), and `--status` must still name whose
       # checkout it is rather than reporting it as undetermined.
-      ?*/skills/plot/scripts/board/plot-registryd.mjs)
-        if [ "$kind" = supervisor ]; then
-          full=${full%/skills/plot/scripts/board/plot-registryd.mjs}
-          if [ "$full" = "$repo_root" ] || [ "$full" = "$here" ]; then
-            inst="THIS repository"
-          else
-            inst=$(home_short "$full")
-          fi
-        fi ;;
+      ?*"$old_suffix") [ "$kind" = supervisor ] && matched=$old_suffix ;;
     esac
+    if [ -n "$matched" ]; then
+      full=${full%"$matched"}
+      if [ "$full" = "$repo_root" ] || [ "$full" = "$here" ]; then
+        inst="THIS repository"
+      else
+        inst=$(home_short "$full")
+      fi
+    fi
     label=""
     if [ "$kind" = supervisor ]; then
       case "$kernel" in
@@ -1021,8 +1011,7 @@ if [ "$mode" = "start" ]; then
     new_label=$LABEL new_unit_name=$UNIT_NAME
     LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd
     if supervisor_loaded; then
-      old_served=$(supervisor_checkout)
-      case "$old_served" in
+      case "$(supervisor_checkout)" in
         this\ *)
           echo "plot-fleetctl: migrating the old label 'com.plot-pm.registryd' — it serves this repository"
           case "$plat" in
@@ -1032,8 +1021,7 @@ if [ "$mode" = "start" ]; then
                       rm -f "$HOME/.config/systemd/user/plot-registryd.service"
                       systemctl --user daemon-reload 2>/dev/null ;;
           esac
-          echo "  unloaded and removed — continuing under 'com.plot-pm.fleetd'"
-          ;;
+          echo "  unloaded and removed — continuing under 'com.plot-pm.fleetd'" ;;
       esac
     fi
     LABEL=$new_label UNIT_NAME=$new_unit_name
