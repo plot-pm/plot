@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-09, jwloka, in-session
 - **Started:** 2026-10-09, jwloka, `bug/a-working-desk-never-reads-free`
 - **Started:** 2026-10-09, jwloka, `feature/a-time-out-writes-its-ending`
+- **Started:** 2026-10-09, jwloka, `feature/a-time-out-writes-its-ending`
 
 ## Changelog
 

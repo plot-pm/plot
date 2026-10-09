@@ -6,65 +6,73 @@
 - **Ends as:** one PR to `main`, opened with `skills/plot/scripts/plot-open-pr.sh`
 - **Review of the code:** per repo convention — the PR is reviewed as code; CI is the authority for e2e
 
-This is wave 2 of 3. Wave 1 (`bug/a-working-desk-never-reads-free`, #1429) removes one cause of exit 124 and is in review. Wave 3 (`feature/a-timed-out-slice-gets-a-fresh-agent`) adds the `bound` rows of `endingAction` and waits on this wave: it answers an ending, so the ending has to exist first. Do not start wave 3's work here.
+Wave 1 (`bug/a-working-desk-never-reads-free`, #1429) is merged. Wave 3 (`feature/a-timed-out-slice-gets-a-fresh-agent`) waits on this branch: it consumes the endings this branch guarantees. Do not start its work here.
 
 ### What to build
 
-Every exit 124 of a loop that holds a slice leaves an ending file, so the supervisor and `/api/fleet` have something to read. The failure it answers, 2026-10-09 on `feature/the-fleet-package-exists` at `.worktrees/free-1c9c57a0`: the loop exited 124 at 08:49:30Z with one unpushed commit and 50 uncommitted files on the desk, and the board read `worker: failed`, `ending: null`.
+The plan says an agent that exits 124 can leave no ending, so the supervisor has nothing to answer. **Measure that claim before you build on it.** The desk of the reproduced case, `.worktrees/free-1c9c57a0` (`feature/the-fleet-package-exists`), holds `.plot-worker.ending.json` with `reason: quiet`, `actor: monitor`, branch `feature/the-fleet-package-exists`, written at 10:49 local — the same minute as `.plot-worker.exit` (`124`). So on that desk the idle path did write an ending. The plan's Motivation and the board's `ending: null` read for that desk disagree with the file.
 
-**The plan's premise needs checking before any code.** The plan's Motivation says the desk "wrote no ending record". Its answered Open Question says the opposite: the desk's `.plot-worker.ending.json` holds `reason: quiet`, `actor: monitor`, written by the idle path (`worker-loop.ts:1737-1741`, `agent-loop.ts` row 5). Both cannot hold. Wave 1's brief names a third path, the free-wait bound at `worker-loop.ts:1610`. The desk is gone or may be gone, so re-measure from the code, not from the desk.
+Both time-out paths of the worker loop already write an ending through `agentLoop`:
 
-The 124 exit paths that exist on `origin/main`, read 2026-10-09. Prove which of them writes no ending:
-
-| Path | Where | Writes an ending? |
+| Exit path | Where | Ending written |
 |---|---|---|
-| Idle watch ends the run | `worker-loop.ts:1737-1741`, row 5 | yes: `quiet`, actor `monitor` |
-| Bound kills the run | `worker-loop.ts:1480` → `:1743-1759`, row 6 | yes: `bound` or `unreadable`, actor `bound` |
-| SDK run aborted on its bound | `agent-loop.ts` row 9a | yes: `bound` |
-| Free wait reaches `Worker bound` | `agent-loop.ts` row 2, `worker-loop.ts:1610` | **no, by design**: no slice held, the row returns `decide('agent-loop', [], { exitCode: 124 })` |
-| Command exits with status 124 or `null` without `timedOut` | `worker-loop.ts:1491`, `status ?? 124` into `promptExit` | **unmeasured**: check what answer `promptExit` gives and whether that answer reaches a `loop-end` write |
-| Signal kills the loop | process level | no, and stays that way |
+| idle watch | `packages/fleet/src/server/entry/worker-loop.ts:1737-1741` → `agentLoop` row 5 (`agent-loop.ts:~605`) | `quiet` / `monitor` |
+| run bound | `worker-loop.ts:1743-1759` → `agentLoop` row 6 (`agent-loop.ts:~617`) | `bound` or `unreadable` / `bound` |
+| SDK run bound | `agentLoop` row 9a (`agent-loop.ts:~674`) | `bound` / `bound` |
+| free-wait bound | `agentLoop` row 2 (`agent-loop.ts:~473`), logged at `worker-loop.ts:1610` | none, by design: no slice held |
 
-### Decisions the plan settles — do not re-derive them
+So your job has three steps, in this order. Stop and report after step 1 if it shows there is nothing to build.
 
-**Reproduce first, and the reproduction may end this wave.** Write the failing test against an unmodified `origin/main` and paste its output in the PR. If every path that holds a slice already writes an ending, the premise is false: say so in the PR, make no code change, and stop with a report. A fix for a path you did not see fail is not wanted.
+1. **Find the exit 124 that leaves no ending, or prove there is none.** Candidates, each tested by a failing test on `origin/main`:
+   - **The `ending: null` read.** Find where `/api/fleet` (and `plot-worker-state.sh`'s `plot_worker_ending`, `:417`) read the ending, and reproduce a desk with `worker: failed`, `.plot-worker.exit` = `124` and an ending file on disk that the read still reports as `null`. Check whether the read runs before the loop writes the ending, whether it filters the reasons `quiet` and `bound`, and whether it requires the branch to match.
+   - **A 124 outside `agentLoop`.** `runPrompt` maps a missing status to 124 (`worker-loop.ts:1491`, `result.value.status ?? 124`); `promptExit` answers `unstarted` for any non-zero status (`rules/prompt-exit.ts:393`). A command killed by an outer `timeout` therefore reads as `unstarted`, not `bound`. Find out whether that is reachable.
+   - **A process killed outright** (SIGKILL, machine sleep). No code runs, so no ending exists. This stays true: absent is absent.
+2. **Fix what step 1 found, through `agentLoop`.** A path that needs an ending gets it by adding a reading to `agentLoop` and a row to its table, not by writing the file from `worker-loop.ts`. The ending reason is `bound` (or `unreadable` where no transcript exists) and the actor is `bound`, as rows 6 and 9a do.
+3. **Correct the plan.** Amend the plan's Motivation and Done-when line for this wave to say what you measured: which path left no ending, or that none did and the defect was the read. Commit that with the fix.
 
-**Absent is absent.** `plot-worker-state.sh` reads a missing ending as `none`, and that stays true. This wave does not read an exit code of 124 as an ending, and it does not write one from the reader's side. The write belongs to the loop, through `agentLoop`, so the rule table stays the one place that names a reason.
+### Settled decisions — do not re-derive them
 
-**The free-wait row stays silent.** A free loop holds no branch, so there is nothing to attribute an ending to. Row 2's `exitCode: 124` with no `loop-end` is the table's own "none, 124". Writing a `bound` ending there would give the supervisor a slice to resume that does not exist. If your measurement says the free-wait path is the 2026-10-09 one, the answer is wave 1's, not an ending.
+**An exit code of 124 is not an ending.** `plot-worker-state.sh` reads an ending file or nothing; this branch must not turn `.plot-worker.exit` = `124` into a `bound` ending by inference. The ending comes from a path that knew why it stopped. The plan says so under Slice 1.
 
-**Reasons and actor are fixed.** `bound` where a transcript is readable, `unreadable` where none is, actor `bound`. Do not add a reason; `EndingReason` is a closed set and wave 3's table is keyed on these two.
+**The free-wait bound writes no ending, and that stays.** Row 2 means no slice was held and no agent worked. An ending there would put a `bound` reason on a desk with nothing to resume, and wave 3's `start-fresh` would then start an agent on a branch that does not exist. If you believe row 2 needs an ending, report it instead of adding one.
 
-**`endingAction` is not touched.** It answers `leave` for `bound` today, and wave 3 owns the row. Do not edit `packages/domain/src/rules/ending-action.ts`.
+**The idle cause is already removed.** #1429 made the idle watch count subagent transcripts, so a delegating agent no longer reads silent. Do not change `transcript-fs.ts`, `assignSlice`, or the idle window here. A `quiet` ending that still fires is a true idle.
+
+**`endingAction` is wave 3's.** `bound` and `unreadable` answer `leave` today (`rules/ending-action.ts`, the `EndingActionVerdict` table). Leave that row alone: this wave makes the ending exist and be readable, wave 3 answers it. Do not edit `ending-action.ts`.
+
+**`unregistered` also ends 124** (`agent-loop.ts:470`, row 3) and already writes an ending. It is out of scope.
 
 Rules carried over, unchanged:
 
-- `packages/domain/**` is arrow functions and factual TSDoc — no decision history in comments; the reasoning goes in the commit message. A function you write or rewrite elsewhere is an arrow too.
-- The loop's decision stays in `agentLoop`, which reads readings and spawns nothing. A new path in `worker-loop.ts` builds readings and performs the writes `agentLoop` returns; it does not name a reason itself.
-- Read the exit code, not the emptiness: a `124` in `.plot-worker.exit` is a measurement of how the process ended, not of why.
+- Absent is not false: a missing ending file is "no ending", never "not timed out".
+- Read the exit code, not the emptiness.
+- `packages/domain/**` is arrow functions and factual TSDoc; the reasoning goes in the commit message. A function you write or rewrite elsewhere is an arrow too.
+- A controller calls the domain and never spawns. The loop's writes go through `performLoopWrites`.
 
 ### Done when
 
-The plan's `## Done when` first bullet is the specification: the exit path found writes an ending file with reason `bound` (or `unreadable`) and actor `bound`, and `/api/fleet` reads that ending for the desk. The assertions that exist because a naive implementation would pass without them:
+The plan's `## Done when` list is the specification; its first bullet belongs to this branch: *the exit path found in slice 1 writes an ending file with reason `bound` (or `unreadable`) and actor `bound`, and `/api/fleet` reads that ending for the desk.* Amend that bullet in this PR to name the path you proved.
 
-- **The test runs the loop, not `agentLoop` alone.** A pure-domain test of row 6 passes on `origin/main` today. Drive the worker loop's exit path in `packages/fleet/test/unit/worker-loop.test.ts` and read the file the desk port wrote. This catches a fix that edits the table and leaves the missing call site missing.
-- **The ending file exists after the loop returns 124, and names the branch.** Assert on the written record's `branch`, `reason` and `actor`, not on the return code alone.
-- **The free-wait 124 still writes no ending.** This catches a fix that writes one on every 124.
-- **A readable and an unreadable transcript give `bound` and `unreadable`.** One test each.
-- **`/api/fleet` reads the ending.** The plan's first bullet names it; assert through the fleet reading, not the file.
+Assertions that exist because a naive implementation passes without them:
 
-Plus: a changeset for `plot`, level `patch`, with the description first and the `bumps:` block last (`./scripts/check-changeset-packages.sh`). The PR must carry no generated bundle (`scripts/check-no-bundle-diff.sh`); run `pnpm build:board` only to test locally, then restore the generated paths. Run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints. The suites in the `CI suites` key run in CI, and a failure there comes back as a correction. List no full suite.
+- **The reproduction fails on `origin/main` first.** Run it on an unmodified checkout and paste the failing output in the PR. If every time-out path already writes and the read is correct, say so and stop with a report; do not add a write for a path that has one.
+- **One test per row that writes `bound`/`quiet`/`unreadable`**, asserting reason, actor and branch. A test on the new row alone lets rows 5, 6 and 9a drift.
+- **The ending names the held branch.** `registryd.ts` and `continueTarget` refuse an ending whose branch differs from the asked one; an ending written with `branch: ''` is read as no ending.
+- **The free-wait bound still writes nothing** and still returns 124 (`detail.exitCode`). This catches a fix that adds an ending to row 2.
+- **An ending written on exit 124 is on disk before the process exits.** The loop returns 124 straight after `performLoopWrites`; assert the file exists when `runWorkerLoop` resolves.
 
-`scripts/check-shell-lines.sh` refuses a pull request whose shell under `skills/` is longer than at its merge base. If the fix touches a `.sh` file, pay for any growth in the same change — remove shell elsewhere, or write the rule in the domain and ask it through a bundle. The gate stores no number and has no override. Expect no shell change: the paths above are all TypeScript.
+Plus the repo's gates. Run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints. The suites in the `CI suites` key run in CI, and a failure there comes back as a correction. List no full suite. Add a changeset (description first, `bumps:` block last). A PR carries no generated bundle (`scripts/check-no-bundle-diff.sh`).
+
+`scripts/check-shell-lines.sh` refuses a pull request whose shell under `skills/` is longer than at its merge base. This slice should touch no `.sh` file. If it does, remove an equal number of lines elsewhere in the same change, or write the rule in the domain and ask it through a bundle; the gate has no override.
 
 ### Bookkeeping
 
-When the PR is created, append `→ #<number>` to this branch's line in the plan's `## Slices` section. Push the first real commit as soon as it exists. Name #1420 in the PR body. If the reproduction shows the premise false, record that in the plan's `## Open Questions` and the PR body instead of a code change.
+Open the PR with `../plot/scripts/plot-open-pr.sh` (add `--draft` while the work moves); never `gh pr create`. When the PR exists, append `→ #<number>` to this branch's line in the plan's `## Slices` section. Push the first real commit as soon as it exists.
 
 ### Scope guard
 
-This branch owns `packages/domain/src/workflows/agent-loop.ts`, `packages/fleet/src/server/entry/worker-loop.ts`, `packages/fleet/src/server/entry/loop-writes.ts`, and their tests (`packages/domain/test/workflows-agent-loop.test.ts`, `packages/fleet/test/unit/worker-loop.test.ts`).
+This branch owns `packages/domain/src/workflows/agent-loop.ts` and `packages/domain/test/workflows-agent-loop.test.ts`, `packages/fleet/src/server/entry/worker-loop.ts` and its unit tests (`packages/fleet/test/unit/worker-loop*.test.ts`), whatever reads the ending for `/api/fleet` if step 1 shows the read is the defect, and this plan's file. Wave 3 owns `rules/ending-action.ts`, `rules-ending-action.test.ts` and the `registryd.ts` tick; leave them alone.
 
-Verified at dispatch (2026-10-09, `git diff origin/main...origin/<branch>` over those files and `ending-action.ts`, `registryd.ts`): `bug/a-working-desk-never-reads-free` (#1429) touches `packages/fleet/test/unit/worker-loop.test.ts` and `performer-shell.ts`, so add your tests in a separate `describe` block and rebase if it merges first. `feature/the-supervisor-is-plot-fleetd` touches `registryd.ts`, which this wave does not. No in-flight branch touches `agent-loop.ts`, `ending-action.ts` or `loop-writes.ts`.
+Branches in flight, verified 2026-10-09 against `origin/main`: `feature/the-supervisor-is-plot-fleetd` changes `packages/fleet/src/server/entry/registryd.ts`, which this branch does not touch. No remote branch changes `worker-loop.ts`, `agent-loop.ts`, `ending-action.ts` or `ending.ts`. Rebase onto `main` before the PR.
 
 If you find something the plan did not anticipate, report it rather than improvising outside scope.
