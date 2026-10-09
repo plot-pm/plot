@@ -11,6 +11,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pruneStaleVendoredHelpers } from './vendored-helpers.mjs';
+import {
+  buildFleetBundles,
+  registrydArtifact as fleetRegistrydArtifact,
+  workerLoopArtifact as fleetWorkerLoopArtifact,
+  fleetSizeArtifact as fleetFleetSizeArtifact,
+  promptArtifact as fleetPromptArtifact,
+} from '../fleet/build.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const clientHtml = path.join(here, 'dist/client/index.html');
@@ -18,6 +25,15 @@ if (!fs.existsSync(clientHtml)) {
   console.error('Missing dist/client/index.html — run `pnpm run build:client` first.');
   process.exit(1);
 }
+
+// BUILT BY `@plot-pm/fleet`, NOT INLINE HERE. The entry points, their
+// TypeScript and every shared module they import now live in
+// packages/fleet/src — this file keeps only the `shipped*` declarations the
+// bundle-set derivation below reads, and copies fleet's own dist output on to
+// each shipped destination. Called once, here, before any copy site below —
+// every `fleet*Artifact` import used past this line depends on `dist/`
+// existing under packages/fleet, which only this call creates.
+await buildFleetBundles();
 
 // The prose the generated module carries, held apart from the loop that fills
 // it so the explanation a reader meets in `bundles.generated.ts` is readable
@@ -267,19 +283,9 @@ fs.chmodSync(shippedTransition, 0o755);
 const promptArtifact = path.join(here, 'dist/plot-prompt.mjs');
 const shippedPrompt = path.join(here, '../../skills/plot/scripts/board/plot-prompt.mjs');
 
-await esbuild.build({
-  entryPoints: [path.join(here, 'src/server/entry/prompt.ts')],
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  target: 'node20',
-  outfile: promptArtifact,
-  minify: true,
-  legalComments: 'none',
-  banner: { js: '#!/usr/bin/env node' },
-});
-
-fs.copyFileSync(promptArtifact, shippedPrompt);
+// Copied from `@plot-pm/fleet`'s dist output — see the `buildFleetBundles()`
+// call near the top of this file.
+fs.copyFileSync(fleetPromptArtifact, shippedPrompt);
 fs.chmodSync(shippedPrompt, 0o755);
 
 // The task state, reachable from the classifier that answers it.
@@ -400,21 +406,6 @@ fs.chmodSync(shippedAgentState, 0o755);
 const registrydArtifact = path.join(here, 'dist/plot-registryd.mjs');
 const shippedRegistryd = path.join(here, '../../skills/plot/scripts/board/plot-registryd.mjs');
 
-await esbuild.build({
-  entryPoints: [path.join(here, 'src/server/entry/registryd-main.ts')],
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  target: 'node20',
-  outfile: registrydArtifact,
-  minify: true,
-  legalComments: 'none',
-  banner: { js: '#!/usr/bin/env node' },
-});
-
-fs.copyFileSync(registrydArtifact, shippedRegistryd);
-fs.chmodSync(shippedRegistryd, 0o755);
-
 // The agent's own loop: `plot-worker-loop.mjs`, one process for an agent's
 // whole life. The launcher at the top of `plot-worker-loop.sh` `exec`s this
 // bundle unconditionally — there is no shell loop body left to fall back to.
@@ -430,21 +421,12 @@ fs.chmodSync(shippedRegistryd, 0o755);
 const workerLoopArtifact = path.join(here, 'dist/plot-worker-loop.mjs');
 const shippedWorkerLoop = path.join(here, '../../skills/plot/scripts/board/plot-worker-loop.mjs');
 
-await esbuild.build({
-  entryPoints: [path.join(here, 'src/server/entry/worker-loop.ts')],
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  target: 'node20',
-  outfile: workerLoopArtifact,
-  external: ['@anthropic-ai/claude-agent-sdk-*'],
-  define: { PLOT_EMBEDDED: 'true' },
-  minify: true,
-  legalComments: 'none',
-  banner: { js: '#!/usr/bin/env node' },
-});
-
-fs.copyFileSync(workerLoopArtifact, shippedWorkerLoop);
+// Copied from `@plot-pm/fleet`'s dist output — see the `buildFleetBundles()`
+// call near the top of this file, which builds this bundle along with the
+// worker-loop, fleet-size and prompt ones below.
+fs.copyFileSync(fleetRegistrydArtifact, shippedRegistryd);
+fs.chmodSync(shippedRegistryd, 0o755);
+fs.copyFileSync(fleetWorkerLoopArtifact, shippedWorkerLoop);
 fs.chmodSync(shippedWorkerLoop, 0o755);
 
 // Did this branch's work land, reachable from the four scripts that gate on it.
@@ -626,19 +608,9 @@ fs.chmodSync(shippedProposeStack, 0o755);
 const fleetSizeArtifact = path.join(here, 'dist/plot-fleet-size.mjs');
 const shippedFleetSize = path.join(here, '../../skills/plot/scripts/board/plot-fleet-size.mjs');
 
-await esbuild.build({
-  entryPoints: [path.join(here, 'src/server/entry/fleet-size.ts')],
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  target: 'node20',
-  outfile: fleetSizeArtifact,
-  minify: true,
-  legalComments: 'none',
-  banner: { js: '#!/usr/bin/env node' },
-});
-
-fs.copyFileSync(fleetSizeArtifact, shippedFleetSize);
+// Copied from `@plot-pm/fleet`'s dist output — see the `buildFleetBundles()`
+// call near the top of this file.
+fs.copyFileSync(fleetFleetSizeArtifact, shippedFleetSize);
 fs.chmodSync(shippedFleetSize, 0o755);
 
 // The sprint lifecycle's write, for /plot-sprint's start, commit and close.

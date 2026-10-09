@@ -2,7 +2,7 @@
 // fixtures and a scripted `boundedRun`, plus the idle watch and the process
 // entry. No process starts: the prompt is a function the test supplies.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { rmTree } from '../helpers.mjs';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 import {
   agentDesk,
   agentManifest,

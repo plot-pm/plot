@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { stampManifest } from '../../src/shared/manifest-stamp.js';
-import { rmTree } from '../helpers.mjs';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 
 const DISPATCH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),

@@ -85,36 +85,12 @@ export default defineConfig({
         },
       },
     ],
-    /**
-     * THE FIRST GATED FILE IN THIS PACKAGE, and scoped to exactly one path.
-     * `packages/domain`'s own coverage block holds the whole package to a
-     * threshold because the purity boundary guarantees every line there is
-     * reachable from a plain function call — the board at large has no such
-     * guarantee: it spawns processes, binds ports and drives a browser, and a
-     * blanket threshold here would be lowered the first time an untestable
-     * branch failed it.
-     *
-     * `loop-writes.ts` earns the same 100% the domain's pure side holds for
-     * the same reason: every arm is a `switch` case calling a port whose
-     * fixture answers synchronously, with no process, no port and no browser
-     * of its own — the whole file is reachable from a plain call, exactly
-     * like a domain workflow.
-     *
-     * `worker-loop.ts` joins it on the same terms: the prompt is a function the
-     * test supplies and the ports are fixtures, so the loop's every row runs
-     * without a process. Only the run-as-a-process guard at its foot is
-     * excluded, by an annotation that says why.
-     */
-    coverage: {
-      provider: 'v8',
-      all: false,
-      include: ['src/server/entry/loop-writes.ts', 'src/server/entry/worker-loop.ts'],
-      thresholds: {
-        lines: 100,
-        branches: 100,
-        functions: 100,
-        statements: 100,
-      },
-    },
+    // THE 100%-COVERAGE GATE THAT USED TO LIVE HERE MOVED WITH ITS SUBJECTS.
+    // `loop-writes.ts` and `worker-loop.ts` are `@plot-pm/fleet` source now —
+    // see packages/fleet/vitest.config.ts, which carries the same thresholds
+    // forward for the same reason. A coverage `include` naming a path under
+    // this package's `src/` that no longer exists would pass vacuously
+    // instead of enforcing anything, which is why the block leaves with the
+    // files rather than staying as a silent no-op.
   },
 });

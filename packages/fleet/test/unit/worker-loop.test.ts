@@ -1,7 +1,7 @@
 // `readPass` — does this entry gather the table's own readings in the table's
 // own order, reading only what the place the pass is in calls for?
 import { afterEach, describe, it, expect } from 'vitest';
-import { rmTree } from '../helpers.mjs';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 import {
   agentsFixture,
   buildFixture,

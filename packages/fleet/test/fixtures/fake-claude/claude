@@ -1,0 +1,77 @@
+#!/usr/bin/env node
+// A stand-in `claude` for the SDK runner's bundle tests: it speaks the
+// stream-json protocol `@anthropic-ai/claude-agent-sdk` drives. It answers
+// every control request with success and, after the first user message,
+// either ends the turn with a structured hand-back (FAKE_CLAUDE_MODE=answer)
+// or starts a grandchild and never answers (FAKE_CLAUDE_MODE=hang).
+//
+// FAKE_CLAUDE_LOG receives one JSON line: the argv and the environment names
+// the SDK runner must pass. FAKE_CLAUDE_PIDS receives "<own pid> <grandchild pid>".
+// FAKE_CLAUDE_OUTPUT, where set, is the JSON the structured hand-back carries;
+// FAKE_CLAUDE_PROMPT_LOG receives the first user message's text.
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+
+const mode = process.env.FAKE_CLAUDE_MODE ?? 'answer';
+const env = Object.fromEntries(
+  ['PATH', 'HOME', 'PLOT_BRANCH', 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS'].map((k) => [k, process.env[k] ?? null]),
+);
+if (process.env.FAKE_CLAUDE_LOG) fs.appendFileSync(process.env.FAKE_CLAUDE_LOG, `${JSON.stringify({ argv: process.argv.slice(2), env })}\n`);
+
+const sessionArg = process.argv.slice(2).find((a) => a.startsWith('--session-id='));
+const sessionId = sessionArg ? sessionArg.slice('--session-id='.length) : 'fake-session';
+const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
+
+const onUser = (message) => {
+  if (process.env.FAKE_CLAUDE_PROMPT_LOG) {
+    const content = message.message?.content;
+    const text = typeof content === 'string' ? content : (content ?? []).map((c) => c.text ?? '').join('');
+    fs.appendFileSync(process.env.FAKE_CLAUDE_PROMPT_LOG, `${JSON.stringify(text)}\n`);
+  }
+  if (mode === 'hang') {
+    const grandchild = spawn('sleep', ['600'], { stdio: 'ignore' });
+    fs.writeFileSync(process.env.FAKE_CLAUDE_PIDS, `${process.pid} ${grandchild.pid}\n`);
+    return;
+  }
+  send({ type: 'system', subtype: 'init', session_id: sessionId, cwd: process.cwd(), tools: [], model: 'fake', permissionMode: 'bypassPermissions', apiKeySource: 'none', mcp_servers: [], slash_commands: [], uuid: '00000000-0000-4000-8000-000000000001' });
+  send({ type: 'assistant', session_id: sessionId, parent_tool_use_id: null, uuid: '00000000-0000-4000-8000-000000000002', message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] } });
+  send({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    num_turns: 1,
+    duration_ms: 1,
+    duration_api_ms: 1,
+    result: '',
+    session_id: sessionId,
+    total_cost_usd: 0.01,
+    usage: {},
+    modelUsage: { fake: { inputTokens: 10, outputTokens: 5, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, webSearchRequests: 0, costUSD: 0.01, contextWindow: 200000 } },
+    permission_denials: [],
+    structured_output: process.env.FAKE_CLAUDE_OUTPUT
+      ? JSON.parse(process.env.FAKE_CLAUDE_OUTPUT)
+      : { next: process.env.FAKE_CLAUDE_NEXT ?? 'checks', summary: 'fixture run' },
+    uuid: '00000000-0000-4000-8000-000000000003',
+  });
+};
+
+let buffer = '';
+let answered = false;
+process.stdin.on('data', (chunk) => {
+  buffer += chunk;
+  for (let at = buffer.indexOf('\n'); at >= 0; at = buffer.indexOf('\n')) {
+    const line = buffer.slice(0, at);
+    buffer = buffer.slice(at + 1);
+    if (line.trim() === '') continue;
+    const message = JSON.parse(line);
+    if (message.type === 'control_request') {
+      send({ type: 'control_response', response: { subtype: 'success', request_id: message.request_id, response: {} } });
+    } else if (message.type === 'user' && !answered) {
+      answered = true;
+      onUser(message);
+    }
+  }
+});
+process.stdin.on('end', () => {
+  if (mode !== 'hang') process.exit(0);
+});

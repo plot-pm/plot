@@ -655,14 +655,17 @@ jobs:
       # invocation behind the `Scripts` port, then 28 -> 11 when
       # `the-board-commands-run-through-the-port` moved the ten agent-starting
       # board routes onto the `agentRun` port. What is left of the 11 is `git`
-      # (`idea.ts`, `continue.ts`, `entry/deliver.ts`), a caller-supplied
-      # command (`registry.ts`, `fleet.ts`), and the `/api/continue` agent start
-      # (`continue.ts`). The gate records the migration; it does not perform it.
+      # (`idea.ts`, `entry/deliver.ts`), a caller-supplied command (`fleet.ts`),
+      # and `registry.ts`/`continuation.ts`'s own process starts — the latter
+      # two moved to `packages/fleet/src` with the rest of the fleet's shared
+      # modules (`the-fleet-package-exists`), so the scope widened to keep
+      # counting the same 11 sites rather than silently losing three of them.
+      # The gate records the migration; it does not perform it.
       - name: One place reaches a process
         run: |
           allowed=11
           hits=$(grep -rEn '^[^*/]*\b(spawn|spawnSync|execFile|execFileSync)\s*\(' \
-                   --include='*.ts' packages/board/src packages/domain/src \
+                   --include='*.ts' packages/board/src packages/domain/src packages/fleet/src \
                  | grep -v '/adapters/' || true)
           count=$(printf '%s' "$hits" | grep -c . || true)
           echo "direct spawns outside adapters/: $count (allowed $allowed, target 0)"
@@ -695,15 +698,18 @@ jobs:
       # `plot-*.sh` that appears in an ARGUMENT LIST or a path join, which is
       # what a caller building a command does, and not a bare string constant.
       #
-      # IT IS SCOPED TO PLOT'S OWN SCRIPTS AND NOT TO `bash` AT ALL. The board
-      # still runs `bash -c` over a git program in `registry.ts` — a different
-      # tool through a different contract, with no exit-code mapping to collapse
-      # — and that belongs to the slice beside this one. A gate that failed on it
-      # would be asserting something this branch did not do.
+      # IT IS SCOPED TO PLOT'S OWN SCRIPTS AND NOT TO `bash` AT ALL. `registry.ts`
+      # still runs `bash -c` over a git program — a different tool through a
+      # different contract, with no exit-code mapping to collapse — and that
+      # belongs to the slice beside this one. A gate that failed on it would be
+      # asserting something this branch did not do. `registry.ts` moved to
+      # `packages/fleet/src` with the rest of the fleet's shared modules
+      # (`the-fleet-package-exists`), so the scope widened to keep watching the
+      # same population rather than losing it at the package boundary.
       - name: One place reaches a script
         run: |
           hits=$(grep -rEn "(execFile|execFileSync|spawn|spawnSync)\([^)]*plot-[a-z-]+\.sh|(join|resolve)\([^)]*'plot-[a-z-]+\.sh'" \
-                   --include='*.ts' packages/board/src || true)
+                   --include='*.ts' packages/board/src packages/fleet/src || true)
           count=$(printf '%s' "$hits" | grep -c . || true)
           if [ "$count" -gt 0 ]; then
             echo "::error::the board invoked a script directly — $count sites, allowed 0."
@@ -951,9 +957,14 @@ jobs:
       # fixture would make grep report "binary file matches" and hide the whole
       # file from the count.
       #
-      # `allowed=1` is `removeTree` in test/rm-tree.mjs, the one call that must
-      # stay raw. Same ratchet shape as above: `::error::` when the count rises,
-      # `::notice::` when it can tighten. The target is 1, not 0.
+      # `allowed=2` is `removeTree` in each package's own test/rm-tree.mjs —
+      # `packages/board/test/rm-tree.mjs` and, since `@plot-pm/fleet` moved the
+      # tests that need it, `packages/fleet/test/rm-tree.mjs`. A DECLARED
+      # DUPLICATE: `the-fleet-package-exists` copied the file rather than having
+      # fleet import board's test helper, which would make a production package
+      # depend on another package's test tree. Same ratchet shape as above:
+      # `::error::` when the count rises, `::notice::` when it can tighten. The
+      # target is 2, not 0.
       #
       # THE ONE SHAPE IT MISSES is a call split across lines, because grep reads
       # one line at a time. Measured 2026-09-01: that form occurs nowhere in
@@ -969,15 +980,16 @@ jobs:
       # proving the retry works and must keep working.
       - name: A teardown does not race a child
         run: |
-          allowed=1
+          allowed=2
           hits=$(grep -rEna 'fs\.rmSync\s*\([^)]*recursive' \
-                   packages/board/test || true)
+                   packages/board/test packages/fleet/test || true)
           count=$(printf '%s' "$hits" | grep -c . || true)
-          echo "raw recursive fs.rmSync under packages/board/test: $count (allowed $allowed)"
+          echo "raw recursive fs.rmSync under packages/{board,fleet}/test: $count (allowed $allowed)"
           if [ "$count" -gt "$allowed" ]; then
             echo "::error::a raw recursive fs.rmSync reappeared in a test — $count sites, allowed $allowed."
-            echo "Use rmTree() from test/helpers.mjs: it retries ENOTEMPTY/EBUSY/EPERM,"
-            echo "which is what a teardown racing a still-running child throws."
+            echo "Use rmTree() from test/helpers.mjs (board) or removeTree() from"
+            echo "test/rm-tree.mjs (fleet): it retries ENOTEMPTY/EBUSY/EPERM, which is"
+            echo "what a teardown racing a still-running child throws."
             printf '%s\n' "$hits"
             exit 1
           fi

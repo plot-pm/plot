@@ -112,9 +112,17 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # `.sh` name to the same word before touching a path, and this entry has no
 # shell left to source that function from, so it writes the normalised word
 # directly rather than adding a third `plot-*.sh` literal.
+#
+# SCOPE WIDENED TO INCLUDE packages/fleet/src ON 2026-10-09:
+# `registry.ts`'s `WORKER_STATE_SCRIPT = 'plot-worker-state.sh'` moved to
+# `packages/fleet/src/shared/registry.ts` (`the-fleet-package-exists`), which
+# this gate's `ROOTS` did not name — the visible count fell from 14 to 13 with
+# the real population unchanged. `ALLOWED` stays 14; only the search path grew
+# to keep counting the site that moved rather than losing it at the new
+# package boundary.
 ALLOWED=14
 
-ROOTS='packages/board/src packages/domain/src'
+ROOTS='packages/board/src packages/domain/src packages/fleet/src'
 
 # A whole string literal, in any of TypeScript's three quotes.
 PATTERN="'plot-[a-z0-9-]+\.sh'|\"plot-[a-z0-9-]+\.sh\"|\`plot-[a-z0-9-]+\.sh\`"

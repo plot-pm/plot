@@ -20,7 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { stampManifest, writeDeskManifest, writeManifestStamp, writeResumeId } from '../../src/shared/manifest-stamp.js';
-import { rmTree } from '../helpers.mjs';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 
 /** The manifest a first dispatch writes — two-space indent, no trailing comma. */
 function firstDispatch(pid = '', extra: string[] = []): string {

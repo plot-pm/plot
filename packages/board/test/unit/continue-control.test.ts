@@ -14,7 +14,7 @@ import {
   CONTINUE_LABEL,
   refusalWord,
 } from '../../src/app/components/ContinueWithAnAnswer.js';
-import type { ContinueRefusal } from '../../src/shared/continuation.js';
+import type { ContinueRefusal } from '@plot-pm/fleet/shared/continuation';
 
 describe('the control is named as a continuation', () => {
   it('is called “Continue with an answer”, the plan’s own words', () => {

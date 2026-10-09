@@ -136,12 +136,18 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
+      '@vitest/coverage-v8':
+        specifier: 4.1.11
+        version: 4.1.11(vitest@4.1.11)
       esbuild:
         specifier: ^0.28.0
         version: 0.28.1
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
+      vitest:
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.17)(@vitest/coverage-v8@4.1.11)(vite@8.1.4(@types/node@22.19.17)(esbuild@0.28.1)(jiti@2.7.0))
 
 packages:
 

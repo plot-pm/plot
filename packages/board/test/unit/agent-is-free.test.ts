@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { readAgentRegistry, AGENT_MANIFEST_DIR, type AgentEntry } from '../../src/shared/registry.js';
+import { readAgentRegistry, AGENT_MANIFEST_DIR, type AgentEntry } from '@plot-pm/fleet/shared/registry';
 import { agentAvailability, agentStateStatus } from '../../src/app/lib/tuple-row.js';
 import { freeAgentCount, freeAgentLabels } from '../../src/server/auto-dispatch.js';
 import type { FleetReading } from '../../src/contract/schema.js';

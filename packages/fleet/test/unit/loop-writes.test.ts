@@ -3,25 +3,17 @@
 // operation with the right arguments and nothing more.
 import { describe, it, expect } from 'vitest';
 import {
-  agentManifest,
   agentsFixture,
   deskFixture,
   deskFixtureCalls,
-  deskFs,
   refsFixture,
   treesFixture,
   type AgentsFixture,
   refusedSlicesFixture,
 } from '@plot-pm/domain/adapters';
 import type { BoundedRun, Write } from '@plot-pm/domain';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { findingsInLog, MONITOR_LOGS } from '../../src/server/findings.js';
-import { FindingSchema } from '../../src/contract/index.js';
 import type { LoopWrite, LoopWritePorts } from '../../src/server/entry/loop-writes.js';
 import { performLoopWrites } from '../../src/server/entry/loop-writes.js';
-import { rmTree } from '../helpers.mjs';
 
 const WORKTREE = '/tmp/desk';
 
@@ -255,32 +247,10 @@ describe('performLoopWrites — one arm per write kind', () => {
     ]);
   });
 
-  it('worker-finding lands a line the board reads as a finding', async () => {
-    const desk = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loop-writes-finding-'));
-    try {
-      const write: LoopWrite = {
-        kind: 'worker-finding',
-        worktree: desk,
-        branch: 'infra/x',
-        finding: 'gone',
-        since: '2026-10-05T10:00:00.000Z',
-        evidence: 'the prompt exceeded the 28800s bound',
-      };
-      const [{ result }] = await performLoopWrites([write], ports({ desk: deskFs(treesFixture()) }), desk);
-      expect(result.ok).toBe(true);
-      const read = MONITOR_LOGS.flatMap((name) => findingsInLog(path.join(desk, name)));
-      expect(read).toHaveLength(1);
-      expect(FindingSchema.parse(read[0])).toMatchObject({
-        monitor: 'WorkerMonitor',
-        branch: 'infra/x',
-        worktree: desk,
-        finding: 'gone',
-        since: '2026-10-05T10:00:00.000Z',
-      });
-    } finally {
-      rmTree(desk);
-    }
-  });
+  // THE CROSS-PACKAGE HALF OF THIS WRITE moved to
+  // `packages/board/test/unit/loop-writes-finding.test.ts`: fleet does not
+  // depend on `@plot-pm/board`, and board's own `findingsInLog`/`MONITOR_LOGS`
+  // reader is what proves the board can parse the line this write lands.
 });
 
 describe('performLoopWrites — ordering and failure', () => {

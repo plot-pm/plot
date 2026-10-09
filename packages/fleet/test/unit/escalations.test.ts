@@ -12,7 +12,7 @@ import {
   recordedRungsFor,
   type EscalationRecord,
 } from '../../src/shared/escalations.js';
-import { rmTree } from '../helpers.mjs';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 
 // EVERY TEMP PATH THIS FILE CREATES, REMOVED BY THE EXACT NAME `mkdtempSync`
 // RETURNED. See terminal-cache.test.ts's own comment for why.
