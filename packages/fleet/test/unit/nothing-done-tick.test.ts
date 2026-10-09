@@ -151,6 +151,21 @@ describe('nothingDoneDecisions', () => {
     expect(decision?.verdict).toBe('leave');
   });
 
+  it('never releases a bound or unreadable desk\'s claim, even where filler readings would say nothing is held', async () => {
+    // freshAgentDecisions owns bound/unreadable exclusively — this pipeline
+    // must answer leave for them without ever asking endingAction, so a
+    // desk that actually holds unlanded work is never read as empty here.
+    for (const ending of ['bound', 'unreadable'] as const) {
+      const [decision] = await nothingDoneDecisions(
+        [candidate({ ending })],
+        async () => 'no',
+        async () => false,
+        async () => 0,
+      );
+      expect(decision?.verdict).toBe('leave');
+    }
+  });
+
   it('leaves a missing ending alone', async () => {
     const [decision] = await nothingDoneDecisions(
       [candidate({ ending: null })],

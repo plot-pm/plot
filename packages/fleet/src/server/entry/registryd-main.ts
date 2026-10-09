@@ -1478,6 +1478,15 @@ export const freshAgentDeskReads = (
     },
     record: asks,
     prMerged: async (branch) => prMergedReading(await askMerged(branch)),
+    // THE SAME READ `startNothingDoneReleases` MAKES OF THE SAME PORT — one
+    // implementation of `Trees.commitBeyondClaim`/`hostShell(...).prState`
+    // asked from two pipelines, matching `nothingDoneDecisions`'s own doc
+    // comment on the duplicate `commitBeyondClaim` call.
+    commitBeyondClaim: async (worktree) => {
+      const commits = await treesGit(context).commitBeyondClaim(worktree);
+      return commits.ok ? commits.value : 'unanswerable';
+    },
+    prOpen: async (branch) => prOpenReading(await hostShell(context).prState(branch)),
   },
 });
 
