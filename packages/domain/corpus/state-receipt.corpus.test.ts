@@ -9,27 +9,30 @@ import { describingAs, type Sides } from './compare.js';
 
 /**
  * THE DECLARED DUPLICATE: a receipt written by the shell and a receipt
- * written by `entry/deliver.ts` must be byte-identical, because
- * `plot-state-gate.sh`'s `receipt_clears` reads either one the same way.
+ * written by the entries' shared ladder module must be byte-identical,
+ * because `plot-state-gate.sh`'s `receipt_clears` reads either one the
+ * same way.
  *
- * `plot-state-receipt.sh`'s `record_state_receipt` and the entry's own
- * `recordStateReceipt` are two implementations of ONE format — the entry
- * writes its own because no shell survives after the launcher `exec`s it, so
- * there is nothing left to source the shell function from. That is allowed
- * by `a-shell-script-asks-the-domain`'s corpus tier only when a test holds
- * the pair, the `sprint-score.corpus.test.ts` shape: NEITHER SIDE IS
- * AUTHORITATIVE, the test says they agree, and a disagreement stops the
- * branch rather than being adjusted away on either side.
+ * `plot-state-receipt.sh`'s `record_state_receipt` and
+ * `entry/ladder.ts`'s `recordStateReceipt` — shared by `entry/deliver.ts`
+ * and `entry/approve.ts` — are two implementations of ONE format: the
+ * ladder module writes its own because no shell survives after a launcher
+ * `exec`s its bundle, so there is nothing left to source the shell function
+ * from. That is allowed by `a-shell-script-asks-the-domain`'s corpus tier
+ * only when a test holds the pair, the `sprint-score.corpus.test.ts` shape:
+ * NEITHER SIDE IS AUTHORITATIVE, the test says they agree, and a
+ * disagreement stops the branch rather than being adjusted away on either
+ * side.
  *
- * What "the entry's own" means here is reproduced inline rather than
- * imported from `entry/deliver.ts`: that module's receipt writer is not
- * exported for reuse, by design — the entry is a CLI, not a library, and
- * exporting internals to let a test call them would make the test exercise
- * code no caller reaches. So this test re-derives the same three steps
- * (`git hash-object` the repo-relative path, `<rel>\t<value>\n`, write under
- * `.plot/state/state-receipts/`) and compares the result against the real
- * shell function's output — which is exactly the wire a divergence would
- * show up on.
+ * What "the ladder module's own" means here is reproduced inline rather
+ * than imported from `entry/ladder.ts`: that module's receipt writer is not
+ * meant for a test to call directly — the entries it serves are CLIs, not a
+ * library, and importing internals to let a test call them would make the
+ * test exercise code no caller reaches that way. So this test re-derives
+ * the same three steps (`git hash-object` the repo-relative path,
+ * `<rel>\t<value>\n`, write under `.plot/state/state-receipts/`) and
+ * compares the result against the real shell function's output — which is
+ * exactly the wire a divergence would show up on.
  */
 
 const SIDES: Sides = { left: 'entry', right: 'shell' };
@@ -54,10 +57,10 @@ const scratchRepo = (): string => {
 };
 
 /**
- * The git blob object name of a string, exactly as `entry/deliver.ts`'s
+ * The git blob object name of a string, exactly as `entry/ladder.ts`'s
  * `gitBlobOid` computes it — `sha1("blob " + byteLength + "\0" + content)`,
  * `git hash-object --stdin`'s algorithm. Reproduced here for the same reason
- * given in the file header: the entry exports nothing for a test to import.
+ * given in the file header.
  */
 const gitBlobOid = (content: string): string => {
   const bytes = Buffer.from(content, 'utf8');
@@ -67,7 +70,7 @@ const gitBlobOid = (content: string): string => {
   return hash.digest('hex');
 };
 
-/** The entry's own receipt write, reproduced inline — see the file header. */
+/** The ladder module's own receipt write, reproduced inline — see the file header. */
 const entryReceipt = (repoRoot: string, relPath: string, value: string): string => {
   const oid = gitBlobOid(relPath);
   const dir = path.join(repoRoot, '.plot', 'state', 'state-receipts');
