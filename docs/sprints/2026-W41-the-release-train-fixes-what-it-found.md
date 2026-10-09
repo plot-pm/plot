@@ -30,7 +30,7 @@ Auto-dispatch delivered v2.22 to v2.24 between 2026-10-03 and 2026-10-07. While 
 - [x] [a-blocked-agent-s-question-has](../plans/2026-10-08-a-blocked-agent-s-question-has.md) — an answer reaches a blocked desk whose loop has ended, through its ending record (#1366).
 - [ ] [a-slice-whose-brief-is-being](../plans/2026-10-09-a-slice-whose-brief-is-being.md) — a slice whose brief is being written shows a working indicator in NOT STARTED, for that slice only (#1417). <!-- pr: #0, branch: feature/the-brief-ask-names-its-branch -->
 - [ ] [a-merged-pr-s-checks-freeze](../plans/2026-10-09-a-merged-pr-s-checks-freeze.md) — a merged slice shows no CI state, and a merged row's pending checks are asked again (#1418). <!-- pr: #0, branch: feature/a-merged-pending-check-is-asked-again -->
-- [ ] [no-controller-resumes-a-claimed-slice](../plans/2026-10-09-no-controller-resumes-a-claimed-slice.md) — a working desk never reads free, a time-out writes its ending, and a timed-out slice gets one fresh agent (#1420, #1409).
+- [ ] [no-controller-resumes-a-claimed-slice](../plans/2026-10-09-no-controller-resumes-a-claimed-slice.md) — a working desk never reads free, a time-out writes its ending, and a timed-out slice gets one fresh agent (#1420, #1409). <!-- pr: #0, branch: bug/a-working-desk-never-reads-free -->
 
 ### Should Have
 
