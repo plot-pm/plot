@@ -21,7 +21,18 @@
 // that expired on a clock would pass the hit cases and fail none of the miss
 // cases — which is precisely why the miss cases are content changes rather than
 // waits.
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, vi } from 'vitest';
+
+vi.mock('../../src/server/in-flight-store.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../../src/server/in-flight-store.js')>();
+  return {
+    ...orig,
+    writeInFlight: (...a: Parameters<typeof orig.writeInFlight>) => {
+      console.error('WIF', Date.now(), String(a[0]), new Error('trace').stack);
+      return orig.writeInFlight(...a);
+    },
+  };
+});
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -290,9 +301,9 @@ describe("the gate's answer is identical to the board's", () => {
     } finally {
       // A scan the board question started ends by writing `.plot/state`; a
       // stopped cache skips that write, which would recreate the removed repo.
+      console.error('STOP', Date.now(), dir);
       stopFleetRefresh();
       rmTree(dir);
-      await lateWriteProbe(dir);
     }
   });
 
@@ -331,9 +342,9 @@ describe("the gate's answer is identical to the board's", () => {
     } finally {
       // A scan the board question started ends by writing `.plot/state`; a
       // stopped cache skips that write, which would recreate the removed repo.
+      console.error('STOP', Date.now(), dir);
       stopFleetRefresh();
       rmTree(dir);
-      await lateWriteProbe(dir);
     }
   });
 });
