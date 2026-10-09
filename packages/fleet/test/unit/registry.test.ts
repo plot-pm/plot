@@ -20,9 +20,8 @@ import {
 } from '../../src/shared/registry.js';
 import { execFileSync } from 'node:child_process';
 import { AgentStateSchema as DomainAgentStateSchema } from '@plot-pm/domain';
-import { isLiveState } from '../../src/contract/schema.js';
 import { projectSlug } from '../../src/shared/transcript.js';
-import { rmTree } from '../helpers.mjs';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 
 /** The real helper scripts, so the integration block can source the shell. */
 const SCRIPTS_DIR = path.resolve(
@@ -702,7 +701,9 @@ describe('a worker runs at one desk — a desk its worker left is not working', 
     });
     assert.equal(got.find((e) => e.worktree === '/wt/new')!.state, 'running');
     assert.equal(got.find((e) => e.worktree === '/wt/old')!.state, 'ended');
-    assert.equal(got.filter((e) => isLiveState(e.state)).length, 1);
+    // The board's `isLiveState` reads `running` as live and `ended` as not.
+    // The fleet does not import the board, so the test counts `running`.
+    assert.equal(got.filter((e) => e.state === 'running').length, 1);
   });
 
   it('keeps a live free loop with no manifest running and counted', async () => {
@@ -713,7 +714,7 @@ describe('a worker runs at one desk — a desk its worker left is not working', 
     });
     assert.equal(got.length, 1);
     assert.equal(got[0].state, 'running');
-    assert.equal(got.filter((e) => isLiveState(e.state)).length, 1);
+    assert.equal(got.filter((e) => e.state === 'running').length, 1);
   });
 
   it('keeps a desk running when the manifest naming another desk records a different pid', async () => {

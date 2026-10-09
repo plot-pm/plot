@@ -655,14 +655,15 @@ jobs:
       # invocation behind the `Scripts` port, then 28 -> 11 when
       # `the-board-commands-run-through-the-port` moved the ten agent-starting
       # board routes onto the `agentRun` port. What is left of the 11 is `git`
-      # (`idea.ts`, `continue.ts`, `entry/deliver.ts`), a caller-supplied
-      # command (`registry.ts`, `fleet.ts`), and the `/api/continue` agent start
-      # (`continue.ts`). The gate records the migration; it does not perform it.
+      # (`idea.ts`, `entry/deliver.ts`), a caller-supplied command (`fleet.ts`),
+      # and the process starts in `registry.ts` and `continuation.ts`, which are
+      # in `packages/fleet/src`. The gate records the migration; it does not
+      # perform it.
       - name: One place reaches a process
         run: |
           allowed=11
           hits=$(grep -rEn '^[^*/]*\b(spawn|spawnSync|execFile|execFileSync)\s*\(' \
-                   --include='*.ts' packages/board/src packages/domain/src \
+                   --include='*.ts' packages/board/src packages/domain/src packages/fleet/src \
                  | grep -v '/adapters/' || true)
           count=$(printf '%s' "$hits" | grep -c . || true)
           echo "direct spawns outside adapters/: $count (allowed $allowed, target 0)"
@@ -695,15 +696,16 @@ jobs:
       # `plot-*.sh` that appears in an ARGUMENT LIST or a path join, which is
       # what a caller building a command does, and not a bare string constant.
       #
-      # IT IS SCOPED TO PLOT'S OWN SCRIPTS AND NOT TO `bash` AT ALL. The board
-      # still runs `bash -c` over a git program in `registry.ts` — a different
-      # tool through a different contract, with no exit-code mapping to collapse
-      # — and that belongs to the slice beside this one. A gate that failed on it
-      # would be asserting something this branch did not do.
+      # IT IS SCOPED TO PLOT'S OWN SCRIPTS AND NOT TO `bash` AT ALL. `registry.ts`
+      # still runs `bash -c` over a git program — a different tool through a
+      # different contract, with no exit-code mapping to collapse — and that
+      # belongs to the slice beside this one. A gate that failed on it would be
+      # asserting something this branch did not do. The gate reads the board and
+      # the fleet, which holds `registry.ts`.
       - name: One place reaches a script
         run: |
           hits=$(grep -rEn "(execFile|execFileSync|spawn|spawnSync)\([^)]*plot-[a-z-]+\.sh|(join|resolve)\([^)]*'plot-[a-z-]+\.sh'" \
-                   --include='*.ts' packages/board/src || true)
+                   --include='*.ts' packages/board/src packages/fleet/src || true)
           count=$(printf '%s' "$hits" | grep -c . || true)
           if [ "$count" -gt 0 ]; then
             echo "::error::the board invoked a script directly — $count sites, allowed 0."
@@ -951,9 +953,12 @@ jobs:
       # fixture would make grep report "binary file matches" and hide the whole
       # file from the count.
       #
-      # `allowed=1` is `removeTree` in test/rm-tree.mjs, the one call that must
-      # stay raw. Same ratchet shape as above: `::error::` when the count rises,
-      # `::notice::` when it can tighten. The target is 1, not 0.
+      # `allowed=2` is `removeTree` in `packages/board/test/rm-tree.mjs` and in
+      # `packages/fleet/test/rm-tree.mjs`, the one call per package that must
+      # stay raw. The fleet holds a declared copy, because a fleet test that
+      # imports the board's test tree makes the fleet depend on the board. Same
+      # ratchet shape as above: `::error::` when the count rises, `::notice::`
+      # when it can tighten. The target is 2, not 0.
       #
       # THE ONE SHAPE IT MISSES is a call split across lines, because grep reads
       # one line at a time. Measured 2026-09-01: that form occurs nowhere in
@@ -969,15 +974,16 @@ jobs:
       # proving the retry works and must keep working.
       - name: A teardown does not race a child
         run: |
-          allowed=1
+          allowed=2
           hits=$(grep -rEna 'fs\.rmSync\s*\([^)]*recursive' \
-                   packages/board/test || true)
+                   packages/board/test packages/fleet/test || true)
           count=$(printf '%s' "$hits" | grep -c . || true)
-          echo "raw recursive fs.rmSync under packages/board/test: $count (allowed $allowed)"
+          echo "raw recursive fs.rmSync under packages/{board,fleet}/test: $count (allowed $allowed)"
           if [ "$count" -gt "$allowed" ]; then
             echo "::error::a raw recursive fs.rmSync reappeared in a test — $count sites, allowed $allowed."
-            echo "Use rmTree() from test/helpers.mjs: it retries ENOTEMPTY/EBUSY/EPERM,"
-            echo "which is what a teardown racing a still-running child throws."
+            echo "Use rmTree() from test/helpers.mjs (board) or removeTree() from"
+            echo "test/rm-tree.mjs (fleet): it retries ENOTEMPTY/EBUSY/EPERM, which is"
+            echo "what a teardown racing a still-running child throws."
             printf '%s\n' "$hits"
             exit 1
           fi
@@ -1296,15 +1302,25 @@ jobs:
         # HOME, and a leftover entry fails the step.
         run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board test
 
-      # THE BOARD'S FIRST GATED FILE, beside the domain's own coverage gate
-      # above and for the same reason: `loop-writes.ts` is reachable from a
-      # plain call with no process, no port and no browser of its own, so an
-      # uncovered line there is a line nobody specified. Scoped to one path —
-      # `vitest.config.ts`'s own `coverage.include` — rather than the whole
-      # package, which cannot meet 100% today.
-      - name: Board loop coverage gate
+      # ── Fleet: `@plot-pm/fleet` holds the supervisor tick, the agent loop and
+      #    their shared modules. The board build above builds its bundles. ──
+      - name: Fleet typecheck
+        run: pnpm --filter @plot-pm/fleet typecheck
+
+      # Runs after the board build: `worker-loop-bundle.test.mjs` reads the
+      # shipped bundles and `packages/fleet/dist/`, which that build writes.
+      - name: Fleet bundle tests
         timeout-minutes: 10
-        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board exec vitest run --project parallel --coverage
+        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/fleet exec node --test test/*.test.mjs
+
+      # A GATE, like the domain's coverage gate above and for the same reason:
+      # `loop-writes.ts` and `worker-loop.ts` are reachable from a plain call
+      # with no process, no port and no browser of their own, so an uncovered
+      # line there is a line nobody specified. `packages/fleet/vitest.config.ts`
+      # scopes the threshold to those two files.
+      - name: Fleet unit tests + loop coverage gate
+        timeout-minutes: 10
+        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/fleet exec vitest run --coverage
 
       # ── Board integration tests: a real browser (Playwright) renders the just-
       #    built artifact against the tiny-garden fixture, asserting the mobile

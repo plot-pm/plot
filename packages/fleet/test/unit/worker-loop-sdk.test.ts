@@ -2,7 +2,7 @@
 // the agent-run fixture, and `runnerDeps` choosing the runner. No process
 // starts: the connector is the fixture and `boundedRun` is scripted.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { rmTree } from '../helpers.mjs';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 import {
   agentRunFixture,
   boundedRunProcess,

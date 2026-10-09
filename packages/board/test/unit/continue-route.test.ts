@@ -30,19 +30,19 @@ import {
   continueOnDesk,
   stopAndAwaitExit,
   type ContinueRefusal,
-} from '../../src/shared/continuation.js';
-import type { FleetReading } from '../../src/contract/schema.js';
+} from '@plot-pm/fleet/shared/continuation';
+import type { FleetReading } from '@plot-pm/domain';
 import { rmTree } from '../helpers.mjs';
 import { agentsFs, freshAgentRecordFile } from '@plot-pm/domain/adapters';
 import type { DeskMonitors, MonitoredDesk } from '@plot-pm/domain';
-import { startFreshSession } from '../../src/server/entry/registryd-main.js';
+import { startFreshSession } from '@plot-pm/fleet/server/entry/registryd-main';
 import {
   applyFreshAgentDecisions,
   freshAgentCandidateTrees,
   freshAgentDecisions,
   readFreshAgentCandidates,
-} from '../../src/server/entry/registryd.js';
-import { deskManifestFor } from '../../src/shared/manifest-stamp.js';
+} from '@plot-pm/fleet/server/entry/registryd';
+import { deskManifestFor } from '@plot-pm/fleet/shared/manifest-stamp';
 import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import {
   agentsFixture,
@@ -53,7 +53,7 @@ import {
   refusedSlicesFixture,
   treesFixture,
 } from '@plot-pm/domain/adapters';
-import { readPass, type WorkerLoopPorts } from '../../src/server/entry/worker-loop.js';
+import { readPass, type WorkerLoopPorts } from '@plot-pm/fleet/server/entry/worker-loop';
 
 const BRANCH = 'feature/continue-with-an-answer';
 

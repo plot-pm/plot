@@ -112,9 +112,12 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # `.sh` name to the same word before touching a path, and this entry has no
 # shell left to source that function from, so it writes the normalised word
 # directly rather than adding a third `plot-*.sh` literal.
+#
+# `ROOTS` names every package with TypeScript source. `registry.ts`, which
+# holds `WORKER_STATE_SCRIPT`, is in packages/fleet/src.
 ALLOWED=14
 
-ROOTS='packages/board/src packages/domain/src'
+ROOTS='packages/board/src packages/domain/src packages/fleet/src'
 
 # A whole string literal, in any of TypeScript's three quotes.
 PATTERN="'plot-[a-z0-9-]+\.sh'|\"plot-[a-z0-9-]+\.sh\"|\`plot-[a-z0-9-]+\.sh\`"

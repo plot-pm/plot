@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
-import { rmTree } from '../helpers.mjs';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 
 import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
 import type { PortResult } from '@plot-pm/domain';
@@ -29,7 +29,7 @@ import {
   type FreshAgentAskReads,
   type FreshAgentCandidateReadings,
 } from '../../src/server/entry/registryd.js';
-import type { DeskContinuation } from '../../src/server/continue.js';
+import type { DeskContinuation } from '../../src/shared/continuation.js';
 import { startFreshSession, freshAgentDeskReads } from '../../src/server/entry/registryd-main.js';
 import { markerReading } from '../../src/shared/worker-question.js';
 import { agentsFixture } from '@plot-pm/domain/adapters/agents/agents-fixture';

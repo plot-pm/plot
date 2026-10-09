@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { rmTree } from '../helpers.mjs';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 import {
   firstMarkerLine,
   markerIn,
@@ -11,7 +11,7 @@ import {
   workerQuestions,
   QUESTION_MAX,
 } from '../../src/shared/worker-question.js';
-import type { FleetReading, WorkerState } from '../../src/contract/schema.js';
+import type { FleetReading, WorkerState } from '@plot-pm/domain';
 
 // WHAT A DESK IS WAITING ON — read from the marker FILE a worker wrote, not
 // grepped from the contents of every file in the tree.

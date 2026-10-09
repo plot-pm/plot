@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { refsGit, refsRemoteGit, treesGit } from '@plot-pm/domain/adapters';
 import { readResetRefusals } from '../../src/server/entry/worker-loop.js';
-import { rmTree } from '../helpers.mjs';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 
 const SCRIPTS = path.resolve(__dirname, '../../../../skills/plot/scripts');
 const made: string[] = [];

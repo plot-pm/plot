@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { rmTree } from './helpers.mjs';
+import { removeTree as rmTree } from './rm-tree.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BUNDLE = path.join(HERE, '..', 'dist', 'plot-worker-loop.mjs');

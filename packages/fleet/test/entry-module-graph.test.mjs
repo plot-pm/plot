@@ -1,8 +1,6 @@
-// `the-fleet-bundles-import-no-board`: `registryd-main.ts` and `worker-loop.ts`
-// must import nothing from `src/server/` outside `entry/`, directly or
-// transitively, so the fleet's entries can move into their own package
-// without carrying the board's graph (`board.ts`, `fleet.ts`, `dispatch.ts`,
-// `continue.ts`, `agent-panel.ts`, `controllers/caller.ts`, …).
+// The fleet's entries import nothing from `packages/board/`, directly or
+// transitively. `@plot-pm/fleet` depends on the domain and on Node builtins;
+// the board depends on the fleet, and never the other way round.
 //
 // A GREP OF THE SHIPPED BUNDLE PROVES NOTHING. Both bundles already ship with
 // zero `node:http` and zero `createServer` — the minifier drops the unused
@@ -17,10 +15,10 @@ import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const BOARD_ROOT = path.join(HERE, '..');
+const PACKAGE_ROOT = path.join(HERE, '..');
 
-/** A board-side input is anything under `src/server/` outside `entry/`. */
-const BOARD_INPUT = /^src\/server\/(?!entry\/)/;
+/** The board's package directory, as an absolute path with a trailing separator. */
+const BOARD_DIR = path.join(PACKAGE_ROOT, '..', 'board') + path.sep;
 
 /**
  * Builds one entry with a metafile and returns the board-side inputs it
@@ -34,20 +32,25 @@ const BOARD_INPUT = /^src\/server\/(?!entry\/)/;
  */
 const boardInputsFor = async (entry, extra = {}) => {
   const result = await esbuild.build({
-    entryPoints: [path.join(BOARD_ROOT, entry)],
+    entryPoints: [path.join(PACKAGE_ROOT, entry)],
+    absWorkingDir: PACKAGE_ROOT,
     bundle: true,
     platform: 'node',
     format: 'esm',
     target: 'node20',
     write: false,
     metafile: true,
-    outfile: path.join(BOARD_ROOT, 'dist/_entry-module-graph-scratch.mjs'),
+    outfile: path.join(PACKAGE_ROOT, 'dist/_entry-module-graph-scratch.mjs'),
     ...extra,
   });
-  return Object.keys(result.metafile.inputs).filter((key) => BOARD_INPUT.test(key));
+  // Metafile keys are relative to `absWorkingDir`, so a board file reads as
+  // `../board/src/…`. Resolving each key makes the check independent of that.
+  return Object.keys(result.metafile.inputs).filter((key) =>
+    path.resolve(PACKAGE_ROOT, key).startsWith(BOARD_DIR),
+  );
 };
 
-describe('the fleet entries import nothing from the board outside entry/', () => {
+describe('the fleet entries import nothing from the board', () => {
   it('registryd-main.ts pulls in no board module', async () => {
     const found = await boardInputsFor('src/server/entry/registryd-main.ts');
     assert.deepEqual(found, [], `registryd-main.ts still imports: ${found.join(', ')}`);

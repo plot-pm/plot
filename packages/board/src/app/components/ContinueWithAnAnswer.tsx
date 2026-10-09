@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ContinueRefusal } from '../../shared/continuation.js';
+import type { ContinueRefusal } from '@plot-pm/fleet/shared/continuation';
 
 /**
  * The control that answers a stopped agent — **named as a continuation, and the

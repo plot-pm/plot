@@ -88,16 +88,16 @@ describe('the subject rule has named callers', () => {
   it('names `mergedBySubject` only where the rule is asked', () => {
     expect(callersOf('mergedBySubject')).toEqual([
       'packages/board/src/server/entry/merge-subject.ts',
-      'packages/board/src/server/entry/registryd-main.ts',
       'packages/domain/src/rules/merge-subject.ts',
+      'packages/fleet/src/server/entry/registryd-main.ts',
     ]);
   });
 
   it('names `ownerOfRemote` only where the owner is read', () => {
     expect(callersOf('ownerOfRemote')).toEqual([
       'packages/board/src/server/entry/merge-subject.ts',
-      'packages/board/src/server/entry/registryd-main.ts',
       'packages/domain/src/rules/remote-owner.ts',
+      'packages/fleet/src/server/entry/registryd-main.ts',
     ]);
   });
 
@@ -105,17 +105,17 @@ describe('the subject rule has named callers', () => {
   // `subjectProven`, and the merges walk is a refs-port reading.
   it('names `subjectProven` only in the queue and the world that answers it', () => {
     expect(callersOf('subjectProven')).toEqual([
-      'packages/board/src/server/entry/registryd-main.ts',
-      'packages/board/src/shared/queue-reading.ts',
+      'packages/fleet/src/server/entry/registryd-main.ts',
+      'packages/fleet/src/shared/queue-reading.ts',
     ]);
   });
 
   it('names `mergeSubjects` only in the refs port, its adapters and the queue world', () => {
     expect(callersOf('mergeSubjects')).toEqual([
-      'packages/board/src/server/entry/registryd-main.ts',
       'packages/domain/src/adapters/refs/refs-fixture.ts',
       'packages/domain/src/adapters/refs/refs-git.ts',
       'packages/domain/src/ports/refs.ts',
+      'packages/fleet/src/server/entry/registryd-main.ts',
     ]);
   });
 
@@ -142,8 +142,8 @@ describe('the subject rule has named callers', () => {
   it('names `mergeSubjectForms` only in the adapter and the two entries', () => {
     expect(callersOf('mergeSubjectForms')).toEqual([
       'packages/board/src/server/entry/merge-subject.ts',
-      'packages/board/src/server/entry/registryd-main.ts',
       'packages/domain/src/adapters/host/merge-subjects.ts',
+      'packages/fleet/src/server/entry/registryd-main.ts',
     ]);
   });
 });

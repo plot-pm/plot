@@ -26,7 +26,7 @@ import { askForBriefLogPath, briefAskPrompt } from '../../src/server/brief-ask.j
 import { boardRunsSettled, leaveBoardRunsToTheBoard } from '../../src/server/board-run.js';
 import { run as askEntry } from '../../src/server/entry/main.js';
 import { FleetReadingSchema, type FleetReading } from '../../src/contract/schema.js';
-import type { AgentEntry } from '../../src/shared/registry.js';
+import type { AgentEntry } from '@plot-pm/fleet/shared/registry';
 import type { FleetSettings } from '../../src/server/fleet-settings.js';
 import { rmTree } from '../helpers.mjs';
 

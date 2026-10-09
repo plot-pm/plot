@@ -24,7 +24,7 @@ import {
   composeContinuation,
   landedCommits,
   readBrief,
-} from '../../src/shared/continuation.js';
+} from '@plot-pm/fleet/shared/continuation';
 import { continueAvailability } from '../../src/server/continue.js';
 import { rmTree } from '../helpers.mjs';
 

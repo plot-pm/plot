@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { FleetReading } from '../contract/schema.js';
+import type { FleetReading } from '@plot-pm/domain';
 
 /** What a desk's marker asks and when it was written: the first line and an ISO-8601 modification time. */
 export interface MarkerReading {

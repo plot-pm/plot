@@ -1,7 +1,7 @@
 import http from 'node:http';
 import type { BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
-import { readFleetSettings, writeFleetSettings, type FleetSettings } from '../shared/fleet-settings-store.js';
+import { readFleetSettings, writeFleetSettings, type FleetSettings } from '@plot-pm/fleet/shared/fleet-settings-store';
 
 /**
  * `POST /api/fleet-controls` — the HTTP half of the fleet settings.
@@ -21,7 +21,7 @@ export {
   defaultFleetSettings,
   readFleetSettings,
   writeFleetSettings,
-} from '../shared/fleet-settings-store.js';
+} from '@plot-pm/fleet/shared/fleet-settings-store';
 
 export interface FleetSettingsOptions extends BuildBoardOptions {
   host: string;

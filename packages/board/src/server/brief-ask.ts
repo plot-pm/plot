@@ -20,7 +20,7 @@ import path from 'node:path';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { startBoardRun } from './board-run.js';
 import { usableCommand } from './idea.js';
-import { briefPath } from '../shared/brief-path.js';
+import { briefPath } from '@plot-pm/fleet/shared/brief-path';
 
 /** The `## Plot Config` key naming the command that writes a brief. */
 export const BRIEF_COMMAND_KEY = 'Brief command';

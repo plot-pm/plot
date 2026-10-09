@@ -91,11 +91,11 @@ import {
   type SupervisionReportReadings,
 } from './supervision-report-reading.js';
 import { maybeAutoDeliver } from './auto-deliver.js';
-import { readAgentRegistryWithInfo, bashCleanliness } from '../shared/registry.js';
-import type { RegistryInfo } from '../shared/registry.js';
-import type { AgentEntry } from '../shared/registry.js';
-import { workerQuestions } from '../shared/worker-question.js';
-import { briefPath as briefPathOf } from '../shared/brief-path.js';
+import { readAgentRegistryWithInfo, bashCleanliness } from '@plot-pm/fleet/shared/registry';
+import type { RegistryInfo } from '@plot-pm/fleet/shared/registry';
+import type { AgentEntry } from '@plot-pm/fleet/shared/registry';
+import { workerQuestions } from '@plot-pm/fleet/shared/worker-question';
+import { briefPath as briefPathOf } from '@plot-pm/fleet/shared/brief-path';
 import { briefReading } from './brief-ask-log.js';
 import { findingsFor } from './findings.js';
 

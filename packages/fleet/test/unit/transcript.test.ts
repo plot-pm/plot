@@ -19,7 +19,7 @@ import {
   transcriptFacts,
   transcriptFile,
 } from '../../src/shared/transcript.js';
-import { rmTree } from '../helpers.mjs';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 
 /** An assistant line shaped exactly as the runtime writes one. */
 function assistantLine(over: Record<string, unknown> = {}) {

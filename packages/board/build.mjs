@@ -11,6 +11,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pruneStaleVendoredHelpers } from './vendored-helpers.mjs';
+import {
+  buildFleetBundles,
+  registrydArtifact,
+  workerLoopArtifact,
+  fleetSizeArtifact,
+  promptArtifact,
+} from '../fleet/build.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const clientHtml = path.join(here, 'dist/client/index.html');
@@ -18,6 +25,13 @@ if (!fs.existsSync(clientHtml)) {
   console.error('Missing dist/client/index.html — run `pnpm run build:client` first.');
   process.exit(1);
 }
+
+// `@plot-pm/fleet` builds four bundles: `plot-registryd.mjs`,
+// `plot-worker-loop.mjs`, `plot-fleet-size.mjs` and `plot-prompt.mjs`. This
+// file keeps their `shipped*` declarations, because the gates and
+// `bundles.generated.ts` derive the generated set from this file alone, and
+// copies each bundle from `packages/fleet/dist/` to its shipped path.
+await buildFleetBundles();
 
 // The prose the generated module carries, held apart from the loop that fills
 // it so the explanation a reader meets in `bundles.generated.ts` is readable
@@ -264,20 +278,7 @@ fs.chmodSync(shippedTransition, 0o755);
 // `packages/` does not exist, so an inline import of the domain source would
 // resolve only in the plot checkout — and every worker elsewhere would take the
 // fallback prompt without anything saying it had.
-const promptArtifact = path.join(here, 'dist/plot-prompt.mjs');
 const shippedPrompt = path.join(here, '../../skills/plot/scripts/board/plot-prompt.mjs');
-
-await esbuild.build({
-  entryPoints: [path.join(here, 'src/server/entry/prompt.ts')],
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  target: 'node20',
-  outfile: promptArtifact,
-  minify: true,
-  legalComments: 'none',
-  banner: { js: '#!/usr/bin/env node' },
-});
 
 fs.copyFileSync(promptArtifact, shippedPrompt);
 fs.chmodSync(shippedPrompt, 0o755);
@@ -397,53 +398,17 @@ fs.chmodSync(shippedAgentState, 0o755);
 // two processes with different owners (launchd/systemd keeps this one alive,
 // nothing keeps the board alive), different failure modes and different
 // cadences, sharing one exit.
-const registrydArtifact = path.join(here, 'dist/plot-registryd.mjs');
 const shippedRegistryd = path.join(here, '../../skills/plot/scripts/board/plot-registryd.mjs');
-
-await esbuild.build({
-  entryPoints: [path.join(here, 'src/server/entry/registryd-main.ts')],
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  target: 'node20',
-  outfile: registrydArtifact,
-  minify: true,
-  legalComments: 'none',
-  banner: { js: '#!/usr/bin/env node' },
-});
-
-fs.copyFileSync(registrydArtifact, shippedRegistryd);
-fs.chmodSync(shippedRegistryd, 0o755);
 
 // The agent's own loop: `plot-worker-loop.mjs`, one process for an agent's
 // whole life. The launcher at the top of `plot-worker-loop.sh` `exec`s this
 // bundle unconditionally — there is no shell loop body left to fall back to.
 // See `entry/worker-loop.ts` for what it decides and what it does not.
-//
-// ONE OF TWO BUNDLES THAT CARRY `@anthropic-ai/claude-agent-sdk`, for the SDK
-// runner (`Agent runner: sdk`) — `board-server.mjs` above is the other, for a
-// board role configured onto the same runner. Both exclude the SDK's optional
-// per-platform packages, which hold a 229-246 MB `claude` binary each: the SDK
-// runs the operator's `claude` from PATH instead. No other bundle imports
-// `agent-run-sdk.ts`, and `test/worker-loop-bundle.test.mjs` proves
-// `plot-registryd.mjs` and the rest carry none of it.
-const workerLoopArtifact = path.join(here, 'dist/plot-worker-loop.mjs');
+// It carries the Agent SDK; `packages/fleet/build.mjs` says why.
 const shippedWorkerLoop = path.join(here, '../../skills/plot/scripts/board/plot-worker-loop.mjs');
 
-await esbuild.build({
-  entryPoints: [path.join(here, 'src/server/entry/worker-loop.ts')],
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  target: 'node20',
-  outfile: workerLoopArtifact,
-  external: ['@anthropic-ai/claude-agent-sdk-*'],
-  define: { PLOT_EMBEDDED: 'true' },
-  minify: true,
-  legalComments: 'none',
-  banner: { js: '#!/usr/bin/env node' },
-});
-
+fs.copyFileSync(registrydArtifact, shippedRegistryd);
+fs.chmodSync(shippedRegistryd, 0o755);
 fs.copyFileSync(workerLoopArtifact, shippedWorkerLoop);
 fs.chmodSync(shippedWorkerLoop, 0o755);
 
@@ -623,20 +588,7 @@ fs.chmodSync(shippedProposeStack, 0o755);
 // node_modules cannot resolve. So this carries both rules, zod bundled in; a
 // bundle of fleetSize alone would import cleanly and still fail, because
 // headroomFor is the half that reaches zod.
-const fleetSizeArtifact = path.join(here, 'dist/plot-fleet-size.mjs');
 const shippedFleetSize = path.join(here, '../../skills/plot/scripts/board/plot-fleet-size.mjs');
-
-await esbuild.build({
-  entryPoints: [path.join(here, 'src/server/entry/fleet-size.ts')],
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  target: 'node20',
-  outfile: fleetSizeArtifact,
-  minify: true,
-  legalComments: 'none',
-  banner: { js: '#!/usr/bin/env node' },
-});
 
 fs.copyFileSync(fleetSizeArtifact, shippedFleetSize);
 fs.chmodSync(shippedFleetSize, 0o755);
