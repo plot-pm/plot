@@ -1017,24 +1017,17 @@ if [ "$mode" = "start" ]; then
     served=$(supervisor_checkout)
     case "$served" in
       this\ *)
-        echo "plot-fleetctl: '$LABEL' is already loaded, serving THIS repository (${served#this })" >&2
-        echo "  The fleet is already supervised here. See it: /plot-fleet --status" >&2
-        echo "  To restart it: /plot-fleet --stop, then /plot-fleet --start" >&2
+        printf 'plot-fleetctl: '"'"'%s'"'"' is already loaded, serving THIS repository (%s)\n  The fleet is already supervised here. See it: /plot-fleet --status\n  To restart it: /plot-fleet --stop, then /plot-fleet --start\n' "$LABEL" "${served#this }" >&2
         ;;
       another\ *)
-        echo "plot-fleetctl: '$LABEL' is already loaded, serving ANOTHER checkout (${served#another })" >&2
-        echo "  This repository is $repo_root. That supervisor is not yours to stop." >&2
-        echo "  Give this checkout its own label — skills/plot/units/README.md" >&2
+        printf 'plot-fleetctl: '"'"'%s'"'"' is already loaded, serving ANOTHER checkout (%s)\n  This repository is %s. That supervisor is not yours to stop.\n  Give this checkout its own label — skills/plot/units/README.md\n' "$LABEL" "${served#another }" "$repo_root" >&2
         ;;
       *)
-        echo "plot-fleetctl: '$LABEL' is already loaded, and which checkout it serves cannot be determined" >&2
         case "$plat" in
           launchd) how="launchctl print gui/\$(id -u)/$LABEL" ;;
           *)       how="systemctl --user show $UNIT_NAME" ;;
         esac
-        echo "  $plat names no working directory for it, so it may be another checkout's." >&2
-        echo "  Read it before stopping it: $how" >&2
-        echo "  Or, for a second checkout, give it its own label — skills/plot/units/README.md" >&2
+        printf 'plot-fleetctl: '"'"'%s'"'"' is already loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it may be another checkout'"'"'s.\n  Read it before stopping it: %s\n  Or, for a second checkout, give it its own label — skills/plot/units/README.md\n' "$LABEL" "$plat" "$how" >&2
         ;;
     esac
     exit 1
