@@ -19,7 +19,11 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { implementLogPath, implementRunState } from './implement.js';
+import { readRunState } from './board-run.js';
+import {
+  implementBranchStatePath, implementLogPath, implementRunState, readImplementBranch,
+  type ImplementRunState,
+} from './implement.js';
 import { askForBriefLogPath } from './brief-ask.js';
 
 /**
@@ -72,6 +76,22 @@ const mtimeOf = (file: string): number | null => {
   }
 };
 
+/**
+ * The implement run that counts for one branch, or `null` where none does.
+ *
+ * A run given this branch counts through its own state file. A run given another
+ * branch counts for nothing here. A run that named no branch counts for every
+ * branch of the plan, as it did before runs named one.
+ */
+const implementRunFor = (repoRoot: string, branch: string, planSlug: string): ImplementRunState | null => {
+  const own = implementBranchStatePath(repoRoot, planSlug, branch);
+  if (fs.existsSync(own)) {
+    const log = implementLogPath(repoRoot, planSlug);
+    return { ...readRunState(own, log), log, statePath: own };
+  }
+  return readImplementBranch(repoRoot, planSlug) === null ? implementRunState(repoRoot, planSlug) : null;
+};
+
 /** What one branch's brief asks say, from one reading of the askers' logs. */
 export interface BriefReading {
   /** Epoch milliseconds of the earliest ask that counts, or null. */
@@ -86,13 +106,14 @@ export interface BriefReading {
  *
  * The dispatch script's log and the board asker's log count as asks whenever
  * they exist; their mtimes are read, never their size, so an empty log is an
- * ask. The implement route's log counts as an ask while its run is unfinished
- * (a log and no state file), and while it is failed (a non-zero state) and no
+ * ask. The implement route's log counts as an ask while its run is unfinished,
+ * and while it is failed (a non-zero state) and no
  * other asker's log is newer than the state file. A run that recorded `0` is
  * no ask: the log is keyed per PLAN and outlives its run, while a brief is per
- * BRANCH. Because that log is keyed per plan, a run writing one slice's brief
- * also makes every brief-less sibling slice of the same plan read as asked, or
- * as failed.
+ * BRANCH. A run given a branch (`PLOT_BRIEF_BRANCH`) is read through that
+ * branch's own state file, so `running <pid>` with a live pid reads as asked for
+ * that branch alone, and a dead pid reads as failed for it alone. Only a run that
+ * named no branch is read per plan, marking every brief-less sibling.
  *
  * `failed` is read from the recorded exit through `implementRunState`; no
  * process is probed and the log's content is not read. The reading is per
@@ -112,10 +133,12 @@ export const briefReading = (repoRoot: string, branch: string, planSlug: string)
   const others = [dispatchLog, boardLog]
     .map((rel) => mtimeOf(path.join(repoRoot, rel)))
     .filter((at): at is number => at !== null);
-  const run = implementRunState(repoRoot, planSlug);
+  const run = implementRunFor(repoRoot, branch, planSlug);
   let implementAt: number | null = null;
   let failed: string | null = null;
-  if (run.state === 'running') {
+  if (run === null) {
+    /* the run briefed another branch, or none ran */
+  } else if (run.state === 'running') {
     implementAt = mtimeOf(run.log);
   } else if (run.state === 'failed') {
     const recordedAt = mtimeOf(run.statePath);
