@@ -139,7 +139,7 @@ plot-worker-state.sh	the `processes` port answers this — `workerState(worktree
 plot-fleet-scan.sh	the `refs` port answers this — `pulse()`, implemented at adapters/refs/refs-git.ts:135 over this same script.
 plot-fleetctl.sh	no port answers this yet. It reads whether a supervisor is loaded; that is a `machine` question and the port has no op for it.
 plot-dispatch.sh	no port answers this yet. Starting an agent is the `performer` port's shape (`startFreeAgent`), and fanning a slice out is the op it lacks.
-plot-approve.sh	no port answers this yet. Approving is a plan lifecycle write and `plan-store` reads only.
+plot-approve.sh	the `trees` port answers this — `addBranch(path, branch, start)`, implemented at adapters/trees/trees-git.ts with `git worktree add -B`; `board/plot-approve.mjs` is the entry that asks it.
 plot-deliver.sh	no port answers this yet. Delivering is a plan lifecycle write and `plan-store` reads only.
 plot-reap.sh	the `trees` port answers this — `removeOnly(path)`, implemented at adapters/trees/trees-git.ts with `git worktree remove --force`; `board/plot-reap.mjs` is the entry that asks it.
 plot-release-refs.sh	no port answers this yet. Deleting a remote ref is a `refs` write, and `refs` carries none.

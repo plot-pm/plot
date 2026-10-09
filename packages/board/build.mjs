@@ -1175,6 +1175,28 @@ await esbuild.build({
 fs.copyFileSync(deliverArtifact, shippedDeliver);
 fs.chmodSync(shippedDeliver, 0o755);
 
+// `plot-approve.sh`'s mechanical half — the second operator-command entry that
+// performs its writes rather than printing a reading, through the same adapters
+// as plot-deliver.mjs above. `plot-approve.sh` keeps its name as a launcher
+// because the skills, hooks and tests name its `.sh` path.
+const approveArtifact = path.join(here, 'dist/plot-approve.mjs');
+const shippedApprove = path.join(here, '../../skills/plot/scripts/board/plot-approve.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/approve.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: approveArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(approveArtifact, shippedApprove);
+fs.chmodSync(shippedApprove, 0o755);
+
 // The estate sweep's mechanical half — same reason as plot-deliver.mjs above:
 // `plot-reap.sh` gathered its readings and asked `rules/reapable.ts` through a
 // path derived from its own checkout, which resolves only inside the plot
@@ -1344,6 +1366,7 @@ const checkoutYieldKb = (fs.statSync(shippedCheckoutYield).size / 1024).toFixed(
 const emptyClaimKb = (fs.statSync(shippedEmptyClaim).size / 1024).toFixed(1);
 const controllerInvocationKb = (fs.statSync(shippedControllerInvocation).size / 1024).toFixed(1);
 const deliverKb = (fs.statSync(shippedDeliver).size / 1024).toFixed(1);
+const approveKb = (fs.statSync(shippedApprove).size / 1024).toFixed(1);
 const claimAnswerKb = (fs.statSync(shippedClaimAnswer).size / 1024).toFixed(1);
 const reapKb = (fs.statSync(shippedReap).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
@@ -1381,6 +1404,7 @@ console.log(`Built plot-checkout-yield.mjs (${checkoutYieldKb} KB) → skills/pl
 console.log(`Built plot-empty-claim.mjs (${emptyClaimKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-controller-invocation.mjs (${controllerInvocationKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-deliver.mjs (${deliverKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-approve.mjs (${approveKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-claim-answer.mjs (${claimAnswerKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-reap.mjs (${reapKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
