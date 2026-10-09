@@ -4,6 +4,7 @@ import { allSlicesConfirmed, allSlicesMerged, type FleetReading, type PlanFile }
 import { readConfig } from './config-reader.js';
 import { usableCommand } from './usable-command.js';
 import { deliverLogPath, scriptsOf, type ActOptions } from './action-log.js';
+import { readInFlight, writeInFlight } from './in-flight-store.js';
 import { recordActionReceipt } from './action-receipt.js';
 import { startBoardRun } from './board-run.js';
 
@@ -576,3 +577,35 @@ export function maybeAutoDeliver(
   const started = runAutoDeliver(opts, plans);
   return new Set([...pruned, ...started]);
 }
+
+/**
+ * One delivery pass over the marks on disk: read them, retire the confirmed,
+ * mark what is about to start, then start it.
+ *
+ * The marks live in `.plot/state/auto-deliver-in-flight.json` with the
+ * dispatch marks' format and 90 s lifetime, so a daemon restart inside that
+ * window does not deliver a plan twice. Each pass renews the marks it still
+ * holds, so a delivery that outlives 90 s stays marked while it is pending.
+ *
+ * A mark file that exists and cannot be read starts nothing: the marks are the
+ * only evidence that a delivery is running, and a pass blind to them would start
+ * a second one.
+ *
+ * @param opts - where the fleet acts.
+ * @param pulse - the pulse the scan just wrote.
+ */
+export const runAutoDeliverPass = (opts: ActOptions, pulse: FleetReading | null): void => {
+  const read = readInFlight(opts.repoRoot, Date.now(), 'deliver');
+  if (read.branches === null) {
+    console.log(`auto-deliver: cannot read the in-flight record (${read.error}); starting nothing this pass`);
+    return;
+  }
+  const complete = pulse !== null;
+  const pruned = pruneDelivering(read.branches, pulse, complete);
+  const plans = planAutoDeliver({ pulse, inFlight: pruned, complete });
+  // MARKED BEFORE THE SPAWN, for the reason auto-dispatch marks first: a crash
+  // between the two may over-mark and never under-mark.
+  const markError = writeInFlight(opts.repoRoot, [...pruned, ...plans.map((p) => p.slug)], Date.now(), 'deliver');
+  if (markError) console.log(`auto-deliver: could not record in-flight marks: ${markError}`);
+  if (plans.length > 0) runAutoDeliver(opts, plans);
+};

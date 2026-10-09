@@ -172,9 +172,8 @@ export function maybeAutoDispatch(
   // second value would change the contract every existing caller reads, to
   // express a lifetime the caller already owns.
   //
-  // IN MEMORY AND PER-BOARD, the lifetime `deliverInFlight` already has and for
-  // its reason: a restart loses it, the brief either landed or did not, and the
-  // next pass asks again. That is the same recovery `plot-registryd.mjs` relies
+  // IN MEMORY AND PER-DAEMON: a restart loses it, the brief either landed or
+  // did not, and the next pass asks again. That is the same recovery `plot-registryd.mjs` relies
   // on by holding nothing between ticks — so no state file, deliberately.
   const pruned = pruneInFlight(inFlight, pulse, agents);
   const liveCount = liveAgentCount(agents, pulse);

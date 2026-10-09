@@ -53,6 +53,7 @@ import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gat
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../../shared/registry.js';
 import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
+import { fleetAutoWrites } from '../../shared/auto-writes.js';
 import { freshPrState } from '../../shared/pr-refresh.js';
 import { freshScanState } from '../../shared/fleet-scan.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
@@ -1746,6 +1747,9 @@ export const run = async (
           freshScanState(),
           () => Date.now(),
           warn,
+          // THE AUTOMATIC WRITES RUN HERE, on the pulse this scan just wrote
+          // and never inside `tick`: a scan that failed calls nothing.
+          fleetAutoWrites({ repoRoot, scriptsDir, scripts }, warn),
         ),
         prs: fleetPrs(
           {
