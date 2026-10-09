@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-09, jwloka, in-session
 - **Started:** 2026-10-09, jwloka, `feature/the-fleet-bundles-import-no-board`
 - **Started:** 2026-10-09, jwloka, `feature/the-fleet-package-exists`
+- **Started:** 2026-10-09, jwloka, `feature/the-supervisor-is-plot-fleetd`
 
 ## Changelog
 
