@@ -75,7 +75,7 @@ The rule stays pure: it reads the ending, the branch readings and the fresh-sess
 
 ### A time-out writes its ending
 
-- `feature/a-time-out-writes-its-ending` — reproduce the exit-124-without-an-ending case from 2026-10-09 and route that exit path through `agentLoop` so it writes a `bound` or `unreadable` ending <!-- builds: the bound ending on every time-out exit path of the worker loop -->
+- `feature/a-time-out-writes-its-ending` — reproduce the exit-124-without-an-ending case from 2026-10-09 and route that exit path through `agentLoop` so it writes a `bound` or `unreadable` ending → #1431 <!-- builds: the bound ending on every time-out exit path of the worker loop -->
 
 ### A timed-out slice gets a fresh agent
 
