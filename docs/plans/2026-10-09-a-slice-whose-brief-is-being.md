@@ -5,8 +5,9 @@
 ## Status
 
 - **State:** Draft
-- **Type:** feature
+- **Type:** bug
 - **Issue:** #1417
+- **Sprint:** the-release-train-fixes-what-it-found
 - **Review:** in-session
 - **Impl:** own branches
 
