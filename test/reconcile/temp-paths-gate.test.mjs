@@ -91,18 +91,28 @@ passes('mktemp in scripts/, which is outside the mktemp rule', script('d=$(mktem
 passes('mktemp inside plot-tmp.sh itself', script('x=$(mktemp -d "${TMPDIR:-/tmp}/plot-$2.XXXXXX")', 'trap _plot_tmp_on_exit EXIT'),
   'skills/plot/scripts/plot-tmp.sh');
 
+// THE LIVE LIST IS EMPTY TODAY. It was one entry, `plot-reap.sh`'s own
+// `/private/tmp` normalisation; `the-reaper-becomes-a-command` moved that
+// logic into `packages/board/src/server/entry/reap.ts`, outside the trees
+// this gate scans, and the shell file left behind carries no exception-worthy
+// line at all. So these two tests — proving an exception can pass AND that a
+// stale one is refused — run the gate's OWN body with the real `EXCEPTIONS`
+// value spliced out and a constructed one substituted; the mechanism they
+// prove does not depend on any exception currently being live.
+const fixtureGateWith = (exceptions) => {
+  const body = readFileSync(gate, 'utf8').replace(/^EXCEPTIONS='.*'$/m, `EXCEPTIONS='${exceptions}'`);
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-tempgate-fixture-'));
+  const fixtureGate = path.join(dir, 'check-temp-paths.sh');
+  writeFileSync(fixtureGate, body);
+  return fixtureGate;
+};
+
 test('temp-paths gate: the named exception passes, and a stale one fails', () => {
-  // ONE EXCEPTION, AND IT WAS TWO. `plot-update-board.sh`'s
-  // `/tmp/plot-board-cache-` line was the second; slice 3 of
-  // `every-temp-directory-has-an-owner` moved that cache to
-  // `~/.plot/state/board-cache/` and deleted the entry, which is the shrink this
-  // test's second half has always asserted. The assertion is kept and its
-  // subject moved: a stale entry is now CONSTRUCTED rather than borrowed from
-  // the live list, because the live list no longer holds one to go stale.
+  const fixtureGate = fixtureGateWith('skills/plot/scripts/plot-reap.sh\ttmp-literal\t/private/tmp/*|');
   const dir = treeWith({
     'skills/plot/scripts/plot-reap.sh': script('case "$p" in', '  /private/tmp/*|/private/var/*|/private/etc/*) p=${p#/private} ;;', 'esac'),
   });
-  let got = run(dir);
+  let got = spawnSync('bash', [fixtureGate, dir], { encoding: 'utf8' });
   assert.equal(got.status, 0, got.stdout);
   assert.match(got.stdout, /exception list: 1/);
 
@@ -112,18 +122,21 @@ test('temp-paths gate: the named exception passes, and a stale one fails', () =>
     path.join(dir, 'skills/plot/scripts/plot-reap.sh'),
     script('case "$p" in', '  /var/*) p=${p} ;;', 'esac'),
   );
-  got = run(dir);
+  got = spawnSync('bash', [fixtureGate, dir], { encoding: 'utf8' });
   rmSync(dir, { recursive: true, force: true });
+  rmSync(path.dirname(fixtureGate), { recursive: true, force: true });
   assert.equal(got.status, 1, got.stdout);
   assert.match(got.stdout, /matches nothing; delete it/);
 });
 
 test('temp-paths gate: an exception covers only its own line', () => {
+  const fixtureGate = fixtureGateWith('skills/plot/scripts/plot-reap.sh\ttmp-literal\t/private/tmp/*|');
   const dir = treeWith({
     'skills/plot/scripts/plot-reap.sh': script('case "$p" in', '  /private/tmp/*|/private/var/*) p=${p#/private} ;;', 'esac', 'echo x > /tmp/plot-reap.log'),
   });
-  const got = run(dir);
+  const got = spawnSync('bash', [fixtureGate, dir], { encoding: 'utf8' });
   rmSync(dir, { recursive: true, force: true });
+  rmSync(path.dirname(fixtureGate), { recursive: true, force: true });
   assert.equal(got.status, 1, got.stdout);
   assert.match(got.stdout, /plot-reap\.sh:5: \[tmp-literal\]/);
 });

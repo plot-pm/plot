@@ -17,6 +17,8 @@ export interface HostFixture {
   backend?: HostBackend;
   /** The branches the host reports as merged. Everything else is `not-merged`. */
   merged?: readonly string[];
+  /** The head shas of each branch's merged PRs, keyed by branch, for `prMergedHeads`. */
+  mergedHeads?: Readonly<Record<string, readonly string[]>>;
   /** The PRs `prList` reports, and `prState` looks up by number. */
   prs?: readonly Pr[];
   /**
@@ -104,6 +106,10 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
       // one place it states the PR. `''` where the branch has no merged PR,
       // which is the port's answer for *nothing merged*.
       answered(prs.find((pr) => pr.head === branch && pr.mergedAt !== null)?.mergeCommit ?? ''),
+
+    prMergedHeads: async (branch): Promise<PortResult<readonly string[]>> =>
+      // A branch absent from the table has no merged head — an answer.
+      answered(fixture.mergedHeads?.[branch] ?? []),
 
     prCreate: async (request): Promise<PortResult<string>> => {
       opened.push(request);

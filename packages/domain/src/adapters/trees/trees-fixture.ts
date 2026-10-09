@@ -43,6 +43,12 @@ export interface TreesFixture {
    */
   dirty?: Readonly<Record<string, readonly string[]>>;
   /**
+   * The porcelain lines {@link dirtyPathsWithStatus} would read, keyed by
+   * path, status code included (`?? half-done.txt`). A path absent from the
+   * table holds none.
+   */
+  dirtyWithStatus?: Readonly<Record<string, readonly string[]>>;
+  /**
    * The unfiltered changed paths each checkout holds, keyed by path; read by
    * `changedUnder`, which answers those under a given pathspec. A path absent
    * from the table holds none.
@@ -95,6 +101,20 @@ export interface TreesFixture {
   claimCommits?: Readonly<Record<string, CommitReading>>;
   /** Paths where `resetOnto` refuses — the checkout-failure case. */
   resetRefusedAt?: readonly string[];
+  /** Paths where `removeOnly` refuses — the git-level removal failure case. */
+  removeRefusedAt?: readonly string[];
+  /** Branches where `deleteBranch` refuses. */
+  deleteRefusedFor?: readonly string[];
+  /**
+   * What `unpushedCommits` answers, keyed by path. A path absent from the
+   * table reads `failed`, the direction the git adapter fails in.
+   */
+  unpushed?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * What `unpushedPatches` answers, keyed by path. A path absent from the
+   * table reads `failed`, the direction the git adapter fails in.
+   */
+  unpushedPatches?: Readonly<Record<string, readonly string[]>>;
   /** Paths where `commit` fails. */
   commitFailsAt?: readonly string[];
   /** Paths where `push` fails. */
@@ -160,6 +180,7 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
       answered((markers[path] ?? []).filter((name) => name.startsWith(prefix))),
 
     dirtyPaths: async (path) => answered(dirty[path] ?? []),
+    dirtyPathsWithStatus: async (path) => answered(fixture.dirtyWithStatus?.[path] ?? []),
     changedUnder: async (path, pathspecs) =>
       answered((fixture.changed?.[path] ?? []).filter((file) => pathspecs.some((spec) => file.startsWith(spec)))),
 
@@ -196,6 +217,22 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
     addBranch: async () => answered(undefined),
 
     removeWithBranch: async () => answered(undefined),
+
+    removeOnly: async (path): Promise<PortResult<void>> =>
+      (fixture.removeRefusedAt ?? []).includes(path) ? failed<void>() : answered(undefined),
+
+    deleteBranch: async (branch): Promise<PortResult<void>> =>
+      (fixture.deleteRefusedFor ?? []).includes(branch) ? failed<void>() : answered(undefined),
+
+    unpushedCommits: async (path): Promise<PortResult<readonly string[]>> => {
+      const shas = fixture.unpushed?.[path];
+      return shas === undefined ? failed<readonly string[]>() : answered(shas);
+    },
+
+    unpushedPatches: async (path): Promise<PortResult<readonly string[]>> => {
+      const shas = fixture.unpushedPatches?.[path];
+      return shas === undefined ? failed<readonly string[]>() : answered(shas);
+    },
 
     statusSync: (path) => answered(statuses[path] ?? ''),
 

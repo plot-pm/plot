@@ -34,6 +34,7 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
 const reap = path.join(scripts, 'plot-reap.sh');
+const reapEntry = path.join(here, '..', '..', 'packages', 'board', 'src', 'server', 'entry', 'reap.ts');
 const dispatch = path.join(scripts, 'plot-dispatch.sh');
 const wstate = path.join(scripts, 'plot-worker-state.sh');
 
@@ -458,8 +459,9 @@ test('`waiting` and `stalled` are discarded by name: the desk readings answer th
   assert.doesNotMatch(out, /worker alive/, 'neither word is read as a live worker');
 
   // And the mapping says so in code, as its own arm, so widening it is an edit
-  // somebody has to make on purpose.
-  const source = fs.readFileSync(reap, 'utf8');
-  assert.match(source, /^\s*waiting\|stalled\)\s*;;/m,
-    'plot-reap.sh maps `waiting|stalled` in their own arm, to no pid');
+  // somebody has to make on purpose. `plot-reap.sh` is a launcher, so the arm
+  // lives in the entry it runs.
+  const source = fs.readFileSync(reapEntry, 'utf8');
+  assert.match(source, /^\s*case 'waiting':\s*\n\s*case 'stalled':\s*\n\s*return '';/m,
+    'entry/reap.ts maps `waiting` and `stalled` in their own arm, to no pid');
 });

@@ -129,11 +129,11 @@ PATTERN="'plot-[a-z0-9-]+\.sh'|\"plot-[a-z0-9-]+\.sh\"|\`plot-[a-z0-9-]+\.sh\`"
 # A gate that says only *you crossed a line* leaves the reader to find the seam.
 # Each entry is `script<TAB>the sentence the error prints`.
 #
-# TWO OF THESE NAME A PORT THAT ANSWERS TODAY, and both were verified by reading
-# the adapter rather than by reasoning about the name. The other seven say so
-# plainly instead of inventing a port — the migration is `the-agent-gets-a-
-# repository`'s work, and a gate that names a seam which does not exist sends
-# the reader somewhere they cannot go.
+# THREE OF THESE NAME A PORT THAT ANSWERS TODAY, and all three were verified by
+# reading the adapter rather than by reasoning about the name. The other six
+# say so plainly instead of inventing a port — the migration is
+# `the-agent-gets-a-repository`'s work, and a gate that names a seam which does
+# not exist sends the reader somewhere they cannot go.
 ANSWERS=$(cat <<'MAP'
 plot-worker-state.sh	the `processes` port answers this — `workerState(worktree, hasPr)`, implemented at adapters/processes/processes-shell.ts:79 over this same script.
 plot-fleet-scan.sh	the `refs` port answers this — `pulse()`, implemented at adapters/refs/refs-git.ts:135 over this same script.
@@ -141,7 +141,7 @@ plot-fleetctl.sh	no port answers this yet. It reads whether a supervisor is load
 plot-dispatch.sh	no port answers this yet. Starting an agent is the `performer` port's shape (`startFreeAgent`), and fanning a slice out is the op it lacks.
 plot-approve.sh	no port answers this yet. Approving is a plan lifecycle write and `plan-store` reads only.
 plot-deliver.sh	no port answers this yet. Delivering is a plan lifecycle write and `plan-store` reads only.
-plot-reap.sh	no port answers this yet. Removing a desk is a `trees` write beside `add` and `prune`.
+plot-reap.sh	the `trees` port answers this — `removeOnly(path)`, implemented at adapters/trees/trees-git.ts with `git worktree remove --force`; `board/plot-reap.mjs` is the entry that asks it.
 plot-release-refs.sh	no port answers this yet. Deleting a remote ref is a `refs` write, and `refs` carries none.
 MAP
 )
