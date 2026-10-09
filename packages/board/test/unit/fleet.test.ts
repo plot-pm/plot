@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
-  classify, compareWithinGroup, draftNote, humanAge, prState, prStates, rowPhase, rowsFromPulse,
+  agentPr, classify, compareWithinGroup, draftNote, humanAge, prState, prStates, rowPhase, rowsFromPulse,
   rateLimitBackoffMs,
   prGateOpen,
   prNextDueAt,
@@ -3525,6 +3525,39 @@ describe('prStates', () => {
     expect(prStates(record)).toEqual(prStates(record));
     expect(JSON.stringify(record)).toBe(before);
     expect(prStates.length).toBe(1);
+  });
+
+  it('answers unknown for a merged PR, whatever its stored checks say', () => {
+    // A merged PR's row already says `merged` via the branch state — see this
+    // function's own comment above. `checks` on a merged record can be stale
+    // (a PR that merges while its last run is still queued keeps `pending`
+    // forever), so every value must read the same: nothing to report here.
+    for (const checks of ['pending', 'green', 'failing', 'none', 'unknown']) {
+      expect(prStates(pr({ state: 'MERGED', checks }))).toEqual(['unknown']);
+    }
+  });
+
+  it('answers unknown for a merged PR regardless of mergeable', () => {
+    expect(prStates(pr({ state: 'MERGED', checks: 'pending', mergeable: 'conflicting' })))
+      .toEqual(['unknown']);
+    expect(prStates(pr({ state: 'MERGED', checks: 'pending', mergeable: undefined })))
+      .toEqual(['unknown']);
+  });
+
+  it('still answers closed before it answers merged-suppression, and the two never combine', () => {
+    expect(prStates(pr({ state: 'CLOSED', checks: 'pending' }))).toEqual(['closed']);
+  });
+
+  it('a plan whose only PR has merged with stale pending checks carries no CI-running state', () => {
+    // `agentPr` is what a row — slice or folded plan — hands the client as
+    // `pr.state`/`pr.states`. A merge that lands while its last run is still
+    // queued keeps `checks: 'pending'` in the store; the wire object must not
+    // repeat it, or the client's plan-level fold reports a build still running
+    // on work that already shipped.
+    const wire = agentPr(pr({ state: 'MERGED', checks: 'pending' }));
+    expect(wire.state).not.toBe('pending');
+    expect(wire.states).not.toContain('pending');
+    expect(wire.state).toBe('unknown');
   });
 });
 

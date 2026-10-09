@@ -71,6 +71,7 @@ import {
   type PrIndexRow,
   draftPlacement,
   prRowPlacement,
+  prChecksSuppressedByMerge,
 } from '@plot-pm/domain';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
@@ -6202,6 +6203,7 @@ export function prStates(pr: PrRecord): [PrStateWord, ...PrStateWord[]] {
   // `merged` via the branch state, and the two vocabularies would then disagree
   // about the same row.
   if (pr.state === 'CLOSED') return ['closed'];
+  if (prChecksSuppressedByMerge(pr.state)) return ['unknown'];
   // Anything that is not one of the two ANSWERS counts, not just the literal
   // word: an adapter predating the field, and a word from a future host, are
   // both in exactly the position Bitbucket is in. The ingest normalizes absent

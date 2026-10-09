@@ -3113,6 +3113,35 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  it('a merged slice shows no CI running, even where its stored checks are still pending', async () => {
+    // #1413. A PR can merge while its last CI run is still queued — the host
+    // never revisits a closed PR's check rollup, so the store keeps whatever it
+    // last read: `pending`. The row's branch state already says `merged`; this
+    // asserts the PR cell does not ALSO say a build is running on work that has
+    // already shipped. `checks: 'unknown'` would pass on origin/main too, since
+    // nothing special-cased it there — `pending` is the one value that exposes
+    // the defect.
+    const page = await openAgents(fleet({
+      rows: [row({
+        branch: 'feature/already-shipped', plan: 'beans', group: 'done', state: 'merged',
+        ageMinutes: 120, note: 'merged', branchUrl: '',
+        pr: agentPr({
+          number: 1413, url: 'https://github.com/tiny/garden/pull/1413', head: 'feature/already-shipped',
+          state: 'MERGED', draft: false, checks: 'pending', mergeable: 'mergeable', review: '',
+        } as PrRecord),
+      })],
+    }));
+    try {
+      await expand(page, 'done');
+      const li = rowFor(page, 'feature/already-shipped');
+      await li.waitFor({ timeout: 10_000 });
+      expect(await li.locator('[data-pr-state="pending"]').count()).toBe(0);
+      expect(await li.textContent()).not.toContain('CI running');
+    } finally {
+      await page.close();
+    }
+  });
+
   it('renders a PR with running checks and unknown mergeability in WAITING ON A MACHINE', async () => {
     // #1164. The row's group, note and PR word come from the server's own
     // `classify` and `agentPr` over the raw facts, so the page shows what the
