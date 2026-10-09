@@ -77,7 +77,7 @@ Measured on `main` at `0b749ca9e`, 2026-10-09:
 
 ### The gate counts every script
 
-- `feature/the-gate-counts-every-script` — the decision gate counts every README row whose kind is not *launcher*, *paired* included, so its target is 0 and a reading script counts like a deciding one (story `the-shell-holds-no-behavior`) <!-- builds: a wider count in the decision gate -->
+- `feature/the-gate-counts-every-script` — the decision gate counts every README row whose kind is not *launcher*, *paired* included, so its target is 0 and a reading script counts like a deciding one (story `the-shell-holds-no-behavior`) → #1416 <!-- builds: a wider count in the decision gate -->
 
 ### The reaper becomes a command
 
