@@ -11,7 +11,7 @@ import { flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-
 import { clearHolds } from '@plot-pm/domain/rules/hold-clear';
 import { annotateSprintItem } from '@plot-pm/domain/rules/sprint-annotation';
 import { unnamedBranchDetail, unnamedBranches } from '@plot-pm/domain/rules/slice-name';
-import { deskRoot } from '@plot-pm/domain/rules/desk-root';
+import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
 import {
   commitAndPush,
   realPlanPath,
@@ -21,7 +21,7 @@ import {
   unlinkSyncSafe,
   type Printer,
 } from './ladder.js';
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -328,10 +328,52 @@ const stageApproval = async (ctx: Context, root: string, rel: string, dirs: Dirs
   if (sprint === 'updated') await ctx.trees.stage(root, [dirs.sprintDir.replace(/^\//, '')]);
 };
 
+/**
+ * The git directory every worktree of this repository shares, read from the
+ * checkout's `.git` entry without starting a process. A linked worktree's
+ * `.git` is a file naming its own directory, whose `commondir` file points back
+ * at the shared one.
+ */
+const commonDirOf = (repoRoot: string): string => {
+  const dotGit = path.join(repoRoot, '.git');
+  try {
+    if (statSync(dotGit).isDirectory()) return dotGit;
+    const named = readFileSync(dotGit, 'utf8').match(/^gitdir:\s*(.+)$/m);
+    if (!named) return dotGit;
+    const own = path.resolve(repoRoot, named[1].trim());
+    const common = readFileSync(path.join(own, 'commondir'), 'utf8').trim();
+    return path.resolve(own, common);
+  } catch {
+    return dotGit;
+  }
+};
+
 /** The main checkout's root, which `.plot/state/` and the desk root hang from. */
 const mainRootOf = (ctx: Context): string => {
-  const answer = ctx.scripts.sourced('plot-desk-root.sh', '. "$1"; shift; plot_repo_root', []);
-  return answer.ok && answer.value.trim() !== '' ? answer.value.trim() : ctx.repoRoot;
+  const common = commonDirOf(ctx.repoRoot);
+  return path.basename(common) === '.git' ? path.dirname(common) : ctx.repoRoot;
+};
+
+/**
+ * Keeps an in-repository desk root out of `git status` by adding its line to
+ * the shared `info/exclude`, unless that file or the root's `.gitignore`
+ * already carries it. A failure to write is ignored: the exclusion is
+ * cosmetic and must not stop an approval.
+ */
+const excludeDeskRoot = (mainRoot: string, line: string): void => {
+  try {
+    const bare = line.replace(/\/$/, '');
+    const ignored = (file: string): boolean =>
+      existsSync(file) && readFileSync(file, 'utf8').split('\n').some((l) => l === line || l === bare);
+    if (ignored(path.join(mainRoot, '.gitignore'))) return;
+    const exclude = path.join(commonDirOf(mainRoot), 'info', 'exclude');
+    if (ignored(exclude)) return;
+    mkdirSync(path.dirname(exclude), { recursive: true });
+    const held = existsSync(exclude) ? readFileSync(exclude, 'utf8') : '';
+    appendFileSync(exclude, `${held !== '' && !held.endsWith('\n') ? '\n' : ''}${line}\n`);
+  } catch {
+    // Cosmetic only.
+  }
 };
 
 /**
@@ -610,8 +652,10 @@ const bookApproval = async (
   const { slug } = flow.args;
   await ctx.trees.fetch(ctx.repoRoot, main);
 
-  ctx.scripts.sourced('plot-desk-root.sh', '. "$1"; shift; plot_exclude_desk_root "$1"', [mainRoot]);
-  const wtRoot = deskRoot({ configured: await configured(ctx.scripts, 'Worktree root', ''), repoRoot: mainRoot });
+  const deskReading = { configured: await configured(ctx.scripts, 'Worktree root', ''), repoRoot: mainRoot };
+  const placement = deskRootPlacement(deskReading);
+  if (placement.excludeLine) excludeDeskRoot(mainRoot, placement.excludeLine);
+  const wtRoot = deskRoot(deskReading);
   const bookbr = `plot/approve-${slug}`;
   const tmpwt = path.join(wtRoot, `.plot-approve-${slug}.${process.pid}`);
   const added = await ctx.trees.addBranch(tmpwt, bookbr, `origin/${main}`);
