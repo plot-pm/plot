@@ -358,6 +358,12 @@ describe('treesFixture: the same port with no machine behind it', () => {
     expect(missing.ok).toBe(false);
   });
 
+  it('answers a stated removal refusal, and an unstated path as removed', async () => {
+    const port = treesFixture({ removeRefusedAt: ['/repo-wt'] });
+    expect(await port.removeOnly('/repo')).toEqual({ ok: true, value: undefined });
+    expect((await port.removeOnly('/repo-wt')).ok).toBe(false);
+  });
+
   it('answers a stated ahead count, and an unstated one as failed', async () => {
     const port = treesFixture({ ahead: { '/repo-wt': 2 } });
     expect(await port.aheadOfUpstream('/repo-wt')).toEqual({ ok: true, value: 2 });
