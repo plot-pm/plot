@@ -295,6 +295,44 @@ describe('treesGit: a booking worktree on a named branch', () => {
   });
 });
 
+describe('treesGit: removing a worktree without touching its branch', () => {
+  it('removes the worktree and leaves the branch in place', async () => {
+    const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-trees-removeonly-')));
+    const desk = path.join(parent, 'desk');
+    try {
+      const port = trees();
+      expect(await port.addBranch(desk, 'plot/kept', 'HEAD')).toEqual({ ok: true, value: undefined });
+
+      expect(await port.removeOnly(desk)).toEqual({ ok: true, value: undefined });
+
+      expect(fs.existsSync(desk)).toBe(false);
+      expect(git(repo, ['branch', '--list', 'plot/kept']).trim()).not.toBe('');
+    } finally {
+      git(repo, ['branch', '-D', 'plot/kept']);
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses rather than forcing through a tree git will not remove', async () => {
+    const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-trees-removeonly-dirty-')));
+    const desk = path.join(parent, 'desk');
+    try {
+      const port = trees();
+      expect(await port.addBranch(desk, 'plot/dirty-kept', 'HEAD')).toEqual({ ok: true, value: undefined });
+      fs.writeFileSync(path.join(desk, 'untracked.txt'), 'unlanded');
+
+      const answer = await port.removeOnly(desk);
+
+      expect(answer.ok).toBe(false);
+      expect(fs.existsSync(desk)).toBe(true);
+    } finally {
+      git(repo, ['worktree', 'remove', '--force', desk]);
+      git(repo, ['branch', '-D', 'plot/dirty-kept']);
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('treesFixture: the same port with no machine behind it', () => {
   it('marks the first stated worktree as the main checkout', async () => {
     const answer = await treesFixture({

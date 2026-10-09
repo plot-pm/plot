@@ -278,6 +278,29 @@ export interface Trees {
   removeWithBranch(path: string, branch: string): Promise<PortResult<void>>;
 
   /**
+   * Removes a worktree, leaving the branch it was checked out on untouched.
+   *
+   * NOT {@link Trees.removeWithBranch} with a flag. That operation is
+   * best-effort cleanup of a booking worktree this package created and always
+   * owns both halves of; this one is the reaper clearing a desk whose BRANCH
+   * is somebody else's lifecycle object — a merged plan's slice, a dispatched
+   * agent's work — and deleting it is not this call's business. A reap that
+   * reused the two-step operation would delete a branch the ref-deletion rule
+   * in `reapable.ts` was never asked about.
+   *
+   * REFUSES RATHER THAN FORCES. Where git itself refuses the removal — a
+   * worktree holding uncommitted changes `--force` would discard, a path that
+   * is not a worktree at all — this answers failed and removes nothing, unlike
+   * {@link Trees.removeWithBranch}'s best-effort shape. The reaper's own
+   * refusals are supposed to have already kept this call from being reached on
+   * such a tree; a git-level refusal here is a second guard, not routine.
+   *
+   * @param path - the worktree's absolute path.
+   * @returns nothing; a failure means git refused and the worktree remains.
+   */
+  removeOnly(path: string): Promise<PortResult<void>>;
+
+  /**
    * Resets a desk onto a branch at take-up — `reset_desk`'s common path
    * (`plot-worker-loop.sh:1080`), for the ONE case `agentLoop` emits
    * {@link DeskResetWrite} for: a fresh take-up with `resetRefusals` empty.

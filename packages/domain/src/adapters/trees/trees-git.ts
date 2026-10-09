@@ -394,6 +394,9 @@ export const treesGit = (context: ShellContext): Trees => {
       return answered(undefined);
     },
 
+    removeOnly: async (path) =>
+      runScript('git', ['worktree', 'remove', path], () => undefined, inRepo),
+
     // `git -C <path>`, so an unreadable checkout is reported by git's own exit
     // code rather than by the spawn failing to chdir — the two arrive as
     // different errors and only one of them says which path.
