@@ -141,7 +141,21 @@ describe('treesGit: desk-reset, commit, push', () => {
     expect(dirty).toEqual({ ok: true, value: true });
   });
 
+  it('stage adds the named paths to the index', async () => {
+    git(desk, ['reset', '--quiet']);
+    fs.writeFileSync(path.join(desk, 'c.txt'), 'three\n');
+    fs.writeFileSync(path.join(desk, 'd.txt'), 'four\n');
+    const result = await trees().stage(desk, ['c.txt', 'd.txt']);
+    expect(result).toEqual({ ok: true, value: undefined });
+    const staged = git(desk, ['diff', '--cached', '--name-only']).trim().split('\n').sort();
+    expect(staged).toEqual(['c.txt', 'd.txt']);
+    git(desk, ['reset', '--quiet']);
+  });
+
   it('commitAs commits the staged change, attributed to who', async () => {
+    fs.writeFileSync(path.join(desk, 'staged.txt'), 'staged again\n');
+    git(desk, ['add', 'staged.txt']);
+
     const result = await trees().commitAs(desk, 'Approve Bot', 'plot: approve infra/commit-test');
     expect(result).toEqual({ ok: true, value: undefined });
     expect(git(desk, ['log', '-1', '--format=%s']).trim()).toBe('plot: approve infra/commit-test');

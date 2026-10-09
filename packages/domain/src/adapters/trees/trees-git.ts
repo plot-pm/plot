@@ -502,6 +502,11 @@ export const treesGit = (context: ShellContext): Trees => {
       return run.code === 0 ? answered(undefined) : failed<void>();
     },
 
+    stage: async (path, pathspecs): Promise<PortResult<void>> => {
+      const run = await runProcess('git', ['-C', path, 'add', '--', ...pathspecs], inRepo);
+      return run.code === 0 ? answered(undefined) : failed<void>();
+    },
+
     hasStagedChanges: async (path): Promise<PortResult<boolean>> => {
       const run = await runProcess('git', ['-C', path, 'diff', '--cached', '--quiet'], inRepo);
       if (run.code === 0) return answered(false);

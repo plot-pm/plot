@@ -129,12 +129,15 @@ export interface TreesFixture {
   stagedCheckFailsAt?: readonly string[];
   /** Paths where `commitAs` fails. */
   commitAsFailsAt?: readonly string[];
+  /** Paths where `stage` fails. */
+  stageFailsAt?: readonly string[];
   /** Every call received, for a test to assert against. */
   calls?: {
     resets: { path: string; branch: string; base: string }[];
     commits: { path: string; message: string }[];
     pushes: { path: string; branch: string }[];
     commitsAs: { path: string; who: string; message: string }[];
+    stages: { path: string; pathspecs: readonly string[] }[];
   };
 }
 
@@ -264,6 +267,12 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
     push: async (path, branch): Promise<PortResult<void>> => {
       if ((fixture.pushFailsAt ?? []).includes(path)) return failed<void>();
       fixture.calls?.pushes.push({ path, branch });
+      return answered(undefined);
+    },
+
+    stage: async (path, pathspecs): Promise<PortResult<void>> => {
+      if ((fixture.stageFailsAt ?? []).includes(path)) return failed<void>();
+      fixture.calls?.stages.push({ path, pathspecs });
       return answered(undefined);
     },
 

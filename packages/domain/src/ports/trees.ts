@@ -419,6 +419,20 @@ export interface Trees {
   push(path: string, branch: string): Promise<PortResult<void>>;
 
   /**
+   * Stages one or more paths in a checkout's index.
+   *
+   * `git -C <path> add -- <pathspecs>` — a lifecycle write stages the plan
+   * file, the hold file and the sprint file it edited before asking
+   * {@link hasStagedChanges} and committing. A pathspec naming a file that was
+   * deleted stages the deletion, matching plain `git add`'s own behaviour.
+   *
+   * @param path - the checkout to stage in, absolute.
+   * @param pathspecs - the paths to stage, repository-relative to `path`.
+   * @returns nothing; a failure means git refused to stage one of them.
+   */
+  stage(path: string, pathspecs: readonly string[]): Promise<PortResult<void>>;
+
+  /**
    * Whether a checkout holds no staged changes.
    *
    * `git -C <path> diff --cached --quiet` — a lifecycle write stages a plan
