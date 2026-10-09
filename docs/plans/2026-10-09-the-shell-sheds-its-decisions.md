@@ -87,7 +87,7 @@ Measured on `main` at `0b749ca9e`, 2026-10-09:
 
 ### Approval becomes a command
 
-- `feature/approval-becomes-a-command` — `plot-approve.sh` becomes a launcher over a JS entry modelled on `deliver.ts`, and it keeps the receipt contract with both gates <!-- builds: a JS approve entry -->
+- `feature/approval-becomes-a-command` — `plot-approve.sh` becomes a launcher over a JS entry modelled on `deliver.ts`, and it keeps the receipt contract with both gates → #1446 <!-- builds: a JS approve entry -->
 
 ## Notes
 
