@@ -963,16 +963,12 @@ if [ "$mode" = "start" ]; then
   case "$harness_bin" in
     /*) harness_dir=$(dirname "$harness_bin") ;;
     *)
-      echo "plot-fleetctl: cannot resolve the agent harness '$harness_name' to a file on PATH" >&2
       if [ -n "${PLOT_HARNESS:-}" ]; then
-        echo "  PLOT_HARNESS is set to '$PLOT_HARNESS', so that is the name looked for." >&2
+        harness_reason="PLOT_HARNESS is set to '$PLOT_HARNESS', so that is the name looked for."
       else
-        echo "  PLOT_HARNESS is unset, so the default name 'claude' was looked for." >&2
+        harness_reason="PLOT_HARNESS is unset, so the default name 'claude' was looked for."
       fi
-      echo "  The unit bakes the harness's directory into its PATH permanently, and a" >&2
-      echo "  worker that cannot find its harness exits 127 after you have moved on." >&2
-      echo "  Fix it: put the harness on PATH (or set PLOT_HARNESS to its name or" >&2
-      echo "  absolute path), check with 'command -v $harness_name', then run this again." >&2
+      printf 'plot-fleetctl: cannot resolve the agent harness '"'"'%s'"'"' to a file on PATH\n  %s\n  The unit bakes the harness'"'"'s directory into its PATH permanently, and a\n  worker that cannot find its harness exits 127 after you have moved on.\n  Fix it: put the harness on PATH (or set PLOT_HARNESS to its name or\n  absolute path), check with '"'"'command -v %s'"'"', then run this again.\n' "$harness_name" "$harness_reason" "$harness_name" >&2
       exit 1
       ;;
   esac
@@ -980,8 +976,7 @@ if [ "$mode" = "start" ]; then
   # REFUSAL 3 — no init system to hand the daemon to.
   plat=$(platform)
   if [ "$plat" = "none" ]; then
-    echo "plot-fleetctl: neither launchd nor systemd here — there is no unit to fill" >&2
-    echo "  Run the supervisor by hand instead: node $fleetd" >&2
+    printf 'plot-fleetctl: neither launchd nor systemd here — there is no unit to fill\n  Run the supervisor by hand instead: node %s\n' "$fleetd" >&2
     exit 1
   fi
 
