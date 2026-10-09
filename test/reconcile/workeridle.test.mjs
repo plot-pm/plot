@@ -330,7 +330,7 @@ test('idle: a desk with no git repository at all reads unreadable, not a long si
 // plot_transcript_quiet_seconds and the race-clamp arithmetic that fed
 // `silence` into `plot_worker_idle_watch_pass` are both gone from the shell —
 // `plot-transcript-quiet.sh` was removed whole, per the brief. Both moved to
-// `idleVerdict` in `packages/board/src/server/entry/worker-loop.ts`, which
+// `idleVerdict` in `packages/fleet/src/server/entry/worker-loop.ts`, which
 // reads `transcriptFs.quietSeconds` and applies the identical two clamps
 // (usage-limit reset, then `Math.min(silence, ranSeconds)`). Its own suite,
 // `worker-loop-run.test.ts`'s `describe('idleVerdict', ...)`, proves: a

@@ -293,7 +293,7 @@ test('second slice: every new branch starts its own conversation, across two hop
 //
 // `update_manifest_on_hop` no longer exists: `the-shell-loop-goes` reduced
 // `plot-worker-loop.sh` to a launcher, and the decision lives in
-// `writeHop` (`packages/board/src/server/entry/worker-loop.ts`) and the
+// `writeHop` (`packages/fleet/src/server/entry/worker-loop.ts`) and the
 // `hopFrom !== ''` guard around its only call site in `runPrompt`. The three
 // cases this block used to assert by extracting and `eval`-ing the shell
 // function's body are covered there instead:

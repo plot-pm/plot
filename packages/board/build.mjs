@@ -13,10 +13,10 @@ import { fileURLToPath } from 'node:url';
 import { pruneStaleVendoredHelpers } from './vendored-helpers.mjs';
 import {
   buildFleetBundles,
-  registrydArtifact as fleetRegistrydArtifact,
-  workerLoopArtifact as fleetWorkerLoopArtifact,
-  fleetSizeArtifact as fleetFleetSizeArtifact,
-  promptArtifact as fleetPromptArtifact,
+  registrydArtifact,
+  workerLoopArtifact,
+  fleetSizeArtifact,
+  promptArtifact,
 } from '../fleet/build.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -26,13 +26,11 @@ if (!fs.existsSync(clientHtml)) {
   process.exit(1);
 }
 
-// BUILT BY `@plot-pm/fleet`, NOT INLINE HERE. The entry points, their
-// TypeScript and every shared module they import now live in
-// packages/fleet/src — this file keeps only the `shipped*` declarations the
-// bundle-set derivation below reads, and copies fleet's own dist output on to
-// each shipped destination. Called once, here, before any copy site below —
-// every `fleet*Artifact` import used past this line depends on `dist/`
-// existing under packages/fleet, which only this call creates.
+// `@plot-pm/fleet` builds four bundles: `plot-registryd.mjs`,
+// `plot-worker-loop.mjs`, `plot-fleet-size.mjs` and `plot-prompt.mjs`. This
+// file keeps their `shipped*` declarations, because the gates and
+// `bundles.generated.ts` derive the generated set from this file alone, and
+// copies each bundle from `packages/fleet/dist/` to its shipped path.
 await buildFleetBundles();
 
 // The prose the generated module carries, held apart from the loop that fills
@@ -280,12 +278,9 @@ fs.chmodSync(shippedTransition, 0o755);
 // `packages/` does not exist, so an inline import of the domain source would
 // resolve only in the plot checkout — and every worker elsewhere would take the
 // fallback prompt without anything saying it had.
-const promptArtifact = path.join(here, 'dist/plot-prompt.mjs');
 const shippedPrompt = path.join(here, '../../skills/plot/scripts/board/plot-prompt.mjs');
 
-// Copied from `@plot-pm/fleet`'s dist output — see the `buildFleetBundles()`
-// call near the top of this file.
-fs.copyFileSync(fleetPromptArtifact, shippedPrompt);
+fs.copyFileSync(promptArtifact, shippedPrompt);
 fs.chmodSync(shippedPrompt, 0o755);
 
 // The task state, reachable from the classifier that answers it.
@@ -403,30 +398,18 @@ fs.chmodSync(shippedAgentState, 0o755);
 // two processes with different owners (launchd/systemd keeps this one alive,
 // nothing keeps the board alive), different failure modes and different
 // cadences, sharing one exit.
-const registrydArtifact = path.join(here, 'dist/plot-registryd.mjs');
 const shippedRegistryd = path.join(here, '../../skills/plot/scripts/board/plot-registryd.mjs');
 
 // The agent's own loop: `plot-worker-loop.mjs`, one process for an agent's
 // whole life. The launcher at the top of `plot-worker-loop.sh` `exec`s this
 // bundle unconditionally — there is no shell loop body left to fall back to.
 // See `entry/worker-loop.ts` for what it decides and what it does not.
-//
-// ONE OF TWO BUNDLES THAT CARRY `@anthropic-ai/claude-agent-sdk`, for the SDK
-// runner (`Agent runner: sdk`) — `board-server.mjs` above is the other, for a
-// board role configured onto the same runner. Both exclude the SDK's optional
-// per-platform packages, which hold a 229-246 MB `claude` binary each: the SDK
-// runs the operator's `claude` from PATH instead. No other bundle imports
-// `agent-run-sdk.ts`, and `test/worker-loop-bundle.test.mjs` proves
-// `plot-registryd.mjs` and the rest carry none of it.
-const workerLoopArtifact = path.join(here, 'dist/plot-worker-loop.mjs');
+// It carries the Agent SDK; `packages/fleet/build.mjs` says why.
 const shippedWorkerLoop = path.join(here, '../../skills/plot/scripts/board/plot-worker-loop.mjs');
 
-// Copied from `@plot-pm/fleet`'s dist output — see the `buildFleetBundles()`
-// call near the top of this file, which builds this bundle along with the
-// worker-loop, fleet-size and prompt ones below.
-fs.copyFileSync(fleetRegistrydArtifact, shippedRegistryd);
+fs.copyFileSync(registrydArtifact, shippedRegistryd);
 fs.chmodSync(shippedRegistryd, 0o755);
-fs.copyFileSync(fleetWorkerLoopArtifact, shippedWorkerLoop);
+fs.copyFileSync(workerLoopArtifact, shippedWorkerLoop);
 fs.chmodSync(shippedWorkerLoop, 0o755);
 
 // Did this branch's work land, reachable from the four scripts that gate on it.
@@ -605,12 +588,9 @@ fs.chmodSync(shippedProposeStack, 0o755);
 // node_modules cannot resolve. So this carries both rules, zod bundled in; a
 // bundle of fleetSize alone would import cleanly and still fail, because
 // headroomFor is the half that reaches zod.
-const fleetSizeArtifact = path.join(here, 'dist/plot-fleet-size.mjs');
 const shippedFleetSize = path.join(here, '../../skills/plot/scripts/board/plot-fleet-size.mjs');
 
-// Copied from `@plot-pm/fleet`'s dist output — see the `buildFleetBundles()`
-// call near the top of this file.
-fs.copyFileSync(fleetFleetSizeArtifact, shippedFleetSize);
+fs.copyFileSync(fleetSizeArtifact, shippedFleetSize);
 fs.chmodSync(shippedFleetSize, 0o755);
 
 // The sprint lifecycle's write, for /plot-sprint's start, commit and close.

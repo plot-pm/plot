@@ -1308,15 +1308,25 @@ jobs:
         # HOME, and a leftover entry fails the step.
         run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board test
 
-      # THE BOARD'S FIRST GATED FILE, beside the domain's own coverage gate
-      # above and for the same reason: `loop-writes.ts` is reachable from a
-      # plain call with no process, no port and no browser of its own, so an
-      # uncovered line there is a line nobody specified. Scoped to one path —
-      # `vitest.config.ts`'s own `coverage.include` — rather than the whole
-      # package, which cannot meet 100% today.
-      - name: Board loop coverage gate
+      # ── Fleet: `@plot-pm/fleet` holds the supervisor tick, the agent loop and
+      #    their shared modules. The board build above builds its bundles. ──
+      - name: Fleet typecheck
+        run: pnpm --filter @plot-pm/fleet typecheck
+
+      # Runs after the board build: `worker-loop-bundle.test.mjs` reads the
+      # shipped bundles and `packages/fleet/dist/`, which that build writes.
+      - name: Fleet bundle tests
         timeout-minutes: 10
-        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board exec vitest run --project parallel --coverage
+        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/fleet exec node --test test/*.test.mjs
+
+      # A GATE, like the domain's coverage gate above and for the same reason:
+      # `loop-writes.ts` and `worker-loop.ts` are reachable from a plain call
+      # with no process, no port and no browser of their own, so an uncovered
+      # line there is a line nobody specified. `packages/fleet/vitest.config.ts`
+      # scopes the threshold to those two files.
+      - name: Fleet unit tests + loop coverage gate
+        timeout-minutes: 10
+        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/fleet exec vitest run --coverage
 
       # ── Board integration tests: a real browser (Playwright) renders the just-
       #    built artifact against the tiny-garden fixture, asserting the mobile

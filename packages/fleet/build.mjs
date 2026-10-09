@@ -1,14 +1,9 @@
-// Bundle the fleet's four entries to packages/fleet/dist/.
+// Bundles the fleet's four entries to packages/fleet/dist/.
 //
-// Called two ways: standalone (`pnpm --filter @plot-pm/fleet build`) for a
-// local check of this package in isolation, and from
-// packages/board/build.mjs, which copies these artifacts on to their shipped
-// destinations under skills/plot/scripts/board/. The board keeps its own
-// `shipped*` declarations — the bundle-set derivation that writes
-// `bundles.generated.ts` reads them from board/build.mjs's own source — and
-// copies this package's dist output on to each shipped path; the
-// `esbuild.build` CALLS, including the options that differ per bundle
-// (worker-loop's `external`/`define`), live here.
+// `packages/board/build.mjs` calls `buildFleetBundles` and copies each bundle
+// to its shipped path under skills/plot/scripts/board/. The board's file keeps
+// the `shipped*` declarations, because the gates derive the generated set from
+// that file alone. `node build.mjs` in this package builds `dist/` only.
 import esbuild from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -33,11 +28,14 @@ const SHARED_OPTIONS = {
 };
 
 /**
- * Builds the three fleet bundles to this package's `dist/`. Idempotent and
- * safe to call from another package's build step — it creates `dist/` if
- * missing and writes nothing outside it.
+ * Builds the four fleet bundles into this package's `dist/`.
+ *
+ * Creates `dist/` when it is absent and writes nothing outside it.
+ *
+ * @returns a promise that resolves when all four bundles are written, and
+ *   rejects with esbuild's error when one fails to build.
  */
-export async function buildFleetBundles() {
+export const buildFleetBundles = async () => {
   fs.mkdirSync(path.join(here, 'dist'), { recursive: true });
 
   await esbuild.build({
@@ -75,18 +73,16 @@ export async function buildFleetBundles() {
     outfile: fleetSizeArtifact,
   });
 
-  // Which prompt an agent runs, reachable from the loop that launches it.
-  // Vendored beside plot-worker-loop.sh, which resolves it from its own
-  // $script_dir — see packages/board/build.mjs's call site for why this is a
-  // bundle rather than a source import.
+  // Which prompt an agent runs. `plot-worker-loop.sh` resolves it from its own
+  // directory; packages/board/build.mjs says why it is a bundle.
   await esbuild.build({
     ...SHARED_OPTIONS,
     entryPoints: [path.join(here, 'src/server/entry/prompt.ts')],
     outfile: promptArtifact,
   });
-}
+};
 
-// Run directly (not imported) when invoked as `node build.mjs` / `pnpm build`.
+// Runs when invoked as `node build.mjs`, and not when imported.
 if (import.meta.url === `file://${process.argv[1]}`) {
   await buildFleetBundles();
   console.log('Built plot-registryd.mjs, plot-worker-loop.mjs, plot-fleet-size.mjs, plot-prompt.mjs → dist/');
