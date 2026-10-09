@@ -3,10 +3,10 @@
 #
 # `check-shell-lines.sh` measures size, and its header says a rule moved into a
 # `node -e` heredoc lowers nothing there. This counts the rows of the script
-# table in `skills/plot/scripts/README.md` whose Kind is none of `launcher`,
-# `readings` or `paired`, at the merge base and at HEAD, and fails when HEAD
-# holds more. It reads the README's claim and not the scripts: a grep over a
-# script body cannot tell a declared duplicate from a forgotten one.
+# table in `skills/plot/scripts/README.md` whose Kind is not `launcher`, at the
+# merge base and at HEAD, and fails when HEAD holds more. It reads the README's
+# claim and not the scripts: a grep over a script body cannot tell a declared
+# duplicate from a forgotten one.
 #
 # IT STORES NO NUMBER. The "before" is read from git. There is no override, no
 # allowance literal and no environment variable: this script reads none.
@@ -173,7 +173,7 @@ has_evidence() { # <kind> <replaced-by>
   esac
 }
 
-counted() { awk -F'\t' '$2 != "launcher" && $2 != "readings" && $2 != "paired"' ; }
+counted() { awk -F'\t' '$2 != "launcher"' ; }
 
 report() { # <label> <before-rev> <before-desc>
   local base head before after bad

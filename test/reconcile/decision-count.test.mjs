@@ -38,6 +38,7 @@ const EVIDENCE = [
   'skills/plot/scripts/board/a.mjs',
   'skills/plot/scripts/board/c.mjs',
   'skills/plot/scripts/board/d.mjs',
+  'skills/plot/scripts/board/e.mjs',
   'packages/domain/src/rules/a.ts',
   'packages/domain/corpus/a.corpus.test.ts',
   'packages/board/src/server/entry/new.ts',
@@ -114,14 +115,14 @@ const change = (work, ...rows) => {
 test('an unchanged table passes and prints both counts', withFixture(({ work }) => {
   const r = run(work, ['pr']);
   assert.equal(r.status, 0, r.out);
-  assert.match(r.out, /: 2 scripts still decide or orchestrate now, 2 at merge base/);
+  assert.match(r.out, /: 3 scripts still decide or orchestrate now, 3 at merge base/);
 }));
 
 test('a new decision row fails', withFixture(({ work }) => {
   change(work, ...BASE, row('e.sh', 'decision'));
   const r = run(work, ['pr']);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /3 scripts still decide or orchestrate now, 2 at merge base/);
+  assert.match(r.out, /4 scripts still decide or orchestrate now, 3 at merge base/);
   assert.match(r.out, /1 more than/);
 }));
 
@@ -138,11 +139,19 @@ test('a decision to readings flip with an empty Replaced by fails', withFixture(
   assert.match(r.out, /a\.sh/);
 }));
 
-test('the same flip naming a bundle passes', withFixture(({ work }) => {
+test('a decision to readings flip no longer lowers the count', withFixture(({ work }) => {
+  change(work, row('a.sh', 'readings', 'asks board/a.mjs', 'board/a.mjs'), BASE[1], BASE[2], BASE[3], row('e.sh', 'decision'));
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /4 scripts still decide or orchestrate now, 3 at merge base/);
+  assert.match(r.out, /1 more than/);
+}));
+
+test('the same flip naming a bundle, alone, still counts readings and passes', withFixture(({ work }) => {
   change(work, row('a.sh', 'readings', 'asks board/a.mjs', 'board/a.mjs'), ...BASE.slice(1));
   const r = run(work, ['pr']);
   assert.equal(r.status, 0, r.out);
-  assert.match(r.out, /1 scripts still decide or orchestrate now, 2 at merge base/);
+  assert.match(r.out, /3 scripts still decide or orchestrate now, 3 at merge base/);
 }));
 
 test('a launcher needs the bundle in Replaced by, not in Purpose', withFixture(({ work }) => {
@@ -166,6 +175,14 @@ test('paired naming the rule and the corpus test passes', withFixture(({ work })
   assert.equal(r.status, 0, r.out);
 }));
 
+test('a new paired row, naming its rule and corpus test, still raises the count and fails', withFixture(({ work }) => {
+  change(work, ...BASE, row('e.sh', 'paired', 'pairs', '`rules/a.ts` held by `packages/domain/corpus/a.corpus.test.ts`'));
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /4 scripts still decide or orchestrate now, 3 at merge base/);
+  assert.match(r.out, /1 more than/);
+}));
+
 test('paired naming the rule and the corpus test only in Purpose fails', withFixture(({ work }) => {
   change(work, row('a.sh', 'paired', 'rules/a.ts held by corpus/a.corpus.test.ts'), ...BASE.slice(1));
   assert.equal(run(work, ['pr']).status, 1);
@@ -180,7 +197,7 @@ test('a decorated first cell still counts its script', withFixture(({ work }) =>
   change(work, ...BASE, '| `e.sh` (sourced) | Does a thing | decision | once per operator command |  |\n');
   const r = run(work, ['pr']);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /3 scripts still decide or orchestrate now, 2 at merge base/);
+  assert.match(r.out, /4 scripts still decide or orchestrate now, 3 at merge base/);
 }));
 
 test('a table row whose first cell names no backticked script fails', withFixture(({ work }) => {
@@ -253,11 +270,11 @@ test('a base row that keeps its kind needs no evidence', withFixture(({ work }) 
   assert.equal(r.status, 0, r.out);
 }, readme(...BASE.slice(0, 2), row('f.sh', 'readings'), ...BASE.slice(2))));
 
-test('one row converted with its bundle and one new decision row is equal and passes', withFixture(({ work }) => {
-  change(work, row('a.sh', 'launcher', 'execs', 'board/a.mjs'), BASE[1], BASE[2], BASE[3], row('e.sh', 'decision'));
+test('converting one row to launcher while adding one new readings row is equal and passes', withFixture(({ work }) => {
+  change(work, row('a.sh', 'launcher', 'execs', 'board/a.mjs'), BASE[1], BASE[2], BASE[3], row('e.sh', 'readings', 'asks board/e.mjs', 'board/e.mjs'));
   const r = run(work, ['pr']);
   assert.equal(r.status, 0, r.out);
-  assert.match(r.out, /2 scripts still decide or orchestrate now, 2 at merge base/);
+  assert.match(r.out, /3 scripts still decide or orchestrate now, 3 at merge base/);
 }));
 
 test('a new row that starts as readings without a bundle fails', withFixture(({ work }) => {
@@ -265,12 +282,21 @@ test('a new row that starts as readings without a bundle fails', withFixture(({ 
   assert.equal(run(work, ['pr']).status, 1);
 }));
 
+test('a new readings row, with its bundle in place, still raises the count and fails', withFixture(({ work }) => {
+  change(work, ...BASE, row('e.sh', 'readings', 'asks board/e.mjs', 'board/e.mjs'));
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /4 scripts still decide or orchestrate now, 3 at merge base/);
+  assert.match(r.out, /1 more than/);
+  assert.doesNotMatch(r.out, /without evidence/);
+}));
+
 test('a purpose cell containing a pipe is read from the end', withFixture(({ work }) => {
   const piped = row('p.sh', 'decision', 'Reads a | b and c | d');
   change(work, ...BASE, piped);
   const r = run(work, ['pr']);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /3 scripts still decide or orchestrate now/);
+  assert.match(r.out, /4 scripts still decide or orchestrate now/);
 }, readme(...BASE)));
 
 test('a pipe in a launcher purpose still reads the kind as launcher', withFixture(({ work }) => {
@@ -316,7 +342,7 @@ test('push compares HEAD with the before SHA', withFixture(({ work, start }) => 
   change(work, ...BASE, row('e.sh', 'decision'));
   const r = run(work, ['push', start]);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /push: 3 scripts still decide or orchestrate now, 2 at push start/);
+  assert.match(r.out, /push: 4 scripts still decide or orchestrate now, 3 at push start/);
 }));
 
 test('push without a before SHA fails', withFixture(({ work }) => {
