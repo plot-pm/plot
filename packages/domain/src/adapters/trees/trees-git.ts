@@ -501,5 +501,21 @@ export const treesGit = (context: ShellContext): Trees => {
       const run = await runProcess('git', ['-C', path, 'push', '-u', 'origin', branch], inRepo);
       return run.code === 0 ? answered(undefined) : failed<void>();
     },
+
+    hasStagedChanges: async (path): Promise<PortResult<boolean>> => {
+      const run = await runProcess('git', ['-C', path, 'diff', '--cached', '--quiet'], inRepo);
+      if (run.code === 0) return answered(false);
+      if (run.code === 1) return answered(true);
+      return failed<boolean>();
+    },
+
+    commitAs: async (path, who, message): Promise<PortResult<void>> => {
+      const run = await runProcess(
+        'git',
+        ['-C', path, '-c', `user.name=${who}`, 'commit', '-q', '-m', message],
+        inRepo,
+      );
+      return run.code === 0 ? answered(undefined) : failed<void>();
+    },
   };
 };

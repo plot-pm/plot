@@ -119,11 +119,22 @@ export interface TreesFixture {
   commitFailsAt?: readonly string[];
   /** Paths where `push` fails. */
   pushFailsAt?: readonly string[];
+  /**
+   * Which paths {@link hasStagedChanges} answers `true` for. A path absent
+   * from the set answers `false` — nothing staged — matching a fresh
+   * checkout rather than an unreadable one.
+   */
+  staged?: readonly string[];
+  /** Paths where `hasStagedChanges` fails outright — git could not be asked. */
+  stagedCheckFailsAt?: readonly string[];
+  /** Paths where `commitAs` fails. */
+  commitAsFailsAt?: readonly string[];
   /** Every call received, for a test to assert against. */
   calls?: {
     resets: { path: string; branch: string; base: string }[];
     commits: { path: string; message: string }[];
     pushes: { path: string; branch: string }[];
+    commitsAs: { path: string; who: string; message: string }[];
   };
 }
 
@@ -253,6 +264,17 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
     push: async (path, branch): Promise<PortResult<void>> => {
       if ((fixture.pushFailsAt ?? []).includes(path)) return failed<void>();
       fixture.calls?.pushes.push({ path, branch });
+      return answered(undefined);
+    },
+
+    hasStagedChanges: async (path): Promise<PortResult<boolean>> => {
+      if ((fixture.stagedCheckFailsAt ?? []).includes(path)) return failed<boolean>();
+      return answered((fixture.staged ?? []).includes(path));
+    },
+
+    commitAs: async (path, who, message): Promise<PortResult<void>> => {
+      if ((fixture.commitAsFailsAt ?? []).includes(path)) return failed<void>();
+      fixture.calls?.commitsAs.push({ path, who, message });
       return answered(undefined);
     },
   };

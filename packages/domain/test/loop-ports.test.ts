@@ -130,6 +130,31 @@ describe('treesGit: desk-reset, commit, push', () => {
     const result = await trees().push(desk, 'infra/never-existed');
     expect(result.ok).toBe(false);
   });
+
+  it('hasStagedChanges answers false on a clean index and true once something is staged', async () => {
+    const clean = await trees().hasStagedChanges(desk);
+    expect(clean).toEqual({ ok: true, value: false });
+
+    fs.writeFileSync(path.join(desk, 'staged.txt'), 'staged\n');
+    git(desk, ['add', 'staged.txt']);
+    const dirty = await trees().hasStagedChanges(desk);
+    expect(dirty).toEqual({ ok: true, value: true });
+  });
+
+  it('commitAs commits the staged change, attributed to who', async () => {
+    const result = await trees().commitAs(desk, 'Approve Bot', 'plot: approve infra/commit-test');
+    expect(result).toEqual({ ok: true, value: undefined });
+    expect(git(desk, ['log', '-1', '--format=%s']).trim()).toBe('plot: approve infra/commit-test');
+    expect(git(desk, ['log', '-1', '--format=%an']).trim()).toBe('Approve Bot');
+
+    const clean = await trees().hasStagedChanges(desk);
+    expect(clean).toEqual({ ok: true, value: false });
+  });
+
+  it('commitAs answers failed on an empty index', async () => {
+    const result = await trees().commitAs(desk, 'Approve Bot', 'plot: nothing to commit');
+    expect(result.ok).toBe(false);
+  });
 });
 
 describe('treesGit: resetOnto clears bookkeeping and repairs the generated bundles', () => {

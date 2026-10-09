@@ -417,4 +417,36 @@ export interface Trees {
    * @returns nothing; a failure means the push was rejected or could not run.
    */
   push(path: string, branch: string): Promise<PortResult<void>>;
+
+  /**
+   * Whether a checkout holds no staged changes.
+   *
+   * `git -C <path> diff --cached --quiet` — a lifecycle write stages a plan
+   * edit and then asks this before committing, to answer `nothing-to-commit`
+   * without a commit that would carry no change. Unstaged and untracked
+   * changes outside the index answer nothing here; a caller that cares about
+   * them stages first.
+   *
+   * @param path - the checkout to check, absolute.
+   * @returns `true` when the index holds nothing staged; a failure means git
+   *   could not be asked.
+   */
+  hasStagedChanges(path: string): Promise<PortResult<boolean>>;
+
+  /**
+   * Commits whatever is staged, attributing the commit to `who`.
+   *
+   * **NOT {@link commit}.** That operation is `--allow-empty` with no author
+   * override, matching the claim marker it exists for. This one fails on an
+   * empty index — the caller already asked {@link hasStagedChanges} — and
+   * sets `user.name` for the one commit rather than the checkout's identity,
+   * matching a lifecycle write's `git -C <path> -c user.name=<who> commit -q
+   * -m <message>`.
+   *
+   * @param path - the checkout to commit in, absolute.
+   * @param who - the name to attribute the commit to.
+   * @param message - the commit message.
+   * @returns nothing; a failure means git refused the commit.
+   */
+  commitAs(path: string, who: string, message: string): Promise<PortResult<void>>;
 }
