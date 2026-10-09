@@ -24,9 +24,11 @@ import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { deliverabilityOf, type DeliverabilityPorts } from '../controllers/deliverability.js';
 import {
   commitAndPush,
+  realPlanPath,
   recordStateReceipt,
   Refused,
   spendActionReceipt,
+  unlinkSyncSafe,
   type Printer,
 } from './ladder.js';
 import {
@@ -35,10 +37,8 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  readlinkSync,
   realpathSync,
   symlinkSync,
-  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
@@ -174,33 +174,6 @@ const findPlanFile = (
     if (existsSync(path.join(repoRoot, candidate))) return candidate;
   }
   return '';
-};
-
-/** Resolves a plan path's symlink to the canonical file it names, repository-relative. */
-const realPlanPath = (repoRoot: string, relPath: string): string | null => {
-  const abs = path.join(repoRoot, relPath);
-  let dir = path.dirname(abs);
-  let base = path.basename(abs);
-  try {
-    const target = readlinkSync(abs);
-    const targetAbs = path.isAbsolute(target) ? target : path.join(dir, target);
-    dir = path.dirname(targetAbs);
-    base = path.basename(targetAbs);
-  } catch {
-    // Not a symlink — use the path as given.
-  }
-  const real = path.join(dir, base);
-  if (!real.startsWith(`${repoRoot}${path.sep}`) && real !== repoRoot) return null;
-  return path.relative(repoRoot, real);
-};
-
-/** Removes a scratch file, ignoring an error — it may already be gone. */
-const unlinkSyncSafe = (file: string): void => {
-  try {
-    unlinkSync(file);
-  } catch {
-    // Already gone — nothing this run should fail on.
-  }
 };
 
 /** `git` run in the repository, discarding nothing from the caller. */

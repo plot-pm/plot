@@ -6,7 +6,7 @@
 // would be an undeclared duplicate of the pair `state-receipt.corpus.test.ts`
 // already keeps in sync against the shell.
 import { createHash } from 'node:crypto';
-import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import type { Host, Scripts, Trees } from '@plot-pm/domain';
@@ -151,4 +151,31 @@ export const commitAndPush = async (
   if (!merged.ok) return { rejected: true };
   write(`step: ${noun} landed via micro-PR ${created.value}\n`);
   return { pushed: 'micro-pr' };
+};
+
+/** Resolves a plan path's symlink to the canonical file it names, repository-relative. */
+export const realPlanPath = (repoRoot: string, relPath: string): string | null => {
+  const abs = path.join(repoRoot, relPath);
+  let dir = path.dirname(abs);
+  let base = path.basename(abs);
+  try {
+    const target = readlinkSync(abs);
+    const targetAbs = path.isAbsolute(target) ? target : path.join(dir, target);
+    dir = path.dirname(targetAbs);
+    base = path.basename(targetAbs);
+  } catch {
+    // Not a symlink — use the path as given.
+  }
+  const real = path.join(dir, base);
+  if (!real.startsWith(`${repoRoot}${path.sep}`) && real !== repoRoot) return null;
+  return path.relative(repoRoot, real);
+};
+
+/** Removes a scratch file, ignoring an error — it may already be gone. */
+export const unlinkSyncSafe = (file: string): void => {
+  try {
+    unlinkSync(file);
+  } catch {
+    // Already gone — nothing this run should fail on.
+  }
 };
