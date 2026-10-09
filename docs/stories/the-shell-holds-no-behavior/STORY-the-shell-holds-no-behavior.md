@@ -58,6 +58,8 @@ The fleet runs apart from the board. The supervisor, the registry and the agent 
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-10-09 | Route 2 for per-pass scripts | Measured +1750 % CPU per pass at 8 agents for launchers (`scripts/measure-pass.mjs`, PR #1410) against a 5 % threshold set in advance. A per-pass script becomes a launcher only once its caller answers the question in process. |
+| 2026-10-09 | A bundle declared in `packages/board/build.mjs` with its entry source present is evidence for a *launcher* or *readings* row | Main builds bundles after the merge and CI refuses a committed bundle, so a conversion PR could not otherwise change its row in the same change. PR #1414. |
 | 2026-10-09 | PR #1405 merges as built, and a follow-up slice widens the gate | The gate never lets the count rise, so it stays valid under the wider target. Rewriting a finished slice costs more than one more slice. |
 | 2026-10-09 | Per-pass scripts take route 2: answer the question inside the fleet's own long-lived process, not as launchers | The fixed threshold was route 1 if the launcher variant added less than 5 % CPU per pass at 8 agents, else route 2. Measured: 1750 % (40 ms today against 740 ms launcher, 16-core machine, medians over 7 runs) — three orders of magnitude over the threshold. |
 
