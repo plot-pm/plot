@@ -247,7 +247,8 @@ describe('a writer given a branch is attributed to that branch only', () => {
     runGiven(root, `running ${livePid}`);
 
     expect(briefReading(root, FIRST, PLAN_SLUG).askedAt).not.toBeNull();
-    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null });
+    expect(briefReading(root, FIRST, PLAN_SLUG).writing).toBe(true);
+    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false });
   });
 
   it('reads a running writer held by this board as running', () => {
@@ -258,16 +259,19 @@ describe('a writer given a branch is attributed to that branch only', () => {
 
     expect(briefReading(root, FIRST, PLAN_SLUG).askedAt).not.toBeNull();
     expect(briefReading(root, FIRST, PLAN_SLUG).failed).toBeNull();
-    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null });
+    expect(briefReading(root, FIRST, PLAN_SLUG).writing).toBe(true);
+    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false });
   });
 
-  it('reads a run that named no branch as an ask on every brief-less sibling', () => {
+  it('reads a run that named no branch as an ask on every brief-less sibling, never as writing', () => {
     const root = repo();
     write(implementLogPath(root, PLAN_SLUG));
     write(implementStatePath(root, PLAN_SLUG), `running ${livePid}`);
 
     expect(briefReading(root, FIRST, PLAN_SLUG).askedAt).not.toBeNull();
+    expect(briefReading(root, FIRST, PLAN_SLUG).writing).toBe(false);
     expect(briefReading(root, SECOND, PLAN_SLUG).askedAt).not.toBeNull();
+    expect(briefReading(root, SECOND, PLAN_SLUG).writing).toBe(false);
   });
 
   it('reads `running <pid>` with a dead pid as failed, for that branch only', () => {
@@ -275,15 +279,16 @@ describe('a writer given a branch is attributed to that branch only', () => {
     runGiven(root, `running ${deadPid()}`);
 
     expect(briefReading(root, FIRST, PLAN_SLUG).failed).toBe(path.relative(root, implementLogPath(root, PLAN_SLUG)));
-    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null });
+    expect(briefReading(root, FIRST, PLAN_SLUG).writing).toBe(false);
+    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false });
   });
 
   it('reads a recorded exit of 0 as no ask for any branch', () => {
     const root = repo();
     runGiven(root, '0');
 
-    expect(briefReading(root, FIRST, PLAN_SLUG)).toEqual({ askedAt: null, failed: null });
-    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null });
+    expect(briefReading(root, FIRST, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false });
+    expect(briefReading(root, SECOND, PLAN_SLUG)).toEqual({ askedAt: null, failed: null, writing: false });
   });
 
   it('keeps the first branch\'s failure after a later run briefed its sibling', () => {
