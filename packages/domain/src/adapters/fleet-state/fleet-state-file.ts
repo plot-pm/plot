@@ -1,3 +1,4 @@
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -51,6 +52,35 @@ const isAge = (v: unknown): v is number | null => v === null || typeof v === 'nu
 const isNumber = (v: unknown): v is number => typeof v === 'number';
 const isString = (v: unknown): v is string => typeof v === 'string';
 
+/**
+ * Parses a bridge file's text. Returns `null` for a foreign version, an
+ * unusable timestamp, an age outside `[0, BRIDGE_MAX_AGE_MS]`, or a pulse that
+ * fails its schema.
+ *
+ * A file from the FUTURE is as untrustworthy as an ancient one — a clock that
+ * moved backwards, or a copied checkout. Rejected rather than clamped.
+ */
+const parseBridge = (raw: string, nowMs: number): BridgedPulse | null => {
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (parsed.version !== BRIDGE_VERSION) return null;
+    const at = parsed.at;
+    if (typeof at !== 'number' || !Number.isFinite(at)) return null;
+    const age = nowMs - at;
+    if (age < 0 || age > BRIDGE_MAX_AGE_MS) return null;
+    return {
+      at,
+      pulse: FleetReadingSchema.parse(parsed.pulse),
+      ages: toMap(parsed.ages, isAge),
+      branchUrlBase: typeof parsed.branchUrlBase === 'string' ? parsed.branchUrlBase : '',
+      approvedAt: toMap(parsed.approvedAt, isNumber),
+      ideaPlans: toMap(parsed.ideaPlans, isString),
+    };
+  } catch {
+    return null;
+  }
+};
+
 /** The seams a test needs so a suite never touches the operator's own bridge. */
 export interface FleetStateFileOptions {
   /** The repository the bridge belongs to. */
@@ -80,28 +110,17 @@ export const fleetStateFile = (options: FleetStateFileOptions): FleetState => {
       } catch {
         return answered(null);
       }
+      return answered(parseBridge(raw, now()));
+    },
+
+    readSync: (): PortResult<BridgedPulse | null> => {
+      let raw: string;
       try {
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        if (parsed.version !== BRIDGE_VERSION) return answered(null);
-        const at = parsed.at;
-        if (typeof at !== 'number' || !Number.isFinite(at)) return answered(null);
-        // A file from the FUTURE is as untrustworthy as an ancient one — a
-        // clock that moved backwards, or a copied checkout. Rejected rather
-        // than clamped.
-        const age = now() - at;
-        if (age < 0 || age > BRIDGE_MAX_AGE_MS) return answered(null);
-        const pulse = FleetReadingSchema.parse(parsed.pulse);
-        return answered({
-          at,
-          pulse,
-          ages: toMap(parsed.ages, isAge),
-          branchUrlBase: typeof parsed.branchUrlBase === 'string' ? parsed.branchUrlBase : '',
-          approvedAt: toMap(parsed.approvedAt, isNumber),
-          ideaPlans: toMap(parsed.ideaPlans, isString),
-        });
+        raw = fsSync.readFileSync(file, 'utf8');
       } catch {
         return answered(null);
       }
+      return answered(parseBridge(raw, now()));
     },
 
     write: async (data: BridgedPulse): Promise<PortResult<void>> => {

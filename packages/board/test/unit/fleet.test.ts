@@ -2118,7 +2118,7 @@ describe('rowsFromPulse', () => {
       // per-pulse lookup — the thing this test guards against — it is a second,
       // bounded question asked by the same timer-gated function.
       const source = readFileSync(
-        new URL('../../src/server/fleet.ts', import.meta.url), 'utf8');
+        new URL('../../../fleet/src/shared/pr-refresh.ts', import.meta.url), 'utf8');
       const calls = source.split('\n')
         .filter((l) => l.includes("'pr-list'"));
       expect(calls, `expected exactly two pr-list call sites, saw:\n${calls.join('\n')}`)
@@ -4815,7 +4815,7 @@ describe('the all-unknown PR trigger raises the outage banner', () => {
   // same idiom `costs no host call` uses above, and for the same reason: the two
   // traps this branch exists to avoid live in a code path no unit fixture drives.
   const source = readFileSync(
-    new URL('../../src/server/fleet.ts', import.meta.url), 'utf8');
+    new URL('../../../fleet/src/shared/pr-refresh.ts', import.meta.url), 'utf8');
 
   it('fires only when EVERY PR is unknown, never on a single gap (Done-when 2)', () => {
     // One gap is a gap. A trigger on "any unknown" would fire constantly — the

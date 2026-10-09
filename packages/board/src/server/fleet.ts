@@ -1732,7 +1732,7 @@ export const refreshPrs = async (
  * applies only to the ordinary cadence, where the timer and the gate are two
  * clocks trying to agree on the same instant.
  */
-async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
+export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   if (entry.prRunning || !prGateOpen(entry.prNextAt, entry.prNextIsBackoff)) return;
   entry.prRunning = true;
   try {
@@ -1767,24 +1767,6 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
   // previous document had and this one lacks, and a partial view of the scan
   // in progress cannot answer that.
   try {
-    // A RESTART SHOWS THE LAST PULSE BEFORE ANY SCAN. The bridge is read through
-    // the port once, on the first refresh of a cold entry, and marked as acted
-    // on: a pulse the previous process already dispatched from must not fire a
-    // second dispatch because the process restarted.
-    if (entry.at === null) {
-      const preload = await fleetStateFor(opts).read();
-      if (preload.ok && preload.value !== null) {
-        const warm = preload.value;
-        entry.pulse = warm.pulse;
-        entry.ages = warm.ages;
-        entry.branchUrlBase = warm.branchUrlBase;
-        entry.approvedAt = warm.approvedAt;
-        entry.ideaPlans = warm.ideaPlans;
-        entry.at = warm.at;
-        entry.lastComplete = warm.pulse;
-        entry.bridgeActedAt = warm.at;
-      }
-    }
     const before = entry.pulseComplete ? entry.pulse : null;
     // FIRST, and before the scan spawns. The registry depends on neither git nor
     // the pulse — it reads `.plot/agents/` and the transcripts those manifests
@@ -2199,6 +2181,20 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
   // Null covers every way of not having one — no file, unreadable, a foreign
   // shape, or simply too old to mean anything — and leaves the cold-start
   // behaviour exactly as it was.
+  const seeded = fleetStateFor(opts).readSync();
+  if (seeded.ok && seeded.value !== null) {
+    const warm = seeded.value;
+    entry.pulse = warm.pulse;
+    entry.ages = warm.ages;
+    entry.branchUrlBase = warm.branchUrlBase;
+    entry.approvedAt = warm.approvedAt;
+    entry.ideaPlans = warm.ideaPlans;
+    entry.at = warm.at;
+    entry.lastComplete = warm.pulse;
+    // Acted on already: a pulse the previous process dispatched from must not
+    // fire a second dispatch because the process restarted.
+    entry.bridgeActedAt = warm.at;
+  }
   void refresh(opts, entry);
   void maybeRefreshPrs(opts, entry);
   // ONE CLOCK, TWO DIVISORS, where there were two timers.

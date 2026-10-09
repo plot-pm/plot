@@ -83,6 +83,18 @@ describe('the fleet state port round-trips what a restart needs', () => {
     expect(value!.ideaPlans.get('idea/a-plan')).toBe('2026-08-17-a-plan.md');
   });
 
+  it('answers readSync with what read answers, and null past the expiry', async () => {
+    const state = fleetStateFile({ repoRoot: repo });
+    const now = Date.now();
+    await state.write(bridged(now));
+    const sync = state.readSync();
+    expect(sync.ok && sync.value?.pulse).toEqual(PULSE);
+    expect(sync.ok && sync.value?.ages.get('feature/a')).toBe(7);
+    const aged = fleetStateFile({ repoRoot: repo, now: () => now + BRIDGE_MAX_AGE_MS + 1 });
+    const expired = aged.readSync();
+    expect(expired.ok && expired.value).toBeNull();
+  });
+
   it('keeps the SCAN time rather than the write time', async () => {
     const scannedAt = Date.now() - 90_000;
     const state = fleetStateFile({ repoRoot: repo });

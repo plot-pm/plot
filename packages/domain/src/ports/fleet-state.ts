@@ -35,6 +35,15 @@ export interface FleetState {
   read(): Promise<PortResult<BridgedPulse | null>>;
 
   /**
+   * The same answer as `read`, without awaiting.
+   *
+   * For the one caller that cannot await: a cache seeded on the first
+   * synchronous access, so a restarted board answers its first request from the
+   * bridged pulse rather than from a null.
+   */
+  readSync(): PortResult<BridgedPulse | null>;
+
+  /**
    * Writes the bridged pulse, replacing whatever was there.
    *
    * **ONLY EVER CALLED AFTER A SCAN SUCCEEDS.** A failed scan must not
