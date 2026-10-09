@@ -1008,18 +1008,20 @@ if [ "$mode" = "start" ]; then
     new_label=$LABEL new_unit_name=$UNIT_NAME
     LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd
     if supervisor_loaded; then
-      case "$(supervisor_checkout)" in
-        this\ *)
-          echo "plot-fleetctl: migrating the old label 'com.plot-pm.registryd' — it serves this repository"
-          case "$plat" in
-            launchd) launchctl bootout "gui/$(id -u)/com.plot-pm.registryd" 2>/dev/null
-                      rm -f "$HOME/Library/LaunchAgents/com.plot-pm.registryd.plist" ;;
-            systemd) systemctl --user disable --now plot-registryd 2>/dev/null
-                      rm -f "$HOME/.config/systemd/user/plot-registryd.service"
-                      systemctl --user daemon-reload 2>/dev/null ;;
-          esac
-          echo "  unloaded and removed — continuing under 'com.plot-pm.fleetd'" ;;
-      esac
+      served=$(supervisor_workdir)
+      here=$(cd "$repo_root" && pwd -P)
+      there=$([ -n "$served" ] && cd "$served" 2>/dev/null && pwd -P || printf '%s' "$served")
+      if [ "$(node "$script_dir/board/plot-supervisor-migration.mjs" "$there" "$here")" = yes ]; then
+        echo "plot-fleetctl: migrating the old label 'com.plot-pm.registryd' — it serves this repository"
+        case "$plat" in
+          launchd) launchctl bootout "gui/$(id -u)/com.plot-pm.registryd" 2>/dev/null
+                    rm -f "$HOME/Library/LaunchAgents/com.plot-pm.registryd.plist" ;;
+          systemd) systemctl --user disable --now plot-registryd 2>/dev/null
+                    rm -f "$HOME/.config/systemd/user/plot-registryd.service"
+                    systemctl --user daemon-reload 2>/dev/null ;;
+        esac
+        echo "  unloaded and removed — continuing under 'com.plot-pm.fleetd'"
+      fi
     fi
     LABEL=$new_label UNIT_NAME=$new_unit_name
   fi

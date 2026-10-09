@@ -81,6 +81,7 @@ skills/plot/scripts/board/plot-sprint-transition.mjs -merge
 skills/plot/scripts/board/plot-plan-undeliver.mjs -merge
 skills/plot/scripts/board/plot-standing.mjs -merge
 skills/plot/scripts/board/plot-start-command.mjs -merge
+skills/plot/scripts/board/plot-supervisor-migration.mjs -merge
 skills/plot/scripts/board/plot-task.mjs -merge
 skills/plot/scripts/board/plot-transition.mjs -merge
 skills/plot/scripts/board/plot-verdicts.mjs -merge
