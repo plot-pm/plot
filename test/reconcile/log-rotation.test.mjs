@@ -72,7 +72,7 @@ function size(file) {
 }
 
 const MODULE = path
-  .join(root, 'packages', 'board', 'src', 'server', 'process-log.ts')
+  .join(root, 'packages', 'board', 'src', 'shared', 'process-log.ts')
   .replace(/\\/g, '/');
 
 test('log-rotation: the writer rotates at the bound and keeps three files', () => {
