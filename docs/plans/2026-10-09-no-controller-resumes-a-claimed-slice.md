@@ -14,6 +14,7 @@
 - **Started:** 2026-10-09, jwloka, `bug/a-working-desk-never-reads-free`
 - **Started:** 2026-10-09, jwloka, `feature/a-time-out-writes-its-ending`
 - **Started:** 2026-10-09, jwloka, `feature/a-time-out-writes-its-ending`
+- **Started:** 2026-10-09, jwloka, `feature/a-timed-out-slice-gets-a-fresh-agent`
 
 ## Changelog
 
