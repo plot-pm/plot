@@ -23,6 +23,15 @@ export interface LadderContext {
 export type Printer = (s: string) => void;
 
 /**
+ * The local calendar date of `now`, as `date +%Y-%m-%d` prints it.
+ *
+ * @param now - the instant to read; the current time when omitted.
+ * @returns the date in the process's local time zone, `YYYY-MM-DD`.
+ */
+export const localDate = (now: Date = new Date()): string =>
+  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+/**
  * The git blob object name of a string, as `git hash-object --stdin` computes
  * it: `sha1("blob " + byteLength + "\0" + content)`.
  *

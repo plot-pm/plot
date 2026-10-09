@@ -24,6 +24,7 @@ import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { deliverabilityOf, type DeliverabilityPorts } from '../controllers/deliverability.js';
 import {
   commitAndPush,
+  localDate,
   realPlanPath,
   recordStateReceipt,
   Refused,
@@ -271,7 +272,7 @@ const runDeliver = async (
 
   const main = await resolveMain(ctx.repoRoot, ctx.scripts);
   const who = args.who || process.env.PLOT_DELIVER_WHO || (await gitUserName(ctx.repoRoot));
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDate();
 
   if (args.dryRun) {
     write(`step: would flip Phase → Delivered and fill Delivered: ${today}\n`);

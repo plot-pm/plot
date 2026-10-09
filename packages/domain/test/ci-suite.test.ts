@@ -167,6 +167,30 @@ describe('controllerInvocation', () => {
     });
   });
 
+  // `approval-becomes-a-command` made `plot-approve.sh` a launcher over its own
+  // bundle, so a direct call to the bundle reads as the launcher does.
+  describe('plot-approve.mjs is the same action as plot-approve.sh', () => {
+    it('a bare call is approve', () => {
+      expect(controllerInvocation('node skills/plot/scripts/board/plot-approve.mjs x')).toBe('approve');
+    });
+
+    it('--who on the bundle is still approve', () => {
+      expect(controllerInvocation('node skills/plot/scripts/board/plot-approve.mjs --who "A Person" x')).toBe(
+        'approve',
+      );
+    });
+
+    it.each(['--status', '--dry-run', '--help', '-h'])('%s has no endpoint', (mode) => {
+      expect(controllerInvocation(`node skills/plot/scripts/board/plot-approve.mjs ${mode} x`)).toBeNull();
+    });
+
+    it('a read is still null — cat, ls, git grep', () => {
+      expect(controllerInvocation('cat skills/plot/scripts/board/plot-approve.mjs')).toBeNull();
+      expect(controllerInvocation('ls skills/plot/scripts/board/plot-approve.mjs')).toBeNull();
+      expect(controllerInvocation('git grep -l plot-approve.mjs')).toBeNull();
+    });
+  });
+
   it('answers null for a read-only script this rule does not gate', () => {
     expect(controllerInvocation('bash skills/plot/scripts/plot-fleet-scan.sh')).toBeNull();
     expect(controllerInvocation('gh pr merge 123 --squash')).toBeNull();

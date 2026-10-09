@@ -95,6 +95,8 @@ export const ciSuiteRefusal = (command: string, suites: readonly string[]): CiSu
  * | `node skills/plot/scripts/board/plot-deliver.mjs x` | `'deliver'` — the launcher's own bundle |
  * | `node .../plot-deliver.mjs --release 2.22.3 x` | `'release'`, the bundle read the same as the launcher |
  * | `node .../plot-deliver.mjs --dry-run x` | `null` — no endpoint for this mode |
+ * | `node skills/plot/scripts/board/plot-approve.mjs x` | `'approve'` — the launcher's own bundle |
+ * | `node .../plot-approve.mjs --dry-run x` | `null` — no endpoint for this mode |
  *
  * A script named is a RUN unless its segment's program is `ls`, `cat` or
  * `git grep` — the three reads #1245 measured the token loop getting wrong.
@@ -139,11 +141,14 @@ const DELIVER_SH = 'plot-deliver.sh';
 // and would otherwise skip this gate too, walking around the controller the
 // same way a direct call to the `.sh` always could have.
 const DELIVER_MJS = 'plot-deliver.mjs';
+// `approval-becomes-a-command` did the same to `plot-approve.sh`.
+const APPROVE_MJS = 'plot-approve.mjs';
 
 /** The scripts a command may run, and the action each bare call is. */
 const GATED: Record<string, 'dispatch' | 'approve' | 'deliver'> = {
   [DISPATCH_SH]: 'dispatch',
   [APPROVE_SH]: 'approve',
+  [APPROVE_MJS]: 'approve',
   [DELIVER_SH]: 'deliver',
   [DELIVER_MJS]: 'deliver',
 };
@@ -214,6 +219,7 @@ const isReadSegment = (words: readonly string[]): boolean => {
 /** `plot-dispatch.sh`'s and `plot-deliver.sh`'s modes with no endpoint, or belonging to a different action. */
 const NO_ENDPOINT: Record<string, readonly string[]> = {
   [APPROVE_SH]: ['--status', '--dry-run', '--help', '-h'],
+  [APPROVE_MJS]: ['--status', '--dry-run', '--help', '-h'],
   [DELIVER_SH]: ['--status', '--dry-run', '--help', '-h'],
   [DELIVER_MJS]: ['--status', '--dry-run', '--help', '-h'],
   [DISPATCH_SH]: [

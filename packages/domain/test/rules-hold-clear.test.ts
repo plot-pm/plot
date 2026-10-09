@@ -16,6 +16,13 @@ describe('clearHolds', () => {
     expect(kept).toBe(content);
   });
 
+  it('reads the first field of an indented entry, as awk $1 and plot-phase-gate.sh do', () => {
+    const content = '  feature/alpha review pending\n\tfeature/beta  review pending\nfeature/unrelated kept\n';
+    const { kept, removed } = clearHolds(content, ['feature/alpha', 'feature/beta']);
+    expect(removed).toBe(2);
+    expect(kept).toBe('feature/unrelated kept\n');
+  });
+
   it('a missing file is not a failure', () => {
     const { kept, removed } = clearHolds(undefined, ['feature/alpha']);
     expect(kept).toBeUndefined();

@@ -90,6 +90,10 @@ Measured on `main` at `0b749ca9e`, 2026-10-09:
 
 - `feature/approval-becomes-a-command` — `plot-approve.sh` becomes a launcher over a JS entry modelled on `deliver.ts`, and it keeps the receipt contract with both gates → #1446 <!-- builds: a JS approve entry -->
 
+### A direct approve call is gated
+
+- `bug/a-direct-approve-call-is-gated` — `controllerInvocation` reads `node .../board/plot-approve.mjs` as the `approve` action, so `plot-controller-gate.sh` refuses a direct bundle call with no receipt; the approve entry also names no exit code the host port did not carry, clears an indented `.plot/hold` entry, writes the local date, and removes its booking worktree on every failure <!-- builds: plot-approve.mjs in the controller gate's rule -->
+
 ## Notes
 
 - 2026-10-09: drafted from issue #1404 by an unattended `/plot-idea` run. The issue proposed five slices. This plan keeps three of them and records why the other two are out of scope. The issue labels itself *infra*. The prompt for this run gave `Type: feature`, and the plan records the prompt's value.
