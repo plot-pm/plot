@@ -1,8 +1,8 @@
-// Contract test for PROCESS-OWNED LOG ROTATION — `registryd.log` and
+// Contract test for PROCESS-OWNED LOG ROTATION — `fleetd.log` and
 // `board.log`.
 //
 // WHY THE WRITER ROTATES, and why an external rotator cannot. launchd opens
-// `registryd.log` through the unit's `StandardOutPath`, `plot-boardctl.sh` opens
+// `fleetd.log` through the unit's `StandardOutPath`, `plot-boardctl.sh` opens
 // `board.log` with `>>`, and a hand-started `nohup … >> registryd.log` loop
 // exists too. A writer that inherited its descriptor FOLLOWS THE INODE across a
 // rename and never creates the new name — so `newsyslog`, `logrotate` and a
@@ -79,7 +79,7 @@ test('log-rotation: the writer rotates at the bound and keeps three files', () =
   // THE WHOLE CONTRACT IN ONE ASSERTION SET: at the bound the live file is
   // renamed to `.1`, older files shift up to `.3`, and the fourth is deleted.
   const dir = sandbox();
-  const log = path.join(dir, 'registryd.log');
+  const log = path.join(dir, 'fleetd.log');
 
   const res = driver(`
     import { processLog } from '${MODULE}';
@@ -144,7 +144,7 @@ test('log-rotation: a hand-started writer rotates its own file', () => {
   // SHAPE TWO: stdout is a PIPE and the writer opens the file itself — the
   // `nohup bash -c 'while true; do node … ' ` loop in the operator's history.
   const dir = sandbox();
-  const log = path.join(dir, 'registryd.log');
+  const log = path.join(dir, 'fleetd.log');
 
   const res = driver(`
     import { processLog } from '${MODULE}';
@@ -163,7 +163,7 @@ test('log-rotation: no line is lost across a rotation', () => {
   // is what the size bound must not buy. Every line written is present across
   // the live file and its generations.
   const dir = sandbox();
-  const log = path.join(dir, 'registryd.log');
+  const log = path.join(dir, 'fleetd.log');
 
   const res = driver(`
     import { processLog } from '${MODULE}';
@@ -191,7 +191,7 @@ test('log-rotation: an inherited descriptor past the bound is truncated at start
   // offset survives and the next write leaves a hole of NUL bytes — 415 of them,
   // measured in round 2.
   const dir = sandbox();
-  const inherited = path.join(dir, 'registryd.err');
+  const inherited = path.join(dir, 'fleetd.err');
   writeFileSync(inherited, 'o'.repeat(5000));
 
   const res = spawnSync(
@@ -220,7 +220,7 @@ test('log-rotation: an inherited descriptor under the bound is left alone', () =
   // is printed before the writer opens, and a start that always emptied them
   // would throw that away.
   const dir = sandbox();
-  const inherited = path.join(dir, 'registryd.err');
+  const inherited = path.join(dir, 'fleetd.err');
   writeFileSync(inherited, 'kept\n');
 
   const res = spawnSync(
@@ -269,8 +269,8 @@ test('log-rotation: the daemon and the board both open their own log', () => {
   assert.match(registryd, /processLog\(/, 'registryd does not open its own log');
   assert.match(registryd, /truncateInherited\(1\)/, 'registryd does not truncate inherited stdout');
   assert.match(registryd, /truncateInherited\(2\)/, 'registryd does not truncate inherited stderr');
-  assert.match(registryd, /registryd\.log/, 'registryd names no log file');
-  assert.match(registryd, /registryd\.err/, 'registryd names no error file');
+  assert.match(registryd, /processLog\(join\(logs, 'fleetd\.log'\)\)/, 'the daemon does not open fleetd.log');
+  assert.match(registryd, /processLog\(join\(logs, 'fleetd\.err'\)\)/, 'the daemon does not open fleetd.err');
 
   const board = readFileSync(
     path.join(root, 'packages', 'board', 'src', 'server', 'index.ts'),
@@ -288,7 +288,7 @@ test('log-rotation: the built artifact carries the writer', () => {
   assert.ok(existsSync(artifact), 'plot-fleetd.mjs is not built');
   const built = readFileSync(artifact, 'utf8');
   assert.ok(
-    built.includes('registryd.log') && built.includes('registryd.err'),
+    built.includes('fleetd.log') && built.includes('fleetd.err'),
     'the built daemon names no log file — rebuild with pnpm build:board',
   );
 });

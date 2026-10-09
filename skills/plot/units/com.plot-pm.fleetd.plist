@@ -83,9 +83,9 @@
        tick goes to stderr, so `tail -f` on the error log shows exactly the
        ticks that could not be taken. -->
   <key>StandardOutPath</key>
-  <string>__REPO_ROOT__/.plot/logs/registryd.log</string>
+  <string>__REPO_ROOT__/.plot/logs/fleetd.log</string>
   <key>StandardErrorPath</key>
-  <string>__REPO_ROOT__/.plot/logs/registryd.err</string>
+  <string>__REPO_ROOT__/.plot/logs/fleetd.err</string>
 
   <!-- PRIORITY AND EVICTION ELIGIBILITY ARE TWO THINGS, and `Background` bought
        both. The daemon is idle 94% of a 60 s interval and shares a machine with

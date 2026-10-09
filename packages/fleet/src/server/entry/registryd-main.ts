@@ -2039,7 +2039,7 @@ export const reportTick = (
 // process loop under it.
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   // THE DAEMON OPENS ITS OWN LOG, because only the opener can rotate it. launchd
-  // opens `registryd.log` through the unit's `StandardOutPath`, and a writer that
+  // opens `fleetd.log` through the unit's `StandardOutPath`, and a writer that
   // inherited that descriptor follows the inode across a rename and never
   // creates the new name — so external rotation cannot work, which is how
   // `registryd.log` reached 131 MB in 13 days.
@@ -2050,8 +2050,8 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   truncateInherited(1);
   truncateInherited(2);
   const logs = logDir(process.env.PLOT_REPO_ROOT ?? process.cwd());
-  const out = processLog(join(logs, 'registryd.log'));
-  const err = processLog(join(logs, 'registryd.err'));
+  const out = processLog(join(logs, 'fleetd.log'));
+  const err = processLog(join(logs, 'fleetd.err'));
   void run(
     process.argv.slice(2),
     dirname(fileURLToPath(import.meta.url)),
@@ -2065,7 +2065,7 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
     // covers a failing tick; this covers what throws before the loop is
     // reached — an unreadable argument, a missing registry directory. Without
     // it such a failure is an unhandled rejection, which ends the process with
-    // the same empty `registryd.err` that made the tick deaths invisible.
+    // an empty error log, which made the tick deaths invisible.
     .catch((err: unknown) => {
       process.stderr.write(
         `plot-fleetd failed to start: ${err instanceof Error ? err.message : String(err)}\n`,
