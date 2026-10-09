@@ -102,11 +102,14 @@ const countingSource = (columns: Column[]) => {
 /**
  * Waits for the background scan a board question starts, then stops the clocks.
  * The scan's auto-dispatch step writes `.plot/state/auto-in-flight.json` when it
- * ends, and a write after `rmTree` recreates the repo directory as a leak.
+ * ends, and a write after `rmTree` recreates the repo directory as a leak. The
+ * file's appearance is the signal that the step ran.
  */
 const settleScan = async (opts: { repoRoot: string; scriptsDir: string }): Promise<void> => {
+  const marks = path.join(opts.repoRoot, '.plot', 'state', 'auto-in-flight.json');
   const deadline = Date.now() + 30_000;
-  while (pulseFor(opts) === null && Date.now() < deadline) {
+  void pulseFor(opts);
+  while (!fs.existsSync(marks) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   await new Promise((resolve) => setTimeout(resolve, 300));
