@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-09, jwloka, in-session
 - **Started:** 2026-10-09, jwloka, `feature/the-gate-counts-decisions`
+- **Started:** 2026-10-09, jwloka, `feature/the-gate-counts-every-script`
 
 ## Changelog
 
