@@ -53,7 +53,7 @@ Two causes are known:
 
 ### The ask names its branch
 
-- `feature/the-brief-ask-names-its-branch` — a `--brief-only` run records the branch it briefs, and the brief reading attributes a running or failed writer to that branch only; measures the 01:03 source and the hidden-note condition first <!-- builds: a per-branch brief writer reading in brief-ask-log.ts -->
+- `feature/the-brief-ask-names-its-branch` — a `--brief-only` run records the branch it briefs, and the brief reading attributes a running or failed writer to that branch only; measures the 01:03 source and the hidden-note condition first <!-- builds: a per-branch brief writer reading in brief-ask-log.ts --> → #1424
 
 ### The row shows the writer
 
