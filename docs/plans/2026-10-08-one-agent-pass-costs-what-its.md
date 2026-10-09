@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Issue:** #1406
 - **Story:** the-shell-holds-no-behavior
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-09, jwloka, in-session
 - **Started:** 2026-10-09, jwloka, `feature/the-pass-is-measured`
+- **Delivered:** 2026-10-09
 
 ## Changelog
 
