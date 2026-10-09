@@ -40,7 +40,7 @@
 # alone until 2026-09-06, while `build.mjs` grew to 36 outputs and not one of
 # the others arrived here on its own. Measured on one rebase, 2026-09-05:
 # the marked file took zero conflict markers, `plot-ask.mjs` took five and
-# `plot-registryd.mjs` took three — spliced into generated output that is
+# `plot-fleetd.mjs` took three — spliced into generated output that is
 # committable, pushable, and not JavaScript.
 # `scripts/check-bundle-attributes.sh` now derives this set from
 # `build.mjs` and fails when one is missing, because a list nothing checks is a
@@ -60,6 +60,7 @@ skills/plot/scripts/board/plot-delta.mjs -merge
 skills/plot/scripts/board/plot-desk-root.mjs -merge
 skills/plot/scripts/board/plot-empty-claim.mjs -merge
 skills/plot/scripts/board/plot-fleet-size.mjs -merge
+skills/plot/scripts/board/plot-fleetd.mjs -merge
 skills/plot/scripts/board/plot-issue-source.mjs -merge
 skills/plot/scripts/board/plot-issue-status.mjs -merge
 skills/plot/scripts/board/plot-landed.mjs -merge
@@ -72,7 +73,6 @@ skills/plot/scripts/board/plot-prompt-exit.mjs -merge
 skills/plot/scripts/board/plot-propose-stack.mjs -merge
 skills/plot/scripts/board/plot-pr-index-lookup.mjs -merge
 skills/plot/scripts/board/plot-reconcile.mjs -merge
-skills/plot/scripts/board/plot-registryd.mjs -merge
 skills/plot/scripts/board/plot-release-gate.mjs -merge
 skills/plot/scripts/board/plot-slice-pr.mjs -merge
 skills/plot/scripts/board/plot-slice-spend.mjs -merge

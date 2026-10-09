@@ -1757,7 +1757,7 @@ export const run = async (
       // STDERR, AND THE ERROR'S OWN TEXT. `registryd.err` being empty on both
       // measured deaths is why this cannot go to the tick log: a failure
       // written where the ticks go is as invisible as the crash was.
-      warn(`plot-registryd tick failed: ${err instanceof Error ? err.message : String(err)}\n`);
+      warn(`plot-fleetd tick failed: ${err instanceof Error ? err.message : String(err)}\n`);
       // `--once` IS A GATE AND MUST STILL FAIL. An operator installing a
       // supervisor runs it to learn whether the daemon works; swallowing the
       // failure would report a healthy daemon and hand them a crash loop with

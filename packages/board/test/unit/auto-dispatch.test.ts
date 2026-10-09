@@ -1239,7 +1239,7 @@ describe('planAutoDispatch — a starved machine defers', () => {
 });
 
 // bug/the-board-loop-reads-the-same-ceiling. Two callers dispatch agents on this
-// estate against ONE machine reading, and only one acted on it: `plot-registryd`
+// estate against ONE machine reading, and only one acted on it: `plot-fleetd`
 // decides once a minute and applies `ceilingFor(headroom)`; this loop decided
 // twelve times a minute and applied no band-aware bound at all.
 //

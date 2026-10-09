@@ -105,16 +105,17 @@ describe('artifact-only versus artifact-among', () => {
 
   // THE WIDENING, 2026-09-06. This predicate compared against ONE filename, and
   // the cost was measured the day it was found: PR #727 conflicted in
-  // `plot-registryd.mjs` — a `-merge` bundle with a deterministic rebuild,
-  // exactly the licensed case — and the repair was refused and done by hand.
-  // Hours later the same branch conflicted in `board-server.mjs` and was
-  // repaired automatically. Same class of conflict, opposite outcome.
+  // `plot-registryd.mjs` (since renamed `plot-fleetd.mjs`) — a `-merge` bundle
+  // with a deterministic rebuild, exactly the licensed case — and the repair
+  // was refused and done by hand. Hours later the same branch conflicted in
+  // `board-server.mjs` and was repaired automatically. Same class of conflict,
+  // opposite outcome.
   it('accepts EVERY bundle the build emits, not just board-server.mjs', () => {
     for (const bundle of BOARD_ARTIFACT_PATHS) {
       expect(isArtifactOnly([bundle])).toBe(true);
     }
     // The one the defect was reported against, named so a regression says why.
-    expect(isArtifactOnly(['skills/plot/scripts/board/plot-registryd.mjs'])).toBe(true);
+    expect(isArtifactOnly(['skills/plot/scripts/board/plot-fleetd.mjs'])).toBe(true);
   });
 
   it('accepts several bundles conflicting together', () => {

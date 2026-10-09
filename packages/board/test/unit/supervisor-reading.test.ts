@@ -14,7 +14,7 @@ const opts = { repoRoot: '/nonexistent', scriptsDir: '/nonexistent' } as unknown
 const answering = (stdout: string, code = 0): Scripts =>
   ({ awaited: async () => ({ stdout, stderr: '', code }) }) as unknown as Scripts;
 
-const RUNNING = 'supervisor: running (pid 3260) — com.plot-pm.registryd\n  last tick: 5s ago (evidence, not the verdict)\n';
+const RUNNING = 'supervisor: running (pid 3260) — com.plot-pm.fleetd\n  last tick: 5s ago (evidence, not the verdict)\n';
 
 describe('readSupervisor — the tick age', () => {
   it('reads tick_age off the summary line, not the prose', async () => {

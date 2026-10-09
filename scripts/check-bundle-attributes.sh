@@ -5,7 +5,7 @@
 #
 #     board-server.mjs      0 conflict markers   (marked -merge)
 #     plot-ask.mjs          5 conflict markers   (NOT marked)
-#     plot-registryd.mjs    3 conflict markers   (NOT marked)
+#     plot-fleetd.mjs       3 conflict markers   (NOT marked)
 #
 # The marked file behaved as `.gitattributes` documents: git kept one side whole
 # and wrote no markers, so the artifact stayed valid JavaScript through the

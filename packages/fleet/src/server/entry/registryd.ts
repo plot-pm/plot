@@ -473,7 +473,7 @@ const reasonFor = (error: unknown): string => {
 export const tickLine = (report: TickReport): string => {
   if (report.incomplete !== '') {
     return [
-      'plot-registryd tick incomplete',
+      'plot-fleetd tick incomplete',
       `reason=${JSON.stringify(report.incomplete)}`,
       `cost=${report.costMs}ms`,
       'next=re-reads',
@@ -481,7 +481,7 @@ export const tickLine = (report: TickReport): string => {
   }
   const detail = report.decision.detail;
   const fields = [
-    `plot-registryd tick agents=${report.agents}`,
+    `plot-fleetd tick agents=${report.agents}`,
     `left=${detail.left.length}`,
     `reap=${detail.reaping.length}`,
     `correct=${detail.correcting.length}`,

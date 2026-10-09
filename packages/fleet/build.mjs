@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 /** Where each entry's bundle lands — read by both this file's own run and packages/board/build.mjs. */
-export const registrydArtifact = path.join(here, 'dist/plot-registryd.mjs');
+export const fleetdArtifact = path.join(here, 'dist/plot-fleetd.mjs');
 export const workerLoopArtifact = path.join(here, 'dist/plot-worker-loop.mjs');
 export const fleetSizeArtifact = path.join(here, 'dist/plot-fleet-size.mjs');
 export const promptArtifact = path.join(here, 'dist/plot-prompt.mjs');
@@ -41,7 +41,7 @@ export const buildFleetBundles = async () => {
   await esbuild.build({
     ...SHARED_OPTIONS,
     entryPoints: [path.join(here, 'src/server/entry/registryd-main.ts')],
-    outfile: registrydArtifact,
+    outfile: fleetdArtifact,
   });
 
   // ONE OF TWO BUNDLES THAT CARRY `@anthropic-ai/claude-agent-sdk`, for the SDK
@@ -50,7 +50,7 @@ export const buildFleetBundles = async () => {
   // optional per-platform packages, which hold a 229-246 MB `claude` binary
   // each: the SDK runs the operator's `claude` from PATH instead. No other
   // bundle imports `agent-run-sdk.ts`, and
-  // `test/worker-loop-bundle.test.mjs` proves `plot-registryd.mjs` and the
+  // `test/worker-loop-bundle.test.mjs` proves `plot-fleetd.mjs` and the
   // rest carry none of it.
   await esbuild.build({
     ...SHARED_OPTIONS,
@@ -85,5 +85,5 @@ export const buildFleetBundles = async () => {
 // Runs when invoked as `node build.mjs`, and not when imported.
 if (import.meta.url === `file://${process.argv[1]}`) {
   await buildFleetBundles();
-  console.log('Built plot-registryd.mjs, plot-worker-loop.mjs, plot-fleet-size.mjs, plot-prompt.mjs → dist/');
+  console.log('Built plot-fleetd.mjs, plot-worker-loop.mjs, plot-fleet-size.mjs, plot-prompt.mjs → dist/');
 }

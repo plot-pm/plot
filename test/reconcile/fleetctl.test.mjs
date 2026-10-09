@@ -116,11 +116,15 @@ const writeProcStubs = (bin) => {
  * `skills/plot/scripts/` holding copies of the scripts under test.
  *
  * REAL COPIES rather than a symlink to the repo, because `--start` composes
- * `$repo_root/skills/plot/scripts/board/plot-registryd.mjs` and the whole point
+ * `$repo_root/skills/plot/scripts/board/plot-fleetd.mjs` and the whole point
  * of refusal 1 is that this file may be absent.
  *
  * @param opts.nvmrc - the pinned major written to `.nvmrc` ('' writes no file)
- * @param opts.registryd - whether to place a stand-in supervisor artifact
+ * @param opts.registryd - whether to place a stand-in supervisor artifact.
+ *   `--start`/`--once` resolve `board/plot-fleetd.mjs` unconditionally,
+ *   regardless of LABEL, so this writes the stand-in there; `plot-registryd.mjs`
+ *   is a separate name the process-classifier tests stub directly, never a
+ *   file the real resolution looks for.
  */
 function sandbox(label, { nvmrc = '24', registryd = true } = {}) {
   // NESTED ONE LEVEL, and that is not tidiness. The default `Worktree root` is
@@ -144,7 +148,7 @@ function sandbox(label, { nvmrc = '24', registryd = true } = {}) {
   fs.chmodSync(path.join(dst, 'plot-fleetctl.sh'), 0o755);
   fs.cpSync(units, path.join(root, 'skills', 'plot', 'units'), { recursive: true });
 
-  if (registryd) fs.writeFileSync(path.join(dst, 'board', 'plot-registryd.mjs'), 'process.exit(0);\n');
+  if (registryd) fs.writeFileSync(path.join(dst, 'board', 'plot-fleetd.mjs'), 'process.exit(0);\n');
   if (nvmrc) fs.writeFileSync(path.join(root, '.nvmrc'), `${nvmrc}\n`);
 
   // A LABEL THIS MACHINE DOES NOT HOLD, and a distinct one per sandbox.
@@ -552,7 +556,7 @@ test('--stop of an unloaded supervisor still exits 0 and says so', () => {
 const onLaunchd = os.platform() === 'darwin';
 
 const unitTemplate = () =>
-  path.join(units, onLaunchd ? 'com.plot-pm.registryd.plist' : 'plot-registryd.service');
+  path.join(units, onLaunchd ? 'com.plot-pm.fleetd.plist' : 'plot-fleetd.service');
 
 // THE UNIT NAME FOLLOWS THE LABEL ON BOTH PLATFORMS since #1053. This
 // hardcoded `plot-registryd.service` while a labelled `--start` writes
@@ -684,8 +688,8 @@ test('a harness already on the default unit PATH resolves to the same binary', (
 // keys a job by the `Label` inside it (#1051); a systemd unit has no label
 // field, so the service keeps three and its identity problem is #1053's.
 const PLACEHOLDERS = {
-  'com.plot-pm.registryd.plist': ['__HARNESS_DIR__', '__LABEL__', '__NODE__', '__REGISTRYD__', '__REPO_ROOT__'],
-  'plot-registryd.service': ['__HARNESS_DIR__', '__NODE__', '__REGISTRYD__', '__REPO_ROOT__'],
+  'com.plot-pm.fleetd.plist': ['__FLEETD__', '__HARNESS_DIR__', '__LABEL__', '__NODE__', '__REPO_ROOT__'],
+  'plot-fleetd.service': ['__FLEETD__', '__HARNESS_DIR__', '__NODE__', '__REPO_ROOT__'],
 };
 
 test('each unit template carries exactly its documented placeholders', () => {
@@ -704,18 +708,18 @@ test('the fill leaves no placeholder in either unit', () => {
       .replaceAll('__REPO_ROOT__', '/tmp/repo')
       .replaceAll('__NODE__', '/tmp/node')
       .replaceAll('__HARNESS_DIR__', '/tmp/harness')
-      .replaceAll('__REGISTRYD__', '/tmp/registryd.mjs');
+      .replaceAll('__FLEETD__', '/tmp/fleetd.mjs');
     assert.equal(body.match(/__[A-Z_]+__/g), null, `${f} still holds a placeholder after the fill`);
   }
 });
 
 test('the filled plist is valid XML', () => {
-  const filled = fs.readFileSync(path.join(units, 'com.plot-pm.registryd.plist'), 'utf8')
+  const filled = fs.readFileSync(path.join(units, 'com.plot-pm.fleetd.plist'), 'utf8')
     .replaceAll('__LABEL__', 'com.example.supplied')
     .replaceAll('__REPO_ROOT__', '/tmp/repo')
     .replaceAll('__NODE__', '/tmp/node')
     .replaceAll('__HARNESS_DIR__', '/tmp/harness')
-    .replaceAll('__REGISTRYD__', '/tmp/registryd.mjs');
+    .replaceAll('__FLEETD__', '/tmp/fleetd.mjs');
   const tmp = path.join(os.tmpdir(), `plot-plist-${process.pid}.plist`);
   fs.writeFileSync(tmp, filled);
   try {
@@ -738,15 +742,15 @@ test('the filled plist is valid XML', () => {
 });
 
 test('the filled systemd unit is well-formed', () => {
-  const filled = fs.readFileSync(path.join(units, 'plot-registryd.service'), 'utf8')
+  const filled = fs.readFileSync(path.join(units, 'plot-fleetd.service'), 'utf8')
     .replaceAll('__REPO_ROOT__', '/tmp/repo')
     .replaceAll('__NODE__', '/tmp/node')
     .replaceAll('__HARNESS_DIR__', '/tmp/harness')
-    .replaceAll('__REGISTRYD__', '/tmp/registryd.mjs');
+    .replaceAll('__FLEETD__', '/tmp/fleetd.mjs');
   for (const section of ['[Unit]', '[Service]', '[Install]']) {
     assert.ok(filled.includes(section), `the unit has no ${section} section`);
   }
-  assert.match(filled, /^ExecStart=\/tmp\/node \/tmp\/registryd\.mjs --start-agents --sweep-temp$/m);
+  assert.match(filled, /^ExecStart=\/tmp\/node \/tmp\/fleetd\.mjs --start-agents --sweep-temp$/m);
   assert.match(filled, /^Restart=always$/m);
   assert.match(filled, /^WantedBy=default\.target$/m);
   // Every non-comment, non-blank, non-section line is `Key=Value`.
@@ -760,7 +764,7 @@ test('the filled systemd unit is well-formed', () => {
 // THE TEMPLATE IS THE SUBJECT HERE, NOT THE PARSER. `argsFrom` has parsed
 // `--start-agents` correctly since the flag existed — that is not where this
 // broke. What went unread for the life of the feature is the unit file: both
-// shipped templates named `__NODE__ __REGISTRYD__` and nothing else, so every
+// shipped templates named `__NODE__ __FLEETD__` and nothing else, so every
 // installation that followed `/plot-fleet --start` got a supervisor that
 // computed every hand-over and performed none. Measured 2026-09-07: `handed=2`
 // for three consecutive ticks against two free agents whose manifests read
@@ -770,11 +774,11 @@ test('the filled systemd unit is well-formed', () => {
 // defect reproducing on half the installations.
 
 test('both units start the daemon with --start-agents', () => {
-  const plist = fs.readFileSync(path.join(units, 'com.plot-pm.registryd.plist'), 'utf8');
-  const service = fs.readFileSync(path.join(units, 'plot-registryd.service'), 'utf8');
+  const plist = fs.readFileSync(path.join(units, 'com.plot-pm.fleetd.plist'), 'utf8');
+  const service = fs.readFileSync(path.join(units, 'plot-fleetd.service'), 'utf8');
 
   // The plist names it as its own `ProgramArguments` entry — a flag appended to
-  // the `__REGISTRYD__` string would reach the daemon as part of a path.
+  // the `__FLEETD__` string would reach the daemon as part of a path.
   assert.match(plist, /<string>--start-agents<\/string>/,
     'the launchd unit does not pass --start-agents, so its supervisor hands nothing over');
   assert.match(service, /^ExecStart=.* --start-agents(\s|$)/m,
@@ -782,7 +786,7 @@ test('both units start the daemon with --start-agents', () => {
 });
 
 test('the launchd unit does not declare ProcessType: Background', () => {
-  const plist = fs.readFileSync(path.join(units, 'com.plot-pm.registryd.plist'), 'utf8');
+  const plist = fs.readFileSync(path.join(units, 'com.plot-pm.fleetd.plist'), 'utf8');
 
   // `Background` is the class macOS deprioritises AND evicts first. Measured
   // 2026-09-07: six evictions in one session, every one under load, caught at
@@ -799,7 +803,7 @@ test('the launchd unit does not declare ProcessType: Background', () => {
 });
 
 test('the systemd unit keeps its Nice, which is priority without eviction', () => {
-  const service = fs.readFileSync(path.join(units, 'plot-registryd.service'), 'utf8');
+  const service = fs.readFileSync(path.join(units, 'plot-fleetd.service'), 'utf8');
 
   // NOTHING TO FIX HERE, and that is the argument rather than an exception.
   // `Nice` and `IOSchedulingClass` evict nothing, so the Linux supervisor was
@@ -811,7 +815,7 @@ test('the systemd unit keeps its Nice, which is priority without eviction', () =
 });
 
 test('the systemd unit stops only its daemon', () => {
-  const service = fs.readFileSync(path.join(units, 'plot-registryd.service'), 'utf8');
+  const service = fs.readFileSync(path.join(units, 'plot-fleetd.service'), 'utf8');
 
   // THE DEFAULT IS THE DEFECT, so the assertion is on the directive's presence
   // and not on its absence. systemd's `KillMode=control-group` signals every
@@ -877,9 +881,16 @@ printf '%s' "$(fleet_install_state)"`;
  * the default name is invisible to a run that overrides the label — the
  * reading would be `not-installed` for a test that just installed a unit.
  *
+ * THE DEFAULT IS THE NEW BARE DEFAULT, `com.plot-pm.fleetd` — the label a run
+ * with no `PLOT_FLEET_LABEL` override resolves to (`plot-fleetctl.sh:90`).
+ * `installState()`'s callers pass no override, so a unit written under the
+ * OLD default was invisible to them: `unit_target` composed a path this
+ * default never matched, and two marker tests read `not-installed` for a
+ * unit this call had just written.
+ *
  * @param label - the sandbox's `fleetLabel`; omitted only where no unit is written
  */
-function fakeHome(box, { unit = false, label = 'com.plot-pm.registryd' } = {}) {
+function fakeHome(box, { unit = false, label = 'com.plot-pm.fleetd' } = {}) {
   const home = path.join(box, 'home');
   const agents = path.join(home, 'Library', 'LaunchAgents');
   fs.mkdirSync(agents, { recursive: true });
@@ -1296,6 +1307,110 @@ test('--status prints no tick age outside the running arm', () => {
   assert.equal(tickLine(up.out), caveat, 'the running arm words its tick line differently');
 });
 
+// ── --status names a bundle the loaded unit still points at, but is gone ──────
+//
+// `supervisor_bundle_path` reads the bundle path from the LOADED job's own
+// argv (`plot-fleetctl.sh:239-247`) — never a unit file on disk, because the
+// RUNNING process already holds the old file open and a bundle removed out
+// from under it is invisible to the pid check alone. The call site is the
+// running arm only (`:734-742`), after the tick-age line and before the
+// shared `summary:` line, so neither the summary's own regex nor the
+// loaded-not-running arm is touched by this feature.
+//
+// `stubPlatform` ABOVE NEVER EMITS `arguments = { ... }`, only a bare
+// `pid = 4242` line, so a dedicated stub is needed here rather than reusing
+// it or `holdLabel` — neither prints the block this probe parses.
+
+/**
+ * Arm the sandbox's guard bin as a Darwin machine holding the label with a
+ * live pid, whose `launchctl print` also names the given bundle path in an
+ * `arguments = { ... }` block — the shape `supervisor_bundle_path` parses.
+ *
+ * @param bundlePath - the `.mjs` path the loaded job's argv names; omitted
+ *   prints no `arguments` block at all, so the reading is empty
+ */
+function stubLoadedWithBundle(box, bundlePath) {
+  const bin = path.join(box, 'bundle-stub-bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const write = (name, body) => {
+    const p = path.join(bin, name);
+    fs.writeFileSync(p, `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(p, 0o755);
+  };
+  write('uname', '[ "$1" = "-s" ] && echo Darwin || exec /usr/bin/uname "$@"');
+  const lines = [
+    'gui/501/x = {',
+    '\tactive count = 1',
+    '\tpid = 4242',
+    ...(bundlePath
+      ? ['\targuments = {', `\t\t/usr/bin/node`, `\t\t${bundlePath}`, '\t}']
+      : []),
+    '}',
+  ].map((l) => `printf '%s\\n' '${l}'`).join('\n');
+  write('launchctl', `[ "$1" = print ] && { ${lines}; exit 0; }\nexit 113`);
+  write('systemctl', `[ "$1" = show ] && { [ "$4" = MainPID ] && echo 4242; [ "$4" = ExecStart ] && printf '%s' "/usr/bin/node ${bundlePath ?? ''}"; exit 0; }\nexit 3`);
+  return bin;
+}
+
+test('--status: a bundle the loaded unit names but that no longer exists is reported MISSING', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('bundle-missing');
+  const home = fakeHome(box, { unit: true, label: fleetLabel });
+  const missing = path.join(root, 'skills', 'plot', 'scripts', 'board', 'plot-fleetd-old.mjs');
+  const bin = stubLoadedWithBundle(box, missing);
+  const r = run(ctl, ['--status'], root, guardBin, {
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, bin, process.env.PATH),
+  });
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /^supervisor: running \(pid 4242\)/m, r.out);
+  assert.match(r.out, new RegExp(`^  BUNDLE MISSING: ${missing.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} no longer exists — the loaded unit still names it$`, 'm'),
+    r.out);
+  assert.match(r.out, /^    Rebuild it, or reinstall: \/plot-fleet --stop, then \/plot-fleet --start$/m, r.out);
+});
+
+test('--status: a bundle that still exists prints no BUNDLE MISSING line', () => {
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('bundle-present');
+  const home = fakeHome(box, { unit: true, label: fleetLabel });
+  const present = path.join(root, 'skills', 'plot', 'scripts', 'board', 'plot-fleetd.mjs');
+  assert.ok(fs.existsSync(present), 'the sandbox default bundle is gone; the fixture changed');
+  const bin = stubLoadedWithBundle(box, present);
+  const r = run(ctl, ['--status'], root, guardBin, {
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, bin, process.env.PATH),
+  });
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /^supervisor: running \(pid 4242\)/m, r.out);
+  assert.doesNotMatch(r.out, /BUNDLE MISSING/, r.out);
+});
+
+test('--status: a loaded job naming no argv at all is read as no bundle, not a missing one', () => {
+  // EMPTY MEANS *do not report*, never *report a missing bundle at an empty
+  // path*. `supervisor_bundle_path` always exits 0 (`:246`), so an empty
+  // reading is indistinguishable from "the probe found nothing", and the call
+  // site's own guard is `[ -n "$bundle" ] && [ ! -f "$bundle" ]` — the first
+  // half refuses exactly this case.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('bundle-none');
+  const home = fakeHome(box, { unit: true, label: fleetLabel });
+  const bin = stubLoadedWithBundle(box, null);
+  const r = run(ctl, ['--status'], root, guardBin, {
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, bin, process.env.PATH),
+  });
+  assert.equal(r.status, 0, r.out);
+  assert.doesNotMatch(r.out, /BUNDLE MISSING/, r.out);
+});
+
+test('--status: BUNDLE MISSING never appears in the loaded-not-running arm', () => {
+  // THE CALL SITE IS THE RUNNING ARM ONLY. A label held with no pid behind it
+  // never reaches `supervisor_bundle_path` at all — proving the arm, not just
+  // the text, stays out of the other states this command already narrates.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('bundle-not-running');
+  const home = fakeHome(box, { unit: true, label: fleetLabel });
+  const bin = stubPlatform(box, { loaded: 'no-pid' });
+  const r = run(ctl, ['--status'], root, guardBin, {
+    HOME: home, PLOT_FLEET_LABEL: fleetLabel, PATH: withHarness(box, bin, process.env.PATH),
+  });
+  assert.equal(r.status, 1, r.out);
+  assert.doesNotMatch(r.out, /BUNDLE MISSING/, r.out);
+});
+
 test('--status says loaded, not running when the label is held and no process is behind it', () => {
   // THE MIDDLE ROW, AND THE WHOLE SLICE. Measured twice in ninety minutes on
   // 2026-09-22: `--status` said `supervisor: running`, no `registryd.mjs`
@@ -1440,7 +1555,7 @@ const startAndReadLabel = (label, env) => {
   const home = fakeHome(box);
   const bin = stubPlatform(box, {});
   const r = run(ctl, ['--start'], root, guardBin, { HOME: home, PATH: withHarness(box, bin, process.env.PATH), ...env });
-  const unitName = `${env.PLOT_FLEET_LABEL ?? 'com.plot-pm.registryd'}.plist`;
+  const unitName = `${env.PLOT_FLEET_LABEL ?? 'com.plot-pm.fleetd'}.plist`;
   const target = path.join(home, 'Library', 'LaunchAgents', unitName);
   assert.ok(fs.existsSync(target), `no unit was filled at ${target}:\n${r.out}`);
   const unit = fs.readFileSync(target, 'utf8');
@@ -1457,7 +1572,7 @@ test('label: an unset override writes the default Label, never an empty one', ()
   // A FILL THAT SUBSTITUTES AN EMPTY STRING passes the placeholder gate — no
   // `__LABEL__` survives it — and installs a job launchd cannot key.
   const { unit, label } = startAndReadLabel('label-default', {});
-  assert.equal(label, 'com.plot-pm.registryd', `the default label did not reach the unit:\n${unit}`);
+  assert.equal(label, 'com.plot-pm.fleetd', `the default label did not reach the unit:\n${unit}`);
 });
 
 test('label: --dry-run names the label that --start then writes', () => {
@@ -1507,9 +1622,9 @@ function consumerSandbox(label, { nvmrc = process.versions.node.split('.')[0], r
   }
   fs.chmodSync(path.join(dst, 'plot-fleetctl.sh'), 0o755);
   fs.cpSync(units, path.join(plugin, 'skills', 'plot', 'units'), { recursive: true });
-  const bundle = path.join(dst, 'board', 'plot-registryd.mjs');
+  const bundle = path.join(dst, 'board', 'plot-fleetd.mjs');
   if (registryd) {
-    fs.writeFileSync(bundle, 'console.log("registryd ran:", process.argv.slice(2).join(" "));\n');
+    fs.writeFileSync(bundle, 'console.log("fleetd ran:", process.argv.slice(2).join(" "));\n');
   }
   if (nvmrc) fs.writeFileSync(path.join(plugin, '.nvmrc'), `${nvmrc}\n`);
 
@@ -1532,7 +1647,7 @@ test('consumer: --once runs the bundle that ships beside the script', () => {
   const { consumer, ctl, fleetLabel, guardBin } = consumerSandbox('consumer-once');
   const r = run(ctl, ['--once'], consumer, guardBin, { PLOT_FLEET_LABEL: fleetLabel });
   assert.equal(r.status, 0, r.out);
-  assert.match(r.out, /registryd ran: --once/);
+  assert.match(r.out, /fleetd ran: --once/);
   assert.doesNotMatch(r.out, /no supervisor artifact/);
 });
 
@@ -1717,6 +1832,135 @@ out=$(supervisor_workdir); rc=$?; printf '%s|%s|%s' "$rc" "$out" "$(supervisor_c
   assert.equal(out, '0||unknown');
 });
 
+// ── --start migrates an old-label unit serving this checkout (the rename) ─────
+//
+// THE LABEL CHANGED DEFAULT from `com.plot-pm.registryd` to `com.plot-pm.fleetd`
+// (`plot-fleetctl.sh:90`), and `--start` under the bare NEW default migrates an
+// old-label unit that belongs to THIS checkout rather than leaving it orphaned
+// — `plot-fleetctl.sh:1013-1040`. Nothing here used `PLOT_FLEET_LABEL` to name
+// the sandbox's own per-test label, because the migration branch only runs
+// `if [ "$LABEL" = com.plot-pm.fleetd ]` — the bare default, unset. Every case
+// below runs with no override, so the suite's own mutual-exclusion concern
+// (why `sandbox()` mints a label this machine does not hold) does not apply to
+// `com.plot-pm.fleetd` itself: this machine's real fleet, if any, runs under
+// its own developer-chosen label or the legacy default, never under a
+// `.test-<label>-<pid>` suffix, so the bare new default is itself as safe to
+// probe as a minted one — and the bare OLD default is exactly what this block
+// exists to detect and migrate, never to stub around.
+//
+// THE STUB ANSWERS BY LABEL, which `holdLabel` above does not: the migration
+// block probes the OLD label specifically (`gui/$(id -u)/com.plot-pm.registryd`)
+// after switching `$LABEL`/`$UNIT_NAME`, so a stub that answers every `print`
+// identically cannot distinguish "the new default is not loaded" (needed for
+// the migration branch and refusal 4 to both read false) from "the old default
+// is loaded, serving some workdir" (needed to drive the three cases below).
+
+/**
+ * Arm the sandbox's guard bin as a Darwin machine that answers `launchctl
+ * print` differently depending on which label is asked about: the bare OLD
+ * default (`com.plot-pm.registryd`) is loaded with the given working
+ * directory; every other label — including the bare NEW default this suite
+ * runs `--start` under — answers absent, launchd's real 113.
+ *
+ * @param oldWorkdir - the old-label job's working directory; null prints no
+ *   such line (the "cannot determine" case)
+ * @returns the file every non-`print` launchctl call is appended to
+ */
+function holdOldLabelOnly(box, guardBin, oldWorkdir) {
+  const calls = path.join(box, 'launchctl.calls');
+  const write = (name, body) => {
+    const p = path.join(guardBin, name);
+    fs.writeFileSync(p, `#!/bin/sh\n${body}\n`);
+    fs.chmodSync(p, 0o755);
+  };
+  write('uname', '[ "$1" = "-s" ] && echo Darwin || exec /usr/bin/uname "$@"');
+  const printed = [
+    `gui/501/com.plot-pm.registryd = {`,
+    `\tactive count = 1`,
+    ...(oldWorkdir === null ? [] : [`\tworking directory = ${oldWorkdir}`]),
+    `\tpid = 4242`,
+    `}`,
+  ].map((l) => `printf '%s\\n' '${l}'`).join('\n');
+  write('launchctl', [
+    'if [ "$1" = print ]; then',
+    '  case "$2" in',
+    `    */com.plot-pm.registryd) ${printed}; exit 0 ;;`,
+    '    *) exit 113 ;;',
+    '  esac',
+    'fi',
+    `echo "$*" >> '${calls}'`,
+    'exit 113',
+  ].join('\n'));
+  return calls;
+}
+
+/** Run `--start` with no label override, so the migration branch's own guard fires. */
+function startUnderNewDefault(label, oldWorkdir) {
+  const s = sandbox(label);
+  const calls = holdOldLabelOnly(s.box, s.guardBin, typeof oldWorkdir === 'function' ? oldWorkdir(s) : oldWorkdir);
+  const home = fakeHome(s.box);
+  const r = run(s.ctl, ['--start'], s.root, s.guardBin, { HOME: home });
+  return { ...s, r, calls: launchctlCalls(calls) };
+}
+
+test('migration: an old-label unit serving this checkout is booted out and removed', () => {
+  const { r, calls, box, root } = startUnderNewDefault('migrate-this', (s) => s.root);
+  assert.match(r.out, /migrating the old label 'com.plot-pm.registryd' — it serves this repository/, r.out);
+  assert.match(r.out, /unloaded and removed — continuing under 'com.plot-pm.fleetd'/, r.out);
+  assert.ok(calls.some((c) => c === `bootout gui/501/com.plot-pm.registryd`),
+    `no bootout of the old label was recorded:\n${calls.join('\n')}`);
+  assert.equal(fs.existsSync(path.join(box, 'home', 'Library', 'LaunchAgents', 'com.plot-pm.registryd.plist')), false,
+    "the old label's plist survived the migration");
+  // THE RUN STILL CONTINUES UNDER THE NEW LABEL afterward — the migration
+  // restores `$LABEL`/`$UNIT_NAME` before refusal 4, so this is not a refusal
+  // in itself. It exits 1 later, at the real `launchctl bootstrap` the
+  // sandbox's own guard refuses (exit 113) — the same boundary every other
+  // `--start` test in this file stops at without reaching a live load.
+  assert.match(r.out, /filled .*com\.plot-pm\.fleetd\.plist/, r.out);
+});
+
+test('migration: an old-label unit serving another checkout is never touched', () => {
+  // `calls` ALSO CARRIES THE NEW LABEL'S OWN `bootstrap`, which is this run
+  // continuing normally after the migration guard declines to fire — an
+  // unrelated call this test must not mistake for evidence against it. What
+  // must never appear is a call NAMING THE OLD LABEL.
+  const other = fs.realpathSync(scratch('plot-fleetctl-other-'));
+  const { r, calls, box } = startUnderNewDefault('migrate-another', other);
+  assert.doesNotMatch(r.out, /migrating the old label/, r.out);
+  assert.ok(!calls.some((c) => c.includes('com.plot-pm.registryd') || c.includes('plot-registryd')),
+    `the old label was touched: ${calls.join('\n')}`);
+  assert.equal(fs.existsSync(path.join(box, 'home', 'Library', 'LaunchAgents', 'com.plot-pm.registryd.plist')), false,
+    'nothing was ever written for a label this run never held');
+});
+
+test('migration: no old-label unit loaded is silently skipped', () => {
+  // THE DEFAULT GUARD ALREADY ANSWERS THIS. `sandbox()`'s `guardBin` gives every
+  // label — old or new — a bare `exit 113`, launchd's real answer for a label
+  // nothing holds, so no stub beyond the sandbox's own is needed here.
+  const { root, box, ctl, guardBin } = sandbox('migrate-none');
+  const home = fakeHome(box);
+  const r = run(ctl, ['--start'], root, guardBin, { HOME: home });
+  assert.doesNotMatch(r.out, /migrating the old label/, r.out);
+});
+
+test('migration: a custom label never enters the migration branch', () => {
+  // THE GUARD IS `$LABEL = com.plot-pm.fleetd` EXACTLY. An operator's own
+  // label — this sandbox's minted `fleetLabel`, itself under the old prefix —
+  // must never probe or touch `com.plot-pm.registryd`, even when that old
+  // default happens to be loaded and serving this very checkout: the migration
+  // is for the rename, not for every `--start` under every label.
+  const { root, box, ctl, fleetLabel, guardBin } = sandbox('migrate-custom');
+  const calls = holdOldLabelOnly(box, guardBin, root);
+  const home = fakeHome(box);
+  const r = run(ctl, ['--start'], root, guardBin, { HOME: home, PLOT_FLEET_LABEL: fleetLabel });
+  assert.doesNotMatch(r.out, /migrating the old label/, r.out);
+  // The run still bootstraps the CUSTOM label itself normally — this asserts
+  // only that the bare OLD DEFAULT, distinct from this sandbox's own minted
+  // label, is never named in a recorded call.
+  assert.ok(!launchctlCalls(calls).some((c) => c === 'bootout gui/501/com.plot-pm.registryd'),
+    `the bare old default was booted out under a custom label: ${launchctlCalls(calls).join('\n')}`);
+});
+
 // ── The systemd unit name follows the label (#1053) ───────────────────────────
 //
 // launchd keys a job by the label inside the plist; systemd keys a unit by its
@@ -1770,15 +2014,22 @@ const stubSystemd = (box, { active = [] } = {}) => {
   return { bin, calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : []) };
 };
 
-test('unit name: the default label keeps plot-registryd, and every existing install with it', () => {
+test('unit name: the default label is now plot-fleetd', () => {
   const { ctl } = sandbox('unitname-default');
-  assert.equal(unitNameFor(ctl, undefined), 'plot-registryd');
+  assert.equal(unitNameFor(ctl, undefined), 'plot-fleetd');
+});
+
+test('unit name: the old default label keeps plot-registryd, for every existing install with it', () => {
+  const { ctl } = sandbox('unitname-default-old');
   assert.equal(unitNameFor(ctl, 'com.plot-pm.registryd'), 'plot-registryd');
 });
 
 test('unit name: another label strips the default prefix and keeps the rest distinct', () => {
   const { ctl } = sandbox('unitname-derived');
-  // THE SHAPE `units/README.md` DOCUMENTS for a second repository.
+  // THE SHAPE `units/README.md` DOCUMENTS for a second repository, under the
+  // new default prefix.
+  assert.equal(unitNameFor(ctl, 'com.plot-pm.fleetd.ewz-kus-portal'), 'plot-fleetd-ewz-kus-portal');
+  // The old prefix keeps its own mapping forever, for every existing install.
   assert.equal(unitNameFor(ctl, 'com.plot-pm.registryd.ewz-kus-portal'), 'plot-registryd-ewz-kus-portal');
   // Two labels sharing a last segment stay two units.
   assert.notEqual(unitNameFor(ctl, 'com.a.portal'), unitNameFor(ctl, 'com.b.portal'));
@@ -1802,20 +2053,20 @@ test('systemd: --start under a label writes and enables the unit that label name
   const name = fleetLabel.replace(/^com\.plot-pm\.registryd\./, 'plot-registryd-');
   const units = path.join(home, '.config', 'systemd', 'user');
   assert.ok(fs.existsSync(path.join(units, `${name}.service`)), `no ${name}.service:\n${r.out}`);
-  assert.equal(fs.existsSync(path.join(units, 'plot-registryd.service')), false,
+  assert.equal(fs.existsSync(path.join(units, 'plot-fleetd.service')), false,
     'a labelled start wrote the default unit, which another checkout owns');
   assert.ok(sd.calls().includes(`--user enable --now ${name}`), sd.calls().join('\n'));
 });
 
-test('systemd: --start with no label still writes plot-registryd.service', () => {
+test('systemd: --start with no label now writes plot-fleetd.service', () => {
   const { root, box, ctl, guardBin } = sandbox('unitname-unset');
   const home = fakeHome(box);
   const sd = stubSystemd(box);
   const r = run(ctl, ['--start'], root, guardBin, {
     HOME: home, PATH: withHarness(box, sd.bin, guardBin, process.env.PATH),
   });
-  assert.ok(fs.existsSync(path.join(home, '.config', 'systemd', 'user', 'plot-registryd.service')), r.out);
-  assert.ok(sd.calls().includes('--user enable --now plot-registryd'), sd.calls().join('\n'));
+  assert.ok(fs.existsSync(path.join(home, '.config', 'systemd', 'user', 'plot-fleetd.service')), r.out);
+  assert.ok(sd.calls().includes('--user enable --now plot-fleetd'), sd.calls().join('\n'));
 });
 
 test('systemd: refusal 4 asks about the unit it names, so a second label is not refused', () => {
@@ -1866,19 +2117,26 @@ test('systemd: --status and --stop ask about the unit --start wrote', () => {
     'the other checkout\'s unit was stopped');
 });
 
-test('gate: no systemctl call or systemd unit path in plot-fleetctl.sh hardcodes plot-registryd', () => {
+test('gate: no systemctl call or systemd unit path in plot-fleetctl.sh hardcodes plot-registryd outside the migration block', () => {
   // THE SHIPPED TEMPLATE'S FILENAME IS EXCLUDED by construction: that line
   // names `$UNIT_DIR`, carries no `systemctl` and no `systemd/user`, and is the
   // file the fill reads rather than a unit anybody routes to.
+  //
+  // THE MIGRATION BLOCK IS EXCLUDED TOO, and deliberately — it is the one
+  // place that is SUPPOSED to hardcode the old unit name: it boots out an
+  // old-labelled job serving this same checkout when `--start` runs under the
+  // new default label, and `systemctl --user disable --now plot-registryd`
+  // plus the matching `rm -f .../plot-registryd.service` are exactly that.
   const lines = fs.readFileSync(path.join(scripts, 'plot-fleetctl.sh'), 'utf8').split('\n');
   const offenders = lines
     .map((line, i) => [i + 1, line])
     .filter(([, line]) => !/^\s*#/.test(line))
     .filter(([, line]) => /systemctl|systemd\/user/.test(line))
-    .filter(([, line]) => /plot-registryd(?![-\w]*\.mjs)/.test(line.replace(/\$UNIT_NAME/g, '')));
+    .filter(([, line]) => /plot-registryd(?![-\w]*\.mjs)/.test(line.replace(/\$UNIT_NAME/g, '')))
+    .filter(([, line]) => !/disable --now plot-registryd|systemd\/user\/plot-registryd\.service/.test(line));
   assert.deepEqual(offenders, [], `hardcoded unit name:\n${offenders.map(([n, l]) => `${n}: ${l}`).join('\n')}`);
-  // The template line survives and stays hardcoded.
-  assert.ok(lines.some((line) => line.includes('template="$UNIT_DIR/plot-registryd.service"')));
+  // The template line survives and stays hardcoded — at the new default name.
+  assert.ok(lines.some((line) => line.includes('template="$UNIT_DIR/plot-fleetd.service"')));
 });
 
 // ── Every Plot process on this machine ────────────────────────────────────────
@@ -1895,7 +2153,12 @@ test('gate: no systemctl call or systemd unit path in plot-fleetctl.sh hardcodes
 
 const SCAN = 'skills/plot/scripts/plot-fleet-scan.sh';
 const BOARD = 'skills/plot/scripts/board/board-server.mjs';
+// Both suffixes name a supervisor process, permanently: some other
+// installation on this machine keeps running the old-named bundle forever,
+// so the classifier recognizes `plot-registryd.mjs` and `plot-fleetd.mjs`
+// side by side rather than as a migration shim for one or the other.
 const REGD = 'skills/plot/scripts/board/plot-registryd.mjs';
+const FLEETD = 'skills/plot/scripts/board/plot-fleetd.mjs';
 
 /**
  * Writes one process-table fixture for the stubs `writeProcStubs` installs.
@@ -1985,6 +2248,25 @@ test('processes: two supervisors, a --watch board and a plain board are all name
   // The summary line stays first-of-its-kind and ahead of the block.
   assert.ok(r.out.indexOf('\nsummary:') < r.out.indexOf('plot processes on this machine:'));
   assert.doesNotMatch(r.block, /^summary:/m, 'a block line starts with summary:');
+});
+
+test('processes: the old and the new bundle suffix are both named a supervisor, permanently', () => {
+  // THIS IS NOT A MIGRATION SHIM. The classifier recognizes both bundle-path
+  // suffixes forever, because some other installation on this machine keeps
+  // running the old-named bundle for as long as it is never restarted under
+  // the new default label — restarting it is what the migration block does,
+  // and nothing forces that to happen everywhere at once.
+  const { status } = procSandbox('procs-dual-suffix');
+  const r = status({
+    ps: [
+      [701, 1, 501, `node /inst/old/${REGD}`],
+      [702, 1, 501, `node /inst/new/${FLEETD}`],
+    ],
+    cwd: { 701: '/repos/old', 702: '/repos/new' },
+    list: [[701, 'com.plot-pm.registryd'], [702, 'com.plot-pm.fleetd']],
+  });
+  assert.ok(r.block.includes(row('supervisor', 701, { label: 'com.plot-pm.registryd', serves: '/repos/old', installed: '/inst/old' })), r.out);
+  assert.ok(r.block.includes(row('supervisor', 702, { label: 'com.plot-pm.fleetd', serves: '/repos/new', installed: '/inst/new' })), r.out);
 });
 
 test('processes: a command string that names an artifact is not a Plot process', () => {

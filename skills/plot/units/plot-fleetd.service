@@ -1,14 +1,14 @@
-# plot-registryd, kept alive by systemd — Linux.
+# plot-fleetd, kept alive by systemd — Linux.
 #
 # Replace the three placeholders before installing:
 #   __REPO_ROOT__   absolute path to the repository this daemon supervises
 #   __NODE__        absolute path to node 24 (`which node` under `nvm use`)
-#   __REGISTRYD__   absolute path to plot-registryd.mjs
+#   __FLEETD__      absolute path to plot-fleetd.mjs
 #
 # Install: skills/plot/units/README.md
 
 [Unit]
-Description=plot-registryd — supervises the agents registered in __REPO_ROOT__
+Description=plot-fleetd — supervises the agents registered in __REPO_ROOT__
 Documentation=https://github.com/plot-pm/plot/blob/main/skills/plot/units/README.md
 
 # The daemon reads git refs and asks the git host, so it starts after the
@@ -53,7 +53,7 @@ Environment=PATH=__HARNESS_DIR__:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/u
 #
 # `--sweep-temp` runs `plot-reap.sh --sweep-temp --yes` at most once an hour:
 # nothing else schedules the backstop for temp paths a SIGKILL left behind.
-ExecStart=__NODE__ __REGISTRYD__ --start-agents --sweep-temp
+ExecStart=__NODE__ __FLEETD__ --start-agents --sweep-temp
 
 # THE UNIT STOPS ONLY ITS DAEMON. An agent is not part of the daemon's
 # lifecycle: the supervisor starts agents with `--start-agents` and they outlive
@@ -63,7 +63,7 @@ ExecStart=__NODE__ __REGISTRYD__ --start-agents --sweep-temp
 # then outlive the unit; here that is the point.
 #
 # THE AGENTS STAY IN THE UNIT'S CGROUP after a restart, so
-# `systemctl --user status plot-registryd` lists them under the unit. They are
+# `systemctl --user status plot-fleetd` lists them under the unit. They are
 # the previous daemon's children and the new daemon finds them through the
 # registry and their desks, as a tick does today.
 #
@@ -84,11 +84,11 @@ Restart=always
 RestartSec=60
 
 # Two streams, two identifiers. The tick lines go to stdout and an INCOMPLETE
-# tick goes to stderr; `journalctl --user -u plot-registryd -p err` shows only
+# tick goes to stderr; `journalctl --user -u plot-fleetd -p err` shows only
 # the ticks that could not be taken.
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=plot-registryd
+SyslogIdentifier=plot-fleetd
 
 # BACKGROUND PRIORITY. The daemon is idle 94% of a 60 s interval and shares a
 # machine with the workers it supervises; it must never be what makes a worker

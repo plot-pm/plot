@@ -35,7 +35,7 @@
 # IT PROBES BEFORE IT ACTS AND REFUSES RATHER THAN REPAIRING — the discipline
 # /plot-board-setup already applies. Four refusals, each a measurement:
 #
-#   no plot-registryd.mjs      nothing to start; a broken Plot installation
+#   no plot-fleetd.mjs         nothing to start; a broken Plot installation
 #   node is not Plot's pinned major, or Plot's pin is unreadable
 #                              THE UNIT BAKES $NODE IN PERMANENTLY. Measured
 #                              2026-09-05: `command -v node` on the operator's
@@ -70,7 +70,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # asks launchd about the label, which is MACHINE-GLOBAL: no `HOME` override
 # reaches it, so a sandbox on a machine whose fleet is loaded reads that fleet
 # as its own. Measured here — a test asserting an unloaded supervisor got
-# `supervisor: running` from the operator's live registryd, and the four-state
+# `supervisor: running` from the operator's live fleetd, and the four-state
 # reading this file exists to add could not be tested at all.
 #
 # The brief settles the shape: test "under a different label, never by
@@ -81,7 +81,13 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # passes; the override exists so a test can name a label launchd does not hold.
 # `skills/plot/units/README.md` already documents a second checkout relabelling
 # its own unit, so the variable is that documented case made reachable.
-LABEL="${PLOT_FLEET_LABEL:-com.plot-pm.registryd}"
+#
+# THE DEFAULT RENAMED FROM `com.plot-pm.registryd` TO `com.plot-pm.fleetd`, and
+# `--start` migrates an old default-label unit that belongs to this checkout
+# rather than leaving it orphaned — see the migration block below. A CUSTOM
+# label an operator chose under the old prefix is never touched: it is the
+# operator's name, and `unit_name` below keeps mapping it forever.
+LABEL="${PLOT_FLEET_LABEL:-com.plot-pm.fleetd}"
 UNIT_DIR="$script_dir/../units"
 
 # THE SYSTEMD UNIT'S NAME, DERIVED FROM THE LABEL. launchd keys a job by the
@@ -90,14 +96,25 @@ UNIT_DIR="$script_dir/../units"
 # target take this answer — a hardcoded name wrote two checkouts into one file
 # and made refusal 4 ask about a unit it did not name (#1053).
 #
-# THE DEFAULT LABEL MAPS TO `plot-registryd`, the name every existing Linux
-# install carries. Any other label loses a leading `com.plot-pm.registryd.`,
-# has each byte systemd refuses in a unit name replaced by `-`, and gains the
-# prefix `plot-registryd-` — the shape `units/README.md` documents for a
-# second repository.
+# THE DEFAULT LABEL MAPS TO `plot-fleetd`, the current name. THE OLD PREFIX
+# `com.plot-pm.registryd` KEEPS ITS OWN MAPPING FOREVER: a custom label an
+# operator installed under it is their name, not this repo's to rename, and
+# `--stop`/`--status` must still find it by the same filename `--start` gave
+# it. A custom label under either prefix loses that leading prefix, has each
+# byte systemd refuses in a unit name replaced by `-`, and gains the matching
+# `plot-registryd-`/`plot-fleetd-` filename prefix — the shape
+# `units/README.md` documents for a second repository.
 unit_name() {
   case "$LABEL" in
+    com.plot-pm.fleetd) printf '%s' plot-fleetd; return ;;
     com.plot-pm.registryd) printf '%s' plot-registryd; return ;;
+  esac
+  case "$LABEL" in
+    com.plot-pm.fleetd.*)
+      rest=${LABEL#com.plot-pm.fleetd.}
+      printf 'plot-fleetd-%s' "$(printf '%s' "$rest" | LC_ALL=C tr -c 'A-Za-z0-9:_.-' '-')"
+      return
+      ;;
   esac
   rest=${LABEL#com.plot-pm.registryd.}
   printf 'plot-registryd-%s' "$(printf '%s' "$rest" | LC_ALL=C tr -c 'A-Za-z0-9:_.-' '-')"
@@ -114,7 +131,7 @@ repo_root=$(git rev-parse --show-toplevel)
 # beside this file in the plugin (#969). Every other bundle caller in
 # `skills/plot/scripts/` resolves from its own directory; this was the one that
 # did not, and `scripts/check-bundle-resolution.sh` now holds that at zero.
-registryd="$script_dir/board/plot-registryd.mjs"
+fleetd="$script_dir/board/plot-fleetd.mjs"
 
 # PLOT'S OWN ROOT, which is where Plot's `.nvmrc` lives. In this repository it
 # is `$repo_root` too, which is why the two could be confused here.
@@ -210,6 +227,21 @@ supervisor_workdir() {
                | sed -n 's/^[[:space:]]*working directory = \(.*\)$/\1/p' | head -1 ;;
     systemd) systemctl --user show "$UNIT_NAME" -p WorkingDirectory --value 2>/dev/null \
                | head -1 ;;
+  esac
+  return 0
+}
+
+# The bundle path a LOADED job's own argv names, or empty. Read from the job
+# launchd/systemd actually holds, never from a unit file on disk — the same
+# reason `supervisor_workdir` reads the loaded job: a plist may not be what is
+# bootstrapped, and this answers what IS running, which is what a migration or
+# a missing-bundle report must act on.
+supervisor_bundle_path() {
+  case "$(platform)" in
+    launchd) launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null \
+               | awk '/^\targuments = \{/{f=1; next} f && /\.mjs$/{print $1; exit} /^\t\}/{f=0}' ;;
+    systemd) systemctl --user show "$UNIT_NAME" -p ExecStart --value 2>/dev/null \
+               | grep -o '[^ ]*\.mjs' | head -1 ;;
   esac
   return 0
 }
@@ -321,7 +353,9 @@ plot_process_candidates() {
       kind = ""; e = 0
       if (interp == "node") {
         b = art_end(p, "/board/board-server.mjs", 0)
-        r = art_end(p, "/board/plot-registryd.mjs", 0)
+        r = art_end(p, "/board/plot-fleetd.mjs", 0)
+        r2 = art_end(p, "/board/plot-registryd.mjs", 0)
+        if (!r || (r2 && r2 < r)) r = r2
         if (b && (!r || b < r)) { kind = "board"; e = b }
         else if (r) { kind = "supervisor"; e = r }
       } else if ((e = art_end(p, "plot-fleet-scan.sh", 1))) kind = "scan"
@@ -401,7 +435,7 @@ plot_processes_block() { # $1=pid to skip
     esac
     case "$kind" in
       board)      suffix=/skills/plot/scripts/board/board-server.mjs ;;
-      supervisor) suffix=/skills/plot/scripts/board/plot-registryd.mjs ;;
+      supervisor) suffix=/skills/plot/scripts/board/plot-fleetd.mjs ;;
       *)          suffix=/skills/plot/scripts/plot-fleet-scan.sh ;;
     esac
     inst="cannot determine"
@@ -412,6 +446,19 @@ plot_processes_block() { # $1=pid to skip
           inst="THIS repository"
         else
           inst=$(home_short "$full")
+        fi ;;
+      # THE OLD SUFFIX IS KEPT INDEFINITELY: another, unrelated installation
+      # may still run the old-named bundle forever (it has its own lifecycle,
+      # not this checkout's to force), and `--status` must still name whose
+      # checkout it is rather than reporting it as undetermined.
+      ?*/skills/plot/scripts/board/plot-registryd.mjs)
+        if [ "$kind" = supervisor ]; then
+          full=${full%/skills/plot/scripts/board/plot-registryd.mjs}
+          if [ "$full" = "$repo_root" ] || [ "$full" = "$here" ]; then
+            inst="THIS repository"
+          else
+            inst=$(home_short "$full")
+          fi
         fi ;;
     esac
     label=""
@@ -684,6 +731,15 @@ if [ "$mode" = "status" ]; then
     if [ -n "$tick_age" ]; then
       echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
     fi
+    # THE RUNNING PROCESS ALREADY HOLDS THE OLD FILE OPEN, so a bundle removed
+    # out from under it is invisible to the pid check above — the process does
+    # not notice until it next restarts and the file is gone. Named here rather
+    # than repaired: the fix is a rebuild or reinstall, a person's call.
+    bundle=$(supervisor_bundle_path)
+    if [ -n "$bundle" ] && [ ! -f "$bundle" ]; then
+      echo "  BUNDLE MISSING: $bundle no longer exists — the loaded unit still names it"
+      echo "    Rebuild it, or reinstall: /plot-fleet --stop, then /plot-fleet --start"
+    fi
   elif [ "$sup_loaded" = 0 ]; then
     # THE LABEL IS HELD AND NOTHING IS BEHIND IT. Measured twice in ninety
     # minutes on 2026-09-22: `--status` said `running`, no `registryd.mjs`
@@ -867,13 +923,13 @@ fi
 # --once: the gate
 # ---------------------------------------------------------------------------
 if [ "$mode" = "once" ]; then
-  [ -f "$registryd" ] || {
-    echo "plot-fleetctl: no supervisor artifact at $registryd" >&2
+  [ -f "$fleetd" ] || {
+    echo "plot-fleetctl: no supervisor artifact at $fleetd" >&2
     echo "  Every bundle is tracked in git, so this is a broken or partial installation of Plot." >&2
     echo "  Reinstall or update the Plot plugin. In a development checkout of Plot, run 'pnpm build:board'." >&2
     exit 1
   }
-  exec node "$registryd" --once
+  exec node "$fleetd" --once
 fi
 
 # ---------------------------------------------------------------------------
@@ -881,8 +937,8 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$mode" = "start" ]; then
   # REFUSAL 1 — nothing to start.
-  [ -f "$registryd" ] || {
-    echo "plot-fleetctl: no supervisor artifact at $registryd" >&2
+  [ -f "$fleetd" ] || {
+    echo "plot-fleetctl: no supervisor artifact at $fleetd" >&2
     echo "  The unit would name a file that does not exist." >&2
     echo "  Every bundle is tracked in git, so this is a broken or partial installation of Plot." >&2
     echo "  Reinstall or update the Plot plugin. In a development checkout of Plot, run 'pnpm build:board'." >&2
@@ -950,8 +1006,37 @@ if [ "$mode" = "start" ]; then
   plat=$(platform)
   if [ "$plat" = "none" ]; then
     echo "plot-fleetctl: neither launchd nor systemd here — there is no unit to fill" >&2
-    echo "  Run the supervisor by hand instead: node $registryd" >&2
+    echo "  Run the supervisor by hand instead: node $fleetd" >&2
     exit 1
+  fi
+
+  # THE OLD DEFAULT LABEL IS MIGRATED, NOT ORPHANED, and only on the new
+  # default's own `--start` — a custom label never reaches this branch. A unit
+  # still loaded under `com.plot-pm.registryd` and serving THIS checkout is the
+  # same fleet under its old name; booting it out and removing its unit file
+  # clears the way for the rename rather than leaving two supervisors' worth of
+  # history for an operator to reconcile by hand. A unit under that old label
+  # serving ANOTHER checkout is that checkout's lifecycle and is never touched.
+  if [ "$LABEL" = com.plot-pm.fleetd ]; then
+    new_label=$LABEL new_unit_name=$UNIT_NAME
+    LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd
+    if supervisor_loaded; then
+      old_served=$(supervisor_checkout)
+      case "$old_served" in
+        this\ *)
+          echo "plot-fleetctl: migrating the old label 'com.plot-pm.registryd' — it serves this repository"
+          case "$plat" in
+            launchd) launchctl bootout "gui/$(id -u)/com.plot-pm.registryd" 2>/dev/null
+                      rm -f "$HOME/Library/LaunchAgents/com.plot-pm.registryd.plist" ;;
+            systemd) systemctl --user disable --now plot-registryd 2>/dev/null
+                      rm -f "$HOME/.config/systemd/user/plot-registryd.service"
+                      systemctl --user daemon-reload 2>/dev/null ;;
+          esac
+          echo "  unloaded and removed — continuing under 'com.plot-pm.fleetd'"
+          ;;
+      esac
+    fi
+    LABEL=$new_label UNIT_NAME=$new_unit_name
   fi
 
   # REFUSAL 4 — the label is taken. launchd keys a job by LABEL, so loading a
@@ -992,7 +1077,7 @@ if [ "$mode" = "start" ]; then
     echo "would fill and load $LABEL ($plat)"
     echo "  node:      $node_bin (major $have, pinned $want)"
     echo "  harness:   $harness_bin (first on the unit's PATH: $harness_dir)"
-    echo "  registryd: $registryd"
+    echo "  fleetd:    $fleetd"
     echo "  repo:      $repo_root"
     echo "would then start agents: plot-dispatch.sh --start ${start_count:-(default)}"
     exit 0
@@ -1010,12 +1095,12 @@ if [ "$mode" = "start" ]; then
 
   case "$plat" in
     launchd)
-      template="$UNIT_DIR/com.plot-pm.registryd.plist"
+      template="$UNIT_DIR/com.plot-pm.fleetd.plist"
       target="$HOME/Library/LaunchAgents/$LABEL.plist"
       mkdir -p "$HOME/Library/LaunchAgents"
       ;;
     systemd)
-      template="$UNIT_DIR/plot-registryd.service"
+      template="$UNIT_DIR/plot-fleetd.service"
       target="$HOME/.config/systemd/user/$UNIT_NAME.service"
       mkdir -p "$HOME/.config/systemd/user"
       ;;
@@ -1030,7 +1115,7 @@ if [ "$mode" = "start" ]; then
       -e "s|__REPO_ROOT__|$repo_root|g" \
       -e "s|__NODE__|$node_bin|g" \
       -e "s|__HARNESS_DIR__|$harness_dir|g" \
-      -e "s|__REGISTRYD__|$registryd|g" \
+      -e "s|__FLEETD__|$fleetd|g" \
       "$template" > "$target" || { echo "plot-fleetctl: could not write $target" >&2; exit 1; }
 
   # THE FILL IS VERIFIED, not assumed. A placeholder that survived would install
