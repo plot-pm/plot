@@ -15,6 +15,7 @@
 - **Started:** 2026-10-09, jwloka, `feature/the-fleet-package-exists`
 - **Started:** 2026-10-09, jwloka, `feature/the-supervisor-is-plot-fleetd`
 - **Started:** 2026-10-09, jwloka, `feature/the-fleet-owns-the-scan-and-pr-index`
+- **Started:** 2026-10-10, jwloka, `feature/the-fleet-owns-its-automatic-writes`
 
 ## Changelog
 
