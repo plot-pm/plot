@@ -300,10 +300,16 @@ export const hostShell = (context: ShellContext): Host => {
 
     prState: async (ref): Promise<PortResult<PrLookup>> => {
       const run = await runProcess('bash', [host, 'pr-state', String(ref)], inRepo);
-      return record(run, (stdout) => {
+      const answer = record(run, (stdout) => {
         const raw = asJson<RawPr & { state?: string }>(stdout);
         return raw.state === 'NONE' ? null : prOf(raw);
       });
+      // Exit 4 keeps its words: a caller refusing on `unaskable` prints what
+      // the script said, and `record` clears the refusal for that code.
+      if (run.code === EXIT_UNASKABLE && run.stderr.trim() !== '') {
+        refusal = { kind: 'failed', said: run.stderr.trim() };
+      }
+      return answer;
     },
 
     prMerged: async (branch): Promise<PortResult<MergedAnswer>> => {
