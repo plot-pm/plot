@@ -1,8 +1,8 @@
-# Keeping `plot-registryd` alive
+# Keeping `plot-fleetd` alive
 
-`plot-registryd` supervises the agents a repository registered. Something has to supervise it, and that something is the operating system: `launchd` on macOS, `systemd` on Linux.
+`plot-fleetd` supervises the agents a repository registered. Something has to supervise it, and that something is the operating system: `launchd` on macOS, `systemd` on Linux.
 
-This directory holds one unit file for each, plus the install steps. Both are templates — replace the placeholders and install. The plist carries five (`__LABEL__`, `__REPO_ROOT__`, `__NODE__`, `__HARNESS_DIR__`, `__REGISTRYD__`); the systemd unit carries four, because a systemd unit has no label field. `__HARNESS_DIR__` is the directory that holds the agent harness (`claude`, or the name in `PLOT_HARNESS`). It goes first on the unit's `PATH`, so a worker runs the same binary as the operator's shell, and every other binary in that directory also comes first.
+This directory holds one unit file for each, plus the install steps. Both are templates — replace the placeholders and install. The plist carries five (`__LABEL__`, `__REPO_ROOT__`, `__NODE__`, `__HARNESS_DIR__`, `__FLEETD__`); the systemd unit carries four, because a systemd unit has no label field. `__HARNESS_DIR__` is the directory that holds the agent harness (`claude`, or the name in `PLOT_HARNESS`). It goes first on the unit's `PATH`, so a worker runs the same binary as the operator's shell, and every other binary in that directory also comes first.
 
 **`/plot-fleet --start` automates every step below**, and adds five refusals this page cannot enforce: a missing artifact, a `node` that is not the pinned major, a harness that `command -v` cannot resolve, no init system, and a label already loaded. Follow the steps by hand when you want to see what it does. A second checkout needs no hand steps: `PLOT_FLEET_LABEL` gives it its own launchd label or its own systemd unit, as described below.
 
@@ -11,8 +11,8 @@ This directory holds one unit file for each, plus the install steps. Both are te
 *"Is a process that should be running actually running?"* is a machine-side question. Answering it with another Plot component would need a supervisor for that component too. `launchd` and `systemd` terminate the regress: they are already running, they already restart processes, and they need no help from Plot to do it.
 
 ```
-launchd/systemd  ── restarts ──►  plot-registryd
-plot-registryd   ── spawns   ──►  agents        ── run ──►  workers
+launchd/systemd  ── restarts ──►  plot-fleetd
+plot-fleetd      ── spawns   ──►  agents        ── run ──►  workers
 ```
 
 Plot's own `Machine` entity is **not** this supervisor. It answers *is there room?* through `hasRoomToDispatch` and initiates nothing. The daemon asks the machine before spawning; the machine never tells the daemon anything.
@@ -34,8 +34,8 @@ Run these from the repository you want supervised.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 NODE="$(command -v node)"
 HARNESS_DIR="$(dirname "$(command -v "${PLOT_HARNESS:-claude}")")"   # check it printed a directory
-REGISTRYD="$REPO_ROOT/skills/plot/scripts/board/plot-registryd.mjs"
-LABEL="com.plot-pm.registryd"   # launchd keys the job by this string
+FLEETD="$REPO_ROOT/skills/plot/scripts/board/plot-fleetd.mjs"
+LABEL="com.plot-pm.fleetd"   # launchd keys the job by this string
 
 # 2. The log directory the unit writes to.
 mkdir -p "$REPO_ROOT/.plot/logs"
@@ -46,8 +46,8 @@ sed -e "s|__LABEL__|$LABEL|g" \
     -e "s|__REPO_ROOT__|$REPO_ROOT|g" \
     -e "s|__NODE__|$NODE|g" \
     -e "s|__HARNESS_DIR__|$HARNESS_DIR|g" \
-    -e "s|__REGISTRYD__|$REGISTRYD|g" \
-    "$REPO_ROOT/skills/plot/units/com.plot-pm.registryd.plist" \
+    -e "s|__FLEETD__|$FLEETD|g" \
+    "$REPO_ROOT/skills/plot/units/com.plot-pm.fleetd.plist" \
     > ~/Library/LaunchAgents/$LABEL.plist
 
 # 4. Load it. It starts immediately and on every login.
@@ -57,7 +57,7 @@ launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/$LABEL.plist
 Check it:
 
 ```bash
-launchctl print "gui/$(id -u)/com.plot-pm.registryd" | head -20
+launchctl print "gui/$(id -u)/com.plot-pm.fleetd" | head -20
 tail -f .plot/logs/registryd.log     # the tick lines
 tail -f .plot/logs/registryd.err     # the ticks that could not be taken
 ```
@@ -65,13 +65,13 @@ tail -f .plot/logs/registryd.err     # the ticks that could not be taken
 Stop it, or reload it after editing the file:
 
 ```bash
-launchctl bootout "gui/$(id -u)/com.plot-pm.registryd"
+launchctl bootout "gui/$(id -u)/com.plot-pm.fleetd"
 ```
 
 **Two repositories need two labels.** `launchd` keys a job by the `Label` inside the plist, not by the filename: two files with one `Label` are one job, and the second `bootstrap` fails with `5: Input/output error`. Give the second checkout its own label when you start it:
 
 ```bash
-PLOT_FLEET_LABEL=com.plot-pm.registryd.other-repo skills/plot/scripts/plot-fleetctl.sh --start
+PLOT_FLEET_LABEL=com.plot-pm.fleetd.other-repo skills/plot/scripts/plot-fleetctl.sh --start
 ```
 
 `--start` fills the label into the plist and names the file after it. Set the same variable for `--status` and `--stop` in that checkout.
@@ -79,8 +79,8 @@ PLOT_FLEET_LABEL=com.plot-pm.registryd.other-repo skills/plot/scripts/plot-fleet
 **An installed unit does not update itself.** A unit installed before `__LABEL__` existed keeps the label it was loaded under, and `--stop` under a new override cannot find it. Boot it out by its old label, remove its file, and start again under the override:
 
 ```bash
-launchctl bootout "gui/$(id -u)/com.plot-pm.registryd"
-rm ~/Library/LaunchAgents/com.plot-pm.registryd.plist
+launchctl bootout "gui/$(id -u)/com.plot-pm.fleetd"
+rm ~/Library/LaunchAgents/com.plot-pm.fleetd.plist
 PLOT_FLEET_LABEL=<new> skills/plot/scripts/plot-fleetctl.sh --start
 ```
 
@@ -95,38 +95,38 @@ Run these from the repository you want supervised.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 NODE="$(command -v node)"
 HARNESS_DIR="$(dirname "$(command -v "${PLOT_HARNESS:-claude}")")"   # check it printed a directory
-REGISTRYD="$REPO_ROOT/skills/plot/scripts/board/plot-registryd.mjs"
+FLEETD="$REPO_ROOT/skills/plot/scripts/board/plot-fleetd.mjs"
 
 # 2. Fill the template into your user units directory.
 mkdir -p ~/.config/systemd/user
 sed -e "s|__REPO_ROOT__|$REPO_ROOT|g" \
     -e "s|__NODE__|$NODE|g" \
     -e "s|__HARNESS_DIR__|$HARNESS_DIR|g" \
-    -e "s|__REGISTRYD__|$REGISTRYD|g" \
-    "$REPO_ROOT/skills/plot/units/plot-registryd.service" \
-    > ~/.config/systemd/user/plot-registryd.service
+    -e "s|__FLEETD__|$FLEETD|g" \
+    "$REPO_ROOT/skills/plot/units/plot-fleetd.service" \
+    > ~/.config/systemd/user/plot-fleetd.service
 
 # 3. Enable and start it.
 systemctl --user daemon-reload
-systemctl --user enable --now plot-registryd
+systemctl --user enable --now plot-fleetd
 ```
 
-Check it (`plot-registryd` is the default unit name; a checkout started under `PLOT_FLEET_LABEL` has its own, see below):
+Check it (`plot-fleetd` is the default unit name; a checkout started under `PLOT_FLEET_LABEL` has its own, see below):
 
 ```bash
-systemctl --user status plot-registryd
-journalctl --user -u plot-registryd -f            # the tick lines
-journalctl --user -u plot-registryd -p err -f     # the ticks that could not be taken
+systemctl --user status plot-fleetd
+journalctl --user -u plot-fleetd -f            # the tick lines
+journalctl --user -u plot-fleetd -p err -f     # the ticks that could not be taken
 ```
 
 Stop it, or reload it after editing the file:
 
 ```bash
-systemctl --user restart plot-registryd    # after an edit, following daemon-reload
-systemctl --user disable --now plot-registryd
+systemctl --user restart plot-fleetd    # after an edit, following daemon-reload
+systemctl --user disable --now plot-fleetd
 ```
 
-**A stop or a restart of the unit leaves running agents alive.** The unit sets `KillMode=process`, so systemd signals the daemon and nothing else; a crash that `Restart=always` recovers leaves them alive too. The agents stay in the unit's cgroup, so `systemctl --user status plot-registryd` lists them under the unit until they exit. To stop the agents, run `/plot-fleet --stop`, which calls `plot-dispatch.sh --stop` once per dispatched agent and unloads the supervisor last.
+**A stop or a restart of the unit leaves running agents alive.** The unit sets `KillMode=process`, so systemd signals the daemon and nothing else; a crash that `Restart=always` recovers leaves them alive too. The agents stay in the unit's cgroup, so `systemctl --user status plot-fleetd` lists them under the unit until they exit. To stop the agents, run `/plot-fleet --stop`, which calls `plot-dispatch.sh --stop` once per dispatched agent and unloads the supervisor last.
 
 **A user service, not a system one.** The daemon reaps worktrees and reads `~/.claude` transcripts, both of which belong to the person who dispatched the agents. Running it as root would give it write access to every desk on the machine to save typing `--user`.
 
@@ -136,20 +136,20 @@ systemctl --user disable --now plot-registryd
 sudo loginctl enable-linger "$USER"
 ```
 
-**Two repositories need two units, and `PLOT_FLEET_LABEL` names the second.** systemd keys a unit by its filename, so `/plot-fleet` derives the filename from the label. The default label `com.plot-pm.registryd` keeps `plot-registryd.service`. Any other label loses a leading `com.plot-pm.registryd.`, has each character systemd refuses in a unit name replaced by `-`, and gains the prefix `plot-registryd-`: `PLOT_FLEET_LABEL=com.plot-pm.registryd.<name>` installs `plot-registryd-<name>.service`. `--start`, `--status` and `--stop` all use that name, so run each under the same label. By hand, copy the file to `plot-registryd-<name>.service` and enable that name; nothing in the unit is shared. A unit installed that way is the one `/plot-fleet` finds under the matching label.
+**Two repositories need two units, and `PLOT_FLEET_LABEL` names the second.** systemd keys a unit by its filename, so `/plot-fleet` derives the filename from the label. The default label `com.plot-pm.fleetd` keeps `plot-fleetd.service`. Any other label under that prefix loses a leading `com.plot-pm.fleetd.`, has each character systemd refuses in a unit name replaced by `-`, and gains the prefix `plot-fleetd-`: `PLOT_FLEET_LABEL=com.plot-pm.fleetd.<name>` installs `plot-fleetd-<name>.service`. The old prefix keeps working the same way, so a unit installed before this rename stays addressable under its old label: `PLOT_FLEET_LABEL=com.plot-pm.registryd.<name>` still installs `plot-registryd-<name>.service`. `--start`, `--status` and `--stop` all use that name, so run each under the same label. By hand, copy the file to `plot-fleetd-<name>.service` and enable that name; nothing in the unit is shared. A unit installed that way is the one `/plot-fleet` finds under the matching label. A unit still loaded under the old default label `com.plot-pm.registryd` and serving this checkout is handled under the new default: `--status` reports it, `--start` unloads it and removes its unit file before it installs `com.plot-pm.fleetd`, and `--stop` unloads it. Each unload is confirmed within the `--wait` bound before the unit file goes; an unconfirmed unload, or a job whose checkout cannot be read, is refused.
 
 ## Reading the log
 
 A tick that completed:
 
 ```
-plot-registryd tick agents=3 left=3 reap=0 correct=0 person=0 defer=0 cost=3496ms
+plot-fleetd tick agents=3 left=3 reap=0 correct=0 person=0 defer=0 cost=3496ms
 ```
 
 A tick that could not:
 
 ```
-plot-registryd tick incomplete reason="spawn git ENOMEM" cost=812ms next=re-reads
+plot-fleetd tick incomplete reason="spawn git ENOMEM" cost=812ms next=re-reads
 ```
 
 The two are deliberately different lines rather than the same line with zeros. A tick that decided nothing and a tick that could not decide have identical counts and mean opposite things: one is a quiet estate, the other is a supervisor that is not supervising. `next=re-reads` is the recovery — the following tick reads the registry and the desks again from disk, and nothing carries over from the tick that failed.
@@ -161,12 +161,12 @@ Incomplete ticks go to **stderr**; completed ones go to stdout. Both units route
 The unit is a convenience. The daemon is the same program either way:
 
 ```bash
-node skills/plot/scripts/board/plot-registryd.mjs --once      # one tick, then exit
-node skills/plot/scripts/board/plot-registryd.mjs --dry-run   # accepted; every run is one
-node skills/plot/scripts/board/plot-registryd.mjs --max 3     # act on at most three agents
-node skills/plot/scripts/board/plot-registryd.mjs --interval 30
-node skills/plot/scripts/board/plot-registryd.mjs --start-agents  # and start them
-node skills/plot/scripts/board/plot-registryd.mjs --sweep-temp    # and sweep temp paths hourly
+node skills/plot/scripts/board/plot-fleetd.mjs --once      # one tick, then exit
+node skills/plot/scripts/board/plot-fleetd.mjs --dry-run   # accepted; every run is one
+node skills/plot/scripts/board/plot-fleetd.mjs --max 3     # act on at most three agents
+node skills/plot/scripts/board/plot-fleetd.mjs --interval 30
+node skills/plot/scripts/board/plot-fleetd.mjs --start-agents  # and start them
+node skills/plot/scripts/board/plot-fleetd.mjs --sweep-temp    # and sweep temp paths hourly
 ```
 
 `--once` exits `1` when the tick could not complete and `0` when it did, which is what an operator and a `Type=oneshot` unit read. The looping form never exits on an incomplete tick — its failure signal is the log, and exiting would hand the OS supervisor a restart it does not need for a reading that will be taken again in a minute.

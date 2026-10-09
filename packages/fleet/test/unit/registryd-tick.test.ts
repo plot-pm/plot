@@ -475,14 +475,14 @@ describe('the tick reports itself in one line', () => {
       })(),
     });
     expect(tickLine(report)).toBe(
-      'plot-registryd tick agents=2 left=0 reap=0 correct=2 person=0 defer=0 cost=250ms',
+      'plot-fleetd tick agents=2 left=0 reap=0 correct=2 person=0 defer=0 cost=250ms',
     );
   });
 
   it('reports a quiet tick as zeros rather than as silence', async () => {
     const report = await tick({ registry: async () => [], world: world(), now: () => 0 });
     expect(tickLine(report)).toBe(
-      'plot-registryd tick agents=0 left=0 reap=0 correct=0 person=0 defer=0 cost=0ms',
+      'plot-fleetd tick agents=0 left=0 reap=0 correct=0 person=0 defer=0 cost=0ms',
     );
   });
 });
@@ -617,7 +617,7 @@ describe('a tick that cannot complete', () => {
       now: () => 0,
     });
     expect(tickLine(report)).toBe(
-      'plot-registryd tick incomplete reason="spawn git ENOMEM" cost=0ms next=re-reads',
+      'plot-fleetd tick incomplete reason="spawn git ENOMEM" cost=0ms next=re-reads',
     );
   });
 });
@@ -1083,7 +1083,7 @@ describe('a tick says which hold refused each slice', () => {
 
 describe('a tick reports what the account spends — a-daemon-spends-within-its-means', () => {
   const quiet = async () => tick({ registry: async () => [], world: world(), now: () => 0 });
-  const BASE = 'plot-registryd tick agents=0 left=0 reap=0 correct=0 person=0 defer=0 cost=0ms';
+  const BASE = 'plot-fleetd tick agents=0 left=0 reap=0 correct=0 person=0 defer=0 cost=0ms';
 
   it('appends the account rate and its own rate after every earlier field', async () => {
     const report = { ...(await quiet()), spend: { accountPerHour: 2825.4, minePerHour: 120 } };
@@ -1145,7 +1145,7 @@ describe('a tick reports what the account spends — a-daemon-spends-within-its-
       now: () => 0,
     });
     expect(tickLine({ ...report, spend: { accountPerHour: 2825, minePerHour: 120 } })).toBe(
-      'plot-registryd tick incomplete reason="spawn git ENOMEM" cost=0ms next=re-reads',
+      'plot-fleetd tick incomplete reason="spawn git ENOMEM" cost=0ms next=re-reads',
     );
   });
 

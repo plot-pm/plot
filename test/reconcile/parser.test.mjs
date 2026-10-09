@@ -2350,7 +2350,7 @@ test('plan-meta: State: and Phase: are one field, and the values agree', () => {
 // `agent:` — WHICH KIND OF AGENT A SLICE NEEDS, the third per-branch annotation.
 //
 // `--agent <name>` shipped in v2.18.0 and only an operator can type it.
-// `plot-registryd` hands a queued slice to a free agent with no `--agent` in the
+// `plot-fleetd` hands a queued slice to a free agent with no `--agent` in the
 // path at all, so an unattended fleet runs every slice as the same
 // undifferentiated worker. A slice that declares its own kind is what lets the
 // declaration reach a dispatch nobody is watching.

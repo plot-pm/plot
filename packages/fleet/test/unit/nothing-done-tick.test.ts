@@ -305,6 +305,6 @@ describe('nothingDoneLines', () => {
       { branch: 'c', outcome: 'threw', detail: 'boom' },
     ]);
     expect(lines.map((l) => l.error)).toEqual([false, true, true]);
-    expect(lines[1]?.line).toBe('plot-registryd nothing-done b: refused — no');
+    expect(lines[1]?.line).toBe('plot-fleetd nothing-done b: refused — no');
   });
 });

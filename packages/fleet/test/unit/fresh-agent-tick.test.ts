@@ -1007,7 +1007,7 @@ describe('freshAgentLines', () => {
       { branch: 'd', outcome: 'released', detail: 'ok' },
     ]);
     expect(lines.map((l) => l.error)).toEqual([false, false, true, false]);
-    expect(lines[2]?.line).toBe('plot-registryd fresh-agent c: refused — no');
+    expect(lines[2]?.line).toBe('plot-fleetd fresh-agent c: refused — no');
   });
 });
 

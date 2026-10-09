@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  plot-registryd, kept alive by launchd — macOS.
+  plot-fleetd, kept alive by launchd — macOS.
 
   Replace the four placeholders before installing:
     __LABEL__       the launchd label (`plot-fleetctl.sh` fills PLOT_FLEET_LABEL,
-                    default com.plot-pm.registryd)
+                    default com.plot-pm.fleetd)
     __REPO_ROOT__   absolute path to the repository this daemon supervises
     __NODE__        absolute path to node 24 (`which node` under `nvm use`)
-    __REGISTRYD__   absolute path to plot-registryd.mjs
+    __FLEETD__      absolute path to plot-fleetd.mjs
 
   Install: skills/plot/units/README.md
 -->
@@ -36,7 +36,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>__NODE__</string>
-    <string>__REGISTRYD__</string>
+    <string>__FLEETD__</string>
     <string>--start-agents</string>
     <string>--sweep-temp</string>
   </array>

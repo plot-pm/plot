@@ -362,16 +362,16 @@ jobs:
           sed -e "s|__REPO_ROOT__|$PWD|g" \
               -e "s|__NODE__|$(command -v node)|g" \
               -e "s|__HARNESS_DIR__|$(dirname "$(command -v node)")|g" \
-              -e "s|__REGISTRYD__|$PWD/skills/plot/scripts/board/plot-registryd.mjs|g" \
-              skills/plot/units/plot-registryd.service \
-              > ~/.config/systemd/user/plot-registryd.service
-          left=$(grep -c '__[A-Z_]*__' ~/.config/systemd/user/plot-registryd.service || true)
+              -e "s|__FLEETD__|$PWD/skills/plot/scripts/board/plot-fleetd.mjs|g" \
+              skills/plot/units/plot-fleetd.service \
+              > ~/.config/systemd/user/plot-fleetd.service
+          left=$(grep -c '__[A-Z_]*__' ~/.config/systemd/user/plot-fleetd.service || true)
           if [ "$left" != "0" ]; then
             echo "::error::$left placeholder(s) survived the fill"
-            grep -n '__[A-Z_]*__' ~/.config/systemd/user/plot-registryd.service
+            grep -n '__[A-Z_]*__' ~/.config/systemd/user/plot-fleetd.service
             exit 1
           fi
-          systemd-analyze --user verify ~/.config/systemd/user/plot-registryd.service
+          systemd-analyze --user verify ~/.config/systemd/user/plot-fleetd.service
           echo "The systemd unit verifies."
 
       # ── The unit stops only its daemon: a measurement, not a parse. ──────────
@@ -452,9 +452,9 @@ jobs:
             sed -e "s|__REPO_ROOT__|$PWD|g" \
                 -e "s|__NODE__|$(command -v node)|g" \
                 -e "s|__HARNESS_DIR__|$(dirname "$(command -v node)")|g" \
-                -e "s|__REGISTRYD__|$PWD/skills/plot/scripts/board/plot-registryd.mjs|g" \
+                -e "s|__FLEETD__|$PWD/skills/plot/scripts/board/plot-fleetd.mjs|g" \
                 -e "s|^ExecStart=.*|ExecStart=/bin/sh $STANDIN|" \
-                skills/plot/units/plot-registryd.service > /tmp/filled.service
+                skills/plot/units/plot-fleetd.service > /tmp/filled.service
             if [ "${2:-}" = control ]; then
               sed -i '/^KillMode=/d' /tmp/filled.service
             fi
@@ -883,7 +883,7 @@ jobs:
 
       # EVERY GENERATED BUNDLE IS MARKED `-merge`. Measured 2026-09-05 on one
       # rebase: `board-server.mjs` was marked and took 0 conflict markers,
-      # `plot-ask.mjs` took 5 and `plot-registryd.mjs` took 3. A spliced marker
+      # `plot-ask.mjs` took 5 and `plot-fleetd.mjs` took 3. A spliced marker
       # makes a bundle invalid JavaScript that is still committable and
       # pushable, and the file is one nobody is meant to read a diff of.
       #

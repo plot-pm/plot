@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { pruneStaleVendoredHelpers } from './vendored-helpers.mjs';
 import {
   buildFleetBundles,
-  registrydArtifact,
+  fleetdArtifact,
   workerLoopArtifact,
   fleetSizeArtifact,
   promptArtifact,
@@ -26,7 +26,7 @@ if (!fs.existsSync(clientHtml)) {
   process.exit(1);
 }
 
-// `@plot-pm/fleet` builds four bundles: `plot-registryd.mjs`,
+// `@plot-pm/fleet` builds four bundles: `plot-fleetd.mjs`,
 // `plot-worker-loop.mjs`, `plot-fleet-size.mjs` and `plot-prompt.mjs`. This
 // file keeps their `shipped*` declarations, because the gates and
 // `bundles.generated.ts` derive the generated set from this file alone, and
@@ -390,7 +390,7 @@ await esbuild.build({
 fs.copyFileSync(agentStateArtifact, shippedAgentState);
 fs.chmodSync(shippedAgentState, 0o755);
 
-// The supervisor: `plot-registryd`, one per repository.
+// The supervisor: `plot-fleetd`, one per repository.
 //
 // AN EIGHTH artifact rather than a flag on the board's, and the reason is
 // lifetime rather than size. `index.ts` binds a port at import time, so a
@@ -398,7 +398,7 @@ fs.chmodSync(shippedAgentState, 0o755);
 // two processes with different owners (launchd/systemd keeps this one alive,
 // nothing keeps the board alive), different failure modes and different
 // cadences, sharing one exit.
-const shippedRegistryd = path.join(here, '../../skills/plot/scripts/board/plot-registryd.mjs');
+const shippedFleetd = path.join(here, '../../skills/plot/scripts/board/plot-fleetd.mjs');
 
 // The agent's own loop: `plot-worker-loop.mjs`, one process for an agent's
 // whole life. The launcher at the top of `plot-worker-loop.sh` `exec`s this
@@ -407,8 +407,8 @@ const shippedRegistryd = path.join(here, '../../skills/plot/scripts/board/plot-r
 // It carries the Agent SDK; `packages/fleet/build.mjs` says why.
 const shippedWorkerLoop = path.join(here, '../../skills/plot/scripts/board/plot-worker-loop.mjs');
 
-fs.copyFileSync(registrydArtifact, shippedRegistryd);
-fs.chmodSync(shippedRegistryd, 0o755);
+fs.copyFileSync(fleetdArtifact, shippedFleetd);
+fs.chmodSync(shippedFleetd, 0o755);
 fs.copyFileSync(workerLoopArtifact, shippedWorkerLoop);
 fs.chmodSync(shippedWorkerLoop, 0o755);
 
@@ -1317,7 +1317,7 @@ const transitionKb = (fs.statSync(shippedTransition).size / 1024).toFixed(1);
 const promptKb = (fs.statSync(shippedPrompt).size / 1024).toFixed(1);
 const taskKb = (fs.statSync(shippedTask).size / 1024).toFixed(1);
 const agentStateKb = (fs.statSync(shippedAgentState).size / 1024).toFixed(1);
-const registrydKb = (fs.statSync(shippedRegistryd).size / 1024).toFixed(1);
+const fleetdKb = (fs.statSync(shippedFleetd).size / 1024).toFixed(1);
 const landedKb = (fs.statSync(shippedLanded).size / 1024).toFixed(1);
 const deltaKb = (fs.statSync(shippedDelta).size / 1024).toFixed(1);
 const standingKb = (fs.statSync(shippedStanding).size / 1024).toFixed(1);
@@ -1354,7 +1354,7 @@ console.log(`Built plot-transition.mjs (${transitionKb} KB) → skills/plot/scri
 console.log(`Built plot-prompt.mjs (${promptKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-task.mjs (${taskKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-agent-state.mjs (${agentStateKb} KB) → skills/plot/scripts/board/`);
-console.log(`Built plot-registryd.mjs (${registrydKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-fleetd.mjs (${fleetdKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-landed.mjs (${landedKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-delta.mjs (${deltaKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-standing.mjs (${standingKb} KB) → skills/plot/scripts/board/`);

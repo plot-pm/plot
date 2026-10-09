@@ -42,7 +42,7 @@ after(() => {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..', '..');
-const artifact = path.join(root, 'skills', 'plot', 'scripts', 'board', 'plot-registryd.mjs');
+const artifact = path.join(root, 'skills', 'plot', 'scripts', 'board', 'plot-fleetd.mjs');
 
 /** A sandbox nothing else writes to. */
 function sandbox() {
@@ -283,9 +283,9 @@ test('log-rotation: the daemon and the board both open their own log', () => {
 
 test('log-rotation: the built artifact carries the writer', () => {
   // THE ARTIFACT IS WHAT RUNS. A source change that never reached
-  // `plot-registryd.mjs` leaves the daemon writing to an unbounded inherited
+  // `plot-fleetd.mjs` leaves the daemon writing to an unbounded inherited
   // descriptor while every test above passes.
-  assert.ok(existsSync(artifact), 'plot-registryd.mjs is not built');
+  assert.ok(existsSync(artifact), 'plot-fleetd.mjs is not built');
   const built = readFileSync(artifact, 'utf8');
   assert.ok(
     built.includes('registryd.log') && built.includes('registryd.err'),

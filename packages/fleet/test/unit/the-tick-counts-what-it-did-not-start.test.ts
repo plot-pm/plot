@@ -144,7 +144,7 @@ describe('the tick counts the trees it did not start', () => {
 
     expect(tickLine(report)).toContain('unclaimed=1');
     expect(unclaimedLines(report)).toEqual([
-      'plot-registryd 1 worktree nobody dispatched — the scan walks all of them, 7ms every pulse',
+      'plot-fleetd 1 worktree nobody dispatched — the scan walks all of them, 7ms every pulse',
       '  /private/tmp/wt818 (detached) — git worktree remove /private/tmp/wt818',
     ]);
   });
@@ -177,7 +177,7 @@ describe('the tick counts the trees it did not start', () => {
     });
 
     expect(unclaimedLines(report)).toEqual([
-      'plot-registryd 1 worktree nobody dispatched — the scan walks all of them, 7ms every pulse; 1 hold uncommitted work and are for a person to read',
+      'plot-fleetd 1 worktree nobody dispatched — the scan walks all of them, 7ms every pulse; 1 hold uncommitted work and are for a person to read',
       '  /private/tmp/wt818 (feature/two) — 4 uncommitted, read it before removing it',
     ]);
   });

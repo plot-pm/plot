@@ -16,7 +16,7 @@
 //      measured — it removed 21 of 42 git spawns in one board build — and it
 //      stays. The variable is correct; inheriting it into a sandbox is not.
 //   2. The variable arrives BY PLAIN INHERITANCE. The launchd supervisor's
-//      plist (`units/com.plot-pm.registryd.plist:44-45`) sets it, and it
+//      plist (`units/com.plot-pm.fleetd.plist:53-54`) sets it, and it
 //      travels supervisor -> dispatcher -> wrapper -> worker loop -> any suite
 //      that worker runs. Measured on live pids 1506 and 2949. Nothing a test
 //      could reasonably anticipate sets it, which is why the scrub is explicit.

@@ -724,7 +724,7 @@ describe('what a looping tick prints does not follow what grows', () => {
     };
     for (const report of [holding(30, 'not-claimable'), unclaiming(9), base()]) {
       expect(full(report)).toBe(explicit(report));
-      expect(full(report)).toContain('plot-registryd tick');
+      expect(full(report)).toContain('plot-fleetd tick');
     }
     expect(full(holding(30, 'not-claimable'))).toContain('feature/b29');
     expect(full(unclaiming(9))).toContain('/private/tmp/wt8');

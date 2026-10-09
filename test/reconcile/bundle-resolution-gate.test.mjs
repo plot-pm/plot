@@ -1,7 +1,7 @@
 // Contract test for scripts/check-bundle-resolution.sh — the gate that keeps a
 // shipped bundle resolved from its caller's own directory.
 //
-// `plot-fleetctl.sh` built `plot-registryd.mjs` from `$repo_root`, the
+// `plot-fleetctl.sh` built `plot-fleetd.mjs` from `$repo_root`, the
 // consumer's checkout, and refused in every repository that consumes Plot as a
 // plugin (#969). These tests pin both directions: the gate refuses that shape,
 // it passes the script-relative forms the estate uses (including the inlined
@@ -38,7 +38,7 @@ test('bundle gate: refuses a bundle resolved against $repo_root', () => {
   const dir = treeWith([
     '#!/usr/bin/env bash',
     'repo_root=$(git rev-parse --show-toplevel)',
-    'registryd="$repo_root/skills/plot/scripts/board/plot-registryd.mjs"',
+    'fleetd="$repo_root/skills/plot/scripts/board/plot-fleetd.mjs"',
     '',
   ].join('\n'));
   const got = run(dir);
@@ -80,7 +80,7 @@ test('bundle gate: passes the script-relative forms, including the inlined BASH_
 test('bundle gate: a comment or a message naming a bundle is not a composition', () => {
   const dir = treeWith([
     '#!/usr/bin/env bash',
-    '# registryd="$repo_root/skills/plot/scripts/board/plot-registryd.mjs" was the bug',
+    '# fleetd="$repo_root/skills/plot/scripts/board/plot-fleetd.mjs" was the bug',
     "printf 'is board/plot-sprint-score.mjs built?\\n' >&2",
     '',
   ].join('\n'));

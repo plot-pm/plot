@@ -20,8 +20,8 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const unitsDir = join(repoRoot, 'skills/plot/units');
 const read = (name: string) => readFileSync(join(unitsDir, name), 'utf8');
 
-const PLIST = 'com.plot-pm.registryd.plist';
-const SERVICE = 'plot-registryd.service';
+const PLIST = 'com.plot-pm.fleetd.plist';
+const SERVICE = 'plot-fleetd.service';
 
 describe('a unit exists for each init system', () => {
   it('ships a launchd plist', () => {
@@ -88,7 +88,7 @@ describe('both units keep the two streams apart', () => {
     const service = read(SERVICE);
     expect(service).toMatch(/^StandardOutput=journal$/m);
     expect(service).toMatch(/^StandardError=journal$/m);
-    expect(service).toMatch(/^SyslogIdentifier=plot-registryd$/m);
+    expect(service).toMatch(/^SyslogIdentifier=plot-fleetd$/m);
   });
 });
 
@@ -123,7 +123,7 @@ describe('both units start the daemon with --start-agents', () => {
    * **THE TEMPLATE, NOT THE PARSER.** `argsFrom` has always read
    * `--start-agents` correctly and `registryd-main.test.ts` asserts it — that is
    * not where this broke. What went unread for the life of the feature is the
-   * UNIT FILE: both templates named `__NODE__ __REGISTRYD__` and nothing else,
+   * UNIT FILE: both templates named `__NODE__ __FLEETD__` and nothing else,
    * so every installation ran a supervisor that decided every hand-over and
    * performed none.
    *
@@ -201,10 +201,10 @@ describe('the units name the artifact that exists', () => {
    * unit that fails with `203/EXEC` and no clue why.
    */
   it('the README points at the built daemon', () => {
-    expect(read('README.md')).toContain('skills/plot/scripts/board/plot-registryd.mjs');
+    expect(read('README.md')).toContain('skills/plot/scripts/board/plot-fleetd.mjs');
   });
 
   it('that artifact is in the repository', () => {
-    expect(existsSync(join(repoRoot, 'skills/plot/scripts/board/plot-registryd.mjs'))).toBe(true);
+    expect(existsSync(join(repoRoot, 'skills/plot/scripts/board/plot-fleetd.mjs'))).toBe(true);
   });
 });

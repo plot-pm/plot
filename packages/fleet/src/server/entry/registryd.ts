@@ -474,7 +474,7 @@ const reasonFor = (error: unknown): string => {
 export const tickLine = (report: TickReport): string => {
   if (report.incomplete !== '') {
     return [
-      'plot-registryd tick incomplete',
+      'plot-fleetd tick incomplete',
       `reason=${JSON.stringify(report.incomplete)}`,
       `cost=${report.costMs}ms`,
       'next=re-reads',
@@ -482,7 +482,7 @@ export const tickLine = (report: TickReport): string => {
   }
   const detail = report.decision.detail;
   const fields = [
-    `plot-registryd tick agents=${report.agents}`,
+    `plot-fleetd tick agents=${report.agents}`,
     `left=${detail.left.length}`,
     `reap=${detail.reaping.length}`,
     `correct=${detail.correcting.length}`,
@@ -603,7 +603,7 @@ export const unclaimedLines = (report: TickReport): string[] => {
   const findings = report.decision.detail.unclaimed;
   if (findings.length === 0) return [];
   return [
-    `plot-registryd ${unclaimedNotice(findings)}`,
+    `plot-fleetd ${unclaimedNotice(findings)}`,
     ...findings.map((finding) => {
       const held = finding.branch === '' ? 'detached' : finding.branch;
       const dirt =
@@ -1163,7 +1163,7 @@ export const freshAgentLines = (
   applied: readonly FreshAgentApplied[],
 ): readonly { line: string; error: boolean }[] =>
   applied.map((entry) => ({
-    line: `plot-registryd fresh-agent ${entry.branch}: ${entry.outcome} — ${entry.detail}`,
+    line: `plot-fleetd fresh-agent ${entry.branch}: ${entry.outcome} — ${entry.detail}`,
     error: entry.outcome !== 'started' && entry.outcome !== 'escalated' && entry.outcome !== 'released',
   }));
 
@@ -1404,6 +1404,6 @@ export const nothingDoneLines = (
   applied: readonly NothingDoneApplied[],
 ): readonly { line: string; error: boolean }[] =>
   applied.map((entry) => ({
-    line: `plot-registryd nothing-done ${entry.branch}: ${entry.outcome} — ${entry.detail}`,
+    line: `plot-fleetd nothing-done ${entry.branch}: ${entry.outcome} — ${entry.detail}`,
     error: entry.outcome !== 'released',
   }));

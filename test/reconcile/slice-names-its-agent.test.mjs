@@ -4,7 +4,7 @@
 // This is `a-slice-names-the-agent-it-needs`, the one slice of
 // docs/plans/2026-09-15-a-slice-names-the-agent-it-needs.md. Its predecessor
 // `a-charter-reaches-the-agent-it-declares` shipped `--agent <name>` in v2.18.0
-// and an operator is the only thing that can type a flag: `plot-registryd` hands
+// and an operator is the only thing that can type a flag: `plot-fleetd` hands
 // a queued slice to a free agent with no `--agent` anywhere in the path, so an
 // unattended fleet ran every slice as the same undifferentiated worker.
 //

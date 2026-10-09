@@ -141,8 +141,8 @@ describe('the SDK is in plot-worker-loop.mjs and board-server.mjs, and no other 
     assert.ok(!/claude-agent-sdk-(darwin|linux|win32)/.test(text));
   });
 
-  it('plot-registryd.mjs and every other bundle carry none of it', () => {
-    assert.ok(bundles.includes('plot-registryd.mjs'));
+  it('plot-fleetd.mjs and every other bundle carry none of it', () => {
+    assert.ok(bundles.includes('plot-fleetd.mjs'));
     const carrying = bundles.filter((name) => !carriers.includes(name) && fs.readFileSync(path.join(SHIPPED, name), 'utf8').includes(marker));
     assert.deepEqual(carrying, []);
   });

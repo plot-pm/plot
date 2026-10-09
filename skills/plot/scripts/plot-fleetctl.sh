@@ -35,7 +35,7 @@
 # IT PROBES BEFORE IT ACTS AND REFUSES RATHER THAN REPAIRING — the discipline
 # /plot-board-setup already applies. Four refusals, each a measurement:
 #
-#   no plot-registryd.mjs      nothing to start; a broken Plot installation
+#   no plot-fleetd.mjs         nothing to start; a broken Plot installation
 #   node is not Plot's pinned major, or Plot's pin is unreadable
 #                              THE UNIT BAKES $NODE IN PERMANENTLY. Measured
 #                              2026-09-05: `command -v node` on the operator's
@@ -70,7 +70,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # asks launchd about the label, which is MACHINE-GLOBAL: no `HOME` override
 # reaches it, so a sandbox on a machine whose fleet is loaded reads that fleet
 # as its own. Measured here — a test asserting an unloaded supervisor got
-# `supervisor: running` from the operator's live registryd, and the four-state
+# `supervisor: running` from the operator's live fleetd, and the four-state
 # reading this file exists to add could not be tested at all.
 #
 # The brief settles the shape: test "under a different label, never by
@@ -81,7 +81,13 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # passes; the override exists so a test can name a label launchd does not hold.
 # `skills/plot/units/README.md` already documents a second checkout relabelling
 # its own unit, so the variable is that documented case made reachable.
-LABEL="${PLOT_FLEET_LABEL:-com.plot-pm.registryd}"
+#
+# THE DEFAULT RENAMED FROM `com.plot-pm.registryd` TO `com.plot-pm.fleetd`, and
+# `--start` migrates an old default-label unit that belongs to this checkout
+# rather than leaving it orphaned — see the migration block below. A CUSTOM
+# label an operator chose under the old prefix is never touched: it is the
+# operator's name, and `unit_name` below keeps mapping it forever.
+LABEL="${PLOT_FLEET_LABEL:-com.plot-pm.fleetd}"
 UNIT_DIR="$script_dir/../units"
 
 # THE SYSTEMD UNIT'S NAME, DERIVED FROM THE LABEL. launchd keys a job by the
@@ -90,17 +96,22 @@ UNIT_DIR="$script_dir/../units"
 # target take this answer — a hardcoded name wrote two checkouts into one file
 # and made refusal 4 ask about a unit it did not name (#1053).
 #
-# THE DEFAULT LABEL MAPS TO `plot-registryd`, the name every existing Linux
-# install carries. Any other label loses a leading `com.plot-pm.registryd.`,
-# has each byte systemd refuses in a unit name replaced by `-`, and gains the
-# prefix `plot-registryd-` — the shape `units/README.md` documents for a
-# second repository.
+# THE DEFAULT LABEL MAPS TO `plot-fleetd`, the current name. THE OLD PREFIX
+# `com.plot-pm.registryd` KEEPS ITS OWN MAPPING FOREVER: a custom label an
+# operator installed under it is their name, not this repo's to rename, and
+# `--stop`/`--status` must still find it by the same filename `--start` gave
+# it. A custom label under either prefix loses that leading prefix, has each
+# byte systemd refuses in a unit name replaced by `-`, and gains the matching
+# `plot-registryd-`/`plot-fleetd-` filename prefix — the shape
+# `units/README.md` documents for a second repository.
 unit_name() {
   case "$LABEL" in
+    com.plot-pm.fleetd) printf '%s' plot-fleetd; return ;;
     com.plot-pm.registryd) printf '%s' plot-registryd; return ;;
+    com.plot-pm.fleetd.*) prefix=plot-fleetd rest=${LABEL#com.plot-pm.fleetd.} ;;
+    *) prefix=plot-registryd rest=${LABEL#com.plot-pm.registryd.} ;;
   esac
-  rest=${LABEL#com.plot-pm.registryd.}
-  printf 'plot-registryd-%s' "$(printf '%s' "$rest" | LC_ALL=C tr -c 'A-Za-z0-9:_.-' '-')"
+  printf '%s-%s' "$prefix" "$(printf '%s' "$rest" | LC_ALL=C tr -c 'A-Za-z0-9:_.-' '-')"
 }
 UNIT_NAME=$(unit_name)
 
@@ -114,7 +125,7 @@ repo_root=$(git rev-parse --show-toplevel)
 # beside this file in the plugin (#969). Every other bundle caller in
 # `skills/plot/scripts/` resolves from its own directory; this was the one that
 # did not, and `scripts/check-bundle-resolution.sh` now holds that at zero.
-registryd="$script_dir/board/plot-registryd.mjs"
+fleetd="$script_dir/board/plot-fleetd.mjs"
 
 # PLOT'S OWN ROOT, which is where Plot's `.nvmrc` lives. In this repository it
 # is `$repo_root` too, which is why the two could be confused here.
@@ -214,6 +225,21 @@ supervisor_workdir() {
   return 0
 }
 
+# The bundle path a LOADED job's own argv names, or empty. Read from the job
+# launchd/systemd actually holds, never from a unit file on disk — the same
+# reason `supervisor_workdir` reads the loaded job: a plist may not be what is
+# bootstrapped, and this answers what IS running, which is what a migration or
+# a missing-bundle report must act on.
+supervisor_bundle_path() {
+  case "$(platform)" in
+    launchd) launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null \
+               | awk '/^\targuments = \{/{f=1; next} f && /\.mjs$/{print $1; exit} /^\t\}/{f=0}' ;;
+    systemd) systemctl --user show "$UNIT_NAME" -p ExecStart --value 2>/dev/null \
+               | grep -o '[^ ]*\.mjs' | head -1 ;;
+  esac
+  return 0
+}
+
 # Which checkout the loaded supervisor serves: one line, `this <path>`,
 # `another <path>`, or `unknown`.
 #
@@ -227,10 +253,7 @@ supervisor_workdir() {
 supervisor_checkout() {
   local served here there
   served=$(supervisor_workdir)
-  if [ -z "$served" ]; then
-    echo unknown
-    return 0
-  fi
+  [ -n "$served" ] || { echo unknown; return 0; }
   here=$(cd "$repo_root" && pwd -P)
   there=$(cd "$served" 2>/dev/null && pwd -P) || there="$served"
   if [ "$here" = "$there" ]; then
@@ -321,7 +344,9 @@ plot_process_candidates() {
       kind = ""; e = 0
       if (interp == "node") {
         b = art_end(p, "/board/board-server.mjs", 0)
-        r = art_end(p, "/board/plot-registryd.mjs", 0)
+        r = art_end(p, "/board/plot-fleetd.mjs", 0)
+        r2 = art_end(p, "/board/plot-registryd.mjs", 0)
+        if (!r || (r2 && r2 < r)) r = r2
         if (b && (!r || b < r)) { kind = "board"; e = b }
         else if (r) { kind = "supervisor"; e = r }
       } else if ((e = art_end(p, "plot-fleet-scan.sh", 1))) kind = "scan"
@@ -401,19 +426,28 @@ plot_processes_block() { # $1=pid to skip
     esac
     case "$kind" in
       board)      suffix=/skills/plot/scripts/board/board-server.mjs ;;
-      supervisor) suffix=/skills/plot/scripts/board/plot-registryd.mjs ;;
+      supervisor) suffix=/skills/plot/scripts/board/plot-fleetd.mjs ;;
       *)          suffix=/skills/plot/scripts/plot-fleet-scan.sh ;;
     esac
     inst="cannot determine"
+    old_suffix=/skills/plot/scripts/board/plot-registryd.mjs
+    matched=""
     case "$full" in
-      ?*"$suffix")
-        full=${full%"$suffix"}
-        if [ "$full" = "$repo_root" ] || [ "$full" = "$here" ]; then
-          inst="THIS repository"
-        else
-          inst=$(home_short "$full")
-        fi ;;
+      ?*"$suffix") matched=$suffix ;;
+      # THE OLD SUFFIX IS KEPT INDEFINITELY: another, unrelated installation
+      # may still run the old-named bundle forever (it has its own lifecycle,
+      # not this checkout's to force), and `--status` must still name whose
+      # checkout it is rather than reporting it as undetermined.
+      ?*"$old_suffix") [ "$kind" = supervisor ] && matched=$old_suffix ;;
     esac
+    if [ -n "$matched" ]; then
+      full=${full%"$matched"}
+      if [ "$full" = "$repo_root" ] || [ "$full" = "$here" ]; then
+        inst="THIS repository"
+      else
+        inst=$(home_short "$full")
+      fi
+    fi
     label=""
     if [ "$kind" = supervisor ]; then
       case "$kernel" in
@@ -504,6 +538,77 @@ unit_target() {
     launchd) printf '%s' "$HOME/Library/LaunchAgents/$LABEL.plist" ;;
     systemd) printf '%s' "$HOME/.config/systemd/user/$UNIT_NAME.service" ;;
   esac
+}
+
+# The init system's command that prints the job under `$LABEL`, for a refusal
+# to name.
+read_cmd() {
+  case "$(platform)" in
+    launchd) printf 'launchctl print gui/$(id -u)/%s' "$LABEL" ;;
+    *)       printf 'systemctl --user show %s' "$UNIT_NAME" ;;
+  esac
+}
+
+# Runs the command every 0.5 s while it succeeds, bounded by `--wait`. Returns
+# 0 once it fails and 1 while it still succeeds at the bound.
+poll_while() {
+  local started
+  started=$(date +%s)
+  while [ $(( $(date +%s) - started )) -lt "$wait_bound" ]; do "$@" || return 0; sleep 0.5; done
+  return 1
+}
+
+# Whether the agent at the desk $1 is running.
+desk_running() { [ "$(plot_worker_state "$1" | cut -f1)" = running ]; }
+
+# Unloads the job under `$LABEL`, then polls until the init system no longer
+# holds the label, bounded by `--wait`. Returns 0 once the label is gone and 1
+# while it is still loaded at the bound. Sets `unload_rc` to the unload
+# command's own status, which a refusal names; the poll decides, because
+# `bootout` can return before the label is released (see `--stop`).
+unload_supervisor() {
+  case "$(platform)" in
+    launchd) launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null ;;
+    systemd) systemctl --user disable --now "$UNIT_NAME" >/dev/null 2>&1 ;;
+  esac
+  unload_rc=$?
+  poll_while supervisor_loaded
+}
+
+# THE OLD DEFAULT LABEL. `com.plot-pm.registryd` was the default before the
+# rename to `com.plot-pm.fleetd`, and a unit installed under it keeps running
+# under it. Under the new default only, prints `supervisor_checkout`'s answer
+# for a job loaded under the old label, or nothing when none is loaded. A
+# custom label never asks.
+old_label_checkout() {
+  [ "$LABEL" = com.plot-pm.fleetd ] || return 0
+  local LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd
+  ! supervisor_loaded || supervisor_checkout
+}
+
+# Retires a supervisor loaded under the old default label, for `--start`'s
+# migration and for `--stop`. Only one serving THIS checkout is touched: it is
+# unloaded through `unload_supervisor`, and its unit file and the start marker
+# are removed only once the unload is confirmed. One serving another checkout is
+# that checkout's and is left alone. A dry run names the step and changes
+# nothing. Returns 1 after printing why when the old label is still loaded at
+# the bound, or when which checkout it serves cannot be read.
+retire_old_label() {
+  local served
+  served=$(old_label_checkout)
+  local LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd
+  case "$served" in
+    this\ *) ;;
+    unknown) printf 'plot-fleetctl: '"'"'%s'"'"' (the old default label) is loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it is left loaded and nothing runs beside it.\n  Read it: %s\n' "$LABEL" "$(platform)" "$(read_cmd)" >&2
+             return 1 ;;
+    *) return 0 ;;
+  esac
+  [ "$dry_run" = 0 ] || { echo "would migrate the old label '$LABEL' — it serves this repository: unload it, then remove its unit file"; return 0; }
+  echo "plot-fleetctl: unloading the old label '$LABEL' — it serves this repository"
+  unload_supervisor || { printf 'plot-fleetctl: '"'"'%s'"'"' did NOT unload within %ss (the unload exited %s) — it is still loaded\n  Its unit file is kept, so two supervisors would serve one estate. Read it: %s\n' "$LABEL" "$wait_bound" "$unload_rc" "$(read_cmd)" >&2; return 1; }
+  rm -f "$(unit_target)" "$(start_marker)"
+  [ "$(platform)" != systemd ] || systemctl --user daemon-reload 2>/dev/null
+  echo "  unloaded and removed"
 }
 
 # THE TWO READINGS, RESOLVED TOGETHER — which is what settles the fresh-clone
@@ -660,6 +765,7 @@ if [ "$mode" = "status" ]; then
   # machine with no init system, and that is the state whose printed repair the
   # board gets wrong. `--start` refuses it by design at REFUSAL 3.
   install_state=none
+  tick_age=$(tick_age_seconds)
   # BOTH READINGS, TAKEN ONCE. The label and the process are different facts and
   # the arm needs both in three places — the prose, the `install=` field and the
   # exit code — so each is asked for exactly once here. `supervisor_loaded` was
@@ -668,8 +774,14 @@ if [ "$mode" = "status" ]; then
   # the right sentence and still exited 0.
   sup_loaded=1
   sup_pid=""
+  old_note=""
   if [ "$plat" != "none" ]; then
     supervisor_loaded && sup_loaded=0
+    # A JOB STILL UNDER THE OLD DEFAULT LABEL IS THIS FLEET'S SUPERVISOR when it
+    # serves this checkout, so the reading below is taken from it and says so.
+    [ "$sup_loaded" = 0 ] || case "$(old_label_checkout)" in
+      this\ *) LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd sup_loaded=0 old_note="  under the old label; /plot-fleet --start migrates it" ;;
+    esac
     [ "$sup_loaded" = 0 ] && sup_pid=$(supervisor_pid)
   fi
   if [ "$plat" = "none" ]; then
@@ -677,13 +789,17 @@ if [ "$mode" = "status" ]; then
   elif [ "$sup_loaded" = 0 ] && [ -n "$sup_pid" ]; then
     install_state=running
     echo "supervisor: running (pid $sup_pid) — $LABEL"
+    [ -z "$old_note" ] || echo "$old_note"
     serves_line "$(supervisor_checkout)"
     # A pid is not a tick: measured 2026-09-23, this arm printed `running`
     # over a 25-hour-old log. The age is evidence and the state word stays.
-    tick_age=$(tick_age_seconds)
-    if [ -n "$tick_age" ]; then
-      echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
-    fi
+    [ -z "$tick_age" ] || echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
+    # THE RUNNING PROCESS ALREADY HOLDS THE OLD FILE OPEN, so a bundle removed
+    # out from under it is invisible to the pid check above — the process does
+    # not notice until it next restarts and the file is gone. Named here rather
+    # than repaired: the fix is a rebuild or reinstall, a person's call.
+    bundle=$(supervisor_bundle_path)
+    [ -n "$bundle" ] && [ ! -f "$bundle" ] && printf '  BUNDLE MISSING: %s no longer exists — the loaded unit still names it\n    Rebuild it, or reinstall: /plot-fleet --stop, then /plot-fleet --start\n' "$bundle"
   elif [ "$sup_loaded" = 0 ]; then
     # THE LABEL IS HELD AND NOTHING IS BEHIND IT. Measured twice in ninety
     # minutes on 2026-09-22: `--status` said `running`, no `registryd.mjs`
@@ -696,22 +812,15 @@ if [ "$mode" = "status" ]; then
     # part of that precedent which applies: its two-facts-must-agree rule
     # belongs to `--stop`, where a wrong guess kills a process.
     install_state="loaded-not-running"
-    echo "supervisor: LOADED, NOT RUNNING ($LABEL) — $(platform) holds the label and no process is behind it"
-    echo "  label:   loaded"
-    echo "  process: absent"
+    printf 'supervisor: LOADED, NOT RUNNING (%s) — %s holds the label and no process is behind it\n  label:   loaded\n  process: absent\n' "$LABEL" "$(platform)"
+    [ -z "$old_note" ] || echo "$old_note"
     serves_line "$(supervisor_checkout)"
     # THE TICK AGE IS EVIDENCE AND NEVER THE VERDICT. A log's mtime says when
     # the daemon last wrote, and a healthy supervisor between ticks has not
     # written for up to 60 s — so a reader gets the number and this derives
     # nothing from it.
-    tick_log="$repo_root/.plot/logs/registryd.log"
-    tick_age=$(tick_age_seconds)
-    if [ -n "$tick_age" ]; then
-      echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
-    fi
-    echo "  Most often a crash loop: KeepAlive restarts it and it exits again, so the label stays held."
-    echo "  Read why before restarting: $tick_log"
-    echo "  then repair it: /plot-fleet --stop, then /plot-fleet --start"
+    [ -z "$tick_age" ] || echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
+    printf '  Most often a crash loop: KeepAlive restarts it and it exits again, so the label stays held.\n  Read why before restarting: %s\n  then repair it: /plot-fleet --stop, then /plot-fleet --start\n' "$repo_root/.plot/logs/registryd.log"
   else
     # THREE STATES WHERE THERE WERE TWO, AND THE REPAIR IS PRINTED. The two
     # failures read identically to a person and cost differently: an operator
@@ -751,15 +860,10 @@ if [ "$mode" = "status" ]; then
       # once will crash again after `--start`. The log is named here for that
       # reason: the repair is the same command, the DIAGNOSIS is what differs.
       installed)
-        echo "supervisor: STOPPED ($LABEL) — a --start finished here and the supervisor is gone since"
-        echo "  Nothing unloaded it: --stop clears this marker only after a clean unload."
-        echo "  So it died on its own — a crash, a logout, or an OS update."
-        echo "  Read why before restarting: .plot/logs/registryd.log"
-        echo "  then start it: /plot-fleet --start"
+        printf 'supervisor: STOPPED (%s) — a --start finished here and the supervisor is gone since\n  Nothing unloaded it: --stop clears this marker only after a clean unload.\n  So it died on its own — a crash, a logout, or an OS update.\n  Read why before restarting: .plot/logs/registryd.log\n  then start it: /plot-fleet --start\n' "$LABEL"
         ;;
       *)
-        echo "supervisor: not installed ($LABEL) — no unit on this machine"
-        echo "  start it: /plot-fleet --start"
+        printf 'supervisor: not installed (%s) — no unit on this machine\n  start it: /plot-fleet --start\n' "$LABEL"
         ;;
     esac
   fi
@@ -837,10 +941,7 @@ if [ "$mode" = "status" ]; then
   # `tick_age=` ONLY IN THE RUNNING ARM, and only where a log exists. The board
   # reads an absent field as no reading, so a missing log never becomes 0.
   tick_field=""
-  if [ "$install_state" = running ]; then
-    tick_age=$(tick_age_seconds)
-    [ -n "$tick_age" ] && tick_field=" tick_age=$tick_age"
-  fi
+  [ "$install_state" != running ] || [ -z "$tick_age" ] || tick_field=" tick_age=$tick_age"
   echo "summary: agents_running=$n_run agents_other=$n_other supervisor=$sup_word install=$install_state$tick_field"
   # EVERY PLOT PROCESS ON THE MACHINE, AFTER THE SUMMARY AND NEVER BEFORE IT.
   # The board reads the first `summary:` line; this block changes neither that
@@ -867,13 +968,11 @@ fi
 # --once: the gate
 # ---------------------------------------------------------------------------
 if [ "$mode" = "once" ]; then
-  [ -f "$registryd" ] || {
-    echo "plot-fleetctl: no supervisor artifact at $registryd" >&2
-    echo "  Every bundle is tracked in git, so this is a broken or partial installation of Plot." >&2
-    echo "  Reinstall or update the Plot plugin. In a development checkout of Plot, run 'pnpm build:board'." >&2
+  [ -f "$fleetd" ] || {
+    printf 'plot-fleetctl: no supervisor artifact at %s\n  Every bundle is tracked in git, so this is a broken or partial installation of Plot.\n  Reinstall or update the Plot plugin. In a development checkout of Plot, run '"'"'pnpm build:board'"'"'.\n' "$fleetd" >&2
     exit 1
   }
-  exec node "$registryd" --once
+  exec node "$fleetd" --once
 fi
 
 # ---------------------------------------------------------------------------
@@ -881,11 +980,8 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$mode" = "start" ]; then
   # REFUSAL 1 — nothing to start.
-  [ -f "$registryd" ] || {
-    echo "plot-fleetctl: no supervisor artifact at $registryd" >&2
-    echo "  The unit would name a file that does not exist." >&2
-    echo "  Every bundle is tracked in git, so this is a broken or partial installation of Plot." >&2
-    echo "  Reinstall or update the Plot plugin. In a development checkout of Plot, run 'pnpm build:board'." >&2
+  [ -f "$fleetd" ] || {
+    printf 'plot-fleetctl: no supervisor artifact at %s\n  The unit would name a file that does not exist.\n  Every bundle is tracked in git, so this is a broken or partial installation of Plot.\n  Reinstall or update the Plot plugin. In a development checkout of Plot, run '"'"'pnpm build:board'"'"'.\n' "$fleetd" >&2
     exit 1
   }
 
@@ -899,19 +995,12 @@ if [ "$mode" = "start" ]; then
   # "no pin" is exactly how this refusal went silent in every consumer.
   want=$(pinned_major)
   if [ -z "$want" ]; then
-    echo "plot-fleetctl: cannot read Plot's node pin at $plot_nvmrc" >&2
-    echo "  The unit bakes '$node_bin' in permanently, and without the pin nothing checks it." >&2
-    echo "  Plot tracks .nvmrc in git, so this is a broken or partial installation of Plot." >&2
-    echo "  Reinstall or update the Plot plugin, then run this again." >&2
+    printf 'plot-fleetctl: cannot read Plot'"'"'s node pin at %s\n  The unit bakes '"'"'%s'"'"' in permanently, and without the pin nothing checks it.\n  Plot tracks .nvmrc in git, so this is a broken or partial installation of Plot.\n  Reinstall or update the Plot plugin, then run this again.\n' "$plot_nvmrc" "$node_bin" >&2
     exit 1
   fi
   have=$(running_major) || have=""
   if [ "$have" != "$want" ]; then
-    echo "plot-fleetctl: node on PATH is ${have:-unreadable}, Plot pins $want ($plot_nvmrc)" >&2
-    echo "  The unit bakes '$node_bin' in permanently, so a wrong one here is a" >&2
-    echo "  daemon that keeps failing after you have moved on." >&2
-    echo "  Fix it: put node $want first on PATH (with nvm: nvm install $want && nvm use $want)," >&2
-    echo "  then run this again." >&2
+    printf 'plot-fleetctl: node on PATH is %s, Plot pins %s (%s)\n  The unit bakes '"'"'%s'"'"' in permanently, so a wrong one here is a\n  daemon that keeps failing after you have moved on.\n  Fix it: put node %s first on PATH (with nvm: nvm install %s && nvm use %s),\n  then run this again.\n' "${have:-unreadable}" "$want" "$plot_nvmrc" "$node_bin" "$want" "$want" "$want" >&2
     exit 1
   fi
 
@@ -932,16 +1021,12 @@ if [ "$mode" = "start" ]; then
   case "$harness_bin" in
     /*) harness_dir=$(dirname "$harness_bin") ;;
     *)
-      echo "plot-fleetctl: cannot resolve the agent harness '$harness_name' to a file on PATH" >&2
       if [ -n "${PLOT_HARNESS:-}" ]; then
-        echo "  PLOT_HARNESS is set to '$PLOT_HARNESS', so that is the name looked for." >&2
+        harness_reason="PLOT_HARNESS is set to '$PLOT_HARNESS', so that is the name looked for."
       else
-        echo "  PLOT_HARNESS is unset, so the default name 'claude' was looked for." >&2
+        harness_reason="PLOT_HARNESS is unset, so the default name 'claude' was looked for."
       fi
-      echo "  The unit bakes the harness's directory into its PATH permanently, and a" >&2
-      echo "  worker that cannot find its harness exits 127 after you have moved on." >&2
-      echo "  Fix it: put the harness on PATH (or set PLOT_HARNESS to its name or" >&2
-      echo "  absolute path), check with 'command -v $harness_name', then run this again." >&2
+      printf 'plot-fleetctl: cannot resolve the agent harness '"'"'%s'"'"' to a file on PATH\n  %s\n  The unit bakes the harness'"'"'s directory into its PATH permanently, and a\n  worker that cannot find its harness exits 127 after you have moved on.\n  Fix it: put the harness on PATH (or set PLOT_HARNESS to its name or\n  absolute path), check with '"'"'command -v %s'"'"', then run this again.\n' "$harness_name" "$harness_reason" "$harness_name" >&2
       exit 1
       ;;
   esac
@@ -949,10 +1034,17 @@ if [ "$mode" = "start" ]; then
   # REFUSAL 3 — no init system to hand the daemon to.
   plat=$(platform)
   if [ "$plat" = "none" ]; then
-    echo "plot-fleetctl: neither launchd nor systemd here — there is no unit to fill" >&2
-    echo "  Run the supervisor by hand instead: node $registryd" >&2
+    printf 'plot-fleetctl: neither launchd nor systemd here — there is no unit to fill\n  Run the supervisor by hand instead: node %s\n' "$fleetd" >&2
     exit 1
   fi
+
+  # THE OLD DEFAULT LABEL IS MIGRATED, NOT ORPHANED, and only on the new
+  # default's own `--start` — a custom label never reaches this branch. A unit
+  # still loaded under `com.plot-pm.registryd` and serving THIS checkout is the
+  # same fleet under its old name. One whose checkout cannot be read is refused,
+  # as refusal 4 refuses it, because installing beside it may run two
+  # supervisors over one estate.
+  retire_old_label || exit 1
 
   # REFUSAL 4 — the label is taken. launchd keys a job by LABEL, so loading a
   # second repository's unit over the first supervises the wrong estate without
@@ -964,37 +1056,20 @@ if [ "$mode" = "start" ]; then
     served=$(supervisor_checkout)
     case "$served" in
       this\ *)
-        echo "plot-fleetctl: '$LABEL' is already loaded, serving THIS repository (${served#this })" >&2
-        echo "  The fleet is already supervised here. See it: /plot-fleet --status" >&2
-        echo "  To restart it: /plot-fleet --stop, then /plot-fleet --start" >&2
+        printf 'plot-fleetctl: '"'"'%s'"'"' is already loaded, serving THIS repository (%s)\n  The fleet is already supervised here. See it: /plot-fleet --status\n  To restart it: /plot-fleet --stop, then /plot-fleet --start\n' "$LABEL" "${served#this }" >&2
         ;;
       another\ *)
-        echo "plot-fleetctl: '$LABEL' is already loaded, serving ANOTHER checkout (${served#another })" >&2
-        echo "  This repository is $repo_root. That supervisor is not yours to stop." >&2
-        echo "  Give this checkout its own label — skills/plot/units/README.md" >&2
+        printf 'plot-fleetctl: '"'"'%s'"'"' is already loaded, serving ANOTHER checkout (%s)\n  This repository is %s. That supervisor is not yours to stop.\n  Give this checkout its own label — skills/plot/units/README.md\n' "$LABEL" "${served#another }" "$repo_root" >&2
         ;;
       *)
-        echo "plot-fleetctl: '$LABEL' is already loaded, and which checkout it serves cannot be determined" >&2
-        case "$plat" in
-          launchd) how="launchctl print gui/\$(id -u)/$LABEL" ;;
-          *)       how="systemctl --user show $UNIT_NAME" ;;
-        esac
-        echo "  $plat names no working directory for it, so it may be another checkout's." >&2
-        echo "  Read it before stopping it: $how" >&2
-        echo "  Or, for a second checkout, give it its own label — skills/plot/units/README.md" >&2
+        printf 'plot-fleetctl: '"'"'%s'"'"' is already loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it may be another checkout'"'"'s.\n  Read it before stopping it: %s\n  Or, for a second checkout, give it its own label — skills/plot/units/README.md\n' "$LABEL" "$plat" "$(read_cmd)" >&2
         ;;
     esac
     exit 1
   fi
 
   if [ "$dry_run" = 1 ]; then
-    echo "state: $(fleet_install_state)"
-    echo "would fill and load $LABEL ($plat)"
-    echo "  node:      $node_bin (major $have, pinned $want)"
-    echo "  harness:   $harness_bin (first on the unit's PATH: $harness_dir)"
-    echo "  registryd: $registryd"
-    echo "  repo:      $repo_root"
-    echo "would then start agents: plot-dispatch.sh --start ${start_count:-(default)}"
+    printf 'state: %s\nwould fill and load %s (%s)\n  node:      %s (major %s, pinned %s)\n  harness:   %s (first on the unit'"'"'s PATH: %s)\n  fleetd:    %s\n  repo:      %s\nwould then start agents: plot-dispatch.sh --start %s\n' "$(fleet_install_state)" "$LABEL" "$plat" "$node_bin" "$have" "$want" "$harness_bin" "$harness_dir" "$fleetd" "$repo_root" "${start_count:-(default)}"
     exit 0
   fi
 
@@ -1010,12 +1085,12 @@ if [ "$mode" = "start" ]; then
 
   case "$plat" in
     launchd)
-      template="$UNIT_DIR/com.plot-pm.registryd.plist"
+      template="$UNIT_DIR/com.plot-pm.fleetd.plist"
       target="$HOME/Library/LaunchAgents/$LABEL.plist"
       mkdir -p "$HOME/Library/LaunchAgents"
       ;;
     systemd)
-      template="$UNIT_DIR/plot-registryd.service"
+      template="$UNIT_DIR/plot-fleetd.service"
       target="$HOME/.config/systemd/user/$UNIT_NAME.service"
       mkdir -p "$HOME/.config/systemd/user"
       ;;
@@ -1030,7 +1105,7 @@ if [ "$mode" = "start" ]; then
       -e "s|__REPO_ROOT__|$repo_root|g" \
       -e "s|__NODE__|$node_bin|g" \
       -e "s|__HARNESS_DIR__|$harness_dir|g" \
-      -e "s|__REGISTRYD__|$registryd|g" \
+      -e "s|__FLEETD__|$fleetd|g" \
       "$template" > "$target" || { echo "plot-fleetctl: could not write $target" >&2; exit 1; }
 
   # THE FILL IS VERIFIED, not assumed. A placeholder that survived would install
@@ -1104,8 +1179,7 @@ if [ "$mode" = "start" ]; then
   if [ "$start_rc" = 0 ]; then
     date -u +%Y-%m-%dT%H:%M:%SZ > "$(start_marker)" 2>/dev/null || true
   else
-    echo "  agents did not start cleanly — no completion marker written" >&2
-    echo "  /plot-fleet --status will report this run as interrupted." >&2
+    printf '  agents did not start cleanly — no completion marker written\n  /plot-fleet --status will report this run as interrupted.\n' >&2
   fi
   exit "$start_rc"
 fi
@@ -1167,14 +1241,10 @@ if [ "$mode" = "stop" ]; then
       continue
     fi
     started=$(date +%s)
-    exited=0
-    while [ $(( $(date +%s) - started )) -lt "$wait_bound" ]; do
-      row=$(plot_worker_state "$wt")
-      [ "$(printf '%s' "$row" | cut -f1)" = "running" ] || { exited=1; break; }
-      sleep 0.5
-    done
+    poll_while desk_running "$wt"
+    exited=$?
     elapsed=$(( $(date +%s) - started ))
-    if [ "$exited" = 1 ]; then
+    if [ "$exited" = 0 ]; then
       # A REBUILT BUNDLE ALONE IS NOT "UNCOMMITTED WORK" — `main` rebuilds and
       # pushes every generated board bundle (`bug/main-builds-its-bundles`,
       # #1249), so a desk that locally rebuilt one to test holds nothing an
@@ -1201,10 +1271,6 @@ EOF
   # unloading it first leaves the agents unwatched for the length of the
   # shutdown, and a stop that fails partway leaves an unsupervised remainder.
   if supervisor_loaded; then
-    case "$(platform)" in
-      launchd) launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null ;;
-      systemd) systemctl --user disable --now "$UNIT_NAME" >/dev/null 2>&1 ;;
-    esac
     # THE UNLOAD IS VERIFIED TO A BOUND, NEVER ASKED ONCE. Measured 2026-09-24:
     # a single `supervisor_loaded` after `bootout` answered *loaded*, this
     # printed `supervisor did NOT unload`, and `launchctl print` moments later
@@ -1223,16 +1289,9 @@ EOF
     # `registryd-main.ts` registers no signal handler — so a real teardown has
     # an upper bound and the existing 30 s default covers it with margin.
     #
-    # THE SHAPE IS THE AGENT LOOP'S, thirty lines above. Three open-coded
-    # copies of it exist here and in `plot-boardctl.sh`; this is the fourth,
-    # deliberately, rather than a helper extracted for one caller.
-    started=$(date +%s)
-    unloaded=0
-    while [ $(( $(date +%s) - started )) -lt "$wait_bound" ]; do
-      supervisor_loaded || { unloaded=1; break; }
-      sleep 0.5
-    done
-    if [ "$unloaded" = 1 ]; then
+    # THE POLL IS `unload_supervisor`, shared with the old label's migration
+    # and its `--stop` below.
+    if unload_supervisor; then
       echo "  supervisor unloaded"
       # THE MARKER GOES WITH THE SUPERVISOR, and only once it is actually gone.
       # It records that a `--start` finished; a deliberate stop ends the run it
@@ -1249,8 +1308,7 @@ EOF
       # from the one this run signalled says launchd restarted the job under
       # `KeepAlive`; the same pid says the teardown is stuck.
       sup_pid_now=$(supervisor_pid)
-      echo "  supervisor did NOT unload within ${wait_bound}s — $LABEL is still loaded (pid ${sup_pid_now:-unknown})"
-      echo "  The start marker is kept: the run it records is still the live one."
+      printf '  supervisor did NOT unload within %ss — %s is still loaded (pid %s)\n  The start marker is kept: the run it records is still the live one.\n' "$wait_bound" "$LABEL" "${sup_pid_now:-unknown}"
       # SET, NOT EXITED ON. The agent summary below prints after this block, and
       # an early exit here swallows it when agents and supervisor both fail.
       sup_unconfirmed=1
@@ -1258,6 +1316,10 @@ EOF
   else
     echo "  supervisor was not loaded"
   fi
+  # A SUPERVISOR STILL UNDER THE OLD DEFAULT LABEL keeps starting agents under
+  # `KeepAlive`, so a stop under the new default unloads it too — only when it
+  # serves this checkout, and with the same confirmed unload as the migration.
+  retire_old_label || sup_unconfirmed=1
 
   if [ "$n_still" -gt 0 ]; then
     echo "$n_still agent(s) did not exit within ${wait_bound}s:"

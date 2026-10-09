@@ -1,6 +1,6 @@
 # plot-fleet — developer notes
 
-Fleet control: the door to `plot-registryd` and the agents it supervises.
+Fleet control: the door to `plot-fleetd` and the agents it supervises.
 `SKILL.md` is the agent-facing instruction; this file is why it looks the way it
 does.
 
@@ -38,7 +38,7 @@ script, the run cannot reach `launchctl bootstrap` without passing every probe.
 
 | Refusal | Measurement |
 |---------|-------------|
-| no `plot-registryd.mjs` | the unit names an absolute path; a missing artifact makes a unit that fails at load |
+| no `plot-fleetd.mjs` | the unit names an absolute path; a missing artifact makes a unit that fails at load |
 | `node` is not the pinned major | 2026-09-05: `command -v node` answered 26.7.0 against `.nvmrc` 24 — the operator's real machine |
 | platform is neither launchd nor systemd | there is no unit to fill, and Plot supervising its own supervisor is the regress the OS terminates |
 | label already loaded | launchd keys by label; a second checkout loading over the first silently supervises the wrong estate |
