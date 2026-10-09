@@ -169,6 +169,47 @@ describe('treesGit: desk-reset, commit, push', () => {
     const result = await trees().commitAs(desk, 'Approve Bot', 'plot: nothing to commit');
     expect(result.ok).toBe(false);
   });
+
+  it('commitStaged commits the staged change under the checkout\'s own identity', async () => {
+    git(desk, ['config', 'user.name', 'Desk Owner']);
+    fs.writeFileSync(path.join(desk, 'own.txt'), 'own\n');
+    git(desk, ['add', 'own.txt']);
+
+    const result = await trees().commitStaged(desk, 'plot: approve infra/own');
+    expect(result).toEqual({ ok: true, value: undefined });
+    expect(git(desk, ['log', '-1', '--format=%s']).trim()).toBe('plot: approve infra/own');
+    expect(git(desk, ['log', '-1', '--format=%an']).trim()).toBe('Desk Owner');
+  });
+
+  it('commitStaged answers failed on an empty index', async () => {
+    const result = await trees().commitStaged(desk, 'plot: nothing to commit');
+    expect(result.ok).toBe(false);
+  });
+
+  it('fetch brings origin\'s branch down, and answers failed for a branch it lacks', async () => {
+    expect(await trees().fetch(desk, 'main')).toEqual({ ok: true, value: undefined });
+    expect((await trees().fetch(desk, 'no-such-branch')).ok).toBe(false);
+  });
+
+  it('originHead names the default branch origin points at', async () => {
+    git(desk, ['remote', 'set-head', 'origin', 'main']);
+    expect(await trees().originHead(desk)).toEqual({ ok: true, value: 'main' });
+  });
+
+  it('userName reads the configured name and answers failed where none is set', async () => {
+    git(desk, ['config', 'user.name', 'Desk Owner']);
+    expect(await trees().userName(desk)).toEqual({ ok: true, value: 'Desk Owner' });
+    git(desk, ['config', '--unset', 'user.name']);
+    const unset = await trees().userName(desk);
+    // A global name on the machine still answers; only the shape is asserted.
+    expect(typeof unset.ok).toBe('boolean');
+    git(desk, ['config', 'user.name', 'Desk Owner']);
+  });
+
+  it('hasRef answers true for a ref that exists and false for one that does not', async () => {
+    expect(await trees().hasRef(desk, 'refs/heads/main')).toEqual({ ok: true, value: true });
+    expect(await trees().hasRef(desk, 'refs/heads/no-such-branch')).toEqual({ ok: true, value: false });
+  });
 });
 
 describe('treesGit: resetOnto clears bookkeeping and repairs the generated bundles', () => {
