@@ -300,6 +300,12 @@ describe('hostFixture: a connector the domain has never heard of', () => {
     expect(answer<string>(await host.prMergeCommit('feature/open'))).toBe('');
   });
 
+  it('answers a stated merged head, and a branch it was not told about as none', async () => {
+    const host = hostFixture({ backend, mergedHeads: { 'feature/landed': ['abc123'] } });
+    expect(answer<readonly string[]>(await host.prMergedHeads('feature/landed'))).toEqual(['abc123']);
+    expect(answer<readonly string[]>(await host.prMergedHeads('feature/open'))).toEqual([]);
+  });
+
   it('opens a PR, which is the one write the port allows', async () => {
     // A connector nothing was written for still gets the acting path, and the
     // URL comes back as the host stated it.

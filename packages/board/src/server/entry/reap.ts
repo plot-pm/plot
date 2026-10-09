@@ -3,6 +3,7 @@
 // CLI in its own right, so pulling in the package root would bundle every
 // entity and rule Plot has.
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
+import { refsRemoteGit } from '@plot-pm/domain/adapters/refs/refs-remote-git';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
@@ -245,23 +246,17 @@ request, and 24 h is about 1,000 times the scan's 90 s timeout.
 /** Where the ports and scripts this entry needs live. */
 interface Context {
   repoRoot: string;
+  /** The checkout the reaper runs from, `--show-toplevel` of its cwd; never reaped. */
+  invokedFrom: string;
   scriptDir: string;
   refs: Refs;
   host: Host;
   scripts: Scripts;
   trees: Trees;
   processes: Processes;
+  /** Fetches one branch from `origin`. */
+  fetch: (branch: string) => Promise<unknown>;
 }
-
-/** `git` run in the repository, discarding nothing from the caller. */
-const runGit = async (args: readonly string[]): Promise<{ code: number; stdout: string; stderr: string }> => {
-  const { execFile } = await import('node:child_process');
-  return new Promise((resolve) => {
-    execFile('git', args, { maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
-      resolve({ code: (err as { code?: number } | null)?.code ?? (err ? 1 : 0), stdout, stderr });
-    });
-  });
-};
 
 /** Prints to stdout, matching the script's unprefixed verdict lines. */
 type Printer = (s: string) => void;
@@ -273,14 +268,14 @@ const row = (verdict: string, label: string, why: string): string =>
 /**
  * The live worker's pid at a desk, or `''`.
  *
- * Mirrors `desk_worker_pid()`: the five process states map to one reading —
  * `running` is live, `finished`/`failed`/`ended`/`none` are not, and
  * `waiting`/`stalled` are desk facts discarded by name. A state the mapping
  * does not know keeps the desk: it reports the recorded pid, or `'unknown'`.
+ * A reading that failed keeps the desk the same way and answers `'unknown'`.
  */
-const deskWorkerPid = async (processes: Processes, worktree: string, hasPr: boolean): Promise<string> => {
-  const reading = await processes.workerState(worktree, hasPr);
-  if (!reading.ok) return '';
+const deskWorkerPid = async (processes: Processes, worktree: string): Promise<string> => {
+  const reading = await processes.workerState(worktree, false);
+  if (!reading.ok) return 'unknown';
   const { state, pid } = reading.value;
   switch (state) {
     case 'running':
@@ -289,6 +284,7 @@ const deskWorkerPid = async (processes: Processes, worktree: string, hasPr: bool
     case 'failed':
     case 'ended':
     case 'none':
+      return '';
     case 'waiting':
     case 'stalled':
       return '';
@@ -297,10 +293,10 @@ const deskWorkerPid = async (processes: Processes, worktree: string, hasPr: bool
   }
 };
 
-/** Commits beyond `range`, read through `Refs.commitSubjects` and counted as `realCommits` does. */
-const fileChangingCommitCount = async (refs: Refs, range: string): Promise<number> => {
+/** Commits beyond `range`, counted as `realCommits` does, or `null` where git could not read the range. */
+const fileChangingCommitCount = async (refs: Refs, range: string): Promise<number | null> => {
   const subjects = await refs.commitSubjects(range);
-  if (!subjects.ok) return 0;
+  if (!subjects.ok) return null;
   const readings: CommitReading[] = subjects.value.map((s) => ({
     subject: s.subject,
     tree: s.tree,
@@ -317,111 +313,54 @@ const isWhollyEmptyClaim = async (refs: Refs, range: string): Promise<boolean> =
 };
 
 /**
- * Which commits the host merged for this branch — one `headRefOid` per merged
- * PR, newest first. Mirrors `pr_merged_heads()`: a third question asked only
- * once a branch is already known `merged`, since a squash merge deletes the
- * branch and drops its remote-tracking ref, leaving the merged head as the
- * only way to tell a pushed commit from one made after the merge.
+ * Commits on `HEAD` no remote holds, short SHAs, or `'unknown'` when they
+ * could not be counted.
  *
- * `null` means the host could not be asked (no `gh`, or the call failed) —
- * read the same direction the shell reads it: the caller falls back to
- * keeping the desk rather than treating silence as nothing merged.
- */
-const prMergedHeads = async (branch: string): Promise<readonly string[] | null> => {
-  const { execFile } = await import('node:child_process');
-  const out = await new Promise<string | null>((resolve) => {
-    execFile(
-      'gh',
-      ['pr', 'list', '--head', branch, '--state', 'all', '--limit', '100', '--json', 'mergedAt,headRefOid'],
-      { maxBuffer: 64 * 1024 * 1024 },
-      (err, stdout) => resolve(err ? null : stdout),
-    );
-  });
-  if (out === null) return null;
-  try {
-    const rows = JSON.parse(out) as readonly { mergedAt?: string | null; headRefOid?: string }[];
-    return rows.filter((r) => r.mergedAt && r.headRefOid).map((r) => r.headRefOid as string);
-  } catch {
-    return null;
-  }
-};
-
-/**
- * Commits on `HEAD` no remote holds, short SHAs — or `'unknown'` when they
- * could not be counted. Mirrors `desk_unpushed()`.
- *
- * A merged branch gets the subtraction: a commit reachable from the merged
- * head was pushed, so excluding it from `--not --remotes` leaves only what the
- * merge did not take. When the merged head itself is unreachable (a squash
- * merge rewrites it, or the host named none), there is nothing to subtract and
- * naive `--not --remotes` would report every commit the branch ever made —
- * so the fallback reads PATCH-ID instead: `git cherry` marks a commit `+` when
- * its change is not yet upstream, and only a `+` commit the desk still holds
- * is unpushed. Fails toward keeping: an unreadable range or a failing
- * `git cherry` answers `'unknown'`.
+ * For a merged branch, a commit reachable from a merged PR's head counts as
+ * pushed. When the desk holds none of those heads, the reading compares by
+ * patch id against `origin/<defaultBranch>` instead. Every failed reading,
+ * the host's included, answers `'unknown'`.
  */
 const unpushedCommits = async (
+  ctx: Context,
   worktree: string,
   branch: string,
   merge: 'merged' | 'not-merged',
   defaultBranch: string,
 ): Promise<readonly string[] | 'unknown'> => {
-  const list = await runGit(['-C', worktree, 'rev-list', '--abbrev-commit', 'HEAD', '--not', '--remotes']);
-  if (list.code !== 0) return 'unknown';
-  const lines = list.stdout.split('\n').filter((l) => l !== '');
-  if (lines.length === 0) return [];
-  if (branch === '' || merge !== 'merged') return lines;
+  const plain = await ctx.trees.unpushedCommits(worktree, []);
+  if (!plain.ok) return 'unknown';
+  if (plain.value.length === 0) return [];
+  if (branch === '' || merge !== 'merged') return plain.value;
 
-  const heads = await prMergedHeads(branch);
-  if (heads === null) return 'unknown';
+  const heads = await ctx.host.prMergedHeads(branch);
+  if (!heads.ok) return 'unknown';
 
+  const treeRefs = refsGit({ repoRoot: worktree, scriptDir: ctx.scriptDir });
   const reachable: string[] = [];
-  for (const h of heads) {
-    const check = await runGit(['-C', worktree, 'cat-file', '-e', `${h}^{commit}`]);
-    if (check.code === 0) reachable.push(h);
+  for (const head of heads.value) {
+    const found = await treeRefs.resolve(`${head}^{commit}`);
+    if (found.ok) reachable.push(head);
   }
 
-  if (reachable.length > 0) {
-    const subtracted = await runGit([
-      '-C', worktree, 'rev-list', '--abbrev-commit', 'HEAD', '--not', '--remotes', ...reachable,
-    ]);
-    if (subtracted.code !== 0) return 'unknown';
-    return subtracted.stdout.split('\n').filter((l) => l !== '');
-  }
-
-  // NO MERGED HEAD THIS DESK CONTAINS, and the host still said merged — a
-  // squash merge rewrote the commits, or the host named no head at all.
-  // `--not --remotes` alone would report every commit the branch ever had, so
-  // the subtraction falls back to patch-id: a `+` entry from `git cherry` is a
-  // change not yet upstream, and only one still present in `HEAD --not
-  // --remotes` counts as unpushed.
-  const full = await runGit(['-C', worktree, 'rev-list', 'HEAD', '--not', '--remotes']);
-  if (full.code !== 0) return 'unknown';
-  const fullSet = new Set(full.stdout.split('\n').filter((l) => l !== ''));
-  const cherry = await runGit(['-C', worktree, 'cherry', `origin/${defaultBranch}`, 'HEAD']);
-  if (cherry.code !== 0) return 'unknown';
-
-  const unpushed: string[] = [];
-  for (const entry of cherry.stdout.split('\n')) {
-    if (!entry.startsWith('+ ')) continue;
-    const sha = entry.slice(2).trim();
-    if (!fullSet.has(sha)) continue;
-    const short = await runGit(['-C', worktree, 'rev-parse', '--short', sha]);
-    if (short.code === 0) unpushed.push(short.stdout.trim());
-  }
-  return unpushed;
+  const reading =
+    reachable.length > 0
+      ? await ctx.trees.unpushedCommits(worktree, reachable)
+      : await ctx.trees.unpushedPatches(worktree, `origin/${defaultBranch}`);
+  return reading.ok ? reading.value : 'unknown';
 };
 
 // ===========================================================================
 // --sweep-temp — a SEPARATE mode, run instead of the four kinds.
 // ===========================================================================
 
-/** Is a pid alive, read directly via `ps -p` — `--sweep-temp` runs with no repository context, so no port is built. */
-const psAlive = async (pid: string): Promise<boolean> => {
-  const { execFile } = await import('node:child_process');
-  return new Promise((resolve) => {
-    execFile('ps', ['-p', pid], (err) => resolve(!err));
-  });
+/**
+ * Whether a pid is alive, read from `ps` so another user's process counts as
+ * alive. A reading that failed answers alive, which keeps the entry.
+ */
+const psAlive = async (processes: Processes, pid: string): Promise<boolean> => {
+  const uptime = await processes.uptimeSeconds(Number(pid));
+  return !uptime.ok || uptime.value !== null;
 };
 
 /** One temp entry: report it, and remove it by the exact path unless this is a dry run. */
@@ -454,6 +393,7 @@ const runSweepTemp = async (
   warn: Printer,
 ): Promise<number> => {
   const scripts = scriptsShell({ repoRoot: cwd, scriptDir });
+  const processes = processesShell({ repoRoot: cwd, scriptDir });
   const hoursResult = await scripts.config('Temp sweep after', '24');
   const rawHours = hoursResult.ok ? hoursResult.value.trim() : '24';
   if (!/^\d+$/.test(rawHours)) {
@@ -498,7 +438,7 @@ const runSweepTemp = async (
     if (!ownedByMe(entryPath) || !olderThan(entryPath)) continue;
     if (name.startsWith('plot-reg.')) {
       const pid = name.slice('plot-reg.'.length);
-      if (await psAlive(pid)) {
+      if (await psAlive(processes, pid)) {
         live += 1;
         continue;
       }
@@ -524,7 +464,7 @@ const runSweepTemp = async (
       if (!/^\d+$/.test(name)) continue;
       const entryPath = path.join(memoDir, name);
       if (!ownedByMe(entryPath) || !olderThan(entryPath)) continue;
-      if (await psAlive(name)) {
+      if (await psAlive(processes, name)) {
         live += 1;
         continue;
       }
@@ -634,8 +574,10 @@ const runWorktreeKind = async (
     return counters;
   }
 
+  const unaskable = 'rule could not be asked — keeping';
+
   for (const tree of listed.value) {
-    if (tree.isMain) continue;
+    if (tree.isMain || tree.path === ctx.invokedFrom) continue;
     const short = tree.branch;
     const label = short !== '' ? short : `(detached) ${path.basename(tree.path)}`;
 
@@ -668,38 +610,44 @@ const runWorktreeKind = async (
       continue;
     }
 
-    // THE READINGS. Everything from here to the rule call measures; nothing decides.
-    const pid = await deskWorkerPid(ctx.processes, tree.path, short !== '');
+    // THE READINGS. Everything from here to the rule call measures; nothing
+    // decides. A reading that fails keeps the desk: removal forces, so a
+    // failure read as clean, unmarked or empty would delete work.
+    const pid = await deskWorkerPid(ctx.processes, tree.path);
 
-    let markerFile = '';
     const markers = await ctx.trees.markers(tree.path, 'PLOT-BLOCKED');
-    if (markers.ok && markers.value.length > 0) markerFile = path.join(tree.path, markers.value[0]);
-    const marker = markerFile !== '';
-
-    let dirty = '';
     const dirtyPaths = await ctx.trees.dirtyPathsWithStatus(tree.path);
-    if (dirtyPaths.ok) {
-      const first = dirtyPaths.value.find((p) => !p.includes('PLOT-BLOCKED'));
-      if (first !== undefined) dirty = first;
+    if (!markers.ok || !dirtyPaths.ok) {
+      write(row('keep', label, unaskable));
+      counters.kept += 1;
+      continue;
     }
+    const markerFile = markers.value.length > 0 ? path.join(tree.path, markers.value[0]) : '';
+    const marker = markerFile !== '';
+    const dirty = dirtyPaths.value.find((p) => !p.includes('PLOT-BLOCKED')) ?? '';
 
     let markerRecordsWork = false;
     if (marker) {
-      // `commitSubjects` resolves `HEAD` against whatever repo root built this
-      // `Refs` — `ctx.refs` is fixed to the main checkout, so a range ending in
-      // `HEAD` must come from a `Refs` scoped to THIS worktree instead.
+      // A `Refs` scoped to THIS worktree, so `HEAD` is the desk's own.
       const treeRefs = refsGit({ repoRoot: tree.path, scriptDir: ctx.scriptDir });
       const fileChanging = await fileChangingCommitCount(treeRefs, `origin/${defaultBranch}..HEAD`);
+      if (fileChanging === null) {
+        write(row('keep', label, unaskable));
+        counters.kept += 1;
+        continue;
+      }
       markerRecordsWork = dirty !== '' || fileChanging !== 0;
     }
 
-    // The host: whether ANY PR for this branch merged. Ancestry first — cheap,
-    // can only ADD a merged answer — then the host, never state, never newest.
+    // Whether the branch landed: contained in `origin/<default>` (every commit
+    // is reachable from the default branch, so removing the checkout loses
+    // none), else ANY merged PR on the host. `contains` answering `unknown`
+    // reads as not contained and goes to the host.
     let merge: 'merged' | 'not-merged' = 'not-merged';
     let why = '';
     if (short !== '') {
-      const ancestry = await ctx.refs.isMergedByAncestry(short);
-      if (ancestry.ok && ancestry.value === 'merged') {
+      const contained = await ctx.refs.contains(short, `origin/${defaultBranch}`);
+      if (contained.ok && contained.value === 'yes') {
         merge = 'merged';
         why = `merged into ${defaultBranch}`;
       } else {
@@ -711,18 +659,17 @@ const runWorktreeKind = async (
       }
     } else {
       // A detached desk has nothing to land: read against HEAD, never the name.
-      const ahead = await runGit(['-C', tree.path, 'rev-list', '--count', `origin/${defaultBranch}..HEAD`]);
-      if (ahead.code === 0 && ahead.stdout.trim() === '0') {
+      const treeRefs = refsGit({ repoRoot: tree.path, scriptDir: ctx.scriptDir });
+      const contained = await treeRefs.contains('HEAD', `origin/${defaultBranch}`);
+      if (contained.ok && contained.value === 'yes') {
         merge = 'merged';
         why = 'detached, nothing to land';
       }
     }
 
-    // Commits on HEAD no remote holds — lines, or 'unknown' when uncountable.
-    // Asked AFTER the merge reading: the head the host merged is what
-    // separates a pushed commit from an unpushed one once the remote ref is
-    // gone, on the squash path `unpushedCommits` handles.
-    const unpushed = await unpushedCommits(tree.path, short, merge, defaultBranch);
+    // Asked AFTER the merge reading: a merged PR's head separates a pushed
+    // commit from an unpushed one once the remote ref is gone.
+    const unpushed = await unpushedCommits(ctx, tree.path, short, merge, defaultBranch);
 
     const problem = firstReapRefusal({
       branch: short,
@@ -896,8 +843,8 @@ const runBranchKind = async (
   for (const br of branches) {
     let merged = false;
     let bwhy = '';
-    const ancestry = await ctx.refs.isMergedByAncestry(br);
-    if (ancestry.ok && ancestry.value === 'merged') {
+    const contained = await ctx.refs.contains(br, `origin/${defaultBranch}`);
+    if (contained.ok && contained.value === 'yes') {
       merged = true;
       bwhy = `merged into ${defaultBranch}`;
     } else {
@@ -944,8 +891,8 @@ const runBranchKind = async (
       continue;
     }
 
-    const deleted = await runGit(['-C', ctx.repoRoot, 'branch', '-D', br]);
-    if (deleted.code === 0) {
+    const deleted = await ctx.trees.deleteBranch(br);
+    if (deleted.ok) {
       write(row('deleted', br, `${bwhy}, local ref deleted`));
       counters.deleted += 1;
     } else {
@@ -1035,8 +982,8 @@ const runClaimKind = async (
       continue;
     }
 
-    const deleted = await runGit(['-C', ctx.repoRoot, 'branch', '-D', br]);
-    if (deleted.code === 0) {
+    const deleted = await ctx.trees.deleteBranch(br);
+    if (deleted.ok) {
       write(row('deleted', br, 'abandoned claim — local ref deleted'));
       counters.deleted += 1;
     } else {
@@ -1059,24 +1006,15 @@ const runDirtyKind = async (ctx: Context, manifestDir: string, write: Printer): 
   const listed = await ctx.trees.list();
   if (!listed.ok) return 0;
 
-  let mainCheckout = '';
-  const commonDir = await runGit(['rev-parse', '--git-common-dir']);
-  if (commonDir.code === 0) {
-    try {
-      mainCheckout = realpathSync(path.join(commonDir.stdout.trim(), '..'));
-    } catch {
-      mainCheckout = '';
-    }
-  }
-
   for (const tree of listed.value) {
-    if (mainCheckout !== '' && canonical(tree.path) === canonical(mainCheckout)) continue;
+    // The main checkout is a person's desk, and its dirt is work in progress.
+    if (tree.isMain) continue;
 
     const dirtyPaths = await ctx.trees.dirtyPaths(tree.path);
     const dirtyCount = dirtyPaths.ok ? dirtyPaths.value.length : 0;
     if (dirtyCount <= 0) continue;
 
-    const pid = await deskWorkerPid(ctx.processes, tree.path, tree.branch !== '');
+    const pid = await deskWorkerPid(ctx.processes, tree.path);
     const m = manifestFor(manifestDir, canonical(tree.path));
     const manifest = m !== null ? path.basename(m) : '';
 
@@ -1116,7 +1054,7 @@ const runReap = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   const hostDefault = await ctx.scripts.host(['default-branch']);
   const defaultBranch = hostDefault.ok && hostDefault.value.trim() !== '' ? hostDefault.value.trim() : 'main';
 
-  await runGit(['-C', ctx.repoRoot, 'fetch', 'origin', defaultBranch, '--quiet']);
+  await ctx.fetch(defaultBranch);
 
   const manifestDirCfg = await ctx.scripts.config('Agent registry', '.plot/agents');
   const manifestDirRaw = manifestDirCfg.ok && manifestDirCfg.value.trim() !== '' ? manifestDirCfg.value.trim() : '.plot/agents';
@@ -1191,9 +1129,12 @@ export const run = async (
   const trees = await bootstrapTrees.list();
   const repoRoot = trees.ok ? (trees.value[0]?.path ?? probe.value) : probe.value;
   const context = { repoRoot, scriptDir };
+  const remote = refsRemoteGit(context);
   const ctx: Context = {
     repoRoot,
+    invokedFrom: probe.value,
     scriptDir,
+    fetch: (branch) => remote.fetchRemoteHead(branch),
     refs: refsGit(context),
     host: hostShell(context),
     scripts: scriptsShell(context),

@@ -6,4 +6,7 @@
 
 <!--
 plan: docs/plans/2026-10-09-the-shell-sheds-its-decisions.md
+bumps:
+  skills:
+    plot: patch
 -->

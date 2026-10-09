@@ -22,7 +22,7 @@ import {
   EXIT_SECONDARY,
   EXIT_UNASKABLE,
 } from '../host-exit.js';
-import { asJson, asJsonLines, asText, runProcess, resultOf, type ScriptRun } from '../run-script.js';
+import { asJson, asJsonLines, asLines, asText, runProcess, resultOf, type ScriptRun } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
 /** One PR as `plot-host.sh` reports it, before it is read as the entity. */
@@ -333,6 +333,11 @@ export const hostShell = (context: ShellContext): Host => {
       // an unreachable host as a branch that carried nothing.
       return record(run, (stdout) => asText(stdout));
     },
+
+    prMergedHeads: async (branch): Promise<PortResult<readonly string[]>> =>
+      // Empty stdout is an answer: no PR for this branch merged. Exit 3 is the
+      // question failing, and `record` carries it as a failed result.
+      ask(['pr-merged-heads', branch], asLines),
 
     prCreate: async (request): Promise<PortResult<string>> => {
       // THE BODY GOES THROUGH ARGV, not a heredoc or a temp file. It is

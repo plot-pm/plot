@@ -141,7 +141,7 @@ plot-fleetctl.sh	no port answers this yet. It reads whether a supervisor is load
 plot-dispatch.sh	no port answers this yet. Starting an agent is the `performer` port's shape (`startFreeAgent`), and fanning a slice out is the op it lacks.
 plot-approve.sh	no port answers this yet. Approving is a plan lifecycle write and `plan-store` reads only.
 plot-deliver.sh	no port answers this yet. Delivering is a plan lifecycle write and `plan-store` reads only.
-plot-reap.sh	the `trees` port answers this — `removeOnly(path)`, implemented at adapters/trees/trees-git.ts over this same script.
+plot-reap.sh	the `trees` port answers this — `removeOnly(path)`, implemented at adapters/trees/trees-git.ts with `git worktree remove --force`; `board/plot-reap.mjs` is the entry that asks it.
 plot-release-refs.sh	no port answers this yet. Deleting a remote ref is a `refs` write, and `refs` carries none.
 MAP
 )

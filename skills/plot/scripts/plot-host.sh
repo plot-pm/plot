@@ -66,6 +66,14 @@
 #                                 EXIT 3 is the question failing, and it is not
 #                                 the same as an empty answer: a diff that could
 #                                 not be read is not a diff that was empty.
+#   pr-merged-heads <branch>      the head commit of every MERGED PR for this
+#                                 branch, one sha per line, or EMPTY (exit 0)
+#                                 where none merged. Reads `mergedAt`, never
+#                                 `state`. EXIT 3 is the question failing,
+#                                 including a CLI that fails without a word: an
+#                                 empty answer sends the reaper to a weaker
+#                                 reading, so only a recognised lookup miss is
+#                                 empty.
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL
 #   pr-merge <number> [--squash] [--delete-branch]
@@ -3717,6 +3725,56 @@ case "$op" in
           :
         else
           echo "plot-host: $err" >&2
+          exit 3
+        fi
+      fi
+    fi
+    ;;
+
+  pr-merged-heads)
+    # THE HEAD COMMIT OF EVERY MERGED PR FOR A BRANCH, one sha per line.
+    # `plot-reap.mjs` asks it only for a branch already known merged, to tell a
+    # pushed commit from one made after the merge once the remote ref is gone.
+    #
+    # `--state all` and `--limit 100` for `pr-merged`'s own two reasons: a
+    # merged PR reports CLOSED, and the newest PR is not the merge.
+    #
+    # A FAILURE WITH NO MESSAGE IS A FAILURE HERE, unlike `pr-state`: an empty
+    # answer makes the caller fall back to a patch-id reading, so silence must
+    # not stand in for *no merged head*. Only a recognised lookup miss is empty.
+    ref="${1:?pr-merged-heads needs a branch}"; shift || true
+    repo_args=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --repo) repo_args=(-R "${2:?}"); shift 2 ;;
+        *) die "pr-merged-heads: unknown arg $1" ;;
+      esac
+    done
+    if [ "$be" = "github" ]; then
+      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt,headRefOid 2>"$HOST_ERR")"; then
+        rm -f "$HOST_ERR"
+        jq -r '.[] | select(.mergedAt != null and .headRefOid != null) | .headRefOid' <<<"$out" || exit 3
+      else
+        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        if [ -n "$err" ] && is_lookup_miss "$err"; then
+          :
+        else
+          echo "plot-host: ${err:-gh pr list failed}" >&2
+          exit 3
+        fi
+      fi
+    else
+      bb_require_json
+      # Bitbucket names the merged head `source.commit.hash`.
+      if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state merged --json 2>"$HOST_ERR")"; then
+        rm -f "$HOST_ERR"
+        jq -r --arg b "$ref" '.[] | select(.source.branch.name==$b) | (.source.commit.hash // empty)' <<<"$out" || exit 3
+      else
+        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        if [ -n "$err" ] && is_lookup_miss "$err"; then
+          :
+        else
+          echo "plot-host: ${err:-bb pr list failed}" >&2
           exit 3
         fi
       fi

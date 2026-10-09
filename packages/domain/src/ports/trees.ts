@@ -321,6 +321,43 @@ export interface Trees {
   removeOnly(path: string): Promise<PortResult<void>>;
 
   /**
+   * Deletes a local branch ref with `git branch -D`. Remote refs are never
+   * touched, so the branch stays re-fetchable from the remote.
+   *
+   * @param branch - the local branch name.
+   * @returns nothing; a failure means git refused, such as for a branch a
+   *   worktree has checked out or one that does not exist.
+   */
+  deleteBranch(branch: string): Promise<PortResult<void>>;
+
+  /**
+   * The commits on a checkout's `HEAD` that no remote-tracking ref holds,
+   * as abbreviated shas, newest first.
+   *
+   * @param path - the checkout's absolute path.
+   * @param exclude - further commits whose ancestors also count as pushed,
+   *   such as a merged PR's head.
+   * @returns the abbreviated shas; empty where every commit is on a remote.
+   *   A failed result where git cannot read the range, such as an `exclude`
+   *   entry that names no commit.
+   */
+  unpushedCommits(path: string, exclude: readonly string[]): Promise<PortResult<readonly string[]>>;
+
+  /**
+   * The commits on a checkout's `HEAD` that no remote-tracking ref holds AND
+   * whose patch `upstream` does not carry, as abbreviated shas.
+   *
+   * Compares by patch id (`git cherry`), so a commit whose change a squash
+   * merge already took is not listed.
+   *
+   * @param path - the checkout's absolute path.
+   * @param upstream - the ref to compare patches against, such as `origin/main`.
+   * @returns the abbreviated shas; a failed result where git cannot read
+   *   either range.
+   */
+  unpushedPatches(path: string, upstream: string): Promise<PortResult<readonly string[]>>;
+
+  /**
    * Resets a desk onto a branch at take-up — `reset_desk`'s common path
    * (`plot-worker-loop.sh:1080`), for the ONE case `agentLoop` emits
    * {@link DeskResetWrite} for: a fresh take-up with `resetRefusals` empty.

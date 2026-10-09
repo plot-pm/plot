@@ -409,6 +409,35 @@ export const treesGit = (context: ShellContext): Trees => {
     removeOnly: async (path) =>
       runScript('git', ['worktree', 'remove', '--force', path], () => undefined, inRepo),
 
+    deleteBranch: async (branch) =>
+      runScript('git', ['branch', '-D', branch], () => undefined, inRepo),
+
+    unpushedCommits: async (path, exclude) =>
+      runScript(
+        'git',
+        ['-C', path, 'rev-list', '--abbrev-commit', 'HEAD', '--not', '--remotes', ...exclude],
+        asLines,
+        { ...inRepo, maxBuffer: STATUS_MAX_BUFFER },
+      ),
+
+    unpushedPatches: async (path, upstream): Promise<PortResult<readonly string[]>> => {
+      const git = (args: readonly string[]) =>
+        runProcess('git', ['-C', path, ...args], { ...inRepo, maxBuffer: STATUS_MAX_BUFFER });
+      const local = await git(['rev-list', 'HEAD', '--not', '--remotes']);
+      if (local.code !== 0) return failed<readonly string[]>();
+      const cherry = await git(['cherry', upstream, 'HEAD']);
+      if (cherry.code !== 0) return failed<readonly string[]>();
+      const held = new Set(asLines(local.stdout));
+      const unpushed = asLines(cherry.stdout)
+        .filter((line) => line.startsWith('+ '))
+        .map((line) => line.slice(2).trim())
+        .filter((sha) => held.has(sha));
+      if (unpushed.length === 0) return answered<readonly string[]>([]);
+      const short = await git(['rev-parse', '--short', ...unpushed]);
+      if (short.code !== 0) return failed<readonly string[]>();
+      return answered<readonly string[]>(asLines(short.stdout));
+    },
+
     // `git -C <path>`, so an unreadable checkout is reported by git's own exit
     // code rather than by the spawn failing to chdir — the two arrive as
     // different errors and only one of them says which path.

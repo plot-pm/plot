@@ -103,6 +103,18 @@ export interface TreesFixture {
   resetRefusedAt?: readonly string[];
   /** Paths where `removeOnly` refuses — the git-level removal failure case. */
   removeRefusedAt?: readonly string[];
+  /** Branches where `deleteBranch` refuses. */
+  deleteRefusedFor?: readonly string[];
+  /**
+   * What `unpushedCommits` answers, keyed by path. A path absent from the
+   * table reads `failed`, the direction the git adapter fails in.
+   */
+  unpushed?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * What `unpushedPatches` answers, keyed by path. A path absent from the
+   * table reads `failed`, the direction the git adapter fails in.
+   */
+  unpushedPatches?: Readonly<Record<string, readonly string[]>>;
   /** Paths where `commit` fails. */
   commitFailsAt?: readonly string[];
   /** Paths where `push` fails. */
@@ -208,6 +220,19 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
 
     removeOnly: async (path): Promise<PortResult<void>> =>
       (fixture.removeRefusedAt ?? []).includes(path) ? failed<void>() : answered(undefined),
+
+    deleteBranch: async (branch): Promise<PortResult<void>> =>
+      (fixture.deleteRefusedFor ?? []).includes(branch) ? failed<void>() : answered(undefined),
+
+    unpushedCommits: async (path): Promise<PortResult<readonly string[]>> => {
+      const shas = fixture.unpushed?.[path];
+      return shas === undefined ? failed<readonly string[]>() : answered(shas);
+    },
+
+    unpushedPatches: async (path): Promise<PortResult<readonly string[]>> => {
+      const shas = fixture.unpushedPatches?.[path];
+      return shas === undefined ? failed<readonly string[]>() : answered(shas);
+    },
 
     statusSync: (path) => answered(statuses[path] ?? ''),
 

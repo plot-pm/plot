@@ -342,6 +342,80 @@ describe('treesGit: removing a worktree without touching its branch', () => {
   });
 });
 
+describe('treesGit: the reaper\'s branch and unpushed readings', () => {
+  /** A clone of a bare origin with `main` pushed, so `--remotes` has something to hold. */
+  const cloned = (): { root: string; clone: string } => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-trees-unpushed-')));
+    const origin = path.join(root, 'origin.git');
+    const clone = path.join(root, 'clone');
+    git(root, ['init', '--bare', '--quiet', '--initial-branch=main', origin]);
+    git(root, ['clone', '--quiet', origin, clone]);
+    git(clone, ['config', 'user.email', 'test@example.com']);
+    git(clone, ['config', 'user.name', 'Test']);
+    git(clone, ['config', 'commit.gpgsign', 'false']);
+    fs.writeFileSync(path.join(clone, 'a.txt'), 'one\n');
+    git(clone, ['add', '-A']);
+    git(clone, ['commit', '--quiet', '-m', 'first']);
+    git(clone, ['push', '--quiet', 'origin', 'main']);
+    return { root, clone };
+  };
+  const commit = (cwd: string, file: string, text: string): string => {
+    fs.writeFileSync(path.join(cwd, file), text);
+    git(cwd, ['add', file]);
+    git(cwd, ['commit', '--quiet', '-m', `add ${file}`]);
+    return git(cwd, ['rev-parse', '--short', 'HEAD']).trim();
+  };
+
+  it('deletes a local branch, and fails for one a worktree holds', async () => {
+    const { root, clone } = cloned();
+    try {
+      git(clone, ['branch', 'feature/gone']);
+      const port = treesGit({ repoRoot: clone, scriptDir });
+      expect(await port.deleteBranch('feature/gone')).toEqual({ ok: true, value: undefined });
+      expect(git(clone, ['branch', '--list', 'feature/gone']).trim()).toBe('');
+      expect((await port.deleteBranch('main')).ok).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('lists commits no remote holds, minus the ancestors of an excluded commit', async () => {
+    const { root, clone } = cloned();
+    try {
+      git(clone, ['checkout', '--quiet', '-b', 'feature/desk']);
+      const pushedLater = commit(clone, 'b.txt', 'two\n');
+      const after = commit(clone, 'c.txt', 'three\n');
+      const port = treesGit({ repoRoot: clone, scriptDir });
+      expect(await port.unpushedCommits(clone, [])).toEqual({ ok: true, value: [after, pushedLater] });
+      expect(await port.unpushedCommits(clone, [pushedLater])).toEqual({ ok: true, value: [after] });
+      expect((await port.unpushedCommits(clone, ['0000000000000000000000000000000000000000'])).ok).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('lists only the unpushed commits whose patch upstream does not carry', async () => {
+    const { root, clone } = cloned();
+    try {
+      git(clone, ['checkout', '--quiet', '-b', 'feature/desk']);
+      commit(clone, 'b.txt', 'two\n');
+      const unlanded = commit(clone, 'c.txt', 'three\n');
+      // Land only b.txt on main as a squash of its own change.
+      git(clone, ['checkout', '--quiet', 'main']);
+      fs.writeFileSync(path.join(clone, 'b.txt'), 'two\n');
+      git(clone, ['add', 'b.txt']);
+      git(clone, ['commit', '--quiet', '-m', 'b (#1)']);
+      git(clone, ['push', '--quiet', 'origin', 'main']);
+      git(clone, ['checkout', '--quiet', 'feature/desk']);
+      const port = treesGit({ repoRoot: clone, scriptDir });
+      expect(await port.unpushedPatches(clone, 'origin/main')).toEqual({ ok: true, value: [unlanded] });
+      expect((await port.unpushedPatches(clone, 'origin/no-such-branch')).ok).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('treesFixture: the same port with no machine behind it', () => {
   it('marks the first stated worktree as the main checkout', async () => {
     const answer = await treesFixture({
@@ -365,6 +439,20 @@ describe('treesFixture: the same port with no machine behind it', () => {
     expect(await port.userEmail('/repo')).toEqual({ ok: true, value: 'someone@example.com' });
     const missing = await port.userEmail('/repo-wt');
     expect(missing.ok).toBe(false);
+  });
+
+  it('answers the reaper\'s readings from the table, and an unstated path as failed', async () => {
+    const port = treesFixture({
+      deleteRefusedFor: ['main'],
+      unpushed: { '/repo-wt': ['abc1234'] },
+      unpushedPatches: { '/repo-wt': [] },
+    });
+    expect(await port.deleteBranch('feature/x')).toEqual({ ok: true, value: undefined });
+    expect((await port.deleteBranch('main')).ok).toBe(false);
+    expect(await port.unpushedCommits('/repo-wt', [])).toEqual({ ok: true, value: ['abc1234'] });
+    expect((await port.unpushedCommits('/repo', [])).ok).toBe(false);
+    expect(await port.unpushedPatches('/repo-wt', 'origin/main')).toEqual({ ok: true, value: [] });
+    expect((await port.unpushedPatches('/repo', 'origin/main')).ok).toBe(false);
   });
 
   it('answers a stated removal refusal, and an unstated path as removed', async () => {
