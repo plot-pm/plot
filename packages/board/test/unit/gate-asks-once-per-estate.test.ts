@@ -99,6 +99,13 @@ const countingSource = (columns: Column[]) => {
   return { source, state };
 };
 
+const lateWriteProbe = async (dir: string): Promise<void> => {
+  await new Promise((resolve) => setTimeout(resolve, 4000));
+  if (!fs.existsSync(dir)) return;
+  console.error('LATE-WRITE', execFileSync('find', [dir], { encoding: 'utf8' }));
+  rmTree(dir);
+};
+
 const COLUMNS: Column[] = [
   { name: 'Approved', cards: [{ slug: 'a-plan-the-gate-can-read' }] } as unknown as Column,
 ];
@@ -290,6 +297,7 @@ describe("the gate's answer is identical to the board's", () => {
       // stopped cache skips that write, which would recreate the removed repo.
       stopFleetRefresh();
       rmTree(dir);
+      await lateWriteProbe(dir);
     }
   });
 
@@ -330,6 +338,7 @@ describe("the gate's answer is identical to the board's", () => {
       // stopped cache skips that write, which would recreate the removed repo.
       stopFleetRefresh();
       rmTree(dir);
+      await lateWriteProbe(dir);
     }
   });
 });
