@@ -61,3 +61,12 @@ export const prRowPlacement = (readings: PrRowReadings): PrRowPlacement => {
       return { group: 'waiting-on-you', clause: 'cannot read the checks' };
   }
 };
+
+/**
+ * Whether a PR's check state must be suppressed because the PR has merged.
+ *
+ * @param state - the PR's lifecycle state, verbatim as the adapter spells it
+ *   (`'OPEN' | 'MERGED' | 'CLOSED'`).
+ * @returns true for `'MERGED'`, whatever the PR's checks say.
+ */
+export const prChecksSuppressedByMerge = (state: string): boolean => state === 'MERGED';

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { prRowPlacement, type PrRowReadings } from '../src/rules/pr-row.js';
+import { prRowPlacement, prChecksSuppressedByMerge, type PrRowReadings } from '../src/rules/pr-row.js';
 
 const readings = (over: Partial<PrRowReadings> = {}): PrRowReadings => ({
   mergeable: 'mergeable',
@@ -89,5 +89,16 @@ describe('prRowPlacement — mergeable PRs read their checks', () => {
       group: 'waiting-on-you',
       clause: 'cannot read the checks',
     });
+  });
+});
+
+describe('prChecksSuppressedByMerge', () => {
+  it('answers true for MERGED — the rule reads state alone, so no checks value changes it', () => {
+    expect(prChecksSuppressedByMerge('MERGED')).toBe(true);
+  });
+
+  it('answers false for an open or closed PR', () => {
+    expect(prChecksSuppressedByMerge('OPEN')).toBe(false);
+    expect(prChecksSuppressedByMerge('CLOSED')).toBe(false);
   });
 });
