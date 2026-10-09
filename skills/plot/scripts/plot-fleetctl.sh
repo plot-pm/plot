@@ -1025,13 +1025,7 @@ if [ "$mode" = "start" ]; then
   fi
 
   if [ "$dry_run" = 1 ]; then
-    echo "state: $(fleet_install_state)"
-    echo "would fill and load $LABEL ($plat)"
-    echo "  node:      $node_bin (major $have, pinned $want)"
-    echo "  harness:   $harness_bin (first on the unit's PATH: $harness_dir)"
-    echo "  fleetd:    $fleetd"
-    echo "  repo:      $repo_root"
-    echo "would then start agents: plot-dispatch.sh --start ${start_count:-(default)}"
+    printf 'state: %s\nwould fill and load %s (%s)\n  node:      %s (major %s, pinned %s)\n  harness:   %s (first on the unit'"'"'s PATH: %s)\n  fleetd:    %s\n  repo:      %s\nwould then start agents: plot-dispatch.sh --start %s\n' "$(fleet_install_state)" "$LABEL" "$plat" "$node_bin" "$have" "$want" "$harness_bin" "$harness_dir" "$fleetd" "$repo_root" "${start_count:-(default)}"
     exit 0
   fi
 
