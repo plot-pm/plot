@@ -8,7 +8,7 @@
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -147,4 +147,4 @@ The slice-2 and slice-1 briefs measure the real figures before merge: requests p
 
 - The merge slice is last and carries a `waits:` annotation on `feature/the-controllers-are-commands` (plan `the-fleet-runs-without-the-board`), so the wait holds up no other slice and auto-dispatch cannot hand it over early.
 - The supervisor is `plot-fleetd` since #1428. CLAUDE.md still says `plot-registryd` in places; that is CLAUDE.md's drift, not this plan's.
-- Round 1 (panel, 2026-10-09): unanimous amend. `.plot/panels/2026-10-09-the-fleet-reports-what-changed-on-the-host/panel.md` lists the seven amendments. This revision makes all seven; the largest is the move from a new event file to the existing channel.
+- Round 1 (panel, 2026-10-09): unanimous amend. `.plot/panels/2026-10-09-the-fleet-reports-what-changed-on-the-host/round1/panel.md` lists the seven amendments. This revision makes all seven; the largest is the move from a new event file to the existing channel.
