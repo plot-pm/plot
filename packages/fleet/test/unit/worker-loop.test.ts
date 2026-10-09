@@ -7,6 +7,7 @@ import {
   buildFixture,
   deskFixture,
   hostFixture,
+  performerShell,
   processesShell,
   refsFixture,
   treesFixture,
@@ -75,6 +76,33 @@ const writeManifest = (fields: Record<string, unknown>): string => {
   const file = path.join(dir, 'sess.json');
   fs.writeFileSync(file, JSON.stringify(fields, null, 2));
   return file;
+};
+
+/**
+ * A repo root whose `Agent registry` sits OUTSIDE it, at `registryDir`, and
+ * whose manifest for `session` already exists there with an empty branch —
+ * the shape `matchQueue` hands `performerShell(...).assignSlice` for a free
+ * agent. The registry living outside `repoRoot` is this estate's own
+ * configuration (#1409) and the shape a hardcoded-path writer gets wrong.
+ */
+const handOverFixture = (
+  session: string,
+): { context: { repoRoot: string; scriptDir: string }; manifestFile: string } => {
+  const repoRoot = tempDir('plot-worker-loop-repo-');
+  const registryDir = tempDir('plot-worker-loop-registry-');
+  const scriptDir = path.join(repoRoot, 'scripts');
+  fs.mkdirSync(scriptDir);
+  fs.writeFileSync(
+    path.join(scriptDir, 'plot-config.sh'),
+    `#!/usr/bin/env bash\nprintf '%s\\n' '${registryDir}'\n`,
+    { mode: 0o755 },
+  );
+  const manifestFile = path.join(registryDir, `${session}.json`);
+  fs.writeFileSync(
+    manifestFile,
+    JSON.stringify({ session, branch: '', worktree: '/tmp/desk' }, null, 2),
+  );
+  return { context: { repoRoot, scriptDir }, manifestFile };
 };
 
 describe('readManifestFields', () => {
@@ -189,6 +217,42 @@ describe('readPass — ROWS 1-3, no assignment', () => {
     const clock = { since: Date.now() - 5_000 };
     await readPass(ports(), file, RUNNING_NONE, CONFIG, clock);
     expect(clock.since).toBeNull();
+  });
+
+  it('reads free, never a crash, for a hand-started loop with no manifest at all', async () => {
+    // "Absent is not false": a hand-started loop with no manifest is
+    // legitimately free, and must stay that way even once the hand-over
+    // writer has done real work elsewhere in the same process. A fix that
+    // started treating '' as an error, or that let a resolved registry path
+    // leak into an unset `PLOT_MANIFEST_FILE`, would fail this.
+    const { context, manifestFile } = handOverFixture('sess-elsewhere');
+    await performerShell(context).assignSlice('sess-elsewhere', 'infra/x', 'a-plan');
+    expect(JSON.parse(fs.readFileSync(manifestFile, 'utf8')).branch).toBe('infra/x');
+
+    const clock = { since: null as number | null };
+    const readings = await readPass(ports(), '', RUNNING_NONE, CONFIG, clock);
+    expect(readings.assignedBranch).toBe('');
+    expect(readings.registration).toBe('unset');
+  });
+
+  it('holds the hand-over branch across every pass of the agent run, not only the first', async () => {
+    // #1409: the loop's log repeated "free on ? — nothing handed over yet"
+    // while the agent worked — a hand-over the writer applied once but the
+    // loop's own passes never saw. This drives `performerShell.assignSlice`
+    // (the actual writer, per the brief) and then takes several `readPass`
+    // calls against the SAME manifest file, as the loop's run would, to
+    // prove the branch the hand-over wrote is what every pass reads — not
+    // only a reading taken once at hand-over time.
+    const { context, manifestFile } = handOverFixture('sess-working');
+    const assigned = await performerShell(context).assignSlice('sess-working', 'infra/x', 'a-plan');
+    expect(assigned).toEqual({ ok: true, value: true });
+
+    for (let pass = 0; pass < 3; pass += 1) {
+      const clock = { since: null as number | null };
+      const readings = await readPass(ports(), manifestFile, RUNNING_NONE, CONFIG, clock);
+      expect(readings.assignedBranch).toBe('infra/x');
+      expect(readings.waitedSeconds).toBe(0);
+    }
   });
 });
 
