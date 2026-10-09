@@ -33,7 +33,7 @@ import {
   type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
-import { workingTreeSprints, planStatusBySlug, planEstate, readConfigAsync, scriptsFor, treesFor, hostFor, buildPortFor, type BuildBoardOptions } from './board.js';
+import { workingTreeSprints, planStatusBySlug, planEstate, readConfigAsync, scriptsFor, refsFor, fleetStateFor, treesFor, hostFor, buildPortFor, type BuildBoardOptions } from './board.js';
 import type { BuildPort } from '@plot-pm/domain';
 // The cadence division is a DOMAIN rule, not a board decision: `CLAUDE.md`
 // settles that every rendered or wired state is a domain property, and this one
@@ -44,7 +44,6 @@ import {
   boundFromLimit,
   concurrencyBound,
   heldSlots,
-  listingSpend,
   localSpenders,
   loweredConcurrency,
   reactionTo,
@@ -81,7 +80,10 @@ import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
 import { slotsFile, prIndexFile, TRACKER_LISTERS } from '@plot-pm/domain/adapters';
-import { readBridge, writeBridge } from './pulse-bridge.js';
+import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
+
+export { branchUrlBase, listedBranchCount, scanListingCost } from '@plot-pm/fleet/shared/fleet-scan';
+import { scanOnce, branchAges, planDirectory, type ScanResult } from '@plot-pm/fleet/shared/fleet-scan';
 import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
 import { readMachine } from './machine-reading.js';
@@ -540,44 +542,6 @@ export interface PrRecord {
   author?: string;
 }
 
-/**
- * The prefix a branch name is appended to, for the ONE origin this board reads —
- * or "" where no honest link can be built.
- *
- * Two hosts, two different words for the same page (`/tree/` on GitHub,
- * `/branch/` on Bitbucket Cloud), chosen by the same gh/bb distinction the rest
- * of the board already makes. Everything else returns "": a self-hosted
- * Bitbucket puts branches under `/projects/KEY/repos/name/branches`, and nothing
- * in the origin URL says which shape a stranger's host uses.
- *
- * The host is kept verbatim, so a GitHub Enterprise install links to itself
- * rather than to github.com — the rule `CardPrSchema` states for PR links,
- * applied to the one URL the board does compose. A guess here would look exactly
- * as confident as a correct answer.
- */
-export function branchUrlBase(origin: string): string {
-  const trimmed = origin.trim();
-  if (!trimmed) return '';
-  // Both forms git leaves behind: `https://host/owner/repo.git` and the
-  // scp-style `git@host:owner/repo.git` that `git clone git@…` produces.
-  const m = /^(?:https?:\/\/(?:[^@/]*@)?([^/]+)\/|(?:ssh:\/\/)?(?:[^@/]+@)([^:/]+)[:/])(.+?)(?:\.git)?\/?$/
-    .exec(trimmed);
-  if (!m) return '';
-  const host = (m[1] ?? m[2]).replace(/:\d+$/, '');
-  const repoPath = m[3];
-  if (!repoPath || repoPath.includes('..')) return '';
-  // `github.com` and any Enterprise install, which conventionally names itself
-  // github.<something>. Bitbucket Cloud is exactly one host — Server/Data Center
-  // uses a different path shape, so `bitbucket.example.com` must NOT match.
-  if (host === 'github.com' || /(^|\.)github\./.test(host)) {
-    return `https://${host}/${repoPath}/tree/`;
-  }
-  if (host === 'bitbucket.org') {
-    return `https://${host}/${repoPath}/branch/`;
-  }
-  return '';
-}
-
 // Exported for the type alone: `freshCacheEntry` already hands this object to
 // callers, so naming its shape adds no surface — it lets a test spell the type
 // it is already holding.
@@ -597,6 +561,8 @@ export interface CacheEntry {
    * section.
    */
   sections: Map<string, WaitingGroup>;
+  /** The bridged pulse's `at` that auto-dispatch last acted on; `null` before any. */
+  bridgeActedAt: number | null;
   /**
    * Terminal branch answers, carried from one pulse to the next.
    *
@@ -1227,34 +1193,6 @@ async function measureEstate(opts: BuildBoardOptions): Promise<EstateMeasurement
  * stdout only. The scan writes its notes to stderr and its document to stdout,
  * and mixing them would put prose through `JSON.parse`.
  */
-/** The scan Plot ships, streamed one plan at a time. */
-const FLEET_SCAN = 'plot-fleet-scan.sh';
-
-/**
- * The scan's budget, SET FROM MEASUREMENT — and the measurement moved.
- *
- * 30 s was right when the scan was ~10 s. After #262 batched the per-plan reads
- * it is 34-52 s on this repo — 84 s before that change — and the spread is the
- * machine rather than the code: measured 2026-08-20 with 12 worktrees and a load
- * average of 8.35, a BARE `git` spawn cost 63 ms against 31 ms on a quiet
- * machine, and the same `rev-list` timed 14 ms, 85 ms and 111 ms on three
- * consecutive runs. 203 spawns at 63 ms is ~13 s of process launch before any
- * work.
- *
- * So a fixed budget below the loaded cost fails INTERMITTENTLY, which is the
- * worst shape: 60 correct rows arrived and the pulse was killed before its
- * terminal line, so `pulseComplete` stayed false, the banner never cleared, and
- * the footer read `60 branches across 20 plans SO FAR` — accurate, and
- * indistinguishable from a broken board.
- *
- * 90 s is HEADROOM over a 34-52 s cost, not cover for a 279 s one. It was
- * refused twice while the scan was 279 s, because a budget raised to fit a 9x
- * overrun hides the next regression instead of reporting it. The remaining
- * per-branch `rev-list` block (64 calls) is the next thing to batch, and when it
- * lands this can come back down.
- */
-const FLEET_SCAN_BUDGET_MS = 90_000;
-
 export function runStreaming(
   cmd: string,
   args: string[],
@@ -1455,41 +1393,6 @@ export function pulseShrink(
   return readingLoss(previous, incoming, previousAt);
 }
 
-
-/**
- * Minutes since each branch's tip commit, and the tip's own epoch
- * milliseconds beside it. Read from local refs in one batch —
- * `for-each-ref` costs one process for every branch rather than one each, and
- * the scan has already fetched, so the refs are as fresh as the pulse is.
- *
- * TWO MAPS FROM ONE PASS, NOT ONE MAP WIDENED. `ages`'s value type is read by
- * `CacheEntry.ages`, the cache-init default and three render-time consumers
- * that want only the minutes; `tipAt` is the newer, narrower reading #1240
- * needs and travels beside it rather than replacing it.
- */
-async function branchAges(
-  opts: BuildBoardOptions,
-): Promise<{ ages: Map<string, number | null>; tipAt: Map<string, number | null> }> {
-  const ages = new Map<string, number | null>();
-  const tipAt = new Map<string, number | null>();
-  try {
-    const out = await run('git',
-      ['for-each-ref', '--format=%(refname:short)\t%(committerdate:unix)', 'refs/remotes/origin'],
-      opts.repoRoot);
-    const now = Date.now() / 1000;
-    for (const line of out.split('\n')) {
-      const [ref, ts] = line.split('\t');
-      if (!ref || !ts) continue;
-      const short = ref.replace(/^origin\//, '');
-      ages.set(short, Math.max(0, Math.round((now - Number(ts)) / 60)));
-      tipAt.set(short, Math.round(Number(ts) * 1000));
-    }
-  } catch {
-    /* no refs readable — every age stays null, and the UI says so */
-  }
-  return { ages, tipAt };
-}
-
 /**
  * Every remote branch carrying commits the default branch does not have.
  *
@@ -1538,55 +1441,6 @@ async function unmergedBranches(opts: BuildBoardOptions, main: string): Promise<
     }
   } catch {
     /* no refs readable — the set stays empty, and no row is added from it */
-  }
-  return found;
-}
-
-/**
- * When each plan was approved, in epoch ms, keyed by plan file BASENAME — the
- * key the pulse names plans by.
- *
- * Read through `plot-plan-meta.sh`, the one parser of plan files, exactly as
- * `board.ts` already reads it: the board holds no rule for what a plan file
- * looks like. Only the DATE portion of `Approved:` is used (`2026-08-16, jwloka,
- * in-session`); the rest is provenance for a human.
- *
- * A plan with no `Approved:` record — every plan predating the field — is simply
- * absent from the map. That is not a gap to fill with a guess: "approved at an
- * unknown time" and "approved just now" are different statements, and the row
- * shows nothing rather than the wrong one.
- */
-/**
- * The plan file each idea branch carries, keyed by branch name.
- *
- * An idea branch introduces a plan that lives ON that branch, so the pulse —
- * which reads the default branch — never sees the filename. Without it the row
- * has a plan NAME and no way to open it, which is how two grouped rows ended up
- * with headings that were plain text beside a linked one.
- *
- * Read from git, one `ls-tree` per idea branch: they are few (two here), the
- * refs are local, and this runs on the pulse's own timer rather than per
- * request. Resolving by slug rather than by "the one file not on main" keeps it
- * a lookup instead of a diff.
- */
-async function ideaPlanFiles(opts: BuildBoardOptions): Promise<Map<string, string>> {
-  const found = new Map<string, string>();
-  const planDir = await planDirectory(opts);
-  const refs = await run('git',
-    ['for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin/idea/*'],
-    opts.repoRoot);
-  const branches = refs.split('\n')
-    .map((l) => l.trim().replace(/^origin\//, ''))
-    .filter(Boolean);
-  for (const branch of branches) {
-    const slug = /^idea\/(.+)$/.exec(branch)?.[1];
-    if (!slug) continue;
-    const out = await run('git',
-      ['ls-tree', '-r', '--name-only', `origin/${branch}`, '--', planDir], opts.repoRoot);
-    const hit = out.split('\n')
-      .map((l) => l.trim())
-      .find((l) => l.endsWith(`${slug}.md`));
-    if (hit) found.set(branch, path.basename(hit));
   }
   return found;
 }
@@ -1647,72 +1501,6 @@ async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, str
     }
   }
   return found;
-}
-
-async function approvalDates(
-  opts: BuildBoardOptions,
-  pulse: FleetReading,
-): Promise<Map<string, number>> {
-  const dates = new Map<string, number>();
-  if (pulse.plans.length === 0) return dates;
-  const planDir = await planDirectory(opts);
-  const files = pulse.plans.map((p) => path.join(opts.repoRoot, planDir, p.file));
-  try {
-    const answer = await scriptsFor(opts).planMeta(files);
-    if (!answer.ok) return dates;
-    for (const line of answer.value.split('\n')) {
-      if (!line.trim()) continue;
-      const meta = JSON.parse(line) as { file?: string; approved_raw?: string };
-      if (!meta.file || !meta.approved_raw) continue;
-      // The leading `YYYY-MM-DD` only. A record whose date does not parse is
-      // dropped rather than coerced — Date's leniency would happily turn a typo
-      // into a confident wrong age.
-      const m = /^(\d{4}-\d{2}-\d{2})/.exec(meta.approved_raw.trim());
-      if (!m) continue;
-      const at = Date.parse(`${m[1]}T00:00:00Z`);
-      if (Number.isNaN(at)) continue;
-      dates.set(path.basename(meta.file), at);
-    }
-  } catch {
-    /* no parser, no plans dir, unreadable file — every row simply shows no age */
-  }
-  return dates;
-}
-
-/**
- * Where plan files live, from `## Plot Config` — never hardcoded, because Plot
- * contains no project's paths and an adopting repo renames this freely.
- *
- * The pulse names plans by basename, so the fleet needs a directory to rejoin
- * them to. A repo that cannot be asked falls back to the same default the
- * config helper documents, and a miss costs the waiting age and nothing else:
- * the parser is handed a path that does not exist, the map comes back empty,
- * and every row shows no age. Degrading to less rather than to wrong.
- */
-async function planDirectory(opts: BuildBoardOptions): Promise<string> {
-  try {
-    const answer = await scriptsFor(opts).config('Plan directory', 'docs/plans/');
-    if (!answer.ok) return 'docs/plans/';
-    return answer.value.trim() || 'docs/plans/';
-  } catch {
-    return 'docs/plans/';
-  }
-}
-
-/**
- * This repo's branch-URL prefix, read from `git remote get-url origin`.
- *
- * Read on the SCAN's timer, beside the branch ages, rather than per row or per
- * request: an origin changes about as often as a repo is re-cloned, and the row
- * count is what would multiply the cost. A repo with no origin (or no git at
- * all) yields "", and every branch then renders as plain text.
- */
-async function readBranchUrlBase(opts: BuildBoardOptions): Promise<string> {
-  try {
-    return branchUrlBase(await run('git', ['remote', 'get-url', 'origin'], opts.repoRoot));
-  } catch {
-    return '';
-  }
 }
 
 /**
@@ -2205,62 +1993,6 @@ export function prRequestsPerRefresh(backend: string): number {
 }
 
 /**
- * What one fleet-scan listing costs on `backend`, in host requests.
- *
- * THE SWEEP IS THE COST, AND IT IS NOT A CONSTANT. `PR_REQUESTS_PER_REFRESH`
- * names the cost of `refreshPrs`, which passes no branches and so makes three
- * listings plus the issue call. The scan passes every tracked branch (#333), and
- * the Bitbucket arm then asks its REST endpoint about each one BY NAME — so the
- * cost is `branches x states` and the comment on that table already states the
- * arithmetic: *"WHOEVER MOVES THIS FILE ONTO THE SWEEP MUST CHANGE THIS NUMBER,
- * and the arithmetic is `branches x 3 + 1`."* The scan moved onto the sweep and
- * the number was never changed; this is that change, for the scan's own cadence.
- *
- * Measured 2026-10-02 on the Bitbucket workspace `quatico`: the open listing
- * alone sent 1764 per-branch requests in an hour against 276 `--state open` and
- * 128 `--state merged` listings.
- *
- * GITHUB IS ONE REQUEST AND STAYS ONE. Its arm ignores the branches and makes
- * the single GraphQL call it always made, so the multiplier is 1 there and the
- * listing cadence this decides is the pulse it has always been.
- *
- * @param backend - the configured host.
- * @param branches - how many branches the scan tracks.
- * @returns the requests one listing spends; never 0, for
- *   {@link prRequestsPerRefresh}'s reason.
- */
-/**
- * How many branches a reported listing swept, or null where it said nothing.
- *
- * Read from the scan's `.branches` note rather than counted off the listing's
- * rows: the rows are the branches that HAVE a pull request, and the sweep asks
- * about every tracked ref whether it has one or not. Counting rows would
- * under-count the cost by exactly the branches nobody has opened a PR for, which
- * on this estate is most of them.
- *
- * @param listed - the scan's reported listing, one note or branch per line.
- * @returns the count, or null where the note is absent or not a count.
- */
-export function listedBranchCount(listed: string): number | null {
-  for (const line of listed.split('\n')) {
-    const [key, value] = line.split('\t');
-    if (key !== '.branches') continue;
-    const n = Number(value);
-    return Number.isInteger(n) && n >= 0 ? n : null;
-  }
-  return null;
-}
-
-export function scanListingCost(backend: string, branches: number): number {
-  // Not the table's value: that one counts an issue call this scan never makes.
-  if (backend !== 'bitbucket') return 1;
-  // Three states swept per branch — open, merged, declined — because `bb` has no
-  // `all`. A scan tracking no branches lists as before rather than costing zero.
-  const swept = Math.max(0, Math.trunc(branches)) * 3;
-  return swept > 0 ? swept : 3;
-}
-
-/**
  * How far before `prNextAt` an ordinary cadence tick may still be honoured, in
  * ms. Two percent of the period — 1.2 s at the 60 s cadence.
  *
@@ -2545,7 +2277,7 @@ export async function refreshRuns(
  * unplanned. Null lets the caller decline to answer instead.
  */
 async function referencedIssues(opts: BuildBoardOptions): Promise<Set<string> | null> {
-  const planDir = await planDirectory(opts);
+  const planDir = await planDirectory(scriptsFor(opts));
   const dir = path.join(opts.repoRoot, planDir);
   let files: string[];
   try {
@@ -3483,15 +3215,33 @@ async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Prom
   }
 }
 
-async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
+export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   if (entry.running) return;
   entry.running = true;
   // The last COMPLETE answer, held across a scan that will overwrite
   // `entry.pulse` many times before it finishes. `pulseShrink` asks what the
   // previous document had and this one lacks, and a partial view of the scan
   // in progress cannot answer that.
-  const before = entry.pulseComplete ? entry.pulse : null;
   try {
+    // A RESTART SHOWS THE LAST PULSE BEFORE ANY SCAN. The bridge is read through
+    // the port once, on the first refresh of a cold entry, and marked as acted
+    // on: a pulse the previous process already dispatched from must not fire a
+    // second dispatch because the process restarted.
+    if (entry.at === null) {
+      const preload = await fleetStateFor(opts).read();
+      if (preload.ok && preload.value !== null) {
+        const warm = preload.value;
+        entry.pulse = warm.pulse;
+        entry.ages = warm.ages;
+        entry.branchUrlBase = warm.branchUrlBase;
+        entry.approvedAt = warm.approvedAt;
+        entry.ideaPlans = warm.ideaPlans;
+        entry.at = warm.at;
+        entry.lastComplete = warm.pulse;
+        entry.bridgeActedAt = warm.at;
+      }
+    }
+    const before = entry.pulseComplete ? entry.pulse : null;
     // FIRST, and before the scan spawns. The registry depends on neither git nor
     // the pulse — it reads `.plot/agents/` and the transcripts those manifests
     // point at — so it must not be behind anything that can fail. Two
@@ -3609,145 +3359,45 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // has reported some entries and re-derived others, and adopting that
     // partial map would quietly drop the branches it never reached — turning
     // a slow pulse into a cold cache on the pulse after it.
-    let learned = '';
-    // What this pulse learns about the PR listing, accumulated apart from
-    // `entry.listing` and installed only on SUCCESS, for `learned`'s reason: a
-    // scan killed at the timeout has reported some branches and not others, and
-    // adopting a partial listing would license `NONE` for the ones it never
-    // reached — the fabricated answer this whole path exists to avoid.
-    let listed = '';
-    // WHETHER THIS SCAN MAY SPEND A LISTING, asked of the domain before it runs.
-    //
-    // Measured 2026-10-02 on the Bitbucket workspace `quatico`, two checkouts
-    // over one hour: this scan spent 2949 of the account's 3150 calls, 93.6% of
-    // all calls and 97.1% of network calls, while the board's PR refresh — which
-    // already follows the cadence — spent 17. The pulse stays at 5 s and the git
-    // work with it; only the host listing slows.
-    //
-    // THE RULE OWNS THE ARITHMETIC. `listingSpend` composes `refreshIntervalMs`,
-    // so `MAX_CADENCE_STRETCH` and `CADENCE_DAMPING` are the cadence's and this
-    // call site holds no copy of them to drift.
-    //
-    // THE RATE IS READ ONLY WHERE IT COULD CHANGE THE ANSWER, which is what keeps
-    // this off the 5 s clock. `spendRateFor` spawns one local `bash`; it asks no
-    // host and spends no request, but `docs/shell-and-domain.md` prices a hop
-    // paid by every agent on every pass, and `spendRateFor`'s own contract reads
-    // *"ONE LOCAL `bash` PER REFRESH, on the 60 s clock rather than the 5 s one."*
-    //
-    // The interval the last verdict decided is held in `listingIntervalMs`, so a
-    // pulse arriving before it has elapsed is going to reuse whatever the rate
-    // says — the rate can only ever lengthen the interval, never shorten it below
-    // the unstretched one. So the cheap test runs first and the read happens on
-    // the pulse that is actually about to spend: 60 s of pulses cost one `bash`
-    // where the cadence is unstretched, and fewer as it stretches.
-    const now = Date.now();
-    // The interval the LAST verdict decided. A pulse arriving inside it reuses
-    // whatever the record says, because the rate can only lengthen the interval
-    // and never shorten it below the unstretched one — so this test needs no
-    // reading, and the reading is bought only on the pulse about to spend.
-    const due = entry.listingAt === null || now >= entry.listingAt + entry.listingIntervalMs;
-    let spend = true;
-    let reusedAgeMs: number | null = null;
-    if (due) {
-      const backend = await resolveBackend(opts, entry);
-      const verdict = listingSpend({
-        intervalMs: REFRESH_MS,
-        // What the LAST listing cost, reported by the scan that made it. Modelling
-        // it from the plans would under-count: the sweep asks about every remote
-        // ref, and a plan names a subset of them.
-        costPerListing: scanListingCost(backend, entry.listingBranches),
-        rate: await spendRateFor(opts),
-        lastListedAt: entry.listingAt,
-        now,
-        currentIntervalMs: entry.listingIntervalMs,
-      });
-      entry.listingIntervalMs = verdict.intervalMs;
-      spend = verdict.spend;
-      reusedAgeMs = verdict.reuse?.ageMs ?? null;
+    // WHO SCANS. The fleet does when its supervisor reads `up` and its bridge is
+    // fresh (`fleetOwnsScan`); the board then reads the bridge and spawns nothing.
+    // Otherwise the board scans for display and writes NOTHING: `record: false`
+    // keeps the script from touching the bridge, and the board has no writer
+    // of it left, so a hung fleet cannot be corrupted by the board's fallback.
+    const fleetState = fleetStateFor(opts);
+    const bridge = await fleetState.read();
+    const bridged = bridge.ok ? bridge.value : null;
+    const owned = bridged !== null && fleetOwnsScan({
+      supervisor: entry.supervisor,
+      bridgeAt: bridged.at,
+      now: Date.now(),
+    });
+    let scanned: ScanResult | null = null;
+    if (!owned) {
+      scanned = await scanOnce(
+        { repoRoot: opts.repoRoot, scripts: scriptsFor(opts), refs: refsFor(opts), backend: () => resolveBackend(opts, entry) },
+        entry,
+        {
+          record: false,
+          onLine: (line) => {
+            // A line that does not parse is DROPPED, not fatal: what the board
+            // loses is one line, and throwing would lose the whole partial answer.
+            let msg;
+            try {
+              msg = FleetScanLineSchema.parse(JSON.parse(line));
+            } catch {
+              return;
+            }
+            if (msg.kind === 'plan') {
+              arrived = mergePlan(arrived, msg.plan);
+              publishPartial();
+            }
+          },
+        },
+      );
+      parsed = scanned.reading;
     } else {
-      // Not due, so the age is measured from the listing itself rather than from a
-      // verdict nobody asked for. `listingAt` is non-null here by the test above.
-      reusedAgeMs = Math.max(0, now - (entry.listingAt ?? now));
-      spend = false;
-    }
-    // THE CARRIED LISTING, HANDED IN THE WAY THE TERMINAL MAP IS. Empty where a
-    // fresh listing is permitted, so the scan spends it exactly as before. A
-    // reusing scan reports `host=ok`, because a carried listing arrived and was
-    // whole — the AGE is reported here, where the board knows it, and never by the
-    // scan, which is spawned fresh and cannot.
-    const reusing = !spend && entry.listing !== '';
-    entry.listingReusedAgeMs = reusing ? reusedAgeMs : null;
-    await scriptsFor(opts).stream(FLEET_SCAN, ['--stream'],
-      (line) => {
-        // A line that does not parse is DROPPED, not fatal. The scan writes its
-        // document to stdout and its notes to stderr, but a helper that ever
-        // prints to the wrong stream would otherwise abort a scan whose plans
-        // were all correct. What the board loses is one line; what it would
-        // lose by throwing is the whole partial answer.
-        let msg;
-        try {
-          msg = FleetScanLineSchema.parse(JSON.parse(line));
-        } catch {
-          return;
-        }
-        if (msg.kind === 'plan') {
-          arrived = mergePlan(arrived, msg.plan);
-          publishPartial();
-          return;
-        }
-        // The terminal line: the scan finished and this is the whole document.
-        parsed = msg.reading;
-      },
-      {
-        timeoutMs: FLEET_SCAN_BUDGET_MS,
-        // The map this pulse starts from. `''` on the first pulse after a
-        // restart, which is what makes a restart re-derive everything.
-        env: {
-          PLOT_TERMINAL_CACHE: entry.terminal,
-          // Empty unless this pulse is reusing, and empty is what makes the scan
-          // spend the listing as before — including on the first pulse, where
-          // there is nothing to reuse and the rule permits the call.
-          PLOT_PR_LISTING: reusing ? entry.listing : '',
-        },
-        onErrorLine: (line) => {
-          // Only the tagged notes are read; everything else on stderr is the
-          // scan's ordinary prose and stays discarded.
-          if (line.startsWith('terminal:')) {
-            learned += `${line.slice('terminal:'.length).trim()}\n`;
-          }
-          if (line.startsWith('listing:')) {
-            listed += `${line.slice('listing:'.length).trim()}\n`;
-          }
-        },
-      });
-    // A scan that exited 0 without its terminal line described nothing it can
-    // be held to. Treated as a failure rather than as an empty fleet, for the
-    // reason the catch below states: replacing real state with emptiness is
-    // what makes a monitoring view untrustworthy. Whatever arrived stays, and
-    // `pulseComplete` stays false so the tab says the rest is unknown.
-    if (parsed === null) throw new Error('fleet scan ended without a terminal pulse line');
-    // ADOPTED ONLY NOW — past every way this scan could have failed. The scan
-    // re-reports the entries it served as well as the ones it learned, so what
-    // arrived is the WHOLE map for the next pulse and replaces rather than
-    // merges. Merging would be the bug the plan names: an entry no scan
-    // re-derived would survive on nothing but its own age.
-    entry.terminal = learned;
-    // THE LISTING, ADOPTED ON THE SAME TERMS AND ONLY WHERE ONE WAS FETCHED.
-    //
-    // A REUSING SCAN REPORTS BACK WHAT IT WAS GIVEN, so the listing and its age
-    // both survive the pulse unchanged: the age must keep growing from the fetch
-    // that made the listing, not restart from the pulse that reused it. Stamping
-    // `listingAt` here would make a reused listing read one pulse old forever and
-    // the cadence would never come back.
-    //
-    // A SCAN THAT FETCHED AND REPORTED NOTHING KEEPS THE PREVIOUS LISTING. The
-    // report is written only where `.list-arrived` exists, so a throttled or
-    // failed listing reports nothing — and replacing a real listing with that
-    // silence would license `NONE` for every branch on the pulse after it.
-    if (!reusing && listed !== '') {
-      entry.listing = listed;
-      entry.listingAt = Date.now();
-      entry.listingBranches = listedBranchCount(listed) ?? entry.listingBranches;
+      parsed = bridged.pulse;
     }
     const complete: FleetReading = parsed;
     // Against `before`, captured at the top of this function — because
@@ -3783,15 +3433,22 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // with a fragment. Written beside the flag it mirrors so the two can never
     // disagree about which document finished.
     entry.lastComplete = complete;
-    ({ ages: entry.ages, tipAt: entry.tipAt } = await branchAges(opts));
-    entry.branchUrlBase = await readBranchUrlBase(opts);
-    entry.approvedAt = await approvalDates(opts, complete);
-    // From the REFS, not from `entry.prs`. The PR map is filled on its own
-    // 60 s timer, so at the first git refresh it is still null — the list came
-    // back empty and nothing recomputed it, because this timer does not watch
-    // that one. Two clocks, one dependency: the same shape that pinned the
-    // countdown at zero earlier today.
-    entry.ideaPlans = await ideaPlanFiles(opts);
+    // The extra reads travel with the pulse: from this scan, or from the
+    // bridge the fleet wrote. `tipAt` is not bridged, and is a display-only
+    // read of the refs, so it is taken here when the fleet owns the scan.
+    if (scanned !== null) {
+      entry.ages = scanned.ages;
+      entry.tipAt = scanned.tipAt;
+      entry.branchUrlBase = scanned.branchUrlBase;
+      entry.approvedAt = scanned.approvedAt;
+      entry.ideaPlans = scanned.ideaPlans;
+    } else if (bridged !== null) {
+      entry.ages = bridged.ages;
+      entry.tipAt = (await branchAges(refsFor(opts))).tipAt;
+      entry.branchUrlBase = bridged.branchUrlBase;
+      entry.approvedAt = bridged.approvedAt;
+      entry.ideaPlans = bridged.ideaPlans;
+    }
     // THE RELEASE VERSION, from the release branch's own `package.json`. From
     // the REFS for the reason stated one line up: the PR map is on its own
     // timer and is still null at the first git refresh.
@@ -3812,20 +3469,19 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // returns immediately when the pulse names no `waiting` branch with a local
     // worktree, so the ordinary refresh spawns nothing at all.
     entry.questions = await workerQuestions(parsed);
-    entry.at = Date.now();
+    entry.at = owned && bridged !== null ? bridged.at : Date.now();
     entry.error = null;
-    // The one place the bridge is written, and it is INSIDE the success path on
-    // purpose. A scan that failed must not overwrite the last good answer — the
-    // same one-directional rule the in-memory cache obeys three lines down, and
-    // the only thing standing between a `--watch` restart and an empty board.
-    writeBridge(opts.repoRoot, {
-      at: entry.at,
-      pulse: complete,
-      ages: entry.ages,
-      branchUrlBase: entry.branchUrlBase,
-      approvedAt: entry.approvedAt,
-      ideaPlans: entry.ideaPlans,
-    });
+    // THE BOARD WRITES NO BRIDGE. The fleet is its only writer; the board reads
+    // it through the `FleetState` port and a failed or absent bridge is a scan.
+    //
+    // AUTO-DISPATCH ACTS ONCE PER PULSE. A pulse the board scanned is always
+    // new. A bridged one is acted on when its `at` differs from the last one
+    // acted on, so a 5 s refresh re-reading the same file does not dispatch
+    // again, and a restart that preloaded it (`ensureCache`) does not either.
+    if (owned && bridged !== null) {
+      if (entry.bridgeActedAt === bridged.at) return;
+      entry.bridgeActedAt = bridged.at;
+    }
     // THE ONE AUTOMATIC WRITE — auto-dispatch.
     //
     // On the SCAN's clock, inside its success path, from a pulse that actually
@@ -3922,6 +3578,7 @@ export function freshCacheEntry(): CacheEntry {
     // honest answer rather than a section invented from a pulse this process
     // never saw.
     sections: new Map(),
+    bridgeActedAt: null,
     // Empty at construction, which is the whole of "a restart re-derives
     // everything": nothing survives this process, so the first pulse is cold.
     terminal: '',
@@ -3998,32 +3655,6 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
   // Null covers every way of not having one — no file, unreadable, a foreign
   // shape, or simply too old to mean anything — and leaves the cold-start
   // behaviour exactly as it was.
-  const bridged = readBridge(opts.repoRoot);
-  if (bridged) {
-    entry.pulse = bridged.pulse;
-    entry.ages = bridged.ages;
-    entry.branchUrlBase = bridged.branchUrlBase;
-    entry.approvedAt = bridged.approvedAt;
-    entry.ideaPlans = bridged.ideaPlans;
-    entry.at = bridged.at;
-    // THE BRIDGED PULSE IS A FINISHED ONE. `writeBridge` is called on the
-    // success path only, past the terminal line, so the file can hold no
-    // partial document — which is what makes it an answer a delivery may read
-    // before this process's first scan lands.
-    entry.lastComplete = bridged.pulse;
-  }
-  // Warm at startup so the first person to open the tab does not wait a second
-  // for it; until this lands the endpoint reports `ready: false`. Both sources
-  // are warmed — the slower cadence must not mean the tab opens with no PR data
-  // for a minute.
-  //
-  // Issued BESIDE the bridge read, never instead of it, and the pair is
-  // deliberate: a scan costs 500–1050 ms (21.2 s measured on a cold boot), so
-  // scanning alone narrows the empty window without closing it, and a `--watch`
-  // restart storm reopens it on every save; the file alone would leave the
-  // board stale until this lands. The file covers the gap, the scan ends it —
-  // and when it lands it overwrites every field set above, so a real answer
-  // always wins over the bridged one.
   void refresh(opts, entry);
   void maybeRefreshPrs(opts, entry);
   // ONE CLOCK, TWO DIVISORS, where there were two timers.

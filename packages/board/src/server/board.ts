@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 import { marked } from 'marked';
 import {
   PlanMetaSchema,
@@ -54,6 +55,7 @@ import {
   processesShell,
   boundedRunProcess,
   refsGit,
+  fleetStateFile,
   scriptsShell,
   sliceSpendFile,
   treesGit,
@@ -169,7 +171,7 @@ export interface BuildBoardOptions {
  * @param opts - where to read, and optionally what to read through.
  * @returns the injected reader, or one backed by git in `opts.repoRoot`.
  */
-const refsFor = (opts: BuildBoardOptions): Refs =>
+export const refsFor = (opts: BuildBoardOptions): Refs =>
   opts.refs ?? refsGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
 
 /**
@@ -217,6 +219,15 @@ export const spendRecordFor = (opts: BuildBoardOptions): SliceSpendRecord =>
  * @param opts - where the repository and the scripts are.
  * @returns a runner over `opts.scriptsDir`.
  */
+/**
+ * The bridge the fleet writes, as the board reads it.
+ *
+ * @param opts - where the repository is.
+ * @returns a {@link FleetState} over `opts.repoRoot`.
+ */
+export const fleetStateFor = (opts: BuildBoardOptions): FleetState =>
+  fleetStateFile({ repoRoot: opts.repoRoot });
+
 export const scriptsFor = (opts: BuildBoardOptions): Scripts =>
   scriptsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
 

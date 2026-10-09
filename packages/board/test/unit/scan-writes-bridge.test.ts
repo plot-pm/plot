@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawn } from 'node:child_process';
 import { rmTree } from '../helpers.mjs';
-import { readBridge, BRIDGE_MAX_AGE_MS } from '../../src/server/pulse-bridge.js';
+import { fleetStateFile, BRIDGE_MAX_AGE_MS } from '@plot-pm/domain/adapters';
 import { FleetReadingSchema } from '../../src/contract/schema.js';
 
 /**
@@ -90,6 +90,12 @@ const scan = (repo: string, ...args: string[]): string =>
     cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
   });
 
+/** The bridge as the board reads it now: through the `FleetState` port. */
+const readBridge = async (repo: string) => {
+  const read = await fleetStateFile({ repoRoot: repo }).read();
+  return read.ok ? read.value : null;
+};
+
 const bridgeFile = (repo: string): string => path.join(repo, BRIDGE);
 
 describe('the scan writes its own bridge', () => {
@@ -113,6 +119,22 @@ describe('the scan writes its own bridge', () => {
     expect(fs.existsSync(bridgeFile(repo))).toBe(false);
   });
 
+  it('records nothing on --stream when PLOT_SCAN_RECORD=0, which is the board\'s scan', () => {
+    // The board scans for display only; the fleet is the bridge's one writer, so
+    // a board scan that recorded would race it. `--log-pulse` ignores the switch.
+    fs.rmSync(bridgeFile(repo), { force: true });
+    execFileSync('bash', [SCAN, '--offline', '--stream'], {
+      cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, PLOT_SCAN_RECORD: '0' },
+    });
+    expect(fs.existsSync(bridgeFile(repo))).toBe(false);
+    execFileSync('bash', [SCAN, '--offline', '--log-pulse'], {
+      cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, PLOT_SCAN_RECORD: '0' },
+    });
+    expect(fs.existsSync(bridgeFile(repo))).toBe(true);
+  });
+
   it('records nothing on plain --json, which is a QUERY', () => {
     // `--json` assembles the document and records nothing. Only the two callers
     // that produce a pulse for somebody to read record one — `--stream` (the
@@ -124,7 +146,7 @@ describe('the scan writes its own bridge', () => {
     expect(fs.existsSync(bridgeFile(repo))).toBe(false);
   });
 
-  it('writes a bridge the BOARD reads back, on the --stream path', () => {
+  it('writes a bridge the BOARD reads back, on the --stream path', async () => {
     // The board's own path: `fleet.ts:2694` spawns the scan with `--stream`.
     // The assertion that matters is `readBridge` returning non-null — a version
     // mismatch or a shape it cannot parse returns null SILENTLY and renders an
@@ -138,7 +160,7 @@ describe('the scan writes its own bridge', () => {
     expect(terminal).toBeDefined();
     const printed = JSON.stringify(terminal!.reading);
 
-    const read = readBridge(repo);
+    const read = await readBridge(repo);
     expect(read).not.toBeNull();
 
     // Not merely parseable — the SAME document. One composition, two
@@ -159,7 +181,7 @@ describe('the scan writes its own bridge', () => {
     expect(branches.map((b) => b.branch)).toContain('feature/a-pulse-writes-its-own-record');
   });
 
-  it('writes a bridge on the PROSE path, which is what /plot-pulse runs', () => {
+  it('writes a bridge on the PROSE path, which is what /plot-pulse runs', async () => {
     // The case the plan leads with: a repository with no board. `/plot-pulse`
     // passes `--log-pulse` and no `--json`, so a write wired only to the JSON
     // path would leave a boardless repo accumulating no history at all — and
@@ -168,7 +190,7 @@ describe('the scan writes its own bridge', () => {
     const out = scan(repo, '--log-pulse');
     expect(out).toMatch(/Pulse complete/);
 
-    const read = readBridge(repo);
+    const read = await readBridge(repo);
     expect(read).not.toBeNull();
     expect(read!.pulse.plans.length).toBeGreaterThan(0);
   });
