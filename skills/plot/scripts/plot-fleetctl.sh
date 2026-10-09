@@ -726,10 +726,7 @@ if [ "$mode" = "status" ]; then
     # not notice until it next restarts and the file is gone. Named here rather
     # than repaired: the fix is a rebuild or reinstall, a person's call.
     bundle=$(supervisor_bundle_path)
-    if [ -n "$bundle" ] && [ ! -f "$bundle" ]; then
-      echo "  BUNDLE MISSING: $bundle no longer exists — the loaded unit still names it"
-      echo "    Rebuild it, or reinstall: /plot-fleet --stop, then /plot-fleet --start"
-    fi
+    [ -n "$bundle" ] && [ ! -f "$bundle" ] && printf '  BUNDLE MISSING: %s no longer exists — the loaded unit still names it\n    Rebuild it, or reinstall: /plot-fleet --stop, then /plot-fleet --start\n' "$bundle"
   elif [ "$sup_loaded" = 0 ]; then
     # THE LABEL IS HELD AND NOTHING IS BEHIND IT. Measured twice in ninety
     # minutes on 2026-09-22: `--status` said `running`, no `registryd.mjs`
