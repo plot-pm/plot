@@ -1711,6 +1711,13 @@ export const BriefStateSchema = z.enum(['present', 'missing', 'unknown']);
 export type BriefState = z.infer<typeof BriefStateSchema>;
 
 /**
+ * What a branch's brief writer is doing — see `briefWriting` and
+ * `briefWriterState` in `@plot-pm/domain`.
+ */
+export const BriefWriterStateSchema = z.enum(['writing', 'failed', 'asked', 'none']);
+export type BriefWriterStateValue = z.infer<typeof BriefWriterStateSchema>;
+
+/**
  * The note for a branch an earlier slice is holding back — without the name.
  *
  * The unnamed form is the FALLBACK, not the default: a plan with no `###`
@@ -2838,6 +2845,33 @@ export const AgentRowSchema = z.object({
    * `undefined` in the renderer rather than this default.
    */
   briefFailed: z.string().nullable().default(null),
+  /**
+   * What this row's brief writer is doing — `writing`, `failed`, `asked`, or
+   * `none`. See `briefWriterState` in `@plot-pm/domain`.
+   *
+   * **AN AGE CANNOT SAY A WRITER IS STILL AT IT, OR THAT IT IS DONE** — the gap
+   * `briefAskedAt` leaves open, and `#1417` reports: the fleet carried only an
+   * age while a writer worked, and an age never ends. `writing` is read from
+   * the writer's own process for THIS branch (`readRunState`, pid-checked),
+   * reversing #905's refusal for this one reading alone — `briefAskedAt` and
+   * `briefFailed` keep their exact existing meaning.
+   *
+   * **`writing` HOLDS ONLY WHILE THE BRIEF IS STILL ABSENT.** A brief that
+   * landed ends the question even for a pid still alive this instant — the
+   * row's `startability` leaving `needs-brief` forces `none`, never `writing`,
+   * whatever the process says.
+   *
+   * **A BRANCHLESS RUN NEVER READS `writing`.** A run given no branch marks
+   * every brief-less sibling under the existing `asked` reading, as it did
+   * before this field existed — widening `writing` to match would put the
+   * indicator back on every sibling.
+   *
+   * **`'none'` IS THE DEFAULT AND MAKES NO CLAIM**, the same rule `briefAskedAt`
+   * and `briefFailed` follow: a pulse from a server predating this field
+   * validates to `'none'` and renders exactly as the board did before this
+   * field existed.
+   */
+  briefWriting: BriefWriterStateSchema.default('none'),
   /**
    * The name of the earlier slice blocking this row — `waitingOn: 'time'` only,
    * null everywhere else.

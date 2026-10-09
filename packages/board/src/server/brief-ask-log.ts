@@ -82,14 +82,25 @@ const mtimeOf = (file: string): number | null => {
  * A run given this branch counts through its own state file. A run given another
  * branch counts for nothing here. A run that named no branch counts for every
  * branch of the plan, as it did before runs named one.
+ *
+ * `ownBranch` tells the caller WHICH of those three held: `true` only when
+ * this branch's own state file is what answered. `briefWriterRunState` below
+ * reads `running` as `writing` only in that case — a branchless run reaching
+ * every sibling through the plan-keyed fallback must keep reading `asked`,
+ * never `writing`, or the indicator widens back onto every brief-less sibling.
  */
-const implementRunFor = (repoRoot: string, branch: string, planSlug: string): ImplementRunState | null => {
+const implementRunFor = (
+  repoRoot: string,
+  branch: string,
+  planSlug: string,
+): { run: ImplementRunState; ownBranch: boolean } | null => {
   const own = implementBranchStatePath(repoRoot, planSlug, branch);
   if (fs.existsSync(own)) {
     const log = implementLogPath(repoRoot, planSlug);
-    return { ...readRunState(own, log), log, statePath: own };
+    return { run: { ...readRunState(own, log), log, statePath: own }, ownBranch: true };
   }
-  return readImplementBranch(repoRoot, planSlug) === null ? implementRunState(repoRoot, planSlug) : null;
+  if (readImplementBranch(repoRoot, planSlug) !== null) return null;
+  return { run: implementRunState(repoRoot, planSlug), ownBranch: false };
 };
 
 /** What one branch's brief asks say, from one reading of the askers' logs. */
@@ -98,6 +109,14 @@ export interface BriefReading {
   askedAt: number | null;
   /** The implement log's repository-relative path where its run failed and no other asker's log is newer, or null. */
   failed: string | null;
+  /**
+   * Whether THIS BRANCH's own writer is running right now — `true` only while
+   * a run this branch's own state file recorded is alive. A branchless run
+   * that reaches this branch through the plan-keyed fallback is never `true`
+   * here, so a sibling never reads as writing. Feeds `briefWriterState`
+   * alongside `needsBrief` and `askedAt`; it is not itself a rendered answer.
+   */
+  writing: boolean;
 }
 
 /**
@@ -125,7 +144,8 @@ export interface BriefReading {
  *                   route are keyed on. See `briefAskLogPaths`.
  * @returns `askedAt` — the earliest counting ask, or null where none counts or
  *          none could be stat'd; `failed` — the implement log's path where the
- *          failure condition above holds, otherwise null.
+ *          failure condition above holds, otherwise null; `writing` — whether
+ *          this branch's own writer is running right now.
  */
 export const briefReading = (repoRoot: string, branch: string, planSlug: string): BriefReading => {
   const branchSlug = branch.split('/').pop() ?? branch;
@@ -133,20 +153,25 @@ export const briefReading = (repoRoot: string, branch: string, planSlug: string)
   const others = [dispatchLog, boardLog]
     .map((rel) => mtimeOf(path.join(repoRoot, rel)))
     .filter((at): at is number => at !== null);
-  const run = implementRunFor(repoRoot, branch, planSlug);
+  const attributed = implementRunFor(repoRoot, branch, planSlug);
   let implementAt: number | null = null;
   let failed: string | null = null;
-  if (run === null) {
+  let writing = false;
+  if (attributed === null) {
     /* the run briefed another branch, or none ran */
-  } else if (run.state === 'running') {
-    implementAt = mtimeOf(run.log);
-  } else if (run.state === 'failed') {
-    const recordedAt = mtimeOf(run.statePath);
-    if (recordedAt !== null && !others.some((at) => at > recordedAt)) {
+  } else {
+    const { run, ownBranch } = attributed;
+    if (run.state === 'running') {
       implementAt = mtimeOf(run.log);
-      failed = path.relative(repoRoot, run.log);
+      writing = ownBranch;
+    } else if (run.state === 'failed') {
+      const recordedAt = mtimeOf(run.statePath);
+      if (recordedAt !== null && !others.some((at) => at > recordedAt)) {
+        implementAt = mtimeOf(run.log);
+        failed = path.relative(repoRoot, run.log);
+      }
     }
   }
   const times = implementAt === null ? others : [...others, implementAt];
-  return { askedAt: times.length === 0 ? null : Math.min(...times), failed };
+  return { askedAt: times.length === 0 ? null : Math.min(...times), failed, writing };
 };

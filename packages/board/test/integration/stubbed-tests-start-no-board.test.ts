@@ -655,7 +655,11 @@ const EXPECTED_FILES = 60;
 // merged slice whose stored checks are still `pending` showing no CI state
 // (#1418). It joins a file that already drove a page, so `EXPECTED_FILES` is
 // unchanged.
-const EXPECTED_TESTS = 550;
+// 550 → 551 on 2026-10-09: one `it(` in `agents-tab.browser.test.ts`, for the
+// brief writer's working indicator on a NOT STARTED row, absent on a sibling
+// slice (#1417). It joins a file that already drove a page, so
+// `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 551;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.

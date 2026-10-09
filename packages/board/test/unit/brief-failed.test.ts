@@ -7,6 +7,7 @@
 // decides the note from the fields alone (`briefNote`), so these are unit
 // tests. One browser test in `agents-tab.browser.test.ts` proves the failed
 // note renders.
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,9 +18,12 @@ import {
   expect,
   it } from 'vitest';
 import { rowsFromPulse } from '../../src/server/fleet.js';
-import { implementLogPath, implementStatePath } from '../../src/server/implement.js';
 import {
-  briefFailedNote, briefNote, briefWriterFailed, needsBrief,
+  implementBranchRecordPath, implementBranchStatePath, implementLogPath, implementStatePath,
+} from '../../src/server/implement.js';
+import { briefPath } from '@plot-pm/fleet/shared/brief-path';
+import {
+  briefFailedNote, briefNote, briefWriterFailed, briefWriting, needsBrief,
 } from '../../src/app/lib/agent-rows/row-identity.js';
 import { type AgentRow, type FleetReading } from '../../src/contract/schema.js';
 import { rmTree } from '../helpers.mjs';
@@ -58,11 +62,34 @@ const pulse = (branch = BRANCH): FleetReading => ({
   summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
 } as unknown as FleetReading);
 
+/** One approved plan, one eligible wave, two brief-less sibling branches. */
+const siblingPulse = (first: string, second: string): FleetReading => ({
+  plans: [{
+    file: PLAN_FILE,
+    phase: 'approved',
+    slices: [{
+      name: 'Writing it',
+      verdict: 'eligible',
+      branches: [
+        { branch: first, state: 'open', deferred: false, deferred_reason: '', claimed: '' },
+        { branch: second, state: 'open', deferred: false, deferred_reason: '', claimed: '' },
+      ],
+    }],
+  }],
+  summary: { plans: 1, waves: 1, branches: 2, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
+} as unknown as FleetReading);
+
 const rowFor = (repoRoot: string, branch = BRANCH): AgentRow =>
   rowsFromPulse(
     pulse(branch), new Map(), 'plot', QUIET,
     new Map(), '', null, Date.now(), null, null, null, null, null, repoRoot,
   ).find((r) => r.branch === branch)!;
+
+const rowsFor = (repoRoot: string, first: string, second: string): AgentRow[] =>
+  rowsFromPulse(
+    siblingPulse(first, second), new Map(), 'plot', QUIET,
+    new Map(), '', null, Date.now(), null, null, null, null, null, repoRoot,
+  );
 
 describe('briefFailed on the row', () => {
   it('holds the implement log\'s path for a non-zero recorded exit after the ask', () => {
@@ -111,6 +138,71 @@ describe('briefFailed on the row', () => {
 
     const row = rowFor(root);
     expect(row.brief).toBe('missing');
+  });
+});
+
+describe('briefWriting on the row — #1417', () => {
+  const FIRST = 'bug/the-first-sibling-slice';
+  const SECOND = 'bug/the-second-sibling-slice';
+  /** A pid that is alive and is not this process: the one that started this test run. */
+  const livePid = process.ppid;
+  /** A pid that belonged to a process that has ended. */
+  const deadPid = (): number => spawnSync(process.execPath, ['-e', '']).pid;
+
+  it('reads writing for the one sibling with a running writer, and leaves the other quiet', () => {
+    write(implementLogPath(root, PLAN_SLUG));
+    write(implementStatePath(root, PLAN_SLUG), `running ${livePid}`);
+    write(implementBranchRecordPath(root, PLAN_SLUG), FIRST);
+    write(implementBranchStatePath(root, PLAN_SLUG, FIRST), `running ${livePid}`);
+
+    const [first, second] = rowsFor(root, FIRST, SECOND);
+    expect(first.briefWriting).toBe('writing');
+    expect(briefWriting(first)).toBe(true);
+    // SECOND's own state file is absent AND a branch (FIRST) was recorded, so
+    // the run is attributed to FIRST alone — SECOND reads none, not asked.
+    expect(second.briefWriting).toBe('none');
+    expect(briefWriting(second)).toBe(false);
+  });
+
+  it('reads asked, never writing, on every sibling when the run named no branch', () => {
+    // A run given no branch marks every brief-less sibling under the existing
+    // `asked` reading — widening `writing` to match would put the indicator
+    // back on every sibling, the defect #1417 reports.
+    write(implementLogPath(root, PLAN_SLUG));
+    write(implementStatePath(root, PLAN_SLUG), `running ${livePid}`);
+
+    const [first, second] = rowsFor(root, FIRST, SECOND);
+    expect(first.briefWriting).toBe('asked');
+    expect(second.briefWriting).toBe('asked');
+  });
+
+  it('reads failed for a dead pid', () => {
+    write(implementLogPath(root, PLAN_SLUG));
+    write(implementBranchRecordPath(root, PLAN_SLUG), FIRST);
+    write(implementBranchStatePath(root, PLAN_SLUG, FIRST), `running ${deadPid()}`);
+
+    const row = rowFor(root, FIRST);
+    expect(row.briefWriting).toBe('failed');
+  });
+
+  it('reads none for a live pid once the brief itself is present', () => {
+    // The brief gates first: a brief that landed is the end of the question,
+    // even for a pid still alive this instant.
+    write(implementLogPath(root, PLAN_SLUG));
+    write(implementBranchRecordPath(root, PLAN_SLUG), BRANCH);
+    write(implementBranchStatePath(root, PLAN_SLUG, BRANCH), `running ${livePid}`);
+    write(path.join(root, briefPath(BRANCH)));
+
+    const row = rowFor(root);
+    expect(row.brief).toBe('present');
+    expect(row.briefWriting).toBe('none');
+  });
+
+  it('validates to none from a payload that predates the field', () => {
+    // An older server's pulse carries no `briefWriting` at all; the schema's
+    // default must still render exactly as the board did before this field.
+    const row = rowFor(root);
+    expect(row.briefWriting).toBe('none');
   });
 });
 

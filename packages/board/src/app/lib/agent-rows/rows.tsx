@@ -1534,13 +1534,22 @@ export function startableNote(row: AgentRow): string {
 }
 
 /**
- * Renders a brief note `briefNote` chose: the failed note in amber, the asked
- * note in the quiet tone. Decides nothing.
+ * Renders a brief note `briefNote` chose: a working dot while the writer runs,
+ * the failed note in amber, the asked note in the quiet tone. Decides nothing.
+ *
+ * THE DOT REUSES THE BOARD'S ONE PULSE CONVENTION — `animate-pulse
+ * motion-reduce:animate-none`, decorative and `aria-hidden`, first established
+ * for a WORKING row (`.plot/briefs/working-rows-pulse.md`). A second pattern
+ * here would give one working-indicator two different animations.
  */
 const BriefNoteCell = ({ note }: { note: BriefNote }) => (
   <span
     role="gridcell"
-    {...(note.kind === 'failed' ? { 'data-brief-failed': true } : { 'data-brief-asked': true })}
+    {...(note.kind === 'writing'
+      ? { 'data-brief-writing': true }
+      : note.kind === 'failed'
+        ? { 'data-brief-failed': true }
+        : { 'data-brief-asked': true })}
     className={cn(
       'flex w-full items-baseline gap-x-2 text-xs sm:col-start-3 sm:col-end-[-1]',
       note.kind === 'failed'
@@ -1549,6 +1558,12 @@ const BriefNoteCell = ({ note }: { note: BriefNote }) => (
     )}
     title={note.text}
   >
+    {note.kind === 'writing' && (
+      <span
+        aria-hidden
+        className="size-1.5 shrink-0 animate-pulse rounded-full bg-slate-400 motion-reduce:animate-none dark:bg-slate-500"
+      />
+    )}
     <span className="shrink-0 font-medium">{note.label}</span>
     <span className="min-w-0 max-sm:whitespace-normal">{note.text}</span>
   </span>
