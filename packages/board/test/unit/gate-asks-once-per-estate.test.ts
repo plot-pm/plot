@@ -38,7 +38,7 @@ import { boardState } from '../../src/server/controllers/fleet-state.js';
 import type { Board, Column } from '../../src/contract/schema.js';
 import type { EstateSource } from '../../src/server/controllers/fleet-state.js';
 import { rmTree } from '../helpers.mjs';
-import { pulseFor, stopFleetRefresh } from '../../src/server/fleet.js';
+import { stopFleetRefresh } from '../../src/server/fleet.js';
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const SCRIPTS_DIR = path.join(REPO_ROOT, 'skills/plot/scripts');
@@ -97,23 +97,6 @@ const countingSource = (columns: Column[]) => {
     },
   };
   return { source, state };
-};
-
-/**
- * Waits for the background scan a board question starts, then stops the clocks.
- * The scan's auto-dispatch step writes `.plot/state/auto-in-flight.json` when it
- * ends, and a write after `rmTree` recreates the repo directory as a leak. The
- * file's appearance is the signal that the step ran.
- */
-const settleScan = async (opts: { repoRoot: string; scriptsDir: string }): Promise<void> => {
-  const marks = path.join(opts.repoRoot, '.plot', 'state', 'auto-in-flight.json');
-  const deadline = Date.now() + 30_000;
-  void pulseFor(opts);
-  while (!fs.existsSync(marks) && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  stopFleetRefresh();
 };
 
 const COLUMNS: Column[] = [
@@ -303,7 +286,9 @@ describe("the gate's answer is identical to the board's", () => {
       expect(typeof entryAt, 'the entry point still stamps the answer').toBe('string');
       expect(typeof routeAt, 'and so does the route').toBe('string');
     } finally {
-      await settleScan({ repoRoot: dir, scriptsDir: SCRIPTS_DIR });
+      // A scan the board question started ends by writing `.plot/state`; a
+      // stopped cache skips that write, which would recreate the removed repo.
+      stopFleetRefresh();
       rmTree(dir);
     }
   });
@@ -341,7 +326,9 @@ describe("the gate's answer is identical to the board's", () => {
         'a stated refusal is not an absence',
       ).toBe(false);
     } finally {
-      await settleScan({ repoRoot: dir, scriptsDir: SCRIPTS_DIR });
+      // A scan the board question started ends by writing `.plot/state`; a
+      // stopped cache skips that write, which would recreate the removed repo.
+      stopFleetRefresh();
       rmTree(dir);
     }
   });

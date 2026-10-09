@@ -799,6 +799,12 @@ export interface CacheEntry {
    * in two constants are one base and one ratio.
    */
   pulseClock: RunningPulse | null;
+  /**
+   * True once `stopFleetRefresh` ran. A refresh already past its scan then
+   * performs none of the automatic writes, so a stopped cache cannot write
+   * `.plot/state` into a repository its owner has since removed.
+   */
+  stopped: boolean;
   running: boolean;
   prRunning: boolean;
 }
@@ -2033,10 +2039,12 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // a starved machine costs a bounded amount to detect rather than
     // `samples x spawnCostMs`.
     const machine = await readMachine(opts);
+    const settings = await readFleetSettings(opts);
+    if (entry.stopped) return;
     entry.autoInFlight = maybeAutoDispatch(
       opts,
       complete,
-      await readFleetSettings(opts),
+      settings,
       entry.agents,
       entry.autoInFlight,
       machine,
@@ -2152,7 +2160,7 @@ export function freshCacheEntry(): CacheEntry {
     lastComplete: null,
     // Null, not a stopped clock: `ensureCache` starts the pulse, and a fresh
     // entry has not been through it yet.
-    pulseClock: null, running: false, prRunning: false,
+    pulseClock: null, stopped: false, running: false, prRunning: false,
   };
 }
 
@@ -2326,7 +2334,10 @@ export function lastCompletePulseFor(opts: BuildBoardOptions): FleetReading | nu
 export function stopFleetRefresh(): void {
   // One `stop` per entry where there were two `clearInterval`s: both cadences
   // are subscribers on the one clock, so stopping it stops both.
-  for (const entry of caches.values()) entry.pulseClock?.stop();
+  for (const entry of caches.values()) {
+    entry.stopped = true;
+    entry.pulseClock?.stop();
+  }
   caches.clear();
 }
 
