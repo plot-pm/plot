@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-release-train-fixes-what-it-found
 - **Issue:** #1280, #1336, #1165
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-08, jwloka, `bug/deliver-reads-the-pr-index-first`
 - **Started:** 2026-10-08, jwloka, `bug/deliver-reads-the-pr-index-first`
 - **Delivered:** 2026-10-08
+- **Released:** 2026-10-08, v2.24.1
 
 ## Changelog
 
