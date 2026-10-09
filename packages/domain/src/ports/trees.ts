@@ -433,7 +433,7 @@ export interface Trees {
   stage(path: string, pathspecs: readonly string[]): Promise<PortResult<void>>;
 
   /**
-   * Whether a checkout holds no staged changes.
+   * Whether a checkout holds staged changes.
    *
    * `git -C <path> diff --cached --quiet` — a lifecycle write stages a plan
    * edit and then asks this before committing, to answer `nothing-to-commit`
@@ -442,10 +442,10 @@ export interface Trees {
    * them stages first.
    *
    * @param path - the checkout to check, absolute.
-   * @returns `true` when the index holds nothing staged; a failure means git
-   *   could not be asked.
+   * @returns `true` when the index holds staged changes, `false` when it holds
+   *   none; a failure means git could not be asked.
    */
-  hasStagedChanges(path: string): Promise<PortResult<boolean>>;
+    hasStagedChanges(path: string): Promise<PortResult<boolean>>;
 
   /**
    * Commits whatever is staged, attributing the commit to `who`.
@@ -463,4 +463,60 @@ export interface Trees {
    * @returns nothing; a failure means git refused the commit.
    */
   commitAs(path: string, who: string, message: string): Promise<PortResult<void>>;
+
+  /**
+   * Commits whatever is staged under the checkout's own identity.
+   *
+   * `git -C <path> commit -q -m <message>` — the commit an `Impl: same branch`
+   * approval makes on the work branch, attributed to whoever the checkout
+   * says they are. Fails on an empty index.
+   *
+   * @param path - the checkout to commit in, absolute.
+   * @param message - the commit message.
+   * @returns nothing; a failure means git refused the commit.
+   */
+  commitStaged(path: string, message: string): Promise<PortResult<void>>;
+
+  /**
+   * Fetches one branch from `origin` into its remote-tracking ref.
+   *
+   * `git -C <path> fetch -q origin <branch>`. A lifecycle write fetches before
+   * it books against `origin/<branch>`, because a stale ref guarantees a
+   * non-fast-forward push.
+   *
+   * @param path - the checkout to fetch in, absolute.
+   * @param branch - the branch to fetch.
+   * @returns nothing; a failure means the fetch did not complete.
+   */
+  fetch(path: string, branch: string): Promise<PortResult<void>>;
+
+  /**
+   * The default branch `origin` points at, as last fetched.
+   *
+   * `git -C <path> symbolic-ref --short refs/remotes/origin/HEAD` with the
+   * `origin/` prefix removed. A local read.
+   *
+   * @param path - the checkout to ask, absolute.
+   * @returns the branch name; a failure where `origin/HEAD` is not set.
+   */
+  originHead(path: string): Promise<PortResult<string>>;
+
+  /**
+   * The `user.name` a checkout reports.
+   *
+   * @param path - the checkout to ask, absolute.
+   * @returns the name; a failure where none is configured.
+   */
+  userName(path: string): Promise<PortResult<string>>;
+
+  /**
+   * Whether a fully qualified ref exists in a checkout's repository.
+   *
+   * `git -C <path> show-ref --verify --quiet <ref>`.
+   *
+   * @param path - the checkout to ask, absolute.
+   * @param ref - the ref, such as `refs/heads/feature/x`.
+   * @returns `true` where the ref exists, `false` where it does not.
+   */
+  hasRef(path: string, ref: string): Promise<PortResult<boolean>>;
 }

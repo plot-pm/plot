@@ -522,5 +522,37 @@ export const treesGit = (context: ShellContext): Trees => {
       );
       return run.code === 0 ? answered(undefined) : failed<void>();
     },
+
+    commitStaged: async (path, message): Promise<PortResult<void>> => {
+      const run = await runProcess('git', ['-C', path, 'commit', '-q', '-m', message], inRepo);
+      return run.code === 0 ? answered(undefined) : failed<void>();
+    },
+
+    fetch: async (path, branch): Promise<PortResult<void>> => {
+      const run = await runProcess('git', ['-C', path, 'fetch', '-q', 'origin', branch], inRepo);
+      return run.code === 0 ? answered(undefined) : failed<void>();
+    },
+
+    originHead: (path) =>
+      runScript(
+        'git',
+        ['-C', path, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
+        (stdout) => {
+          const name = asText(stdout).replace(/^origin\//, '');
+          if (name === '') throw new Error('git symbolic-ref: origin/HEAD names no branch');
+          return name;
+        },
+        inRepo,
+      ),
+
+    userName: (path) =>
+      runScript('git', ['-C', path, 'config', '--get', 'user.name'], asText, inRepo),
+
+    hasRef: async (path, ref): Promise<PortResult<boolean>> => {
+      const run = await runProcess('git', ['-C', path, 'show-ref', '--verify', '--quiet', ref], inRepo);
+      if (run.code === 0) return answered(true);
+      if (run.code === 1) return answered(false);
+      return failed<boolean>();
+    },
   };
 };
