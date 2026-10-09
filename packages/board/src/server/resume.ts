@@ -1,6 +1,6 @@
 import os from 'node:os';
 import { resumeAvailability, type ResumeAvailability } from '@plot-pm/domain';
-import { transcriptDir, transcriptFile } from '../shared/transcript.js';
+import { transcriptDir, transcriptFile } from '@plot-pm/fleet/shared/transcript';
 
 /**
  * What a resume needs to know about one agent, without needing the whole entry.

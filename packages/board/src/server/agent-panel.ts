@@ -4,7 +4,7 @@ import { isAnswered } from '@plot-pm/domain';
 import type { FleetReading } from '../contract/schema.js';
 import { readConfigAsync, type BuildBoardOptions } from './board.js';
 import { pulseFor } from './fleet.js';
-import { transcriptFacts, type TranscriptFacts } from '../shared/transcript.js';
+import { transcriptFacts, type TranscriptFacts } from '@plot-pm/fleet/shared/transcript';
 
 /**
  * What one WORKING row can honestly say about the agent holding it.

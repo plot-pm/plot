@@ -1,0 +1,32 @@
+{
+  "name": "@plot-pm/fleet",
+  "version": "0.1.0",
+  "description": "The fleet's clocks — the supervisor tick and the agent loop that spawn processes the domain only reads",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./shared/*": "./src/shared/*.ts",
+    "./server/entry/*": "./src/server/entry/*.ts"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@plot-pm/domain": "workspace:*",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "zod": "^4.4.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

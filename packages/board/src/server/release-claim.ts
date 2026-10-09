@@ -1,7 +1,7 @@
 import http from 'node:http';
 import type { BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
-import { gatherReadingsAndRelease } from '../shared/release-claim-reader.js';
+import { gatherReadingsAndRelease } from '@plot-pm/fleet/shared/release-claim-reader';
 
 /**
  * `POST /api/release-claim` — release a branch's claim: clears the manifests
@@ -19,7 +19,7 @@ import { gatherReadingsAndRelease } from '../shared/release-claim-reader.js';
  * `main.ts`'s `release-claim` command calls it too, so there is exactly one
  * computation of "is this branch releasable", reached from two callers.
  */
-export { gatherReadingsAndRelease, type ReleaseClaimResult } from '../shared/release-claim-reader.js';
+export { gatherReadingsAndRelease, type ReleaseClaimResult } from '@plot-pm/fleet/shared/release-claim-reader';
 
 export interface ReleaseClaimOptions extends BuildBoardOptions {
   host: string;

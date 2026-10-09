@@ -11,7 +11,7 @@ import {
   ANSWER_MAX,
   BODY_LIMIT,
   type ContinueRefusal,
-} from '../shared/continuation.js';
+} from '@plot-pm/fleet/shared/continuation';
 
 /**
  * Continuing an answered agent — the board's SECOND state-changing route, and

@@ -37,7 +37,7 @@ import { handleDeliver, deliverAvailability, deliverStatus } from './deliver.js'
 import { handleImplement, implementAvailability, implementStatus } from './implement.js';
 import { dropAvailability, handleDrop } from './drop.js';
 import { handleReleaseClaim } from './release-claim.js';
-import { logDir, processLog, truncateInherited } from '../shared/process-log.js';
+import { logDir, processLog, truncateInherited } from '@plot-pm/fleet/shared/process-log';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
 // path-traversal surface).

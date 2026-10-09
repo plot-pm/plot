@@ -69,7 +69,7 @@ import { extractTopics } from './topics.js';
 import {
   readConfig as readConfigReader,
   readConfigAsync as readConfigAsyncReader,
-} from '../shared/config-reader.js';
+} from '@plot-pm/fleet/shared/config-reader';
 
 /**
  * Where to look. `repoRoot` is the adopting project (source of plans / sprints

@@ -8,7 +8,6 @@ import {
   FindingSchema,
   FleetReadingSchema,
   MonitorNameSchema,
-  AgentStateSchema as DomainAgentStateSchema,
   BOARD_PHASES,
   SprintStateSchema,
   ChecksSchema,
@@ -16,6 +15,7 @@ import {
   type Phase,
   type SprintState,
 } from '@plot-pm/domain';
+import { AgentStateSchema, AgentIdentitySchema, type AgentState, type AgentIdentity } from '@plot-pm/fleet/shared/agent-wire';
 
 /**
  * The contract between Plot's plan-format helper (`plot-plan-meta.sh`) and the
@@ -3361,8 +3361,8 @@ export type IssueAnswer = z.infer<typeof IssueAnswerSchema>;
  * so the exit code cannot say whether the work is done and the tree refines
  * `finished`.
  *
- * BUILT FROM {@link DomainAgentStateSchema} rather than restated, so the two
- * cannot drift. This enum carried five members until 2026-09-04 and collapsed
+ * BUILT FROM the domain's own `AgentStateSchema` rather than restated, so the
+ * two cannot drift. This enum carried five members until 2026-09-04 and collapsed
  * `failed`, `ended`, `none` and `elsewhere` into `unknown` — answers
  * `plot-worker-state.sh` already gave and `bashLiveness` already received. The
  * four name different next moves: a recorded non-zero exit is a worker to look
@@ -3376,12 +3376,14 @@ export type IssueAnswer = z.infer<typeof IssueAnswerSchema>;
  * worker*, `elsewhere` is *no worktree on this machine*, `unknown` is *nobody
  * looked*. Absent is not a guess, which is why a stale record can never
  * masquerade as a live one.
+ *
+ * MOVED TO `@plot-pm/fleet` and re-exported here. `registry.ts` is the
+ * fleet's own module and the only caller, so the enum is defined where it is
+ * used; this re-export keeps every one of the board's 53 importers of
+ * `AgentState`/`AgentStateSchema` on the path they already have.
  */
-export const AgentStateSchema = z.enum([
-  ...DomainAgentStateSchema.options,
-  'unknown',
-]);
-export type AgentState = z.infer<typeof AgentStateSchema>;
+export { AgentStateSchema };
+export type { AgentState };
 
 /**
  * The registry states that mean a LIVE WORKER — the one deciding whether an
@@ -3510,16 +3512,16 @@ export const ProcessGroupSchema = z.object({
 });
 
 /**
- * Whether an agent's identity was declared or inferred — the wire's copy of the
- * domain's `AgentIdentitySchema`.
+ * Whether an agent's identity was declared or inferred — the fleet's copy of
+ * the domain's `AgentIdentitySchema`.
  *
- * A COPY BECAUSE THE CONTRACT PACKAGE IMPORTS NO DOMAIN, the same reason every
- * other entity on this wire restates its shape. The two are one enum in two
- * places and the values are the domain's; `identityWasDeclared` is the rule and
- * lives there.
+ * MOVED TO `@plot-pm/fleet` and re-exported here. `registry.ts` is the
+ * fleet's own module and the only caller, so the enum is defined where it is
+ * used; this re-export keeps every one of the board's importers of
+ * `AgentIdentity`/`AgentIdentitySchema` on the path they already have.
  */
-export const AgentIdentitySchema = z.enum(['manifest', 'synthesized']);
-export type AgentIdentity = z.infer<typeof AgentIdentitySchema>;
+export { AgentIdentitySchema };
+export type { AgentIdentity };
 
 export const AgentEntrySchema = z.object({
   /**

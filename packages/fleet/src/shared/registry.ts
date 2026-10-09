@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { transcriptDir, transcriptFile, readTranscriptFacts } from './transcript.js';
-import { AgentStateSchema, type AgentState as ContractAgentState, type AgentIdentity } from '../contract/schema.js';
+import { AgentStateSchema, type AgentState as ContractAgentState, type AgentIdentity } from './agent-wire.js';
 import { scriptsShell } from '@plot-pm/domain/adapters';
 import { deskManifest, manifestDirectory, type ManifestReading } from '@plot-pm/domain/rules/desk-manifest';
 import { deskProcessState, deskWorker, type ManifestWorkerReading } from '@plot-pm/domain/rules/desk-worker';
