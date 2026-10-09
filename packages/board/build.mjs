@@ -1001,27 +1001,6 @@ await esbuild.build({
 fs.copyFileSync(claimAnswerArtifact, shippedClaimAnswer);
 fs.chmodSync(shippedClaimAnswer, 0o755);
 
-// plot-supervisor-migration.mjs — whether an old-label supervisor unit serves
-// this checkout, for plot-fleetctl.sh --start's migration. Reads argv, spawns
-// nothing and opens nothing.
-const supervisorMigrationArtifact = path.join(here, 'dist/plot-supervisor-migration.mjs');
-const shippedSupervisorMigration = path.join(here, '../../skills/plot/scripts/board/plot-supervisor-migration.mjs');
-
-await esbuild.build({
-  entryPoints: [path.join(here, 'src/server/entry/supervisor-migration.ts')],
-  bundle: true,
-  platform: 'node',
-  format: 'esm',
-  target: 'node20',
-  outfile: supervisorMigrationArtifact,
-  minify: true,
-  legalComments: 'none',
-  banner: { js: '#!/usr/bin/env node' },
-});
-
-fs.copyFileSync(supervisorMigrationArtifact, shippedSupervisorMigration);
-fs.chmodSync(shippedSupervisorMigration, 0o755);
-
 // What has drifted, at one scope, for /plot-reconcile.
 //
 // ONCE PER SWEEP, which an operator runs casually — that is the property the
@@ -1336,7 +1315,6 @@ const emptyClaimKb = (fs.statSync(shippedEmptyClaim).size / 1024).toFixed(1);
 const controllerInvocationKb = (fs.statSync(shippedControllerInvocation).size / 1024).toFixed(1);
 const deliverKb = (fs.statSync(shippedDeliver).size / 1024).toFixed(1);
 const claimAnswerKb = (fs.statSync(shippedClaimAnswer).size / 1024).toFixed(1);
-const supervisorMigrationKb = (fs.statSync(shippedSupervisorMigration).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1373,5 +1351,4 @@ console.log(`Built plot-empty-claim.mjs (${emptyClaimKb} KB) → skills/plot/scr
 console.log(`Built plot-controller-invocation.mjs (${controllerInvocationKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-deliver.mjs (${deliverKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-claim-answer.mjs (${claimAnswerKb} KB) → skills/plot/scripts/board/`);
-console.log(`Built plot-supervisor-migration.mjs (${supervisorMigrationKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

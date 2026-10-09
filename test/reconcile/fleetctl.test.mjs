@@ -141,7 +141,7 @@ function sandbox(label, { nvmrc = '24', registryd = true } = {}) {
 
   const dst = path.join(root, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.join(dst, 'board'), { recursive: true });
-  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs', 'board/plot-supervisor-migration.mjs']) {
+  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs']) {
     const src = path.join(scripts, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dst, f));
   }
@@ -1616,7 +1616,7 @@ function consumerSandbox(label, { nvmrc = process.versions.node.split('.')[0], r
   const plugin = path.join(box, 'plugin-cache', 'plot', '9.9.9');
   const dst = path.join(plugin, 'skills', 'plot', 'scripts');
   fs.mkdirSync(path.join(dst, 'board'), { recursive: true });
-  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs', 'board/plot-supervisor-migration.mjs']) {
+  for (const f of ['plot-fleetctl.sh', 'plot-worker-state.sh', 'plot-config.sh', 'plot-monitor-subject.sh', 'plot-desk-root.sh', 'board/plot-desk-root.mjs']) {
     const src = path.join(scripts, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dst, f));
   }
