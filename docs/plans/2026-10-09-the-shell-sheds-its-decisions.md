@@ -82,7 +82,7 @@ Measured on `main` at `0b749ca9e`, 2026-10-09:
 
 ### The reaper becomes a command
 
-- `feature/the-reaper-becomes-a-command` — `plot-reap.sh` becomes a launcher over a JS entry that asks `rules/reapable.ts`; desk removal becomes a `trees` port write <!-- builds: a JS reap entry and a trees-port desk removal -->
+- `feature/the-reaper-becomes-a-command` — `plot-reap.sh` becomes a launcher over a JS entry that asks `rules/reapable.ts`; desk removal becomes a `trees` port write → #1432 <!-- builds: a JS reap entry and a trees-port desk removal -->
 
 ### Approval becomes a command
 
