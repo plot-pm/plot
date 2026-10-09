@@ -27,7 +27,7 @@ export const clearHolds = (
 
   let removed = 0;
   const kept = body.filter((line) => {
-    const branch = line.split(/\s/, 1)[0] ?? '';
+    const branch = line.split(/\s/, 1).join('');
     if (named.has(branch)) {
       removed += 1;
       return false;

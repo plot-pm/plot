@@ -46,6 +46,13 @@ describe('annotateSprintItem', () => {
     expect(next).toContain('<!-- pr: #42, branch: feature/alpha -->');
   });
 
+  it('closes a comment that was left open', () => {
+    const content = '- [ ] [approve-me] the plan <!-- pr: none, branch: none\n';
+    const { content: next, outcome } = annotateSprintItem(content, 'approve-me', 42, 'feature/alpha');
+    expect(outcome).toBe('updated');
+    expect(next).toContain('<!-- pr: #42, branch: feature/alpha -->');
+  });
+
   it('a second run with the same pr/branch answers already, not updated', () => {
     const once = annotateSprintItem('- [ ] [approve-me] the plan\n', 'approve-me', 42, 'feature/alpha');
     const twice = annotateSprintItem(once.content, 'approve-me', 42, 'feature/alpha');
