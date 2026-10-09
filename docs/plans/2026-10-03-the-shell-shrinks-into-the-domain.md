@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Issue:** #1245
 - **Review:** in-session
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-04, Jan Wloka, `infra/a-command-names-its-action-in-the-domain`
 - **Started:** 2026-10-04, Jan Wloka, `infra/the-first-script-becomes-a-command`
 - **Delivered:** 2026-10-04
+- **Released:** 2026-10-04, v2.23.0
 
 ## Changelog
 

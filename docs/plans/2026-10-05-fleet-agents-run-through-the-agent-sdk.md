@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Story:** the-supervisor-delivers-the-approved-scope
 - **Review:** in-session
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-06, jwloka, `infra/the-board-commands-run-through-the-port`
 - **Started:** 2026-10-07, jwloka, `infra/the-sdk-is-the-default-runner`
 - **Delivered:** 2026-10-07
+- **Released:** 2026-10-07, v2.24.0
 
 ## Changelog
 

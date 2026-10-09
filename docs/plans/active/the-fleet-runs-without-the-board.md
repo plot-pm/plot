@@ -1,0 +1,1 @@
+../2026-10-09-the-fleet-runs-without-the-board.md
