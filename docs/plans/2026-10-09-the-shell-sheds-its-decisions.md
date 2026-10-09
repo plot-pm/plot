@@ -14,6 +14,7 @@
 - **Started:** 2026-10-09, jwloka, `feature/the-gate-counts-decisions`
 - **Started:** 2026-10-09, jwloka, `feature/the-gate-counts-every-script`
 - **Started:** 2026-10-09, jwloka, `feature/a-declared-bundle-is-evidence`
+- **Started:** 2026-10-09, jwloka, `feature/the-reaper-becomes-a-command`
 
 ## Changelog
 
