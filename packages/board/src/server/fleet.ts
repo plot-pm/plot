@@ -99,15 +99,12 @@ export {
 export { branchUrlBase, listedBranchCount, scanListingCost } from '@plot-pm/fleet/shared/fleet-scan';
 import { scanOnce, branchAges, planDirectory, type ScanResult } from '@plot-pm/fleet/shared/fleet-scan';
 import { readFleetSettings } from './fleet-settings.js';
-import { maybeAutoDispatch } from './auto-dispatch.js';
-import { readMachine } from './machine-reading.js';
 import { readSupervisor } from './supervisor-reading.js';
 import {
   readSupervisionReport,
   NO_SUPERVISION_REPORT,
   type SupervisionReportReadings,
 } from './supervision-report-reading.js';
-import { maybeAutoDeliver } from './auto-deliver.js';
 import { readAgentRegistryWithInfo, bashCleanliness } from '@plot-pm/fleet/shared/registry';
 import type { RegistryInfo } from '@plot-pm/fleet/shared/registry';
 import type { AgentEntry } from '@plot-pm/fleet/shared/registry';
@@ -306,8 +303,6 @@ export interface CacheEntry {
    * section.
    */
   sections: Map<string, WaitingGroup>;
-  /** The bridged pulse's `at` that auto-dispatch last acted on; `null` before any. */
-  bridgeActedAt: number | null;
   /**
    * Terminal branch answers, carried from one pulse to the next.
    *
@@ -497,64 +492,6 @@ export interface CacheEntry {
    * been asked yet, so the header renders nothing rather than *could not ask*.
    */
   supervisor: SupervisorRun | undefined;
-  /**
-   * Branches AUTO-DISPATCH has started this session whose claim/manifest the
-   * next pulse cannot yet see.
-   *
-   * `plot-dispatch.sh` is spawned detached, so a branch dispatched on one pulse
-   * may show neither a claim ref nor a manifest on the very next one. Counting
-   * only the registry against the cap would then dispatch it a second time and
-   * let the fleet reach 2N. This set holds such branches against the cap until a
-   * pulse confirms them (merged, gone, or held by a live registry entry), at
-   * which point `pruneInFlight` retires them.
-   *
-   * THIS PROCESS'S HALF OF AN ANSWER THAT IS SHARED ON DISK. It was in memory
-   * and nowhere else until 2026-09-11, and that is precisely what let two boards
-   * on one repository reach `2N` between them: each saw an empty in-flight set,
-   * each concluded it was alone, each spent the whole cap. The marks now also
-   * live in `.plot/state/auto-in-flight.json`, which every board reads and
-   * renews — see `in-flight-store.ts`.
-   *
-   * This field stays, and it is not a cache of that file. It is what THIS board
-   * dispatched and therefore what this board renews; `maybeAutoDispatch` merges
-   * the shared marks in for the budget arithmetic and writes back only these.
-   * A restart still re-derives it — an empty set here is correct at construction,
-   * because the unexpired marks on disk are adopted on the first pulse.
-   */
-  autoInFlight: Set<string>;
-  /**
-   * The slugs a DELIVERY has been started for and whose effect no pulse has
-   * confirmed yet — the same cross-pulse guard `autoInFlight` is, for the same
-   * reason and with the same lifetime.
-   *
-   * `plot-deliver.sh` pushes to the default branch, and the scan fires every few
-   * seconds; without this a plan would be delivered a dozen times over while the
-   * first run was still working. Idempotence makes that harmless, not free.
-   *
-   * IN MEMORY AND NOWHERE ELSE. A restart re-derives it: a plan whose delivery
-   * landed no longer reads `approved`, and one whose delivery did not is simply
-   * offered again.
-   */
-  deliverInFlight: Set<string>;
-  /**
-   * The branches this board has asked the `Brief command` to write a brief
-   * for, and whose brief the latest pass still found missing on
-   * `origin/<main>`. Each auto-dispatch pass prunes it to those branches.
-   *
-   * The same cross-pulse guard `deliverInFlight` is, for the same reason and
-   * with the same lifetime. Measured 2026-09-11: a dispatch that timed out
-   * while its inner script outlived it produced two `claude -p` briefs for one
-   * slug, and a board asking every five seconds would produce one per pulse.
-   *
-   * MUTATED IN PLACE by `maybeAutoDispatch` rather than reassigned, which is
-   * why there is no `entry.briefsAsked =` below: the pass adds each new ask and
-   * deletes each ask whose brief landed, so the entry holds the pruned set.
-   *
-   * IN MEMORY AND NOWHERE ELSE. A restart re-derives it: the brief either
-   * reached `origin/<main>`, in which case the plan is no longer `no-brief`, or
-   * it did not and the plan is simply asked for again.
-   */
-  briefsAsked: Set<string>;
   prs: Map<string, PrRecord> | null;
   /**
    * The same records keyed by PR NUMBER. The fleet tab asks "what is this
@@ -2006,72 +1943,8 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // THE BOARD WRITES NO BRIDGE. The fleet is its only writer; the board reads
     // it through the `FleetState` port and a failed or absent bridge is a scan.
     //
-    // AUTO-DISPATCH ACTS ONCE PER PULSE. A pulse the board scanned is always
-    // new. A bridged one is acted on when its `at` differs from the last one
-    // acted on, so a 5 s refresh re-reading the same file does not dispatch
-    // again, and a restart that preloaded it (`ensureCache`) does not either.
-    if (owned && bridged !== null) {
-      if (entry.bridgeActedAt === bridged.at) return;
-      entry.bridgeActedAt = bridged.at;
-    }
-    // THE ONE AUTOMATIC WRITE — auto-dispatch.
-    //
-    // On the SCAN's clock, inside its success path, from a pulse that actually
-    // landed — a dispatch from a failed scan would act on refs that may have
-    // moved. Off the REQUEST path entirely, which is what keeps the guard on
-    // `/api/dispatch` untouched: that route asks *where is the caller*, and a
-    // firing interval passes that trivially, so this deliberately never becomes
-    // a route at all. It is not reachable over the network, from any binding,
-    // localhost included: there is nothing to reach.
-    //
-    // Reads the controls FRESH so a switch flipped this pulse takes effect now,
-    // and counts liveness from `entry.agents`, the registry this same refresh
-    // just repopulated. The in-flight set is the ONE piece of state that spans
-    // pulses — assigned whole, never mutated, so the cache's one-directional
-    // rule holds. It withholds the next dispatch when the switch is off or the
-    // cap is at its live count; it NEVER signals a running worker.
-    //
-    // THE MACHINE READING is taken here, on the scan's clock, and handed in as
-    // a VALUE — `maybeAutoDispatch` stays synchronous and `planAutoDispatch`
-    // stays pure. One reading per pulse, shared, rather than one per agent:
-    // measuring per agent would multiply the very cost it measures
-    // (`DESIGN-machine.md` §9). The sampling is time-bounded in the adapter, so
-    // a starved machine costs a bounded amount to detect rather than
-    // `samples x spawnCostMs`.
-    const machine = await readMachine(opts);
-    const settings = await readFleetSettings(opts);
-    if (entry.stopped) return;
-    entry.autoInFlight = maybeAutoDispatch(
-      opts,
-      complete,
-      settings,
-      entry.agents,
-      entry.autoInFlight,
-      machine,
-      // MUTATED IN PLACE, never reassigned — see the field's own note. The ask
-      // record is this entry's running tally and not a per-pulse derivation, so
-      // it is handed in and kept rather than returned.
-      entry.briefsAsked,
-    );
-
-    // THE THIRD AUTOMATIC WRITE — a finished plan delivers itself, and its
-    // desks are cleared behind it.
-    //
-    // Beside the two above and of exactly the same kind: on the SCAN's clock,
-    // inside its success path, from a pulse that actually landed. Off the
-    // request path entirely, so it is a route nobody can reach.
-    //
-    // LAST of the three, which is not arbitrary. `maybeAutoDispatch` starts work
-    // and this finishes it, so running it after means a branch dispatched this
-    // pulse is already counted live before anything asks whether its plan is
-    // done. And it reaps, which removes worktrees the two writes above read.
-    //
-    // The board writes NONE of the transition: `maybeAutoDeliver` calls
-    // `plot-deliver.sh`, which flips the phase, writes the `Delivered:` record
-    // and moves the index symlink in one commit — then, and only on its success,
-    // reaps. See `auto-deliver.ts` for why the ordering is a listener rather
-    // than a second spawn.
-    entry.deliverInFlight = maybeAutoDeliver(opts, complete, entry.deliverInFlight);
+    // THE BOARD ACTS ON NO PULSE. Auto-dispatch and auto-delivery run in
+    // `plot-fleetd` on the scan it owns, so a stopped board stops neither.
   } catch (err) {
     // A failed refresh NEVER overwrites a good result. Replacing real state
     // with emptiness because one scan failed is what makes a monitoring view
@@ -2112,7 +1985,6 @@ export function freshCacheEntry(): CacheEntry {
     // honest answer rather than a section invented from a pulse this process
     // never saw.
     sections: new Map(),
-    bridgeActedAt: null,
     // Empty at construction, which is the whole of "a restart re-derives
     // everything": nothing survives this process, so the first pulse is cold.
     terminal: '',
@@ -2138,9 +2010,6 @@ export function freshCacheEntry(): CacheEntry {
     supervisor: undefined,
     // Empty at construction — nothing was dispatched before this process began,
     // and a restart re-derives liveness from git rather than trusting a set.
-    autoInFlight: new Set(),
-    deliverInFlight: new Set(),
-    briefsAsked: new Set(),
     prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null, prSpendPerHour: null,
     prResetAt: null, prConcurrency: PR_CONCURRENCY_START,
     prLimit: null, prFullReadFailedAt: null, prPendingReaskStreak: new Map(),
@@ -2199,9 +2068,6 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
     entry.ideaPlans = warm.ideaPlans;
     entry.at = warm.at;
     entry.lastComplete = warm.pulse;
-    // Acted on already: a pulse the previous process dispatched from must not
-    // fire a second dispatch because the process restarted.
-    entry.bridgeActedAt = warm.at;
   }
   void refresh(opts, entry);
   void maybeRefreshPrs(opts, entry);

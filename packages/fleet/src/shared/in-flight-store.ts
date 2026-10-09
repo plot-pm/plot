@@ -57,6 +57,12 @@ import path from 'node:path';
  */
 export const IN_FLIGHT_TTL_MS = 90_000;
 
+/**
+ * Which automatic write a mark file belongs to. `dispatch` marks hold branches;
+ * `deliver` marks hold plan slugs. The two files share a format and a TTL.
+ */
+export type InFlightKind = 'dispatch' | 'deliver';
+
 /** One board's marks, as they sit on disk. */
 interface InFlightFile {
   /** Branch name → the epoch-millisecond time the mark was last renewed. */
@@ -71,8 +77,8 @@ interface InFlightFile {
  * `fleetSettingsPath`. A committed copy would be one machine telling another
  * which of ITS branches are mid-dispatch, which is a claim ref by another route.
  */
-export function inFlightPath(repoRoot: string): string {
-  return path.join(repoRoot, '.plot', 'state', 'auto-in-flight.json');
+export function inFlightPath(repoRoot: string, kind: InFlightKind = 'dispatch'): string {
+  return path.join(repoRoot, '.plot', 'state', kind === 'dispatch' ? 'auto-in-flight.json' : 'auto-deliver-in-flight.json');
 }
 
 /**
@@ -134,10 +140,14 @@ export interface InFlightReading {
  * state — no board on this machine has dispatched anything — so it reads as an
  * empty set rather than as an unreadable one.
  */
-export function readInFlight(repoRoot: string, now: number = Date.now()): InFlightReading {
+export function readInFlight(
+  repoRoot: string,
+  now: number = Date.now(),
+  kind: InFlightKind = 'dispatch',
+): InFlightReading {
   let raw: string;
   try {
-    raw = fs.readFileSync(inFlightPath(repoRoot), 'utf8');
+    raw = fs.readFileSync(inFlightPath(repoRoot, kind), 'utf8');
   } catch (err) {
     // ENOENT is the ordinary first state, not an error: nothing has been
     // dispatched on this machine, so the empty set IS the shared answer. Any
@@ -201,8 +211,9 @@ export function writeInFlight(
   repoRoot: string,
   branches: Iterable<string>,
   now: number = Date.now(),
+  kind: InFlightKind = 'dispatch',
 ): string {
-  const file = inFlightPath(repoRoot);
+  const file = inFlightPath(repoRoot, kind);
   const marks: Record<string, number> = {};
   // Re-read so another board's marks survive this write. An unreadable file is
   // REPLACED here rather than refused: the read side already refuses on it, and

@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { readConfig, allSlicesConfirmed, allSlicesMerged, type BuildBoardOptions } from './board.js';
-import { usableCommand } from './idea.js';
-import { deliverLogPath } from './deliver.js';
-import type { PlanMeta, FleetReading } from '../contract/schema.js';
-import { scriptsFor } from './board.js';
+import { allSlicesConfirmed, allSlicesMerged, type FleetReading, type PlanFile } from '@plot-pm/domain';
+import { readConfig } from './config-reader.js';
+import { usableCommand } from './usable-command.js';
+import { deliverLogPath, scriptsOf, type ActOptions } from './action-log.js';
+import { readInFlight, writeInFlight } from './in-flight-store.js';
 import { recordActionReceipt } from './action-receipt.js';
 import { startBoardRun } from './board-run.js';
 
@@ -114,7 +114,7 @@ export function deliverPrompt(slug: string): string {
 }
 
 /** Read the configured command, or "" — the one place that key is looked up. */
-export function deliverCommand(opts: BuildBoardOptions): string {
+export function deliverCommand(opts: ActOptions): string {
   return usableCommand(readConfig(opts, DELIVER_COMMAND_KEY, ''));
 }
 
@@ -180,8 +180,8 @@ export interface PlanAutoDeliverInput {
  * plan file again is what keeps this actor on the pulse's clock: the function is
  * called with the scan's own answer, not with a second opinion about it.
  */
-function joinKey(file: string): PlanMeta {
-  return { file } as PlanMeta;
+function joinKey(file: string): PlanFile {
+  return { file } as PlanFile;
 }
 
 /**
@@ -378,7 +378,7 @@ export function pruneDelivering(
  * automatic.
  */
 export function runAutoDeliver(
-  opts: BuildBoardOptions,
+  opts: ActOptions,
   plans: AutoDeliverPlan[],
 ): string[] {
   const command = deliverCommand(opts);
@@ -454,7 +454,7 @@ export function runAutoDeliver(
         (record) => onExit(record.code, null),
       );
     } else {
-      scriptsFor(opts).start(DELIVER_SCRIPT, [plan.slug], { log: out, onExit, onError });
+      scriptsOf(opts).start(DELIVER_SCRIPT, [plan.slug], { log: out, onExit, onError });
     }
     // The script arm keeps its handle: the EXIT CODE is what the reap waits
     // for. `detached` there keeps a Ctrl-C in the board's terminal off a
@@ -476,7 +476,7 @@ export function runAutoDeliver(
  * slug travels so the log line says which delivery caused the sweep, AND
  * because the ref release chained to this exit is not slug-blind at all.
  */
-function reap(opts: BuildBoardOptions, slug: string): void {
+function reap(opts: ActOptions, slug: string): void {
   const log = deliverLogPath(opts.repoRoot, slug);
   let out: number;
   try {
@@ -496,7 +496,7 @@ function reap(opts: BuildBoardOptions, slug: string): void {
   // host about each branch and checks the worktree list again. A reap that
   // failed halfway leaves a worktree in place, which the release then SEES and
   // refuses on. The guards are the gate here, not the exit code.
-  scriptsFor(opts).start(REAP_SCRIPT, ['--yes'], {
+  scriptsOf(opts).start(REAP_SCRIPT, ['--yes'], {
     log: out,
     onExit: () => releaseRefs(opts, slug),
     onError: (err) => console.error('auto-deliver reap failed to spawn:', err),
@@ -528,7 +528,7 @@ function reap(opts: BuildBoardOptions, slug: string): void {
  * next delivery's run — or a typed one — removes, because every gate is
  * re-derived from the host and from git rather than from a progress file.
  */
-function releaseRefs(opts: BuildBoardOptions, slug: string): void {
+function releaseRefs(opts: ActOptions, slug: string): void {
   const log = deliverLogPath(opts.repoRoot, slug);
   let out: number;
   try {
@@ -537,7 +537,7 @@ function releaseRefs(opts: BuildBoardOptions, slug: string): void {
     console.error(`auto-deliver could not open ${log} for the ref release:`, err);
     return;
   }
-  scriptsFor(opts).start(RELEASE_REFS_SCRIPT, ['--yes', slug], {
+  scriptsOf(opts).start(RELEASE_REFS_SCRIPT, ['--yes', slug], {
     log: out,
     onError: (err) => console.error('auto-deliver ref release failed to spawn:', err),
   });
@@ -558,7 +558,7 @@ function releaseRefs(opts: BuildBoardOptions, slug: string): void {
  * the set of finished plans is not something the board can run out of room for.
  */
 export function maybeAutoDeliver(
-  opts: BuildBoardOptions,
+  opts: ActOptions,
   pulse: FleetReading | null,
   inFlight: Set<string>,
 ): Set<string> {
@@ -577,3 +577,35 @@ export function maybeAutoDeliver(
   const started = runAutoDeliver(opts, plans);
   return new Set([...pruned, ...started]);
 }
+
+/**
+ * One delivery pass over the marks on disk: read them, retire the confirmed,
+ * mark what is about to start, then start it.
+ *
+ * The marks live in `.plot/state/auto-deliver-in-flight.json` with the
+ * dispatch marks' format and 90 s lifetime, so a daemon restart inside that
+ * window does not deliver a plan twice. Each pass renews the marks it still
+ * holds, so a delivery that outlives 90 s stays marked while it is pending.
+ *
+ * A mark file that exists and cannot be read starts nothing: the marks are the
+ * only evidence that a delivery is running, and a pass blind to them would start
+ * a second one.
+ *
+ * @param opts - where the fleet acts.
+ * @param pulse - the pulse the scan just wrote.
+ */
+export const runAutoDeliverPass = (opts: ActOptions, pulse: FleetReading | null): void => {
+  const read = readInFlight(opts.repoRoot, Date.now(), 'deliver');
+  if (read.branches === null) {
+    console.log(`auto-deliver: cannot read the in-flight record (${read.error}); starting nothing this pass`);
+    return;
+  }
+  const complete = pulse !== null;
+  const pruned = pruneDelivering(read.branches, pulse, complete);
+  const plans = planAutoDeliver({ pulse, inFlight: pruned, complete });
+  // MARKED BEFORE THE SPAWN, for the reason auto-dispatch marks first: a crash
+  // between the two may over-mark and never under-mark.
+  const markError = writeInFlight(opts.repoRoot, [...pruned, ...plans.map((p) => p.slug)], Date.now(), 'deliver');
+  if (markError) console.log(`auto-deliver: could not record in-flight marks: ${markError}`);
+  if (plans.length > 0) runAutoDeliver(opts, plans);
+};

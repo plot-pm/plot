@@ -97,10 +97,12 @@ const whole = walkWholeGraph(ENTRIES, onDisk);
  * decision anybody makes. It moves whenever the read path gains or loses a
  * helper, which is ordinary work; it collapsing is not.
  *
- * Measured 2026-09-01: 11 on the prefix, 165 in the whole graph.
+ * Measured 2026-09-01: 11 on the prefix, 165 in the whole graph. Measured
+ * 2026-10-10: 86 in the whole graph, after `the-fleet-owns-its-automatic-writes`
+ * moved auto-dispatch and auto-delivery to `packages/fleet`.
  */
 const PREFIX_FLOOR = 8;
-const GRAPH_FLOOR = 120;
+const GRAPH_FLOOR = 60;
 
 describe('a read route spawns nothing', () => {
   it('finds the entry points it is meant to gate', () => {

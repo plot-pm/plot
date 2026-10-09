@@ -23,16 +23,12 @@ import { afterEach, describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { rmTree } from '../helpers.mjs';
-import {
-  planAutoDeliver,
-  pruneDelivering,
-  maybeAutoDeliver,
-  planSlug,
-  DELIVER_COMMAND_KEY,
-} from '../../src/server/auto-deliver.js';
-import { FleetReadingSchema, type FleetReading } from '../../src/contract/schema.js';
+import { removeTree as rmTree } from '../rm-tree.mjs';
+import { planSlug } from '@plot-pm/domain';
+import { planAutoDeliver, pruneDelivering, maybeAutoDeliver, runAutoDeliverPass, DELIVER_COMMAND_KEY } from '../../src/shared/auto-deliver.js';
+import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
 import { allSlicesMerged } from '@plot-pm/domain';
+import { readInFlight, inFlightPath } from '../../src/shared/in-flight-store.js';
 
 const made: string[] = [];
 afterEach(() => {
@@ -623,5 +619,34 @@ describe('a landing only a merge subject proves', () => {
   it('still reads the plan as merged for the wave gate', () => {
     const p = subjectOnly();
     expect(allSlicesMerged({ file: '2026-10-01-throttled.md' }, p, true)).toBe('merged');
+  });
+});
+
+describe('runAutoDeliverPass — the marks persist', () => {
+  it('writes the plan as a mark before the delivery runs, and a second pass starts nothing', async () => {
+    const { opts, runs } = fixture('');
+    const p = finished();
+    runAutoDeliverPass(opts, p);
+    const marks = readInFlight(opts.repoRoot, Date.now(), 'deliver');
+    expect([...(marks.branches ?? [])]).toEqual(['ship-it']);
+    await settle();
+    const before = runs().length;
+    runAutoDeliverPass(opts, p);
+    await settle();
+    expect(runs().length).toBe(before);
+  });
+
+  it('starts nothing when the mark file exists and cannot be read', async () => {
+    const { opts, runs } = fixture('');
+    fs.mkdirSync(path.dirname(inFlightPath(opts.repoRoot, 'deliver')), { recursive: true });
+    fs.writeFileSync(inFlightPath(opts.repoRoot, 'deliver'), '{not json');
+    runAutoDeliverPass(opts, finished());
+    await settle();
+    expect(runs()).toEqual([]);
+  });
+
+  it('keeps the delivery marks apart from the dispatch marks', () => {
+    const { opts } = fixture('');
+    expect(inFlightPath(opts.repoRoot, 'deliver')).not.toBe(inFlightPath(opts.repoRoot));
   });
 });

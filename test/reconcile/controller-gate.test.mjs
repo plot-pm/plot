@@ -402,7 +402,7 @@ test('controller gate: the path the board writes is the path the gate reads', ()
   assert.ok(existsSync(written), 'the shell writer puts it here');
 
   const ts = readFileSync(
-    path.join(here, '..', '..', 'packages', 'board', 'src', 'server', 'action-receipt.ts'), 'utf8');
+    path.join(here, '..', '..', 'packages', 'fleet', 'src', 'shared', 'action-receipt.ts'), 'utf8');
   assert.match(ts, /'\.plot',\s*'state',\s*'action-receipts'/,
     'and the board writer joins the same three segments');
   assert.equal(run(dir, DISPATCH).status, 0, 'which is what the gate reads');

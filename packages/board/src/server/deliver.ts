@@ -99,9 +99,8 @@ export function deliverPromptPath(repoRoot: string, slug: string): string {
 }
 
 /** Where the command's own words go — the neighbourhood `idea` established. */
-export function deliverLogPath(repoRoot: string, slug: string): string {
-  return agentLogPath(repoRoot, 'deliver', slug, 'log');
-}
+export { deliverLogPath } from '@plot-pm/fleet/shared/action-log';
+import { deliverLogPath } from '@plot-pm/fleet/shared/action-log';
 
 /** Where the outcome is recorded, so a later GET can read it back. */
 function deliverStatePath(repoRoot: string, slug: string): string {

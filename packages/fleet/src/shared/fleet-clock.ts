@@ -1,4 +1,4 @@
-import { createPulse, divisorFor, startPulse, type RunningPulse } from '@plot-pm/domain';
+import { createPulse, divisorFor, startPulse, type FleetReading, type RunningPulse } from '@plot-pm/domain';
 import type { Clock } from '@plot-pm/domain/ports/clock';
 
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
@@ -81,6 +81,9 @@ export const startFleetClock = (clock: Clock, work: FleetClockWork): RunningPuls
  * @param state - the cost caches, adopted by `scanOnce` on success only.
  * @param now - reads the clock for the bridge's `at`.
  * @param warn - receives a one-line reason when a scan or a write fails.
+ * @param after - runs with the pulse the scan just wrote, on a successful scan
+ *   only. A scan that throws or whose bridge write is refused never calls it,
+ *   so no automatic write acts on a pulse that did not land.
  * @returns the function to hand to {@link startFleetClock} as `scan`.
  */
 export const fleetScan = (
@@ -89,13 +92,17 @@ export const fleetScan = (
   state: ScanState,
   now: () => number,
   warn: (line: string) => void,
+  after?: (pulse: FleetReading) => Promise<void>,
 ): (() => Promise<void>) => async () => {
+  let landed: FleetReading | null = null;
   try {
     const result = await scanOnce(world, state, { record: true });
-    if (!(await writeScan(fleetState, result, now()))) warn('plot-fleetd: bridge write refused');
+    if (await writeScan(fleetState, result, now())) landed = result.reading;
+    else warn('plot-fleetd: bridge write refused');
   } catch (e) {
     warn(`plot-fleetd: scan failed: ${e instanceof Error ? e.message : String(e)}`);
   }
+  if (landed !== null && after) await after(landed);
 };
 
 /**

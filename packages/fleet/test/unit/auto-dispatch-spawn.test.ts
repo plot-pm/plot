@@ -14,13 +14,11 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {
-  maybeAutoDispatch,
-} from '../../src/server/auto-dispatch.js';
-import { FleetReadingSchema, type FleetReading } from '../../src/contract/schema.js';
-import type { AgentEntry } from '@plot-pm/fleet/shared/registry';
-import type { FleetSettings } from '../../src/server/fleet-settings.js';
-import { rmTree } from '../helpers.mjs';
+import { maybeAutoDispatch } from '../../src/shared/auto-dispatch.js';
+import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
+import type { AgentEntry } from '../../src/shared/registry.js';
+import type { FleetSettings } from '../../src/shared/fleet-settings-store.js';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 
 const made: string[] = [];
 afterEach(() => {

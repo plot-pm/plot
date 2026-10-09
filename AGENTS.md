@@ -493,7 +493,7 @@ variant of ports-and-adapters, not a deviation from the rule above.
 
 **The two halves are one rule.** Routing through a controller and then proceeding past its refusal is the same failure as never calling it: in both cases the decision was made somewhere no rule could reach.
 
-**Nine actions exist as controller endpoints today** — `dispatch`, `approve`, `deliver`, `idea`, `implement`, `drop`, `reslice`, `commission`, `continue` — reachable without HTTP through `skills/plot/scripts/board/plot-ask.mjs`, which is the seam `a-shell-script-asks-the-domain` built for exactly this.
+**Nine actions exist as controller endpoints today** — `dispatch`, `approve`, `deliver`, `idea`, `implement`, `drop`, `reslice`, `commission`, `continue` — reachable over the board's HTTP endpoints. `skills/plot/scripts/board/plot-ask.mjs` is the seam `a-shell-script-asks-the-domain` built for reaching the domain without HTTP, and measured 2026-10-10 it answers only the questions `board`, `fleet` and `deliverable` plus `release-claim`: no lifecycle controller is reachable through it yet. `the-fleet-runs-without-the-board` wave 7 closes that.
 
 **Measured 2026-09-08, in one session, by the agent that writes these rules:**
 

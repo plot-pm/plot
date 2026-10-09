@@ -3,7 +3,7 @@ import http from 'node:http';
 import { agentLogPath } from './agent-log.js';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { markBoardRun, readRunState, startBoardRun, writeState, type BoardConfigReader } from './board-run.js';
-import { startableBranches } from './auto-dispatch.js';
+import { startableBranches } from '@plot-pm/domain';
 import { pulseFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { lastLines, usableCommand, type IdeaState } from './idea.js';

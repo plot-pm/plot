@@ -94,6 +94,41 @@ describe('the fleet writes the whole bridge', () => {
   });
 });
 
+describe('the automatic writes run on the scan the fleet just wrote', () => {
+  it('hands the pass the pulse the scan wrote, after the bridge write', async () => {
+    const state = fleetStateFile({ repoRoot: repo });
+    const seen: Array<{ head: string; bridged: boolean }> = [];
+    await fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {}, async (pulse) => {
+      const read = await state.read();
+      seen.push({ head: pulse.head, bridged: read.ok && read.value !== null });
+    })();
+    expect(seen).toEqual([{ head: 'abc1234', bridged: true }]);
+  });
+
+  it('never runs the pass when the scan ended without a pulse or threw', async () => {
+    const state = fleetStateFile({ repoRoot: repo });
+    let passes = 0;
+    const after = async () => { passes += 1; };
+    const silent: Scripts['stream'] = async () => undefined as never;
+    const throwing: Scripts['stream'] = async () => { throw new Error('killed at budget'); };
+    await fleetScan(worldOver(scriptsFake(silent)), state, freshScanState(), () => Date.now(), () => {}, after)();
+    await fleetScan(worldOver(scriptsFake(throwing)), state, freshScanState(), () => Date.now(), () => {}, after)();
+    expect(passes).toBe(0);
+  });
+
+  it('runs inside the scan subscriber, so the in-flight guard covers the pass', async () => {
+    const clock = clockManual(0);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    let started = 0;
+    startFleetClock(clock, { scan: async () => { started += 1; await gate; } });
+    clock.advance(1);
+    clock.advance(1);
+    expect(started).toBe(1);
+    release();
+  });
+});
+
 describe('the fleet clock', () => {
   it('does not start a second scan while one runs, and a beat never waits on it', async () => {
     const clock = clockManual(0);

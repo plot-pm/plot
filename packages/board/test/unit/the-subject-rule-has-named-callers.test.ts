@@ -125,7 +125,7 @@ describe('the subject rule has named callers', () => {
   it.each([
     'packages/board/src/server/controllers/deliverability.ts',
     'packages/domain/src/rules/landed.ts',
-    'packages/board/src/server/auto-deliver.ts',
+    'packages/fleet/src/shared/auto-deliver.ts',
   ])('%s reads no subject rule', (file) => {
     const source = readFileSync(join(ROOT, file), 'utf8');
     expect(source).not.toContain('mergedBySubject');

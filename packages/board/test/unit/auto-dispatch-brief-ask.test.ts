@@ -21,7 +21,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { maybeAutoDispatch, firstBrieflessBranch } from '../../src/server/auto-dispatch.js';
+import { firstBrieflessBranch } from '@plot-pm/domain';
+import { maybeAutoDispatch } from '@plot-pm/fleet/shared/auto-dispatch';
 import { askForBriefLogPath, briefAskPrompt } from '../../src/server/brief-ask.js';
 import { boardRunsSettled, leaveBoardRunsToTheBoard } from '../../src/server/board-run.js';
 import { run as askEntry } from '../../src/server/entry/main.js';

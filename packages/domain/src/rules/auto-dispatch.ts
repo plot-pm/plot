@@ -1,70 +1,46 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { scriptsFor, type BuildBoardOptions } from './board.js';
-import { askForBrief, briefAskPrompt, briefCommand } from './brief-ask.js';
-import { recordActionReceipt } from './action-receipt.js';
-import type { FleetSettings } from './fleet-settings.js';
-import { LIVE_STATES, type Branch, type FleetReading } from '../contract/schema.js';
-import { refsGit, shellContext } from '@plot-pm/domain/adapters';
 import {
-  isAnswered,
-  isFree,
+  LIVE_STATES,
   identityWasDeclared,
-  dispatchDefers,
+  isFree,
+  type Agent,
+} from '../entities/agent.js';
+import type { Branch, FleetReading } from '../entities/fleet.js';
+import {
   deferralMessage,
+  dispatchDefers,
   hasRoomToDispatch,
-  ceilingFor,
-  outstandingAsks,
-  briefAskBudget,
   type Machine as MachineEntity,
-} from '@plot-pm/domain';
-import type { AgentEntry } from '@plot-pm/fleet/shared/registry';
-import { dispatchLogPath } from './dispatch.js';
-import { readInFlight, writeInFlight } from './in-flight-store.js';
-import { briefPath } from '@plot-pm/fleet/shared/brief-path';
-import { DISPATCH_SCRIPT } from './dispatch.js';
-
-export { briefPath };
+} from '../entities/machine.js';
+import { ceilingFor } from './fleet-size.js';
 
 /**
- * SLICE 3: the switch does something.
+ * The planners behind auto-dispatch: which plans to fan out on a pulse, and how
+ * many branches each may start. Every function here is pure — values in, values
+ * out, no clock, no disk and no process.
  *
- * Slices 1 and 2 made the fleet controls a stored intention nobody read. This is
- * the reader. While `autoDispatch` is on, eligible slices of approved plans fan
- * out with no click, wrapping `plot-dispatch.sh` — which still owns the claim,
- * the abandoned-desk refusal, the in-flight file report and the worktree
- * fan-out, so every refusal that protects a watched dispatch protects an
- * unwatched one.
- *
- * ## NOT a route, by construction
- *
- * This rides the SCAN's clock inside `refresh`'s success path, called right
- * after `maybeRepair` — the board's first "one automatic write". It is the
- * second of that same kind: on the scan's timer, from a pulse that actually
- * landed (a dispatch from a failed scan would act on refs that may have moved),
- * and off the request path entirely. It never becomes an `/api/*` route, so it
- * joins no `WRITE_ROUTES` list and reuses no same-origin guard: there is
- * nothing to reach.
- *
- * ## The cross-pulse cap — the hard part
- *
- * `--max N` bounds ONE invocation of the script. Two pulses each passing N reach
- * 2N live workers, which is the property `--max` alone cannot promise. So each
- * pulse the board counts what is already live and dispatches only the
- * DIFFERENCE: `parallelAgents − live`. See {@link liveAgentCount} for what
- * "live" means, and {@link planAutoDispatch} for the split across plans.
- *
- * ## Never kill; lowering only withholds the next dispatch
- *
- * The control governs STARTING, not stopping. Lowering `parallelAgents` or
- * turning the switch off shrinks or zeros the next pulse's budget and touches no
- * running worker — a half-done branch killed mid-run leaves uncommitted work
- * nobody can see. A budget that has gone negative (the cap was lowered below the
- * live count) clamps to zero: nothing new starts, everything running keeps
- * running.
+ * The cross-pulse cap is `parallelAgents − (live + inFlight)`: `--max N` bounds
+ * one invocation of `plot-dispatch.sh`, so the planner subtracts what is
+ * already live or marked in flight before it hands a plan its `max`. Lowering
+ * the cap or switching the control off withholds the next dispatch and stops no
+ * running agent.
  */
 
-/** One plan to fan out this pulse, and the per-invocation `--max` to pass it. */
+/** The registry states that occupy a concurrency slot. */
+const LIVE: ReadonlySet<string> = new Set<string>(LIVE_STATES);
+
+/** What the planner reads of an agent registry entry. */
+export type AutoDispatchAgent = Pick<Agent, 'branch' | 'identity'> & { state: string };
+
+/** The fleet controls the planner reads. */
+export interface AutoDispatchControls {
+  /** Whether queued slices start without a click. */
+  autoDispatch: boolean;
+  /** How many agents may run at once. */
+  parallelAgents: number;
+  /** Whether to dispatch while the machine reads `starved`. */
+  machineOverride: boolean;
+}
+
 export interface AutoDispatchPlan {
   /** The plan slug, as `plot-dispatch.sh` resolves it — see {@link planSlug}. */
   slug: string;
@@ -83,9 +59,9 @@ export interface AutoDispatchPlan {
  * the `/api/dispatch` route already sends and `deriveSlices` writes into a row's
  * `plan`.
  */
-export function planSlug(file: string): string {
-  return path.basename(file).replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
-}
+export const planSlug = (file: string): string => {
+  return file.replace(/^.*\//, '').replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
+};
 
 /**
  * The states that OCCUPY A SLOT are exactly the LIVE ones — {@link LIVE_STATES},
@@ -122,9 +98,9 @@ export function planSlug(file: string): string {
  * (bug/the-loop-bounds-its-child) is what makes hung agents exit; excluding them
  * from the count only hid them from the cap while they held their machines.
  */
-export function liveAgentCount(agents: AgentEntry[], _pulse?: FleetReading): number {
-  return agents.filter((a) => LIVE_STATES.has(a.state)).length;
-}
+export const liveAgentCount = (agents: AutoDispatchAgent[], _pulse?: FleetReading): number => {
+  return agents.filter((a) => LIVE.has(a.state)).length;
+};
 
 /**
  * The branches that occupy concurrency slots right now — the names behind
@@ -138,12 +114,12 @@ export function liveAgentCount(agents: AgentEntry[], _pulse?: FleetReading): num
  * The refusal message explains the number. See bug/a-landed-branch-still-holds-
  * a-slot plan requirement #10.
  */
-export function liveAgentBranches(agents: AgentEntry[], _pulse?: FleetReading): string[] {
+export const liveAgentBranches = (agents: AutoDispatchAgent[], _pulse?: FleetReading): string[] => {
   return agents
-    .filter((a) => LIVE_STATES.has(a.state))
+    .filter((a) => LIVE.has(a.state))
     .map((a) => a.branch)
     .filter((b): b is string => Boolean(b));
-}
+};
 
 /**
  * The branches this pulse reports as landed — the source for `isFree`'s
@@ -159,7 +135,7 @@ export function liveAgentBranches(agents: AgentEntry[], _pulse?: FleetReading): 
  * `false` for it — an agent on a branch nothing reports as merged is treated as
  * still holding it. Silence is never taken as landed.
  */
-export function mergedBranches(pulse: FleetReading): Set<string> {
+export const mergedBranches = (pulse: FleetReading): Set<string> => {
   const merged = new Set<string>();
   for (const plan of pulse.plans) {
     for (const wave of plan.slices) {
@@ -169,7 +145,7 @@ export function mergedBranches(pulse: FleetReading): Set<string> {
     }
   }
   return merged;
-}
+};
 
 /**
  * How many live agents could take a slice right now — {@link isFree} counted
@@ -190,9 +166,9 @@ export function mergedBranches(pulse: FleetReading): Set<string> {
  * `waiting` is not free: it is live and blocked on a person, so it holds a slot
  * and can take nothing. That rule lives in `isFree` and is not restated here.
  */
-export function freeAgentCount(agents: AgentEntry[], pulse: FleetReading): number {
+export const freeAgentCount = (agents: AutoDispatchAgent[], pulse: FleetReading): number => {
   return freeAgents(agents, pulse).length;
-}
+};
 
 /**
  * The branches behind {@link freeAgentCount}'s number — what a dispatch names
@@ -206,9 +182,9 @@ export function freeAgentCount(agents: AgentEntry[], pulse: FleetReading): numbe
  * An agent between slices holds no branch, so it contributes `(between slices)`
  * rather than an empty string — the reason a slot is reusable is worth reading.
  */
-export function freeAgentLabels(agents: AgentEntry[], pulse: FleetReading): string[] {
+export const freeAgentLabels = (agents: AutoDispatchAgent[], pulse: FleetReading): string[] => {
   return freeAgents(agents, pulse).map((a) => a.branch || '(between slices)');
-}
+};
 
 /**
  * The live agents that can take a slice — the one place `isFree` is asked, so
@@ -225,16 +201,16 @@ export function freeAgentLabels(agents: AgentEntry[], pulse: FleetReading): stri
  * manifest-backed agent, and widening them to carry identity too would make
  * a question about WHO answers a question about WHETHER.
  */
-function freeAgents(agents: AgentEntry[], pulse: FleetReading): AgentEntry[] {
+const freeAgents = (agents: AutoDispatchAgent[], pulse: FleetReading): AutoDispatchAgent[] => {
   const merged = mergedBranches(pulse);
-  // `isFree` reads `state` and `branch` only, and an `AgentEntry` carries both
+  // `isFree` reads `state` and `branch` only, and an `AutoDispatchAgent` carries both
   // with the same meanings — so the registry entry answers the domain's
   // question directly, with no cast between two state vocabularies that are
   // not in fact the same set.
   return agents
     .filter((a) => identityWasDeclared(a))
     .filter((a) => isFree(a, merged.has(a.branch)));
-}
+};
 
 /**
  * A branch the pulse shows as still startable — open or wip, not yet claimed,
@@ -248,9 +224,9 @@ function freeAgents(agents: AgentEntry[], pulse: FleetReading): AgentEntry[] {
  * `isStartable(row)` keeps the same shape; auto-dispatch layers a second
  * question on top of it in {@link dispatchable}, never inside here.
  */
-function isStartable(state: string): boolean {
+const isStartable = (state: string): boolean => {
   return state === 'open' || state === 'wip';
-}
+};
 
 /**
  * Whether the branch's own ref already blocks a claim `plot-dispatch.sh` would
@@ -278,23 +254,23 @@ function isStartable(state: string): boolean {
  * one-directional: it can only ADD refusals, never remove one `ref_held` would
  * have made.
  */
-function refBlocksClaim(branch: Branch): boolean {
+const refBlocksClaim = (branch: Branch): boolean => {
   // Primary: ref_held is the direct answer from the scan.
   // Fallback: state === 'wip' implies a ref (derived from walking it).
   return branch.ref_held || branch.state === 'wip';
-}
+};
 
 /**
  * Would a dispatch of this branch this pulse actually claim it? Startable AND
  * not already blocked by its own ref. This, not {@link isStartable}, is the
  * question auto-dispatch spends budget against — see {@link refBlocksClaim}.
  */
-function dispatchable(branch: Branch): boolean {
+const dispatchable = (branch: Branch): boolean => {
   return isStartable(branch.state) && !refBlocksClaim(branch);
-}
+};
 
 export interface PlanAutoDispatchInput {
-  controls: FleetSettings;
+  controls: AutoDispatchControls;
   pulse: FleetReading;
   /**
    * This pulse's machine reading, for the OTHER question a dispatch asks: not
@@ -318,7 +294,7 @@ export interface PlanAutoDispatchInput {
    * this list — the two counts answer different questions and the caller has
    * already computed the first.
    */
-  agents?: AgentEntry[];
+  agents?: AutoDispatchAgent[];
   /**
    * Branches this board has dispatched whose claim/manifest the pulse cannot yet
    * confirm. `plot-dispatch.sh` is spawned detached, so a branch dispatched last
@@ -401,9 +377,9 @@ export interface PlanAutoDispatchInput {
  *
  * @returns true when the reading exists and is `clear`.
  */
-export function machineIsClear(machine: MachineEntity | undefined): boolean {
+export const machineIsClear = (machine: MachineEntity | undefined): boolean => {
   return machine !== undefined && hasRoomToDispatch(machine);
-}
+};
 
 /**
  * Whether this pulse's machine reading defers a dispatch, and what it measured.
@@ -425,15 +401,15 @@ export function machineIsClear(machine: MachineEntity | undefined): boolean {
  *
  * @returns the deferral sentence when a dispatch should wait, else null.
  */
-export function machineDefers(
+export const machineDefers = (
   machine: MachineEntity | undefined,
-  controls: FleetSettings,
-): string | null {
+  controls: AutoDispatchControls,
+): string | null => {
   if (!machine) return null;
   if (controls.machineOverride) return null;
   if (!dispatchDefers(machine)) return null;
   return deferralMessage(machine);
-}
+};
 
 /**
  * Whether an unreadable shared in-flight record stops this pulse.
@@ -458,11 +434,11 @@ export function machineDefers(
  *
  * @returns true when the pulse must start nothing.
  */
-export function sharedInFlightBlocks(sharedInFlight: boolean | undefined): boolean {
+export const sharedInFlightBlocks = (sharedInFlight: boolean | undefined): boolean => {
   return sharedInFlight === false;
-}
+};
 
-export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan[] {
+export const planAutoDispatch = (input: PlanAutoDispatchInput): AutoDispatchPlan[] => {
   const {
     controls,
     agents = [],
@@ -535,7 +511,7 @@ export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan
   // zero times in 102 readings, so its reset never fired.
   //
   // THE OVERRIDE IS NOT CONSULTED, and that is the one subtle call here. It
-  // stands down THE DEFERRAL — {@link FleetSettings.machineOverride} is *"dispatch
+  // stands down THE DEFERRAL — `machineOverride` is *"dispatch
   // even while the machine reads `starved`"* — and a ceiling is not a deferral:
   // *now anyway* still starts work, at the rate the reading bears. Exempting it
   // would also exempt `tight`, which never deferred and so was never what the
@@ -583,7 +559,7 @@ export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan
     budget -= max;
   }
   return plans;
-}
+};
 
 /**
  * The branches an eligible slice of an approved plan currently offers to start —
@@ -595,12 +571,12 @@ export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan
  * marks these in flight so the NEXT pulse counts them before the detached script
  * has pushed their refs.
  */
-export function startableBranches(
+export const startableBranches = (
   pulse: FleetReading,
   slug: string,
   inFlight: Set<string>,
   missingBriefs: Set<string> = new Set(),
-): string[] {
+): string[] => {
   const out: string[] = [];
   for (const plan of pulse.plans) {
     if (plan.phase !== 'approved') continue;
@@ -623,7 +599,7 @@ export function startableBranches(
     }
   }
   return out;
-}
+};
 
 /**
  * The branches auto-dispatch DECLINED to start because their own ref already
@@ -635,7 +611,7 @@ export function startableBranches(
  * can act on. Skips branches already in flight — those are this board's own
  * dispatches, not a claim it is declining.
  */
-export function skippedClaimedBranches(pulse: FleetReading, inFlight: Set<string>): string[] {
+export const skippedClaimedBranches = (pulse: FleetReading, inFlight: Set<string>): string[] => {
   const out: string[] = [];
   for (const plan of pulse.plans) {
     if (plan.phase !== 'approved') continue;
@@ -647,7 +623,7 @@ export function skippedClaimedBranches(pulse: FleetReading, inFlight: Set<string
     }
   }
   return out;
-}
+};
 
 /**
  * The first branch of one plan that has no brief on `origin/main`.
@@ -671,11 +647,11 @@ export function skippedClaimedBranches(pulse: FleetReading, inFlight: Set<string
  * @param missingBriefs Branches with no brief on `origin/main`.
  * @returns The branch to name in the prompt, or `undefined`.
  */
-export function firstBrieflessBranch(
+export const firstBrieflessBranch = (
   pulse: FleetReading,
   slug: string,
   missingBriefs: Set<string>,
-): string | undefined {
+): string | undefined => {
   for (const plan of pulse.plans) {
     if (plan.phase !== 'approved') continue;
     if (planSlug(plan.file) !== slug) continue;
@@ -687,7 +663,7 @@ export function firstBrieflessBranch(
     }
   }
   return undefined;
-}
+};
 
 /**
  * Why auto-dispatch dropped a plan from this pulse's candidates.
@@ -747,11 +723,11 @@ export interface SkippedPlan {
  * @returns One entry per approved plan that offered nothing startable, in the
  *   pulse's own plan order.
  */
-export function skippedPlans(
+export const skippedPlans = (
   pulse: FleetReading,
   inFlight: Set<string>,
   missingBriefs: Set<string>,
-): SkippedPlan[] {
+): SkippedPlan[] => {
   const out: SkippedPlan[] = [];
   for (const plan of pulse.plans) {
     if (plan.phase !== 'approved') continue;
@@ -807,7 +783,7 @@ export function skippedPlans(
     out.push({ slug: planSlug(plan.file), reason });
   }
   return out;
-}
+};
 
 /**
  * All branches that auto-dispatch would consider starting this pulse — the
@@ -816,7 +792,7 @@ export function skippedPlans(
  * Returns every dispatchable branch across approved plans' eligible slices, minus
  * those already in flight. The result is the set `findMissingBriefs` checks.
  */
-export function dispatchCandidates(pulse: FleetReading, inFlight: Set<string>): string[] {
+export const dispatchCandidates = (pulse: FleetReading, inFlight: Set<string>): string[] => {
   const out: string[] = [];
   for (const plan of pulse.plans) {
     if (plan.phase !== 'approved') continue;
@@ -828,43 +804,7 @@ export function dispatchCandidates(pulse: FleetReading, inFlight: Set<string>): 
     }
   }
   return out;
-}
-
-/**
- * Branches from `candidates` whose brief does not exist on `origin/main`.
- *
- * Reads git, not the filesystem, so the board cannot be wrong about main
- * even when its own checkout lags. Measured cost: ~8-27 ms per branch, so
- * 11 candidates cost ~100-300 ms against the 5 s pulse cadence — affordable.
- *
- * The spike's numbers (2026-08-26): a board checkout 20+ commits behind held
- * 150 briefs where main held 157. Three briefs that exist would have read as
- * missing under a filesystem check. This is why we read git.
- *
- * @param repoRoot The repository root where git is run
- * @param candidates Branches to check
- * @returns The subset of candidates whose brief is missing
- */
-export function findMissingBriefs(repoRoot: string, candidates: string[]): Set<string> {
-  const missing = new Set<string>();
-  for (const branch of candidates) {
-    try {
-      // Presence, asked without reading the content. Synchronous, which is fine:
-      // this is already on the scan's success path and the cost is measured and
-      // bounded.
-      const read = refsGit(shellContext(repoRoot)).fileExistsSync(
-        'origin/main',
-        briefPath(branch),
-      );
-      // A failed reading and an absent object both count as missing — the
-      // worker would face the same problem either way.
-      if (!isAnswered(read) || !read.value) missing.add(branch);
-    } catch {
-      missing.add(branch);
-    }
-  }
-  return missing;
-}
+};
 
 /**
  * The branches whose in-flight mark can be RETIRED: the pulse now confirms them
@@ -891,18 +831,18 @@ export function findMissingBriefs(repoRoot: string, candidates: string[]): Set<s
  * when to install it — the same one-directional discipline the rest of the cache
  * keeps.
  */
-export function pruneInFlight(
+export const pruneInFlight = (
   inFlight: Set<string>,
   pulse: FleetReading,
-  agents: AgentEntry[],
-): Set<string> {
+  agents: AutoDispatchAgent[],
+): Set<string> => {
   if (inFlight.size === 0) return inFlight;
   // A branch the pulse still shows as startable in an eligible slice, and which
   // no live registry entry holds, is one whose dispatch has not landed yet — it
   // stays in flight. Everything else is confirmed and drops.
   const stillPending = new Set<string>();
   const liveBranches = new Set(
-    agents.filter((a) => LIVE_STATES.has(a.state) && a.branch).map((a) => a.branch),
+    agents.filter((a) => LIVE.has(a.state) && a.branch).map((a) => a.branch),
   );
   for (const branch of inFlight) {
     if (liveBranches.has(branch)) continue; // the registry caught up — confirmed
@@ -922,457 +862,4 @@ export function pruneInFlight(
     if (stillStartable) stillPending.add(branch);
   }
   return stillPending;
-}
-
-/**
- * Fan out this pulse's plan of dispatches, detached, and return the branches
- * newly put in flight so the caller can fold them into the cache's set.
- *
- * Each plan is ONE `plot-dispatch.sh --max <n> <slug>` — the script hands up to
- * `n` of its own eligible branches to the registry. Detached and unwaited,
- * exactly as `/api/dispatch` spawns it: a dispatch queues the slice and the
- * registry matches it to an agent, strictly slower than the scan that must not
- * block on it.
- *
- * IT PUSHES NO CLAIM REF, and this sentence used to say it did. Measured
- * 2026-09-11: dispatch stopped claiming by ref push when it became a hand-over
- * to the registry (`plot-dispatch.sh` contains no `git push` at all). That is
- * precisely WHY the in-flight set has to exist and has to be shared — with no
- * ref written, nothing outside the dispatching process knows the slot is spent.
- * Output goes to the same per-slug dispatcher log the route writes, so an
- * operator reads one file whether the dispatch was clicked or automatic.
- *
- * The branches marked in flight are the plan's startable ones, capped at the
- * invocation's `max`: the script may start fewer (a branch may lose its claim
- * race), and over-marking would only make the board briefly more conservative,
- * never less — the safe direction. They are retired by {@link pruneInFlight}
- * once the pulse confirms them.
- */
-export function runAutoDispatch(
-  opts: BuildBoardOptions,
-  pulse: FleetReading,
-  plans: AutoDispatchPlan[],
-  inFlight: Set<string>,
-  missingBriefs: Set<string> = new Set(),
-): string[] {
-  const newlyInFlight: string[] = [];
-  for (const plan of plans) {
-    const log = dispatchLogPath(opts.repoRoot, plan.slug);
-    let out: number;
-    try {
-      out = fs.openSync(log, 'a');
-    } catch (err) {
-      console.error(`auto-dispatch could not open ${log}:`, err);
-      continue;
-    }
-    // The same receipt /api/dispatch writes, for the same reason: this IS a
-    // controller acting, and the gate cannot tell a timer's dispatch from a
-    // hand-typed one by the command line alone.
-    recordActionReceipt(opts.repoRoot, 'dispatch', plan.slug);
-    scriptsFor(opts).start(DISPATCH_SCRIPT, ['--max', String(plan.max), plan.slug], {
-      log: out,
-      onError: (err) => console.error('auto-dispatch failed to spawn:', err),
-    });
-    fs.closeSync(out);
-
-    // Mark the branches this invocation may claim so the next pulse counts them
-    // before the detached script has pushed their refs. Capped at `max`: the
-    // script starts at most that many.
-    const branches = startableBranches(pulse, plan.slug, inFlight, missingBriefs).slice(0, plan.max);
-    newlyInFlight.push(...branches);
-  }
-  return newlyInFlight;
-}
-
-/**
- * Decide and dispatch in one call — the whole of auto-dispatch as `refresh` sees
- * it. Reads the controls fresh (a switch flipped this pulse takes effect now),
- * counts liveness from the registry the scan just refreshed, plans against the
- * budget, spawns, and returns the in-flight set the cache should hold next
- * pulse.
- *
- * The returned set is the pruned old set plus the newly dispatched branches, so
- * the caller assigns it whole rather than mutating — the cache's one-directional
- * rule.
- *
- * AT THE CAP, REFUSES AND NAMES THE BRANCHES. Refusing silently is what made
- * the cap invisible — see `a-worker-asks-for-the-next-wave.md`, "Counted" slice.
- * The log line names the branches occupying the slots, not just the count.
- *
- * THE CAP IS PER-REPOSITORY, NOT PER-BOARD, and this is where that is made
- * true. The live half already was: `entry.agents` comes from the SHARED agent
- * registry, so `parallelAgents − live` is the same number whoever asks. The
- * in-flight half was not — it lived in one process's memory, so a second board
- * saw an empty fleet and spent the whole budget again, reaching `2N` between the
- * two. This function reads the shared marks from `.plot/state/`, folds them into
- * the set the planner counts, and renews its own before it returns. Every read
- * and write is HERE; `planAutoDispatch` receives values and stays pure.
- */
-export function maybeAutoDispatch(
-  opts: BuildBoardOptions,
-  pulse: FleetReading,
-  controls: FleetSettings,
-  agents: AgentEntry[],
-  inFlight: Set<string>,
-  machine?: MachineEntity,
-  briefsAsked: Set<string> = new Set(),
-): Set<string> {
-  // THE ASK RECORD IS MUTATED, NOT RETURNED, and that is the one asymmetry in
-  // this signature. The in-flight set is returned because its contents are
-  // DERIVED each pulse — pruned, merged with the peers', and handed back as this
-  // board's own contribution. The ask record holds the branches this board asked
-  // a brief for; the caller holds the same set across pulses, and each pass
-  // prunes it in place to the asks whose brief is still missing. Returning a
-  // second value would change the contract every existing caller reads, to
-  // express a lifetime the caller already owns.
-  //
-  // IN MEMORY AND PER-BOARD, the lifetime `deliverInFlight` already has and for
-  // its reason: a restart loses it, the brief either landed or did not, and the
-  // next pass asks again. That is the same recovery `plot-registryd.mjs` relies
-  // on by holding nothing between ticks — so no state file, deliberately.
-  const pruned = pruneInFlight(inFlight, pulse, agents);
-  const liveCount = liveAgentCount(agents, pulse);
-
-  // THE OTHER BOARDS' MARKS. Read fresh every pulse, uncached, for the reason
-  // `readFleetSettings` is: a cache would put an authoritative copy back in this
-  // process's memory, which is the defect being fixed.
-  //
-  // Marks this board wrote come back too, and that is deliberate — the file is
-  // the answer, not a peer-only supplement, so a board recovering from a restart
-  // re-adopts its own unexpired marks instead of re-dispatching what it already
-  // started. `pruned` is still merged in: a mark this board holds in memory and
-  // has not yet written (or failed to write) must not go uncounted.
-  const shared = readInFlight(opts.repoRoot);
-  // Named `allInFlight`, not `merged`: in this file `merged` means a branch that
-  // LANDED (`mergedBranches`, `isFree`'s `sliceHasMerged`), and a set of
-  // in-flight branches called `merged` reads as the opposite of what it holds.
-  const allInFlight = new Set(pruned);
-  for (const branch of shared.branches ?? []) allInFlight.add(branch);
-
-  // RENEW THIS BOARD'S MARKS EVERY PULSE, BEFORE ANY EARLY RETURN. The marks
-  // expire, so a board that stops renewing is a board whose budget comes back —
-  // and the pulses where this function returns early are exactly the ones where
-  // the fleet is fullest. A board sitting at the cap, or deferring on a starved
-  // machine, is still holding its in-flight branches; if the renewal lived after
-  // those returns, its marks would lapse after {@link IN_FLIGHT_TTL_MS} and the
-  // other board would spend slots this one has already spent. That is the
-  // original bug, arrived at through the fix.
-  //
-  // `pruned`, not `allInFlight`: this board renews what IT holds. Re-stamping a
-  // peer's marks with `now` would let a dead board's budget be renewed forever
-  // by a live board that never dispatched those branches.
-  const renewError = writeInFlight(opts.repoRoot, pruned);
-  if (renewError && controls.autoDispatch) {
-    // Logged and not fatal. A board that cannot WRITE its marks still dispatches
-    // — it may be the only board, and refusing here would stop a single-board
-    // fleet on a permissions problem. The conservative refusal is on the READ
-    // side, where an unknown shared answer can actually hide another board's
-    // worker.
-    console.log(`auto-dispatch: could not record in-flight marks: ${renewError}`);
-  }
-
-  if (shared.branches === null && controls.autoDispatch) {
-    // NAMED, because this refusal starts nothing and an operator reading a
-    // still fleet deserves the reason. The file exists and will not read, so
-    // this board cannot know what the others are holding — and counting only
-    // what it can see is the bug itself.
-    console.log(
-      `auto-dispatch: cannot read the shared in-flight record ` +
-      `(${shared.error}); starting nothing this pulse — another board may ` +
-      `already hold the budget`,
-    );
-  }
-
-  // THE MACHINE DEFERS, AND IT SAYS WHAT IT MEASURED. Logged before the cap
-  // arithmetic because it outranks it: a starved machine is not a full one, and
-  // an operator reading "at cap" while the real answer is "spawn cost 287 ms"
-  // would raise the dial and make it worse.
-  //
-  // `"too much load"` is not answerable and load average is never the verdict;
-  // the sentence carries the number so a person can act on it — including by
-  // setting `Machine override` and saying now anyway.
-  if (controls.autoDispatch) {
-    const deferral = machineDefers(machine, controls);
-    if (deferral) {
-      const hasEligible = pulse.plans.some(
-        (p) => p.phase === 'approved' && p.slices.some((w) => w.verdict === 'eligible'),
-      );
-      // Same rule as the cap refusal: a deferral with nothing to dispatch is
-      // routine, not a decision anybody needs to read every five seconds.
-      if (hasEligible) console.log(`auto-dispatch: ${deferral}`);
-      // This board's own set, never the merged one — see the ownership note
-      // on the final return. An early return must not adopt a peer's marks.
-      return pruned;
-    }
-    // NOT CLEAR, BUT NOT STARVED EITHER — the `tight` band, which dispatches.
-    // Said out loud because a fleet that feels slow while nothing refuses is
-    // the case an operator otherwise has no reading for; this is the one line
-    // that distinguishes *the machine is working hard* from *Plot is stuck*.
-    if (machine && !machineIsClear(machine) && !dispatchDefers(machine)) {
-      console.log(
-        `auto-dispatch: machine reads ${machine.headroom} ` +
-        `(spawn cost ${machine.spawnCostMs?.toFixed(1) ?? 'unmeasured'} ms); dispatching anyway`,
-      );
-    }
-  }
-
-  // Check if we're at the cap BEFORE calling planAutoDispatch, so we can log
-  // meaningfully. The switch being off is a deliberate absence, not a refusal;
-  // the cap being reached is what needed visibility.
-  if (controls.autoDispatch) {
-    const budget = controls.parallelAgents - (liveCount + allInFlight.size);
-    if (budget <= 0) {
-      // THE SAME ARITHMETIC AND THE SAME SECOND QUESTION as `planAutoDispatch`.
-      // These two must not diverge: this branch decides whether to log a
-      // refusal, and the planner decides whether to dispatch. If this refused
-      // where the planner dispatches, the board would print "refusing" on the
-      // pulse it started a worker.
-      const free = freeAgentCount(agents, pulse);
-      if (free <= 0) {
-        const liveBranches = liveAgentBranches(agents, pulse);
-        const inFlightList = [...allInFlight];
-        // Only log when there IS something to dispatch — a cap hit with no
-        // eligible work is routine, not a refusal.
-        const hasEligible = pulse.plans.some(
-          (p) => p.phase === 'approved' && p.slices.some((w) => w.verdict === 'eligible'),
-        );
-        if (hasEligible) {
-          // NAMES WHICH OF THE TWO IT IS. "At the cap" alone was ambiguous
-          // between *every machine is held* and *nobody can take work*; the
-          // second clause is what tells a reader whether waiting will help.
-          console.log(
-            `auto-dispatch: at cap (${controls.parallelAgents}) and no free agent, ` +
-            `refusing new dispatch. Slots held by: ` +
-            `${[...liveBranches, ...inFlightList].join(', ') || '(in-flight only)'}`,
-          );
-        }
-        return pruned;
-      }
-      // At the cap, but an agent can take a slice — the slot is already paid
-      // for, so this is not a refusal and the planner proceeds below.
-      console.log(
-        `auto-dispatch: at cap (${controls.parallelAgents}) but ${free} free ` +
-        `agent(s) can take a slice: ${freeAgentLabels(agents, pulse).join(', ')}`,
-      );
-    }
-  }
-
-  // NAMES A CLAIMED BRANCH IT SKIPPED, ONCE PER PULSE. A `wip` branch whose ref
-  // already exists cannot be claimed — `plot-dispatch.sh` refuses it — so the
-  // budget is withheld rather than spent on a refusal (the measured defect,
-  // 2026-08-25). Silently withholding it is what made the budget look broken:
-  // the only recourse was to replay the planner by hand against the pulse JSON.
-  // Logged here, off the cap path, so a cap refusal and a claim skip are two
-  // distinct sentences and neither repeats the other. One call per pulse.
-  if (controls.autoDispatch) {
-    const skipped = skippedClaimedBranches(pulse, allInFlight);
-    if (skipped.length > 0) {
-      console.log(
-        `auto-dispatch: skipping claimed branch(es) a dispatch cannot start ` +
-        `(ref already exists): ${skipped.join(', ')}`,
-      );
-    }
-  }
-
-  // Check which dispatchable branches lack a brief on origin/main. A slice with
-  // no brief is not started — see `a-worker-starts-with-its-brief.md`.
-  //
-  // This is the impure side: `findMissingBriefs` spawns `git cat-file -e` per
-  // candidate. The cost is ~8-27 ms per branch (measured 2026-08-26), so 11
-  // candidates add ~100-300 ms to the pulse — affordable against the 5 s cadence.
-  //
-  // The check reads `origin/main`, not the filesystem, so the board cannot be
-  // wrong about main even when its own checkout lags. The spike measured a
-  // checkout 20+ commits behind main, missing 7 briefs — filesystem reads would
-  // have refused starts that should have happened.
-  const candidates = controls.autoDispatch ? dispatchCandidates(pulse, allInFlight) : [];
-  const missingBriefs = controls.autoDispatch
-    ? findMissingBriefs(opts.repoRoot, candidates)
-    : new Set<string>();
-
-  // Log which branches auto-dispatch is skipping for missing briefs, once per
-  // pulse. Same pattern as the claimed-branch skip above: a refusal nobody sees
-  // is the defect this slice removes.
-  // AN ASK HOLDS ITS SLOT ONLY WHILE ITS BRIEF IS MISSING. Pruned here, after
-  // this pass read `origin/<main>` and before any budget reads the tally, and
-  // written back into the caller's set so the cache entry keeps the pruned
-  // record. A branch whose brief landed, or that left the candidates, drops.
-  const kept = outstandingAsks(briefsAsked, missingBriefs);
-  for (const branch of briefsAsked) if (!kept.has(branch)) briefsAsked.delete(branch);
-
-  if (controls.autoDispatch && missingBriefs.size > 0) {
-    const missing = [...missingBriefs];
-    console.log(
-      `auto-dispatch: skipping branch(es) with no brief on origin/main ` +
-      `(run /plot-implement first): ${missing.join(', ')}`,
-    );
-  }
-
-  // NAMES THE PLAN AND THE REASON, ONCE PER PULSE — the PLAN-level decision
-  // `planAutoDispatch` makes at `if (startable === 0) continue;` and has until
-  // now made in silence. The branch logs above already say which branches were
-  // skipped; what nothing said is that a whole plan left the candidate list,
-  // and for which of four reasons.
-  //
-  // Printed BEFORE the planner runs and derived from the same three filters, so
-  // the sentence and the dispatch cannot describe different pulses. A reason is
-  // a name a reader can act on — `no-brief` is a person's next move,
-  // `no-eligible-wave` asks for nothing — which is what makes a plan skipped
-  // for briefs distinguishable from one skipped for anything else.
-  if (controls.autoDispatch) {
-    const skipped = skippedPlans(pulse, allInFlight, missingBriefs);
-    if (skipped.length > 0) {
-      console.log(
-        `auto-dispatch: skipping plan(s) with nothing startable: ` +
-        `${skipped.map((p) => `${p.slug} (${p.reason})`).join(', ')}`,
-      );
-    }
-
-    // ASK FOR THE BRIEF THE SKIP ABOVE JUST NAMED.
-    //
-    // A plan reported `no-brief` is approved, has an eligible slice, holds no
-    // blocking ref and is not in flight — `skippedPlans` checks briefs LAST, so
-    // the only thing between it and a worker is a file nobody has written.
-    // Measured 2026-09-12 across seven dispatches in one session: every one
-    // reported `brief_asked=1 dispatched=0` on the first pass, and the claim
-    // followed 60-75 seconds later once a human's brief reached `origin/main`.
-    // The board was never the slow part.
-    //
-    // NOTHING IS CLAIMED ON THIS PASS, and that is not a limitation to fix. The
-    // gate reads `origin/<main>` rather than the filesystem, so a brief written
-    // this instant is still invisible to it; the next pulse finds it and claims
-    // normally. A pass that spawned and then dispatched the same branch would be
-    // dispatching against a brief that is not there.
-    //
-    // AFTER the skip log, so the two sentences read in the order they happened:
-    // the plan was skipped, and then it was asked for.
-    const asking = skipped.filter((p) => p.reason === 'no-brief');
-    if (asking.length > 0) {
-      // THE BUDGET, BECAUSE A BRIEF WRITER COSTS AN AGENT. A `claude -p` brief
-      // session is a process like any other, so asking while the cap is spent
-      // starts work the operator capped. The same arithmetic the cap refusal and
-      // the planner use — and the asks already outstanding are charged too,
-      // which is what stops N pulses from starting N writers for N plans while
-      // none of them has landed.
-      //
-      // A FREE AGENT IS NOT CHARGED. It holds no branch and is waiting for
-      // exactly the brief this budget would otherwise refuse. The dispatch
-      // budget above keeps `liveCount`, because a free agent does take a slice.
-      const busyAgents = agents.filter((a) => LIVE_STATES.has(a.state) && a.branch).length;
-      let askBudget = briefAskBudget({
-        cap: controls.parallelAgents,
-        busyAgents,
-        inFlight: allInFlight.size,
-        outstanding: briefsAsked.size,
-      });
-      // READ FRESH, never cached at startup: a key added while the board runs
-      // takes effect on the next pulse. An unset or `none` command answers ''
-      // and this whole block does nothing — today's behaviour exactly, which is
-      // Principle 5: Plot hardcodes no agent tooling.
-      const command = askBudget > 0 ? briefCommand(opts) : '';
-      for (const plan of asking) {
-        if (askBudget <= 0) break;
-        // ONE ASK PER BRANCH, AND NEVER A SECOND WHILE ONE IS OUTSTANDING.
-        // Measured 2026-09-11: a foreground dispatch timed out at 2 minutes
-        // while `timeout 300` on the inner script outlived it, and re-running
-        // produced two `claude -p` briefs for one slug. Keyed by branch, so a
-        // plan's later slice is asked for once its first slice's brief landed.
-        if (!command) continue;
-        const branch = firstBrieflessBranch(pulse, plan.slug, missingBriefs);
-        // A plan reported `no-brief` has one by construction; the guard is for a
-        // caller that hands in a reason and a pulse that disagree.
-        if (!branch) continue;
-        if (briefsAsked.has(branch)) continue;
-        const log = askForBrief(
-          opts,
-          command,
-          plan.slug,
-          briefAskPrompt(plan.slug, branch, pulse.main),
-        );
-        // MARKED EVEN WHEN THE SPAWN FAILED. `askForBrief` reports and returns
-        // '' rather than throwing, and marking anyway is the conservative
-        // direction: a board that re-asked every pulse on a broken command would
-        // write a process per pulse. The restart clears it.
-        briefsAsked.add(branch);
-        askBudget -= 1;
-        // THE ASK IS REPORTED, in the same voice as the skips above, so an
-        // operator reading the console sees the fleet acting rather than idling.
-        console.log(
-          `auto-dispatch: asked the Brief command to write ${plan.slug}'s brief ` +
-          `for ${branch}${log ? ` — log: ${log}` : ''}; claiming nothing this pass ` +
-          `(the gate reads origin/${pulse.main})`,
-        );
-      }
-    }
-  }
-
-  const plans = planAutoDispatch({
-    controls,
-    pulse,
-    liveCount,
-    // The same reading this function already logged about, so the planner's
-    // machine question and the sentence above cannot answer differently.
-    machine,
-    // The registry the cap was measured against, so the planner's free-agent
-    // question is asked of the same fleet this function just logged about.
-    agents,
-    // THIS BOARD'S MARKS PLUS EVERY OTHER BOARD'S. The planner charges the
-    // budget for all of them and drops all of them from the startable set, so a
-    // branch another board dispatched two seconds ago is neither started again
-    // nor counted as free capacity.
-    inFlight: allInFlight,
-    // The one fact the merged set cannot carry: whether the merge is complete.
-    // Read here, handed in as a value — the planner stays pure.
-    sharedInFlight: shared.branches !== null,
-    missingBriefs,
-  });
-
-  if (plans.length === 0) return pruned;
-
-  // MARKED BEFORE THE SPAWN, NOT AFTER, and the order is the whole point. The
-  // window this slice closes is the one between deciding and being visible, so a
-  // mark written after the spawn leaves it open at its widest — and a crash
-  // between the two would leave a dispatch running that no board is charged for,
-  // which is the failure direction the plan forbids. Marking first can only
-  // over-mark (the script may start fewer than planned), and `runAutoDispatch`
-  // already states that asymmetry: over-marking makes the board briefly more
-  // conservative, never less.
-  //
-  // The branches are the ones `runAutoDispatch` will mark, derived by the same
-  // call with the same arguments — `startableBranches` is pure, so asking it
-  // twice cannot answer differently, and the spawn side keeps its own reading
-  // rather than being handed one.
-  const willStart: string[] = [];
-  for (const plan of plans) {
-    willStart.push(
-      ...startableBranches(pulse, plan.slug, allInFlight, missingBriefs).slice(0, plan.max),
-    );
-  }
-
-  // THIS BOARD'S OWN: `pruned` plus what it is about to start, and never the
-  // shared marks it merely read. Re-stamping a peer's marks with `now` would let
-  // a dead board's budget be renewed indefinitely by a live board that never
-  // dispatched those branches — the marks would stop expiring and the TTL would
-  // buy nothing. `writeInFlight` merges, so the peer's marks survive this write
-  // on their own timestamps; they are simply not refreshed by a board that does
-  // not own them.
-  const owned = new Set(pruned);
-  for (const b of willStart) owned.add(b);
-  const markError = writeInFlight(opts.repoRoot, owned);
-  if (markError) {
-    console.log(`auto-dispatch: could not record in-flight marks: ${markError}`);
-  }
-
-  const newly = runAutoDispatch(opts, pulse, plans, allInFlight, missingBriefs);
-  for (const b of newly) owned.add(b);
-
-  // THE RETURNED SET IS THIS BOARD'S, NOT THE MERGED ONE, and that is the same
-  // ownership rule the write above keeps. The caller assigns this to
-  // `entry.autoInFlight`, which is what the NEXT pulse renews; returning the
-  // merged set would make this board adopt every peer mark as its own and renew
-  // it forever, so a board that died would have its budget held by whichever
-  // board happened to read the file. The peers' marks are re-read fresh every
-  // pulse instead — the file is the shared answer, and this set is only ever
-  // this board's contribution to it.
-  return owned;
-}
+};

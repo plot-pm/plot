@@ -8,17 +8,6 @@ import { fleetStateFile, bridgePath } from '@plot-pm/domain/adapters';
 import type { BridgedPulse } from '@plot-pm/domain/ports/fleet-state';
 import type { FleetReading } from '@plot-pm/domain/entities/fleet';
 
-const dispatch = vi.hoisted(() => vi.fn((_o: unknown, _p: unknown, _c: unknown, _a: unknown, inFlight: Set<string>) => inFlight));
-const deliver = vi.hoisted(() => vi.fn((_o: unknown, _p: unknown, inFlight: Set<string>) => inFlight));
-vi.mock('../../src/server/auto-dispatch.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../src/server/auto-dispatch.js')>()),
-  maybeAutoDispatch: dispatch,
-}));
-vi.mock('../../src/server/auto-deliver.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../src/server/auto-deliver.js')>()),
-  maybeAutoDeliver: deliver,
-}));
-
 const fold = vi.hoisted(() => ({ calls: 0 }));
 vi.mock('@plot-pm/domain', async (importOriginal) => {
   const real = await importOriginal<typeof import('@plot-pm/domain')>();
@@ -35,8 +24,7 @@ import { freshCacheEntry, maybeRefreshPrs, pulseFor, refresh, stopFleetRefresh }
 import { prIndexFile } from '@plot-pm/domain/adapters';
 
 // While a fleet runs it owns the scan: the board reads the pulse the fleet
-// bridged, spawns no scan, writes no bridge, and still auto-dispatches — once
-// per new bridged pulse. Every spawn is a REAL script that appends to a log.
+// bridged, spawns no scan, writes no bridge, and acts on no pulse. Every spawn is a REAL script that appends to a log.
 
 const PULSE: FleetReading = {
   main: 'main',
@@ -58,6 +46,12 @@ const bridged = (at: number): BridgedPulse => ({
 });
 
 const temps: string[] = [];
+
+/** The marks an automatic write leaves under `.plot/state/`; a board that acts leaves one. */
+const autoWrites = (dir: string): string[] => {
+  const state = path.join(dir, '.plot', 'state');
+  return fs.existsSync(state) ? fs.readdirSync(state).filter((f) => f.startsWith('auto-')) : [];
+};
 
 /** A repository whose scripts directory counts scan spawns and answers `supervisor: up` or down. */
 const fixture = (supervisorUp: boolean) => {
@@ -96,8 +90,6 @@ const fixture = (supervisorUp: boolean) => {
 
 beforeEach(() => {
   fold.calls = 0;
-  dispatch.mockClear();
-  deliver.mockClear();
 });
 afterEach(() => {
   stopFleetRefresh();
@@ -119,7 +111,7 @@ describe('the board while a fleet runs', () => {
     expect(entry.error).toBeNull();
   });
 
-  it('shows the bridged pulse after a restart without scanning, and does not dispatch from it again', async () => {
+  it('shows the bridged pulse after a restart without scanning, and acts on nothing', async () => {
     const { dir, opts, spawned } = fixture(true);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     // The first synchronous access seeds the cache from the bridge, as a
@@ -127,11 +119,10 @@ describe('the board while a fleet runs', () => {
     expect(pulseFor(opts)?.head).toBe('abc1234');
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(spawned()).toEqual([]);
-    expect(dispatch).not.toHaveBeenCalled();
-    expect(deliver).not.toHaveBeenCalled();
+    expect(autoWrites(dir)).toEqual([]);
   });
 
-  it('auto-dispatches once per new bridged pulse and not on one already acted on', async () => {
+  it('acts on no bridged pulse: the fleet daemon makes the automatic writes', async () => {
     const { dir, opts } = fixture(true);
     const state = fleetStateFile({ repoRoot: dir });
     const entry = freshCacheEntry();
@@ -139,12 +130,9 @@ describe('the board while a fleet runs', () => {
     await state.write(bridged(Date.now() - 3_000));
     await refresh(opts, entry);
     await refresh(opts, entry);
-    expect(dispatch).toHaveBeenCalledTimes(1);
-    expect(deliver).toHaveBeenCalledTimes(1);
     await state.write(bridged(Date.now() - 1_000));
     await refresh(opts, entry);
-    expect(dispatch).toHaveBeenCalledTimes(2);
-    expect(deliver).toHaveBeenCalledTimes(2);
+    expect(autoWrites(dir)).toEqual([]);
   });
 });
 
@@ -157,7 +145,7 @@ describe('the board alone', () => {
     await refresh(opts, entry);
     expect(spawned()).toEqual(['0']);
     expect(fs.readFileSync(bridgePath(dir)).equals(before)).toBe(true);
-    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(autoWrites(dir)).toEqual([]);
   });
 
   it('scans in place of a fleet whose bridge went stale', async () => {
