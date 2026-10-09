@@ -88,8 +88,13 @@ describe('the board never reaches the network to read refs', () => {
   it('calls no `git fetch` on the request path', () => {
     // The scan fetches on its own timer, which is what keeps the mirror fresh.
     // A fetch from here would put the same network dependency in a second place.
-    const offenders = sources.filter((s) => /['"]fetch['"]/.test(s.code));
+    // `trees-git.ts` is exempt: it holds `Trees.fetch`, which the lifecycle
+    // writes (`entry/approve.ts`) call once before booking. The request path is
+    // the server directory, and it is swept below for a call to that method.
+    const offenders = sources.filter((s) => s.file !== 'trees-git.ts' && /['"]fetch['"]/.test(s.code));
     expect(offenders.map((s) => s.file)).toEqual([]);
+    const callers = sources.filter((s) => /\btrees\.fetch\(/.test(s.code));
+    expect(callers.map((s) => s.file)).toEqual([]);
   });
 
   it('enumerates branches with `for-each-ref` over the local mirror', () => {
