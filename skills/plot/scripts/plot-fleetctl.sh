@@ -739,9 +739,7 @@ if [ "$mode" = "status" ]; then
     # part of that precedent which applies: its two-facts-must-agree rule
     # belongs to `--stop`, where a wrong guess kills a process.
     install_state="loaded-not-running"
-    echo "supervisor: LOADED, NOT RUNNING ($LABEL) — $(platform) holds the label and no process is behind it"
-    echo "  label:   loaded"
-    echo "  process: absent"
+    printf 'supervisor: LOADED, NOT RUNNING (%s) — %s holds the label and no process is behind it\n  label:   loaded\n  process: absent\n' "$LABEL" "$(platform)"
     serves_line "$(supervisor_checkout)"
     # THE TICK AGE IS EVIDENCE AND NEVER THE VERDICT. A log's mtime says when
     # the daemon last wrote, and a healthy supervisor between ticks has not
@@ -752,9 +750,7 @@ if [ "$mode" = "status" ]; then
     if [ -n "$tick_age" ]; then
       echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
     fi
-    echo "  Most often a crash loop: KeepAlive restarts it and it exits again, so the label stays held."
-    echo "  Read why before restarting: $tick_log"
-    echo "  then repair it: /plot-fleet --stop, then /plot-fleet --start"
+    printf '  Most often a crash loop: KeepAlive restarts it and it exits again, so the label stays held.\n  Read why before restarting: %s\n  then repair it: /plot-fleet --stop, then /plot-fleet --start\n' "$tick_log"
   else
     # THREE STATES WHERE THERE WERE TWO, AND THE REPAIR IS PRINTED. The two
     # failures read identically to a person and cost differently: an operator
@@ -794,15 +790,10 @@ if [ "$mode" = "status" ]; then
       # once will crash again after `--start`. The log is named here for that
       # reason: the repair is the same command, the DIAGNOSIS is what differs.
       installed)
-        echo "supervisor: STOPPED ($LABEL) — a --start finished here and the supervisor is gone since"
-        echo "  Nothing unloaded it: --stop clears this marker only after a clean unload."
-        echo "  So it died on its own — a crash, a logout, or an OS update."
-        echo "  Read why before restarting: .plot/logs/registryd.log"
-        echo "  then start it: /plot-fleet --start"
+        printf 'supervisor: STOPPED (%s) — a --start finished here and the supervisor is gone since\n  Nothing unloaded it: --stop clears this marker only after a clean unload.\n  So it died on its own — a crash, a logout, or an OS update.\n  Read why before restarting: .plot/logs/registryd.log\n  then start it: /plot-fleet --start\n' "$LABEL"
         ;;
       *)
-        echo "supervisor: not installed ($LABEL) — no unit on this machine"
-        echo "  start it: /plot-fleet --start"
+        printf 'supervisor: not installed (%s) — no unit on this machine\n  start it: /plot-fleet --start\n' "$LABEL"
         ;;
     esac
   fi
@@ -1150,8 +1141,7 @@ if [ "$mode" = "start" ]; then
   if [ "$start_rc" = 0 ]; then
     date -u +%Y-%m-%dT%H:%M:%SZ > "$(start_marker)" 2>/dev/null || true
   else
-    echo "  agents did not start cleanly — no completion marker written" >&2
-    echo "  /plot-fleet --status will report this run as interrupted." >&2
+    printf '  agents did not start cleanly — no completion marker written\n  /plot-fleet --status will report this run as interrupted.\n' >&2
   fi
   exit "$start_rc"
 fi
@@ -1295,8 +1285,7 @@ EOF
       # from the one this run signalled says launchd restarted the job under
       # `KeepAlive`; the same pid says the teardown is stuck.
       sup_pid_now=$(supervisor_pid)
-      echo "  supervisor did NOT unload within ${wait_bound}s — $LABEL is still loaded (pid ${sup_pid_now:-unknown})"
-      echo "  The start marker is kept: the run it records is still the live one."
+      printf '  supervisor did NOT unload within %ss — %s is still loaded (pid %s)\n  The start marker is kept: the run it records is still the live one.\n' "$wait_bound" "$LABEL" "${sup_pid_now:-unknown}"
       # SET, NOT EXITED ON. The agent summary below prints after this block, and
       # an early exit here swallows it when agents and supervisor both fail.
       sup_unconfirmed=1
