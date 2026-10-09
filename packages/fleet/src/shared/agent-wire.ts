@@ -27,9 +27,8 @@ import { AgentStateSchema as DomainAgentStateSchema } from '@plot-pm/domain';
  * looked*. Absent is not a guess, which is why a stale record can never
  * masquerade as a live one.
  *
- * DEFINED IN THE FLEET, NOT THE BOARD'S CONTRACT. `registry.ts` is the only
- * caller, and the contract re-exports this so the board's 53 importers of
- * `AgentState`/`AgentStateSchema` need no change.
+ * The board's `contract/schema.ts` re-exports this enum, so the fleet's
+ * `registry.ts` and the board read one definition.
  */
 export const AgentStateSchema = z.enum([
   ...DomainAgentStateSchema.options,
@@ -38,17 +37,11 @@ export const AgentStateSchema = z.enum([
 export type AgentState = z.infer<typeof AgentStateSchema>;
 
 /**
- * Whether an agent's identity was declared or inferred — the fleet's copy of
- * the domain's `AgentIdentitySchema`.
+ * Whether an agent's identity was declared or inferred — the wire's copy of
+ * the domain's `AgentIdentitySchema`, with the same two values.
+ * `identityWasDeclared` in the domain is the rule.
  *
- * A COPY BECAUSE THE CONTRACT PACKAGE IMPORTS NO DOMAIN, the same reason every
- * other entity on the board's wire restates its shape. The two are one enum in
- * two places and the values are the domain's; `identityWasDeclared` is the rule
- * and lives there.
- *
- * DEFINED IN THE FLEET, NOT THE BOARD'S CONTRACT. `registry.ts` is the only
- * caller here, and the contract re-exports this so the board's importers of
- * `AgentIdentity`/`AgentIdentitySchema` need no change.
+ * The board's `contract/schema.ts` re-exports this enum.
  */
 export const AgentIdentitySchema = z.enum(['manifest', 'synthesized']);
 export type AgentIdentity = z.infer<typeof AgentIdentitySchema>;

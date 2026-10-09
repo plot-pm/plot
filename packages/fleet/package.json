@@ -1,7 +1,7 @@
 {
   "name": "@plot-pm/fleet",
   "version": "0.1.0",
-  "description": "The fleet's clocks — the supervisor tick and the agent loop that spawn processes the domain only reads",
+  "description": "The fleet's clocks \u2014 the supervisor tick and the agent loop that spawn processes the domain only reads",
   "type": "module",
   "private": true,
   "license": "MIT",
@@ -19,7 +19,6 @@
     "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
-    "@plot-pm/domain": "workspace:*",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "4.1.11",
     "esbuild": "^0.28.0",
@@ -27,6 +26,7 @@
     "vitest": "4.1.11"
   },
   "dependencies": {
+    "@plot-pm/domain": "workspace:*",
     "zod": "^4.4.0"
   },
   "engines": {

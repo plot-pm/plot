@@ -656,11 +656,9 @@ jobs:
       # `the-board-commands-run-through-the-port` moved the ten agent-starting
       # board routes onto the `agentRun` port. What is left of the 11 is `git`
       # (`idea.ts`, `entry/deliver.ts`), a caller-supplied command (`fleet.ts`),
-      # and `registry.ts`/`continuation.ts`'s own process starts — the latter
-      # two moved to `packages/fleet/src` with the rest of the fleet's shared
-      # modules (`the-fleet-package-exists`), so the scope widened to keep
-      # counting the same 11 sites rather than silently losing three of them.
-      # The gate records the migration; it does not perform it.
+      # and the process starts in `registry.ts` and `continuation.ts`, which are
+      # in `packages/fleet/src`. The gate records the migration; it does not
+      # perform it.
       - name: One place reaches a process
         run: |
           allowed=11
@@ -702,10 +700,8 @@ jobs:
       # still runs `bash -c` over a git program — a different tool through a
       # different contract, with no exit-code mapping to collapse — and that
       # belongs to the slice beside this one. A gate that failed on it would be
-      # asserting something this branch did not do. `registry.ts` moved to
-      # `packages/fleet/src` with the rest of the fleet's shared modules
-      # (`the-fleet-package-exists`), so the scope widened to keep watching the
-      # same population rather than losing it at the package boundary.
+      # asserting something this branch did not do. The gate reads the board and
+      # the fleet, which holds `registry.ts`.
       - name: One place reaches a script
         run: |
           hits=$(grep -rEn "(execFile|execFileSync|spawn|spawnSync)\([^)]*plot-[a-z-]+\.sh|(join|resolve)\([^)]*'plot-[a-z-]+\.sh'" \
@@ -957,14 +953,12 @@ jobs:
       # fixture would make grep report "binary file matches" and hide the whole
       # file from the count.
       #
-      # `allowed=2` is `removeTree` in each package's own test/rm-tree.mjs —
-      # `packages/board/test/rm-tree.mjs` and, since `@plot-pm/fleet` moved the
-      # tests that need it, `packages/fleet/test/rm-tree.mjs`. A DECLARED
-      # DUPLICATE: `the-fleet-package-exists` copied the file rather than having
-      # fleet import board's test helper, which would make a production package
-      # depend on another package's test tree. Same ratchet shape as above:
-      # `::error::` when the count rises, `::notice::` when it can tighten. The
-      # target is 2, not 0.
+      # `allowed=2` is `removeTree` in `packages/board/test/rm-tree.mjs` and in
+      # `packages/fleet/test/rm-tree.mjs`, the one call per package that must
+      # stay raw. The fleet holds a declared copy, because a fleet test that
+      # imports the board's test tree makes the fleet depend on the board. Same
+      # ratchet shape as above: `::error::` when the count rises, `::notice::`
+      # when it can tighten. The target is 2, not 0.
       #
       # THE ONE SHAPE IT MISSES is a call split across lines, because grep reads
       # one line at a time. Measured 2026-09-01: that form occurs nowhere in

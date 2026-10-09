@@ -3377,10 +3377,8 @@ export type IssueAnswer = z.infer<typeof IssueAnswerSchema>;
  * looked*. Absent is not a guess, which is why a stale record can never
  * masquerade as a live one.
  *
- * MOVED TO `@plot-pm/fleet` and re-exported here. `registry.ts` is the
- * fleet's own module and the only caller, so the enum is defined where it is
- * used; this re-export keeps every one of the board's 53 importers of
- * `AgentState`/`AgentStateSchema` on the path they already have.
+ * Defined in `@plot-pm/fleet/shared/agent-wire`, beside the fleet's
+ * `registry.ts`, and re-exported here for the board's importers.
  */
 export { AgentStateSchema };
 export type { AgentState };
@@ -3515,10 +3513,8 @@ export const ProcessGroupSchema = z.object({
  * Whether an agent's identity was declared or inferred — the fleet's copy of
  * the domain's `AgentIdentitySchema`.
  *
- * MOVED TO `@plot-pm/fleet` and re-exported here. `registry.ts` is the
- * fleet's own module and the only caller, so the enum is defined where it is
- * used; this re-export keeps every one of the board's importers of
- * `AgentIdentity`/`AgentIdentitySchema` on the path they already have.
+ * Defined in `@plot-pm/fleet/shared/agent-wire`, beside the fleet's
+ * `registry.ts`, and re-exported here for the board's importers.
  */
 export { AgentIdentitySchema };
 export type { AgentIdentity };

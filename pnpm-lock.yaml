@@ -126,13 +126,13 @@ importers:
 
   packages/fleet:
     dependencies:
+      '@plot-pm/domain':
+        specifier: workspace:*
+        version: link:../domain
       zod:
         specifier: ^4.4.0
         version: 4.4.3
     devDependencies:
-      '@plot-pm/domain':
-        specifier: workspace:*
-        version: link:../domain
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17

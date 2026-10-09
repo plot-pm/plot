@@ -85,12 +85,5 @@ export default defineConfig({
         },
       },
     ],
-    // THE 100%-COVERAGE GATE THAT USED TO LIVE HERE MOVED WITH ITS SUBJECTS.
-    // `loop-writes.ts` and `worker-loop.ts` are `@plot-pm/fleet` source now —
-    // see packages/fleet/vitest.config.ts, which carries the same thresholds
-    // forward for the same reason. A coverage `include` naming a path under
-    // this package's `src/` that no longer exists would pass vacuously
-    // instead of enforcing anything, which is why the block leaves with the
-    // files rather than staying as a silent no-op.
   },
 });

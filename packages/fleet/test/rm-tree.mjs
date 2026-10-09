@@ -1,7 +1,7 @@
-// The one recursive removal under packages/board/test. CI's *A teardown does
-// not race a child* step allows exactly one raw recursive `fs.rmSync` here, and
-// this is it: `helpers.mjs`'s `rmTree` and the catalogue's browser launcher
-// both call it, and the catalogue must not import `helpers.mjs`.
+// The one recursive removal under packages/fleet/test, and a declared copy of
+// packages/board/test/rm-tree.mjs. CI's *A teardown does not race a child*
+// step allows one raw recursive `fs.rmSync` per package, and this is the
+// fleet's. A fleet test does not import the board's test tree.
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
