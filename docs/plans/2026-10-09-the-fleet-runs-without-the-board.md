@@ -96,7 +96,7 @@ fleet process (plot-registryd)          board process
 
 ### The bundles stop importing the board
 
-- `feature/the-fleet-bundles-import-no-board` — `registryd-main.ts` and `worker-loop.ts` import nothing from `packages/board/src/server/` outside `entry/`; a bundle test proves no `node:http` and no `board.ts` code ships in either; #1307 verified <!-- builds: a bundle-content test for plot-registryd.mjs and plot-worker-loop.mjs -->
+- `feature/the-fleet-bundles-import-no-board` — `registryd-main.ts` and `worker-loop.ts` import nothing from `packages/board/src/server/` outside `entry/`; a bundle test proves no `node:http` and no `board.ts` code ships in either; #1307 verified → #1413 <!-- builds: a bundle-content test for plot-registryd.mjs and plot-worker-loop.mjs -->
 
 ### The fleet package exists
 
