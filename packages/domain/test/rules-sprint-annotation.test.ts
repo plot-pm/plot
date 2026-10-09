@@ -32,6 +32,20 @@ describe('annotateSprintItem', () => {
     expect(next).toContain('branch: bug/a-b -->');
   });
 
+  it('inserts pr into a comment that carries no pr field', () => {
+    const content = '- [ ] [approve-me] the plan <!-- status: draft -->\n';
+    const { content: next, outcome } = annotateSprintItem(content, 'approve-me', 42, '');
+    expect(outcome).toBe('updated');
+    expect(next).toContain('<!-- pr: #42, status: draft -->');
+  });
+
+  it('appends branch to a comment that has pr and no branch field', () => {
+    const content = '- [ ] [approve-me] the plan <!-- pr: none -->\n';
+    const { content: next, outcome } = annotateSprintItem(content, 'approve-me', 42, 'feature/alpha');
+    expect(outcome).toBe('updated');
+    expect(next).toContain('<!-- pr: #42, branch: feature/alpha -->');
+  });
+
   it('a second run with the same pr/branch answers already, not updated', () => {
     const once = annotateSprintItem('- [ ] [approve-me] the plan\n', 'approve-me', 42, 'feature/alpha');
     const twice = annotateSprintItem(once.content, 'approve-me', 42, 'feature/alpha');
