@@ -1,0 +1,1 @@
+../2026-10-09-a-merged-pr-s-checks-freeze.md
