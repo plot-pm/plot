@@ -1022,7 +1022,7 @@ test('--status says a supervisor DIED where a start finished and nothing unloade
   // THE LOG IS THE POINT, not the restart. `--start` works here; what an
   // operator skips when told *not installed* is reading why it died, and a
   // supervisor that crashed once crashes again after a start.
-  assert.match(r.out, /registryd\.log/,
+  assert.match(r.out, /fleetd\.log/,
     'the reader is sent to restart without being sent to the log first');
 });
 
