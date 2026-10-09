@@ -480,8 +480,9 @@ describe('the holding-work readings and decisions', () => {
     const reading = spentReading({ ending: 'holding-work', refusedAssignment: 'feature/y', heldFiles: ['a.ts'] });
     const decisions = freshAgentDecisions([reading], 2);
     expect(decisions.map((d) => [d.verdict, d.answer, d.escalate])).toEqual([['release-claim', '', false]]);
-    const { starts, calls, ports } = rig(started);
+    const { starts, releases, calls, ports } = rig(started);
     expect(await applyFreshAgentDecisions(decisions, ports)).toEqual([]);
+    expect(releases).toEqual([]);
     expect(starts).toEqual([]);
     expect(calls.blockedMarkers).toEqual([]);
   });
@@ -532,6 +533,7 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
     commitBeyondClaim: CommitReading;
     prOpen: PrOpenReading;
     heldFiles: readonly string[] | null;
+    workAsks: number;
   } = {
     endingAt: '2026-10-05T11:00:00.000Z',
     merged: 'not-merged',
@@ -539,8 +541,10 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
     commitBeyondClaim: 'no',
     prOpen: false,
     heldFiles: [],
+    workAsks: 0,
   };
   const starts: { branch: string; answer: string }[] = [];
+  const releases: string[] = [];
   // MUTATED AFTER EACH WRITE, so a marker written on tick N makes tick N+1's
   // read see `escalated: true` — the same no-overwrite behaviour a real
   // `PLOT-BLOCKED.md` file gives through `hasMarker`.
@@ -561,6 +565,10 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
       starts.push({ branch: input.branch, answer: input.answer });
       return continues(input);
     },
+    release: async (branch) => {
+      releases.push(branch);
+      return { released: true, detail: `released ${branch}` };
+    },
   };
   /** One tick over one desk: read through the real record, decide, apply. */
   const tickOver = async (deskFile: (worktree: string, name: string) => string | null, path = tree().path) => {
@@ -577,13 +585,19 @@ const rig = (continues: (input: Parameters<FreshAgentPorts['start']>[0]) => Prom
           world.mergedAsks += 1;
           return world.merged;
         },
-        commitBeyondClaim: async () => world.commitBeyondClaim,
-        prOpen: async () => world.prOpen,
+        commitBeyondClaim: async () => {
+          world.workAsks += 1;
+          return world.commitBeyondClaim;
+        },
+        prOpen: async () => {
+          world.workAsks += 1;
+          return world.prOpen;
+        },
       },
     );
     return applyFreshAgentDecisions(freshAgentDecisions(readings, 2), ports);
   };
-  return { record, asks, world, ports, calls, markedWorktrees, starts, tickOver };
+  return { record, asks, world, ports, calls, markedWorktrees, starts, releases, tickOver };
 };
 
 const boundDesk = (reason: 'bound' | 'unreadable' = 'bound') => (_worktree: string, name: string) =>
@@ -841,9 +855,10 @@ describe('a timed-out desk through the tick', () => {
     });
 
     it(`releases the claim for a ${reason} desk with nothing beyond the claim`, async () => {
-      const { tickOver, starts, calls } = rig(started);
+      const { tickOver, starts, releases, calls } = rig(started);
       const applied = await tickOver(boundDesk(reason));
-      expect(applied).toEqual([]);
+      expect(releases).toEqual([tree().branch]);
+      expect(applied).toEqual([{ branch: tree().branch, outcome: 'released', detail: `released ${tree().branch}` }]);
       expect(starts).toEqual([]);
       expect(calls.blockedMarkers).toEqual([]);
     });
@@ -869,6 +884,27 @@ describe('a timed-out desk through the tick', () => {
       expect(calls.blockedMarkers).toEqual([
         { worktree: tree().path, text: expect.stringContaining('already had its one fresh session') },
       ]);
+    });
+
+    it(`reports a refused release for a ${reason} desk and starts nothing`, async () => {
+      const { tickOver, starts, ports } = rig(started);
+      ports.release = async () => ({ released: false, detail: 'a live worker pid holds the desk' });
+      const applied = await tickOver(boundDesk(reason));
+      expect(applied).toEqual([{ branch: tree().branch, outcome: 'refused', detail: 'a live worker pid holds the desk' }]);
+      expect(starts).toEqual([]);
+    });
+
+    it(`reads no branch work for a ${reason} ending a person was already asked about`, async () => {
+      const { tickOver, starts, releases, world } = rig(started);
+      world.heldFiles = ['a.ts'];
+      await tickOver(boundDesk(reason));
+      await tickOver(boundDesk(reason));
+      const asksBefore = world.workAsks;
+      const third = await tickOver(boundDesk(reason));
+      expect(world.workAsks).toBe(asksBefore);
+      expect(third).toEqual([]);
+      expect(starts).toHaveLength(1);
+      expect(releases).toEqual([]);
     });
 
     it(`does not start a fresh session for a merged ${reason} branch`, async () => {
@@ -914,6 +950,7 @@ describe('one desk\'s missing marker text', () => {
       escalate: true,
       markerText,
       endingAt: '',
+      releaseBranch: '',
     });
     const applied = await applyFreshAgentDecisions([decision('/a', ''), decision('/b', 'a question')], ports);
     expect(applied.map((a) => a.outcome)).toEqual(['escalation-failed', 'escalated']);
@@ -962,13 +999,14 @@ describe('prMergedReading', () => {
 });
 
 describe('freshAgentLines', () => {
-  it('sends started and escalated to the log and every other outcome to the error stream', () => {
+  it('sends started, escalated and released to the log and every other outcome to the error stream', () => {
     const lines = freshAgentLines([
       { branch: 'a', outcome: 'started', detail: 'ok' },
       { branch: 'b', outcome: 'escalated', detail: 'ok' },
       { branch: 'c', outcome: 'refused', detail: 'no' },
+      { branch: 'd', outcome: 'released', detail: 'ok' },
     ]);
-    expect(lines.map((l) => l.error)).toEqual([false, false, true]);
+    expect(lines.map((l) => l.error)).toEqual([false, false, true, false]);
     expect(lines[2]?.line).toBe('plot-registryd fresh-agent c: refused — no');
   });
 });

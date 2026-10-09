@@ -136,17 +136,24 @@ describe('endingAction', () => {
       it(`asks a person on a second ${reason} ending for the same slice`, () => {
         expect(endingAction(readings({ ending: reason, commitBeyondClaim: 'yes', priorFreshSessions: 1 }))).toBe('needs-a-person');
       });
+
+      it(`leaves a ${reason} ending whose branch's PR merged — no fresh session, no marker, no release`, () => {
+        expect(endingAction(readings({ ending: reason, commitBeyondClaim: 'yes', prMerged: 'merged' }))).toBe('leave');
+        expect(endingAction(readings({ ending: reason, commitBeyondClaim: 'yes', priorFreshSessions: 1, prMerged: 'merged' }))).toBe('leave');
+        expect(endingAction(readings({ ending: reason, prMerged: 'merged' }))).toBe('leave');
+      });
+
+      it(`reads an unanswerable merge as not merged on a ${reason} ending`, () => {
+        expect(endingAction(readings({ ending: reason, commitBeyondClaim: 'yes', prMerged: 'unanswerable' }))).toBe('start-fresh');
+      });
     });
   }
 
-  it('asks a person after holding-work then bound — the count is shared across endings, not kept per-ending', () => {
-    // CATCHES A PER-ENDING COUNTER: a rule that gave holding-work and bound
-    // separate allowances would answer start-fresh here.
-    expect(endingAction(readings({ ending: 'bound', commitBeyondClaim: 'yes', priorFreshSessions: 1 }))).toBe('needs-a-person');
-  });
-
-  it('asks a person after corrections-spent then bound — the count is shared across endings, not kept per-ending', () => {
-    expect(endingAction(readings({ ending: 'bound', commitBeyondClaim: 'yes', priorFreshSessions: 1 }))).toBe('needs-a-person');
+  it('reads one fresh-session count for bound and the three other fresh-session endings alike — no allowance per ending', () => {
+    for (const ending of ['bound', 'corrections-spent', 'turn-limit', 'holding-work'] as const) {
+      expect(endingAction(readings({ ending, commitBeyondClaim: 'yes', priorFreshSessions: 0 })), ending).toBe('start-fresh');
+      expect(endingAction(readings({ ending, commitBeyondClaim: 'yes', priorFreshSessions: 1 })), ending).toBe('needs-a-person');
+    }
   });
 
   it('asks a person outright for blocked, spend-limit, unstarted, run-limit and checks-unanswered, with no fresh session first', () => {

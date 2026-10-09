@@ -699,13 +699,14 @@ export interface FreshAgentCandidateReadings {
   heldFiles: readonly string[] | null;
   /**
    * Whether the branch holds a commit beyond its claim. Asked only for a
-   * `bound`/`unreadable` ending, which is the one reason in this population
-   * {@link endingAction} reads it for; `'unanswerable'` for every other desk.
+   * `bound`/`unreadable` ending no person was asked about, which is the one
+   * case in this population {@link endingAction} reads it for;
+   * `'unanswerable'` for every other desk.
    */
   commitBeyondClaim: CommitReading;
   /**
    * Whether an open PR still carries the branch. Asked only for a
-   * `bound`/`unreadable` ending, the same reasoning as
+   * `bound`/`unreadable` ending no person was asked about, the same reasoning as
    * {@link FreshAgentCandidateReadings.commitBeyondClaim}; `'unanswerable'`
    * for every other desk.
    */
@@ -827,21 +828,20 @@ export const readFreshAgentCandidates = async (
       endingAt: endingAt ?? '',
       endingAsked,
       // THE HOST IS ASKED ONLY WHERE ITS ANSWER CAN CHANGE THE VERDICT.
-      // `bound`/`unreadable` are asked too: `endingAction` never reads
-      // `prMerged` for them today, but a merged branch is the one case this
-      // slice must not start a fresh agent on, so the registry asks the host
-      // here and `freshAgentDecisions` reads the answer directly.
+      // `endingAction` reads `prMerged` for the five outright reasons and for
+      // `bound`/`unreadable`; an ending already asked about answers `leave`
+      // whatever the host says.
       prMerged:
         (endingAsksPersonOutright(ending) || isBoundEnding(ending)) && !endingAsked
           ? await asks.prMerged(tree.branch)
           : 'unanswerable',
       heldFiles: await heldFiles(tree.path),
-      // READ ONLY FOR `bound`/`unreadable` — the one reason in this
-      // population `endingAction` reads either field for. Every other ending
-      // leaves both `'unanswerable'`, which `endingAction` never consults for
-      // them.
-      commitBeyondClaim: isBoundEnding(ending) ? await asks.commitBeyondClaim(tree.path) : 'unanswerable',
-      prOpen: isBoundEnding(ending) ? await asks.prOpen(tree.branch) : 'unanswerable',
+      // `endingAction` reads these two for `bound`/`unreadable` only. Every
+      // other ending, and an ending already asked about, reads
+      // `'unanswerable'` without a git or host call.
+      commitBeyondClaim:
+        isBoundEnding(ending) && !endingAsked ? await asks.commitBeyondClaim(tree.path) : 'unanswerable',
+      prOpen: isBoundEnding(ending) && !endingAsked ? await asks.prOpen(tree.branch) : 'unanswerable',
     });
   }
   return out;
@@ -871,6 +871,14 @@ export interface FreshAgentDecision {
   markerText: string;
   /** The ending file's time, ISO-8601, for the ask record; `''` where unread. */
   endingAt: string;
+  /**
+   * The branch whose claim this tick releases through
+   * {@link FreshAgentPorts.release}: the desk's own branch for a
+   * `bound`/`unreadable` `release-claim`, `''` for every other decision. A
+   * take-up `holding-work` `release-claim` carries `''` here, because
+   * {@link applyNothingDoneDecisions} releases that one.
+   */
+  releaseBranch: string;
 }
 
 /**
@@ -912,12 +920,11 @@ export const markerTextFor = (reading: FreshAgentCandidateReadings): string => {
  * filler, because that row can answer `release-claim` on "nothing beyond the
  * claim" and a desk full of unlanded work must never be read as empty here.
  *
- * **A MERGED BRANCH NEVER STARTS A FRESH AGENT.** `endingAction` does not
- * read `prMerged` for `bound`/`unreadable` — only the five outright
- * `needs-a-person` reasons do — so a `start-fresh` verdict for one of them is
- * overridden to `leave` where {@link FreshAgentCandidateReadings.prMerged} is
- * `'merged'`: a marker or a fresh session on an already-merged slice reaches
- * nobody and starts a session with nothing left to continue.
+ * **THIS STEP RELEASES A TIMED-OUT DESK'S CLAIM.** A `bound`/`unreadable`
+ * `release-claim` carries the desk's branch as
+ * {@link FreshAgentDecision.releaseBranch}, because only this step reads the
+ * real `dirtyTree`; {@link nothingDoneDecisions} answers `leave` for the same
+ * desk.
  *
  * @param candidates - what {@link readFreshAgentCandidates} read.
  * @param budget - the repository's `Correction budget`, for the composed answer.
@@ -929,7 +936,7 @@ export const freshAgentDecisions = (
 ): readonly FreshAgentDecision[] =>
   candidates.map((reading) => {
     const bound = isBoundEnding(reading.ending);
-    const rawVerdict = endingAction({
+    const verdict = endingAction({
       ending: reading.ending,
       branch: reading.branch,
       refusedAssignment: reading.refusedAssignment,
@@ -941,7 +948,6 @@ export const freshAgentDecisions = (
       prMerged: reading.prMerged,
       endingAsked: reading.endingAsked,
     });
-    const verdict = bound && rawVerdict === 'start-fresh' && reading.prMerged === 'merged' ? 'leave' : rawVerdict;
     // THE COMPOSED ANSWER FOLLOWS WHICH ENDING FIRED, NOT JUST THE VERDICT.
     // `freshAgentAnswer`'s whole text is about a spent correction budget,
     // `holdingWorkAnswer`'s is about uncommitted work from a refused prompt,
@@ -974,6 +980,7 @@ export const freshAgentDecisions = (
       escalate: verdict === 'needs-a-person' && !reading.escalated,
       markerText,
       endingAt: reading.endingAt,
+      releaseBranch: bound && verdict === 'release-claim' ? reading.branch : '',
     };
   });
 
@@ -986,7 +993,8 @@ export interface FreshAgentApplied {
     | 'start-failed'
     | 'threw'
     | 'escalated'
-    | 'escalation-failed';
+    | 'escalation-failed'
+    | 'released';
   /** One line saying why, or what started. */
   detail: string;
 }
@@ -1013,6 +1021,11 @@ export interface FreshAgentPorts {
   }) => Promise<DeskContinuation>;
   /** The clock, for the record's timestamp. */
   now: () => Date;
+  /**
+   * Decides and, where releasable, releases one branch's claim — the same
+   * {@link ClaimRelease} path {@link applyNothingDoneDecisions} reaches.
+   */
+  release: (branch: string) => Promise<{ released: boolean; detail: string }>;
 }
 
 /**
@@ -1030,6 +1043,10 @@ export interface FreshAgentPorts {
  * ask row is appended where the marker was written or already existed, so
  * the next tick answers `leave` for this ending after a person's answer
  * removes the marker. A marker that could not be written records no ask.
+ *
+ * **`release-claim` RELEASES ONLY A NAMED {@link FreshAgentDecision.releaseBranch}.**
+ * The release reports `released`, or `refused` with the release's own
+ * detail; a refusal is not retried.
  *
  * **ONE DESK THROWING DOES NOT STOP THE OTHERS.** The throw is reported as
  * `threw`.
@@ -1080,6 +1097,13 @@ export const applyFreshAgentDecisions = async (
       } else if (decision.verdict === 'needs-a-person') {
         const applied = await askAPerson(decision, ports);
         if (applied !== null) out.push(applied);
+      } else if (decision.verdict === 'release-claim' && decision.releaseBranch !== '') {
+        const result = await ports.release(decision.releaseBranch);
+        out.push({
+          branch: decision.releaseBranch,
+          outcome: result.released ? 'released' : 'refused',
+          detail: result.detail,
+        });
       }
     } catch (error) {
       out.push({
@@ -1140,7 +1164,7 @@ export const freshAgentLines = (
 ): readonly { line: string; error: boolean }[] =>
   applied.map((entry) => ({
     line: `plot-registryd fresh-agent ${entry.branch}: ${entry.outcome} — ${entry.detail}`,
-    error: entry.outcome !== 'started' && entry.outcome !== 'escalated',
+    error: entry.outcome !== 'started' && entry.outcome !== 'escalated' && entry.outcome !== 'released',
   }));
 
 /**
@@ -1257,9 +1281,10 @@ export interface NothingDoneDecision {
  * and `endingAction`'s `bound`/`unreadable` row can answer `release-claim` on
  * "nothing beyond the claim" — a verdict this step could only reach with a
  * filler `dirtyTree`, never the real one. The fresh-agent step owns the real
- * `dirtyTree` reading (from `heldFiles`) and this step's own verdict for a
- * `bound`/`unreadable` candidate is always `leave`, so one desk still gets
- * one verdict this tick: the fresh-agent step's.
+ * `dirtyTree` reading (from `heldFiles`) and releases the claim itself, and
+ * this step's own verdict for a `bound`/`unreadable` candidate is always
+ * `leave`, so one desk still gets one verdict this tick: the fresh-agent
+ * step's.
  *
  * @param candidates - what {@link readNothingDoneCandidates} read.
  * @param commitBeyondClaim - reads whether a desk's branch holds a commit

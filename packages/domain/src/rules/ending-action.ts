@@ -67,9 +67,10 @@ export interface EndingActionReadings {
    * Whether the host merged a PR for the branch; `'unanswerable'` where the
    * host could not be asked, which takes the same arm as `'not-merged'`.
    *
-   * Read by the five outright `needs-a-person` rows only: a merged slice
-   * answers `leave` there, because a marker on a merged desk reaches no
-   * person and refuses the reap.
+   * Read by the five outright `needs-a-person` rows and the
+   * `bound`/`unreadable` row: a merged slice answers `leave` there, because a
+   * marker or a fresh session on a merged desk reaches no person, has nothing
+   * left to continue, and refuses the reap.
    */
   readonly prMerged: PrMergedReading;
   /**
@@ -116,8 +117,9 @@ export type PrMergedReading = 'merged' | 'not-merged' | 'unanswerable';
  *   asked about answers `leave`.
  * - `leave` — every other case, including a desk a manifest already names,
  *   and the default where no row of this table answers otherwise: `quiet`,
- *   `spent`, `limited`, `unregistered`, and a take-up `holding-work` whose
- *   desk never started.
+ *   `spent`, `limited`, `unregistered`, a take-up `holding-work` whose
+ *   desk never started, and a `bound`/`unreadable` ending whose branch's PR
+ *   merged.
  */
 export type EndingActionVerdict = 'release-claim' | 'start-fresh' | 'needs-a-person' | 'leave';
 
@@ -226,8 +228,9 @@ const takeUpRefused = (refusedAssignment: string, branch: string): boolean =>
  *
  * **ONE ASK PER ENDING.** Every `needs-a-person` answer becomes `leave`
  * where {@link EndingActionReadings.endingAsked} says a person was already
- * asked about this ending. An outright `needs-a-person` ending answers
- * `leave` where {@link EndingActionReadings.prMerged} is `'merged'`.
+ * asked about this ending. An outright `needs-a-person` ending and a
+ * `bound`/`unreadable` ending answer `leave` where
+ * {@link EndingActionReadings.prMerged} is `'merged'`.
  *
  * **ABSENT IS NOT FALSE.** A missing or unreadable ending answers `leave`;
  * `commitBeyondClaim: 'unanswerable'` takes the same arm as `'yes'`,
@@ -258,6 +261,7 @@ const endingTableAnswer = (readings: EndingActionReadings): EndingActionVerdict 
     return readings.priorFreshSessions > 0 ? 'needs-a-person' : 'start-fresh';
   }
   if (readings.ending !== null && BOUND_ENDINGS.has(readings.ending)) {
+    if (readings.prMerged === 'merged') return 'leave';
     if (!boundBranchHoldsWork(readings)) return 'release-claim';
     return readings.priorFreshSessions > 0 ? 'needs-a-person' : 'start-fresh';
   }
