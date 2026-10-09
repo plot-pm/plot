@@ -111,7 +111,14 @@ export const endHeldRuns = (code: number): void => {
   held.clear();
 };
 
-const writeState = (statePath: string | null, code: number): void => {
+/**
+ * Records a run's end in a state file that {@link markBoardRun} marked, and
+ * releases the board's hold on it.
+ *
+ * @param statePath - the run's state file; `null` records nothing.
+ * @param code - the run's exit code.
+ */
+export const writeState = (statePath: string | null, code: number): void => {
   if (statePath === null) return;
   held.delete(statePath);
   try {

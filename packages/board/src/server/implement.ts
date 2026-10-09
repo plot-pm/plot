@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { agentLogPath } from './agent-log.js';
 import { readConfig, type BuildBoardOptions } from './board.js';
-import { markBoardRun, readRunState, startBoardRun, type BoardConfigReader } from './board-run.js';
+import { markBoardRun, readRunState, startBoardRun, writeState, type BoardConfigReader } from './board-run.js';
+import { startableBranches } from './auto-dispatch.js';
+import { pulseFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { lastLines, usableCommand, type IdeaState } from './idea.js';
 import { localCapability } from './controllers/caller.js';
@@ -77,6 +79,51 @@ export function implementLogPath(repoRoot: string, slug: string): string {
 export function implementStatePath(repoRoot: string, slug: string): string {
   return agentLogPath(repoRoot, 'implement', slug, 'state');
 }
+
+/**
+ * Where the outcome of the run that briefed ONE branch is recorded, beside the
+ * plan-keyed {@link implementStatePath}. Written only for a run that was given a
+ * branch; it holds `running <pid>` while the run lives and the exit code after.
+ */
+export const implementBranchStatePath = (repoRoot: string, slug: string, branch: string): string =>
+  agentLogPath(repoRoot, 'implement', `${slug}.${branch.split('/').pop() ?? branch}`, 'state');
+
+/**
+ * Where the branch the plan-keyed run was given is named. Absent for a run that
+ * named no branch, which keeps the per-plan reading.
+ */
+export const implementBranchRecordPath = (repoRoot: string, slug: string): string =>
+  `${implementStatePath(repoRoot, slug)}.branch`;
+
+/**
+ * The branch the plan-keyed run was given.
+ *
+ * @param repoRoot - absolute path to the repository root.
+ * @param slug - the plan slug the run is keyed on.
+ * @returns the branch, or `null` where the run named none or nothing is recorded.
+ */
+export const readImplementBranch = (repoRoot: string, slug: string): string | null => {
+  try {
+    return fs.readFileSync(implementBranchRecordPath(repoRoot, slug), 'utf8').trim() || null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The branch a brief writer for this plan should brief: the first branch of the
+ * first eligible slice that is startable and unclaimed, by the rule auto-dispatch
+ * counts with ({@link startableBranches}).
+ *
+ * @param opts - the board's options.
+ * @param slug - the plan slug.
+ * @returns the branch, or `null` where the board has no reading or no branch is eligible.
+ */
+export const nextBriefBranch = (opts: BuildBoardOptions, slug: string): string | null => {
+  const pulse = pulseFor(opts);
+  if (!pulse) return null;
+  return startableBranches(pulse, slug, new Set())[0] ?? null;
+};
 
 /** Why implementing a plan was refused — each sends the reader somewhere different. */
 export type ImplementRefusal =
@@ -199,6 +246,9 @@ export interface ImplementStartFailure {
  * @param onExit - called with the run's recorded code once it ends, after the
  *   state file is written. Anything it throws is logged and recorded as `1`.
  * @param readCfg - the config reader for every other key; {@link readConfig} where absent.
+ * @param branch - the branch the run briefs, chosen by the caller before the spawn;
+ *   `null` leaves the run naming none. It is recorded beside the plan-keyed state,
+ *   with its own `running <pid>` state, and passed to the run as `PLOT_BRIEF_BRANCH`.
  * @returns the log path, or a failure where the log could not be opened.
  */
 export const startImplement = (
@@ -207,15 +257,22 @@ export const startImplement = (
   command: string,
   onExit?: (code: number) => void,
   readCfg: BoardConfigReader = readConfig,
+  branch: string | null = null,
 ): { log: string } | { failure: ImplementStartFailure } => {
   const log = implementLogPath(opts.repoRoot, slug);
   const statePath = implementStatePath(opts.repoRoot, slug);
+  const branchStatePath = branch === null ? null : implementBranchStatePath(opts.repoRoot, slug, branch);
   try {
     // Truncated, not appended — this log is read back AS the answer, and an
     // appended one would show a previous attempt's error after a later success.
     fs.rmSync(statePath, { force: true });
+    fs.rmSync(implementBranchRecordPath(opts.repoRoot, slug), { force: true });
     fs.writeFileSync(log, '', 'utf8');
     markBoardRun(statePath, log);
+    if (branch !== null && branchStatePath !== null) {
+      fs.writeFileSync(implementBranchRecordPath(opts.repoRoot, slug), branch, 'utf8');
+      markBoardRun(branchStatePath, log);
+    }
   } catch (err) {
     return { failure: { detail: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` } };
   }
@@ -238,6 +295,7 @@ export const startImplement = (
         // `/plot-implement` step 2 stops and reports rather than asking.
         PLOT_UNATTENDED: '1',
         PLOT_PLAN_SLUG: slug,
+        ...(branch === null ? {} : { PLOT_BRIEF_BRANCH: branch }),
       },
       logFile: log,
       statePath,
@@ -247,6 +305,7 @@ export const startImplement = (
       // RELEASED FIRST, before anything that can throw. A slug held by a run
       // that has ended is a slug nothing can dispatch again.
       running.delete(slug);
+      writeState(branchStatePath, record.code);
       onExit?.(record.code);
     },
   );
@@ -321,6 +380,8 @@ export const implementStatus = (opts: BuildBoardOptions, slug: string): Implemen
 export interface ImplementDeps {
   /** The configured `Implement command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
+  /** The branch to brief for a plan; {@link nextBriefBranch} where absent. */
+  briefBranch?: (opts: BuildBoardOptions, slug: string) => string | null;
 }
 
 /**
@@ -405,7 +466,8 @@ export async function handleImplement(
   // copy; the two drifted in the one way that mattered — only this one wrote
   // the state file the status route reads — so the child belongs to
   // `startImplement` and both callers get the same log, bound and recording.
-  const started = startImplement(opts, slug, usable, undefined, readCfg);
+  const branch = (deps.briefBranch ?? nextBriefBranch)(opts, slug);
+  const started = startImplement(opts, slug, usable, undefined, readCfg, branch);
   if ('failure' in started) {
     json(500, { error: started.failure.detail });
     return;

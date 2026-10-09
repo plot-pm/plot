@@ -8,6 +8,7 @@ import {
   IMPLEMENT_COMMAND_KEY,
   implementLogPath,
   implementRunning,
+  nextBriefBranch,
   startImplement,
 } from './implement.js';
 import { usableCommand } from './idea.js';
@@ -241,6 +242,8 @@ export function dispatchLogExists(repoRoot: string, slug: string): boolean {
 export interface DispatchDeps {
   /** Read a Plot Config key, or return the fallback. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
+  /** The branch to brief for a plan; `nextBriefBranch` where absent. */
+  briefBranch?: (opts: BuildBoardOptions, slug: string) => string | null;
 }
 
 /**
@@ -426,6 +429,11 @@ export async function handleDispatch(
   // Everything the exit listener needs, resolved HERE while a request is still
   // on the stack. A failure to open the dispatch log is reportable now and an
   // uncaught exception later — see `startImplement`'s listener contract.
+  // THE CONTROLLER CHOOSES THE BRANCH BEFORE THE WRITER STARTS, by the rule the
+  // queue counts with, so the writer's state is attributable to that one branch
+  // from the first second. `null` — no reading, or nothing eligible — leaves the
+  // run naming none, which is today's behaviour.
+  const briefBranch = (deps.briefBranch ?? nextBriefBranch)(opts, slug);
   const started = startImplement(opts, slug, implCommand, (code) => {
     // A non-zero exit means the implement failed — refused by /plot-implement
     // itself (phase wrong, drift detected in unattended mode, no eligible
@@ -472,7 +480,7 @@ export async function handleDispatch(
     } finally {
       fs.closeSync(out);
     }
-  });
+  }, readConfig, briefBranch);
   if ('failure' in started) {
     json(500, { error: started.failure.detail });
     return;
