@@ -33,10 +33,10 @@ The fleet runs apart from the board. The supervisor, the registry and the agent 
 - 🔄 [`the-shell-sheds-its-decisions`](../../plans/2026-10-09-the-shell-sheds-its-decisions.md) (#1404, Approved). Slice 1 *The gate counts decisions* is PR #1405. Slices 2 and 3 convert `plot-reap.sh` and `plot-approve.sh`.
 - ⏸️ A follow-up slice widens the gate: it counts every row whose kind is not *launcher*, with target 0. *paired* rows count.
 
-### Phase 2: Measure the per-pass cost ⏸️
+### Phase 2: Measure the per-pass cost ✅
 
-- ⏸️ A plan measures, on this machine with N agents, how many bundle calls one agent pass would make if every per-pass script were a launcher, and what they cost in CPU and wall time. It names the scripts on that path (`plot-fleet-scan.sh`, `plot-plan-meta.sh`, `plot-worker-state.sh`, `plot-budget.sh` and others) and their call counts per pass.
-- ⏸️ The measurement decides one of two routes, recorded here: amend the cost rule and convert them as launchers, or answer per-pass questions inside the fleet's long-lived process.
+- ✅ [`the-pass-is-measured`](../../plans/2026-10-08-one-agent-pass-costs-what-its.md) measured, on a 16-core machine at 1, 4 and 8 concurrent agents, what the launcher variant (bash + launcher + node + bundle) adds in CPU over today's bash-only call, against `plot-worker-loop.sh`'s `readPass` call sites (`plot-config.sh`, `plot-host.sh`, `plot-worker-state.sh` and the rest of the scripts a busy pass reaches) — a trace, not a grep count. `scripts/measure-pass.mjs` holds the measurement; `docs/shell-and-domain.md` §1 holds the table.
+- ✅ The measurement decided the route: launcher adds **1750 % CPU per pass at 8 agents**, three orders of magnitude over the fixed 5 % threshold — route 2, answering per-pass questions inside the fleet's own long-lived process. Recorded in the Decisions table below and in `docs/shell-and-domain.md` §1.
 
 ### Phase 3: The fleet runs without the board ⏸️
 
@@ -50,7 +50,7 @@ The fleet runs apart from the board. The supervisor, the registry and the agent 
 
 ## Open Points
 
-- ⏸️ What does one agent pass cost with every per-pass script as a launcher? → Phase 2.
+- ✅ What does one agent pass cost with every per-pass script as a launcher? → Phase 2. 1750 % CPU overhead at 8 agents against the launcher variant — route 2.
 - ⏸️ Which board dependencies does the fleet have today, and which process hosts the supervisor after the split? → Phase 3.
 - ⏸️ Order of the reading groups in Phase 4. Candidate rule: most callers first.
 
@@ -59,6 +59,7 @@ The fleet runs apart from the board. The supervisor, the registry and the agent 
 | Date | Decision | Rationale |
 |------|----------|-----------|
 | 2026-10-09 | PR #1405 merges as built, and a follow-up slice widens the gate | The gate never lets the count rise, so it stays valid under the wider target. Rewriting a finished slice costs more than one more slice. |
+| 2026-10-09 | Per-pass scripts take route 2: answer the question inside the fleet's own long-lived process, not as launchers | The fixed threshold was route 1 if the launcher variant added less than 5 % CPU per pass at 8 agents, else route 2. Measured: 1750 % (40 ms today against 740 ms launcher, 16-core machine, medians over 7 runs) — three orders of magnitude over the threshold. |
 
 ## Session Log
 

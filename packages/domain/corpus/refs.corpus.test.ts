@@ -8,7 +8,7 @@ import { shellContext } from '../src/adapters/scripts.js';
 import type { FleetReading } from '../src/entities/fleet.js';
 import { isAnswered } from '../src/port-result.js';
 import { compareField, describeDisagreement, type Disagreement } from './compare.js';
-import { PIN, pinClone, type PinnedClone } from './pin-clone.js';
+import { FIXTURE_BRANCH, FIXTURE_PATH, PIN, pinClone, type PinnedClone } from './pin-clone.js';
 import { readFleetScan, type Estate } from './production.js';
 
 /**
@@ -524,8 +524,11 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
     //
     // `raw.main` fails if `cfg` stops answering `Main branch` and the scan asks
     // `default_branch` instead. `read_ref` fails if `origin/plot-corpus-pin` is
-    // absent in the clone. `changed_paths` fails if the clone's
-    // `refs/remotes/origin/*` hold none of ROOT's branches.
+    // absent in the clone. The `changed_paths` check below fails if the clone's
+    // `refs/remotes/origin/*` hold none of `pinClone`'s branches — including
+    // `FIXTURE_BRANCH`, which `pinClone` adds for exactly this assertion, so it
+    // holds regardless of whether the real estate's own branches carry unmerged
+    // changes (588c91635 / #1391 left none that did).
     const wireBranches = asArray(raw.plans)
       .flatMap((plan) => wireSlices(plan))
       .flatMap((slice) => asArray(slice.branches));
@@ -535,7 +538,8 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
     expect(raw.plan_source).toBe('ref');
     expect(raw.read_ref).not.toBe('unknown');
     expect(pinned?.pinned.startsWith(String(raw.read_ref))).toBe(true);
-    expect(wireBranches.filter((branch) => asArray(branch.changed_paths).length > 0).length).toBeGreaterThan(0);
+    const fixture = wireBranches.find((branch) => branch.branch === FIXTURE_BRANCH);
+    expect(fixture?.changed_paths).toEqual([FIXTURE_PATH]);
   });
 
   it('carries the readings the estate actually populates, so this is not vacuous', () => {
