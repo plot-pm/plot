@@ -622,6 +622,8 @@ export interface CacheEntry {
    * absent from this map has never been asked or was last seen moving.
    */
   prPendingReaskStreak: Map<number, number>;
+  /** Epoch ms of each PR's last re-ask by number. */
+  prReaskAt: Map<number, number>;
   /** How the limit reading was come by — `actual`, `predicted`, or `unknown`. */
   prLimitBasis: LimitBasis;
   /**
@@ -2012,7 +2014,7 @@ export function freshCacheEntry(): CacheEntry {
     // and a restart re-derives liveness from git rather than trusting a set.
     prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null, prSpendPerHour: null,
     prResetAt: null, prConcurrency: PR_CONCURRENCY_START,
-    prLimit: null, prFullReadFailedAt: null, prPendingReaskStreak: new Map(),
+    prLimit: null, prFullReadFailedAt: null, prPendingReaskStreak: new Map(), prReaskAt: new Map(),
     prLimitBasis: 'unknown',
     prAccount: null, prSlotsHeld: null,
     // 0, so the first fetch happens immediately rather than a minute in.
