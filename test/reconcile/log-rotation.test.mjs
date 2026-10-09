@@ -72,7 +72,7 @@ function size(file) {
 }
 
 const MODULE = path
-  .join(root, 'packages', 'board', 'src', 'shared', 'process-log.ts')
+  .join(root, 'packages', 'fleet', 'src', 'shared', 'process-log.ts')
   .replace(/\\/g, '/');
 
 test('log-rotation: the writer rotates at the bound and keeps three files', () => {
@@ -263,7 +263,7 @@ test('log-rotation: the daemon and the board both open their own log', () => {
   // estate repeatedly, a rule with no caller is the defect this slice's plan
   // names in its own motivation.
   const registryd = readFileSync(
-    path.join(root, 'packages', 'board', 'src', 'server', 'entry', 'registryd-main.ts'),
+    path.join(root, 'packages', 'fleet', 'src', 'server', 'entry', 'registryd-main.ts'),
     'utf8',
   );
   assert.match(registryd, /processLog\(/, 'registryd does not open its own log');
