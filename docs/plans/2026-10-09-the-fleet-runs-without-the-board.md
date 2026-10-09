@@ -120,7 +120,7 @@ fleet process (plot-registryd)          board process
 
 ### The fleet owns its automatic writes
 
-- `feature/the-fleet-owns-its-automatic-writes` — auto-dispatch and auto-delivery run in the registryd tick with in-flight state under `.plot/state/`; the board's three automatic writes are removed <!-- builds: planAutoDispatch moved to packages/domain/src/rules -->
+- `feature/the-fleet-owns-its-automatic-writes` — auto-dispatch and auto-delivery run in the registryd tick with in-flight state under `.plot/state/`; the board's three automatic writes are removed → #1452 <!-- builds: planAutoDispatch moved to packages/domain/src/rules -->
 
 ### The controllers are commands
 
