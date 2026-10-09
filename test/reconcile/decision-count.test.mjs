@@ -232,7 +232,7 @@ test('a launcher naming a bundle build.mjs declares, with its entry source, pass
   change(work, row('a.sh', 'launcher', 'execs', 'board/plot-new.mjs'), ...BASE.slice(1));
   const r = run(work, ['pr']);
   assert.equal(r.status, 0, r.out);
-  assert.match(r.out, /1 scripts still decide or orchestrate now, 2 at merge base/);
+  assert.match(r.out, /2 scripts still decide or orchestrate now, 3 at merge base/);
 }));
 
 test('a launcher naming a declared bundle whose entry source is absent fails', withFixture(({ work }) => {
