@@ -17,7 +17,6 @@
 - **Started:** 2026-10-09, jwloka, `feature/the-fleet-owns-the-scan-and-pr-index`
 - **Started:** 2026-10-10, jwloka, `feature/the-fleet-owns-its-automatic-writes`
 - **Started:** 2026-10-10, jwloka, `feature/the-controllers-are-commands`
-- **Started:** 2026-10-10, jwloka, `feature/the-controllers-are-commands`
 
 ## Changelog
 
