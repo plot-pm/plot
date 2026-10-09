@@ -21,6 +21,8 @@ import {
   refusedSlicesFile,
   deskFs,
   agentsFs,
+  fleetStateFile,
+  clockSystem,
 } from '@plot-pm/domain/adapters';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
@@ -50,6 +52,8 @@ import { ownerOfRemote } from '@plot-pm/domain/rules/remote-owner';
 import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gates';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../../shared/registry.js';
+import { fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
+import { freshScanState } from '../../shared/fleet-scan.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
 import { markerReading } from '../../shared/worker-question.js';
@@ -1721,10 +1725,36 @@ export const run = async (
     release: releaseClaimOf,
   };
 
+  // THE SCAN HAS ITS OWN CLOCK, apart from `tick`: a scan runs up to 90 s and
+  // must neither delay a supervision tick nor start a second scan. `--once`
+  // runs one tick and no scan.
+  const scanClock = args.once
+    ? null
+    : startFleetClock(clockSystem(), {
+        scan: fleetScan(
+          {
+            repoRoot,
+            scripts,
+            refs: refsGit({ repoRoot, scriptDir: scriptsDir }),
+            backend: async () => {
+              const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
+              return answer.ok ? answer.value : 'github';
+            },
+          },
+          fleetStateFile({ repoRoot }),
+          freshScanState(),
+          () => Date.now(),
+          warn,
+        ),
+      });
+
   write(`plot-fleetd: supervising ${registryDir}\n`);
 
   for (;;) {
-    if (stop()) return 0;
+    if (stop()) {
+      scanClock?.stop();
+      return 0;
+    }
     // A THROWN TICK IS A REPORTED TICK, NOT A DEAD DAEMON.
     //
     // The paragraph below — *the loop continues whatever the tick reported* —

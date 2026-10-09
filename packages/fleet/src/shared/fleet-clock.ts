@@ -1,7 +1,9 @@
 import { createPulse, divisorFor, startPulse, type RunningPulse } from '@plot-pm/domain';
 import type { Clock } from '@plot-pm/domain/ports/clock';
 
-import { PR_REFRESH_MS, REFRESH_MS } from './fleet-scan.js';
+import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
+
+import { PR_REFRESH_MS, REFRESH_MS, scanOnce, writeScan, type ScanState, type ScanWorld } from './fleet-scan.js';
 
 /**
  * The fleet's two subscribers and the divisor each counts by.
@@ -65,4 +67,32 @@ export const startFleetClock = (clock: Clock, work: FleetClockWork): RunningPuls
     pulse.add({ name, everyNthBeat, tick: ticks[name] });
   }
   return pulse;
+};
+
+/**
+ * Builds the scan the fleet's clock runs: one recorded scan, then the bridge.
+ *
+ * The bridge is written only after `scanOnce` returns. A scan that throws or
+ * ends without a terminal pulse line leaves the previous bridge file untouched.
+ *
+ * @param world - what the scan reads through.
+ * @param fleetState - the bridge port; the fleet is its only writer.
+ * @param state - the cost caches, adopted by `scanOnce` on success only.
+ * @param now - reads the clock for the bridge's `at`.
+ * @param warn - receives a one-line reason when a scan or a write fails.
+ * @returns the function to hand to {@link startFleetClock} as `scan`.
+ */
+export const fleetScan = (
+  world: ScanWorld,
+  fleetState: FleetState,
+  state: ScanState,
+  now: () => number,
+  warn: (line: string) => void,
+): (() => Promise<void>) => async () => {
+  try {
+    const result = await scanOnce(world, state, { record: true });
+    if (!(await writeScan(fleetState, result, now()))) warn('plot-fleetd: bridge write refused');
+  } catch (e) {
+    warn(`plot-fleetd: scan failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
 };
