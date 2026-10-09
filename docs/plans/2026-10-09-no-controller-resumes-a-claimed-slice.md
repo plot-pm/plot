@@ -80,7 +80,7 @@ The rule stays pure: it reads the ending, the branch readings and the fresh-sess
 
 ### A timed-out slice gets a fresh agent
 
-- `feature/a-timed-out-slice-gets-a-fresh-agent` — the `bound` and `unreadable` rows of `endingAction`, their share of the one fresh session per slice, and the registry tick that starts the fresh agent or writes the marker <!-- builds: the bound rows of endingAction -->
+- `feature/a-timed-out-slice-gets-a-fresh-agent` — the `bound` and `unreadable` rows of `endingAction`, their share of the one fresh session per slice, and the registry tick that starts the fresh agent or writes the marker → #1435 <!-- builds: the bound rows of endingAction -->
 
 ## Done when
 
