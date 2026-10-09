@@ -69,6 +69,10 @@ Measured on `main` at `0b749ca9e`, 2026-10-09:
 
 - `feature/the-gate-counts-decisions` — a CI check counts the README rows whose kind is neither *launcher* nor *readings* at the merge base and at `HEAD`, and fails when the count grows; the `plot-worker-loop.sh` row becomes *launcher* → #1405 <!-- builds: a decision-count gate over the README kind column -->
 
+### A declared bundle is evidence
+
+- `feature/a-declared-bundle-is-evidence` — the decision gate accepts a bundle that `packages/board/build.mjs` declares, with its entry source present, as evidence for *launcher* and *readings*, so a conversion PR can flip its row in the same change that adds the bundle <!-- builds: declared-bundle evidence in check-decision-count.sh -->
+
 ### The gate counts every script
 
 - `feature/the-gate-counts-every-script` — the decision gate counts every README row whose kind is not *launcher*, *paired* included, so its target is 0 and a reading script counts like a deciding one (story `the-shell-holds-no-behavior`) <!-- builds: a wider count in the decision gate -->
