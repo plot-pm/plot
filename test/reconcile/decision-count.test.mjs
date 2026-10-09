@@ -40,7 +40,26 @@ const EVIDENCE = [
   'skills/plot/scripts/board/d.mjs',
   'packages/domain/src/rules/a.ts',
   'packages/domain/corpus/a.corpus.test.ts',
+  'packages/board/src/server/entry/new.ts',
 ];
+
+/** A build that declares two bundles; only `plot-new`'s entry source exists. */
+const BUILD = 'packages/board/build.mjs';
+const BUILD_TEXT = [
+  "const newArtifact = path.join(here, 'dist/plot-new.mjs');",
+  "const shippedNew = path.join(here, '../../skills/plot/scripts/board/plot-new.mjs');",
+  'await esbuild.build({',
+  "  entryPoints: [path.join(here, 'src/server/entry/new.ts')],",
+  '  outfile: newArtifact,',
+  '});',
+  "const lostArtifact = path.join(here, 'dist/plot-lost.mjs');",
+  "const shippedLost = path.join(here, '../../skills/plot/scripts/board/plot-lost.mjs');",
+  'await esbuild.build({',
+  "  entryPoints: [path.join(here, 'src/server/entry/lost.ts')],",
+  '  outfile: lostArtifact,',
+  '});',
+  '',
+].join('\n');
 
 const put = (work, text) => {
   mkdirSync(path.dirname(path.join(work, README)), { recursive: true });
@@ -66,6 +85,7 @@ const fixture = (text = readme(...BASE)) => {
     mkdirSync(path.dirname(path.join(work, file)), { recursive: true });
     writeFileSync(path.join(work, file), '// evidence\n');
   }
+  writeFileSync(path.join(work, BUILD), BUILD_TEXT);
   commit(work, 'initial');
   git(work, 'push', '-q', 'origin', 'HEAD:refs/heads/main');
   git(work, 'fetch', '-q', '--no-tags', 'origin', 'main:refs/remotes/origin/main');
@@ -189,6 +209,43 @@ test('a launcher naming a bundle absent from HEAD fails', withFixture(({ work })
   const r = run(work, ['pr']);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /a\.sh -> launcher/);
+}));
+
+test('a launcher naming a bundle build.mjs declares, with its entry source, passes unbuilt', withFixture(({ work }) => {
+  change(work, row('a.sh', 'launcher', 'execs', 'board/plot-new.mjs'), ...BASE.slice(1));
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /1 scripts still decide or orchestrate now, 2 at merge base/);
+}));
+
+test('a launcher naming a declared bundle whose entry source is absent fails', withFixture(({ work }) => {
+  change(work, row('a.sh', 'launcher', 'execs', 'board/plot-lost.mjs'), ...BASE.slice(1));
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /a\.sh -> launcher/);
+}));
+
+test('a launcher naming a bundle neither declared nor built fails', withFixture(({ work }) => {
+  change(work, row('a.sh', 'launcher', 'execs', 'board/plot-other.mjs'), ...BASE.slice(1));
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /a\.sh -> launcher/);
+}));
+
+test('an unbuilt bundle with no build.mjs in HEAD fails closed', withFixture(({ work }) => {
+  git(work, 'rm', '-q', BUILD);
+  change(work, row('a.sh', 'launcher', 'execs', 'board/plot-new.mjs'), ...BASE.slice(1));
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /build\.mjs is absent at HEAD/);
+}));
+
+test('an unbuilt bundle with a build.mjs that declares nothing parseable fails closed', withFixture(({ work }) => {
+  writeFileSync(path.join(work, BUILD), 'export default {};\n');
+  change(work, row('a.sh', 'launcher', 'execs', 'board/plot-new.mjs'), ...BASE.slice(1));
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /declares no bundle this gate can parse/);
 }));
 
 test('a base row that keeps its kind needs no evidence', withFixture(({ work }) => {
