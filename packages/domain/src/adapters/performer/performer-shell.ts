@@ -3,32 +3,14 @@ import { join } from 'node:path';
 
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type { Performer } from '../../ports/performer.js';
-import { DEFAULT_MANIFEST_DIR, manifestDirectory } from '../../rules/desk-manifest.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
-import { scriptsShell } from '../scripts/scripts-shell.js';
 
 /** The script that owns desk creation, the manifest and the monitors. */
 const DISPATCH = 'plot-dispatch.sh';
 
-/** The `## Plot Config` key that may point the registry somewhere else. */
-const MANIFEST_DIR_KEY = 'Agent registry';
-
-/**
- * Where this repository's registry lives, absolute.
- *
- * Mirrors `agents-fs.ts`'s own resolution: an unreadable config answers the
- * default rather than failing, and {@link manifestDirectory} is the one rule
- * both the dispatcher's shell and every TypeScript reader use to turn that
- * value into a path — so a hand-over written here lands where the loop's own
- * `PLOT_MANIFEST_FILE` (set by the same resolution in `plot-dispatch.sh`)
- * reads it, whatever `Agent registry` names.
- */
-const manifestDir = async (context: ShellContext): Promise<string> => {
-  const answer = await scriptsShell(context).config(MANIFEST_DIR_KEY, DEFAULT_MANIFEST_DIR);
-  const configured = (answer.ok ? answer.value.trim() : '') || DEFAULT_MANIFEST_DIR;
-  return manifestDirectory({ mainCheckout: context.repoRoot, configured });
-};
+/** Where the agent manifests live, relative to the repository root. */
+const MANIFEST_DIR = '.plot/agents';
 
 /**
  * How long one start may take before it is abandoned, in milliseconds.
@@ -66,18 +48,16 @@ const START_TIMEOUT_MS = 60_000;
  */
 export const performerShell = (context: ShellContext): Performer => ({
   assignSlice: async (session, branch, slug): Promise<PortResult<boolean>> => {
-    // THE HAND-OVER ITSELF IS A FILE WRITE, NOT A SPAWN. A manifest is a JSON
-    // file this package already reads, and inventing a script to write one
-    // field would add a second definition of the manifest's shape in a
-    // language that cannot share the first. `manifestDir` asks `plot-config.sh`
-    // for `Agent registry` the way `agents-fs.ts` does — the one config lookup
-    // this write needs to land in the SAME directory the loop's own
-    // `PLOT_MANIFEST_FILE` resolves to, whatever that key names.
+    // A FILE WRITE, NOT A SPAWN, AND THEREFORE NOT A SCRIPT. Every other
+    // member of this port shells out because the process table is the script's
+    // to touch; a manifest is a JSON file this package already reads, and
+    // inventing a script to write one field would add a second definition of
+    // the manifest's shape in a language that cannot share the first.
     //
     // THE AGENT'S LOOP IS THE READER AND IT POLLS. `wait_for_work` re-reads
     // this file, so recording the branch IS the hand-over — nothing is
     // signalled and no process is touched.
-    const file = join(await manifestDir(context), `${session}.json`);
+    const file = join(context.repoRoot, MANIFEST_DIR, `${session}.json`);
     if (!existsSync(file)) return failed();
     try {
       const manifest = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;

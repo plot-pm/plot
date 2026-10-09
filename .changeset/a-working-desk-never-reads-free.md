@@ -2,7 +2,7 @@
 'plot': patch
 ---
 
-`assignSlice` writes a slice's hand-over branch to the `Agent registry` path a repository configures, not to the hardcoded default. A registry configured elsewhere left the written branch where the worker loop never read it, so the loop counted a free wait while its agent worked and ended it at the bound (#1409).
+The worker loop's idle watch counts a session's subagent transcripts under `<session>/subagents/` as well as the session's own transcript. An agent that delegated its slice to a subagent left its own transcript silent, so the watch read the desk as idle, ended the working agent with exit 124 and left its tree uncommitted.
 
 <!--
 plan: docs/plans/2026-10-09-no-controller-resumes-a-claimed-slice.md
