@@ -4,6 +4,7 @@ import {
   endingAsksFreshStart,
   endingReleaseBranch,
   holdingWorkAnswer,
+  boundAnswer,
   needsPersonMarker,
   secondFreshSessionMarker,
   NEEDS_PERSON_ENDINGS,
@@ -19,6 +20,7 @@ const readings = (over: Partial<EndingActionReadings> = {}): EndingActionReading
   priorFreshSessions: 0,
   commitBeyondClaim: 'no',
   prOpen: false,
+  dirtyTree: 'no',
   prMerged: 'not-merged',
   endingAsked: false,
   ...over,
@@ -92,10 +94,65 @@ describe('endingAction', () => {
 
   const NEEDS_PERSON_OUTRIGHT = ['blocked', 'spend-limit', 'unstarted', 'run-limit', 'checks-unanswered'];
 
-  it('leaves every ending but nothing-done, corrections-spent, turn-limit, holding-work and the five outright needs-a-person reasons alone', () => {
-    const handled = new Set(['nothing-done', 'corrections-spent', 'turn-limit', 'holding-work', ...NEEDS_PERSON_OUTRIGHT]);
+  it('leaves every ending but nothing-done, corrections-spent, turn-limit, holding-work, bound, unreadable and the five outright needs-a-person reasons alone', () => {
+    const handled = new Set([
+      'nothing-done',
+      'corrections-spent',
+      'turn-limit',
+      'holding-work',
+      'bound',
+      'unreadable',
+      ...NEEDS_PERSON_OUTRIGHT,
+    ]);
     for (const ending of EndingReasonSchema.options.filter((r) => !handled.has(r))) {
       expect(endingAction(readings({ ending }))).toBe('leave');
+    }
+  });
+
+  for (const reason of ['bound', 'unreadable'] as const) {
+    describe(`${reason}`, () => {
+      it(`releases the claim on a first ${reason} ending whose branch holds nothing beyond its claim`, () => {
+        expect(endingAction(readings({ ending: reason }))).toBe('release-claim');
+      });
+
+      it(`starts a fresh session on a first ${reason} ending whose branch holds a commit beyond its claim`, () => {
+        expect(endingAction(readings({ ending: reason, commitBeyondClaim: 'yes' }))).toBe('start-fresh');
+      });
+
+      it(`starts a fresh session on a first ${reason} ending whose branch holds an open PR`, () => {
+        expect(endingAction(readings({ ending: reason, prOpen: true }))).toBe('start-fresh');
+      });
+
+      it(`starts a fresh session on a first ${reason} ending whose branch holds a dirty tree and no commit — a row that reads only commitBeyondClaim/prOpen wrongly releases here`, () => {
+        expect(endingAction(readings({ ending: reason, commitBeyondClaim: 'no', prOpen: false, dirtyTree: 'yes' }))).toBe('start-fresh');
+      });
+
+      it(`takes the protective arm on an unanswerable reading rather than releasing — absent is not false`, () => {
+        expect(endingAction(readings({ ending: reason, commitBeyondClaim: 'unanswerable' }))).toBe('start-fresh');
+        expect(endingAction(readings({ ending: reason, prOpen: 'unanswerable' }))).toBe('start-fresh');
+        expect(endingAction(readings({ ending: reason, dirtyTree: 'unanswerable' }))).toBe('start-fresh');
+      });
+
+      it(`asks a person on a second ${reason} ending for the same slice`, () => {
+        expect(endingAction(readings({ ending: reason, commitBeyondClaim: 'yes', priorFreshSessions: 1 }))).toBe('needs-a-person');
+      });
+
+      it(`leaves a ${reason} ending whose branch's PR merged — no fresh session, no marker, no release`, () => {
+        expect(endingAction(readings({ ending: reason, commitBeyondClaim: 'yes', prMerged: 'merged' }))).toBe('leave');
+        expect(endingAction(readings({ ending: reason, commitBeyondClaim: 'yes', priorFreshSessions: 1, prMerged: 'merged' }))).toBe('leave');
+        expect(endingAction(readings({ ending: reason, prMerged: 'merged' }))).toBe('leave');
+      });
+
+      it(`reads an unanswerable merge as not merged on a ${reason} ending`, () => {
+        expect(endingAction(readings({ ending: reason, commitBeyondClaim: 'yes', prMerged: 'unanswerable' }))).toBe('start-fresh');
+      });
+    });
+  }
+
+  it('reads one fresh-session count for bound and the three other fresh-session endings alike — no allowance per ending', () => {
+    for (const ending of ['bound', 'corrections-spent', 'turn-limit', 'holding-work'] as const) {
+      expect(endingAction(readings({ ending, commitBeyondClaim: 'yes', priorFreshSessions: 0 })), ending).toBe('start-fresh');
+      expect(endingAction(readings({ ending, commitBeyondClaim: 'yes', priorFreshSessions: 1 })), ending).toBe('needs-a-person');
     }
   });
 
@@ -121,8 +178,8 @@ describe('endingAction', () => {
   });
 
   it('leaves an ending a person was already asked about — the answer removes the marker, not the ending', () => {
-    for (const ending of [...NEEDS_PERSON_OUTRIGHT, 'corrections-spent', 'turn-limit', 'holding-work']) {
-      const asked = readings({ ending: ending as EndingReason, priorFreshSessions: 1, endingAsked: true });
+    for (const ending of [...NEEDS_PERSON_OUTRIGHT, 'corrections-spent', 'turn-limit', 'holding-work', 'bound', 'unreadable']) {
+      const asked = readings({ ending: ending as EndingReason, commitBeyondClaim: 'yes', priorFreshSessions: 1, endingAsked: true });
       expect(endingAction(asked)).toBe('leave');
       expect(endingAction({ ...asked, endingAsked: false })).toBe('needs-a-person');
     }
@@ -215,8 +272,8 @@ describe('needsPersonMarker', () => {
     }
   });
 
-  it('composes the second-fresh-session question for corrections-spent, turn-limit and holding-work', () => {
-    for (const reason of ['corrections-spent', 'turn-limit', 'holding-work'] as const) {
+  it('composes the second-fresh-session question for corrections-spent, turn-limit, holding-work, bound and unreadable', () => {
+    for (const reason of ['corrections-spent', 'turn-limit', 'holding-work', 'bound', 'unreadable'] as const) {
       const text = needsPersonMarker(reason, 'infra/x', 'ignored');
       expect(text).toBe(secondFreshSessionMarker(reason, 'infra/x'));
       expect(text).toContain('already had its one fresh session');
@@ -256,14 +313,38 @@ describe('holdingWorkAnswer', () => {
   });
 });
 
+describe('boundAnswer', () => {
+  it('names the branch, the time-out, and every held file', () => {
+    const answer = boundAnswer('infra/prior', ['a.ts', 'b/c.ts']);
+    expect(answer).toContain('`infra/prior`');
+    expect(answer).toContain('time bound');
+    expect(answer).toContain('- a.ts');
+    expect(answer).toContain('- b/c.ts');
+  });
+
+  it('says the files could not be listed rather than giving an empty list — absent is not false', () => {
+    const answer = boundAnswer('infra/prior', null);
+    expect(answer).toContain('could not be listed');
+    expect(answer).not.toContain('- ');
+  });
+
+  it('says so when no file was listed as held', () => {
+    const answer = boundAnswer('infra/prior', []);
+    expect(answer).toContain('No file was listed as held');
+  });
+});
+
 describe('endingAsksFreshStart', () => {
   const ended = (reason: string, branch = 'infra/x', refusedAssignment = ''): EndingReading => ({
     read: 'ended',
     ending: { reason, actor: 'agent', branch, detail: '', refusedAssignment } as never,
   });
 
-  it('answers true for exactly the endings endingAction starts a first fresh session for', () => {
-    for (const reason of EndingReasonSchema.options) {
+  it('answers true for exactly the endings endingAction starts a first fresh session for, outside bound/unreadable', () => {
+    // bound/unreadable are excluded here because their start-fresh answer is
+    // conditional on readings this function never sees (commitBeyondClaim,
+    // prOpen, dirtyTree) — see the dedicated assertions below.
+    for (const reason of EndingReasonSchema.options.filter((r) => r !== 'bound' && r !== 'unreadable')) {
       const expected = endingAction(readings({ ending: reason })) === 'start-fresh';
       expect(endingAsksFreshStart(ended(reason), 'infra/x'), reason).toBe(expected);
     }
@@ -272,6 +353,13 @@ describe('endingAsksFreshStart', () => {
   it('answers true for an after-prompt holding-work, turn-limit and corrections-spent', () => {
     for (const reason of ['holding-work', 'turn-limit', 'corrections-spent']) {
       expect(endingAsksFreshStart(ended(reason), 'infra/x'), reason).toBe(true);
+    }
+  });
+
+  it('answers true for bound and unreadable on the ending\'s own branch and false for another branch', () => {
+    for (const reason of ['bound', 'unreadable']) {
+      expect(endingAsksFreshStart(ended(reason, 'infra/x'), 'infra/x'), reason).toBe(true);
+      expect(endingAsksFreshStart(ended(reason, 'infra/other'), 'infra/x'), reason).toBe(false);
     }
   });
 
