@@ -101,7 +101,7 @@ fleet process (plot-registryd)          board process
 
 ### The fleet package exists
 
-- `feature/the-fleet-package-exists` — `@plot-pm/fleet` holds the fleet entries and builds the same three bundle names; CI ratchets cover it <!-- builds: @plot-pm/fleet, a workspace package -->
+- `feature/the-fleet-package-exists` — `@plot-pm/fleet` holds the fleet entries and builds the same three bundle names; CI ratchets cover it → #1421 <!-- builds: @plot-pm/fleet, a workspace package -->
 
 ### The supervisor is plot-fleetd
 
