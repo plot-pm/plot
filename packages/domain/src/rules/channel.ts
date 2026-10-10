@@ -25,19 +25,17 @@ import {
 export const MEASURABLE: readonly FindingName[] = Object.keys(MEASURED_BY) as FindingName[];
 
 /**
- * The conditions this channel is asked for but does not measure.
+ * The conditions a subscriber may name that the channel serves under another
+ * name.
  *
- * `CI is green` is named rather than merely absent, because it is the request
- * the plan refuses ON PURPOSE and a refusal that says *unknown condition* would
- * read as an oversight. No monitor asks the host about a check run, and adding
- * one to satisfy a request is how the five-minute budget stops meaning
- * anything.
+ * `ci is green` and `ci is red` are what a waiter says; the IndexMonitor
+ * measures `checks green` and `checks failing`. The translation happens before
+ * admission, so the held subscription carries the canonical name and `welcome`
+ * lists canonical names only.
  */
-const REFUSED_BY_DESIGN: Readonly<Record<string, string>> = {
-  'ci is green':
-    'no monitor asks the host about a check run; adding one to serve this would put a host question on a fast loop',
-  'ci is red':
-    'no monitor asks the host about a check run; adding one to serve this would put a host question on a fast loop',
+const ALIASES: Readonly<Record<string, FindingName>> = {
+  'ci is green': 'checks green',
+  'ci is red': 'checks failing',
 };
 
 /**
@@ -64,13 +62,12 @@ export const admit = (id: string, raw: unknown): Admission => {
   // exactly as a typo does. Asking first is what lets `CI is green` be refused
   // with the reason the design gives it rather than a parser's generic no.
   const asked = describeAsked(raw);
+  const canonical = ALIASES[asked.toLowerCase()] ?? asked;
   if (asked !== '') {
-    const refusal = REFUSED_BY_DESIGN[asked.toLowerCase()];
-    if (refusal) return { ok: false, reason: refusal, asked, measurable: MEASURABLE };
     // `clear` is a finding a monitor PUBLISHES but not one a subscriber may
     // wait for: the publishing vocabulary and the waitable one are different
     // sets, and `MEASURABLE` is the second.
-    if (!MEASURABLE.includes(asked as FindingName)) {
+    if (!MEASURABLE.includes(canonical as FindingName)) {
       return {
         ok: false,
         reason: `this channel does not measure '${asked}'`,
@@ -80,7 +77,7 @@ export const admit = (id: string, raw: unknown): Admission => {
     }
   }
 
-  const parsed = SubscribeRequestShape.safeParse(raw);
+  const parsed = SubscribeRequestShape.safeParse(withFinding(raw, canonical));
   if (!parsed.success) {
     return {
       ok: false,
@@ -92,6 +89,18 @@ export const admit = (id: string, raw: unknown): Admission => {
 
   const { subscriber, purpose } = parsed.data;
   return { ok: true, subscription: { id, subscriber, purpose } };
+};
+
+/**
+ * The request with its condition replaced by the canonical name, where it was an alias.
+ *
+ * A non-empty `canonical` comes from {@link describeAsked}, which reads it only from an
+ * object `purpose` inside an object request.
+ */
+const withFinding = (raw: unknown, canonical: string): unknown => {
+  if (canonical === '') return raw;
+  const request = raw as { purpose: object };
+  return { ...request, purpose: { ...request.purpose, finding: canonical } };
 };
 
 /**

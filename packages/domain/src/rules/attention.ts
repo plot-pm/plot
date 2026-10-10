@@ -74,11 +74,22 @@ export type FindingVerdict =
 /**
  * A finding that asks somebody to do something.
  *
- * `clear` retracts and `build passed` reports a thing going right; neither is
- * an errand, and the type says so, so {@link READINGS} cannot be given an entry
- * for either and {@link findingReading} cannot return one.
+ * `clear` retracts, `build passed` reports a thing going right, and the
+ * IndexMonitor's four findings report the state of a PR or of the default
+ * branch; none of them is an errand, and the type says so, so {@link READINGS}
+ * cannot be given an entry for any and {@link findingReading} cannot return one.
  */
-export type Errand = Exclude<FindingName, 'clear' | 'build passed'>;
+export type Errand = Exclude<FindingName, 'clear' | 'build passed' | IndexFindingName>;
+
+/** The findings the IndexMonitor publishes: readings that ask nothing of anyone. */
+type IndexFindingName = 'checks green' | 'checks failing' | 'pr merged' | 'default branch red';
+
+const INDEX_FINDINGS: ReadonlySet<FindingName> = new Set<IndexFindingName>([
+  'checks green',
+  'checks failing',
+  'pr merged',
+  'default branch red',
+]);
 
 /**
  * Which verdict, move and list each finding names.
@@ -140,14 +151,16 @@ export const findingReading = (finding: FindingName): FindingReading | null =>
 /**
  * Does this finding ask anybody to do anything?
  *
- * `build passed` does not, and it is the one finding here that says a thing
- * went RIGHT. An attention list that carried it would report a green build as
- * work — the flags-everything-flags-nothing failure the board's own `stuck`
- * field avoids by staying null. It still travels on the row: a caller waiting
- * on a run needs the answer, and only the errand half is filtered here.
+ * `build passed` does not: it says a thing went right. The IndexMonitor's four
+ * findings do not either: they report a PR's checks or merge, or the default
+ * branch's colour. An attention list that carried one would report a green
+ * build as work, the flags-everything-flags-nothing failure the board's own
+ * `stuck` field avoids by staying null. The finding still travels on the row,
+ * because a caller waiting on a run needs the answer; only the errand half is
+ * filtered here.
  */
 export const isErrand = (finding: FindingName): finding is Errand =>
-  finding !== 'clear' && finding !== 'build passed';
+  finding !== 'clear' && finding !== 'build passed' && !INDEX_FINDINGS.has(finding);
 
 /**
  * Which monitor took a reading, for a reader that must choose a response.
@@ -166,5 +179,7 @@ export const monitorSubject = (monitor: MonitorName): string => {
       return 'the desk';
     case 'BuildMonitor':
       return 'the run';
+    case 'IndexMonitor':
+      return 'the pull request';
   }
 };

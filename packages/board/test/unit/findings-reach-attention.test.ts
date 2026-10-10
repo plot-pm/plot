@@ -275,3 +275,22 @@ describe('a log the board cannot trust', () => {
     expect(rowFor(branch).findings.map((f) => f.finding)).toEqual(['owes a review']);
   });
 });
+
+describe('the IndexMonitor findings stay off the attention lists', () => {
+  it.each(['checks green', 'checks failing', 'pr merged', 'default branch red'] as const)(
+    'carries no `%s` entry',
+    (name) => {
+      const finding: Finding = {
+        monitor: 'IndexMonitor',
+        branch: 'feature/one',
+        worktree: '',
+        finding: name,
+        since: '2026-10-10T09:00:00Z',
+        evidence: 'pull request #1, on aaa',
+        measuredAt: '2026-10-10T12:00:00Z',
+      };
+      const row = { branch: 'feature/one', findings: [finding], pr: null, planFile: null, note: null } as unknown as AgentRow;
+      expect(findingItems(row)).toEqual([]);
+    },
+  );
+});

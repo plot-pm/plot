@@ -1,4 +1,4 @@
-import { createServer, type Server, type Socket } from 'node:net';
+import { connect, createServer, type Server, type Socket } from 'node:net';
 import { unlinkSync } from 'node:fs';
 import type { ChannelConnection, ChannelPort } from '../../ports/channel.js';
 import {
@@ -53,17 +53,34 @@ export interface RunningChannel extends ChannelPort {
   findings(): readonly Finding[];
   /** How many subscribers are connected. */
   subscriberCount(): number;
+  /**
+   * Publishes a finding from inside the process, as a monitor on the socket would.
+   *
+   * @param finding - the reading; it replaces the slot of its monitor and branch.
+   */
+  publish(finding: Finding): void;
+  /**
+   * Records that a monitor took a reading now, with nothing to publish.
+   *
+   * @param monitor - the monitor that read.
+   */
+  seen(monitor: MonitorName): void;
 }
 
 /**
  * Start the channel on a socket path.
  *
- * A STALE SOCKET IS REMOVED BEFORE BINDING. A monitor killed with SIGKILL
- * leaves its socket file behind, and `bind` on an existing path fails with
- * EADDRINUSE — which would mean a channel that never recovers from an unclean
- * death without someone deleting a file by hand. The file is not a lock: the
- * process holding it is gone, and refusing to start would be treating a
- * leftover as an owner.
+ * A STALE SOCKET IS REMOVED BEFORE BINDING, AND A LIVE ONE IS NEVER TAKEN.
+ * Before binding, the channel connects to the path. A connect that succeeds
+ * means a live process listens there: the start rejects, and the file and its
+ * listener stay as they are. A connect that fails with ECONNREFUSED, ENOENT or
+ * ENOTSOCK means nobody listens: the file is a leftover of an unclean death and
+ * is removed, so the bind can succeed. Any other failure leaves the path alone,
+ * and the bind reports it.
+ *
+ * @param options - the socket path, and the heartbeat and clock a test drives.
+ * @returns the channel, listening on `options.address`.
+ * @throws when a live process holds `options.address`, or the bind fails.
  */
 export const startChannel = async (options: ChannelOptions): Promise<RunningChannel> => {
   const { address } = options;
@@ -148,7 +165,9 @@ export const startChannel = async (options: ChannelOptions): Promise<RunningChan
 
   const publish = (finding: Finding): void => {
     held = absorb(held, finding);
-    lastSeen.set(finding.monitor, finding.measuredAt);
+    // WHEN THE CHANNEL RECEIVED THE READING, not when it was taken: a relayed
+    // finding with an old `measuredAt` is still a live monitor speaking.
+    lastSeen.set(finding.monitor, now());
 
     const live = [...subscriptions.values()];
     const { send, finished } = route(
@@ -183,7 +202,12 @@ export const startChannel = async (options: ChannelOptions): Promise<RunningChan
   }, heartbeatMs);
   beat.unref?.();
 
-  removeStaleSocket(address);
+  const holder = await probe(address);
+  if (holder === 'live') {
+    clearInterval(beat);
+    throw new Error(`a live process holds the channel socket ${address}`);
+  }
+  if (holder === 'stale') removeSocket(address);
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(address, () => {
@@ -195,13 +219,17 @@ export const startChannel = async (options: ChannelOptions): Promise<RunningChan
   return {
     address,
     findings: () => held,
+    publish,
+    seen: (monitor) => {
+      lastSeen.set(monitor, now());
+    },
     subscriberCount: () => subscriptions.size,
     stop: async () => {
       clearInterval(beat);
       for (const { connection } of subscriptions.values()) connection.close();
       subscriptions.clear();
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      removeStaleSocket(address);
+      removeSocket(address);
     },
   };
 };
@@ -255,8 +283,30 @@ const isPublish = (value: unknown): value is { type: 'publish'; finding: unknown
   value !== null &&
   (value as { type?: unknown }).type === 'publish';
 
-/** Remove a socket file left by an unclean death, so binding can succeed. */
-const removeStaleSocket = (address: string): void => {
+/** The connect errors that mean nobody listens on the path. */
+const NOBODY_LISTENS: ReadonlySet<string> = new Set(['ECONNREFUSED', 'ENOENT', 'ENOTSOCK']);
+
+/**
+ * Reads who holds a socket path, by connecting to it.
+ *
+ * @param address - the socket path.
+ * @returns `live` when a connect succeeds, `stale` when the connect fails
+ *   because nobody listens, and `unknown` for any other failure.
+ */
+const probe = (address: string): Promise<'live' | 'stale' | 'unknown'> =>
+  new Promise((resolve) => {
+    const socket = connect(address);
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve('live');
+    });
+    socket.once('error', (err: NodeJS.ErrnoException) => {
+      resolve(NOBODY_LISTENS.has(String(err.code)) ? 'stale' : 'unknown');
+    });
+  });
+
+/** Removes a socket file nobody listens on; a missing file is not an error. */
+const removeSocket = (address: string): void => {
   try {
     unlinkSync(address);
   } catch {

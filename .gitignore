@@ -28,6 +28,9 @@ node_modules/
 # A checked-in pulse would be one clone telling another what its branches are
 # doing.
 .plot/state/
+# The channel's unix socket, bound by fleetd: it exists only while a process
+# on this machine holds it.
+.plot/fleet.sock
 # The same cache, but written into a TEST FIXTURE by a browser test that starts a
 # real board against it (`test/fixtures/*/.plot/state/`). The unanchored `.plot/
 # state/` above only matches the repo root's own; a slash in the pattern anchors

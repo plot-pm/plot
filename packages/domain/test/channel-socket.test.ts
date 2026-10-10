@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { connect, type Socket } from 'node:net';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { connect, createServer, type Socket } from 'node:net';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -196,6 +197,43 @@ describe('the channel socket — the boundary, not the protocol', () => {
     board.socket.end();
   });
 
+  it('moves a monitor\'s lastSeen on `seen`, with nothing published', async () => {
+    // A fold that finds nothing new still proves the monitor is alive: without
+    // this an old `measuredAt` on a held finding reads as a silent monitor.
+    let clock = '2026-10-10T10:00:00Z';
+    channel = await startChannel({ address: addressIn(), heartbeatMs: 20, now: () => clock });
+    channel.publish(finding({ monitor: 'IndexMonitor', finding: 'checks green', measuredAt: '2026-10-10T09:00:00Z' }));
+    clock = '2026-10-10T10:05:00Z';
+    channel.seen('IndexMonitor');
+
+    const board = peer(channel.address);
+    await board.ready;
+    board.say(JSON.stringify({ subscriber: 'board', purpose: { kind: 'everything' } }) + '\n');
+    await board.nth(1);
+    const beat = await board.nth(2);
+    expect(beat.type).toBe('heartbeat');
+    if (beat.type === 'heartbeat') {
+      expect(beat.monitors.find((m) => m.monitor === 'IndexMonitor')?.lastSeen).toBe('2026-10-10T10:05:00Z');
+    }
+    expect(channel.findings()).toHaveLength(1);
+    board.socket.end();
+  });
+
+  it('delivers an in-process `publish` to a subscriber and replaces the slot', async () => {
+    channel = await startChannel({ address: addressIn() });
+    const board = peer(channel.address);
+    await board.ready;
+    board.say(JSON.stringify({ subscriber: 'board', purpose: { kind: 'everything' } }) + '\n');
+    await board.nth(1);
+
+    channel.publish(finding({ monitor: 'IndexMonitor', finding: 'checks green', evidence: 'a' }));
+    channel.publish(finding({ monitor: 'IndexMonitor', finding: 'checks failing', evidence: 'b' }));
+    await board.nth(3);
+    expect(channel.findings()).toHaveLength(1);
+    expect(channel.findings()[0]!.finding).toBe('checks failing');
+    board.socket.end();
+  });
+
   it('starts over a socket a killed process left behind', async () => {
     // A monitor killed with SIGKILL leaves the file; bind then fails
     // EADDRINUSE. The file is not a lock — its owner is gone — so refusing to
@@ -210,6 +248,57 @@ describe('the channel socket — the boundary, not the protocol', () => {
     board.say(JSON.stringify({ subscriber: 'board', purpose: { kind: 'everything' } }) + '\n');
     expect((await board.nth(1)).type).toBe('welcome');
     board.socket.end();
+  });
+
+  it('refuses a socket a live process holds, and the holder keeps serving', async () => {
+    const address = addressIn();
+    const holder = createServer((socket) => socket.end());
+    await new Promise<void>((resolve) => holder.listen(address, resolve));
+    try {
+      await expect(startChannel({ address })).rejects.toThrow(/live process holds/);
+      expect(existsSync(address)).toBe(true);
+      const client = connect(address);
+      await new Promise<void>((resolve, reject) => {
+        client.once('connect', resolve);
+        client.once('error', reject);
+      });
+      client.destroy();
+    } finally {
+      await new Promise<void>((resolve) => holder.close(() => resolve()));
+    }
+  });
+
+  it('replaces a socket file whose process was killed', async () => {
+    const address = addressIn();
+    const child = spawn(
+      process.execPath,
+      ['-e', `require('node:net').createServer().listen(${JSON.stringify(address)}, () => console.log('up'))`],
+      { stdio: ['ignore', 'pipe', 'inherit'] },
+    );
+    const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+    await new Promise<void>((resolve) => child.stdout.once('data', () => resolve()));
+    child.kill('SIGKILL');
+    await exited;
+    expect(existsSync(address)).toBe(true);
+
+    channel = await startChannel({ address });
+    const board = peer(channel.address);
+    await board.ready;
+    board.say(JSON.stringify({ subscriber: 'board', purpose: { kind: 'everything' } }) + '\n');
+    expect((await board.nth(1)).type).toBe('welcome');
+    board.socket.end();
+  });
+
+  it('leaves a path it cannot read alone, and the bind reports it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-channel-'));
+    const file = join(dir, 'file');
+    writeFileSync(file, '');
+    try {
+      await expect(startChannel({ address: join(file, 'sock') })).rejects.toThrow(/ENOTDIR/);
+      expect(existsSync(file)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('removes its socket when it stops, leaving nothing for the next start', async () => {

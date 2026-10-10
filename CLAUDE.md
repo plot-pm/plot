@@ -467,7 +467,7 @@ variant of ports-and-adapters, not a deviation from the rule above.
 |---|---|
 | 1. A tool call writes the index and returns nothing a decision consumes | **Not yet.** Both shell consumers call `plot-host.sh` on a miss and use that answer directly. |
 | 2. A decision reads the index and spawns nothing | **Partly.** Two scripts read the store first and fall back to the host; neither is spawn-free. |
-| 3. A decision may be triggered by an index update | **Not built.** No subscription exists. |
+| 3. A decision may be triggered by an index update | **Partly.** The IndexMonitor publishes `checks green`, `checks failing`, `pr merged` and `default branch red` on the channel when the index changes, and a subscriber can wait on them. A shell consumer that waits is not yet built. |
 
 **The section exists because two consumers do, and not before.** `setSprintState` is the precedent this estate keeps measuring: nine refusals, zero callers, and a rule in prose that did not stop a master agent writing the field by hand. So the rule is written down after something follows it, and it names what it does not yet describe.
 
