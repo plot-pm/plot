@@ -225,13 +225,30 @@ const spawnLive = () => record(execFileSync('bash', ['-c',
 
 // Ends every worker a registry manifest names, while its pid still runs the
 // fixture's `sleep 300` and started no later than the manifest was written.
+//
+// THE RECORDED PID IS THE DISPATCH WRAPPER, NOT A BARE `sleep 300`. Dispatch
+// records `agent=$!` from `( "$cmd" ) & agent=$!` (`plot-dispatch.sh`), so the
+// manifests this walks always carry the WRAPPER's `sh -c "...; ( <cmd> ) &
+// agent=$!; ...; wait \"$agent\"; ..."` command line, with the fixture's
+// `Worker command` text — `sleep 300 </dev/null >/dev/null 2>&1` — embedded
+// inside it, never that fragment alone. A bare substring match on `sleep 300`
+// is too loose for a DIFFERENT reason than usual: `spawnLive`'s own wrapper,
+// `sh -c 'sleep 300 & exec sleep 300'`, also contains that substring — twice —
+// until the `exec` lands, so a loose match could fire against `spawnLive`'s
+// pid too if the two were ever combined.
+//
+// `sleep 300 </dev/null` is the anchor instead of `sleep 300` alone: it still
+// matches the real wrapper above (the redirect is part of the fixture's exact
+// `Worker command` text), and it CANNOT match `spawnLive`'s wrapper, which
+// contains no `</dev/null` anywhere in `'sleep 300 & exec sleep 300'`.
+const WORKER_COMMAND = 'sleep 300 </dev/null';
 const endManifestWorkers = (repo) => {
   const dir = path.join(repo, '.plot', 'agents');
   if (!fs.existsSync(dir)) return;
   for (const name of fs.readdirSync(dir).filter((f) => f.endsWith('.json'))) {
     const file = path.join(dir, name);
     const m = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (m.pid) signalOwn(m.pid, 'SIGTERM', { recordedAt: fs.statSync(file).mtimeMs, command: 'sleep 300' });
+    if (m.pid) signalOwn(m.pid, 'SIGTERM', { recordedAt: fs.statSync(file).mtimeMs, command: WORKER_COMMAND });
   }
 };
 

@@ -88,6 +88,15 @@ export const isOwn = (pid, { recordedAt, command } = {}) => {
 /**
  * Sends `signal` to a pid only when `isOwn` holds for it.
  *
+ * `group: true` also signals a leader that has already exited: a pgid is not
+ * reused while any member of the group is alive, so `identityOf(n) === null`
+ * — no process names the leader's pid at all — still means the group number
+ * is trustworthy, and the group's other members (a monitor, say) may still be
+ * running under it. This does not loosen the plain-pid case: a bare
+ * `signalOwn(pid, sig)` with no `group` still refuses a pid `identityOf`
+ * cannot find, because nothing there protects against a reused pid naming an
+ * unrelated process.
+ *
  * @param pid the pid, as a number or a numeric string.
  * @param signal the signal name, e.g. `SIGKILL`.
  * @param expect `{ recordedAt?, command?, group? }`; `group: true` signals the
@@ -95,8 +104,10 @@ export const isOwn = (pid, { recordedAt, command } = {}) => {
  * @returns true when the signal was sent.
  */
 export const signalOwn = (pid, signal, { group = false, ...expect } = {}) => {
-  if (!isOwn(pid, expect)) return false;
   const n = asPid(pid);
+  if (n === undefined) return false;
+  const own = isOwn(n, expect);
+  if (!own && !(group && identityOf(n) === null)) return false;
   try {
     process.kill(group ? -n : n, signal);
     return true;

@@ -3,7 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -98,6 +98,38 @@ test('own-process: signalRecorded stamps the pid with the file mtime', async () 
   } finally {
     child.kill('SIGKILL');
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('own-process: a gone leader still signals the group it left behind', async () => {
+  // A detached shell leads its own group, then exits immediately and leaves a
+  // sleeping grandchild behind under the same pgid — the shape `endDesk` hits
+  // when a wrapper has exited but its monitor is still running in its group.
+  const leader = spawn('sh', ['-c', 'sleep 30 & exit 0'], { stdio: 'ignore', detached: true });
+  const pid = leader.pid;
+  const recordedAt = Date.now();
+  await new Promise((resolve) => leader.on('exit', resolve));
+  assert.equal(identityOf(pid), null, 'the leader itself is gone');
+  // The grandchild still runs in the leader's group — find it via the pgid,
+  // which `process.kill(-pid)` targets below and which a reused pid cannot
+  // yet hold, since the leader's own group member keeps it alive.
+  const grandchild = () => {
+    const { stdout } = spawnSync('ps', ['-A', '-o', 'pid=,pgid=,command='], { encoding: 'utf8' });
+    const line = (stdout ?? '').split('\n')
+      .find((l) => l.trim().match(new RegExp(`^\\d+\\s+${pid}\\s+sleep 30$`)));
+    return line ? Number(line.trim().split(/\s+/)[0]) : undefined;
+  };
+  const child = grandchild();
+  assert.ok(child, 'the grandchild is still in the leader\'s group');
+  try {
+    assert.equal(signalOwn(pid, 'SIGTERM', { recordedAt }), false,
+      'the non-group form still refuses a pid nothing names');
+    assert.equal(signalOwn(pid, 'SIGKILL', { recordedAt, group: true }), true,
+      'the group form signals the gone leader\'s group anyway');
+    for (let i = 0; i < 100 && alive(child); i += 1) await new Promise((r) => setTimeout(r, 10));
+    assert.ok(!alive(child), 'the group signal reached the grandchild');
+  } finally {
+    try { process.kill(-pid, 'SIGKILL'); } catch { /* already gone */ }
   }
 });
 
