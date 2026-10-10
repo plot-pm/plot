@@ -1,6 +1,6 @@
 # The fleet closes its review findings
 
-> `plot-fleetctl.sh --status` answers within the board's bound and reads a free agent as running, and the open review findings on the fleet's supervisor, its logs, its endings and its queue are fixed or recorded as kept.
+> `plot-fleetctl.sh --status` reads a free agent as running, an `unknown` supervisor reading leaves the scan with a running fleet, and the open review findings on the fleet's supervisor, its logs, its endings and its queue are fixed or recorded as kept.
 
 ## Status
 
@@ -13,7 +13,7 @@
 
 ## Changelog
 
-- The board no longer shows FLEET STOPPED while the fleet runs. A `--status` run that the board stops at its bound reads as *fleet status unknown*, and `--status` no longer waits on `lsof`.
+- The board does not take the scan from a running fleet when its supervisor reading is `unknown` and the fleet's bridge is fresh.
 - `/plot-fleet --status` lists a free agent in its free wait as running, and `--status`, `--stop` and `--start` agree on which agents run on the machine.
 - `/plot-fleet --once` prints its tick and its holds on the terminal again.
 - A slice whose agent was killed, or ended quiet with work on its branch, gets one fresh agent, in the way a timed-out slice does.
@@ -22,11 +22,11 @@
 - A delivery that fails leaves no mark that blocks its retry.
 - The supervisor unit runs the harness `--start` names, not a copy in node's directory.
 
-<!-- Board impact: the board's supervisor reading (packages/board/src/server/supervisor-reading.ts) gains the timed-out fact, and the domain rule supervisorState reads it. No change to the plan format, the plan template or the docs/plans layout. Generated bundles under skills/plot/scripts/board/ are rebuilt by main after each merge. -->
+<!-- Board impact: the domain rule fleetOwnsScan (scan-owner.ts) changes which side scans on an unknown supervisor reading; the board reads its answer. No change to the plan format, the plan template or the docs/plans layout. Generated bundles under skills/plot/scripts/board/ are rebuilt by main after each merge. -->
 
 ## Motivation
 
-On 2026-10-10 the operator's board showed "FLEET STOPPED … 3 agents are running" while `launchctl` reported `com.plot-pm.fleetd` running as pid 94477 and `.plot/logs/fleetd.log` ticked. `plot-fleetctl.sh --status` took over 120 s with 3 desks. The same run printed the three free agents as `finished` while their loops ran. Eleven issues of review findings on the fleet are open beside it. This plan answers all of them, and puts the status defect first because it misleads the operator now.
+On 2026-10-10 the operator's board showed "FLEET STOPPED … 3 agents are running" while `launchctl` reported `com.plot-pm.fleetd` running as pid 94477 and `.plot/logs/fleetd.log` ticked. `plot-fleetctl.sh --status` took over 120 s with 3 desks. The same run printed the three free agents as `finished` while their loops ran. Eleven issues of review findings on the fleet are open beside it. PR #1500 (`bug/a-slow-status-is-not-a-stopped-fleet`) fixes the board's reading of a stopped `--status` run and bounds the `lsof` read. This plan answers the rest.
 
 ### The status defect, measured 2026-10-10
 
@@ -86,9 +86,11 @@ A `bash -x` trace of `--status` (20:20 CEST, load average 19.56) shows two separ
 
 ### Approach
 
-**Decisions move into the domain where a slice touches one.** `scripts/check-shell-lines.sh` ratchets shipped shell lines against the merge base, so each slice that changes shell removes at least as many lines as it adds. Slice 1 and slice 2 put the decision in the domain (`supervisorState`, `deskLoopAlive`) and leave the shell to collect readings.
+**Decisions move into the domain where a slice touches one.** `scripts/check-shell-lines.sh` ratchets shipped shell lines against the merge base, so each slice that changes shell removes at least as many lines as it adds. Slice 2 puts the decision in the domain (`deskLoopAlive`) and leaves the shell to collect readings.
 
-**Slice 1 fixes the board's reading and the wait, and both halves are needed.** The board's half: `SupervisorRun` gains a `timedOut` fact from the runner, and `supervisorState` answers `unknown` for a run stopped at its bound whatever stdout holds. The script's half: `--status` takes no cwd from `lsof`. Two options, for the implementer to measure: (a) the board asks for the summary only (the process block becomes its own verb or a flag), so the board's call never reaches `lsof`; (b) `process_cwd` reads cwd from a source that cannot enter state `U`. A bounded `lsof` alone is not a fix: the hung process survives its timeout. Slice 1 makes `unknown` more frequent, so `fleetOwnsScan` (`scan-owner.ts:35`, #1445 L3) changes with it: an `unknown` reading with a bridge younger than `OWNED_BRIDGE_MAX_AGE_MS` leaves the scan to the fleet.
+**PR #1500 fixes the board's reading and the wait.** In `bug/a-slow-status-is-not-a-stopped-fleet`, `runProcess` and the awaited report return `interrupted` for a run stopped at its bound, `supervisorState` prefers the summary's `supervisor=` field and reads an interrupted run without that field as `unknown`, and `plot-fleetctl.sh` bounds the `lsof` cwd read at 2 s. This plan does not repeat that work.
+
+**Slice 1 keeps the scan with the fleet on `unknown`.** #1500 makes an `unknown` reading more frequent, so `fleetOwnsScan` (`scan-owner.ts:35`, #1445 L3) changes with it: an `unknown` reading with a bridge younger than `OWNED_BRIDGE_MAX_AGE_MS` leaves the scan to the fleet.
 
 **Slice 2 makes one reading of "which agents run here".** A desk whose loop pid is alive and which holds `.plot-worker.freewait` reads `running`. `--status`, the `--stop` enumeration, `plot-dispatch.sh --start`'s count and `--restart`'s refusal take the same domain answer, and `--restart` refuses a desk whose loop is alive under any recorded pid (`.plot-worker.pid`, manifest `pid`, manifest `wrapperPid`), the order `deskLoopAlive` already defines.
 
@@ -96,21 +98,21 @@ A `bash -x` trace of `--status` (20:20 CEST, load average 19.56) shows two separ
 
 **Slice 5 filters by plan phase before any landing is read.** A slice of a Released or Delivered plan never enters the queue. A slice whose own PR merged reads `already-merged`, from the PR index or `mergedAt`, never from a ref (the three branches have no ref).
 
-**One branch per heading, so the slices run one after another.** Each `###` heading is a wave. Slices 1, 2, 9, 10, 11 and 12 touch `plot-fleetctl.sh`; slices 3, 8 and 13 touch `registryd-main.ts`; slices 6, 7 and 8 touch the fleet's PR and scan code. No two slices that share a file run in parallel. The order puts the operator-facing defect first.
+**One branch per heading, so the slices run one after another.** Each `###` heading is a wave. Slices 2, 9, 10, 11 and 12 touch `plot-fleetctl.sh`; slices 1 and 13 touch `scan-owner.ts`; slices 3, 8 and 13 touch `registryd-main.ts`; slices 6, 7 and 8 touch the fleet's PR and scan code. No two slices that share a file run in parallel. The order puts the scan owner first, because it depends on #1500's `unknown` reading.
 
 ### Open Questions
 
-- [ ] Slice 1: does the board call `--status --summary` (no process block), or does `process_cwd` change its source? The trace proves `lsof` blocks; it does not prove which other cwd source stays responsive on macOS under the same load.
-- [ ] Slice 1: the 59 `/usr/sbin/lsof -nP` processes come from a caller outside this repository. Who starts them is not measured here, and Plot cannot fix it.
+- [x] Status defect: does the board call `--status --summary` (no process block), or does `process_cwd` change its source? The trace proves `lsof` blocks; it does not prove which other cwd source stays responsive on macOS under the same load. **Answer:** PR #1500 bounds the `lsof` cwd read at 2 s and reads an interrupted run as `unknown`; the work leaves this plan (jwloka, 2026-10-10).
+- [ ] Status defect: the 59 `/usr/sbin/lsof -nP` processes come from a caller outside this repository. Who starts them is not measured here, and Plot cannot fix it.
 - [ ] Slice 2: #1450 names a loop that restarted itself under a new pid. `restartAnswer` now replaces the process through `ports.reexec.replace` (`packages/fleet/src/server/entry/worker-loop.ts:395`), which keeps the pid where `process.execve` exists. Whether the four 2026-10-10 loops ran on a Node without `execve` (pid 70519 ran Node 26.7.0) is not measured.
 - [ ] Slice 12 (#1439): resolve a linked worktree's own estate, or refuse and name the estate? The issue accepts either.
 - [ ] Sprint `the-gates-and-the-review-findings` has no file under `docs/sprints/` on `origin/main` at `c9d63311d`.
 
 ## Slices
 
-### The status answers within its bound
+### An unknown supervisor keeps the scan
 
-- `bug/the-status-answers-within-its-bound` — a `--status` run the board stops at `SUPERVISOR_TIMEOUT_MS` reads `unknown`, never `down`, the board's `--status` call never waits on `lsof`, and `fleetOwnsScan` does not hand the scan to the board on an `unknown` reading while the fleet's bridge is fresh; answers #1445 L3, 2026-10-10 measurement <!-- builds: timedOut in SupervisorRun, read by supervisorState -->
+- `bug/an-unknown-supervisor-keeps-the-scan` — `fleetOwnsScan` does not hand the scan to the board on an `unknown` supervisor reading while the fleet's bridge is younger than `OWNED_BRIDGE_MAX_AGE_MS`; answers #1445 L3 <!-- builds: an unknown arm in fleetOwnsScan -->
 
 ### A free agent reads running
 
@@ -164,8 +166,7 @@ A `bash -x` trace of `--status` (20:20 CEST, load average 19.56) shows two separ
 
 Each test below fails on `origin/main` (`c9d63311d`) today:
 
-- `supervisorState` answers `unknown` for a run with `summarised: true`, `install: 'running'`, `exitCode: 1` and `timedOut: true`.
-- A `--status` run whose process block cannot finish still lets the board read `up` or `unknown`, never `down`, for a running supervisor.
+- `fleetOwnsScan` leaves the scan to the fleet for an `unknown` supervisor reading with a bridge younger than `OWNED_BRIDGE_MAX_AGE_MS`.
 - `--status` reports a desk with a live loop and `.plot-worker.freewait` as running, and `--start` and `--status` count the same agents on one fixture.
 - `plot-fleetd.mjs --once` prints its tick line on stdout.
 - `endingAction` answers `start-fresh` for a first `quiet` ending with a commit beyond the claim, and for a killed worker with no ending file and a clean pushed branch.
@@ -181,3 +182,4 @@ Each test below fails on `origin/main` (`c9d63311d`) today:
 - The `--status` trace is `/Users/jwloka/.claude/jobs/ca0ab00d/tmp/status.trace` (794 lines, 2026-10-10 20:20 CEST); it ends inside `process_cwd`'s `lsof` call after the `summary:` line.
 - Deliverable search, 2026-10-10: `deskLoopAlive` and `FREE_WAIT_FILENAME` exist (`packages/domain/src/rules/desk-loop-alive.ts`); slice 2 reuses them. `endingAction` exists (`packages/domain/src/rules/ending-action.ts:248`); slice 4 extends it. `pruneDelivering` exists (`packages/fleet/src/shared/auto-deliver.ts:321`). `process_cwd` exists (`plot-fleetctl.sh:361`). No other candidate matched.
 - Overlapping plans: `no-controller-resumes-a-claimed-slice` (Released, v2.25.0) added the `bound` rows slice 4 extends; `the-fleet-runs-without-the-board` (Delivered) produced the findings in #1441, #1445 and #1453.
+- 2026-10-10: PR #1500 (`bug/a-slow-status-is-not-a-stopped-fleet`) takes the status defect: `runProcess` and the awaited report return `interrupted`, `supervisorState` prefers the summary's `supervisor=` field and reads an interrupted run without it as `unknown`, and `plot-fleetctl.sh` bounds the `lsof` cwd read at 2 s. Slice 1 lost that work and keeps only `fleetOwnsScan` (#1445 L3), under the new name `bug/an-unknown-supervisor-keeps-the-scan`. The 2026-10-10 trace shows a timed-out `lsof` stays in state `U`; a 2 s bound leaves one such process per slow run, and that residue is not in this plan.
