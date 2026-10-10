@@ -15,6 +15,7 @@
 - **Started:** 2026-10-10, jwloka, `feature/the-supervisor-publishes-on-the-channel`
 - **Started:** 2026-10-10, jwloka, `feature/the-channel-carries-the-desk-findings`
 - **Started:** 2026-10-10, jwloka, `feature/the-board-page-hears-the-channel`
+- **Started:** 2026-10-10, jwloka, `feature/the-board-shows-the-new-readings`
 
 ## Changelog
 
