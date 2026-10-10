@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-10, Jan Wloka, plan-PR #1494 merged
+- **Started:** 2026-10-10, Jan Wloka, `feature/one-entry-reads-the-hook`
 
 ## Changelog
 
