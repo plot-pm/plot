@@ -6,11 +6,11 @@ import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { Host, PlanStore, Scripts, Trees } from '@plot-pm/domain';
 import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
 import { approve, isRefusal, type TransitionPlan } from '@plot-pm/domain/transitions/plan';
+import { approve as approveWorkflow, type ApproveReadings, type ApproveRefusal } from '@plot-pm/domain/workflows/approve';
 import { planStateOf } from '@plot-pm/domain/entities/plan';
 import { flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { clearHolds } from '@plot-pm/domain/rules/hold-clear';
 import { annotateSprintItem } from '@plot-pm/domain/rules/sprint-annotation';
-import { unnamedBranchDetail, unnamedBranches } from '@plot-pm/domain/rules/slice-name';
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
 import {
   commitAndPush,
@@ -194,11 +194,12 @@ const sameBranchOf = async (ctx: Context, slug: string): Promise<string> => {
 };
 
 /**
- * Asks the host for the plan PR and turns each of its three answers into a
- * refusal or a PR. The merge has not happened yet, so every refusal here
- * leaves the estate as it was found.
+ * Asks the host for the plan PR. A host that cannot answer is a refusal here;
+ * a PR the host does not hold, or holds closed, is a reading the domain judges.
+ * The merge has not happened yet, so every refusal leaves the estate as it was
+ * found.
  */
-const readPlanPr = async (ctx: Context, slug: string, branch: string): Promise<PlanPr> => {
+const readPlanPr = async (ctx: Context, branch: string): Promise<PlanPr> => {
   const lookup = await ctx.host.prState(branch);
   if (!lookup.ok) {
     const said = ctx.host.lastRefusal()?.said ?? '';
@@ -210,12 +211,57 @@ const readPlanPr = async (ctx: Context, slug: string, branch: string): Promise<P
   }
   const pr = lookup.value;
   if (pr === null || (pr.state !== 'MERGED' && pr.state !== 'OPEN' && pr.state !== 'CLOSED')) {
-    throw new Refused(`no PR found for branch '${branch}'.\n  Push the branch: git push -u origin ${branch}\n  Then open its PR — or run /plot-idea, which does both.`);
-  }
-  if (pr.state === 'CLOSED') {
-    throw new Refused(`the plan PR for '${slug}' (#${pr.number}) is closed.\n  Reopen it on the host, or push '${branch}' again and open a new one.`);
+    return { number: 0, state: 'NONE', draft: false };
   }
   return { number: pr.number, state: pr.state, draft: pr.draft, headSha: pr.headSha };
+};
+
+/** What the refusal sentences name besides the domain's reason. */
+interface RefusalContext {
+  slug: string;
+  planFile: string;
+  scriptDir: string;
+  dirs: Dirs;
+  phase: string;
+  review: string;
+  prBranch: string;
+  prNumber: number;
+}
+
+/**
+ * The sentence the entry prints for one of the domain's refusals.
+ *
+ * The domain names the rule that fired; the repair that follows each rule is
+ * the entry's, because it names commands and paths the domain cannot know.
+ */
+const refusalText = (reason: ApproveRefusal, detail: string, c: RefusalContext): string => {
+  const { slug, planFile, phase, review } = c;
+  switch (reason) {
+    case 'plan-not-found':
+      return `no plan found for '${slug}' — looked in ${c.dirs.activeDir} and ${c.dirs.planDir}.\n  Check the slug: ls ${c.dirs.planDir} | grep -i '${slug}'\n  Or create the plan first: /plot-idea`;
+    case 'plan-unparseable':
+      return `cannot parse '${planFile}' — refusing rather than guessing.\n  See what the parser reads: ${c.scriptDir}/plot-plan-meta.sh ${planFile}\n  A plan needs a '## Status' section with a 'State:' field.`;
+    case 'state-terminal':
+      return `plan '${slug}' is already ${phase} — nothing to approve.\n  Nothing to do here. To take the work further: /plot-release`;
+    case 'state-unreadable':
+      return `cannot read the phase of '${slug}' (${planFile}) — refusing rather than guessing.\n  Its '## Status' section needs a line reading '- **State:** Draft'.`;
+    case 'state-wrong':
+      return `plan '${slug}' is in phase '${phase}' — only a Draft or Design plan can be approved.\n  If that phase is wrong, correct the 'State:' line in ${planFile} and push it.`;
+    case 'slice-unnamed':
+      return `${detail}\n  The plan was not approved, nothing was merged and its phase is unchanged.`;
+    case 'review-human':
+      return review === 'ballot'
+        ? `plan '${slug}' declares 'Review: ballot' — the tally is the approval.\n  A script cannot read a ballot. Approve it with /plot-approve ${slug}.`
+        : detail;
+    case 'reviewer-undeclared':
+      return detail;
+    case 'review-unrecognised':
+      return `plan '${slug}' records an unrecognised 'Review:' answer ('${review}').\n  Refusing rather than treating it as 'pr' — that would approve a plan nobody discussed.`;
+    case 'pr-closed':
+      return `the plan PR for '${slug}' (#${c.prNumber}) is closed.\n  Reopen it on the host, or push '${c.prBranch}' again and open a new one.`;
+    case 'pr-absent':
+      return `no PR found for branch '${c.prBranch}'.\n  Push the branch: git push -u origin ${c.prBranch}\n  Then open its PR — or run /plot-idea, which does both.`;
+  }
 };
 
 /** What one run of the local writes needs to know. */
@@ -443,72 +489,73 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   };
 
   const planFile = findPlanFile(ctx.repoRoot, dirs, slug);
-  if (planFile === '') {
-    throw new Refused(`no plan found for '${slug}' — looked in ${dirs.activeDir} and ${dirs.planDir}.\n  Check the slug: ls ${dirs.planDir} | grep -i '${slug}'\n  Or create the plan first: /plot-idea`);
-  }
-  const read = await ctx.planStore.readPlan(planFile);
-  if (!read.ok) {
-    throw new Refused(`cannot parse '${planFile}' — refusing rather than guessing.\n  See what the parser reads: ${ctx.scriptDir}/plot-plan-meta.sh ${planFile}\n  A plan needs a '## Status' section with a 'State:' field.`);
-  }
-  const plan = read.value;
-  const { phase, review, impl, sprint } = plan;
+  const read = planFile === '' ? undefined : await ctx.planStore.readPlan(planFile);
+  const plan = read?.ok ? read.value : undefined;
+  const phase = plan?.phase ?? '';
+  const review = plan?.review ?? '';
+  const impl = plan?.impl ?? '';
+  const sprint = plan?.sprint ?? '';
 
-  // Refusal 1: the phase. `approved` proceeds — it is the idempotent case.
-  switch (phase) {
-    case 'draft':
-    case 'design':
-    case 'approved':
-      break;
-    case 'delivered':
-    case 'released':
-      throw new Refused(`plan '${slug}' is already ${phase} — nothing to approve.\n  Nothing to do here. To take the work further: /plot-release`);
-    case 'NONE':
-    case '':
-      throw new Refused(`cannot read the phase of '${slug}' (${planFile}) — refusing rather than guessing.\n  Its '## Status' section needs a line reading '- **State:** Draft'.`);
-    default:
-      throw new Refused(`plan '${slug}' is in phase '${phase}' — only a Draft or Design plan can be approved.\n  If that phase is wrong, correct the 'State:' line in ${planFile} and push it.`);
-  }
-
-  // Refusal 2: the review channel.
-  let inSession = false;
-  switch (review) {
-    case 'pr':
-    case 'NONE':
-    case 'none':
-    case '':
-      break;
-    case 'in-session':
-      if (process.env.PLOT_UNATTENDED === '1') {
-        throw new Refused(`plan '${slug}' declares 'Review: in-session' — the reviewer is a human in the room.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug}`);
-      }
-      if (args.who.trim() === '') {
-        throw new Refused(`plan '${slug}' declares 'Review: in-session' — name the reviewer with --who.`);
-      }
-      inSession = true;
-      break;
-    case 'ballot':
-      throw new Refused(`plan '${slug}' declares 'Review: ballot' — the tally is the approval.\n  A script cannot read a ballot. Approve it with /plot-approve ${slug}.`);
-    default:
-      throw new Refused(`plan '${slug}' records an unrecognised 'Review:' answer ('${review}').\n  Refusing rather than treating it as 'pr' — that would approve a plan nobody discussed.`);
-  }
-
+  const inSession = review === 'in-session';
   const people = peopleHandles(await configured(ctx.scripts, 'People', ''));
   const main = await resolveMain(ctx.repoRoot, ctx.trees, ctx.scripts);
 
-  // Refusal 3: the PR.
+  // The PR is read only for a plan that carries one. A host that cannot answer
+  // is held until the domain has judged the phase and the review channel, so
+  // those refusals keep their precedence over it.
   const sameBranch = !inSession && impl === 'same-branch';
+  const prBranch = sameBranch ? await sameBranchOf(ctx, slug) : `idea/${slug}`;
   let pr: PlanPr = { number: 0, state: 'NONE', draft: false };
-  if (inSession) {
-    write(`step: plan ${planFile} — phase=${phase} review=${review} impl=${impl} (in-session, no plan PR)\n`);
-  } else {
-    const prBranch = sameBranch ? await sameBranchOf(ctx, slug) : `idea/${slug}`;
-    pr = await readPlanPr(ctx, slug, prBranch);
+  let hostRefusal: Refused | undefined;
+  if (plan !== undefined && !inSession) {
+    try {
+      pr = await readPlanPr(ctx, prBranch);
+    } catch (err) {
+      if (!(err instanceof Refused)) throw err;
+      hostRefusal = err;
+      pr = { number: 0, state: 'OPEN', draft: false };
+    }
   }
 
-  // Refusal 4: a branch under no slice heading. Before the merge, which cannot be undone.
-  const unnamed = unnamedBranches(plan.slices);
-  if (unnamed.length > 0) {
-    throw new Refused(`${unnamedBranchDetail(slug, unnamed)}\n  The plan was not approved, nothing was merged and its phase is unchanged.`);
+  const readings: ApproveReadings = {
+    slug,
+    file: planFile,
+    parsed: plan !== undefined,
+    phase,
+    review: review === 'none' ? 'NONE' : review,
+    impl,
+    branches: plan?.branches ?? [],
+    slices: plan?.slices ?? [],
+    sprint,
+    sprintFile: '',
+    approvedRecord: plan?.approvedRaw ?? '',
+    pr: {
+      number: pr.number,
+      state: pr.state === 'MERGED' || pr.state === 'OPEN' || pr.state === 'CLOSED' ? pr.state : 'NONE',
+      draft: pr.draft,
+      branch: prBranch,
+    },
+  };
+  const verdict = approveWorkflow(readings, {
+    on: localDate(),
+    who: args.who,
+    channel: 'in-session',
+    people,
+  });
+  // The reviewer is a human in the room, and `process.env` is not the domain's to read.
+  if (inSession && process.env.PLOT_UNATTENDED === '1' && (verdict.outcome !== 'refused' || verdict.reason === 'review-human' || verdict.reason === 'reviewer-undeclared')) {
+    throw new Refused(`plan '${slug}' declares 'Review: in-session' — the reviewer is a human in the room.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug}`);
+  }
+  if (verdict.outcome === 'refused') {
+    throw new Refused(refusalText(verdict.reason, verdict.detail, {
+      slug, planFile, scriptDir: ctx.scriptDir, dirs, phase, review, prBranch, prNumber: pr.number,
+    }));
+  }
+  if (hostRefusal !== undefined) throw hostRefusal;
+  if (plan === undefined) throw new Refused(`cannot parse '${planFile}' — refusing rather than guessing.`);
+
+  if (inSession) {
+    write(`step: plan ${planFile} — phase=${phase} review=${review} impl=${impl} (in-session, no plan PR)\n`);
   }
 
   if (!inSession) {
