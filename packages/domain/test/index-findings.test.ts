@@ -199,6 +199,17 @@ describe('diffFindings — the channel is the memory', () => {
     expect(diff.clear).toEqual([]);
   });
 
+  it('publishes when the finding word changes although the evidence text is identical', () => {
+    // Failing with no named checks reads exactly as green does, so the word
+    // alone has to carry the change.
+    const before = readings();
+    const after = readings({ index: indexOf([row({ checks: 'failing' })]) });
+    const [was] = held(before);
+    const [now] = indexFindings(after).findings;
+    expect(now!.evidence).toBe(was!.evidence);
+    expect(diffFindings(held(before), indexFindings(after), NOW).publish.map((f) => f.finding)).toEqual(['checks failing']);
+  });
+
   it('replaces `checks green` with `pr merged` in the same slot', () => {
     const before = readings();
     const after = readings({ index: indexOf([row({ state: 'MERGED', mergedAt: hoursAgo(1) })]) });
