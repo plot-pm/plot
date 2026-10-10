@@ -166,8 +166,8 @@ describe('GET /api/agent-panel: the run, assembled on demand', () => {
     await settle(server.port);
   });
 
-  after(() => {
-    server?.kill();
+  after(async () => {
+    await server?.stop();
     stub?.cleanup();
     if (wt) rmTree(wt);
     if (home) rmTree(home);
@@ -235,8 +235,8 @@ describe('an unreadable transcript omits its fields silently', () => {
     await settle(server.port);
   });
 
-  after(() => {
-    server?.kill();
+  after(async () => {
+    await server?.stop();
     stub?.cleanup();
     if (wt) rmTree(wt);
     if (home) rmTree(home);
@@ -287,8 +287,8 @@ describe('a worker that has exited shows no fabricated uptime', () => {
     await settle(server.port);
   });
 
-  after(() => {
-    server?.kill();
+  after(async () => {
+    await server?.stop();
     stub?.cleanup();
     if (wt) rmTree(wt);
     if (home) rmTree(home);
@@ -324,8 +324,8 @@ describe('the pulse carries no panel', () => {
     await settle(server.port);
   });
 
-  after(() => {
-    server?.kill();
+  after(async () => {
+    await server?.stop();
     stub?.cleanup();
     if (wt) rmTree(wt);
     if (home) rmTree(home);
