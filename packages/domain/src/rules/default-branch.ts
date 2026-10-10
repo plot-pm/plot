@@ -14,6 +14,35 @@ const GREEN_CONCLUSIONS: ReadonlySet<string> = new Set(['success', 'neutral', 's
 const wordOf = (run: WorkflowShaRun): string => run.conclusion ?? run.status;
 
 /**
+ * Reads the `Default branch checks` config value as a list of workflow names.
+ *
+ * @param value - the comma-separated value; empty where the key is absent.
+ * @returns the trimmed, non-empty names, in the order given.
+ */
+export const checkNamesOf = (value: string): string[] =>
+  value
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name !== '');
+
+/**
+ * Keeps the runs of the workflows a project declares as its checks.
+ *
+ * The default-branch fold reads only these, so a workflow outside the list —
+ * one that publishes or releases rather than tests — cannot turn the branch
+ * red or green. An empty list keeps every run.
+ *
+ * @param runs - every workflow run of one commit.
+ * @param checks - the declared workflow names, from {@link checkNamesOf}.
+ * @returns the runs whose `workflow` is declared, or every run for an empty list.
+ */
+export const declaredRuns = (
+  runs: readonly WorkflowShaRun[],
+  checks: readonly string[],
+): WorkflowShaRun[] =>
+  checks.length === 0 ? [...runs] : runs.filter((run) => checks.includes(run.workflow));
+
+/**
  * Adds up the runs of one commit.
  *
  * `red` is tested first: one failure is red whatever else is still running.

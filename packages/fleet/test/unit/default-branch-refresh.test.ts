@@ -30,7 +30,7 @@ interface Rig {
   fail: (on: boolean) => void;
 }
 
-const rig = (initial: DefaultBranchReading | null = null): Rig => {
+const rig = (initial: DefaultBranchReading | null = null, checks: readonly string[] = []): Rig => {
   let file = initial;
   let now = T0;
   let tipSha: string | null = 'a1';
@@ -68,6 +68,7 @@ const rig = (initial: DefaultBranchReading | null = null): Rig => {
     },
     now: () => now,
     checksWaitMs: WAIT,
+    checks,
   };
   return {
     world,
@@ -95,6 +96,30 @@ describe('refreshDefaultBranch', () => {
     r.runs('a1', [run('ci', 'success')]);
     expect(await refreshDefaultBranch(r.world)).toBe('asked');
     expect(r.stored()).toMatchObject({ headSha: 'a1', head: 'green', settled: { sha: 'a1', state: 'green' } });
+  });
+
+  it('reads green when only a workflow outside Default branch checks failed', async () => {
+    const r = rig(null, ['CI']);
+    r.runs('a1', [run('CI', 'success'), run('Release', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.stored()).toMatchObject({ head: 'green', settled: { sha: 'a1', state: 'green' }, failingRuns: [] });
+    expect(defaultBranchRed(r.stored())).toBe(false);
+  });
+
+  it('reads red and names only the declared workflow that failed', async () => {
+    const r = rig(null, ['CI']);
+    r.runs('a1', [run('CI', 'failure'), run('Release', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.stored()).toMatchObject({ head: 'red', settled: { sha: 'a1', state: 'red' } });
+    expect(r.stored()?.failingRuns).toEqual([{ workflow: 'CI', conclusion: 'failure', url: 'https://ci/CI' }]);
+  });
+
+  it('folds every workflow where Default branch checks is absent', async () => {
+    const r = rig();
+    r.runs('a1', [run('CI', 'success'), run('Release', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.stored()?.failingRuns.map((failing) => failing.workflow)).toEqual(['Release']);
+    expect(defaultBranchRed(r.stored())).toBe(true);
   });
 
   it('makes zero runs-for-sha calls for a settled, unchanged SHA', async () => {

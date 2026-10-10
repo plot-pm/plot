@@ -17,6 +17,7 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Claim stale after:** 24
 - **Worker bound:** 28800
 - **Checks wait:** 3600
+- **Default branch checks:** CI
 <!-- Seconds a single prompt run may take before the worker loop ends it — the
      FLOOR under the reading, not the reading itself. Since 2026-08-30 a worker
      ends when the WorkerMonitor reports `idle` (alive, no CPU across two

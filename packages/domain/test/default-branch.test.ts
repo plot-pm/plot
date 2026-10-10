@@ -9,6 +9,8 @@ import {
 } from '../src/entities/default-branch.js';
 import {
   advanceSettled,
+  checkNamesOf,
+  declaredRuns,
   defaultBranchRed,
   defaultBranchStatus,
   failingRunsOf,
@@ -98,6 +100,40 @@ describe('foldRuns — Jenkins words after the adapter maps them', () => {
     ['unknown', 'unknown'],
   ] as const)('%s reads %s', (conclusion, state) => {
     expect(foldRuns([run(conclusion, { workflow: '' })])).toBe(state);
+  });
+});
+
+describe('checkNamesOf — the Default branch checks value', () => {
+  it('splits on commas and trims each name', () => {
+    expect(checkNamesOf(' CI , Build bundles ')).toEqual(['CI', 'Build bundles']);
+  });
+
+  it.each(['', '  ', ' , '])('reads %j as no names', (value) => {
+    expect(checkNamesOf(value)).toEqual([]);
+  });
+});
+
+describe('declaredRuns — only the declared workflows reach the fold', () => {
+  const runs = [run('success', { workflow: 'CI' }), run('failure', { workflow: 'Release' })];
+
+  it('reads green when only an undeclared workflow failed', () => {
+    expect(foldRuns(declaredRuns(runs, ['CI']))).toBe('green');
+    expect(failingRunsOf(declaredRuns(runs, ['CI']))).toEqual([]);
+  });
+
+  it('reads red and names the declared workflow that failed', () => {
+    const both = [run('failure', { workflow: 'CI', url: 'c' }), run('failure', { workflow: 'Release', url: 'r' })];
+    expect(foldRuns(declaredRuns(both, ['CI']))).toBe('red');
+    expect(failingRunsOf(declaredRuns(both, ['CI']))).toEqual([{ workflow: 'CI', conclusion: 'failure', url: 'c' }]);
+  });
+
+  it('keeps every run where no workflow is declared', () => {
+    expect(declaredRuns(runs, [])).toEqual(runs);
+    expect(foldRuns(declaredRuns(runs, []))).toBe('red');
+  });
+
+  it('reads unknown where no declared workflow ran', () => {
+    expect(foldRuns(declaredRuns(runs, ['Lint']))).toBe('unknown');
   });
 });
 
