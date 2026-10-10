@@ -27,10 +27,15 @@ const pr = (over: Partial<Pr> = {}): Pr => ({
 });
 
 const reading = (state: 'red' | 'green' | 'pending'): DefaultBranchReading => ({
+  v: 1,
   branch: 'main',
+  headSha: OTHER,
+  head: state,
+  headSince: '2026-10-10T00:00:00Z',
   settled: { sha: OTHER, state },
-  askedAt: '2026-10-10T00:00:00Z',
   failingRuns: [],
+  askedAt: '2026-10-10T00:00:00Z',
+  at: '2026-10-10T00:00:00Z',
 });
 
 const readings = (over: Partial<MergeReadings> = {}): MergeReadings => ({
