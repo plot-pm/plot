@@ -160,7 +160,7 @@ Measured 2026-10-09: `main` moved 525 times in 7 days (106 in the last day), 65 
 
 ### A mod follows the channel
 
-- `feature/a-mod-follows-the-channel` — a Claude Code mod subscribes to the channel, draws a pane, shows toasts and starts at most one turn per 5 minutes on the finding names the operator lists; it makes no host call and does not load in a fleet agent's session. Done when `claude plugin test` passes for the mod against a fixture channel, and a test shows no turn start for a second finding inside 5 minutes and none past 24 in a day <!-- builds: a Claude Code mod that subscribes to the findings channel -->
+- `feature/a-mod-follows-the-channel` — a Claude Code mod subscribes to the channel, draws a pane, shows toasts and starts at most one turn per 5 minutes on the finding names the operator lists; it makes no host call and does not load in a fleet agent's session. Done when `claude plugin test` passes for the mod against a fixture channel, and a test shows no turn start for a second finding inside 5 minutes and none past 24 in a day <!-- builds: a Claude Code mod that subscribes to the findings channel --> → #1480
 
 ### A merge is a controller
 
