@@ -8,6 +8,7 @@ import { z } from 'zod';
 export const DEFAULT_BRANCH_VERSION = 1;
 
 /** What the CI runs of one commit add up to. */
+// plot-state: reading — the CI runs of one commit at the moment fleetd asked; the next ask re-reads it.
 export const RunsStateSchema = z.enum(['red', 'green', 'pending', 'unknown']);
 export type RunsState = z.infer<typeof RunsStateSchema>;
 

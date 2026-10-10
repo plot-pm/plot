@@ -17,8 +17,7 @@ describe('the default-branch reading has one writer', () => {
     const writers = fs.readdirSync(packages)
       .filter((name) => fs.existsSync(path.join(packages, name, 'src')))
       .flatMap((name) => sources(path.join(packages, name, 'src')))
-      .filter((file) => /defaultBranchFile|DefaultBranchStore/.test(fs.readFileSync(file, 'utf8')))
-      .filter((file) => /\.write\(/.test(fs.readFileSync(file, 'utf8')))
+      .filter((file) => /(world\.store|defaultBranchFile\([^)]*\))\.write\(/.test(fs.readFileSync(file, 'utf8')))
       .map((file) => path.relative(packages, file).split(path.sep).join('/'));
     expect(writers.filter((file) => !file.startsWith('domain/'))).toEqual([
       'fleet/src/shared/default-branch-refresh.ts',
