@@ -573,7 +573,10 @@ export const treesGit = (context: ShellContext): Trees => {
     },
 
     excludePath: async (path, line): Promise<PortResult<void>> => {
-      const check = await runProcess('git', ['-C', path, 'check-ignore', '-q', line], inRepo);
+      // `check-ignore` reads a leading `/` as a filesystem path and exits 128,
+      // so the anchored line `/.worktrees/` is asked as `./.worktrees/`.
+      const asked = `./${line.replace(/^\//, '')}`;
+      const check = await runProcess('git', ['-C', path, 'check-ignore', '-q', asked], inRepo);
       if (check.code === 0) return answered(undefined);
       if (check.code !== 1) return failed<void>();
       const common = await commonDir(path);

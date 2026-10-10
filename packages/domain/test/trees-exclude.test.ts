@@ -76,6 +76,23 @@ describe('treesGit.excludePath', () => {
     expect(readFileSync(excludeFile(), 'utf8')).toBe(before);
   });
 
+  it('appends the anchored line deskRootPlacement returns, and only once', async () => {
+    const trees = treesGit(shellContext(main));
+    const anchored = () => readFileSync(excludeFile(), 'utf8').split('\n').filter((l) => l === '/.anchored/');
+    expect((await trees.excludePath(main, '/.anchored/')).ok).toBe(true);
+    expect(anchored()).toEqual(['/.anchored/']);
+    expect((await trees.excludePath(main, '/.anchored/')).ok).toBe(true);
+    expect(anchored()).toEqual(['/.anchored/']);
+    expect(git(main, ['check-ignore', './.anchored/']).trim()).toBe('./.anchored/');
+  });
+
+  it('writes nothing for an anchored line .gitignore already ignores', async () => {
+    writeFileSync(join(main, '.gitignore'), 'scratch/\n/.ignored-root/\n');
+    const before = readFileSync(excludeFile(), 'utf8');
+    expect((await treesGit(shellContext(main)).excludePath(main, '/.ignored-root/')).ok).toBe(true);
+    expect(readFileSync(excludeFile(), 'utf8')).toBe(before);
+  });
+
   it('starts a new line when the file ends without a newline', async () => {
     writeFileSync(excludeFile(), '# only\nkeep');
     expect((await treesGit(shellContext(main)).excludePath(main, 'tail/')).ok).toBe(true);

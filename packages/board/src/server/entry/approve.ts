@@ -110,6 +110,8 @@ interface WriteReport {
   record: string;
   holds: string;
   sprint: string;
+  /** The sprint file the annotation changed, relative to the root; empty where none changed. */
+  sprintFile: string;
 }
 
 /** The three outcomes of asking the host for the plan PR. */
@@ -354,19 +356,23 @@ const applyLocalWrites = async (ctx: Context, request: WriteRequest): Promise<Wr
     holds = String(cleared.removed);
   }
 
-  const sprint = await annotateSprint(ctx.planStore, root, request, read.value.sprint, branches[0] ?? '');
-  return { phase, record, holds, sprint };
+  const annotated = await annotateSprint(ctx.planStore, root, request, read.value.sprint, branches[0] ?? '');
+  return { phase, record, holds, sprint: annotated.outcome, sprintFile: annotated.file };
 };
 
-/** Annotates the sprint item that names the plan; `none` where the plan is in no sprint. */
+/**
+ * Annotates the sprint item that names the plan. The outcome is `none` where
+ * the plan is in no sprint; `file` names the sprint file relative to `root`
+ * where the outcome is `updated`, and is empty otherwise.
+ */
 const annotateSprint = async (
   planStore: PlanStore,
   root: string,
   request: WriteRequest,
   sprint: string,
   branch: string,
-): Promise<string> => {
-  if (sprint === '') return 'none';
+): Promise<{ outcome: string; file: string }> => {
+  if (sprint === '') return { outcome: 'none', file: '' };
   const dir = path.join(root, request.dirs.sprintDir.replace(/^\//, ''));
   const listed = await planStore.listDir(dir);
   const needle = `[${request.slug}]`;
@@ -378,18 +384,23 @@ const annotateSprint = async (
     if (annotated.outcome === 'updated') {
       const written = await planStore.writeText(file, annotated.content);
       if (!written.ok) throw new Refused(`could not write ${file}.\n  The sprint item is unannotated. Re-run this — it is idempotent.`);
+      return { outcome: annotated.outcome, file: path.relative(root, file) };
     }
-    return annotated.outcome;
+    return { outcome: annotated.outcome, file: '' };
   }
-  return 'missing';
+  return { outcome: 'missing', file: '' };
 };
 
-/** Stages the plan, the hold file and, where it changed, the sprint directory. */
-const stageApproval = async (ctx: Context, root: string, rel: string, dirs: Dirs, sprint: string): Promise<void> => {
+/**
+ * Stages the plan, the hold file and the one sprint file the annotation
+ * changed. It names files rather than the sprint directory, so a leftover
+ * `*.tmp` from an interrupted write or an unrelated sprint edit stays unstaged.
+ */
+const stageApproval = async (ctx: Context, root: string, rel: string, report: WriteReport): Promise<void> => {
   await ctx.trees.stage(root, [rel]);
   const holdPresent = await ctx.planStore.readText(path.join(root, '.plot', 'hold'));
   if (holdPresent.ok && holdPresent.value !== null) await ctx.trees.stage(root, ['.plot/hold']);
-  if (sprint === 'updated') await ctx.trees.stage(root, [dirs.sprintDir.replace(/^\//, '')]);
+  if (report.sprintFile !== '') await ctx.trees.stage(root, [report.sprintFile]);
 };
 
 /**
@@ -605,7 +616,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   let push: string;
   if (sameBranch) {
     report = await applyLocalWrites(ctx, request(ctx.repoRoot));
-    await stageApproval(ctx, ctx.repoRoot, rel, dirs, report.sprint);
+    await stageApproval(ctx, ctx.repoRoot, rel, report);
     const staged = await ctx.trees.hasStagedChanges(ctx.repoRoot);
     if (staged.ok && !staged.value) {
       push = 'nothing-to-commit';
@@ -690,7 +701,7 @@ const bookApproval = async (
   try {
     const request = flow.request(tmpwt);
     const report = await applyLocalWrites(ctx, request);
-    await stageApproval(ctx, tmpwt, request.rel, request.dirs, report.sprint);
+    await stageApproval(ctx, tmpwt, request.rel, report);
 
     const body = inSession
       ? `Records the in-session approval of \`${slug}\` by ${who}.`

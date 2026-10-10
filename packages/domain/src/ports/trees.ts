@@ -535,12 +535,13 @@ export interface Trees {
    * Keeps a path out of `git status` by adding its line to the repository's
    * shared `info/exclude`.
    *
-   * Asks `git check-ignore -q <line>` first and appends only when the path is
-   * not already ignored by `.gitignore`, `info/exclude` or a global file, so a
-   * second call with the same line changes nothing.
+   * Asks `git check-ignore -q ./<line>` first, with any leading `/` dropped,
+   * and appends the line as given only when the path is not already ignored
+   * by `.gitignore`, `info/exclude` or a global file, so a second call with
+   * the same line changes nothing.
    *
    * @param path - any checkout of the repository, absolute.
-   * @param line - the ignore line, such as `.worktrees/`.
+   * @param line - the ignore line, anchored such as `/.worktrees/` or not.
    * @returns nothing; a failure means the exclusion was not written.
    */
   excludePath(path: string, line: string): Promise<PortResult<void>>;
