@@ -91,7 +91,7 @@ The other findings are the same kind at smaller scale: a rule repeated outside t
 
 ### The approval asks the domain
 
-- `bug/the-approval-asks-the-domain` — `plot-approve.mjs` calls `workflows/approve.ts`'s `approve` before it merges and maps each refusal code to today's sentence; the test stub returns `headRefOid` and asserts the pinned merge (#1447 M2, #1483 M1) <!-- builds: the first production caller of workflows/approve.ts -->
+- `bug/the-approval-asks-the-domain` — `plot-approve.mjs` calls `workflows/approve.ts`'s `approve` before it merges and maps each refusal code to today's sentence; the test stub returns `headRefOid` and asserts the pinned merge (#1447 M2, #1483 M1) → #1506 <!-- builds: the first production caller of workflows/approve.ts -->
 
 ### The entries write through a port
 
