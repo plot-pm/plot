@@ -93,11 +93,30 @@ export interface BoardStatus {
   tone: 'rose' | 'amber';
 }
 
-/** How many whole minutes have passed between two ISO-8601 timestamps. */
-const minutesSince = (at: string, now: string): number => {
+/**
+ * How long ago a reading was taken, in words.
+ *
+ * Under a minute reads `under a minute ago`; under an hour, whole minutes
+ * (`3 min ago`); under a day, whole hours (`5 h ago`); otherwise whole days
+ * (`3 d ago`). A timestamp in the future reads as under a minute.
+ *
+ * @param at - when the reading was taken, ISO-8601.
+ * @param now - the current time, ISO-8601.
+ * @returns the age in words, or null when either timestamp does not parse.
+ */
+export const ageInWords = (at: string, now: string): string | null => {
   const elapsed = Date.parse(now) - Date.parse(at);
-  return Number.isNaN(elapsed) ? 0 : Math.max(0, Math.floor(elapsed / 60000));
+  if (Number.isNaN(elapsed)) return null;
+  const minutes = Math.max(0, Math.floor(elapsed / 60000));
+  if (minutes === 0) return 'under a minute ago';
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} h ago`;
+  return `${Math.floor(minutes / (24 * 60))} d ago`;
 };
+
+/** The distinct, non-empty workflow names of the failing runs, joined for a reader. */
+const failingNames = (runs: readonly FailingRun[]): string =>
+  [...new Set(runs.map((failing) => failing.workflow).filter((name) => name !== ''))].join(', ');
 
 /**
  * The status panel entry for a red default branch, or null where it is not red.
@@ -106,8 +125,11 @@ const minutesSince = (at: string, now: string): number => {
  * head after a red settled commit still holds: the status line and the queue's
  * `default-branch-red` hold must agree on the same reading.
  *
- * A stale reading is still shown, with its age: the text never hides a red that
- * has not been re-checked recently, it says how long ago it was.
+ * The text names the branch, the short settled SHA, the failing workflows in
+ * parentheses where `failingRuns` names any, and the age of `askedAt`
+ * (`main is red on 5d82dc3 (CI), read 4 min ago.`). A stale reading is still
+ * shown with its age. An `askedAt` that does not parse gives
+ * `the reading's age is unknown` and no number.
  *
  * @param reading - the default-branch reading, or null where there is none.
  * @param now - the current time, ISO-8601. Defaults to the actual time.
@@ -118,12 +140,14 @@ export const defaultBranchStatus = (
   now: string = new Date().toISOString(),
 ): BoardStatus | null => {
   if (!defaultBranchRed(reading) || reading === null || reading.settled === undefined) return null;
-  const askedMinutesAgo = minutesSince(reading.askedAt, now);
-  const readAgo = askedMinutesAgo === 0 ? 'under a minute ago' : `${askedMinutesAgo} min ago`;
+  const age = ageInWords(reading.askedAt, now);
+  const names = failingNames(reading.failingRuns);
+  const which = names === '' ? '' : ` (${names})`;
+  const when = age === null ? "the reading's age is unknown" : `read ${age}`;
   return {
     key: 'default-branch-red',
     severity: 25,
     tone: 'amber',
-    text: `${reading.branch} is red on ${reading.settled.sha.slice(0, 7)}, read ${readAgo}.`,
+    text: `${reading.branch} is red on ${reading.settled.sha.slice(0, 7)}${which}, ${when}.`,
   };
 };

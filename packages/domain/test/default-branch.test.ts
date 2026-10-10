@@ -13,6 +13,7 @@ import {
   defaultBranchStatus,
   failingRunsOf,
   foldRuns,
+  ageInWords,
 } from '../src/rules/default-branch.js';
 
 const run = (
@@ -218,6 +219,72 @@ describe('defaultBranchStatus — only while defaultBranchRed holds', () => {
     const r = reading({ settled: { sha: 's', state: 'red' }, askedAt: '2026-10-10T14:02:00.000Z' });
     const status = defaultBranchStatus(r, '2026-10-10T14:02:30.000Z');
     expect(status?.text).toContain('under a minute ago');
+  });
+});
+
+describe('defaultBranchStatus — names the failing runs', () => {
+  const red = (failingRuns: DefaultBranchReading['failingRuns']) =>
+    reading({ branch: 'main', settled: { sha: '5d82dc3aaaa', state: 'red' }, failingRuns, askedAt: '2026-10-10T14:00:00.000Z' });
+
+  it('names the one failing workflow in parentheses', () => {
+    const status = defaultBranchStatus(red([{ workflow: 'Release', conclusion: 'failure', url: 'u' }]), '2026-10-10T14:04:00.000Z');
+    expect(status?.text).toBe('main is red on 5d82dc3 (Release), read 4 min ago.');
+  });
+
+  it('names every failing workflow once, in the order given', () => {
+    const status = defaultBranchStatus(
+      red([
+        { workflow: 'CI', conclusion: 'failure', url: 'u' },
+        { workflow: 'Release', conclusion: 'timed_out', url: 'v' },
+        { workflow: 'CI', conclusion: 'failure', url: 'w' },
+      ]),
+      '2026-10-10T14:04:00.000Z',
+    );
+    expect(status?.text).toBe('main is red on 5d82dc3 (CI, Release), read 4 min ago.');
+  });
+
+  it('adds no parentheses where no failing run carries a name', () => {
+    expect(defaultBranchStatus(red([]), '2026-10-10T14:04:00.000Z')?.text).toBe('main is red on 5d82dc3, read 4 min ago.');
+    expect(
+      defaultBranchStatus(red([{ workflow: '', conclusion: 'failure', url: 'u' }]), '2026-10-10T14:04:00.000Z')?.text,
+    ).toBe('main is red on 5d82dc3, read 4 min ago.');
+  });
+});
+
+describe('defaultBranchStatus — an age it cannot read', () => {
+  it.each(['', 'not a time'])('says the age is unknown, with no number, for askedAt %j', (askedAt) => {
+    const r = reading({ settled: { sha: 's', state: 'red' }, askedAt });
+    const status = defaultBranchStatus(r, '2026-10-10T14:05:00.000Z');
+    expect(status?.text).toContain("the reading's age is unknown");
+    expect(status?.text).not.toMatch(/\d+ (min|h|d) ago|under a minute/);
+  });
+});
+
+describe('ageInWords — minutes, then hours, then days', () => {
+  const at = '2026-10-10T00:00:00.000Z';
+  const plus = (ms: number): string => new Date(Date.parse(at) + ms).toISOString();
+  const MIN = 60_000;
+
+  it.each([
+    [0, 'under a minute ago'],
+    [MIN - 1, 'under a minute ago'],
+    [MIN, '1 min ago'],
+    [59 * MIN, '59 min ago'],
+    [60 * MIN, '1 h ago'],
+    [24 * 60 * MIN - 1, '23 h ago'],
+    [24 * 60 * MIN, '1 d ago'],
+    [3 * 24 * 60 * MIN, '3 d ago'],
+  ])('reads %i ms as %s', (ms, words) => {
+    expect(ageInWords(at, plus(ms))).toBe(words);
+  });
+
+  it('reads a timestamp in the future as under a minute', () => {
+    expect(ageInWords(plus(5 * MIN), at)).toBe('under a minute ago');
+  });
+
+  it('returns null where either timestamp does not parse', () => {
+    expect(ageInWords('', at)).toBeNull();
+    expect(ageInWords(at, 'later')).toBeNull();
   });
 });
 
