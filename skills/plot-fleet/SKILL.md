@@ -9,7 +9,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.0.5
+  version: 1.1.0
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git, bash and Node at the major
   Plot pins in its own `.nvmrc`. Installing the unit needs launchd (macOS) or systemd
