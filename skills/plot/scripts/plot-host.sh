@@ -1665,6 +1665,74 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
   printf '%s' "$out"
 }
 
+# Every Jenkins build of one job that built ONE sha, as a JSON array (newest
+# first), or exit 3 (no instance) / exit 4 (cannot be asked). Shared by
+# `run-for-sha` and `runs-for-sha`, so the instance, the credential and the
+# multibranch-then-plain URL fallback are written once.
+#
+# $1 = the op's name, $2 = branch, $3 = how many builds to list, $4 = the sha.
+# Run it in `$(...)` and read the exit code with `|| exit $?`: it exits rather
+# than returns, and a subshell's exit is the code the caller sees.
+#
+# THE SHA IS IN JENKINS AND `jen` IS NOT THE TRANSPORT. Measured 2026-09-10: a
+# `jen build list --json` entry carries no sha, so Jenkins' REST API answers it
+# at `actions[].lastBuiltRevision.SHA1`. One `tree=` query returns a whole
+# history, so this costs one round trip like the GitHub arm.
+#
+# A BRANCH IS A JOB SEGMENT ON A MULTIBRANCH JOB AND NOT ON A PLAIN ONE, and no
+# reading of the configured path says which this is. The multibranch URL is
+# tried first and the plain one is the fallback (measured 2026-09-11: asking
+# the plain job for a branch segment answers 404). THE PLAIN JOB REPORTS ITS
+# OWN BUILDS whatever branch was asked about; the `sha` says which it built.
+#
+# NO CREDENTIAL IS *CANNOT BE ASKED*, never *no run*: the keychain is macOS-only
+# and a Linux agent legitimately has none. AN UNREACHABLE INSTANCE IS NOT AN
+# EMPTY HISTORY: a refused or redirected request answers HTML, which fails the
+# `builds` test.
+#
+# ONLY THE ASKED-FOR SHA, never another build's. `result` is null while a build
+# runs, Jenkins' own word for *in flight*, mapped to the `status`/`conclusion`
+# split the contract already uses so the shape does not fork per connector.
+jenkins_sha_runs() {
+  local op="$1" branch="$2" limit="$3" sha="$4" instance host job cred tree body try path
+  instance="$(jenkins_instance)"
+  [ -n "$instance" ] || jenkins_no_instance
+  host="${instance%%/*}"
+  job="${instance#*/}"
+  [ "$job" = "$instance" ] && job=""
+  [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"
+  if [ -z "$job" ]; then
+    echo "plot-host: $op — the Jenkins instance names no job path; a sha lives in a job's builds, so it must be <slug>/<job/path>, not a bare host" >&2
+    exit 4
+  fi
+  cred="$(jenkins_rest_credential "$host")" || {
+    echo "plot-host: $op — no Jenkins API credential for '$host'" >&2
+    echo "  Jenkins' REST API takes basic auth with an API token, which \`jen auth login\` stores in the login keychain. The Keycloak bearer from \`jen auth token\` is NOT it." >&2
+    exit 4
+  }
+  tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1%5D%5D%5D%7B0,$limit%7D"
+  body=""
+  for path in "$(jenkins_job_url_path "$job" "$branch")" "$(jenkins_job_url_path "$job" "")"; do
+    host_slot_take jenkins ''
+    try=$(curl -sg --max-time 30 -u "$cred" "https://$host$path/api/json?$tree" 2>/dev/null) || true
+    host_slot_give; budget_record_call jenkins ''
+    if printf '%s' "$try" | jq -e 'has("builds")' >/dev/null 2>&1; then body="$try"; break; fi
+  done
+  cred=""
+  if [ -z "$body" ]; then
+    echo "plot-host: $op — Jenkins did not answer for '$host'" >&2
+    exit 4
+  fi
+  printf '%s' "$body" | jq -c --arg sha "$sha" '
+    [ .builds[]
+      | { sha: ([ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision.SHA1 ] | first // ""),
+          status: (if .building then "in_progress" else "completed" end),
+          conclusion: (if .building then null else (.result // null) end),
+          url: (.url // ""),
+          startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end) } ]
+    | map(select(.sha == $sha))' || exit 4
+}
+
 ci_unaskable() { # $1 = the op's name, $2 = the CI word (may be empty)
   local ci_word="${2:-}"
   if [ -z "$ci_word" ] || [ "$ci_word" = none ]; then
@@ -4402,8 +4470,16 @@ case "$op" in
     esac
     ;;
 
-  run-for-sha)
-    # The run for ONE sha, or nothing — the BuildMonitor's only host question.
+  run-for-sha|runs-for-sha)
+    # `runs-for-sha` is this op's plural: EVERY run for the sha as a JSON array
+    # (`[]` is an answer, exit 4 is *cannot be asked*), from ONE listing call and
+    # no per-run `gh run view`. The default branch needs it because `main` runs
+    # several workflows per commit and the first match alone would let a green
+    # first run hide a red second one. Facts only: `status` and `conclusion` as
+    # the host gives them, Jenkins' words included.
+    #
+    # The singular, below, is the BuildMonitor's only host question.
+    #
     #
     # WHY THIS IS NOT `runs`. `runs` is branch-scoped and reports no sha at all,
     # so a caller cannot tell which commit an answer is about. `gh run list
@@ -4433,8 +4509,8 @@ case "$op" in
     # A Bitbucket remote exits 4 (`bb` has no run listing), as does a failing
     # `gh` or Jenkins that cannot be asked: exit 4 reads as unavailable, never
     # as "this sha has no build".
-    branch="${1:?run-for-sha needs a branch}"; shift
-    sha="${1:?run-for-sha needs a sha}"; shift
+    branch="${1:?$op needs a branch}"; shift
+    sha="${1:?$op needs a sha}"; shift
     # Enough runs to find the sha among its neighbours. A branch accumulates
     # runs per push and per workflow, so the sha being asked about can sit
     # several entries down even when it is the current head.
@@ -4442,7 +4518,7 @@ case "$op" in
     while [ $# -gt 0 ]; do
       case "$1" in
         --limit) limit="${2:?}"; shift 2 ;;
-        *) die "run-for-sha: unknown arg $1" ;;
+        *) die "$op: unknown arg $1" ;;
       esac
     done
     # DISPATCHED ON THE CI SYSTEM, for the reason `runs` above states: the git
@@ -4463,80 +4539,11 @@ case "$op" in
         #
         # THIS ARM EXITED 4 UNTIL 2026-09-11, and the refusal was honest for
         # the transport it had. What changed is the transport, not the rule.
-        _jen_instance="$(jenkins_instance)"
-        [ -n "$_jen_instance" ] || jenkins_no_instance
-        _jen_host="${_jen_instance%%/*}"
-        _jen_job="${_jen_instance#*/}"
-        [ "$_jen_job" = "$_jen_instance" ] && _jen_job=""
-        [ -n "${PLOT_JENKINS_JOB:-}" ] && _jen_job="$PLOT_JENKINS_JOB"
-        if [ -z "$_jen_job" ]; then
-          # A bare-host instance names no job, and a sha lives in a job's
-          # builds. `runs` degrades to an empty map here; this op has no row to
-          # carry that, so the only way to say *cannot be asked* is exit 4.
-          echo "plot-host: run-for-sha — the Jenkins instance names no job path" >&2
-          echo "  A sha is a fact about a job's builds, so the instance must be" >&2
-          echo "  <slug>/<job/path> rather than a bare host." >&2
-          exit 4
-        fi
-        _jen_cred="$(jenkins_rest_credential "$_jen_host")" || {
-          # NO CREDENTIAL IS *CANNOT BE ASKED*, never *no run*. The keychain is
-          # macOS-only and a Linux agent legitimately has none; saying nothing
-          # at exit 0 would read as a branch that never built.
-          echo "plot-host: run-for-sha — no Jenkins API credential for '$_jen_host'" >&2
-          echo "  Jenkins' REST API takes basic auth with an API token, which" >&2
-          echo "  \`jen auth login\` stores in the login keychain. The Keycloak" >&2
-          echo "  bearer from \`jen auth token\` is NOT it — Jenkins answers that" >&2
-          echo "  with a login redirect." >&2
-          exit 4
-        }
-        # A BRANCH IS A JOB SEGMENT ON A MULTIBRANCH JOB AND NOT ON A PLAIN
-        # ONE, and no reading of the configured path says which this is. So the
-        # multibranch URL is tried first and the plain one is the fallback:
-        # `job/quaweb/job/continuous-build/job/content%2Fctas` against
-        # `job/quaweb/job/release`. Measured 2026-09-11 — asking the plain job
-        # for a branch segment answers 404, which is why guessing one shape
-        # cost a run.
-        #
-        # THE PLAIN JOB REPORTS ITS OWN BUILDS whatever branch was asked about,
-        # and that is honest rather than wrong: a pipeline job builds one
-        # thing, and the `sha` in the answer says which commit it built.
-        _jen_tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1%5D%5D%5D%7B0,$limit%7D"
-        _jen_body=""
-        for _jen_path in \
-          "$(jenkins_job_url_path "$_jen_job" "$branch")" \
-          "$(jenkins_job_url_path "$_jen_job" "")"; do
-          host_slot_take jenkins ''
-          _jen_try=$(curl -sg --max-time 30 -u "$_jen_cred" \
-            "https://$_jen_host$_jen_path/api/json?$_jen_tree" 2>/dev/null) || true
-          host_slot_give
-          budget_record_call jenkins ''
-          if printf '%s' "$_jen_try" | jq -e 'has("builds")' >/dev/null 2>&1; then
-            _jen_body="$_jen_try"; break
-          fi
-        done
-        _jen_cred=""
-        if [ -z "$_jen_body" ] || ! printf '%s' "$_jen_body" | jq -e 'has("builds")' >/dev/null 2>&1; then
-          # AN UNREACHABLE INSTANCE IS NOT AN EMPTY HISTORY. A refused or
-          # redirected request answers HTML, which fails the `builds` test.
-          echo "plot-host: run-for-sha — Jenkins did not answer for '$_jen_host'" >&2
-          exit 4
-        fi
-        # THE SAME MATCH RULE AS THE GITHUB ARM: only the asked-for sha, never
-        # another build's. A build for any other commit is not evidence about
-        # this one, so no match means no output.
-        #
-        # `result` is null while a build runs, which is Jenkins' own word for
-        # *in flight* — mapped to the `status`/`conclusion` split the contract
-        # already uses, so the shape does not fork per connector.
-        printf '%s' "$_jen_body" | jq -c --arg sha "$sha" '
-          [ .builds[]
-            | { sha: ([ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision.SHA1 ] | first // ""),
-                status: (if .building then "in_progress" else "completed" end),
-                conclusion: (if .building then null else (.result // null) end),
-                url: (.url // ""),
-                startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end) } ]
-          | (map(select(.sha == $sha)) | .[0])
-          | select(. != null)' 2>/dev/null || true
+        # The fetch, credential and match rule live in `jenkins_sha_runs`, which
+        # `runs-for-sha` shares. `|| exit $?` keeps exit 3 (no instance) apart
+        # from exit 4 (cannot be asked).
+        _jen_all=$(jenkins_sha_runs "$op" "$branch" "$limit" "$sha") || exit $?
+        if [ "$op" = runs-for-sha ]; then printf '%s' "$_jen_all"; else printf '%s' "$_jen_all" | jq -c '.[0] // empty' 2>/dev/null || true; fi
         # THIS ARM ANSWERS AND THE OP IS OVER. Everything below the `esac` is
         # the GitHub path — the old jenkins arm reached it only because it
         # ended in `exit 4`. Measured 2026-09-11: without this the answer was
@@ -4545,13 +4552,13 @@ case "$op" in
         exit 0
         ;;
       github-actions) : ;;
-      *) ci_unaskable run-for-sha "$_ci" ;;
+      *) ci_unaskable "$op" "$_ci" ;;
     esac
     if [ "$be" != "github" ]; then
       # SAME SECOND CONDITION AS `runs`: `gh run list` reads the repository its
       # remote names, so `CI: github-actions` on a non-GitHub remote names runs
       # that cannot be reached from here.
-      echo "plot-host: run-for-sha — CI is github-actions but the git host is '$be'" >&2
+      echo "plot-host: $op — CI is github-actions but the git host is '$be'" >&2
       echo "  \`gh run list\` reads the runs of the repository its remote names," >&2
       echo "  so there is no GitHub repository here to ask about." >&2
       exit 4
@@ -4576,8 +4583,15 @@ case "$op" in
     # a network failure exits 4 here, the way the Jenkins arm does, so the
     # monitor reads *could not ask* and not *no run yet*.
     _gh_runs=$(gh run list --branch "$branch" --limit "$limit" \
-      --json headSha,conclusion,status,startedAt,url,databaseId 2>/dev/null) \
-      || { echo "plot-host: run-for-sha — gh run list failed for '$branch'" >&2; exit 4; }
+      --json headSha,conclusion,status,startedAt,url,databaseId,workflowName 2>/dev/null) \
+      || { echo "plot-host: $op — gh run list failed for '$branch'" >&2; exit 4; }
+    if [ "$op" = runs-for-sha ]; then
+      printf '%s' "$_gh_runs" | jq -c --arg sha "$sha" '[.[] | select(.headSha == $sha)
+        | {sha:.headSha, workflow:(.workflowName // ""), status:.status,
+           conclusion:(if (.conclusion // "") == "" then null else .conclusion end),
+           url:.url, startedAt:.startedAt}]' || exit 4
+      exit 0
+    fi
     _gh_match=$(printf '%s' "$_gh_runs" | jq -c --arg sha "$sha" \
       '(map(select(.headSha == $sha)) | .[0]) | select(. != null)
        | {sha:.headSha, status:.status,

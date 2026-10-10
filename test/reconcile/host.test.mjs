@@ -2734,6 +2734,82 @@ test('host: run-for-sha on Jenkins answers nothing when no build carries the ask
   assert.equal(JSON.parse(hit.stdout).sha, 'other-sha');
 });
 
+// --- runs-for-sha: every run for one sha --------------------------------------
+
+const THREE_WORKFLOWS = JSON.stringify([
+  { headSha: 'abc123', workflowName: 'ci', conclusion: 'success', status: 'completed', startedAt: 't1', url: 'u1', databaseId: 1 },
+  { headSha: 'abc123', workflowName: 'build-bundles', conclusion: 'failure', status: 'completed', startedAt: 't2', url: 'u2', databaseId: 2 },
+  { headSha: 'abc123', workflowName: 'release', conclusion: '', status: 'in_progress', startedAt: 't3', url: 'u3', databaseId: 3 },
+  { headSha: 'other', workflowName: 'ci', conclusion: 'failure', status: 'completed', startedAt: 't0', url: 'u0', databaseId: 4 },
+]);
+
+test('host: runs-for-sha prints every run for the sha, not the first, from one listing call', () => {
+  // `run-for-sha` takes `.[0]`; `main` runs three workflows, and a green first
+  // run must not hide a red second one.
+  const stubs = makeRunForShaStub({ listJson: THREE_WORKFLOWS });
+  const out = JSON.parse(run(['runs-for-sha', 'main', 'abc123'],
+    { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs }).trim());
+  assert.deepEqual(out.map((r) => r.workflow), ['ci', 'build-bundles', 'release'],
+    'only the asked-for sha, in the host\'s order');
+  assert.deepEqual(out.map((r) => r.conclusion), ['success', 'failure', null],
+    'conclusions stay as the host gives them; an empty one is null');
+  assert.equal(out[2].status, 'in_progress');
+  assert.ok(out.every((r) => !('databaseId' in r)), 'the host id is not part of the answer');
+  const calls = readFileSync(stubs.callsFile, 'utf8').trim().split('\n');
+  assert.equal(calls.length, 1, `one listing call and no gh run view\n${calls.join('\n')}`);
+  assert.match(calls[0], /^run list /);
+});
+
+test('host: runs-for-sha answers [] at exit 0 when the host holds no run for the sha', () => {
+  const stubs = makeRunForShaStub({ listJson: '[]' });
+  const res = runAllowFail(['runs-for-sha', 'main', 'abc123'],
+    { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs });
+  assert.equal(res.code, 0);
+  assert.equal(res.stdout.trim(), '[]');
+});
+
+test('host: runs-for-sha exits 4 when gh fails, never []', () => {
+  const stubs = makeStubs({ ghFail: 'HTTP 401: Bad credentials' });
+  const res = runAllowFail(['runs-for-sha', 'main', 'abc123'],
+    { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs });
+  assert.equal(res.code, 4);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /runs-for-sha — gh run list failed/);
+});
+
+test('host: runs-for-sha on a repository that declared no CI exits 4', () => {
+  const res = runInRepo(['runs-for-sha', 'main', 'abc123'],
+    { repo: makeNoCiRepo(), stubs: makeStubs({ ghJson: '[]' }), env: { PLOT_HOST: 'github' } });
+  assert.equal(res.code, 4);
+  assert.match(res.stderr, /declares no CI system/);
+});
+
+test('host: runs-for-sha on Jenkins prints every build of the sha, with the host\'s words', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const bin = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest-')));
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: null, building: true, timestamp: 1790000100000, url: 'https://ci.test/9/',
+      actions: [{ lastBuiltRevision: { SHA1: 'asked-sha' } }] },
+    { number: 8, result: 'UNSTABLE', building: false, timestamp: 1790000000000, url: 'https://ci.test/8/',
+      actions: [{ lastBuiltRevision: { SHA1: 'asked-sha' } }] },
+    { number: 7, result: 'SUCCESS', building: false, timestamp: 1780000000000, url: 'https://ci.test/7/',
+      actions: [{ lastBuiltRevision: { SHA1: 'other-sha' } }] },
+  ] });
+  writeFileSync(path.join(bin, 'security'), '#!/usr/bin/env bash\necho stub\n');
+  writeFileSync(path.join(bin, 'curl'), `#!/usr/bin/env bash\nprintf '%s' '${builds}'\n`);
+  chmodSync(path.join(bin, 'security'), 0o755);
+  chmodSync(path.join(bin, 'curl'), 0o755);
+  const res = runJenkinsAllowFail(['runs-for-sha', 'feature/red', 'asked-sha'], {
+    repo, hostStubs, jen,
+    extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` },
+  });
+  assert.equal(res.code, 0, res.stderr);
+  const out = JSON.parse(res.stdout);
+  assert.deepEqual(out.map((r) => [r.status, r.conclusion]), [['in_progress', null], ['completed', 'UNSTABLE']]);
+});
+
 // --- Jira issue-list / issue-view: REST, no CLI, pinned to the contract ------
 //
 // `Tracker: jira` sends the two issue ops through Jira's REST API, DISPATCHED ON
