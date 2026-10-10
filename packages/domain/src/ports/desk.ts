@@ -1,5 +1,6 @@
 import type { PortResult } from '../port-result.js';
 import type { EndingActor, EndingReason } from '../entities/ending.js';
+import type { Finding } from '../entities/finding.js';
 
 /** One record `writeEnding` lands, keyed by the fields `write_ending` carries. */
 export interface EndingRecord {
@@ -243,6 +244,21 @@ export interface Desk {
    * @returns nothing; always answers rather than failing.
    */
   publishBuildFinding(worktree: string, finding: BuildFinding): Promise<PortResult<void>>;
+
+  /**
+   * Reads the findings a desk's three monitor logs currently hold.
+   *
+   * Reads the named `MONITOR_LOGS` only, the last 256 KiB of each. A log that
+   * does not exist contributes nothing: a desk with no monitor is not an error.
+   * Lines that are not a valid `Finding` are skipped, the last line per slot
+   * wins and a `clear` drops its slot.
+   *
+   * @param worktree - the desk, absolute.
+   * @returns the findings that hold, each as its monitor wrote it; `failed`
+   *   where a log exists and cannot be read, so a caller keeps what it held
+   *   rather than reading an unreadable desk as a clean one.
+   */
+  readFindings(worktree: string): Promise<PortResult<readonly Finding[]>>;
 }
 
 /** One finding `publishBuildFinding` appends, in the fields `FindingSchema` requires beside the ones the adapter fills. */

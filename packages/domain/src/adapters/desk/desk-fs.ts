@@ -1,9 +1,23 @@
-import { existsSync, mkdirSync, appendFileSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { Desk, EndingRecord } from '../../ports/desk.js';
 import type { Trees } from '../../ports/trees.js';
+import type { Finding } from '../../entities/finding.js';
+import { findingsInText, MAX_LOG_BYTES, MONITOR_LOGS } from '../../rules/monitor-log.js';
 
 /** `.plot-worker.ending.json`, matching `entities/ending.ts`'s own constant. */
 const ENDING_FILE = '.plot-worker.ending.json';
@@ -34,6 +48,31 @@ const FINDINGS_FILE = '.plot-worker.monitor.worker.jsonl';
 
 /** The desk's BuildMonitor log: the file `plot-build-monitor.sh` used to write and `findings.ts` reads. */
 const BUILD_FINDINGS_FILE = '.plot-worker.monitor.build.jsonl';
+
+/**
+ * The last {@link MAX_LOG_BYTES} of a log, or `''` where it is absent and
+ * `undefined` where it exists and cannot be read.
+ *
+ * The tail, not the head: the reduction is last-wins, so the oldest lines are
+ * the safe half to lose.
+ */
+const logTail = (file: string): string | undefined => {
+  if (!existsSync(file)) return '';
+  try {
+    const handle = openSync(file, 'r');
+    try {
+      const size = fstatSync(handle).size;
+      const start = size > MAX_LOG_BYTES ? size - MAX_LOG_BYTES : 0;
+      const buffer = Buffer.alloc(size - start);
+      readSync(handle, buffer, 0, buffer.length, start);
+      return buffer.toString('utf8');
+    } finally {
+      closeSync(handle);
+    }
+  } catch {
+    return undefined;
+  }
+};
 
 /** Best-effort file write: answers regardless of whether the write landed. */
 const bestEffortWrite = (path: string, content: string): PortResult<void> => {
@@ -246,6 +285,16 @@ export const deskFs = (trees: Trees): Desk => {
         /* best effort */
       }
       return answered(undefined);
+    },
+
+    readFindings: async (worktree): Promise<PortResult<readonly Finding[]>> => {
+      const found: Finding[] = [];
+      for (const name of MONITOR_LOGS) {
+        const text = logTail(join(worktree, name));
+        if (text === undefined) return failed<readonly Finding[]>();
+        found.push(...findingsInText(text));
+      }
+      return answered(found);
     },
   };
 };
