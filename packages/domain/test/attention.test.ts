@@ -143,3 +143,13 @@ describe('which monitor found it', () => {
     expect(subjects).toEqual(['the process', 'the desk', 'the run']);
   });
 });
+
+describe('the IndexMonitor findings ask nothing of a person', () => {
+  it.each(['checks green', 'checks failing', 'pr merged', 'default branch red'] as const)(
+    '%s is no errand and has no reading',
+    (name) => {
+      expect(isErrand(name)).toBe(false);
+      expect(findingReading(name)).toBeNull();
+    },
+  );
+});

@@ -151,13 +151,13 @@ export const findingReading = (finding: FindingName): FindingReading | null =>
 /**
  * Does this finding ask anybody to do anything?
  *
- * `build passed` does not, and it is the finding here that says a thing
- * went RIGHT. The IndexMonitor's four findings do not either: they report a
- * PR's checks or merge, or the default branch's colour, and the board shows
- * them without listing them as work. An attention list that carried it would report a green build as
- * work — the flags-everything-flags-nothing failure the board's own `stuck`
- * field avoids by staying null. It still travels on the row: a caller waiting
- * on a run needs the answer, and only the errand half is filtered here.
+ * `build passed` does not: it says a thing went right. The IndexMonitor's four
+ * findings do not either: they report a PR's checks or merge, or the default
+ * branch's colour. An attention list that carried one would report a green
+ * build as work, the flags-everything-flags-nothing failure the board's own
+ * `stuck` field avoids by staying null. The finding still travels on the row,
+ * because a caller waiting on a run needs the answer; only the errand half is
+ * filtered here.
  */
 export const isErrand = (finding: FindingName): finding is Errand =>
   finding !== 'clear' && finding !== 'build passed' && !INDEX_FINDINGS.has(finding);

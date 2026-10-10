@@ -112,9 +112,8 @@ describe('a subscriber speaking the protocol', () => {
     let endedWith: string | undefined;
     opened.push(
       subscribe(
-        // `ci is green` is refused BY DESIGN — no monitor asks the host about a
-        // check run. The cast is what a subscriber asking for one would send.
-        { address, subscriber: 't', purpose: { kind: 'until', finding: 'ci is green' as never, branch: '' } },
+        // A condition no monitor measures. The cast is what a subscriber asking for one would send.
+        { address, subscriber: 't', purpose: { kind: 'until', finding: 'the coffee is ready' as never, branch: '' } },
         (m) => seen.push(m),
         (reason) => { endedWith = reason; },
       ),
@@ -123,9 +122,27 @@ describe('a subscriber speaking the protocol', () => {
 
     expect(seen[0].type).toBe('refused');
     if (seen[0].type === 'refused') {
-      expect(seen[0].asked).toBe('ci is green');
+      expect(seen[0].asked).toBe('the coffee is ready');
       expect(seen[0].measurable).toContain('owes a review');
     }
+  });
+
+  it('serves "ci is green" from a held "checks green" finding', async () => {
+    const address = socketPath();
+    channel = await startChannel({ address });
+    await publish(address, finding({
+      monitor: 'IndexMonitor', branch: 'feature/one', finding: 'checks green', evidence: 'pull request #1, on abc',
+    }));
+
+    const seen: ChannelMessage[] = [];
+    opened.push(
+      subscribe(
+        { address, subscriber: 't', purpose: { kind: 'until', finding: 'ci is green' as never, branch: 'feature/one' } },
+        (m) => seen.push(m),
+      ),
+    );
+    await until(() => seen.some((m) => findingsIn(m).some((f) => f.finding === 'checks green')));
+    expect(seen.some((m) => findingsIn(m).some((f) => f.branch === 'feature/one'))).toBe(true);
   });
 
   // AN ABSENT CHANNEL IS NOT AN ERROR TO THROW. The monitors are optional, and

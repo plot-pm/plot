@@ -58,14 +58,30 @@ describe('a purpose is the subscription', () => {
     expect(admission.ok).toBe(true);
   });
 
-  it('refuses CI-is-green immediately, naming why rather than leaving it pending', () => {
-    const admission = admit('c3', { purpose: { kind: 'until', finding: 'CI is green' } });
-    expect(admission.ok).toBe(false);
-    if (!admission.ok) {
-      expect(admission.asked).toBe('CI is green');
-      expect(admission.reason).toMatch(/check run/);
-      // A refusal that teaches: it says what it CAN be asked.
-      expect(admission.measurable).toContain('owes a review');
+  it('admits "CI is green" as the finding it names, "checks green"', () => {
+    const admission = admit('c3', { subscriber: 'agent', purpose: { kind: 'until', finding: 'CI is green', branch: 'feature/one' } });
+    expect(admission.ok).toBe(true);
+    if (admission.ok) {
+      expect(admission.subscription.purpose).toEqual({ kind: 'until', finding: 'checks green', branch: 'feature/one' });
+    }
+  });
+
+  it('admits "ci is red" as "checks failing"', () => {
+    const admission = admit('c3', { subscriber: 'agent', purpose: { kind: 'until', finding: 'ci is red', branch: 'feature/one' } });
+    expect(admission.ok).toBe(true);
+    if (admission.ok) {
+      expect(admission.subscription.purpose).toMatchObject({ finding: 'checks failing' });
+    }
+  });
+
+  it('still refuses "clear" as a condition, and an unknown condition still lists what is measurable', () => {
+    for (const asked of ['clear', 'the coffee is ready']) {
+      const admission = admit('c3', { subscriber: 'agent', purpose: { kind: 'until', finding: asked } });
+      expect(admission.ok).toBe(false);
+      if (!admission.ok) {
+        expect(admission.asked).toBe(asked);
+        expect(admission.measurable).toEqual(MEASURABLE);
+      }
     }
   });
 
@@ -222,8 +238,8 @@ describe('the wire carries one message per line', () => {
   it('round-trips a refusal, so a subscriber can print why', () => {
     const message: ChannelMessage = {
       type: 'refused',
-      reason: 'no monitor asks the host about a check run',
-      asked: 'CI is green',
+      reason: "this channel does not measure 'the coffee is ready'",
+      asked: 'the coffee is ready',
       measurable: ['owes a review'],
     };
     expect(roundTrip(message)).toEqual(message);

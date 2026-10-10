@@ -196,6 +196,43 @@ describe('the channel socket — the boundary, not the protocol', () => {
     board.socket.end();
   });
 
+  it('moves a monitor\'s lastSeen on `seen`, with nothing published', async () => {
+    // A fold that finds nothing new still proves the monitor is alive: without
+    // this an old `measuredAt` on a held finding reads as a silent monitor.
+    let clock = '2026-10-10T10:00:00Z';
+    channel = await startChannel({ address: addressIn(), heartbeatMs: 20, now: () => clock });
+    channel.publish(finding({ monitor: 'IndexMonitor', finding: 'checks green', measuredAt: '2026-10-10T09:00:00Z' }));
+    clock = '2026-10-10T10:05:00Z';
+    channel.seen('IndexMonitor');
+
+    const board = peer(channel.address);
+    await board.ready;
+    board.say(JSON.stringify({ subscriber: 'board', purpose: { kind: 'everything' } }) + '\n');
+    await board.nth(1);
+    const beat = await board.nth(2);
+    expect(beat.type).toBe('heartbeat');
+    if (beat.type === 'heartbeat') {
+      expect(beat.monitors.find((m) => m.monitor === 'IndexMonitor')?.lastSeen).toBe('2026-10-10T10:05:00Z');
+    }
+    expect(channel.findings()).toHaveLength(1);
+    board.socket.end();
+  });
+
+  it('delivers an in-process `publish` to a subscriber and replaces the slot', async () => {
+    channel = await startChannel({ address: addressIn() });
+    const board = peer(channel.address);
+    await board.ready;
+    board.say(JSON.stringify({ subscriber: 'board', purpose: { kind: 'everything' } }) + '\n');
+    await board.nth(1);
+
+    channel.publish(finding({ monitor: 'IndexMonitor', finding: 'checks green', evidence: 'a' }));
+    channel.publish(finding({ monitor: 'IndexMonitor', finding: 'checks failing', evidence: 'b' }));
+    await board.nth(3);
+    expect(channel.findings()).toHaveLength(1);
+    expect(channel.findings()[0]!.finding).toBe('checks failing');
+    board.socket.end();
+  });
+
   it('starts over a socket a killed process left behind', async () => {
     // A monitor killed with SIGKILL leaves the file; bind then fails
     // EADDRINUSE. The file is not a lock — its owner is gone — so refusing to
