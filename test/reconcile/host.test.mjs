@@ -3987,7 +3987,11 @@ test('host: the REST fallback and the GraphQL path speak one vocabulary', () => 
       }),
     }),
   }));
-  assert.deepEqual(viaRest, viaGraphql, 'a caller must not be able to tell which route answered');
+  // REST carries no rollup, so it answers checks `unknown` where GraphQL reads one; that is the one deliberate difference.
+  const { checks: restChecks, checksSha: _rs, ...restRest } = viaRest;
+  const { checks: _gc, checksSha: _gs, ...graphqlRest } = viaGraphql;
+  assert.equal(restChecks, 'unknown', 'REST cannot read the rollup, and unknown is never green');
+  assert.deepEqual(restRest, graphqlRest, 'a caller must not be able to tell which route answered');
   assert.equal(viaRest.state, 'MERGED', "REST's lowercase `closed` + `merged:true` is MERGED");
 });
 
@@ -4656,7 +4660,10 @@ test('host: no caller learns which transport ran', () => {
   });
   const viaGraphql = run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: graphql });
   const viaRest = run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: rest });
-  assert.deepEqual(JSON.parse(viaGraphql), JSON.parse(viaRest));
+  const { checks: _c, checksSha: _s, ...graphqlBody } = JSON.parse(viaGraphql);
+  const { checks: restChecks, ...restBody } = JSON.parse(viaRest);
+  assert.equal(restChecks, 'unknown', 'REST cannot read the rollup, and unknown is never green');
+  assert.deepEqual(graphqlBody, restBody);
   // And nothing names the route. `MERGED` is the vocabulary both must speak —
   // REST says `closed` with the merge in a separate field, and an adapter that
   // merely uppercased `.state` would report a merged PR as CLOSED.
@@ -4835,7 +4842,7 @@ test('host: the harvested body reaches the caller unchanged', () => {
     stubs,
   });
   assert.deepEqual(JSON.parse(out), {
-    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '',
+    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', checks: 'unknown',
   });
   assert.doesNotMatch(out, /X-Ratelimit|HTTP\//i, 'no header may reach a caller’s parse');
 });
