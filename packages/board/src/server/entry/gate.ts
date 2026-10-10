@@ -27,9 +27,9 @@ import { pathToFileURL } from 'node:url';
  * register by adding a row to `GATES`.
  *
  * **One gate's failure never decides another's answer.** Each gate runs inside
- * its own `try`. A gate that throws is named on stderr and counts as allowing:
- * the gate's own failure direction (fail open, or refuse per #1245) lives
- * inside its `ask`, which returns a refusal to refuse.
+ * its own `try`. A gate that throws in `wants` or `ask` is named on stderr and
+ * answers by its own `onError`: `'allow'` lets the call through and says the
+ * gate went UNVERIFIED; `'refuse'` exits 2 and names the gate (#1245).
  */
 
 /** One gate: when it applies and how it answers. */
@@ -40,6 +40,8 @@ export interface Gate {
   readonly wants: (command: string) => boolean;
   /** The refusal text, or `null` to allow. Imports its adapters lazily. */
   readonly ask: (command: string) => Promise<string | null>;
+  /** The answer when `wants` or `ask` throws: allow and say so, or refuse. */
+  readonly onError: 'allow' | 'refuse';
 }
 
 /** The registered gates. Empty until the first gate slice adds its row. */
@@ -89,7 +91,13 @@ export const runGates = async (
         code = EXIT.refuse;
       }
     } catch (error) {
-      warn(`plot-gate: the ${gate.name} gate failed (${error instanceof Error ? error.message : String(error)}) — it went UNVERIFIED`);
+      const reason = error instanceof Error ? error.message : String(error);
+      if (gate.onError === 'refuse') {
+        warn(`plot-gate: the ${gate.name} gate failed (${reason}) — it refuses the call because it could not answer`);
+        code = EXIT.refuse;
+      } else {
+        warn(`plot-gate: the ${gate.name} gate failed (${reason}) — it went UNVERIFIED`);
+      }
     }
   }
   return code;

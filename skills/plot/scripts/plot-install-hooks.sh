@@ -87,8 +87,7 @@
 
 set -uo pipefail
 
-check_only=0
-verify_only=0
+check_only=0 verify_only=0
 case "${1:-}" in
   --check) check_only=1 ;;
   --verify) verify_only=1 ;;
@@ -161,6 +160,16 @@ if [ -f "$settings" ]; then
     | .command // empty
   ' "$settings" 2>/dev/null)
 fi
+has_entry() { printf '%s\n' "$existing_bash_hooks" | grep -qF "$1"; }
+
+# THE ONE-HOOK FORM. When hooks.json names `plot-gates.sh`, that one entry runs
+# the gates `board/plot-gate.mjs --list` names, and ONLY those: every other gate
+# still needs its own entry. A missing bundle, or one that lists nothing, leaves
+# `listed` empty, and both modes below say so rather than guess.
+one_hook=0 listed=""
+printf '%s\n' "$gates" | grep -qx plot-gates.sh && one_hook=1 \
+  && listed=$(node "$script_dir/board/plot-gate.mjs" --list 2>/dev/null | sed '/^$/d; s/.*/plot-&-gate.sh/')
+is_listed() { printf '%s\n' "$listed" | grep -qxF "$1"; }
 
 # --- verification -------------------------------------------------------------
 # Constructs a guarded condition per gate, in a scratch repository, and requires
@@ -183,18 +192,13 @@ if [ "$verify_only" = 1 ]; then
   # prober is never run — running it would prove the script works and say
   # nothing about this repository, which is the confusion this whole mode
   # exists to prevent.
-  registered_here() { # $1=basename; the one-hook form covers every gate it lists
-    printf '%s\n' "$existing_bash_hooks" | grep -qF -e "$1" -e plot-gates.sh
-  }
+  # A registered `plot-gates.sh` registers the gates it lists and no other.
+  registered_here() { has_entry "$1" || { is_listed "$1" && has_entry plot-gates.sh; }; }
 
-  # The one-hook form (`plot-gates.sh`) stands for the gates `plot-gate.mjs
-  # --list` names, so each is probed against its own script. No bundle, or an
-  # empty table, lists none.
-  probe_gates="$gates"
-  if printf '%s\n' "$gates" | grep -qx 'plot-gates.sh'; then
-    probe_gates=$({ printf '%s\n' "$gates" | grep -vx 'plot-gates.sh'
-      node "$script_dir/board/plot-gate.mjs" --list 2>/dev/null | sed 's/.*/plot-&-gate.sh/'; } | sed '/^$/d' | sort -u)
-  fi
+  # The gates to probe: hooks.json's own, with `plot-gates.sh` expanded into the
+  # gates it lists. Each listed gate is probed THROUGH `plot-gates.sh` below,
+  # because that is the command the hook runs.
+  probe_gates=$({ printf '%s\n' "$gates" | grep -vx plot-gates.sh; printf '%s\n' "$listed"; } | sed '/^$/d' | sort -u)
 
   # WHERE THE GATE SCRIPTS LIVE, READ TWO WAYS, AND NEITHER IS SUFFICIENT ALONE.
   #
@@ -261,9 +265,7 @@ if [ "$verify_only" = 1 ]; then
     d="$scratch/r$RANDOM$$"
     mkdir -p "$d" || return 1
     git -C "$d" init -q -b main >/dev/null 2>&1 || return 1
-    git -C "$d" config user.email plot@verify >/dev/null 2>&1
-    git -C "$d" config user.name plot-verify >/dev/null 2>&1
-    git -C "$d" config commit.gpgsign false >/dev/null 2>&1
+    { git -C "$d" config user.email plot@verify && git -C "$d" config user.name plot-verify && git -C "$d" config commit.gpgsign false; } >/dev/null 2>&1
     printf '%s' "$d"
   }
 
@@ -365,10 +367,11 @@ if [ "$verify_only" = 1 ]; then
     esac
   }
 
-  verified_count=0
-  unverified_count=0
-  unprobeable_count=0
-  report=""
+  verified_count=0 unverified_count=0 unprobeable_count=0 report=""
+  # No list, no gate behind the one hook: the gates it should run vanish from
+  # the probe set, so their absence is reported here as a failure.
+  [ "$one_hook" = 1 ] && [ -z "$listed" ] && unverified_count=1 \
+    && report="  unverified  plot-gates.sh — board/plot-gate.mjs missing or lists no gate"$'\n'
 
   while IFS= read -r g; do
     [ -n "$g" ] || continue
@@ -381,7 +384,8 @@ if [ "$verify_only" = 1 ]; then
 
     # Resolved only once the gate is known to be registered: an unregistered
     # gate has no written command to read, and that case is already answered.
-    gp="$(gate_path "$g")" || gp=""
+    via="$g"; is_listed "$g" && has_entry plot-gates.sh && via=plot-gates.sh
+    gp="$(gate_path "$via")" || gp=""
 
     if [ -z "$gp" ] || [ ! -f "$gp" ]; then
       # NEITHER READING FOUND IT, AND BOTH ARE NAMED. A hook whose script is
@@ -390,7 +394,7 @@ if [ "$verify_only" = 1 ]; then
       # a gate it does not have. Which of the two installs this is cannot be
       # determined here, so it is not guessed: the sentence is true under both.
       unverified_count=$((unverified_count + 1))
-      wp="$(written_path "$g" 2>/dev/null)"
+      wp="$(written_path "$via" 2>/dev/null)"
       report="${report}  unverified  ${g} — registered at ${wp:-the recorded command}, which holds no script, and none beside $script_dir/. If Plot is installed as a plugin these entries are inert and the plugin's own gates apply; if it is vendored, the vendoring is incomplete"$'\n'
       continue
     fi
@@ -410,10 +414,10 @@ if [ "$verify_only" = 1 ]; then
     case "$rc" in
       0)
         verified_count=$((verified_count + 1))
-        report="${report}  verified    ${g} — refused a guarded write (exit 2)"$'\n' ;;
+        report="${report}  verified    ${g} — refused a guarded write (exit 2) through ${via}"$'\n' ;;
       1)
         unverified_count=$((unverified_count + 1))
-        report="${report}  unverified  ${g} — did NOT refuse a guarded write; it permitted"$'\n' ;;
+        report="${report}  unverified  ${g} — did NOT refuse a guarded write through ${via}; it permitted"$'\n' ;;
       3)
         unverified_count=$((unverified_count + 1))
         report="${report}  unverified  ${g} — a signal ended the gate twice; Claude Code reads that exit as non-blocking, so it permits"$'\n' ;;
@@ -470,13 +474,19 @@ if [ "$verify_only" = 1 ]; then
 fi
 
 
-
+# THE ONE HOOK NEVER LANDS BESIDE THE ENTRIES IT REPLACES. Two hooks on one
+# matcher both run (measured above), so a gate registered on its own AND listed
+# by `plot-gates.sh` runs twice, and the state gate's receipt is spent by the
+# first run. Plot removes nothing it did not write, so it names the swap.
+if [ "$one_hook" = 1 ]; then
+  [ -n "$listed" ] || { echo "plot-install-hooks: hooks/hooks.json names plot-gates.sh and board/plot-gate.mjs is missing or lists no gate, so which entries it replaces is unknown — nothing written" >&2; exit 1; }
+  moved=$(printf '%s\n' "$listed" | while IFS= read -r g; do has_entry "$g" && printf '%s ' "$g"; done)
+  [ -z "$moved" ] || { echo "present — $settings registers ${moved}one by one; $(gate_command plot-gates.sh) is the one entry that replaces them. Remove those entries and register it; Plot removes nothing it did not write" >&2; exit 3; }
+fi
 
 # Which of our gates are already reachable, matched on basename so a
 # plugin-rooted entry and a repo-relative one count as the same gate.
-missing=$(printf '%s\n' "$gates" | while IFS= read -r g; do
-  [ -n "$g" ] && ! printf '%s\n' "$existing_bash_hooks" | grep -qF "$g" && printf '%s\n' "$g"
-done)
+missing=$(printf '%s\n' "$gates" | while IFS= read -r g; do [ -n "$g" ] && ! has_entry "$g" && printf '%s\n' "$g"; done)
 
 if [ -z "$missing" ]; then
   echo "current — $settings registers Plot's gates: $(printf '%s' "$gates" | tr '\n' ' ')"
@@ -484,7 +494,7 @@ if [ -z "$missing" ]; then
 fi
 
 # A foreign PreToolUse hook is somebody else's file. Report and keep it.
-foreign=$(printf '%s\n' "$existing_bash_hooks" | sed '/^$/d' | grep -v 'plot-.*-gate\.sh' || true)
+foreign=$(printf '%s\n' "$existing_bash_hooks" | sed '/^$/d' | grep -vE 'plot-(.*-gate|gates)\.sh' || true)
 if [ -n "$foreign" ]; then
   echo "present — $settings runs PreToolUse hooks that are not Plot's; add these beside them, and keep the rest:" >&2
   while IFS= read -r g; do [ -n "$g" ] && echo "  $(gate_command "$g")" >&2; done <<< "$missing"

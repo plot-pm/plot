@@ -8,10 +8,11 @@ import { EXIT, GATES, commandOf, runGates, type Gate } from '../../src/server/en
  */
 
 /** A gate with a fixed answer that records whether it was asked. */
-const gate = (name: string, answer: string | null | Error, wants = true) => {
+const gate = (name: string, answer: string | null | Error, wants = true, onError: Gate['onError'] = 'allow') => {
   const asked: string[] = [];
   const g: Gate = {
     name,
+    onError,
     wants: () => wants,
     ask: async (command) => {
       asked.push(command);
@@ -82,6 +83,25 @@ describe('runGates', () => {
   it('allows when the only gate throws', async () => {
     const broken = gate('broken', new Error('boom'));
     expect((await run([broken.g], 'all')).code).toBe(EXIT.allow);
+  });
+
+  it('refuses with exit 2 and names the gate when a refuse-on-error gate throws', async () => {
+    const broken = gate('controller', new Error('boom'), true, 'refuse');
+    const { code, warned } = await run([broken.g], 'all');
+    expect(code).toBe(EXIT.refuse);
+    expect(warned).toEqual([expect.stringMatching(/controller gate failed \(boom\).*refuses/)]);
+  });
+
+  it('refuses when a refuse-on-error gate throws in wants', async () => {
+    const g: Gate = { name: 'controller', onError: 'refuse', wants: () => { throw new Error('parse'); }, ask: async () => null };
+    expect((await run([g], 'all')).code).toBe(EXIT.refuse);
+  });
+
+  it('allows with the UNVERIFIED warning when an allow-on-error gate throws', async () => {
+    const broken = gate('state', new Error('boom'), true, 'allow');
+    const { code, warned } = await run([broken.g], 'all');
+    expect(code).toBe(EXIT.allow);
+    expect(warned).toEqual([expect.stringMatching(/state gate failed \(boom\).*UNVERIFIED/)]);
   });
 
   it('names a gate it does not know and allows', async () => {
