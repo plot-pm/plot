@@ -49,21 +49,6 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 export const KILL_GRACE_MS = 5_000;
 
 /**
- * Signals a child's process group, or the child alone where the group cannot be
- * signalled.
- *
- * @param child - the group leader.
- * @param signal - the signal to send.
- */
-const signalGroup = (child: ChildProcess & { pid: number }, signal: NodeJS.Signals): void => {
-  try {
-    process.kill(-child.pid, signal);
-  } catch {
-    child.kill(signal);
-  }
-};
-
-/**
  * Ends a child that leads its own process group, and every process in it.
  *
  * Sends SIGTERM to the whole group first. The group signal reaches the
@@ -72,24 +57,36 @@ const signalGroup = (child: ChildProcess & { pid: number }, signal: NodeJS.Signa
  * sources `plot-tmp.sh` removes every temp path it registered. SIGKILL skips
  * that trap.
  *
- * Sends SIGKILL to the group when the leader has not exited after `graceMs`,
- * because a child that ignores TERM keeps `bash` waiting and the tree alive
- * (#1084). The grace timer does not keep the Node process alive, and the
- * leader's exit clears it.
+ * Sends SIGKILL to the group after `graceMs`, whether or not the leader has
+ * exited, because a process in the group that ignores TERM outlives the leader
+ * (#1084). A group that is already empty makes that SIGKILL a no-op. The grace
+ * timer does not keep the Node process alive.
  *
  * The child must have been spawned with `detached: true`, which makes it the
- * group leader. Where the group cannot be signalled, the leader is.
+ * group leader. Where the group cannot be signalled, the leader is signalled
+ * alone, with SIGTERM and then SIGKILL.
  *
  * @param child - the process to end, spawned detached.
  * @param graceMs - how long to wait between SIGTERM and SIGKILL.
  */
 export const killGroup = (child: ChildProcess, graceMs: number = KILL_GRACE_MS): void => {
-  if (child.pid === undefined) return;
-  const leader = child as ChildProcess & { pid: number };
-  signalGroup(leader, 'SIGTERM');
-  const escalate = setTimeout(() => signalGroup(leader, 'SIGKILL'), graceMs);
-  escalate.unref();
-  leader.once('exit', () => clearTimeout(escalate));
+  const pid = child.pid;
+  if (pid === undefined) return;
+  let escalate: () => void;
+  try {
+    process.kill(-pid, 'SIGTERM');
+    escalate = () => {
+      try {
+        process.kill(-pid, 'SIGKILL');
+      } catch {
+        // ESRCH: every process in the group has exited.
+      }
+    };
+  } catch {
+    child.kill('SIGTERM');
+    escalate = () => child.kill('SIGKILL');
+  }
+  setTimeout(escalate, graceMs).unref();
 };
 
 /**

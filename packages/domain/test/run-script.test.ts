@@ -186,7 +186,7 @@ describe('a timeout sends TERM before KILL', () => {
     expect(KILL_GRACE_MS).toBe(5_000);
   });
 
-  it('ends a group that exits on TERM without sending KILL', async () => {
+  it('ends a group that exits on TERM by TERM, and the later KILL finds no group', async () => {
     const child = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' });
     const kill = vi.spyOn(process, 'kill');
     try {
@@ -194,9 +194,34 @@ describe('a timeout sends TERM before KILL', () => {
       killGroup(child, 100);
       expect(await ended).toBe('SIGTERM');
       await new Promise((r) => setTimeout(r, 300));
-      expect(kill.mock.calls.map(([, signal]) => signal)).toEqual(['SIGTERM']);
+      expect(kill.mock.calls).toEqual([
+        [-child.pid!, 'SIGTERM'],
+        [-child.pid!, 'SIGKILL'],
+      ]);
     } finally {
       kill.mockRestore();
+    }
+  });
+
+  it('sends KILL to a child that ignores TERM after its leader exited on TERM (#1084)', async () => {
+    const leader = spawn(
+      'bash',
+      ['-c', `sh -c 'trap "" TERM; sleep 30' & echo $!; wait`],
+      { detached: true, stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    const straggler = await new Promise<number>((done) =>
+      leader.stdout.once('data', (chunk: Buffer) => done(Number(chunk.toString().trim()))),
+    );
+    try {
+      await new Promise((r) => setTimeout(r, 200));
+      const ended = exited(leader);
+      killGroup(leader, 300);
+      expect(await ended).toBe('SIGTERM');
+      expect(alive(straggler)).toBe(true);
+      await gone(straggler);
+      expect(alive(straggler)).toBe(false);
+    } finally {
+      if (alive(straggler)) process.kill(-leader.pid!, 'SIGKILL');
     }
   });
 
