@@ -17,6 +17,8 @@ import {
   workerLoopArtifact,
   fleetSizeArtifact,
   promptArtifact,
+  dispatchCommandArtifact,
+  continueCommandArtifact,
 } from '../fleet/build.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -26,8 +28,9 @@ if (!fs.existsSync(clientHtml)) {
   process.exit(1);
 }
 
-// `@plot-pm/fleet` builds four bundles: `plot-fleetd.mjs`,
-// `plot-worker-loop.mjs`, `plot-fleet-size.mjs` and `plot-prompt.mjs`. This
+// `@plot-pm/fleet` builds six bundles: `plot-fleetd.mjs`,
+// `plot-worker-loop.mjs`, `plot-fleet-size.mjs`, `plot-prompt.mjs`,
+// `plot-dispatch-command.mjs` and `plot-continue-command.mjs`. This
 // file keeps their `shipped*` declarations, because the gates and
 // `bundles.generated.ts` derive the generated set from this file alone, and
 // copies each bundle from `packages/fleet/dist/` to its shipped path.
@@ -282,6 +285,18 @@ const shippedPrompt = path.join(here, '../../skills/plot/scripts/board/plot-prom
 
 fs.copyFileSync(promptArtifact, shippedPrompt);
 fs.chmodSync(shippedPrompt, 0o755);
+
+// The master agent's `dispatch` and `continue` controllers, callable with no
+// board running. They hold what `POST /api/dispatch` and `POST /api/continue`
+// decide, and the routes call the same code. Neither name is in the controller
+// gate's GATED set: these are the callers that gate admits.
+const shippedDispatchCommand = path.join(here, '../../skills/plot/scripts/board/plot-dispatch-command.mjs');
+const shippedContinueCommand = path.join(here, '../../skills/plot/scripts/board/plot-continue-command.mjs');
+
+fs.copyFileSync(dispatchCommandArtifact, shippedDispatchCommand);
+fs.chmodSync(shippedDispatchCommand, 0o755);
+fs.copyFileSync(continueCommandArtifact, shippedContinueCommand);
+fs.chmodSync(shippedContinueCommand, 0o755);
 
 // The task state, reachable from the classifier that answers it.
 //

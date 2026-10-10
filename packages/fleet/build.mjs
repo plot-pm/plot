@@ -1,4 +1,4 @@
-// Bundles the fleet's four entries to packages/fleet/dist/.
+// Bundles the fleet's six entries to packages/fleet/dist/.
 //
 // `packages/board/build.mjs` calls `buildFleetBundles` and copies each bundle
 // to its shipped path under skills/plot/scripts/board/. The board's file keeps
@@ -16,6 +16,8 @@ export const fleetdArtifact = path.join(here, 'dist/plot-fleetd.mjs');
 export const workerLoopArtifact = path.join(here, 'dist/plot-worker-loop.mjs');
 export const fleetSizeArtifact = path.join(here, 'dist/plot-fleet-size.mjs');
 export const promptArtifact = path.join(here, 'dist/plot-prompt.mjs');
+export const dispatchCommandArtifact = path.join(here, 'dist/plot-dispatch-command.mjs');
+export const continueCommandArtifact = path.join(here, 'dist/plot-continue-command.mjs');
 
 const SHARED_OPTIONS = {
   bundle: true,
@@ -28,11 +30,11 @@ const SHARED_OPTIONS = {
 };
 
 /**
- * Builds the four fleet bundles into this package's `dist/`.
+ * Builds the six fleet bundles into this package's `dist/`.
  *
  * Creates `dist/` when it is absent and writes nothing outside it.
  *
- * @returns a promise that resolves when all four bundles are written, and
+ * @returns a promise that resolves when all six bundles are written, and
  *   rejects with esbuild's error when one fails to build.
  */
 export const buildFleetBundles = async () => {
@@ -80,10 +82,24 @@ export const buildFleetBundles = async () => {
     entryPoints: [path.join(here, 'src/server/entry/prompt.ts')],
     outfile: promptArtifact,
   });
+
+  // The master agent's two controllers for the board's `dispatch` and
+  // `continue` routes. Named `-command` so `plot-dispatch.mjs` stays free for
+  // the launcher conversion of `plot-dispatch.sh`.
+  await esbuild.build({
+    ...SHARED_OPTIONS,
+    entryPoints: [path.join(here, 'src/server/entry/dispatch-command.ts')],
+    outfile: dispatchCommandArtifact,
+  });
+  await esbuild.build({
+    ...SHARED_OPTIONS,
+    entryPoints: [path.join(here, 'src/server/entry/continue-command.ts')],
+    outfile: continueCommandArtifact,
+  });
 };
 
 // Runs when invoked as `node build.mjs`, and not when imported.
 if (import.meta.url === `file://${process.argv[1]}`) {
   await buildFleetBundles();
-  console.log('Built plot-fleetd.mjs, plot-worker-loop.mjs, plot-fleet-size.mjs, plot-prompt.mjs → dist/');
+  console.log('Built plot-fleetd.mjs, plot-worker-loop.mjs, plot-fleet-size.mjs, plot-prompt.mjs, plot-dispatch-command.mjs, plot-continue-command.mjs → dist/');
 }

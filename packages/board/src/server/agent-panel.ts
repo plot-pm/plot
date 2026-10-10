@@ -1,7 +1,5 @@
 import { processesShell, shellContext } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
-
-import type { FleetReading } from '../contract/schema.js';
 import { readConfigAsync, type BuildBoardOptions } from './board.js';
 import { pulseFor } from './fleet.js';
 import { transcriptFacts, type TranscriptFacts } from '@plot-pm/fleet/shared/transcript';
@@ -65,36 +63,8 @@ export type AgentPanelMiss =
   /** The pulse knows the branch but reports no worktree path for it. */
   | 'unknown-branch';
 
-/**
- * Everything the cached pulse holds about one branch — or null.
- *
- * **A lookup rather than a check, the same security boundary
- * `worktreeForBranch` documents.** The request names a branch; the answer is a
- * record the scan already produced for it. Nothing from the request becomes a
- * path segment, so `../../etc` and a NUL byte match no `b.branch` and come back
- * as null rather than as a read attempt.
- */
-export function branchFromPulse(
-  pulse: FleetReading | null,
-  branch: string,
-): { worktree: string; plan: string; wave: string; worker: string; pid: string } | null {
-  if (!pulse) return null;
-  for (const plan of pulse.plans) {
-    for (const wave of plan.slices) {
-      for (const b of wave.branches) {
-        if (b.branch !== branch) continue;
-        return {
-          worktree: b.local_worktree ?? '',
-          plan: plan.file ?? '',
-          wave: wave.name ?? '',
-          worker: b.worker ?? 'elsewhere',
-          pid: b.worker_pid ?? '',
-        };
-      }
-    }
-  }
-  return null;
-}
+export { branchFromPulse } from '@plot-pm/fleet/shared/continue-command';
+import { branchFromPulse } from '@plot-pm/fleet/shared/continue-command';
 
 /**
  * `ps -o etime=` output → seconds, or null for anything it does not recognise.

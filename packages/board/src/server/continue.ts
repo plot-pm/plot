@@ -3,11 +3,10 @@ import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { pulseFor } from './fleet.js';
 import type { FleetReading } from '../contract/schema.js';
-import { branchFromPulse } from './agent-panel.js';
 import { localCapability } from './controllers/caller.js';
 import type { DeskMonitors } from '@plot-pm/domain';
+import { continueBranch } from '@plot-pm/fleet/shared/continue-command';
 import {
-  continueOnDesk,
   ANSWER_MAX,
   BODY_LIMIT,
   type ContinueRefusal,
@@ -168,28 +167,14 @@ export async function handleContinue(
     return;
   }
 
-  // A LOOKUP, not a check — the same security boundary `worktreeForBranch` and
-  // `branchFromPulse` document. The branch names a record the scan already
-  // produced; no request text becomes a path segment, so `../../etc` matches
-  // nothing and comes back as a refusal rather than as a write.
-  const pulse = readPulse(opts);
-  const found = branchFromPulse(pulse, branch);
-  if (!found) {
-    refuse(404, 'unknown-branch', branch, 'no plan on this board names that branch');
-    return;
-  }
-  if (!found.worktree) {
-    refuse(404, 'no-worktree', branch, 'this machine holds no worktree for that branch');
-    return;
-  }
-
-  const started = await continueOnDesk({
+  // THE LOOKUP AND ITS REFUSALS LIVE IN `continueBranch`, shared with the
+  // continue command. This route hands it the board's cached pulse; the command
+  // hands it the bridged one.
+  const started = await continueBranch({
     opts,
     readCfg,
+    pulse: readPulse(opts),
     branch,
-    worktree: found.worktree,
-    main: pulse?.main ?? '',
-    previousPid: found.pid,
     answer,
     monitors: deps.monitors,
   });
