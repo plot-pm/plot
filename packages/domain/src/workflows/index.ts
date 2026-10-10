@@ -30,3 +30,4 @@ export * from './implement.js';
 export * from './release.js';
 export * from './supervise.js';
 export * from './agent-loop.js';
+export * from './merge.js';

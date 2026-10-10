@@ -156,6 +156,13 @@ export interface PrMergeWrite {
   readonly pr: number;
   /** Whether to retire the head branch with the merge. */
   readonly deleteBranch: boolean;
+  /**
+   * The head commit the host must still hold when it merges.
+   *
+   * Passed to the host as `--match-head`, so a push between the reading and the
+   * merge fails at the host. Absent merges whatever the head is.
+   */
+  readonly sha?: string;
 }
 
 /** Creates a branch and pushes it — the push being the claim. */
@@ -779,6 +786,9 @@ export const EVIDENCE: Readonly<Record<WorkflowName, Evidence>> = {
   implement: 'fixture',
   // FIXTURE-VERIFIED ONLY. Transcribed from skills/plot-release/SKILL.md.
   release: 'fixture',
+  // FIXTURE-VERIFIED ONLY. `merge-on-green.sh` was a script in a job's temp
+  // directory and is not a source: nothing reviewed it and nothing runs it.
+  merge: 'fixture',
   // FIXTURE-VERIFIED ONLY, AND THERE IS NO SCRIPT TO BORROW FROM. The tick is
   // specified in docs/plans/2026-08-31-the-registry-supervises-its-agents.md
   // and `plot-registryd` is this workflow's caller rather than its source, so

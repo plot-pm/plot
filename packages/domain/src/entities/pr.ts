@@ -74,6 +74,18 @@ export interface Pr {
    * Bitbucket `nickname` — or `''` where the host did not answer.
    */
   author: string;
+  /**
+   * The head commit the host reported, or absent where the host did not say.
+   *
+   * Absent is not empty-by-agreement: a host that cannot name the head leaves
+   * the field out, and a caller must not read that as a head that matches.
+   */
+  headSha?: string;
+  /**
+   * The commit `checks` was read for, or absent where the check source names
+   * none (Jenkins colours per branch).
+   */
+  checksSha?: string;
 }
 
 /**

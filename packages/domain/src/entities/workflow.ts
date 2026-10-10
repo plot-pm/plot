@@ -97,6 +97,7 @@ export type WorkflowName =
   | 'reconcile'
   | 'implement'
   | 'release'
+  | 'merge'
   | 'supervise'
   | 'agent-loop';
 
