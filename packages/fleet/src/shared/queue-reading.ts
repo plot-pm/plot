@@ -58,6 +58,13 @@ export interface QueueWorld {
    */
   mergedBranches(): Promise<MergedListing>;
   /**
+   * Whether the default branch's newest settled CI reading is red.
+   *
+   * Read from the file fleetd writes, never from the host. Optional: a world
+   * that does not answer holds nothing.
+   */
+  defaultBranchRed?(): Promise<boolean>;
+  /**
    * The PR index's rows, read from disk and never from the host.
    *
    * Asked only when the listing was not whole: a merged row answers a branch
@@ -359,7 +366,13 @@ export const readQueue = async (
   // THE LISTING'S STATE TRAVELS WITH THE SLICES IT EXPLAINS. Every `unknown`
   // landing and every slice held behind one came from this answer, and the tick
   // line prints it so a reader is not left to infer a host outage from a count.
-  return { slices, agents, mergedSet: mergedSetOf(listing), orphanedClaims: orphaned };
+  return {
+    slices,
+    agents,
+    mergedSet: mergedSetOf(listing),
+    orphanedClaims: orphaned,
+    defaultBranchRed: world.defaultBranchRed ? await world.defaultBranchRed() : false,
+  };
 };
 
 /**

@@ -1,4 +1,4 @@
-import type { BuildRun, ShaRun } from '../../entities/build.js';
+import type { BuildRun, ShaRun, WorkflowShaRun } from '../../entities/build.js';
 import type { LimitReading } from '../../entities/limit.js';
 import type { PortResult } from '../../port-result.js';
 import type { BuildPort, BuildSystem } from '../../ports/build.js';
@@ -45,6 +45,9 @@ export const buildActions = (context: ShellContext): BuildPort => {
 
     runForSha: (branch, sha, limit): Promise<PortResult<ShaRun | null>> =>
       reads.runForSha(branch, sha, limit),
+
+    runsForSha: (branch, sha): Promise<PortResult<readonly WorkflowShaRun[]>> =>
+      reads.runsForSha(branch, sha),
 
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
 

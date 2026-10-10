@@ -1,4 +1,4 @@
-import type { BuildRun, ShaRun } from '../entities/build.js';
+import type { BuildRun, ShaRun, WorkflowShaRun } from '../entities/build.js';
 import type { LimitReading } from '../entities/limit.js';
 import type { PortResult } from '../port-result.js';
 
@@ -101,6 +101,23 @@ export interface BuildPort {
    *   there is no CI to ask.
    */
   runForSha(branch: string, sha: string, limit?: number): Promise<PortResult<ShaRun | null>>;
+
+  /**
+   * Lists EVERY run for ONE commit, one per workflow.
+   *
+   * ALL OF THEM, because a commit's state is a fold over its workflows and
+   * {@link runForSha} returns only the newest. A failure in the second or third
+   * workflow is invisible to a reader that took the first.
+   *
+   * ONLY THE ASKED-FOR SHA, as {@link runForSha} does. `[]` is an answer: CI
+   * has not started on this commit yet.
+   *
+   * @param branch - the branch the runs belong to.
+   * @param sha - the commit to ask about.
+   * @returns the runs, newest first; `unaskable` where there is no CI to ask
+   *   or the connector has no arm for this question.
+   */
+  runsForSha(branch: string, sha: string): Promise<PortResult<readonly WorkflowShaRun[]>>;
 
   /**
    * What is this connector's limit, and how well does it know it?

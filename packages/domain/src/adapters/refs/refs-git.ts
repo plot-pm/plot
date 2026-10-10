@@ -14,6 +14,7 @@ import type {
   RefState,
   Refs,
   RemoteHeadAnswer,
+  RemoteShaReading,
   TreeBlob,
 } from '../../ports/refs.js';
 import {
@@ -611,5 +612,6 @@ export const refsGit = (context: ShellContext): Refs => {
     // rather than a read over the wire.
     remoteTip: async () => unaskable<RemoteTipReading>(),
     fetchRemoteHead: async () => unaskable<RemoteHeadAnswer>(),
+    remoteSha: async () => unaskable<RemoteShaReading>(),
   };
 };

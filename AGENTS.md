@@ -481,6 +481,8 @@ variant of ports-and-adapters, not a deviation from the rule above.
 
 **One writer.** `fleet.ts` is the only caller of `foldPrIndex`, and the shell consumers read and never write. A second writer beside the board races: `rename` makes each write atomic and not the read-fold-write sequence around it. Part 1 says a tool call writes the index — it does not license every script to write one.
 
+**One hold reads a non-terminal answer, and the exception is its reversibility.** `default-branch-red` reads the default branch's settled CI reading from `.plot/state/default-branch.json`, which can be `red` while the host would say `pending`; the next settled-green reading lifts the hold, and a missing, unparseable or other-version file holds nothing.
+
 **Answers, never verdicts.** The index holds bought answers — a host's `mergedAt`, a PR's checks, an issue's state — which cannot be re-derived at any price. A verdict is re-derivable from git for free and stale the moment a ref moves, and `fleet.ts:2173` refuses a persisted one: *"A persisted verdict would be a cache git cannot reach."* Every verdict is still derived fresh from indexed answers.
 
 **Not behind HTTP.** A shell consumer reads the file through a bundle and needs no running board — the reason `plot-ask.mjs` exists, and the reason seven skills do not gain a dependency whose failure arrives on a worker's machine rather than the operator's.

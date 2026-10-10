@@ -1,4 +1,4 @@
-import type { BuildRun, ShaRun } from '../../entities/build.js';
+import type { BuildRun, ShaRun, WorkflowShaRun } from '../../entities/build.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { BuildPort, BuildSystem } from '../../ports/build.js';
@@ -23,6 +23,14 @@ export interface BuildFixture {
    * branch that has no runs at all, or none for this commit.
    */
   shaRuns?: Readonly<Record<string, readonly ShaRun[]>>;
+  /**
+   * The runs `runsForSha` reports, by branch then sha.
+   *
+   * A pair with no entry answers `[]`: asked, and CI has not reached it.
+   */
+  workflowRuns?: Readonly<Record<string, Readonly<Record<string, readonly WorkflowShaRun[]>>>>;
+  /** Counts the `runsForSha` calls the port receives, for tests asserting zero. */
+  onRunsForSha?: (branch: string, sha: string) => void;
   /**
    * The limit readings `limit` reports.
    *
@@ -68,6 +76,12 @@ export const buildFixture = (fixture: BuildFixture = {}): BuildPort => {
       // ONLY THE ASKED-FOR SHA, matching the real connectors: a run for any
       // other commit is not evidence about this one.
       return answered(history.find((run) => run.sha === sha) ?? null);
+    },
+
+    runsForSha: async (branch, sha): Promise<PortResult<readonly WorkflowShaRun[]>> => {
+      fixture.onRunsForSha?.(branch, sha);
+      if (broken) return failed();
+      return answered(fixture.workflowRuns?.[branch]?.[sha] ?? []);
     },
 
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => {

@@ -46,6 +46,12 @@ export interface BranchTip {
  */
 export type RemoteHeadAnswer = 'present' | 'absent' | 'unknown';
 
+/**
+ * What {@link Refs.remoteSha} read: the commit a remote branch points at, or
+ * `unknown` where the read could not say.
+ */
+export type RemoteShaReading = { readonly sha: string } | 'unknown';
+
 /** One ref and the object it points at, as a signal reads the pair. */
 export interface RefState {
   /** The full ref name, such as `refs/remotes/origin/main`. */
@@ -575,4 +581,21 @@ export interface Refs {
    *   neither call answered.
    */
   fetchRemoteHead(branch: string): Promise<PortResult<RemoteHeadAnswer>>;
+
+  /**
+   * The commit a branch points at on `origin`, read live.
+   *
+   * **`git ls-remote origin refs/heads/<branch>`, THE FULL REF MATCHED.** A bare
+   * `main` pattern also lists `refs/heads/feature/main`, whose tip says nothing
+   * about `main`. This is the one call the default-branch reading makes per
+   * refresh, and it asks the remote rather than the last fetch for the reason
+   * {@link Refs.remoteTip} does.
+   *
+   * @param branch - the branch to ask about, without a remote prefix.
+   * @returns `unaskable` from the board's instance (`refs-git.ts` holds no
+   *   network call; fleetd composes `refs-remote-git.ts` onto it); otherwise the
+   *   sha, or `unknown` where the read failed, timed out or found no such
+   *   branch.
+   */
+  remoteSha(branch: string): Promise<PortResult<RemoteShaReading>>;
 }

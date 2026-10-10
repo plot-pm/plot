@@ -168,3 +168,17 @@ export interface ShaRun {
    */
   jobs?: readonly { conclusion: string | null; steps: number }[];
 }
+
+/**
+ * One run of one workflow for a known commit — an entry in the listing
+ * `runsForSha` returns.
+ *
+ * A {@link ShaRun} that also names its workflow, because a commit carries one
+ * run per workflow and a reader folding them into one answer must not lose the
+ * workflow that failed. `workflow` is `''` where the CI system has no such
+ * name (Jenkins).
+ */
+export interface WorkflowShaRun extends ShaRun {
+  /** The workflow's name; `''` where the CI system did not name it. */
+  workflow: string;
+}

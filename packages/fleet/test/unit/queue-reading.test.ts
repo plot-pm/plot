@@ -911,3 +911,53 @@ describe('the tick replay — a hand-over decided but not yet pushed is not re-h
     expect(whyNotReady(x)).toBe('assigned');
   });
 });
+
+describe('a red default branch holds the queue', () => {
+  const world = (over: Partial<QueueWorld> = {}): QueueWorld => ({
+    plans: async () => [plan([['feature/one']])],
+    claimedBranches: async () => new Set<string>(),
+    mergedBranches: async () => wholeListing([]),
+    prIndexRows: async () => [],
+    viewLanded: async () => 'unknown',
+    briefPresent: async () => true,
+    sliceHasMerged: async () => false,
+    subjectProven: async () => null,
+    queuedHasLanded: async () => 'not-landed',
+    workerAlive: async () => true,
+    blocked: async () => false,
+    refused: async () => false,
+    remoteHead: async () => 'absent',
+    commitSubjects: async () => ({ ok: true, value: [] }),
+    now: () => 0,
+    defaultBranch: async () => 'main',
+    ...over,
+  });
+  const holdOf = (readings: Awaited<ReturnType<typeof readQueue>>, branch: string) =>
+    readings.slices.find((s) => s.branch === branch);
+
+  it('carries the world\'s answer into the readings', async () => {
+    expect((await readQueue([], world({ defaultBranchRed: async () => true }))).defaultBranchRed).toBe(true);
+    expect((await readQueue([], world())).defaultBranchRed).toBe(false);
+  });
+
+  it('holds a queued slice on default-branch-red and releases it when the world says green', async () => {
+    const red = await readQueue([], world({ defaultBranchRed: async () => true }));
+    expect(whyNotReady(holdOf(red, 'feature/one')!, red.defaultBranchRed)).toBe('default-branch-red');
+    const green = await readQueue([], world({ defaultBranchRed: async () => false }));
+    expect(whyNotReady(holdOf(green, 'feature/one')!, green.defaultBranchRed)).not.toBe('default-branch-red');
+  });
+
+  it('lets an unanswered landing keep merge-unknown over default-branch-red', async () => {
+    const red = await readQueue([], world({
+      plans: async () => [plan([['feature/one'], ['feature/two']])],
+      mergedBranches: async () => failedListing(),
+      prIndexRows: async () => [
+        { number: 12, head: 'feature/one', state: 'OPEN', draft: false, checks: 'none', review: '', url: '' },
+      ],
+      viewLanded: async () => 'unknown',
+      defaultBranchRed: async () => true,
+    }));
+    expect(whyNotReady(holdOf(red, 'feature/one')!, red.defaultBranchRed)).toBe('merge-unknown');
+    expect(whyNotReady(holdOf(red, 'feature/two')!, red.defaultBranchRed)).toBe('default-branch-red');
+  });
+});

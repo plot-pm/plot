@@ -1,6 +1,6 @@
 import { answered, type PortResult } from '../../port-result.js';
 import type { RemoteTipReading } from '../../rules/checks-verdict.js';
-import type { RemoteHeadAnswer } from '../../ports/refs.js';
+import type { RemoteHeadAnswer, RemoteShaReading } from '../../ports/refs.js';
 import { runProcess, type RunOptions, type ScriptRun } from '../run-script.js';
 import type { ShellContext } from '../scripts.js';
 
@@ -31,7 +31,8 @@ const FETCH_TIMEOUT_MS = 30_000;
  *   commit, `other` where a different commit sits there, and `unknown` where
  *   the read failed, timed out, or found no such branch. `fetchRemoteHead`:
  *   `present` where the fetch succeeded, `absent` where `ls-remote` found no
- *   such branch, and `unknown` otherwise.
+ *   such branch, and `unknown` otherwise. `remoteSha`: the sha at the full ref
+ *   `refs/heads/<branch>`, or `unknown`.
  */
 export const refsRemoteGit = (
   context: ShellContext,
@@ -39,6 +40,7 @@ export const refsRemoteGit = (
 ): {
   remoteTip: (branch: string, pushedSha: string) => Promise<PortResult<RemoteTipReading>>;
   fetchRemoteHead: (branch: string) => Promise<PortResult<RemoteHeadAnswer>>;
+  remoteSha: (branch: string) => Promise<PortResult<RemoteShaReading>>;
 } => ({
   fetchRemoteHead: async (branch) => {
     const options = { cwd: context.repoRoot, timeoutMs: FETCH_TIMEOUT_MS };
@@ -47,6 +49,20 @@ export const refsRemoteGit = (
     const listed = await run('git', ['ls-remote', '--heads', 'origin', `refs/heads/${branch}`], options);
     if (listed.code !== 0) return answered<RemoteHeadAnswer>('unknown');
     return answered<RemoteHeadAnswer>(listed.stdout.trim() === '' ? 'absent' : 'unknown');
+  },
+
+  remoteSha: async (branch) => {
+    // THE FULL REF, matched as `remoteTip` does. A failed or timed-out read is
+    // `unknown`: a failure to observe is not a new commit.
+    const ref = `refs/heads/${branch}`;
+    const result = await run('git', ['ls-remote', 'origin', ref], {
+      cwd: context.repoRoot,
+      timeoutMs: REMOTE_TIP_TIMEOUT_MS,
+    });
+    if (result.code !== 0) return answered<RemoteShaReading>('unknown');
+    const line = result.stdout.split('\n').find((l) => l.split('\t')[1]?.trim() === ref);
+    const sha = line?.split('\t')[0]?.trim();
+    return answered<RemoteShaReading>(sha ? { sha } : 'unknown');
   },
 
   remoteTip: async (branch, pushedSha) => {

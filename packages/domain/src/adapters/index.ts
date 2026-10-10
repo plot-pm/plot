@@ -107,6 +107,10 @@ export {
   type PrIndexFileOptions,
 } from './pr-index/pr-index-file.js';
 
+// THE DEFAULT-BRANCH READING'S FILE ADAPTER. One file under `.plot/state/`,
+// written by `plot-fleetd` only.
+export { defaultBranchFile, defaultBranchPath } from './default-branch/default-branch-file.js';
+
 // THE FLEET BRIDGE'S FILE ADAPTER. One file per repository under
 // `.plot/state/last-pulse.json`, written by `plot-fleetd` on the scan's
 // success path and read by the board — the same shape `pulse-bridge.ts`
