@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import http from 'node:http';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Finding } from '@plot-pm/domain';
@@ -42,7 +42,13 @@ let hub: EventHub | undefined;
 let server: http.Server | undefined;
 const clients: Client[] = [];
 
-const socketPath = (): string => join(mkdtempSync(join(tmpdir(), 'plot-ev-')), 'c.sock');
+const socketDirs: string[] = [];
+
+const socketPath = (): string => {
+  const dir = mkdtempSync(join(tmpdir(), 'plot-ev-'));
+  socketDirs.push(dir);
+  return join(dir, 'c.sock');
+};
 
 const startHttp = async (): Promise<number> => {
   server = http.createServer((req, res) => {
@@ -89,6 +95,7 @@ afterEach(async () => {
   await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
   server?.closeAllConnections();
   server = undefined;
+  for (const dir of socketDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 const hubOn = (address: string, extra: Partial<Parameters<typeof startEventHub>[0]> = {}) => {
