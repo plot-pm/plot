@@ -272,25 +272,17 @@ function assertRanToItsOwnEnd(r, why) {
 
 // `sleep <secs>` processes inside a group this file started — the marker for
 // a leaked prompt or watchdog. A unique per-test duration keeps tests from
-// seeing each other's; `ownGroups` keeps this file from seeing the machine's.
-//
-// A BARE `pgrep -f` USED TO ANSWER THIS, machine-wide. Every call site here
-// runs once before `runLoop` has added anything to `ownGroups` (the pre-test
-// `reap(secs)`, matching `reap`'s own filter) and once after (the post-test
-// assertion), so the pre-test call was always a no-op by construction — it
-// could not have cleared a leftover even when one existed — and the
-// assertion was counting the whole machine's `sleep <secs>`, not this file's.
-function ownSleeps(secs) {
+// seeing each other's; `ownGroups` keeps this file from seeing a `sleep` in a
+// group it did not start.
+const ownSleeps = (secs) => {
   const ps = spawnSync('ps', ['-A', '-o', 'pid=,pgid=,command='], { encoding: 'utf8' });
   const wanted = new RegExp(`(^|[\\s/])sleep ${secs}(\\s|$)`);
   return (ps.stdout ?? '').split('\n')
     .map((line) => line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/))
     .filter((m) => m && ownGroups.has(Number(m[2])) && wanted.test(m[3]));
-}
+};
 
-function sleepCount(secs) {
-  return ownSleeps(secs).length;
-}
+const sleepCount = (secs) => ownSleeps(secs).length;
 
 // SIGKILLs every `sleep <secs>` left in a process group this file started.
 // A `sleep` in any other group belongs to another test or to the machine.
@@ -300,23 +292,21 @@ const reap = (secs) => {
   }
 };
 
-// UNSKIPPED, unlike every `serial` test below: this exercises `sleepCount`
-// directly against a `sleep` this file never put in `ownGroups`, rather than
-// through a real `runLoop` — the thing that needed the JS loop's manifest
-// takeover and is why `serial` is unreachable today. It is the narrow proof
-// L1 asked for: a `sleep` outside `ownGroups` must not be counted, which is
-// exactly what the bare `pgrep -f` version used to get wrong.
-test('worker-loop: sleepCount counts only sleeps inside ownGroups, not the machine\'s', async () => {
-  const secs = 9999; // a duration nothing else in this file or on a healthy machine uses
-  const outsider = spawn('sleep', [String(secs)], { stdio: 'ignore', detached: true });
-  outsider.unref();
+// Not `serial`: it calls `sleepCount` directly and starts no `runLoop`.
+test('worker-loop: sleepCount counts only sleeps inside ownGroups', async () => {
+  const secs = 9999;
+  const sleeper = spawn('sleep', [String(secs)], { stdio: 'ignore', detached: true });
+  sleeper.unref();
   await wait(300);
   try {
-    assert.equal(sleepCount(secs), 0,
-      'a sleep outside ownGroups is invisible to sleepCount, even though it is running');
+    assert.equal(sleepCount(secs), 0, 'a sleep in a group outside ownGroups is not counted');
+    ownGroups.add(sleeper.pid);
+    assert.equal(sleepCount(secs), 1, 'the same sleep is counted once its group is in ownGroups');
   } finally {
-    try { process.kill(outsider.pid, 'SIGKILL'); } catch { /* already gone */ }
+    ownGroups.delete(sleeper.pid);
+    try { process.kill(sleeper.pid, 'SIGKILL'); } catch { /* already gone */ }
   }
+  assert.equal(sleepCount(secs), 0, 'a group removed from ownGroups is no longer counted');
 });
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));

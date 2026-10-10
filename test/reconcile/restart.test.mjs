@@ -73,7 +73,7 @@ function makeRepo({ workerCommand } = {}) {
   git(repo, 'config', 'commit.gpgsign', 'false');
 
   const cmd = workerCommand
-    ?? 'printf started > .plot-restart-marker; sleep 300 </dev/null >/dev/null 2>&1';
+    ?? 'printf started > .plot-restart-marker; sleep 301 </dev/null >/dev/null 2>&1';
   fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
     '## Plot Config\n\n'
     + '- **Plan directory:** plans/\n'
@@ -219,36 +219,40 @@ function recordWorker(repo, wt, pid, { session = 'sess-old', branch = 'feature/s
 // returns stays valid; `nohup` with `&` detaches it, so the runner's own exit
 // does not reap it — the trap this repo recorded as "the worker is reaped when
 // the dispatcher exits under node --test".
+//
+// `set -m` makes the backgrounded `sh` lead its own process group, so a group
+// signal to the returned pid also ends the `sleep 300` beneath it.
 const spawnLive = () => record(execFileSync('bash', ['-c',
-  "nohup sh -c 'sleep 300 & exec sleep 300' </dev/null >/dev/null 2>&1 & echo $!",
+  "set -m; nohup sh -c 'sleep 300 & exec sleep 300' </dev/null >/dev/null 2>&1 & echo $!",
 ], { encoding: 'utf8' }).trim());
 
 // Ends every worker a registry manifest names, while its pid still runs the
-// fixture's `sleep 300` and started no later than the manifest was written.
+// fixture's `sleep 301` and started no later than the manifest was written.
 //
-// THE RECORDED PID IS THE DISPATCH WRAPPER, NOT A BARE `sleep 300`. Dispatch
-// records `agent=$!` from `( "$cmd" ) & agent=$!` (`plot-dispatch.sh`), so the
-// manifests this walks always carry the WRAPPER's `sh -c "...; ( <cmd> ) &
-// agent=$!; ...; wait \"$agent\"; ..."` command line, with the fixture's
-// `Worker command` text — `sleep 300 </dev/null >/dev/null 2>&1` — embedded
-// inside it, never that fragment alone. A bare substring match on `sleep 300`
-// is too loose for a DIFFERENT reason than usual: `spawnLive`'s own wrapper,
-// `sh -c 'sleep 300 & exec sleep 300'`, also contains that substring — twice —
-// until the `exec` lands, so a loose match could fire against `spawnLive`'s
-// pid too if the two were ever combined.
-//
-// `sleep 300 </dev/null` is the anchor instead of `sleep 300` alone: it still
-// matches the real wrapper above (the redirect is part of the fixture's exact
-// `Worker command` text), and it CANNOT match `spawnLive`'s wrapper, which
-// contains no `</dev/null` anywhere in `'sleep 300 & exec sleep 300'`.
-const WORKER_COMMAND = 'sleep 300 </dev/null';
+// The manifest pid is the agent: the `( <Worker command> )` subshell the
+// dispatch wrapper backgrounds. Under bash that subshell keeps the wrapper's
+// command line, which embeds the Worker command text; under dash it execs its
+// last command, so its command line is `sleep 301` alone. The pattern matches
+// both, and not `spawnLive`'s `sleep 300`. Under bash the subshell forks the
+// `sleep 301` as its child, so the wrapper's group is signalled first: the
+// wrapper leads it, and its command line embeds the same Worker command text.
+const WORKER_COMMAND = /(^|\s)sleep 301(\s|$)/;
 const endManifestWorkers = (repo) => {
   const dir = path.join(repo, '.plot', 'agents');
   if (!fs.existsSync(dir)) return;
   for (const name of fs.readdirSync(dir).filter((f) => f.endsWith('.json'))) {
     const file = path.join(dir, name);
-    const m = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (m.pid) signalOwn(m.pid, 'SIGTERM', { recordedAt: fs.statSync(file).mtimeMs, command: WORKER_COMMAND });
+    // `--restart` returns before the wrapper stamps its pids into the manifest.
+    const deadline = Date.now() + 5_000;
+    let m = JSON.parse(fs.readFileSync(file, 'utf8'));
+    while (!m.pid && Date.now() < deadline) {
+      execFileSync('sleep', ['0.1']);
+      m = JSON.parse(fs.readFileSync(file, 'utf8'));
+    }
+    if (!m.pid) continue;
+    const expect = { recordedAt: fs.statSync(file).mtimeMs, command: WORKER_COMMAND };
+    if (m.wrapperPid) signalOwn(m.wrapperPid, 'SIGTERM', { ...expect, group: true, member: WORKER_COMMAND });
+    signalOwn(m.pid, 'SIGTERM', expect);
   }
 };
 
@@ -302,7 +306,7 @@ test('--restart starts a worker on a stalled branch, and the fleet sees it runni
 // ---------------------------------------------------------------------------
 
 test('--restart preserves uncommitted work in the worktree, byte for byte', () => {
-  const { repo } = makeRepo({ workerCommand: 'sleep 300 </dev/null >/dev/null 2>&1' });
+  const { repo } = makeRepo({ workerCommand: 'sleep 301 </dev/null >/dev/null 2>&1' });
   const wt = claimedWorktree(repo);
   // The measured case: a stalled worker in this repo left 324 finished lines
   // uncommitted. A restart that resets is worse than the missing affordance,
@@ -386,7 +390,7 @@ test('--restart REFUSES a running worker and names the pid', () => {
     // workers on one branch, and there is no --force to override it.
     assert.doesNotThrow(() => process.kill(Number(pid), 0), 'the live worker still runs');
   } finally {
-    signalOwn(pid, 'SIGTERM', { command: 'sleep 300' });
+    signalOwn(pid, 'SIGTERM', { command: 'sleep 300', group: true });
   }
 });
 
