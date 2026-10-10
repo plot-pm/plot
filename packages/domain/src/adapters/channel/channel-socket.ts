@@ -53,6 +53,18 @@ export interface RunningChannel extends ChannelPort {
   findings(): readonly Finding[];
   /** How many subscribers are connected. */
   subscriberCount(): number;
+  /**
+   * Publishes a finding from inside the process, as a monitor on the socket would.
+   *
+   * @param finding - the reading; it replaces the slot of its monitor and branch.
+   */
+  publish(finding: Finding): void;
+  /**
+   * Records that a monitor took a reading now, with nothing to publish.
+   *
+   * @param monitor - the monitor that read.
+   */
+  seen(monitor: MonitorName): void;
 }
 
 /**
@@ -148,7 +160,9 @@ export const startChannel = async (options: ChannelOptions): Promise<RunningChan
 
   const publish = (finding: Finding): void => {
     held = absorb(held, finding);
-    lastSeen.set(finding.monitor, finding.measuredAt);
+    // WHEN THE CHANNEL RECEIVED THE READING, not when it was taken: a relayed
+    // finding with an old `measuredAt` is still a live monitor speaking.
+    lastSeen.set(finding.monitor, now());
 
     const live = [...subscriptions.values()];
     const { send, finished } = route(
@@ -195,6 +209,10 @@ export const startChannel = async (options: ChannelOptions): Promise<RunningChan
   return {
     address,
     findings: () => held,
+    publish,
+    seen: (monitor) => {
+      lastSeen.set(monitor, now());
+    },
     subscriberCount: () => subscriptions.size,
     stop: async () => {
       clearInterval(beat);

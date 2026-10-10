@@ -26,6 +26,8 @@ import {
   agentsFs,
   fleetStateFile,
   clockSystem,
+  startChannel,
+  type RunningChannel,
 } from '@plot-pm/domain/adapters';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
@@ -58,6 +60,7 @@ import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gat
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../../shared/registry.js';
 import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
 import { fleetAutoWrites } from '../../shared/auto-writes.js';
+import { runIndexMonitor } from '../../shared/index-monitor.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
 import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
 import { freshScanState } from '../../shared/fleet-scan.js';
@@ -1627,6 +1630,84 @@ export const startNothingDoneReleases = async (
   }
 };
 
+/** The channel's socket, beside the other per-checkout state under `.plot/`. */
+export const CHANNEL_SOCKET = '.plot/fleet.sock';
+
+/**
+ * Opens the channel on `.plot/fleet.sock`, or reports why it did not.
+ *
+ * A bind that rejects (a socket path past the platform's limit, a live process
+ * on the path) costs the channel and nothing else: the daemon warns once and
+ * runs without it.
+ *
+ * @param repoRoot - the checkout the socket lives in.
+ * @param warn - where the failure is reported.
+ * @param start - opens the channel; the real transport unless a test gives one.
+ * @returns the running channel, or `null` where it could not be opened.
+ */
+export const startFleetChannel = async (
+  repoRoot: string,
+  warn: (s: string) => void,
+  start: typeof startChannel = startChannel,
+): Promise<RunningChannel | null> => {
+  try {
+    return await start({ address: join(repoRoot, CHANNEL_SOCKET) });
+  } catch (err) {
+    warn(
+      `plot-fleetd: the channel could not start, running without it: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    return null;
+  }
+};
+
+/**
+ * Builds the IndexMonitor's run over the files fleetd writes and the plans it
+ * reads.
+ *
+ * Reads the stored PR index and the default-branch file, never the host. The
+ * slice branches are the branches every plan names, read through the same
+ * `queue.plans()` the hand-over uses.
+ *
+ * @param context - the checkout and its scripts directory.
+ * @param channel - the channel to publish on.
+ * @param queue - the queue world whose `plans` names the slice branches.
+ * @param write - receives one log line per publish and per clear.
+ * @returns one run of the monitor.
+ */
+export const indexMonitorOver = (
+  context: { repoRoot: string; scriptDir: string },
+  channel: Pick<RunningChannel, 'findings' | 'publish' | 'seen'>,
+  queue: Pick<QueueWorld, 'plans'>,
+  write: (s: string) => void,
+): (() => Promise<void>) => {
+  const host = hostShell(context);
+  const index = prIndexFile({ cwd: context.repoRoot });
+  const defaultBranch = defaultBranchFile(context.repoRoot);
+  return () =>
+    runIndexMonitor({
+      index: async () => {
+        const backend = await host.backend();
+        if (!backend.ok) return null;
+        const held = await index.read(backend.value);
+        return held.ok ? held.value : null;
+      },
+      defaultBranch: async () => {
+        const held = await defaultBranch.read();
+        return held.ok ? held.value : null;
+      },
+      sliceBranches: async () => {
+        const plans = await queue.plans();
+        // `plans()` answers `[]` for a plan store it could not read, so an empty
+        // set is read as unreadable rather than as an estate with no slices.
+        const branches = new Set(plans.flatMap((plan) => plan.branches));
+        return branches.size === 0 ? null : branches;
+      },
+      channel,
+      now: () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      log: write,
+    });
+};
+
 /**
  * Runs the temp sweep when an hour has passed since the last one.
  *
@@ -1783,6 +1864,15 @@ export const run = async (
       warn(`plot-fleetd: default-branch read failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
+  // THE CHANNEL IS THE LOOP'S ALONE: `--once` opens no socket, which would
+  // leave a stale file behind. A bind that fails is one warning and a daemon
+  // that runs without it — the PR index and the default-branch file are
+  // written whether or not anyone listens.
+  const channel = args.once ? null : await startFleetChannel(repoRoot, warn);
+  const indexMonitor =
+    channel === null
+      ? null
+      : indexMonitorOver({ repoRoot, scriptDir: scriptsDir }, channel, queue, write);
   const scanClock = args.once
     ? null
     : startFleetClock(clockSystem(), {
@@ -1807,6 +1897,7 @@ export const run = async (
         prs: async () => {
           await readPrs();
           await readDefaultBranch();
+          await indexMonitor?.();
         },
       });
 
@@ -1815,6 +1906,7 @@ export const run = async (
   for (;;) {
     if (stop()) {
       scanClock?.stop();
+      await channel?.stop();
       return 0;
     }
     // A THROWN TICK IS A REPORTED TICK, NOT A DEAD DAEMON.
