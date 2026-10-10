@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import { buildFixture } from '@plot-pm/domain/adapters/build/build-fixture';
 import { refsFixture } from '@plot-pm/domain/adapters/refs/refs-fixture';
-import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
+import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import type { WorkflowShaRun } from '@plot-pm/domain/entities/build';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
+import { defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
 
 import {
   REASK_MS,
@@ -117,13 +118,59 @@ describe('refreshDefaultBranch', () => {
     expect(r.calls()).toBe(2);
   });
 
-  it('does not ask a pending head after Checks wait', async () => {
+  it('asks a head past Checks wait at most once per Checks wait', async () => {
     const r = rig();
     r.runs('a1', [run('ci', null, 'queued')]);
     await refreshDefaultBranch(r.world);
-    r.clock(WAIT);
-    expect(await refreshDefaultBranch(r.world)).toBe('skipped');
+    // Inside Checks wait: one ask per REASK_MS, 12 asks in the first hour.
+    for (let t = REASK_MS; t < WAIT; t += REASK_MS) {
+      r.clock(t);
+      await refreshDefaultBranch(r.world);
+    }
+    expect(r.calls()).toBe(WAIT / REASK_MS);
+    const lastAsk = WAIT - REASK_MS;
+    // Past Checks wait: refreshing every minute for three hours asks once per Checks wait.
+    for (let t = WAIT; t <= 4 * WAIT; t += 60_000) {
+      r.clock(t);
+      await refreshDefaultBranch(r.world);
+    }
+    expect(r.calls()).toBe(WAIT / REASK_MS + 3);
+    expect(r.stored()?.askedAt).toBe(new Date(T0 + lastAsk + 3 * WAIT).toISOString());
+  });
+
+  it('asks a red head again after Checks wait and lifts the hold when a re-run goes green', async () => {
+    const r = rig();
+    r.runs('a1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(defaultBranchRed(r.stored())).toBe(true);
+    r.clock(WAIT + REASK_MS);
+    r.runs('a1', [run('ci', 'success')]);
+    expect(await refreshDefaultBranch(r.world)).toBe('asked');
+    expect(r.stored()?.settled).toEqual({ sha: 'a1', state: 'green' });
+    expect(defaultBranchRed(r.stored())).toBe(false);
+  });
+
+  it('lifts a settled red after a restart past Checks wait once the pending head went green', async () => {
+    const since = new Date(T0).toISOString();
+    const r = rig({
+      v: DEFAULT_BRANCH_VERSION,
+      branch: 'main',
+      headSha: 'b2',
+      head: 'pending',
+      settled: { sha: 'a1', state: 'red' },
+      failingRuns: [],
+      headSince: since,
+      askedAt: since,
+      at: since,
+    });
+    r.tip('b2');
+    r.runs('b2', [run('ci', 'success')]);
+    expect(defaultBranchRed(r.stored())).toBe(true);
+    r.clock(2 * WAIT);
+    expect(await refreshDefaultBranch(r.world)).toBe('asked');
     expect(r.calls()).toBe(1);
+    expect(r.stored()?.settled).toEqual({ sha: 'b2', state: 'green' });
+    expect(defaultBranchRed(r.stored())).toBe(false);
   });
 
   it('measures Checks wait from when the SHA first appeared, not from the last ask', async () => {

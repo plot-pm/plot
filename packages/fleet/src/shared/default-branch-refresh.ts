@@ -7,7 +7,7 @@ import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 
-/** How long a pending or red head waits before its runs are asked again. */
+/** How long a pending, red or unknown head waits before its runs are asked again, inside `Checks wait`. */
 export const REASK_MS = 5 * 60 * 1000;
 
 /** What one refresh is read and written through. */
@@ -24,7 +24,10 @@ export interface DefaultBranchWorld {
   slot<T>(call: () => Promise<T>): Promise<T>;
   /** Epoch ms. */
   now(): number;
-  /** The `Checks wait` bound in ms; after it a head is no longer re-asked. */
+  /**
+   * The `Checks wait` bound in ms. Inside it a head is re-asked every
+   * {@link REASK_MS}; after it, at most once per `Checks wait`.
+   */
   checksWaitMs: number;
 }
 
@@ -37,8 +40,10 @@ export type DefaultBranchOutcome = 'skipped' | 'asked' | 'unreadable';
  * Reads the head SHA, and asks for its runs only when the SHA changed or the
  * previous answer is not final. A `green` head is final. A head that is
  * `pending`, `red` or `unknown` is asked again every {@link REASK_MS}, measured
- * from `askedAt`, until `Checks wait` has passed since the SHA first appeared.
- * A settled, unchanged SHA makes no `runsForSha` call and no write.
+ * from `askedAt`, until `Checks wait` has passed since the SHA first appeared
+ * (`headSince`). After that it is asked again once per `Checks wait`, measured
+ * from `askedAt`, so a re-run that turns a red head green lifts the hold on the
+ * next ask. A green, unchanged SHA makes no `runsForSha` call and no write.
  *
  * The settled part moves only when the head is `red` or `green`
  * (`advanceSettled`). An unanswered question writes nothing, so a host that
@@ -64,8 +69,9 @@ export const refreshDefaultBranch = async (
   const unchanged = previous !== null && previous.headSha === sha;
   if (unchanged) {
     if (previous.head === 'green') return 'skipped';
-    if (now - Date.parse(previous.headSince) >= world.checksWaitMs) return 'skipped';
-    if (now - Date.parse(previous.askedAt) < REASK_MS) return 'skipped';
+    const pastWait = now - Date.parse(previous.headSince) >= world.checksWaitMs;
+    const interval = pastWait ? Math.max(world.checksWaitMs, REASK_MS) : REASK_MS;
+    if (now - Date.parse(previous.askedAt) < interval) return 'skipped';
   }
 
   const asked = await world.slot(() => world.build.runsForSha(branch, sha));
