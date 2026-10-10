@@ -148,6 +148,25 @@ describe('a timeout ends the whole process group (#1084)', () => {
     expect(alive(child)).toBe(false);
   });
 
+  it('marks a run ended by the timeout as interrupted', async () => {
+    const run = await runProcess('bash', ['-c', 'echo summary; sleep 30'], { timeoutMs: 500 });
+    expect(run.code).toBe(1);
+    expect(run.interrupted).toBe('timeout');
+    expect(run.stdout).toBe('summary\n');
+  });
+
+  it('marks a run ended by a signal as interrupted', async () => {
+    const run = await runProcess('bash', ['-c', 'kill -TERM $$'], { timeoutMs: 5_000 });
+    expect(run.code).toBe(1);
+    expect(run.interrupted).toBe('signal');
+  });
+
+  it('leaves a run that exits 1 on its own unmarked', async () => {
+    const run = await runProcess('bash', ['-c', 'exit 1'], { timeoutMs: 5_000 });
+    expect(run.code).toBe(1);
+    expect(run.interrupted).toBeUndefined();
+  });
+
   it('leaves a child started by a script that exits on its own', async () => {
     // A plain non-zero exit is not a timeout: a script may start work that is
     // meant to outlive it, and the group is left alone.

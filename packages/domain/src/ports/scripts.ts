@@ -212,16 +212,19 @@ export interface Scripts {
    * the host contract: no caller may read `4` off it and conclude anything —
    * that reading is {@link Scripts.hostSaid}'s, and it is made once.
    *
+   * A run cut short by `timeoutMs` or by a signal reports code 1 and carries
+   * `interrupted`, so a caller can tell it from an exit 1 the script chose.
+   *
    * @param script - the script's filename.
    * @param args - its arguments.
    * @param options - how to run it.
-   * @returns stdout, stderr and the exit code.
+   * @returns stdout, stderr, the exit code, and why the run was cut short.
    */
   awaited(
     script: string,
     args: readonly string[],
     options?: ScriptOptions,
-  ): Promise<{ stdout: string; stderr: string; code: number }>;
+  ): Promise<{ stdout: string; stderr: string; code: number; interrupted?: 'timeout' | 'signal' }>;
 
   /**
    * Starts a script detached, answering as soon as it is running.

@@ -72,6 +72,52 @@ describe('supervisorState — the exit code answers, and only 0 and 1 are answer
   });
 });
 
+describe('supervisorState — a run cut short is read from its summary line, never from its code', () => {
+  // Measured 2026-10-10: `--status` printed `supervisor=up` within a second,
+  // then hung in `lsof`; the board killed it at 5 s and read the kill's code 1
+  // as a stopped fleet while the supervisor ran.
+  it('reads a timed-out run whose summary says supervisor=up as up', () => {
+    expect(supervisorState(reading({ exitCode: 1, interrupted: true, supervisor: 'up', install: 'running' })))
+      .toBe('up');
+  });
+
+  it('reads a timed-out run without a summary line as unknown', () => {
+    expect(supervisorState(reading({ exitCode: 1, interrupted: true, summarised: false }))).toBe('unknown');
+  });
+
+  it('reads a timed-out run whose summary has no supervisor field as unknown', () => {
+    expect(supervisorState(reading({ exitCode: 1, interrupted: true }))).toBe('unknown');
+  });
+
+  it('reads a timed-out run whose summary says supervisor=down as down or died', () => {
+    expect(supervisorState(reading({ exitCode: 1, interrupted: true, supervisor: 'down', install: 'not-installed' })))
+      .toBe('down');
+    expect(supervisorState(reading({ exitCode: 1, interrupted: true, supervisor: 'down', install: 'installed' })))
+      .toBe('died');
+  });
+
+  it('reads a completed run with exit 1 as stopped, unchanged', () => {
+    expect(supervisorState(reading({ exitCode: 1, interrupted: false }))).toBe('down');
+    expect(supervisorState(reading({ exitCode: 1, interrupted: false, supervisor: 'down' }))).toBe('down');
+  });
+
+  it('reads the supervisor field over the exit code', () => {
+    expect(supervisorState(reading({ exitCode: 1, supervisor: 'up' }))).toBe('up');
+    expect(supervisorState(reading({ exitCode: 0, supervisor: 'down' }))).toBe('down');
+  });
+
+  it('falls back to the exit code for a supervisor word it does not know', () => {
+    expect(supervisorState(reading({ exitCode: 0, supervisor: 'maybe' }))).toBe('up');
+    expect(supervisorState(reading({ exitCode: 1, interrupted: true, supervisor: 'maybe' }))).toBe('unknown');
+  });
+
+  it('renders no FLEET STOPPED banner for a timed-out run that said up', () => {
+    const verdict = supervisorVerdict(reading({ exitCode: 1, interrupted: true, supervisor: 'up', agentsRunning: 3 }));
+    expect(verdict.state).toBe('up');
+    expect(verdict.shown).toBe(false);
+  });
+});
+
 describe('supervisorState — which stop it is, read beside the code and never from it', () => {
   it('reads exit 1 with a finished start behind it as died, not merely down', () => {
     // The unit is on disk and the last `--start` recorded that it finished.

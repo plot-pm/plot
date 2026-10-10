@@ -44,7 +44,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { record, signalOwn } from './own-process.mjs';
+import { record, signalOwn, signalRecorded } from './own-process.mjs';
 
 // Every directory this file creates, removed after its last test by the exact
 // path mkdtempSync returned — never by a glob over the shared temp directory.
@@ -99,6 +99,9 @@ const writeProcStubs = (bin) => {
     'exit 127',
   ].join('\n'));
   write('lsof', [
+    // `PLOT_TEST_LSOF_HANG` makes every call hang the way an `lsof` in
+    // uninterruptible kernel wait does, and records its pid there for the case to end.
+    'if [ -n "${PLOT_TEST_LSOF_HANG:-}" ]; then echo $$ > "$PLOT_TEST_LSOF_HANG/hung.$3"; exec sleep 30; fi',
     'f="${PLOT_TEST_PROCS:-/nonexistent}/cwd/$3"',
     '[ -f "$f" ] || exit 1',
     'printf \'p%s\\nfcwd\\nn%s\\n\' "$3" "$(cat "$f")"',
@@ -2580,6 +2583,29 @@ test('processes: an unreadable cwd prints cannot determine with the owner', () =
     users: { 1234: 'twelvecharsx' },
   });
   assert.ok(r.block.includes(row('board', 850, { serves: 'cannot determine (owner twelvecharsx)', installed: '/i' })), r.out);
+});
+
+test('processes: a hanging lsof ends --status within its bound, as cannot determine', () => {
+  const { box, status } = procSandbox('procs-lsof-hang');
+  const procs = fs.mkdtempSync(path.join(box, 'hang-'));
+  const started = Date.now();
+  const r = status({
+    ps: [[910, 1, 501, `node /i/${BOARD}`], [911, 1, 501, `node /j/${BOARD}`], [912, 1, 501, `node /k/${BOARD}`]],
+    cwd: { 910: '/repos/a', 911: '/repos/b', 912: '/repos/c' },
+    users: { 501: 'op' },
+  }, { PLOT_TEST_LSOF_HANG: procs });
+  const took = Date.now() - started;
+  try {
+    assert.ok(took < 8_000, `--status took ${took} ms with a hanging lsof`);
+    assert.match(r.out, /^summary: .*supervisor=up/m, r.out);
+    for (const [pid, at] of [[910, '/i'], [911, '/j'], [912, '/k']]) {
+      assert.ok(r.block.includes(row('board', pid, { serves: 'cannot determine (owner op)', installed: at })), r.out);
+    }
+  } finally {
+    for (const f of fs.readdirSync(procs).filter((n) => n.startsWith('hung.'))) {
+      signalRecorded(path.join(procs, f), 'SIGTERM', { command: 'sleep 30' });
+    }
+  }
 });
 
 test('processes: nothing to report leaves the output byte-identical', () => {

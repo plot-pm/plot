@@ -11,11 +11,11 @@ import { scriptsFor, type BuildBoardOptions } from './board.js';
  *
  * ## The one source, and why nothing else may be read
  *
- * `plot-fleetctl.sh --status` already answers this and its exit code is the
- * contract: **0 when the supervisor is loaded, 1 when it is not.** A second
- * implementation reading a pidfile, `launchctl`, or a process name would drift
- * toward *looks fine* — the direction nobody notices, which is the whole
- * defect. A `pkill`-style match on process names is specifically refused:
+ * `plot-fleetctl.sh --status` already answers this: its `summary:` line says
+ * `supervisor=up|down`, and it exits 0 when the supervisor is loaded and 1
+ * when it is not. A second implementation reading a pidfile, `launchctl`, or
+ * a process name would drift toward *looks fine* — the direction nobody
+ * notices, which is the whole defect. A `pkill`-style match on process names is specifically refused:
  * `plot-boardctl.sh`'s header records a `pkill -f` that killed an operator's
  * board on 2026-09-04, and the same guess reads just as wrong as it kills.
  *
@@ -42,10 +42,9 @@ import { scriptsFor, type BuildBoardOptions } from './board.js';
 /**
  * How long the reading may take before it is abandoned.
  *
- * 5 s against a measured 1.42 s on the largest fleet here — roughly three and a
- * half times the worst reading, and one refresh cadence. A call that exceeds it
- * answers `unknown` rather than `down`, which is the rule this whole module is
- * organised around.
+ * A call that exceeds it is reported with `interrupted: true`, and the domain
+ * reads its `summary:` line if it printed one and `unknown` if not — never
+ * `down` from the code the kill left behind.
  */
 export const SUPERVISOR_TIMEOUT_MS = 5_000;
 
@@ -53,12 +52,12 @@ export const SUPERVISOR_TIMEOUT_MS = 5_000;
 const SCRIPT = 'plot-fleetctl.sh';
 
 /**
- * The line `--status` prints last, and the proof that it printed anything.
+ * The line `--status` prints before its machine block, and the proof that it
+ * answered.
  *
- * A killed process leaves partial stdout, so the presence of this prefix is
- * what separates a script that finished from one stopped at a bounded wait.
- * `execFile` reports a `SIGTERM` timeout as exit code 1 — the script's own word
- * for *not loaded* — so the code alone cannot tell the two apart.
+ * A run killed at the bounded wait leaves partial stdout. Where that stdout
+ * holds this line, its fields are the script's answer; where it does not,
+ * nothing is.
  *
  * A SECOND ORIGIN, MEASURED 2026-09-07: run outside a git repository, `--status`
  * prints `plot-fleetctl: not a git repository` and exits 1, refusing before the
@@ -89,6 +88,9 @@ const INSTALL_PREFIX = 'install=';
  * exists, and older scripts never print it.
  */
 const TICK_AGE_PREFIX = 'tick_age=';
+
+/** The field `--status` prints on its summary line: `up` or `down`. */
+const SUPERVISOR_PREFIX = 'supervisor=';
 
 /**
  * Reads one `key=value` field off the `summary:` line, or nothing.
@@ -156,6 +158,8 @@ export async function readSupervisor(
       summarised: run.stdout.includes(SUMMARY_PREFIX),
       install: summaryField(run.stdout, INSTALL_PREFIX),
       tickAgeSeconds: tickAge(run.stdout),
+      supervisor: summaryField(run.stdout, SUPERVISOR_PREFIX),
+      interrupted: run.interrupted !== undefined,
     };
   } catch {
     return { asked: false, exitCode: null, summarised: false };

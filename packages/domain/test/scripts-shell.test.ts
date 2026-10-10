@@ -172,6 +172,13 @@ describe('an awaited run hands back both streams and the code', () => {
     const dir = scriptDir({ 'plot-approve.sh': '#!/usr/bin/env bash\necho merged\n' });
     const ran = await at(dir).awaited('plot-approve.sh', ['slug']);
     expect(ran).toMatchObject({ code: 0, stdout: 'merged\n' });
+    expect(ran.interrupted).toBeUndefined();
+  });
+
+  it('marks a run cut short by its timeout, keeping what it printed', async () => {
+    const dir = scriptDir({ 'plot-fleetctl.sh': '#!/usr/bin/env bash\necho "summary: supervisor=up"\nsleep 30\n' });
+    const ran = await at(dir).awaited('plot-fleetctl.sh', ['--status'], { timeoutMs: 500 });
+    expect(ran).toEqual({ code: 1, stdout: 'summary: supervisor=up\n', stderr: '', interrupted: 'timeout' });
   });
 });
 

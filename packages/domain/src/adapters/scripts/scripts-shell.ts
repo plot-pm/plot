@@ -126,7 +126,9 @@ export const scriptsShell = (context: ShellContext): Scripts => {
         [scriptPath(context, script), ...args],
         withRepo(options),
       );
-      return { stdout: run.stdout, stderr: run.stderr, code: run.code };
+      return run.interrupted === undefined
+        ? { stdout: run.stdout, stderr: run.stderr, code: run.code }
+        : { stdout: run.stdout, stderr: run.stderr, code: run.code, interrupted: run.interrupted };
     },
 
     start: (script, args, options = {}): StartedRun => {

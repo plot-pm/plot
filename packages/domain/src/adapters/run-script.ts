@@ -16,6 +16,13 @@ export interface ScriptRun {
   stdout: string;
   /** Everything the process wrote to stderr. */
   stderr: string;
+  /**
+   * Why the process did not end on its own, or absent where it did. `timeout`
+   * is the bound of {@link RunOptions.timeoutMs} firing; `signal` is a signal
+   * from elsewhere. Both report code 1, so only this field separates them
+   * from an exit 1 the process chose.
+   */
+  interrupted?: 'timeout' | 'signal';
 }
 
 /** How to run one command. */
@@ -94,7 +101,8 @@ export const killGroup = (child: ChildProcess, graceMs: number = KILL_GRACE_MS):
  *
  * The command runs as the leader of its own process group, and a timeout ends
  * the whole group, so nothing it started outlives the answer. A timeout
- * answers code 1 at the timeout, without waiting for the group to exit.
+ * answers code 1 at the timeout, without waiting for the group to exit, and
+ * carries `interrupted: 'timeout'`.
  *
  * Never throws for a non-zero exit: the exit code is the answer, and an
  * exception would make the four contract codes indistinguishable from a
@@ -123,11 +131,11 @@ export const runProcess = (
     let stdout = '';
     let stderr = '';
     let settled = false;
-    const finish = (code: number): void => {
+    const finish = (code: number, interrupted?: 'timeout' | 'signal'): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ code, stdout, stderr });
+      resolve(interrupted === undefined ? { code, stdout, stderr } : { code, stdout, stderr, interrupted });
     };
     // A STREAM PAST ITS LIMIT ENDS THE GROUP and answers 1, as `execFile`'s
     // `maxBuffer` did, but with nothing it started left running.
@@ -147,10 +155,10 @@ export const runProcess = (
     child.on('error', () => finish(1));
     // `close` waits for both streams, so the answer holds everything written.
     // A process ended by a signal has no exit code and reports 1.
-    child.on('close', (code) => finish(code ?? 1));
+    child.on('close', (code) => finish(code ?? 1, code === null ? 'signal' : undefined));
     const timer = setTimeout(() => {
       killGroup(child);
-      finish(1);
+      finish(1, 'timeout');
     }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   });
 

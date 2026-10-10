@@ -70,12 +70,8 @@ export interface SupervisorRun {
   /**
    * Whether the script could be run at all.
    *
-   * `false` where the file is absent, the process could not be spawned, or the
-   * call timed out. It is a separate reading from {@link SupervisorRun.exitCode}
-   * because a killed process reports a code that is indistinguishable from a
-   * real answer: `execFile` maps a `SIGTERM` timeout to code 1, which is the
-   * script's own word for *not loaded*. Deriving the state from the code alone
-   * would render `down` from a call that never completed.
+   * `false` where the call threw before any run was made. A run cut short by
+   * the time limit is `true` with {@link SupervisorRun.interrupted} set.
    */
   asked: boolean;
   /**
@@ -88,11 +84,8 @@ export interface SupervisorRun {
   /**
    * Whether the run reached its own `summary:` line.
    *
-   * `--status` prints `summary: ... supervisor=up|down` last, so its presence
-   * is what separates a script that finished from one killed at a bounded wait.
-   * Read as the CORROBORATION of the exit code and never as a substitute for
-   * it: the code is the contract, this says the code was the script's and not
-   * a signal's.
+   * `--status` prints `summary: ... supervisor=up|down` before its machine
+   * block. Without it no part of the run is the script's answer.
    */
   summarised: boolean;
   /**
@@ -127,6 +120,23 @@ export interface SupervisorRun {
    * leaves the verdict exactly as it is without the field.
    */
   tickAgeSeconds?: number;
+  /**
+   * The `supervisor=` field of the `summary:` line, or absent where the line
+   * carries none.
+   *
+   * The script prints `up` exactly when it exits 0, so on a run that finished
+   * the field and the code agree. On a run cut short after its summary line
+   * the field is the script's answer and the code is not.
+   */
+  supervisor?: string;
+  /**
+   * Whether the run was cut short — by the board's time limit or by a signal —
+   * rather than ending on its own. Absent reads as false.
+   *
+   * A cut-short run reports code 1, which is the script's own word for *not
+   * loaded*, so its code is never read as an answer.
+   */
+  interrupted?: boolean;
 }
 
 /**
@@ -211,18 +221,20 @@ export interface SupervisorVerdict {
 /**
  * What the readings say the supervisor is.
  *
- * THE EXIT CODE IS THE CONTRACT AND THE SUMMARY LINE PROVES IT WAS THE
- * SCRIPT'S. Exit 0 is `up`, exit 1 is `down`, and every other outcome —
- * a code that is neither, no code at all, a call that could not be made, or a
- * run that stopped before its own last line — is `unknown`.
+ * THE SUMMARY LINE ANSWERS, AND THE EXIT CODE ANSWERS ONLY FOR A RUN THAT
+ * ENDED ON ITS OWN. A run with no summary line, or one that could not be made,
+ * is `unknown`. A `supervisor=` field of `up` is `up` and one of `down` is
+ * `down` (or `died`, below), whether or not the run was cut short after
+ * printing it. Without the field, a cut-short run is `unknown`, exit 0 is
+ * `up`, exit 1 is `down`, and every other code is `unknown`.
  *
- * The asymmetry is deliberate and is the plan's central rule: silence must not
- * become `down`. A bounded call that times out reports code 1 through
- * `execFile`, so a rule reading the code alone would render an alarm from a
- * board that never got an answer.
+ * Silence must not become `down`. A bounded call that times out reports code
+ * 1, the script's own word for *not loaded*, so a rule reading the code of a
+ * cut-short run would render an alarm from a board that never got an answer.
  *
  * `died` REFINES `down` AND NEVER REPLACES A CHECK. It is reached only from
- * exit 1 with one of the script's two self-inflicted-death words beside it —
+ * `supervisor=down`, or exit 1 without that field, with one of the script's
+ * two self-inflicted-death words beside it —
  * `installed` or `loaded-not-running` — so every gate above it is unchanged: a
  * run that could not be asked, or that stopped before its summary line, is
  * still `unknown` whatever field it carried.
@@ -230,11 +242,9 @@ export interface SupervisorVerdict {
  * `loaded-not-running` ARRIVES WITH EXIT 1 BECAUSE THE SCRIPT DECIDES THAT.
  * A loaded label whose process is absent answers *no* to the only question a
  * caller asks — *can I rely on it* — so the script exits 1 and this reads the
- * field to learn which kind of no. Were it ever to arrive with exit 0 the
- * gate above would answer `up`, which is the script's contract to keep and
- * not this rule's to second-guess.
+ * field to learn which kind of no. Its summary line says `supervisor=down`.
  *
- * AN ABSENT FIELD IS `down`, and that is the compatibility contract. A board
+ * AN ABSENT `install=` FIELD IS `down`, and that is the compatibility contract. A board
  * reading a script that predates the field must behave exactly as it did
  * before — so the fallback is the exit code, never `unknown`. Answering
  * `unknown` for the absent case would look defensive and would silently
@@ -247,10 +257,13 @@ export interface SupervisorVerdict {
 export const supervisorState = (readings: SupervisorRun): SupervisorState => {
   if (!readings.asked) return 'unknown';
   if (!readings.summarised) return 'unknown';
+  const stopped = (): SupervisorState =>
+    readings.install === 'installed' || readings.install === 'loaded-not-running' ? 'died' : 'down';
+  if (readings.supervisor === 'up') return 'up';
+  if (readings.supervisor === 'down') return stopped();
+  if (readings.interrupted === true) return 'unknown';
   if (readings.exitCode === 0) return 'up';
-  if (readings.exitCode === 1) {
-    return readings.install === 'installed' || readings.install === 'loaded-not-running' ? 'died' : 'down';
-  }
+  if (readings.exitCode === 1) return stopped();
   return 'unknown';
 };
 
