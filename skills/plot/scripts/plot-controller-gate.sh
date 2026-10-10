@@ -299,12 +299,11 @@ action_receipt_clears "$action" && exit 0
   echo ""
   echo "  Call the controller instead:"
   case "$action" in
-    dispatch) cmd="plot-dispatch-command.mjs <slug>" ;;
-    approve) cmd="plot-approve.mjs <slug>" ;;
-    deliver) cmd="plot-deliver.mjs <slug>" ;;
-    release) cmd="plot-deliver.mjs --release <version> <slug>" ;;
+    dispatch) cmd=plot-dispatch-command.mjs ;;
+    release) cmd="plot-deliver.mjs --release <version>" ;;
+    *) cmd="${named_script%.sh}.mjs" ;;
   esac
-  echo "      node $HERE/board/$cmd"
+  echo "      node $HERE/board/$cmd <slug>"
   echo "    which runs with no board. With the board up, POST /api/$action {\"slug\":\"<slug>\"} is its button, and /plot-$action asks it."
   echo ""
   echo "  Or, where the board is not running and you accept the bypass:"
