@@ -1,0 +1,1 @@
+../2026-10-10-the-gates-are-launchers.md
