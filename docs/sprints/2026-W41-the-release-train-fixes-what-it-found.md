@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Active
+- **State:** Closed
+- **Actual End:** 2026-10-10
 - **Start:** 2026-10-08
 - **End:** 2026-10-21
 - **Release:** 2.25.0
@@ -46,7 +47,20 @@ Auto-dispatch delivered v2.22 to v2.24 between 2026-10-03 and 2026-10-07. While 
 
 ## Retrospective
 
-<!-- Filled during /plot-sprint close: What went well / What could improve / Action items -->
+### What went well
+
+### What could improve
+
+### Action items
+
+### Metrics
+
+- **Must-haves completed:** 8/8
+- **Should-haves completed:** 1/1
+- **Could-haves completed:** 1/1
+- **Deferred items:** 0
+- **Scope changes during sprint:** 0
+- **Duration:** planned 14 days, actual 3 days
 
 ## Notes
 
