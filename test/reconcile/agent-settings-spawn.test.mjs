@@ -38,12 +38,16 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, '..', '..');
 const serverDir = path.join(repoRoot, 'packages', 'board', 'src', 'server');
 
-// `brief-ask` and `auto-deliver` moved to the fleet package with the automatic writes.
-const FLEET_SITES = new Set(['brief-ask', 'auto-deliver']);
+// `brief-ask` and `auto-deliver` moved to the fleet package with the automatic writes; `implement` moved as `implement-run` with the command entries.
+const FLEET_SITES = new Map([
+  ['brief-ask', 'brief-ask'],
+  ['auto-deliver', 'auto-deliver'],
+  ['implement', 'implement-run'],
+]);
 const source = (file) =>
   readFileSync(
     FLEET_SITES.has(file)
-      ? path.join(repoRoot, 'packages', 'fleet', 'src', 'shared', `${file}.ts`)
+      ? path.join(repoRoot, 'packages', 'fleet', 'src', 'shared', `${FLEET_SITES.get(file)}.ts`)
       : path.join(serverDir, `${file}.ts`),
     'utf8',
   );
