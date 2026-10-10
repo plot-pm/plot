@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { groupMembers, identityOf, isOwn, ownMembers, record, signalOwn, signalRecorded } from './own-process.mjs';
+import { groupMembers, identityOf, isOwn, ownMembers, record, signalOwn, signalRecorded, SKEW_MS } from './own-process.mjs';
 
 const alive = (pid) => {
   try { process.kill(pid, 0); return true; } catch { return false; }
@@ -152,7 +152,7 @@ test('own-process: groupMembers lists the processes of one group with start time
     assert.ok(Array.isArray(rows), 'ps answers');
     assert.ok(rows.every((r) => r.pgid === g.pid), 'only members of the group are listed');
     assert.equal(rows.length, 1, `the orphaned sleep is the only member: ${JSON.stringify(rows)}`);
-    assert.ok(rows[0].startedAt >= g.recordedAt - 1_000, 'the start time is the sleep\'s own');
+    assert.ok(rows[0].startedAt >= g.recordedAt - SKEW_MS, 'the start time is the sleep\'s own');
   } finally {
     endOrphan(g.child);
   }

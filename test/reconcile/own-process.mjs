@@ -21,8 +21,14 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 
-/** Allowed skew between the start time `ps` reports, in whole seconds, and the stamp. */
-const SKEW_MS = 1_000;
+/**
+ * Allowed skew between the start time `ps` reports and the stamp. `ps` prints whole
+ * seconds, and procps on Linux reports a start 0.8 to 1.2 s earlier than the wall clock
+ * (it cuts the boot time to whole seconds, then cuts the printed value again), so 3 s
+ * covers both. A pid does not recur within 3 s at observed fork rates (macOS: about 800
+ * pids/s against a 99 999 limit, about 2 min per wrap), and a command expectation still applies.
+ */
+export const SKEW_MS = 3_000;
 
 /** Pids this process stamped through `record`, with the stamp. */
 const stamps = new Map();
