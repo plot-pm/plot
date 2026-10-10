@@ -556,17 +556,44 @@ test('--verify still verifies a plugin install, where only the sibling holds the
   assert.match(out, /verified\s+plot-state-gate\.sh/);
 });
 
-test('--verify reads a gate a signal ended as unprobed, never as permitted', () => {
+// A stub brief-name gate that logs each run, then ends by `signal` on the runs
+// `diesOn` lists (1-based), and refuses (exit 2) on every other run.
+const signalStub = (inst, signal, diesOn) => {
+  const log = path.join(path.dirname(inst), 'brief-name-gate.runs');
+  writeFileSync(
+    path.join(path.dirname(inst), 'plot-brief-name-gate.sh'),
+    `#!/usr/bin/env bash\ncat >/dev/null\necho run >>'${log}'\nn=$(wc -l <'${log}')\ncase " ${diesOn.join(' ')} " in *" $((n)) "*) kill -${signal} $$ ;; esac\necho refused >&2\nexit 2\n`,
+  );
+  return () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').length : 0);
+};
+
+test('--verify reads a gate a signal ended once, then refused, as verified', () => {
   // CI run 38028514435 SIGKILLed plot-brief-name-gate.sh mid-probe from outside,
-  // and exit 137 read as "it permitted" — the verdict for a missing gate. The
-  // stub ends itself the same way, so the gate neither refuses nor permits.
+  // and exit 137 read as "it permitted". One signal is an unknown: the probe
+  // runs again, and the second answer is the verdict.
   const { consumer, installer: inst } = splitInstall({ siblingGates: true });
-  writeFileSync(path.join(path.dirname(inst), 'plot-brief-name-gate.sh'), '#!/usr/bin/env bash\ncat >/dev/null\nkill -KILL $$\n');
+  const runs = signalStub(inst, 'KILL', [1]);
 
   const { code, out } = runAt(consumer, inst, ['--verify']);
-  assert.doesNotMatch(out, /unverified\s+plot-brief-name-gate\.sh/, `a killed gate is not a permitting gate (out: ${out})`);
-  assert.match(out, /unprobed\s+plot-brief-name-gate\.sh — a signal ended the gate/);
-  // The other gates still refused, so the unprobed gate is named on the verified path.
-  assert.equal(code, 0, `a killed probe is an unknown, not a failure (out: ${out})`);
-  assert.match(out, /^verified — \d+ gate\(s\) refused a guarded write; 2 could not be proved here/m);
+  assert.equal(runs(), 2, `a signal-ended probe runs exactly once more (out: ${out})`);
+  assert.match(out, /verified\s+plot-brief-name-gate\.sh — refused a guarded write/);
+  assert.doesNotMatch(out, /unverified\s+plot-brief-name-gate\.sh/);
+  assert.equal(code, 0, `one signal is not a failure (out: ${out})`);
+  assert.match(out, /^verified — \d+ gate\(s\) refused a guarded write; 1 could not be proved here/m);
 });
+
+for (const [signal, rc] of [['SEGV', 139], ['ABRT', 134], ['KILL', 137]]) {
+  test(`--verify reads a gate SIG${signal} ends twice (exit ${rc}) as unverified and exits 3`, () => {
+    // A gate that crashes on every run permits every write: Claude Code reads
+    // any exit but 2 as non-blocking. Two signal exits in a row are a crash.
+    const { consumer, installer: inst } = splitInstall({ siblingGates: true });
+    const runs = signalStub(inst, signal, [1, 2]);
+
+    const { code, out } = runAt(consumer, inst, ['--verify']);
+    assert.equal(runs(), 2, `the probe runs twice and no more (out: ${out})`);
+    assert.match(out, /unverified\s+plot-brief-name-gate\.sh — a signal ended the gate twice/);
+    assert.doesNotMatch(out, /^verified/m, `a crashing gate never reads as verified (out: ${out})`);
+    assert.equal(code, 3, `a gate a signal ends twice fails --verify (out: ${out})`);
+    assert.match(out, /^unverified — \d+ gate\(s\) proved, 1 FAILED, 1 unprovable here/m);
+  });
+}
