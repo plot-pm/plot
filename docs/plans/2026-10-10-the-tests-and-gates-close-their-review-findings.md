@@ -127,7 +127,7 @@ Each slice changes one group of files, and no two slices change the same file. T
 
 ### Group signal after exit
 
-- `bug/a-gone-leader-still-ends-its-group` — `signalOwn` signals the group of a gone leader, `sleepCount` counts only its own groups, `endManifestWorkers` matches a fixture token, and `idle` leads its own group (issue 1489) <!-- builds: group signal for a gone leader in own-process.mjs -->
+- `bug/a-gone-leader-still-ends-its-group` → #1511 — `signalOwn` signals the group of a gone leader, `sleepCount` counts only its own groups, `endManifestWorkers` matches a fixture token, and `idle` leads its own group (issue 1489) <!-- builds: group signal for a gone leader in own-process.mjs -->
 
 ### Board test signals
 
