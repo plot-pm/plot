@@ -265,10 +265,19 @@ if [ "$verify_only" = 1 ]; then
     printf '%s' "$d"
   }
 
-  # Drive a gate the way Claude Code does: hook JSON on stdin, in a cwd.
-  drive_gate() { # $1=gate path $2=cwd $3=command → exit code, stderr on fd 2
+  # Drive a gate the way Claude Code does: hook JSON on stdin, in a cwd, and
+  # read its exit as a verdict. Exit 2 is a refusal. An exit of 128 or more is a
+  # gate a signal ended before it answered, which proves nothing either way:
+  # CI run 38028514435 (2026-10-10) SIGKILLed plot-brief-name-gate.sh from
+  # outside a probe that took 399 ms, and reading that as "permitted" reported a
+  # working gate as missing.
+  drive_gate() { # $1=gate path $2=cwd $3=command → 0 refused, 1 permitted, 3 ended by a signal
     printf '{"tool_input":{"command":%s}}' "$(jq -Rn --arg c "$3" '$c')" \
       | (cd "$2" && bash "$1") 2>"$scratch/stderr.$$"
+    local rc="${PIPESTATUS[1]}"
+    [ "$rc" = 2 ] && return 0
+    [ "$rc" -lt 128 ] && return 1
+    return 3
   }
 
   # --- the probers ---
@@ -276,7 +285,7 @@ if [ "$verify_only" = 1 ]; then
   # real jq, a real staged transition. Anything short of that returns 0 and
   # proves nothing.
 
-  probe_state_gate() { # $1=gate path → 0 refused, 1 permitted, 2 unprobeable
+  probe_state_gate() { # $1=gate path → 0 refused, 1 permitted, 2 unprobeable, 3 ended by a signal
     local d
     d="$(new_scratch_repo)" || return 2
     mkdir -p "$d/docs/plans" || return 2
@@ -290,22 +299,18 @@ if [ "$verify_only" = 1 ]; then
       > "$d/docs/plans/2026-01-01-verify.md" || return 2
     git -C "$d" add -A >/dev/null 2>&1 || return 2
     drive_gate "$1" "$d" "git commit -m x"
-    [ "$?" = 2 ] && return 0
-    return 1
   }
 
-  probe_controller_gate() { # $1=gate path → 0 refused, 1 permitted, 2 unprobeable
+  probe_controller_gate() { # $1=gate path → 0 refused, 1 permitted, 2 unprobeable, 3 ended by a signal
     local d
     d="$(new_scratch_repo)" || return 2
     # Measured: without .plot/state/ this gate reports its own UNVERIFIED and
     # exits 0. The directory is part of the condition, not a nicety.
     mkdir -p "$d/.plot/state" || return 2
     drive_gate "$1" "$d" "bash skills/plot/scripts/plot-dispatch.sh a-slug"
-    [ "$?" = 2 ] && return 0
-    return 1
   }
 
-  probe_brief_name_gate() { # $1=gate path → 0 refused, 1 permitted, 2 unprobeable
+  probe_brief_name_gate() { # $1=gate path → 0 refused, 1 permitted, 2 unprobeable, 3 ended by a signal
     local d
     d="$(new_scratch_repo)" || return 2
     # A staged add under the flattened name no reader computes. No remote and
@@ -314,11 +319,9 @@ if [ "$verify_only" = 1 ]; then
     printf '# Brief\n' > "$d/.plot/briefs/feature-verify.md" || return 2
     git -C "$d" add -A >/dev/null 2>&1 || return 2
     drive_gate "$1" "$d" "git commit -m x"
-    [ "$?" = 2 ] && return 0
-    return 1
   }
 
-  probe_bundle_commit_gate() { # $1=gate path → 0 refused, 1 permitted, 2 unprobeable
+  probe_bundle_commit_gate() { # $1=gate path → 0 refused, 1 permitted, 2 unprobeable, 3 ended by a signal
     local d
     d="$(new_scratch_repo)" || return 2
     # A staged generated path, declared by a `build.mjs` the gate's own
@@ -331,8 +334,6 @@ if [ "$verify_only" = 1 ]; then
     printf 'bundle\n' > "$d/skills/plot/scripts/board/board-server.mjs" || return 2
     git -C "$d" add -A >/dev/null 2>&1 || return 2
     drive_gate "$1" "$d" "git commit -m x"
-    [ "$?" = 2 ] && return 0
-    return 1
   }
 
   # PROBER OR NONE, AND A MISSING ONE IS REPORTED RATHER THAN GUESSED AT.
@@ -406,6 +407,9 @@ if [ "$verify_only" = 1 ]; then
       1)
         unverified_count=$((unverified_count + 1))
         report="${report}  unverified  ${g} — did NOT refuse a guarded write; it permitted"$'\n' ;;
+      3)
+        unprobeable_count=$((unprobeable_count + 1))
+        report="${report}  unprobed    ${g} — a signal ended the gate before it answered; nothing was proved either way"$'\n' ;;
       *)
         unprobeable_count=$((unprobeable_count + 1))
         report="${report}  unprobed    ${g} — the condition could not be built here"$'\n' ;;
