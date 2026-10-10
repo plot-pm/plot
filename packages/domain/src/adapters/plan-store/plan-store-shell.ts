@@ -21,6 +21,7 @@ interface RawPlan {
   assignee?: string;
   branches?: string[];
   prs?: number[];
+  deferred_prs?: number[];
   slices?: RawSlice[];
   review?: string;
   impl?: string;
@@ -124,6 +125,7 @@ const planOf = (raw: RawPlan): PlanRecord => ({
   assignee: raw.assignee ?? '',
   branches: raw.branches ?? [],
   prs: raw.prs ?? [],
+  deferredPrs: raw.deferred_prs ?? [],
   slices: slicesOf(raw).map(sliceOf),
   review: raw.review ?? '',
   impl: raw.impl ?? '',

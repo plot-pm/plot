@@ -1,6 +1,24 @@
 import { describe, expect, it } from 'vitest';
 
-import { releaseTag } from '../src/rules/release-tag.js';
+import { releasePr, releaseTag } from '../src/rules/release-tag.js';
+
+describe('releasePr', () => {
+  it('reads the highest PR when no slice is deferred', () => {
+    expect(releasePr([1423, 1425], [])).toBe('1425');
+  });
+
+  it('skips a deferred last slice and reads the earlier PR', () => {
+    expect(releasePr([1423, 1425], [1425])).toBe('1423');
+  });
+
+  it('answers none when the only PR-bearing slice is deferred', () => {
+    expect(releasePr([1425], [1425])).toBe('');
+  });
+
+  it('answers none when the plan names no PR', () => {
+    expect(releasePr([], [])).toBe('');
+  });
+});
 
 const BASE = {
   lastPr: '1200',

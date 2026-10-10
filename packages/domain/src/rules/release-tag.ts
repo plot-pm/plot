@@ -18,9 +18,23 @@
  * @concept release-tag
  */
 
+/**
+ * The PR whose merge commit a release record reads: the highest PR number the
+ * plan annotates, skipping every PR that only a deferred branch line or slice
+ * heading names.
+ *
+ * @param prs - every PR number the plan annotates, sorted ascending.
+ * @param deferredPrs - the PR numbers a deferred line annotates.
+ * @returns that PR number as a string, or `''` where every annotated PR is deferred or none exists.
+ */
+export const releasePr = (prs: readonly number[], deferredPrs: readonly number[]): string => {
+  const shipped = prs.filter((pr) => !deferredPrs.includes(pr));
+  return shipped.length > 0 ? String(shipped[shipped.length - 1]) : '';
+};
+
 /** What the caller read before asking. */
 export interface ReleaseTagReading {
-  /** The plan's last `→ #N` PR number, or `''` where it names none. */
+  /** {@link releasePr}'s answer for the plan, or `''` where it names none. */
   readonly lastPr: string;
   /** That PR's merge commit sha, or `''` where the host answered none. */
   readonly mergeCommit: string;
@@ -60,7 +74,7 @@ export const releaseTag = (reading: ReleaseTagReading): ReleaseTagResult => {
       reason: 'no-merge-commit',
       detail:
         reading.lastPr === ''
-          ? 'names no \'→ #N\' annotation — the version cannot be resolved from a merge commit that does not exist.'
+          ? 'names no \'→ #N\' annotation on a slice that was not deferred — the version cannot be resolved from a merge commit that does not exist.'
           : `its last PR (#${reading.lastPr}) carries no mergeCommit — it may not have merged, or the host could not answer.`,
     };
   }

@@ -4,9 +4,10 @@
 //
 // THE VERSION COMES FROM THE PLAN'S MERGE COMMIT, NEVER FROM A DATE. The
 // script asks `plot-host.sh pr-state <N>` (stubbed `gh` here) for the last
-// `→ #N`'s mergeCommit, then resolves the release that shipped it as the
-// FIRST `vX.Y.Z` tag (by version, not creation order) that contains it — real
-// git tags against a real bare origin, so `git tag --contains` and
+// `→ #N` of a slice that was not deferred, reads its mergeCommit, then
+// resolves the release that shipped it as the FIRST `vX.Y.Z` tag (by version,
+// not creation order) that contains it — real git tags against a real bare
+// origin, so `git tag --contains` and
 // `sort -V` run for real rather than being re-implemented in the test.
 import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -61,9 +62,10 @@ exec node "${stubDir}/gh.mjs" "$@"
   fs.writeFileSync(path.join(stubDir, 'gh.mjs'), `
 const argv = process.argv.slice(2);
 if (argv[0] === 'pr' && argv[1] === 'view') {
-  const sha = process.env.GH_STUB_SHA || '';
+  const closed = (process.env.GH_STUB_CLOSED || '').split(',').includes(argv[2]);
+  const sha = closed ? '' : process.env.GH_STUB_SHA || '';
   process.stdout.write(JSON.stringify({
-    number: Number(argv[2]), state: 'MERGED', isDraft: false,
+    number: Number(argv[2]), state: closed ? 'CLOSED' : 'MERGED', isDraft: false,
     url: 'https://example.invalid/pr/' + argv[2],
     mergeCommit: sha ? { oid: sha } : null,
   }));
@@ -159,6 +161,7 @@ function commitDate(ref) {
 
 beforeEach(() => {
   delete process.env.GH_STUB_SHA;
+  delete process.env.GH_STUB_CLOSED;
 });
 
 test('release: a plan with no → #N annotation is refused, writing nothing', () => {
@@ -186,6 +189,51 @@ test('release: a PR with no mergeCommit is refused, writing nothing', () => {
   process.env.GH_STUB_SHA = ''; // the host answers a PR with no mergeCommit
   const r = run(['--release', '1.0.0', 'release-me'], { expectFail: true });
   assert.match(r.err, /mergeCommit/i, `must name the gate:\n${r.err}`);
+  assert.equal(git(repo, 'status', '--porcelain').trim(), '');
+});
+
+const DEFERRED_PLAN = (slices) => `# Release me
+
+## Status
+
+- **Phase:** Delivered
+- **Type:** feature
+- **Delivered:** 2026-09-10
+- **Released:**
+
+## Slices
+
+${slices}`;
+
+test('release: a deferred last slice with a closed PR releases from the earlier merged PR', () => {
+  const { shippedSha } = makeRepo(DEFERRED_PLAN(`### Shipped
+- \`feature/alpha\` — the work → #1423
+
+### Given up
+- \`feature/beta\` — not built <!-- deferred: 2026-10-09, PR closed on purpose --> → #1425
+`));
+  process.env.GH_STUB_SHA = shippedSha;
+  process.env.GH_STUB_CLOSED = '1425';
+  tag('v1.0.0', shippedSha);
+
+  const r = run(['--release', '1.0.0', 'release-me']);
+  assert.match(r.out, /PR #1423 merged/, `must read the non-deferred PR:\n${r.out}`);
+  refreshMain();
+  assert.match(planOnMain(), /- \*\*Released:\*\* .*v1\.0\.0/);
+});
+
+test('release: a plan whose only PR-bearing slice is deferred is refused, writing nothing', () => {
+  const { shippedSha } = makeRepo(DEFERRED_PLAN(`### Unannotated
+- \`feature/alpha\` — no annotation
+
+### Given up
+- \`feature/beta\` — not built <!-- deferred: 2026-10-09, PR closed on purpose --> → #1425
+`));
+  process.env.GH_STUB_SHA = shippedSha;
+  tag('v1.0.0', shippedSha);
+
+  const r = run(['--release', '1.0.0', 'release-me'], { expectFail: true });
+  assert.match(r.err, /names no '→ #N' annotation on a slice that was not deferred/, `must name the gate:\n${r.err}`);
   assert.equal(git(repo, 'status', '--porcelain').trim(), '');
 });
 

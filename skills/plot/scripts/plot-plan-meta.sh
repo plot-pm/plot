@@ -173,6 +173,10 @@
 #                  are a plan's evidence, and plot-host.sh resolves where each
 #                  one lives. An absent PR contributes nothing — not "", not 0 —
 #                  the same rule `Issue:` follows.
+#   deferred_prs   PR numbers read from a branch line or slice heading that
+#                  carries a `deferred:`/`moved:` annotation, in document order.
+#                  Every one is also in `prs`. The release record reads the last
+#                  PR of `prs` that is not here. [] when no deferred line names one.
 #   malformed_prs  near-miss annotations, verbatim — currently `→#NNN` with no
 #                  space. Reported rather than dropped: "no annotation" is a
 #                  claim the sweep acts on, so a typo that reads as absence
@@ -307,7 +311,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"issues":[],"malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -495,7 +499,7 @@ function reset_state() {
   block_rounds = ""
   in_fm = 0; section = ""; in_comment = 0; in_challenge = 0; in_fence = 0; slices_seen = 0; slice_shape = ""
   delete branches; n_branches = 0
-  delete prs; n_prs = 0
+  delete prs; n_prs = 0; delete dprs; n_dprs = 0
   delete malformed_prs; n_malformed_prs = 0
   fm_issue = ""; canon_issue = ""
   delete issues; n_issues = 0
@@ -645,7 +649,7 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   for (i = 1; i <= nb; i++) out = out (i > 1 ? "," : "") "\"" jesc(sorted_b[i]) "\""
   out = out "],\"prs\":["
   for (i = 1; i <= np; i++) out = out (i > 1 ? "," : "") sorted_p[i]
-  out = out "],\"issues\":["
+  out = out "],\"deferred_prs\":["; for (i = 1; i <= n_dprs; i++) out = out (i > 1 ? "," : "") (dprs[i] + 0); out = out "],\"issues\":["
   for (i = 1; i <= ni; i++) {
     # Numeric issues output as JSON numbers; string issues (Jira keys) as quoted.
     if (sorted_i[i] in issue_is_str)
@@ -1245,7 +1249,7 @@ section == "slices" && slice_shape != "heading" {
   while (match(line, /→ ([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?#[0-9]+/)) {
     p = substr(line, RSTART, RLENGTH)
     sub(/^.*#/, "", p)
-    prs[++n_prs] = p
+    prs[++n_prs] = p; if ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
     line = substr(line, RSTART + RLENGTH)
   }
   # A near-miss is REPORTED, never silently dropped. `→#44` (no space) is the
@@ -1382,7 +1386,7 @@ section == "slices" && slice_shape == "heading" {
   if (match($0, /PR:[ \t]*#[0-9]+/)) {
     p = substr($0, RSTART, RLENGTH)
     sub(/^.*#/, "", p)
-    prs[++n_prs] = p
+    prs[++n_prs] = p; if ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
   }
   next
 }
