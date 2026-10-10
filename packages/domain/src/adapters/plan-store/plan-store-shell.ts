@@ -1,3 +1,6 @@
+import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+
 import type {
   PlanRecord,
   PlanRecordBranch,
@@ -191,5 +194,39 @@ export const planStoreShell = (context: ShellContext): PlanStore => {
       runScript('bash', [config, 'get', key, fallback], asText, {
         cwd: context.repoRoot,
       }),
+
+    listDir: async (dir) => {
+      try {
+        const names = await readdir(resolve(context.repoRoot, dir));
+        return answered(names.sort());
+      } catch (err) {
+        return (err as NodeJS.ErrnoException).code === 'ENOENT' ? answered([]) : failed<readonly string[]>();
+      }
+    },
+
+    readText: async (file) => {
+      try {
+        return answered(await readFile(resolve(context.repoRoot, file), 'utf8'));
+      } catch (err) {
+        return (err as NodeJS.ErrnoException).code === 'ENOENT' ? answered(null) : failed<string | null>();
+      }
+    },
+
+    // WRITTEN WHOLE OR NOT AT ALL, the form `pr-index-file.ts` uses: a reader
+    // that opens the file mid-write would parse half a plan. The temp file is a
+    // sibling so the rename never crosses a filesystem boundary.
+    writeText: async (file, content) => {
+      const path = resolve(context.repoRoot, file);
+      const temp = `${path}.${process.pid}.tmp`;
+      try {
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(temp, content, { encoding: 'utf8' });
+        await rename(temp, path);
+        return answered(undefined);
+      } catch {
+        await rm(temp, { force: true });
+        return failed<void>();
+      }
+    },
   };
 };

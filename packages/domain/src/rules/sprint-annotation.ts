@@ -3,9 +3,8 @@
  * the plan's PR number and first branch.
  *
  * `/plot-sprint status` reads `pr` and `branch` back out of the HTML comment
- * this writes; `/plot-approve` is the only writer. `status:` is never
- * written — `a-withdrawn-item-is-not-open` found it dead in both directions,
- * so the field is gone and must not be reintroduced here.
+ * this writes; `/plot-approve` is the only writer. The comment carries
+ * no `status:` field.
  *
  * The item line is found by the literal substring `[<slug>]`, never by a
  * sprint file's name: a sprint's filename carries an ISO week prefix in

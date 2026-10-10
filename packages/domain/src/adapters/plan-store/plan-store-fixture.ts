@@ -7,6 +7,8 @@ export interface PlanStoreFixture {
   plans?: readonly PlanRecord[];
   /** The `## Plot Config` keys this estate declares. */
   config?: Readonly<Record<string, string>>;
+  /** The other files this estate holds, keyed by path as a caller names it. */
+  files?: Record<string, string>;
 }
 
 /**
@@ -60,6 +62,7 @@ export const planRecord = (over: Partial<PlanRecord> = {}): PlanRecord => ({
 export const planStoreFixture = (fixture: PlanStoreFixture = {}): PlanStore => {
   const plans = fixture.plans ?? [];
   const config = fixture.config ?? {};
+  const files = fixture.files ?? {};
   const byFile = new Map(plans.map((plan) => [plan.file, plan]));
 
   const readPlans = async (
@@ -78,5 +81,20 @@ export const planStoreFixture = (fixture: PlanStoreFixture = {}): PlanStore => {
     listPlans: async () => answered(plans.map((plan) => plan.file)),
 
     config: async (key, fallback) => answered(config[key] ?? fallback),
+
+    listDir: async (dir) => {
+      const prefix = dir.endsWith('/') ? dir : `${dir}/`;
+      const names = Object.keys(files)
+        .filter((file) => file.startsWith(prefix) && !file.slice(prefix.length).includes('/'))
+        .map((file) => file.slice(prefix.length));
+      return answered(names.sort());
+    },
+
+    readText: async (file) => answered(files[file] ?? null),
+
+    writeText: async (file, content) => {
+      files[file] = content;
+      return answered(undefined);
+    },
   };
 };

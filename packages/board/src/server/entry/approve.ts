@@ -22,7 +22,7 @@ import {
   unlinkSyncSafe,
   type Printer,
 } from './ladder.js';
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -110,6 +110,8 @@ interface WriteReport {
   record: string;
   holds: string;
   sprint: string;
+  /** The sprint file the annotation changed, relative to the root; empty where none changed. */
+  sprintFile: string;
 }
 
 /** The three outcomes of asking the host for the plan PR. */
@@ -133,14 +135,12 @@ const configured = async (scripts: Scripts, key: string, fallback: string): Prom
  *
  * @returns the path as the configuration spells it, or `''` where none exists.
  */
-const findPlanFile = (repoRoot: string, dirs: Dirs, slug: string): string => {
+const findPlanFile = async (planStore: PlanStore, dirs: Dirs, slug: string): Promise<string> => {
   const active = `${dirs.activeDir}${slug}.md`;
-  if (existsSync(path.join(repoRoot, active))) return active;
-  const dir = path.join(repoRoot, dirs.planDir);
-  if (!existsSync(dir)) return '';
-  const hit = readdirSync(dir)
-    .filter((name) => name.endsWith(`${slug}.md`))
-    .sort()[0];
+  const held = await planStore.readText(active);
+  if (held.ok && held.value !== null) return active;
+  const listed = await planStore.listDir(dirs.planDir);
+  const hit = (listed.ok ? listed.value : []).filter((name) => name.endsWith(`${slug}.md`)).sort()[0];
   return hit === undefined ? '' : `${dirs.planDir}${hit}`;
 };
 
@@ -292,7 +292,8 @@ interface WriteRequest {
 const applyLocalWrites = async (ctx: Context, request: WriteRequest): Promise<WriteReport> => {
   const { root, rel, slug } = request;
   const target = path.join(root, rel);
-  if (!existsSync(target)) throw new Refused(`${rel} is not present in ${root}`);
+  const present = await ctx.planStore.readText(target);
+  if (!present.ok || present.value === null) throw new Refused(`${rel} is not present in ${root}`);
 
   const read = await ctx.planStore.readPlan(target);
   if (!read.ok) throw new Refused(`cannot parse ${target} — refusing rather than guessing.`);
@@ -312,7 +313,7 @@ const applyLocalWrites = async (ctx: Context, request: WriteRequest): Promise<Wr
     phase = 'already';
     record = 'already';
   } else {
-    const content = readFileSync(target, 'utf8');
+    const content = present.value;
     const fromDraft = flipStatusValue(content, 'draft', 'Approved');
     const flip = fromDraft.changed ? fromDraft : flipStatusValue(content, 'design', 'Approved');
     let landed: string;
@@ -328,14 +329,16 @@ const applyLocalWrites = async (ctx: Context, request: WriteRequest): Promise<Wr
       record = 'written';
     }
     const scratchPath = `${target}.plot-reread`;
-    writeFileSync(scratchPath, landed);
+    const scratched = await ctx.planStore.writeText(scratchPath, landed);
+    if (!scratched.ok) throw new Refused(`could not write ${scratchPath} to check the parser's reading.\n  Nothing was written to the plan.`);
     const reread = await ctx.planStore.readPlan(scratchPath);
     unlinkSyncSafe(scratchPath);
     const got = reread.ok ? reread.value.phase : 'none';
     if (got !== 'approved') {
       throw new Refused(`${rel} — wrote phase 'approved', but the parser still reads '${got}'.\n  Nothing was written — the plan is unchanged. Check what the plan says\n  its phase is, and where: a plan stating it in two places reports the\n  '## Status' block, which is the field every lifecycle script writes.`);
     }
-    writeFileSync(target, landed);
+    const written = await ctx.planStore.writeText(target, landed);
+    if (!written.ok) throw new Refused(`could not write ${rel}.\n  The plan is unchanged. Check the file's permissions, then re-run this — it is idempotent.`);
     phase = flip.changed ? 'flipped' : 'already';
     recordStateReceipt(ctx.repoRoot, rel, 'Approved');
   }
@@ -343,86 +346,61 @@ const applyLocalWrites = async (ctx: Context, request: WriteRequest): Promise<Wr
   const branches = read.value.branches;
   const holdFile = path.join(root, '.plot', 'hold');
   let holds = '0';
-  if (existsSync(holdFile)) {
-    const cleared = clearHolds(readFileSync(holdFile, 'utf8'), branches);
-    if (cleared.removed > 0 && cleared.kept !== undefined) writeFileSync(holdFile, cleared.kept);
+  const heldHolds = await ctx.planStore.readText(holdFile);
+  if (heldHolds.ok && heldHolds.value !== null) {
+    const cleared = clearHolds(heldHolds.value, branches);
+    if (cleared.removed > 0 && cleared.kept !== undefined) {
+      const kept = await ctx.planStore.writeText(holdFile, cleared.kept);
+      if (!kept.ok) throw new Refused(`could not write ${holdFile}.\n  The holds are unchanged. Re-run this — it is idempotent.`);
+    }
     holds = String(cleared.removed);
   }
 
-  const sprint = annotateSprint(root, request, read.value.sprint, branches[0] ?? '');
-  return { phase, record, holds, sprint };
+  const annotated = await annotateSprint(ctx.planStore, root, request, read.value.sprint, branches[0] ?? '');
+  return { phase, record, holds, sprint: annotated.outcome, sprintFile: annotated.file };
 };
 
-/** Annotates the sprint item that names the plan; `none` where the plan is in no sprint. */
-const annotateSprint = (root: string, request: WriteRequest, sprint: string, branch: string): string => {
-  if (sprint === '') return 'none';
+/**
+ * Annotates the sprint item that names the plan. The outcome is `none` where
+ * the plan is in no sprint; `file` names the sprint file relative to `root`
+ * where the outcome is `updated`, and is empty otherwise.
+ */
+const annotateSprint = async (
+  planStore: PlanStore,
+  root: string,
+  request: WriteRequest,
+  sprint: string,
+  branch: string,
+): Promise<{ outcome: string; file: string }> => {
+  if (sprint === '') return { outcome: 'none', file: '' };
   const dir = path.join(root, request.dirs.sprintDir.replace(/^\//, ''));
-  if (!existsSync(dir)) return 'missing';
+  const listed = await planStore.listDir(dir);
   const needle = `[${request.slug}]`;
-  const name = readdirSync(dir)
-    .filter((n) => n.endsWith('.md'))
-    .sort()
-    .find((n) => readFileSync(path.join(dir, n), 'utf8').includes(needle));
-  if (name === undefined) return 'missing';
-  const file = path.join(dir, name);
-  const annotated = annotateSprintItem(readFileSync(file, 'utf8'), request.slug, request.prNumber, branch);
-  if (annotated.outcome === 'updated') writeFileSync(file, annotated.content);
-  return annotated.outcome;
+  for (const name of (listed.ok ? listed.value : []).filter((n) => n.endsWith('.md')).sort()) {
+    const file = path.join(dir, name);
+    const read = await planStore.readText(file);
+    if (!read.ok || read.value === null || !read.value.includes(needle)) continue;
+    const annotated = annotateSprintItem(read.value, request.slug, request.prNumber, branch);
+    if (annotated.outcome === 'updated') {
+      const written = await planStore.writeText(file, annotated.content);
+      if (!written.ok) throw new Refused(`could not write ${file}.\n  The sprint item is unannotated. Re-run this — it is idempotent.`);
+      return { outcome: annotated.outcome, file: path.relative(root, file) };
+    }
+    return { outcome: annotated.outcome, file: '' };
+  }
+  return { outcome: 'missing', file: '' };
 };
 
-/** Stages the plan, the hold file and, where it changed, the sprint directory. */
-const stageApproval = async (ctx: Context, root: string, rel: string, dirs: Dirs, sprint: string): Promise<void> => {
+/**
+ * Stages the plan, the hold file and the one sprint file the annotation
+ * changed. It names files rather than the sprint directory, so a leftover
+ * `*.tmp` from an interrupted write or an unrelated sprint edit stays unstaged.
+ */
+const stageApproval = async (ctx: Context, root: string, rel: string, report: WriteReport): Promise<void> => {
   await ctx.trees.stage(root, [rel]);
-  if (existsSync(path.join(root, '.plot', 'hold'))) await ctx.trees.stage(root, ['.plot/hold']);
-  if (sprint === 'updated') await ctx.trees.stage(root, [dirs.sprintDir.replace(/^\//, '')]);
-};
-
-/**
- * The git directory every worktree of this repository shares, read from the
- * checkout's `.git` entry without starting a process. A linked worktree's
- * `.git` is a file naming its own directory, whose `commondir` file points back
- * at the shared one.
- */
-const commonDirOf = (repoRoot: string): string => {
-  const dotGit = path.join(repoRoot, '.git');
-  try {
-    if (statSync(dotGit).isDirectory()) return dotGit;
-    const named = readFileSync(dotGit, 'utf8').match(/^gitdir:\s*(.+)$/m);
-    if (!named) return dotGit;
-    const own = path.resolve(repoRoot, named[1].trim());
-    const common = readFileSync(path.join(own, 'commondir'), 'utf8').trim();
-    return path.resolve(own, common);
-  } catch {
-    return dotGit;
-  }
-};
-
-/** The main checkout's root, which `.plot/state/` and the desk root hang from. */
-const mainRootOf = (ctx: Context): string => {
-  const common = commonDirOf(ctx.repoRoot);
-  return path.basename(common) === '.git' ? path.dirname(common) : ctx.repoRoot;
-};
-
-/**
- * Keeps an in-repository desk root out of `git status` by adding its line to
- * the shared `info/exclude`, unless that file or the root's `.gitignore`
- * already carries it. A failure to write is ignored: the exclusion is
- * cosmetic and must not stop an approval.
- */
-const excludeDeskRoot = (mainRoot: string, line: string): void => {
-  try {
-    const bare = line.replace(/\/$/, '');
-    const ignored = (file: string): boolean =>
-      existsSync(file) && readFileSync(file, 'utf8').split('\n').some((l) => l === line || l === bare);
-    if (ignored(path.join(mainRoot, '.gitignore'))) return;
-    const exclude = path.join(commonDirOf(mainRoot), 'info', 'exclude');
-    if (ignored(exclude)) return;
-    mkdirSync(path.dirname(exclude), { recursive: true });
-    const held = existsSync(exclude) ? readFileSync(exclude, 'utf8') : '';
-    appendFileSync(exclude, `${held !== '' && !held.endsWith('\n') ? '\n' : ''}${line}\n`);
-  } catch {
-    // Cosmetic only.
-  }
+  const holdPresent = await ctx.planStore.readText(path.join(root, '.plot', 'hold'));
+  if (holdPresent.ok && holdPresent.value !== null) await ctx.trees.stage(root, ['.plot/hold']);
+  if (report.sprintFile !== '') await ctx.trees.stage(root, [report.sprintFile]);
 };
 
 /**
@@ -488,7 +466,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
     sprintDir: await configured(ctx.scripts, 'Sprint directory', 'docs/sprints/'),
   };
 
-  const planFile = findPlanFile(ctx.repoRoot, dirs, slug);
+  const planFile = await findPlanFile(ctx.planStore, dirs, slug);
   const read = planFile === '' ? undefined : await ctx.planStore.readPlan(planFile);
   const plan = read?.ok ? read.value : undefined;
   const phase = plan?.phase ?? '';
@@ -638,7 +616,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   let push: string;
   if (sameBranch) {
     report = await applyLocalWrites(ctx, request(ctx.repoRoot));
-    await stageApproval(ctx, ctx.repoRoot, rel, dirs, report.sprint);
+    await stageApproval(ctx, ctx.repoRoot, rel, report);
     const staged = await ctx.trees.hasStagedChanges(ctx.repoRoot);
     if (staged.ok && !staged.value) {
       push = 'nothing-to-commit';
@@ -653,7 +631,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
       write(`step: recorded on ${branch.ok ? branch.value : ''} — push it with the implementation\n`);
     }
   } else {
-    const mainRoot = mainRootOf(ctx);
+    const mainRoot = await mainRootOf(ctx);
     const outcome = await bookApproval(ctx, { mainRoot, main, request, args, inSession, prNumber: pr.number, who }, write, warn);
     if (outcome.exit !== undefined) {
       write(summary(outcome.report, 'rejected'));
@@ -665,7 +643,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
 
   if (inSession && push !== 'nothing-to-commit' && push !== 'n/a') {
     const entry = process.env.PLOT_APPROVE_ENTRY === 'board' ? 'board' : 'script';
-    const logDir = path.join(mainRootOf(ctx), '.plot', 'state');
+    const logDir = path.join(await mainRootOf(ctx), '.plot', 'state');
     try {
       mkdirSync(logDir, { recursive: true });
       appendFileSync(path.join(logDir, 'in-session-approvals.tsv'), `${today}\t${slug}\t${who}\t${entry}\n`);
@@ -707,7 +685,8 @@ const bookApproval = async (
 
   const deskReading = { configured: await configured(ctx.scripts, 'Worktree root', ''), repoRoot: mainRoot };
   const placement = deskRootPlacement(deskReading);
-  if (placement.excludeLine) excludeDeskRoot(mainRoot, placement.excludeLine);
+  // Cosmetic only: the exclusion keeps the desk root out of `git status`, and a failure must not stop an approval.
+  if (placement.excludeLine) await ctx.trees.excludePath(mainRoot, placement.excludeLine);
   const wtRoot = deskRoot(deskReading);
   const bookbr = `plot/approve-${slug}`;
   const tmpwt = path.join(wtRoot, `.plot-approve-${slug}.${process.pid}`);
@@ -722,7 +701,7 @@ const bookApproval = async (
   try {
     const request = flow.request(tmpwt);
     const report = await applyLocalWrites(ctx, request);
-    await stageApproval(ctx, tmpwt, request.rel, request.dirs, report.sprint);
+    await stageApproval(ctx, tmpwt, request.rel, report);
 
     const body = inSession
       ? `Records the in-session approval of \`${slug}\` by ${who}.`
@@ -752,6 +731,12 @@ const bookApproval = async (
   } finally {
     if (!keepBranch) await ctx.trees.removeWithBranch(tmpwt, bookbr);
   }
+};
+
+/** The main checkout's root, which `.plot/state/` and the desk root hang from; the caller's checkout where git cannot say. */
+const mainRootOf = async (ctx: Context): Promise<string> => {
+  const root = await ctx.trees.mainRoot(ctx.repoRoot);
+  return root.ok ? root.value : ctx.repoRoot;
 };
 
 /** `git config user.name`, falling back to `plot`. */

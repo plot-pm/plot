@@ -123,14 +123,14 @@ test('script-name gate: says plainly where no port answers yet', () => {
   // seven ports to clear a gate is the gate driving the design.
   const dir = treeWith([
     tenNames,
-    "const APPROVE_SCRIPT = 'plot-approve.sh';",
+    "const RELEASE_REFS_SCRIPT = 'plot-release-refs.sh';",
     '',
   ].join('\n'));
 
   const got = run(dir);
   assert.equal(got.status, 1, got.stdout);
   assert.match(got.stdout, /no port answers this yet/, got.stdout);
-  assert.match(got.stdout, /plan-store` reads only/,
+  assert.match(got.stdout, /`refs` carries none/,
     `and say what it would take:\n${got.stdout}`);
 
   rmSync(dir, { recursive: true, force: true });

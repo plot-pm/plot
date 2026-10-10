@@ -59,6 +59,23 @@ function stripComments(text: string): string {
   return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
 }
 
+/**
+ * `code` with the body of `Trees.fetch` removed — the one method that may name
+ * `fetch`. The body runs from the `fetch:` property to its matching brace, so
+ * any other occurrence in the file stays visible to the sweeps below.
+ */
+const withoutFetchMethod = (code: string): string => {
+  const start = code.search(/^\s*fetch:\s*async\b/m);
+  if (start === -1) return code;
+  const open = code.indexOf('{', code.indexOf('=>', start));
+  let depth = 0;
+  for (let at = open; at < code.length; at++) {
+    if (code[at] === '{') depth++;
+    if (code[at] === '}' && --depth === 0) return code.slice(0, start) + code.slice(at + 1);
+  }
+  return code;
+};
+
 const read = (file: string, at: string) => ({
   file,
   text: fs.readFileSync(at, 'utf8'),
@@ -88,10 +105,10 @@ describe('the board never reaches the network to read refs', () => {
   it('calls no `git fetch` on the request path', () => {
     // The scan fetches on its own timer, which is what keeps the mirror fresh.
     // A fetch from here would put the same network dependency in a second place.
-    // `trees-git.ts` is exempt: it holds `Trees.fetch`, which the lifecycle
-    // writes (`entry/approve.ts`) call once before booking. The request path is
-    // the server directory, and it is swept below for a call to that method.
-    const offenders = sources.filter((s) => s.file !== 'trees-git.ts' && /['"]fetch['"]/.test(s.code));
+    // `Trees.fetch`'s own body, in `trees-git.ts`, is exempt: the lifecycle
+    // writes (`entry/approve.ts`) call it once before booking. The request path
+    // is the server directory, and it is swept below for a call to that method.
+    const offenders = sources.filter((s) => /['"]fetch['"]/.test(s.file === 'trees-git.ts' ? withoutFetchMethod(s.code) : s.code));
     expect(offenders.map((s) => s.file)).toEqual([]);
     const callers = sources.filter((s) => /\btrees\.fetch\(/.test(s.code));
     expect(callers.map((s) => s.file)).toEqual([]);
@@ -175,5 +192,33 @@ describe('the board never reaches the network to read refs', () => {
       (s) => migrated.has(s.file) && /execFileSync/.test(s.code),
     );
     expect(offenders.map((s) => s.file)).toEqual([]);
+  });
+});
+
+describe('the fetch exemption covers one method body', () => {
+  const adapter = `export const treesGit = () => ({
+    fetch: async (path, branch) => {
+      const run = await runProcess('git', ['-C', path, 'fetch', '-q', 'origin', branch]);
+      return run.code === 0 ? answered(undefined) : failed();
+    },
+    other: async (path) => {
+      return runProcess('git', ['-C', path, 'fetch', 'origin']);
+    },
+  });`;
+
+  it('passes the real adapter: `fetch` appears only in `Trees.fetch`', () => {
+    const trees = sources.find((s) => s.file === 'trees-git.ts');
+    expect(trees!.code).toMatch(/['"]fetch['"]/);
+    expect(withoutFetchMethod(trees!.code)).not.toMatch(/['"]fetch['"]/);
+  });
+
+  it('removes `Trees.fetch` and nothing after it', () => {
+    const rest = withoutFetchMethod(adapter);
+    expect(rest).not.toContain("'-q', 'origin', branch");
+    expect(rest).toContain('other: async');
+  });
+
+  it('still catches a `fetch` call in any other method of the adapter', () => {
+    expect(withoutFetchMethod(adapter)).toMatch(/['"]fetch['"]/);
   });
 });

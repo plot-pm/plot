@@ -252,6 +252,37 @@ test('approve entry: a rejected push leaves the action receipt, so the re-run ne
   assert.equal(shellRead(repo, 'plot-state-receipt.sh', 'action_receipt_clears approve'), 1);
 });
 
+// --- what the approval writes beside the plan --------------------------------
+
+test('approve entry: an approval through a booking worktree excludes the desk root in .git/info/exclude', () => {
+  const { repo } = makeRepo(PLAN(), { number: 42, state: 'OPEN', draft: false });
+  const exclude = path.join(repo, '.git', 'info', 'exclude');
+  const lines = () => (fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8').split('\n') : []);
+  assert.equal(lines().includes('/.worktrees/'), false, 'the sandbox starts without the line');
+
+  const r = approve(repo);
+  assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+  assert.match(planOnMain(repo), /\*\*Phase:\*\* Approved/);
+  assert.deepEqual(lines().filter((l) => l === '/.worktrees/'), ['/.worktrees/']);
+});
+
+test('approve entry: a same-branch approval commits the sprint file it annotated and nothing else in the sprint directory', () => {
+  const body = PLAN().replace('**Sprint:**', '**Sprint:** s1').replace('**Impl:** own branches', '**Impl:** same branch');
+  const { repo } = makeRepo(body, { number: 42, state: 'OPEN', draft: false });
+  fs.mkdirSync(path.join(repo, 'docs', 'sprints'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'docs', 'sprints', 's1.md'), '# s1\n\n- [ ] [approve-me] the plan\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'sprint');
+  fs.writeFileSync(path.join(repo, 'docs', 'sprints', 's1.md.4242.tmp'), 'left by a killed write\n');
+
+  const r = approve(repo);
+  assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+  assert.match(r.stdout, /sprint=updated/, r.stdout);
+  const committed = git(repo, 'show', '--name-only', '--format=', 'HEAD').split('\n').filter(Boolean).sort();
+  assert.deepEqual(committed, ['docs/plans/2026-08-17-approve-me.md', 'docs/sprints/s1.md']);
+  assert.match(git(repo, 'status', '--porcelain', '--', 'docs/sprints'), /^\?\? docs\/sprints\/s1\.md\.4242\.tmp$/m);
+});
+
 // --- the npm layout ----------------------------------------------------------
 
 test('approve entry: the bundle runs from the npm layout, with no packages/ beside the scripts', () => {

@@ -80,11 +80,16 @@ export interface PlanRecordBranch {
 }
 
 /**
- * Reads the plan, story and sprint files — the STATED source of truth.
+ * Reads and writes the plan, story and sprint files — the STATED source of
+ * truth — and the other repository files a lifecycle write edits beside them,
+ * such as `.plot/hold`.
  *
  * Every operation answers about files on disk. A file that is not a plan is
  * answered rather than refused: `format: 'none'` is a reading, and a caller
  * that filters on it is doing so knowingly.
+ *
+ * A path may be absolute or relative to the repository root. A lifecycle write
+ * edits a booking worktree beside the repository, so it names absolute paths.
  */
 export interface PlanStore {
   /**
@@ -124,4 +129,35 @@ export interface PlanStore {
    * @returns the configured value, or `fallback`.
    */
   config(key: string, fallback: string): Promise<PortResult<string>>;
+
+  /**
+   * Lists the entries of one directory.
+   *
+   * @param dir - the directory, absolute or relative to the repository root.
+   * @returns the entry names in name order; empty where the directory does not
+   *   exist, because a lifecycle write treats a missing directory and an empty
+   *   one alike.
+   */
+  listDir(dir: string): Promise<PortResult<readonly string[]>>;
+
+  /**
+   * Reads one file's text.
+   *
+   * @param file - the file, absolute or relative to the repository root.
+   * @returns the content, or null where the file does not exist; a failure
+   *   where it exists and cannot be read.
+   */
+  readText(file: string): Promise<PortResult<string | null>>;
+
+  /**
+   * Writes one file whole or not at all.
+   *
+   * Writes a sibling temporary file and renames it over the target, so a reader
+   * never observes a half-written file. Creates missing parent directories.
+   *
+   * @param file - the file, absolute or relative to the repository root.
+   * @param content - the complete new content.
+   * @returns nothing; a failure means the target holds its previous content.
+   */
+  writeText(file: string, content: string): Promise<PortResult<void>>;
 }
