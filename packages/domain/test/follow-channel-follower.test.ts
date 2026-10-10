@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { connect } from 'node:net';
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -27,17 +27,28 @@ const finding: Finding = {
 
 let channel: RunningChannel | undefined;
 let child: ChildProcess | undefined;
+const roots: string[] = [];
+
+/** Resolves once `proc` has exited, killing it first when it still runs. */
+const exited = (proc: ChildProcess): Promise<void> =>
+  new Promise((done) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) return done();
+    proc.once('exit', () => done());
+    proc.kill();
+  });
 
 afterEach(async () => {
-  child?.kill();
+  if (child) await exited(child);
   child = undefined;
   await channel?.stop();
   channel = undefined;
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 /** A repository root with the `.plot` directory the socket lives in. */
 const repoRoot = (): string => {
   const root = mkdtempSync(join(tmpdir(), 'plot-follow-'));
+  roots.push(root);
   mkdirSync(join(root, '.plot'));
   return root;
 };
