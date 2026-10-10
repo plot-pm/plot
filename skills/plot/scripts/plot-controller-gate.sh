@@ -42,13 +42,11 @@
 # A refusal whose only possible response is the escape hatch is the shape people
 # turn off.
 #
-# THE ROUTE NAMED IS THE HTTP ONE, because it is the one that exists. CLAUDE.md
-# says the nine actions are "reachable without HTTP through plot-ask.mjs", and
-# measured 2026-09-09 that artifact answers `board|fleet|deliverable` and
-# nothing else — the action verbs are not on it. A refusal naming a route that
-# refuses back is the defect this slice removes from `plot-worker-loop.sh`, so
-# this gate does not commit it: it names the endpoint and the escape, and the
-# escape is what serves a machine running no board.
+# THE COMMAND IS NAMED FIRST. A bundle under skills/plot/scripts/board/ runs
+# each gated action with no board, so the refusal points at it and then at the
+# HTTP route the board's button uses. The dispatch bundle is
+# `plot-dispatch-command.mjs`; `controllerInvocation` does not gate it, because
+# it is the caller the receipt admits.
 #
 # NOR IS ANYTHING READ-ONLY. `plot-fleet-scan.sh`, `plot-reconcile-scan.sh` and
 # the rest change nothing, and gating a read would make the estate unaskable
@@ -300,13 +298,13 @@ action_receipt_clears "$action" && exit 0
   echo "plot-controller-gate: $named_script is a controller-owned action."
   echo ""
   echo "  Call the controller instead:"
-  if [ "$action" = "release" ]; then
-    echo "      POST /api/release {\"slug\":\"<slug>\",\"version\":\"<version>\"}"
-    echo "    which is what the board's own button does, and /plot-release is the skill that asks it."
-  else
-    echo "      POST /api/$action {\"slug\":\"<slug>\"}"
-    echo "    which is what the board's own button does, and /plot-$action is the skill that asks it."
-  fi
+  case "$action" in
+    dispatch) cmd=plot-dispatch-command.mjs ;;
+    release) cmd="plot-deliver.mjs --release <version>" ;;
+    *) cmd="${named_script%.sh}.mjs" ;;
+  esac
+  echo "      node $HERE/board/$cmd <slug>"
+  echo "    which runs with no board. With the board up, POST /api/$action {\"slug\":\"<slug>\"} is its button, and /plot-$action asks it."
   echo ""
   echo "  Or, where the board is not running and you accept the bypass:"
   # The receipt script beside THIS gate, absolute: on a plugin install the gate

@@ -1,19 +1,11 @@
 import fs from 'node:fs';
 import http from 'node:http';
-import { agentLogPath, migrateAgentLogs } from './agent-log.js';
 import type { BuildBoardOptions } from './board.js';
 import { readConfig, scriptsFor } from './board.js';
 import { readTail, type LogMissReason } from './worker-log.js';
-import {
-  IMPLEMENT_COMMAND_KEY,
-  implementLogPath,
-  implementRunning,
-  nextBriefBranch,
-  startImplement,
-} from './implement.js';
-import { usableCommand } from './idea.js';
+import { nextBriefBranch } from './implement.js';
 import { localCapability } from './controllers/caller.js';
-import { recordActionReceipt } from './action-receipt.js';
+import { startDispatch } from '@plot-pm/fleet/shared/dispatch-command';
 
 /**
  * The board's ONE state-changing route.
@@ -39,10 +31,7 @@ import { recordActionReceipt } from './action-receipt.js';
 
 /** The fan-out Plot ships — the one this package starts, never a path a caller holds. */
 export { DISPATCH_SCRIPT, dispatchLogPath } from '@plot-pm/fleet/shared/action-log';
-import { DISPATCH_SCRIPT, dispatchLogPath } from '@plot-pm/fleet/shared/action-log';
-
-/** `--max 1`: a button is ONE decision. Fanning out a slice stays with /plot-dispatch. */
-const MAX_PER_CLICK = '1';
+import { dispatchLogPath } from '@plot-pm/fleet/shared/action-log';
 
 export interface DispatchOptions extends BuildBoardOptions {
   /** The interface the server bound to (`HOST`), verbatim. */
@@ -126,12 +115,9 @@ export function readJsonBody(req: http.IncomingMessage, limit = 4096): Promise<u
   });
 }
 
-/**
- * A plan slug, as `plot-dispatch.sh` will use it to find a plan file. Rejected
- * rather than sanitized: the slug reaches a script that globs with it, and a
- * value that is not a slug is a caller bug, not something to repair silently.
- */
-export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+/** A plan slug, as `plot-dispatch.sh` finds a plan file with it. */
+export { SLUG_RE } from '@plot-pm/fleet/shared/dispatch-command';
+import { SLUG_RE } from '@plot-pm/fleet/shared/dispatch-command';
 
 /**
  * Where the script's own words go. Chosen BEFORE spawning and keyed by SLUG,
@@ -355,134 +341,27 @@ export async function handleDispatch(
     return;
   }
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // THE BRIEF GATE: call /plot-implement first and wait for it.
-  //
-  // A worker without a brief spends its first hour re-deriving what the plan
-  // already says. The implement step creates the hand-off brief BEFORE any
-  // worker starts, and the brief is what makes a worker effective from minute
-  // one.
-  //
-  // ASKED BEFORE ANYTHING IS WRITTEN. A repo with no `Implement command` cannot
-  // produce a brief, so starting a worker is refused — the same shape
-  // `/api/implement` uses. This is not a silent skip; it is a refusal that
-  // names what is missing so the operator can add it.
-  // ──────────────────────────────────────────────────────────────────────────
-  const implCommand = usableCommand(readCfg(opts, IMPLEMENT_COMMAND_KEY, ''));
-  if (!implCommand) {
-    json(409, {
-      ok: false,
-      slug,
-      reason: 'no-implement-command',
-      detail: `no \`${IMPLEMENT_COMMAND_KEY}\` in Plot Config — starting work requires a brief, and the brief requires the /plot-implement SKILL; add the key or run /plot-implement yourself first`,
-    });
+  // THE BRIEF GATE LIVES IN `startDispatch`, shared with the dispatch command:
+  // the `Implement command` check, the second-click refusal, the implement run
+  // and — only after it exits 0 — the receipt and `plot-dispatch.sh`. This route
+  // keeps the HTTP half: the origin gate, the body, the status mapping.
+  const started = startDispatch({
+    opts: { ...opts, scripts: scriptsFor(opts) },
+    slug,
+    readCfg,
+    briefBranch: (s) => (deps.briefBranch ?? nextBriefBranch)(opts, s),
+  });
+  if (started.kind === 'refused') {
+    const { status, kind: _kind, ...refusal } = started;
+    json(status, { ok: false, slug, ...refusal });
     return;
   }
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // THE BRIEF GATE, OFF THE EVENT LOOP.
-  //
-  // The gate's decision is unchanged: `plot-dispatch.sh` runs only after the
-  // implement exits 0. What changed is that the wait no longer happens on this
-  // request's stack. The implement runs detached, this handler answers 202, and
-  // the dispatch is started from the child's `exit` listener below.
-  // ──────────────────────────────────────────────────────────────────────────
-
-  // A SECOND CLICK IS REFUSED, NOT QUEUED. The synchronous route serialised two
-  // POSTs for one slug by blocking everything; an async one would run two
-  // implements at once, both truncating one log and both able to start a
-  // dispatch. The client's in-flight ref does not cover this: it lives in one
-  // tab and one render, and a reload or a second tab walks past it.
-  //
-  // THE LOCK IS THE LIVE CHILD, NOT THE LOG. `implementStatus` reports
-  // `running` whenever a log exists with no recorded outcome, which is right
-  // for a read-back and wrong for a lock — measured here, a log left by an
-  // earlier run with no state file and no process refused every later dispatch
-  // of that slug, permanently. `implementRunning` asks about a handle this
-  // server holds, so it can only be true while a child is alive.
-  if (implementRunning(slug)) {
-    const log = implementLogPath(opts.repoRoot, slug);
-    json(409, {
-      ok: false,
-      slug,
-      reason: 'implement-running',
-      detail: `an implement for \`${slug}\` is already running — watch it at ${log}, or wait for it to finish before dispatching again`,
-      log,
-    });
+  if (started.kind === 'failed') {
+    json(500, { error: started.error });
     return;
   }
-
-  const implLog = implementLogPath(opts.repoRoot, slug);
-  // THE LOG PATH IS CHOSEN HERE AND OPENED IN THE LISTENER. The name is part of
-  // the 202's answer, so it must be known now; the descriptor must not be,
-  // because a file held open across a five-minute implement is a descriptor
-  // leaked for every dispatch the implement then refuses.
-  //
-  // DECLARED BEFORE THE SPAWN because the listener closes over it. A `const`
-  // read by a callback that runs before its declaration is a TDZ
-  // `ReferenceError`, not a hoisted `undefined` — and a fast-failing implement
-  // stub exits well inside the same tick.
-  const log = dispatchLogPath(opts.repoRoot, slug);
-
-  // Everything the exit listener needs, resolved HERE while a request is still
-  // on the stack. A failure to open the dispatch log is reportable now and an
-  // uncaught exception later — see `startImplement`'s listener contract.
-  // THE CONTROLLER CHOOSES THE BRANCH BEFORE THE WRITER STARTS, by the rule the
-  // queue counts with, so the writer's state is attributable to that one branch
-  // from the first second. `null` — no reading, or nothing eligible — leaves the
-  // run naming none, which is today's behaviour.
-  const briefBranch = (deps.briefBranch ?? nextBriefBranch)(opts, slug);
-  const started = startImplement(opts, slug, implCommand, (code) => {
-    // A non-zero exit means the implement failed — refused by /plot-implement
-    // itself (phase wrong, drift detected in unattended mode, no eligible
-    // branch), or the runner crashed, or the bound killed it. Either way no
-    // brief was created, so no worker starts.
-    //
-    // THE REFUSAL IS ALREADY RECORDED. `startImplement` wrote the exit code to
-    // the state file before calling this, so `GET /api/implement/<slug>` reports
-    // `failed` with the log's last lines — which is how the operator learns it,
-    // the response having been sent minutes ago.
-    if (code !== 0) return;
-
-    // ────────────────────────────────────────────────────────────────────────
-    // The implement succeeded — the brief exists. Now spawn the dispatch.
-    // ────────────────────────────────────────────────────────────────────────
-    // Move any pre-2026-08-30 logs out of the parent directory, once, before the
-    // first log is written to the new one. HERE rather than at startup because a
-    // dispatch is the act that creates the destination anyway — and because a
-    // board that is only ever read should not rearrange an operator's files.
-    //
-    // The return value is deliberately unused: the migration is convenience, the
-    // dispatch is the job, and `migrateAgentLogs` swallows every failure for that
-    // reason. A dispatch must not fail for want of tidying an old log.
-    migrateAgentLogs(opts.repoRoot);
-
-    // A THROW HERE IS CAUGHT BY `startImplement` and recorded against the slug.
-    // This runs in a listener with no request on the stack, so an uncaught
-    // `fs.openSync` failure would take the server down, and a dispatch that
-    // fails silently after its 202 is the outcome the plan calls worse than one
-    // that blocks.
-    const out = fs.openSync(log, 'a');
-    try {
-      // THE RECEIPT, IMMEDIATELY BEFORE THE SPAWN. `plot-controller-gate.sh`
-      // refuses `plot-dispatch.sh` invoked with no receipt, and this route is the
-      // legitimate caller it must not refuse — a gate that broke the legitimate
-      // path is worse than no gate. It moved into this listener WITH the spawn it
-      // announces: the two are one act, and a receipt written at request time
-      // would announce a dispatch the implement may yet refuse.
-      recordActionReceipt(opts.repoRoot, 'dispatch', slug);
-      scriptsFor(opts).start(DISPATCH_SCRIPT, ['--max', MAX_PER_CLICK, slug], {
-        log: out,
-        onError: (err) => console.error('dispatch failed to spawn:', err),
-      });
-    } finally {
-      fs.closeSync(out);
-    }
-  }, readConfig, briefBranch);
-  if ('failure' in started) {
-    json(500, { error: started.failure.detail });
-    return;
-  }
+  const log = started.dispatchLog;
+  const implLog = started.implementLog;
 
   // Spawn DETACHED and answer immediately. A dispatch creates a worktree and
   // pushes a claim — a network write, strictly slower than the 0.5–1.05 s scan

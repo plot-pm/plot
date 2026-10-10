@@ -79,6 +79,19 @@ test('controller gate: a direct plot-dispatch.sh call is refused and names the e
   assert.match(r.stderr, /POST \/api\/dispatch/, 'the refusal names the route to call instead');
 });
 
+test('controller gate: the refusal names the command bundle first, then the escape', () => {
+  const r = run(repo(), DISPATCH);
+  const bundle = r.stderr.indexOf('plot-dispatch-command.mjs');
+  assert.ok(bundle >= 0, `names the bundle (stderr: ${r.stderr})`);
+  assert.ok(bundle < r.stderr.indexOf('POST /api/dispatch'), 'the bundle comes before the HTTP route');
+  assert.ok(bundle < r.stderr.indexOf('--unowned-action'), 'the bundle comes before the escape');
+});
+
+test('controller gate: running the dispatch command bundle is not refused', () => {
+  const r = run(repo(), 'node skills/plot/scripts/board/plot-dispatch-command.mjs some-slug');
+  assert.equal(r.status, 0, `must allow (stderr: ${r.stderr})`);
+});
+
 test('controller gate: the refusal names the escape and says the reason is counted', () => {
   const r = run(repo(), DISPATCH);
   assert.match(r.stderr, /--unowned-action dispatch/);

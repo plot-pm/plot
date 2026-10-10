@@ -68,4 +68,45 @@ describe('the fleet entries import nothing from the board', () => {
     const found = await boardInputsFor('src/server/entry/fleet-size.ts');
     assert.deepEqual(found, [], `fleet-size.ts imports: ${found.join(', ')}`);
   });
+  it('dispatch-command.ts and continue-command.ts pull in no board module', async () => {
+    for (const entry of ['dispatch-command', 'continue-command']) {
+      const found = await boardInputsFor(`src/server/entry/${entry}.ts`);
+      assert.deepEqual(found, [], `${entry}.ts imports: ${found.join(', ')}`);
+    }
+  });
+});
+
+// A BUILD, NOT A GREP OF THE SHIPPED FILE: the command entries are rebuilt in
+// memory with the real build's options, so the test needs no committed bundle.
+// The refusal reasons must survive minification, and `node:http` must not
+// appear — the board's HTTP half stays in the routes.
+describe('the command bundles carry their refusals and no HTTP', () => {
+  const build = async (entry) => {
+    const result = await esbuild.build({
+      entryPoints: [path.join(PACKAGE_ROOT, entry)],
+      absWorkingDir: PACKAGE_ROOT,
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      target: 'node20',
+      minify: true,
+      write: false,
+      outfile: path.join(PACKAGE_ROOT, 'dist/_entry-module-graph-scratch.mjs'),
+    });
+    return result.outputFiles[0].text;
+  };
+
+  it('the dispatch bundle names no-implement-command and implement-running, with no node:http', async () => {
+    const text = await build('src/server/entry/dispatch-command.ts');
+    assert.match(text, /no-implement-command/);
+    assert.match(text, /implement-running/);
+    assert.doesNotMatch(text, /node:http/);
+  });
+
+  it('the continue bundle names unknown-branch and no-worktree, with no node:http', async () => {
+    const text = await build('src/server/entry/continue-command.ts');
+    assert.match(text, /unknown-branch/);
+    assert.match(text, /no-worktree/);
+    assert.doesNotMatch(text, /node:http/);
+  });
 });

@@ -11,6 +11,7 @@
 - **Rounds:** 3
 - **Approved:** 2026-10-10, Jan Wloka, plan-PR #1451 merged
 - **Started:** 2026-10-10, jwloka, `feature/a-pr-row-names-its-commit`
+- **Started:** 2026-10-10, jwloka, `feature/the-default-branch-has-its-own-reading`
 
 ## Changelog
 

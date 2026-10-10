@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Issue:** #1407
 - **Story:** the-shell-holds-no-behavior
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-09, jwloka, `feature/the-fleet-owns-the-scan-and-pr-index`
 - **Started:** 2026-10-10, jwloka, `feature/the-fleet-owns-its-automatic-writes`
 - **Started:** 2026-10-10, jwloka, `feature/the-controllers-are-commands`
+- **Delivered:** 2026-10-10
 
 ## Changelog
 
