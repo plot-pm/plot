@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { signalRecorded } from './own-process.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, '..', '..');
@@ -149,7 +150,7 @@ const signalled = (sig) => new Promise((resolve) => {
   });
   child.on('exit', (code, signal) => {
     const result = { code, signal, left: readdirSync(tmp), after: existsSync(path.join(dir, 'after')) };
-    try { process.kill(Number(readFileSync(path.join(dir, 'sleeper'), 'utf8')), 'SIGKILL'); } catch { /* already gone */ }
+    signalRecorded(path.join(dir, 'sleeper'), 'SIGKILL', { command: 'sleep 30' });
     rmSync(dir, { recursive: true, force: true });
     resolve(result);
   });

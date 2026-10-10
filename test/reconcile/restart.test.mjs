@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { record, signalOwn } from './own-process.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -218,11 +219,21 @@ function recordWorker(repo, wt, pid, { session = 'sess-old', branch = 'feature/s
 // returns stays valid; `nohup` with `&` detaches it, so the runner's own exit
 // does not reap it — the trap this repo recorded as "the worker is reaped when
 // the dispatcher exits under node --test".
-function spawnLive() {
-  return execFileSync('bash', ['-c',
-    "nohup sh -c 'sleep 300 & exec sleep 300' </dev/null >/dev/null 2>&1 & echo $!",
-  ], { encoding: 'utf8' }).trim();
-}
+const spawnLive = () => record(execFileSync('bash', ['-c',
+  "nohup sh -c 'sleep 300 & exec sleep 300' </dev/null >/dev/null 2>&1 & echo $!",
+], { encoding: 'utf8' }).trim());
+
+// Ends every worker a registry manifest names, while its pid still runs the
+// fixture's `sleep 300` and started no later than the manifest was written.
+const endManifestWorkers = (repo) => {
+  const dir = path.join(repo, '.plot', 'agents');
+  if (!fs.existsSync(dir)) return;
+  for (const name of fs.readdirSync(dir).filter((f) => f.endsWith('.json'))) {
+    const file = path.join(dir, name);
+    const m = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (m.pid) signalOwn(m.pid, 'SIGTERM', { recordedAt: fs.statSync(file).mtimeMs, command: 'sleep 300' });
+  }
+};
 
 // Every manifest in the registry, newest session first by file mtime.
 function manifests(repo) {
@@ -265,9 +276,7 @@ test('--restart starts a worker on a stalled branch, and the fleet sees it runni
     assert.match(String(fresh[0].pid), /^\d+$/, 'the manifest carries the agent pid');
     assert.equal(fresh[0].worktree, fs.realpathSync(wt), 'it names the existing worktree');
   } finally {
-    for (const m of manifests(repo)) {
-      if (m.pid) { try { process.kill(Number(m.pid)); } catch { /* gone */ } }
-    }
+    endManifestWorkers(repo);
   }
 });
 
@@ -296,9 +305,7 @@ test('--restart preserves uncommitted work in the worktree, byte for byte', () =
       'a modified tracked file is not reset');
     assert.match(git(wt, 'status', '--porcelain'), /floor\.txt/);
   } finally {
-    for (const m of manifests(repo)) {
-      if (m.pid) { try { process.kill(Number(m.pid)); } catch { /* gone */ } }
-    }
+    endManifestWorkers(repo);
   }
 });
 
@@ -340,9 +347,7 @@ test('--restart DOES restart a failed worker that holds no PR', () => {
     assert.match(status(repo), /feature\/stopped — running/,
       'the other half of item 3: without this the feature cannot do its job');
   } finally {
-    for (const m of manifests(repo)) {
-      if (m.pid) { try { process.kill(Number(m.pid)); } catch { /* gone */ } }
-    }
+    endManifestWorkers(repo);
   }
 });
 
@@ -364,7 +369,7 @@ test('--restart REFUSES a running worker and names the pid', () => {
     // workers on one branch, and there is no --force to override it.
     assert.doesNotThrow(() => process.kill(Number(pid), 0), 'the live worker still runs');
   } finally {
-    try { process.kill(Number(pid)); } catch { /* gone */ }
+    signalOwn(pid, 'SIGTERM', { command: 'sleep 300' });
   }
 });
 

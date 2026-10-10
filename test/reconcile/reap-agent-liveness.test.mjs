@@ -30,6 +30,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { readPid, record, signalOwn } from './own-process.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -43,7 +44,7 @@ const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd 
 const tmps = [];
 const wrappers = [];
 after(() => {
-  for (const pid of wrappers) { try { process.kill(Number(pid)); } catch { /* gone */ } }
+  for (const pid of wrappers) signalOwn(pid, 'SIGTERM');
   for (const t of tmps) fs.rmSync(t, { recursive: true, force: true });
 });
 
@@ -52,7 +53,7 @@ const spawnWrapper = (child) => {
   const pid = execFileSync('bash', ['-c',
     `nohup sh -c ${JSON.stringify(child)} </dev/null >/dev/null 2>&1 & echo $!`,
   ], { encoding: 'utf8', timeout: 30_000 }).trim();
-  wrappers.push(pid);
+  wrappers.push(record(pid));
   return pid;
 };
 
@@ -235,10 +236,11 @@ test('--stop signals the worker\'s whole process group, so its child is gone too
   const wrapper = spawn('sh', ['-c', `sleep 300 & echo $! > ${JSON.stringify(marker)}; exec sleep 300`],
     { detached: true, stdio: 'ignore' });
   wrapper.unref();
-  wrappers.push(String(wrapper.pid));
+  wrappers.push(record(String(wrapper.pid)));
   for (let i = 0; i < 100 && !fs.existsSync(marker); i += 1) await sleep(50);
-  const child = Number(fs.readFileSync(marker, 'utf8').trim());
-  wrappers.push(String(child));
+  const childRec = readPid(marker);
+  const child = childRec?.pid;
+  wrappers.push(record(String(child), childRec?.recordedAt));
   desk(repo, branch, String(wrapper.pid));
   assert.ok(alive(child), 'precondition: the child runs');
 

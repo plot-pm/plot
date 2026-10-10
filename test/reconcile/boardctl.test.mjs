@@ -26,6 +26,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { signalRecorded } from './own-process.mjs';
 
 // Every directory this file creates, removed after its last test by the exact
 // path mkdtempSync returned — never by a glob over the shared temp directory.
@@ -391,12 +392,13 @@ const boundPort = async (port) => {
   }
 };
 
-/** Kills whatever the sandbox's pidfile names, so no stand-in outlives a test. */
+/**
+ * Kills the process the sandbox's pidfile names, so no stand-in outlives a
+ * test — only while that pid still names the process running when the file
+ * was written.
+ */
 const reap = (root) => {
-  const pidfile = path.join(root, '.plot', 'state', 'board.pid');
-  if (!fs.existsSync(pidfile)) return;
-  const pid = Number(fs.readFileSync(pidfile, 'utf8').trim());
-  if (pid > 0) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
+  signalRecorded(path.join(root, '.plot', 'state', 'board.pid'), 'SIGKILL');
 };
 
 test('port: the Board port key is the port --start binds, and --status and --stop act on it without --port', async () => {

@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { signalRecorded } from './own-process.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const loop = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-worker-loop.sh');
@@ -124,10 +125,7 @@ test('a SIGTERM while the prompt runs leaves no manifest behind', async () => {
     assert.equal(fs.existsSync(sb.manifest), false, 'the stopped loop removed its manifest');
   } finally {
     child.kill('SIGKILL');
-    const pid = Number(fs.existsSync(started) ? fs.readFileSync(started, 'utf8').trim() : '');
-    if (pid > 0) {
-      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
-    }
+    signalRecorded(started, 'SIGKILL');
     fs.rmSync(sb.root, { recursive: true, force: true });
   }
 });
