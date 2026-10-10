@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { connect, type Socket } from 'node:net';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { connect, createServer, type Socket } from 'node:net';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -247,6 +248,57 @@ describe('the channel socket — the boundary, not the protocol', () => {
     board.say(JSON.stringify({ subscriber: 'board', purpose: { kind: 'everything' } }) + '\n');
     expect((await board.nth(1)).type).toBe('welcome');
     board.socket.end();
+  });
+
+  it('refuses a socket a live process holds, and the holder keeps serving', async () => {
+    const address = addressIn();
+    const holder = createServer((socket) => socket.end());
+    await new Promise<void>((resolve) => holder.listen(address, resolve));
+    try {
+      await expect(startChannel({ address })).rejects.toThrow(/live process holds/);
+      expect(existsSync(address)).toBe(true);
+      const client = connect(address);
+      await new Promise<void>((resolve, reject) => {
+        client.once('connect', resolve);
+        client.once('error', reject);
+      });
+      client.destroy();
+    } finally {
+      await new Promise<void>((resolve) => holder.close(() => resolve()));
+    }
+  });
+
+  it('replaces a socket file whose process was killed', async () => {
+    const address = addressIn();
+    const child = spawn(
+      process.execPath,
+      ['-e', `require('node:net').createServer().listen(${JSON.stringify(address)}, () => console.log('up'))`],
+      { stdio: ['ignore', 'pipe', 'inherit'] },
+    );
+    const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+    await new Promise<void>((resolve) => child.stdout.once('data', () => resolve()));
+    child.kill('SIGKILL');
+    await exited;
+    expect(existsSync(address)).toBe(true);
+
+    channel = await startChannel({ address });
+    const board = peer(channel.address);
+    await board.ready;
+    board.say(JSON.stringify({ subscriber: 'board', purpose: { kind: 'everything' } }) + '\n');
+    expect((await board.nth(1)).type).toBe('welcome');
+    board.socket.end();
+  });
+
+  it('leaves a path it cannot read alone, and the bind reports it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-channel-'));
+    const file = join(dir, 'file');
+    writeFileSync(file, '');
+    try {
+      await expect(startChannel({ address: join(file, 'sock') })).rejects.toThrow(/ENOTDIR/);
+      expect(existsSync(file)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('removes its socket when it stops, leaving nothing for the next start', async () => {

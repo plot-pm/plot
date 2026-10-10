@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { refusedSlicesFixture } from '@plot-pm/domain/adapters';
 import { join } from 'node:path';
+import { connect, createServer } from 'node:net';
 
 import {
   accountRate,
@@ -20,6 +21,7 @@ import {
   readRegistry,
   reportTick,
   run,
+  CHANNEL_SOCKET,
   spendForTick,
   startAgents,
   worldForRepo,
@@ -1064,6 +1066,7 @@ describe('run — a failed tick must not end the daemon', () => {
         async () => { ticks += 1; },
         () => true,
         () => {},
+        dir,
       );
       // `run` returns 0 when `stop()` ends it before any tick — the clean
       // shutdown path, distinct from the 2 it returns for a bad argument.
@@ -1072,6 +1075,37 @@ describe('run — a failed tick must not end the daemon', () => {
       // before its first tick sleeps zero times.
       expect(ticks).toBe(0);
     } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('binds under the repo root it is given, never under PLOT_REPO_ROOT', async () => {
+    const dir = sandbox();
+    const operator = mkdtempSync(join(tmpdir(), 'plot-registryd-op-'));
+    mkdirSync(join(operator, '.plot'));
+    const address = join(operator, CHANNEL_SOCKET);
+    const listener = createServer((socket) => socket.end());
+    await new Promise<void>((resolve) => listener.listen(address, resolve));
+    const before = process.env.PLOT_REPO_ROOT;
+    process.env.PLOT_REPO_ROOT = operator;
+    try {
+      const warnings: string[] = [];
+      const code = await run([], dir, () => {}, async () => {}, () => true, (s) => warnings.push(s), dir);
+      expect(code).toBe(0);
+      // The run never asked for the operator's path: no start was refused there.
+      expect(warnings.filter((w) => w.includes(operator))).toEqual([]);
+      expect(existsSync(address)).toBe(true);
+      const client = connect(address);
+      await new Promise<void>((resolve, reject) => {
+        client.once('connect', resolve);
+        client.once('error', reject);
+      });
+      client.destroy();
+    } finally {
+      if (before === undefined) delete process.env.PLOT_REPO_ROOT;
+      else process.env.PLOT_REPO_ROOT = before;
+      await new Promise<void>((resolve) => listener.close(() => resolve()));
+      rmSync(operator, { recursive: true, force: true });
       rmSync(dir, { recursive: true, force: true });
     }
   });

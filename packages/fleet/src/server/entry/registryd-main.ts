@@ -1636,9 +1636,10 @@ export const CHANNEL_SOCKET = '.plot/fleet.sock';
 /**
  * Opens the channel on `.plot/fleet.sock`, or reports why it did not.
  *
- * A bind that rejects (a socket path past the platform's limit, a live process
- * on the path) costs the channel and nothing else: the daemon warns once and
- * runs without it.
+ * A start that rejects costs the channel and nothing else: the daemon warns
+ * once and runs without it. `startChannel` rejects when a live process holds
+ * the path, which it leaves to that process, and when the bind fails, such as
+ * for a socket path past the platform's limit.
  *
  * @param repoRoot - the checkout the socket lives in.
  * @param warn - where the failure is reported.
@@ -1733,6 +1734,19 @@ export const sweepTempIfDue = async (
   return true;
 };
 
+/**
+ * Runs the supervisor: one tick under `--once`, otherwise the loop with its
+ * scan clock and its channel on `<repoRoot>/.plot/fleet.sock`.
+ *
+ * @param argv - the command-line arguments.
+ * @param here - the directory of the running bundle; the scripts resolve from it.
+ * @param write - where the report lines go.
+ * @param sleep - waits between ticks.
+ * @param stop - asked at the top of each loop pass; true ends the loop.
+ * @param warn - where failures go.
+ * @param repoRoot - the checkout supervised; `PLOT_REPO_ROOT`, else the working directory.
+ * @returns the exit code: 0 for a stopped loop, 2 for a bad argument.
+ */
 export const run = async (
   argv: readonly string[],
   here: string,
@@ -1741,6 +1755,7 @@ export const run = async (
     new Promise((resolve) => setTimeout(resolve, ms)),
   stop: () => boolean = () => false,
   warn: (s: string) => void = (s) => process.stderr.write(s),
+  repoRoot: string = process.env.PLOT_REPO_ROOT ?? process.cwd(),
 ): Promise<number> => {
   const args = argsFrom(argv);
   if (args === null) {
@@ -1750,7 +1765,6 @@ export const run = async (
     return 2;
   }
 
-  const repoRoot = process.env.PLOT_REPO_ROOT ?? process.cwd();
   const scriptsDir = scriptsDirFor(here);
   const registryDir = registryDirFor(repoRoot, scriptsDir);
   const tally: HostTally = { calls: 0 };
