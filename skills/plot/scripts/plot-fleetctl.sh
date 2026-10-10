@@ -358,10 +358,19 @@ plot_process_candidates() {
 # The working directory of a pid, or empty for *cannot determine*. `$1` is the
 # kernel (`uname -s`). An empty `lsof` answer is cannot-determine whatever its
 # exit code: for another user's process it prints nothing and exits 1.
+#
+# `lsof` IS READ UNDER A DEADLINE AND NEVER WAITED FOR. Measured 2026-10-10:
+# with another app running `lsof` storms, each call sat in uninterruptible
+# kernel wait for minutes, so `--status` never ended and the board killed it.
+# `read -t` stops reading at `lsof_until` (`$SECONDS`, set once per block) and
+# leaves the call behind, because a signal cannot end a process in that wait.
+# The left-behind pipeline holds no stream of this script's, so a caller that
+# waits for stdout and stderr to close is not held either.
+# Every call after the deadline is cannot-determine without asking.
 process_cwd() { # $1=kernel $2=pid
-  local cwd=""
+  local cwd="" left=$(( ${lsof_until:-$((SECONDS + 2))} - SECONDS ))
   case "$1" in
-    Darwin) cwd=$(lsof -a -p "$2" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1) ;;
+    Darwin) [ "$left" -gt 0 ] && IFS= read -r -t "$left" cwd < <(exec 2>/dev/null </dev/null; lsof -a -p "$2" -d cwd -Fn | sed -n 's/^n//p') ;;
     Linux)  cwd=$(readlink "${PLOT_PROC_ROOT:-/proc}/$2/cwd" 2>/dev/null) ;;
   esac
   cwd=${cwd//$'\t'/?}
@@ -384,7 +393,7 @@ home_short() {
 # with `summary:`, which is the board's contract.
 plot_processes_block() { # $1=pid to skip
   local skip="${1:-}" kernel here tag pid ppid uid kind a0 path verified="" top rows=""
-  local orph cwd serves inst full suffix label owner lc="" lc_read=0 line seg noisy=0
+  local orph cwd serves inst full suffix label owner lc="" lc_read=0 line seg noisy=0 lsof_until=$((SECONDS + 2))
   kernel=$(uname -s 2>/dev/null)
   here=$(cd "$repo_root" && pwd -P)
   while IFS=$'\t' read -r tag pid ppid uid kind a0 path; do

@@ -47,3 +47,21 @@ describe('readSupervisor — the tick age', () => {
     expect(run.tickAgeSeconds).toBeUndefined();
   });
 });
+
+describe('readSupervisor — a run cut short at the time limit', () => {
+  const cut = (stdout: string): Scripts =>
+    ({ awaited: async () => ({ stdout, stderr: '', code: 1, interrupted: 'timeout' }) }) as unknown as Scripts;
+
+  it('reports the cut and the summary line it printed', async () => {
+    const run = await readSupervisor(opts, cut(`${RUNNING}summary: agents_running=3 supervisor=up install=running tick_age=9\n`));
+    expect(run.interrupted).toBe(true);
+    expect(run.supervisor).toBe('up');
+    expect(run.summarised).toBe(true);
+  });
+
+  it('reports a run that ended on its own as not interrupted', async () => {
+    const run = await readSupervisor(opts, answering('summary: agents_running=0 supervisor=down install=none\n', 1));
+    expect(run.interrupted).toBe(false);
+    expect(run.supervisor).toBe('down');
+  });
+});
