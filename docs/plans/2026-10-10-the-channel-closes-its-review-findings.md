@@ -13,7 +13,7 @@
 
 ## Changelog
 
-- A default-branch reading older than its bound holds no slice, and a Jenkins rebuild that goes green lifts the hold.
+- A default-branch reading older than `Checks wait` holds no slice, and a Jenkins rebuild that goes green lifts the hold.
 - On Bitbucket, a comment on a merged PR no longer publishes `pr merged` again.
 - The board page refetches after the last event in a throttle window, so the last change no longer waits for the 30 s poll.
 - Several board tabs share one event stream instead of one HTTP/1.1 connection each.
@@ -48,7 +48,7 @@ Two rules from `CLAUDE.md` bind every slice:
 
 Files: `packages/domain/src/rules/default-branch.ts`, `packages/fleet/src/shared/default-branch-refresh.ts`, `skills/plot/scripts/plot-host.sh` or `packages/domain/src/adapters/build/build-jenkins.ts`, `packages/fleet/src/server/entry/registryd-main.ts:805-811` only, `CLAUDE.md` and `AGENTS.md`, and their tests.
 
-- **#1463 M1.** `defaultBranchRed` (`rules/default-branch.ts:104-105`) reads only `reading?.settled?.state === 'red'` and never the reading's `at`. `queueWorldForRepo.defaultBranchRed` (`registryd-main.ts:807-810`) reads the file in every mode, and `defaultBranchWorld` is `null` under `--once` (`:1879`), so `--once` never refreshes it. `default-branch-refresh.ts:86` returns `unreadable` and carries `settled` forward. Since #1475 the loop re-asks a red head (`default-branch-refresh.ts:77-82`), which covers the loop after its first `prs` beat but not `--once`, the first tick, or a refresh that keeps answering `unreadable`. The fix: `defaultBranchRed` takes `now` and a bound, and a reading older than the bound holds nothing. `readingAge` (`packages/domain/src/entities/identity.ts:102`) exists and the slice reuses it if the reading's shape fits.
+- **#1463 M1.** `defaultBranchRed` (`rules/default-branch.ts:104-105`) reads only `reading?.settled?.state === 'red'` and never the reading's `at`. `queueWorldForRepo.defaultBranchRed` (`registryd-main.ts:807-810`) reads the file in every mode, and `defaultBranchWorld` is `null` under `--once` (`:1879`), so `--once` never refreshes it. `default-branch-refresh.ts:86` returns `unreadable` and carries `settled` forward. Since #1475 the loop re-asks a red head (`default-branch-refresh.ts:77-82`), which covers the loop after its first `prs` beat but not `--once`, the first tick, or a refresh that keeps answering `unreadable`. The fix: `defaultBranchRed` takes `now` and the `Checks wait` value (the existing config key, 3600 s in this repository), and a reading older than `Checks wait` counts as no reading and holds nothing. No new config key is added. The merge controller in `the-controllers-close-their-review-findings` (`bug/the-merge-reads-what-it-claims`) reads the same bound from the same value in `rules/default-branch.ts`. `readingAge` (`packages/domain/src/entities/identity.ts:102`) exists and the slice reuses it if the reading's shape fits.
 - **#1463 M3.** `jenkins_sha_runs` (`plot-host.sh:1737-1744`) returns every build of a SHA, and the fold tests red first (`rules/default-branch.ts:58-59`). Build #41 `FAILURE` and rebuild #42 `SUCCESS` fold to red. The fix keeps the newest build per SHA on Jenkins. GitHub keeps one run id per re-run and needs no change.
 - **#1463 L1.** The `unaskable` arm at `default-branch-refresh.ts:86` has no test; `grep unaskable` in `packages/fleet/test/unit/default-branch-refresh.test.ts` finds none. The slice adds one.
 - **#1463 L2.** `PENDING_CONCLUSIONS` (`rules/default-branch.ts:10`) holds `queued`, `in_progress` and `action_required`. GitHub's `waiting`, `requested` and `pending` read `unknown`. The slice adds them with a test.
@@ -125,7 +125,7 @@ Files: `mods/plot-follow/hooks/follow.tsx`, `packages/domain/src/rules/follow-ch
 
 ### Open Questions
 
-- [ ] **Slice 1:** which bound ends a default-branch reading's hold — `Checks wait` (3600 s in this repo's config), or a multiple of the `prs` beat? The bound must exceed the loop's re-ask interval, or a live red reading expires between asks.
+- [x] **Slice 1:** which bound ends a default-branch reading's hold — `Checks wait` (3600 s in this repo's config), or a multiple of the `prs` beat? The bound must exceed the loop's re-ask interval, or a live red reading expires between asks. **Answer:** `Checks wait`; a reading older than it counts as none, for this hold and for the merge controller, and no new config key is added (jwloka, 2026-10-10).
 - [ ] **Slice 1:** does the Jenkins newest-build fix belong in `plot-host.sh`'s `jenkins_sha_runs`, or in `build-jenkins.ts`? The adapter keeps the shell smaller, which `check-shell-lines.sh` rewards.
 - [ ] **Slice 2 (#1465 L2):** the second half of the finding — a `default branch red` publish in a fold with an unreadable index moves `lastSeen` — conflicts with #1465 M2, which keeps `publish` stamping `now()`. Does the IndexMonitor's liveness come from `seen` only, with `publish` no longer stamping?
 - [ ] **Slice 4 (#1437 L4):** is the process start time readable on both macOS and Linux without a shell call per row, or does the fix belong to a later slice?
@@ -136,7 +136,7 @@ Files: `mods/plot-follow/hooks/follow.tsx`, `packages/domain/src/rules/follow-ch
 
 ### Default-branch reading age
 
-- `bug/a-stale-default-branch-reading-holds-nothing` — `defaultBranchRed` ignores a reading older than its bound, Jenkins keeps the newest build per SHA, `PENDING_CONCLUSIONS` gains GitHub's three waiting statuses, the `unaskable` arm gets a test, and `CLAUDE.md` names the file's verdict (#1463 M1, M3, L1, L2, L4) <!-- builds: an age bound on defaultBranchRed -->
+- `bug/a-stale-default-branch-reading-holds-nothing` — `defaultBranchRed` ignores a reading older than `Checks wait`, Jenkins keeps the newest build per SHA, `PENDING_CONCLUSIONS` gains GitHub's three waiting statuses, the `unaskable` arm gets a test, and `CLAUDE.md` names the file's verdict (#1463 M1, M3, L1, L2, L4) <!-- builds: an age bound on defaultBranchRed -->
 
 ### Channel heartbeat and inputs
 
@@ -170,3 +170,4 @@ Files: `mods/plot-follow/hooks/follow.tsx`, `packages/domain/src/rules/follow-ch
 - Order and overlap: slice 3 follows slices 1 and 2 (`registryd-main.ts`, `index-monitor.ts`); slice 5 follows slice 4 (`agents-tab.browser.test.ts`). Slices 1 and 6 may both export from `packages/domain/src/index.ts`. The other slices share no file.
 - Deliverable search, 2026-10-10: `readingAge` exists at `packages/domain/src/entities/identity.ts:102` (slice 1 reuses it if the shape fits); `trailing refetch`, `newestBuildPerSha` and `briefWriter` name nothing in the estate.
 - Sprint `the-gates-and-the-review-findings` has no sprint file on `origin/main` at `eb4bda159`.
+- 2026-10-10: jwloka answered the slice 1 bound question: `Checks wait`, shared with the merge controller in `the-controllers-close-their-review-findings`.
