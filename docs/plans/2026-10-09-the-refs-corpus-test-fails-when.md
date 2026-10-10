@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Issue:** #1403
 - **Review:** in-session
@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-09, jwloka, in-session
 - **Started:** 2026-10-09, jwloka, `feature/the-refs-corpus-test-fails-when`
 - **Delivered:** 2026-10-09
+- **Released:** 2026-10-10, v2.25.0
 
 ## Changelog
 
