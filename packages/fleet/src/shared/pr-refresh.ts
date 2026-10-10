@@ -59,6 +59,8 @@ export interface PrState {
   prFullReadFailedAt: number | null;
   /** Consecutive no-progress re-asks per pending PR number. */
   prPendingReaskStreak: Map<number, number>;
+  /** Epoch ms of each PR's last re-ask by number. */
+  prReaskAt: Map<number, number>;
   /** Whether the ceiling was observed or predicted. */
   prLimitBasis: LimitBasis;
   /** The account the cap is keyed by, or null. */
@@ -91,6 +93,7 @@ export const freshPrState = (): PrState => ({
   prLimit: null,
   prFullReadFailedAt: null,
   prPendingReaskStreak: new Map(),
+  prReaskAt: new Map(),
   prLimitBasis: 'unknown',
   prAccount: null,
   prNextAt: 0,
@@ -109,6 +112,10 @@ export interface PrWorld {
   store: PrIndexStore;
   /** Runs after a pass the host answered, with the open PRs that pass listed. */
   afterAnswer?: (open: Map<string, PrRecord>) => Promise<void>;
+  /** The `Checks wait` bound in ms; defaults to `PR_CHECKS_WAIT_MS`. */
+  checksWaitMs?: number;
+  /** The clock in epoch ms; defaults to `Date.now`. A test injects one. */
+  now?: () => number;
 }
 
 /**
@@ -231,6 +238,12 @@ export const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
  * slice.
  */
 export const PR_PENDING_REASK_LIMIT = 5;
+
+/** The `Checks wait` default, in ms — `plot-config.sh get "Checks wait"` is 3600 s. */
+export const PR_CHECKS_WAIT_MS = 3_600_000;
+
+/** The shortest gap between re-asks once `PR_PENDING_REASK_LIMIT` is spent, in ms. */
+export const PR_PENDING_REASK_SLOW_MS = 300_000;
 
 /**
  * How many PRs to ask the host for. The CLI's own default is 30, which is
@@ -385,6 +398,14 @@ export interface PrRecord {
    * row. It is never written to the store as `''`: `storeRow` omits it.
    */
   author?: string;
+  /** The head commit the host answered, or absent; never `''` in the store. */
+  headSha?: string;
+  /** When the fold first saw `headSha`, this machine's clock; set by `storeRow`. */
+  headSince?: string;
+  /** The commit `checks` was computed for; the rollup arm only. */
+  checksSha?: string;
+  /** The host's merge time; absent on an open PR. */
+  mergedAt?: string;
 }
 
 /**
@@ -1049,7 +1070,9 @@ export const prStoreFor = (repoRoot: string): PrIndexStore => {
  * @param pr - the record as the adapter reported and `refreshPrs` normalized it.
  * @returns the row to store.
  */
-const storeRow = (pr: PrRecord): PrIndexRow => {
+const storeRow = (
+  pr: PrRecord, predecessor?: PrIndexRow, now: number = Date.now(),
+): PrIndexRow => {
   const row: PrIndexRow = {
     number: pr.number,
     head: pr.head,
@@ -1065,6 +1088,16 @@ const storeRow = (pr: PrRecord): PrIndexRow => {
   if (Array.isArray(pr.failing_checks)) row.failing_checks = pr.failing_checks;
   if (typeof pr.updatedAt === 'string' && pr.updatedAt !== '') row.updatedAt = pr.updatedAt;
   if (typeof pr.author === 'string' && pr.author !== '') row.author = pr.author;
+  if (typeof pr.checksSha === 'string' && pr.checksSha !== '') row.checksSha = pr.checksSha;
+  if (typeof pr.mergedAt === 'string' && pr.mergedAt !== '') row.mergedAt = pr.mergedAt;
+  if (typeof pr.headSha === 'string' && pr.headSha !== '') {
+    row.headSha = pr.headSha;
+    // THIS MACHINE'S CLOCK: carried while the head is the one last seen, reset
+    // when it moves. With no predecessor the head is first seen now.
+    row.headSince = predecessor?.headSha === pr.headSha && predecessor.headSince !== undefined
+      ? predecessor.headSince
+      : new Date(now).toISOString();
+  }
   return row;
 };
 
@@ -1093,6 +1126,10 @@ const recordOf = (row: PrIndexRow): PrRecord => {
   if (row.failing_checks !== undefined) pr.failing_checks = row.failing_checks;
   if (row.updatedAt !== undefined) pr.updatedAt = row.updatedAt;
   if (row.author !== undefined) pr.author = row.author;
+  if (row.headSha !== undefined) pr.headSha = row.headSha;
+  if (row.headSince !== undefined) pr.headSince = row.headSince;
+  if (row.checksSha !== undefined) pr.checksSha = row.checksSha;
+  if (row.mergedAt !== undefined) pr.mergedAt = row.mergedAt;
   return pr;
 };
 
@@ -1272,7 +1309,8 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
   // `prAt` still stamps at the finish: it answers "how old is this DATA", and
   // data is not fetched until it has landed. Two questions, two stamps — the
   // one place they were the same number is the defect.
-  const startedAt = Date.now();
+  const clock = world.now ?? Date.now;
+  const startedAt = clock();
   // Before the fetch, so BOTH exits have it — a failure reschedules too, and a
   // failure on Bitbucket must be spaced by the same cost as a success. Cached
   // after the first call, so this is one extra local `bash` on the process's
@@ -1349,6 +1387,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
   // domain takes readings as values and never reaches a port, so the entry's
   // own observation is handed in rather than looked up. A fresh process has
   // seen no failure and keeps today's cadence exactly.
+  const storedByNumber = new Map((stored?.rows ?? []).map((row) => [row.number, row] as const));
   const failedFullRead = entry.prFullReadFailedAt === null
     ? null
     : { at: entry.prFullReadFailedAt };
@@ -1441,7 +1480,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // below: the store holds what the adapter said about every PR, in the
       // shape every consumer already checks, and it is keyed by number so a
       // merged PR is stored exactly as an open one is.
-      rows.push(storeRow(pr));
+      rows.push(storeRow(pr, storedByNumber.get(pr.number), clock()));
       // EVERY state, for the link alone — see `prsByHead`. The open-only filter
       // above is right about `classify` and wrong about the address, so the row
       // reads its number from here instead of losing it to a merge.
@@ -1472,10 +1511,21 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // re-asked every delta forever. A number is asked again only while its
       // streak of "still pending, same updatedAt" answers is under the limit;
       // re-asked only while its streak (below) is under the limit.
-      const askable = pending.filter((n) => (entry.prPendingReaskStreak.get(n) ?? 0)
-        < PR_PENDING_REASK_LIMIT);
+      //
+      // AFTER THE COUNT IS SPENT, TIME BOUNDS IT: a PR whose head is younger than
+      // `Checks wait` is re-asked at most once per `PR_PENDING_REASK_SLOW_MS`,
+      // because CI outlasts five minutes. `failing` is included — a re-run can
+      // turn it green.
+      const waitMs = world.checksWaitMs ?? PR_CHECKS_WAIT_MS;
+      const askable = pending.filter((n) => {
+        if ((entry.prPendingReaskStreak.get(n) ?? 0) < PR_PENDING_REASK_LIMIT) return true;
+        const since = Date.parse(storedByNumber.get(n)?.headSince ?? '');
+        return Number.isFinite(since) && startedAt - since < waitMs
+          && startedAt - (entry.prReaskAt.get(n) ?? 0) >= PR_PENDING_REASK_SLOW_MS;
+      });
       if (askable.length > 0) {
         try {
+          for (const n of askable) entry.prReaskAt.set(n, startedAt);
           const reasked = await withHostSlot(
             entry, () => scripts.hostSaid(['pr-list', '--rich', '--state', 'open']),
           );
@@ -1496,7 +1546,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
               if (typeof pr.author !== 'string') pr.author = '';
               if (pr.head && pr.state === 'OPEN') map.set(pr.head, pr);
               byNumber.set(pr.number, pr);
-              rows.push(storeRow(pr));
+              rows.push(storeRow(pr, storedByNumber.get(pr.number), clock()));
               if (pr.head) {
                 const held = byHead.get(pr.head);
                 if (!held || prOutranks(pr, held)) byHead.set(pr.head, pr);
@@ -1506,8 +1556,9 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
               // moved — clears it, so a PR that starts failing is asked about
               // again exactly as a fresh pending one would be.
               const storedRow = stored?.rows.find((row) => row.number === pr.number);
-              const noProgress = pr.checks === 'pending'
-                && storedRow !== undefined && storedRow.updatedAt === pr.updatedAt;
+              const noProgress = (pr.checks === 'pending' || pr.checks === 'failing')
+                && storedRow !== undefined && storedRow.updatedAt === pr.updatedAt
+                && storedRow.checks === pr.checks && storedRow.headSha === pr.headSha;
               if (noProgress) {
                 entry.prPendingReaskStreak.set(
                   pr.number, (entry.prPendingReaskStreak.get(pr.number) ?? 0) + 1,

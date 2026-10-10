@@ -85,9 +85,9 @@ const row = (number, head, state = 'MERGED') => ({
 // means *ask the host* — so a stale default does not fail the decoder, it
 // silently turns every store-hit test into a host-fallback test that still
 // reports the right answer. The call counts below are the only assertion that
-// catches it; they did, on the bump to 3. Written `v = 3` rather than `v: 3`,
+// catches it; they did, on the bump to 3 and again to 4. Written `v = 3` rather than `v: 3`,
 // so a grep for the entity's literal form does not find it.
-const storeWith = (rows, { complete = true, v = 3, raw = null } = {}) => {
+const storeWith = (rows, { complete = true, v = 4, raw = null } = {}) => {
   const dir = tmp('scanidx-store');
   fs.writeFileSync(path.join(dir, 'github.json'), raw !== null ? raw : JSON.stringify({
     v, connector: 'github', watermark: '2026-09-26T12:00:00Z', complete,
@@ -283,7 +283,7 @@ test('a linked worktree reads the main checkout\'s store', () => {
     const storeHome = path.join(path.resolve(desk, commonDir), '.plot', 'state', 'index');
     fs.mkdirSync(storeHome, { recursive: true });
     fs.writeFileSync(path.join(storeHome, 'github.json'), JSON.stringify({
-      v: 3, connector: 'github', watermark: null, complete: true,
+      v: 4, connector: 'github', watermark: null, complete: true,
       at: new Date().toISOString(), rows: [row(40, 'idea/solo'), row(50, 'feature/landed')],
     }));
 

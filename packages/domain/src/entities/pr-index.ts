@@ -9,7 +9,7 @@ import { z } from 'zod';
  * unparseable by construction, which is the fallback the store is required to
  * take.
  */
-export const PR_INDEX_VERSION = 3;
+export const PR_INDEX_VERSION = 4;
 
 /**
  * One PR as the store holds it — exactly what the host answered, and nothing
@@ -58,6 +58,27 @@ export const PrIndexRowSchema = z
      * to the watermark.
      */
     updatedAt: z.string().optional(),
+    /**
+     * The commit the PR's head pointed at when the host answered. Absent where
+     * the host did not answer; never stored as `''`.
+     */
+    headSha: z.string().optional(),
+    /**
+     * When the fold first saw this `headSha`, ISO-8601.
+     *
+     * **THIS MACHINE'S CLOCK, UNLIKE `updatedAt`.** Carried forward unchanged
+     * while `headSha` is unchanged and reset when it moves. Absent on a row with
+     * no `headSha`.
+     */
+    headSince: z.string().optional(),
+    /**
+     * The commit `checks` was computed for. Present only where the adapter binds
+     * the checks to a commit (the GitHub rollup); absent for Jenkins, the plain
+     * listing and Bitbucket.
+     */
+    checksSha: z.string().optional(),
+    /** When the host merged the PR, as the host spelled it; absent on a PR it has not merged. */
+    mergedAt: z.string().optional(),
   })
   .strict();
 

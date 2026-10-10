@@ -35,7 +35,7 @@ import { readQueue, type QueueWorld, type HandOverWorld } from '../../src/shared
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { HostAnswer, Scripts } from '@plot-pm/domain/ports/scripts';
 import { QUEUE_HOLDS, type HeldSlice } from '@plot-pm/domain/rules/queue';
-import { answered, failed, unaskable } from '@plot-pm/domain';
+import { answered, failed, unaskable, PR_INDEX_VERSION } from '@plot-pm/domain';
 import { TICK_INTERVAL_MS, type TickReport } from '../../src/server/entry/registryd.js';
 import { readTick, worldFrom, type SupervisorWorld } from '../../src/shared/supervisor.js';
 import type { AgentEntry } from '../../src/shared/registry.js';
@@ -1517,7 +1517,7 @@ describe('the queue world asks a known PR by number when the listing fails (#114
     location: async () => answered(''),
     read: async (connector) => {
       connectors.push(connector);
-      return answered({ v: 3, connector, watermark: null, complete: false, at: '', rows: [row] });
+      return answered({ v: PR_INDEX_VERSION, connector, watermark: null, complete: false, at: '', rows: [row] });
     },
     write: async () => answered(undefined),
   });

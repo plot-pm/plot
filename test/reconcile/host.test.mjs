@@ -810,7 +810,8 @@ test('host: pr-list without --rich carries no verdict, and never invents one', (
   const stubs = makeStubs({ ghJson: richGh('[{"conclusion":"SUCCESS"}]') });
   const out = JSON.parse(run(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(Object.keys(out).sort(),
-    ['author', 'draft', 'head', 'number', 'state', 'title', 'updatedAt', 'url']);
+    ['author', 'draft', 'head', 'headSha', 'mergedAt', 'number', 'state', 'title', 'updatedAt', 'url']);
+  // `headSha` and `mergedAt` are scalar columns too, and `""` where the host omits them.
   // NO VERDICT, AND ABSENT RATHER THAN `unknown`: this arm did not ask, and a
   // word here would be a claim. `--rich-open` fills them in as `unknown` for
   // the rows it emits, which is a different statement made one layer up.
@@ -5624,8 +5625,8 @@ test('host: the sweep emits every --rich field the arm promises', () => {
   assert.equal(res.status, 0, res.stderr);
   const row = JSON.parse(res.stdout.trim());
   assert.deepEqual(Object.keys(row).sort(),
-    ['checks', 'draft', 'failing_checks', 'head', 'mergeable', 'number', 'review', 'state', 'title',
-      'updatedAt', 'url', 'author'].sort(),
+    ['checks', 'draft', 'failing_checks', 'head', 'headSha', 'mergeable', 'mergedAt', 'number', 'review',
+      'state', 'title', 'updatedAt', 'url', 'author'].sort(),
     'the field set is exactly what the listing arm emits');
   assert.equal(row.author, 'pexample', 'the author is the nickname, never the display name');
   assert.equal(row.url, 'https://bitbucket.org/x/11', 'url comes from .links.html.href');

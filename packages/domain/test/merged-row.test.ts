@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isTerminalRow, mergedRowByHead } from '../src/rules/merged-row.js';
-import type { PrIndex, PrIndexRow } from '../src/entities/pr-index.js';
+import { PR_INDEX_VERSION, type PrIndex, type PrIndexRow } from '../src/entities/pr-index.js';
 
 const row = (number: number, head: string, state: string, draft = false): PrIndexRow => ({
   number,
@@ -13,7 +13,7 @@ const row = (number: number, head: string, state: string, draft = false): PrInde
 });
 
 const store = (rows: readonly PrIndexRow[]): PrIndex => ({
-  v: 3,
+  v: PR_INDEX_VERSION,
   connector: 'github',
   watermark: null,
   complete: true,

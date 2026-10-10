@@ -106,7 +106,7 @@ printf '%s' '{}'
  * entity uses does not find it. The `{ v: 1 }` cases below are deliberate and
  * stay: 1 is never the current version.
  */
-function storeWith(rows, { complete = true, v = 3, raw = null } = {}) {
+function storeWith(rows, { complete = true, v = 4, raw = null } = {}) {
   const dir = tmp('prindex');
   const body = raw !== null ? raw : JSON.stringify({
     v,
@@ -324,7 +324,7 @@ test('a linked worktree reads the main checkout\'s store', () => {
   const storeHome = path.join(path.resolve(desk, commonDir), '.plot', 'state', 'index');
   fs.mkdirSync(storeHome, { recursive: true });
   fs.writeFileSync(path.join(storeHome, 'github.json'), JSON.stringify({
-    v: 3, connector: 'github', watermark: null, complete: true,
+    v: 4, connector: 'github', watermark: null, complete: true,
     at: new Date().toISOString(), rows: [mergedRow(447, 'feature/one')],
   }));
 
