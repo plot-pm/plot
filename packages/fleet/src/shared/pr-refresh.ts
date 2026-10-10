@@ -1089,7 +1089,11 @@ const storeRow = (
   if (typeof pr.updatedAt === 'string' && pr.updatedAt !== '') row.updatedAt = pr.updatedAt;
   if (typeof pr.author === 'string' && pr.author !== '') row.author = pr.author;
   if (typeof pr.checksSha === 'string' && pr.checksSha !== '') row.checksSha = pr.checksSha;
-  if (typeof pr.mergedAt === 'string' && pr.mergedAt !== '') row.mergedAt = pr.mergedAt;
+  // A MERGED row is terminal: the first `mergedAt` stands. Bitbucket reads it
+  // from `updated_on`, which moves on every later comment.
+  if (typeof predecessor?.mergedAt === 'string' && predecessor.mergedAt !== '') {
+    row.mergedAt = predecessor.mergedAt;
+  } else if (typeof pr.mergedAt === 'string' && pr.mergedAt !== '') row.mergedAt = pr.mergedAt;
   if (typeof pr.headSha === 'string' && pr.headSha !== '') {
     row.headSha = pr.headSha;
     // THIS MACHINE'S CLOCK: carried while the head is the one last seen, reset

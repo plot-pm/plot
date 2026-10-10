@@ -202,7 +202,7 @@ describe('runDeskRelay', () => {
     const older = finding({ worktree: '/w/a', evidence: 'older', measuredAt: '2026-10-10T08:00:00Z' });
     const newer = finding({ worktree: '/w/b', evidence: 'newer', measuredAt: '2026-10-10T10:00:00Z' });
     const estate: Estate = {
-      trees: answered([tree('/w/b', 'feature/one'), tree('/w/a', 'feature/one')]),
+      trees: answered([tree('/w/a', 'feature/one'), tree('/w/b', 'feature/one')]),
       logs: { '/w/a': [older], '/w/b': [newer] },
     };
     await runDeskRelay(worldOver(estate, c).world);

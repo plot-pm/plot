@@ -119,6 +119,21 @@ describe('the fold stores the commit fields each arm answers', () => {
     await pass(w, state);
     expect((await stored(w))[0].headSince).toBe(new Date(T0 + 240_000).toISOString());
   });
+
+  it('keeps the first mergedAt when the host later answers a later one', async () => {
+    const clock = { t: T0 };
+    let mergedAt = '2026-10-07T08:30:00Z';
+    const f = fake(() => [base(4, { state: 'MERGED', headSha: SHA, mergedAt })], () => []);
+    const w = worldOf(f, clock);
+    const state = freshPrState();
+    await pass(w, state);
+    expect((await stored(w))[0].mergedAt).toBe('2026-10-07T08:30:00Z');
+    // Bitbucket reads mergedAt from updated_on, which a comment moves.
+    mergedAt = '2026-10-10T09:59:00Z';
+    clock.t = T0 + 120_000;
+    await pass(w, state);
+    expect((await stored(w))[0].mergedAt).toBe('2026-10-07T08:30:00Z');
+  });
 });
 
 describe('the re-ask is bounded by time and covers failing', () => {
