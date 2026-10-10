@@ -20,7 +20,20 @@ describe('fleetOwnsScan', () => {
   it('is false for a fresh bridge with no supervisor up', () => {
     expect(fleetOwnsScan({ supervisor: DOWN, bridgeAt: NOW - 1_000, now: NOW })).toBe(false);
     expect(fleetOwnsScan({ supervisor: undefined, bridgeAt: NOW - 1_000, now: NOW })).toBe(false);
-    expect(fleetOwnsScan({ supervisor: { asked: false, exitCode: null, summarised: false }, bridgeAt: NOW, now: NOW })).toBe(false);
+  });
+  it('is false for a fresh bridge with a supervisor that died', () => {
+    const died = { asked: true, exitCode: 1, summarised: true, install: 'installed' };
+    expect(fleetOwnsScan({ supervisor: died, bridgeAt: NOW - 1_000, now: NOW })).toBe(false);
+  });
+  it('is true for an unknown supervisor reading and a fresh bridge', () => {
+    const cutShort = { asked: true, exitCode: 1, summarised: false };
+    const notAsked = { asked: false, exitCode: null, summarised: false };
+    expect(fleetOwnsScan({ supervisor: cutShort, bridgeAt: NOW - 5_000, now: NOW })).toBe(true);
+    expect(fleetOwnsScan({ supervisor: notAsked, bridgeAt: NOW, now: NOW })).toBe(true);
+  });
+  it('is false for an unknown supervisor reading and a stale bridge', () => {
+    const cutShort = { asked: true, exitCode: 1, summarised: false };
+    expect(fleetOwnsScan({ supervisor: cutShort, bridgeAt: NOW - OWNED_BRIDGE_MAX_AGE_MS - 1, now: NOW })).toBe(false);
   });
   it('is false with no bridge, and for a bridge from the future', () => {
     expect(fleetOwnsScan({ supervisor: UP, bridgeAt: null, now: NOW })).toBe(false);

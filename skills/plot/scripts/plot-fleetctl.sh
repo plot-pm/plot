@@ -366,11 +366,13 @@ plot_process_candidates() {
 # leaves the call behind, because a signal cannot end a process in that wait.
 # The left-behind pipeline holds no stream of this script's, so a caller that
 # waits for stdout and stderr to close is not held either.
-# Every call after the deadline is cannot-determine without asking.
+# Every call after the deadline is cannot-determine without asking, and so is
+# a call for a pid whose `lsof` an earlier run left behind: a second one would
+# only join the pile (80 stuck at once, 2026-10-10).
 process_cwd() { # $1=kernel $2=pid
   local cwd="" left=$(( ${lsof_until:-$((SECONDS + 2))} - SECONDS ))
   case "$1" in
-    Darwin) [ "$left" -gt 0 ] && IFS= read -r -t "$left" cwd < <(exec 2>/dev/null </dev/null; lsof -a -p "$2" -d cwd -Fn | sed -n 's/^n//p') ;;
+    Darwin) [ "$left" -gt 0 ] && ! grep -qE "(^|/)lsof -a -p $2 -d cwd -Fn( |\$)" < <(ps axww -o args= 2>/dev/null) && IFS= read -r -t "$left" cwd < <(exec 2>/dev/null </dev/null; lsof -a -p "$2" -d cwd -Fn | sed -n 's/^n//p') ;;
     Linux)  cwd=$(readlink "${PLOT_PROC_ROOT:-/proc}/$2/cwd" 2>/dev/null) ;;
   esac
   cwd=${cwd//$'\t'/?}
