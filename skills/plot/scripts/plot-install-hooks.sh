@@ -267,7 +267,8 @@ if [ "$verify_only" = 1 ]; then
 
   # Drive a gate the way Claude Code does: hook JSON on stdin, in a cwd, and
   # read its exit as a verdict. Exit 2 is a refusal. An exit of 128 or more is a
-  # gate a signal ended before it answered, which proves nothing either way:
+  # gate a signal ended before it answered, which one probe cannot tell apart
+  # from a crash; the caller probes again. A single such exit proves nothing:
   # CI run 38028514435 (2026-10-10) SIGKILLed plot-brief-name-gate.sh from
   # outside a probe that took 399 ms, and reading that as "permitted" reported a
   # working gate as missing.
@@ -399,8 +400,12 @@ if [ "$verify_only" = 1 ]; then
       continue
     fi
 
-    "$prober" "$gp"
-    case "$?" in
+    # ONE SIGNAL IS AN UNKNOWN, TWO ARE A CRASH. A signal from outside can end
+    # one probe (#1478), so a signal-ended probe runs once more on a fresh repo.
+    # A gate a signal ends again crashes on its own (SIGSEGV 139, SIGABRT 134),
+    # and Claude Code reads any exit but 2 as non-blocking: that gate permits.
+    "$prober" "$gp"; rc=$?; [ "$rc" = 3 ] && { "$prober" "$gp"; rc=$?; }
+    case "$rc" in
       0)
         verified_count=$((verified_count + 1))
         report="${report}  verified    ${g} — refused a guarded write (exit 2)"$'\n' ;;
@@ -408,8 +413,8 @@ if [ "$verify_only" = 1 ]; then
         unverified_count=$((unverified_count + 1))
         report="${report}  unverified  ${g} — did NOT refuse a guarded write; it permitted"$'\n' ;;
       3)
-        unprobeable_count=$((unprobeable_count + 1))
-        report="${report}  unprobed    ${g} — a signal ended the gate before it answered; nothing was proved either way"$'\n' ;;
+        unverified_count=$((unverified_count + 1))
+        report="${report}  unverified  ${g} — a signal ended the gate twice; Claude Code reads that exit as non-blocking, so it permits"$'\n' ;;
       *)
         unprobeable_count=$((unprobeable_count + 1))
         report="${report}  unprobed    ${g} — the condition could not be built here"$'\n' ;;
