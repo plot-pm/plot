@@ -234,10 +234,52 @@ describe('the channel socket — the boundary, not the protocol', () => {
     board.socket.end();
   });
 
-  it('leaves the lastSeen of a monitor that published unchanged when a finding is relayed for it', async () => {
+  it('leaves an in-process publish out of the heartbeat, whatever its `measuredAt`', async () => {
+    // Only `seen` proves an in-process monitor read something: a publish can
+    // come from a fold whose index read failed.
+    let clock = '2026-10-10T09:00:00Z';
+    channel = await startChannel({ address: addressIn(), heartbeatMs: 20, now: () => clock });
+    clock = '2026-10-10T10:05:00Z';
+    channel.publish(finding({ monitor: 'IndexMonitor', finding: 'checks green', measuredAt: '2026-10-10T09:00:00Z' }));
+
+    const board = peer(channel.address);
+    await board.ready;
+    board.say(JSON.stringify({ subscriber: 'board', purpose: { kind: 'everything' } }) + '\n');
+    await board.nth(1);
+    const beat = await board.nth(2);
+    expect(beat.type).toBe('heartbeat');
+    if (beat.type === 'heartbeat') expect(beat.monitors).toEqual([]);
+    expect(channel.findings().map((f) => f.measuredAt)).toEqual(['2026-10-10T09:00:00Z']);
+    board.socket.end();
+  });
+
+  it('moves a socket publisher\'s lastSeen to when the channel received the finding', async () => {
+    // A peer on the socket has no `seen`, so its publish is its heartbeat.
+    channel = await startChannel({ address: addressIn(), heartbeatMs: 20, now: () => '2026-10-10T10:05:00Z' });
+    const monitor = peer(channel.address);
+    await monitor.ready;
+    monitor.say(publishLine(finding({ measuredAt: '2026-10-10T09:00:00Z' })));
+    for (let tries = 0; tries < 200 && channel.findings().length === 0; tries += 1) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    const board = peer(channel.address);
+    await board.ready;
+    board.say(JSON.stringify({ subscriber: 'board', purpose: { kind: 'everything' } }) + '\n');
+    await board.nth(1);
+    const beat = await board.nth(2);
+    expect(beat.type).toBe('heartbeat');
+    if (beat.type === 'heartbeat') {
+      expect(beat.monitors).toEqual([{ monitor: 'AgentMonitor', lastSeen: '2026-10-10T10:05:00Z' }]);
+    }
+    monitor.socket.end();
+    board.socket.end();
+  });
+
+  it('leaves the lastSeen of a monitor that was seen unchanged when a finding is relayed for it', async () => {
     let clock = '2026-10-10T10:00:00Z';
     channel = await startChannel({ address: addressIn(), heartbeatMs: 20, now: () => clock });
-    channel.publish(finding({ monitor: 'AgentMonitor', measuredAt: '2026-10-10T10:00:00Z' }));
+    channel.seen('AgentMonitor');
     clock = '2026-10-10T12:00:00Z';
     channel.relay(finding({ monitor: 'AgentMonitor', evidence: 'relayed', measuredAt: '2026-01-01T00:00:00Z' }));
 
