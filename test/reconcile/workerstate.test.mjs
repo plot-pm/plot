@@ -24,6 +24,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { record, signalOwn } from './own-process.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -772,15 +773,15 @@ test('worker-state: a pid with nothing to measure gets no cue, not a false idle'
 // its agent this instant — and every tree a test builds is milliseconds old.
 
 /** Spawn a detached wrapper holding `child`; returns its pid. */
-function spawnWrapper(child) {
+const spawnWrapper = (child) =>
   // `nohup … &` detaches it from the runner's group, and `exec` replaces the
   // shell without changing the pid — the surviving-process idiom
   // `dispatch.test.mjs` records, for the reason this repo already measured:
   // a child sharing the runner's pipe keeps it open and the runner never exits.
-  return execFileSync('bash', ['-c',
+  // `record` stamps the pid, so a teardown signals it only while it is ours.
+  record(execFileSync('bash', ['-c',
     `nohup sh -c ${JSON.stringify(child)} </dev/null >/dev/null 2>&1 & echo $!`,
-  ], { encoding: 'utf8', timeout: 30_000 }).trim();
-}
+  ], { encoding: 'utf8', timeout: 30_000 }).trim());
 
 /** Ask the reading about a pid; returns 0 present, 1 absent, 2 unaskable. */
 function agentAlive(pid, { grace = 0, want = 'sleep' } = {}) {
@@ -823,7 +824,7 @@ test('agent presence: a wrapper whose agent is gone reads ABSENT', () => {
     assert.doesNotThrow(() => process.kill(Number(pid), 0),
       'precondition: the wrapper answers kill -0');
   } finally {
-    try { process.kill(Number(pid)); } catch { /* gone */ }
+    signalOwn(pid, 'SIGTERM');
   }
 });
 
@@ -834,7 +835,7 @@ test('agent presence: a live agent still reads PRESENT', () => {
   try {
     assert.equal(agentAlive(pid), 0, 'an agent in the subtree must read present');
   } finally {
-    try { process.kill(Number(pid)); } catch { /* gone */ }
+    signalOwn(pid, 'SIGTERM');
   }
 });
 
@@ -848,7 +849,7 @@ test('agent presence: an agent TWO levels down counts', () => {
     assert.equal(agentAlive(pid, { want: 'sleep' }), 0,
       'a grandchild agent must count');
   } finally {
-    try { process.kill(Number(pid)); } catch { /* gone */ }
+    signalOwn(pid, 'SIGTERM');
   }
 });
 
@@ -862,7 +863,7 @@ test('agent presence: the ROOT is excluded — a wrapper named like the agent is
     assert.equal(agentAlive(pid, { want: 'sleep' }), 1,
       'the root itself must not satisfy the reading');
   } finally {
-    try { process.kill(Number(pid)); } catch { /* gone */ }
+    signalOwn(pid, 'SIGTERM');
   }
 });
 
@@ -889,7 +890,7 @@ test('agent presence: a wrapper younger than the grace is UNASKABLE', () => {
     assert.equal(agentAlive(pid, { grace: 0, want: 'nosuchagent' }), 1,
       'and with no grace the absence is definite');
   } finally {
-    try { process.kill(Number(pid)); } catch { /* gone */ }
+    signalOwn(pid, 'SIGTERM');
   }
 });
 
@@ -934,7 +935,7 @@ test('worker-state: an orphaned wrapper is classified by the DESK, not the proce
     assert.equal(stateWithAgent(f.wt, 0, { want: 'sleep' }), 'running',
       'a live agent on the same desk still reads running');
   } finally {
-    try { process.kill(Number(pid)); } catch { /* gone */ }
+    signalOwn(pid, 'SIGTERM');
     f.cleanup?.();
   }
 });
@@ -958,7 +959,7 @@ test('worker-readings: the liveness field says `orphaned`, and the rule agrees',
     const live = readingsWithAgent(f.wt, { want: 'sleep' });
     assert.equal(live[2], 'live', `a live agent must say live: ${live.join('|')}`);
   } finally {
-    try { process.kill(Number(pid)); } catch { /* gone */ }
+    signalOwn(pid, 'SIGTERM');
     f.cleanup?.();
   }
 });
@@ -995,7 +996,7 @@ test('worker-state: a desk Plot never launched a worker into is not asked about 
     assert.equal(stateWithAgent(f.wt, 0, { want: 'nosuchagent' }), 'stalled',
       'a desk Plot launched a worker into is asked, and its orphan is seen');
   } finally {
-    try { process.kill(Number(pid)); } catch { /* gone */ }
+    signalOwn(pid, 'SIGTERM');
     f.cleanup?.();
   }
 });

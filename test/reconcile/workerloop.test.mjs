@@ -15,7 +15,7 @@
 // a new leak in the fix for a leak (Done-when 6).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -126,6 +126,9 @@ function makeIdleDeskReady(dir) {
   git(dir, 'commit', '-qm', 'work the agent did');
 }
 
+/** Process groups `runLoop` started; `reap` signals nothing outside them. */
+const ownGroups = new Set();
+
 /**
  * Run the loop to completion (or until `killAfterMs`, when set, sends `signal`
  * to the loop process). Resolves with { code, signal, stdout, stderr, pid }.
@@ -175,6 +178,7 @@ function runLoop(cwd, { env = {}, killAfterMs = 0, signal = 'SIGTERM', script = 
         ...env,
       },
     });
+    ownGroups.add(child.pid);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => { stdout += d; });
@@ -277,9 +281,17 @@ function sleepCount(secs) {
   }
 }
 
-function reap(secs) {
-  try { execFileSync('pkill', ['-KILL', '-f', `sleep ${secs}`]); } catch { /* none */ }
-}
+// SIGKILLs every `sleep <secs>` left in a process group this file started.
+// A `sleep` in any other group belongs to another test or to the machine.
+const reap = (secs) => {
+  const ps = spawnSync('ps', ['-A', '-o', 'pid=,pgid=,command='], { encoding: 'utf8' });
+  const wanted = new RegExp(`(^|[\\s/])sleep ${secs}(\\s|$)`);
+  for (const line of (ps.stdout ?? '').split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
+    if (!m || !ownGroups.has(Number(m[2])) || !wanted.test(m[3])) continue;
+    try { process.kill(Number(m[1]), 'SIGKILL'); } catch { /* already gone */ }
+  }
+};
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 

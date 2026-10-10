@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { isOwn, readPid, record, signalOwn, signalRecorded } from './own-process.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dispatch = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-dispatch.sh');
@@ -1571,7 +1572,7 @@ test('dispatch: .plot-worker.pid records the AGENT process, not the wrapper', ()
   // exit-recording the brief says must keep working. The agent is either reaped
   // with the dispatcher or still running; kill by the recorded pid to be sure,
   // then the wrapper's `wait` must return and write the code.
-  try { process.kill(Number(recorded), 'SIGTERM'); } catch { /* already gone */ }
+  signalRecorded(path.join(wt, '.plot-worker.pid'), 'SIGTERM');
   const exitDeadline = Date.now() + 10_000;
   while (Date.now() < exitDeadline && !fs.existsSync(path.join(wt, '.plot-worker.exit'))) {
     execFileSync('sleep', ['0.2']);
@@ -1671,7 +1672,7 @@ test('dispatch: .plot-worker.wrapper.pid names the agent\'s ACTUAL parent', () =
   // sibling test above checks, kept here so this test stands alone.
   assert.notEqual(wrapperPid, agentPid, 'the wrapper is not the agent');
 
-  try { process.kill(Number(agentPid), 'SIGTERM'); } catch { /* already gone */ }
+  signalRecorded(sentinel, 'SIGTERM');
   endDesk(wt);
   fs.rmSync(t, { recursive: true, force: true });
   fs.rmSync(wt, { recursive: true, force: true });
@@ -2977,7 +2978,7 @@ test('dispatch: the manifest pid is the AGENT pid, matching .plot-worker.pid', (
   assert.equal(m.pid, agentPid,
     `the manifest pid must name the agent (${agentPid}), got ${m.pid}`);
 
-  try { process.kill(Number(agentPid), 'SIGTERM'); } catch { /* already gone */ }
+  signalRecorded(sentinel, 'SIGTERM');
   endDesk(wt);
   fs.rmSync(t, { recursive: true, force: true });
   fs.rmSync(wt, { recursive: true, force: true });
@@ -3050,7 +3051,7 @@ test('dispatch: the manifest names the wrapper and the remaining monitor, at spa
   // KILL THE AGENT FIRST, then read. The record must survive the processes it
   // names — that is what "written at spawn" means, as opposed to a value some
   // later reader recomputes by looking for them.
-  try { process.kill(Number(agentPid), 'SIGTERM'); } catch { /* already gone */ }
+  signalRecorded(sentinel, 'SIGTERM');
 
   const m = read();
   assert.equal(m.pid, agentPid, 'the agent pid (sanity)');
@@ -3433,23 +3434,24 @@ test('dispatch: a nested worktree stays invisible to git status and the marker g
  * @param wt the desk.
  */
 const endDesk = (wt) => {
-  const file = path.join(wt, '.plot-worker.wrapper.pid');
-  if (!fs.existsSync(file)) return;
-  const wrapper = Number(fs.readFileSync(file, 'utf8').trim());
-  if (!Number.isInteger(wrapper) || wrapper <= 0) return;
+  const rec = readPid(path.join(wt, '.plot-worker.wrapper.pid'));
+  if (rec === undefined) return;
+  // The wrapper counts as gone once its pid no longer names the process that
+  // wrote the file, so a reused pid is neither waited on nor signalled.
+  const own = { recordedAt: rec.recordedAt };
   // SIGTERM FIRST: the loop's and the monitors' `plot-tmp.sh` traps remove
   // their temp entries on it and cannot on SIGKILL, and the wrapper ignores it,
   // records the exit and ends once its agent has. SIGKILL only if it has not.
-  const gone = () => { try { process.kill(wrapper, 0); return false; } catch { return true; } };
+  const gone = () => !isOwn(rec.pid, own);
   const waitGone = (ms) => {
     const deadline = Date.now() + ms;
     while (Date.now() < deadline && !gone()) spawnSync('sleep', ['0.1']);
     return gone();
   };
-  try { process.kill(-wrapper, 'SIGTERM'); } catch { /* no such group */ }
+  signalOwn(rec.pid, 'SIGTERM', { ...own, group: true });
   if (waitGone(10_000)) return;
-  try { process.kill(-wrapper, 'SIGKILL'); } catch { /* no such group */ }
-  try { process.kill(wrapper, 'SIGKILL'); } catch { /* already gone */ }
+  signalOwn(rec.pid, 'SIGKILL', { ...own, group: true });
+  signalOwn(rec.pid, 'SIGKILL', own);
   waitGone(5_000);
 };
 
@@ -3465,6 +3467,9 @@ const endDesk = (wt) => {
  * SIGKILL rather than SIGTERM: this is a fixture being torn down, not a worker
  * being stopped, and nothing here has anything to flush.
  *
+ * A pid is signalled only while it still names the process that was running
+ * when its file was written; a pid the runner has reused is left alone.
+ *
  * @param checkout the repository whose desks are being torn down.
  */
 function reapFixtureWorkers(checkout) {
@@ -3477,11 +3482,7 @@ function reapFixtureWorkers(checkout) {
   spawnSync('sleep', ['0.05']);
   for (const desk of fs.readdirSync(desks)) {
     for (const name of ['.plot-worker.pid', '.plot-worker.wrapper.pid']) {
-      const file = path.join(desks, desk, name);
-      if (!fs.existsSync(file)) continue;
-      const pid = Number(fs.readFileSync(file, 'utf8').trim());
-      if (!Number.isInteger(pid) || pid <= 0) continue;
-      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+      signalRecorded(path.join(desks, desk, name), 'SIGKILL');
     }
   }
 }
@@ -3999,6 +4000,8 @@ function repoForLiveStart(label) {
 /**
  * Every pid a desk recorded, with the ones already gone dropped.
  *
+ * Each pid is stamped with its file's mtime, which `killPids` checks it against.
+ *
  * @param checkout the sandbox checkout.
  * @returns `{ wrapper, agent }` pid numbers, either possibly undefined.
  */
@@ -4007,10 +4010,9 @@ function deskPids(checkout) {
   const found = {};
   for (const desk of fs.existsSync(desks) ? fs.readdirSync(desks) : []) {
     for (const [key, name] of [['wrapper', '.plot-worker.wrapper.pid'], ['agent', '.plot-worker.pid']]) {
-      const file = path.join(desks, desk, name);
-      if (!fs.existsSync(file)) continue;
-      const pid = Number(fs.readFileSync(file, 'utf8').trim());
-      if (Number.isInteger(pid) && pid > 0) found[key] = pid;
+      const rec = readPid(path.join(desks, desk, name));
+      if (rec === undefined) continue;
+      found[key] = record(rec.pid, rec.recordedAt);
     }
   }
   return found;
@@ -4050,11 +4052,14 @@ function parentOf(pid) {
   return Number.isInteger(ppid) && ppid > 0 ? ppid : undefined;
 }
 
-/** SIGKILLs each pid given, ignoring the ones already gone. */
+/**
+ * SIGKILLs each pid given that still names the process stamped for it, and
+ * skips the ones already gone or reused.
+ */
 function killPids(...pids) {
   for (const pid of pids) {
     if (pid === undefined) continue;
-    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    signalOwn(pid, 'SIGKILL');
   }
 }
 
@@ -4128,11 +4133,8 @@ test('dispatch: --restart returns through a pipe while its agent runs', () => {
     const deadline = Date.now() + 5_000;
     let wrapper;
     while (Date.now() < deadline && wrapper === undefined) {
-      const file = path.join(desk, '.plot-worker.wrapper.pid');
-      if (fs.existsSync(file)) {
-        const pid = Number(fs.readFileSync(file, 'utf8').trim());
-        if (Number.isInteger(pid) && pid > 0) wrapper = pid;
-      }
+      const rec = readPid(path.join(desk, '.plot-worker.wrapper.pid'));
+      if (rec !== undefined) wrapper = record(rec.pid, rec.recordedAt);
       if (wrapper === undefined) execFileSync('sleep', ['0.05']);
     }
     assert.ok(wrapper !== undefined, 'the restarted wrapper must record its pid');
@@ -4141,8 +4143,8 @@ test('dispatch: --restart returns through a pipe while its agent runs', () => {
     assert.doesNotMatch(parent, /plot-dispatch\.sh/,
       `the wrapper's parent must not be a dispatcher, found: ${parent}`);
     pids.wrapper = wrapper;
-    const agentFile = path.join(desk, '.plot-worker.pid');
-    if (fs.existsSync(agentFile)) pids.agent = Number(fs.readFileSync(agentFile, 'utf8').trim());
+    const agentRec = readPid(path.join(desk, '.plot-worker.pid'));
+    if (agentRec !== undefined) pids.agent = record(agentRec.pid, agentRec.recordedAt);
   } finally {
     killPids(pids.agent, pids.wrapper, ...Object.values(deskPids(checkout)));
     removeSandbox(root);
@@ -4156,8 +4158,8 @@ test('dispatch: a claim whose Brief command never exits returns through a pipe',
   // stand-in never exits, which is the shape a real session has; the 60 s
   // timeouts in `performer-shell.ts` and `claim.ts` are what this would spend.
   const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-briefpipe-')));
-  const f = repoForBrief('briefpipe', { briefCommand: `sh -c 'sleep 600' plot-brief` });
-  let brief;
+  const pidFile = path.join(t, 'brief.pid');
+  const f = repoForBrief('briefpipe', { briefCommand: `sh -c 'echo $$ > ${pidFile}; exec sleep 600' plot-brief` });
   try {
     // `execFileSync` THROWS on its timeout, which is the signal rather than a
     // clock: the stand-in session sleeps for TEN MINUTES, so a held stream ends
@@ -4178,12 +4180,9 @@ test('dispatch: a claim whose Brief command never exits returns through a pipe',
     }
     assert.match(out, /Brief command/, `the run must name what it called:\n${out}`);
   } finally {
-    // The spawned session is not recorded in any pid file, so it is found by
-    // the command line this fixture gave it — a sandbox-specific string, never
-    // a bare `sleep`, which would reach another test's worker.
-    const ps = spawnSync('pgrep', ['-f', 'plot-brief'], { encoding: 'utf8' });
-    brief = (ps.stdout ?? '').trim().split('\n').map(Number).filter((n) => Number.isInteger(n) && n > 0);
-    killPids(...brief);
+    // The stand-in session writes its own pid into this sandbox, and is
+    // signalled only while that pid still runs the stand-in's `sleep 600`.
+    signalRecorded(pidFile, 'SIGKILL', { command: 'sleep 600' });
     f.cleanup();
     fs.rmSync(t, { recursive: true, force: true });
   }
@@ -4265,7 +4264,7 @@ function killAgentGroups(...pids) {
   for (const pid of pids) {
     if (pid === undefined) continue;
     if (pgidOf(pid) === pid && pid !== pgidOf(process.pid)) {
-      try { process.kill(-pid, 'SIGKILL'); } catch { /* already gone */ }
+      signalOwn(pid, 'SIGKILL', { group: true });
     }
   }
   killPids(...pids);
@@ -4388,8 +4387,9 @@ test('dispatch: --stop from another group ends its own agent and its monitors, a
       git(desk, 'checkout', '-q', '-b', branch);
       fs.writeFileSync(manifest.file,
         fs.readFileSync(manifest.file, 'utf8').replace(/^  "branch": "[^"]*",$/m, `  "branch": "${branch}",`));
-      wrappers.push(Number(manifest.json.wrapperPid));
-      agents.push(Number(manifest.json.pid));
+      const stampedAt = fs.statSync(manifest.file).mtimeMs;
+      wrappers.push(record(Number(manifest.json.wrapperPid), stampedAt));
+      agents.push(record(Number(manifest.json.pid), stampedAt));
       return { branch, json: manifest.json };
     });
 
@@ -4432,10 +4432,8 @@ test('dispatch: a brief started by a claim leads its own group', () => {
 
     const deadline = Date.now() + 5_000;
     while (Date.now() < deadline && brief === undefined) {
-      if (fs.existsSync(pidFile)) {
-        const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
-        if (Number.isInteger(pid) && pid > 0) brief = pid;
-      }
+      const rec = readPid(pidFile);
+      if (rec !== undefined) brief = record(rec.pid, rec.recordedAt);
       if (brief === undefined) execFileSync('sleep', ['0.05']);
     }
     assert.ok(brief !== undefined, `the brief must record its pid:\n${out}`);
@@ -4444,7 +4442,8 @@ test('dispatch: a brief started by a claim leads its own group', () => {
   } finally {
     // Found by the sandbox's own pid file path, never a bare `sleep`.
     const ps = spawnSync('pgrep', ['-f', pidFile], { encoding: 'utf8' });
-    const found = (ps.stdout ?? '').trim().split('\n').map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    const found = (ps.stdout ?? '').trim().split('\n').map(Number).filter((n) => Number.isInteger(n) && n > 0)
+      .map((pid) => record(pid, Date.now()));
     killAgentGroups(brief, ...found);
     f.cleanup();
     fs.rmSync(t, { recursive: true, force: true });
@@ -4518,7 +4517,7 @@ test('dispatch: the wrapper\'s gone line follows a hop to the new desk', () => {
 
   // End the agent with a non-zero exit — `rc -ne 0`, the `gone` arm, the same
   // shape a `Worker bound` kill or a `--stop` leaves.
-  try { process.kill(Number(agentPid), 'SIGTERM'); } catch { /* already gone */ }
+  signalRecorded(sentinel, 'SIGTERM');
 
   const findingsB = path.join(wt2, '.plot-worker.monitor.worker.jsonl');
   const goneDeadline = Date.now() + 10_000;
@@ -4585,7 +4584,7 @@ test('dispatch: the wrapper\'s gone line falls back to the launch desk when the 
   // "manifest that is gone" shape `watchedDesk` falls back on.
   fs.rmSync(manifest);
 
-  try { process.kill(Number(agentPid), 'SIGTERM'); } catch { /* already gone */ }
+  signalRecorded(sentinel, 'SIGTERM');
 
   const findingsA = path.join(wt, '.plot-worker.monitor.worker.jsonl');
   const goneDeadline = Date.now() + 10_000;

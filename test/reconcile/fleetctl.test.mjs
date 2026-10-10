@@ -44,6 +44,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { record, signalOwn } from './own-process.mjs';
 
 // Every directory this file creates, removed after its last test by the exact
 // path mkdtempSync returned — never by a glob over the shared temp directory.
@@ -411,12 +412,12 @@ test('--stop calls plot-dispatch --stop once per branch, and the supervisor last
   git(root, 'worktree', 'add', '-q', '-b', 'feature/a', desk);
 
   // A live process the state reader will find, and the pid file it reads.
-  const sleeper = execFileSync('bash', ['-c', 'sleep 30 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim();
+  const sleeper = record(execFileSync('bash', ['-c', 'sleep 30 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim());
   fs.writeFileSync(path.join(desk, '.plot-worker.pid'), `${sleeper}\n`);
 
   const log = path.join(root, 'calls.log');
   fs.writeFileSync(path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh'),
-    `#!/usr/bin/env bash\necho "dispatch $*" >> "${log}"\nkill ${sleeper} 2>/dev/null\nexit 0\n`);
+    `#!/usr/bin/env bash\necho "dispatch $*" >> "${log}"\nps -o command= -p ${sleeper} | grep -qx 'sleep 30' && kill ${sleeper} 2>/dev/null\nexit 0\n`);
   fs.chmodSync(path.join(root, 'skills', 'plot', 'scripts', 'plot-dispatch.sh'), 0o755);
 
   const r = run(ctl, ['--stop', '--wait', '10'], root, guardBin);
@@ -433,7 +434,7 @@ test('--stop calls plot-dispatch --stop once per branch, and the supervisor last
     assert.ok(iBranch >= 0, 'the branch was reported');
     assert.ok(iSuper > iBranch, 'the supervisor is acted on last');
   } finally {
-    try { process.kill(Number(sleeper)); } catch { /* already gone */ }
+    signalOwn(sleeper, 'SIGTERM', { command: 'sleep 30' });
     fs.rmSync(desk, { recursive: true, force: true });
   }
 });
@@ -501,7 +502,7 @@ test('--stop reports BOTH a stuck agent and an unconfirmed unload, then exits 1'
   const { root, box, ctl, fleetLabel, guardBin } = sandbox('stopboth');
   const desk = path.join(root, '.worktrees', 'feature-b');
   git(root, 'worktree', 'add', '-q', '-b', 'feature/b', desk);
-  const sleeper = execFileSync('bash', ['-c', 'sleep 30 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim();
+  const sleeper = record(execFileSync('bash', ['-c', 'sleep 30 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim());
   fs.writeFileSync(path.join(desk, '.plot-worker.pid'), `${sleeper}\n`);
   // A dispatch stop that is accepted and kills nothing: the agent stays running
   // past the bound, which is the `n_still` arm.
@@ -521,7 +522,7 @@ test('--stop reports BOTH a stuck agent and an unconfirmed unload, then exits 1'
     assert.match(r.out, /1 agent\(s\) did not exit within 1s/,
       'the agent summary survives the supervisor failure — it prints after that block');
   } finally {
-    try { process.kill(Number(sleeper)); } catch { /* already gone */ }
+    signalOwn(sleeper, 'SIGTERM', { command: 'sleep 30' });
     fs.rmSync(desk, { recursive: true, force: true });
   }
 });

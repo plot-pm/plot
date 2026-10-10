@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { record, signalOwn } from './own-process.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dispatch = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-dispatch.sh');
@@ -155,8 +156,8 @@ test('--migrate REFUSES a worktree with a live worker, using the shared state', 
   // process's stdout keeps node's test-runner pipe open, and the runner then
   // never exits — it hangs waiting for a stream that only closes when the sleep
   // dies. Redirecting all three fds lets execFileSync return AND lets node exit.
-  const child = execFileSync('bash', ['-c', 'sleep 300 </dev/null >/dev/null 2>&1 & echo $!'],
-    { encoding: 'utf8' }).trim();
+  const child = record(execFileSync('bash', ['-c', 'sleep 300 </dev/null >/dev/null 2>&1 & echo $!'],
+    { encoding: 'utf8' }).trim());
   try {
     fs.writeFileSync(path.join(wt, '.plot-worker.pid'), child);
     fs.mkdirSync(path.join(repo, '.plot', 'agents'), { recursive: true });
@@ -172,7 +173,7 @@ test('--migrate REFUSES a worktree with a live worker, using the shared state', 
     assert.match(line, /worker alive|pid/i);
     assert.ok(fs.existsSync(wt), 'a worktree with a live worker is never moved');
   } finally {
-    try { process.kill(Number(child)); } catch { /* already gone */ }
+    signalOwn(child, 'SIGTERM', { command: 'sleep 300' });
   }
 });
 

@@ -33,6 +33,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { record, signalOwn } from './own-process.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -126,11 +127,9 @@ function refuseEveryPush(origin) {
 }
 
 /** A live process, the shape `plot_worker_state` reads as `running`. */
-function spawnLive() {
-  return execFileSync('bash', ['-c',
-    "nohup sh -c 'sleep 300 & exec sleep 300' </dev/null >/dev/null 2>&1 & echo $!",
-  ], { encoding: 'utf8' }).trim();
-}
+const spawnLive = () => record(execFileSync('bash', ['-c',
+  "nohup sh -c 'sleep 300 & exec sleep 300' </dev/null >/dev/null 2>&1 & echo $!",
+], { encoding: 'utf8' }).trim());
 
 /**
  * A second agent's manifest in the SAME registry, naming `branch`, with a live
@@ -237,7 +236,7 @@ test('claim push: a present ref with a LIVE holder keeps the registry-lock viola
     assert.equal(out.includes('origin has no such branch'), false,
       'the present case must not also print the absent-ref message');
   } finally {
-    if (pid) { try { process.kill(Number(pid)); } catch { /* gone */ } }
+    if (pid) signalOwn(pid, 'SIGTERM', { command: 'sleep 300' });
     fs.rmSync(sb.root, { recursive: true, force: true });
   }
 });

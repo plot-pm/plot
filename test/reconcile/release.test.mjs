@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { record, signalOwn } from './own-process.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -37,7 +38,7 @@ const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd 
 const ctx = [];
 const pids = [];
 after(() => {
-  for (const pid of pids) { try { process.kill(Number(pid)); } catch { /* gone */ } }
+  for (const pid of pids) signalOwn(pid, 'SIGTERM', { command: 'sleep 300' });
   for (const t of ctx) fs.rmSync(t, { recursive: true, force: true });
 });
 
@@ -162,7 +163,7 @@ const spawnLive = () => {
   const pid = execFileSync('bash', ['-c',
     "nohup sh -c 'sleep 300 & exec sleep 300' </dev/null >/dev/null 2>&1 & echo $!",
   ], { encoding: 'utf8' }).trim();
-  pids.push(pid);
+  pids.push(record(pid));
   return pid;
 };
 
