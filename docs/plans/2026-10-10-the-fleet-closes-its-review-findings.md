@@ -114,7 +114,7 @@ A `bash -x` trace of `--status` (20:20 CEST, load average 19.56) shows two separ
 
 ### An unknown supervisor keeps the scan
 
-- `bug/an-unknown-supervisor-keeps-the-scan` — `fleetOwnsScan` does not hand the scan to the board on an `unknown` supervisor reading while the fleet's bridge is younger than `OWNED_BRIDGE_MAX_AGE_MS`; answers #1445 L3; and `plot-fleetctl.sh` starts no new `lsof` while one it started earlier still runs, so a kernel stall costs one stuck process and not one per board refresh (80 stuck `lsof -a -p <pid> -d cwd -Fn` measured on 2026-10-10), answers #1503 M1 <!-- builds: an unknown arm in fleetOwnsScan, a stuck-lsof guard in plot-fleetctl.sh -->
+- `bug/an-unknown-supervisor-keeps-the-scan` → #1514 — `fleetOwnsScan` does not hand the scan to the board on an `unknown` supervisor reading while the fleet's bridge is younger than `OWNED_BRIDGE_MAX_AGE_MS`; answers #1445 L3; and `plot-fleetctl.sh` starts no new `lsof` while one it started earlier still runs, so a kernel stall costs one stuck process and not one per board refresh (80 stuck `lsof -a -p <pid> -d cwd -Fn` measured on 2026-10-10), answers #1503 M1 <!-- builds: an unknown arm in fleetOwnsScan, a stuck-lsof guard in plot-fleetctl.sh -->
 
 ### A free agent reads running
 
