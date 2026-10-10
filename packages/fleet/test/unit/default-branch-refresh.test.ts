@@ -103,7 +103,7 @@ describe('refreshDefaultBranch', () => {
     r.runs('a1', [run('CI', 'success'), run('Release', 'failure')]);
     await refreshDefaultBranch(r.world);
     expect(r.stored()).toMatchObject({ head: 'green', settled: { sha: 'a1', state: 'green' }, failingRuns: [] });
-    expect(defaultBranchRed(r.stored())).toBe(false);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(false);
   });
 
   it('reads red and names only the declared workflow that failed', async () => {
@@ -119,7 +119,7 @@ describe('refreshDefaultBranch', () => {
     r.runs('a1', [run('CI', 'success'), run('Release', 'failure')]);
     await refreshDefaultBranch(r.world);
     expect(r.stored()?.failingRuns.map((failing) => failing.workflow)).toEqual(['Release']);
-    expect(defaultBranchRed(r.stored())).toBe(true);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(true);
   });
 
   it('makes zero runs-for-sha calls for a settled, unchanged SHA', async () => {
@@ -143,7 +143,7 @@ describe('refreshDefaultBranch', () => {
     expect(r.calls()).toBe(2);
   });
 
-  it('asks a head past Checks wait at most once per Checks wait', async () => {
+  it('asks a head past Checks wait once per half Checks wait', async () => {
     const r = rig();
     r.runs('a1', [run('ci', null, 'queued')]);
     await refreshDefaultBranch(r.world);
@@ -154,25 +154,25 @@ describe('refreshDefaultBranch', () => {
     }
     expect(r.calls()).toBe(WAIT / REASK_MS);
     const lastAsk = WAIT - REASK_MS;
-    // Past Checks wait: refreshing every minute for three hours asks once per Checks wait.
+    // Past Checks wait: refreshing every minute for three hours asks once per half Checks wait.
     for (let t = WAIT; t <= 4 * WAIT; t += 60_000) {
       r.clock(t);
       await refreshDefaultBranch(r.world);
     }
-    expect(r.calls()).toBe(WAIT / REASK_MS + 3);
-    expect(r.stored()?.askedAt).toBe(new Date(T0 + lastAsk + 3 * WAIT).toISOString());
+    expect(r.calls()).toBe(WAIT / REASK_MS + 6);
+    expect(r.stored()?.askedAt).toBe(new Date(T0 + lastAsk + 6 * (WAIT / 2)).toISOString());
   });
 
   it('asks a red head again after Checks wait and lifts the hold when a re-run goes green', async () => {
     const r = rig();
     r.runs('a1', [run('ci', 'failure')]);
     await refreshDefaultBranch(r.world);
-    expect(defaultBranchRed(r.stored())).toBe(true);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(true);
     r.clock(WAIT + REASK_MS);
     r.runs('a1', [run('ci', 'success')]);
     expect(await refreshDefaultBranch(r.world)).toBe('asked');
     expect(r.stored()?.settled).toEqual({ sha: 'a1', state: 'green' });
-    expect(defaultBranchRed(r.stored())).toBe(false);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(false);
   });
 
   it('lifts a settled red after a restart past Checks wait once the pending head went green', async () => {
@@ -190,12 +190,57 @@ describe('refreshDefaultBranch', () => {
     });
     r.tip('b2');
     r.runs('b2', [run('ci', 'success')]);
-    expect(defaultBranchRed(r.stored())).toBe(true);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(true);
     r.clock(2 * WAIT);
     expect(await refreshDefaultBranch(r.world)).toBe('asked');
     expect(r.calls()).toBe(1);
     expect(r.stored()?.settled).toEqual({ sha: 'b2', state: 'green' });
-    expect(defaultBranchRed(r.stored())).toBe(false);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(false);
+  });
+
+  it.each([
+    ['one hour', WAIT],
+    ['REASK_MS', REASK_MS],
+  ])('keeps a red head held at every 5 s point across 3 x Checks wait of %s, with off-beat refreshes', async (_name, wait) => {
+    const r = rig();
+    r.world.checksWaitMs = wait;
+    r.runs('a1', [run('ci', 'failure')]);
+    const missing: number[] = [];
+    // The refresh runs after readPrs() on the 60 s beat: 65 s apart, starting 35 s after
+    // the first ask, so it drifts against both the minute and the 5 s supervision tick.
+    for (let t = 0; t <= 3 * wait; t += 5_000) {
+      r.clock(t);
+      if (t === 0 || (t - 35_000) % 65_000 === 0) await refreshDefaultBranch(r.world);
+      if (!defaultBranchRed(r.stored(), r.world.now(), wait)) missing.push(t);
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it('ages a red reading from the last answer while the host keeps failing', async () => {
+    const r = rig();
+    r.runs('a1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    const answered = r.stored()?.askedAt;
+    r.fail(true);
+    const asksBefore = r.calls();
+    for (let t = 60_000; t <= WAIT + 60_000; t += 60_000) {
+      r.clock(t);
+      await refreshDefaultBranch(r.world);
+    }
+    // Failed asks keep the answer's askedAt, record themselves in `at`, and keep the interval.
+    expect(r.stored()).toMatchObject({ head: 'unknown', settled: { sha: 'a1', state: 'red' }, askedAt: answered });
+    // Asked every REASK_MS until Checks wait; past it, the 55 min ask waits half a Checks wait.
+    expect(r.stored()?.at).toBe(new Date(T0 + WAIT - REASK_MS).toISOString());
+    expect(r.calls() - asksBefore).toBe(WAIT / REASK_MS - 1);
+    r.clock(WAIT);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(true);
+    r.clock(WAIT + 1);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(false);
+    // The next answer renews the hold.
+    r.fail(false);
+    r.clock(WAIT - REASK_MS + WAIT / 2);
+    expect(await refreshDefaultBranch(r.world)).toBe('asked');
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(true);
   });
 
   it('measures Checks wait from when the SHA first appeared, not from the last ask', async () => {
@@ -269,6 +314,24 @@ describe('refreshDefaultBranch', () => {
     r.fail(true);
     await refreshDefaultBranch(r.world);
     expect(r.stored()).toMatchObject({ head: 'unknown', settled: { sha: 'a1', state: 'red' } });
+  });
+
+  it('reads an unaskable CI as unreadable and writes nothing', async () => {
+    const r = rig();
+    r.world.build = { runsForSha: async () => ({ ok: false, why: 'unaskable' }) };
+    expect(await refreshDefaultBranch(r.world)).toBe('unreadable');
+    expect(r.stored()).toBeNull();
+  });
+
+  it('keeps a settled red reading when the CI becomes unaskable', async () => {
+    const r = rig();
+    r.runs('a1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    const before = r.stored();
+    r.clock(REASK_MS + 1);
+    r.world.build = { runsForSha: async () => ({ ok: false, why: 'unaskable' }) };
+    expect(await refreshDefaultBranch(r.world)).toBe('unreadable');
+    expect(r.stored()).toEqual(before);
   });
 
   it('reads no runs as unknown without settling', async () => {
