@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
 - **Sprint:** the-gates-and-the-review-findings
 - **Issue:** #1341, #1449
 - **Story:** the-shell-holds-no-behavior
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-10-10, Jan Wloka, plan-PR #1494 merged
 
 ## Changelog
 

@@ -23,7 +23,7 @@ On `main` at `eb4bda159`, 2026-10-10, `skills/plot/scripts/README.md` lists 15 *
      checkbox. Strike a reference — `~~[<plan-slug>]~~` — to mark an item that
      left the sprint; the plan's own state then says whether it was withdrawn. -->
 
-- [ ] [the-gates-are-launchers](../plans/2026-10-10-the-gates-are-launchers.md) — one hook entry runs the five gates through `plot-gate.mjs`, and each `plot-*-gate.sh` is a launcher (#1341, #1449).
+- [ ] [the-gates-are-launchers](../plans/2026-10-10-the-gates-are-launchers.md) — one hook entry runs the five gates through `plot-gate.mjs`, and each `plot-*-gate.sh` is a launcher (#1341, #1449). <!-- pr: #1494, branch: feature/one-entry-reads-the-hook -->
 
 ### Should Have
 
