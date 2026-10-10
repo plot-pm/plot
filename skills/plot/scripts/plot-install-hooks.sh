@@ -183,9 +183,18 @@ if [ "$verify_only" = 1 ]; then
   # prober is never run — running it would prove the script works and say
   # nothing about this repository, which is the confusion this whole mode
   # exists to prevent.
-  registered_here() { # $1=basename
-    printf '%s\n' "$existing_bash_hooks" | grep -qF "$1"
+  registered_here() { # $1=basename; the one-hook form covers every gate it lists
+    printf '%s\n' "$existing_bash_hooks" | grep -qF -e "$1" -e plot-gates.sh
   }
+
+  # The one-hook form (`plot-gates.sh`) stands for the gates `plot-gate.mjs
+  # --list` names, so each is probed against its own script. No bundle, or an
+  # empty table, lists none.
+  probe_gates="$gates"
+  if printf '%s\n' "$gates" | grep -qx 'plot-gates.sh'; then
+    probe_gates=$({ printf '%s\n' "$gates" | grep -vx 'plot-gates.sh'
+      node "$script_dir/board/plot-gate.mjs" --list 2>/dev/null | sed 's/.*/plot-&-gate.sh/'; } | sed '/^$/d' | sort -u)
+  fi
 
   # WHERE THE GATE SCRIPTS LIVE, READ TWO WAYS, AND NEITHER IS SUFFICIENT ALONE.
   #
@@ -419,7 +428,7 @@ if [ "$verify_only" = 1 ]; then
         unprobeable_count=$((unprobeable_count + 1))
         report="${report}  unprobed    ${g} — the condition could not be built here"$'\n' ;;
     esac
-  done <<< "$gates"
+  done <<< "$probe_gates"
 
   # --- THE VERDICT ---
   # THREE WORDS, NOT TWO, AND THE THIRD IS LOAD-BEARING. plot-board-probe.sh's
