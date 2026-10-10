@@ -371,6 +371,43 @@ test('host: pr-state github names the head and the checks read for it', () => {
   assert.equal(JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: green })).checks, 'green');
 });
 
+// The fold is an allow-list: green needs every item finished with an accepted
+// result. Each row is [rollup, word]; pr-state and pr-list --rich read one fold.
+const CHECK_FOLD_CASES = [
+  [[{ status: 'COMPLETED', conclusion: 'SUCCESS' }], 'green'],
+  [[{ status: 'COMPLETED', conclusion: 'NEUTRAL' }], 'green'],
+  [[{ status: 'COMPLETED', conclusion: 'SKIPPED' }], 'green'],
+  [[{ state: 'SUCCESS' }], 'green'],
+  [[{ conclusion: 'SUCCESS' }, { conclusion: 'NEUTRAL' }, { conclusion: 'SKIPPED' }, { state: 'SUCCESS' }], 'green'],
+  [[{ conclusion: 'STARTUP_FAILURE' }], 'failing'],
+  [[{ conclusion: 'STALE' }], 'failing'],
+  [[{ status: 'COMPLETED', conclusion: 'A_WORD_NOBODY_KNOWS' }], 'failing'],
+  [[{ state: 'EXPECTED' }], 'pending'],
+  [[{ conclusion: '', status: 'REQUESTED' }], 'pending'],
+  [[{ conclusion: 'SUCCESS' }, { conclusion: 'STARTUP_FAILURE' }], 'failing'],
+  [[{ conclusion: 'SUCCESS' }, { state: 'EXPECTED' }], 'pending'],
+  [[{ conclusion: 'STALE' }, { conclusion: '', status: 'REQUESTED' }], 'failing'],
+];
+
+for (const [rollup, word] of CHECK_FOLD_CASES) {
+  test(`host: check fold reads ${JSON.stringify(rollup)} as ${word}`, () => {
+    const state = makeStubs({
+      ghJson: JSON.stringify({ number: 7, state: 'OPEN', isDraft: false, url: 'u', headRefOid: 'a'.repeat(40), statusCheckRollup: rollup }),
+    });
+    assert.equal(JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: state })).checks, word, 'pr-state');
+    const list = makeStubs({
+      ghJson: JSON.stringify([{
+        number: 7, title: 't', state: 'OPEN', headRefName: 'feature/x', isDraft: false,
+        statusCheckRollup: rollup.map((item, i) => ({ name: `c${i}`, ...item })),
+        mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null, url: 'u',
+      }]),
+    });
+    const row = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs: list }));
+    assert.equal(row.checks, word, 'pr-list --rich');
+    assert.equal(row.failing_checks.length > 0, word === 'failing', 'failing_checks names a check exactly when the fold says failing');
+  });
+}
+
 test('host: pr-merge github pins the merge with --match-head-commit', () => {
   const sha = 'a'.repeat(40);
   const stubs = makeStubs();

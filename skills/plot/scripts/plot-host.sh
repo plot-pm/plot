@@ -458,11 +458,14 @@ die3() { echo "plot-host: $*" >&2; exit 3; }
 
 # THE ONE FOLD of a PR's check rollup into a word. `pr-list` and `pr-state` both
 # read it, so what `green` means cannot differ between a listing and a merge.
-CHECKS_OF='def checks_of: def c: (if (.conclusion // "") != "" then .conclusion else (.status // .state) end);
-  if (.statusCheckRollup|length) == 0 then "none"
-  elif any(.statusCheckRollup[]; c | .=="FAILURE" or .=="ERROR" or .=="CANCELLED" or .=="TIMED_OUT" or .=="ACTION_REQUIRED") then "failing"
-  elif any(.statusCheckRollup[]; c | .=="PENDING" or .=="IN_PROGRESS" or .=="QUEUED" or .=="WAITING" or .==null) then "pending"
-  else "green" end;'
+# An allow-list: `ck` reads `ok` only for a finished item with an accepted
+# result, `wait` for an unfinished one, and `bad` for every other word.
+CHECKS_OF='def ck: (.conclusion // "") as $k | (.status // "") as $s | (if $s != "" then $s else (.state // "") end) as $w |
+  if $k != "" and ($s|IN("","COMPLETED")) then (if ($k|IN("SUCCESS","NEUTRAL","SKIPPED")) then "ok" else "bad" end)
+  elif ($w|IN("","QUEUED","IN_PROGRESS","WAITING","REQUESTED","PENDING","EXPECTED")) then "wait"
+  elif $s == "" and $w == "SUCCESS" then "ok" else "bad" end;
+  def checks_of: if (.statusCheckRollup|length) == 0 then "none" elif any(.statusCheckRollup[]; ck == "bad") then "failing"
+  elif any(.statusCheckRollup[]; ck == "wait") then "pending" else "green" end;'
 
 # Exit 5 — the host refused to answer FOR NOW. A rate limit, primary or
 # secondary: nothing is broken, nothing needs fixing, and the same question
@@ -4234,10 +4237,7 @@ case "$op" in
                 updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),checksSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),
                 author:(.author.login // ""),
                 failing_checks:[
-                  .statusCheckRollup[]? | select((if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
-                    | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
-                      or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED")
-                  | (.name // .context // "")] | map(select(. != ""))
+                  .statusCheckRollup[]? | select(ck == "bad") | (.name // .context // "")] | map(select(. != ""))
               }'
         fi
       else
