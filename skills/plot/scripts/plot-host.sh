@@ -458,14 +458,11 @@ die3() { echo "plot-host: $*" >&2; exit 3; }
 
 # THE ONE FOLD of a PR's check rollup into a word. `pr-list` and `pr-state` both
 # read it, so what `green` means cannot differ between a listing and a merge.
-CHECKS_OF='def checks_of:
+CHECKS_OF='def checks_of: def c: (if (.conclusion // "") != "" then .conclusion else (.status // .state) end);
   if (.statusCheckRollup|length) == 0 then "none"
-  elif any(.statusCheckRollup[]; (if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
-           | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED" or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED") then "failing"
-  elif any(.statusCheckRollup[]; (if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
-           | $c=="PENDING" or $c=="IN_PROGRESS" or $c=="QUEUED" or $c=="WAITING" or $c==null) then "pending"
-  else "green" end;
-'
+  elif any(.statusCheckRollup[]; c | .=="FAILURE" or .=="ERROR" or .=="CANCELLED" or .=="TIMED_OUT" or .=="ACTION_REQUIRED") then "failing"
+  elif any(.statusCheckRollup[]; c | .=="PENDING" or .=="IN_PROGRESS" or .=="QUEUED" or .=="WAITING" or .==null) then "pending"
+  else "green" end;'
 
 # Exit 5 — the host refused to answer FOR NOW. A rate limit, primary or
 # secondary: nothing is broken, nothing needs fixing, and the same question
@@ -2080,8 +2077,7 @@ rest_pr_to_state() {
         state: $state,
         draft: (.draft // false),
         url: (.html_url // ""),
-        mergeCommit: (.merge_commit_sha // ""),
-        headSha: (.head.sha // ""), checks: "unknown" }
+        mergeCommit: (.merge_commit_sha // ""), headSha: (.head.sha // ""), checks: "unknown" }
   '
 }
 
@@ -3906,9 +3902,7 @@ case "$op" in
       [ "$delbranch" = 1 ] && args+=(--delete-branch)
       [ -n "$pin" ] && args+=(--match-head-commit "$pin")
       gh "${args[@]}"
-    elif [ -n "$pin" ]; then
-      echo "plot-host: pr-merge --match-head: bitbucket cannot pin a merge to a commit; nothing was merged" >&2
-      exit 4
+    elif [ -n "$pin" ]; then echo "plot-host: pr-merge --match-head: bitbucket cannot pin a merge to a commit; nothing was merged" >&2; exit 4
     else
       args=(pr merge "$num")
       [ "$squash" = 1 ] && args+=(--squash)
