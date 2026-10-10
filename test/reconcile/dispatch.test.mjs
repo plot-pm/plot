@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isOwn, readPid, record, signalOwn, signalRecorded } from './own-process.mjs';
+import { isOwn, ownMembers, readPid, record, signalOwn, signalRecorded } from './own-process.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dispatch = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-dispatch.sh');
@@ -3422,35 +3422,44 @@ test('dispatch: a nested worktree stays invisible to git status and the marker g
 // running on this disk and the shared fixture's worktrees would be counted.
 
 /**
- * End a `--start` desk's processes and wait until its wrapper has exited.
+ * End a `--start` desk's processes and wait until they have exited.
  *
- * Since #1168 the wrapper leads its own process group, holding its monitors,
- * the loop and the agent, and `--start` returns while they run. A test that
- * signals only the agent and then removes the desk races the wrapper writing
- * `.plot-worker.exit` and the monitors writing findings into it: `rmSync` then
- * fails with ENOTEMPTY. So the whole group is killed and the wrapper is waited
- * for before the desk is removed.
+ * The wrapper leads its own process group, which holds its monitors, the loop
+ * and the agent, and `--start` returns while they run. A desk removed while a
+ * member still runs fails `rmSync` with ENOTEMPTY, because the wrapper writes
+ * `.plot-worker.exit` and the monitors write findings into the desk.
+ *
+ * While the wrapper still names the process that wrote its pid file, the whole
+ * group is signalled. Once the wrapper is gone, only the members `ownMembers`
+ * proves are signalled: started no earlier than the pid file, with a command
+ * line that names this test's temp root (the wrapper's copies, which embed
+ * the Worker command and its sentinel path) or the agent monitor script.
+ * `endDesk` returns when neither the wrapper nor a proven member is left.
  *
  * @param wt the desk.
  */
 const endDesk = (wt) => {
   const rec = readPid(path.join(wt, '.plot-worker.wrapper.pid'));
   if (rec === undefined) return;
-  // The wrapper counts as gone once its pid no longer names the process that
-  // wrote the file, so a reused pid is neither waited on nor signalled.
   const own = { recordedAt: rec.recordedAt };
-  // SIGTERM FIRST: the loop's and the monitors' `plot-tmp.sh` traps remove
-  // their temp entries on it and cannot on SIGKILL, and the wrapper ignores it,
-  // records the exit and ends once its agent has. SIGKILL only if it has not.
-  const gone = () => !isOwn(rec.pid, own);
+  const desk = {
+    ...own,
+    group: true,
+    member: [path.dirname(wt), path.join(path.dirname(dispatch), 'plot-agent-monitor.sh')],
+  };
+  // A `ps` that cannot answer counts as a member still running.
+  const gone = () => !isOwn(rec.pid, own) && (ownMembers(rec.pid, desk)?.length ?? 1) === 0;
   const waitGone = (ms) => {
     const deadline = Date.now() + ms;
     while (Date.now() < deadline && !gone()) spawnSync('sleep', ['0.1']);
     return gone();
   };
-  signalOwn(rec.pid, 'SIGTERM', { ...own, group: true });
+  // SIGTERM first: the loop's and the monitors' `plot-tmp.sh` traps remove
+  // their temp entries on it and cannot on SIGKILL, and the wrapper ignores
+  // it, records the exit and ends once its agent has.
+  signalOwn(rec.pid, 'SIGTERM', desk);
   if (waitGone(10_000)) return;
-  signalOwn(rec.pid, 'SIGKILL', { ...own, group: true });
+  signalOwn(rec.pid, 'SIGKILL', desk);
   signalOwn(rec.pid, 'SIGKILL', own);
   waitGone(5_000);
 };

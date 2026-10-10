@@ -704,8 +704,10 @@ test('worker-state: a running worker whose child works reads apart from one whos
   // burned a full core for 22h58m, orphaned at ppid 1, contributing to a load
   // average of 36.7 that evicted the launchd supervisor.
   const busy = spawn('sh', ['-c', 'sh -c "while :; do :; done"'], { stdio: 'ignore', detached: true });
-  // A shell with an IDLE child — it sleeps, so its clock is frozen.
-  const idle = spawn('sh', ['-c', 'sleep 30'], { stdio: 'ignore' });
+  // A shell with an IDLE child — it sleeps, so its clock is frozen. Spawned
+  // detached too: the `finally` below group-signals `-idle.pid`, which only
+  // reaches the `sleep 30` grandchild when `idle` leads its own group.
+  const idle = spawn('sh', ['-c', 'sleep 30'], { stdio: 'ignore', detached: true });
   try {
     assert.equal(activity(busy.pid), 'working',
       'a worker whose descendant burns CPU across the interval reads `working`');
