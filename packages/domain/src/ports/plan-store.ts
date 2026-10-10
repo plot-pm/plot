@@ -39,6 +39,8 @@ export interface PlanRecord {
   branches: readonly string[];
   /** Every PR number the plan's branch lines annotate. */
   prs: readonly number[];
+  /** The PR numbers a deferred branch line or slice heading annotates; each is also in {@link prs}. */
+  deferredPrs: readonly number[];
   /** The plan's slices, in the order the file declares them. */
   slices: readonly PlanRecordSlice[];
   /** The declared review channel — `pr`, `in-session`, `ballot`, `none`. */

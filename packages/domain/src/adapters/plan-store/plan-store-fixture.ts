@@ -32,6 +32,7 @@ export const planRecord = (over: Partial<PlanRecord> = {}): PlanRecord => ({
   assignee: '',
   branches: [],
   prs: [],
+  deferredPrs: [],
   slices: [],
   review: '',
   impl: '',

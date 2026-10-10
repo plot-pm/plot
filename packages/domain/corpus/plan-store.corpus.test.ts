@@ -45,6 +45,7 @@ const FIELDS: ReadonlyArray<readonly [keyof PlanRecord, string]> = [
   ['assignee', 'assignee'],
   ['branches', 'branches'],
   ['prs', 'prs'],
+  ['deferredPrs', 'deferred_prs'],
   ['review', 'review'],
   ['impl', 'impl'],
   ['approvedRaw', 'approved_raw'],

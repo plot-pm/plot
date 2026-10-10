@@ -16,7 +16,7 @@ import {
   release,
   type TransitionPlan,
 } from '@plot-pm/domain/transitions/plan';
-import { releaseTag } from '@plot-pm/domain/rules/release-tag';
+import { releasePr, releaseTag } from '@plot-pm/domain/rules/release-tag';
 import { flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { tickSprintItem } from '@plot-pm/domain/rules/sprint-tick';
 import { indexSymlinkPlacement } from '@plot-pm/domain/rules/index-symlink';
@@ -576,12 +576,11 @@ const runRelease = async (
   if (plan === null) {
     throw new Refused(`cannot parse '${planFile}' — refusing rather than guessing.\n  See what the parser reads: ${ctx.scriptDir}/plot-plan-meta.sh ${planFile}\n  A plan needs a '## Status' section with a 'State:' field.`);
   }
-  // `.prs[-1]`, read through the ONE parser that owns the plan format — never
-  // a regex over the raw text, which cannot tell a branch's `→ #N` annotation
-  // from a PR number mentioned in prose elsewhere in the file.
+  // The last PR of a slice that was not deferred, read through the ONE parser
+  // that owns the plan format — never a regex over the raw text, which cannot
+  // tell a branch's `→ #N` annotation from a PR number mentioned in prose.
   const parsed = await ctx.planStore.readPlan(planFile);
-  const lastPr =
-    parsed.ok && parsed.value.prs.length > 0 ? String(parsed.value.prs[parsed.value.prs.length - 1]) : '';
+  const lastPr = parsed.ok ? releasePr(parsed.value.prs, parsed.value.deferredPrs) : '';
 
   switch (plan.phase) {
     case 'delivered':
@@ -605,7 +604,7 @@ const runRelease = async (
   const main = await resolveMain(ctx.repoRoot, ctx.scripts);
 
   if (lastPr === '') {
-    throw new Refused(`plan '${args.slug}' names no '→ #N' annotation — the version cannot be resolved from a merge commit that does not exist.\n  Nothing was written. Annotate the branch that shipped this plan, then re-run.`);
+    throw new Refused(`plan '${args.slug}' names no '→ #N' annotation on a slice that was not deferred — the version cannot be resolved from a merge commit that does not exist.\n  Nothing was written. Annotate the branch that shipped this plan, then re-run.`);
   }
   const prState = await ctx.host.prState(Number(lastPr));
   const mergeCommit = prState.ok && prState.value !== null ? prState.value.mergeCommit : '';
