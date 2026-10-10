@@ -48,6 +48,7 @@ import {
   type Trees,
   planSpend,
 } from '@plot-pm/domain';
+import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import {
   buildShell,
   hostShell,
@@ -57,6 +58,7 @@ import {
   scriptsShell,
   sliceSpendFile,
   treesGit,
+  defaultBranchFile,
 } from '@plot-pm/domain/adapters';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
@@ -144,6 +146,14 @@ export interface BuildBoardOptions {
    * a stub needs a seam.
    */
   spendRecord?: SliceSpendRecord;
+  /**
+   * Where the default branch's CI reading is read from. Absent means this
+   * repository's `.plot/state/default-branch.json`.
+   *
+   * A port for the same reason as {@link spendRecord}: a board handed a
+   * fixture store takes no filesystem, and fleetd stays the only writer.
+   */
+  defaultBranchStore?: DefaultBranchStore;
 }
 
 /**
@@ -196,6 +206,16 @@ export const planStoreFor = (opts: BuildBoardOptions): PlanStore =>
  */
 export const spendRecordFor = (opts: BuildBoardOptions): SliceSpendRecord =>
   opts.spendRecord ?? sliceSpendFile({ cwd: opts.repoRoot });
+
+/**
+ * Where this board reads the default branch's CI reading from.
+ *
+ * Built per call for the same reason as {@link refsFor}: the adapter is a
+ * value, not a singleton, and a board handed a fixture store takes no
+ * filesystem.
+ */
+export const defaultBranchStoreFor = (opts: BuildBoardOptions): DefaultBranchStore =>
+  opts.defaultBranchStore ?? defaultBranchFile(opts.repoRoot);
 
 /**
  * The script runner for these options — the ONE way this package invokes a
@@ -2038,6 +2058,13 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     return read.ok ? read.value : null;
   })();
 
+  // fleetd's own file, read once per build — no host call, matching the
+  // spend-record read above. `undefined` where the store has no reading or
+  // the read failed; neither means the branch is green.
+  const defaultBranchReading = await (async () => {
+    const read = await defaultBranchStoreFor(opts).read();
+    return read.ok ? read.value ?? undefined : undefined;
+  })();
 
   for (const meta of metas) {
     // A plan's identity is its canonical path, never wherever it was staged for
@@ -2113,6 +2140,8 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
           checks: asChecks(record?.checks),
           mergeable: asMergeability(record?.mergeable),
           author: record?.author ?? '',
+          headSha: record?.headSha,
+          checksSha: record?.checksSha,
         };
       }),
       // Read from the record this card's OWN column measures recency by. Always
@@ -2320,6 +2349,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
       title: s.title || s.slug.replace(/-/g, ' '),
       planTitles: (s.plans || []).map((p) => p.title || p.slug.replace(/-/g, ' ')),
     }))),
+    defaultBranch: defaultBranchReading,
   };
 }
 

@@ -2,7 +2,7 @@ import {
   DEFAULT_BRANCH_VERSION,
   type DefaultBranchReading,
 } from '@plot-pm/domain/entities/default-branch';
-import { advanceSettled, failingRunsOf, foldRuns } from '@plot-pm/domain/rules/default-branch';
+import { advanceSettled, declaredRuns, failingRunsOf, foldRuns } from '@plot-pm/domain/rules/default-branch';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { Refs } from '@plot-pm/domain/ports/refs';
@@ -29,6 +29,11 @@ export interface DefaultBranchWorld {
    * {@link REASK_MS}; after it, at most once per `Checks wait`.
    */
   checksWaitMs: number;
+  /**
+   * The workflow names `Default branch checks` declares. Only their runs are
+   * folded; an empty list folds every run.
+   */
+  checks: readonly string[];
 }
 
 /** What one refresh did, for the log and the tests. */
@@ -44,6 +49,9 @@ export type DefaultBranchOutcome = 'skipped' | 'asked' | 'unreadable';
  * (`headSince`). After that it is asked again once per `Checks wait`, measured
  * from `askedAt`, so a re-run that turns a red head green lifts the hold on the
  * next ask. A green, unchanged SHA makes no `runsForSha` call and no write.
+ *
+ * Only the runs of the workflows in `world.checks` are folded
+ * (`declaredRuns`); an empty list folds every run.
  *
  * The settled part moves only when the head is `red` or `green`
  * (`advanceSettled`). An unanswered question writes nothing, so a host that
@@ -95,7 +103,8 @@ export const refreshDefaultBranch = async (
       at: stamp,
     };
   } else {
-    const head = foldRuns(asked.value);
+    const runs = declaredRuns(asked.value, world.checks);
+    const head = foldRuns(runs);
     const settled = advanceSettled(carried, sha, head);
     const moved = settled !== undefined && settled.sha === sha;
     reading = {
@@ -106,7 +115,7 @@ export const refreshDefaultBranch = async (
       ...(settled ? { settled } : {}),
       // The failing runs belong to the settled commit: new ones when it moved
       // to this head, otherwise those already held.
-      failingRuns: moved ? (head === 'red' ? failingRunsOf(asked.value) : []) : (previous?.failingRuns ?? []),
+      failingRuns: moved ? (head === 'red' ? failingRunsOf(runs) : []) : (previous?.failingRuns ?? []),
       headSince,
       askedAt: stamp,
       at: stamp,

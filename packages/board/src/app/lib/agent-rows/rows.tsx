@@ -1,4 +1,5 @@
 import { useState, type MouseEvent } from 'react';
+import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import {
   type AgentRow,
   type WaitingOn,
@@ -307,6 +308,16 @@ export interface AgentListProps {
    * who was looking would be the worse failure by far.
    */
   server?: { hostUser?: string; gitEmail?: string; people?: Record<string, string> };
+  /**
+   * The default branch's CI reading — `/api/board`'s `defaultBranch`, carried
+   * the same way `server` above is: a prop rather than a `Fleet` field, because
+   * it travels on the board payload and the two are fetched separately.
+   *
+   * Absent where the board has not answered yet, and absent from an older
+   * server that never sent the field — both read as "no reading", which
+   * `defaultBranchStatus` already treats as "not red" rather than "green".
+   */
+  defaultBranch?: DefaultBranchReading;
 }
 
 /**

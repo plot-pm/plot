@@ -3,7 +3,7 @@ import { type Page } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
 import {
   openCatalogue, scenario, agent, row as buildRow, slice,
-  fleet as buildFleet, type Catalogue,
+  fleet as buildFleet, board as buildBoard, type Catalogue,
 } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentEntry, type AgentRow, type Fleet, type Slice } from '../../src/contract/schema.js';
 import { agentPr, classify, type PrRecord } from '../../src/server/fleet.js';
@@ -4004,6 +4004,59 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // An empty status box is a claim that the board is watching something; a
     // healthy board is not, so the panel renders nothing at all.
     const page = await openAgents(fleet({ error: null, shrink: null, prError: null }));
+    try {
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await expect.poll(() => page.locator('[data-status-panel]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // ── The repository's own health, not the board's ─────────────────────────
+  //
+  // `/api/board`'s `defaultBranch` rides to the Agents tab as a prop, same as
+  // `server` does — so these open the tab with BOTH a fleet and a board
+  // override, and wait on the board's own landing signal before asserting.
+
+  const RED_DEFAULT_BRANCH = {
+    v: 1 as const,
+    branch: 'main',
+    headSha: 'c'.repeat(40),
+    head: 'red' as const,
+    settled: { sha: 'abc1234567890', state: 'red' as const },
+    failingRuns: [],
+    headSince: '2026-10-10T14:00:00.000Z',
+    askedAt: '2026-10-10T14:02:00.000Z',
+    at: '2026-10-10T14:02:00.000Z',
+  };
+
+  it('shows one status panel entry naming the branch when the default branch is red', async () => {
+    const page = await cat.open('ten-rows-one-kind-each', {
+      tab: 'agents',
+      over: {
+        fleet: fleet({ error: null, shrink: null, prError: null }),
+        board: buildBoard({ defaultBranch: RED_DEFAULT_BRANCH }),
+      },
+    });
+    try {
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await expect.poll(() => page.locator('[data-status-panel]').count(), { timeout: 10_000 }).toBe(1);
+      const text = page.locator('[data-status-text]');
+      await text.waitFor({ timeout: 10_000 });
+      expect(await text.textContent()).toContain('main');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows no extra panel entry when the default branch is green', async () => {
+    const page = await cat.open('ten-rows-one-kind-each', {
+      tab: 'agents',
+      over: {
+        fleet: fleet({ error: null, shrink: null, prError: null }),
+        board: buildBoard({ defaultBranch: { ...RED_DEFAULT_BRANCH, head: 'green', settled: { sha: 'abc1234567890', state: 'green' } } }),
+      },
+    });
     try {
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
       await expect.poll(() => page.locator('[data-status-panel]').count()).toBe(0);

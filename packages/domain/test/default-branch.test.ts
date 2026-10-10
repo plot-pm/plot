@@ -9,9 +9,13 @@ import {
 } from '../src/entities/default-branch.js';
 import {
   advanceSettled,
+  checkNamesOf,
+  declaredRuns,
   defaultBranchRed,
+  defaultBranchStatus,
   failingRunsOf,
   foldRuns,
+  ageInWords,
 } from '../src/rules/default-branch.js';
 
 const run = (
@@ -99,6 +103,40 @@ describe('foldRuns — Jenkins words after the adapter maps them', () => {
   });
 });
 
+describe('checkNamesOf — the Default branch checks value', () => {
+  it('splits on commas and trims each name', () => {
+    expect(checkNamesOf(' CI , Build bundles ')).toEqual(['CI', 'Build bundles']);
+  });
+
+  it.each(['', '  ', ' , '])('reads %j as no names', (value) => {
+    expect(checkNamesOf(value)).toEqual([]);
+  });
+});
+
+describe('declaredRuns — only the declared workflows reach the fold', () => {
+  const runs = [run('success', { workflow: 'CI' }), run('failure', { workflow: 'Release' })];
+
+  it('reads green when only an undeclared workflow failed', () => {
+    expect(foldRuns(declaredRuns(runs, ['CI']))).toBe('green');
+    expect(failingRunsOf(declaredRuns(runs, ['CI']))).toEqual([]);
+  });
+
+  it('reads red and names the declared workflow that failed', () => {
+    const both = [run('failure', { workflow: 'CI', url: 'c' }), run('failure', { workflow: 'Release', url: 'r' })];
+    expect(foldRuns(declaredRuns(both, ['CI']))).toBe('red');
+    expect(failingRunsOf(declaredRuns(both, ['CI']))).toEqual([{ workflow: 'CI', conclusion: 'failure', url: 'c' }]);
+  });
+
+  it('keeps every run where no workflow is declared', () => {
+    expect(declaredRuns(runs, [])).toEqual(runs);
+    expect(foldRuns(declaredRuns(runs, []))).toBe('red');
+  });
+
+  it('reads unknown where no declared workflow ran', () => {
+    expect(foldRuns(declaredRuns(runs, ['Lint']))).toBe('unknown');
+  });
+});
+
 describe('failingRunsOf', () => {
   it('names each run that concluded as a failure', () => {
     expect(
@@ -176,6 +214,113 @@ describe('defaultBranchRed — reads the settled part only', () => {
 
   it('holds nothing on an unknown settled state', () => {
     expect(defaultBranchRed(reading({ settled: { sha: 's', state: 'unknown' } }))).toBe(false);
+  });
+});
+
+describe('defaultBranchStatus — only while defaultBranchRed holds', () => {
+  it('returns null on every reading defaultBranchRed releases', () => {
+    expect(defaultBranchStatus(null)).toBeNull();
+    expect(defaultBranchStatus(reading({ settled: undefined }))).toBeNull();
+    expect(defaultBranchStatus(reading({ settled: { sha: 's', state: 'green' } }))).toBeNull();
+    expect(defaultBranchStatus(reading({ settled: { sha: 's', state: 'unknown' } }))).toBeNull();
+  });
+
+  it('holds on a red settled commit even while the head is pending', () => {
+    // ONE FIXTURE, BOTH ARMS DISAGREEING: a reading whose `head` is `pending`
+    // and whose `settled` is `red` — the exact case `defaultBranchRed` says
+    // must still hold, so a mutation reading `head` instead of `settled`
+    // fails this assertion rather than passing it by coincidence.
+    const r = reading({ head: 'pending', settled: { sha: 'abc1234567', state: 'red' } });
+    const status = defaultBranchStatus(r, r.askedAt);
+    expect(status).not.toBeNull();
+    expect(status?.key).toBe('default-branch-red');
+    expect(status?.tone).toBe('amber');
+  });
+
+  it('names the branch and the short settled sha in the text', () => {
+    const r = reading({ branch: 'main', settled: { sha: 'abc1234567890', state: 'red' } });
+    const status = defaultBranchStatus(r, r.askedAt);
+    expect(status?.text).toContain('main');
+    expect(status?.text).toContain('abc1234');
+    expect(status?.text).not.toContain('abc1234567890');
+  });
+
+  it('reports the reading as stale by its age rather than hiding it', () => {
+    const r = reading({ settled: { sha: 's', state: 'red' }, askedAt: '2026-10-10T14:02:00.000Z' });
+    const status = defaultBranchStatus(r, '2026-10-10T14:05:00.000Z');
+    expect(status?.text).toContain('3 min ago');
+  });
+
+  it('reads under a minute ago rather than 0 min ago', () => {
+    const r = reading({ settled: { sha: 's', state: 'red' }, askedAt: '2026-10-10T14:02:00.000Z' });
+    const status = defaultBranchStatus(r, '2026-10-10T14:02:30.000Z');
+    expect(status?.text).toContain('under a minute ago');
+  });
+});
+
+describe('defaultBranchStatus — names the failing runs', () => {
+  const red = (failingRuns: DefaultBranchReading['failingRuns']) =>
+    reading({ branch: 'main', settled: { sha: '5d82dc3aaaa', state: 'red' }, failingRuns, askedAt: '2026-10-10T14:00:00.000Z' });
+
+  it('names the one failing workflow in parentheses', () => {
+    const status = defaultBranchStatus(red([{ workflow: 'Release', conclusion: 'failure', url: 'u' }]), '2026-10-10T14:04:00.000Z');
+    expect(status?.text).toBe('main is red on 5d82dc3 (Release), read 4 min ago.');
+  });
+
+  it('names every failing workflow once, in the order given', () => {
+    const status = defaultBranchStatus(
+      red([
+        { workflow: 'CI', conclusion: 'failure', url: 'u' },
+        { workflow: 'Release', conclusion: 'timed_out', url: 'v' },
+        { workflow: 'CI', conclusion: 'failure', url: 'w' },
+      ]),
+      '2026-10-10T14:04:00.000Z',
+    );
+    expect(status?.text).toBe('main is red on 5d82dc3 (CI, Release), read 4 min ago.');
+  });
+
+  it('adds no parentheses where no failing run carries a name', () => {
+    expect(defaultBranchStatus(red([]), '2026-10-10T14:04:00.000Z')?.text).toBe('main is red on 5d82dc3, read 4 min ago.');
+    expect(
+      defaultBranchStatus(red([{ workflow: '', conclusion: 'failure', url: 'u' }]), '2026-10-10T14:04:00.000Z')?.text,
+    ).toBe('main is red on 5d82dc3, read 4 min ago.');
+  });
+});
+
+describe('defaultBranchStatus — an age it cannot read', () => {
+  it.each(['', 'not a time'])('says the age is unknown, with no number, for askedAt %j', (askedAt) => {
+    const r = reading({ settled: { sha: 's', state: 'red' }, askedAt });
+    const status = defaultBranchStatus(r, '2026-10-10T14:05:00.000Z');
+    expect(status?.text).toContain("the reading's age is unknown");
+    expect(status?.text).not.toMatch(/\d+ (min|h|d) ago|under a minute/);
+  });
+});
+
+describe('ageInWords — minutes, then hours, then days', () => {
+  const at = '2026-10-10T00:00:00.000Z';
+  const plus = (ms: number): string => new Date(Date.parse(at) + ms).toISOString();
+  const MIN = 60_000;
+
+  it.each([
+    [0, 'under a minute ago'],
+    [MIN - 1, 'under a minute ago'],
+    [MIN, '1 min ago'],
+    [59 * MIN, '59 min ago'],
+    [60 * MIN, '1 h ago'],
+    [24 * 60 * MIN - 1, '23 h ago'],
+    [24 * 60 * MIN, '1 d ago'],
+    [3 * 24 * 60 * MIN, '3 d ago'],
+  ])('reads %i ms as %s', (ms, words) => {
+    expect(ageInWords(at, plus(ms))).toBe(words);
+  });
+
+  it('reads a timestamp in the future as under a minute', () => {
+    expect(ageInWords(plus(5 * MIN), at)).toBe('under a minute ago');
+  });
+
+  it('returns null where either timestamp does not parse', () => {
+    expect(ageInWords('', at)).toBeNull();
+    expect(ageInWords(at, 'later')).toBeNull();
   });
 });
 

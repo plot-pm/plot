@@ -45,7 +45,7 @@ import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { PortResult } from '@plot-pm/domain';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { viewLanded } from '@plot-pm/domain/rules/known-pr';
-import { defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
+import { checkNamesOf, defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
@@ -1894,6 +1894,7 @@ export const run = async (
         now: () => Date.now(),
         checksWaitMs:
           (Number(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')) || 3600) * 1000,
+        checks: checkNamesOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Default branch checks', '')),
       };
   const readDefaultBranch = async (): Promise<void> => {
     if (defaultBranchWorld === null) return;

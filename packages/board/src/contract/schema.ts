@@ -12,6 +12,7 @@ import {
   SprintStateSchema,
   ChecksSchema,
   MergeabilitySchema,
+  DefaultBranchReadingSchema,
   type Phase,
   type SprintState,
 } from '@plot-pm/domain';
@@ -313,6 +314,24 @@ export const CardPrSchema = z.object({
    * server also delivers `undefined`, and a consumer reads both as unknown.
    */
   author: z.string().default(''),
+  /**
+   * The commit at the branch's head when the host was last asked.
+   *
+   * `.optional()`, NEVER `.default('')`: absent means *the server that wrote
+   * this payload predates the field*, not *no commit*. A reader that treated
+   * `''` as a real head would render a badge with nothing to show.
+   */
+  headSha: z.string().optional(),
+  /**
+   * The commit the checks ran against — see `ChecksReadings.checksSha` in the
+   * domain for why this travels separately from `headSha`.
+   *
+   * `.optional()` for the same reason: absent means *no commit binding was
+   * reported* (every host before v4 wrote no such field; Jenkins never will),
+   * and `checksVerdict` renders that absence as its own sentence rather than
+   * as `headSha` under another name.
+   */
+  checksSha: z.string().optional(),
 });
 export type CardPr = z.infer<typeof CardPrSchema>;
 
@@ -1302,6 +1321,14 @@ export const BoardSchema = z.object({
    * that shows a story even when the topic was found in one of its plans.
    */
   topics: z.array(TopicSchema).default([]),
+  /**
+   * The default branch's CI reading, from fleetd's own file.
+   *
+   * `.optional()`, never `.default()`: absent means *no reading has been taken
+   * yet, or the store could not be read* — not "the branch is green." A reader
+   * that defaulted this would report a healthy branch it never checked.
+   */
+  defaultBranch: DefaultBranchReadingSchema.optional(),
 });
 export type Board = z.infer<typeof BoardSchema>;
 

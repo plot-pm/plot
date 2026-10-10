@@ -29,6 +29,7 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
 }
 import { AutoDispatchSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
+import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { SprintFilter } from './SprintFilter.js';
 import { rowIsSprintExempt, sanitizeSelection, slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
 // THE BOARD'S ONE AGE DIALECT, borrowed rather than reimplemented. A second
@@ -314,6 +315,7 @@ export function AgentList({
   onRevealBranch,
   highlightBranch = '',
   server,
+  defaultBranch,
 }: AgentListProps) {
   // Whether the server is answering at all. Not the same question as
   // `fleet.error`, which is a server that answered to say its scan failed.
@@ -854,6 +856,12 @@ export function AgentList({
       text: scanHostMessage,
     });
   }
+  // THE REPOSITORY'S OWN HEALTH, not the board's — a fact fleetd already wrote
+  // to `.plot/state/default-branch.json`. `defaultBranchStatus` returns null
+  // for everything but a settled red, so an absent or healthy reading pushes
+  // nothing here.
+  const defaultBranchEntry = defaultBranchStatus(defaultBranch ?? null);
+  if (defaultBranchEntry) statuses.push(defaultBranchEntry);
 
   return (
     <div className="space-y-4">

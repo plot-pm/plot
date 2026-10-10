@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import type { BoardStatus } from '@plot-pm/domain/rules/default-branch';
+
+export type { BoardStatus };
 
 /**
  * The board-status panel — one box at the top that carries every status the
@@ -26,25 +29,6 @@ import { useEffect, useRef, useState } from 'react';
  * interrupting for, so it stops flashing. This is the distinction
  * `the-line-flashes-on-any-written-update` already draws.
  */
-
-/** One thing the board has to report. */
-export interface BoardStatus {
-  /** Stable identity across pulses — what arrival and paging are keyed on. */
-  key: string;
-  /**
-   * How loud this is. Higher sorts first. A dead server (the whole view is
-   * gone) outranks a scan that broke, which outranks a shrink, which outranks a
-   * host that answered partially.
-   */
-  severity: number;
-  /** The sentence the reader reads. */
-  text: string;
-  /**
-   * `rose` for *not reaching the board server* — the whole view dead — and
-   * `amber` for the lesser states where the rows below are still worth reading.
-   */
-  tone: 'rose' | 'amber';
-}
 
 const TONE: Record<BoardStatus['tone'], string> = {
   rose: 'bg-rose-50 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300',

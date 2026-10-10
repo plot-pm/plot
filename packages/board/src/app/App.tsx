@@ -1192,6 +1192,12 @@ export function App() {
               // nothing. A filter that emptied the view for one poll interval
               // while the identity caught up would be the worse failure.
               server={board?.server}
+              // THE REPOSITORY'S CI READING, same rule as `server` above: it
+              // rides on the BOARD payload, not the fleet, so this is
+              // `undefined` until the first board lands — which
+              // `defaultBranchStatus` reads as "no reading" and shows nothing,
+              // never a guessed green.
+              defaultBranch={board?.defaultBranch}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>

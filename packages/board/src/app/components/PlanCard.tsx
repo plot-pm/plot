@@ -262,7 +262,7 @@ export const roundsBadgeClass = (card: Card): string =>
  * therefore the one thing the unit test above cannot make.
  */
 const ChecksNote = ({ pr }: { pr: Card['prs'][number] }) => {
-  const verdict = checksVerdict({ checks: pr.checks, mergeable: pr.mergeable });
+  const verdict = checksVerdict({ checks: pr.checks, mergeable: pr.mergeable, checksSha: pr.checksSha });
   if (!verdict.shown) return null;
   return (
     <span

@@ -193,6 +193,14 @@
 #   CI                  jenkins | github-actions | none — which CI system this
 #                       project uses. Recorded by /plot-board-setup; not yet
 #                       read by the board.
+#   Default branch checks
+#                       comma-separated workflow names whose runs decide whether
+#                       the default branch is red (`CI, Lint`). Read by fleetd
+#                       where it writes `.plot/state/default-branch.json`; a run
+#                       of any other workflow is not folded, so a publishing or
+#                       release workflow cannot raise the `default-branch-red`
+#                       hold or the board's red-branch status. Names match a run's
+#                       workflow name exactly. Absent = every workflow's runs.
 #   Jenkins instance    the slug or URL passed to a Jenkins CLI's -I flag.
 #                       Read back by /plot-board-setup to verify auth against
 #                       the right instance — without it the only runnable
