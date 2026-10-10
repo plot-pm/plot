@@ -32,16 +32,7 @@ import {
   unlinkSyncSafe,
   type Printer,
 } from './ladder.js';
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, realpathSync, symlinkSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -159,20 +150,19 @@ const transitionPlanOf = async (
  *
  * @returns the path relative to the repository root, or `''` where none exist.
  */
-const findPlanFile = (
-  repoRoot: string,
+const findPlanFile = async (
+  planStore: PlanStore,
   planDir: string,
   activeDir: string,
   deliveredDir: string,
   slug: string,
-): string => {
-  const dir = path.join(repoRoot, planDir);
-  if (existsSync(dir)) {
-    const hit = readdirSync(dir).find((name) => name.endsWith(`${slug}.md`));
-    if (hit !== undefined) return path.join(planDir, hit);
-  }
+): Promise<string> => {
+  const listed = await planStore.listDir(planDir);
+  const hit = (listed.ok ? listed.value : []).find((name) => name.endsWith(`${slug}.md`));
+  if (hit !== undefined) return path.join(planDir, hit);
   for (const candidate of [path.join(activeDir, `${slug}.md`), path.join(deliveredDir, `${slug}.md`)]) {
-    if (existsSync(path.join(repoRoot, candidate))) return candidate;
+    const held = await planStore.readText(candidate);
+    if (held.ok && held.value !== null) return candidate;
   }
   return '';
 };
@@ -313,13 +303,14 @@ const runDeliver = async (
 
   try {
     const target = path.join(tmpwt, rel);
-    if (!existsSync(target)) {
+    const present = await ctx.planStore.readText(target);
+    if (!present.ok || present.value === null) {
       warn(`plot-deliver: ${rel} is not present in ${tmpwt}\n`);
       await cleanup();
       return 1;
     }
 
-    const fileContent = readFileSync(target, 'utf8');
+    const fileContent = present.value;
     const scratchPlan = await transitionPlanOf(ctx.planStore, args.slug, target);
     if (scratchPlan === null) {
       warn(`plot-deliver: cannot parse ${target} — refusing rather than guessing.\n`);
@@ -360,7 +351,8 @@ const runDeliver = async (
       // never at `target` itself — landing it first and re-reading would be
       // too late: a refusal here must leave the plan byte-identical.
       const scratchPath = `${target}.plot-reread`;
-      writeFileSync(scratchPath, landed);
+      const scratched = await ctx.planStore.writeText(scratchPath, landed);
+      if (!scratched.ok) throw new Refused(`could not write ${scratchPath} to check the parser's reading.\n  Nothing was written to the plan.`);
       const reread = await transitionPlanOf(ctx.planStore, args.slug, scratchPath);
       unlinkSyncSafe(scratchPath);
       if (reread === null || reread.phase !== 'delivered') {
@@ -369,7 +361,8 @@ const runDeliver = async (
         await cleanup();
         return 1;
       }
-      writeFileSync(target, landed);
+      const written = await ctx.planStore.writeText(target, landed);
+      if (!written.ok) throw new Refused(`could not write ${rel}.\n  The plan is unchanged. Re-run this — it is idempotent.`);
       phaseReport = flip.changed ? 'flipped' : 'already';
       recordStateReceipt(ctx.repoRoot, rel, 'Delivered');
     }
@@ -393,7 +386,7 @@ const runDeliver = async (
     }
 
     // Tick the sprint item.
-    const sprintReport = await tickSprint(tmpwt, sprintDir, args.slug, sprint);
+    const sprintReport = await tickSprint(ctx.planStore, tmpwt, sprintDir, args.slug, sprint);
 
     for (const p of [rel, activeDir, deliveredDir, ...(sprintReport === 'updated' ? [sprintDir] : [])]) {
       await ctx.trees.stage(tmpwt, [p]);
@@ -403,9 +396,11 @@ const runDeliver = async (
     // on every exit below, and the caller's working tree may still read
     // 'Approved'; the issue status is decided from the file that reached the
     // default branch.
-    const bookedPlan = readFileSync(target, 'utf8');
+    const booked = await ctx.planStore.readText(target);
     const bookedPlanFile = path.join(os.tmpdir(), `plot-deliver-plan-${process.pid}.md`);
-    writeFileSync(bookedPlanFile, bookedPlan);
+    if (!booked.ok || booked.value === null || !(await ctx.planStore.writeText(bookedPlanFile, booked.value)).ok) {
+      throw new Refused(`could not keep a copy of the booked plan at ${bookedPlanFile} for the tracker.\n  Re-run this — it is idempotent.`);
+    }
 
     const pushResult = await commitAndPush(
       ctx,
@@ -466,20 +461,28 @@ const isSymlinkTo = (p: string): boolean => {
 };
 
 /** Ticks a plan's sprint item by searching the sprint directory for the line naming it. */
-const tickSprint = async (root: string, sprintDir: string, slug: string, sprint: string): Promise<string> => {
+const tickSprint = async (
+  planStore: PlanStore,
+  root: string,
+  sprintDir: string,
+  slug: string,
+  sprint: string,
+): Promise<string> => {
   // Matches the shell's own first guard: a plan that names no sprint owes no
   // tick, and the directory is never even looked at.
   if (sprint === '') return 'none';
   const dir = path.join(root, sprintDir);
-  if (!existsSync(dir)) return 'missing';
-  const files = readdirSync(dir).filter((n) => n.endsWith('.md'));
+  const listed = await planStore.listDir(dir);
+  const files = (listed.ok ? listed.value : []).filter((n) => n.endsWith('.md'));
   for (const name of files) {
     const file = path.join(dir, name);
-    const content = readFileSync(file, 'utf8');
-    if (!content.includes(`[${slug}]`)) continue;
+    const read = await planStore.readText(file);
+    const content = read.ok ? read.value : null;
+    if (content === null || !content.includes(`[${slug}]`)) continue;
     const result = tickSprintItem(content, slug);
     if (!result.changed) return 'already';
-    writeFileSync(file, result.content);
+    const written = await planStore.writeText(file, result.content);
+    if (!written.ok) throw new Refused(`could not write ${file}.\n  The sprint item is unticked. Re-run this — it is idempotent.`);
     return 'updated';
   }
   return 'missing';
@@ -543,7 +546,7 @@ export const run = async (
   const activeDir = activeDirCfg.ok ? activeDirCfg.value.trim() : 'docs/plans/active/';
   const deliveredDir = deliveredDirCfg.ok ? deliveredDirCfg.value.trim() : 'docs/plans/delivered/';
 
-  const planFile = findPlanFile(repoRoot, planDir, activeDir, deliveredDir, parsed.slug);
+  const planFile = await findPlanFile(ctx.planStore, planDir, activeDir, deliveredDir, parsed.slug);
   if (planFile === '') {
     warn(`plot-deliver: no plan found for '${parsed.slug}' — looked in ${planDir}, ${activeDir}, ${deliveredDir}.\n  Check the slug: ls ${planDir} | grep -i '${parsed.slug}'\n`);
     return 1;
@@ -652,11 +655,12 @@ const runRelease = async (
   const cleanup = () => ctx.trees.removeWithBranch(tmpwt, bookbr);
 
   const target = path.join(tmpwt, rel);
-  if (!existsSync(target)) {
+  const present = await ctx.planStore.readText(target);
+  if (!present.ok || present.value === null) {
     await cleanup();
     throw new Refused(`${rel} is not present in ${tmpwt}`);
   }
-  const fileContent = readFileSync(target, 'utf8');
+  const fileContent = present.value;
   const scratchPlan = await transitionPlanOf(ctx.planStore, args.slug, target);
   if (scratchPlan === null) {
     warn(`plot-deliver: cannot parse ${target} — refusing rather than guessing.\n`);
@@ -692,7 +696,8 @@ const runRelease = async (
       landed = inserted.content;
       recordReport = 'written';
     }
-    writeFileSync(target, landed);
+    const written = await ctx.planStore.writeText(target, landed);
+    if (!written.ok) throw new Refused(`could not write ${rel}.\n  The plan is unchanged. Re-run this — it is idempotent.`);
     phaseReport = flip.changed ? 'flipped' : 'already';
     recordStateReceipt(ctx.repoRoot, rel, 'Released');
   }

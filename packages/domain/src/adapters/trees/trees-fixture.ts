@@ -139,6 +139,10 @@ export interface TreesFixture {
   names?: Readonly<Record<string, string>>;
   /** The refs `hasRef` answers `true` for. */
   refs?: readonly string[];
+  /** The main checkout's root `mainRoot` answers; absent reads the path asked about, as a main checkout does. */
+  mainRoot?: string;
+  /** The lines `excludePath` finds already ignored. */
+  ignored?: readonly string[];
   /** Every call received, for a test to assert against. */
   calls?: {
     resets: { path: string; branch: string; base: string }[];
@@ -147,6 +151,8 @@ export interface TreesFixture {
     commitsAs: { path: string; who: string; message: string }[];
     fetches?: { path: string; branch: string }[];
     stages: { path: string; pathspecs: readonly string[] }[];
+    /** Every line `excludePath` appended; a line already ignored is not recorded. */
+    excludes?: { path: string; line: string }[];
   };
 }
 
@@ -164,6 +170,7 @@ export interface TreesFixture {
  * @returns a `Trees` backed by that fixture.
  */
 export const treesFixture = (fixture: TreesFixture = {}): Trees => {
+  const ignoredLines = new Set(fixture.ignored ?? []);
   const clean = new Set(fixture.clean ?? []);
   const markers = fixture.markers ?? {};
   const dirty = fixture.dirty ?? {};
@@ -316,5 +323,14 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
     },
 
     hasRef: async (_path, ref): Promise<PortResult<boolean>> => answered((fixture.refs ?? []).includes(ref)),
+
+    mainRoot: async (path): Promise<PortResult<string>> => answered(fixture.mainRoot ?? path),
+
+    excludePath: async (path, line): Promise<PortResult<void>> => {
+      if (ignoredLines.has(line)) return answered(undefined);
+      fixture.calls?.excludes?.push({ path, line });
+      ignoredLines.add(line);
+      return answered(undefined);
+    },
   };
 };

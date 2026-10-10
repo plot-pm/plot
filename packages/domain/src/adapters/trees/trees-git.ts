@@ -1,5 +1,5 @@
-import { readFileSync, rmSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 
 import type { Worktree } from '../../entities/worktree.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
@@ -178,6 +178,17 @@ export const treesGit = (context: ShellContext): Trees => {
   const inRepo = { cwd: context.repoRoot };
   const workerState = scriptPath(context, 'plot-worker-state.sh');
   const deskDirt = scriptPath(context, 'plot-desk-dirt.sh');
+
+  /** The git directory every worktree of a repository shares, absolute; null where git cannot say. */
+  const commonDir = async (path: string): Promise<string | null> => {
+    const run = await runProcess(
+      'git',
+      ['-C', path, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+      inRepo,
+    );
+    const dir = run.stdout.trim();
+    return run.code === 0 && dir !== '' ? dir : null;
+  };
 
   const isClean = async (path: string): Promise<PortResult<boolean>> => {
     const run = await runProcess('git', ['-C', path, 'status', '--porcelain'], inRepo);
@@ -553,6 +564,34 @@ export const treesGit = (context: ShellContext): Trees => {
       if (run.code === 0) return answered(true);
       if (run.code === 1) return answered(false);
       return failed<boolean>();
+    },
+
+    mainRoot: async (path): Promise<PortResult<string>> => {
+      const common = await commonDir(path);
+      if (common === null) return failed<string>();
+      return answered(basename(common) === '.git' ? dirname(common) : path);
+    },
+
+    excludePath: async (path, line): Promise<PortResult<void>> => {
+      const check = await runProcess('git', ['-C', path, 'check-ignore', '-q', line], inRepo);
+      if (check.code === 0) return answered(undefined);
+      if (check.code !== 1) return failed<void>();
+      const common = await commonDir(path);
+      if (common === null) return failed<void>();
+      try {
+        const exclude = join(common, 'info', 'exclude');
+        mkdirSync(dirname(exclude), { recursive: true });
+        let held = '';
+        try {
+          held = readFileSync(exclude, 'utf8');
+        } catch {
+          // No exclude file yet; the append creates it.
+        }
+        appendFileSync(exclude, `${held !== '' && !held.endsWith('\n') ? '\n' : ''}${line}\n`);
+        return answered(undefined);
+      } catch {
+        return failed<void>();
+      }
     },
   };
 };
