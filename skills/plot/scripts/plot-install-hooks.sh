@@ -222,19 +222,12 @@ if [ "$verify_only" = 1 ]; then
   # into a vendored repository and reports that it is gated. So where the
   # written path is absent, both readings are NAMED and neither is chosen.
 
-  # The command registered for a gate, as written, with the hook's own variables
-  # resolved the way the harness resolves them. Prints nothing when the gate is
-  # not registered here.
-  written_command() { # $1=basename
-    printf '%s\n' "$existing_bash_hooks" | grep -F "$1" | head -n 1
-  }
-
   # The written command reduced to a path this shell can test. Quotes and the
   # `$CLAUDE_PROJECT_DIR` root come out; an unset `${CLAUDE_PLUGIN_ROOT}`
   # deliberately leaves a path that cannot exist, which is the case above.
   written_path() { # $1=basename
     local cmd
-    cmd="$(written_command "$1")"
+    cmd="$(printf '%s\n' "$existing_bash_hooks" | grep -F "$1" | head -n 1)"
     [ -n "$cmd" ] || return 1
     cmd="${cmd%%  *}"
     cmd=$(printf '%s' "$cmd" | sed \
@@ -481,14 +474,9 @@ fi
 
 # Which of our gates are already reachable, matched on basename so a
 # plugin-rooted entry and a repo-relative one count as the same gate.
-missing=""
-while IFS= read -r g; do
-  [ -n "$g" ] || continue
-  if ! printf '%s\n' "$existing_bash_hooks" | grep -qF "$g"; then
-    missing="${missing}${g}"$'\n'
-  fi
-done <<< "$gates"
-missing=$(printf '%s' "$missing" | sed '/^$/d')
+missing=$(printf '%s\n' "$gates" | while IFS= read -r g; do
+  [ -n "$g" ] && ! printf '%s\n' "$existing_bash_hooks" | grep -qF "$g" && printf '%s\n' "$g"
+done)
 
 if [ -z "$missing" ]; then
   echo "current — $settings registers Plot's gates: $(printf '%s' "$gates" | tr '\n' ' ')"
@@ -541,13 +529,8 @@ merged=$(printf '%s' "$base" | jq --argjson add "$additions" '
 # Written through a scratch file and moved into place, so a failure partway
 # leaves the settings file that was found rather than half of one.
 tmp="$settings.plot-tmp.$$"
-printf '%s\n' "$merged" > "$tmp" 2>/dev/null || {
+{ printf '%s\n' "$merged" > "$tmp" && mv "$tmp" "$settings"; } 2>/dev/null || {
   echo "plot-install-hooks: cannot write $settings — nothing written" >&2
-  rm -f "$tmp" 2>/dev/null
-  exit 1
-}
-mv "$tmp" "$settings" 2>/dev/null || {
-  echo "plot-install-hooks: cannot replace $settings — nothing written" >&2
   rm -f "$tmp" 2>/dev/null
   exit 1
 }
