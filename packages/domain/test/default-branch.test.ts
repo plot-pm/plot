@@ -10,6 +10,7 @@ import {
 import {
   advanceSettled,
   defaultBranchRed,
+  defaultBranchStatus,
   failingRunsOf,
   foldRuns,
 } from '../src/rules/default-branch.js';
@@ -176,6 +177,47 @@ describe('defaultBranchRed — reads the settled part only', () => {
 
   it('holds nothing on an unknown settled state', () => {
     expect(defaultBranchRed(reading({ settled: { sha: 's', state: 'unknown' } }))).toBe(false);
+  });
+});
+
+describe('defaultBranchStatus — only while defaultBranchRed holds', () => {
+  it('returns null on every reading defaultBranchRed releases', () => {
+    expect(defaultBranchStatus(null)).toBeNull();
+    expect(defaultBranchStatus(reading({ settled: undefined }))).toBeNull();
+    expect(defaultBranchStatus(reading({ settled: { sha: 's', state: 'green' } }))).toBeNull();
+    expect(defaultBranchStatus(reading({ settled: { sha: 's', state: 'unknown' } }))).toBeNull();
+  });
+
+  it('holds on a red settled commit even while the head is pending', () => {
+    // ONE FIXTURE, BOTH ARMS DISAGREEING: a reading whose `head` is `pending`
+    // and whose `settled` is `red` — the exact case `defaultBranchRed` says
+    // must still hold, so a mutation reading `head` instead of `settled`
+    // fails this assertion rather than passing it by coincidence.
+    const r = reading({ head: 'pending', settled: { sha: 'abc1234567', state: 'red' } });
+    const status = defaultBranchStatus(r, r.askedAt);
+    expect(status).not.toBeNull();
+    expect(status?.key).toBe('default-branch-red');
+    expect(status?.tone).toBe('amber');
+  });
+
+  it('names the branch and the short settled sha in the text', () => {
+    const r = reading({ branch: 'main', settled: { sha: 'abc1234567890', state: 'red' } });
+    const status = defaultBranchStatus(r, r.askedAt);
+    expect(status?.text).toContain('main');
+    expect(status?.text).toContain('abc1234');
+    expect(status?.text).not.toContain('abc1234567890');
+  });
+
+  it('reports the reading as stale by its age rather than hiding it', () => {
+    const r = reading({ settled: { sha: 's', state: 'red' }, askedAt: '2026-10-10T14:02:00.000Z' });
+    const status = defaultBranchStatus(r, '2026-10-10T14:05:00.000Z');
+    expect(status?.text).toContain('3 min ago');
+  });
+
+  it('reads under a minute ago rather than 0 min ago', () => {
+    const r = reading({ settled: { sha: 's', state: 'red' }, askedAt: '2026-10-10T14:02:00.000Z' });
+    const status = defaultBranchStatus(r, '2026-10-10T14:02:30.000Z');
+    expect(status?.text).toContain('under a minute ago');
   });
 });
 

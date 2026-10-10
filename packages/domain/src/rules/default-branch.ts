@@ -74,3 +74,56 @@ export const advanceSettled = (
  */
 export const defaultBranchRed = (reading: DefaultBranchReading | null): boolean =>
   reading?.settled?.state === 'red';
+
+/**
+ * One thing a board has to report, independent of which panel renders it.
+ *
+ * Declared here rather than in `StatusPanel.tsx` because the domain cannot
+ * import board code, and this is the one shape both a domain rule and a board
+ * component must agree on. `StatusPanel.tsx` reuses this definition.
+ */
+export interface BoardStatus {
+  /** Stable identity across pulses — what arrival and paging are keyed on. */
+  key: string;
+  /** How loud this is. Higher sorts first. */
+  severity: number;
+  /** The sentence the reader reads. */
+  text: string;
+  /** `rose` for the whole view being gone, `amber` for a lesser state. */
+  tone: 'rose' | 'amber';
+}
+
+/** How many whole minutes have passed between two ISO-8601 timestamps. */
+const minutesSince = (at: string, now: string): number => {
+  const elapsed = Date.parse(now) - Date.parse(at);
+  return Number.isNaN(elapsed) ? 0 : Math.max(0, Math.floor(elapsed / 60000));
+};
+
+/**
+ * The status panel entry for a red default branch, or null where it is not red.
+ *
+ * Reads only `defaultBranchRed(reading)` — never `reading.head` — so a pending
+ * head after a red settled commit still holds: the status line and the queue's
+ * `default-branch-red` hold must agree on the same reading.
+ *
+ * A stale reading is still shown, with its age: the text never hides a red that
+ * has not been re-checked recently, it says how long ago it was.
+ *
+ * @param reading - the default-branch reading, or null where there is none.
+ * @param now - the current time, ISO-8601. Defaults to the actual time.
+ * @returns the entry while the branch is red; null otherwise.
+ */
+export const defaultBranchStatus = (
+  reading: DefaultBranchReading | null,
+  now: string = new Date().toISOString(),
+): BoardStatus | null => {
+  if (!defaultBranchRed(reading) || reading === null || reading.settled === undefined) return null;
+  const askedMinutesAgo = minutesSince(reading.askedAt, now);
+  const readAgo = askedMinutesAgo === 0 ? 'under a minute ago' : `${askedMinutesAgo} min ago`;
+  return {
+    key: 'default-branch-red',
+    severity: 25,
+    tone: 'amber',
+    text: `${reading.branch} is red on ${reading.settled.sha.slice(0, 7)}, read ${readAgo}.`,
+  };
+};

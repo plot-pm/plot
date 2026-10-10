@@ -6,9 +6,11 @@ import {
   prIndexFile,
   refsFixture,
   refsGit,
+  defaultBranchFile,
 } from '@plot-pm/domain/adapters';
 import type { Host, PlanStore, Refs } from '@plot-pm/domain';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
+import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 
 import type { EstateSource } from './controllers/fleet-state.js';
 import { realEstateSource } from './controllers/fleet-state.js';
@@ -43,6 +45,14 @@ export interface Estate {
    */
   prIndex: PrIndexStore;
   /**
+   * The default branch's CI reading, fleetd's own file.
+   *
+   * Travels beside `prIndex` for the same reason: a mock board gets a
+   * FIXTURE store rather than a real file, and the port is the seam that
+   * makes the swap invisible to whatever reads it.
+   */
+  defaultBranch: DefaultBranchStore;
+  /**
    * The same estate in the shape the synchronous board still reads it.
    *
    * It travels WITH the ports rather than beside them because it answers about
@@ -74,6 +84,7 @@ export const realEstate = (opts: EstateOptions): Estate => {
     refs: refsGit(context),
     host: hostShell(context),
     prIndex: prIndexFile({ cwd: opts.repoRoot }),
+    defaultBranch: defaultBranchFile(opts.repoRoot),
     source: realEstateSource,
   };
 };
@@ -107,6 +118,12 @@ export const mockEstate = (): Estate => {
     // should do.
     prIndex: {
       location: async () => ({ ok: true, value: '' }),
+      read: async () => ({ ok: true, value: null }),
+      write: async () => ({ ok: true, value: undefined }),
+    },
+    // No reading, which `defaultBranchStatus` already treats as "not red" —
+    // a mock board never ran fleetd and has nothing to report.
+    defaultBranch: {
       read: async () => ({ ok: true, value: null }),
       write: async () => ({ ok: true, value: undefined }),
     },

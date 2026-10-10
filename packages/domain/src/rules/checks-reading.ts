@@ -37,6 +37,14 @@ export interface ChecksReadings {
   checks: Checks;
   /** Whether the branch merges cleanly — see {@link ChecksReadings}. */
   mergeable: Mergeability;
+  /**
+   * The commit the checks ran against, where the host binds checks to one.
+   *
+   * Absent on a host that does not bind checks to a commit (Jenkins), and on a
+   * payload written before this field existed. Neither case means `headSha`;
+   * the two are read nowhere near each other.
+   */
+  checksSha?: string;
 }
 
 /**
@@ -113,6 +121,22 @@ export const checksProminence = (readings: ChecksReadings): ChecksProminence => 
 export const checksShown = (readings: ChecksReadings): boolean => readings.checks !== 'green';
 
 /**
+ * The words a `failing`/`pending` `detail` ends with, naming the commit.
+ *
+ * `checksSha`, NEVER `headSha`: on GitHub the two agree, but on a host that
+ * does not bind checks to a commit (Jenkins) only `headSha` exists, and
+ * printing it there would claim a binding the host never made.
+ *
+ * @param checksSha - the commit the checks ran against, or absent where the
+ *   host does not bind checks to one.
+ * @returns ` @<short sha>`, or a sentence saying there is none to name.
+ */
+const checksShaSuffix = (checksSha: string | undefined): string =>
+  checksSha === undefined
+    ? ' These checks are not bound to a commit.'
+    : ` @${checksSha.slice(0, 7)}`;
+
+/**
  * The whole verdict — state, prominence, and the two pieces of text.
  *
  * ONE CALL RATHER THAN THREE, so a renderer takes the word and the styling from
@@ -145,7 +169,8 @@ export const checksVerdict = (readings: ChecksReadings): ChecksVerdict => {
       prominence,
       shown,
       label: 'checks failing',
-      detail: 'A check on this pull request failed, or one is waiting for a person to approve the run.',
+      detail: 'A check on this pull request failed, or one is waiting for a person to approve the run.'
+        + checksShaSuffix(readings.checksSha),
     };
   }
   if (readings.checks === 'pending') {
@@ -154,7 +179,8 @@ export const checksVerdict = (readings: ChecksReadings): ChecksVerdict => {
       prominence,
       shown,
       label: 'checks running',
-      detail: 'A check on this pull request is queued or running. A machine is the blocker.',
+      detail: 'A check on this pull request is queued or running. A machine is the blocker.'
+        + checksShaSuffix(readings.checksSha),
     };
   }
   if (readings.checks === 'unknown') {

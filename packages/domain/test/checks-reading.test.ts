@@ -152,6 +152,38 @@ describe('checksVerdict', () => {
   });
 });
 
+describe('checksVerdict — naming the commit checks ran against', () => {
+  it('ends failing and pending details with the short sha', () => {
+    const failing = checksVerdict(reading({ checks: 'failing', checksSha: 'a048b6f1234567890' }));
+    const pending = checksVerdict(reading({ checks: 'pending', checksSha: 'a048b6f1234567890' }));
+    expect(failing.detail).toContain('a048b6f');
+    expect(pending.detail).toContain('a048b6f');
+  });
+
+  it('says checks are not bound to a commit where checksSha is absent', () => {
+    const failing = checksVerdict(reading({ checks: 'failing' }));
+    const pending = checksVerdict(reading({ checks: 'pending' }));
+    expect(failing.detail).toContain('not bound to a commit');
+    expect(pending.detail).toContain('not bound to a commit');
+  });
+
+  it('leaves green, none and unknown untouched by checksSha', () => {
+    for (const checks of ['green', 'none', 'unknown'] as const) {
+      const withSha = checksVerdict(reading({ checks, checksSha: 'a048b6f1234567890' }));
+      const withoutSha = checksVerdict(reading({ checks }));
+      expect(withSha.detail).toBe(withoutSha.detail);
+    }
+  });
+
+  it('never changes the label, with or without checksSha', () => {
+    for (const checks of ALL_STATES) {
+      const withSha = checksVerdict(reading({ checks, checksSha: 'a048b6f1234567890' }));
+      const withoutSha = checksVerdict(reading({ checks }));
+      expect(withSha.label).toBe(withoutSha.label);
+    }
+  });
+});
+
 describe('checksUnaskable', () => {
   it('is true only when there are readings and every one is unknown', () => {
     expect(checksUnaskable([reading({ checks: 'unknown' }), reading({ checks: 'unknown' })])).toBe(true);

@@ -180,3 +180,42 @@ describe('a PR says what the board could not ask', () => {
     } finally { await page.close(); }
   });
 });
+
+describe('a failing PR names the commit its checks ran against', () => {
+  let cat: Catalogue;
+
+  const boardWithSha = buildBoard({
+    columns: [column({
+      phase: 'Development',
+      cards: [buildCard({
+        slug: 'failing-with-sha', title: 'failing-with-sha', type: 'bug', phase: 'Development',
+        path: 'docs/plans/2026-09-07-failing-with-sha.md', phaseDate: '2026-09-07',
+        prs: [{
+          number: 61, url: 'https://example.invalid/pull/61', checks: 'failing' as const,
+          mergeable: 'mergeable' as const, checksSha: 'a048b6f1234567890',
+        }],
+      })],
+    })],
+  });
+
+  beforeAll(async () => {
+    cat = await openCatalogue();
+  }, 60_000);
+
+  afterAll(async () => {
+    await cat?.close();
+  });
+
+  it('shows the short sha in the badge title', async () => {
+    const page = await cat.open('an-empty-estate', {
+      over: { board: boardWithSha },
+      tab: 'board',
+      viewport: { width: 1400, height: 1400 },
+    });
+    try {
+      const badge = page.locator('#plan-failing-with-sha [data-pr-checks]');
+      await expect.poll(() => badge.count(), { timeout: 10_000 }).toBe(1);
+      expect(await badge.getAttribute('title')).toContain('a048b6f');
+    } finally { await page.close(); }
+  });
+});
