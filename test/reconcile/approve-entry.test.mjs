@@ -70,6 +70,7 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
   process.stdout.write(JSON.stringify({
     number: state.number, state: state.state, isDraft: state.draft,
     url: 'https://example.invalid/pr/' + state.number, mergeCommit: null,
+    ...(state.headRefOid ? { headRefOid: state.headRefOid } : {}),
   }));
 } else if (argv[0] === 'pr' && argv[1] === 'ready') {
   state.draft = false;
@@ -220,6 +221,16 @@ test('approve entry: a completed approval leaves the state receipt the gate read
     'the state receipt names the plan path and the value the gate compares');
   assert.equal(shellRead(repo, 'plot-state-receipt.sh', `receipt_clears ${PLAN_REL} Approved`), 1,
     'a receipt clears one commit');
+});
+
+test('approve entry: the merge is pinned to the head the approval read', () => {
+  const head = 'a'.repeat(40);
+  const { repo } = makeRepo(PLAN(), { number: 42, state: 'OPEN', draft: false, headRefOid: head });
+  const r = approve(repo);
+  assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+  const merge = mutatingCalls().filter((l) => l.startsWith('gh pr merge'));
+  assert.equal(merge.length, 1, hostCalls());
+  assert.match(merge[0], new RegExp(`--match-head-commit ${head}\\b`), `the merge must carry the head it read:\n${merge[0]}`);
 });
 
 test('approve entry: a rejected push leaves the action receipt, so the re-run needs no second controller call', () => {
