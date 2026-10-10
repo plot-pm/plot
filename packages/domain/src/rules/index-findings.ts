@@ -1,7 +1,7 @@
 import { findingKey, type Finding } from '../entities/finding.js';
 import type { DefaultBranchReading } from '../entities/default-branch.js';
 import type { PrIndex, PrIndexRow } from '../entities/pr-index.js';
-import { defaultBranchRed } from './default-branch.js';
+import { settledRed } from './default-branch.js';
 
 /** How long after the host merged a PR its `pr merged` finding holds. */
 export const MERGED_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -130,7 +130,7 @@ const findingOfBranch = (
  * or has a PR merged inside {@link MERGED_WINDOW_MS}. Per branch, `pr merged`
  * outranks `checks failing`, which outranks `checks green`; `pending`, `none`
  * and `unknown` checks hold no finding. The default branch gets `default branch
- * red` while {@link defaultBranchRed} holds. A finding's `since` is the row's
+ * red` while {@link settledRed} holds. A finding's `since` is the row's
  * `headSince` (`mergedAt` for `pr merged`). Its evidence carries no timestamp,
  * so an unchanged row yields an unchanged finding.
  *
@@ -156,7 +156,7 @@ export const indexFindings = (readings: IndexReadings): IndexFindings => {
     }
   }
 
-  if (defaultBranch !== null && defaultBranchRed(defaultBranch) && defaultBranch.settled !== undefined) {
+  if (defaultBranch !== null && settledRed(defaultBranch) && defaultBranch.settled !== undefined) {
     const settled = defaultBranch.settled;
     const failing = defaultBranch.failingRuns.map((run) => run.workflow);
     findings.push({

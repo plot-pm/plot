@@ -7,6 +7,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { buildActions } from '../src/adapters/build/build-actions.js';
 import { buildFixture } from '../src/adapters/build/build-fixture.js';
 import { buildJenkins, jenkinsConclusion } from '../src/adapters/build/build-jenkins.js';
+import { foldRuns } from '../src/rules/default-branch.js';
 import { buildNone } from '../src/adapters/build/build-none.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
 
@@ -86,6 +87,18 @@ describe('Jenkins word mapping', () => {
     const listing = JSON.stringify([{ sha: SHA, status: 'completed', conclusion: word, url: 'u', startedAt: 't' }]);
     const result = await buildJenkins(hostThat(`printf '%s' '${listing}'`)).runsForSha('main', SHA);
     expect(result.ok && result.value.map((r) => r.conclusion)).toEqual([mapped]);
+  });
+
+  it('folds a failed build and its later green rebuild of one commit to the rebuild', async () => {
+    // The failed build is listed FIRST and started EARLIER: taking runs as
+    // given, or the first of them, answers FAILURE.
+    const listing = JSON.stringify([
+      { sha: SHA, status: 'completed', conclusion: 'FAILURE', url: 'u41', startedAt: '2026-10-10T09:00:00Z' },
+      { sha: SHA, status: 'completed', conclusion: 'SUCCESS', url: 'u42', startedAt: '2026-10-10T09:30:00Z' },
+    ]);
+    const result = await buildJenkins(hostThat(`printf '%s' '${listing}'`)).runsForSha('main', SHA);
+    expect(result.ok && result.value.map((r) => r.url)).toEqual(['u42']);
+    expect(result.ok && foldRuns(result.value)).toBe('green');
   });
 
   it('keeps a build still running without a conclusion', async () => {

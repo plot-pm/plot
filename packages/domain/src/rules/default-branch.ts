@@ -5,9 +5,10 @@ import type {
   RunsState,
   SettledReading,
 } from '../entities/default-branch.js';
+import { reading as stamped, readingAge } from '../entities/identity.js';
 
 const RED_CONCLUSIONS: ReadonlySet<string> = new Set(['failure', 'timed_out', 'startup_failure']);
-const PENDING_CONCLUSIONS: ReadonlySet<string> = new Set(['queued', 'in_progress', 'action_required']);
+const PENDING_CONCLUSIONS: ReadonlySet<string> = new Set(['queued', 'in_progress', 'action_required', 'waiting', 'requested', 'pending']);
 const GREEN_CONCLUSIONS: ReadonlySet<string> = new Set(['success', 'neutral', 'skipped']);
 
 /** The word a run counts as: its conclusion once it has one, otherwise its status. */
@@ -93,16 +94,42 @@ export const advanceSettled = (
   head === 'red' || head === 'green' ? { sha: headSha, state: head } : settled;
 
 /**
- * Whether the default branch is red for queueing purposes.
+ * Whether the newest settled commit of a reading is red, whatever the reading's age.
  *
  * Reads only the settled part. A pending head never lifts the hold and never
- * raises one; no reading, no settled commit and an unknown state hold nothing.
+ * raises one; no reading, no settled commit and an unknown state are not red.
+ * Callers that hold work back use {@link defaultBranchRed}, which also ages
+ * the reading.
  *
  * @param reading - the default-branch reading, or null where there is none.
  * @returns true when the newest settled commit is red.
  */
-export const defaultBranchRed = (reading: DefaultBranchReading | null): boolean =>
+export const settledRed = (reading: DefaultBranchReading | null): boolean =>
   reading?.settled?.state === 'red';
+
+/**
+ * Whether the default branch is red for queueing purposes.
+ *
+ * A reading older than `checksWaitMs`, or whose `askedAt` does not parse, counts
+ * as no reading and holds nothing: the file is written only while fleetd runs,
+ * so an old red reading is not evidence about the branch now. Otherwise reads
+ * only the settled part, as {@link settledRed} does.
+ *
+ * @param reading - the default-branch reading, or null where there is none.
+ * @param now - the current time, as epoch milliseconds.
+ * @param checksWaitMs - the `Checks wait` bound, in milliseconds.
+ * @returns true when the newest settled commit is red and the reading is within the bound.
+ */
+export const defaultBranchRed = (
+  reading: DefaultBranchReading | null,
+  now: number,
+  checksWaitMs: number,
+): boolean => {
+  if (reading === null || !settledRed(reading)) return false;
+  const askedAt = Date.parse(reading.askedAt);
+  if (Number.isNaN(askedAt)) return false;
+  return readingAge(stamped(reading, askedAt), now) <= checksWaitMs;
+};
 
 /**
  * One thing a board has to report, independent of which panel renders it.
@@ -150,7 +177,7 @@ const failingNames = (runs: readonly FailingRun[]): string =>
 /**
  * The status panel entry for a red default branch, or null where it is not red.
  *
- * Reads only `defaultBranchRed(reading)` — never `reading.head` — so a pending
+ * Reads only `settledRed(reading)` — never `reading.head` — so a pending
  * head after a red settled commit still holds: the status line and the queue's
  * `default-branch-red` hold must agree on the same reading.
  *
@@ -168,7 +195,7 @@ export const defaultBranchStatus = (
   reading: DefaultBranchReading | null,
   now: string = new Date().toISOString(),
 ): BoardStatus | null => {
-  if (!defaultBranchRed(reading) || reading === null || reading.settled === undefined) return null;
+  if (!settledRed(reading) || reading === null || reading.settled === undefined) return null;
   const age = ageInWords(reading.askedAt, now);
   const names = failingNames(reading.failingRuns);
   const which = names === '' ? '' : ` (${names})`;

@@ -806,7 +806,10 @@ export const queueWorldForRepo = (
     // or other-version file is no reading, and no reading holds nothing.
     defaultBranchRed: async () => {
       const held = await defaultBranchFile(repoRoot).read();
-      return held.ok && defaultBranchRed(held.value);
+      if (!held.ok) return false;
+      const checksWaitMs =
+        (Number(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')) || 3600) * 1000;
+      return defaultBranchRed(held.value, Date.now(), checksWaitMs);
     },
     prIndexRows: async () => {
       // THE STORE IS KEYED BY THE BACKEND WORD, as the board writes it. Reading

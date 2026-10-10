@@ -36,6 +36,28 @@ export const jenkinsConclusion = (conclusion: string | null): string | null => {
 };
 
 /**
+ * Keeps the newest build per commit and workflow.
+ *
+ * Jenkins lists every build that ran for a commit, so a failed build #41 and
+ * a green rebuild #42 of one commit arrive together, and `foldRuns` reads
+ * red first. The rebuild is the commit's state. Newest is the later
+ * `startedAt`; a run with no `startedAt` loses to one with it, and between
+ * equals the earlier-listed run (Jenkins lists newest first) is kept.
+ *
+ * @param runs - every build Jenkins ran for one commit.
+ * @returns one run per `sha` and `workflow`, in the order first listed.
+ */
+export const newestPerSha = (runs: readonly WorkflowShaRun[]): WorkflowShaRun[] => {
+  const newest = new Map<string, WorkflowShaRun>();
+  for (const run of runs) {
+    const key = `${run.sha}\u0000${run.workflow}`;
+    const held = newest.get(key);
+    if (held === undefined || run.startedAt > held.startedAt) newest.set(key, run);
+  }
+  return [...newest.values()];
+};
+
+/**
  * Reads the CI system whose builds live on a Jenkins instance.
  *
  * A CONNECTOR, not an adapter with a branch. It holds this vendor's instance,
@@ -89,7 +111,10 @@ export const buildJenkins = (context: ShellContext): BuildPort => {
       const listing = await reads.runsForSha(branch, sha);
       if (!listing.ok) return listing;
       return answered(
-        listing.value.map((run) => ({ ...run, conclusion: jenkinsConclusion(run.conclusion) })),
+        newestPerSha(listing.value).map((run) => ({
+          ...run,
+          conclusion: jenkinsConclusion(run.conclusion),
+        })),
       );
     },
 

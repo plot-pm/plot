@@ -13,6 +13,7 @@ import {
   declaredRuns,
   defaultBranchRed,
   defaultBranchStatus,
+  settledRed,
   failingRunsOf,
   foldRuns,
   ageInWords,
@@ -161,6 +162,12 @@ const reading = (over: Partial<DefaultBranchReading> = {}): DefaultBranchReading
   ...over,
 });
 
+describe('foldRuns — GitHub statuses that are not finished', () => {
+  it.each(['waiting', 'requested', 'pending'])('reads a %s run as pending', (status) => {
+    expect(foldRuns([run(null, { status })])).toBe('pending');
+  });
+});
+
 describe('advanceSettled — the settled part moves only when a commit settles', () => {
   const red = { sha: 'r', state: 'red' } as const;
 
@@ -187,33 +194,60 @@ describe('advanceSettled — the settled part moves only when a commit settles',
   });
 });
 
+const WAIT = 3_600_000;
+const AT = '2026-10-10T00:00:00.000Z';
+/** `defaultBranchRed` asked at the moment the reading was taken. */
+const heldAt = (r: DefaultBranchReading): boolean => defaultBranchRed(r, Date.parse(r.askedAt), WAIT);
+
 describe('defaultBranchRed — reads the settled part only', () => {
   it('holds when the settled commit is red, however the head reads', () => {
     for (const head of ['pending', 'green', 'unknown', 'red'] as const) {
-      expect(defaultBranchRed(reading({ head, settled: { sha: 'r', state: 'red' } }))).toBe(true);
+      expect(heldAt(reading({ head, settled: { sha: 'r', state: 'red' } }))).toBe(true);
     }
   });
 
   it('releases when a newer commit settles green', () => {
     const before = reading({ head: 'pending', settled: { sha: 'r', state: 'red' } });
     const settled = advanceSettled(before.settled, 'n', 'green');
-    expect(defaultBranchRed({ ...before, headSha: 'n', head: 'green', settled })).toBe(false);
+    expect(heldAt({ ...before, headSha: 'n', head: 'green', settled })).toBe(false);
   });
 
   it('does not hold on a red head that has not settled into the settled part', () => {
-    expect(defaultBranchRed(reading({ head: 'red', settled: { sha: 's', state: 'green' } }))).toBe(false);
+    expect(heldAt(reading({ head: 'red', settled: { sha: 's', state: 'green' } }))).toBe(false);
   });
 
   it('holds nothing without a settled commit', () => {
-    expect(defaultBranchRed(reading({ settled: undefined }))).toBe(false);
+    expect(heldAt(reading({ settled: undefined }))).toBe(false);
   });
 
   it('holds nothing where there is no reading', () => {
-    expect(defaultBranchRed(null)).toBe(false);
+    expect(defaultBranchRed(null, Date.parse(AT), WAIT)).toBe(false);
   });
 
   it('holds nothing on an unknown settled state', () => {
-    expect(defaultBranchRed(reading({ settled: { sha: 's', state: 'unknown' } }))).toBe(false);
+    expect(heldAt(reading({ settled: { sha: 's', state: 'unknown' } }))).toBe(false);
+  });
+  it('holds a red reading exactly Checks wait old and releases one a millisecond older', () => {
+    const red = reading({ settled: { sha: 'r', state: 'red' } });
+    expect(defaultBranchRed(red, Date.parse(AT) + WAIT, WAIT)).toBe(true);
+    expect(defaultBranchRed(red, Date.parse(AT) + WAIT + 1, WAIT)).toBe(false);
+  });
+
+  it('holds nothing on a red reading older than Checks wait, the same false as no reading', () => {
+    const red = reading({ settled: { sha: 'r', state: 'red' } });
+    const old = defaultBranchRed(red, Date.parse(AT) + 3 * WAIT, WAIT);
+    expect(old).toBe(false);
+    expect(old).toBe(defaultBranchRed(null, Date.parse(AT), WAIT));
+  });
+
+  it('holds nothing when askedAt does not parse', () => {
+    const red = reading({ settled: { sha: 'r', state: 'red' }, askedAt: 'yesterday' });
+    expect(defaultBranchRed(red, Date.parse(AT), WAIT)).toBe(false);
+  });
+
+  it('settledRed ignores age', () => {
+    const red = reading({ settled: { sha: 'r', state: 'red' } });
+    expect(settledRed(red)).toBe(true);
   });
 });
 

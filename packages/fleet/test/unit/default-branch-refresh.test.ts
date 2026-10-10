@@ -103,7 +103,7 @@ describe('refreshDefaultBranch', () => {
     r.runs('a1', [run('CI', 'success'), run('Release', 'failure')]);
     await refreshDefaultBranch(r.world);
     expect(r.stored()).toMatchObject({ head: 'green', settled: { sha: 'a1', state: 'green' }, failingRuns: [] });
-    expect(defaultBranchRed(r.stored())).toBe(false);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(false);
   });
 
   it('reads red and names only the declared workflow that failed', async () => {
@@ -119,7 +119,7 @@ describe('refreshDefaultBranch', () => {
     r.runs('a1', [run('CI', 'success'), run('Release', 'failure')]);
     await refreshDefaultBranch(r.world);
     expect(r.stored()?.failingRuns.map((failing) => failing.workflow)).toEqual(['Release']);
-    expect(defaultBranchRed(r.stored())).toBe(true);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(true);
   });
 
   it('makes zero runs-for-sha calls for a settled, unchanged SHA', async () => {
@@ -167,12 +167,12 @@ describe('refreshDefaultBranch', () => {
     const r = rig();
     r.runs('a1', [run('ci', 'failure')]);
     await refreshDefaultBranch(r.world);
-    expect(defaultBranchRed(r.stored())).toBe(true);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(true);
     r.clock(WAIT + REASK_MS);
     r.runs('a1', [run('ci', 'success')]);
     expect(await refreshDefaultBranch(r.world)).toBe('asked');
     expect(r.stored()?.settled).toEqual({ sha: 'a1', state: 'green' });
-    expect(defaultBranchRed(r.stored())).toBe(false);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(false);
   });
 
   it('lifts a settled red after a restart past Checks wait once the pending head went green', async () => {
@@ -190,12 +190,12 @@ describe('refreshDefaultBranch', () => {
     });
     r.tip('b2');
     r.runs('b2', [run('ci', 'success')]);
-    expect(defaultBranchRed(r.stored())).toBe(true);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(true);
     r.clock(2 * WAIT);
     expect(await refreshDefaultBranch(r.world)).toBe('asked');
     expect(r.calls()).toBe(1);
     expect(r.stored()?.settled).toEqual({ sha: 'b2', state: 'green' });
-    expect(defaultBranchRed(r.stored())).toBe(false);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(false);
   });
 
   it('measures Checks wait from when the SHA first appeared, not from the last ask', async () => {
@@ -269,6 +269,24 @@ describe('refreshDefaultBranch', () => {
     r.fail(true);
     await refreshDefaultBranch(r.world);
     expect(r.stored()).toMatchObject({ head: 'unknown', settled: { sha: 'a1', state: 'red' } });
+  });
+
+  it('reads an unaskable CI as unreadable and writes nothing', async () => {
+    const r = rig();
+    r.world.build = { runsForSha: async () => ({ ok: false, why: 'unaskable' }) };
+    expect(await refreshDefaultBranch(r.world)).toBe('unreadable');
+    expect(r.stored()).toBeNull();
+  });
+
+  it('keeps a settled red reading when the CI becomes unaskable', async () => {
+    const r = rig();
+    r.runs('a1', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    const before = r.stored();
+    r.clock(REASK_MS + 1);
+    r.world.build = { runsForSha: async () => ({ ok: false, why: 'unaskable' }) };
+    expect(await refreshDefaultBranch(r.world)).toBe('unreadable');
+    expect(r.stored()).toEqual(before);
   });
 
   it('reads no runs as unknown without settling', async () => {
