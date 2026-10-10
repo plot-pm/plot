@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
@@ -18,6 +18,7 @@
 - **Started:** 2026-10-10, jwloka, `feature/the-board-shows-the-new-readings`
 - **Started:** 2026-10-10, jwloka, `feature/a-mod-follows-the-channel`
 - **Started:** 2026-10-10, jwloka, `feature/a-merge-is-a-controller`
+- **Delivered:** 2026-10-10
 
 ## Changelog
 
