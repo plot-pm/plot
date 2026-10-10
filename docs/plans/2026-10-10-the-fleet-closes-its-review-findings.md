@@ -177,6 +177,7 @@ Each test below fails on `origin/main` (`c9d63311d`) today:
 **Created unattended, 2026-10-10**, from issues #1436 #1438 #1439 #1440 #1441 #1443 #1445 #1450 #1453 #1454 #1487 and the `--status` measurement of the same day. Type `bug`, `Review: pr`, `Impl: own branches` came from the prompt.
 
 - Findings dropped as fixed: #1438 L3 (`5181c3b2b`, #1442). Findings dropped as obsolete: #1445 L6 and #1453 M3 (changeset restart notes; both changesets are released and consumed).
+- A second timed `lsof -a -p 45499 -d cwd -Fn`, 2026-10-10, returned after 556 s, and `SIGALRM` at 15 s did not end it. Right after it, `lsof -b -w -a -p 45499 -d cwd -Fn` returned in under 1 s. The second call ran after the first one cleared, so this does not prove that `-b` avoids the block.
 - The `--status` trace is `/Users/jwloka/.claude/jobs/ca0ab00d/tmp/status.trace` (794 lines, 2026-10-10 20:20 CEST); it ends inside `process_cwd`'s `lsof` call after the `summary:` line.
 - Deliverable search, 2026-10-10: `deskLoopAlive` and `FREE_WAIT_FILENAME` exist (`packages/domain/src/rules/desk-loop-alive.ts`); slice 2 reuses them. `endingAction` exists (`packages/domain/src/rules/ending-action.ts:248`); slice 4 extends it. `pruneDelivering` exists (`packages/fleet/src/shared/auto-deliver.ts:321`). `process_cwd` exists (`plot-fleetctl.sh:361`). No other candidate matched.
 - Overlapping plans: `no-controller-resumes-a-claimed-slice` (Released, v2.25.0) added the `bound` rows slice 4 extends; `the-fleet-runs-without-the-board` (Delivered) produced the findings in #1441, #1445 and #1453.
