@@ -279,3 +279,42 @@ describe('diffFindings — the channel is the memory', () => {
     expect(diffFindings([cleared], indexFindings(readings()), NOW).publish).toHaveLength(1);
   });
 });
+
+describe('indexFindings — rows with absent fields', () => {
+  const only = (rows: PrIndexRow[], over: Partial<IndexReadings> = {}) =>
+    indexFindings(readings({ index: indexOf(rows), ...over })).findings;
+
+  it('names the newest merge when a branch has two inside the window', () => {
+    const found = only([
+      row({ number: 1, state: 'MERGED', mergedAt: hoursAgo(5) }),
+      row({ number: 2, state: 'MERGED', mergedAt: hoursAgo(2) }),
+      row({ number: 3, state: 'MERGED', mergedAt: hoursAgo(9) }),
+    ]);
+    expect(found).toHaveLength(1);
+    expect(found[0]!.evidence).toBe('pull request #2 merged');
+    expect(found[0]!.since).toBe(hoursAgo(2));
+  });
+
+  it('says the checks name no commit, with or without a head', () => {
+    const bare = only([row({ checksSha: undefined, headSha: undefined })])[0]!;
+    expect(bare.evidence).toBe('pull request #1, the checks are not bound to a commit');
+    const headed = only([row({ checksSha: undefined, headSha: 'hhh' })])[0]!;
+    expect(headed.evidence).toBe('pull request #1, the checks are not bound to a commit; head hhh');
+  });
+
+  it('says the head is unknown when the checks name a commit and the row has no head', () => {
+    const found = only([row({ checksSha: 'ccc', headSha: undefined })])[0]!;
+    expect(found.evidence).toBe('pull request #1, for ccc, head unknown');
+  });
+
+  it('dates an open PR with no headSince from the index', () => {
+    const found = only([row({ headSince: undefined })], {})[0]!;
+    expect(found.since).toBe('2026-10-10T11:00:00Z');
+  });
+
+  it('holds no `default branch red` where no commit has settled, and names no failing runs when none failed', () => {
+    expect(indexFindings(readings({ defaultBranch: red({ settled: undefined }) })).findings).toHaveLength(1);
+    const bare = indexFindings(readings({ index: null, defaultBranch: red({ failingRuns: [] }) })).findings;
+    expect(bare[0]!.evidence).toBe('main is red on m1');
+  });
+});

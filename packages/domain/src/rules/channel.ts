@@ -91,12 +91,16 @@ export const admit = (id: string, raw: unknown): Admission => {
   return { ok: true, subscription: { id, subscriber, purpose } };
 };
 
-/** The request with its condition replaced by the canonical name, where it was an alias. */
+/**
+ * The request with its condition replaced by the canonical name, where it was an alias.
+ *
+ * A non-empty `canonical` comes from {@link describeAsked}, which reads it only from an
+ * object `purpose` inside an object request.
+ */
 const withFinding = (raw: unknown, canonical: string): unknown => {
-  if (canonical === '' || typeof raw !== 'object' || raw === null) return raw;
-  const purpose = (raw as { purpose?: unknown }).purpose;
-  if (typeof purpose !== 'object' || purpose === null) return raw;
-  return { ...raw, purpose: { ...purpose, finding: canonical } };
+  if (canonical === '') return raw;
+  const request = raw as { purpose: object };
+  return { ...request, purpose: { ...request.purpose, finding: canonical } };
 };
 
 /**

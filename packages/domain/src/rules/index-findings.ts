@@ -46,15 +46,23 @@ export interface FindingDiff {
 
 const MONITOR = 'IndexMonitor';
 
+/** A merged row with the time the host merged it. */
+interface MergedRow {
+  row: PrIndexRow;
+  mergedAt: string;
+  at: number;
+}
+
 /** The rows merged inside the window, newest first. */
-const mergedInWindow = (rows: readonly PrIndexRow[], nowMs: number): PrIndexRow[] =>
-  rows
-    .filter((row) => {
-      if (row.state !== 'MERGED' || row.mergedAt === undefined) return false;
-      const at = Date.parse(row.mergedAt);
-      return !Number.isNaN(at) && nowMs - at < MERGED_WINDOW_MS;
-    })
-    .sort((a, b) => Date.parse(b.mergedAt ?? '') - Date.parse(a.mergedAt ?? ''));
+const mergedInWindow = (rows: readonly PrIndexRow[], nowMs: number): MergedRow[] => {
+  const merged: MergedRow[] = [];
+  for (const row of rows) {
+    if (row.state !== 'MERGED' || row.mergedAt === undefined) continue;
+    const at = Date.parse(row.mergedAt);
+    if (!Number.isNaN(at) && nowMs - at < MERGED_WINDOW_MS) merged.push({ row, mergedAt: row.mergedAt, at });
+  }
+  return merged.sort((a, b) => b.at - a.at);
+};
 
 /** The commit the checks name, in words. */
 const checksBinding = (row: PrIndexRow): string => {
@@ -93,13 +101,7 @@ const findingOfBranch = (
 ): Finding | null => {
   const merged = mergedInWindow(rows, nowMs)[0];
   if (merged !== undefined) {
-    return findingFor(
-      merged,
-      'pr merged',
-      merged.mergedAt ?? fallbackSince,
-      `pull request #${merged.number} merged`,
-      now,
-    );
+    return findingFor(merged.row, 'pr merged', merged.mergedAt, `pull request #${merged.row.number} merged`, now);
   }
   const open = rows.find((row) => row.state === 'OPEN');
   if (open === undefined) return null;
@@ -154,7 +156,7 @@ export const indexFindings = (readings: IndexReadings): IndexFindings => {
     }
   }
 
-  if (defaultBranch !== null && defaultBranchRed(defaultBranch)) {
+  if (defaultBranch !== null && defaultBranchRed(defaultBranch) && defaultBranch.settled !== undefined) {
     const settled = defaultBranch.settled;
     const failing = defaultBranch.failingRuns.map((run) => run.workflow);
     findings.push({
@@ -162,8 +164,8 @@ export const indexFindings = (readings: IndexReadings): IndexFindings => {
       branch: defaultBranch.branch,
       worktree: '',
       finding: 'default branch red',
-      since: settled?.sha === defaultBranch.headSha ? defaultBranch.headSince : defaultBranch.at,
-      evidence: `${defaultBranch.branch} is red on ${settled?.sha ?? 'unknown'}${
+      since: settled.sha === defaultBranch.headSha ? defaultBranch.headSince : defaultBranch.at,
+      evidence: `${defaultBranch.branch} is red on ${settled.sha}${
         failing.length > 0 ? `; failing: ${failing.join(', ')}` : ''
       }`,
       measuredAt: now,
