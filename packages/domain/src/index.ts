@@ -41,6 +41,7 @@ export * from './entities/plan.js';
 export * from './rules/deliverable.js';
 export * from './rules/reapable.js';
 export * from './rules/channel.js';
+export * from './rules/event-window.js';
 export * from './rules/index-findings.js';
 export * from './rules/eligible.js';
 export * from './rules/draft-placement.js';

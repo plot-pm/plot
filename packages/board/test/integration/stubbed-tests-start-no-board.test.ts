@@ -453,7 +453,10 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 59 → 60 on 2026-10-05: `question-renders-waiting-on-you.browser.test.ts`
 // (#1287), for a desk's question in the WAITING ON YOU row. It serves its
 // state through the catalogue and starts no board.
-const EXPECTED_FILES = 60;
+// 60 → 61 on 2026-10-10: `page-hears-channel.browser.test.ts`, for the page's
+// refetch on a channel event. It serves its state through the catalogue and
+// starts no board.
+const EXPECTED_FILES = 61;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -659,7 +662,9 @@ const EXPECTED_FILES = 60;
 // brief writer's working indicator on a NOT STARTED row, absent on a sibling
 // slice (#1417). It joins a file that already drove a page, so
 // `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 551;
+// 551 → 554 on 2026-10-10: the three `it(` of `page-hears-channel.browser.test.ts`,
+// a new file counted in `EXPECTED_FILES` above.
+const EXPECTED_TESTS = 554;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
