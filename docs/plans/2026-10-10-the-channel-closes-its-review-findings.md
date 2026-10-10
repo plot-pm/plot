@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Sprint:** the-gates-and-the-review-findings
 - **Issue:** #1437, #1463, #1465, #1467, #1470, #1476, #1481
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-10-10, Jan Wloka, plan-PR #1497 merged
 
 ## Changelog
 
