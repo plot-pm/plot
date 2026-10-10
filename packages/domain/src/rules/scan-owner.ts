@@ -22,8 +22,10 @@ export interface ScanOwnerReadings {
 /**
  * Whether the fleet owns the scan, so the board reads the bridge and spawns none.
  *
- * True only when two facts agree: the supervisor reads `up`, and the bridge was
- * written within {@link OWNED_BRIDGE_MAX_AGE_MS}. Either alone is not enough.
+ * True only when two facts agree: the supervisor reads `up` or `unknown` (it
+ * could not be asked, or the run was cut short), and the bridge was written
+ * within {@link OWNED_BRIDGE_MAX_AGE_MS}. Either alone is not enough. A reading
+ * that resolves to `down` or `died` hands the scan to the board.
  * A loaded supervisor with a stale bridge is a daemon that hangs, and the board
  * scans in its place; a fresh bridge with no supervisor is the last write of a
  * daemon that stopped. The board's own scan writes nothing, so taking over
@@ -34,7 +36,8 @@ export interface ScanOwnerReadings {
  */
 export const fleetOwnsScan = (readings: ScanOwnerReadings): boolean => {
   if (readings.supervisor === undefined || readings.bridgeAt === null) return false;
-  if (supervisorState(readings.supervisor) !== 'up') return false;
+  const state = supervisorState(readings.supervisor);
+  if (state !== 'up' && state !== 'unknown') return false;
   const age = readings.now - readings.bridgeAt;
   return age >= 0 && age <= OWNED_BRIDGE_MAX_AGE_MS;
 };

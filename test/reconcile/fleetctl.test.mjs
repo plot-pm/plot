@@ -101,7 +101,7 @@ const writeProcStubs = (bin) => {
   write('lsof', [
     // `PLOT_TEST_LSOF_HANG` makes every call hang the way an `lsof` in
     // uninterruptible kernel wait does, and records its pid there for the case to end.
-    'if [ -n "${PLOT_TEST_LSOF_HANG:-}" ]; then echo $$ > "$PLOT_TEST_LSOF_HANG/hung.$3"; exec sleep 30; fi',
+    "if [ -n \"${PLOT_TEST_LSOF_HANG:-}\" ]; then echo $$ > \"$PLOT_TEST_LSOF_HANG/hung.$3\"; echo x >> \"$PLOT_TEST_LSOF_HANG/calls.$3\"; exec bash -c 'exec -a \"$0\" sleep 30' \"lsof -a -p $3 -d cwd -Fn\"; fi",
     'f="${PLOT_TEST_PROCS:-/nonexistent}/cwd/$3"',
     '[ -f "$f" ] || exit 1',
     'printf \'p%s\\nfcwd\\nn%s\\n\' "$3" "$(cat "$f")"',
@@ -437,7 +437,7 @@ test('--stop calls plot-dispatch --stop once per branch, and the supervisor last
     assert.ok(iBranch >= 0, 'the branch was reported');
     assert.ok(iSuper > iBranch, 'the supervisor is acted on last');
   } finally {
-    signalOwn(sleeper, 'SIGTERM', { command: 'sleep 30' });
+    signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });
     fs.rmSync(desk, { recursive: true, force: true });
   }
 });
@@ -525,7 +525,7 @@ test('--stop reports BOTH a stuck agent and an unconfirmed unload, then exits 1'
     assert.match(r.out, /1 agent\(s\) did not exit within 1s/,
       'the agent summary survives the supervisor failure — it prints after that block');
   } finally {
-    signalOwn(sleeper, 'SIGTERM', { command: 'sleep 30' });
+    signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });
     fs.rmSync(desk, { recursive: true, force: true });
   }
 });
@@ -2585,6 +2585,27 @@ test('processes: an unreadable cwd prints cannot determine with the owner', () =
   assert.ok(r.block.includes(row('board', 850, { serves: 'cannot determine (owner twelvecharsx)', installed: '/i' })), r.out);
 });
 
+test('processes: a second --status starts no lsof for a pid a stuck one still holds', () => {
+  const { box, status } = procSandbox('procs-lsof-dedup');
+  const procs = fs.mkdtempSync(path.join(box, 'dedup-'));
+  const procsArg = {
+    ps: [[920, 1, 501, `node /i/${BOARD}`]],
+    cwd: { 920: '/repos/a' },
+    users: { 501: 'op' },
+  };
+  try {
+    status(procsArg, { PLOT_TEST_LSOF_HANG: procs });
+    const second = status(procsArg, { PLOT_TEST_LSOF_HANG: procs });
+    const calls = fs.readFileSync(path.join(procs, 'calls.920'), 'utf8').trim().split('\n');
+    assert.equal(calls.length, 1, `lsof started ${calls.length} times for one pid`);
+    assert.ok(second.block.includes(row('board', 920, { serves: 'cannot determine (owner op)', installed: '/i' })), second.out);
+  } finally {
+    for (const f of fs.readdirSync(procs).filter((n) => n.startsWith('hung.'))) {
+      signalRecorded(path.join(procs, f), 'SIGTERM', { command: 'lsof -a -p' });
+    }
+  }
+});
+
 test('processes: a hanging lsof ends --status within its bound, as cannot determine', () => {
   const { box, status } = procSandbox('procs-lsof-hang');
   const procs = fs.mkdtempSync(path.join(box, 'hang-'));
@@ -2603,7 +2624,7 @@ test('processes: a hanging lsof ends --status within its bound, as cannot determ
     }
   } finally {
     for (const f of fs.readdirSync(procs).filter((n) => n.startsWith('hung.'))) {
-      signalRecorded(path.join(procs, f), 'SIGTERM', { command: 'sleep 30' });
+      signalRecorded(path.join(procs, f), 'SIGTERM', { command: 'lsof -a -p' });
     }
   }
 });
