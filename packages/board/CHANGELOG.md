@@ -1,5 +1,86 @@
 # @plot-pm/board
 
+## 0.19.0
+
+### Minor Changes
+
+- [#1435](https://github.com/plot-pm/plot/pull/1435) [`158f03f`](https://github.com/plot-pm/plot/commit/158f03f7488d821751ff26879a1b9655cbe3eba4) Thanks [@jwloka](https://github.com/jwloka)! - A desk whose worker ended `bound` (the wall clock ran out) or `unreadable` (the clock ran out and nothing could say why) now gets a fresh agent when it still holds a commit beyond its claim, an open PR, or a dirty tree — the registry tick reads the branch's real facts instead of filler, names every held file in the fresh agent's answer, and shares its one fresh session per slice with `corrections-spent`, `turn-limit` and an after-prompt `holding-work`. A branch with nothing beyond its claim still has that claim released, and a merged branch starts no fresh agent at all. Before this, the ending existed but nothing acted on it: the supervisor left a timed-out desk with 50 uncommitted files sitting claimed, continuing and dispatch both refused it, and a person had to commit the tree by hand.
+
+  <!--
+  plan: docs/plans/2026-10-09-no-controller-resumes-a-claimed-slice.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1469](https://github.com/plot-pm/plot/pull/1469) [`d4a057b`](https://github.com/plot-pm/plot/commit/d4a057b543f2063ef3594d5d2372cc160244d4d0) Thanks [@jwloka](https://github.com/jwloka)! - The board serves `GET /api/events` as a server-sent-event stream fed by one subscription to `.plot/fleet.sock`, at most one event per second, and the page refetches `/api/board` on an event at most once per 2 s; the 30 s poll stays, and with no channel the stream stays silent.
+
+  <!--
+  plan: docs/plans/2026-10-09-the-fleet-reports-what-changed-on-the-host.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1475](https://github.com/plot-pm/plot/pull/1475) [`795adac`](https://github.com/plot-pm/plot/commit/795adacd4d4af2ad0499ba7386bf7cfd0251c4cd) Thanks [@jwloka](https://github.com/jwloka)! - A failing or pending PR's checks badge now names the short commit SHA its checks ran against, or says checks are not bound to a commit where none is known. The Agents tab also shows a status-panel entry naming the default branch when its settled CI reading is red, reusing the same panel green PRs and green branches stay silent in. The entry names the failing workflows and the reading's age in minutes, hours or days, and says the age is unknown where the reading's timestamp does not parse. A new `## Plot Config` key, `Default branch checks`, names the workflows whose runs decide whether the default branch is red; absent, every workflow counts.
+
+  <!--
+  plan: docs/plans/2026-10-09-the-fleet-reports-what-changed-on-the-host.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1452](https://github.com/plot-pm/plot/pull/1452) [`2509ce5`](https://github.com/plot-pm/plot/commit/2509ce5dcd769d9131c7ec86340e6938aa09e6d9) Thanks [@jwloka](https://github.com/jwloka)! - Auto-dispatch and auto-delivery run in `plot-fleetd` on the pulse its own scan just wrote, with in-flight marks under `.plot/state/`. The board makes no automatic write. A delivery started by the fleet survives a daemon restart inside the 90 s mark lifetime without a second start.
+
+  <!--
+  plan: docs/plans/2026-10-09-the-fleet-runs-without-the-board.md
+  bumps:
+    skills:
+      plot-fleet: minor
+  -->
+
+- [#1430](https://github.com/plot-pm/plot/pull/1430) [`a3b80e3`](https://github.com/plot-pm/plot/commit/a3b80e30981ef2cadba7b4ec92098e979920ae42) Thanks [@jwloka](https://github.com/jwloka)! - A NOT STARTED row whose brief writer is running now shows a working indicator, reusing the board's existing pulse-dot animation — replacing the age-only `briefAskedAt` reading, which could never say when the work was done. `fleet.ts` reads a new domain rule, `briefWriterState` in `@plot-pm/domain`, from `brief-ask-log.ts`'s per-branch writer reading; a run given no branch still marks every brief-less sibling as `asked`, never `writing`.
+
+  <!--
+  plan: docs/plans/2026-10-09-a-slice-whose-brief-is-being.md
+  -->
+
+### Patch Changes
+
+- [#1424](https://github.com/plot-pm/plot/pull/1424) [`ee05358`](https://github.com/plot-pm/plot/commit/ee05358d83641c37ffff4cc5d836dac9189d8526) Thanks [@jwloka](https://github.com/jwloka)! - A `--brief-only` implement run records the branch it briefs, and the brief reading attributes a running or failed writer to that branch only. The controller picks the first startable slice before it spawns, passes it as `PLOT_BRIEF_BRANCH`, and marks a per-branch state file; a run that names no branch keeps the per-plan reading.
+
+  <!--
+  plan: docs/plans/2026-10-09-a-slice-whose-brief-is-being.md
+  bumps:
+    skills:
+      plot-implement: patch
+  -->
+
+- [#1413](https://github.com/plot-pm/plot/pull/1413) [`1e6123c`](https://github.com/plot-pm/plot/commit/1e6123c942688e3ba019fcbfd3451ae84f071c88) Thanks [@jwloka](https://github.com/jwloka)! - registryd-main.ts and worker-loop.ts no longer import any board module outside entry/, proven by an esbuild metafile test rather than bundle-text grep — fleet-settings.ts and release-claim.ts split into an HTTP half and a reader half, and 13 modules the test still flagged by path moved into a new packages/board/src/shared/ directory.
+
+  <!--
+  plan: docs/plans/2026-10-09-the-fleet-runs-without-the-board.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1421](https://github.com/plot-pm/plot/pull/1421) [`d8362ed`](https://github.com/plot-pm/plot/commit/d8362ed74096d309e826c2a387aa54b1bcbee476) Thanks [@jwloka](https://github.com/jwloka)! - A new workspace package, `@plot-pm/fleet`, holds the supervisor tick, the agent loop, the fleet-size and prompt entries, and the 13 shared modules they import. `packages/board/build.mjs` calls the fleet's build and copies `plot-registryd.mjs`, `plot-worker-loop.mjs`, `plot-fleet-size.mjs` and `plot-prompt.mjs` to the same shipped paths. The supervisor and loop bundles no longer carry the board's contract schema (13 KB each), and their behaviour is unchanged. CI typechecks and tests the fleet, holds its loop coverage at 100%, and counts its spawn sites in the existing ratchets.
+
+  <!--
+  plan: docs/plans/2026-10-09-the-fleet-runs-without-the-board.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1408](https://github.com/plot-pm/plot/pull/1408) [`e4251bf`](https://github.com/plot-pm/plot/commit/e4251bfbf04c515374b5408dfe1066a29fa8d863) Thanks [@jwloka](https://github.com/jwloka)! - `pinClone` now adds `infra/plot-corpus-fixture`, one commit on top of the pin that names itself in a fixture plan's Slices section, so the refs corpus guard at `refs.corpus.test.ts` always has a branch with a known `changed_paths` to assert on by name. The guard no longer depends on an open slice branch carrying unmerged remote changes, the condition [#1391](https://github.com/plot-pm/plot/issues/1391) removed from the real estate and the reason the `corpus` CI job failed on every PR since ([#1403](https://github.com/plot-pm/plot/issues/1403)).
+
+  <!--
+  plan: docs/plans/2026-10-09-the-refs-corpus-test-fails-when.md
+  -->
+
 ## 0.18.0
 
 ### Minor Changes
@@ -1877,11 +1958,11 @@ O_EXCL` is exclusive but publishes the NAME before the CONTENT: a second process
   flight and room for three more. A cap that refuses nothing and reports nothing
   is indistinguishable from no cap at all.
 
-                              <!--
-                              bumps:
-                                skills:
-                                  plot: minor
-                              -->
+                                <!--
+                                bumps:
+                                  skills:
+                                    plot: minor
+                                -->
 
 - [#644](https://github.com/plot-pm/plot/pull/644) [`a7e2be8`](https://github.com/plot-pm/plot/commit/a7e2be8107adbe8081e69a3ac0af9050d5dc1ec0) Thanks [@jwloka](https://github.com/jwloka)! - The PR refresh asks through the `Host` port instead of calling `plot-host.sh` directly, so a board handed a fixture host asks no CLI and spends no budget. The port gains a `runs` op that names its refusal, and one adapter is bound per refresh rather than defaulted independently by each caller.
 
@@ -4596,11 +4677,11 @@ HEAD..origin/main` with `0`, indistinguishable from a genuinely current
 command` in CLAUDE.md is tightened to name the `PLOT-BLOCKED.md` file it asks
   workers to write, so the instruction and the classifier agree.
 
-                                        <!--
-                                        bumps:
-                                          skills:
-                                            plot: patch
-                                        -->
+                                          <!--
+                                          bumps:
+                                            skills:
+                                              plot: patch
+                                          -->
 
 - [#352](https://github.com/plot-pm/plot/pull/352) [`299b4e1`](https://github.com/plot-pm/plot/commit/299b4e19c0b8093418b61053e70de0c6044df2ed) Thanks [@jwloka](https://github.com/jwloka)! - board: a release row's fallback number says it is a PR
 
@@ -5917,11 +5998,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   controls and their shared state on top of wave 1's live registry, and it
   dispatches nothing — the dispatch loop is wave 3.
 
-                                          <!--
-                                          bumps:
-                                            skills:
-                                              plot: minor
-                                          -->
+                                            <!--
+                                            bumps:
+                                              skills:
+                                                plot: minor
+                                            -->
 
 ### Patch Changes
 
@@ -6119,11 +6200,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   never mounted, and it fails against the pre-fix code for the stated reason:
   the Commission design item is absent without the prop.
 
-                                          <!--
-                                          bumps:
-                                            skills:
-                                              plot: patch
-                                          -->
+                                            <!--
+                                            bumps:
+                                              skills:
+                                                plot: patch
+                                            -->
 
   ## And a wave said _nobody has taken it_ over finished work
 
@@ -6982,10 +7063,10 @@ has taken it`. The server was right on every field — the row sat in
   Nothing new reads the prose: `verdict` and `blockedBy` remain the fields a
   consumer reads, and this only sharpens the sentence a person sees.
 
-                                            <!--
-                                            bumps:
-                                              skills:
-                                            -->
+                                              <!--
+                                              bumps:
+                                                skills:
+                                              -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched. `blockedNote` gains an optional argument, so every existing caller is
@@ -7075,10 +7156,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   PR for this branch_, which was never a decision about the contract so much as
   this cache filter leaking into it.
 
-                                            <!--
-                                            bumps:
-                                              skills:
-                                            -->
+                                              <!--
+                                              bumps:
+                                                skills:
+                                              -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and `plot-fleet-scan.sh` already resolves each branch's PR to decide
@@ -7288,10 +7369,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   order, a new status flashes then sorts in, the panel is absent when there is
   nothing to report, and the footer line stays at the foot and unchanged.
 
-                                            <!--
-                                            bumps:
-                                              skills:
-                                            -->
+                                              <!--
+                                              bumps:
+                                                skills:
+                                              -->
 
 - [#287](https://github.com/plot-pm/plot/pull/287) [`50ef368`](https://github.com/plot-pm/plot/commit/50ef3681fb332ecc2b862af18a6722d1ca9dd9f6) Thanks [@jwloka](https://github.com/jwloka)! - board: a failing check shows its step and its age, and its file list moves to the menu
 
@@ -7690,10 +7771,10 @@ bottom 801.3125 in 800px` — the footer really is past the fold there, by 1.3px
   the test says in a comment why it does not — and the defect gets its own plan,
   `2026-08-21-the-page-is-as-tall-as-the-screen.md`.
 
-                                            <!--
-                                            bumps:
-                                              skills:
-                                            -->
+                                              <!--
+                                              bumps:
+                                                skills:
+                                              -->
 
   No skill version bumps: this is a board-side rendering change only. No helper
   script decides how a section is drawn, `/api/fleet` loses and gains no field,
@@ -8041,11 +8122,11 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   by construction (a plan's branches move through the lifecycle together), so the
   predicate can demand that every row be wave-grouped rather than handle a mixture.
 
-                                            <!--
-                                            bumps:
-                                              skills:
-                                                plot: patch
-                                            -->
+                                              <!--
+                                              bumps:
+                                                skills:
+                                                  plot: patch
+                                              -->
 
 - [#300](https://github.com/plot-pm/plot/pull/300) [`93a1e41`](https://github.com/plot-pm/plot/commit/93a1e415ca5903a50280ade19899bb21ecb06b98) Thanks [@jwloka](https://github.com/jwloka)! - board: an agent is the machine, so it never appears in WAITING ON A MACHINE
 
@@ -8237,10 +8318,10 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   on the pulse, so a brief written between two scans shows up on the next pulse
   instead of waiting out the scan's cadence.
 
-                                            <!--
-                                            bumps:
-                                              skills:
-                                            -->
+                                              <!--
+                                              bumps:
+                                                skills:
+                                              -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and the `/api/fleet` payload gains a field rather than changing one —
@@ -8743,10 +8824,10 @@ spawn`. Every number is measured, not estimated — the worktree count and the
   field — the estate is appended to the existing `error` string, which the tab
   already renders as `Last scan failed: …`.
 
-                                            <!--
-                                            bumps:
-                                              skills:
-                                            -->
+                                              <!--
+                                              bumps:
+                                                skills:
+                                              -->
 
   The estate report is board-side only. `plot-fleet-scan.sh` is deliberately not
   changed: a SIGKILLed scan cannot append its own diagnosis, so the measurement is
@@ -9376,10 +9457,10 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   as the follow-up: this change's job is to stop asserting a false cause, not to
   find the true one.
 
-                                            <!--
-                                            bumps:
-                                              skills:
-                                            -->
+                                              <!--
+                                              bumps:
+                                                skills:
+                                              -->
 
   Board-side only, and no schema change: the estate rides the existing `error`
   string. `plot-fleet-scan.sh` is untouched for the same reason it was untouched
@@ -9665,12 +9746,12 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   a row's `⋯` menu holds — so no skill's behaviour changed.
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-                                                bumps:
-                                                  skills:
-                                                    plot: minor
-                                                    plot-dispatch: minor
-                                                    plot-fleet: minor
-                                                -->
+                                                  bumps:
+                                                    skills:
+                                                      plot: minor
+                                                      plot-dispatch: minor
+                                                      plot-fleet: minor
+                                                  -->
 
   plot: `finished` is not a verdict
 
@@ -9820,10 +9901,10 @@ failing` since the previous day, and [#203](https://github.com/plot-pm/plot/issu
   than a review comment — the window where rows are git-fresh and host-unfetched
   is not an edge case, it is most of every minute.
 
-                                                <!--
-                                                bumps:
-                                                  skills:
-                                                -->
+                                                  <!--
+                                                  bumps:
+                                                    skills:
+                                                  -->
 
   No skill version bumps: this is a board-side change only. Nothing under
   `skills/` reads or documents what the Agents tab prints in an empty section,
@@ -10330,11 +10411,11 @@ time`), computed server-side where the wave verdict and the plan phase
   here, because this same change reworded a neighbouring note. The client
   no longer imports any note constant.
 
-                                                    <!--
-                                                    bumps:
-                                                      skills:
-                                                        plot: patch
-                                                    -->
+                                                      <!--
+                                                      bumps:
+                                                        skills:
+                                                          plot: patch
+                                                      -->
 
 - [#182](https://github.com/plot-pm/plot/pull/182) [`07eeceb`](https://github.com/plot-pm/plot/commit/07eecebe6b1d915e1d05fe8d35391c1bbb02f903) Thanks [@jwloka](https://github.com/jwloka)! - A row on the Agents tab now marks itself when something is actually being written to it, rather than when it happens to sit in the WORKING group.
 
