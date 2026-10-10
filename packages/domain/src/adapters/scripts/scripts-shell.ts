@@ -166,10 +166,10 @@ export const scriptsShell = (context: ShellContext): Scripts => {
           timeoutMs === undefined
             ? undefined
             : setTimeout(() => {
-                // THE WHOLE GROUP, BY SIGKILL. Signalling `bash` alone left
-                // its subshells and `plot-host.sh` children running under
-                // pid 1, and bash defers a TERM until its foreground child
-                // exits (#1084).
+                // THE WHOLE GROUP: TERM, then KILL after a grace. Signalling
+                // `bash` alone left its subshells and `plot-host.sh` children
+                // running under pid 1 (#1084); TERM first lets the script's
+                // trap remove its temp paths.
                 killGroup(child);
                 if (!settled) {
                   settled = true;

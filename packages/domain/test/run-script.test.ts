@@ -1,10 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+import { describe, it, expect, vi } from 'vitest';
 
 import {
   asJson,
   asJsonLines,
   asLines,
   asText,
+  KILL_GRACE_MS,
+  killGroup,
   resultOf,
   runProcess,
   runScript,
@@ -151,6 +158,88 @@ describe('a timeout ends the whole process group (#1084)', () => {
       expect(alive(child)).toBe(true);
     } finally {
       process.kill(child, 'SIGKILL');
+    }
+  });
+});
+
+describe('a timeout sends TERM before KILL', () => {
+  const PLOT_TMP = resolve(__dirname, '../../../skills/plot/scripts/plot-tmp.sh');
+
+  const exited = (child: ChildProcess): Promise<NodeJS.Signals | null> =>
+    new Promise((done) => child.once('exit', (_code, signal) => done(signal)));
+
+  const alive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const gone = async (pid: number): Promise<void> => {
+    const deadline = Date.now() + 10_000;
+    while (alive(pid) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+  };
+
+  it('waits five seconds between TERM and KILL by default', () => {
+    expect(KILL_GRACE_MS).toBe(5_000);
+  });
+
+  it('ends a group that exits on TERM without sending KILL', async () => {
+    const child = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' });
+    const kill = vi.spyOn(process, 'kill');
+    try {
+      const ended = exited(child);
+      killGroup(child, 100);
+      expect(await ended).toBe('SIGTERM');
+      await new Promise((r) => setTimeout(r, 300));
+      expect(kill.mock.calls.map(([, signal]) => signal)).toEqual(['SIGTERM']);
+    } finally {
+      kill.mockRestore();
+    }
+  });
+
+  it('sends KILL to a group that ignores TERM once the grace has passed', async () => {
+    // An ignored signal stays ignored across `exec`, so `sleep` ignores TERM too.
+    const child = spawn('sh', ['-c', 'trap "" TERM; sleep 30'], { detached: true, stdio: 'ignore' });
+    await new Promise((r) => setTimeout(r, 200));
+    const ended = exited(child);
+    killGroup(child, 100);
+    expect(await ended).toBe('SIGKILL');
+  });
+
+  it('signals the child alone when the group cannot be signalled', async () => {
+    const kill = vi.fn();
+    const child = { pid: 99_999_999, kill, once: vi.fn() } as unknown as ChildProcess;
+    killGroup(child, 10);
+    expect(kill).toHaveBeenCalledWith('SIGTERM');
+    await new Promise((r) => setTimeout(r, 100));
+    expect(kill).toHaveBeenLastCalledWith('SIGKILL');
+  });
+
+  it('does nothing for a child that never started', () => {
+    expect(() => killGroup({ pid: undefined } as unknown as ChildProcess)).not.toThrow();
+  });
+
+  it('lets a timed-out script remove the temp paths it registered', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'plot-kill-term-'));
+    try {
+      const started = Date.now();
+      const run = await runProcess(
+        'bash',
+        ['-c', `source "${PLOT_TMP}"; plot_tmpdir work probe; echo "$$ $work"; sleep 30`],
+        { timeoutMs: 1_000, env: { TMPDIR: tmp } },
+      );
+      expect(Date.now() - started).toBeLessThan(KILL_GRACE_MS);
+      expect(run.code).toBe(1);
+      const [pid, work] = run.stdout.trim().split(' ');
+      expect(work.startsWith(tmp)).toBe(true);
+      await gone(Number(pid));
+      expect(alive(Number(pid))).toBe(false);
+      expect(existsSync(work)).toBe(false);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
     }
   });
 });

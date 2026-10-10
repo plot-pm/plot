@@ -45,35 +45,59 @@ const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024;
 /** Two minutes, matching the longest measured scan with headroom. */
 const DEFAULT_TIMEOUT_MS = 120_000;
 
+/** Five seconds: how long a process group has to act on SIGTERM before SIGKILL. */
+export const KILL_GRACE_MS = 5_000;
+
+/**
+ * Signals a child's process group, or the child alone where the group cannot be
+ * signalled.
+ *
+ * @param child - the group leader.
+ * @param signal - the signal to send.
+ */
+const signalGroup = (child: ChildProcess & { pid: number }, signal: NodeJS.Signals): void => {
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    child.kill(signal);
+  }
+};
+
 /**
  * Ends a child that leads its own process group, and every process in it.
  *
- * A Plot script is `bash` with subshells and children (`git`, `plot-host.sh`,
- * `bb`), and signalling the leader alone leaves them running reparented to
- * pid 1. SIGKILL rather than SIGTERM, because bash defers a TERM until its
- * foreground child exits. Measured 2026-10-01 on a Bitbucket estate: a timed-out
- * scan's tree outlived SIGTERM for over a minute, and its `pr-list` children
- * held the account while the next scan timed out beside them (#1084).
+ * Sends SIGTERM to the whole group first. The group signal reaches the
+ * foreground children (`git`, `plot-host.sh`, `bb`) as well as `bash`, so the
+ * children end, `bash` regains control, and its TERM trap runs: a script that
+ * sources `plot-tmp.sh` removes every temp path it registered. SIGKILL skips
+ * that trap.
+ *
+ * Sends SIGKILL to the group when the leader has not exited after `graceMs`,
+ * because a child that ignores TERM keeps `bash` waiting and the tree alive
+ * (#1084). The grace timer does not keep the Node process alive, and the
+ * leader's exit clears it.
  *
  * The child must have been spawned with `detached: true`, which makes it the
  * group leader. Where the group cannot be signalled, the leader is.
  *
  * @param child - the process to end, spawned detached.
+ * @param graceMs - how long to wait between SIGTERM and SIGKILL.
  */
-export const killGroup = (child: ChildProcess): void => {
+export const killGroup = (child: ChildProcess, graceMs: number = KILL_GRACE_MS): void => {
   if (child.pid === undefined) return;
-  try {
-    process.kill(-child.pid, 'SIGKILL');
-  } catch {
-    child.kill('SIGKILL');
-  }
+  const leader = child as ChildProcess & { pid: number };
+  signalGroup(leader, 'SIGTERM');
+  const escalate = setTimeout(() => signalGroup(leader, 'SIGKILL'), graceMs);
+  escalate.unref();
+  leader.once('exit', () => clearTimeout(escalate));
 };
 
 /**
  * Runs a command and reports its exit code and output.
  *
  * The command runs as the leader of its own process group, and a timeout ends
- * the whole group, so nothing it started outlives the answer.
+ * the whole group, so nothing it started outlives the answer. A timeout
+ * answers code 1 at the timeout, without waiting for the group to exit.
  *
  * Never throws for a non-zero exit: the exit code is the answer, and an
  * exception would make the four contract codes indistinguishable from a
@@ -127,7 +151,10 @@ export const runProcess = (
     // `close` waits for both streams, so the answer holds everything written.
     // A process ended by a signal has no exit code and reports 1.
     child.on('close', (code) => finish(code ?? 1));
-    const timer = setTimeout(() => killGroup(child), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      killGroup(child);
+      finish(1);
+    }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   });
 
 
