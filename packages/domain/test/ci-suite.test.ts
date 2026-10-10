@@ -80,6 +80,12 @@ describe('controllerInvocation', () => {
     expect(controllerInvocation('bash skills/plot/scripts/*dispatch.sh x')).toBe('dispatch');
   });
 
+  it('admits the command bundles while a bare plot-dispatch.sh stays gated', () => {
+    expect(controllerInvocation('node skills/plot/scripts/board/plot-dispatch-command.mjs some-slug')).toBeNull();
+    expect(controllerInvocation('node skills/plot/scripts/board/plot-continue-command.mjs b -')).toBeNull();
+    expect(controllerInvocation('plot-dispatch.sh some-slug')).toBe('dispatch');
+  });
+
   it('answers null for a glob matching all three, not one — reached as a RUN, not spared by the read carve-out', () => {
     expect(controllerInvocation('ls skills/plot/scripts/*.sh')).toBeNull();
     expect(controllerInvocation('bash skills/plot/scripts/*.sh')).toBeNull();
