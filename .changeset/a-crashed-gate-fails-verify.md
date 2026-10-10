@@ -7,5 +7,5 @@
 <!--
 bumps:
   skills:
-    plot-init: patch
+    plot: patch
 -->
