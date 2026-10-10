@@ -18,6 +18,7 @@
 - The plugin registers one PreToolUse hook on Bash instead of five, so a Bash tool call starts one `node` process for the gates and no `bash` gate script.
 - The controller gate allows a read-only `for` loop whose word list names a gated script, and its refusal says to run the receipt bypass as its own command first (#1341).
 - The controller gate refuses `plot-approve.mjs --who --dry-run <slug>` and the same shape for `plot-approve.sh`, `plot-deliver.sh` and `plot-deliver.mjs`, and it gates a `.mjs` glob such as `plot-appro?e.mjs` (#1449).
+- The controller gate's refusal for approve, deliver and release names a route the gate allows, the release hint carries `version`, and the gate refuses `gh pr merge` and `plot-host.sh pr-merge` without a head pin (#1458 M1, L1; #1483 L5).
 
 <!-- Board impact: none to the plan format, the template or the docs/plans layout. The scaffold slice adds one bundle, board/plot-gate.mjs, declared in packages/board/build.mjs and built on main by build-bundles.yml. hooks/hooks.json changes from five entries to one over the course of the plan. -->
 
@@ -79,7 +80,7 @@ The plan takes the second shape. It is within the purpose of the cost rule, beca
 
 **The hook contract does not change.** Input: the hook JSON on stdin, `tool_input.command` the only field read, the working directory the hook's own. Output: exit 2 blocks and stderr reaches the agent, any other exit allows. Each gate keeps its own failure direction. Four gates fail open on their own machinery and say so on stderr. The controller gate refuses a command that names a gated script when its rule cannot be asked (#1245). One gate's exception in the entry does not decide another gate's answer: the entry catches per gate.
 
-**A missing bundle allows, and says so.** A hook that exits 2 on every Bash call leaves the agent no Bash call to repair the install with. So a launcher that cannot find `plot-gate.mjs`, or cannot start `node`, prints `plot-gates: board/plot-gate.mjs is missing — the gates went UNVERIFIED` and exits 0. This is looser than the controller gate's #1245 rule for one case, a missing bundle. The open question below asks for the operator's decision.
+**A missing bundle allows, and says so.** A hook that exits 2 on every Bash call leaves the agent no Bash call to repair the install with. So a launcher that cannot find `plot-gate.mjs`, or cannot start `node`, prints `plot-gates: board/plot-gate.mjs is missing — the gates went UNVERIFIED` and exits 0. This is looser than the controller gate's #1245 rule for one case, a missing bundle. jwloka confirmed this choice on 2026-10-10.
 
 **`plot-install-hooks.sh` follows the hook.** It reads the gate set from `hooks/hooks.json`. When that file names `plot-gates.sh`, the installer reads the gate names from `plot-gate.mjs --list`, registers the one launcher, and `--verify` drives each per-gate probe through `plot-gates.sh`. A repository that holds the old per-gate entries reports `present` and the installer names the one entry that replaces them; it removes nothing it did not write. The four probes that verify today (`state`, `controller`, `brief-name`, `bundle-commit`) keep verifying. The phase gate stays `unprobed` with its present reason.
 
@@ -106,6 +107,16 @@ The installed 2.23.0 gate refused the measurement command itself, because its te
 
 The controller slice fixes them in `controllerInvocation`, because that rule decides. A `for … in` word list is not an invocation unless the loop body runs the loop variable in command position (`"$f"`, `bash "$f"`, `./$f`); the loop of dispatches that the gate exists for (`for s in a b; do plot-dispatch.sh $s; done`) stays refused. The rule skips the word after `--who` and after `--release` before it reads `NO_ENDPOINT`, and it reads no word after an unquoted `#`. `NO_ENDPOINT` lists `--dry-run`, `--help` and `-h` for both approve names and drops `--status`. A `.mjs` glob resolves like a `.sh` glob. `parseArgs` in `approve.ts` and `deliver.ts` refuses a `--who` value that starts with `-`. The refusal text for the receipt bypass says to run it as its own Bash call first. #1449's lows 3 to 5 (the `bookApproval` `finally`, the Delivered-plan slice state, the changeset `bumps:` block) are outside the gate and stay on the issue.
 
+### Findings moved from the controllers plan
+
+On 2026-10-10 jwloka moved three findings from `the-controllers-close-their-review-findings` (#1458, #1483) into the controller-gate slice, because they edit `plot-controller-gate.sh` and `rules/ci-suite.ts`, the two files this slice rewrites. #1458 and #1483 stay open for the rest of their findings, which that plan answers, so this plan's `Issue:` line does not name them.
+
+| Finding | Holds at (`c9d63311d`) | Fix |
+|---|---|---|
+| #1458 M1 — the refusal names a route the gate refuses | `plot-controller-gate.sh:302-306`; `rules/ci-suite.ts:148-155` lists `plot-approve.mjs` in `GATED`; `test/reconcile/controller-gate.test.mjs:132` asserts the refusal | The refusal for approve, deliver and release names the endpoint first (`POST /api/approve`, `POST /api/deliver`, `POST /api/release {"slug":"<slug>","version":"<version>"}`) and the receipt escape second. It names the bundle only for dispatch and continue, which the gate does not gate. A test runs the gate on the command each refusal prints and asserts exit 0 or a different refusal. |
+| #1458 L1 — the release hint omits `version` | `plot-controller-gate.sh:307` | The release hint carries `version`, as in the row above. |
+| #1483 L5 — nothing stops an unpinned `gh pr merge` | `plot-controller-gate.sh:38-41` | `plot-approve.mjs` merges through `plot-host.sh pr-merge --match-head`, so the comment's reason (*"`gh pr merge` on a plan PR is the approval"*) no longer holds. Outside a dispatch worktree, the gate refuses `gh pr merge` and `plot-host.sh pr-merge` with no `--match-head` or `--match-head-commit`, and names `plot-ask.mjs merge <pr> <sha>`. The decision is a rule in the domain, with the other controller-gate decisions. |
+
 ### Out of scope
 
 - **`plot-config.sh` and `plot-plan-meta.sh`.** The gates reach config through `scripts-shell.ts` and plans through the domain's parser, and both scripts keep their rows. Their conversion belongs to the story's Phase 4.
@@ -118,10 +129,10 @@ The controller slice fixes them in `controllerInvocation`, because that rule dec
 
 ### Open Questions
 
-- [ ] One hook or five? The plan registers one launcher, `plot-gates.sh`, and keeps five per-gate launchers for direct callers. Five registered launchers would keep `plot-install-hooks.sh` unchanged and cost 81 to 251 ms more CPU per Bash call than today, measured above.
-- [ ] A missing `plot-gate.mjs`: allow and say so (the plan's choice), or refuse every Bash call? Refusing matches #1245 for the controller gate and leaves no Bash call to repair the install.
-- [ ] Does `plot-install-hooks.sh` rewrite an adopting repository's five per-gate entries into the one entry, or only report them as `present`? The plan reports and removes nothing, because the per-gate launchers keep working.
-- [ ] Is the acceptance figure for the start path "no more CPU than the five shell gates at the same load", or a fixed number such as 35 ms? Load was 18.0 on 16 cores during this measurement, so a fixed number taken today is high.
+- [x] One hook or five? The plan registers one launcher, `plot-gates.sh`, and keeps five per-gate launchers for direct callers. Five registered launchers would keep `plot-install-hooks.sh` unchanged and cost 81 to 251 ms more CPU per Bash call than today, measured above. **Answer:** one registered hook runs `plot-gate.mjs` for all five gates, as the plan states (jwloka, 2026-10-10).
+- [x] A missing `plot-gate.mjs`: allow and say so (the plan's choice), or refuse every Bash call? Refusing matches #1245 for the controller gate and leaves no Bash call to repair the install. **Answer:** a missing bundle allows the call and says so on stderr (jwloka, 2026-10-10).
+- [x] Does `plot-install-hooks.sh` rewrite an adopting repository's five per-gate entries into the one entry, or only report them as `present`? The plan reports and removes nothing, because the per-gate launchers keep working. **Answer:** plan default kept: the installer reports and removes nothing (jwloka, 2026-10-10).
+- [x] Is the acceptance figure for the start path "no more CPU than the five shell gates at the same load", or a fixed number such as 35 ms? Load was 18.0 on 16 cores during this measurement, so a fixed number taken today is high. **Answer:** plan default kept: no more CPU than the five shell gates at the same load (jwloka, 2026-10-10).
 
 ## Slices
 
@@ -143,7 +154,7 @@ The controller slice fixes them in `controllerInvocation`, because that rule dec
 
 ### The controller gate
 
-- `feature/the-controller-gate-is-a-launcher` — `plot-controller-gate.sh` becomes a launcher over the same entry; `controllerInvocation` reads a `for` word list as no invocation, skips the `--who` and `--release` value and an unquoted comment, gates a `.mjs` glob, and drops `--status` for approve; `parseArgs` refuses a `--who` value that starts with `-`; the refusal names the two-call order for the receipt bypass → #1341, #1449. Decision count 49 → 48 <!-- builds: the controller gate in plot-gate.mjs, and the #1341 and #1449 fixes in controllerInvocation -->
+- `feature/the-controller-gate-is-a-launcher` — `plot-controller-gate.sh` becomes a launcher over the same entry; `controllerInvocation` reads a `for` word list as no invocation, skips the `--who` and `--release` value and an unquoted comment, gates a `.mjs` glob, and drops `--status` for approve; `parseArgs` refuses a `--who` value that starts with `-`; the refusal names the two-call order for the receipt bypass (#1341, #1449); moved from `the-controllers-close-their-review-findings` on 2026-10-10: the refusal for approve, deliver and release names a route the gate allows (#1458 M1), the release hint carries `version` (#1458 L1), and the gate refuses `gh pr merge` and `plot-host.sh pr-merge` without a head pin (#1483 L5). Decision count 49 → 48 <!-- builds: the controller gate in plot-gate.mjs, the #1341 and #1449 fixes in controllerInvocation, and an unpinned-merge refusal -->
 
 ### The phase gate
 
@@ -155,3 +166,4 @@ The controller slice fixes them in `controllerInvocation`, because that rule dec
 - 2026-10-10, deliverable search (`plot-deliverable-search.sh`): `plot-gate.mjs`, `entry/gate`, `stagedChanges`, `phaseGate`, `stateGate`, `briefNameRefusal`, `bundleCommitRefusal`, `receiptClears`, `hookInput` and `generatedBundles` returned no existing artifact. The search names `bundles.generated.ts`, which lists the built bundles for the contract; the bundle gate keeps the `build.mjs` derivation that `check-bundle-attributes.sh`, `scripts/main-bundles.sh` and `check-no-bundle-diff.sh` share.
 - 2026-10-10, title similarity: no Draft or Approved plan shares three significant words with this title.
 - 2026-10-10: the cost figures above come from a measurement script in `/tmp`, run at load average 18.0. The scaffold slice commits the instrument as `scripts/measure-gates.mjs`, so the figures can be taken again at a lower load.
+- 2026-10-10: jwloka answered the four open questions and moved #1458 M1, #1458 L1 and #1483 L5 from `the-controllers-close-their-review-findings` into the controller-gate slice. The controller slice line now cites its issues in parentheses; the `→` form read as PR #1341.
