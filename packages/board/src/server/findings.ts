@@ -25,82 +25,42 @@
 // the monitor decided and hands it on.
 import fs from 'node:fs';
 import path from 'node:path';
-import { currentFindings, FindingSchema, type Finding } from '../contract/index.js';
+import { findingsInText, MAX_LOG_BYTES, MONITOR_LOGS, type Finding } from '@plot-pm/domain';
 
-/**
- * The three logs a dispatched worktree can hold, by the filenames the monitor
- * scripts write.
- *
- * Named rather than globbed, for `.gitignore`'s reason in the same plan: a
- * glob over `.jsonl` would also read an agent's own output, and an agent
- * writing a file that happened to parse as a finding would be publishing
- * findings nobody measured.
- */
-export const MONITOR_LOGS: readonly string[] = [
-  '.plot-worker.monitor.worker.jsonl',
-  '.plot-worker.monitor.agent.jsonl',
-  '.plot-worker.monitor.build.jsonl',
-];
-
-/**
- * How much of a monitor log is read, in bytes.
- *
- * A BOUND RATHER THAN A TRUST. The monitors publish on change, so a log is
- * normally a few hundred bytes and this never fires. It exists because the
- * board reads these files every pulse on a single thread, and one runaway
- * monitor must not be able to stall the read path for every branch.
- */
-const MAX_LOG_BYTES = 256 * 1024;
+export { MONITOR_LOGS };
 
 /**
  * The findings one monitor log currently holds.
  *
- * Every line that is not a valid finding is SKIPPED rather than thrown on — the
- * tolerance `decode` already applies to the socket, for the same reason: a
- * board that died on one malformed line would be a board any stray write could
- * take down. A truncated last line is the ordinary case, since a monitor
- * appends while this reads.
+ * The read stays synchronous because the payload build that calls it is; the
+ * parse and the reduction are the domain's `findingsInText`, the one the Desk
+ * port's `readFindings` also calls.
  *
  * @param file absolute path to the log.
  * @returns the findings that hold, or [] where the file is absent or unreadable.
  */
-export function findingsInLog(file: string): readonly Finding[] {
+export const findingsInLog = (file: string): readonly Finding[] => {
   let raw: string;
   try {
     const handle = fs.openSync(file, 'r');
     try {
       const size = fs.fstatSync(handle).size;
-      // THE TAIL, NOT THE HEAD. A log longer than the bound has its OLDEST
-      // lines dropped, which is the safe half to lose: the reduction is
-      // last-wins, so the newest lines carry the current answer.
+      // THE TAIL, NOT THE HEAD: the reduction is last-wins, so the oldest
+      // lines are the safe half to lose.
       const start = size > MAX_LOG_BYTES ? size - MAX_LOG_BYTES : 0;
-      const length = size - start;
-      const buffer = Buffer.alloc(length);
-      fs.readSync(handle, buffer, 0, length, start);
+      const buffer = Buffer.alloc(size - start);
+      fs.readSync(handle, buffer, 0, buffer.length, start);
       raw = buffer.toString('utf8');
     } finally {
       fs.closeSync(handle);
     }
   } catch {
-    // ABSENT IS THE COMMON CASE. A branch with no dispatched worktree has no
-    // monitor and no log, and that is not an error — it is *nothing was
-    // looked for*, which the empty answer says exactly.
+    // ABSENT IS THE COMMON CASE: a branch with no dispatched worktree has no
+    // monitor and no log.
     return [];
   }
-
-  const parsed: Finding[] = [];
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed === '') continue;
-    try {
-      const result = FindingSchema.safeParse(JSON.parse(trimmed));
-      if (result.success) parsed.push(result.data);
-    } catch {
-      // Not JSON — a partially written line, or something else's output.
-    }
-  }
-  return currentFindings(parsed);
-}
+  return findingsInText(raw);
+};
 
 /**
  * Every monitor's current findings about the branch checked out at `worktree`.

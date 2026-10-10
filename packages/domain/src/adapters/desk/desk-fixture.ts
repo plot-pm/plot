@@ -1,4 +1,5 @@
 import { answered, failed, type PortResult } from '../../port-result.js';
+import type { Finding } from '../../entities/finding.js';
 import type { BuildFinding, Desk, DeskFinding, EndingRecord } from '../../ports/desk.js';
 
 /** Every call this estate received, for a test to assert against. */
@@ -23,6 +24,10 @@ export interface DeskFixture {
   markedWorktrees?: readonly string[];
   /** Worktrees whose declaration file exists and does not parse — `sealDeclaration` fails on these. */
   unreadableDeclarations?: readonly string[];
+  /** The findings each worktree's logs hold, by worktree; a worktree not named holds none. */
+  findings?: Readonly<Record<string, readonly Finding[]>>;
+  /** Worktrees whose logs cannot be read — `readFindings` fails on these. */
+  unreadableFindings?: readonly string[];
   /** Every call received, filled in as the fixture is used. */
   calls?: Partial<DeskFixtureCalls>;
 }
@@ -123,6 +128,11 @@ export const deskFixture = (fixture: DeskFixture = {}): Desk => {
     publishBuildFinding: async (worktree, finding): Promise<PortResult<void>> => {
       calls.buildFindings?.push({ worktree, finding });
       return answered(undefined);
+    },
+
+    readFindings: async (worktree): Promise<PortResult<readonly Finding[]>> => {
+      if (fixture.unreadableFindings?.includes(worktree)) return failed<readonly Finding[]>();
+      return answered(fixture.findings?.[worktree] ?? []);
     },
   };
 };

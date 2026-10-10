@@ -60,6 +60,7 @@ import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gat
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../../shared/registry.js';
 import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
 import { fleetAutoWrites } from '../../shared/auto-writes.js';
+import { runDeskRelay } from '../../shared/desk-relay.js';
 import { runIndexMonitor } from '../../shared/index-monitor.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
 import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
@@ -1710,6 +1711,30 @@ export const indexMonitorOver = (
 };
 
 /**
+ * Builds the desk relay's run over the trees and the desks' monitor logs.
+ *
+ * @param context - the checkout and its scripts directory.
+ * @param channel - the channel to publish on.
+ * @param write - receives one log line per publish and per clear.
+ * @returns one run of the relay.
+ */
+export const deskRelayOver = (
+  context: { repoRoot: string; scriptDir: string },
+  channel: Pick<RunningChannel, 'findings' | 'relay'>,
+  write: (s: string) => void,
+): (() => Promise<void>) => {
+  const trees = treesGit(context);
+  return () =>
+    runDeskRelay({
+      trees,
+      desk: deskFs(trees),
+      channel,
+      now: () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      log: write,
+    });
+};
+
+/**
  * Runs the temp sweep when an hour has passed since the last one.
  *
  * A failed sweep is reported on stderr and never ends the daemon: the sweep is
@@ -1887,6 +1912,8 @@ export const run = async (
     channel === null
       ? null
       : indexMonitorOver({ repoRoot, scriptDir: scriptsDir }, channel, queue, write);
+  const deskRelay =
+    channel === null ? null : deskRelayOver({ repoRoot, scriptDir: scriptsDir }, channel, write);
   const scanClock = args.once
     ? null
     : startFleetClock(clockSystem(), {
@@ -2011,6 +2038,11 @@ export const run = async (
     // `escalation` world follows: a question ages whether or not this daemon
     // may grow the fleet.
     await notifyEscalations(report, repoRoot, notifier, escalated, write, warn);
+    try {
+      await deskRelay?.();
+    } catch (e) {
+      warn(`plot-fleetd: desk relay failed: ${e instanceof Error ? e.message : String(e)}\n`);
+    }
     // A FRESH SESSION IS A START, so it is gated by `--start-agents` like the
     // starts above. A tick that was not allowed to start reports and acts on
     // nothing.

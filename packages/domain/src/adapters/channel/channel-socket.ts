@@ -54,11 +54,22 @@ export interface RunningChannel extends ChannelPort {
   /** How many subscribers are connected. */
   subscriberCount(): number;
   /**
-   * Publishes a finding from inside the process, as a monitor on the socket would.
+   * Publishes a finding from inside the process, as a monitor on the socket would,
+   * and records its monitor's `lastSeen` as now.
    *
    * @param finding - the reading; it replaces the slot of its monitor and branch.
    */
   publish(finding: Finding): void;
+  /**
+   * Holds and broadcasts a finding that another process recorded, exactly as
+   * `publish` does, and leaves its monitor's `lastSeen` unchanged.
+   *
+   * A relayed finding proves that its monitor wrote once, not that the monitor
+   * runs now, so the heartbeat keeps reporting that monitor as the socket heard it.
+   *
+   * @param finding - the reading; it replaces the slot of its monitor and branch.
+   */
+  relay(finding: Finding): void;
   /**
    * Records that a monitor took a reading now, with nothing to publish.
    *
@@ -163,11 +174,9 @@ export const startChannel = async (options: ChannelOptions): Promise<RunningChan
     socket.on('error', forget);
   });
 
-  const publish = (finding: Finding): void => {
+  /** Holds a finding and sends it to every subscriber it serves; `lastSeen` is not touched. */
+  const broadcast = (finding: Finding): void => {
     held = absorb(held, finding);
-    // WHEN THE CHANNEL RECEIVED THE READING, not when it was taken: a relayed
-    // finding with an old `measuredAt` is still a live monitor speaking.
-    lastSeen.set(finding.monitor, now());
 
     const live = [...subscriptions.values()];
     const { send, finished } = route(
@@ -187,6 +196,13 @@ export const startChannel = async (options: ChannelOptions): Promise<RunningChan
       byId.get(subscription.id)?.close();
       subscriptions.delete(subscription.id);
     }
+  };
+
+  const publish = (finding: Finding): void => {
+    // WHEN THE CHANNEL RECEIVED THE READING, not when it was taken: a published
+    // finding with an old `measuredAt` is still a live monitor speaking.
+    lastSeen.set(finding.monitor, now());
+    broadcast(finding);
   };
 
   // THE HEARTBEAT IS HOW A DEAD MONITOR IS VISIBLE. Nothing watches a
@@ -220,6 +236,7 @@ export const startChannel = async (options: ChannelOptions): Promise<RunningChan
     address,
     findings: () => held,
     publish,
+    relay: broadcast,
     seen: (monitor) => {
       lastSeen.set(monitor, now());
     },
