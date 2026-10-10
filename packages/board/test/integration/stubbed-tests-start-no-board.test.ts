@@ -664,7 +664,11 @@ const EXPECTED_FILES = 61;
 // `EXPECTED_FILES` is unchanged.
 // 551 → 554 on 2026-10-10: the three `it(` of `page-hears-channel.browser.test.ts`,
 // a new file counted in `EXPECTED_FILES` above.
-const EXPECTED_TESTS = 554;
+// 554 → 557 on 2026-10-10: two `it(` in `agents-tab.browser.test.ts`, for the
+// default-branch status in the panel (red shows, green shows nothing), and one
+// in `pr-checks-not-asked.browser.test.ts`, for the commit the checks ran on.
+// Both files already drove a page, so `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 557;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
