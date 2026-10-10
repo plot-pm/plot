@@ -28,7 +28,7 @@ On `main` at `eb4bda159`, 2026-10-10, `skills/plot/scripts/README.md` lists 15 *
 ### Should Have
 
 - [ ] [the-fleet-closes-its-review-findings](../plans/2026-10-10-the-fleet-closes-its-review-findings.md) — fleet and supervisor findings (#1436–#1454, #1487, #1503).
-- [ ] [the-controllers-close-their-review-findings](../plans/2026-10-10-the-controllers-close-their-review-findings.md) — approval, implement lock and merge controller findings (#1447, #1458, #1483).
+- [ ] [the-controllers-close-their-review-findings](../plans/2026-10-10-the-controllers-close-their-review-findings.md) — approval, implement lock and merge controller findings (#1447, #1458, #1483). <!-- pr: #1498, branch: bug/the-approval-asks-the-domain -->
 - [ ] [the-channel-closes-its-review-findings](../plans/2026-10-10-the-channel-closes-its-review-findings.md) — default-branch reading, channel, board page and mod findings (#1437, #1463–#1481). <!-- pr: #1497, branch: bug/a-stale-default-branch-reading-holds-nothing -->
 - [ ] [the-tests-and-gates-close-their-review-findings](../plans/2026-10-10-the-tests-and-gates-close-their-review-findings.md) — decision gate, reaper and test hygiene findings (#1412, #1415, #1433, #1434, #1461, #1473, #1485, #1489). <!-- pr: #1495, branch: bug/a-bundle-declaration-is-one-build-call -->
 
