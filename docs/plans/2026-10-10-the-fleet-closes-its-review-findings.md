@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-10, Jan Wloka, plan-PR #1499 merged
+- **Started:** 2026-10-10, Jan Wloka, `bug/an-unknown-supervisor-keeps-the-scan`
 
 ## Changelog
 

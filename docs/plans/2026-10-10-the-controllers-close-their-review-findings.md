@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-10, Jan Wloka, plan-PR #1498 merged
+- **Started:** 2026-10-10, Jan Wloka, `bug/the-entries-write-through-a-port`
 
 ## Changelog
 
