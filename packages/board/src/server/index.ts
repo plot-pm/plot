@@ -37,6 +37,7 @@ import { handleDeliver, deliverAvailability, deliverStatus } from './deliver.js'
 import { handleImplement, implementAvailability, implementStatus } from './implement.js';
 import { dropAvailability, handleDrop } from './drop.js';
 import { handleReleaseClaim } from './release-claim.js';
+import { startEventHub } from './channel-events.js';
 import { logDir, processLog, truncateInherited } from '@plot-pm/fleet/shared/process-log';
 // Inlined at build time by esbuild's text loader — the artifact is a single
 // self-contained file, served from memory (no filesystem static serving, so no
@@ -101,6 +102,10 @@ const opts: BuildBoardOptions = {
 truncateInherited(1);
 truncateInherited(2);
 const boardLog = processLog(path.join(logDir(opts.repoRoot), 'board.log'));
+const events = startEventHub({
+  address: path.join(opts.repoRoot, '.plot', 'fleet.sock'),
+  log: (line) => boardLog.write(`${line}\n`),
+});
 const render = (parts: readonly unknown[]): string =>
   parts.map((part) => (typeof part === 'string' ? part : inspect(part))).join(' ');
 /**
@@ -490,6 +495,13 @@ async function handleRequest(
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
     }
+    return;
+  }
+
+  if (url.pathname === '/api/events') {
+    // A held-open stream: `lastRequestAt` is touched at connect only, and the
+    // subscription behind it is the process's one, not this request's.
+    events.attach(req, res);
     return;
   }
 

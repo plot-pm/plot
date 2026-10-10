@@ -9,6 +9,7 @@ import { StoriesTab } from './components/StoriesTab.js';
 import { StoryModal } from './components/StoryModal.js';
 import { BLOCKED_REASON, UnreachableOverlay } from './components/UnreachableOverlay.js';
 import { MultiSelect } from './components/ui/MultiSelect.js';
+import { listenForEvents } from './lib/event-listener.js';
 import { boardForReader, readMineOnly, readerFrom, writeMineOnly } from './lib/agent-rows/mine-filter.js';
 import {
   NO_SPRINT,
@@ -335,6 +336,11 @@ export function App() {
     const id = setInterval(() => void load(), starting > 0 ? STARTING_POLL_MS : POLL_MS);
     return () => clearInterval(id);
   }, [load, starting]);
+
+  // The channel's push: a change refetches the board, at most once per window.
+  // The poll above stays — with no channel the stream stays silent and nothing
+  // here fires.
+  useEffect(() => listenForEvents({ refetch: () => void load() }), [load]);
 
   // The fleet only polls while its tab is open: a background 4 s poll would
   // cost the same as a foreground one and answer a question nobody is asking.
