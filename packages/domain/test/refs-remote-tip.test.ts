@@ -153,3 +153,44 @@ describe('the board refs adapter carries no network-backed remoteTip', () => {
     expect(source).not.toMatch(/ls-remote/);
   });
 });
+
+describe('refsRemoteGit.remoteSha', () => {
+  const ctx = { repoRoot: '/nowhere', scriptDir: '/nowhere/scripts' };
+  const stub = (code: number, stdout: string) => async () => ({ code, stdout, stderr: '' });
+
+  it('reads the sha at the full ref from a real remote', async () => {
+    // THE REMOTE'S OWN TIP, which the `remoteTip` case above may have moved.
+    const tip = git(origin, ['rev-parse', 'main']).trim();
+    expect(await refs().remoteSha('main')).toEqual({ ok: true, value: { sha: tip } });
+  });
+
+  it('asks ls-remote for the full ref with the 10 s timeout', async () => {
+    const seen: { args: readonly string[]; timeoutMs?: number }[] = [];
+    const remote = refsRemoteGit(ctx, async (_c, args, options) => {
+      seen.push({ args, timeoutMs: options.timeoutMs });
+      return { code: 0, stdout: 'abc\trefs/heads/main\n', stderr: '' };
+    });
+    expect(await remote.remoteSha('main')).toEqual({ ok: true, value: { sha: 'abc' } });
+    expect(seen).toEqual([{ args: ['ls-remote', 'origin', 'refs/heads/main'], timeoutMs: 10_000 }]);
+  });
+
+  it('does not match refs/heads/feature/main when asked for main', async () => {
+    const remote = refsRemoteGit(ctx, stub(0, 'def\trefs/heads/feature/main\n'));
+    expect(await remote.remoteSha('main')).toEqual({ ok: true, value: 'unknown' });
+    const both = refsRemoteGit(ctx, stub(0, 'def\trefs/heads/feature/main\nabc\trefs/heads/main\n'));
+    expect(await both.remoteSha('main')).toEqual({ ok: true, value: { sha: 'abc' } });
+  });
+
+  it('reads a failed ls-remote as unknown', async () => {
+    expect(await refsRemoteGit(ctx, stub(128, '')).remoteSha('main')).toEqual({ ok: true, value: 'unknown' });
+  });
+
+  it('reads an empty reply as unknown', async () => {
+    expect(await refsRemoteGit(ctx, stub(0, '')).remoteSha('main')).toEqual({ ok: true, value: 'unknown' });
+  });
+
+  it('is unaskable from the board instance, which holds no network call', async () => {
+    const board = refsGit({ repoRoot: clone, scriptDir: path.join(clone, 'scripts') });
+    expect(await board.remoteSha('main')).toEqual({ ok: false, why: 'unaskable' });
+  });
+});

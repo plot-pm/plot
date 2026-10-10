@@ -205,6 +205,15 @@ export interface QueueReadings {
    * Absent means nobody asked; an asked pass that found none is `[]`.
    */
   orphanedClaims?: readonly string[];
+  /**
+   * Whether the default branch's newest settled CI reading is red.
+   *
+   * **A PASS-LEVEL READING, NOT A SLICE'S.** It is one fact about the branch
+   * every slice would be cut from, so it travels beside the slices and
+   * {@link matchQueue} hands it to {@link whyNotReady}. Absent means nobody
+   * read the default branch, which holds nothing.
+   */
+  defaultBranchRed?: boolean;
 }
 
 /** One slice, handed to one agent. */
@@ -243,6 +252,16 @@ export type QueueHold =
    * this pass its hand-overs and the next tick re-asks.
    */
   | 'merge-unknown'
+  /**
+   * The default branch's newest settled CI reading is red.
+   *
+   * **A PASS-LEVEL HOLD: ONE READING HOLDS EVERY SLICE THAT WOULD OTHERWISE BE
+   * HANDED OVER.** A slice cut from a red default branch inherits the failure.
+   * Tested after the two landing holds, so finished work still reads
+   * `already-merged`, and before `assigned`. It may rest on a non-terminal
+   * answer because it is reversible: the next settled-green reading lifts it.
+   */
+  | 'default-branch-red'
   /**
    * A live manifest already names this branch — an agent holds it, even
    * though no ref proves it yet.
@@ -333,6 +352,7 @@ export type QueueHold =
 export const QUEUE_HOLDS: readonly QueueHold[] = [
   'already-merged',
   'merge-unknown',
+  'default-branch-red',
   'assigned',
   'waits',
   'slice-unnamed',
@@ -436,11 +456,16 @@ export const isHandOverReady = (slice: QueuedSlice): boolean =>
  * regardless of what any of those answer.
  *
  * @param slice - the queued slice.
+ * @param defaultBranchRed - whether the default branch's settled reading is red.
  * @returns the hold, or null when the slice is ready.
  */
-export const whyNotReady = (slice: QueuedSlice): QueueHold | null => {
+export const whyNotReady = (
+  slice: QueuedSlice,
+  defaultBranchRed: boolean = false,
+): QueueHold | null => {
   if (slice.landed === 'landed') return 'already-merged';
   if (slice.landed === 'unknown') return 'merge-unknown';
+  if (defaultBranchRed) return 'default-branch-red';
   if (slice.assignedTo !== '') return 'assigned';
   if (slice.waitHeld !== '') return 'waits';
   // AN UNNAMED SLICE IS HELD ONLY WHERE IT WOULD OTHERWISE BE HANDED OVER, and
@@ -613,7 +638,7 @@ export const matchQueue = (readings: QueueReadings): QueueMatch => {
   let next = 0;
 
   for (const slice of readings.slices) {
-    const hold = whyNotReady(slice);
+    const hold = whyNotReady(slice, readings.defaultBranchRed === true);
     if (hold !== null) {
       held.push({
         branch: slice.branch,

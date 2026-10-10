@@ -1,12 +1,39 @@
-import type { BuildRun, ShaRun } from '../../entities/build.js';
+import type { BuildRun, ShaRun, WorkflowShaRun } from '../../entities/build.js';
 import type { LimitReading } from '../../entities/limit.js';
-import type { PortResult } from '../../port-result.js';
+import { answered, type PortResult } from '../../port-result.js';
 import type { BuildPort, BuildSystem } from '../../ports/build.js';
 import type { ShellContext } from '../scripts.js';
 import { buildReads } from './build-shell.js';
 
 /** The system word `plot-host.sh` knows this connector by, and tags its limit with. */
 const SYSTEM = 'jenkins';
+
+/**
+ * Maps a Jenkins `result` word to the conclusion word the domain folds.
+ *
+ * `SUCCESS` passes; `FAILURE` and `UNSTABLE` fail (a build whose tests failed
+ * is red); `ABORTED` is `cancelled`; `NOT_BUILT` is `unknown`, because nothing
+ * ran. A null conclusion (still building) and any word Jenkins adds later pass
+ * through unchanged, so the fold reads the second as `unknown`.
+ *
+ * @param conclusion - Jenkins' `result` word, or null while the build runs.
+ * @returns the conclusion word `foldRuns` reads.
+ */
+export const jenkinsConclusion = (conclusion: string | null): string | null => {
+  switch (conclusion) {
+    case 'SUCCESS':
+      return 'success';
+    case 'FAILURE':
+    case 'UNSTABLE':
+      return 'failure';
+    case 'ABORTED':
+      return 'cancelled';
+    case 'NOT_BUILT':
+      return 'unknown';
+    default:
+      return conclusion;
+  }
+};
 
 /**
  * Reads the CI system whose builds live on a Jenkins instance.
@@ -57,6 +84,14 @@ export const buildJenkins = (context: ShellContext): BuildPort => {
 
     runForSha: (branch, sha, limit): Promise<PortResult<ShaRun | null>> =>
       reads.runForSha(branch, sha, limit),
+
+    runsForSha: async (branch, sha): Promise<PortResult<readonly WorkflowShaRun[]>> => {
+      const listing = await reads.runsForSha(branch, sha);
+      if (!listing.ok) return listing;
+      return answered(
+        listing.value.map((run) => ({ ...run, conclusion: jenkinsConclusion(run.conclusion) })),
+      );
+    },
 
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
 

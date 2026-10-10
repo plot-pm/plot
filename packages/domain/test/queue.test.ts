@@ -698,6 +698,7 @@ describe('a refusal is counted so a zero can be read', () => {
     const answered = [
       whyNotReady(slice({ landed: 'landed' })),
       whyNotReady(slice({ landed: 'unknown' })),
+      whyNotReady(slice(), true),
       whyNotReady(slice({ assignedTo: 'agent-a' })),
       whyNotReady(slice({ waitsOn: ['feature/prereq'], waitHeld: 'unmerged' })),
       whyNotReady(slice({ briefPresent: false })),
@@ -1076,3 +1077,35 @@ describe('whyNotReady — a slice a live manifest already names is held, not re-
  * itself is a plain string here — the `running`/`waiting` filter is the
  * caller's, built in `readQueue` before this field is ever set.
  */
+
+describe('default-branch-red — the pass-level hold', () => {
+  it('holds a ready slice when the default branch is red', () => {
+    expect(whyNotReady(slice(), true)).toBe('default-branch-red');
+    expect(whyNotReady(slice(), false)).toBeNull();
+  });
+
+  it('is beaten by a landed slice and beats an assigned one', () => {
+    expect(whyNotReady(slice({ landed: 'landed' }), true)).toBe('already-merged');
+    expect(whyNotReady(slice({ landed: 'unknown' }), true)).toBe('merge-unknown');
+    expect(whyNotReady(slice({ assignedTo: 'abc' }), true)).toBe('default-branch-red');
+  });
+
+  it('sits after merge-unknown and before assigned in the list', () => {
+    const at = (hold: QueueHold) => QUEUE_HOLDS.indexOf(hold);
+    expect(at('merge-unknown')).toBeLessThan(at('default-branch-red'));
+    expect(at('default-branch-red')).toBeLessThan(at('assigned'));
+  });
+
+  it('matchQueue hands nothing over while red, and everything once it lifts', () => {
+    const readings = { slices: [slice()], agents: [agent('a')] };
+    const red = matchQueue({ ...readings, defaultBranchRed: true });
+    expect(red.assignments).toEqual([]);
+    expect(red.held.map((h) => h.hold)).toEqual(['default-branch-red']);
+    expect(matchQueue({ ...readings, defaultBranchRed: false }).assignments).toHaveLength(1);
+    expect(matchQueue(readings).assignments).toHaveLength(1);
+  });
+
+  it('holdCounts reports the key at zero', () => {
+    expect(holdCounts([])['default-branch-red']).toBe(0);
+  });
+});

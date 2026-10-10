@@ -1,4 +1,4 @@
-import type { BuildRun, ShaRun } from '../../entities/build.js';
+import type { BuildRun, ShaRun, WorkflowShaRun } from '../../entities/build.js';
 import { LimitBasisSchema, type LimitBasis, type LimitReading } from '../../entities/limit.js';
 import { answered, type PortResult } from '../../port-result.js';
 import { asJson, asJsonLines, resultOf, runProcess, type ScriptRun } from '../run-script.js';
@@ -15,6 +15,7 @@ interface RawRun {
 /** One run as `plot-host.sh run-for-sha` reports it. */
 interface RawShaRun {
   sha?: string;
+  workflow?: string;
   status?: string;
   conclusion?: string | null;
   url?: string;
@@ -69,6 +70,17 @@ export const shaRunOf = (raw: RawShaRun): ShaRun => ({
   url: raw.url ?? '',
   startedAt: raw.startedAt ?? '',
   jobs: raw.jobs?.map((job) => ({ conclusion: job.conclusion ?? null, steps: job.steps ?? 0 })),
+});
+
+/**
+ * Reads one entry of the `runs-for-sha` listing as the domain's entity.
+ *
+ * @param raw - the script's JSON object.
+ * @returns the run, with its workflow and every other unstated field empty.
+ */
+export const workflowShaRunOf = (raw: RawShaRun): WorkflowShaRun => ({
+  ...shaRunOf(raw),
+  workflow: raw.workflow ?? '',
 });
 
 /**
@@ -167,6 +179,13 @@ export const buildReads = (shell: BuildShell, env: Readonly<Record<string, strin
           if (stdout.trim() === '') return null;
           return shaRunOf(asJson<RawShaRun>(stdout));
         },
+      ),
+
+    runsForSha: (branch: string, sha: string): Promise<PortResult<readonly WorkflowShaRun[]>> =>
+      ask(['runs-for-sha', branch, sha], (stdout) =>
+        // `[]` is the script's answer for a commit CI has not reached; empty
+        // stdout is read the same way rather than handed to the JSON parser.
+        stdout.trim() === '' ? [] : asJson<RawShaRun[]>(stdout).map(workflowShaRunOf),
       ),
 
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => {

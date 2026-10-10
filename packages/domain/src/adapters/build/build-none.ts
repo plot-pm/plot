@@ -1,4 +1,4 @@
-import type { BuildRun, ShaRun } from '../../entities/build.js';
+import type { BuildRun, ShaRun, WorkflowShaRun } from '../../entities/build.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { unaskable, type PortResult } from '../../port-result.js';
 import type { BuildPort, BuildSystem } from '../../ports/build.js';
@@ -32,6 +32,7 @@ export const buildNone = (): BuildPort => ({
   system: (): BuildSystem => '',
   runs: async (): Promise<PortResult<readonly BuildRun[]>> => unaskable(),
   runForSha: async (): Promise<PortResult<ShaRun | null>> => unaskable(),
+  runsForSha: async (): Promise<PortResult<readonly WorkflowShaRun[]>> => unaskable(),
   limit: async (): Promise<PortResult<readonly LimitReading[]>> => unaskable(),
   // NEVER A REFUSAL. A CI system nobody declared is not refusing anything; it is
   // answering, permanently and correctly, that there is nothing to ask.

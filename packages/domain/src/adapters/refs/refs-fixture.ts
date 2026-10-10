@@ -14,6 +14,7 @@ import type {
   RefState,
   Refs,
   RemoteHeadAnswer,
+  RemoteShaReading,
   TreeBlob,
 } from '../../ports/refs.js';
 
@@ -391,6 +392,11 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       unknownRemoteHead.has(branch)
         ? answered<RemoteHeadAnswer>('unknown')
         : answered<RemoteHeadAnswer>(remoteBranchSet.has(branch) ? 'present' : 'absent'),
+
+    remoteSha: async (branch): Promise<PortResult<RemoteShaReading>> => {
+      const tip = fixture.remoteTips?.[branch];
+      return answered<RemoteShaReading>(tip === undefined ? 'unknown' : { sha: tip });
+    },
 
     remoteTip: async (branch, pushedSha): Promise<PortResult<RemoteTipReading>> => {
       const tip = fixture.remoteTips?.[branch];
