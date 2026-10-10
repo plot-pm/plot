@@ -96,7 +96,7 @@ The other findings are the same kind at smaller scale: a rule repeated outside t
 
 ### The entries write through a port
 
-- `bug/the-entries-write-through-a-port` — the approve and deliver entries write the plan, hold and sprint files through a `PlanStore` write and resolve the main checkout through `Trees`; README rows state the receipt scope; the fetch exemption narrows to one method (#1447 M1, L1–L4) <!-- builds: a PlanStore write and a Trees main-root reading -->
+- `bug/the-entries-write-through-a-port` — the approve and deliver entries write the plan, hold and sprint files through a `PlanStore` write and resolve the main checkout through `Trees`; README rows state the receipt scope; the fetch exemption narrows to one method (#1447 M1, L1–L4) <!-- builds: a PlanStore write and a Trees main-root reading --> → #1515
 
 ### The implement lock lives on disk
 
