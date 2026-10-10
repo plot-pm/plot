@@ -1720,7 +1720,7 @@ export const indexMonitorOver = (
  */
 export const deskRelayOver = (
   context: { repoRoot: string; scriptDir: string },
-  channel: Pick<RunningChannel, 'findings' | 'publish'>,
+  channel: Pick<RunningChannel, 'findings' | 'relay'>,
   write: (s: string) => void,
 ): (() => Promise<void>) => {
   const trees = treesGit(context);

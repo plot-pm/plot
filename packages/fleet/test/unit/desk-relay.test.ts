@@ -26,28 +26,43 @@ const finding = (over: Partial<Finding> = {}): Finding => ({
 
 const tree = (path: string, branch: string): Worktree => ({ path, branch }) as Worktree;
 
-/** A channel that holds what it is given the way the real one does: one slot per monitor and branch. */
+/**
+ * A channel that follows the real one: one slot per monitor and branch, a
+ * `clear` held in its slot the way `absorb` holds it, `publish` recording its
+ * monitor's `lastSeen` and `relay` leaving it alone.
+ */
 const fakeChannel = () => {
   const slots = new Map<string, Finding>();
   const seen: MonitorName[] = [];
+  const lastSeen = new Map<MonitorName, string>();
   const published: Finding[] = [];
+  const hold = (f: Finding): void => {
+    published.push(f);
+    slots.set(`${f.monitor} ${f.branch}`, f);
+  };
   return {
     slots,
     seen,
+    lastSeen,
     published,
     channel: {
       findings: (): readonly Finding[] => [...slots.values()],
       publish: (f: Finding): void => {
-        published.push(f);
-        if (f.finding === 'clear') slots.delete(`${f.monitor} ${f.branch}`);
-        else slots.set(`${f.monitor} ${f.branch}`, f);
+        lastSeen.set(f.monitor, NOW);
+        hold(f);
       },
+      relay: hold,
       seen: (m: MonitorName): void => {
         seen.push(m);
+        lastSeen.set(m, NOW);
       },
     },
   };
 };
+
+/** The findings a fake channel holds that are not retractions. */
+const holding = (c: ReturnType<typeof fakeChannel>): readonly Finding[] =>
+  [...c.slots.values()].filter((f) => f.finding !== 'clear');
 
 interface Estate {
   trees: PortResult<readonly Worktree[]>;
@@ -122,7 +137,7 @@ describe('runDeskRelay', () => {
     estate.logs = { '/w/one': [] };
     const w = worldOver(estate, c);
     await runDeskRelay(w.world);
-    expect(c.slots.size).toBe(0);
+    expect(holding(c)).toEqual([]);
     expect(c.published[1]).toMatchObject({ monitor: 'AgentMonitor', branch: 'feature/one', finding: 'clear', since: NOW });
     expect(w.lines[0]).toContain('desk-relay clear AgentMonitor feature/one');
   });
@@ -133,7 +148,19 @@ describe('runDeskRelay', () => {
     await runDeskRelay(worldOver(estate, c).world);
     estate.trees = answered([]);
     await runDeskRelay(worldOver(estate, c).world);
-    expect(c.slots.size).toBe(0);
+    expect(holding(c)).toEqual([]);
+    expect(c.slots.get('AgentMonitor feature/one')?.finding).toBe('clear');
+  });
+
+  it('sends a removed desk exactly one clear across two runs', async () => {
+    const c = fakeChannel();
+    const estate = oneDesk();
+    await runDeskRelay(worldOver(estate, c).world);
+    estate.trees = answered([]);
+    await runDeskRelay(worldOver(estate, c).world);
+    await runDeskRelay(worldOver(estate, c).world);
+    expect(c.published.filter((f) => f.finding === 'clear')).toHaveLength(1);
+    expect(c.published).toHaveLength(2);
   });
 
   it('keeps a held finding where the worktree list fails', async () => {
@@ -206,13 +233,15 @@ describe('runDeskRelay', () => {
     expect(relayed.slots.get('AgentMonitor feature/one')).toEqual(finding());
   });
 
-  it('never calls seen', async () => {
+  it('never moves lastSeen, for a publish or for a clear', async () => {
     const c = fakeChannel();
     const estate = oneDesk();
     await runDeskRelay(worldOver(estate, c).world);
     estate.logs = { '/w/one': [] };
     await runDeskRelay(worldOver(estate, c).world);
+    expect(c.published.map((f) => f.finding)).toEqual(['owes a review', 'clear']);
     expect(c.seen).toEqual([]);
+    expect([...c.lastSeen.keys()]).toEqual([]);
   });
 });
 

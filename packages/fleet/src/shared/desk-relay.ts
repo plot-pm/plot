@@ -12,8 +12,8 @@ export interface DeskRelayWorld {
   trees: Pick<Trees, 'list'>;
   /** The findings a desk's monitor logs hold. */
   desk: Pick<Desk, 'readFindings'>;
-  /** The channel the findings go to. Its `seen` is deliberately not offered. */
-  channel: Pick<RunningChannel, 'findings' | 'publish'>;
+  /** The channel the findings go to. Its `publish` and `seen` are not offered, because both move a monitor's `lastSeen`. */
+  channel: Pick<RunningChannel, 'findings' | 'relay'>;
   /** The current time, ISO-8601. */
   now(): string;
   /** Receives one line per publish and per clear. */
@@ -40,7 +40,8 @@ const same = (a: Finding, b: Finding): boolean => a.finding === b.finding && a.e
  *
  * An unreadable estate is not an empty one: a failed `trees.list()` publishes
  * and clears nothing, and a desk whose logs cannot be read keeps its held slots.
- * The relay measures nothing, so it never calls `seen`.
+ * The relay measures nothing, so it publishes through `relay`, which leaves every
+ * monitor's `lastSeen` unchanged.
  *
  * @param world - the reads, the channel, the clock and the log.
  * @returns nothing.
@@ -84,13 +85,13 @@ export const runDeskRelay = async (world: DeskRelayWorld): Promise<void> => {
       evidence: `${current.finding} no longer holds`,
       measuredAt: now,
     };
-    world.channel.publish(retraction);
+    world.channel.relay(retraction);
     world.log(line('clear', retraction));
   }
   for (const [key, f] of wanted) {
     const current = held.get(key);
     if (current !== undefined && same(current, f)) continue;
-    world.channel.publish(f);
+    world.channel.relay(f);
     world.log(line('publish', f));
   }
 };

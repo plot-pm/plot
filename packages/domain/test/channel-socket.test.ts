@@ -219,6 +219,56 @@ describe('the channel socket — the boundary, not the protocol', () => {
     board.socket.end();
   });
 
+  it('gives a monitor that only had findings relayed no heartbeat entry', async () => {
+    channel = await startChannel({ address: addressIn(), heartbeatMs: 20, now: () => '2026-10-10T12:00:00Z' });
+    channel.relay(finding({ monitor: 'AgentMonitor', measuredAt: '2026-01-01T00:00:00Z' }));
+
+    const board = peer(channel.address);
+    await board.ready;
+    board.say(JSON.stringify({ subscriber: 'board', purpose: { kind: 'everything' } }) + '\n');
+    const welcome = await board.nth(1);
+    expect(welcome.type === 'welcome' && welcome.current.map((f) => f.monitor)).toEqual(['AgentMonitor']);
+    const beat = await board.nth(2);
+    expect(beat.type).toBe('heartbeat');
+    if (beat.type === 'heartbeat') expect(beat.monitors).toEqual([]);
+    board.socket.end();
+  });
+
+  it('leaves the lastSeen of a monitor that published unchanged when a finding is relayed for it', async () => {
+    let clock = '2026-10-10T10:00:00Z';
+    channel = await startChannel({ address: addressIn(), heartbeatMs: 20, now: () => clock });
+    channel.publish(finding({ monitor: 'AgentMonitor', measuredAt: '2026-10-10T10:00:00Z' }));
+    clock = '2026-10-10T12:00:00Z';
+    channel.relay(finding({ monitor: 'AgentMonitor', evidence: 'relayed', measuredAt: '2026-01-01T00:00:00Z' }));
+
+    const board = peer(channel.address);
+    await board.ready;
+    board.say(JSON.stringify({ subscriber: 'board', purpose: { kind: 'everything' } }) + '\n');
+    await board.nth(1);
+    const beat = await board.nth(2);
+    expect(beat.type).toBe('heartbeat');
+    if (beat.type === 'heartbeat') {
+      expect(beat.monitors).toEqual([{ monitor: 'AgentMonitor', lastSeen: '2026-10-10T10:00:00Z' }]);
+    }
+    expect(channel.findings().map((f) => f.evidence)).toEqual(['relayed']);
+    board.socket.end();
+  });
+
+  it('delivers an in-process `relay` to a subscriber and replaces the slot', async () => {
+    channel = await startChannel({ address: addressIn() });
+    const board = peer(channel.address);
+    await board.ready;
+    board.say(JSON.stringify({ subscriber: 'board', purpose: { kind: 'everything' } }) + '\n');
+    await board.nth(1);
+
+    channel.relay(finding({ evidence: 'a' }));
+    channel.relay(finding({ evidence: 'b' }));
+    const second = await board.nth(3);
+    expect(second.type === 'finding' && second.finding.evidence).toBe('b');
+    expect(channel.findings()).toHaveLength(1);
+    board.socket.end();
+  });
+
   it('delivers an in-process `publish` to a subscriber and replaces the slot', async () => {
     channel = await startChannel({ address: addressIn() });
     const board = peer(channel.address);
