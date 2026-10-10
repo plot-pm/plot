@@ -14,6 +14,7 @@
 - **Started:** 2026-10-10, jwloka, `feature/the-default-branch-has-its-own-reading`
 - **Started:** 2026-10-10, jwloka, `feature/the-supervisor-publishes-on-the-channel`
 - **Started:** 2026-10-10, jwloka, `feature/the-channel-carries-the-desk-findings`
+- **Started:** 2026-10-10, jwloka, `feature/the-board-page-hears-the-channel`
 
 ## Changelog
 
