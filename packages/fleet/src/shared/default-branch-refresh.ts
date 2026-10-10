@@ -10,6 +10,23 @@ import type { Refs } from '@plot-pm/domain/ports/refs';
 /** How long a pending, red or unknown head waits before its runs are asked again, inside `Checks wait`. */
 export const REASK_MS = 5 * 60 * 1000;
 
+/**
+ * How long an unsettled head waits before its runs are asked again.
+ *
+ * Inside `Checks wait` (measured from `headSince`) the interval is
+ * {@link REASK_MS}; past it, half of `Checks wait`. Both are capped at half of
+ * `Checks wait`, because `defaultBranchRed` stops holding a reading whose
+ * `askedAt` is older than `Checks wait`: a red head re-asked every half bound
+ * is renewed before its hold expires, as long as the refresh beat plus one ask
+ * takes less than the other half.
+ *
+ * @param checksWaitMs - the `Checks wait` bound, in milliseconds.
+ * @param pastWait - whether `Checks wait` has passed since the SHA first appeared.
+ * @returns the re-ask interval, in milliseconds.
+ */
+export const reaskIntervalMs = (checksWaitMs: number, pastWait: boolean): number =>
+  pastWait ? checksWaitMs / 2 : Math.min(REASK_MS, checksWaitMs / 2);
+
 /** What one refresh is read and written through. */
 export interface DefaultBranchWorld {
   /** The default branch's name. */
@@ -26,7 +43,7 @@ export interface DefaultBranchWorld {
   now(): number;
   /**
    * The `Checks wait` bound in ms. Inside it a head is re-asked every
-   * {@link REASK_MS}; after it, at most once per `Checks wait`.
+   * {@link REASK_MS}; after it, once per half `Checks wait` ({@link reaskIntervalMs}).
    */
   checksWaitMs: number;
   /**
@@ -45,17 +62,21 @@ export type DefaultBranchOutcome = 'skipped' | 'asked' | 'unreadable';
  * Reads the head SHA, and asks for its runs only when the SHA changed or the
  * previous answer is not final. A `green` head is final. A head that is
  * `pending`, `red` or `unknown` is asked again every {@link REASK_MS}, measured
- * from `askedAt`, until `Checks wait` has passed since the SHA first appeared
- * (`headSince`). After that it is asked again once per `Checks wait`, measured
- * from `askedAt`, so a re-run that turns a red head green lifts the hold on the
- * next ask. A green, unchanged SHA makes no `runsForSha` call and no write.
+ * from the last ask (`at`), until `Checks wait` has passed since the SHA first
+ * appeared (`headSince`). After that it is asked again once per half
+ * `Checks wait`, so a red head is renewed before `defaultBranchRed` stops
+ * holding it, and a re-run that turns it green lifts the hold on the next ask.
+ * A green, unchanged SHA makes no `runsForSha` call and no write.
  *
  * Only the runs of the workflows in `world.checks` are folded
  * (`declaredRuns`); an empty list folds every run.
  *
  * The settled part moves only when the head is `red` or `green`
- * (`advanceSettled`). An unanswered question writes nothing, so a host that
- * fails never turns a red reading into no reading.
+ * (`advanceSettled`). A host that fails writes `head: 'unknown'`, keeps the
+ * settled part, and keeps the previous `askedAt`: `askedAt` is when a host last
+ * answered, so a red reading the host stopped confirming ages out after
+ * `Checks wait`. `at` records every ask, answered or not. An unaskable CI
+ * writes nothing.
  *
  * @param world - the reads and the file.
  * @returns what the refresh did.
@@ -78,8 +99,7 @@ export const refreshDefaultBranch = async (
   if (unchanged) {
     if (previous.head === 'green') return 'skipped';
     const pastWait = now - Date.parse(previous.headSince) >= world.checksWaitMs;
-    const interval = pastWait ? Math.max(world.checksWaitMs, REASK_MS) : REASK_MS;
-    if (now - Date.parse(previous.askedAt) < interval) return 'skipped';
+    if (now - Date.parse(previous.at) < reaskIntervalMs(world.checksWaitMs, pastWait)) return 'skipped';
   }
 
   const asked = await world.slot(() => world.build.runsForSha(branch, sha));
@@ -99,7 +119,8 @@ export const refreshDefaultBranch = async (
       ...(carried ? { settled: carried } : {}),
       failingRuns: previous?.failingRuns ?? [],
       headSince,
-      askedAt: stamp,
+      // No answer: the age of what is carried stays the age of the last answer.
+      askedAt: previous?.askedAt ?? stamp,
       at: stamp,
     };
   } else {

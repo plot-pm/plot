@@ -101,6 +101,27 @@ describe('Jenkins word mapping', () => {
     expect(result.ok && foldRuns(result.value)).toBe('green');
   });
 
+  it('keeps the newest build when Jenkins lists it first', async () => {
+    const listing = JSON.stringify([
+      { sha: SHA, status: 'completed', conclusion: 'SUCCESS', url: 'u42', startedAt: '2026-10-10T09:30:00Z' },
+      { sha: SHA, status: 'completed', conclusion: 'FAILURE', url: 'u41', startedAt: '2026-10-10T09:00:00Z' },
+    ]);
+    const result = await buildJenkins(hostThat(`printf '%s' '${listing}'`)).runsForSha('main', SHA);
+    expect(result.ok && result.value.map((r) => r.url)).toEqual(['u42']);
+  });
+
+  it.each([
+    ['equal', '2026-10-10T09:00:00Z', '2026-10-10T09:00:00Z'],
+    ['empty', '', ''],
+  ])('keeps the first-listed build where startedAt is %s', async (_name, first, second) => {
+    const listing = JSON.stringify([
+      { sha: SHA, status: 'completed', conclusion: 'FAILURE', url: 'u1', startedAt: first },
+      { sha: SHA, status: 'completed', conclusion: 'SUCCESS', url: 'u2', startedAt: second },
+    ]);
+    const result = await buildJenkins(hostThat(`printf '%s' '${listing}'`)).runsForSha('main', SHA);
+    expect(result.ok && result.value.map((r) => r.url)).toEqual(['u1']);
+  });
+
   it('keeps a build still running without a conclusion', async () => {
     const listing = JSON.stringify([{ sha: SHA, status: 'in_progress', conclusion: null, url: 'u', startedAt: 't' }]);
     const result = await buildJenkins(hostThat(`printf '%s' '${listing}'`)).runsForSha('main', SHA);

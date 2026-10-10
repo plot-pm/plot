@@ -56,9 +56,12 @@ export const DefaultBranchReadingSchema = z
     failingRuns: z.array(FailingRunSchema),
     /** When fleetd first saw `headSha`, ISO-8601, this machine's clock. */
     headSince: z.string(),
-    /** When fleetd last asked the host for the runs of `headSha`, ISO-8601. */
+    /**
+     * When a host last answered fleetd's ask for the branch's runs, ISO-8601.
+     * A failed ask keeps the previous value.
+     */
     askedAt: z.string(),
-    /** When fleetd wrote the file, ISO-8601. */
+    /** When fleetd wrote the file, which is when it last asked, answered or not, ISO-8601. */
     at: z.string(),
   })
   .strict();

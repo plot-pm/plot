@@ -110,10 +110,11 @@ export const settledRed = (reading: DefaultBranchReading | null): boolean =>
 /**
  * Whether the default branch is red for queueing purposes.
  *
- * A reading older than `checksWaitMs`, or whose `askedAt` does not parse, counts
- * as no reading and holds nothing: the file is written only while fleetd runs,
- * so an old red reading is not evidence about the branch now. Otherwise reads
- * only the settled part, as {@link settledRed} does.
+ * A reading whose `askedAt` — when a host last answered — is older than
+ * `checksWaitMs`, or does not parse, counts as no reading and holds nothing: a
+ * red that no host confirmed within the bound is not evidence about the branch
+ * now, whether fleetd stopped or the host kept failing. Otherwise reads only
+ * the settled part, as {@link settledRed} does.
  *
  * @param reading - the default-branch reading, or null where there is none.
  * @param now - the current time, as epoch milliseconds.
