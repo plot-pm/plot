@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #1417
 - **Sprint:** the-release-train-fixes-what-it-found
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-09, jwloka, `feature/the-brief-ask-names-its-branch`
 - **Started:** 2026-10-09, jwloka, `feature/the-row-shows-the-brief-writer`
 - **Delivered:** 2026-10-09
+- **Released:** 2026-10-10, v2.25.0
 
 ## Changelog
 
