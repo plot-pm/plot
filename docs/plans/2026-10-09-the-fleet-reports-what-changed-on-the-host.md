@@ -141,7 +141,7 @@ Measured 2026-10-09: `main` moved 525 times in 7 days (106 in the last day), 65 
 
 ### The supervisor publishes on the channel
 
-- `feature/the-supervisor-publishes-on-the-channel` — fleetd starts the channel on `.plot/fleet.sock` and an `IndexMonitor` that publishes `checks green`, `checks failing`, `pr merged` and `default branch red` on change; `ci is green` and `ci is red` stop being refused. Done when a subscriber test receives one finding per change and none for an unchanged fold, a cold-store test publishes current state only and `pr merged` only for rows merged in the last 24 h, and a heartbeat test shows the IndexMonitor seen with no publish <!-- builds: IndexMonitor, a publisher of index findings, and the first production caller of startChannel -->
+- `feature/the-supervisor-publishes-on-the-channel` → #1464 — fleetd starts the channel on `.plot/fleet.sock` and an `IndexMonitor` that publishes `checks green`, `checks failing`, `pr merged` and `default branch red` on change; `ci is green` and `ci is red` stop being refused. Done when a subscriber test receives one finding per change and none for an unchanged fold, a cold-store test publishes current state only and `pr merged` only for rows merged in the last 24 h, and a heartbeat test shows the IndexMonitor seen with no publish <!-- builds: IndexMonitor, a publisher of index findings, and the first production caller of startChannel -->
 
 ### The channel carries the desk findings
 
