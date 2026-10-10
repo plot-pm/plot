@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #1418
 - **Sprint:** the-release-train-fixes-what-it-found
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-09, jwloka, `feature/a-merged-pr-shows-no-ci-state`
 - **Started:** 2026-10-09, jwloka, `feature/a-merged-pending-check-is-asked-again`
 - **Delivered:** 2026-10-09
+- **Released:** 2026-10-10, v2.25.0
 
 ## Changelog
 
