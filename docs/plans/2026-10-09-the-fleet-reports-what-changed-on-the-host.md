@@ -165,7 +165,7 @@ Measured 2026-10-09: `main` moved 525 times in 7 days (106 in the last day), 65 
 
 ### A merge is a controller
 
-- `feature/a-merge-is-a-controller` — `plot-ask.mjs merge <pr> <sha>` re-asks the host through `pr-state` and merges only when the head, the rollup for that head, the draft state and the default branch agree; `pr-merge` pins the merge with `--match-head-commit`. Done when the workflow has one test per refusal, including `checks-unbound` and `unaskable`, and a host fixture proves `--match-head-commit` is passed <!-- builds: a merge workflow in packages/domain and its plot-ask.mjs verb --> <!-- waits: feature/the-controllers-are-commands -->
+- `feature/a-merge-is-a-controller` — `plot-ask.mjs merge <pr> <sha>` re-asks the host through `pr-state` and merges only when the head, the rollup for that head, the draft state and the default branch agree; `pr-merge` pins the merge with `--match-head-commit`. Done when the workflow has one test per refusal, including `checks-unbound` and `unaskable`, and a host fixture proves `--match-head-commit` is passed <!-- builds: a merge workflow in packages/domain and its plot-ask.mjs verb --> <!-- waits: feature/the-controllers-are-commands --> → #1482
 
 ## Notes
 
