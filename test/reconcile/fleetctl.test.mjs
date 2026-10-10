@@ -575,10 +575,10 @@ const unitPath = (body) => {
   return m[1];
 };
 
-// The unit's own PATH with the harness entry removed: what a worker searched
-// before this slice.
+// The unit's own PATH with the node and harness entries removed: the template's
+// fixed list.
 const defaultUnitPath = () =>
-  unitPath(fs.readFileSync(unitTemplate(), 'utf8')).replace('__HARNESS_DIR__:', '');
+  unitPath(fs.readFileSync(unitTemplate(), 'utf8')).replace('__NODE_DIR__:__HARNESS_DIR__:', '');
 
 const resolvedBy = (searchPath, name) =>
   execFileSync('/usr/bin/env', ['-i', `PATH=${searchPath}`, '/bin/sh', '-c', `command -v ${name}`],
@@ -626,7 +626,7 @@ test('--start puts the resolved harness first, and a clean shell on the unit PAT
     const { r, file } = startWith('harness-default', { searchDirs: [dir] });
     assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
     const searched = unitPath(fs.readFileSync(file, 'utf8'));
-    assert.equal(searched.split(':')[0], dir);
+    assert.deepEqual(searched.split(':').slice(0, 2), [path.dirname(process.execPath), dir]);
     assert.equal(resolvedBy(searched, 'claude'), bin,
       'a worker on the unit PATH does not run the harness --start resolved');
   } finally {
@@ -641,7 +641,7 @@ test('--start honours PLOT_HARNESS when it resolves the harness', () => {
     const { r, file } = startWith('harness-named', { searchDirs: [dir], harness: 'my-harness' });
     assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
     const searched = unitPath(fs.readFileSync(file, 'utf8'));
-    assert.equal(searched.split(':')[0], dir);
+    assert.deepEqual(searched.split(':').slice(0, 2), [path.dirname(process.execPath), dir]);
     assert.equal(resolvedBy(searched, 'my-harness'), bin);
   } finally {
     fs.rmSync(stubBox, { recursive: true, force: true });
@@ -682,14 +682,69 @@ test('a harness already on the default unit PATH resolves to the same binary', (
   assert.equal(resolvedBy(searched, 'sh'), before);
 });
 
+// ── The unit's children run the pinned node ──────────────────────────────────
+
+// THE SUBJECT IS WHICH `node` A CHILD OF THE DAEMON RESOLVES. The daemon runs the
+// absolute `__NODE__`, but the worker loop, `pnpm` and `node --test` look `node`
+// up on the unit's PATH. A harness directory that also holds another node major
+// (a shim directory, /opt/homebrew/bin) answers that lookup unless the pinned
+// node's directory comes first.
+
+// A `node` that IS the running node, so `--start`'s major check passes on it.
+const pinnedNodeDir = (box) => {
+  const dir = path.join(box, 'pinned-node-bin');
+  fs.mkdirSync(dir, { recursive: true });
+  const bin = path.join(dir, 'node');
+  fs.writeFileSync(bin, `#!/bin/sh\nexec '${process.execPath}' "$@"\n`);
+  fs.chmodSync(bin, 0o755);
+  return { dir, bin };
+};
+
+test('--start puts the pinned node first, ahead of a harness directory holding another major', () => {
+  const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-node-first-')));
+  try {
+    const pinned = pinnedNodeDir(stubBox);
+    const { dir } = stubHarness(stubBox, 'claude');
+    const other = path.join(dir, 'node');
+    fs.writeFileSync(other, '#!/bin/sh\necho v26.7.0\n');
+    fs.chmodSync(other, 0o755);
+    const { r, file } = startWith('node-first', { searchDirs: [pinned.dir, dir] });
+    assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
+    const searched = unitPath(fs.readFileSync(file, 'utf8'));
+    assert.deepEqual(searched.split(':').slice(0, 2), [pinned.dir, dir]);
+    assert.equal(resolvedBy(searched, 'node'), pinned.bin,
+      'a child on the unit PATH runs a node other than the one --start pinned');
+  } finally {
+    fs.rmSync(stubBox, { recursive: true, force: true });
+  }
+});
+
+test('--start names the pinned node directory once when the harness lives in it', () => {
+  const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-node-once-')));
+  try {
+    const pinned = pinnedNodeDir(stubBox);
+    const harness = path.join(pinned.dir, 'claude');
+    fs.writeFileSync(harness, '#!/bin/sh\nexit 0\n');
+    fs.chmodSync(harness, 0o755);
+    const { r, file } = startWith('node-once', { searchDirs: [pinned.dir] });
+    assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
+    const searched = unitPath(fs.readFileSync(file, 'utf8')).split(':');
+    assert.equal(searched[0], pinned.dir);
+    assert.equal(searched.filter((d) => d === pinned.dir).length, 1);
+    assert.equal(searched.slice(1).join(':'), defaultUnitPath());
+  } finally {
+    fs.rmSync(stubBox, { recursive: true, force: true });
+  }
+});
+
 // ── The units fill and parse — the check CI can actually run on Linux ─────────
 
 // EACH TEMPLATE HAS ITS OWN SET. The plist carries `__LABEL__` because launchd
 // keys a job by the `Label` inside it (#1051); a systemd unit has no label
 // field, so the service keeps three and its identity problem is #1053's.
 const PLACEHOLDERS = {
-  'com.plot-pm.fleetd.plist': ['__FLEETD__', '__HARNESS_DIR__', '__LABEL__', '__NODE__', '__REPO_ROOT__'],
-  'plot-fleetd.service': ['__FLEETD__', '__HARNESS_DIR__', '__NODE__', '__REPO_ROOT__'],
+  'com.plot-pm.fleetd.plist': ['__FLEETD__', '__HARNESS_DIR__', '__LABEL__', '__NODE_DIR__', '__NODE__', '__REPO_ROOT__'],
+  'plot-fleetd.service': ['__FLEETD__', '__HARNESS_DIR__', '__NODE_DIR__', '__NODE__', '__REPO_ROOT__'],
 };
 
 test('each unit template carries exactly its documented placeholders', () => {
@@ -707,7 +762,8 @@ test('the fill leaves no placeholder in either unit', () => {
       .replaceAll('__LABEL__', 'com.example.fill')
       .replaceAll('__REPO_ROOT__', '/tmp/repo')
       .replaceAll('__NODE__', '/tmp/node')
-      .replaceAll('__HARNESS_DIR__', '/tmp/harness')
+      .replaceAll('__NODE_DIR__', '/tmp')
+    .replaceAll('__HARNESS_DIR__', '/tmp/harness')
       .replaceAll('__FLEETD__', '/tmp/fleetd.mjs');
     assert.equal(body.match(/__[A-Z_]+__/g), null, `${f} still holds a placeholder after the fill`);
   }
@@ -718,6 +774,7 @@ test('the filled plist is valid XML', () => {
     .replaceAll('__LABEL__', 'com.example.supplied')
     .replaceAll('__REPO_ROOT__', '/tmp/repo')
     .replaceAll('__NODE__', '/tmp/node')
+    .replaceAll('__NODE_DIR__', '/tmp')
     .replaceAll('__HARNESS_DIR__', '/tmp/harness')
     .replaceAll('__FLEETD__', '/tmp/fleetd.mjs');
   const tmp = path.join(os.tmpdir(), `plot-plist-${process.pid}.plist`);
@@ -749,6 +806,7 @@ test('the filled systemd unit is well-formed', () => {
   const filled = fs.readFileSync(path.join(units, 'plot-fleetd.service'), 'utf8')
     .replaceAll('__REPO_ROOT__', '/tmp/repo')
     .replaceAll('__NODE__', '/tmp/node')
+    .replaceAll('__NODE_DIR__', '/tmp')
     .replaceAll('__HARNESS_DIR__', '/tmp/harness')
     .replaceAll('__FLEETD__', '/tmp/fleetd.mjs');
   for (const section of ['[Unit]', '[Service]', '[Install]']) {

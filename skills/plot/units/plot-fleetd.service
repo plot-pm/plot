@@ -37,12 +37,14 @@ Environment=PLOT_REPO_ROOT=__REPO_ROOT__
 
 # git, gh, node and the agent harness (claude, or the name in PLOT_HARNESS)
 # must be findable: systemd gives a unit a minimal PATH, and it holds no
-# directory the harness installs to. The first entry is the directory
-# `plot-fleetctl.sh --start` resolved the harness in with `command -v`, so a
-# worker runs the binary the operator's shell runs. It comes first for EVERY
-# binary in that directory, not only the harness; on a typical install that is
-# ~/.local/bin.
-Environment=PATH=__HARNESS_DIR__:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
+# directory the harness installs to. The first entry is the directory of the
+# pinned node in ExecStart, so every child the daemon starts (the worker loop,
+# pnpm, node --test) runs the same node major as the daemon. The second is the
+# directory `plot-fleetctl.sh --start` resolved the harness in with
+# `command -v`, so a worker runs the binary the operator's shell runs. Each
+# comes first for EVERY binary in its directory; on a typical install the
+# harness directory is ~/.local/bin.
+Environment=PATH=__NODE_DIR__:__HARNESS_DIR__:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
 
 # `--start-agents` IS WHAT MAKES THIS A SUPERVISOR. The flag defaults off so that
 # `/plot-fleet --once` can run against a live estate for free — a tick without it

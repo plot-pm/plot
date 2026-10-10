@@ -361,6 +361,7 @@ jobs:
           # real directory and the value only has to make the unit verify.
           sed -e "s|__REPO_ROOT__|$PWD|g" \
               -e "s|__NODE__|$(command -v node)|g" \
+              -e "s|__NODE_DIR__|$(dirname "$(command -v node)")|g" \
               -e "s|__HARNESS_DIR__|$(dirname "$(command -v node)")|g" \
               -e "s|__FLEETD__|$PWD/skills/plot/scripts/board/plot-fleetd.mjs|g" \
               skills/plot/units/plot-fleetd.service \
@@ -451,6 +452,7 @@ jobs:
           fill() {   # $1 = destination, $2 = "control" to delete the KillMode line
             sed -e "s|__REPO_ROOT__|$PWD|g" \
                 -e "s|__NODE__|$(command -v node)|g" \
+                -e "s|__NODE_DIR__|$(dirname "$(command -v node)")|g" \
                 -e "s|__HARNESS_DIR__|$(dirname "$(command -v node)")|g" \
                 -e "s|__FLEETD__|$PWD/skills/plot/scripts/board/plot-fleetd.mjs|g" \
                 -e "s|^ExecStart=.*|ExecStart=/bin/sh $STANDIN|" \
