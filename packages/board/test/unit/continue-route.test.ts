@@ -171,27 +171,51 @@ const dirs: string[] = [];
  * the brief's *a test must not race what it asserts* applies to teardown as
  * much as to the assertion.
  *
- * `.plot-worker.exit` is the deterministic signal: the handler wraps the worker
- * command so that its return code is written there when it exits, and the
- * handler DELETES any previous one before spawning. So the file appearing means
- * this run's worker has finished — a real event rather than a guessed duration.
+ * The signal is the worker's own pid: `continueOnDesk` records the backgrounded
+ * subshell that runs the command in `.plot-worker.pid`, and that subshell is the
+ * last process holding the desk. `.plot-worker.exit` is not the signal — the
+ * subshell writes it and then still has to exit, so a cleanup that starts on
+ * the file races a live process (#1468: a `plot-continue-*` desk left in CI's
+ * TMPDIR after every test passed).
  *
- * The deadline is a backstop for the cases that never spawn (every refusal
- * test), not a budget for the ones that do: those return immediately because
- * `dirs` holds a worktree whose worker was never started, and waiting out the
- * full deadline for them would be the fixed-budget mistake in another costume.
- * Hence the `spawned` flag — only a test that started a worker waits for one.
+ * Only a test that started a worker waits for one, hence the `spawned` set. A
+ * worker still alive at the bound fails the hook by name rather than racing it.
  */
 const spawned = new Set<string>();
 
-async function settle(dir: string): Promise<void> {
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+};
+
+const settle = async (dir: string): Promise<void> => {
   if (!spawned.has(dir)) return;
-  const exit = path.join(dir, '.plot-worker.exit');
+  const pid = Number(fs.readFileSync(path.join(dir, '.plot-worker.pid'), 'utf8').trim());
+  if (!Number.isInteger(pid) || pid <= 1) return;
   const deadline = Date.now() + 15_000;
-  while (!fs.existsSync(exit) && Date.now() < deadline) {
+  while (alive(pid) && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 25));
   }
-}
+  assert.ok(!alive(pid), `the worker pid ${pid} started in ${dir} did not exit within 15s`);
+};
+
+/** SIGKILL a fixture process this file started, then wait for its pid to be gone. */
+const killAndAwait = async (pid: number): Promise<void> => {
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    /* already gone */
+  }
+  const deadline = Date.now() + 15_000;
+  while (alive(pid) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  assert.ok(!alive(pid), `the fixture pid ${pid} did not exit within 15s of SIGKILL`);
+};
 
 afterEach(async () => {
   while (dirs.length) {
@@ -1133,15 +1157,8 @@ describe('refusing a live loop — #1294, a second loop on one desk', () => {
     return pid;
   }
 
-  afterEach(() => {
-    while (liveProcesses.length) {
-      const pid = liveProcesses.pop()!;
-      try {
-        process.kill(pid, 'SIGKILL');
-      } catch {
-        /* already gone */
-      }
-    }
+  afterEach(async () => {
+    while (liveProcesses.length) await killAndAwait(liveProcesses.pop()!);
   });
 
   const input = (wt: string, dir: string) => ({
@@ -1272,15 +1289,8 @@ describe('a free-waiting loop is stopped, then the continuation starts — #1373
     return pid;
   }
 
-  afterEach(() => {
-    while (liveProcesses.length) {
-      const pid = liveProcesses.pop()!;
-      try {
-        process.kill(pid, 'SIGKILL');
-      } catch {
-        /* already gone */
-      }
-    }
+  afterEach(async () => {
+    while (liveProcesses.length) await killAndAwait(liveProcesses.pop()!);
   });
 
   const input = (wt: string, dir: string) => ({
@@ -1402,15 +1412,8 @@ describe('a stopped loop that removes its own manifest — #1376 review', () => 
   // so the production stop sends the signal and the handler runs.
   const loops: number[] = [];
 
-  afterEach(() => {
-    while (loops.length) {
-      const pid = loops.pop()!;
-      try {
-        process.kill(pid, 'SIGKILL');
-      } catch {
-        /* already gone */
-      }
-    }
+  afterEach(async () => {
+    while (loops.length) await killAndAwait(loops.pop()!);
   });
 
   const startFakeLoop = async (manifestFile: string, ready: string): Promise<number> => {
