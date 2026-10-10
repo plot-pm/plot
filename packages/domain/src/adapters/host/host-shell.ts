@@ -41,6 +41,8 @@ interface RawPr {
   url?: string;
   title?: string;
   author?: string;
+  headSha?: string;
+  checksSha?: string;
 }
 
 /** One limit reading as `plot-host.sh` reports it, before it is read as the entity. */
@@ -89,6 +91,8 @@ const prOf = (raw: RawPr): Pr => ({
   failingChecks: raw.failing_checks ?? [],
   url: raw.url ?? '',
   author: raw.author ?? '',
+  ...(raw.headSha ? { headSha: raw.headSha } : {}),
+  ...(raw.checksSha ? { checksSha: raw.checksSha } : {}),
 });
 
 /** Milliseconds in a second — the script reports `reset` in epoch SECONDS. */

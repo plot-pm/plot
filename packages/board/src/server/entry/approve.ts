@@ -117,6 +117,8 @@ interface PlanPr {
   number: number;
   state: string;
   draft: boolean;
+  /** The head the host reported; absent where it named none. */
+  headSha?: string;
 }
 
 /** Reads one config key, falling back where the read fails. */
@@ -213,7 +215,7 @@ const readPlanPr = async (ctx: Context, slug: string, branch: string): Promise<P
   if (pr.state === 'CLOSED') {
     throw new Refused(`the plan PR for '${slug}' (#${pr.number}) is closed.\n  Reopen it on the host, or push '${branch}' again and open a new one.`);
   }
-  return { number: pr.number, state: pr.state, draft: pr.draft };
+  return { number: pr.number, state: pr.state, draft: pr.draft, headSha: pr.headSha };
 };
 
 /** What one run of the local writes needs to know. */
@@ -551,7 +553,10 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
       }
       write(`step: marked PR #${pr.number} ready for review\n`);
     }
-    const landed = await ctx.scripts.host(['pr-merge', String(pr.number), '--delete-branch']);
+    // The head the gate read is the head that merges: a push between the two
+    // fails at the host. A host that named no head merges as it always did.
+    const pin = pr.headSha ? ['--match-head', pr.headSha] : [];
+    const landed = await ctx.scripts.host(['pr-merge', String(pr.number), ...pin, '--delete-branch']);
     if (!landed.ok) {
       throw new Refused(`could not merge PR #${pr.number}. Nothing else was written; re-run once the merge works.`);
     }

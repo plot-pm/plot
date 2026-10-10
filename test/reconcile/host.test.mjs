@@ -346,8 +346,90 @@ test('host: pr-state github maps gh --json and normalizes', () => {
     ghJson: '{"number":7,"state":"OPEN","isDraft":true,"url":"https://example.test/pr/7"}',
   });
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
-  assert.deepEqual(out, { number: 7, state: 'OPEN', draft: true, url: 'https://example.test/pr/7', mergeCommit: '' });
-  assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit']);
+  assert.deepEqual(out, {
+    number: 7, state: 'OPEN', draft: true, url: 'https://example.test/pr/7', mergeCommit: '',
+    headSha: '', checks: 'none', checksSha: '',
+  });
+  assert.deepEqual(argvOf(stubs.ghArgv),
+    ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit,headRefOid,statusCheckRollup']);
+});
+
+test('host: pr-state github names the head and the checks read for it', () => {
+  const sha = 'a'.repeat(40);
+  const stubs = makeStubs({
+    ghJson: `{"number":7,"state":"OPEN","isDraft":false,"url":"u","headRefOid":"${sha}",`
+      + '"statusCheckRollup":[{"conclusion":"SUCCESS"},{"conclusion":"","status":"IN_PROGRESS"}]}',
+  });
+  const pending = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(pending.headSha, sha);
+  assert.equal(pending.checksSha, sha);
+  assert.equal(pending.checks, 'pending', 'one running check is not green');
+  const green = makeStubs({
+    ghJson: `{"number":7,"state":"OPEN","isDraft":false,"url":"u","headRefOid":"${sha}",`
+      + '"statusCheckRollup":[{"conclusion":"SUCCESS"}]}',
+  });
+  assert.equal(JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: green })).checks, 'green');
+});
+
+// The fold is an allow-list: green needs every item finished with an accepted
+// result. Each row is [rollup, word]; pr-state and pr-list --rich read one fold.
+const CHECK_FOLD_CASES = [
+  [[{ status: 'COMPLETED', conclusion: 'SUCCESS' }], 'green'],
+  [[{ status: 'COMPLETED', conclusion: 'NEUTRAL' }], 'green'],
+  [[{ status: 'COMPLETED', conclusion: 'SKIPPED' }], 'green'],
+  [[{ state: 'SUCCESS' }], 'green'],
+  [[{ conclusion: 'SUCCESS' }, { conclusion: 'NEUTRAL' }, { conclusion: 'SKIPPED' }, { state: 'SUCCESS' }], 'green'],
+  [[{ conclusion: 'STARTUP_FAILURE' }], 'failing'],
+  [[{ conclusion: 'STALE' }], 'failing'],
+  [[{ status: 'COMPLETED', conclusion: 'A_WORD_NOBODY_KNOWS' }], 'failing'],
+  [[{ state: 'EXPECTED' }], 'pending'],
+  [[{ conclusion: '', status: 'REQUESTED' }], 'pending'],
+  [[{ conclusion: 'SUCCESS' }, { conclusion: 'STARTUP_FAILURE' }], 'failing'],
+  [[{ conclusion: 'SUCCESS' }, { state: 'EXPECTED' }], 'pending'],
+  [[{ conclusion: 'STALE' }, { conclusion: '', status: 'REQUESTED' }], 'failing'],
+];
+
+for (const [rollup, word] of CHECK_FOLD_CASES) {
+  test(`host: check fold reads ${JSON.stringify(rollup)} as ${word}`, () => {
+    const state = makeStubs({
+      ghJson: JSON.stringify({ number: 7, state: 'OPEN', isDraft: false, url: 'u', headRefOid: 'a'.repeat(40), statusCheckRollup: rollup }),
+    });
+    assert.equal(JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: state })).checks, word, 'pr-state');
+    const list = makeStubs({
+      ghJson: JSON.stringify([{
+        number: 7, title: 't', state: 'OPEN', headRefName: 'feature/x', isDraft: false,
+        statusCheckRollup: rollup.map((item, i) => ({ name: `c${i}`, ...item })),
+        mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null, url: 'u',
+      }]),
+    });
+    const row = JSON.parse(run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs: list }));
+    assert.equal(row.checks, word, 'pr-list --rich');
+    assert.equal(row.failing_checks.length > 0, word === 'failing', 'failing_checks names a check exactly when the fold says failing');
+  });
+}
+
+test('host: pr-merge github pins the merge with --match-head-commit', () => {
+  const sha = 'a'.repeat(40);
+  const stubs = makeStubs();
+  run(['pr-merge', '5', '--match-head', sha], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'merge', '5', '--merge', '--match-head-commit', sha]);
+});
+
+test('host: pr-merge github surfaces a host that rejects a moved head, and merges nothing', () => {
+  const stubs = makeStubs({ ghFail: 'Head branch was modified. Review and try the merge again.' });
+  const res = runAllowFail(['pr-merge', '5', '--match-head', 'a'.repeat(40)],
+    { env: { PLOT_HOST: 'github' }, stubs });
+  assert.notEqual(res.code, 0);
+  assert.match(res.stderr, /Head branch was modified/);
+});
+
+test('host: pr-merge bitbucket refuses a pin and calls no bb', () => {
+  const stubs = makeStubs();
+  const res = runAllowFail(['pr-merge', '5', '--match-head', 'a'.repeat(40)],
+    { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  assert.equal(res.code, 4);
+  assert.match(res.stderr, /cannot pin a merge/);
+  assert.equal(argvOf(stubs.bbArgv), null, 'nothing reached the Bitbucket CLI');
 });
 
 // A TRANSPORT FAILURE AND A LOOKUP MISS ARE TWO ANSWERS, AND THEY USED TO BE
@@ -485,7 +567,11 @@ test('host: pr-state bitbucket normalizes DECLINED to CLOSED', () => {
 // the first place; deriving the expectation from the GitHub arm is what stops
 // the next added key from drifting the same way.
 
-const keysOf = (json) => Object.keys(JSON.parse(json)).sort();
+// The three keys a merge reads — the head and the checks read for it — are
+// carried only where the host names a head. Bitbucket cannot pin a merge, so its
+// arm leaves them out and a reader takes absent as not known.
+const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha']);
+const keysOf = (json) => Object.keys(JSON.parse(json)).filter((k) => !MERGE_KEYS.has(k)).sort();
 
 test('host: pr-state returns the same key set on both backends — merged PR', () => {
   const gh = makeStubs({
@@ -3846,7 +3932,7 @@ test('host: pr-state falls back to REST when the GraphQL budget is spent', () =>
   });
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
-    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '',
+    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', checks: 'unknown',
   });
   const calls = callsOf(stubs.callsFile);
   assert.ok(
@@ -3938,7 +4024,11 @@ test('host: the REST fallback and the GraphQL path speak one vocabulary', () => 
       }),
     }),
   }));
-  assert.deepEqual(viaRest, viaGraphql, 'a caller must not be able to tell which route answered');
+  // REST carries no rollup, so it answers checks `unknown` where GraphQL reads one; that is the one deliberate difference.
+  const { checks: restChecks, checksSha: _rs, ...restRest } = viaRest;
+  const { checks: _gc, checksSha: _gs, ...graphqlRest } = viaGraphql;
+  assert.equal(restChecks, 'unknown', 'REST cannot read the rollup, and unknown is never green');
+  assert.deepEqual(restRest, graphqlRest, 'a caller must not be able to tell which route answered');
   assert.equal(viaRest.state, 'MERGED', "REST's lowercase `closed` + `merged:true` is MERGED");
 });
 
@@ -4462,6 +4552,22 @@ test('host: PLOT_HOST_FORCE_REST routes without reading the budget', () => {
   );
 });
 
+test('host: pr-state over REST names the head and claims no checks', () => {
+  const sha = 'c'.repeat(40);
+  const stubs = makeStubsRateAware({
+    restJson: JSON.stringify({
+      number: 7, state: 'open', draft: false, html_url: 'u', merged: false,
+      merge_commit_sha: null, head: { sha },
+    }),
+  });
+  const out = JSON.parse(run(['pr-state', '7'], {
+    env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' }, stubs,
+  }));
+  assert.equal(out.headSha, sha);
+  assert.equal(out.checks, 'unknown');
+  assert.ok(!('checksSha' in out), 'a REST answer binds no checks to a commit');
+});
+
 test('host: a GraphQL-only op stays on GraphQL even under PLOT_HOST_FORCE_REST', () => {
   // THE ROUTER ANSWERS FOR WHAT THIS SCRIPT HAS, NOT FOR WHAT GITHUB OFFERS.
   // GitHub serves `pr list` over REST perfectly well; this script has not
@@ -4591,7 +4697,10 @@ test('host: no caller learns which transport ran', () => {
   });
   const viaGraphql = run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: graphql });
   const viaRest = run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: rest });
-  assert.deepEqual(JSON.parse(viaGraphql), JSON.parse(viaRest));
+  const { checks: _c, checksSha: _s, ...graphqlBody } = JSON.parse(viaGraphql);
+  const { checks: restChecks, ...restBody } = JSON.parse(viaRest);
+  assert.equal(restChecks, 'unknown', 'REST cannot read the rollup, and unknown is never green');
+  assert.deepEqual(graphqlBody, restBody);
   // And nothing names the route. `MERGED` is the vocabulary both must speak —
   // REST says `closed` with the merge in a separate field, and an adapter that
   // merely uppercased `.state` would report a merged PR as CLOSED.
@@ -4770,7 +4879,7 @@ test('host: the harvested body reaches the caller unchanged', () => {
     stubs,
   });
   assert.deepEqual(JSON.parse(out), {
-    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '',
+    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', checks: 'unknown',
   });
   assert.doesNotMatch(out, /X-Ratelimit|HTTP\//i, 'no header may reach a caller’s parse');
 });

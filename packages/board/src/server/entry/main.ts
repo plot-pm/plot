@@ -5,7 +5,10 @@ import { scriptsFor, primeAgentSettings, type BuildBoardOptions } from '../board
 import { estateFromEnv } from '../estate.js';
 import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
+import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
+import { defaultBranchFile } from '@plot-pm/domain/adapters/default-branch/default-branch-file';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
+import { mergeAt } from './merge.js';
 
 /**
  * The `node` entry point a skill runs.
@@ -15,6 +18,7 @@ import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
  * node skills/plot/scripts/board/plot-ask.mjs fleet
  * node skills/plot/scripts/board/plot-ask.mjs deliverable <slug> <plan-file>
  * node skills/plot/scripts/board/plot-ask.mjs release-claim <branch>
+ * node skills/plot/scripts/board/plot-ask.mjs merge <pr> <sha>
  * ```
  *
  * **`release-claim` is a WRITE, not a `Question`.** The three questions above
@@ -32,6 +36,11 @@ import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
  * that asks a question also starts a server and has to be told to stop. The two
  * entry points share every line below the controller and differ only in who
  * calls it — which is exactly the seam this plan built.
+ *
+ * **`merge` IS A WRITE TOO, AND IT FOLLOWS THE SAME SHAPE.** It dispatches on
+ * `argv[0]` before {@link questionFrom} and prints one JSON line; it exits 0
+ * when the PR merged and 1 when a rule or the host refused, the reason being in
+ * the line. {@link mergeAt} is the workflow's caller.
  *
  * The answer goes to stdout as JSON and nothing else does. Diagnostics go to
  * stderr, so a caller can pipe stdout into a parser the way
@@ -132,10 +141,30 @@ export const run = async (
     return 0;
   }
 
+  if (argv[0] === 'merge') {
+    const [, pr, sha] = argv;
+    if (!pr || !sha || !/^[0-9]+$/.test(pr)) {
+      process.stderr.write('usage: plot-ask.mjs merge <pr> <sha>\n');
+      return 2;
+    }
+    const { opts } = contextFrom(here);
+    const result = await mergeAt(
+      {
+        host: hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+        scripts: scriptsFor(opts),
+        defaultBranch: defaultBranchFile(opts.repoRoot),
+      },
+      Number(pr),
+      sha,
+    );
+    write(`${JSON.stringify(result)}\n`);
+    return result.merged ? 0 : 1;
+  }
+
   const question = questionFrom(argv);
   if (!question) {
     process.stderr.write(
-      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch>\n',
+      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha>\n',
     );
     return 2;
   }

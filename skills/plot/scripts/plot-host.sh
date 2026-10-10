@@ -76,7 +76,7 @@
 #                                 empty.
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL
-#   pr-merge <number> [--squash] [--delete-branch]
+#   pr-merge <number> [--squash] [--delete-branch] [--match-head <sha>]
 #   pr-ready <number>              take a PR out of draft
 #                                 merge the PR
 #   pr-list [--state open|merged|closed|all] [--limit N] [--rich|--rich-open]
@@ -455,6 +455,17 @@ die() { echo "plot-host: $*" >&2; exit 1; }
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
 # error a person must fix, not a transient the board should retry past.
 die3() { echo "plot-host: $*" >&2; exit 3; }
+
+# THE ONE FOLD of a PR's check rollup into a word. `pr-list` and `pr-state` both
+# read it, so what `green` means cannot differ between a listing and a merge.
+# An allow-list: `ck` reads `ok` only for a finished item with an accepted
+# result, `wait` for an unfinished one, and `bad` for every other word.
+CHECKS_OF='def ck: (.conclusion // "") as $k | (.status // "") as $s | (if $s != "" then $s else (.state // "") end) as $w |
+  if $k != "" and ($s|IN("","COMPLETED")) then (if ($k|IN("SUCCESS","NEUTRAL","SKIPPED")) then "ok" else "bad" end)
+  elif ($w|IN("","QUEUED","IN_PROGRESS","WAITING","REQUESTED","PENDING","EXPECTED")) then "wait"
+  elif $s == "" and $w == "SUCCESS" then "ok" else "bad" end;
+  def checks_of: if (.statusCheckRollup|length) == 0 then "none" elif any(.statusCheckRollup[]; ck == "bad") then "failing"
+  elif any(.statusCheckRollup[]; ck == "wait") then "pending" else "green" end;'
 
 # Exit 5 — the host refused to answer FOR NOW. A rate limit, primary or
 # secondary: nothing is broken, nothing needs fixing, and the same question
@@ -2069,7 +2080,7 @@ rest_pr_to_state() {
         state: $state,
         draft: (.draft // false),
         url: (.html_url // ""),
-        mergeCommit: (.merge_commit_sha // "") }
+        mergeCommit: (.merge_commit_sha // ""), headSha: (.head.sha // ""), checks: "unknown" }
   '
 }
 
@@ -3561,9 +3572,9 @@ case "$op" in
       # mergeCommit is what lets a caller ask "which release contains this?" —
       # `git tag --contains <sha>` answers exactly, where dates cannot. It is ""
       # for anything unmerged, which is the honest answer rather than a guess.
-      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit 2>"$HOST_ERR")"; then
+      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit,headRefOid,statusCheckRollup 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        jq -c '{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // "")}' <<<"$out"
+        jq -c "$CHECKS_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),headSha:(.headRefOid // ""),checks:checks_of,checksSha:(.headRefOid // "")}' <<<"$out"
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # REFUSED FOR RATE IS NOT ANSWERED. The budget gate above could not see
@@ -3879,11 +3890,12 @@ case "$op" in
 
   pr-merge)
     num="${1:?pr-merge needs a PR number}"; shift
-    squash=0; delbranch=0
+    squash=0; delbranch=0; pin=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --squash) squash=1; shift ;;
         --delete-branch) delbranch=1; shift ;;
+        --match-head) pin="${2:?pr-merge --match-head needs a commit}"; shift 2 ;;
         *) die "pr-merge: unknown arg $1" ;;
       esac
     done
@@ -3891,7 +3903,9 @@ case "$op" in
       args=(pr merge "$num")
       [ "$squash" = 1 ] && args+=(--squash) || args+=(--merge)
       [ "$delbranch" = 1 ] && args+=(--delete-branch)
+      [ -n "$pin" ] && args+=(--match-head-commit "$pin")
       gh "${args[@]}"
+    elif [ -n "$pin" ]; then echo "plot-host: pr-merge --match-head: bitbucket cannot pin a merge to a commit; nothing was merged" >&2; exit 4
     else
       args=(pr merge "$num")
       [ "$squash" = 1 ] && args+=(--squash)
@@ -4210,18 +4224,10 @@ case "$op" in
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_gh_raw" \
-            | jq -c '.[] | {
+            | jq -c "$CHECKS_OF"'.[] | {
                 number:.number, title:.title, state:.state, head:.headRefName,
                 draft:.isDraft,
-                checks:(
-                  if (.statusCheckRollup|length) == 0 then "none"
-                  elif any(.statusCheckRollup[]; (if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
-                           | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
-                             or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED") then "failing"
-                  elif any(.statusCheckRollup[]; (if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
-                           | $c=="PENDING" or $c=="IN_PROGRESS" or $c=="QUEUED"
-                             or $c=="WAITING" or $c==null) then "pending"
-                  else "green" end),
+                checks:checks_of,
                 mergeable:(
                   if .mergeable=="CONFLICTING" or .mergeStateStatus=="DIRTY" then "conflicting"
                   elif .mergeable=="MERGEABLE" then "mergeable"
@@ -4231,10 +4237,7 @@ case "$op" in
                 updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),checksSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),
                 author:(.author.login // ""),
                 failing_checks:[
-                  .statusCheckRollup[]? | select((if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
-                    | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
-                      or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED")
-                  | (.name // .context // "")] | map(select(. != ""))
+                  .statusCheckRollup[]? | select(ck == "bad") | (.name // .context // "")] | map(select(. != ""))
               }'
         fi
       else
