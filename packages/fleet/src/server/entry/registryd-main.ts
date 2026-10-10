@@ -7,6 +7,9 @@ import {
   performerShell,
   processesShell,
   refsGit,
+  refsRemoteGit,
+  buildShell,
+  defaultBranchFile,
   scriptsShell,
   treesGit,
   machineSystem,
@@ -40,6 +43,7 @@ import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { PortResult } from '@plot-pm/domain';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { viewLanded } from '@plot-pm/domain/rules/known-pr';
+import { defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
@@ -54,7 +58,8 @@ import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gat
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../../shared/registry.js';
 import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
 import { fleetAutoWrites } from '../../shared/auto-writes.js';
-import { freshPrState } from '../../shared/pr-refresh.js';
+import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
+import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
 import { freshScanState } from '../../shared/fleet-scan.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
@@ -792,6 +797,12 @@ export const queueWorldForRepo = (
         kind: refusal?.kind ?? null,
         failed: false,
       };
+    },
+    // READS THE FILE FLEETD WRITES AND NEVER THE HOST. A missing, unparseable
+    // or other-version file is no reading, and no reading holds nothing.
+    defaultBranchRed: async () => {
+      const held = await defaultBranchFile(repoRoot).read();
+      return held.ok && defaultBranchRed(held.value);
     },
     prIndexRows: async () => {
       // THE STORE IS KEYED BY THE BACKEND WORD, as the board writes it. Reading
@@ -1730,6 +1741,48 @@ export const run = async (
   // THE SCAN HAS ITS OWN CLOCK, apart from `tick`: a scan runs up to 90 s and
   // must neither delay a supervision tick nor start a second scan. `--once`
   // runs one tick and no scan.
+  const prState = freshPrState();
+  const readPrs = fleetPrs(
+    {
+      scripts,
+      host: hostShell({ repoRoot, scriptDir: scriptsDir }),
+      store: prIndexFile({ cwd: repoRoot }),
+    },
+    prState,
+    warn,
+  );
+  // FLEETD COMPOSES THE LOCAL AND THE REMOTE REFS READER, as `worker-loop.ts`
+  // does: `refsGit` answers `remoteSha` as `unaskable`, `refsRemoteGit` reads
+  // `git ls-remote`. It rides the PR reader's beat, so the head is read once per
+  // beat and the runs only when the SHA moved or the re-ask rule is due.
+  const ci = await buildShell({ repoRoot, scriptDir: scriptsDir });
+  const defaultBranchWorld = args.once
+    ? null
+    : {
+        branch: async () => {
+          const base = await refsGit({ repoRoot, scriptDir: scriptsDir }).defaultBranch();
+          return base.ok ? base.value : null;
+        },
+        refs: refsRemoteGit({ repoRoot, scriptDir: scriptsDir }),
+        build: ci,
+        store: defaultBranchFile(repoRoot),
+        // The host-slot bound is GitHub's account budget; other systems call direct.
+        slot: <T,>(call: () => Promise<T>): Promise<T> =>
+          ci.system() === 'github-actions'
+            ? withHostSlot(prState, call)
+            : call(),
+        now: () => Date.now(),
+        checksWaitMs:
+          (Number(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')) || 3600) * 1000,
+      };
+  const readDefaultBranch = async (): Promise<void> => {
+    if (defaultBranchWorld === null) return;
+    try {
+      await refreshDefaultBranch(defaultBranchWorld);
+    } catch (e) {
+      warn(`plot-fleetd: default-branch read failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
   const scanClock = args.once
     ? null
     : startFleetClock(clockSystem(), {
@@ -1751,15 +1804,10 @@ export const run = async (
           // and never inside `tick`: a scan that failed calls nothing.
           fleetAutoWrites({ repoRoot, scriptsDir, scripts }, warn),
         ),
-        prs: fleetPrs(
-          {
-            scripts,
-            host: hostShell({ repoRoot, scriptDir: scriptsDir }),
-            store: prIndexFile({ cwd: repoRoot }),
-          },
-          freshPrState(),
-          warn,
-        ),
+        prs: async () => {
+          await readPrs();
+          await readDefaultBranch();
+        },
       });
 
   write(`plot-fleetd: supervising ${registryDir}\n`);
@@ -1932,6 +1980,9 @@ export const run = async (
 const HOLD_SCOPE: Record<QueueHold, 'estate' | 'queue'> = {
   'already-merged': 'queue',
   'merge-unknown': 'queue',
+  // QUEUE-SCOPED BECAUSE IT IS PASS-LEVEL: it fires at most once per queued
+  // slice and is counted every pass, never over the estate's backlog.
+  'default-branch-red': 'queue',
   // QUEUE-SCOPED FOR THE SAME REASON AS `slice-unnamed` AND `refused`: it only
   // ever fires on a slice a live manifest actually names, never on the
   // estate's backlog.

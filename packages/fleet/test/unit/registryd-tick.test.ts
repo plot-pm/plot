@@ -945,10 +945,22 @@ describe('a tick says which hold refused each slice', () => {
     expect(line).toContain('not-claimable=0');
     expect(line).toContain('already-merged=0');
     expect(line).toContain('merge-unknown=0');
+    expect(line).toContain('default-branch-red=0');
     expect(line).toContain('slice-unnamed=0');
     expect(line).toContain('refused=0');
     expect(line).toContain('prior-unknown=0');
     expect(line).toContain('no-free-agent=0');
+  });
+
+  it('counts a slice held behind a red default branch', async () => {
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld({ defaultBranchRed: async () => true }),
+      now: () => 0,
+    });
+
+    expect(tickLine(report)).toContain('default-branch-red=1');
   });
 
   it('reports a slice an agent refused, by branch and not only by count', async () => {
