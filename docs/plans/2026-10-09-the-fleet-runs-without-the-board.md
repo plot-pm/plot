@@ -125,7 +125,7 @@ fleet process (plot-registryd)          board process
 
 ### The controllers are commands
 
-- `feature/the-controllers-are-commands` — the P9 routes become JS entries that the master agent and the board both call; `/api/continue` starts agents through the fleet entry <!-- builds: JS entries for dispatch, continue and release -->
+- `feature/the-controllers-are-commands` — the P9 routes become JS entries that the master agent and the board both call; `/api/continue` starts agents through the fleet entry <!-- builds: JS entries for dispatch, continue and release --> → #1457
 
 ## Notes
 
