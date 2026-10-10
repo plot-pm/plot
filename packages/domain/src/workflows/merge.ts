@@ -84,9 +84,9 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   if (pr.checksSha === undefined || pr.checksSha === '' || pr.checksSha !== pr.headSha) {
     return no('checks-unbound', `the green checks of PR #${input.pr} name ${short(pr.checksSha)}, not the head ${short(pr.headSha)}. A green that names no matching commit proves nothing about this head.`);
   }
-  if (defaultBranchRed(readings.defaultBranch)) {
-    const settled = readings.defaultBranch?.settled;
-    return no('default-branch-red', `${readings.defaultBranch?.branch ?? 'the default branch'} is red on ${short(settled?.sha)}. A merge now stacks a change on an unproven base.`);
+  const defaultBranch = readings.defaultBranch;
+  if (defaultBranch !== null && defaultBranch.settled !== undefined && defaultBranchRed(defaultBranch)) {
+    return no('default-branch-red', `${defaultBranch.branch} is red on ${short(defaultBranch.settled.sha)}. A merge now stacks a change on an unproven base.`);
   }
   return decide('merge', [{ kind: 'pr-merge', pr: input.pr, deleteBranch: false, sha: input.sha }], {
     pr: input.pr,

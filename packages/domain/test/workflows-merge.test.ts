@@ -95,6 +95,18 @@ describe('merge — the controller for a PR merge', () => {
     expect(refusalOf(readings({ defaultBranch: reading('red') }))).toBe('default-branch-red');
   });
 
+  it('names the branch and its settled sha when the default branch is red', () => {
+    const out = merge(readings({ defaultBranch: reading('red') }), { pr: 42, sha: HEAD });
+    expect(out.outcome).toBe('refused');
+    expect(JSON.stringify(out)).toContain(`main is red on ${OTHER.slice(0, 12)}`);
+  });
+
+  it('merges when the default-branch reading has no settled commit', () => {
+    const { settled: _settled, ...unsettled } = reading('red');
+    const out = merge(readings({ defaultBranch: unsettled }), { pr: 42, sha: HEAD });
+    expect(out.outcome).not.toBe('refused');
+  });
+
   it('reports a missing default-branch reading instead of treating it as permission', () => {
     const out = merge(readings({ defaultBranch: null }), { pr: 42, sha: HEAD });
     expect(out.outcome).not.toBe('refused');
