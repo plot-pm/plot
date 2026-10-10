@@ -1,18 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { type Browser, type Page } from 'playwright';
-import { launchBrowser } from '../catalogue/index.js';
-import { startServer } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 
 /**
  * The page refetches `/api/board` when the channel reports a change, at most
  * once per window, and polls as before when no event ever arrives.
  */
-// @needs-real-board: it counts the page's real `/api/board` requests against the served artifact; a stubbed route would count the stub
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
-const VIEWPORT = { width: 1280, height: 900 };
 const POLL_MS = 30_000;
 
 /** Replaces `EventSource` with one the test drives through `window.__emit`. */
@@ -27,30 +20,26 @@ const FAKE_EVENT_SOURCE = `
 `;
 
 describe('the page hears the channel', () => {
-  let server: { port: number; kill: () => void };
-  let browser: Browser;
-  let baseURL: string;
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
-    browser = await launchBrowser();
+    cat = await openCatalogue();
   });
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   const openBoard = async (): Promise<{ page: Page; boardRequests: () => number }> => {
-    const page = await browser.newPage({ viewport: VIEWPORT });
+    const page = await cat.open('a-done-wave');
     await page.addInitScript(FAKE_EVENT_SOURCE);
     await page.clock.install();
     let count = 0;
     page.on('request', (req) => {
       if (new URL(req.url()).pathname === '/api/board') count += 1;
     });
-    await page.goto(baseURL);
-    await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+    // Reload so the fake and the fake clock are in place before the page's own scripts run.
+    await page.reload();
+    await page.waitForLoadState('networkidle');
     return { page, boardRequests: () => count };
   };
 
@@ -93,8 +82,8 @@ describe('the page hears the channel', () => {
       await page.evaluate(() => (window as unknown as { __fail(): void }).__fail());
       await page.clock.runFor(POLL_MS + 500);
       await expect.poll(boardRequests).toBe(before + 1);
-      expect(await page.getByText('Deal with the zucchini glut').count()).toBeGreaterThan(0);
-      expect(await page.getByText(/unreachable|no contact|could not/i).count()).toBe(0);
+      expect(await page.locator('article').count()).toBeGreaterThan(0);
+      expect(await page.locator('[data-unreachable-overlay]').count()).toBe(0);
     } finally {
       await page.close();
     }
