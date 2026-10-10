@@ -555,3 +555,18 @@ test('--verify still verifies a plugin install, where only the sibling holds the
   assert.match(out, /^verified/m);
   assert.match(out, /verified\s+plot-state-gate\.sh/);
 });
+
+test('--verify reads a gate a signal ended as unprobed, never as permitted', () => {
+  // CI run 38028514435 SIGKILLed plot-brief-name-gate.sh mid-probe from outside,
+  // and exit 137 read as "it permitted" — the verdict for a missing gate. The
+  // stub ends itself the same way, so the gate neither refuses nor permits.
+  const { consumer, installer: inst } = splitInstall({ siblingGates: true });
+  writeFileSync(path.join(path.dirname(inst), 'plot-brief-name-gate.sh'), '#!/usr/bin/env bash\ncat >/dev/null\nkill -KILL $$\n');
+
+  const { code, out } = runAt(consumer, inst, ['--verify']);
+  assert.doesNotMatch(out, /unverified\s+plot-brief-name-gate\.sh/, `a killed gate is not a permitting gate (out: ${out})`);
+  assert.match(out, /unprobed\s+plot-brief-name-gate\.sh — a signal ended the gate/);
+  // The other gates still refused, so the unprobed gate is named on the verified path.
+  assert.equal(code, 0, `a killed probe is an unknown, not a failure (out: ${out})`);
+  assert.match(out, /^verified — \d+ gate\(s\) refused a guarded write; 2 could not be proved here/m);
+});
