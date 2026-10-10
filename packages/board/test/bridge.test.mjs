@@ -76,13 +76,15 @@ function makeRepo() {
 }
 
 /**
- * A `plot-fleetctl.sh` that reports no supervisor. The board reads the
+ * A `plot-fleetctl.sh` that reports the supervisor `down`, with a summary line:
+ * a run that prints none reads `unknown`, and an unknown supervisor with a fresh
+ * bridge leaves the scan with the fleet. The board reads the
  * supervisor through that script, and a developer machine runs a real one: left
  * real, a fresh bridge there makes the board treat the fleet as the scan's
  * owner and spawn none, which these tests are not about.
  */
 function writeNoFleet(dir) {
-  fs.writeFileSync(path.join(dir, 'plot-fleetctl.sh'), '#!/usr/bin/env bash\nexit 1\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(dir, 'plot-fleetctl.sh'), '#!/usr/bin/env bash\necho "summary: supervisor=down"\nexit 1\n', { mode: 0o755 });
 }
 
 /** The real helper scripts with no supervisor reading — a board that scans for itself. */
