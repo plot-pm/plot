@@ -1072,12 +1072,11 @@ if [ "$mode" = "start" ]; then
   fi
 
   if [ "$dry_run" = 1 ]; then
-    printf 'state: %s\nwould fill and load %s (%s)\n  node:      %s (major %s, pinned %s)\n  harness:   %s (first on the unit'"'"'s PATH: %s)\n  fleetd:    %s\n  repo:      %s\nwould then start agents: plot-dispatch.sh --start %s\n' "$(fleet_install_state)" "$LABEL" "$plat" "$node_bin" "$have" "$want" "$harness_bin" "$harness_dir" "$fleetd" "$repo_root" "${start_count:-(default)}"
+    printf 'state: %s\nwould fill and load %s (%s)\n  node:      %s (major %s, pinned %s)\n  harness:   %s (on the unit'"'"'s PATH after node'"'"'s directory: %s)\n  fleetd:    %s\n  repo:      %s\nwould then start agents: plot-dispatch.sh --start %s\n' "$(fleet_install_state)" "$LABEL" "$plat" "$node_bin" "$have" "$want" "$harness_bin" "$harness_dir" "$fleetd" "$repo_root" "${start_count:-(default)}"
     exit 0
   fi
 
-  mkdir -p "$repo_root/.plot/logs"
-  mkdir -p "$repo_root/.plot/state"
+  mkdir -p "$repo_root/.plot/logs" "$repo_root/.plot/state"
 
   # THE MARKER IS CLEARED BEFORE THE WORK, NOT AFTER IT. It records that a run
   # FINISHED, so one left over from a previous run would survive this run's
@@ -1104,10 +1103,19 @@ if [ "$mode" = "start" ]; then
   # `Label` inside the plist, so an override that renamed the file alone loaded
   # under the default label (#1051). The systemd unit carries no label and the
   # expression finds nothing there.
+  #
+  # THE PINNED NODE'S DIRECTORY GOES FIRST ON THE UNIT'S PATH, before the
+  # harness directory. The daemon runs `$node_bin`, and every child it starts
+  # (the worker loop, pnpm, `node --test`) resolves `node` on this PATH, so a
+  # directory ahead of it with another node major (/opt/homebrew/bin, a shim
+  # directory) runs the agents on that major. A later copy of the directory in
+  # the template's fixed list is removed, and so is the harness entry when the
+  # harness lives in the same directory.
+  node_dir=$(dirname "$node_bin"); [ "$harness_dir" = "$node_dir" ] && harness_dir=""
   sed -e "s|__LABEL__|$LABEL|g" \
       -e "s|__REPO_ROOT__|$repo_root|g" \
       -e "s|__NODE__|$node_bin|g" \
-      -e "s|__HARNESS_DIR__|$harness_dir|g" \
+      -e "/__NODE_DIR__/s|:$node_dir:|:|g" -e "s|__NODE_DIR__:__HARNESS_DIR__:|$node_dir:${harness_dir:+$harness_dir:}|g" \
       -e "s|__FLEETD__|$fleetd|g" \
       "$template" > "$target" || { echo "plot-fleetctl: could not write $target" >&2; exit 1; }
 
