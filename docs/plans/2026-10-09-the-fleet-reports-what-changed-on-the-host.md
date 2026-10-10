@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
@@ -19,6 +19,7 @@
 - **Started:** 2026-10-10, jwloka, `feature/a-mod-follows-the-channel`
 - **Started:** 2026-10-10, jwloka, `feature/a-merge-is-a-controller`
 - **Delivered:** 2026-10-10
+- **Released:** 2026-10-10, v2.25.0
 
 ## Changelog
 
