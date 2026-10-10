@@ -1235,6 +1235,27 @@ await esbuild.build({
 fs.copyFileSync(reapArtifact, shippedReap);
 fs.chmodSync(shippedReap, 0o755);
 
+// The one PreToolUse entry. `plot-gates.sh` launches it and answers every
+// gate in a single `node` start; the per-gate `.sh` scripts keep their names.
+// Its source loads no adapter until a gate wants a reading.
+const gateArtifact = path.join(here, 'dist/plot-gate.mjs');
+const shippedGate = path.join(here, '../../skills/plot/scripts/board/plot-gate.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/gate.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: gateArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(gateArtifact, shippedGate);
+fs.chmodSync(shippedGate, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -1384,6 +1405,7 @@ const deliverKb = (fs.statSync(shippedDeliver).size / 1024).toFixed(1);
 const approveKb = (fs.statSync(shippedApprove).size / 1024).toFixed(1);
 const claimAnswerKb = (fs.statSync(shippedClaimAnswer).size / 1024).toFixed(1);
 const reapKb = (fs.statSync(shippedReap).size / 1024).toFixed(1);
+const gateKb = (fs.statSync(shippedGate).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1422,4 +1444,5 @@ console.log(`Built plot-deliver.mjs (${deliverKb} KB) → skills/plot/scripts/bo
 console.log(`Built plot-approve.mjs (${approveKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-claim-answer.mjs (${claimAnswerKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-reap.mjs (${reapKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-gate.mjs (${gateKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
