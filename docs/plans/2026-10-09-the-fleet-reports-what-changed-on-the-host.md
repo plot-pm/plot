@@ -155,7 +155,7 @@ Measured 2026-10-09: `main` moved 525 times in 7 days (106 in the last day), 65 
 
 ### The board shows the new readings
 
-- `feature/the-board-shows-the-new-readings` — `checksVerdict` names the commit on failing and running badges, and `defaultBranchStatus` adds a `BoardStatus` line to `StatusPanel.tsx` while the settled reading is red. Done when each function has a unit test and each place one browser test, and green stays silent <!-- builds: defaultBranchStatus, a domain function returning BoardStatus -->
+- `feature/the-board-shows-the-new-readings` → #1475 — `checksVerdict` names the commit on failing and running badges, and `defaultBranchStatus` adds a `BoardStatus` line to `StatusPanel.tsx` while the settled reading is red. Done when each function has a unit test and each place one browser test, and green stays silent <!-- builds: defaultBranchStatus, a domain function returning BoardStatus -->
 
 ### A mod follows the channel
 
