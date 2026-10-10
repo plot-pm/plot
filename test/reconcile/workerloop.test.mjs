@@ -270,28 +270,44 @@ function assertRanToItsOwnEnd(r, why) {
     `${why} — the bound ended the prompt with no reading available: ${r.stderr}`);
 }
 
-// Count live `sleep <secs>` processes — the marker for a leaked prompt or
-// watchdog. A unique per-test duration keeps tests from seeing each other's.
-function sleepCount(secs) {
-  try {
-    const out = execFileSync('pgrep', ['-f', `sleep ${secs}`], { encoding: 'utf8' });
-    return out.split('\n').filter((l) => l.trim()).length;
-  } catch {
-    return 0; // pgrep exits 1 when nothing matches
-  }
-}
+// `sleep <secs>` processes inside a group this file started — the marker for
+// a leaked prompt or watchdog. A unique per-test duration keeps tests from
+// seeing each other's; `ownGroups` keeps this file from seeing a `sleep` in a
+// group it did not start.
+const ownSleeps = (secs) => {
+  const ps = spawnSync('ps', ['-A', '-o', 'pid=,pgid=,command='], { encoding: 'utf8' });
+  const wanted = new RegExp(`(^|[\\s/])sleep ${secs}(\\s|$)`);
+  return (ps.stdout ?? '').split('\n')
+    .map((line) => line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/))
+    .filter((m) => m && ownGroups.has(Number(m[2])) && wanted.test(m[3]));
+};
+
+const sleepCount = (secs) => ownSleeps(secs).length;
 
 // SIGKILLs every `sleep <secs>` left in a process group this file started.
 // A `sleep` in any other group belongs to another test or to the machine.
 const reap = (secs) => {
-  const ps = spawnSync('ps', ['-A', '-o', 'pid=,pgid=,command='], { encoding: 'utf8' });
-  const wanted = new RegExp(`(^|[\\s/])sleep ${secs}(\\s|$)`);
-  for (const line of (ps.stdout ?? '').split('\n')) {
-    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
-    if (!m || !ownGroups.has(Number(m[2])) || !wanted.test(m[3])) continue;
+  for (const m of ownSleeps(secs)) {
     try { process.kill(Number(m[1]), 'SIGKILL'); } catch { /* already gone */ }
   }
 };
+
+// Not `serial`: it calls `sleepCount` directly and starts no `runLoop`.
+test('worker-loop: sleepCount counts only sleeps inside ownGroups', async () => {
+  const secs = 9999;
+  const sleeper = spawn('sleep', [String(secs)], { stdio: 'ignore', detached: true });
+  sleeper.unref();
+  await wait(300);
+  try {
+    assert.equal(sleepCount(secs), 0, 'a sleep in a group outside ownGroups is not counted');
+    ownGroups.add(sleeper.pid);
+    assert.equal(sleepCount(secs), 1, 'the same sleep is counted once its group is in ownGroups');
+  } finally {
+    ownGroups.delete(sleeper.pid);
+    try { process.kill(sleeper.pid, 'SIGKILL'); } catch { /* already gone */ }
+  }
+  assert.equal(sleepCount(secs), 0, 'a group removed from ownGroups is no longer counted');
+});
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
