@@ -28,8 +28,8 @@ const tree = (path: string, branch: string): Worktree => ({ path, branch }) as W
 
 /**
  * A channel that follows the real one: one slot per monitor and branch, a
- * `clear` held in its slot the way `absorb` holds it, `publish` recording its
- * monitor's `lastSeen` and `relay` leaving it alone.
+ * `clear` held in its slot the way `absorb` holds it, `seen` recording its
+ * monitor's `lastSeen`, and `publish` and `relay` leaving it alone.
  */
 const fakeChannel = () => {
   const slots = new Map<string, Finding>();
@@ -47,10 +47,7 @@ const fakeChannel = () => {
     published,
     channel: {
       findings: (): readonly Finding[] => [...slots.values()],
-      publish: (f: Finding): void => {
-        lastSeen.set(f.monitor, NOW);
-        hold(f);
-      },
+      publish: hold,
       relay: hold,
       seen: (m: MonitorName): void => {
         seen.push(m);

@@ -134,6 +134,20 @@ describe('the fold stores the commit fields each arm answers', () => {
     await pass(w, state);
     expect((await stored(w))[0].mergedAt).toBe('2026-10-07T08:30:00Z');
   });
+
+  it('keeps no stored mergedAt for a row the host no longer answers MERGED', async () => {
+    const clock = { t: T0 };
+    let state: 'MERGED' | 'OPEN' = 'MERGED';
+    const f = fake(() => [base(4, { state, headSha: SHA, ...(state === 'MERGED' ? { mergedAt: '2026-10-07T08:30:00Z' } : {}) })], () => []);
+    const w = worldOf(f, clock);
+    const prState = freshPrState();
+    await pass(w, prState);
+    expect((await stored(w))[0].mergedAt).toBe('2026-10-07T08:30:00Z');
+    state = 'OPEN';
+    clock.t = T0 + 120_000;
+    await pass(w, prState);
+    expect((await stored(w))[0].mergedAt).toBeUndefined();
+  });
 });
 
 describe('the re-ask is bounded by time and covers failing', () => {

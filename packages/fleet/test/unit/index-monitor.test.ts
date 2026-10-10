@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
+import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import type { Finding, MonitorName } from '@plot-pm/domain/entities/finding';
 import type { PrIndex, PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import { startFleetChannel } from '../../src/server/entry/registryd-main.js';
-import { runIndexMonitor, type IndexMonitorWorld } from '../../src/shared/index-monitor.js';
+import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
+import { runIndexMonitor, sliceBranchesOf, type IndexMonitorWorld } from '../../src/shared/index-monitor.js';
 
 const NOW = '2026-10-10T12:00:00Z';
 
@@ -100,12 +102,37 @@ describe('runIndexMonitor', () => {
     expect(w.lines).toEqual([]);
   });
 
-  it('treats a plan store that cannot be read as unreadable and retracts nothing', async () => {
+  it('treats a plan store that cannot be read as unreadable and retracts nothing, and still calls `seen` for the index it read', async () => {
     const c = fakeChannel();
     await runIndexMonitor(world(c.channel).world);
     c.seen.length = 0;
     await runIndexMonitor(world(c.channel, { sliceBranches: async () => null }).world);
     expect(c.slots.size).toBe(1);
+    expect(c.seen).toEqual(['IndexMonitor']);
+  });
+
+  it('calls `seen` after a fold over an estate with no slice branches', async () => {
+    const c = fakeChannel();
+    await runIndexMonitor(world(c.channel, { sliceBranches: async () => new Set<string>() }).world);
+    expect(c.published).toEqual([]);
+    expect(c.seen).toEqual(['IndexMonitor']);
+  });
+
+  it('publishes a red default branch without calling `seen` when the index is unreadable', async () => {
+    const c = fakeChannel();
+    const red: DefaultBranchReading = {
+      v: 1,
+      branch: 'main',
+      headSha: 'bbb',
+      head: 'red',
+      settled: { sha: 'bbb', state: 'red' },
+      failingRuns: [],
+      headSince: NOW,
+      askedAt: NOW,
+      at: NOW,
+    };
+    await runIndexMonitor(world(c.channel, { index: async () => null, defaultBranch: async () => red }).world);
+    expect(c.published.map((f) => f.finding)).toEqual(['default branch red']);
     expect(c.seen).toEqual([]);
   });
 
@@ -115,6 +142,38 @@ describe('runIndexMonitor', () => {
     await expect(runIndexMonitor(w.world)).rejects.toThrow('disk gone');
     expect(c.seen).toEqual([]);
     expect(c.published).toEqual([]);
+  });
+});
+
+describe('sliceBranchesOf', () => {
+  const plan = (branches: string[]): PlanRecord => ({ branches }) as unknown as PlanRecord;
+
+  it('answers an empty set, not null, for plans that name no slice branch', async () => {
+    const answer = await sliceBranchesOf({
+      listPlans: async () => ({ ok: true, value: ['docs/plans/a.md'] }),
+      readPlans: async () => ({ ok: true, value: [plan([])] }),
+    });
+    expect(answer).toEqual(new Set());
+  });
+
+  it('answers the branches every plan names', async () => {
+    const answer = await sliceBranchesOf({
+      listPlans: async () => ({ ok: true, value: ['docs/plans/a.md', 'docs/plans/b.md'] }),
+      readPlans: async () => ({ ok: true, value: [plan(['feature/one']), plan(['bug/two'])] }),
+    });
+    expect(answer).toEqual(new Set(['feature/one', 'bug/two']));
+  });
+
+  it('answers null where the plans cannot be listed or read', async () => {
+    const unlisted = await sliceBranchesOf({
+      listPlans: async () => ({ ok: false, why: 'failed' }),
+      readPlans: async () => ({ ok: true, value: [] }),
+    });
+    const unread = await sliceBranchesOf({
+      listPlans: async () => ({ ok: true, value: ['docs/plans/a.md'] }),
+      readPlans: async () => ({ ok: false, why: 'failed' }),
+    });
+    expect([unlisted, unread]).toEqual([null, null]);
   });
 });
 

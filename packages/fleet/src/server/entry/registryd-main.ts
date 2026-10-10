@@ -61,7 +61,7 @@ import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEn
 import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
 import { fleetAutoWrites } from '../../shared/auto-writes.js';
 import { runDeskRelay } from '../../shared/desk-relay.js';
-import { runIndexMonitor } from '../../shared/index-monitor.js';
+import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
 import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
 import { freshScanState } from '../../shared/fleet-scan.js';
@@ -1670,22 +1670,22 @@ export const startFleetChannel = async (
  * reads.
  *
  * Reads the stored PR index and the default-branch file, never the host. The
- * slice branches are the branches every plan names, read through the same
- * `queue.plans()` the hand-over uses.
+ * slice branches are the branches every plan names, read from the plan store
+ * the queue reads: an empty set where no plan names a branch, and `null` where
+ * the plan store cannot be listed or read.
  *
  * @param context - the checkout and its scripts directory.
  * @param channel - the channel to publish on.
- * @param queue - the queue world whose `plans` names the slice branches.
  * @param write - receives one log line per publish and per clear.
  * @returns one run of the monitor.
  */
 export const indexMonitorOver = (
   context: { repoRoot: string; scriptDir: string },
   channel: Pick<RunningChannel, 'findings' | 'publish' | 'seen'>,
-  queue: Pick<QueueWorld, 'plans'>,
   write: (s: string) => void,
 ): (() => Promise<void>) => {
   const host = hostShell(context);
+  const plans = planStoreShell(context);
   const index = prIndexFile({ cwd: context.repoRoot });
   const defaultBranch = defaultBranchFile(context.repoRoot);
   return () =>
@@ -1700,13 +1700,7 @@ export const indexMonitorOver = (
         const held = await defaultBranch.read();
         return held.ok ? held.value : null;
       },
-      sliceBranches: async () => {
-        const plans = await queue.plans();
-        // `plans()` answers `[]` for a plan store it could not read, so an empty
-        // set is read as unreadable rather than as an estate with no slices.
-        const branches = new Set(plans.flatMap((plan) => plan.branches));
-        return branches.size === 0 ? null : branches;
-      },
+      sliceBranches: () => sliceBranchesOf(plans),
       channel,
       now: () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
       log: write,
@@ -1915,7 +1909,7 @@ export const run = async (
   const indexMonitor =
     channel === null
       ? null
-      : indexMonitorOver({ repoRoot, scriptDir: scriptsDir }, channel, queue, write);
+      : indexMonitorOver({ repoRoot, scriptDir: scriptsDir }, channel, write);
   const deskRelay =
     channel === null ? null : deskRelayOver({ repoRoot, scriptDir: scriptsDir }, channel, write);
   const scanClock = args.once

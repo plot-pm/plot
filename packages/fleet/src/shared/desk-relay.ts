@@ -12,7 +12,7 @@ export interface DeskRelayWorld {
   trees: Pick<Trees, 'list'>;
   /** The findings a desk's monitor logs hold. */
   desk: Pick<Desk, 'readFindings'>;
-  /** The channel the findings go to. Its `publish` and `seen` are not offered, because both move a monitor's `lastSeen`. */
+  /** The channel the findings go to. Its `seen` is not offered, because it moves a monitor's `lastSeen`. */
   channel: Pick<RunningChannel, 'findings' | 'relay'>;
   /** The current time, ISO-8601. */
   now(): string;
