@@ -150,7 +150,7 @@ Measured 2026-10-09: `main` moved 525 times in 7 days (106 in the last day), 65 
 
 ### The board page hears the channel
 
-- `feature/the-board-page-hears-the-channel` — the board server subscribes to the channel and serves `/api/events` as server-sent events; the page refetches `/api/board` on an event, at most once per 2 s, and keeps the 30 s poll. Done when a server test sees one event per published finding, and the page test refetches once for a burst of findings and polls as before with no channel <!-- builds: /api/events, a server-sent event route, and the board's channel subscription -->
+- `feature/the-board-page-hears-the-channel` → #1469 — the board server subscribes to the channel and serves `/api/events` as server-sent events; the page refetches `/api/board` on an event, at most once per 2 s, and keeps the 30 s poll. Done when a server test sees one event per published finding, and the page test refetches once for a burst of findings and polls as before with no channel <!-- builds: /api/events, a server-sent event route, and the board's channel subscription -->
 
 ### The board shows the new readings
 
