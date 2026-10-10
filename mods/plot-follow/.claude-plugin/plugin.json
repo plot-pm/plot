@@ -1,0 +1,22 @@
+{
+  "name": "plot-follow",
+  "description": "Shows the Plot fleet channel's findings in a pane, raises a toast on three of them and wakes the session only on the finding names the operator lists",
+  "version": "0.1.0",
+  "author": {
+    "name": "Max Albrecht",
+    "email": "1@178.is"
+  },
+  "homepage": "https://github.com/plot-pm/plot",
+  "repository": "https://github.com/plot-pm/plot",
+  "license": "MIT",
+  "keywords": ["plot", "fleet", "mod"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "turnOn": {
+      "type": "string",
+      "title": "Finding names that start a turn",
+      "description": "Comma-separated finding names, for example: checks failing, default branch red. Empty (the default) starts no turn.",
+      "default": ""
+    }
+  }
+}

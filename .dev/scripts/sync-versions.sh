@@ -2,9 +2,11 @@
 # sync-versions.sh — propagate version from package.json to plugin metadata files
 # Called automatically by `pnpm version` after `changeset version`
 #
-# Plot is a single-plugin marketplace: one entry in marketplace.json. The jq
-# filter targets `.plugins[].version` so it remains correct if the marketplace
-# ever grows additional plugin entries.
+# The marketplace lists more than one plugin. Only the `plot` entry follows
+# package.json; every other entry (the `plot-follow` mod under `mods/`) keeps
+# the version its own `.claude-plugin/plugin.json` declares, because at install
+# time plugin.json wins and `claude plugin validate --strict` refuses an entry
+# that disagrees with it. test/reconcile/sync-versions.test.mjs holds that pair.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -21,7 +23,7 @@ sync_file() {
 }
 
 sync_file "$REPO_ROOT/.claude-plugin/plugin.json"      '.version = $v'
-sync_file "$REPO_ROOT/.claude-plugin/marketplace.json" '.plugins |= map(.version = $v)'
+sync_file "$REPO_ROOT/.claude-plugin/marketplace.json" '.plugins |= map(if .name == "plot" then .version = $v else . end)'
 
 echo "Done. Plugin metadata files now at version $VERSION"
 
