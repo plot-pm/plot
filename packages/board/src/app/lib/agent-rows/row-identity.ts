@@ -1,3 +1,4 @@
+import { briefWriterNote } from '@plot-pm/domain';
 import {
   type AgentRow,
   type WaitingOn,
@@ -244,6 +245,16 @@ export function briefAskedNote(elapsedMs: number): string {
 }
 
 /**
+ * The sentence for a running brief writer, with the age of the ask it answers.
+ * The age is `briefAskedAt`'s: the earliest counting ask, which a running
+ * writer's own start falls at or after.
+ *
+ * @param elapsedMs - milliseconds since the ask.
+ */
+export const briefWritingNote = (elapsedMs: number): string =>
+  `the brief writer has been working for ${askedLabel(elapsedMs)}`;
+
+/**
  * Whether this row's brief writer recorded a failure.
  *
  * Reads the `briefFailed` field the server computed. The client casts the
@@ -271,13 +282,13 @@ export const briefWriterFailed = (row: Partial<Pick<AgentRow, 'briefFailed'>>): 
 export const briefFailedNote = (log: string): string => `the brief writer failed — see ${log}`;
 
 /**
- * Whether this branch's own writer is running right now — #1417, the reading
- * `briefAskedAt`'s age could not give: whether the work is still going, read
- * from `briefWriting`, which `briefWriterState` in `@plot-pm/domain` already
- * decided against the brief's own presence and the branchless-run rule.
+ * Whether this row's own brief writer is running now.
+ *
+ * @param row - the row, with at least `briefWriter`.
+ * @returns true where `briefWriter` is `writing`, false otherwise.
  */
-export const briefWriting = (row: Partial<Pick<AgentRow, 'briefWriting'>>): boolean =>
-  row.briefWriting === 'writing';
+export const briefWriting = (row: Partial<Pick<AgentRow, 'briefWriter'>>): boolean =>
+  row.briefWriter === 'writing';
 
 /** The note a row with a missing brief shows when work, an ask, or a failure is recorded. */
 export interface BriefNote {
@@ -292,35 +303,42 @@ export interface BriefNote {
 /**
  * Which brief note a row shows, and its words.
  *
- * `writing` outranks both a recorded failure and a recorded ask: the domain
- * rule already decided that a running writer and a recorded failure cannot
- * both hold for one branch, and `writing` is a sharper answer than the age
- * `asked` gives. A recorded failure then outranks a recorded ask, because a
- * failed run also leaves its ask's log behind and both fields can be set
- * together. The age of an ask is computed against `now`, so the caller reads
- * the clock at render time.
+ * `briefWriterNote` in `@plot-pm/domain` decides the note's kind and age from
+ * `briefWriter` and `briefAskedAt`; this function formats them. The age is
+ * computed against `now`, so the caller reads the clock at render time.
  *
- * @param row - the row, with at least `briefWriting`, `briefFailed` and `briefAskedAt`.
+ * @param row - the row, with at least `briefWriter`, `briefFailed` and `briefAskedAt`.
  * @param now - the reader's clock, in epoch milliseconds.
- * @returns the `writing` note where `briefWriting`, otherwise the `failed`
- *          note where `briefWriterFailed`, otherwise the `asked` note where
- *          `briefAsked`, otherwise null — the row then shows the missing-brief
- *          note.
+ * @returns the `writing`, `failed` or `asked` note for that `briefWriter`, or
+ *          null for `none` or an absent field — the row then shows the
+ *          missing-brief note.
  */
 export const briefNote = (
-  row: Partial<Pick<AgentRow, 'briefWriting' | 'briefFailed' | 'briefAskedAt'>>,
+  row: Partial<Pick<AgentRow, 'briefWriter' | 'briefFailed' | 'briefAskedAt'>>,
   now: number,
 ): BriefNote | null => {
-  if (briefWriting(row)) {
-    return { kind: 'writing', label: 'writing brief', text: 'the brief writer is working now' };
+  const note = briefWriterNote(row.briefWriter ?? 'none', row.briefAskedAt ?? null, now);
+  if (note === null) return null;
+  switch (note.kind) {
+    case 'writing':
+      return {
+        kind: 'writing',
+        label: 'writing brief',
+        text: note.ageMs === null ? 'the brief writer is working now' : briefWritingNote(note.ageMs),
+      };
+    case 'failed':
+      return {
+        kind: 'failed',
+        label: 'brief failed',
+        text: typeof row.briefFailed === 'string' ? briefFailedNote(row.briefFailed) : 'the brief writer failed',
+      };
+    case 'asked':
+      return {
+        kind: 'asked',
+        label: 'brief asked',
+        text: note.ageMs === null ? 'a brief was asked' : briefAskedNote(note.ageMs),
+      };
   }
-  if (briefWriterFailed(row)) {
-    return { kind: 'failed', label: 'brief failed', text: briefFailedNote(row.briefFailed as string) };
-  }
-  if (typeof row.briefAskedAt === 'number') {
-    return { kind: 'asked', label: 'brief asked', text: briefAskedNote(now - row.briefAskedAt) };
-  }
-  return null;
 };
 
 /**

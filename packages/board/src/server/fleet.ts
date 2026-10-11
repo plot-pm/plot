@@ -5387,7 +5387,7 @@ export function rowsFromPulse(
         // ONE READING of the brief askers' logs per row, for both fields below.
         const askReading = repoRoot ? briefReading(repoRoot, b.branch, planSlug) : null;
         // ONE READING of the brief's presence, for `brief`, `startability` and
-        // `briefWriting` below — so a sibling cannot disagree with itself about
+        // `briefWriter` below — so a sibling cannot disagree with itself about
         // whether the brief is there.
         const briefReadingState = repoRoot ? briefState(repoRoot, b.branch) : 'unknown';
         const rowStartability = startabilityVerdict(b.state, plan.phase, wave.verdict, briefReadingState);
@@ -5570,10 +5570,11 @@ export function rowsFromPulse(
           // (this branch's own writer process, via `brief-ask-log.ts`), never
           // widened by a branchless run that marks every sibling — see
           // `briefWriterState` in `@plot-pm/domain`.
-          briefWriting: repoRoot
+          briefWriter: repoRoot
             ? briefWriterState({
                 needsBrief: rowStartability === 'needs-brief',
-                runState: askReading?.writing ? 'running' : askReading?.failed ? 'failed' : 'none',
+                writing: askReading?.writing ?? false,
+                failed: askReading?.failed ?? null,
                 askedAt: askReading?.askedAt ?? null,
               })
             : 'none',
@@ -5890,7 +5891,7 @@ export function rowsFromPulse(
       briefFailed: null,
       // AND SO NOTHING WRITING EITHER — same absence, same reason: no plan
       // names this row, so `needsBrief` can never hold for it.
-      briefWriting: 'none',
+      briefWriter: 'none',
       blockedBy: null,
       // NO SLICE, SO NO VERDICT — null, and for the same reason as the two
       // fields above rather than as a placeholder. This row is built from the PR
@@ -6190,7 +6191,7 @@ export function rowsFromPulse(
       // the branch, and no plan names this one.
       briefFailed: null,
       // And so nothing writing either — same reason: no plan names this row.
-      briefWriting: 'none',
+      briefWriter: 'none',
       blockedBy: null,
       verdict: null,
       startability: null,

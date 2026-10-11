@@ -7,7 +7,8 @@ import type { Scripts } from '@plot-pm/domain';
 import { run, runDetached } from '../../src/server/entry/dispatch-command.js';
 import { actionReceiptPath } from '../../src/shared/action-receipt.js';
 import { startDispatch } from '../../src/shared/dispatch-command.js';
-import { IMPLEMENT_COMMAND_KEY, implementStatePath } from '../../src/shared/implement-run.js';
+import { markBoardRun, writeState } from '../../src/shared/board-run.js';
+import { IMPLEMENT_COMMAND_KEY, implementLogPath, implementStatePath } from '../../src/shared/implement-run.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
 
 // The dispatch controller with no board: a stub `Implement command` and an
@@ -29,8 +30,15 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Releases this process's hold, so its exit listener writes into no removed directory.
+  writeState(implementStatePath(repo, SLUG), 0);
   rmTree(tmp);
 });
+
+/** Marks the implement as started by this process, as the launched process's `markBoardRun` does. */
+const markStarted = (): void => {
+  markBoardRun(implementStatePath(repo, SLUG), implementLogPath(repo, SLUG));
+};
 
 /** A config reader answering the `Implement command` key and nothing else. */
 const configured =
@@ -99,17 +107,45 @@ describe('the dispatch entry', () => {
 });
 
 describe('the detached dispatch entry', () => {
-  it('returns once the state file reads running <pid>, before the process ends', async () => {
+  it('returns once the state file holds the marker markBoardRun writes, before the process ends', async () => {
     const out: string[] = [];
     const code = await runDetached([SLUG], repo, SCRIPT_DIR, {
       // The launched process has taken the lock and is still running: it never exits.
       launch: () => {
-        fs.writeFileSync(implementStatePath(repo, SLUG), `running ${process.pid}`);
+        markStarted();
         return { pid: process.pid, exitCode: () => null };
       },
+      startWaitMs: 2_000,
     }, (s) => out.push(s));
     expect(code).toBe(0);
     expect(out.join('')).toContain(`implement started for ${SLUG}: pid ${process.pid}`);
+  });
+
+  it('reads a marker that records a start time beside the pid as started', async () => {
+    // `running <pid> <startedAt>` is what `markBoardRun` writes; a reader that
+    // compares the whole content with `running <pid>` never sees the start.
+    fs.mkdirSync(path.dirname(implementStatePath(repo, SLUG)), { recursive: true });
+    const code = await runDetached([SLUG], repo, SCRIPT_DIR, {
+      launch: () => {
+        fs.writeFileSync(implementStatePath(repo, SLUG), `running ${process.pid} 1700000000000\n`);
+        return { pid: process.pid, exitCode: () => null };
+      },
+      startWaitMs: 2_000,
+    }, () => {});
+    expect(code).toBe(0);
+  });
+
+  it('does not read a marker naming another pid as this launch started', async () => {
+    const warned: string[] = [];
+    const code = await runDetached([SLUG], repo, SCRIPT_DIR, {
+      launch: () => {
+        markStarted();
+        return { pid: process.pid + 1, exitCode: () => null };
+      },
+      startWaitMs: 200,
+    }, () => {}, (s) => warned.push(s));
+    expect(code).toBe(1);
+    expect(warned.join('')).toMatch(/did not start/);
   });
 
   it('reports the launch log and its code where the process exits before it started', async () => {
@@ -142,7 +178,7 @@ describe('the detached dispatch entry', () => {
       launch: (_slug, _root, launchLog) => {
         logs.push(launchLog);
         fs.writeFileSync(launchLog, 'the winner wrote this\n');
-        fs.writeFileSync(implementStatePath(repo, SLUG), `running ${process.pid}`);
+        markStarted();
         return { pid: process.pid, exitCode: () => null };
       },
     }, () => {});

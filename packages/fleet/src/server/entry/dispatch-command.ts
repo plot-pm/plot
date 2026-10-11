@@ -6,7 +6,7 @@ import { fleetStateFile } from '@plot-pm/domain/adapters/fleet-state/fleet-state
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import type { DetachedProcess, FleetReading, Scripts } from '@plot-pm/domain';
 import { agentLogPath } from '../../shared/agent-log.js';
-import type { BoardConfigReader } from '../../shared/board-run.js';
+import { parseRunMarker, type BoardConfigReader } from '../../shared/board-run.js';
 import { implementLogPath, implementStatePath } from '../../shared/implement-run.js';
 import {
   SLUG_RE,
@@ -29,10 +29,11 @@ import {
  *
  * The command returns once the implement has STARTED: it launches itself with
  * `--foreground` in a detached process, which holds the implement lock and
- * waits for the implement to end, and returns when the state file reads
- * `running <that pid>`. A caller with a tool timeout therefore never holds the
- * implement open. Each launch writes its own launch log, named by the launching
- * process's pid, so a launch that loses the lock leaves the winner's log whole.
+ * waits for the implement to end, and returns when the state file holds a
+ * `running` marker naming that pid. A caller with a tool timeout therefore
+ * never holds the implement open. Each launch writes its own launch log, named
+ * by the launching process's pid, so a launch that loses the lock leaves the
+ * winner's log whole.
  * {@link run} is the detached process's body: it waits for the implement and
  * its exit code reports whether the dispatch started.
  *
@@ -182,7 +183,7 @@ export const runDetached = async (
     } catch {
       /* not taken yet */
     }
-    if (recorded === `running ${child.pid}`) {
+    if (parseRunMarker(recorded)?.pid === child.pid) {
       write(`implement started for ${slug}: pid ${child.pid}, log ${implementLogPath(repoRoot, slug)}\n`);
       return 0;
     }

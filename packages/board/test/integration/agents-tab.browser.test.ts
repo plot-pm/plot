@@ -4264,7 +4264,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
   it('a single-branch slice whose brief was asked for shows the asked note', async () => {
     const payload = soleSliceFleet('feature/brief-asked-sole', {
-      briefAskedAt: Date.now() - 45_000, briefFailed: null,
+      briefAskedAt: Date.now() - 45_000, briefFailed: null, briefWriter: 'asked',
     });
     const page = await cat.open('ten-rows-one-kind-each', { tab: 'agents', over: { fleet: payload } });
     try {
@@ -4282,7 +4282,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('a single-branch slice whose brief writer failed shows the failed note and not the asked note', async () => {
     const log = '.worktrees/plot-implement-brief-sole.log';
     const payload = soleSliceFleet('feature/brief-failed-sole', {
-      briefAskedAt: Date.now() - 45_000, briefFailed: log,
+      briefAskedAt: Date.now() - 45_000, briefFailed: log, briefWriter: 'failed',
     });
     const page = await cat.open('ten-rows-one-kind-each', { tab: 'agents', over: { fleet: payload } });
     try {
@@ -4299,7 +4299,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
   // #1417: A NOT STARTED row whose own writer is running shows the working
   // indicator; a sibling slice of the same plan, with no writer running for
-  // it, stays quiet — the row reads `briefWriting` alone, and one row's
+  // it, stays quiet — the row reads `briefWriter` alone, and one row's
   // reading never widens onto another's.
   it('shows the working indicator on a not-started row with a running writer, and not on its sibling', async () => {
     const payload = fleet({
@@ -4310,14 +4310,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           planFile: '2026-10-05-brief-sole.md', group: 'not-started', state: 'open',
           phase: 'Design', ageMinutes: null, waitingOn: 'click', note: ELIGIBLE_NOTE,
           verdict: 'eligible', brief: 'missing', startability: 'needs-brief',
-          branchUrl: '', waitingDays: 3, briefWriting: 'writing',
+          branchUrl: '', waitingDays: 3, briefWriter: 'writing',
         }),
         row({
           branch: 'feature/brief-writing-sibling', wave: 'sibling-slice', plan: 'brief-sole',
           planFile: '2026-10-05-brief-sole.md', group: 'not-started', state: 'open',
           phase: 'Design', ageMinutes: null, waitingOn: 'click', note: ELIGIBLE_NOTE,
           verdict: 'eligible', brief: 'missing', startability: 'needs-brief',
-          branchUrl: '', waitingDays: 3, briefWriting: 'none',
+          branchUrl: '', waitingDays: 3, briefWriter: 'none',
         }),
       ],
     });

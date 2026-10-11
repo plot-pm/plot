@@ -25,7 +25,10 @@ import { briefPath } from '@plot-pm/fleet/shared/brief-path';
 import {
   briefFailedNote, briefNote, briefWriterFailed, briefWriting, needsBrief,
 } from '../../src/app/lib/agent-rows/row-identity.js';
-import { type AgentRow, type FleetReading } from '../../src/contract/schema.js';
+import { BRIEF_WRITER_STATES, type BriefWriterState } from '@plot-pm/domain';
+import {
+  type AgentRow, AgentRowSchema, BriefWriterStateSchema, type BriefWriterStateValue, type FleetReading,
+} from '../../src/contract/schema.js';
 import { rmTree } from '../helpers.mjs';
 
 const QUIET = 30;
@@ -156,11 +159,11 @@ describe('briefWriting on the row — #1417', () => {
     write(implementBranchStatePath(root, PLAN_SLUG, FIRST), `running ${livePid}`);
 
     const [first, second] = rowsFor(root, FIRST, SECOND);
-    expect(first.briefWriting).toBe('writing');
+    expect(first.briefWriter).toBe('writing');
     expect(briefWriting(first)).toBe(true);
     // SECOND's own state file is absent AND a branch (FIRST) was recorded, so
     // the run is attributed to FIRST alone — SECOND reads none, not asked.
-    expect(second.briefWriting).toBe('none');
+    expect(second.briefWriter).toBe('none');
     expect(briefWriting(second)).toBe(false);
   });
 
@@ -172,8 +175,8 @@ describe('briefWriting on the row — #1417', () => {
     write(implementStatePath(root, PLAN_SLUG), `running ${livePid}`);
 
     const [first, second] = rowsFor(root, FIRST, SECOND);
-    expect(first.briefWriting).toBe('asked');
-    expect(second.briefWriting).toBe('asked');
+    expect(first.briefWriter).toBe('asked');
+    expect(second.briefWriter).toBe('asked');
   });
 
   it('reads failed for a dead pid', () => {
@@ -182,7 +185,7 @@ describe('briefWriting on the row — #1417', () => {
     write(implementBranchStatePath(root, PLAN_SLUG, FIRST), `running ${deadPid()}`);
 
     const row = rowFor(root, FIRST);
-    expect(row.briefWriting).toBe('failed');
+    expect(row.briefWriter).toBe('failed');
   });
 
   it('reads none for a live pid once the brief itself is present', () => {
@@ -195,14 +198,21 @@ describe('briefWriting on the row — #1417', () => {
 
     const row = rowFor(root);
     expect(row.brief).toBe('present');
-    expect(row.briefWriting).toBe('none');
+    expect(row.briefWriter).toBe('none');
   });
 
   it('validates to none from a payload that predates the field', () => {
-    // An older server's pulse carries no `briefWriting` at all; the schema's
+    // An older server's pulse carries no `briefWriter` at all; the schema's
     // default must still render exactly as the board did before this field.
     const row = rowFor(root);
-    expect(row.briefWriting).toBe('none');
+    expect(AgentRowSchema.parse({ ...row, briefWriter: undefined }).briefWriter).toBe('none');
+  });
+
+  it('keeps the schema enum and the domain union in step', () => {
+    expect(BriefWriterStateSchema.options).toEqual([...BRIEF_WRITER_STATES]);
+    const schemaState: BriefWriterStateValue = 'none';
+    const asDomain: BriefWriterState = schemaState;
+    expect(asDomain).toBe('none');
   });
 });
 
@@ -224,22 +234,43 @@ describe('row-identity gives the failed sentence', () => {
   });
 });
 
+describe('briefNote on a running writer', () => {
+  const NOW = 1_000_000_000_000;
+
+  it('carries the age of the ask', () => {
+    const note = briefNote({ briefWriter: 'writing', briefAskedAt: NOW - 42_000 }, NOW);
+    expect(note?.kind).toBe('writing');
+    expect(note?.text).toBe('the brief writer has been working for 42s');
+  });
+
+  it('falls back to the plain sentence where no ask is recorded', () => {
+    const note = briefNote({ briefWriter: 'writing', briefAskedAt: null }, NOW);
+    expect(note?.text).toBe('the brief writer is working now');
+  });
+});
+
 describe('briefNote chooses the note a row shows', () => {
   const NOW = 1_000_000_000_000;
   const LOG = '.worktrees/plot-implement-a-plan.log';
 
-  it('shows the failed note when both briefFailed and briefAskedAt are set', () => {
-    const note = briefNote({ briefFailed: LOG, briefAskedAt: NOW - 45_000 }, NOW);
+  it('shows the failed note for briefWriter failed, also where an ask is recorded', () => {
+    const note = briefNote({ briefWriter: 'failed', briefFailed: LOG, briefAskedAt: NOW - 45_000 }, NOW);
     expect(note).toEqual({ kind: 'failed', label: 'brief failed', text: briefFailedNote(LOG) });
   });
 
-  it('shows the asked note, aged against the given clock, when only briefAskedAt is set', () => {
-    const note = briefNote({ briefFailed: null, briefAskedAt: NOW - 45_000 }, NOW);
+  it('shows the asked note, aged against the given clock, for briefWriter asked', () => {
+    const note = briefNote({ briefWriter: 'asked', briefFailed: null, briefAskedAt: NOW - 45_000 }, NOW);
     expect(note).toEqual({ kind: 'asked', label: 'brief asked', text: 'a brief was asked for 45s ago' });
   });
 
-  it('is null when neither is set, or both are missing from an older payload', () => {
-    expect(briefNote({ briefFailed: null, briefAskedAt: null }, NOW)).toBeNull();
+  it('follows briefWriter, not briefFailed or briefAskedAt', () => {
+    // The rule's answer decides the note; the older fields only feed its text.
+    expect(briefNote({ briefWriter: 'none', briefFailed: LOG, briefAskedAt: NOW - 45_000 }, NOW)).toBeNull();
+    expect(briefNote({ briefWriter: 'asked', briefFailed: LOG, briefAskedAt: NOW - 45_000 }, NOW)?.kind).toBe('asked');
+  });
+
+  it('is null for briefWriter none, or for a row without the field', () => {
+    expect(briefNote({ briefWriter: 'none', briefFailed: null, briefAskedAt: null }, NOW)).toBeNull();
     expect(briefNote({}, NOW)).toBeNull();
   });
 });

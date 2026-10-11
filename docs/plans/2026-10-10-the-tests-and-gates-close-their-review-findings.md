@@ -137,7 +137,7 @@ Each slice changes one group of files, and no two slices change the same file. T
 
 ### Kill test readiness
 
-- `bug/the-kill-tests-wait-for-readiness` — the TERM-trap tests wait for a readiness line, the temp-path test waits for its directory line, and `gone()` fits inside the test timeout (issue 1461) <!-- builds: readiness lines in run-script.test.ts -->
+- `bug/the-kill-tests-wait-for-readiness` → #1542 — the TERM-trap tests wait for a readiness line, the temp-path test waits for its directory line, and `gone()` fits inside the test timeout (issue 1461) <!-- builds: readiness lines in run-script.test.ts -->
 
 ### Reaper readings
 
