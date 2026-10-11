@@ -40,9 +40,9 @@ describe('commandOf', () => {
 });
 
 describe('the gate table', () => {
-  it('registers no gate yet, so --list prints nothing and --all allows', async () => {
-    expect(GATES).toEqual([]);
-    expect(await run([...GATES], 'all')).toEqual({ code: EXIT.allow, warned: [] });
+  it('registers bundle-commit, and an empty command still allows', async () => {
+    expect(GATES.map((g) => g.name)).toEqual(['bundle-commit']);
+    expect(await run([...GATES], 'all', '')).toEqual({ code: EXIT.allow, warned: [] });
   });
 });
 

@@ -28,6 +28,23 @@ export interface TreeBlob {
   path: string;
 }
 
+/**
+ * One path the index holds staged against `HEAD`, with the status that says
+ * what changed.
+ *
+ * The status travels WITH the path rather than being filtered out before the
+ * caller sees it, for {@link TreeBlob}'s reason: a deleted path and an added
+ * one are both "staged", and telling them apart is the caller's question. A
+ * rename carries the path alone — its NEW path, because a bundle-commit rule
+ * cares what the index will hold after the commit, not what it held before.
+ */
+export interface StagedPath {
+  /** `added`, `modified`, or `renamed`. A delete never appears here. */
+  status: 'added' | 'modified' | 'renamed';
+  /** The path, relative to the repository root — the new path for a rename. */
+  path: string;
+}
+
 /** A branch and the commit its tip points at. */
 export interface BranchTip {
   /** The branch name, without a remote prefix. */
@@ -167,6 +184,23 @@ export interface Refs {
   resolve(ref: string): Promise<PortResult<string>>;
 
   /**
+   * The best common ancestor of two revisions.
+   *
+   * **NOT {@link Refs.contains} or {@link Refs.isMergedByAncestry}.** Both of
+   * those answer an ancestry TEST — `yes`/`no`/`unknown` or
+   * `merged`/`not-merged`/`unknown` — by running `merge-base --is-ancestor`
+   * and reading its exit code. Neither can hand back the merge-base commit
+   * ITSELF, which a caller needs when the question is not "is A an ancestor
+   * of B" but "what did this branch look like before it diverged".
+   *
+   * @param a - the first revision.
+   * @param b - the second revision.
+   * @returns the merge base's full sha; a failed result where the revisions
+   *   share no history or either cannot be resolved.
+   */
+  mergeBase(a: string, b: string): Promise<PortResult<string>>;
+
+  /**
    * Lists the files a branch changed against the default branch.
    *
    * @param branch - the branch to read.
@@ -181,6 +215,26 @@ export interface Refs {
    * @returns the paths, relative to the repository root.
    */
   workingChanges(): Promise<PortResult<readonly string[]>>;
+
+  /**
+   * Lists the paths the INDEX holds staged against `HEAD`, each with its
+   * status.
+   *
+   * NOT {@link workingChanges}: that answers the working tree against `HEAD`
+   * and reports a renamed file by its new path alone, with no way to tell an
+   * add from a modify or either from a delete. A commit gate reads what the
+   * commit about to be made will CONTAIN, which is the index, and needs the
+   * status to never refuse a staged delete — "removing a generated path is
+   * never the defect this gate exists for" — while still catching a rename
+   * that lands a path it must refuse.
+   *
+   * A deleted path never appears in the answer: deletion is not a status this
+   * type can carry, because no caller of this operation has needed to refuse
+   * one.
+   *
+   * @returns each staged path with its status, relative to the repository root.
+   */
+  stagedPaths(): Promise<PortResult<readonly StagedPath[]>>;
 
   /**
    * Lists the tracked files under the pathspecs that contain a fixed string.

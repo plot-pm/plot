@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { additionsOf, commitSubjectsOf, mergesOf, refsGit } from '../src/adapters/refs/refs-git.js';
+import { additionsOf, commitSubjectsOf, mergesOf, refsGit, stagedPathsOf } from '../src/adapters/refs/refs-git.js';
 import { runBytes, runProcess, asText } from '../src/adapters/run-script.js';
 
 /**
@@ -90,6 +90,17 @@ describe('refsGit: the branch and ref readings', () => {
     expect(hit.ok).toBe(true);
     if (hit.ok) expect(hit.value).toMatch(/^[0-9a-f]{40}$/);
     expect((await refs().resolve('refs/heads/no-such-branch')).ok).toBe(false);
+  });
+
+  it('reads the merge base of two diverged branches, and refuses a revision that does not resolve', async () => {
+    const main = await refs().resolve('main');
+    expect(main.ok).toBe(true);
+    const hit = await refs().mergeBase('main', 'feature/ahead');
+    expect(hit.ok).toBe(true);
+    // main and feature/ahead share main's own tip: feature/ahead was branched
+    // from it with no further commit on main since.
+    if (hit.ok && main.ok) expect(hit.value).toBe(main.value);
+    expect((await refs().mergeBase('main', 'refs/heads/no-such-branch')).ok).toBe(false);
   });
 });
 
@@ -669,5 +680,72 @@ describe('commitSubjectsOf — the %m boundary walk, parsed without a second cal
 
   it('answers an empty list for empty output', () => {
     expect(commitSubjectsOf('')).toEqual([]);
+  });
+});
+
+describe('stagedPathsOf', () => {
+  it('reads an added path as added', () => {
+    expect(stagedPathsOf('A\tnew.mjs\n')).toEqual([{ status: 'added', path: 'new.mjs' }]);
+  });
+
+  it('reads a modified path as modified', () => {
+    expect(stagedPathsOf('M\texisting.mjs\n')).toEqual([{ status: 'modified', path: 'existing.mjs' }]);
+  });
+
+  it('reads a rename by its new path alone', () => {
+    expect(stagedPathsOf('R100\told.mjs\tnew.mjs\n')).toEqual([{ status: 'renamed', path: 'new.mjs' }]);
+  });
+
+  it('drops a deleted path entirely', () => {
+    expect(stagedPathsOf('D\tgone.mjs\n')).toEqual([]);
+  });
+
+  it('drops a copy, type-change, unmerged or unknown status', () => {
+    expect(stagedPathsOf(['C100\tsrc.mjs\tcopy.mjs', 'T\ttyped.mjs', 'U\tunmerged.mjs', 'X\tweird.mjs', ''].join('\n'))).toEqual([]);
+  });
+
+  it('answers an empty list for empty output', () => {
+    expect(stagedPathsOf('')).toEqual([]);
+  });
+});
+
+describe('refsGit: stagedPaths reads the index against HEAD', () => {
+  let staging = '';
+
+  beforeAll(() => {
+    staging = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-refs-git-staged-'));
+    git(staging, ['init', '--quiet', '--initial-branch=main']);
+    git(staging, ['config', 'user.email', 'test@example.com']);
+    git(staging, ['config', 'user.name', 'Test']);
+    fs.writeFileSync(path.join(staging, 'kept.txt'), 'kept\n');
+    fs.writeFileSync(path.join(staging, 'old-name.txt'), 'renamed\n');
+    git(staging, ['add', '-A']);
+    git(staging, ['commit', '--quiet', '-m', 'first']);
+  });
+
+  afterAll(() => {
+    if (staging) fs.rmSync(staging, { recursive: true, force: true });
+  });
+
+  it('answers no staged paths with a clean index', async () => {
+    const answer = await refsGit({ repoRoot: staging, scriptDir: path.join(staging, 'scripts') }).stagedPaths();
+    expect(answer.ok).toBe(true);
+    if (answer.ok) expect(answer.value).toEqual([]);
+  });
+
+  it('reads an added path, a modified path, and a rename by its new path', async () => {
+    fs.writeFileSync(path.join(staging, 'added.txt'), 'added\n');
+    fs.writeFileSync(path.join(staging, 'kept.txt'), 'kept, changed\n');
+    git(staging, ['add', 'added.txt', 'kept.txt']);
+    git(staging, ['mv', 'old-name.txt', 'new-name.txt']);
+
+    const answer = await refsGit({ repoRoot: staging, scriptDir: path.join(staging, 'scripts') }).stagedPaths();
+    expect(answer.ok).toBe(true);
+    if (!answer.ok) return;
+    const byPath = new Map(answer.value.map((entry) => [entry.path, entry.status]));
+    expect(byPath.get('added.txt')).toBe('added');
+    expect(byPath.get('kept.txt')).toBe('modified');
+    expect(byPath.get('new-name.txt')).toBe('renamed');
+    expect(byPath.has('old-name.txt')).toBe(false);
   });
 });

@@ -70,6 +70,11 @@ function repo({ settings } = {}) {
   chmodSync(localInstaller, 0o755);
   // The installer sources plot-tmp.sh from beside itself.
   copyFileSync(tmpHelper, path.join(dir, 'skills', 'plot', 'scripts', 'plot-tmp.sh'));
+  // The shipped hooks.json names plot-gates.sh, and the one-hook form needs
+  // board/plot-gate.mjs beside the installer to know which gates it lists —
+  // without it the install refuses outright, the way a real one would if its
+  // own bundle were missing.
+  placeGateBundle(path.join(dir, 'skills', 'plot', 'scripts'));
 
   if (settings !== undefined) {
     mkdirSync(path.join(dir, '.claude'), { recursive: true });
@@ -282,18 +287,33 @@ test('the registered command resolves from the project root', () => {
 //     unknown into a pass is the disease; folding it into a failure makes a
 //     perfect install report red forever, which operators learn to ignore.
 
-// The gate scripts a prober actually drives. repo() above copies the installer
-// alone, which is all the install half needs.
+// The gate scripts a prober actually drives.
 const gateScripts = [
   'plot-state-gate.sh',
   'plot-controller-gate.sh',
   'plot-brief-name-gate.sh',
   'plot-bundle-commit-gate.sh',
+  'plot-gates.sh',
   'plot-phase-gate.sh',
   'plot-tmp.sh',
   'plot-state-receipt.sh',
   'plot-config.sh',
 ];
+
+// A stub `board/plot-gate.mjs` beside a vendored `plot-gates.sh`: lists
+// `bundle-commit` and refuses (exit 2) the same staged-bundle condition
+// `probe_bundle_commit_gate` builds, so a fixture that places `plot-gates.sh`
+// proves the gate it lists the way the real bundle would.
+const placeGateBundle = (scriptsDir) => {
+  const boardDir = path.join(scriptsDir, 'board');
+  mkdirSync(boardDir, { recursive: true });
+  writeFileSync(
+    path.join(boardDir, 'plot-gate.mjs'),
+    `if (process.argv.includes('--list')) { console.log('bundle-commit'); process.exit(0); }
+process.exit(2);
+`,
+  );
+};
 
 function repoWithGates(opts) {
   const dir = repo(opts);
@@ -304,6 +324,7 @@ function repoWithGates(opts) {
     copyFileSync(src, dst);
     chmodSync(dst, 0o755);
   }
+  placeGateBundle(path.join(dir, 'skills', 'plot', 'scripts'));
   return dir;
 }
 
@@ -319,7 +340,11 @@ test('--verify on an uninstalled repository reports unverified, never installed'
   assert.match(out, /^unverified/m);
   assert.doesNotMatch(out, /^verified/m, 'an uninstalled repo must never read as verified');
   // Named per gate, because "unverified" without the gate is not actionable.
-  for (const g of shippedGates) assert.match(out, new RegExp(g.replace('.', '\\.')));
+  // plot-gates.sh itself never appears literally: --verify expands it into the
+  // gates board/plot-gate.mjs lists, here just bundle-commit.
+  for (const g of shippedGates.filter((n) => n !== 'plot-gates.sh').concat('plot-bundle-commit-gate.sh')) {
+    assert.match(out, new RegExp(g.replace('.', '\\.')));
+  }
 });
 
 test('--verify proves a gate by its refusal, not by the file being written', () => {
@@ -468,6 +493,7 @@ function splitInstall({ vendorGates = false, siblingGates = false } = {}) {
       copyFileSync(src, dst);
       chmodSync(dst, 0o755);
     }
+    placeGateBundle(dest);
   };
   if (vendorGates) place(path.join(consumer, 'skills', 'plot', 'scripts'));
   if (siblingGates) place(plugin);
@@ -506,6 +532,12 @@ test('--verify proves the gate at the path the entry names, not the one beside t
   // written present, sibling ABSENT. The gates are where the operator's hooks
   // will run them, and the sibling-only reading reported `unverified` here — red
   // on a repository whose gates fire with exit 2.
+  //
+  // plot-gates.sh is the one exception this split can never clear: --list
+  // always runs from beside the INSTALLER (plot-install-hooks.sh's own
+  // $script_dir), never the written path, so with no gate placed there it
+  // reports unverified regardless — that reading is about the gates it lists,
+  // not about plot-gates.sh itself.
   const { consumer, installer: inst } = splitInstall({ vendorGates: true });
   assert.equal(
     existsSync(path.join(path.dirname(inst), 'plot-state-gate.sh')),
@@ -514,8 +546,8 @@ test('--verify proves the gate at the path the entry names, not the one beside t
   );
 
   const { code, out } = runAt(consumer, inst, ['--verify']);
-  assert.equal(code, 0, `gates at the registered path must verify (out: ${out})`);
-  assert.match(out, /^verified/m);
+  assert.equal(code, 3, `plot-gates.sh cannot resolve --list from a pure written path (out: ${out})`);
+  assert.match(out, /unverified\s+plot-gates\.sh — board\/plot-gate\.mjs missing or lists no gate/);
   assert.match(out, /verified\s+plot-state-gate\.sh/);
 });
 
