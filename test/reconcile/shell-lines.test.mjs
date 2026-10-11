@@ -154,6 +154,37 @@ test('push: a growing range fails and names the start', withFixture(({ work, sta
   assert.match(r.out, /6 lines over push start/);
 }));
 
+test('push fetches a before SHA absent locally but present on origin', withFixture(({ work, root }) => {
+  // A second clone commits and pushes without `work` ever fetching it, so
+  // the SHA exists on origin but not in work's object database until the
+  // gate's own `git fetch` brings it in. A second, unrelated branch keeps
+  // the commit reachable from a ref, since a bare push updates main only.
+  const other = path.join(root, 'other');
+  git(root, 'clone', '-q', path.join(root, 'remote.git'), other);
+  git(other, 'config', 'user.name', 'Fixture');
+  git(other, 'config', 'user.email', 'fixture@example.com');
+  git(other, 'checkout', '-q', '-b', 'side');
+  write(other, B, 6); // net-zero vs the fixture's starting count (10 + 5 = 15)
+  const unfetched = commit(other, 'reshuffle');
+  git(other, 'push', '-q', 'origin', 'HEAD:refs/heads/side');
+  write(work, A, 13);
+  commit(work, 'grow');
+  const r = run(work, ['push', unfetched]);
+  assert.notEqual(r.status, 0);
+  assert.match(r.out, /push start/);
+  assert.doesNotMatch(r.out, /HEAD\^1/);
+}));
+
+test('push falls back to HEAD^1 when the before SHA is absent everywhere', withFixture(({ work, start }) => {
+  write(work, A, 20);
+  commit(work, 'grow');
+  const bogus = '1'.repeat(40);
+  const r = run(work, ['push', bogus]);
+  assert.notEqual(r.status, 0);
+  assert.match(r.out, new RegExp(`before SHA '${bogus}' is not in this clone; the range starts at HEAD\\^1`));
+  assert.ok(start);
+}));
+
 test('an unreadable base fails and names it', withFixture(({ work, start }) => {
   git(work, 'update-ref', '-d', 'refs/remotes/origin/main');
   const pr = run(work, ['pr']);
@@ -161,7 +192,7 @@ test('an unreadable base fails and names it', withFixture(({ work, start }) => {
   assert.match(pr.out, /refs\/remotes\/origin\/main is absent/);
   const unknown = run(work, ['push', '0'.repeat(40)]);
   assert.notEqual(unknown.status, 0);
-  assert.match(unknown.out, /not a commit/);
+  assert.match(unknown.out, /HEAD has no parent/);
   const none = run(work, ['push']);
   assert.notEqual(none.status, 0);
   assert.match(none.out, /before SHA/);

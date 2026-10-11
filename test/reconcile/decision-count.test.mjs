@@ -115,14 +115,14 @@ const change = (work, ...rows) => {
 test('an unchanged table passes and prints both counts', withFixture(({ work }) => {
   const r = run(work, ['pr']);
   assert.equal(r.status, 0, r.out);
-  assert.match(r.out, /: 3 scripts still decide or orchestrate now, 3 at merge base/);
+  assert.match(r.out, /: 3 scripts are not launchers now, 3 at merge base/);
 }));
 
 test('a new decision row fails', withFixture(({ work }) => {
   change(work, ...BASE, row('e.sh', 'decision'));
   const r = run(work, ['pr']);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /4 scripts still decide or orchestrate now, 3 at merge base/);
+  assert.match(r.out, /4 scripts are not launchers now, 3 at merge base/);
   assert.match(r.out, /1 more than/);
 }));
 
@@ -143,7 +143,7 @@ test('a decision to readings flip no longer lowers the count', withFixture(({ wo
   change(work, row('a.sh', 'readings', 'asks board/a.mjs', 'board/a.mjs'), BASE[1], BASE[2], BASE[3], row('e.sh', 'decision'));
   const r = run(work, ['pr']);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /4 scripts still decide or orchestrate now, 3 at merge base/);
+  assert.match(r.out, /4 scripts are not launchers now, 3 at merge base/);
   assert.match(r.out, /1 more than/);
 }));
 
@@ -151,7 +151,7 @@ test('the same flip naming a bundle, alone, still counts readings and passes', w
   change(work, row('a.sh', 'readings', 'asks board/a.mjs', 'board/a.mjs'), ...BASE.slice(1));
   const r = run(work, ['pr']);
   assert.equal(r.status, 0, r.out);
-  assert.match(r.out, /3 scripts still decide or orchestrate now, 3 at merge base/);
+  assert.match(r.out, /3 scripts are not launchers now, 3 at merge base/);
 }));
 
 test('a launcher needs the bundle in Replaced by, not in Purpose', withFixture(({ work }) => {
@@ -179,7 +179,7 @@ test('a new paired row, naming its rule and corpus test, still raises the count 
   change(work, ...BASE, row('e.sh', 'paired', 'pairs', '`rules/a.ts` held by `packages/domain/corpus/a.corpus.test.ts`'));
   const r = run(work, ['pr']);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /4 scripts still decide or orchestrate now, 3 at merge base/);
+  assert.match(r.out, /4 scripts are not launchers now, 3 at merge base/);
   assert.match(r.out, /1 more than/);
 }));
 
@@ -197,7 +197,7 @@ test('a decorated first cell still counts its script', withFixture(({ work }) =>
   change(work, ...BASE, '| `e.sh` (sourced) | Does a thing | decision | once per operator command |  |\n');
   const r = run(work, ['pr']);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /4 scripts still decide or orchestrate now, 3 at merge base/);
+  assert.match(r.out, /4 scripts are not launchers now, 3 at merge base/);
 }));
 
 test('a table row whose first cell names no backticked script fails', withFixture(({ work }) => {
@@ -205,6 +205,48 @@ test('a table row whose first cell names no backticked script fails', withFixtur
   const r = run(work, ['pr']);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /names no backticked \.sh script/);
+}));
+
+test('a mixed-case known Kind is read identically to its lowercase spelling', withFixture(({ work }) => {
+  change(work, row('a.sh', 'Launcher', 'execs', 'board/a.mjs'), ...BASE.slice(1));
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /2 scripts are not launchers now, 3 at merge base/);
+}));
+
+test('a mixed-case readings row still needs its evidence', withFixture(({ work }) => {
+  change(work, row('a.sh', 'Readings', 'asks board/a.mjs'), ...BASE.slice(1));
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /a\.sh -> readings/);
+}));
+
+test('an unknown Kind fails, naming the row and the kind', withFixture(({ work }) => {
+  change(work, row('a.sh', 'orbits'), ...BASE.slice(1));
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /a\.sh names a kind it does not know: orbits/);
+}));
+
+test('an extra cell before Kind is absorbed into Purpose and still counts the row', withFixture(({ work }) => {
+  change(work, ...BASE, '| `e.sh` | Does | a thing | decision | once per operator command |  |\n');
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /4 scripts are not launchers now, 3 at merge base/);
+}));
+
+test('a row with an extra cell after Purpose fails, naming the row', withFixture(({ work }) => {
+  change(work, ...BASE, '| `e.sh` | Does a thing | decision | once per operator command | extra | cell |\n');
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /e\.sh has 8 cells, header has 7/);
+}));
+
+test('a row with a missing cell fails, naming the row', withFixture(({ work }) => {
+  change(work, ...BASE, '| `e.sh` | Does a thing | decision | once per operator command |\n');
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /e\.sh has 6 cells, header has 7/);
 }));
 
 test('a gap inside the table fails rather than hiding the rows after it', withFixture(({ work }) => {
@@ -232,7 +274,7 @@ test('a launcher naming a bundle build.mjs declares, with its entry source, pass
   change(work, row('a.sh', 'launcher', 'execs', 'board/plot-new.mjs'), ...BASE.slice(1));
   const r = run(work, ['pr']);
   assert.equal(r.status, 0, r.out);
-  assert.match(r.out, /2 scripts still decide or orchestrate now, 3 at merge base/);
+  assert.match(r.out, /2 scripts are not launchers now, 3 at merge base/);
 }));
 
 test('a launcher naming a declared bundle whose entry source is absent fails', withFixture(({ work }) => {
@@ -274,7 +316,7 @@ test('converting one row to launcher while adding one new readings row is equal 
   change(work, row('a.sh', 'launcher', 'execs', 'board/a.mjs'), BASE[1], BASE[2], BASE[3], row('e.sh', 'readings', 'asks board/e.mjs', 'board/e.mjs'));
   const r = run(work, ['pr']);
   assert.equal(r.status, 0, r.out);
-  assert.match(r.out, /3 scripts still decide or orchestrate now, 3 at merge base/);
+  assert.match(r.out, /3 scripts are not launchers now, 3 at merge base/);
 }));
 
 test('a new row that starts as readings without a bundle fails', withFixture(({ work }) => {
@@ -286,7 +328,7 @@ test('a new readings row, with its bundle in place, still raises the count and f
   change(work, ...BASE, row('e.sh', 'readings', 'asks board/e.mjs', 'board/e.mjs'));
   const r = run(work, ['pr']);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /4 scripts still decide or orchestrate now, 3 at merge base/);
+  assert.match(r.out, /4 scripts are not launchers now, 3 at merge base/);
   assert.match(r.out, /1 more than/);
   assert.doesNotMatch(r.out, /without evidence/);
 }));
@@ -296,13 +338,13 @@ test('a purpose cell containing a pipe is read from the end', withFixture(({ wor
   change(work, ...BASE, piped);
   const r = run(work, ['pr']);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /4 scripts still decide or orchestrate now/);
+  assert.match(r.out, /4 scripts are not launchers now/);
 }, readme(...BASE)));
 
 test('a pipe in a launcher purpose still reads the kind as launcher', withFixture(({ work }) => {
   const r = run(work, ['pr']);
   assert.equal(r.status, 0, r.out);
-  assert.match(r.out, /: 1 scripts still decide or orchestrate now, 1 at merge base/);
+  assert.match(r.out, /: 1 scripts are not launchers now, 1 at merge base/);
 }, readme(row('a.sh', 'launcher', 'a | b | c', 'board/a.mjs'), row('b.sh', 'decision'))));
 
 test('a missing origin/main fails', withFixture(({ work }) => {
@@ -342,11 +384,41 @@ test('push compares HEAD with the before SHA', withFixture(({ work, start }) => 
   change(work, ...BASE, row('e.sh', 'decision'));
   const r = run(work, ['push', start]);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /push: 4 scripts still decide or orchestrate now, 3 at push start/);
+  assert.match(r.out, /push: 4 scripts are not launchers now, 3 at push start/);
 }));
 
 test('push without a before SHA fails', withFixture(({ work }) => {
   assert.equal(run(work, ['push']).status, 1);
+}));
+
+test('push fetches a before SHA absent locally but present on origin', withFixture(({ work, root }) => {
+  // A second clone commits and pushes without `work` ever fetching it, so
+  // the SHA exists on origin but not in work's object database until the
+  // gate's own `git fetch` brings it in. A second, unrelated branch keeps
+  // the commit reachable from a ref, since a bare push updates main only.
+  const other = path.join(root, 'other');
+  git(root, 'clone', '-q', path.join(root, 'remote.git'), other);
+  git(other, 'config', 'user.name', 'Fixture');
+  git(other, 'config', 'user.email', 'fixture@example.com');
+  git(other, 'checkout', '-q', '-b', 'side');
+  // Same kinds and counted total, but a reworded Purpose so the commit is real.
+  change(other, row('a.sh', 'decision', 'Does another thing'), ...BASE.slice(1));
+  const unfetched = git(other, 'rev-parse', 'HEAD');
+  git(other, 'push', '-q', 'origin', 'HEAD:refs/heads/side');
+  change(work, ...BASE, row('e.sh', 'decision'));
+  const r = run(work, ['push', unfetched]);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /push: 4 scripts are not launchers now, 3 at push start/);
+  assert.doesNotMatch(r.out, /HEAD\^1/);
+}));
+
+test('push falls back to HEAD^1 when the before SHA is absent everywhere', withFixture(({ work, start }) => {
+  change(work, ...BASE, row('e.sh', 'decision'));
+  const bogus = '1'.repeat(40);
+  const r = run(work, ['push', bogus]);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, new RegExp(`before SHA '${bogus}' is not in this clone; the range starts at HEAD\\^1`));
+  assert.match(r.out, new RegExp(`push: 4 scripts are not launchers now, 3 at push start ${start.slice(0, 7)}`));
 }));
 
 test('an unknown mode fails with usage', withFixture(({ work }) => {

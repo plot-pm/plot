@@ -66,23 +66,39 @@ default_ref() {
   echo "${ref:-refs/remotes/origin/main}"
 }
 
-# Prints "name<TAB>kind<TAB>replaced-by" per table row, or fails.
+# The Kind column's complete vocabulary (skills/plot/scripts/README.md's
+# Kind paragraph). Case-folded once here, at the read boundary, in rows().
+KNOWN_KINDS="launcher readings paired decision orchestration"
+
+# Prints "name<TAB>kind<TAB>replaced-by" per table row, or fails. The Kind
+# cell is lowercased here so every downstream reader (counted(), the
+# evidence-change filter in report(), has_evidence()) sees one case.
 rows() {
   local rev=$1 text out status=0 errs
   text=$(git show "$rev:$README" 2>/dev/null) || fail "$README is absent at $rev, so there is nothing to count there."
-  out=$(printf '%s\n' "$text" | awk -F'|' '
+  out=$(printf '%s\n' "$text" | awk -F'|' -v known=" $KNOWN_KINDS " '
     function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
     function token(cell) {
       if (!match(cell, /`[^`]+`/)) return ""
       return substr(cell, RSTART + 1, RLENGTH - 2)
     }
-    /^\| *Script *\|.*\| *Kind *\|/ { intable = 1; seen = 1; next }
+    /^\| *Script *\|.*\| *Kind *\|/ { intable = 1; seen = 1; headerCells = NF; next }
     intable && /^\|[- |]+\|?$/ { next }
     intable && /^\|/ {
       name = token($2)
       if (name ~ /\.mjs$/) next
       if (name !~ /\.sh$/) { print "!" NR ": the first cell names no backticked .sh script: " trim($2); next }
-      printf "%s\t%s\t%s\n", name, trim($(NF - 3)), trim($(NF - 1))
+      kind = tolower(trim($(NF - 3)))
+      if (NF != headerCells && index(known, " " kind " ") == 0) {
+        # A cell count that differs from the header AND lands on no known
+        # kind is a shifted row (an extra/missing cell in Runs or Replaced
+        # by) rather than benign growth in Purpose, which a literal `|`
+        # in prose causes and which a known-kind hit at NF-3 proves is not
+        # the case here.
+        print "!" NR ": " name " has " NF " cells, header has " headerCells; next
+      }
+      if (index(known, " " kind " ") == 0) { print "!" NR ": " name " names a kind it does not know: " trim($(NF - 3)); next }
+      printf "%s\t%s\t%s\n", name, kind, trim($(NF - 1))
       next
     }
     intable { intable = 0 }
@@ -181,7 +197,7 @@ report() { # <label> <before-rev> <before-desc>
   head=$(rows HEAD) || exit 1
   before=$(printf '%s\n' "$base" | counted | wc -l | tr -d ' ')
   after=$(printf '%s\n' "$head" | counted | wc -l | tr -d ' ')
-  echo "check-decision-count: $1: $after scripts still decide or orchestrate now, $before at $3"
+  echo "check-decision-count: $1: $after scripts are not launchers now, $before at $3"
   bad=""
   while IFS=$'\t' read -r name kind rep; do
     has_evidence "$kind" "$rep" || bad+="$name -> $kind"$'\n'
@@ -217,7 +233,14 @@ case "$mode" in
   push)
     before=${2:-}
     [ -n "$before" ] || fail "push needs the event's before SHA as its second argument"
-    git rev-parse -q --verify "$before^{commit}" >/dev/null || fail "before SHA '$before' is not a commit in this clone, so the range has no start"
+    if ! git rev-parse -q --verify "$before^{commit}" >/dev/null; then
+      git fetch --no-tags origin "$before" >/dev/null 2>&1 || true
+      if ! git rev-parse -q --verify "$before^{commit}" >/dev/null; then
+        git rev-parse -q --verify "HEAD^1^{commit}" >/dev/null || fail "before SHA '$before' is not a commit in this clone, and HEAD has no parent to fall back to"
+        echo "check-decision-count: before SHA '$before' is not in this clone; the range starts at HEAD^1 because '$before' is not in the clone."
+        before=$(git rev-parse HEAD^1)
+      fi
+    fi
     report push "$before" "push start $(git rev-parse --short "$before")" "$(git log --format=%h -n 1 HEAD) and the commits since $(git rev-parse --short "$before")"
     ;;
   *) fail "usage: check-decision-count.sh pr | push <before-sha>" ;;

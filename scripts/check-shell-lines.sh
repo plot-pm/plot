@@ -108,7 +108,14 @@ case "$mode" in
   push)
     before=${2:-}
     [ -n "$before" ] || fail "push needs the event's before SHA as its second argument"
-    git rev-parse -q --verify "$before^{commit}" >/dev/null || fail "before SHA '$before' is not a commit in this clone, so the range has no start"
+    if ! git rev-parse -q --verify "$before^{commit}" >/dev/null; then
+      git fetch --no-tags origin "$before" >/dev/null 2>&1 || true
+      if ! git rev-parse -q --verify "$before^{commit}" >/dev/null; then
+        git rev-parse -q --verify "HEAD^1^{commit}" >/dev/null || fail "before SHA '$before' is not a commit in this clone, and HEAD has no parent to fall back to"
+        echo "check-shell-lines: before SHA '$before' is not in this clone; the range starts at HEAD^1 because '$before' is not in the clone."
+        before=$(git rev-parse HEAD^1)
+      fi
+    fi
     report push "$before" "push start $(git rev-parse --short "$before")" "$(git log --format=%h -n 1 HEAD) and the commits since $(git rev-parse --short "$before")"
     ;;
   *) fail "usage: check-shell-lines.sh pr | push <before-sha> | --per-file" ;;
