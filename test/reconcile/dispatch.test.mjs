@@ -1123,7 +1123,8 @@ const loopDesk = (label, { manifest = false } = {}) => {
   const { tmp, repo: r } = repoWithPlan('- **Phase:** Approved', label);
   const wt = desk(r, 'feature/g', path.join(r, '.worktrees', 'feature-g'));
   const stamp = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace(/\.\d+Z$/, 'Z');
-  const loop = spawn('sleep', ['60'], { stdio: 'ignore' });
+  // Detached, so the loop leads its own process group and `--stop` signals that group alone.
+  const loop = spawn('sleep', ['60'], { stdio: 'ignore', detached: true });
   fs.writeFileSync(path.join(wt, '.plot-worker.pid'), `${loop.pid}\n`);
   fs.writeFileSync(path.join(wt, '.plot-worker.wrapper.pid'), `${loop.pid}\n`);
   if (manifest) {
@@ -1177,6 +1178,20 @@ test('dispatch: a live loop with no free wait is counted by --start and refused 
     assert.match(restart.stderr, new RegExp(`a loop is alive on feature/g \\(pid ${loop.pid}, from \\.plot-worker\\.pid\\)`));
     assert.doesNotMatch(restart.stdout, /restarting feature\/g/);
     assert.doesNotThrow(() => process.kill(loop.pid, 0), 'the live loop still runs');
+  } finally {
+    done();
+  }
+});
+
+test('dispatch: --stop ends a live loop that reads stalled', async () => {
+  const { wt, loop, ask, done } = loopDesk('stoploop');
+  try {
+    fs.writeFileSync(path.join(wt, 'half-done.txt'), 'unfinished work\n');
+    const exited = new Promise((resolve) => loop.once('exit', (_code, signal) => resolve(signal)));
+    const stop = ask('--stop', 'feature/g');
+    assert.match(stop.stdout, new RegExp(`stopped feature/g \\(pid ${loop.pid}\\)`), stop.stdout + stop.stderr);
+    const timeout = new Promise((resolve) => setTimeout(() => resolve('still running'), 5_000).unref());
+    assert.equal(await Promise.race([exited, timeout]), 'SIGTERM');
   } finally {
     done();
   }
