@@ -57,9 +57,9 @@ describe('readNothingDoneCandidates', () => {
     expect(reading?.ending).toBe('nothing-done');
   });
 
-  it('reads null where no ending was written', async () => {
+  it('reads unreadable where no ending file was written — a killed worker leaves none (#1440)', async () => {
     const [reading] = readNothingDoneCandidates([tree()], () => null);
-    expect(reading?.ending).toBeNull();
+    expect(reading?.ending).toBe('unreadable');
     expect(reading?.refusedAssignment).toBe('');
   });
 

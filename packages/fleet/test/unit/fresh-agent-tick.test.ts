@@ -114,8 +114,14 @@ describe('readFreshAgentCandidates', () => {
     expect(reading?.ending).toBe('corrections-spent');
   });
 
-  it('reads null where no ending was written', async () => {
+  it('reads unreadable where no ending file was written — a killed worker leaves none (#1440)', async () => {
     const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, noHeldFiles, noMarker, noAsks);
+    expect(reading?.ending).toBe('unreadable');
+  });
+
+  it('reads null where an ending file exists and does not parse', async () => {
+    const deskFile = (worktree: string, name: string) => (name === ENDING_FILENAME ? 'not json' : null);
+    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles, noMarker, noAsks);
     expect(reading?.ending).toBeNull();
   });
 
@@ -221,9 +227,8 @@ describe('freshAgentDecisions', () => {
   });
 
   it('leaves every other ending alone', () => {
-    // `quiet` stays `leave` deliberately — its cause was fixed on
-    // `bug/a-working-desk-never-reads-free` (#1429), and the plan's Open
-    // Questions do not ask for a row.
+    // `spent` is a finding about the agent, not a stranded session: no row
+    // of the table answers it.
     const [decision] = freshAgentDecisions(
       [
         {
@@ -231,7 +236,7 @@ describe('freshAgentDecisions', () => {
           escalated: false,
           branch: 'feature/x',
           worktree: tree().path,
-          ending: 'quiet',
+          ending: 'spent',
           refusedAssignment: '',
           correctionsText: '',
           runUrl: '',
@@ -454,6 +459,44 @@ const spentReading = (over: Partial<FreshAgentCandidateReadings> = {}): FreshAge
   ...over,
 });
 
+describe('a quiet ending and a killed worker with no ending file', () => {
+  const killed = async (over: Partial<FreshAgentCandidateReadings> = {}) => {
+    const [reading] = await readFreshAgentCandidates([tree()], () => null, emptyStore, noHeldFiles, noMarker, noAsks);
+    return { ...reading!, ...over };
+  };
+
+  it('starts a fresh session for a first quiet ending whose branch holds a commit beyond its claim (#1436)', () => {
+    const [decision] = freshAgentDecisions([spentReading({ ending: 'quiet', commitBeyondClaim: 'yes' })], 2);
+    expect(decision?.verdict).toBe('start-fresh');
+    expect(decision?.answer).toContain('ended mid-session');
+  });
+
+  it('releases the claim of a quiet ending whose branch holds nothing', () => {
+    const [decision] = freshAgentDecisions([spentReading({ ending: 'quiet', commitBeyondClaim: 'no', prOpen: false })], 2);
+    expect(decision).toMatchObject({ verdict: 'release-claim', releaseBranch: 'feature/x' });
+  });
+
+  it('starts a fresh session for a killed worker whose branch holds a commit beyond its claim (#1440)', async () => {
+    const [decision] = freshAgentDecisions([await killed({ commitBeyondClaim: 'yes', prMerged: 'not-merged' })], 2);
+    expect(decision?.verdict).toBe('start-fresh');
+  });
+
+  it('asks a person when a killed worker follows a spent fresh session', async () => {
+    const [decision] = freshAgentDecisions([await killed({ commitBeyondClaim: 'yes', priorFreshSessions: 1 })], 2);
+    expect(decision?.verdict).toBe('needs-a-person');
+  });
+
+  it('leaves a killed worker whose PR merged', async () => {
+    const [decision] = freshAgentDecisions([await killed({ commitBeyondClaim: 'yes', prMerged: 'merged' })], 2);
+    expect(decision?.verdict).toBe('leave');
+  });
+
+  it('never releases the claim on a failed read of the branch — absent is not false', async () => {
+    const [decision] = freshAgentDecisions([await killed({ commitBeyondClaim: 'unanswerable', prOpen: 'unanswerable' })], 2);
+    expect(decision?.verdict).toBe('start-fresh');
+  });
+});
+
 describe('the holding-work readings and decisions', () => {
   const holdingFile = (refusedAssignment: string) =>
     JSON.stringify({ reason: 'holding-work', actor: 'agent', branch: 'feature/x', detail: '', refusedAssignment });
@@ -499,7 +542,7 @@ describe('freshAgentDecisions, escalation', () => {
 
   it('never escalates a first spent budget or an ending that stays leave', () => {
     const decisions = freshAgentDecisions(
-      [spentReading(), spentReading({ ending: 'quiet', priorFreshSessions: 3 })],
+      [spentReading(), spentReading({ ending: 'spent', priorFreshSessions: 3 })],
       2,
     );
     expect(decisions.map((d) => d.escalate)).toEqual([false, false]);
@@ -935,7 +978,7 @@ describe('a timed-out desk through the tick', () => {
 
 describe('one desk\'s missing marker text', () => {
   it('composes no text for an ending the composer refuses, instead of throwing for the tick', () => {
-    expect(markerTextFor(spentReading({ ending: 'quiet' }))).toBe('');
+    expect(markerTextFor(spentReading({ ending: 'spent' }))).toBe('');
   });
 
   it('reports that desk and still applies the next one', async () => {

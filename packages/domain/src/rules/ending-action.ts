@@ -68,7 +68,7 @@ export interface EndingActionReadings {
    * host could not be asked, which takes the same arm as `'not-merged'`.
    *
    * Read by the five outright `needs-a-person` rows and the
-   * `bound`/`unreadable` row: a merged slice answers `leave` there, because a
+   * `bound`/`unreadable`/`quiet` row: a merged slice answers `leave` there, because a
    * marker or a fresh session on a merged desk reaches no person, has nothing
    * left to continue, and refuses the reap.
    */
@@ -96,18 +96,18 @@ export type PrMergedReading = 'merged' | 'not-merged' | 'unanswerable';
  *
  * - `release-claim` — a claim is this tick's to release through
  *   `ClaimRelease`; {@link endingReleaseBranch} names which. For
- *   `nothing-done`, and for a first `bound`/`unreadable` ending, it is the
+ *   `nothing-done`, and for a first `bound`/`unreadable`/`quiet` ending, it is the
  *   ending's branch, which holds no commit beyond the claim, no open PR and
  *   no dirty tree. For a take-up `holding-work` it is the refused
  *   assignment, which the desk never started.
  * - `start-fresh` — the first fresh session this slice has had, for
  *   `corrections-spent`, `turn-limit`, an after-prompt `holding-work` (one
  *   that refused no assignment, or refused its own branch), or a first
- *   `bound`/`unreadable` ending whose branch holds a commit beyond its
+ *   `bound`/`unreadable`/`quiet` ending whose branch holds a commit beyond its
  *   claim, an open PR, or a dirty tree.
  * - `needs-a-person` — either a second fresh session would be owed on the
  *   same slice (whichever of `corrections-spent`, `turn-limit`,
- *   `bound`/`unreadable`, or an after-prompt `holding-work` asks for it —
+ *   `bound`/`unreadable`/`quiet`, or an after-prompt `holding-work` asks for it —
  *   one fresh session per slice, shared across every ending reason that can
  *   trigger one, never one allowance per reason), or the ending is one of
  *   `blocked`, `spend-limit`, `unstarted`, `run-limit`, `checks-unanswered`
@@ -116,9 +116,8 @@ export type PrMergedReading = 'merged' | 'not-merged' | 'unanswerable';
  *   Either way, at most once per ending: an ending a person was already
  *   asked about answers `leave`.
  * - `leave` — every other case, including a desk a manifest already names,
- *   and the default where no row of this table answers otherwise: `quiet`,
- *   `spent`, `limited`, `unregistered`, a take-up `holding-work` whose
- *   desk never started, and a `bound`/`unreadable` ending whose branch's PR
+ *   and the default where no row of this table answers otherwise: `spent`, `limited`, `unregistered`, a take-up `holding-work` whose
+ *   desk never started, and a `bound`/`unreadable`/`quiet` ending whose branch's PR
  *   merged.
  */
 export type EndingActionVerdict = 'release-claim' | 'start-fresh' | 'needs-a-person' | 'leave';
@@ -126,22 +125,26 @@ export type EndingActionVerdict = 'release-claim' | 'start-fresh' | 'needs-a-per
 /**
  * The two ending reasons that earn a slice one fresh session without a
  * condition; `holding-work`, the third, earns one only after a prompt, and
- * `bound`/`unreadable`, the fourth and fifth, earn one only where the branch
+ * `bound`/`unreadable`/`quiet`, the fourth and fifth, earn one only where the branch
  * holds something beyond its claim.
  */
 const FRESH_SESSION_ENDINGS = new Set<EndingReason>(['corrections-spent', 'turn-limit']);
 
 /**
- * The two ending reasons a time-out leaves: the floor firing with a
- * transcript to explain it (`bound`) and without one (`unreadable`).
+ * The three ending reasons that strand a desk's work without the agent
+ * landing it: the floor firing with a transcript to explain it (`bound`) and
+ * without one (`unreadable`), and the monitor finding the agent idle
+ * (`quiet`).
  *
- * `unreadable` shares `bound`'s row exactly — the work stranded on the desk
- * is the same either way, and only the explanation for the time-out differs.
+ * `unreadable` and `quiet` share `bound`'s row exactly — the work stranded on
+ * the desk is the same whichever way the session stopped, and only the
+ * explanation differs. A killed worker that wrote no ending file reaches this
+ * row as `unreadable`, synthesized by the caller before the rule is asked.
  */
-const BOUND_ENDINGS = new Set<EndingReason>(['bound', 'unreadable']);
+const BOUND_ENDINGS = new Set<EndingReason>(['bound', 'unreadable', 'quiet']);
 
 /**
- * Whether any of a `bound`/`unreadable` desk's three readings shows
+ * Whether any of a `bound`/`unreadable`/`quiet` desk's three readings shows
  * something beyond the claim: a commit, an open PR, or a dirty tree.
  *
  * Every one of the three takes `'unanswerable'` on the same arm as its
@@ -195,9 +198,9 @@ const takeUpRefused = (refusedAssignment: string, branch: string): boolean =>
 /**
  * Decides what the supervisor's tick should do about a desk whose worker
  * ended: `release-claim` for `nothing-done`, for a take-up `holding-work`,
- * and for a first `bound`/`unreadable` ending whose branch holds nothing
+ * and for a first `bound`/`unreadable`/`quiet` ending whose branch holds nothing
  * beyond its claim; `start-fresh` or `needs-a-person` for `corrections-spent`,
- * `turn-limit`, an after-prompt `holding-work`, and a `bound`/`unreadable`
+ * `turn-limit`, an after-prompt `holding-work`, and a `bound`/`unreadable`/`quiet`
  * ending whose branch holds something beyond its claim; `needs-a-person`
  * outright for `blocked`, `spend-limit`, `unstarted`, `run-limit`, and
  * `checks-unanswered`; `leave` for everything else.
@@ -222,14 +225,14 @@ const takeUpRefused = (refusedAssignment: string, branch: string): boolean =>
  * the five reached afterward — on the same slice, whichever ending — answers
  * `needs-a-person`. A take-up `holding-work` is not in this set: it answers
  * `release-claim` from {@link takeUpRefused} before the fresh-session rows
- * are reached at all. A `bound`/`unreadable` ending whose branch holds
+ * are reached at all. A `bound`/`unreadable`/`quiet` ending whose branch holds
  * nothing beyond its claim answers `release-claim` the same way, and never
  * draws on the count either.
  *
  * **ONE ASK PER ENDING.** Every `needs-a-person` answer becomes `leave`
  * where {@link EndingActionReadings.endingAsked} says a person was already
  * asked about this ending. An outright `needs-a-person` ending and a
- * `bound`/`unreadable` ending answer `leave` where
+ * `bound`/`unreadable`/`quiet` ending answer `leave` where
  * {@link EndingActionReadings.prMerged} is `'merged'`.
  *
  * **ABSENT IS NOT FALSE.** A missing or unreadable ending answers `leave`;
@@ -285,7 +288,7 @@ const endingTableAnswer = (readings: EndingActionReadings): EndingActionVerdict 
  * marker in the tree, so a precondition that asks only for a marker refuses
  * every such start.
  *
- * **THIS FUNCTION DOES NOT READ THE BRANCH'S WORK.** `bound`/`unreadable`'s
+ * **THIS FUNCTION DOES NOT READ THE BRANCH'S WORK.** `bound`/`unreadable`/`quiet`'s
  * `start-fresh` answer from {@link endingAction} is conditional on
  * {@link EndingActionReadings.commitBeyondClaim}, `prOpen` and `dirtyTree` —
  * readings this function has no access to, by design: it answers only
@@ -362,15 +365,15 @@ export const holdingWorkAnswer = (branch: string, heldFiles: readonly string[] |
 };
 
 /**
- * Composes the one fresh session's answer for a `bound` or `unreadable`
- * ending: commit, check and push what the timed-out session left, naming
+ * Composes the one fresh session's answer for a `bound`, `unreadable` or
+ * `quiet` ending: commit, check and push what the interrupted session left, naming
  * every file the desk still holds, then continue the slice.
  *
  * **NOT {@link holdingWorkAnswer}, BECAUSE THE CAUSE DIFFERS.** A
- * `holding-work` desk refused a prompt's assignment; a `bound`/`unreadable`
- * desk ran out its `Worker bound` mid-session. The instruction to commit,
+ * `holding-work` desk refused a prompt's assignment; a `bound`/`unreadable`/`quiet`
+ * desk stopped mid-session. The instruction to commit,
  * check, push and continue is the same shape, but the opening sentence names
- * the time-out rather than a refused prompt.
+ * the interrupted session rather than a refused prompt.
  *
  * **`null` IS NOT `[]`**, for the same reason {@link holdingWorkAnswer}
  * keeps them apart: an unreadable listing says so, and an empty one lists no
@@ -383,7 +386,7 @@ export const holdingWorkAnswer = (branch: string, heldFiles: readonly string[] |
  */
 export const boundAnswer = (branch: string, heldFiles: readonly string[] | null): string => {
   const parts: string[] = [
-    `The previous session on \`${branch}\` ran out its time bound mid-session: commit what it left, run the checks it touches, push, and continue the slice.`,
+    `The previous session on \`${branch}\` ended mid-session (time bound, idle, or killed): commit what it left, run the checks it touches, push, and continue the slice.`,
     '',
   ];
   parts.push('## Files this desk still holds', '');

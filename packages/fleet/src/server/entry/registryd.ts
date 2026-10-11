@@ -7,7 +7,7 @@ import { questionEscalation, type Rung } from '@plot-pm/domain/rules/question-es
 import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
 import { freshAgentAnswer } from '@plot-pm/domain/rules/fresh-agent';
 import { freshAgentTurnLimitAnswer } from '@plot-pm/domain/rules/fresh-agent-turn-limit';
-import { readEnding, ENDING_FILENAME, type EndingReason } from '@plot-pm/domain/entities/ending';
+import { readEnding, ENDING_FILENAME, type EndingReading, type EndingReason } from '@plot-pm/domain/entities/ending';
 import {
   endingAction,
   endingReleaseBranch,
@@ -736,14 +736,31 @@ export const runFromEndingDetail = (detail: string): { runUrl: string; conclusio
 };
 
 /**
- * Whether an ending is `bound` or `unreadable` — the two reasons a time-out
- * leaves, and {@link endingAction}'s own `release-claim`/`start-fresh` split.
+ * Whether an ending is `bound`, `unreadable` or `quiet` — the reasons a
+ * session stops with its work still on the desk, and {@link endingAction}'s
+ * own `release-claim`/`start-fresh` split.
  *
  * @param ending - the desk's ending reason, or `null` where none was read.
- * @returns true for `bound` and `unreadable`; false otherwise.
+ * @returns true for `bound`, `unreadable` and `quiet`; false otherwise.
  */
 export const isBoundEnding = (ending: EndingReason | null): boolean =>
-  ending === 'bound' || ending === 'unreadable';
+  ending === 'bound' || ending === 'unreadable' || ending === 'quiet';
+
+/**
+ * The ending reason one tick acts on, from what {@link readEnding} read.
+ *
+ * **A KILLED WORKER WRITES NO ENDING FILE.** `absent` on a desk no manifest
+ * names and a plan claims is the shape a SIGKILLed worker leaves (#1440), and
+ * it reads `unreadable` — the floor stopped the session and Plot has no
+ * account of why — so {@link endingAction}'s `bound` row decides whether the
+ * desk holds work. A file that exists but does not parse stays `null`, which
+ * answers `leave`.
+ *
+ * @param reading - the desk's `.plot-worker.ending.json`, read as a value.
+ * @returns the written reason, `unreadable` for an absent file, else `null`.
+ */
+export const tickEnding = (reading: EndingReading): EndingReason | null =>
+  reading.read === 'ended' ? reading.ending.reason : reading.read === 'absent' ? 'unreadable' : null;
 
 /**
  * Whether `Trees.dirtyPaths`' own reading shows a dirty tree.
@@ -801,7 +818,7 @@ export const readFreshAgentCandidates = async (
   const out: FreshAgentCandidateReadings[] = [];
   for (const tree of candidates) {
     const endingReading = readEnding(deskFile(tree.path, ENDING_FILENAME));
-    const ending = endingReading.read === 'ended' ? endingReading.ending.reason : null;
+    const ending = tickEnding(endingReading);
     const detail = endingReading.read === 'ended' ? endingReading.ending.detail : '';
     const { runUrl, conclusion } = runFromEndingDetail(detail);
     const plan = tree.plan ?? '';
@@ -1222,7 +1239,7 @@ export const readNothingDoneCandidates = (
       plan: tree.plan ?? '',
       branch: tree.branch,
       worktree: tree.path,
-      ending: endingReading.read === 'ended' ? endingReading.ending.reason : null,
+      ending: tickEnding(endingReading),
       refusedAssignment: endingReading.read === 'ended' ? endingReading.ending.refusedAssignment : '',
     };
   });
