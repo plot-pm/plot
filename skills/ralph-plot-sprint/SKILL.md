@@ -199,8 +199,9 @@ Finalize PRs that have: green CI + zero unresolved comments + at least one prior
 # Mark draft → ready
 gh pr ready <n>
 
-# If AUTOMERGE=true:
-gh pr merge <n> --squash
+# If AUTOMERGE=true — pinned to the head the checks ran on; the controller gate refuses an unpinned merge:
+sha="$(gh pr view <n> --json headRefOid -q .headRefOid)"
+gh pr merge <n> --squash --match-head-commit "$sha"
 
 # After merging a base-branch PR, rebase PRs that depended on it:
 git fetch origin

@@ -416,7 +416,9 @@ git commit -m "sprint: commit <slug>"
 git push
 
 gh pr ready <number>          # if currently draft
-gh pr merge <number> --merge --delete-branch
+# Pin the merge to the head you reviewed; the controller gate refuses an unpinned one.
+sha="$(gh pr view <number> --json headRefOid -q .headRefOid)"
+gh pr merge <number> --merge --delete-branch --match-head-commit "$sha"
 ```
 
 **A refusal ends the commit.** `commitment-empty` means the sprint's Must Haves
