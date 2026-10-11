@@ -14,6 +14,7 @@
 - **Started:** 2026-10-11, Jan Wloka, `bug/the-fleetd-wiring-has-tests`
 - **Started:** 2026-10-11, Jan Wloka, `bug/the-brief-writer-row-reads-the-rule`
 - **Started:** 2026-10-11, Jan Wloka, `bug/the-board-builds-the-default-branch-reading`
+- **Started:** 2026-10-11, Jan Wloka, `bug/the-page-hears-the-last-event`
 
 ## Changelog
 
