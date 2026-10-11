@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
-import { bundleCommitRefusal, bundleCommitTouches, type BundleCommitReadings } from '../src/rules/bundle-commit.js';
+import {
+  bundleCommitPaths,
+  bundleCommitRefusal,
+  bundleCommitTouches,
+  shippedPathsOf,
+  type BundleCommitReadings,
+} from '../src/rules/bundle-commit.js';
 
-/** A real path from `BOARD_ARTIFACT_PATHS`, so a staged-add test refuses for real. */
+/** A path the generated set names, so a staged-add test refuses for real. */
 const GENERATED_PATH = 'skills/plot/scripts/board/board-server.mjs';
 
 const MERGE_BASE = 'abc123';
 
 const EMPTY: BundleCommitReadings = {
+  generated: [GENERATED_PATH],
   staged: [],
   mergeBase: MERGE_BASE,
   existedAtMergeBase: {},
@@ -85,6 +92,25 @@ describe('bundleCommitRefusal', () => {
     expect(refusal).not.toContain('git restore');
   });
 
+  it('allows a staged bundle when the generated set is empty, as in a repository with no build.mjs', () => {
+    const refusal = bundleCommitRefusal({
+      ...EMPTY,
+      generated: [],
+      staged: [{ status: 'modified', path: GENERATED_PATH }],
+    });
+    expect(refusal).toBeNull();
+  });
+
+  it('refuses a new bundle the generated set declares, with a git rm repair', () => {
+    const born = 'skills/plot/scripts/board/plot-ninth.mjs';
+    const refusal = bundleCommitRefusal({
+      ...EMPTY,
+      generated: [GENERATED_PATH, born],
+      staged: [{ status: 'added', path: born }],
+    });
+    expect(refusal).toContain(`git rm --cached ${born}`);
+  });
+
   it('allows a staged path that touches no generated set at all', () => {
     const refusal = bundleCommitRefusal({
       ...EMPTY,
@@ -105,5 +131,67 @@ describe('bundleCommitTouches', () => {
     });
     expect(touches).toHaveLength(1);
     expect(touches[0]!.path).toBe(GENERATED_PATH);
+  });
+});
+
+describe('bundleCommitPaths', () => {
+  it('names only the staged paths the generated set declares, in staged order', () => {
+    const second = 'skills/plot/scripts/board/plot-ask.mjs';
+    expect(
+      bundleCommitPaths({
+        generated: [second, GENERATED_PATH],
+        staged: [
+          { status: 'modified', path: GENERATED_PATH },
+          { status: 'modified', path: 'skills/plot/scripts/board/README.md' },
+          { status: 'added', path: second },
+        ],
+      }),
+    ).toEqual([GENERATED_PATH, second]);
+  });
+
+  it('leaves out bundles.generated.ts and .gitattributes even when the set names them', () => {
+    expect(
+      bundleCommitPaths({
+        generated: ['packages/board/src/contract/bundles.generated.ts', '.gitattributes'],
+        staged: [
+          { status: 'modified', path: 'packages/board/src/contract/bundles.generated.ts' },
+          { status: 'modified', path: '.gitattributes' },
+        ],
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe('shippedPathsOf', () => {
+  it('reads every shipped declaration, strips ../../, and sorts without duplicates', () => {
+    const text = [
+      "import path from 'node:path';",
+      "const shippedTask = path.join(here, '../../skills/plot/scripts/board/plot-task.mjs');",
+      "const shippedArtifact = path.join(here, '../../skills/plot/scripts/board/board-server.mjs');",
+      "const shippedAgain = path.join(here, '../../skills/plot/scripts/board/plot-task.mjs');",
+      '',
+    ].join('\n');
+    expect(shippedPathsOf(text)).toEqual([
+      'skills/plot/scripts/board/board-server.mjs',
+      'skills/plot/scripts/board/plot-task.mjs',
+    ]);
+  });
+
+  it('reads two declarations on one line', () => {
+    const text =
+      "const shippedA = path.join(here, '../../a.mjs'); const shippedB = path.join(here, '../../b.mjs');";
+    expect(shippedPathsOf(text)).toEqual(['a.mjs', 'b.mjs']);
+  });
+
+  it('ignores a declaration that is not shipped*, and an argument without ../../', () => {
+    const text = [
+      "const entry = path.join(here, '../../src/entry.ts');",
+      "const shippedLocal = path.join(here, 'local.mjs');",
+    ].join('\n');
+    expect(shippedPathsOf(text)).toEqual([]);
+  });
+
+  it('reads nothing from an empty text', () => {
+    expect(shippedPathsOf('')).toEqual([]);
   });
 });

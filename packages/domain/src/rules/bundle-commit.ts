@@ -1,4 +1,3 @@
-import { BOARD_ARTIFACT_PATHS } from '../../../board/src/contract/bundles.generated.js';
 import type { StagedPath } from '../ports/refs.js';
 
 /**
@@ -10,6 +9,37 @@ import type { StagedPath } from '../ports/refs.js';
  * exists at all.
  */
 const NEVER_REFUSED = new Set(['packages/board/src/contract/bundles.generated.ts', '.gitattributes']);
+
+/**
+ * A `shipped*` declaration in `packages/board/build.mjs`:
+ * `const shippedX = path.join(here, '../../<path>')`. The capture is the
+ * quoted argument; only one that starts with `../../` names a repository path.
+ */
+const SHIPPED_DECLARATION = /shipped[A-Za-z]* = path\.join\([^)]*'([^']*)'\)/g;
+
+/**
+ * The generated bundle paths a `packages/board/build.mjs` declares, relative to
+ * the repository root, sorted and without duplicates.
+ *
+ * Reads the same declarations as `check-no-bundle-diff.sh`,
+ * `check-bundle-attributes.sh` and `scripts/main-bundles.sh`: every
+ * `shipped<Name> = path.join(..., '../../<path>')`, with the `../../` prefix
+ * removed. A declaration whose quoted argument does not start with `../../`
+ * names no repository path and is left out.
+ *
+ * @param buildText - the text of `packages/board/build.mjs`.
+ * @returns the declared paths; empty when the text declares none.
+ */
+export const shippedPathsOf = (buildText: string): readonly string[] => {
+  const found = new Set<string>();
+  for (const match of buildText.matchAll(SHIPPED_DECLARATION)) {
+    const raw = match[1] ?? '';
+    if (!raw.startsWith('../../')) continue;
+    const relative = raw.slice('../../'.length);
+    if (relative !== '') found.add(relative);
+  }
+  return [...found].sort();
+};
 
 /** One staged generated path, and the repair command for it. */
 export interface BundleCommitTouch {
@@ -26,6 +56,13 @@ export interface BundleCommitTouch {
  * What the commit gate read before deciding.
  */
 export interface BundleCommitReadings {
+  /**
+   * The generated bundle paths, from {@link shippedPathsOf} over the gated
+   * repository's own `packages/board/build.mjs`. Empty allows every commit: a
+   * repository with no `build.mjs` builds no bundle, so a bundle it tracks is
+   * vendored rather than generated.
+   */
+  generated: readonly string[];
   /** The index's staged paths, from `Refs.stagedPaths`. */
   staged: readonly StagedPath[];
   /**
@@ -44,13 +81,30 @@ export interface BundleCommitReadings {
 }
 
 /**
+ * The staged paths the generated set names, in the order they were staged,
+ * leaving out `bundles.generated.ts` and `.gitattributes`.
+ *
+ * The gate asks the merge base about these paths only, so a commit that
+ * stages no bundle reads no object.
+ *
+ * @param readings - the generated set and the staged paths.
+ * @returns the staged generated paths; empty when none is staged.
+ */
+export const bundleCommitPaths = (
+  readings: Pick<BundleCommitReadings, 'generated' | 'staged'>,
+): readonly string[] => {
+  const generated = new Set(readings.generated);
+  return readings.staged
+    .map((entry) => entry.path)
+    .filter((path) => generated.has(path) && !NEVER_REFUSED.has(path));
+};
+
+/**
  * The staged paths that touch the generated bundle set, each with its
  * repair command.
  *
- * **THE SET COMES FROM `BOARD_ARTIFACT_PATHS`, NEVER RE-DERIVED** —
- * `packages/board/src/contract/bundles.generated.ts`'s own committed,
- * generated array, the same one `check-bundle-attributes.sh` and
- * `check-no-bundle-diff.sh` already read.
+ * **THE SET IS `readings.generated`**, read from the gated repository's own
+ * `build.mjs`, so a branch that declares a new bundle is gated on it.
  *
  * **A DELETE IS NEVER REFUSED.** Removing a generated path is never the
  * defect this gate exists for, which is why {@link StagedPath} carries no
@@ -63,14 +117,12 @@ export interface BundleCommitReadings {
  */
 export const bundleCommitTouches = (readings: BundleCommitReadings): readonly BundleCommitTouch[] => {
   if (readings.mergeBase === null) return [];
-  const generated = new Set(BOARD_ARTIFACT_PATHS);
   const touched: BundleCommitTouch[] = [];
-  for (const entry of readings.staged) {
-    if (!generated.has(entry.path) || NEVER_REFUSED.has(entry.path)) continue;
-    const repair = readings.existedAtMergeBase[entry.path]
-      ? `git restore --staged --worktree --source="${readings.mergeBase}" -- ${entry.path}`
-      : `git rm --cached ${entry.path}`;
-    touched.push({ path: entry.path, repair });
+  for (const path of bundleCommitPaths(readings)) {
+    const repair = readings.existedAtMergeBase[path]
+      ? `git restore --staged --worktree --source="${readings.mergeBase}" -- ${path}`
+      : `git rm --cached ${path}`;
+    touched.push({ path, repair });
   }
   return touched;
 };
@@ -92,10 +144,7 @@ export const bundleCommitTouches = (readings: BundleCommitReadings): readonly Bu
  *   nothing staged touches the generated set.
  */
 export const bundleCommitRefusal = (readings: BundleCommitReadings): string | null => {
-  const generated = new Set(BOARD_ARTIFACT_PATHS);
-  const touchedPaths = readings.staged
-    .map((entry) => entry.path)
-    .filter((path) => generated.has(path) && !NEVER_REFUSED.has(path));
+  const touchedPaths = bundleCommitPaths(readings);
   if (touchedPaths.length === 0) return null;
 
   const lines = [
