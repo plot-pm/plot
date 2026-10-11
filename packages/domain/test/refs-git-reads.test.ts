@@ -558,6 +558,18 @@ describe('refsGit: the merge-subject readings', () => {
     expect(await subjects().contains(added, merge)).toEqual({ ok: true, value: 'yes' });
     expect(await subjects().contains('no-such-commit', merge)).toEqual({ ok: true, value: 'unknown' });
   });
+
+  it('walks the first-parent line, newest first, without the merged branch', async () => {
+    const merge = sha('origin/main');
+    const line = await subjects().firstParentLine(merge, 10);
+    expect(line).toEqual({ ok: true, value: [merge, sha('main^1'), sha('added'), sha('added^1')] });
+    expect(await subjects().firstParentLine(merge, 2)).toEqual({ ok: true, value: [merge, sha('main^1')] });
+    expect(line.ok && line.value).not.toContain(sha('feature/one'));
+  });
+
+  it('fails the first-parent walk from a commit the checkout does not hold', async () => {
+    expect((await subjects().firstParentLine('0'.repeat(40), 10)).ok).toBe(false);
+  });
 });
 
 describe('refsGit: commitSubjects — a reading, and no classification', () => {
