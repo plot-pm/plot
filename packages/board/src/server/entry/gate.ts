@@ -5,8 +5,10 @@ import { controllerInvocation } from '@plot-pm/domain/rules/ci-suite';
 import {
   controllerRefusal,
   mayRunController,
-  unpinnedMerge,
+  pinUnavailable,
+  UNPINNABLE_NOTE,
   unpinnedMergeRefusal,
+  unpinnedMerges,
   withoutQuotedHeredocs,
 } from '@plot-pm/domain/rules/controller-gate';
 
@@ -40,15 +42,6 @@ import {
  * answers by its own `onError`: `'allow'` lets the call through and says the
  * gate went UNVERIFIED; `'refuse'` exits 2 and names the gate (#1245).
  */
-
-/** Whether two paths name one directory, symlinks resolved. */
-const sameDirectory = (a: string, b: string): boolean => {
-  try {
-    return realpathSync(a) === realpathSync(b);
-  } catch {
-    return a === b;
-  }
-};
 
 /** One gate: when it applies and how it answers. */
 export interface Gate {
@@ -262,37 +255,90 @@ const stateGate: Gate = {
   onError: 'allow',
 };
 
+/** Where a call runs, read from git. */
+export interface Where {
+  /** The repository's top-level path, or a failure where no git answers. */
+  readonly root: { ok: true; value: string } | { ok: false };
+  /** Whether the checkout is a linked worktree — a desk. */
+  readonly linked: boolean;
+}
+
+/** Reads {@link Where} through the refs port: `--show-toplevel`, then `--absolute-git-dir` against `--git-common-dir`. */
+const gitWhere = async (cwd: string, scriptDir: string): Promise<Where> => {
+  const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
+  const refs = refsGit({ repoRoot: cwd, scriptDir });
+  const root = await refs.repoRoot();
+  if (!root.ok) return { root: { ok: false }, linked: false };
+  const linked = await refs.linkedWorktree();
+  return { root, linked: linked.ok && linked.value };
+};
+
+/** The backend `plot-host.sh` resolves, or `''` where it does not answer. */
+const hostBackend = async (cwd: string, scriptDir: string): Promise<string> => {
+  const { hostShell } = await import('@plot-pm/domain/adapters/host/host-shell');
+  const backend = await hostShell({ repoRoot: cwd, scriptDir }).backend();
+  return backend.ok ? backend.value : '';
+};
+
+/** Whether `dir` or a directory above it holds `.plot-worker.pid`, the marker a desk holds. */
+const underDesk = (dir: string): boolean => {
+  for (let at = dir; ; at = dirname(at)) {
+    if (existsSync(join(at, '.plot-worker.pid'))) return true;
+    if (dirname(at) === at) return false;
+  }
+};
+
+/** What the controller gate reads from the world, so a test can replace it. */
+export interface ControllerReadings {
+  readonly desk: (cwd: string) => boolean;
+  readonly where: (cwd: string, scriptDir: string) => Promise<Where>;
+  readonly backend: (cwd: string, scriptDir: string) => Promise<string>;
+}
+
 /**
  * `controller`: refuses a command that runs a controller-owned action
  * (`dispatch`, `approve`, `deliver`, `release`) without the controller's
  * receipt, and a `gh pr merge` or `pr-merge` with no head pin.
  *
- * `wants` is a pure string test; an unattended agent (`PLOT_UNATTENDED=1`)
- * always passes it for the CI-suite arm. `ask` runs in order: the
- * single-quoted heredoc strip; the CI-suite arm (an unattended agent in a
- * linked worktree holding `.plot-worker.pid`); the per-word prefilter; the
- * git check; the desk exemption (a linked worktree is a worker's own call);
- * `controllerInvocation` and `unpinnedMerge`; and the action receipt, which
- * is read and left in place. No git, or no `.plot/state/`, allows the action
- * and says it went UNVERIFIED. A failure after the prefilter refuses, because
- * the command named a gated script.
+ * `ask` runs in order: the single-quoted heredoc strip; two text tests that
+ * read no git — the per-word prefilter, and for an unattended agent
+ * (`PLOT_UNATTENDED=1`) whether the working directory or one above it holds
+ * `.plot-worker.pid`; when both answer no, the call is allowed here. Then git
+ * is read once: the repository root and whether it is a linked worktree. The
+ * CI-suite arm runs for an unattended agent in a linked worktree holding
+ * `.plot-worker.pid`. After the prefilter: no git allows and says it went
+ * UNVERIFIED; a linked worktree (a desk) is a worker's own call and is
+ * allowed; then `controllerInvocation`, `unpinnedMerges` and the action
+ * receipt, which is read and left in place. An unpinned `plot-host.sh
+ * pr-merge` goes through where `plot-host.sh backend` answers `bitbucket`. No
+ * `.plot/state/` allows the action and says it went UNVERIFIED.
+ *
+ * A git reading that throws allows the call and says so, unless the command
+ * runs a controller-owned action or an unpinned merge: that refuses, because
+ * the gate cannot tell a desk from the master agent.
  */
-const controllerGate: Gate = {
+export const controllerGateOf = (readings: ControllerReadings): Gate => ({
   name: 'controller',
   wants: (command) => (process.env.PLOT_UNATTENDED === '1' && command !== '') || mayRunController(command),
   ask: async (command) => {
     const stripped = withoutQuotedHeredocs(command);
     const cwd = process.cwd();
     const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-    const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
-    const refs = refsGit({ repoRoot: cwd, scriptDir });
-    const root = await refs.repoRoot();
+    const named = mayRunController(stripped);
+    const atDesk = process.env.PLOT_UNATTENDED === '1' && readings.desk(cwd);
+    if (!named && !atDesk) return null;
 
-    const { treesGit } = await import('@plot-pm/domain/adapters/trees/trees-git');
-    const main = root.ok ? await treesGit({ repoRoot: cwd, scriptDir }).mainRoot(cwd) : null;
-    const linked = root.ok && main !== null && main.ok && !sameDirectory(main.value, root.value);
+    let where: Where;
+    try {
+      where = await readings.where(cwd, scriptDir);
+    } catch (error) {
+      if (named && (controllerInvocation(stripped) !== null || unpinnedMerges(stripped).length > 0)) throw error;
+      process.stderr.write('plot-controller-gate: git could not be read here — controller routing went UNVERIFIED.\n');
+      return null;
+    }
+    const { root, linked } = where;
 
-    if (process.env.PLOT_UNATTENDED === '1' && root.ok && linked && existsSync(join(root.value, '.plot-worker.pid'))) {
+    if (atDesk && root.ok && linked && existsSync(join(root.value, '.plot-worker.pid'))) {
       try {
         const { refuse } = await import('./local-checks.js');
         let text = '';
@@ -305,7 +351,7 @@ const controllerGate: Gate = {
       }
     }
 
-    if (!mayRunController(stripped)) return null;
+    if (!named) return null;
     if (!root.ok) {
       process.stderr.write('plot-controller-gate: no git here — controller routing went UNVERIFIED.\n');
       return null;
@@ -314,7 +360,13 @@ const controllerGate: Gate = {
 
     const action = controllerInvocation(stripped);
     const refusals: string[] = [];
-    if (unpinnedMerge(stripped)) refusals.push(unpinnedMergeRefusal(scriptDir));
+    for (const program of unpinnedMerges(stripped)) {
+      if (pinUnavailable(program, await readings.backend(cwd, scriptDir))) {
+        process.stderr.write(`${UNPINNABLE_NOTE}\n`);
+      } else {
+        refusals.push(unpinnedMergeRefusal(scriptDir, program));
+      }
+    }
     if (action !== null) {
       if (!existsSync(join(root.value, '.plot', 'state'))) {
         process.stderr.write(`plot-controller-gate: no .plot/state/ — controller routing went UNVERIFIED for ${action}.\n`);
@@ -327,7 +379,9 @@ const controllerGate: Gate = {
     return refusals.length === 0 ? null : refusals.join('\n').trimEnd();
   },
   onError: 'refuse',
-};
+});
+
+const controllerGate = controllerGateOf({ desk: underDesk, where: gitWhere, backend: hostBackend });
 
 /** The registered gates. */
 export const GATES: readonly Gate[] = [bundleCommitGate, briefNameGate, stateGate, controllerGate];

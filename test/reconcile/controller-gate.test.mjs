@@ -353,13 +353,46 @@ test('controller gate: gh pr merge without a head pin is refused, naming plot-as
   }
 });
 
-test('controller gate: the same merge with --match-head or --match-head-commit is allowed', () => {
+test('controller gate: the same merge pinned with its own program\'s flag is allowed', () => {
   const dir = repo();
   for (const cmd of [
     'gh pr merge 123 --squash --match-head-commit abc123',
-    'gh pr merge 123 --match-head abc123',
-    'bash skills/plot/scripts/plot-host.sh pr-merge 123 --match-head-commit abc123',
+    'bash skills/plot/scripts/plot-host.sh pr-merge 123 --match-head abc123',
   ]) assert.equal(run(dir, cmd).status, 0, `${cmd} is pinned`);
+});
+
+test('controller gate: the refusal names the pin flag of the program refused (M6)', () => {
+  const dir = repo();
+  const gh = run(dir, 'gh pr merge 123 --match-head abc123');
+  assert.equal(gh.status, 2, 'gh takes --match-head-commit, so --match-head pins nothing');
+  assert.match(gh.stderr, /add --match-head-commit <sha>/);
+  const host = run(dir, 'bash skills/plot/scripts/plot-host.sh pr-merge 123 --match-head-commit abc123');
+  assert.equal(host.status, 2, 'plot-host.sh takes --match-head');
+  assert.match(host.stderr, /add --match-head <sha>/);
+  assert.doesNotMatch(host.stderr, /--match-head-commit/);
+});
+
+test('controller gate: an unpinned plot-host.sh pr-merge passes on bitbucket and says nothing pins there (M6)', () => {
+  const dir = repo();
+  const cmd = 'bash skills/plot/scripts/plot-host.sh pr-merge 123';
+  const bb = spawnSync('bash', [gate], {
+    cwd: dir, input: JSON.stringify({ tool_input: { command: cmd } }), encoding: 'utf8',
+    env: { ...process.env, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(bb.status, 0, `bitbucket cannot pin (stderr: ${bb.stderr})`);
+  assert.match(bb.stderr, /nothing pins a merge to a commit/);
+  const gh = spawnSync('bash', [gate], {
+    cwd: dir, input: JSON.stringify({ tool_input: { command: 'gh pr merge 123' } }), encoding: 'utf8',
+    env: { ...process.env, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(gh.status, 2, 'gh pr merge still pins with --match-head-commit');
+});
+
+test('controller gate: a commented pin and a command prefix do not hide an unpinned merge (LOW 7)', () => {
+  const dir = repo();
+  for (const cmd of ['gh pr merge 12 --squash # --match-head-commit abc', 'command gh pr merge 12', 'exec gh pr merge 12']) {
+    assert.equal(run(dir, cmd).status, 2, `${cmd} merges unpinned`);
+  }
 });
 
 test('controller gate: the merge command the refusal prints is allowed', () => {
@@ -386,10 +419,53 @@ test('controller gate: gh pr view and a merge named in a commit message are not 
 
 // --- the reading gaps (#1341, #1449, comments) ------------------------------
 
-test('controller gate: a for-loop word list that the body never runs is not an invocation (#1341)', () => {
+test('controller gate: a for-loop word list that the body only reads is not an invocation (#1341)', () => {
   const dir = repo();
   assert.equal(run(dir, 'for f in plot-deliver.sh plot-approve.sh; do cmp $f /tmp/$f; done').status, 0);
+  assert.equal(run(dir, 'for f in plot-deliver.sh; do git diff --stat -- $f; wc -l $f; done').status, 0);
   assert.equal(run(dir, 'for f in plot-deliver.sh; do bash $f x; done').status, 2, 'a body that runs $f is a run');
+});
+
+test('controller gate: a loop body that is not all readers keeps its word list (H3)', () => {
+  const dir = repo();
+  for (const cmd of [
+    'for f in skills/plot/scripts/plot-deliver.sh; do timeout 600 bash $f s; done',
+    'for f in plot-deliver.sh; do bash -e $f s; done',
+    'for f in plot-deliver.sh; do eval "bash $f s"; done',
+    'for f in plot-deliver.sh; do sudo $f s; done',
+    'for f in plot-deliver.sh; do x=$f; bash $x s; done',
+    'for f in plot-deliver.sh; do echo $f | xargs bash; done',
+    'for f in plot-deliver.sh; do cat $(bash $f s); done',
+  ]) {
+    const r = run(dir, cmd);
+    assert.equal(r.status, 2, `${cmd} must block (stderr: ${r.stderr})`);
+  }
+});
+
+test('controller gate: a submodule is not a desk (H4)', () => {
+  const tmp = scratch('plot-controller-gate-submodule-');
+  const sh = (cwd, c) => execSync(c, { cwd, stdio: 'pipe' });
+  const init = (dir) => {
+    mkdirSync(dir, { recursive: true });
+    sh(dir, 'git init -q -b main && git config user.email t@t && git config user.name t && git config commit.gpgsign false');
+    sh(dir, 'git commit -qm init --allow-empty');
+  };
+  const mod = path.join(tmp, 'mod');
+  const sup = path.join(tmp, 'super');
+  init(mod);
+  init(sup);
+  sh(sup, `git -c protocol.file.allow=always submodule add -q "${mod}" mod`);
+  const inner = path.join(sup, 'mod', 'inner');
+  mkdirSync(inner, { recursive: true });
+  mkdirSync(path.join(sup, 'mod', '.plot', 'state'), { recursive: true });
+  const r = run(inner, 'bash skills/plot/scripts/plot-deliver.sh s');
+  assert.equal(r.status, 2, `a submodule subdirectory is the master agent's position (stderr: ${r.stderr})`);
+});
+
+test('controller gate: --status on approve is a run, because approve has no --status mode (H2)', () => {
+  const dir = repo();
+  assert.equal(run(dir, 'bash skills/plot/scripts/plot-approve.sh --status some-slug').status, 2);
+  assert.equal(run(dir, 'bash skills/plot/scripts/plot-deliver.sh --status some-slug').status, 0);
 });
 
 test('controller gate: the value after --who is not a mode (#1449)', () => {

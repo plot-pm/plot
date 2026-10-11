@@ -88,6 +88,7 @@ const parseArgs = (argv: readonly string[]): Args | string => {
     else if (arg === '--who') {
       who = argv[++i];
       if (who === undefined) return '--who needs a value';
+      if (who.startsWith('-')) return `--who takes a name, not the flag '${who}'`;
     } else if (arg === '--release') {
       releaseVersion = argv[++i];
       if (releaseVersion === undefined) return '--release needs a version';

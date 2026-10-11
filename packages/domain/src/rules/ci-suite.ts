@@ -50,24 +50,42 @@ export const withoutComments = (command: string): string => {
 /** `for NAME in LIST; do` — the list ends at the first `;` or new line. */
 const FOR_LOOP = /\bfor\s+([A-Za-z_]\w*)\s+in\s+([^;\n]*?)\s*(?:;|\n)\s*do\b/g;
 
-/** Words that run their first operand as a program or script. */
-const RUNNERS = new Set(['bash', 'sh', 'zsh', 'source', '.', 'exec', 'xargs', 'env', 'nohup', 'time', 'command', 'node']);
+/** Programs that read their operands and never run one. */
+const READERS: ReadonlySet<string> = new Set([
+  'cmp', 'diff', 'cat', 'ls', 'grep', 'head', 'tail', 'wc', 'shasum', 'sha256sum', 'stat', 'test', '[',
+]);
 
-/** Whether `word` expands the loop variable `name`. */
-const expands = (word: string, name: string): boolean => word.includes(`$${name}`) || word.includes(`\${${name}}`);
+/** The `git` subcommands that read and never run an operand. */
+const GIT_READERS: ReadonlySet<string> = new Set(['diff', 'show', 'log', 'grep']);
 
-/** Whether a simple command runs the loop variable `name` in command position. */
-const runsVariable = (words: readonly string[], name: string): boolean => {
-  const program = programWords(words);
-  let i = 0;
-  while (i < program.length && RUNNERS.has(wordBasename(program[i])) && !expands(program[i], name)) i += 1;
-  return i < program.length && expands(program[i], name);
+/** Whether a simple command's program is a reader: one of `READERS`, or `git diff|show|log|grep`. */
+const isReader = (words: readonly string[]): boolean => {
+  const [head, sub] = programWords(words);
+  if (head === undefined) return false;
+  const name = wordBasename(head);
+  return READERS.has(name) || (name === 'git' && GIT_READERS.has(sub));
 };
 
 /**
- * Removes the word list of a `for` loop whose body never runs the loop
- * variable: the list is data the body reads, not a command the loop starts.
- * A body that runs `$var` (or `"$var"`, `${var}`, `bash $var`) keeps the list.
+ * The simple commands of a loop body: the text after `do` up to the segment
+ * that is `done`, split on `&&`, `||`, `;`, `|` and new lines.
+ */
+const bodySegments = (after: string): string[][] => {
+  const segments: string[][] = [];
+  for (const segment of after.split(/&&|\|\||[;|\n]/)) {
+    const words = segment.trim().split(/\s+/).filter((w) => w !== '');
+    if (words[0] === 'done') break;
+    if (words.length > 0) segments.push(words);
+  }
+  return segments;
+};
+
+/**
+ * Removes the word list of a `for` loop whose body only reads: every simple
+ * command in the body has a reader as its program (`cmp`, `diff`, `cat`, `ls`,
+ * `grep`, `head`, `tail`, `wc`, `shasum`, `sha256sum`, `stat`, `test`, `[`,
+ * `git diff|show|log|grep`), and the body holds no command substitution. Any
+ * other body keeps the list, so a name in it reads as a run.
  *
  * @param command - the command line.
  * @returns the command with such word lists emptied.
@@ -75,11 +93,10 @@ const runsVariable = (words: readonly string[], name: string): boolean => {
 const withoutDataLists = (command: string): string => {
   let out = command;
   for (const match of [...command.matchAll(FOR_LOOP)].reverse()) {
-    const name = match[1];
-    const at = match.index as number; // a `matchAll` result always carries its index
+    const { index: at } = match;
     const after = command.slice(at + match[0].length);
-    const body = after.split(/&&|\|\||[;|\n]/).map((segment) => segment.trim().split(/\s+/).filter((w) => w !== ''));
-    if (body.some((words) => words.length > 0 && runsVariable(words, name))) continue;
+    const body = bodySegments(after);
+    if (!body.every(isReader) || body.some((words) => words.some((w) => /\$\(|`|[<>]\(/.test(w)))) continue;
     const listStart = at + match[0].indexOf(match[2], match[0].indexOf(' in ') + 1);
     out = out.slice(0, listStart) + out.slice(listStart + match[2].length);
   }
@@ -174,8 +191,9 @@ export const ciSuiteRefusal = (command: string, suites: readonly string[]): CiSu
  *
  * An unquoted `#` starts a comment: it and the rest of its line are not read.
  * The word after `--who` or `--release` is that flag's value and is never read
- * as a mode. The word list of a `for` loop whose body never runs the loop
- * variable (`for f in plot-deliver.sh; do cmp $f x; done`) is data, not a run.
+ * as a mode. The word list of a `for` loop whose body only runs readers
+ * (`for f in plot-deliver.sh; do cmp $f x; done`) is data, not a run; any
+ * other body keeps the list.
  *
  * @param command - the command line an agent is about to run, with any
  *   single-quoted heredoc body already stripped.
@@ -283,10 +301,10 @@ export const isReadSegment = (words: readonly string[]): boolean => {
   return head === 'git' && program[1] === 'grep';
 };
 
-/** `plot-dispatch.sh`'s and `plot-deliver.sh`'s modes with no endpoint, or belonging to a different action. */
+/** Each gated script's modes with no endpoint. The approve entry has no `--status` mode, so `--status` on it is a run. */
 const NO_ENDPOINT: Record<string, readonly string[]> = {
-  [APPROVE_SH]: ['--status', '--dry-run', '--help', '-h'],
-  [APPROVE_MJS]: ['--status', '--dry-run', '--help', '-h'],
+  [APPROVE_SH]: ['--dry-run', '--help', '-h'],
+  [APPROVE_MJS]: ['--dry-run', '--help', '-h'],
   [DELIVER_SH]: ['--status', '--dry-run', '--help', '-h'],
   [DELIVER_MJS]: ['--status', '--dry-run', '--help', '-h'],
   [DISPATCH_SH]: [

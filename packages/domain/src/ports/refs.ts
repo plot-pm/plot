@@ -258,6 +258,15 @@ export interface Refs {
   showPrefix(): Promise<PortResult<string>>;
 
   /**
+   * Whether the checkout is a linked worktree: its git directory differs from
+   * the common directory every worktree shares. A main checkout, a submodule
+   * and a repository whose git directory is not named `.git` answer `false`.
+   *
+   * @returns whether the git directory and the common directory differ.
+   */
+  linkedWorktree(): Promise<PortResult<boolean>>;
+
+  /**
    * Lists the tracked files under the pathspecs that contain a fixed string.
    *
    * @param term - the text to find, matched literally.

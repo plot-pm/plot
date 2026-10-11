@@ -5,7 +5,7 @@
  * heredoc strip, the prefilter, the unpinned-merge reading and the refusal
  * texts.
  */
-import { isReadSegment, programWords, withoutQuotes, wordBasename } from './ci-suite.js';
+import { isReadSegment, programWords, withoutComments, withoutQuotes, wordBasename } from './ci-suite.js';
 
 /** The actions a controller owns. */
 export type ControllerAction = 'dispatch' | 'approve' | 'deliver' | 'release';
@@ -53,28 +53,55 @@ export const mayRunController = (command: string): boolean =>
       word === 'pr-merge',
   );
 
-/** Whether a word pins a merge to the head it reviewed. */
-const isPin = (word: string): boolean => word.startsWith('--match-head');
+/** A program that merges a pull request: `gh pr merge`, or the host helper's `pr-merge`. */
+export type MergeProgram = 'gh' | 'plot-host';
+
+/** The flag each merge program takes to pin the head it merges. */
+export const PIN_FLAG: Record<MergeProgram, string> = {
+  gh: '--match-head-commit',
+  'plot-host': '--match-head',
+};
+
+/** Shell builtins that run the next word as the program. */
+const PREFIXES: ReadonlySet<string> = new Set(['command', 'builtin', 'exec']);
+
+/** Whether a word is `flag` or `flag=<value>`. */
+const isFlag = (word: string, flag: string): boolean => word === flag || word.startsWith(`${flag}=`);
+
+/** The merge program a simple command runs with no pin, or `null`. */
+const unpinnedProgram = (words: readonly string[]): MergeProgram | null => {
+  if (isReadSegment(words)) return null;
+  const all = programWords(words);
+  let start = 0;
+  while (PREFIXES.has(all[start])) start += 1;
+  const program = all.slice(start);
+  const merges: MergeProgram | null =
+    program.length > 0 && wordBasename(program[0]) === 'gh' && program.some((w, i) => w === 'pr' && program[i + 1] === 'merge')
+      ? 'gh'
+      : program.some((w) => wordBasename(w) === 'plot-host.sh') && program.includes('pr-merge')
+        ? 'plot-host'
+        : null;
+  return merges !== null && !program.some((w) => isFlag(w, PIN_FLAG[merges])) ? merges : null;
+};
 
 /**
- * Whether a command merges a pull request without pinning the head it
- * reviewed: `gh pr merge` or the host helper's `pr-merge`, with no
- * `--match-head` or `--match-head-commit` among its words. A segment whose
- * program is `ls`, `cat` or `git grep` is a read.
+ * The merges a command runs without pinning the head it reviewed: `gh pr
+ * merge` with no `--match-head-commit`, and the host helper's `pr-merge` with
+ * no `--match-head`. Quoted text and unquoted `#` comments are not read; a
+ * `command`, `builtin` or `exec` prefix is skipped; a segment whose program is
+ * `ls`, `cat` or `git grep` is a read.
  *
  * @param command - the command line, with any single-quoted heredoc body stripped.
- * @returns whether a segment merges with no pin.
+ * @returns each merge program a segment runs with no pin, in order; empty when none.
  */
-export const unpinnedMerge = (command: string): boolean =>
-  withoutQuotes(command)
+export const unpinnedMerges = (command: string): MergeProgram[] =>
+  withoutQuotes(withoutComments(command))
     .split(/&&|\|\||[;|\n]/)
-    .some((segment) => {
-      const words = segment.trim().split(/\s+/).filter((word) => word !== '');
-      if (words.length === 0 || isReadSegment(words)) return false;
-      const program = programWords(words);
-      const viaGh = wordBasename(program[0] ?? '') === 'gh' && program.some((w, i) => w === 'pr' && program[i + 1] === 'merge');
-      const viaHost = program.some((w) => /^plot-host\.sh$/.test(wordBasename(w))) && program.includes('pr-merge');
-      return (viaGh || viaHost) && !words.some(isPin);
+    .map((segment) => segment.trim().split(/\s+/).filter((word) => word !== ''))
+    .filter((words) => words.length > 0)
+    .flatMap((words) => {
+      const program = unpinnedProgram(words);
+      return program === null ? [] : [program];
     });
 
 /** Quotes a path for a shell, leaving a plain one bare. */
@@ -126,17 +153,35 @@ export const controllerRefusal = (action: ControllerAction, scriptDir: string): 
 };
 
 /**
- * The refusal for a merge with no head pin.
+ * The refusal for a merge with no head pin. It names the controller command
+ * first and then the pin flag of the program refused.
  *
  * @param scriptDir - the absolute directory holding the plot scripts.
+ * @param program - the merge program the command runs.
  * @returns the text for stderr.
  */
-export const unpinnedMergeRefusal = (scriptDir: string): string =>
+export const unpinnedMergeRefusal = (scriptDir: string, program: MergeProgram): string =>
   [
     'plot-controller-gate: a merge must be pinned to the head that was reviewed.',
     '',
     '  Merge through the controller, which re-asks the host and merges pinned to <sha> or refuses by name:',
     `      node ${shellQuote(`${scriptDir}/board/plot-ask.mjs`)} merge <pr> <sha>`,
-    '  Or add --match-head-commit <sha> to the merge you meant.',
+    `  Or add ${PIN_FLAG[program]} <sha> to the merge you meant.`,
     '',
   ].join('\n');
+
+/**
+ * Whether an unpinned merge is allowed because the git host cannot pin one:
+ * `plot-host.sh pr-merge` where `plot-host.sh backend` answers `bitbucket`,
+ * whose `pr-merge --match-head` exits 4.
+ *
+ * @param program - the merge program the command runs.
+ * @param backend - the backend `plot-host.sh` resolved.
+ * @returns whether the merge goes through unpinned.
+ */
+export const pinUnavailable = (program: MergeProgram, backend: string): boolean =>
+  program === 'plot-host' && backend === 'bitbucket';
+
+/** The note for a merge {@link pinUnavailable} lets through. */
+export const UNPINNABLE_NOTE =
+  'plot-controller-gate: the Git host is bitbucket, where nothing pins a merge to a commit — this pr-merge runs unpinned.';

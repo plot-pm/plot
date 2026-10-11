@@ -29,3 +29,12 @@ describe('refsFixture: untrackedPaths and showPrefix', () => {
     expect(answer.ok && answer.value).toEqual([]);
   });
 });
+
+describe('refsFixture: linkedWorktree', () => {
+  it('answers the configured reading, and false by default', async () => {
+    const set = await refsFixture({ linkedWorktree: true }).linkedWorktree();
+    const unset = await refsFixture({}).linkedWorktree();
+    expect(set.ok && set.value).toBe(true);
+    expect(unset.ok && unset.value).toBe(false);
+  });
+});
