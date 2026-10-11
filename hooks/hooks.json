@@ -22,7 +22,7 @@
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/plot/scripts/plot-bundle-commit-gate.sh\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/plot/scripts/plot-gates.sh\""
           }
         ]
       }

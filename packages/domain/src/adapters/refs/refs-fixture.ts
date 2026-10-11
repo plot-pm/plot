@@ -15,6 +15,7 @@ import type {
   Refs,
   RemoteHeadAnswer,
   RemoteShaReading,
+  StagedPath,
   TreeBlob,
 } from '../../ports/refs.js';
 
@@ -43,6 +44,15 @@ export interface RefsFixture {
   changedFiles?: Readonly<Record<string, readonly string[]>>;
   /** The working tree's changed paths. */
   workingChanges?: readonly string[];
+  /** The paths staged against `HEAD`, each with its status — for {@link Refs.stagedPaths}. */
+  stagedPaths?: readonly StagedPath[];
+  /**
+   * `<a> <b>` to the two revisions' merge-base sha, for {@link Refs.mergeBase}.
+   *
+   * A pair absent from the table fails — the same reading the real adapter
+   * gives when the revisions share no history or either does not resolve.
+   */
+  mergeBases?: Readonly<Record<string, string>>;
   /** Search term to the files containing it; the globs are applied to these. */
   filesNaming?: Readonly<Record<string, readonly string[]>>;
   /** The paths whose `merge` attribute is unset. */
@@ -251,9 +261,16 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       return sha === undefined ? failed<string>() : answered(sha);
     },
 
+    mergeBase: async (a, b) => {
+      const sha = fixture.mergeBases?.[`${a} ${b}`];
+      return sha === undefined ? failed<string>() : answered(sha);
+    },
+
     changedFiles: async (branch) => answered(changedFiles[branch] ?? []),
 
     workingChanges: async () => answered(fixture.workingChanges ?? []),
+
+    stagedPaths: async () => answered<readonly StagedPath[]>(fixture.stagedPaths ?? []),
 
     filesNaming: async (term, globs) => {
       const patterns = globs.map(globToRegExp);

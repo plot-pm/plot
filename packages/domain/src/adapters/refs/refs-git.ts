@@ -15,6 +15,7 @@ import type {
   Refs,
   RemoteHeadAnswer,
   RemoteShaReading,
+  StagedPath,
   TreeBlob,
 } from '../../ports/refs.js';
 import {
@@ -234,6 +235,30 @@ export const commitSubjectsOf = (stdout: string): readonly CommitSubject[] => {
     }));
 };
 
+/**
+ * Walks a `git diff --cached --name-status -M` listing into {@link StagedPath}
+ * values.
+ *
+ * `A` and `M` map straight to `added`/`modified`. An `R`-prefixed status (git
+ * emits `R100`, `R87`, …) carries two paths, tab-separated — the old path and
+ * the new one — and only the new path is kept, since a rename's new path is
+ * the one that can land a staged generated bundle. Any other status (`D`,
+ * `C`, `T`, `U`, `X`) is dropped: a delete is never a status this type
+ * carries, and this adapter has no caller asking about a copy, a type change,
+ * an unmerged path, or git's own "unknown" marker.
+ *
+ * @param stdout - the listing.
+ * @returns each staged path with its status, in the order given.
+ */
+export const stagedPathsOf = (stdout: string): readonly StagedPath[] =>
+  asLines(stdout).flatMap((line): readonly StagedPath[] => {
+    const [status, a, b] = line.split('\t');
+    if (status === 'A') return a ? [{ status: 'added', path: a }] : [];
+    if (status === 'M') return a ? [{ status: 'modified', path: a }] : [];
+    if (status?.startsWith('R')) return b ? [{ status: 'renamed', path: b }] : [];
+    return [];
+  });
+
 export const refsGit = (context: ShellContext): Refs => {
   const scan = scriptPath(context, 'plot-fleet-scan.sh');
   const inRepo = { cwd: context.repoRoot };
@@ -278,6 +303,9 @@ export const refsGit = (context: ShellContext): Refs => {
     resolve: (ref) =>
       runScript('git', ['rev-parse', ref], asText, inRepo),
 
+    mergeBase: (a, b) =>
+      runScript('git', ['merge-base', a, b], asText, inRepo),
+
     changedFiles: async (branch) => {
       const main = await defaultBranch();
       if (!main.ok) return main as PortResult<readonly string[]>;
@@ -300,6 +328,14 @@ export const refsGit = (context: ShellContext): Refs => {
             .map((line) => line.slice(3))
             .map((path) => (path.includes(' -> ') ? path.slice(path.indexOf(' -> ') + 4) : path))
             .map((path) => path.replace(/^"(.*)"$/, '$1')),
+        inRepo,
+      ),
+
+    stagedPaths: () =>
+      runScript(
+        'git',
+        ['diff', '--cached', '--name-status', '-M'],
+        stagedPathsOf,
         inRepo,
       ),
 

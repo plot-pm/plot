@@ -67,9 +67,15 @@ const bashHooks = (...commands) => ({ hooks: { PreToolUse: [{ matcher: 'Bash', h
 /**
  * A vendored repository: every shipped `.sh` copied, `hooks.json` naming
  * `shipped`, `settings` registering what the case starts from, and a stub
- * `board/plot-gate.mjs` that prints `listed` for `--list` and otherwise runs
- * `answer` — `'allow'`, or `'delegate'` to pass the hook JSON to the listed
- * gate's own script. `listed === null` leaves the bundle out.
+ * `board/plot-gate.mjs` that prints `listed` for `--list` and otherwise
+ * answers `answer` directly — `'allow'` exits 0, `'delegate'` refuses (exit 2)
+ * the way the real bundle's gate logic would. `listed === null` leaves the
+ * bundle out.
+ *
+ * `'delegate'` does NOT shell back out to the listed gate's own `.sh` file:
+ * since `the-bundle-gate-is-a-launcher`, `plot-bundle-commit-gate.sh` itself
+ * resolves and execs this same `board/plot-gate.mjs` — a stub that shelled to
+ * it would recurse into itself forever.
  */
 const vendored = ({ shipped, settings, listed, answer = 'allow' }) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gates-verify-'));
@@ -83,12 +89,9 @@ const vendored = ({ shipped, settings, listed, answer = 'allow' }) => {
   if (listed !== null) {
     fs.writeFileSync(
       path.join(scripts, 'board/plot-gate.mjs'),
-      `import { spawnSync } from 'node:child_process';
-const listed = ${JSON.stringify(listed)};
+      `const listed = ${JSON.stringify(listed)};
 if (process.argv.includes('--list')) { for (const g of listed) console.log(g); process.exit(0); }
-if (${JSON.stringify(answer)} === 'allow') process.exit(0);
-const r = spawnSync('bash', [new URL('../plot-' + listed[0] + '-gate.sh', import.meta.url).pathname], { stdio: 'inherit' });
-process.exit(r.status ?? 1);
+process.exit(${JSON.stringify(answer)} === 'allow' ? 0 : 2);
 `,
     );
   }

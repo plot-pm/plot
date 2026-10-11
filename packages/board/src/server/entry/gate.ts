@@ -44,8 +44,45 @@ export interface Gate {
   readonly onError: 'allow' | 'refuse';
 }
 
-/** The registered gates. Empty until the first gate slice adds its row. */
-export const GATES: readonly Gate[] = [];
+/**
+ * `bundle-commit`: refuses a commit that stages a generated board bundle.
+ *
+ * `wants` is a pure string test — no adapter loads for a command with no
+ * `git commit` in it. `ask` imports `refsGit` and `shellContext` lazily, reads
+ * the staged paths, the merge base against `origin/main`, and — for each
+ * staged path the generated set names — whether the merge base held it, then
+ * hands all three to {@link bundleCommitRefusal}.
+ */
+const bundleCommitGate: Gate = {
+  name: 'bundle-commit',
+  wants: (command) => command.includes('git commit'),
+  ask: async (_command) => {
+    const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
+    const { shellContext } = await import('@plot-pm/domain/adapters');
+    const { bundleCommitRefusal } = await import('@plot-pm/domain/rules/bundle-commit');
+
+    const refs = refsGit(shellContext(process.cwd()));
+    const staged = await refs.stagedPaths();
+    if (!staged.ok) return null;
+
+    const mergeBaseResult = await refs.mergeBase('HEAD', 'origin/main');
+    const mergeBase = mergeBaseResult.ok ? mergeBaseResult.value : null;
+
+    const existedAtMergeBase: Record<string, boolean> = {};
+    if (mergeBase !== null) {
+      for (const entry of staged.value) {
+        const existed = refs.fileExistsSync(mergeBase, entry.path);
+        existedAtMergeBase[entry.path] = existed.ok && existed.value;
+      }
+    }
+
+    return bundleCommitRefusal({ staged: staged.value, mergeBase, existedAtMergeBase });
+  },
+  onError: 'allow',
+};
+
+/** The registered gates. */
+export const GATES: readonly Gate[] = [bundleCommitGate];
 
 /** The exit codes the hook contract reads. */
 export const EXIT = { allow: 0, refuse: 2 } as const;
