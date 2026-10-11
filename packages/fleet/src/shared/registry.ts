@@ -4,7 +4,9 @@ import path from 'node:path';
 
 import { transcriptDir, transcriptFile, readTranscriptFacts } from './transcript.js';
 import { AgentStateSchema, type AgentState as ContractAgentState, type AgentIdentity } from './agent-wire.js';
-import { scriptsShell } from '@plot-pm/domain/adapters';
+import { hostShell, prIndexFile, scriptsShell } from '@plot-pm/domain/adapters';
+import type { PrIndex } from '@plot-pm/domain/entities/pr-index';
+import { deskBranchMerged, mergedDeskState } from '@plot-pm/domain/rules/merged-desk';
 import { deskManifest, manifestDirectory, type ManifestReading } from '@plot-pm/domain/rules/desk-manifest';
 import { deskProcessState, deskWorker, type ManifestWorkerReading } from '@plot-pm/domain/rules/desk-worker';
 
@@ -23,7 +25,9 @@ import { deskProcessState, deskWorker, type ManifestWorkerReading } from '@plot-
  *   nothing was left behind. The stale-manifest cure: an entry corrects itself
  *   here on the next pulse rather than persisting.
  * - `waiting` — the pid is gone and a `PLOT-BLOCKED:` marker sits in the tree; a
- *   person owes the branch an answer.
+ *   person owes the branch an answer. A desk whose pid is not alive and whose
+ *   branch has a MERGED row in the PR index reads `finished` instead
+ *   (`mergedDeskState`): the work is on the default branch.
  * - `stalled` — the pid is gone and uncommitted or unpushed work is on the
  *   floor, with no PR to show for it.
  * - `failed` — a non-zero exit was recorded. The process reported its own
@@ -74,6 +78,16 @@ export const KNOWN_STATES: ReadonlySet<string> = new Set<string>(
  * so the safe direction is the opposite one and the shell's answer stands.
  */
 export type PidLiveness = (worktree: string) => boolean | Promise<boolean>;
+
+/**
+ * The PR index as it was read, or null where there is none. Injected in tests;
+ * the default is {@link defaultPrIndex}.
+ *
+ * Read at most once per registry read, and only when a desk reads `waiting`.
+ * A file read and no host request: the registry runs once per desk per pass,
+ * so a host call here would be paid by every desk on every pass.
+ */
+export type PrIndexReader = () => PrIndex | null | Promise<PrIndex | null>;
 
 /**
  * The state a row should show, given the shell's verdict and the desk's pid.
@@ -674,6 +688,13 @@ export interface ReadRegistryOptions {
    */
   deskPid?: DeskPidReader;
   /**
+   * The PR index, for the one refinement that reads it: a `waiting` desk whose
+   * worker pid is not alive and whose branch has a MERGED row reads `finished`
+   * (`mergedDeskState`). Injected in tests; the default reads the store
+   * `fleet.ts` folds, keyed by `plot-host.sh backend`, and needs `scriptsDir`.
+   */
+  prIndex?: PrIndexReader;
+  /**
    * Enumerate the repo's worktrees, for Fix C — synthesizing an entry for a
    * worktree no manifest names. Injected in tests; in production the default
    * {@link gitWorktrees} runs `git worktree list --porcelain`. When it throws or
@@ -849,6 +870,9 @@ export async function readAgentRegistryWithInfo(
     .filter((e) => e.worktree)
     .map((e, i) => ({ worktree: e.worktree, worktreeReal: manifestReadings[i]!.worktreeReal, pid: e.pid }));
   let synthesizedCount = 0;
+  // The branch each desk has checked out, by the path git lists it under — the
+  // branch `mergedDeskState`'s merge fact is read for.
+  const deskBranches = new Map<string, string>();
   {
     const lister = opts.worktrees ?? (() => gitWorktrees(repoRoot));
     let worktrees: WorktreeInfo[] = [];
@@ -858,6 +882,7 @@ export async function readAgentRegistryWithInfo(
       worktrees = []; // The listing failed; synthesize nothing rather than throw.
     }
     for (const wt of worktrees) {
+      if (wt.branch !== '') deskBranches.set(wt.path, wt.branch);
       if (wt.isMain) continue; // The main repo is not an agent.
       if (wt.branch === '') continue; // A branchless worktree is not an agent row.
       // A manifest already names this path. `several` claims it too: two agents
@@ -873,7 +898,13 @@ export async function readAgentRegistryWithInfo(
       synthesizedCount++;
     }
   }
-  await refreshStates(out, opts.liveness ?? defaultLiveness(opts.scriptsDir), opts.pidAlive ?? deskPidAlive);
+  await refreshStates(out, opts.liveness ?? defaultLiveness(opts.scriptsDir), opts.pidAlive ?? deskPidAlive, {
+    read: opts.prIndex ?? defaultPrIndex(repoRoot, opts.scriptsDir),
+    branchOf: (entry) =>
+      deskBranches.get(entry.worktree)
+      ?? deskBranches.get(realpathOrUndefined(entry.worktree) ?? '')
+      ?? entry.branch,
+  });
   await placeWorkers(out, workerReadings, opts.deskPid ?? readDeskPid);
   // Drop settled workers: session ended AND worktree clean. A worker with either
   // condition outstanding — live session OR dirty/unpushed — stays visible.
@@ -959,11 +990,17 @@ function synthesizeEntry(wt: WorktreeInfo): AgentEntry {
  * once per pulse rather than once per agent. A resolver that throws, or returns
  * the wrong number of answers, leaves every entry `unknown`: the registry must
  * list its agents even when it cannot classify them.
+ *
+ * A `waiting` answer is refined by `mergedDeskState`: the PR index is read once,
+ * and only for a desk whose branch has a MERGED row is the pid read. A desk with
+ * no merged row costs no pid read, and an index or pid reading that throws
+ * leaves `waiting` standing.
  */
 async function refreshStates(
   entries: AgentEntry[],
   liveness: LivenessResolver,
   pidAlive: PidLiveness,
+  index: { read: PrIndexReader; branchOf: (entry: AgentEntry) => string },
 ): Promise<void> {
   const checkable = entries.filter((e) => e.worktree !== '');
   if (checkable.length === 0) return;
@@ -975,12 +1012,25 @@ async function refreshStates(
   }
   if (answers.length !== checkable.length) return;
   // The pid is read ONLY for the entries the shell called `finished` — the one
-  // population {@link rowState} can move. Every other answer is returned
-  // unchanged, so a desk that is blocked, stalled or failed costs no extra read.
+  // population {@link rowState} can move — and for a `waiting` desk whose
+  // branch merged. Every other answer is returned unchanged, so a desk that is
+  // stalled or failed costs no extra read.
+  let held: Promise<PrIndex | null> | undefined;
+  const readIndex = (): Promise<PrIndex | null> => (held ??= Promise.resolve().then(index.read));
   const refined = await Promise.all(
     checkable.map(async (entry, i) => {
       const answer = answers[i] as AgentState;
       if (!KNOWN_STATES.has(answer)) return 'unknown' as AgentState;
+      if (answer === 'waiting') {
+        try {
+          const merged = deskBranchMerged(await readIndex(), index.branchOf(entry));
+          if (!merged) return answer;
+          return mergedDeskState({ state: answer, merged, workerAlive: await pidAlive(entry.worktree) });
+        } catch {
+          // An unreadable index or pid leaves the shell's answer standing.
+          return answer;
+        }
+      }
       if (answer !== 'finished') return answer;
       try {
         return rowState(answer, await pidAlive(entry.worktree));
@@ -1035,6 +1085,22 @@ async function placeWorkers(
  * `unknown`" path is a plain empty-answer resolver rather than a special case
  * threaded through the batch call.
  */
+/**
+ * The default PR index reader, or one that answers null when no scripts
+ * directory is known.
+ *
+ * The store is keyed by the backend word, which `plot-host.sh backend` reads
+ * from `## Plot Config` with no host request. Any failure answers null, which
+ * leaves every `waiting` desk `waiting`.
+ */
+const defaultPrIndex = (repoRoot: string, scriptsDir?: string): PrIndexReader => async () => {
+  if (!scriptsDir) return null;
+  const backend = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
+  if (!backend.ok) return null;
+  const read = await prIndexFile({ cwd: repoRoot }).read(backend.value);
+  return read.ok ? read.value : null;
+};
+
 function defaultLiveness(scriptsDir?: string): LivenessResolver {
   if (!scriptsDir) return () => [];
   return (worktrees: string[]) => bashLiveness(scriptsDir, worktrees);
@@ -1053,7 +1119,9 @@ function defaultLiveness(scriptsDir?: string): LivenessResolver {
  * nothing, and a branch with work on the floor then reads `stalled`*. The
  * registry cannot afford the host call that would fill it — the registry must
  * not be behind anything that can fail — so it reads liveness from local signals
- * only and lets `finished`-vs-`stalled` be the honest local answer.
+ * only and lets `finished`-vs-`stalled` be the honest local answer. A MERGED row
+ * in the PR index is read after the shell answers, by {@link refreshStates}, and
+ * moves only a `waiting` desk whose pid is not alive.
  *
  * A failure — bash absent, the script unreadable, a worktree path that upsets
  * it — answers an empty array, and `refreshStates` reads the length mismatch

@@ -19,7 +19,8 @@ import {
   parseManifest, readAgentRegistry, gitWorktrees, bashCleanliness, AGENT_MANIFEST_DIR,
 } from '../../src/shared/registry.js';
 import { execFileSync } from 'node:child_process';
-import { AgentStateSchema as DomainAgentStateSchema } from '@plot-pm/domain';
+import { AgentStateSchema as DomainAgentStateSchema, LIVE_STATES, type AgentState as DomainAgentState } from '@plot-pm/domain';
+import { PR_INDEX_VERSION, type PrIndex } from '@plot-pm/domain/entities/pr-index';
 import { projectSlug } from '../../src/shared/transcript.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
 
@@ -562,6 +563,98 @@ describe('the state — pulse-refreshed liveness, landing on the entry', () => {
       liveness: fakeLiveness({ '/wt/a': 'running', '/wt/b': 'finished', '/wt/c': 'running' }),
     });
     assert.equal(got.filter((e) => e.state === 'running').length, 2);
+  });
+});
+
+describe('a dead desk whose PR merged reads finished, not waiting (#1524)', () => {
+  // Measured 2026-10-11: eight desks held a tip-moved `PLOT-BLOCKED.md`, their
+  // worker pids were dead and their branches' PRs had merged. The shell reads
+  // the marker with an empty PR fact, so each read `waiting` and counted under
+  // WORKING. A MERGED row in the PR index is the fact that settles them.
+  const BRANCH = 'bug/the-channel-stamps-what-it-hears';
+
+  const index = (state: string, head = BRANCH): PrIndex => ({
+    v: PR_INDEX_VERSION,
+    connector: 'github',
+    watermark: null,
+    complete: true,
+    at: '2026-10-11T00:00:00Z',
+    rows: [{ number: 1513, head, state, draft: false, checks: 'green', review: '', url: '' }],
+  });
+
+  const fakeLiveness = (byWorktree: Record<string, string>) =>
+    (wts: string[]): string[] => wts.map((wt) => byWorktree[wt] ?? 'unknown');
+
+  const desk = (): void => manifest('a.json', { session: 'free-28fc89a6', pid: '4242',
+    branch: BRANCH, worktree: '/wt/free-28fc89a6', startedAt: '2026-10-11T08:00:00Z' });
+
+  it('reads a waiting desk with a dead pid and a merged PR as finished, which is not live', async () => {
+    desk();
+    const [e] = await readAgentRegistry(root, home, {
+      liveness: fakeLiveness({ '/wt/free-28fc89a6': 'waiting' }),
+      pidAlive: () => false,
+      prIndex: () => index('MERGED'),
+    });
+    assert.equal(e.state, 'finished');
+    assert.ok(!LIVE_STATES.includes(e.state as DomainAgentState), 'a merged desk does not count as working');
+  });
+
+  it('keeps waiting while the desk pid is alive, even with a merged PR', async () => {
+    desk();
+    const [e] = await readAgentRegistry(root, home, {
+      liveness: fakeLiveness({ '/wt/free-28fc89a6': 'waiting' }),
+      pidAlive: () => true,
+      prIndex: () => index('MERGED'),
+    });
+    assert.equal(e.state, 'waiting');
+  });
+
+  it('keeps waiting when the index holds no merged row for the branch', async () => {
+    // A missing row means *ask*, never *not merged* — and an OPEN row may be
+    // stale either way. Neither settles the desk.
+    for (const held of [null, index('OPEN'), index('CLOSED'), index('MERGED', 'feature/other')]) {
+      desk();
+      const [e] = await readAgentRegistry(root, home, {
+        liveness: fakeLiveness({ '/wt/free-28fc89a6': 'waiting' }),
+        pidAlive: () => false,
+        prIndex: () => held,
+      });
+      assert.equal(e.state, 'waiting', `for ${held === null ? 'no store' : held.rows[0]!.state + ' ' + held.rows[0]!.head}`);
+    }
+  });
+
+  it('keeps waiting when the index cannot be read', async () => {
+    desk();
+    const [e] = await readAgentRegistry(root, home, {
+      liveness: fakeLiveness({ '/wt/free-28fc89a6': 'waiting' }),
+      pidAlive: () => false,
+      prIndex: () => { throw new Error('store unreadable'); },
+    });
+    assert.equal(e.state, 'waiting');
+  });
+
+  it('reads the branch the desk has checked out, for a desk no manifest names', async () => {
+    const [e] = await readAgentRegistry(root, home, {
+      worktrees: () => [{ path: '/wt/orphan', branch: BRANCH, isMain: false }],
+      liveness: fakeLiveness({ '/wt/orphan': 'waiting' }),
+      pidAlive: () => false,
+      prIndex: () => index('MERGED'),
+    });
+    assert.equal(e.state, 'finished');
+  });
+
+  it('reads the index once per registry read, and no pid for a desk with no merged row', async () => {
+    manifest('a.json', { session: 'a', pid: '1', branch: BRANCH, worktree: '/wt/a', startedAt: '2026-10-11T08:00:00Z' });
+    manifest('b.json', { session: 'b', pid: '2', branch: 'feature/open', worktree: '/wt/b', startedAt: '2026-10-11T08:00:00Z' });
+    let reads = 0;
+    const asked: string[] = [];
+    await readAgentRegistry(root, home, {
+      liveness: fakeLiveness({ '/wt/a': 'waiting', '/wt/b': 'waiting' }),
+      pidAlive: (wt) => { asked.push(wt); return false; },
+      prIndex: () => { reads++; return index('MERGED'); },
+    });
+    assert.equal(reads, 1);
+    assert.deepEqual(asked, ['/wt/a']);
   });
 });
 
