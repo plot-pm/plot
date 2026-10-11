@@ -30,6 +30,7 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
 import { AutoDispatchSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
+import { agentRowKey } from '@plot-pm/domain/rules/desk-manifest';
 import { SprintFilter } from './SprintFilter.js';
 import { rowIsSprintExempt, sanitizeSelection, slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
 // THE BOARD'S ONE AGE DIALECT, borrowed rather than reimplemented. A second
@@ -1466,10 +1467,8 @@ export function AgentList({
                 workingRows.length > 0 ? (
                   workingRows.map(({ agent, row }) => (
                     <RegistryRow
-                      // Keyed by the SESSION where there is one — the identity
-                      // that outlives the branch — and by the branch otherwise,
-                      // so two entries on the same (empty) branch do not collide.
-                      key={agent.session || `branch:${agent.branch}` || `wt:${agent.worktree}`}
+                      // One desk gives one key: `agentRowKey` decides it.
+                      key={agentRowKey(agent)}
                       agent={agent}
                       row={row}
                       slices={slices}
@@ -2383,11 +2382,11 @@ export function AgentList({
               {/* THE BROKEN AGENTS — `stalled` and `unknown` — as problem reports.
                   Rendered AFTER branches and issues: actionable work outranks
                   problem reports, and the ordering says so. Each row is keyed by
-                  session where there is one and by branch otherwise, the same
-                  identity WORKING uses for its registry rows. */}
+                  `agentRowKey`, the same identity WORKING uses for its registry
+                  rows. */}
               {broken.map(({ agent, row }) => (
                 <RegistryRow
-                  key={agent.session || `branch:${agent.branch}` || `wt:${agent.worktree}`}
+                  key={agentRowKey(agent)}
                   agent={agent}
                   row={row}
                   slices={slices}

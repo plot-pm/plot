@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_MANIFEST_DIR,
+  agentRowKey,
   deskManifest,
   loopRegistration,
   manifestDirectory,
@@ -292,6 +293,39 @@ describe('unnamedDeskLabel', () => {
   it('treats a whitespace-only checkout as absent, not as a branch', () => {
     expect(unnamedDeskLabel({ checkout: '   ', live: true })).toBe(
       'no manifest names this desk, working',
+    );
+  });
+});
+
+describe('agentRowKey', () => {
+  const desk = (worktree: string) => ({ session: '', branch: '', worktree });
+
+  it('gives two undeclared desks two keys', () => {
+    // 2026-10-11: every synthesized entry carries `session: ''` and
+    // `branch: ''`, so the board keyed each one `branch:` and React rendered
+    // `free-28fc89a6` five times and `free-9112f95b` twice under WORKING (5).
+    const keys = [desk('/r/.worktrees/free-28fc89a6'), desk('/r/.worktrees/free-9112f95b')].map(agentRowKey);
+    expect(new Set(keys).size).toBe(2);
+  });
+
+  it('keys an entry with a session by its session', () => {
+    expect(agentRowKey({ session: 's-1', branch: 'bug/x', worktree: '/r/.worktrees/free-1' })).toBe('s-1');
+  });
+
+  it('keys a session-less entry by its desk before its branch', () => {
+    expect(agentRowKey({ session: '', branch: 'bug/x', worktree: '/r/.worktrees/free-1' })).toBe(
+      'wt:/r/.worktrees/free-1',
+    );
+  });
+
+  it('keys an entry with neither session nor desk by its branch', () => {
+    expect(agentRowKey({ session: '', branch: 'bug/x', worktree: '' })).toBe('branch:bug/x');
+  });
+
+  it('gives one desk one key whichever branch it holds', () => {
+    const wt = '/r/.worktrees/free-28fc89a6';
+    expect(agentRowKey({ session: '', branch: 'bug/a', worktree: wt })).toBe(
+      agentRowKey({ session: '', branch: 'bug/b', worktree: wt }),
     );
   });
 });

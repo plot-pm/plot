@@ -263,3 +263,31 @@ export const unnamedDeskLabel = (reading: UnnamedDeskReading): string => {
   const checkout = reading.checkout.trim();
   return checkout === '' ? `${base}, ${activity}` : `${base}, ${activity}, checked out ${checkout}`;
 };
+
+/** What {@link agentRowKey} reads from a registry entry. */
+export interface AgentRowKeyReading {
+  /** The entry's session id; `''` for a desk no manifest names. */
+  readonly session: string;
+  /** The branch the registry assigned; `''` between slices and for a synthesized entry. */
+  readonly branch: string;
+  /** The desk's path; `''` when the entry names none. */
+  readonly worktree: string;
+}
+
+/**
+ * The identity of one agent row: one desk gives one key.
+ *
+ * The session comes first, then the desk, then the branch. A synthesized
+ * entry carries `session: ''` and `branch: ''`, so every such entry shares
+ * any key built from those two fields, and React renders a key collision as
+ * duplicated rows. The desk path is unique per worktree and does not change
+ * when the desk moves to another branch.
+ *
+ * @param reading - the entry's session, branch and desk.
+ * @returns `session`, `wt:<desk>` or `branch:<branch>`, in that order of preference.
+ */
+export const agentRowKey = (reading: AgentRowKeyReading): string => {
+  if (reading.session !== '') return reading.session;
+  if (reading.worktree !== '') return `wt:${reading.worktree}`;
+  return `branch:${reading.branch}`;
+};
