@@ -961,3 +961,56 @@ describe('a red default branch holds the queue', () => {
     expect(whyNotReady(holdOf(red, 'feature/two')!, red.defaultBranchRed)).toBe('default-branch-red');
   });
 });
+
+describe('a finished plan queues nothing', () => {
+  const world = (plans: PlanRecord[], over: Partial<QueueWorld> = {}): QueueWorld => ({
+    plans: async () => plans,
+    claimedBranches: async () => new Set<string>(),
+    mergedBranches: async () => wholeListing([]),
+    prIndexRows: async () => [],
+    viewLanded: async () => 'unknown',
+    briefPresent: async () => true,
+    sliceHasMerged: async () => false,
+    subjectProven: async () => null,
+    queuedHasLanded: async () => 'not-landed',
+    workerAlive: async () => true,
+    blocked: async () => false,
+    refused: async () => false,
+    remoteHead: async () => 'absent',
+    commitSubjects: async () => ({ ok: true, value: [] }),
+    now: () => 0,
+    defaultBranch: async () => 'main',
+    ...over,
+  });
+  const waiting = (phase: string): PlanRecord => {
+    const p = plan([['feature/one']], phase) as unknown as {
+      slices: { branches: { waitsOn: string[] }[] }[];
+    };
+    p.slices[0].branches[0].waitsOn = ['feature/other'];
+    return p as unknown as PlanRecord;
+  };
+
+  it.each(['released', 'delivered'])('drops every slice of a %s plan', async (phase) => {
+    const readings = await readQueue([], world([waiting(phase)]));
+    expect(readings.slices).toEqual([]);
+  });
+
+  it('reads no brief and no landing for a finished plan', async () => {
+    const asked: string[] = [];
+    await readQueue([], world([waiting('released')], {
+      briefPresent: async (b) => (asked.push(b), true),
+      queuedHasLanded: async (b) => (asked.push(b), 'not-landed'),
+    }));
+    expect(asked).toEqual([]);
+  });
+
+  it('still queues an approved plan with the same waits shape', async () => {
+    const readings = await readQueue([], world([waiting('approved')]));
+    expect(readings.slices.map((s) => s.branch)).toEqual(['feature/one']);
+  });
+
+  it.each(['', 'design', 'unknown-word'])('does not read phase %j as finished', async (phase) => {
+    const readings = await readQueue([], world([waiting(phase)]));
+    expect(readings.slices.map((s) => s.branch)).toEqual(['feature/one']);
+  });
+});

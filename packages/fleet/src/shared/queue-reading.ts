@@ -9,6 +9,7 @@ import {
   type QueueReadings,
   type QueuedSlice,
 } from '@plot-pm/domain/rules/queue';
+import { FINISHED_PHASES } from '@plot-pm/domain/rules/eligible';
 import type { LandedAnswer } from '@plot-pm/domain/rules/landed';
 import {
   VIEWS_PER_PASS,
@@ -311,6 +312,11 @@ export const readQueue = async (
 
   const slices: QueuedSlice[] = [];
   for (const plan of plans) {
+    // A FINISHED PLAN QUEUES NOTHING. Phase is one fact about the whole plan, so
+    // the plan is skipped before any of its branches is read: no brief, no
+    // landing, no entry for `whyNotReady` to hold on `waits` or `not-claimable`.
+    // An unreadable or unrecognised phase is not finished and falls through.
+    if (FINISHED_PHASES.includes(plan.phase)) continue;
     // THE PLAN'S SLICES ARE COLLECTED BEFORE ANY IS MARKED, because the mark is
     // a statement about the plan rather than about one branch: whether a slice
     // is held behind an unanswered landing cannot be known until every earlier

@@ -58,7 +58,7 @@ const DISPATCHABLE_PHASE = 'approved';
  * evidence, and it is the evidence that survives the branch being reaped. Both
  * of that plan's outstanding slices name refs the host no longer has.
  */
-const FINISHED_PHASES: readonly string[] = ['delivered', 'released'];
+export const FINISHED_PHASES: readonly string[] = ['delivered', 'released'];
 
 /**
  * The verdict for one slice, given what it holds and what stands before it.
