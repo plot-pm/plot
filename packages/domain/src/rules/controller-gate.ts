@@ -78,7 +78,7 @@ const unpinnedProgram = (words: readonly string[]): MergeProgram | null => {
   const merges: MergeProgram | null =
     program.length > 0 && wordBasename(program[0]) === 'gh' && program.some((w, i) => w === 'pr' && program[i + 1] === 'merge')
       ? 'gh'
-      : program.some((w) => wordBasename(w) === 'plot-host.sh') && program.includes('pr-merge')
+      : program.some((w) => /^plot-host\.sh$/.test(wordBasename(w))) && program.includes('pr-merge')
         ? 'plot-host'
         : null;
   return merges !== null && !program.some((w) => isFlag(w, PIN_FLAG[merges])) ? merges : null;
