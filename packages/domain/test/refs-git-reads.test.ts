@@ -749,3 +749,46 @@ describe('refsGit: stagedPaths reads the index against HEAD', () => {
     expect(byPath.has('old-name.txt')).toBe(false);
   });
 });
+
+describe('refsGit: untrackedPaths and showPrefix', () => {
+  let dir = '';
+
+  beforeAll(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-refs-git-untracked-'));
+    git(dir, ['init', '--quiet', '--initial-branch=main']);
+    git(dir, ['config', 'user.email', 'test@example.com']);
+    git(dir, ['config', 'user.name', 'Test']);
+    fs.mkdirSync(path.join(dir, 'sub'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'tracked.txt'), 'tracked\n');
+    fs.writeFileSync(path.join(dir, '.gitignore'), 'ignored.txt\n');
+    git(dir, ['add', '-A']);
+    git(dir, ['commit', '--quiet', '-m', 'first']);
+    fs.writeFileSync(path.join(dir, 'new.txt'), 'new\n');
+    fs.writeFileSync(path.join(dir, 'ignored.txt'), 'ignored\n');
+    fs.writeFileSync(path.join(dir, 'sub/deep.txt'), 'deep\n');
+    fs.writeFileSync(path.join(dir, 'tracked.txt'), 'modified\n');
+  });
+
+  afterAll(() => {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const refs = (cwd: string) => refsGit({ repoRoot: cwd, scriptDir: path.join(dir, 'scripts') });
+
+  it('lists every untracked, unignored file for a null pathspec and not a modified tracked one', async () => {
+    const answer = await refs(dir).untrackedPaths(null);
+    expect(answer.ok && [...answer.value].sort()).toEqual(['new.txt', 'sub/deep.txt']);
+  });
+
+  it('narrows the listing to a pathspec', async () => {
+    const answer = await refs(dir).untrackedPaths('sub');
+    expect(answer.ok && answer.value).toEqual(['sub/deep.txt']);
+  });
+
+  it('answers the working directory offset from the root, with a trailing slash', async () => {
+    const atRoot = await refs(dir).showPrefix();
+    const inSub = await refs(path.join(dir, 'sub')).showPrefix();
+    expect(atRoot.ok && atRoot.value).toBe('');
+    expect(inSub.ok && inSub.value).toBe('sub/');
+  });
+});

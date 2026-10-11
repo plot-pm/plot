@@ -301,7 +301,7 @@ const gateScripts = [
 ];
 
 // A stub `board/plot-gate.mjs` beside a vendored `plot-gates.sh`: lists
-// `bundle-commit` and refuses (exit 2) the same staged-bundle condition
+// `bundle-commit` and `brief-name` and refuses (exit 2) the same staged-bundle condition
 // `probe_bundle_commit_gate` builds, so a fixture that places `plot-gates.sh`
 // proves the gate it lists the way the real bundle would.
 const placeGateBundle = (scriptsDir) => {
@@ -309,7 +309,7 @@ const placeGateBundle = (scriptsDir) => {
   mkdirSync(boardDir, { recursive: true });
   writeFileSync(
     path.join(boardDir, 'plot-gate.mjs'),
-    `if (process.argv.includes('--list')) { console.log('bundle-commit'); process.exit(0); }
+    `if (process.argv.includes('--list')) { console.log('bundle-commit'); console.log('brief-name'); process.exit(0); }
 process.exit(2);
 `,
   );
@@ -588,13 +588,22 @@ test('--verify still verifies a plugin install, where only the sibling holds the
   assert.match(out, /verified\s+plot-state-gate\.sh/);
 });
 
-// A stub brief-name gate that logs each run, then ends by `signal` on the runs
-// `diesOn` lists (1-based), and refuses (exit 2) on every other run.
+// A stub gate bundle that lists only `brief-name`, logs each run, then ends by
+// `signal` on the runs `diesOn` lists (1-based), and refuses (exit 2) on every
+// other run. The brief-name gate is reached through `plot-gates.sh`, so the
+// stub replaces the bundle `plot-gates.sh` launches.
 const signalStub = (inst, signal, diesOn) => {
   const log = path.join(path.dirname(inst), 'brief-name-gate.runs');
   writeFileSync(
-    path.join(path.dirname(inst), 'plot-brief-name-gate.sh'),
-    `#!/usr/bin/env bash\ncat >/dev/null\necho run >>'${log}'\nn=$(wc -l <'${log}')\ncase " ${diesOn.join(' ')} " in *" $((n)) "*) kill -${signal} $$ ;; esac\necho refused >&2\nexit 2\n`,
+    path.join(path.dirname(inst), 'board', 'plot-gate.mjs'),
+    `import { appendFileSync, readFileSync } from 'node:fs';
+if (process.argv.includes('--list')) { console.log('brief-name'); process.exit(0); }
+appendFileSync(${JSON.stringify(log)}, 'run\\n');
+const n = readFileSync(${JSON.stringify(log)}, 'utf8').trim().split('\\n').length;
+if (${JSON.stringify(diesOn)}.includes(n)) process.kill(process.pid, ${JSON.stringify('SIG' + signal)});
+console.error('refused');
+process.exit(2);
+`,
   );
   return () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').length : 0);
 };
