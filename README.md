@@ -107,7 +107,7 @@ Plot answers both without adding a database.
 
 **`/plot-pulse` — a dead agent and a slow one look identical from outside.** Re-reads git every run and reports which waves are complete, eligible or blocked, and which branches are claimed. It also surfaces a blocker that only exists once work is parallel — *approved, and nobody has taken it* — which no ticket board has a column for. Read-only.
 
-**`/plot-fleet` — a supervisor nobody starts supervises nothing.** Starts, stops and reports on `plot-registryd` and the agents that run on this machine. It probes before it acts and refuses rather than repairs, and `--stop` orchestrates the one existing stop rule per branch rather than adding a laxer second one. Processes, not slices — the estate is `/plot-pulse`'s question.
+**`/plot-fleet` — a supervisor nobody starts supervises nothing.** Starts, stops and reports on `plot-fleetd` and the agents that run on this machine. It probes before it acts and refuses rather than repairs, and `--stop` orchestrates the one existing stop rule per branch rather than adding a laxer second one. Processes, not slices — the estate is `/plot-pulse`'s question.
 
 **`/plot-dispatch` — fanning out is a decision, not a mechanical step.** Gives each eligible branch its own worktree and a detached worker, each claimed by ref push. Deliberately a command you run rather than something on a timer, because four agents mean four pull requests somebody has to read.
 

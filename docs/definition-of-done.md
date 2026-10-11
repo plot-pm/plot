@@ -65,7 +65,7 @@ in the diff, from either side, fails the PR rather than only a stale one.
 `board-server.mjs` alone until 2026-09-06 while `build.mjs` grew to 36
 outputs, and not one of the others arrived here on its own. Measured on one
 rebase, 2026-09-05: the marked file took zero conflict markers, `plot-ask.mjs`
-took five and `plot-registryd.mjs` took three, spliced into generated output
+took five and `plot-registryd.mjs` (since renamed `plot-fleetd.mjs`) took three, spliced into generated output
 that is committable, pushable, and not JavaScript.
 `scripts/check-bundle-attributes.sh` now reads the build's own
 `shippedX = path.join(…)` declarations and fails when one is unmarked, so

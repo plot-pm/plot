@@ -8,9 +8,8 @@ import type { FleetReading } from '../entities/fleet.js';
  * service — it reads and writes one local file — so it sits beside
  * `PrIndexStore` rather than beside `Host`.
  *
- * **ONE WRITER.** After `the-fleet-owns-the-scan-and-pr-index`, `plot-fleetd`
- * is the only process that calls `write`. The board reads; it does not write
- * while a fleet is running. Two writers would race on the same file, and
+ * **ONE WRITER.** `plot-fleetd` is the only process that calls `write`. The
+ * board reads and does not write while a fleet is running. Two writers would race on the same file, and
  * `rename` is atomic only for the write itself, never for the read-decide-write
  * sequence around it.
  *
@@ -62,9 +61,9 @@ export interface FleetState {
 /**
  * What survives a restart: the pulse and the facts read on its own timer.
  *
- * The shape `pulse-bridge.ts` defined before this port existed, plus `prError`
- * — seven fields, all written together on every success so a thin or partial
- * write can never become the bridge's final content.
+ * Seven fields covering the pulse and the facts read on their own timer, all
+ * written together on every success so a thin or partial write can never
+ * become the bridge's final content.
  */
 export interface BridgedPulse {
   /** Epoch ms the scan that produced this completed — NOT when it was written. */

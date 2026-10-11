@@ -10,7 +10,7 @@ the word it had always printed: the skill said *pulse* 26 times, its step 5 is
 *Append a Pulse Line*, and the scan ends with `Pulse complete.`
 
 `/plot-fleet` is now fleet control — `--start`, `--stop`, `--status`, `--once`
-over `plot-registryd` and the agents. The split is machine against estate: that
+over `plot-fleetd` and the agents. The split is machine against estate: that
 command answers *what is running here*, this one answers *what does the estate
 hold*. No alias was left behind; the name is reused, and one that answered a
 pulse would give the old behaviour to somebody asking for the new one.
