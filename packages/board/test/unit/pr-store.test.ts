@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { rmTree } from '../helpers.mjs';
 import { refreshPrs, freshCacheEntry, type CacheEntry, type PrRecord } from '../../src/server/fleet.js';
+import { prIndexFile } from '@plot-pm/domain/adapters';
 import { decodePrIndex, PR_INDEX_VERSION, type PrIndex } from '@plot-pm/domain';
 
 // THE SUBJECT: `refreshPrs` reads a durable store before its host call and
@@ -122,7 +123,7 @@ const refresh = async (
   // The gate is not consulted: `refreshPrs` is called directly, which is why it
   // is exported. Driving it through `maybeRefreshPrs` would prove the cadence
   // gate was open and nothing about the store.
-  await refreshPrs({ repoRoot: scriptsDir, scriptsDir }, entry);
+  await refreshPrs({ repoRoot: scriptsDir, scriptsDir }, entry, prIndexFile({ cwd: scriptsDir }));
   return entry;
 };
 

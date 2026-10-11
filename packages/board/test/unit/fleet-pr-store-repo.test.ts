@@ -69,7 +69,7 @@ const seedStore = async (repoRoot: string, row: { number: number; head: string }
 const refresh = async (repoRoot: string, scriptsDir: string): Promise<CacheEntry> => {
   const entry = freshCacheEntry();
   entry.backend = 'github';
-  await refreshPrs({ repoRoot, scriptsDir }, entry);
+  await refreshPrs({ repoRoot, scriptsDir }, entry, prIndexFile({ cwd: repoRoot }));
   return entry;
 };
 
