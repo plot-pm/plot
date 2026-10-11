@@ -26,17 +26,22 @@ const message = (name: string, branch: string) => ({ type: 'finding', finding: f
 const fixture = (on: On, options: { exitCode?: number } = {}) => {
   const queue: ({ json: unknown } | { raw: string } | null)[] = [];
   let wake: (() => void) | undefined;
-  const seen = { spawned: [] as string[][], turns: [] as string[], toasts: [] as string[], statuses: [] as (string | undefined)[], processRuns: 0 };
+  const seen = { spawned: [] as string[][], turns: [] as string[], toasts: [] as string[], statuses: [] as (string | undefined)[], processRuns: 0, closed: 0 };
 
   on('session.start', (_$, e) => ({ cwd: e.cwd }));
   on('process.spawn', async function* ($, e) {
     seen.spawned.push([...e.argv]);
     if (options.exitCode !== undefined) return { code: options.exitCode, signal: null };
-    for (;;) {
-      while (queue.length === 0) await new Promise<void>((resolve) => (wake = resolve));
-      const next = queue.shift();
-      if (next === null) return { code: 0, signal: null };
-      yield { stream: 'stdout' as const, text: 'raw' in next ? next.raw : `${JSON.stringify(next.json)}\n` };
+    try {
+      for (;;) {
+        while (queue.length === 0) await new Promise<void>((resolve) => (wake = resolve));
+        const next = queue.shift();
+        if (next === null || next === undefined) return { code: 0, signal: null };
+        yield { stream: 'stdout' as const, text: 'raw' in next ? next.raw : `${JSON.stringify(next.json)}\n` };
+      }
+    } finally {
+      // Runs when the reader closes the iterator early; the process is gone.
+      seen.closed += 1;
     }
   });
   on('process.run', () => {
@@ -289,6 +294,7 @@ describe('plot-follow', () => {
     channel.feedRaw('this is not json\n');
     await clock.settle();
 
+    expect(channel.seen.closed).toBe(1);
     expect(channel.seen.statuses.at(-1)).toBe('fleet channel: not running');
     // The retry tick starts a new follower only when the old one is gone.
     await clock.advance(30_000);
