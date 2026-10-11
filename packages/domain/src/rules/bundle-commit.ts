@@ -15,7 +15,7 @@ const NEVER_REFUSED = new Set(['packages/board/src/contract/bundles.generated.ts
  * `const shippedX = path.join(here, '../../<path>')`. The capture is the
  * quoted argument; only one that starts with `../../` names a repository path.
  */
-const SHIPPED_DECLARATION = /shipped[A-Za-z]* = path\.join\([^)]*'([^']*)'\)/g;
+const SHIPPED_DECLARATION = /shipped[A-Za-z]* = path\.join\([^)]*'\.\.\/\.\.\/([^']+)'\)/g;
 
 /**
  * The generated bundle paths a `packages/board/build.mjs` declares, relative to
@@ -33,10 +33,8 @@ const SHIPPED_DECLARATION = /shipped[A-Za-z]* = path\.join\([^)]*'([^']*)'\)/g;
 export const shippedPathsOf = (buildText: string): readonly string[] => {
   const found = new Set<string>();
   for (const match of buildText.matchAll(SHIPPED_DECLARATION)) {
-    const raw = match[1] ?? '';
-    if (!raw.startsWith('../../')) continue;
-    const relative = raw.slice('../../'.length);
-    if (relative !== '') found.add(relative);
+    // The pattern's one group always takes part in a match.
+    found.add(match[1] as string);
   }
   return [...found].sort();
 };

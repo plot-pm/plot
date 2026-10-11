@@ -187,6 +187,7 @@ describe('shippedPathsOf', () => {
     const text = [
       "const entry = path.join(here, '../../src/entry.ts');",
       "const shippedLocal = path.join(here, 'local.mjs');",
+      "const shippedEmpty = path.join(here, '../../');",
     ].join('\n');
     expect(shippedPathsOf(text)).toEqual([]);
   });
