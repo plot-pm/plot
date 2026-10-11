@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { answerLine, run } from '../../src/server/entry/desk-loop.js';
 import { readDeskLoop } from '../../src/shared/desk-loop.js';
+import { removeTree } from '../rm-tree.mjs';
 
 // A pid above every platform's pid limit: `kill -0` answers ESRCH for it.
 const DEAD = '99999999';
@@ -14,7 +15,7 @@ beforeEach(() => {
   desk = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-desk-loop-'));
 });
 afterEach(() => {
-  fs.rmSync(desk, { recursive: true, force: true });
+  removeTree(desk);
 });
 
 const write = (name: string, text: string): void => fs.writeFileSync(path.join(desk, name), text);
