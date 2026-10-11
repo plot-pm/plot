@@ -2346,8 +2346,7 @@ if [ "$mode" = "start" ]; then
   if [ -n "${PLOT_START_ONE:-}" ]; then
     start_count=1
   else
-  start_running=$(git worktree list --porcelain </dev/null 2>/dev/null | awk '/^worktree /{print $2}' | plot_desk_loops --count) \
-    || { echo "plot-dispatch: could not count the live loops on this machine — starting none." >&2; exit 1; }
+  start_running=$(git worktree list --porcelain </dev/null 2>/dev/null | awk '/^worktree /{print $2}' | plot_desk_loops --count) || start_running=""
   fi
 
   # THE MACHINE'S OWN READING, one timed fork. `machine-system.ts` samples five
@@ -2408,8 +2407,13 @@ if [ "$mode" = "start" ]; then
   # missing node, a module that throws all leave the answer empty. The direction
   # is the reaper's: silence is never permission, and here permission would spawn
   # detached processes.
-  start_bundle="$script_dir/board/plot-fleet-size.mjs"
-  start_answer=$(printf '%s\t%s\t%s' "$start_count" "$start_running" "$start_cost" \
+  #
+  # A COUNT THAT CANNOT BE READ IS THE SAME REFUSAL: an empty `start_running`
+  # means `plot-desk-loop.mjs` answered nothing, and the refusal below names
+  # that bundle, because an undercount would start too many agents.
+  start_bundle="$script_dir/board/plot-fleet-size.mjs" start_answer=""
+  [ -n "$start_running" ] || start_bundle="$script_dir/board/plot-desk-loop.mjs"
+  [ -z "$start_running" ] || start_answer=$(printf '%s\t%s\t%s' "$start_count" "$start_running" "$start_cost" \
                  | node "$start_bundle" 2>/dev/null)
 
   if [ -z "$start_answer" ]; then
