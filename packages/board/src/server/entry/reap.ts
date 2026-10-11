@@ -244,7 +244,7 @@ request, and 24 h is about 1,000 times the scan's 90 s timeout.
 `;
 
 /** Where the ports and scripts this entry needs live. */
-interface Context {
+export interface Context {
   repoRoot: string;
   /** The checkout the reaper runs from, `--show-toplevel` of its cwd; never reaped. */
   invokedFrom: string;
@@ -401,8 +401,7 @@ const runSweepTemp = async (
     return 2;
   }
   const hours = Number(rawHours);
-  const root = (process.env.TMPDIR ?? '/tmp').replace(/\/$/, '');
-  const me = process.env.USER ?? process.env.LOGNAME ?? '';
+  const root = (process.env.TMPDIR || '/tmp').replace(/\/$/, '');
   const cutoffMs = Date.now() - hours * 60 * 60 * 1000;
 
   let swept = 0;
@@ -418,11 +417,11 @@ const runSweepTemp = async (
   };
 
   const ownedByMe = (entryPath: string): boolean => {
-    if (me === '' || process.getuid === undefined) return true;
+    if (process.getuid === undefined) return true;
     try {
       return statSync(entryPath).uid === process.getuid();
     } catch {
-      return true;
+      return false;
     }
   };
 
@@ -999,7 +998,7 @@ const runClaimKind = async (
 // KIND 4 — DIRTY TREES NOBODY OWNS (reported, never deleted)
 // ===========================================================================
 
-const runDirtyKind = async (ctx: Context, manifestDir: string, write: Printer): Promise<number> => {
+export const runDirtyKind = async (ctx: Context, manifestDir: string, write: Printer): Promise<number> => {
   write('\n-- dirty trees nobody owns --\n');
   let dirtyTrees = 0;
 
@@ -1010,8 +1009,10 @@ const runDirtyKind = async (ctx: Context, manifestDir: string, write: Printer): 
     // The main checkout is a person's desk, and its dirt is work in progress.
     if (tree.isMain) continue;
 
-    const dirtyPaths = await ctx.trees.dirtyPaths(tree.path);
-    const dirtyCount = dirtyPaths.ok ? dirtyPaths.value.length : 0;
+    const dirtyPaths = await ctx.trees.dirtyPathsWithStatus(tree.path);
+    const dirtyCount = dirtyPaths.ok
+      ? dirtyPaths.value.map((p) => p.slice(3)).filter((p) => !p.includes('PLOT-BLOCKED')).length
+      : 0;
     if (dirtyCount <= 0) continue;
 
     const pid = await deskWorkerPid(ctx.processes, tree.path);
