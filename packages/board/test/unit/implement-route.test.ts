@@ -31,6 +31,7 @@ import {
   type ImplementRefusal,
 } from '../../src/server/implement.js';
 import { rmTree } from '../helpers.mjs';
+import { boardRunsSettled } from '../../src/server/board-run.js';
 
 const SCRIPTS = path.resolve(__dirname, '../../../../skills/plot/scripts');
 const SLUG = 'an-approved-plan-offers-its-two-starts';
@@ -205,6 +206,17 @@ describe('an action that cannot work is not offered', () => {
   });
 });
 
+describe('a second start while the first lives', () => {
+  it('is refused 409 and leaves the first run\'s log alone', async () => {
+    const dir = repo();
+    const first = await post({ repoRoot: dir, command: 'sleep 1' });
+    assert.equal(first.status, 202);
+    const second = await post({ repoRoot: dir, command: 'sleep 1' });
+    assert.equal(second.status, 409);
+    await boardRunsSettled();
+  });
+});
+
 describe('the controller names the branch before the writer starts', () => {
   const BRANCH = 'feature/the-first-slice';
 
@@ -230,6 +242,8 @@ describe('the controller names the branch before the writer starts', () => {
   it('forgets an earlier run\'s branch when a later run names none', async () => {
     const dir = repo();
     await post({ repoRoot: dir, branch: BRANCH });
+    // The first run holds the slug's lock until it ends; a second start while it lives is refused.
+    await boardRunsSettled();
     await post({ repoRoot: dir, branch: null });
     assert.ok(!fs.existsSync(implementBranchRecordPath(dir, SLUG)));
   });

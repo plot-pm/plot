@@ -136,14 +136,17 @@ export const writeState = (statePath: string | null, code: number): void => {
  *
  * @param statePath - the run's state file.
  * @param logFile - the run's log, where a board exit names itself.
- * @throws where the state file cannot be written.
+ * @param exclusive - create the file with `O_EXCL`, so a file already there is
+ *   left untouched; this is how a run takes a lock another process can read.
+ * @throws where the state file cannot be written; `EEXIST` where `exclusive`
+ *   and the file exists.
  */
-export const markBoardRun = (statePath: string, logFile: string): void => {
+export const markBoardRun = (statePath: string, logFile: string, exclusive = false): void => {
   if (!exitListenerInstalled) {
     exitListenerInstalled = true;
     process.on('exit', endHeldRuns);
   }
-  fs.writeFileSync(statePath, `running ${process.pid}`, 'utf8');
+  fs.writeFileSync(statePath, `running ${process.pid}`, { encoding: 'utf8', flag: exclusive ? 'wx' : 'w' });
   held.set(statePath, logFile);
 };
 
@@ -271,7 +274,7 @@ export interface RunState {
 export const STOPPED_RECORD = 'on the board stopping before the run ended';
 
 /** Whether a process with this pid exists. */
-const alive = (pid: number): boolean => {
+export const alive = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
     return true;

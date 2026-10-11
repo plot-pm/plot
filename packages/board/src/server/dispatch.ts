@@ -3,9 +3,9 @@ import http from 'node:http';
 import type { BuildBoardOptions } from './board.js';
 import { readConfig, scriptsFor } from './board.js';
 import { readTail, type LogMissReason } from './worker-log.js';
-import { nextBriefBranch } from './implement.js';
+import { pulseFor } from './fleet.js';
 import { localCapability } from './controllers/caller.js';
-import { startDispatch } from '@plot-pm/fleet/shared/dispatch-command';
+import { briefBranchFromPulse, startDispatch } from '@plot-pm/fleet/shared/dispatch-command';
 
 /**
  * The board's ONE state-changing route.
@@ -226,7 +226,7 @@ export function dispatchLogExists(repoRoot: string, slug: string): boolean {
 export interface DispatchDeps {
   /** Read a Plot Config key, or return the fallback. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
-  /** The branch to brief for a plan; `nextBriefBranch` where absent. */
+  /** The branch to brief for a plan; `briefBranchFromPulse` over the board's pulse where absent. */
   briefBranch?: (opts: BuildBoardOptions, slug: string) => string | null;
 }
 
@@ -349,7 +349,7 @@ export async function handleDispatch(
     opts: { ...opts, scripts: scriptsFor(opts) },
     slug,
     readCfg,
-    briefBranch: (s) => (deps.briefBranch ?? nextBriefBranch)(opts, s),
+    briefBranch: (s) => (deps.briefBranch ?? ((o, slug) => briefBranchFromPulse(pulseFor(o), slug)))(opts, s),
   });
   if (started.kind === 'refused') {
     const { status, kind: _kind, ...refusal } = started;

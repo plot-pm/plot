@@ -29,7 +29,7 @@ export {
   startImplement,
   type ImplementStartFailure,
 };
-import { startableBranches } from '@plot-pm/domain';
+import { briefBranchFromPulse } from '@plot-pm/fleet/shared/dispatch-command';
 import { pulseFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { lastLines, usableCommand, type IdeaState } from './idea.js';
@@ -65,21 +65,6 @@ import { localCapability } from './controllers/caller.js';
  * process on the machine the board runs on, so it is deliberately the same
  * shape as the seven beside it and not an eighth one.
  */
-
-/**
- * The branch a brief writer for this plan should brief: the first branch of the
- * first eligible slice that is startable and unclaimed, by the rule auto-dispatch
- * counts with ({@link startableBranches}).
- *
- * @param opts - the board's options.
- * @param slug - the plan slug.
- * @returns the branch, or `null` where the board has no reading or no branch is eligible.
- */
-export const nextBriefBranch = (opts: BuildBoardOptions, slug: string): string | null => {
-  const pulse = pulseFor(opts);
-  if (!pulse) return null;
-  return startableBranches(pulse, slug, new Set())[0] ?? null;
-};
 
 /** Why implementing a plan was refused — each sends the reader somewhere different. */
 export type ImplementRefusal =
@@ -181,7 +166,7 @@ export const implementStatus = (opts: BuildBoardOptions, slug: string): Implemen
 export interface ImplementDeps {
   /** The configured `Implement command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
-  /** The branch to brief for a plan; {@link nextBriefBranch} where absent. */
+  /** The branch to brief for a plan; `briefBranchFromPulse` over the board's pulse where absent. */
   briefBranch?: (opts: BuildBoardOptions, slug: string) => string | null;
 }
 
@@ -267,10 +252,10 @@ export async function handleImplement(
   // copy; the two drifted in the one way that mattered — only this one wrote
   // the state file the status route reads — so the child belongs to
   // `startImplement` and both callers get the same log, bound and recording.
-  const branch = (deps.briefBranch ?? nextBriefBranch)(opts, slug);
+  const branch = (deps.briefBranch ?? ((o, s) => briefBranchFromPulse(pulseFor(o), s)))(opts, slug);
   const started = startImplement(opts, slug, usable, undefined, readCfg, branch);
   if ('failure' in started) {
-    json(500, { error: started.failure.detail });
+    json(started.failure.running ? 409 : 500, { error: started.failure.detail });
     return;
   }
   const { log } = started;

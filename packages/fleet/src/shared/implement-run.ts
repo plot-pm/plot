@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { agentLogPath } from './agent-log.js';
-import { markBoardRun, startBoardRun, writeState, type BoardConfigReader } from './board-run.js';
+import { alive, markBoardRun, startBoardRun, writeState, type BoardConfigReader } from './board-run.js';
 import { readConfig, type ConfigReadOptions } from './config-reader.js';
 
 /**
@@ -32,22 +32,20 @@ import { readConfig, type ConfigReadOptions } from './config-reader.js';
 export const IMPLEMENT_COMMAND_KEY = 'Implement command';
 
 /** Where the command's own words go — the neighbourhood `idea` established. */
-export function implementLogPath(repoRoot: string, slug: string): string {
-  return agentLogPath(repoRoot, 'implement', slug, 'log');
-}
+export const implementLogPath = (repoRoot: string, slug: string): string =>
+  agentLogPath(repoRoot, 'implement', slug, 'log');
 
 /**
  * Where the outcome is recorded, so a later GET can read it back.
  *
  * EXPORTED since `a-dispatch-does-not-hold-the-loop`, because `/api/dispatch`
  * runs the same command into the same log and now reads its outcome back
- * through {@link implementStatus}. A dispatch that left this file alone would
+ * through the state file. A dispatch that left this file alone would
  * be read through an earlier `/api/implement`'s exit code — or, with no earlier
  * run, as `running` forever, since the log exists and no state file does.
  */
-export function implementStatePath(repoRoot: string, slug: string): string {
-  return agentLogPath(repoRoot, 'implement', slug, 'state');
-}
+export const implementStatePath = (repoRoot: string, slug: string): string =>
+  agentLogPath(repoRoot, 'implement', slug, 'state');
 
 /**
  * Where the outcome of the run that briefed ONE branch is recorded, beside the
@@ -98,9 +96,8 @@ export const readImplementBranch = (repoRoot: string, slug: string): string | nu
  * own slice as double-assigned. The claim belongs to the agent, which pushes it
  * at take-up (`plot-worker-loop.sh`).
  */
-export function composeImplementPrompt(slug: string): string {
-  return `Run /plot-implement ${slug} --brief-only and follow it.`;
-}
+export const composeImplementPrompt = (slug: string): string =>
+  `Run /plot-implement ${slug} --brief-only and follow it.`;
 
 /**
  * How long a `/plot-implement` child may run before it is killed.
@@ -114,51 +111,52 @@ export function composeImplementPrompt(slug: string): string {
 export const IMPLEMENT_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
- * The slugs whose implement child is alive in THIS server, and the lock the
- * dispatch route takes.
+ * Whether an implement run for `slug` is alive, in any process on this machine.
  *
- * NOT `implementStatus`, and the difference is a defect this nearly shipped.
- * That function answers *what happened to the implement I started?*, where
- * `running` means *a log exists and no outcome was recorded* — the honest
- * answer for a read-back, and wrong as a lock. Measured while building
- * `a-dispatch-does-not-hold-the-loop`: a log left behind by an earlier run,
- * with no state file and no process, read as `running` forever and refused
- * every later dispatch of that slug. A file cannot tell a live child from an
- * abandoned one; a handle can.
+ * Reads the plan-keyed state file {@link startImplement} takes with `O_EXCL`
+ * and answers `true` only where it reads `running <pid>` and that pid is
+ * alive. A recorded exit code, a missing file and a dead pid all read as not
+ * running, so a crashed run does not hold its slug.
  *
- * Process-local, and that is the honest scope. Two boards on one repository
- * would not see each other's children — but two boards on one repository is a
- * shape `plot-boardctl.sh` already refuses, and the case this guards is a
- * second click on the ONE board, which the client's in-flight ref does not
- * cover because it lives in one tab and one render.
+ * NOT {@link readRunState}: that answers *what happened to the run I started?*,
+ * and reads a log with no state file as `running`. A lock must not.
  *
- * Entries are deleted when the run ends, so a failed run frees its slug and a
- * restarted server starts empty rather than inheriting a lie.
+ * @param repoRoot - absolute path to the repository root.
+ * @param slug - the plan slug.
+ * @returns whether a live process holds the slug's implement lock.
  */
-const running = new Set<string>();
-
-/** Whether an implement child started by this server is still alive for `slug`. */
-export function implementRunning(slug: string): boolean {
-  return running.has(slug);
-}
+export const implementRunning = (repoRoot: string, slug: string): boolean => {
+  let recorded: string;
+  try {
+    recorded = fs.readFileSync(implementStatePath(repoRoot, slug), 'utf8').trim();
+  } catch {
+    return false;
+  }
+  const marker = /^running (\d+)$/.exec(recorded);
+  return marker !== null && alive(Number(marker[1]));
+};
 
 /** What {@link startImplement} could not do before the child existed. */
 export interface ImplementStartFailure {
   /** The message to report, already suitable for an operator. */
   detail: string;
+  /** Set where another live run holds the slug's lock, so the caller refuses rather than fails. */
+  running?: true;
 }
 
 /**
  * Start `/plot-implement <slug>` through the `agentRun` port, and record its
- * outcome where {@link implementStatus} reads it back.
+ * outcome where {@link readRunState} reads it back.
  *
  * ONE START FOR TWO ROUTES. `/api/implement` and `/api/dispatch` run the SAME
  * command through the SAME prompt into the SAME log, so the state file the
  * status route reads is written for both.
  *
- * The log is TRUNCATED and the state file marked `running <board pid>` before
- * the run starts: both are read back as the answer, and a stale one reports a
- * previous attempt's outcome for this one. The run stays in the board's
+ * The state file is TAKEN with `O_EXCL` as `running <pid>` first, and the log
+ * truncated second: a start that loses the race to a live run fails with
+ * `running` set and has destroyed nothing of the winner's. A file left by a
+ * finished or dead run is removed before the take. Both files are read back as
+ * the answer, and a stale one reports a previous attempt's outcome for this one. The run stays in the board's
  * process group, bounded by {@link IMPLEMENT_TIMEOUT_MS}; a run ended on the
  * bound records `124`.
  *
@@ -185,23 +183,33 @@ export const startImplement = (
   const statePath = implementStatePath(opts.repoRoot, slug);
   const branchStatePath = branch === null ? null : implementBranchStatePath(opts.repoRoot, slug, branch);
   try {
+    if (implementRunning(opts.repoRoot, slug)) throw Object.assign(new Error('running'), { code: 'EEXIST' });
+    fs.rmSync(statePath, { force: true });
+    markBoardRun(statePath, log, true);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+      return {
+        failure: { detail: `an implement for \`${slug}\` is already running — see ${log}`, running: true },
+      };
+    }
+    return { failure: { detail: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` } };
+  }
+  try {
     // Truncated, not appended — this log is read back AS the answer, and an
     // appended one would show a previous attempt's error after a later success.
-    fs.rmSync(statePath, { force: true });
     fs.rmSync(implementBranchRecordPath(opts.repoRoot, slug), { force: true });
     fs.writeFileSync(log, '', 'utf8');
-    markBoardRun(statePath, log);
     if (branch !== null && branchStatePath !== null) {
       fs.writeFileSync(implementBranchRecordPath(opts.repoRoot, slug), branch, 'utf8');
       markBoardRun(branchStatePath, log);
     }
   } catch (err) {
+    writeState(statePath, 1);
     return { failure: { detail: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}` } };
   }
 
   // NOTHING from the request is interpolated into a shell string: the prompt
   // names the slug, which is `SLUG_RE`-bounded, and travels as ONE argument.
-  running.add(slug);
   void startBoardRun(
     opts,
     {
@@ -224,9 +232,8 @@ export const startImplement = (
       boundSeconds: IMPLEMENT_TIMEOUT_MS / 1000,
     },
     (record) => {
-      // RELEASED FIRST, before anything that can throw. A slug held by a run
-      // that has ended is a slug nothing can dispatch again.
-      running.delete(slug);
+      // The plan-keyed state file already records the end, which releases the
+      // slug; the branch-keyed one follows before anything that can throw.
       writeState(branchStatePath, record.code);
       onExit?.(record.code);
     },

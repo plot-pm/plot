@@ -98,7 +98,7 @@ export const startDispatch = (input: DispatchInput): DispatchStart => {
     };
   }
   const implementLog = implementLogPath(opts.repoRoot, slug);
-  if (implementRunning(slug)) {
+  if (implementRunning(opts.repoRoot, slug)) {
     return {
       kind: 'refused',
       status: 409,
@@ -142,6 +142,10 @@ export const startDispatch = (input: DispatchInput): DispatchStart => {
     readCfg,
     input.briefBranch(slug),
   );
-  if ('failure' in started) return { kind: 'failed', error: started.failure.detail };
+  if ('failure' in started) {
+    return started.failure.running
+      ? { kind: 'refused', status: 409, reason: 'implement-running', detail: started.failure.detail, log: implementLog }
+      : { kind: 'failed', error: started.failure.detail };
+  }
   return { kind: 'started', implementLog, dispatchLog, ended };
 };
