@@ -148,7 +148,7 @@ A `bash -x` trace of `--status` (20:20 CEST, load average 19.56) shows two separ
 
 ### A failed delivery retries
 
-- `bug/a-failed-delivery-retries` — a delivery mark expires when its delivery fails, `planAutoDeliver` moves into `packages/domain/src/rules/`, the in-flight file is written only on change, a test fails when the `fleetAutoWrites` wiring is removed, and the board's unused `machine-reading.ts` goes; answers #1453 M1, M2, L1, L2, L3 <!-- builds: planAutoDeliver as a domain rule -->
+- `bug/a-failed-delivery-retries` → #1572 — a delivery mark expires when its delivery fails, `planAutoDeliver` moves into `packages/domain/src/rules/`, the in-flight file is written only on change, a test fails when the `fleetAutoWrites` wiring is removed, and the board's unused `machine-reading.ts` goes; answers #1453 M1, M2, L1, L2, L3 <!-- builds: planAutoDeliver as a domain rule -->
 
 ### The log reads the fresher file
 

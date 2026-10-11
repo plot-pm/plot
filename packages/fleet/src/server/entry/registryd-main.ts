@@ -2112,7 +2112,11 @@ export const run = async (
 
   for (;;) {
     if (stop()) {
+      // THE CLOCK'S RUNS END BEFORE THE DAEMON DOES. `stop()` cancels the next
+      // beat only; a scan already started still runs its automatic writes, and
+      // they write `.plot/state/` after `run` returned.
       scanClock?.stop();
+      await scanClock?.idle();
       await slot.channel?.stop();
       return 0;
     }

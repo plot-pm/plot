@@ -576,20 +576,24 @@ test('--verify still verifies a plugin install, where only the sibling holds the
 // `signal` on the runs `diesOn` lists (1-based), and refuses (exit 2) on every
 // other run. The brief-name gate is reached through `plot-gates.sh`, so the
 // stub replaces the bundle `plot-gates.sh` launches.
-const signalStub = (inst, signal, diesOn) => {
+const signalStub = (inst, signal, diesOn, permitsOn = []) => {
   const log = path.join(path.dirname(inst), 'brief-name-gate.runs');
   writeFileSync(
     path.join(path.dirname(inst), 'board', 'plot-gate.mjs'),
     `import { appendFileSync, readFileSync } from 'node:fs';
 if (process.argv.includes('--list')) { console.log('brief-name'); console.log('phase'); process.exit(0); }
-appendFileSync(${JSON.stringify(log)}, 'run\\n');
+appendFileSync(${JSON.stringify(log)}, process.cwd() + '\\n');
 const n = readFileSync(${JSON.stringify(log)}, 'utf8').trim().split('\\n').length;
 if (${JSON.stringify(diesOn)}.includes(n)) process.kill(process.pid, ${JSON.stringify('SIG' + signal)});
+if (${JSON.stringify(permitsOn)}.includes(n)) process.exit(0);
 console.error('refused');
 process.exit(2);
 `,
   );
-  return () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').length : 0);
+  const dirs = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []);
+  const runs = () => dirs().length;
+  runs.dirs = dirs;
+  return runs;
 };
 
 test('--verify reads a gate a signal ended once, then refused, as verified', () => {
@@ -607,6 +611,41 @@ test('--verify reads a gate a signal ended once, then refused, as verified', () 
   assert.match(out, /^verified — \d+ gate\(s\) refused a guarded write; 1 could not be proved here/m);
 });
 
+test('--verify retries a signal-ended probe in a fresh repository', () => {
+  const { consumer, installer: inst } = splitInstall({ siblingGates: true });
+  const runs = signalStub(inst, 'KILL', [1]);
+
+  const { out } = runAt(consumer, inst, ['--verify']);
+  const [first, second] = runs.dirs();
+  assert.equal(runs.dirs().length, 2, `the probe runs twice (out: ${out})`);
+  assert.notEqual(first, second, 'the retry runs in a different scratch repository');
+});
+
+test('--verify reads a gate a signal ended once, then permitted, as unverified', () => {
+  // A probe that permitted never demonstrated a refusal.
+  const { consumer, installer: inst } = splitInstall({ siblingGates: true });
+  const runs = signalStub(inst, 'KILL', [1], [2]);
+
+  const { code, out } = runAt(consumer, inst, ['--verify']);
+  assert.equal(runs(), 2, `a signal-ended probe runs exactly once more (out: ${out})`);
+  assert.match(out, /unverified\s+plot-brief-name-gate\.sh — did NOT refuse a guarded write/);
+  assert.equal(code, 3, `a permitting gate fails --verify (out: ${out})`);
+});
+
+test('--verify names the exit code of a gate that exits 255 itself, without claiming a signal', () => {
+  const { consumer, installer: inst } = splitInstall({ siblingGates: true });
+  writeFileSync(
+    path.join(path.dirname(inst), 'board', 'plot-gate.mjs'),
+    `if (process.argv.includes('--list')) { console.log('brief-name'); process.exit(0); }
+process.exit(255);
+`,
+  );
+
+  const { out } = runAt(consumer, inst, ['--verify']);
+  assert.match(out, /unverified\s+plot-brief-name-gate\.sh — exited 255 twice \(128 or more\)/);
+  assert.doesNotMatch(out, /a signal ended/);
+});
+
 for (const [signal, rc] of [['SEGV', 139], ['ABRT', 134], ['KILL', 137]]) {
   test(`--verify reads a gate SIG${signal} ends twice (exit ${rc}) as unverified and exits 3`, () => {
     // A gate that crashes on every run permits every write: Claude Code reads
@@ -616,7 +655,8 @@ for (const [signal, rc] of [['SEGV', 139], ['ABRT', 134], ['KILL', 137]]) {
 
     const { code, out } = runAt(consumer, inst, ['--verify']);
     assert.equal(runs(), 2, `the probe runs twice and no more (out: ${out})`);
-    assert.match(out, /unverified\s+plot-brief-name-gate\.sh — a signal ended the gate twice/);
+    assert.match(out, /unverified\s+plot-brief-name-gate\.sh — exited \d+ twice \(128 or more\)/);
+    assert.match(out, new RegExp(`exited ${rc} twice`));
     assert.doesNotMatch(out, /^verified/m, `a crashing gate never reads as verified (out: ${out})`);
     assert.equal(code, 3, `a gate a signal ends twice fails --verify (out: ${out})`);
     assert.match(out, /^unverified — \d+ gate\(s\) proved, 1 FAILED, 1 unprovable here/m);

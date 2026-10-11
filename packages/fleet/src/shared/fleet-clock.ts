@@ -30,6 +30,16 @@ export interface FleetClockWork {
   prs?: () => Promise<void>;
 }
 
+/** The fleet's running clock: the pulse, plus a wait for the runs it started. */
+export interface RunningFleetClock extends RunningPulse {
+  /**
+   * Resolves once no scan and no PR refresh is in flight. A run's own
+   * children and writes, such as the automatic writes after a scan, end
+   * before it resolves. Call it after `stop()`, so no new beat starts a run.
+   */
+  idle: () => Promise<void>;
+}
+
 /**
  * Starts the fleet's own clock: the scan on every beat and the PR refresh on
  * every twelfth, apart from the supervision tick.
@@ -43,26 +53,33 @@ export interface FleetClockWork {
  * @param work - what each subscriber runs. A rejection is contained and
  *   warned: it ends that run and leaves the guard open for the next beat.
  * @param warn - receives a one-line reason when a subscriber's run rejects.
- * @returns the running pulse; `stop()` cancels it.
+ * @returns the running pulse; `stop()` cancels its beats, and `idle()`
+ *   resolves once every run already started has ended.
  */
 export const startFleetClock = (
   clock: Clock,
   work: FleetClockWork,
   warn: (line: string) => void = () => undefined,
-): RunningPulse => {
+): RunningFleetClock => {
   const pulse = startPulse(clock, REFRESH_MS);
+  const running = new Set<Promise<void>>();
   const guarded = (name: string, run: () => Promise<void>): (() => Promise<void>) => {
     let inFlight = false;
-    return async () => {
-      if (inFlight) return;
+    return () => {
+      if (inFlight) return Promise.resolve();
       inFlight = true;
-      try {
-        await run();
-      } catch (e) {
-        warn(`plot-fleetd: ${name} failed: ${e instanceof Error ? e.message : String(e)}`);
-      } finally {
-        inFlight = false;
-      }
+      const current = (async () => {
+        try {
+          await run();
+        } catch (e) {
+          warn(`plot-fleetd: ${name} failed: ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+          inFlight = false;
+        }
+      })();
+      running.add(current);
+      void current.finally(() => running.delete(current));
+      return current;
     };
   };
   const ticks: Record<string, () => Promise<void>> = {
@@ -72,7 +89,10 @@ export const startFleetClock = (
   for (const { name, everyNthBeat } of fleetDivisors()) {
     pulse.add({ name, everyNthBeat, tick: ticks[name] });
   }
-  return pulse;
+  const idle = async (): Promise<void> => {
+    while (running.size > 0) await Promise.all([...running]);
+  };
+  return { ...pulse, idle };
 };
 
 /**
