@@ -103,8 +103,7 @@ UNIT_DIR="$script_dir/../units"
 # it. A custom label under either prefix loses that leading prefix, has each
 # byte systemd refuses in a unit name replaced by `-`, and gains the matching
 # `plot-registryd-`/`plot-fleetd-` filename prefix — the shape
-# `units/README.md` documents for a second repository. A label under neither
-# prefix keeps its whole text and gains `plot-fleetd-`.
+# `units/README.md` documents for a second repository.
 unit_name() {
   case "$LABEL" in
     com.plot-pm.fleetd) printf '%s' plot-fleetd; return ;;
@@ -231,8 +230,7 @@ supervisor_workdir() {
 # launchd/systemd actually holds, never from a unit file on disk — the same
 # reason `supervisor_workdir` reads the loaded job: a plist may not be what is
 # bootstrapped, and this answers what IS running, which is what a migration or
-# a missing-bundle report must act on. launchd prints one argument per line,
-# indented with tabs, so the matched line minus its indent is the bundle path.
+# a missing-bundle report must act on.
 supervisor_bundle_path() {
   case "$(platform)" in
     launchd) launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null \
@@ -613,14 +611,12 @@ retire_old_label() {
   local served action=refuse
   served=$(old_label_checkout)
   [ -n "$served" ] || return 0
-  # A rule that cannot be asked refuses: the old unit stays loaded.
   action=$(printf '%s\n' "$served" | node "$script_dir/board/plot-old-label.mjs" 2>/dev/null) || action=refuse
   local LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd
   case "$action" in
     unload-and-remove) ;;
     leave) return 0 ;;
-    *) printf "plot-fleetctl: '%s' (the old default label) is loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it is left loaded and nothing runs beside it.\n  Read it: %s\n" "$LABEL" "$(platform)" "$(read_cmd)" >&2
-       return 1 ;;
+    *) printf "plot-fleetctl: '%s' (the old default label) is loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it is left loaded and nothing runs beside it.\n  Read it: %s\n" "$LABEL" "$(platform)" "$(read_cmd)" >&2; return 1 ;;
   esac
   [ "$dry_run" = 0 ] || { echo "would migrate the old label '$LABEL' — it serves this repository: unload it, then remove its unit file"; return 0; }
   echo "plot-fleetctl: unloading the old label '$LABEL' — it serves this repository"
