@@ -2818,3 +2818,28 @@ test('old-label bundle: an unreadable line or verb exits 2 and prints no action'
     assert.equal(r.stdout, '');
   }
 });
+
+// ── A stop stays in its estate (#1439) ────────────────────────────────────────
+
+test('--stop and --status refuse from a linked worktree outside the estate and touch no desk', () => {
+  const { root, box, ctl, guardBin } = sandbox('foreign-wt');
+  const desks = path.join(root, '.worktrees');
+  fs.mkdirSync(path.join(desks, 'desk-a'), { recursive: true });
+  const foreign = path.join(box, 'foreign-wt');
+  git(root, 'worktree', 'add', '-q', '-b', 'scratch', foreign);
+  for (const verb of ['--stop', '--status']) {
+    const r = run(ctl, [verb], fs.realpathSync(foreign), guardBin);
+    assert.equal(r.status, 3, `${verb}: ${r.out}`);
+    assert.match(r.out, /not part of the estate at/);
+    assert.match(r.out, new RegExp(fs.realpathSync(foreign).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(r.out, /nothing was done/);
+  }
+});
+
+test('--status from a desk under the estate own desk root is not refused', () => {
+  const { root, ctl, guardBin } = sandbox('own-desk');
+  const desk = path.join(root, '.worktrees', 'desk-a');
+  git(root, 'worktree', 'add', '-q', '-b', 'desk-a', desk);
+  const r = run(ctl, ['--status'], fs.realpathSync(desk), guardBin);
+  assert.doesNotMatch(r.out, /not part of the estate/);
+});

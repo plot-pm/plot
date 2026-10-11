@@ -711,10 +711,19 @@ fleet_install_state() {
 # Asked only by the two verbs that enumerate desks, so the probes and their
 # refusals answer first and a sourced test reaches them without a desk root.
 resolve_wt_root() { # sets wt_root, wt_prefix; exits 3 when unaskable
-  wt_root=$(plot_desk_root "$(plot_repo_root)") || {
+  local main top
+  main=$(plot_repo_root)
+  wt_root=$(plot_desk_root "$main") || {
     echo "plot-fleetctl: cannot resolve where the fleet's worktrees are — nothing was done." >&2
     exit 3
   }
+  # A linked worktree that is neither the main checkout nor one of its desks
+  # shares only the git directory; the estate named above is not its own (#1439).
+  top=$(cd -- "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null && pwd -P) || top=""
+  if [ -n "$top" ] && [ "$top" != "$main" ] && [ "${top#"$wt_root"/}" = "$top" ]; then
+    echo "plot-fleetctl: run from $top, which is not part of the estate at $main (desks under $wt_root) — nothing was done." >&2
+    exit 3
+  fi
   wt_prefix=""
 }
 
