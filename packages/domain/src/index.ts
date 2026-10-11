@@ -551,3 +551,4 @@ export type * from './ports/process-probe.js';
 export type * from './ports/reexec.js';
 export type * from './ports/fleet-state.js';
 export * from './rules/auto-dispatch.js';
+export * from './rules/auto-deliver.js';

@@ -1,10 +1,9 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import { allSlicesConfirmed, allSlicesMerged, type FleetReading, type PlanFile } from '@plot-pm/domain';
+import { planAutoDeliver, pruneDelivering, type AutoDeliverPlan, type FleetReading } from '@plot-pm/domain';
 import { readConfig } from './config-reader.js';
 import { usableCommand } from './usable-command.js';
 import { deliverLogPath, scriptsOf, type ActOptions } from './action-log.js';
-import { readInFlight, writeInFlight } from './in-flight-store.js';
+import { clearInFlight, inFlightUnchanged, readInFlight, writeInFlight } from './in-flight-store.js';
 import { recordActionReceipt } from './action-receipt.js';
 import { startBoardRun } from './board-run.js';
 
@@ -119,230 +118,6 @@ export function deliverCommand(opts: ActOptions): string {
 }
 
 /**
- * One plan this pulse says has finished, and the file the delivery will move.
- *
- * The slug is what `plot-deliver.sh` resolves the plan from; `file` is carried
- * only so a log line can name what was delivered.
- */
-export interface AutoDeliverPlan {
-  slug: string;
-  file: string;
-}
-
-/**
- * The plan slug the delivery script will use — the basename with its
- * `YYYY-MM-DD-` prefix and `.md` suffix stripped, the exact spelling
- * `/api/deliver` already sends and `planSlug` in `auto-dispatch.ts` produces.
- *
- * A private twin rather than an import, deliberately kept byte-identical: the
- * two modules are independent actors on the same clock, and a shared helper
- * would make one able to break the other's slug resolution.
- */
-export function planSlug(file: string): string {
-  return path.basename(file).replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
-}
-
-export interface PlanAutoDeliverInput {
-  /**
-   * Whether the scan that produced this pulse FINISHED.
-   *
-   * Threaded in because `allSlicesMerged` needs it to tell *not merged* from
-   * *not yet known* (#491), and neither is a reason to deliver — but only one
-   * of them is a reason to give up on a plan. Defaults to `true`: a caller
-   * that does not know is a test with a hand-built pulse, where the pulse IS
-   * the whole world and is complete by construction.
-   */
-  complete?: boolean;
-
-  /**
-   * The pulse the scan just landed — every plan's phase AND the merge state of
-   * every branch, which is the whole input this decision takes.
-   *
-   * Read from the pulse rather than from plan files, and that is the same
-   * choice `allSlicesMerged` documents for merge state, extended to the phase.
-   * The scan has just walked the estate; re-reading 150 plan files to learn what
-   * it already reported would put this actor on a different clock from the
-   * measurement it acts on, and the two could then disagree about which plans
-   * exist. `PlanSchema.phase` is `plot-plan-meta.sh`'s own normalization,
-   * so it is the same parser's answer either way.
-   */
-  pulse: FleetReading | null;
-  /** Slugs a delivery has already been started for and not yet confirmed. */
-  inFlight: Set<string>;
-}
-
-/**
- * The join key `allSlicesMerged` takes, built from a pulse plan.
- *
- * `allSlicesMerged` finds its plan by `path.basename(meta.file)`, and a pulse
- * plan's `file` is ALREADY that basename — so this is the identity mapping plus
- * the fields the signature requires. Building it here rather than reading the
- * plan file again is what keeps this actor on the pulse's clock: the function is
- * called with the scan's own answer, not with a second opinion about it.
- */
-function joinKey(file: string): PlanFile {
-  return { file } as PlanFile;
-}
-
-/**
- * Which plans this pulse has FINISHED — the whole decision, and pure.
- *
- * Separated from the act for the reason `auto-dispatch.ts` separates its own:
- * every refusal below is a property worth asserting directly, and asserting it
- * through a spawn would test the stub rather than the rule.
- *
- * Four things must hold, and each is a `Done when` item that exists because a
- * naive implementation would pass without it:
- *
- *  - **The phase is `approved`.** A `draft` plan has not been approved and a
- *    `delivered` one is already answered; `plot-deliver.sh` refuses both, and
- *    spawning it to be refused would put a failure in a log every five seconds.
- *
- *  - **Every non-deferred branch has merged** — `allSlicesMerged`, CALLED and not
- *    reimplemented. This is the gate `/plot-deliver` applies by hand, and an
- *    auto-deliverer that skips it ships the exact refusal Plot exists to
- *    enforce. Calling the shared function rather than re-deriving it is also
- *    what lets a fix to the gate reach this actor without anyone remembering to
- *    copy it.
- *
- *  - **At least one branch actually merged**, and since 2026-09-23 this actor
- *    MEASURES IT rather than inheriting it. Shelved is not finished: delivering
- *    it would record a completion nobody decided, and that call stays with a
- *    person.
- *
- *    This property was always the contract and was enforced by borrowing
- *    `allSlicesMerged`'s `merged > 0` guard. That guard answered a different
- *    question — *does this plan name any work at all* — and could not separate
- *    a plan whose branches were given up from a plan nobody built, so a plan
- *    of only deferred slices was undeliverable BY HAND for the same reason it
- *    was undelivered here. `the-rule-counts-what-was-given-up` fixed the
- *    manual path; this gate keeps the automatic one where it was.
- *
- *    The asymmetry is deliberate. A person delivering an all-deferred plan is
- *    deciding; this path runs on the scan's clock with no switch and no cap,
- *    and chains delivery to a reap and then to `plot-release-refs.sh --yes`,
- *    which deletes refs. Measured 2026-09-22: widening the rule alone would
- *    have auto-delivered two approved plans on the next tick, one of them
- *    carrying three corrections its delivery panel owed to a person.
- *
- *  - **No delivery is already in flight for it.** The scan fires every few
- *    seconds and `plot-deliver.sh` pushes to the default branch; without this,
- *    a plan would be delivered a dozen times over while the first run was still
- *    working. Idempotence makes that harmless, not free.
- *
- * Note what is NOT re-derived: merge state comes from the pulse, never from the
- * plan file, because the plan file carries no merge record and inventing one
- * here would answer a different question than the scan does.
- */
-/**
- * How many of a plan's branches the scan saw MERGE.
- *
- * Deliberately not `allSlicesMerged`'s arithmetic: that rule answers *is this
- * plan finished*, which an all-deferred plan legitimately is. This answers
- * *did anything land here*, which is what separates a delivery a person
- * decided from one this actor would perform unattended.
- *
- * Read from the pulse, never from the plan file. The plan file carries no
- * merge record, and inventing one would answer a different question than the
- * scan does — the same rule the docstring above states for merge state.
- *
- * @param plan - the plan as the pulse reports it.
- * @returns the count of branches in the `merged` state, across every slice.
- */
-const landedBranches = (plan: FleetReading['plans'][number]): number =>
-  plan.slices.reduce(
-    (n, slice) => n + slice.branches.filter((b) => b.state === 'merged').length,
-    0,
-  );
-
-export function planAutoDeliver(input: PlanAutoDeliverInput): AutoDeliverPlan[] {
-  const { pulse, inFlight, complete = true } = input;
-  if (!pulse) return [];
-  const out: AutoDeliverPlan[] = [];
-  for (const plan of pulse.plans) {
-    if (plan.phase.toLowerCase() !== 'approved') continue;
-    const slug = planSlug(plan.file);
-    if (inFlight.has(slug)) continue;
-    // The measurement. It answers `not-merged` for a plan the pulse does not
-    // know and for any unmerged non-deferred branch.
-    //
-    // THE WORD, not truthiness: since #491 this returns
-    // 'merged' | 'not-merged' | 'unknown', and 'unknown' means the scan could
-    // not answer. Auto-delivery acts only on a definite yes — delivering on an
-    // unanswered question is the defect #491 removes, one layer up.
-    //
-    // `allSlicesConfirmed` RATHER THAN `allSlicesMerged`, so a landing only a
-    // merge subject proves reads `unknown` here and no tick starts a delivery.
-    // THAT IS WHAT KEEPS THIS PATH FROM STICKING: without it, a subject-proven
-    // plan reads merged during a throttle, the first tick starts
-    // `plot-deliver.sh`, which asks the host and refuses, and
-    // `pruneDelivering` keeps the slug in `inFlight` while the plan still
-    // reads approved and merged — so no later tick delivers until the board
-    // restarts. With it, nothing enters `inFlight` and the first tick after
-    // the host confirms the merge delivers.
-    if (allSlicesConfirmed(joinKey(plan.file), pulse, complete) !== 'merged') continue;
-
-    // AND AT LEAST ONE BRANCH MUST HAVE LANDED HERE. This gate is narrower
-    // than the rule above on purpose, and the asymmetry is the whole point.
-    //
-    // A plan whose every slice is deferred IS deliverable — that is what
-    // `allSlicesMerged` now says, and it is right for the board's Deliver
-    // control and for `/plot-deliver`, where a person is deciding. It is not
-    // right for THIS path, which runs unattended on the scan's clock with no
-    // switch and no cap, and chains delivery to a reap and then to
-    // `plot-release-refs.sh --yes` — a ref deletion that cannot be undone.
-    //
-    // Measured 2026-09-22, before this gate existed: widening the rule alone
-    // would have auto-delivered two approved plans on the next tick, one of
-    // them `a-failed-tick-must-not-end-the-daemon`, whose delivery panel
-    // refuted it and left three corrections owed to a person. An automatic
-    // path must not resolve a question a person has been asked.
-    //
-    // A deferred branch is work NOT DONE HERE, so nothing about it was
-    // verified on this machine. `landedBranches > 0` is the measurement that
-    // something was: a PR merged, and the scan saw it.
-    if (landedBranches(plan) === 0) continue;
-
-    out.push({ slug, file: plan.file });
-  }
-  return out;
-}
-
-/**
- * Retire the slugs whose delivery has landed, so the set does not grow forever.
- *
- * A plan still reading `approved` with every slice merged is one whose delivery
- * has not taken effect yet — it stays in flight. Anything else is confirmed:
- * either the phase moved (the delivery worked) or the plan stopped being
- * deliverable (a branch reopened, and the next pulse will decide afresh).
- *
- * Returned whole rather than mutated, the cache's one-directional rule.
- */
-export function pruneDelivering(
-  inFlight: Set<string>,
-  pulse: FleetReading | null,
-  complete = true,
-): Set<string> {
-  if (inFlight.size === 0) return inFlight;
-  // A pulse the scan could not land says nothing about whether anything
-  // finished, and "nothing said" is not "confirmed". Holding the set unchanged
-  // keeps a delivery from being started twice across a failed scan.
-  if (!pulse) return inFlight;
-  const stillPending = new Set<string>();
-  for (const plan of pulse.plans) {
-    const slug = planSlug(plan.file);
-    if (!inFlight.has(slug)) continue;
-    if (plan.phase.toLowerCase() !== 'approved') continue; // moved on — confirmed
-    // Same rule, and the distinction matters here: only a definite answer
-    // confirms anything. 'unknown' confirms nothing, so the plan stays in
-    // flight rather than being pruned on silence.
-    if (allSlicesMerged(joinKey(plan.file), pulse, complete) !== 'merged') continue;
-    stillPending.add(slug);
-  }
-  return stillPending;
-}
-
-/**
  * Deliver each finished plan, then reap, then release its refs — and the ORDER
  * is the point, at both links.
  *
@@ -414,6 +189,12 @@ export function runAutoDeliver(
           `auto-deliver: ${plan.slug} exited ${signal ? `on ${signal}` : code}; ` +
           'not reaping — the delivery refused, so its desks are not finished',
         );
+        // A FAILED DELIVERY LEAVES THE PULSE UNCHANGED (still approved, still
+        // merged), so `pruneDelivering` can never retire its mark and every pass
+        // would renew it. The exit is the only signal; drop the mark so the next
+        // pass retries.
+        const clearError = clearInFlight(opts.repoRoot, [plan.slug], 'deliver');
+        if (clearError) console.log(`auto-deliver: could not clear the in-flight mark for ${plan.slug}: ${clearError}`);
         return;
       }
       console.log(`auto-deliver: delivered ${plan.slug}; reaping its worktrees`);
@@ -605,7 +386,11 @@ export const runAutoDeliverPass = (opts: ActOptions, pulse: FleetReading | null)
   const plans = planAutoDeliver({ pulse, inFlight: pruned, complete });
   // MARKED BEFORE THE SPAWN, for the reason auto-dispatch marks first: a crash
   // between the two may over-mark and never under-mark.
-  const markError = writeInFlight(opts.repoRoot, [...pruned, ...plans.map((p) => p.slug)], Date.now(), 'deliver');
+  const next = [...pruned, ...plans.map((p) => p.slug)];
+  const now = Date.now();
+  // Unchanged and fresh: the file already says this, so skip the write. Compared
+  // against THIS pass's reading, so a first mark (empty file) still lands.
+  const markError = inFlightUnchanged(read, next, now) ? '' : writeInFlight(opts.repoRoot, next, now, 'deliver');
   if (markError) console.log(`auto-deliver: could not record in-flight marks: ${markError}`);
   if (plans.length > 0) runAutoDeliver(opts, plans);
 };

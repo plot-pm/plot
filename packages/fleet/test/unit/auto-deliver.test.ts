@@ -24,8 +24,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { removeTree as rmTree } from '../rm-tree.mjs';
-import { planSlug } from '@plot-pm/domain';
-import { planAutoDeliver, pruneDelivering, maybeAutoDeliver, runAutoDeliverPass, DELIVER_COMMAND_KEY } from '../../src/shared/auto-deliver.js';
+import { planSlug, planAutoDeliver, pruneDelivering } from '@plot-pm/domain';
+import { maybeAutoDeliver, runAutoDeliverPass, DELIVER_COMMAND_KEY } from '../../src/shared/auto-deliver.js';
 import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
 import { allSlicesMerged } from '@plot-pm/domain';
 import { readInFlight, inFlightPath } from '../../src/shared/in-flight-store.js';
@@ -643,6 +643,66 @@ describe('runAutoDeliverPass — the marks persist', () => {
     runAutoDeliverPass(opts, finished());
     await settle();
     expect(runs()).toEqual([]);
+  });
+
+  // M1 of #1453. A delivery that exits non-zero leaves the pulse reading
+  // approved + merged, so no pulse-driven rule can retire the mark: only the
+  // exit can. Asserts the mark is gone and the plan is plannable again.
+  it('retires the mark of a delivery that fails, so the next pass retries it', async () => {
+    const { opts, runs } = fixture('', 1);
+    const p = finished();
+    runAutoDeliverPass(opts, p);
+    expect([...(readInFlight(opts.repoRoot, Date.now(), 'deliver').branches ?? [])]).toEqual(['ship-it']);
+    await settle();
+    expect(runs()).toEqual(['deliver ship-it']);
+    const after = readInFlight(opts.repoRoot, Date.now(), 'deliver');
+    expect([...(after.branches ?? [])]).toEqual([]);
+    expect(planAutoDeliver({ pulse: p, inFlight: after.branches ?? new Set() }).map((x) => x.slug)).toEqual(['ship-it']);
+    runAutoDeliverPass(opts, p);
+    await settle();
+    expect(runs()).toEqual(['deliver ship-it', 'deliver ship-it']);
+  });
+
+  it('keeps the mark of a delivery that succeeds', async () => {
+    const { opts } = fixture('', 0);
+    runAutoDeliverPass(opts, finished());
+    await settle();
+    expect([...(readInFlight(opts.repoRoot, Date.now(), 'deliver').branches ?? [])]).toEqual(['ship-it']);
+  });
+
+  // L3 of #1453. The file's mtime is the observable: a rewrite changes it.
+  it('writes the marks once across two passes that persist the same set', async () => {
+    const { opts } = fixture('');
+    const file = inFlightPath(opts.repoRoot, 'deliver');
+    const p = finished();
+    runAutoDeliverPass(opts, p);
+    const first = fs.statSync(file);
+    const firstBody = fs.readFileSync(file, 'utf8');
+    await new Promise((r) => setTimeout(r, 25));
+    runAutoDeliverPass(opts, p);
+    const second = fs.statSync(file);
+    expect(second.mtimeMs).toBe(first.mtimeMs);
+    expect(second.ino).toBe(first.ino);
+    expect(fs.readFileSync(file, 'utf8')).toBe(firstBody);
+    await settle();
+  });
+
+  it('writes when the set to persist changes', async () => {
+    const { opts } = fixture('');
+    runAutoDeliverPass(opts, finished('2026-08-27-ship-it.md'));
+    const before = fs.statSync(inFlightPath(opts.repoRoot, 'deliver'));
+    await new Promise((r) => setTimeout(r, 25));
+    runAutoDeliverPass(opts, finished('2026-08-27-ship-it.md'));
+    expect(fs.statSync(inFlightPath(opts.repoRoot, 'deliver')).mtimeMs).toBe(before.mtimeMs);
+    const marks = readInFlight(opts.repoRoot, Date.now(), 'deliver');
+    expect([...(marks.branches ?? [])]).toEqual(['ship-it']);
+    // A mark about to lapse is renewed even though the set is unchanged.
+    const old = Date.now() - 80_000;
+    fs.writeFileSync(inFlightPath(opts.repoRoot, 'deliver'), JSON.stringify({ marks: { 'ship-it': old } }));
+    runAutoDeliverPass(opts, finished('2026-08-27-ship-it.md'));
+    const renewed = JSON.parse(fs.readFileSync(inFlightPath(opts.repoRoot, 'deliver'), 'utf8')).marks['ship-it'];
+    expect(renewed).toBeGreaterThan(old);
+    await settle();
   });
 
   it('keeps the delivery marks apart from the dispatch marks', () => {

@@ -113,6 +113,8 @@ export interface InFlightReading {
    * {@link sharedInFlightBlocks} for the one decision that turns on it.
    */
   branches: Set<string> | null;
+  /** The epoch-millisecond renewal time of each returned mark. Empty when `branches` is `null`. */
+  stamps: Record<string, number>;
   /** Why the reading failed, for the log. Empty when it did not. */
   error: string;
 }
@@ -154,26 +156,30 @@ export function readInFlight(
     // other errno (a permission denied, an I/O failure) is a file that exists
     // and cannot be read, which is the case that must refuse.
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { branches: new Set(), error: '' };
+      return { branches: new Set(), stamps: {}, error: '' };
     }
-    return { branches: null, error: err instanceof Error ? err.message : String(err) };
+    return { branches: null, stamps: {}, error: err instanceof Error ? err.message : String(err) };
   }
   let marks: Record<string, number> | null;
   try {
     marks = coerceMarks(JSON.parse(raw));
   } catch (err) {
-    return { branches: null, error: err instanceof Error ? err.message : String(err) };
+    return { branches: null, stamps: {}, error: err instanceof Error ? err.message : String(err) };
   }
   if (marks === null) {
-    return { branches: null, error: 'in-flight file is not a mark map' };
+    return { branches: null, stamps: {}, error: 'in-flight file is not a mark map' };
   }
   const live = new Set<string>();
+  const stamps: Record<string, number> = {};
   for (const [branch, at] of Object.entries(marks)) {
     // Expired marks are not returned, so a board that died mid-dispatch stops
     // holding budget without anything having to notice it died.
-    if (now - at < IN_FLIGHT_TTL_MS) live.add(branch);
+    if (now - at < IN_FLIGHT_TTL_MS) {
+      live.add(branch);
+      stamps[branch] = at;
+    }
   }
-  return { branches: live, error: '' };
+  return { branches: live, stamps, error: '' };
 }
 
 /**
@@ -244,3 +250,68 @@ export function writeInFlight(
   }
   return '';
 }
+
+/**
+ * How old a mark may get before a pass that holds it renews it. Half the TTL:
+ * a live board still renews every mark at least once before it could lapse.
+ */
+export const IN_FLIGHT_RENEW_AFTER_MS = IN_FLIGHT_TTL_MS / 2;
+
+/**
+ * Whether writing `next` would leave the file as `read` already reports it.
+ *
+ * True only when the reading succeeded, holds exactly the slugs in `next`, and
+ * every mark is younger than {@link IN_FLIGHT_RENEW_AFTER_MS}. An unreadable or
+ * missing-then-empty reading never matches a non-empty `next`, so a first mark
+ * always lands.
+ *
+ * @param read - what {@link readInFlight} returned for this pass.
+ * @param next - the slugs this pass would persist.
+ * @param now - epoch milliseconds.
+ */
+export const inFlightUnchanged = (
+  read: InFlightReading,
+  next: Iterable<string>,
+  now: number = Date.now(),
+): boolean => {
+  if (read.branches === null) return false;
+  const want = new Set(next);
+  if (want.size !== read.branches.size) return false;
+  for (const branch of want) {
+    const at = read.stamps[branch];
+    if (at === undefined || now - at >= IN_FLIGHT_RENEW_AFTER_MS) return false;
+  }
+  return true;
+};
+
+/**
+ * Drop marks from the shared file, atomically.
+ *
+ * Called when a delivery fails, so the next pass sees the slug as not in flight
+ * and retries it. An unreadable or missing file is left alone: no mark to drop.
+ *
+ * @returns the error message when the write failed, else the empty string.
+ */
+export const clearInFlight = (
+  repoRoot: string,
+  branches: Iterable<string>,
+  kind: InFlightKind = 'dispatch',
+): string => {
+  const file = inFlightPath(repoRoot, kind);
+  let marks: Record<string, number> | null;
+  try {
+    marks = coerceMarks(JSON.parse(fs.readFileSync(file, 'utf8')));
+  } catch {
+    return '';
+  }
+  if (marks === null) return '';
+  for (const branch of branches) delete marks[branch];
+  try {
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ marks } satisfies InFlightFile), 'utf8');
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  return '';
+};

@@ -5,7 +5,7 @@ import { scriptsFor, type BuildBoardOptions } from './board.js';
  * THE SUPERVISOR READING, TAKEN ON THE REFRESH'S CLOCK.
  *
  * One local query per pulse — no host call, no network. It sits beside
- * `machine-reading.ts` and for the same reason: the rule that decides `up` /
+ * the fleet's `machine-reading.ts` and for the same reason: the rule that decides `up` /
  * `down` / `unknown` is pure and synchronous, asking is neither, so the asking
  * happens here and the answer travels as a value.
  *
