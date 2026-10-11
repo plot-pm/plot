@@ -124,6 +124,7 @@ describe('the subject rule has named callers', () => {
   // each reads the host's own answer instead.
   it.each([
     'packages/board/src/server/controllers/deliverability.ts',
+    'packages/domain/src/rules/auto-deliver.ts',
     'packages/domain/src/rules/landed.ts',
     'packages/fleet/src/shared/auto-deliver.ts',
   ])('%s reads no subject rule', (file) => {

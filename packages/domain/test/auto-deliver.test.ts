@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import {
+  AUTO_DELIVER_MAX_FAILURES,
+  AUTO_DELIVER_RETRY_BASE_MS,
   FleetReadingSchema,
+  deliveryReading,
+  deliveryReadings,
   landedBranches,
+  pruneFailures,
+  recordDeliveryFailure,
+  retryDelayMs,
+  retryVerdict,
+  type DeliveryFailure,
   planAutoDeliver,
   planSlug,
   pruneDelivering,
@@ -91,6 +100,75 @@ describe('rules/auto-deliver', () => {
     });
     it('retires a slug whose plan the pulse does not list', () => {
       expect([...pruneDelivering(new Set(['other']), pulse('approved', [['merged']]))]).toEqual([]);
+    });
+  });
+
+  describe('the retry bound', () => {
+    const plan = pulse('approved', [['merged']]);
+    const reading = deliveryReading(plan.plans[0]);
+    const failed = (count: number, lastAt = 1_000): DeliveryFailure => ({ count, lastAt, reading });
+
+    it('doubles the delay after each failure', () => {
+      expect(retryDelayMs(1)).toBe(AUTO_DELIVER_RETRY_BASE_MS);
+      expect(retryDelayMs(2)).toBe(2 * AUTO_DELIVER_RETRY_BASE_MS);
+      expect(retryDelayMs(2)).toBeGreaterThan(retryDelayMs(1));
+    });
+
+    it('is ready with no record, and with a record for another reading', () => {
+      expect(retryVerdict(undefined, reading, 0)).toBe('ready');
+      expect(retryVerdict(failed(AUTO_DELIVER_MAX_FAILURES), 'feature/x=merged', 0)).toBe('ready');
+    });
+
+    it('waits until the delay after the last failure has passed', () => {
+      expect(retryVerdict(failed(1), reading, 1_000 + retryDelayMs(1) - 1)).toBe('waiting');
+      expect(retryVerdict(failed(1), reading, 1_000 + retryDelayMs(1))).toBe('ready');
+      expect(retryVerdict(failed(2), reading, 1_000 + retryDelayMs(1))).toBe('waiting');
+      expect(retryVerdict(failed(2), reading, 1_000 + retryDelayMs(2))).toBe('ready');
+    });
+
+    it('stops after the bound, however long it waits', () => {
+      expect(AUTO_DELIVER_MAX_FAILURES).toBe(3);
+      expect(retryVerdict(failed(AUTO_DELIVER_MAX_FAILURES), reading, Number.MAX_SAFE_INTEGER)).toBe('stopped');
+    });
+
+    it('counts on under one reading and restarts under a new one', () => {
+      expect(recordDeliveryFailure(undefined, reading, 5)).toEqual({ count: 1, lastAt: 5, reading });
+      expect(recordDeliveryFailure(failed(2), reading, 9)).toEqual({ count: 3, lastAt: 9, reading });
+      expect(recordDeliveryFailure(failed(2), 'other', 9)).toEqual({ count: 1, lastAt: 9, reading: 'other' });
+    });
+
+    it('reads every branch with its state, in a stable order', () => {
+      expect(deliveryReading(pulse('approved', [['merged', 'deferred'], ['merged']]).plans[0])).toBe(
+        'feature/0-0=merged,feature/0-1=deferred,feature/1-0=merged',
+      );
+      expect([...deliveryReadings(plan)]).toEqual([['ship-it', reading]]);
+      expect(deliveryReadings(null).size).toBe(0);
+    });
+
+    it('holds back a plan that waits or stopped, and names it again once ready', () => {
+      const input = { pulse: plan, inFlight: none };
+      expect(planAutoDeliver({ ...input, failures: { 'ship-it': failed(1) }, now: 1_000 })).toEqual([]);
+      expect(planAutoDeliver({ ...input, failures: { 'ship-it': failed(3) }, now: 1e12 })).toEqual([]);
+      expect(planAutoDeliver({ ...input, failures: { 'ship-it': failed(1) }, now: 1e12 })).toHaveLength(1);
+    });
+
+    describe('pruneFailures', () => {
+      const records = { 'ship-it': failed(2) };
+      it('keeps every record across a missing pulse', () => {
+        expect(pruneFailures(records, null)).toEqual(records);
+      });
+      it('keeps a record while the plan reads approved under the same reading', () => {
+        expect(pruneFailures(records, plan)).toEqual(records);
+      });
+      it('drops a record once the plan leaves approved', () => {
+        expect(pruneFailures(records, pulse('delivered', [['merged']]))).toEqual({});
+      });
+      it('drops a record once the reading changes', () => {
+        expect(pruneFailures(records, pulse('approved', [['merged', 'merged']]))).toEqual({});
+      });
+      it('drops a record whose plan the pulse does not list, and skips plans with none', () => {
+        expect(pruneFailures({ other: failed(1) }, plan)).toEqual({});
+      });
     });
   });
 });

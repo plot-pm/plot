@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { DeliveryFailure } from '@plot-pm/domain';
+import { FLEET_SCAN_BUDGET_MS } from './fleet-scan.js';
 
 /**
  * THE IN-FLIGHT SET, SHARED BY EVERY BOARD ON ONE REPOSITORY.
@@ -58,15 +60,59 @@ import path from 'node:path';
 export const IN_FLIGHT_TTL_MS = 90_000;
 
 /**
+ * How long a DELIVERY mark lives with nothing renewing it: two scan budgets,
+ * 180 s.
+ *
+ * Longer than {@link IN_FLIGHT_TTL_MS} because a delivery pass renews a mark
+ * only once it is {@link IN_FLIGHT_RENEW_AFTER_MS} old, not on every pass.
+ */
+export const IN_FLIGHT_DELIVER_TTL_MS = 2 * FLEET_SCAN_BUDGET_MS;
+
+/**
+ * The time between two passes that a renewed delivery mark must survive: the
+ * scan budget plus 10 s for the tick interval and the pass itself.
+ */
+export const IN_FLIGHT_PASS_GAP_MS = FLEET_SCAN_BUDGET_MS + 10_000;
+
+/**
+ * How old a delivery mark may get before a pass that holds it renews it:
+ * 180 s − 100 s = 80 s.
+ *
+ * A pass that skips the renewal saw an age below 80 s, so the mark still has
+ * more than 100 s left — more than {@link IN_FLIGHT_PASS_GAP_MS} — when the
+ * next pass arrives.
+ */
+export const IN_FLIGHT_RENEW_AFTER_MS = IN_FLIGHT_DELIVER_TTL_MS - IN_FLIGHT_PASS_GAP_MS;
+
+/**
+ * How long a mark of `kind` lives with nothing renewing it.
+ *
+ * @param kind - the mark file.
+ * @returns milliseconds.
+ */
+export const inFlightTtlMs = (kind: InFlightKind): number =>
+  kind === 'deliver' ? IN_FLIGHT_DELIVER_TTL_MS : IN_FLIGHT_TTL_MS;
+
+/**
  * Which automatic write a mark file belongs to. `dispatch` marks hold branches;
  * `deliver` marks hold plan slugs. The two files share a format and a TTL.
  */
 export type InFlightKind = 'dispatch' | 'deliver';
 
-/** One board's marks, as they sit on disk. */
-interface InFlightFile {
+/**
+ * The marks, as they sit on disk.
+ *
+ * `marks` is the only field a file written before 2026-10-11 holds, and such a
+ * file reads as no pids and no failures. `pids` and `failures` are written to
+ * the `deliver` file only.
+ */
+export interface InFlightFile {
   /** Branch name → the epoch-millisecond time the mark was last renewed. */
   marks: Record<string, number>;
+  /** Slug → the pid of the delivery the mark stands for, where one is known. */
+  pids?: Record<string, number>;
+  /** Slug → the consecutive failed deliveries of that plan. */
+  failures?: Record<string, DeliveryFailure>;
 }
 
 /**
@@ -103,6 +149,71 @@ function coerceMarks(raw: unknown): Record<string, number> | null {
   return out;
 }
 
+/** Coerce a pid map, dropping entries that are not positive integers. */
+const coercePids = (raw: unknown): Record<string, number> => {
+  const out: Record<string, number> = {};
+  if (typeof raw !== 'object' || raw === null) return out;
+  for (const [slug, pid] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof pid === 'number' && Number.isInteger(pid) && pid > 0) out[slug] = pid;
+  }
+  return out;
+};
+
+/** Coerce a failure map, dropping entries that are not well-shaped. */
+const coerceFailures = (raw: unknown): Record<string, DeliveryFailure> => {
+  const out: Record<string, DeliveryFailure> = {};
+  if (typeof raw !== 'object' || raw === null) return out;
+  for (const [slug, entry] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const { count, lastAt, reading } = entry as Record<string, unknown>;
+    if (typeof count !== 'number' || !Number.isInteger(count) || count < 1) continue;
+    if (typeof lastAt !== 'number' || !Number.isFinite(lastAt)) continue;
+    if (typeof reading !== 'string') continue;
+    out[slug] = { count, lastAt, reading };
+  }
+  return out;
+};
+
+/** Coerce a parsed mark file. `null` when it holds no mark map. */
+const coerceFile = (raw: unknown): InFlightFile | null => {
+  const marks = coerceMarks(raw);
+  if (marks === null) return null;
+  const obj = raw as Record<string, unknown>;
+  return { marks, pids: coercePids(obj.pids), failures: coerceFailures(obj.failures) };
+};
+
+/** Read the file for a rewrite: `null` when it is missing or unreadable. */
+const readForWrite = (file: string): InFlightFile | null => {
+  try {
+    return coerceFile(JSON.parse(fs.readFileSync(file, 'utf8')));
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Write a whole mark file through a temp file and `rename`.
+ *
+ * Empty `pids` and `failures` maps are left out, so a file with no deliveries
+ * running and no failures has the shape a file from before 2026-10-11 has.
+ *
+ * @returns the error message when the write failed, else the empty string.
+ */
+const writeFileAtomic = (file: string, payload: InFlightFile): string => {
+  const out: InFlightFile = { marks: payload.marks };
+  if (payload.pids && Object.keys(payload.pids).length > 0) out.pids = payload.pids;
+  if (payload.failures && Object.keys(payload.failures).length > 0) out.failures = payload.failures;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(out), 'utf8');
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  return '';
+};
+
 /** What a read of the shared marks answered. */
 export interface InFlightReading {
   /**
@@ -117,7 +228,22 @@ export interface InFlightReading {
   stamps: Record<string, number>;
   /** Why the reading failed, for the log. Empty when it did not. */
   error: string;
+  /** Marks the file holds that have expired, with their stamps. Empty when `branches` is `null`. */
+  expired: Record<string, number>;
+  /** The recorded delivery pids. Empty when `branches` is `null`. */
+  pids: Record<string, number>;
+  /** The recorded failed deliveries. Empty when `branches` is `null`. */
+  failures: Record<string, DeliveryFailure>;
 }
+
+const unreadable = (error: string): InFlightReading => ({
+  branches: null,
+  stamps: {},
+  error,
+  expired: {},
+  pids: {},
+  failures: {},
+});
 
 /**
  * The branches every board on this repository currently holds in flight, minus
@@ -156,30 +282,33 @@ export function readInFlight(
     // other errno (a permission denied, an I/O failure) is a file that exists
     // and cannot be read, which is the case that must refuse.
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { branches: new Set(), stamps: {}, error: '' };
+      return { branches: new Set(), stamps: {}, error: '', expired: {}, pids: {}, failures: {} };
     }
-    return { branches: null, stamps: {}, error: err instanceof Error ? err.message : String(err) };
+    return unreadable(err instanceof Error ? err.message : String(err));
   }
-  let marks: Record<string, number> | null;
+  let parsed: unknown;
   try {
-    marks = coerceMarks(JSON.parse(raw));
+    parsed = JSON.parse(raw);
   } catch (err) {
-    return { branches: null, stamps: {}, error: err instanceof Error ? err.message : String(err) };
+    return unreadable(err instanceof Error ? err.message : String(err));
   }
-  if (marks === null) {
-    return { branches: null, stamps: {}, error: 'in-flight file is not a mark map' };
-  }
+  const file = coerceFile(parsed);
+  if (file === null) return unreadable('in-flight file is not a mark map');
+  const ttl = inFlightTtlMs(kind);
   const live = new Set<string>();
   const stamps: Record<string, number> = {};
-  for (const [branch, at] of Object.entries(marks)) {
+  const expired: Record<string, number> = {};
+  for (const [branch, at] of Object.entries(file.marks)) {
     // Expired marks are not returned, so a board that died mid-dispatch stops
     // holding budget without anything having to notice it died.
-    if (now - at < IN_FLIGHT_TTL_MS) {
+    if (now - at < ttl) {
       live.add(branch);
       stamps[branch] = at;
+    } else {
+      expired[branch] = at;
     }
   }
-  return { branches: live, stamps, error: '' };
+  return { branches: live, stamps, error: '', expired, pids: file.pids ?? {}, failures: file.failures ?? {} };
 }
 
 /**
@@ -224,94 +353,53 @@ export function writeInFlight(
   // Re-read so another board's marks survive this write. An unreadable file is
   // REPLACED here rather than refused: the read side already refuses on it, and
   // leaving a corrupt file in place would keep every board refusing forever.
-  let existing: Record<string, number> | null = null;
-  try {
-    existing = coerceMarks(JSON.parse(fs.readFileSync(file, 'utf8')));
-  } catch {
-    existing = null;
-  }
+  const existing = readForWrite(file);
+  const ttl = inFlightTtlMs(kind);
   if (existing) {
-    for (const [branch, at] of Object.entries(existing)) {
+    for (const [branch, at] of Object.entries(existing.marks)) {
       // Expired marks are dropped at write time as well as at read time, so the
       // file does not grow without bound across a long-running board.
-      if (now - at < IN_FLIGHT_TTL_MS) marks[branch] = at;
+      if (now - at < ttl) marks[branch] = at;
     }
   }
   for (const branch of branches) marks[branch] = now;
-
-  const payload: InFlightFile = { marks };
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(payload), 'utf8');
-    fs.renameSync(tmp, file);
-  } catch (err) {
-    return err instanceof Error ? err.message : String(err);
-  }
-  return '';
+  return writeFileAtomic(file, { marks, pids: existing?.pids, failures: existing?.failures });
 }
 
 /**
- * How old a mark may get before a pass that holds it renews it. Half the TTL:
- * a live board still renews every mark at least once before it could lapse.
- */
-export const IN_FLIGHT_RENEW_AFTER_MS = IN_FLIGHT_TTL_MS / 2;
-
-/**
- * Whether writing `next` would leave the file as `read` already reports it.
+ * Replace the whole `deliver` mark file: marks, pids and failures.
  *
- * True only when the reading succeeded, holds exactly the slugs in `next`, and
- * every mark is younger than {@link IN_FLIGHT_RENEW_AFTER_MS}. An unreadable or
- * missing-then-empty reading never matches a non-empty `next`, so a first mark
- * always lands.
- *
- * @param read - what {@link readInFlight} returned for this pass.
- * @param next - the slugs this pass would persist.
- * @param now - epoch milliseconds.
- */
-export const inFlightUnchanged = (
-  read: InFlightReading,
-  next: Iterable<string>,
-  now: number = Date.now(),
-): boolean => {
-  if (read.branches === null) return false;
-  const want = new Set(next);
-  if (want.size !== read.branches.size) return false;
-  for (const branch of want) {
-    const at = read.stamps[branch];
-    if (at === undefined || now - at >= IN_FLIGHT_RENEW_AFTER_MS) return false;
-  }
-  return true;
-};
-
-/**
- * Drop marks from the shared file, atomically.
- *
- * Called when a delivery fails, so the next pass sees the slug as not in flight
- * and retries it. An unreadable or missing file is left alone: no mark to drop.
+ * The delivery pass is the one writer of this file's marks, so it writes the
+ * set it decided rather than merging: a retired slug leaves the file in the
+ * same write.
  *
  * @returns the error message when the write failed, else the empty string.
  */
-export const clearInFlight = (
-  repoRoot: string,
-  branches: Iterable<string>,
-  kind: InFlightKind = 'dispatch',
-): string => {
-  const file = inFlightPath(repoRoot, kind);
-  let marks: Record<string, number> | null;
+export const writeDeliverState = (repoRoot: string, state: InFlightFile): string =>
+  writeFileAtomic(inFlightPath(repoRoot, 'deliver'), state);
+
+/**
+ * Read, change and write the `deliver` mark file in one synchronous step.
+ *
+ * A missing file starts from no marks. An unreadable file is left alone and
+ * the reason returned: the pass refuses on it, and a rewrite here would drop
+ * the marks it holds.
+ *
+ * @param change - receives the current file and returns the file to write.
+ * @returns the error message when the write failed, else the empty string.
+ */
+export const updateDeliverState = (repoRoot: string, change: (file: InFlightFile) => InFlightFile): string => {
+  const file = inFlightPath(repoRoot, 'deliver');
+  let current: InFlightFile;
   try {
-    marks = coerceMarks(JSON.parse(fs.readFileSync(file, 'utf8')));
-  } catch {
-    return '';
-  }
-  if (marks === null) return '';
-  for (const branch of branches) delete marks[branch];
-  try {
-    const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ marks } satisfies InFlightFile), 'utf8');
-    fs.renameSync(tmp, file);
+    const parsed = coerceFile(JSON.parse(fs.readFileSync(file, 'utf8')));
+    if (parsed === null) return 'in-flight file is not a mark map; left unchanged';
+    current = parsed;
   } catch (err) {
-    return err instanceof Error ? err.message : String(err);
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      return `${err instanceof Error ? err.message : String(err)}; left unchanged`;
+    }
+    current = { marks: {}, pids: {}, failures: {} };
   }
-  return '';
-};
+  return writeFileAtomic(file, change(current));
+}

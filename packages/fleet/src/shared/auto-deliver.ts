@@ -1,9 +1,26 @@
 import fs from 'node:fs';
-import { planAutoDeliver, pruneDelivering, type AutoDeliverPlan, type FleetReading } from '@plot-pm/domain';
+import {
+  deliveryReadings,
+  planAutoDeliver,
+  pruneDelivering,
+  pruneFailures,
+  recordDeliveryFailure,
+  retryVerdict,
+  type AutoDeliverPlan,
+  type DeliveryFailure,
+  type FleetReading,
+} from '@plot-pm/domain';
 import { readConfig } from './config-reader.js';
 import { usableCommand } from './usable-command.js';
 import { deliverLogPath, scriptsOf, type ActOptions } from './action-log.js';
-import { clearInFlight, inFlightUnchanged, readInFlight, writeInFlight } from './in-flight-store.js';
+import {
+  IN_FLIGHT_RENEW_AFTER_MS,
+  readInFlight,
+  updateDeliverState,
+  writeDeliverState,
+  type InFlightFile,
+  type InFlightReading,
+} from './in-flight-store.js';
 import { recordActionReceipt } from './action-receipt.js';
 import { startBoardRun } from './board-run.js';
 
@@ -152,13 +169,33 @@ export function deliverCommand(opts: ActOptions): string {
  * writes, so an operator reads ONE file whether the delivery was clicked or
  * automatic.
  */
+export interface DeliveryHooks {
+  /** A script delivery came up with this pid. */
+  onStart?: (slug: string, pid: number) => void;
+  /**
+   * The delivery ended. Called exactly once per plan handed in: `ok` is `true`
+   * only for a delivery that exited 0. A log that cannot open, a spawn
+   * `error`, a spawn with no pid and a refused agent run are failures.
+   */
+  onEnd?: (slug: string, ok: boolean) => void;
+}
+
 export function runAutoDeliver(
   opts: ActOptions,
   plans: AutoDeliverPlan[],
+  hooks: DeliveryHooks = {},
 ): string[] {
   const command = deliverCommand(opts);
   const started: string[] = [];
   for (const plan of plans) {
+    // ONE END PER PLAN. A spawn can emit `error` and then `exit`, and an agent
+    // run can refuse through its end record and through its return value.
+    let ended = false;
+    const end = (ok: boolean): void => {
+      if (ended) return;
+      ended = true;
+      hooks.onEnd?.(plan.slug, ok);
+    };
     const log = deliverLogPath(opts.repoRoot, plan.slug);
     let out: number;
     try {
@@ -168,6 +205,7 @@ export function runAutoDeliver(
       out = fs.openSync(log, 'a');
     } catch (err) {
       console.error(`auto-deliver could not open ${log}:`, err);
+      end(false);
       continue;
     }
 
@@ -190,18 +228,19 @@ export function runAutoDeliver(
           'not reaping — the delivery refused, so its desks are not finished',
         );
         // A FAILED DELIVERY LEAVES THE PULSE UNCHANGED (still approved, still
-        // merged), so `pruneDelivering` can never retire its mark and every pass
-        // would renew it. The exit is the only signal; drop the mark so the next
-        // pass retries.
-        const clearError = clearInFlight(opts.repoRoot, [plan.slug], 'deliver');
-        if (clearError) console.log(`auto-deliver: could not clear the in-flight mark for ${plan.slug}: ${clearError}`);
+        // merged), so `pruneDelivering` can never retire its mark. The exit is
+        // the only signal, and the caller's `onEnd` acts on it.
+        end(false);
         return;
       }
       console.log(`auto-deliver: delivered ${plan.slug}; reaping its worktrees`);
+      end(true);
       reap(opts, plan.slug);
     };
-    const onError = (err: Error): void =>
+    const onError = (err: Error): void => {
       console.error('auto-deliver failed to spawn:', err);
+      end(false);
+    };
     // ABOVE BOTH ARMS, because both are this controller acting. The agent arm
     // is the one that needs it most: a spawned `claude -p` inherits these same
     // plugin hooks and runs from the REPOSITORY ROOT, not a desk, so its own
@@ -233,9 +272,20 @@ export function runAutoDeliver(
           statePath: null,
         },
         (record) => onExit(record.code, null),
+      ).then(
+        // A run left to the running board returns `refused` without an end record.
+        (how) => {
+          if (how === 'refused') end(false);
+        },
+        (err: unknown) => {
+          console.error('auto-deliver agent run failed:', err);
+          end(false);
+        },
       );
     } else {
-      scriptsOf(opts).start(DELIVER_SCRIPT, [plan.slug], { log: out, onExit, onError });
+      const run = scriptsOf(opts).start(DELIVER_SCRIPT, [plan.slug], { log: out, onExit, onError });
+      if (run.started) hooks.onStart?.(plan.slug, run.pid);
+      else end(false);
     }
     // The script arm keeps its handle: the EXIT CODE is what the reap waits
     // for. `detached` there keeps a Ctrl-C in the board's terminal off a
@@ -360,13 +410,76 @@ export function maybeAutoDeliver(
 }
 
 /**
- * One delivery pass over the marks on disk: read them, retire the confirmed,
- * mark what is about to start, then start it.
+ * The deliveries this process started and that have not ended, per repository.
  *
- * The marks live in `.plot/state/auto-deliver-in-flight.json` with the
- * dispatch marks' format and 90 s lifetime, so a daemon restart inside that
- * window does not deliver a plan twice. Each pass renews the marks it still
- * holds, so a delivery that outlives 90 s stays marked while it is pending.
+ * A mark is renewed only while its delivery runs: in this set, or under a
+ * recorded pid that is still alive. Held in memory, so a restarted daemon
+ * reads the pid from the file instead.
+ */
+const running = new Map<string, Set<string>>();
+
+const runningIn = (repoRoot: string): Set<string> => {
+  let set = running.get(repoRoot);
+  if (!set) {
+    set = new Set();
+    running.set(repoRoot, set);
+  }
+  return set;
+};
+
+/** Whether `pid` names a live process. EPERM is a live process owned by another user. */
+const pidAlive = (pid: number | undefined): boolean => {
+  if (pid === undefined) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+};
+
+/** Order-independent JSON for a map, so two equal maps compare equal. */
+const canonical = (map: Record<string, unknown>): string =>
+  JSON.stringify(Object.keys(map).sort().map((key) => [key, map[key]]));
+
+/** Whether writing `next` would leave the file as `read` reports it. */
+const sameState = (read: InFlightReading, next: InFlightFile): boolean =>
+  Object.keys(read.expired).length === 0 &&
+  canonical(read.stamps) === canonical(next.marks) &&
+  canonical(read.pids) === canonical(next.pids ?? {}) &&
+  canonical(read.failures) === canonical(next.failures ?? {});
+
+/**
+ * Report a plan whose automatic delivery stopped, in the two places an
+ * operator reads for an automatic delivery: the daemon's log and the plan's
+ * deliver log.
+ */
+const reportStopped = (opts: ActOptions, slug: string, failure: DeliveryFailure): void => {
+  const line =
+    `auto-deliver: ${slug} failed ${failure.count} consecutive deliveries; ` +
+    `stopped retrying — needs a person: run /plot-deliver ${slug}, or change the plan to reset the count`;
+  console.log(line);
+  try {
+    fs.appendFileSync(deliverLogPath(opts.repoRoot, slug), `${line}\n`, 'utf8');
+  } catch {
+    /* the daemon log above still carries the line */
+  }
+};
+
+/**
+ * One delivery pass over the marks on disk: read them, retire the confirmed,
+ * count the lapsed, mark what is about to start, then start it.
+ *
+ * The marks live in `.plot/state/auto-deliver-in-flight.json` with a 180 s
+ * lifetime. A mark is renewed only while its delivery runs, so a mark whose
+ * delivery died outside this process expires and counts as a failed attempt.
+ * A live mark is renewed once it is 80 s old, so a gap of one scan budget
+ * between passes cannot expire it.
+ *
+ * A failed delivery is retried after {@link retryDelayMs} and stops after
+ * {@link AUTO_DELIVER_MAX_FAILURES} consecutive failures; the stop is reported
+ * once, in the daemon log and the plan's deliver log. A success or a change to
+ * the plan's reading resets the count.
  *
  * A mark file that exists and cannot be read starts nothing: the marks are the
  * only evidence that a delivery is running, and a pass blind to them would start
@@ -374,23 +487,81 @@ export function maybeAutoDeliver(
  *
  * @param opts - where the fleet acts.
  * @param pulse - the pulse the scan just wrote.
+ * @param now - epoch milliseconds; the clock of this pass.
  */
-export const runAutoDeliverPass = (opts: ActOptions, pulse: FleetReading | null): void => {
-  const read = readInFlight(opts.repoRoot, Date.now(), 'deliver');
+export const runAutoDeliverPass = (opts: ActOptions, pulse: FleetReading | null, now: number = Date.now()): void => {
+  const read = readInFlight(opts.repoRoot, now, 'deliver');
   if (read.branches === null) {
     console.log(`auto-deliver: cannot read the in-flight record (${read.error}); starting nothing this pass`);
     return;
   }
+  const mine = runningIn(opts.repoRoot);
+  const live = (slug: string): boolean => mine.has(slug) || pidAlive(read.pids[slug]);
   const complete = pulse !== null;
-  const pruned = pruneDelivering(read.branches, pulse, complete);
-  const plans = planAutoDeliver({ pulse, inFlight: pruned, complete });
+  const readings = deliveryReadings(pulse);
+
+  // A LAPSED MARK whose plan still reads approved and merged, with no live
+  // delivery behind it, is a delivery that died where no exit was heard.
+  const lapsed = pruneDelivering(new Set(Object.keys(read.expired)), pulse, complete);
+  const held = new Set([...pruneDelivering(read.branches, pulse, complete), ...[...lapsed].filter(live)]);
+  const failures = pruneFailures(read.failures, pulse);
+  const stopped: string[] = [];
+  for (const slug of lapsed) {
+    if (live(slug)) continue;
+    const reading = readings.get(slug) ?? '';
+    failures[slug] = recordDeliveryFailure(failures[slug], reading, now);
+    if (retryVerdict(failures[slug], reading, now) === 'stopped') stopped.push(slug);
+  }
+
+  const plans = planAutoDeliver({ pulse, inFlight: held, complete, failures, now });
+  const marks: Record<string, number> = {};
+  for (const slug of held) {
+    const at = read.stamps[slug] ?? read.expired[slug];
+    // RENEWED ONLY WHILE THE DELIVERY RUNS. An orphaned mark keeps its stamp
+    // and expires, and the expiry above counts it as a failure.
+    marks[slug] = live(slug) && now - at >= IN_FLIGHT_RENEW_AFTER_MS ? now : at;
+  }
   // MARKED BEFORE THE SPAWN, for the reason auto-dispatch marks first: a crash
   // between the two may over-mark and never under-mark.
-  const next = [...pruned, ...plans.map((p) => p.slug)];
-  const now = Date.now();
-  // Unchanged and fresh: the file already says this, so skip the write. Compared
-  // against THIS pass's reading, so a first mark (empty file) still lands.
-  const markError = inFlightUnchanged(read, next, now) ? '' : writeInFlight(opts.repoRoot, next, now, 'deliver');
+  for (const plan of plans) marks[plan.slug] = now;
+  const pids: Record<string, number> = {};
+  for (const slug of held) if (read.pids[slug] !== undefined) pids[slug] = read.pids[slug];
+  const next: InFlightFile = { marks, pids, failures };
+  // Unchanged: the file already says this, so skip the write.
+  const markError = sameState(read, next) ? '' : writeDeliverState(opts.repoRoot, next);
   if (markError) console.log(`auto-deliver: could not record in-flight marks: ${markError}`);
-  if (plans.length > 0) runAutoDeliver(opts, plans);
+  for (const slug of stopped) reportStopped(opts, slug, failures[slug]);
+  if (plans.length === 0) return;
+
+  for (const plan of plans) mine.add(plan.slug);
+  runAutoDeliver(opts, plans, {
+    onStart: (slug, pid) => {
+      const error = updateDeliverState(opts.repoRoot, (file) => ({ ...file, pids: { ...file.pids, [slug]: pid } }));
+      if (error) console.log(`auto-deliver: could not record the pid for ${slug}: ${error}`);
+    },
+    onEnd: (slug, ok) => {
+      mine.delete(slug);
+      let failure: DeliveryFailure | undefined;
+      const error = updateDeliverState(opts.repoRoot, (file) => {
+        const filePids = { ...file.pids };
+        const fileFailures = { ...file.failures };
+        delete filePids[slug];
+        if (ok) {
+          // A SUCCESS RESETS THE COUNT. The mark stays until the pulse
+          // confirms the delivery, and expires if it never does.
+          delete fileFailures[slug];
+          return { marks: file.marks, pids: filePids, failures: fileFailures };
+        }
+        const fileMarks = { ...file.marks };
+        delete fileMarks[slug];
+        failure = recordDeliveryFailure(fileFailures[slug], readings.get(slug) ?? '', Date.now());
+        fileFailures[slug] = failure;
+        return { marks: fileMarks, pids: filePids, failures: fileFailures };
+      });
+      if (error) console.log(`auto-deliver: could not record the end of ${slug}: ${error}`);
+      if (failure && retryVerdict(failure, failure.reading, failure.lastAt) === 'stopped') {
+        reportStopped(opts, slug, failure);
+      }
+    },
+  });
 };
