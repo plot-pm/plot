@@ -1014,8 +1014,8 @@ resolve_launch() { # $1 = repo root, $2 = agent name ('' when none)
 # makes `failed` safe to include — and including it is the point: a gate that
 # simply refused `failed` would pass every refusal test and leave the verb
 # unable to do the one thing it exists for.
-handover_refusal() { # $1=branch $2=worktree $3=state → 0 may hand over, 1 refused
-  local branch="$1" wt="$2" state="$3" pr_json pr_num pr_state marker
+handover_refusal() { # $1=branch $2=worktree $3=state $4=plot_desk_loops line → 0 may hand over, 1 refused
+  local branch="$1" wt="$2" state="$3" loop="${4:-none}" pr_json pr_num pr_state marker lpid lsrc lwait
 
   if reached_review "$branch"; then
     pr_json=$("$script_dir/plot-host.sh" pr-state "$branch" </dev/null 2>/dev/null || true)
@@ -1028,11 +1028,20 @@ handover_refusal() { # $1=branch $2=worktree $3=state → 0 may hand over, 1 ref
     return 1
   fi
 
+  # A LIVE LOOP REFUSES WHATEVER THE STATE WORD SAYS (#1450). A loop sleeping on
+  # checks, on a usage limit or between passes has no agent beneath it and reads
+  # `stalled` or `finished`, yet a second loop beside it shares the desk.
+  # `deskLoopAlive` reads all three recorded pids; an unread answer refuses too.
+  case "$loop" in
+    none) ;;
+    alive*) IFS=$'\t' read -r _ lpid lsrc lwait <<<"$loop"
+      [ "$lwait" = free ] && printf 'plot-dispatch: a free agent is waiting on %s (pid %s) — refusing.\n  Its loop is idle, polling for a hand-over. Confirm before replacing it:\n    plot-dispatch.sh --stop %s\n' "$branch" "$lpid" "$branch" >&2 && return 1
+      case "$state" in running*) ;; *) printf 'plot-dispatch: a loop is alive on %s (pid %s, from %s) — refusing.\n  It reads %s, which --stop leaves alone, as the reaper does. Let it\n  finish its pass, or end pid %s yourself if you mean to replace it.\n' "$branch" "$lpid" "$lsrc" "${state%% *}" "$lpid" >&2; return 1 ;; esac ;;
+    *) printf 'plot-dispatch: could not read whether a loop is alive on %s — refusing.\n' "$branch" >&2; return 1 ;;
+  esac
   case "$state" in
     running*)
-      echo "plot-dispatch: a worker is alive on $branch (pid ${state#running }) — refusing." >&2
-      echo "  Stop it first if you mean to replace it:" >&2
-      echo "    plot-dispatch.sh --stop $branch" >&2
+      printf 'plot-dispatch: a worker is alive on %s (pid %s) — refusing.\n  Stop it first if you mean to replace it:\n    plot-dispatch.sh --stop %s\n' "$branch" "${state#running }" "$branch" >&2
       return 1
       ;;
     waiting*)
@@ -1824,14 +1833,12 @@ if [ "$mode" = "stop" ]; then
   wt_guess="$wt_root_early/$wt_prefix_early$(printf '%s' "$stop_branch" | tr '/' '-')"
   [ -n "$wt" ] && [ -d "$wt" ] || wt="$wt_guess"
   if [ ! -d "$wt" ]; then
-    echo "plot-dispatch: no worktree holds '$stop_branch' — nothing to stop." >&2
-    echo "  Asked git for every worktree, and looked at $wt_guess." >&2
-    echo "  If a worker is running somewhere this cannot see, that machine is" >&2
-    echo "  where to stop it: /plot-dispatch --status names the desks here." >&2
-    echo "  Nothing was killed." >&2
+    printf "plot-dispatch: no worktree holds '%s' — nothing to stop.\n  Asked git for every worktree, and looked at %s.\n  If a worker is running somewhere this cannot see, that machine is\n  where to stop it: /plot-dispatch --status names the desks here.\n  Nothing was killed.\n" "$stop_branch" "$wt_guess" >&2
     exit 1
   fi
   st=$(worker_state "$wt" "$stop_branch")
+  # A LIVE LOOP IS STOPPED WHATEVER ITS STATE WORD, so the loop `--restart`
+  # refuses on is one this verb can end (`deskLoopAlive`, #1450).
   case "$st" in
     running*)
       pid=${st#running }
@@ -1894,9 +1901,7 @@ if [ "$mode" = "restart" ]; then
   # stopped worker on it should be replaced. Refusing on phase would strand
   # exactly the branch this exists to rescue.
   if [ -z "$restart_branch" ]; then
-    echo "plot-dispatch: --restart needs a branch name, e.g. --restart feature/x" >&2
-    echo "  A slug is not enough: which stopped branch to hand to a new worker" >&2
-    echo "  is your call, not something this should guess." >&2
+    printf 'plot-dispatch: --restart needs a branch name, e.g. --restart feature/x\n  A slug is not enough: which stopped branch to hand to a new worker\n  is your call, not something this should guess.\n' >&2
     exit 1
   fi
 
@@ -1908,9 +1913,7 @@ if [ "$mode" = "restart" ]; then
   # them, and a hand-made worktree rarely follows dispatch's naming.
   restart_wt=$(worktree_holding_branch "$restart_branch")
   if [ -z "$restart_wt" ] || [ ! -d "$restart_wt" ]; then
-    echo "plot-dispatch: no worktree holds '$restart_branch' — nothing to restart." >&2
-    echo "  --restart hands an EXISTING checkout to a new worker; it creates none." >&2
-    echo "  To start this branch fresh, dispatch its plan." >&2
+    printf "plot-dispatch: no worktree holds '%s' — nothing to restart.\n  --restart hands an EXISTING checkout to a new worker; it creates none.\n  To start this branch fresh, dispatch its plan.\n" "$restart_branch" >&2
     exit 1
   fi
 
@@ -1935,7 +1938,8 @@ if [ "$mode" = "restart" ]; then
   # running here" — asked rather than re-derived, so this cannot drift from
   # `--status` and the scan the way five of six states already did once.
   restart_state=$(worker_state "$restart_wt" "$restart_branch")
-  handover_refusal "$restart_branch" "$restart_wt" "$restart_state" || exit 1
+  restart_loop=$(printf '%s\n' "$restart_wt" | plot_desk_loops) || restart_loop="unread"
+  handover_refusal "$restart_branch" "$restart_wt" "$restart_state" "${restart_loop:-unread}" || exit 1
   # `stalled`, `failed`, `ended` and `no worker` all restart. The PR question
   # above is what makes `failed` safe to include — and including it is the
   # point: a gate that simply refused `failed` would pass every refusal test
@@ -2310,8 +2314,11 @@ if [ "$mode" = "start" ]; then
   [ -n "$start_main" ] || start_main="main"
 
   # HOW MANY WORKERS ARE ALREADY UP, counted from the desks on this disk rather
-  # than from the registry. A manifest records a launch; a live pid records a
-  # worker, and the question `--start` asks is about the machine's load. The
+  # than from the registry. A manifest records a launch; a live loop records a
+  # worker, and the question `--start` asks is about the machine's load. A loop
+  # counts whatever its state word: one sleeping on checks, on a usage limit or
+  # between passes holds no agent and still loads the machine. `deskLoopAlive`
+  # answers, through `plot_desk_loops`, the reading `--restart` refuses on. The
   # count is what `fleetSize` subtracts, so asking for three twice gives three
   # agents rather than six.
   #
@@ -2338,14 +2345,7 @@ if [ "$mode" = "start" ]; then
   if [ -n "${PLOT_START_ONE:-}" ]; then
     start_count=1
   else
-  while IFS= read -r wt; do
-    [ -n "$wt" ] || continue
-    [ -f "$wt/.plot-worker.pid" ] || continue
-    p=$(cat "$wt/.plot-worker.pid" 2>/dev/null) || continue
-    [ -n "$p" ] && ps -p "$p" >/dev/null 2>&1 && start_running=$((start_running + 1))
-  done <<EOF
-$(git worktree list --porcelain </dev/null 2>/dev/null | awk '/^worktree /{print $2}')
-EOF
+  start_running=$(git worktree list --porcelain </dev/null 2>/dev/null | awk '/^worktree /{print $2}' | plot_desk_loops --count) || start_running=""
   fi
 
   # THE MACHINE'S OWN READING, one timed fork. `machine-system.ts` samples five
@@ -2406,8 +2406,13 @@ EOF
   # missing node, a module that throws all leave the answer empty. The direction
   # is the reaper's: silence is never permission, and here permission would spawn
   # detached processes.
-  start_bundle="$script_dir/board/plot-fleet-size.mjs"
-  start_answer=$(printf '%s\t%s\t%s' "$start_count" "$start_running" "$start_cost" \
+  #
+  # A COUNT THAT CANNOT BE READ IS THE SAME REFUSAL: an empty `start_running`
+  # means `plot-desk-loop.mjs` answered nothing, and the refusal below names
+  # that bundle, because an undercount would start too many agents.
+  start_bundle="$script_dir/board/plot-fleet-size.mjs" start_answer=""
+  [ -n "$start_running" ] || start_bundle="$script_dir/board/plot-desk-loop.mjs"
+  [ -z "$start_running" ] || start_answer=$(printf '%s\t%s\t%s' "$start_count" "$start_running" "$start_cost" \
                  | node "$start_bundle" 2>/dev/null)
 
   if [ -z "$start_answer" ]; then

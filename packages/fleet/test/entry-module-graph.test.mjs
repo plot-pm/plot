@@ -68,8 +68,8 @@ describe('the fleet entries import nothing from the board', () => {
     const found = await boardInputsFor('src/server/entry/fleet-size.ts');
     assert.deepEqual(found, [], `fleet-size.ts imports: ${found.join(', ')}`);
   });
-  it('dispatch-command.ts and continue-command.ts pull in no board module', async () => {
-    for (const entry of ['dispatch-command', 'continue-command']) {
+  it('dispatch-command.ts, continue-command.ts and desk-loop.ts pull in no board module', async () => {
+    for (const entry of ['dispatch-command', 'continue-command', 'desk-loop']) {
       const found = await boardInputsFor(`src/server/entry/${entry}.ts`);
       assert.deepEqual(found, [], `${entry}.ts imports: ${found.join(', ')}`);
     }

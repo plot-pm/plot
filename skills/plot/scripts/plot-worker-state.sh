@@ -303,7 +303,7 @@ plot_pid_is_current() { # $1=pid $2=startedAt (ISO-8601) → 0 if current, 1 if 
 
   # Convert the manifest's startedAt (ISO-8601) to epoch seconds.
   # `date -j -f` is macOS; `date -d` is GNU. Try both.
-  if manifest_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$started" +%s 2>/dev/null); then
+  if manifest_epoch=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$started" +%s 2>/dev/null); then
     :
   elif manifest_epoch=$(date -d "$started" +%s 2>/dev/null); then
     :
@@ -330,11 +330,12 @@ plot_pid_is_current() { # $1=pid $2=startedAt (ISO-8601) → 0 if current, 1 if 
   fi
 
   # A process that started BEFORE the manifest's startedAt is a reused pid.
-  # A process that started AT or AFTER is the real worker. We allow 2 seconds
-  # of slack for clock skew and rounding — the wrapper writes the pid and then
-  # the manifest's awk stamps it; if the second ticks over in between, the
-  # process appears to have started 1 second before the manifest says.
-  local slack=2
+  # A process that started AT or AFTER is the real worker. The slack is 3 s:
+  # the wrapper writes the pid and then the manifest's awk stamps it, so the
+  # second can tick over in between, and procps on Linux reports a start 0.8 to
+  # 1.2 s early (`SKEW_MS` in `test/reconcile/own-process.mjs`). The stamp is
+  # UTC, so the macOS parse takes `-u`; without it the stamp read as local time.
+  local slack=3
   [ "$proc_epoch" -ge "$((manifest_epoch - slack))" ]
 }
 
@@ -1188,6 +1189,20 @@ plot_worker_task_state() { # $1=worktree $2=pr-fact → finished|waiting|stalled
   printf '%s' "$answer"
 }
 
+# Whether the loop `$2` at the desk `$1` is a free agent waiting for a hand-over:
+# `.plot-worker.freewait`, with leading and trailing whitespace removed, names
+# exactly that pid. A DECLARED DUPLICATE of `deskWaitsFree`: `plot_worker_state`
+# runs once per desk per fleet-scan pass, so it does not ask a bundle, and
+# `packages/domain/corpus/desk-waits-free.corpus.test.ts` holds the pair.
+plot_worker_waits_free() { # $1=worktree $2=pid → 0 when the record names $2
+  local fw; [ -n "$2" ] && [ -f "$1/.plot-worker.freewait" ] && fw=$(<"$1/.plot-worker.freewait") || return 1
+  fw="${fw#"${fw%%[![:space:]]*}"}"; [ "${fw%"${fw##*[![:space:]]}"}" = "$2" ]
+}
+
+# `deskLoopAlive` and `deskWaitsFree` for the desk paths on stdin, one answer
+# line per desk (`board/plot-desk-loop.mjs`). Asked once per operator command.
+plot_desk_loops() { PLOT_MANIFEST_DIR="${PLOT_MANIFEST_DIR:-}" node "${_plot_wstate_config%/*}/board/plot-desk-loop.mjs" "$@"; }
+
 # Classify the worker in a worktree.
 #
 # $1 = worktree path
@@ -1324,6 +1339,14 @@ plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
       # means — `stalled` for work only this machine holds, `waiting` for a
       # marker, `finished` for a desk that is clear — because the process has
       # nothing left to say. No exit file exists: the wrapper has not exited.
+      #
+      # A FREE AGENT WAITS HERE: its loop polls for a hand-over with no agent
+      # beneath it, and `.plot-worker.freewait` names the loop's pid
+      # (`deskWaitsFree`'s reading). That desk is occupied, so it reads `running`.
+      # ONLY FOR A PID WHOSE OWNERSHIP IS PROVEN: `started_at` is set only when
+      # the manifest's `startedAt` passed `plot_pid_is_current` above, so a
+      # reused pid, or a pid from the bare pid file, never reads as a free agent.
+      [ -n "$started_at" ] && plot_worker_waits_free "$wt" "$pid" && { printf 'running\t%s\t' "$pid"; return; }
       printf '%s\t%s\t' "$(plot_worker_task_state "$wt" "$has_pr")" "$pid"
       return
     fi

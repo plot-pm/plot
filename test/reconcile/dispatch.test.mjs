@@ -1114,6 +1114,112 @@ test('dispatch: --status distinguishes a live worker from a dead one', () => {
   fs.rmSync(wt, { recursive: true, force: true });
 });
 
+// A desk holding a live `sleep` as its loop: `.plot-worker.pid` and
+// `.plot-worker.wrapper.pid` name it, no agent runs beneath it, and with
+// `manifest: true` a registry manifest stamped before the spawn proves the pid
+// is the one launched there. `PLOT_AGENT_GRACE_SECONDS=0` makes the absent
+// agent a definite absence, so the desk reads `finished` or `stalled`.
+const loopDesk = (label, { manifest = false } = {}) => {
+  const { tmp, repo: r } = repoWithPlan('- **Phase:** Approved', label);
+  const wt = desk(r, 'feature/g', path.join(r, '.worktrees', 'feature-g'));
+  const stamp = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace(/\.\d+Z$/, 'Z');
+  // Detached, so the loop leads its own process group and `--stop` signals that group alone.
+  const loop = spawn('sleep', ['60'], { stdio: 'ignore', detached: true });
+  fs.writeFileSync(path.join(wt, '.plot-worker.pid'), `${loop.pid}\n`);
+  fs.writeFileSync(path.join(wt, '.plot-worker.wrapper.pid'), `${loop.pid}\n`);
+  if (manifest) {
+    fs.mkdirSync(path.join(r, '.plot', 'agents'), { recursive: true });
+    fs.writeFileSync(path.join(r, '.plot', 'agents', 'sess-g.json'), `${JSON.stringify(
+      { session: 'sess-g', branch: 'feature/g', worktree: fs.realpathSync(wt), pid: String(loop.pid), startedAt: stamp },
+      null, 2)}\n`);
+  }
+  const env = { ...process.env, PLOT_AGENT_GRACE_SECONDS: '0' };
+  const ask = (...args) => spawnSync('bash', [dispatch, ...args], { encoding: 'utf8', cwd: r, timeout: 30_000, env });
+  const done = () => {
+    loop.kill();
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(wt, { recursive: true, force: true });
+  };
+  return { wt, loop, ask, done };
+};
+
+test('dispatch: a desk whose loop waits free reads running to --status, --start and --restart', () => {
+  const { wt, loop, ask, done } = loopDesk('freewait', { manifest: true });
+  try {
+    assert.match(ask('--status', 'g').stdout, /finished \d/, 'with no free-wait record the loop-without-agent desk is finished');
+
+    fs.writeFileSync(path.join(wt, '.plot-worker.freewait'), `${loop.pid}\n`);
+    const out = ask('--status', 'g').stdout;
+    assert.match(out, new RegExp(`running ${loop.pid}`));
+    assert.doesNotMatch(out, /finished \d/);
+
+    assert.match(ask('--start', '1').stdout, /running=1/, '--start counts the same agent --status reads running');
+
+    const restart = ask('--offline', '--restart', 'feature/g');
+    assert.notEqual(restart.status, 0, '--restart must still refuse an occupied desk');
+    assert.match(restart.stderr, new RegExp(`free agent is waiting on feature/g \\(pid ${loop.pid}\\)`));
+  } finally {
+    done();
+  }
+});
+
+test('dispatch: a live loop with no free wait is counted by --start and refused by --restart', () => {
+  // The loop sleeps on checks, on a usage limit or between passes: no agent,
+  // no free-wait record, a dirty tree. It reads `stalled`, and it is alive.
+  const { wt, loop, ask, done } = loopDesk('liveloop');
+  try {
+    fs.writeFileSync(path.join(wt, 'half-done.txt'), 'unfinished work\n');
+    assert.doesNotMatch(ask('--status', 'g').stdout, /running \d/, 'the desk does not read running');
+
+    assert.match(ask('--start', '1').stdout, /running=1/, '--start counts a live loop whatever its state word');
+
+    const restart = ask('--offline', '--restart', 'feature/g');
+    assert.notEqual(restart.status, 0, '--restart must refuse a desk whose loop is alive');
+    assert.match(restart.stderr, new RegExp(`a loop is alive on feature/g \\(pid ${loop.pid}, from \\.plot-worker\\.pid\\)`));
+    assert.doesNotMatch(restart.stdout, /restarting feature\/g/);
+    assert.doesNotThrow(() => process.kill(loop.pid, 0), 'the live loop still runs');
+  } finally {
+    done();
+  }
+});
+
+test('dispatch: a free-wait record does not make a desk read running unless it names the proven loop pid', () => {
+  const { wt, loop, ask, done } = loopDesk('freewait-other', { manifest: true });
+  try {
+    // A record naming a different pid is not this loop's free wait.
+    fs.writeFileSync(path.join(wt, '.plot-worker.freewait'), `${loop.pid + 1}\n`);
+    assert.match(ask('--status', 'g').stdout, /finished \d/, 'a record naming another pid reads finished');
+  } finally {
+    done();
+  }
+  const unproven = loopDesk('freewait-unproven');
+  try {
+    // No manifest: the pid comes from the bare pid file, so its ownership is
+    // unproven and the record is not honoured.
+    fs.writeFileSync(path.join(unproven.wt, '.plot-worker.freewait'), `${unproven.loop.pid}\n`);
+    assert.match(unproven.ask('--status', 'g').stdout, /finished \d/, 'an unproven pid never reads as a free agent');
+  } finally {
+    unproven.done();
+  }
+});
+
+test('dispatch: a stale free-wait record beside a dead loop does not read running', () => {
+  const { wt, ask, done } = loopDesk('freewait-stale');
+  try {
+    // A pid `spawnSync` has already reaped: no process holds it now.
+    const dead = String(spawnSync('true').pid);
+    for (const name of ['.plot-worker.pid', '.plot-worker.wrapper.pid', '.plot-worker.freewait']) {
+      fs.writeFileSync(path.join(wt, name), `${dead}\n`);
+    }
+    const out = ask('--status', 'g').stdout;
+    assert.doesNotMatch(out, /running \d/, out);
+    const restart = ask('--offline', '--restart', 'feature/g');
+    assert.doesNotMatch(restart.stderr, /free agent is waiting|a loop is alive/, restart.stderr);
+  } finally {
+    done();
+  }
+});
+
 test('dispatch: --stop refuses without a branch and never kills everything', () => {
   // A --stop that could take no argument and mean "all" is one fat-finger away
   // from killing a whole fleet.

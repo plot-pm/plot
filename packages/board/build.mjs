@@ -19,6 +19,7 @@ import {
   promptArtifact,
   dispatchCommandArtifact,
   continueCommandArtifact,
+  deskLoopArtifact,
 } from '../fleet/build.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -28,9 +29,10 @@ if (!fs.existsSync(clientHtml)) {
   process.exit(1);
 }
 
-// `@plot-pm/fleet` builds six bundles: `plot-fleetd.mjs`,
+// `@plot-pm/fleet` builds seven bundles: `plot-fleetd.mjs`,
 // `plot-worker-loop.mjs`, `plot-fleet-size.mjs`, `plot-prompt.mjs`,
-// `plot-dispatch-command.mjs` and `plot-continue-command.mjs`. This
+// `plot-dispatch-command.mjs`, `plot-continue-command.mjs` and
+// `plot-desk-loop.mjs`. This
 // file keeps their `shipped*` declarations, because the gates and
 // `bundles.generated.ts` derive the generated set from this file alone, and
 // copies each bundle from `packages/fleet/dist/` to its shipped path.
@@ -297,6 +299,15 @@ fs.copyFileSync(dispatchCommandArtifact, shippedDispatchCommand);
 fs.chmodSync(shippedDispatchCommand, 0o755);
 fs.copyFileSync(continueCommandArtifact, shippedContinueCommand);
 fs.chmodSync(shippedContinueCommand, 0o755);
+
+// Whether a desk holds a live loop: `deskLoopAlive` over the desk's three
+// recorded pids, and `deskWaitsFree`. `plot-dispatch.sh` asks it once per
+// `--start`, `--stop` and `--restart`; the fleet scan's per-desk reading stays
+// in `plot-worker-state.sh` and a corpus test holds the pair.
+const shippedDeskLoop = path.join(here, '../../skills/plot/scripts/board/plot-desk-loop.mjs');
+
+fs.copyFileSync(deskLoopArtifact, shippedDeskLoop);
+fs.chmodSync(shippedDeskLoop, 0o755);
 
 // The task state, reachable from the classifier that answers it.
 //

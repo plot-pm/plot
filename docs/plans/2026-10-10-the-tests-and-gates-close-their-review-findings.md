@@ -132,7 +132,7 @@ Each slice changes one group of files, and no two slices change the same file. T
 
 ### Board test signals
 
-- `bug/the-board-tests-signal-only-their-own-process` — `settle` guards its pid read and the `afterEach` removes the desk in a `finally`; the board and e2e kill sites use `signalOwn` (issue 1473, issue 1489) <!-- builds: own-process signals in the board and e2e tests -->
+- `bug/the-board-tests-signal-only-their-own-process` → #1536 — `settle` guards its pid read and the `afterEach` removes the desk in a `finally`; the board and e2e kill sites use `signalOwn` (issue 1473, issue 1489) <!-- builds: own-process signals in the board and e2e tests -->
 
 ### Kill test readiness
 

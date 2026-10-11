@@ -52,6 +52,7 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
   'skills/plot/scripts/board/plot-controller-invocation.mjs',
   'skills/plot/scripts/board/plot-deliver.mjs',
   'skills/plot/scripts/board/plot-delta.mjs',
+  'skills/plot/scripts/board/plot-desk-loop.mjs',
   'skills/plot/scripts/board/plot-desk-root.mjs',
   'skills/plot/scripts/board/plot-dispatch-command.mjs',
   'skills/plot/scripts/board/plot-empty-claim.mjs',
