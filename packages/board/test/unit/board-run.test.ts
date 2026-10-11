@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn as spawnProcess } from 'node:child_process';
 
 import { useSdkConnector, type BuildBoardOptions } from '../../src/server/board.js';
 import { boardSdkConnector } from '../../src/server/sdk-runner.js';
@@ -24,6 +25,7 @@ import {
   type BoardConfigReader,
 } from '../../src/server/board-run.js';
 import { rmTree } from '../helpers.mjs';
+import { signalRecorded } from '../../../../test/reconcile/own-process.mjs';
 
 const SCRIPTS = path.resolve(__dirname, '../../../../skills/plot/scripts');
 const FAKE_CLAUDE_DIR = path.resolve(__dirname, '../fixtures/fake-claude');
@@ -236,7 +238,7 @@ describe('the state file after the board stops', () => {
     // The real exit listener of the adapter ends the child with the process;
     // here the process lives on, so the test ends it by the pid it recorded.
     for (let i = 0; i < 100 && !fs.existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 20));
-    process.kill(Number(fs.readFileSync(pidFile, 'utf8').trim()), 'SIGKILL');
+    signalRecorded(pidFile, 'SIGKILL', { command: 'sleep' });
     await boardRunsSettled();
   });
 
@@ -254,5 +256,24 @@ describe('the state file after the board stops', () => {
     // restart that reused the pid.
     fs.writeFileSync(statePath, `running ${process.pid}`, 'utf8');
     assert.equal(readRunState(statePath, logFile).state, 'failed');
+  });
+
+  it('signalRecorded refuses a pid file whose pid was reused by another process — raw process.kill would not', async () => {
+    const pidFile = path.join(dir, 'reused.pid');
+    // Stands in for "the pid was reused": a real, alive, unrelated process
+    // (not `sleep`) whose pid file's mtime is backdated past SKEW_MS.
+    const impostor = spawnProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    try {
+      fs.writeFileSync(pidFile, String(impostor.pid));
+      const past = new Date(Date.now() - 20_000);
+      fs.utimesSync(pidFile, past, past);
+      // The old code was `process.kill(Number(fs.readFileSync(pidFile, 'utf8').trim()), 'SIGKILL')`
+      // — it would have ended this process unconditionally.
+      const sent = signalRecorded(pidFile, 'SIGKILL', { command: 'sleep' });
+      assert.equal(sent, false, 'signalRecorded must not have signalled a reused pid');
+      assert.doesNotThrow(() => process.kill(impostor.pid!, 0), 'the impostor must still be alive');
+    } finally {
+      impostor.kill('SIGKILL');
+    }
   });
 });

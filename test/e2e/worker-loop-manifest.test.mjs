@@ -19,6 +19,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { signalRecorded } from '../reconcile/own-process.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(here, '..', '..');
@@ -126,6 +127,28 @@ function runWorkerLoop(env, { promptContent, boundSeconds = 3600, timeout = 5000
   return result.status;
 }
 
+test('signalRecorded refuses a pid file whose pid was reused — raw process.kill would not', () => {
+  // Stands in for "the pid was reused": a real, alive, unrelated process
+  // whose pid file's mtime is backdated past SKEW_MS. Needs none of the
+  // worker-loop/registry machinery the other tests in this file use.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-manifest-signal-'));
+  const impostor = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  try {
+    const pidFile = path.join(tmp, 'prompt.pid');
+    fs.writeFileSync(pidFile, String(impostor.pid));
+    const past = new Date(Date.now() - 20_000);
+    fs.utimesSync(pidFile, past, past);
+    // The old code at this site was
+    // `try { process.kill(promptPid, 'SIGKILL'); } catch {}` — unconditional.
+    const sent = signalRecorded(pidFile, 'SIGKILL', { command: 'sleep' });
+    assert.equal(sent, false, 'signalRecorded must not signal a pid whose file mtime disagrees');
+    assert.doesNotThrow(() => process.kill(impostor.pid, 0), 'the impostor must still be alive');
+  } finally {
+    impostor.kill('SIGKILL');
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('manifest removed on normal exit (--next returns no more work)', () => {
   const env = makeTestEnv({ name: 'normal' });
   try {
@@ -224,9 +247,7 @@ test('manifest survives SIGKILL (no handler can run), and the reconcile sweep is
     assert.ok(fs.existsSync(reconcileScan),
       'plot-reconcile-scan.sh must exist to handle SIGKILL orphans');
   } finally {
-    if (promptPid > 0) {
-      try { process.kill(promptPid, 'SIGKILL'); } catch { /* already gone */ }
-    }
+    if (promptPid > 0) signalRecorded(started, 'SIGKILL', { command: 'sleep' });
     env.cleanup();
   }
 });

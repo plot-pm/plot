@@ -33,6 +33,7 @@ import {
 } from '@plot-pm/fleet/shared/continuation';
 import type { FleetReading } from '@plot-pm/domain';
 import { rmTree } from '../helpers.mjs';
+import { record, signalOwn } from '../../../../test/reconcile/own-process.mjs';
 import { agentsFs, freshAgentRecordFile } from '@plot-pm/domain/adapters';
 import type { DeskMonitors, MonitoredDesk } from '@plot-pm/domain';
 import { startFreshSession } from '@plot-pm/fleet/server/entry/registryd-main';
@@ -194,8 +195,18 @@ const alive = (pid: number): boolean => {
 
 const settle = async (dir: string): Promise<void> => {
   if (!spawned.has(dir)) return;
-  const pid = Number(fs.readFileSync(path.join(dir, '.plot-worker.pid'), 'utf8').trim());
-  if (!Number.isInteger(pid) || pid <= 1) return;
+  const pidFile = path.join(dir, '.plot-worker.pid');
+  let raw: string;
+  try {
+    raw = fs.readFileSync(pidFile, 'utf8').trim();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      assert.fail(`settle: no pid file in ${dir} — the worker this test expected never wrote one`);
+    }
+    throw err;
+  }
+  const pid = Number(raw);
+  assert.ok(Number.isInteger(pid) && pid > 1, `settle: ${JSON.stringify(raw)} in ${dir} is not a pid`);
   const deadline = Date.now() + 15_000;
   while (alive(pid) && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 25));
@@ -203,13 +214,16 @@ const settle = async (dir: string): Promise<void> => {
   assert.ok(!alive(pid), `the worker pid ${pid} started in ${dir} did not exit within 15s`);
 };
 
-/** SIGKILL a fixture process this file started, then wait for its pid to be gone. */
-const killAndAwait = async (pid: number): Promise<void> => {
-  try {
-    process.kill(pid, 'SIGKILL');
-  } catch {
-    /* already gone */
-  }
+/**
+ * SIGKILL a fixture process this file started — only when it still is that
+ * process — then wait for its pid to be gone.
+ *
+ * @param command what the fixture's command line must contain, matching
+ *   whatever `record`ed it (`'sleep'` for the real-process fixtures,
+ *   `process.execPath` for the fake-loop fixtures).
+ */
+const killAndAwait = async (pid: number, command: string): Promise<void> => {
+  signalOwn(pid, 'SIGKILL', { command });
   const deadline = Date.now() + 15_000;
   while (alive(pid) && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 25));
@@ -217,12 +231,65 @@ const killAndAwait = async (pid: number): Promise<void> => {
   assert.ok(!alive(pid), `the fixture pid ${pid} did not exit within 15s of SIGKILL`);
 };
 
-afterEach(async () => {
+/** The module's cleanup pass: settle every started worktree, then remove it regardless. */
+const settleAndRemoveAll = async (): Promise<void> => {
   while (dirs.length) {
     const dir = dirs.pop()!;
-    await settle(dir);
-    rmTree(dir);
+    try {
+      await settle(dir);
+    } finally {
+      rmTree(dir);
+    }
   }
+};
+
+afterEach(settleAndRemoveAll);
+
+describe('settle and the afterEach that calls it', () => {
+  it('fails by name when the worktree it was given never wrote a pid file', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-settle-'));
+    spawned.add(dir);
+    try {
+      await assert.rejects(() => settle(dir), (err: Error) => {
+        assert.match(err.message, /no pid file/);
+        assert.ok(err.message.includes(dir), `expected the failure to name ${dir}, got: ${err.message}`);
+        return true;
+      });
+    } finally {
+      spawned.delete(dir);
+      rmTree(dir);
+    }
+  });
+
+  it('removes the worktree in its finally even when settle throws', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-settle-finally-'));
+    dirs.push(dir);
+    spawned.add(dir);
+    // No `.plot-worker.pid` is written, so `settle` throws inside the real
+    // cleanup pass — proving its `finally` still removes the directory, not
+    // just that the suite compiles with one. The throw itself is expected:
+    // the point is what runs before it propagates.
+    await assert.rejects(() => settleAndRemoveAll());
+    assert.equal(fs.existsSync(dir), false, 'rmTree must run even though settle threw');
+  });
+
+  it('killAndAwait refuses a pid that no longer belongs to the command it recorded — old `process.kill` would not', async () => {
+    // A stand-in for "the pid was reused": the pid is real and alive, but its
+    // recorded identity (stamped 10s in the past, long past SKEW_MS) and the
+    // command this call expects both disagree with what is actually running.
+    const impostor = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    const pid = impostor.pid!;
+    record(pid, Date.now() - 10_000);
+    try {
+      // The old code was `process.kill(pid, 'SIGKILL')`, unconditional — it
+      // would have ended this process. `killAndAwait` with a `'sleep'`
+      // expectation must leave it running and fail rather than silently pass.
+      await assert.rejects(() => killAndAwait(pid, 'sleep'), /did not exit within 15s/);
+      assert.ok(alive(pid), 'signalOwn must not have signalled a process whose command does not match');
+    } finally {
+      impostor.kill('SIGKILL');
+    }
+  });
 });
 
 /**
@@ -1154,11 +1221,12 @@ describe('refusing a live loop — #1294, a second loop on one desk', () => {
     const pid = child.pid;
     assert.ok(pid !== undefined, 'the fixture itself must spawn successfully');
     liveProcesses.push(pid);
+    record(pid);
     return pid;
   }
 
   afterEach(async () => {
-    while (liveProcesses.length) await killAndAwait(liveProcesses.pop()!);
+    while (liveProcesses.length) await killAndAwait(liveProcesses.pop()!, 'sleep');
   });
 
   const input = (wt: string, dir: string) => ({
@@ -1286,11 +1354,12 @@ describe('a free-waiting loop is stopped, then the continuation starts — #1373
     const pid = child.pid;
     assert.ok(pid !== undefined, 'the fixture itself must spawn successfully');
     liveProcesses.push(pid);
+    record(pid);
     return pid;
   }
 
   afterEach(async () => {
-    while (liveProcesses.length) await killAndAwait(liveProcesses.pop()!);
+    while (liveProcesses.length) await killAndAwait(liveProcesses.pop()!, 'sleep');
   });
 
   const input = (wt: string, dir: string) => ({
@@ -1364,7 +1433,7 @@ describe('a free-waiting loop is stopped, then the continuation starts — #1373
       readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'sleep 2' : fallback),
       stopLoop: async (pid) => {
         assert.equal(pid, String(livePid), 'only the pid the reading named is ever signalled');
-        process.kill(Number(pid), 'SIGKILL');
+        signalOwn(Number(pid), 'SIGKILL', { command: 'sleep' });
         manifestUnchangedDuringStop = fs.readFileSync(manifestFile, 'utf8') === manifestBeforeStop;
         return { ok: true };
       },
@@ -1413,7 +1482,7 @@ describe('a stopped loop that removes its own manifest — #1376 review', () => 
   const loops: number[] = [];
 
   afterEach(async () => {
-    while (loops.length) await killAndAwait(loops.pop()!);
+    while (loops.length) await killAndAwait(loops.pop()!, process.execPath);
   });
 
   const startFakeLoop = async (manifestFile: string, ready: string): Promise<number> => {
@@ -1427,6 +1496,7 @@ describe('a stopped loop that removes its own manifest — #1376 review', () => 
     const child = spawn(process.execPath, ['-e', script, manifestFile, ready], { stdio: 'ignore' });
     assert.ok(child.pid !== undefined, 'the fake loop must spawn');
     loops.push(child.pid);
+    record(child.pid);
     const deadline = Date.now() + 10_000;
     while (!fs.existsSync(ready) && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 25));

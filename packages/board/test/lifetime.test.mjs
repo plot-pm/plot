@@ -20,6 +20,7 @@ import {
   makeRepo,
   rmTree,
 } from './helpers.mjs';
+import { record, signalOwn } from '../../../test/reconcile/own-process.mjs';
 
 const APPROVED = `# Ship the widget
 ## Status
@@ -58,6 +59,7 @@ function startLauncher(cwd, env = {}) {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  record(proc.pid);
   return new Promise((resolve, reject) => {
     let out = '';
     const timer = setTimeout(() => {
@@ -69,6 +71,7 @@ function startLauncher(cwd, env = {}) {
       const m = /READY (\d+) (\d+)/.exec(out);
       if (!m) return;
       clearTimeout(timer);
+      record(Number(m[1]));
       resolve({ launcher: proc, serverPid: Number(m[1]), port: Number(m[2]) });
     });
     proc.on('exit', (code) => {
@@ -104,16 +107,28 @@ async function stillAliveAfter(pid, ms) {
   return alive(pid);
 }
 
-/** Kill a pid if it is still around, so a failing assertion leaks nothing. */
+/** Kill a pid this file recorded, if it is still that same process — so a failing assertion leaks nothing, and never signals a reused pid. */
 function reap(pid) {
-  if (pid && alive(pid)) {
-    try {
-      process.kill(pid, 'SIGKILL');
-    } catch {
-      /* already gone */
-    }
-  }
+  if (pid && alive(pid)) signalOwn(pid, 'SIGKILL');
 }
+
+describe('reap refuses a pid this file never recorded as itself', () => {
+  it('leaves a live, unrelated process alone — raw process.kill would not', async () => {
+    // Stands in for "the pid was reused": a real, alive process stamped with
+    // a `recordedAt` far in the past, so its actual start time disagrees.
+    // The old code was `try { process.kill(pid, 'SIGKILL'); } catch {}` —
+    // unconditional, and would have ended this process.
+    const impostor = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    try {
+      await new Promise((r) => setTimeout(r, 50));
+      record(impostor.pid, Date.now() - 20_000);
+      reap(impostor.pid);
+      assert.ok(alive(impostor.pid), 'reap must not signal a pid whose start time disagrees with its stamp');
+    } finally {
+      impostor.kill('SIGKILL');
+    }
+  });
+});
 
 describe('a test server exits when its launcher is killed', () => {
   let tmp, started;
@@ -253,6 +268,7 @@ describe('no orphan survives a killed test run', () => {
       cwd: tmp,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    record(proc.pid);
     let ports;
     let runnerRepo = '';
     try {
