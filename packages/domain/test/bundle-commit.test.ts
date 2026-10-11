@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { bundleCommitRefusal, type BundleCommitReadings } from '../src/rules/bundle-commit.js';
+import { bundleCommitRefusal, bundleCommitTouches, type BundleCommitReadings } from '../src/rules/bundle-commit.js';
 
 /** A real path from `BOARD_ARTIFACT_PATHS`, so a staged-add test refuses for real. */
 const GENERATED_PATH = 'skills/plot/scripts/board/board-server.mjs';
@@ -91,5 +91,19 @@ describe('bundleCommitRefusal', () => {
       staged: [{ status: 'added', path: 'packages/domain/src/rules/bundle-commit.ts' }],
     });
     expect(refusal).toBeNull();
+  });
+});
+
+describe('bundleCommitTouches', () => {
+  it('skips a staged .gitattributes beside a real touch, naming only the latter', () => {
+    const touches = bundleCommitTouches({
+      ...EMPTY,
+      staged: [
+        { status: 'modified', path: '.gitattributes' },
+        { status: 'added', path: GENERATED_PATH },
+      ],
+    });
+    expect(touches).toHaveLength(1);
+    expect(touches[0]!.path).toBe(GENERATED_PATH);
   });
 });
