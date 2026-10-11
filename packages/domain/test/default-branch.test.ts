@@ -9,6 +9,8 @@ import {
 } from '../src/entities/default-branch.js';
 import {
   advanceSettled,
+  ancestorStep,
+  ancestorsToAsk,
   checkNamesOf,
   checksWaitMsOf,
   declaredRuns,
@@ -226,6 +228,54 @@ describe('advanceSettled — the settled part moves only when a commit settles',
 
   it('stays absent while nothing has settled', () => {
     expect(advanceSettled(undefined, 'n', 'pending')).toBeUndefined();
+  });
+});
+
+describe('ancestorsToAsk — the commits between the head and the settled commit', () => {
+  const line = ['h', 'c3', 'c2', 'c1', 's', 'old'];
+  const settled = { sha: 's', state: 'red' } as const;
+
+  it('lists the commits strictly between the head and the settled commit, newest first', () => {
+    expect(ancestorsToAsk(line, 'h', settled, 5)).toEqual(['c3', 'c2', 'c1']);
+  });
+
+  it('caps the list at the newest max commits', () => {
+    expect(ancestorsToAsk(line, 'h', settled, 2)).toEqual(['c3', 'c2']);
+  });
+
+  it('never lists the settled commit or one older than it', () => {
+    expect(ancestorsToAsk(line, 'h', settled, 50)).not.toContain('old');
+    expect(ancestorsToAsk(line, 'h', settled, 50)).not.toContain('s');
+  });
+
+  it('lists nothing where the settled commit is not on the line', () => {
+    expect(ancestorsToAsk(line, 'h', { sha: 'gone', state: 'red' }, 5)).toEqual([]);
+  });
+
+  it('lists nothing where the head is the settled commit', () => {
+    expect(ancestorsToAsk(['s', 'old'], 's', settled, 5)).toEqual([]);
+  });
+
+  it('lists nothing where the line does not start at the head', () => {
+    expect(ancestorsToAsk(line, 'other', settled, 5)).toEqual([]);
+  });
+
+  it('lists nothing where nothing has settled yet', () => {
+    expect(ancestorsToAsk(line, 'h', undefined, 5)).toEqual([]);
+  });
+});
+
+describe('ancestorStep — what one ancestor answer means', () => {
+  it.each(['red', 'green'] as const)('settles a %s ancestor at its own commit', (state) => {
+    expect(ancestorStep('c', state)).toEqual({ sha: 'c', state });
+  });
+
+  it.each(['pending', 'unknown'] as const)('asks the next older commit past a %s one', (state) => {
+    expect(ancestorStep('c', state)).toBe('older');
+  });
+
+  it('stops where the host did not answer', () => {
+    expect(ancestorStep('c', null)).toBe('stop');
   });
 });
 

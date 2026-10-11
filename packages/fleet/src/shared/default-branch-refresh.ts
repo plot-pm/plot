@@ -1,8 +1,19 @@
 import {
   DEFAULT_BRANCH_VERSION,
   type DefaultBranchReading,
+  type FailingRun,
+  type SettledReading,
 } from '@plot-pm/domain/entities/default-branch';
-import { advanceSettled, declaredRuns, failingRunsOf, foldRuns } from '@plot-pm/domain/rules/default-branch';
+import {
+  ANCESTOR_ASKS_MAX,
+  ANCESTOR_WALK_DEPTH,
+  advanceSettled,
+  ancestorStep,
+  ancestorsToAsk,
+  declaredRuns,
+  failingRunsOf,
+  foldRuns,
+} from '@plot-pm/domain/rules/default-branch';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { Refs } from '@plot-pm/domain/ports/refs';
@@ -31,8 +42,8 @@ export const reaskIntervalMs = (checksWaitMs: number, pastWait: boolean): number
 export interface DefaultBranchWorld {
   /** The default branch's name. */
   branch(): Promise<string | null>;
-  /** The remote tip reader: `remoteSha` only. */
-  refs: Pick<Refs, 'remoteSha'>;
+  /** The remote tip reader and the local first-parent walk. */
+  refs: Pick<Refs, 'remoteSha' | 'firstParentLine'>;
   /** The CI connector: `runsForSha` only. */
   build: Pick<BuildPort, 'runsForSha'>;
   /** The reading's file. Fleetd is its only writer. */
@@ -52,6 +63,48 @@ export interface DefaultBranchWorld {
    */
   checks: readonly string[];
 }
+
+/** Where the settled part stands after a refresh, with the failing runs of its commit. */
+interface Settlement {
+  settled: SettledReading | undefined;
+  failingRuns: readonly FailingRun[];
+}
+
+/**
+ * Advances the settled part past a head that has not concluded.
+ *
+ * Walks the head's first-parent line locally, at most
+ * `ANCESTOR_WALK_DEPTH` commits, and asks CI for the runs of the commits
+ * between the head and the settled commit, newest first, at most
+ * `ANCESTOR_ASKS_MAX` of them (`ancestorsToAsk`). The first commit whose runs
+ * have concluded becomes the settled commit (`ancestorStep`). A host that does
+ * not answer stops the walk and keeps the previous settlement. A walk that
+ * does not reach the settled commit asks nothing.
+ *
+ * @param world - the reads.
+ * @param branch - the default branch.
+ * @param headSha - the head, already asked and not concluded.
+ * @param kept - the settlement the refresh holds so far.
+ * @returns the settlement after the walk.
+ */
+const settleBehindHead = async (
+  world: DefaultBranchWorld,
+  branch: string,
+  headSha: string,
+  kept: Settlement,
+): Promise<Settlement> => {
+  const walked = await world.refs.firstParentLine(headSha, ANCESTOR_WALK_DEPTH);
+  const line = walked.ok ? walked.value : [];
+  for (const sha of ancestorsToAsk(line, headSha, kept.settled, ANCESTOR_ASKS_MAX)) {
+    const asked = await world.slot(() => world.build.runsForSha(branch, sha));
+    const runs = asked.ok ? declaredRuns(asked.value, world.checks) : [];
+    const state = asked.ok ? foldRuns(runs) : null;
+    const step = ancestorStep(sha, state);
+    if (step === 'stop') return kept;
+    if (step !== 'older') return { settled: step, failingRuns: step.state === 'red' ? failingRunsOf(runs) : [] };
+  }
+  return kept;
+};
 
 /** What one refresh did, for the log and the tests. */
 export type DefaultBranchOutcome = 'skipped' | 'asked' | 'unreadable';
@@ -73,8 +126,11 @@ export type DefaultBranchOutcome = 'skipped' | 'asked' | 'unreadable';
  * Only the runs of the workflows in `world.checks` are folded
  * (`declaredRuns`); an empty list folds every run.
  *
- * The settled part moves only when the head is `red` or `green`
- * (`advanceSettled`). A host that fails writes `head: 'unknown'`, keeps the
+ * The settled part moves to the head when the head is `red` or `green`
+ * (`advanceSettled`). A head that is `pending` or `unknown` moves it to the
+ * newest concluded commit between the head and the settled commit, read by
+ * {@link settleBehindHead}. One refresh therefore makes at most
+ * `1 + ANCESTOR_ASKS_MAX` CI asks. A host that fails writes `head: 'unknown'`, keeps the
  * settled part, and keeps the previous `askedAt`: `askedAt` is when a host last
  * answered, so a red reading the host stopped confirming ages out after
  * `Checks wait`. `at` records every ask, answered or not. An unaskable CI
@@ -127,17 +183,20 @@ export const refreshDefaultBranch = async (
   } else {
     const runs = declaredRuns(asked.value, world.checks);
     const head = foldRuns(runs);
-    const settled = advanceSettled(carried, sha, head);
-    const moved = settled !== undefined && settled.sha === sha;
+    const advanced = advanceSettled(carried, sha, head);
+    // The failing runs belong to the settled commit: new ones when it moved
+    // to this head or to an ancestor, otherwise those already held.
+    const { settled, failingRuns } =
+      advanced !== carried
+        ? { settled: advanced, failingRuns: head === 'red' ? failingRunsOf(runs) : [] }
+        : await settleBehindHead(world, branch, sha, { settled: carried, failingRuns: previous?.failingRuns ?? [] });
     reading = {
       v: DEFAULT_BRANCH_VERSION,
       branch,
       headSha: sha,
       head,
       ...(settled ? { settled } : {}),
-      // The failing runs belong to the settled commit: new ones when it moved
-      // to this head, otherwise those already held.
-      failingRuns: moved ? (head === 'red' ? failingRunsOf(runs) : []) : (previous?.failingRuns ?? []),
+      failingRuns: [...failingRuns],
       headSince,
       askedAt: stamp,
       at: stamp,

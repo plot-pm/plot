@@ -2032,7 +2032,10 @@ export const run = async (
           const base = await refsGit({ repoRoot, scriptDir: scriptsDir }).defaultBranch();
           return base.ok ? base.value : null;
         },
-        refs: refsRemoteGit({ repoRoot, scriptDir: scriptsDir }),
+        refs: {
+          remoteSha: refsRemoteGit({ repoRoot, scriptDir: scriptsDir }).remoteSha,
+          firstParentLine: refsGit({ repoRoot, scriptDir: scriptsDir }).firstParentLine,
+        },
         build: ci,
         store: defaultBranchFile(repoRoot),
         // The host-slot bound is GitHub's account budget; other systems call direct.

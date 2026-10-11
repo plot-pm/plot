@@ -5,7 +5,7 @@ import { refsFixture } from '@plot-pm/domain/adapters/refs/refs-fixture';
 import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import type { WorkflowShaRun } from '@plot-pm/domain/entities/build';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
-import { defaultBranchAgeMs, defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
+import { ANCESTOR_ASKS_MAX, defaultBranchAgeMs, defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
 
 import {
   REASK_MS,
@@ -28,6 +28,9 @@ interface Rig {
   runs: (sha: string, runs: WorkflowShaRun[]) => void;
   clock: (ms: number) => void;
   fail: (on: boolean) => void;
+  line: (shas: readonly string[]) => void;
+  failOn: (sha: string) => void;
+  asked: () => readonly string[];
 }
 
 const rig = (initial: DefaultBranchReading | null = null, checks: readonly string[] = []): Rig => {
@@ -37,6 +40,9 @@ const rig = (initial: DefaultBranchReading | null = null, checks: readonly strin
   let calls = 0;
   let slots = 0;
   let broken = false;
+  let firstParents: readonly string[] = [];
+  const failing = new Set<string>();
+  const askedShas: string[] = [];
   const byRun: Record<string, WorkflowShaRun[]> = {};
   const store: DefaultBranchStore = {
     read: async () => ({ ok: true, value: file }),
@@ -50,6 +56,7 @@ const rig = (initial: DefaultBranchReading | null = null, checks: readonly strin
     refs: {
       remoteSha: async () =>
         refsFixture({ remoteTips: tipSha === null ? {} : { main: tipSha } }).remoteSha('main'),
+      firstParentLine: (sha, max) => refsFixture({ firstParentLine: firstParents }).firstParentLine(sha, max),
     },
     build: {
       runsForSha: (branch, sha) =>
@@ -57,8 +64,9 @@ const rig = (initial: DefaultBranchReading | null = null, checks: readonly strin
           workflowRuns: { [branch]: byRun },
           onRunsForSha: () => {
             calls += 1;
+            askedShas.push(sha);
           },
-          fails: broken,
+          fails: broken || failing.has(sha),
         }).runsForSha(branch, sha),
     },
     store,
@@ -87,6 +95,13 @@ const rig = (initial: DefaultBranchReading | null = null, checks: readonly strin
     fail: (on) => {
       broken = on;
     },
+    line: (shas) => {
+      firstParents = shas;
+    },
+    failOn: (sha) => {
+      failing.add(sha);
+    },
+    asked: () => askedShas,
   };
 };
 
@@ -367,5 +382,143 @@ describe('refreshDefaultBranch', () => {
     r.runs('a1', [run('ci', 'success')]);
     await refreshDefaultBranch(r.world);
     expect(r.slots()).toBe(1);
+  });
+});
+
+describe('refreshDefaultBranch — the walk past a pending head', () => {
+  const settledRed = (headSha = 's'): DefaultBranchReading => {
+    const since = new Date(T0).toISOString();
+    return {
+      v: DEFAULT_BRANCH_VERSION,
+      branch: 'main',
+      headSha,
+      head: 'red',
+      settled: { sha: 's', state: 'red' },
+      failingRuns: [{ workflow: 'ci', conclusion: 'failure', url: 'https://ci/ci' }],
+      headSince: since,
+      askedAt: since,
+      at: since,
+    };
+  };
+
+  it('settles green at the newest green commit behind a pending head', async () => {
+    const r = rig(settledRed());
+    r.line(['h', 'g2', 'g1', 's', 'old']);
+    r.tip('h');
+    r.runs('h', [run('ci', null, 'in_progress')]);
+    r.runs('g2', [run('ci', 'success')]);
+    r.runs('g1', [run('ci', 'success')]);
+    expect(await refreshDefaultBranch(r.world)).toBe('asked');
+    expect(r.stored()).toMatchObject({ headSha: 'h', head: 'pending', settled: { sha: 'g2', state: 'green' }, failingRuns: [] });
+    expect(r.asked()).toEqual(['h', 'g2']);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(false);
+  });
+
+  it('settles red at a red commit newer than a green one', async () => {
+    const r = rig({ ...settledRed(), settled: { sha: 's', state: 'green' }, failingRuns: [] });
+    r.line(['h', 'r2', 'g1', 's']);
+    r.tip('h');
+    r.runs('h', [run('ci', null, 'queued')]);
+    r.runs('r2', [run('ci', 'failure')]);
+    r.runs('g1', [run('ci', 'success')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.stored()?.settled).toEqual({ sha: 'r2', state: 'red' });
+    expect(r.stored()?.failingRuns).toEqual([{ workflow: 'ci', conclusion: 'failure', url: 'https://ci/ci' }]);
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(true);
+  });
+
+  it('asks past pending and unknown ancestors to the newest concluded one', async () => {
+    const r = rig(settledRed());
+    r.line(['h', 'p2', 'u1', 'g0', 's']);
+    r.tip('h');
+    r.runs('h', [run('ci', null, 'in_progress')]);
+    r.runs('p2', [run('ci', null, 'in_progress')]);
+    r.runs('g0', [run('ci', 'success')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.asked()).toEqual(['h', 'p2', 'u1', 'g0']);
+    expect(r.stored()?.settled).toEqual({ sha: 'g0', state: 'green' });
+  });
+
+  it('walks past a head whose runs read unknown', async () => {
+    const r = rig(settledRed());
+    r.line(['h', 'g1', 's']);
+    r.tip('h');
+    r.runs('g1', [run('ci', 'success')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.stored()).toMatchObject({ head: 'unknown', settled: { sha: 'g1', state: 'green' } });
+  });
+
+  it('falls back to the head-only reading when the settled commit is not on the line', async () => {
+    const r = rig(settledRed());
+    // A force-push rewrote main: `s` is no longer on the head's first-parent line.
+    r.line(['h', 'g2', 'g1', 'x']);
+    r.tip('h');
+    r.runs('h', [run('ci', null, 'in_progress')]);
+    r.runs('g2', [run('ci', 'success')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.asked()).toEqual(['h']);
+    expect(r.stored()).toMatchObject({ settled: { sha: 's', state: 'red' } });
+    expect(r.stored()?.failingRuns).toHaveLength(1);
+  });
+
+  it('falls back to the head-only reading when the head is not fetched', async () => {
+    const r = rig(settledRed());
+    r.line(['g1', 's']);
+    r.tip('h');
+    r.runs('h', [run('ci', null, 'in_progress')]);
+    r.runs('g1', [run('ci', 'success')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.asked()).toEqual(['h']);
+    expect(r.stored()?.settled).toEqual({ sha: 's', state: 'red' });
+  });
+
+  it('keeps the previous settled reading when the host fails partway', async () => {
+    const r = rig(settledRed());
+    r.line(['h', 'p2', 'f1', 'g0', 's']);
+    r.tip('h');
+    r.runs('h', [run('ci', null, 'in_progress')]);
+    r.runs('p2', [run('ci', null, 'in_progress')]);
+    r.failOn('f1');
+    r.runs('g0', [run('ci', 'success')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.asked()).toEqual(['h', 'p2', 'f1']);
+    expect(r.stored()).toMatchObject({ head: 'pending', settled: { sha: 's', state: 'red' } });
+    expect(r.stored()?.failingRuns).toHaveLength(1);
+  });
+
+  it(`asks at most ${ANCESTOR_ASKS_MAX} ancestors per refresh, each in a host slot`, async () => {
+    const r = rig(settledRed());
+    const pending = Array.from({ length: 2 * ANCESTOR_ASKS_MAX }, (_, i) => `p${i}`);
+    r.line(['h', ...pending, 'g', 's']);
+    r.tip('h');
+    for (const sha of ['h', ...pending]) r.runs(sha, [run('ci', null, 'in_progress')]);
+    r.runs('g', [run('ci', 'success')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.calls()).toBe(1 + ANCESTOR_ASKS_MAX);
+    expect(r.slots()).toBe(1 + ANCESTOR_ASKS_MAX);
+    expect(r.asked()).toEqual(['h', ...pending.slice(0, ANCESTOR_ASKS_MAX)]);
+    expect(r.stored()?.settled).toEqual({ sha: 's', state: 'red' });
+  });
+
+  it('never moves the settled part to a commit older than the one it holds', async () => {
+    const r = rig({ ...settledRed(), settled: { sha: 'g1', state: 'green' }, failingRuns: [] });
+    r.line(['h', 'g1', 'r0', 's']);
+    r.tip('h');
+    r.runs('h', [run('ci', null, 'in_progress')]);
+    r.runs('g1', [run('ci', 'success')]);
+    r.runs('r0', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.asked()).toEqual(['h']);
+    expect(r.stored()?.settled).toEqual({ sha: 'g1', state: 'green' });
+  });
+
+  it('walks nothing where the head concluded', async () => {
+    const r = rig(settledRed());
+    r.line(['h', 'g1', 's']);
+    r.tip('h');
+    r.runs('h', [run('ci', 'success')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.asked()).toEqual(['h']);
+    expect(r.stored()?.settled).toEqual({ sha: 'h', state: 'green' });
   });
 });

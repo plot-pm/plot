@@ -589,6 +589,20 @@ export interface Refs {
   contains(ancestor: string, descendant: string): Promise<PortResult<Containment>>;
 
   /**
+   * A commit and its first-parent ancestors, newest first.
+   *
+   * Evidence, not a verdict: the caller decides what the line means. A local
+   * read of the objects this checkout holds, so a commit not fetched yet fails
+   * rather than answering an empty line.
+   *
+   * @param sha - the commit to start the walk at.
+   * @param max - how many commits to read at most, the start included.
+   * @returns the full object names, newest first; a failure where git could
+   *   not walk from `sha`.
+   */
+  firstParentLine(sha: string, max: number): Promise<PortResult<readonly string[]>>;
+
+  /**
    * Whether the branch's last-fetched remote-tracking ref,
    * `refs/remotes/origin/<branch>`, exists.
    *

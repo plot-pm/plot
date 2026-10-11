@@ -158,6 +158,12 @@ export interface RefsFixture {
    * asked about a branch cannot tell its caller any more than that.
    */
   remoteTips?: Readonly<Record<string, string>>;
+  /**
+   * The default branch's first-parent line, newest first, for
+   * {@link Refs.firstParentLine}. A walk from a commit not on it fails, as git
+   * fails on a commit this checkout does not hold.
+   */
+  firstParentLine?: readonly string[];
 }
 
 /** What a fixture reports when it was not told a default branch. */
@@ -431,6 +437,12 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       unknownRemoteHead.has(branch)
         ? answered<RemoteHeadAnswer>('unknown')
         : answered<RemoteHeadAnswer>(remoteBranchSet.has(branch) ? 'present' : 'absent'),
+
+    firstParentLine: async (sha, max) => {
+      const line = fixture.firstParentLine ?? [];
+      const at = line.indexOf(sha);
+      return at === -1 ? failed<readonly string[]>() : answered<readonly string[]>(line.slice(at, at + max));
+    },
 
     remoteSha: async (branch): Promise<PortResult<RemoteShaReading>> => {
       const tip = fixture.remoteTips?.[branch];

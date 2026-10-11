@@ -631,6 +631,17 @@ export const refsGit = (context: ShellContext): Refs => {
       return answered<Containment>('unknown');
     },
 
+    firstParentLine: (sha, max) =>
+      runScript(
+        'git',
+        // plot-ancestry: evidence — the default-branch refresh reads the line
+        // only to find the commits between its head and its settled commit;
+        // a failed walk advances nothing.
+        ['rev-list', '--first-parent', `--max-count=${max}`, '--end-of-options', sha],
+        (stdout): readonly string[] => asLines(stdout),
+        inRepo,
+      ),
+
     remoteHead: async (branch): Promise<PortResult<RemoteHeadAnswer>> => {
       // The last-fetched `origin/<branch>`, read locally: `--verify --quiet`
       // prints the SHA and exits 0 for a ref that exists, exits 1 silently for

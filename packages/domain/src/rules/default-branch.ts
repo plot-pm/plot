@@ -93,6 +93,59 @@ export const advanceSettled = (
 ): SettledReading | undefined =>
   head === 'red' || head === 'green' ? { sha: headSha, state: head } : settled;
 
+/** How many first-parent ancestors of the head one refresh asks CI about, at most. */
+export const ANCESTOR_ASKS_MAX = 5;
+
+/** How many commits the local first-parent walk from the head reads, the head included. */
+export const ANCESTOR_WALK_DEPTH = 50;
+
+/**
+ * The commits between the head and the settled commit whose runs a refresh asks, newest first.
+ *
+ * Reads the head's first-parent line as git walked it. Only commits strictly
+ * between the head and the settled commit qualify, so a settled part advanced
+ * from this list never moves to an older commit than the one it holds. The
+ * settled commit must be on the line itself: equality over the walk, not an
+ * ancestry test.
+ *
+ * @param line - the head and its first-parent ancestors, newest first.
+ * @param headSha - the head the walk must start at.
+ * @param settled - the settled reading the walk must reach, if any.
+ * @param max - how many commits to return at most.
+ * @returns the newest `max` commits between the head and the settled commit;
+ *   empty where there is no settled reading, the line does not start at the
+ *   head, or the settled commit is not on the line (rewritten history, or
+ *   deeper than the walk).
+ */
+export const ancestorsToAsk = (
+  line: readonly string[],
+  headSha: string,
+  settled: SettledReading | undefined,
+  max: number,
+): string[] => {
+  if (settled === undefined || line[0] !== headSha) return [];
+  const at = line.indexOf(settled.sha);
+  return at < 1 ? [] : line.slice(1, at).slice(0, max);
+};
+
+/**
+ * What one ancestor's answer means for the walk past a pending head.
+ *
+ * A concluded commit (`red` or `green`) is the newest one, because the walk
+ * asks newest first, so the settled part moves to it. A `pending` or
+ * `unknown` commit says nothing yet, so the walk asks the next older one. No
+ * answer stops the walk and keeps the previous settled reading: the commit
+ * the host did not answer for may be red.
+ *
+ * @param sha - the ancestor the runs belong to.
+ * @param state - what the ancestor's runs add up to; null where the host did not answer.
+ * @returns the new settled reading; `older` to ask the next older commit; `stop` to keep the previous one.
+ */
+export const ancestorStep = (sha: string, state: RunsState | null): SettledReading | 'older' | 'stop' => {
+  if (state === null) return 'stop';
+  return state === 'red' || state === 'green' ? { sha, state } : 'older';
+};
+
 /**
  * Whether the newest settled commit of a reading is red, whatever the reading's age.
  *
