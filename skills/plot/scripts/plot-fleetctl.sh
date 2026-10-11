@@ -613,11 +613,8 @@ retire_old_label() {
   [ -n "$served" ] || return 0
   action=$(printf '%s\n' "$served" | node "$script_dir/board/plot-old-label.mjs" 2>/dev/null) || action=refuse
   local LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd
-  case "$action" in
-    unload-and-remove) ;;
-    leave) return 0 ;;
-    *) printf "plot-fleetctl: '%s' (the old default label) is loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it is left loaded and nothing runs beside it.\n  Read it: %s\n" "$LABEL" "$(platform)" "$(read_cmd)" >&2; return 1 ;;
-  esac
+  [ "$action" != leave ] || return 0
+  [ "$action" = unload-and-remove ] || { printf "plot-fleetctl: '%s' (the old default label) is loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it is left loaded and nothing runs beside it.\n  Read it: %s\n" "$LABEL" "$(platform)" "$(read_cmd)" >&2; return 1; }
   [ "$dry_run" = 0 ] || { echo "would migrate the old label '$LABEL' — it serves this repository: unload it, then remove its unit file"; return 0; }
   echo "plot-fleetctl: unloading the old label '$LABEL' — it serves this repository"
   unload_supervisor || { printf "plot-fleetctl: '%s' did NOT unload within %ss (the unload exited %s) — it is still loaded\n  Its unit file is kept, so two supervisors would serve one estate. Read it: %s\n" "$LABEL" "$wait_bound" "$unload_rc" "$(read_cmd)" >&2; return 1; }
