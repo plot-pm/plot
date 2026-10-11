@@ -53,6 +53,7 @@ describe('unpinnedMerge', () => {
     'git commit -m "gh pr merge 12"',
     'git grep -l "gh pr merge"',
     'ls gh pr merge',
+    'FOO=1',
   ])('allows %s', (command) => expect(unpinnedMerge(command)).toBe(false));
 
   it('leaves controllerInvocation null for a merge', () => {
