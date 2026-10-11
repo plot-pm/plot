@@ -132,8 +132,9 @@ export const writeState = (statePath: string | null, code: number): void => {
 };
 
 /**
- * Records a run as started by this board, synchronously: `running <pid>` in
- * its state file, with this board's pid. Call it before the route answers, so
+ * Records a run as started by this board, synchronously: `running <pid>
+ * <startedAt>` in its state file, with this board's pid and the epoch
+ * milliseconds at which that process started. Call it before the route answers, so
  * a second request reads the run as running.
  *
  * @param statePath - the run's state file.
@@ -145,7 +146,7 @@ export const markBoardRun = (statePath: string, logFile: string): void => {
     exitListenerInstalled = true;
     process.on('exit', endHeldRuns);
   }
-  fs.writeFileSync(statePath, `running ${process.pid}`, 'utf8');
+  fs.writeFileSync(statePath, `running ${process.pid} ${ownStartedAt()}`, 'utf8');
   held.set(statePath, logFile);
 };
 
@@ -284,6 +285,32 @@ const alive = (pid: number): boolean => {
   }
 };
 
+/** Tolerance, in milliseconds, between a recorded and a read process start time. */
+const START_TOLERANCE_MS = 5000;
+
+/** Epoch milliseconds at which this process started. */
+const ownStartedAt = (): number => Math.round(Date.now() - process.uptime() * 1000);
+
+/**
+ * Epoch milliseconds at which a process started, read without spawning.
+ * Answers from `/proc` where it exists (Linux); null elsewhere, and null for a
+ * pid it cannot read — the caller then has no second signal.
+ *
+ * @param pid - the process to ask about.
+ */
+export const processStartedAt = (pid: number): number | null => {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    // Field 22 counts clock ticks since boot; the command name (field 2) may hold spaces.
+    const ticks = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]);
+    const boot = /^btime (\d+)$/m.exec(fs.readFileSync('/proc/stat', 'utf8'));
+    if (!boot || !Number.isFinite(ticks)) return null;
+    return Number(boot[1]) * 1000 + ticks * 10;
+  } catch {
+    return null;
+  }
+};
+
 /**
  * Reads one run's state from its state file and the log's presence. Never
  * spawns, never blocks, never throws.
@@ -291,24 +318,33 @@ const alive = (pid: number): boolean => {
  * A `running <pid>` marker reads `running` only while that board is alive and,
  * where it is this board, while this board still holds the run. Otherwise it
  * reads `failed` with {@link STOPPED_RECORD}: the board stopped, and the run
- * ended with it. A log with no state file reads `running`, as a run started
+ * ended with it. Where the marker records a start time and the OS can say when
+ * that pid started, a pid that started later than the record is a recycled
+ * one and reads `failed` the same way. A log with no state file reads `running`, as a run started
  * before the marker existed does.
  *
  * @param statePath - the run's state file.
  * @param logFile - the run's log.
+ * @param startedAt - answers when a pid started; defaults to {@link processStartedAt}.
  * @returns the state, and the recorded code where one is recorded.
  */
-export const readRunState = (statePath: string, logFile: string): RunState => {
+export const readRunState = (
+  statePath: string,
+  logFile: string,
+  startedAt: (pid: number) => number | null = processStartedAt,
+): RunState => {
   let recorded: string;
   try {
     recorded = fs.readFileSync(statePath, 'utf8').trim();
   } catch {
     return { state: fs.existsSync(logFile) ? 'running' : 'unknown', recorded: '' };
   }
-  const marker = /^running (\d+)$/.exec(recorded);
+  const marker = /^running (\d+)(?: (\d+))?$/.exec(recorded);
   if (marker) {
     const pid = Number(marker[1]);
-    const holds = pid === process.pid ? held.has(statePath) : alive(pid);
+    const actual = marker[2] === undefined || pid === process.pid ? null : startedAt(pid);
+    const recycled = actual !== null && Math.abs(actual - Number(marker[2])) > START_TOLERANCE_MS;
+    const holds = pid === process.pid ? held.has(statePath) : alive(pid) && !recycled;
     return holds ? { state: 'running', recorded: '' } : { state: 'failed', recorded: STOPPED_RECORD };
   }
   return { state: recorded === '0' ? 'done' : 'failed', recorded };

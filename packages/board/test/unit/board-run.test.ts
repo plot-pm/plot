@@ -255,4 +255,31 @@ describe('the state file after the board stops', () => {
     fs.writeFileSync(statePath, `running ${process.pid}`, 'utf8');
     assert.equal(readRunState(statePath, logFile).state, 'failed');
   });
+
+  it('reads a live pid that started after the record as failed — a recycled pid', () => {
+    const logFile = path.join(dir, 'recycled.log');
+    const statePath = path.join(dir, 'recycled.state');
+    fs.writeFileSync(logFile, '', 'utf8');
+    const recordedAt = 1_000_000_000_000;
+    fs.writeFileSync(statePath, `running ${process.ppid} ${recordedAt}`, 'utf8');
+    // The pid is alive; only its start time differs from the record.
+    assert.deepEqual(readRunState(statePath, logFile, () => recordedAt + 60_000), {
+      state: 'failed',
+      recorded: STOPPED_RECORD,
+    });
+    assert.equal(readRunState(statePath, logFile, () => recordedAt + 1000).state, 'running');
+    // No second signal (non-Linux): the pid check alone decides, as before.
+    assert.equal(readRunState(statePath, logFile, () => null).state, 'running');
+  });
+
+  it('records the start time of this process in the marker', () => {
+    const logFile = path.join(dir, 'stamped.log');
+    const statePath = path.join(dir, 'stamped.state');
+    fs.writeFileSync(logFile, '', 'utf8');
+    markBoardRun(statePath, logFile);
+    const m = /^running (\d+) (\d+)$/.exec(fs.readFileSync(statePath, 'utf8'));
+    assert.ok(m);
+    assert.equal(Number(m[1]), process.pid);
+    assert.ok(Math.abs(Number(m[2]) - (Date.now() - process.uptime() * 1000)) < 5000);
+  });
 });
