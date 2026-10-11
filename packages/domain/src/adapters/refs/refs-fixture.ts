@@ -46,6 +46,10 @@ export interface RefsFixture {
   workingChanges?: readonly string[];
   /** The paths staged against `HEAD`, each with its status — for {@link Refs.stagedPaths}. */
   stagedPaths?: readonly StagedPath[];
+  /** The untracked, unignored paths — for {@link Refs.untrackedPaths}, filtered by the pathspec as a path prefix. */
+  untrackedPaths?: readonly string[];
+  /** The working directory relative to the repository root — for {@link Refs.showPrefix}. */
+  showPrefix?: string;
   /**
    * `<a> <b>` to the two revisions' merge-base sha, for {@link Refs.mergeBase}.
    *
@@ -271,6 +275,15 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
     workingChanges: async () => answered(fixture.workingChanges ?? []),
 
     stagedPaths: async () => answered<readonly StagedPath[]>(fixture.stagedPaths ?? []),
+
+    untrackedPaths: async (pathspec) =>
+      answered(
+        (fixture.untrackedPaths ?? []).filter(
+          (path) => pathspec === null || path === pathspec || path.startsWith(`${pathspec.replace(/\/+$/, '')}/`),
+        ),
+      ),
+
+    showPrefix: async () => answered(fixture.showPrefix ?? ''),
 
     filesNaming: async (term, globs) => {
       const patterns = globs.map(globToRegExp);

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
  * The `node` entry point `plot-gates.sh` launches: one PreToolUse hook that
@@ -96,8 +96,68 @@ const bundleCommitGate: Gate = {
   onError: 'allow',
 };
 
+/**
+ * `brief-name`: refuses a commit that adds or renames a hand-off brief to
+ * `.plot/briefs/<prefix>-<slug>.md`.
+ *
+ * `wants` is a pure string test. `ask` reads the `Branch prefixes` config, the
+ * index, and — for a `git add` or `git mv` chained in the same command, which
+ * runs after this hook — the untracked files that `git add` would stage and
+ * the working directory's offset from the repository root. A path already in
+ * `HEAD` is a modify and is never judged. A failed config read throws, which
+ * `onError: 'allow'` reports as UNVERIFIED; a failed git read allows.
+ */
+const briefNameGate: Gate = {
+  name: 'brief-name',
+  wants: (command) => command.includes('git commit'),
+  ask: async (command) => {
+    const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
+    const { scriptsShell } = await import('@plot-pm/domain/adapters/scripts/scripts-shell');
+    const { DEFAULT_BRANCH_PREFIXES, addedOrRenamed, briefComputedPath, briefNameRefusal, briefPrefixesOf, chainedStagesOf } =
+      await import('@plot-pm/domain/rules/brief-name');
+
+    const cwd = process.cwd();
+    const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    const refs = refsGit({ repoRoot: cwd, scriptDir });
+
+    const root = await refs.repoRoot();
+    if (!root.ok) return null;
+    const config = await scriptsShell({ repoRoot: cwd, scriptDir }).config('Branch prefixes', DEFAULT_BRANCH_PREFIXES);
+    if (!config.ok) throw new Error('the Branch prefixes config read failed');
+    const prefixes = briefPrefixesOf(config.value);
+    if (prefixes.length === 0) return null;
+
+    const staged = await refs.stagedPaths();
+    const showPrefix = await refs.showPrefix();
+    if (!staged.ok || !showPrefix.ok) return null;
+
+    const stagedAdds = addedOrRenamed(staged.value);
+    const stagedSet = new Set(stagedAdds);
+    const chained = chainedStagesOf(command, showPrefix.value);
+    const fromCommand = new Set<string>(chained.moves);
+    for (const pathspec of chained.adds) {
+      const untracked = await refs.untrackedPaths(pathspec);
+      if (untracked.ok) for (const path of untracked.value) fromCommand.add(path);
+    }
+
+    // A path already in HEAD is a modify, however the command reaches it.
+    const candidates = new Set(stagedAdds);
+    for (const path of fromCommand) {
+      const inHead = refs.fileExistsSync('HEAD', path);
+      if (!(inHead.ok && inHead.value)) candidates.add(path);
+    }
+
+    const misnamed = [...candidates].sort().flatMap((path) => {
+      const want = briefComputedPath(path, prefixes);
+      return want === null ? [] : [{ path, want, tracked: stagedSet.has(path), wantExists: existsSync(join(root.value, want)) }];
+    });
+    return briefNameRefusal(misnamed);
+  },
+  onError: 'allow',
+};
+
 /** The registered gates. */
-export const GATES: readonly Gate[] = [bundleCommitGate];
+export const GATES: readonly Gate[] = [bundleCommitGate, briefNameGate];
 
 /** The exit codes the hook contract reads. */
 export const EXIT = { allow: 0, refuse: 2 } as const;
