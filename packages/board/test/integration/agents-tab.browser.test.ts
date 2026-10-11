@@ -4264,7 +4264,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
   it('a single-branch slice whose brief was asked for shows the asked note', async () => {
     const payload = soleSliceFleet('feature/brief-asked-sole', {
-      briefAskedAt: Date.now() - 45_000, briefFailed: null,
+      briefAskedAt: Date.now() - 45_000, briefFailed: null, briefWriter: 'asked',
     });
     const page = await cat.open('ten-rows-one-kind-each', { tab: 'agents', over: { fleet: payload } });
     try {
@@ -4282,7 +4282,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('a single-branch slice whose brief writer failed shows the failed note and not the asked note', async () => {
     const log = '.worktrees/plot-implement-brief-sole.log';
     const payload = soleSliceFleet('feature/brief-failed-sole', {
-      briefAskedAt: Date.now() - 45_000, briefFailed: log,
+      briefAskedAt: Date.now() - 45_000, briefFailed: log, briefWriter: 'failed',
     });
     const page = await cat.open('ten-rows-one-kind-each', { tab: 'agents', over: { fleet: payload } });
     try {

@@ -5573,7 +5573,8 @@ export function rowsFromPulse(
           briefWriter: repoRoot
             ? briefWriterState({
                 needsBrief: rowStartability === 'needs-brief',
-                runState: askReading?.writing ? 'running' : askReading?.failed ? 'failed' : 'none',
+                writing: askReading?.writing ?? false,
+                failed: askReading?.failed ?? null,
                 askedAt: askReading?.askedAt ?? null,
               })
             : 'none',

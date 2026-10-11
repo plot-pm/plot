@@ -25,7 +25,7 @@ import { briefPath } from '@plot-pm/fleet/shared/brief-path';
 import {
   briefFailedNote, briefNote, briefWriterFailed, briefWriting, needsBrief,
 } from '../../src/app/lib/agent-rows/row-identity.js';
-import type { BriefWriterState } from '@plot-pm/domain';
+import { BRIEF_WRITER_STATES, type BriefWriterState } from '@plot-pm/domain';
 import {
   type AgentRow, AgentRowSchema, BriefWriterStateSchema, type BriefWriterStateValue, type FleetReading,
 } from '../../src/contract/schema.js';
@@ -209,14 +209,9 @@ describe('briefWriting on the row — #1417', () => {
   });
 
   it('keeps the schema enum and the domain union in step', () => {
-    // `satisfies` fails to compile where the domain union gains a value the
-    // record lacks; the keys then give the expected list to compare.
-    const domainStates = {
-      writing: true, failed: true, asked: true, none: true,
-    } satisfies Record<BriefWriterState, true>;
-    expect([...BriefWriterStateSchema.options].sort()).toEqual(Object.keys(domainStates).sort());
-    const schemaStates: BriefWriterStateValue = 'none';
-    const asDomain: BriefWriterState = schemaStates;
+    expect(BriefWriterStateSchema.options).toEqual([...BRIEF_WRITER_STATES]);
+    const schemaState: BriefWriterStateValue = 'none';
+    const asDomain: BriefWriterState = schemaState;
     expect(asDomain).toBe('none');
   });
 });
@@ -258,18 +253,24 @@ describe('briefNote chooses the note a row shows', () => {
   const NOW = 1_000_000_000_000;
   const LOG = '.worktrees/plot-implement-a-plan.log';
 
-  it('shows the failed note when both briefFailed and briefAskedAt are set', () => {
-    const note = briefNote({ briefFailed: LOG, briefAskedAt: NOW - 45_000 }, NOW);
+  it('shows the failed note for briefWriter failed, also where an ask is recorded', () => {
+    const note = briefNote({ briefWriter: 'failed', briefFailed: LOG, briefAskedAt: NOW - 45_000 }, NOW);
     expect(note).toEqual({ kind: 'failed', label: 'brief failed', text: briefFailedNote(LOG) });
   });
 
-  it('shows the asked note, aged against the given clock, when only briefAskedAt is set', () => {
-    const note = briefNote({ briefFailed: null, briefAskedAt: NOW - 45_000 }, NOW);
+  it('shows the asked note, aged against the given clock, for briefWriter asked', () => {
+    const note = briefNote({ briefWriter: 'asked', briefFailed: null, briefAskedAt: NOW - 45_000 }, NOW);
     expect(note).toEqual({ kind: 'asked', label: 'brief asked', text: 'a brief was asked for 45s ago' });
   });
 
-  it('is null when neither is set, or both are missing from an older payload', () => {
-    expect(briefNote({ briefFailed: null, briefAskedAt: null }, NOW)).toBeNull();
+  it('follows briefWriter, not briefFailed or briefAskedAt', () => {
+    // The rule's answer decides the note; the older fields only feed its text.
+    expect(briefNote({ briefWriter: 'none', briefFailed: LOG, briefAskedAt: NOW - 45_000 }, NOW)).toBeNull();
+    expect(briefNote({ briefWriter: 'asked', briefFailed: LOG, briefAskedAt: NOW - 45_000 }, NOW)?.kind).toBe('asked');
+  });
+
+  it('is null for briefWriter none, or for a row without the field', () => {
+    expect(briefNote({ briefWriter: 'none', briefFailed: null, briefAskedAt: null }, NOW)).toBeNull();
     expect(briefNote({}, NOW)).toBeNull();
   });
 });

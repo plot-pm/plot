@@ -9,6 +9,7 @@ import {
   FleetReadingSchema,
   MonitorNameSchema,
   BOARD_PHASES,
+  BRIEF_WRITER_STATES,
   SprintStateSchema,
   ChecksSchema,
   MergeabilitySchema,
@@ -1741,7 +1742,7 @@ export type BriefState = z.infer<typeof BriefStateSchema>;
  * What a branch's brief writer is doing — see `briefWriter` and
  * `briefWriterState` in `@plot-pm/domain`.
  */
-export const BriefWriterStateSchema = z.enum(['writing', 'failed', 'asked', 'none']);
+export const BriefWriterStateSchema = z.enum(BRIEF_WRITER_STATES);
 export type BriefWriterStateValue = z.infer<typeof BriefWriterStateSchema>;
 
 /**
