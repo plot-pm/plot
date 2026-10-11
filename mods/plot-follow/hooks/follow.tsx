@@ -51,12 +51,33 @@ const arrive = async ($: EngineInterface, cwd: string, finding: FollowedFinding,
   if (decided.start) void $.prompt.submit({ text: decided.text });
 };
 
+/** What one module instance keeps: a reload builds a new one and the old loop is gone. */
+interface Link {
+  isRunning: boolean;
+  isTimed: boolean;
+  queue: Promise<unknown>;
+}
+
+// One arrival at a time: a read-modify-write of the gate must not interleave
+// with the next finding's, or the later write drops the earlier held line.
+const arriveInTurn = (
+  $: EngineInterface,
+  cwd: string,
+  finding: FollowedFinding,
+  listed: string[],
+  link: Link,
+) => {
+  const run = link.queue.then(() => arrive($, cwd, finding, listed));
+  link.queue = run.catch(() => undefined);
+  return run;
+};
+
 /** Runs the follower and relays its lines; resolves when it has ended. */
 const follow = async (
   $: EngineInterface,
   cwd: string,
   listed: string[],
-  arrival: typeof arrive,
+  link: Link,
 ) => {
   const child = $.process.spawn({ argv: ['node', `${$.plugin.root}/bin/follow.mjs`, cwd] });
   const lines = child[Symbol.asyncIterator]();
@@ -84,7 +105,7 @@ const follow = async (
           await update($, held, () => ({ findings: message.current, heard: true, stale: false }));
           $.ui.status(undefined);
         } else if (message.type === 'finding') {
-          await arrival($, cwd, message.finding, listed);
+          await arriveInTurn($, cwd, message.finding, listed, link);
         } else if (message.type === 'served' || message.type === 'refused') {
           ended = true;
         }
@@ -101,40 +122,29 @@ const follow = async (
   $.ui.status(code === 0 ? undefined : NOT_RUNNING);
 };
 
+const connect = async ($: EngineInterface, cwd: string, listed: string[], link: Link) => {
+  if (link.isRunning) return;
+  link.isRunning = true;
+  try {
+    await follow($, cwd, listed, link);
+  } catch {
+    $.ui.status(NOT_RUNNING);
+  } finally {
+    link.isRunning = false;
+  }
+};
+
+const ensureFollowing = ($: EngineInterface, cwd: string, listed: string[], link: Link) => {
+  void connect($, cwd, listed, link);
+  if (!link.isTimed) {
+    link.isTimed = true;
+    $.clock.every(RETRY_MS, () => void connect($, cwd, listed, link));
+  }
+};
+
 export const register: Register = (on, options) => {
   const listed = parseList(options.turnOn);
-  // State of this module instance: a reload builds a new one and the old loop is gone.
-  let isRunning = false;
-  let isTimed = false;
-  let queue: Promise<unknown> = Promise.resolve();
-
-  // One arrival at a time: a read-modify-write of the gate must not interleave
-  // with the next finding's, or the later write drops the earlier held line.
-  const inTurn: typeof arrive = (...args) => {
-    const run = queue.then(() => arrive(...args));
-    queue = run.catch(() => undefined);
-    return run;
-  };
-
-  const connect = async ($: EngineInterface, cwd: string) => {
-    if (isRunning) return;
-    isRunning = true;
-    try {
-      await follow($, cwd, listed, inTurn);
-    } catch {
-      $.ui.status(NOT_RUNNING);
-    } finally {
-      isRunning = false;
-    }
-  };
-
-  const ensureFollowing = ($: EngineInterface, cwd: string) => {
-    void connect($, cwd);
-    if (!isTimed) {
-      isTimed = true;
-      $.clock.every(RETRY_MS, () => void connect($, cwd));
-    }
-  };
+  const link: Link = { isRunning: false, isTimed: false, queue: Promise.resolve() };
 
   on('session.start', async ($, e, next) => {
     const started = await next(e);
@@ -147,7 +157,7 @@ export const register: Register = (on, options) => {
       // A reload re-runs this hook with the atom intact: what it holds was heard
       // on a connection that is gone, and stays marked until the channel answers.
       await update($, held, (h) => ({ ...h, stale: h.heard || h.findings.length > 0 }));
-      ensureFollowing($, e.cwd);
+      ensureFollowing($, e.cwd, listed, link);
     })();
 
     return started;

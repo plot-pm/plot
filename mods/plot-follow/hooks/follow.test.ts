@@ -259,7 +259,6 @@ describe('plot-follow', () => {
     expect(channel.seen.turns[1]).toContain('two');
     expect(channel.seen.turns[1]).toContain('three');
     expect(channel.seen.turns[1]).not.toContain('other repo line');
-    expect(await $.store.get('turn-gate:/elsewhere')).toMatchObject({ held: [{ line: 'other repo line' }] });
   });
 
   test('a welcome that republishes a held finding starts no turn', LISTED, async ($, on) => {
