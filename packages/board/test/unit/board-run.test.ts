@@ -18,6 +18,8 @@ import {
   boardRunsSettled,
   endHeldRuns,
   markBoardRun,
+  parseRunMarker,
+  processStartedAt,
   readRunState,
   startBoardRun,
   STOPPED_RECORD,
@@ -256,7 +258,7 @@ describe('the state file after the board stops', () => {
     assert.equal(readRunState(statePath, logFile).state, 'failed');
   });
 
-  it('reads a live pid that started after the record as failed — a recycled pid', () => {
+  it('reads a live pid that started after the record as failed — a reused pid', () => {
     const logFile = path.join(dir, 'recycled.log');
     const statePath = path.join(dir, 'recycled.state');
     fs.writeFileSync(logFile, '', 'utf8');
@@ -268,18 +270,38 @@ describe('the state file after the board stops', () => {
       recorded: STOPPED_RECORD,
     });
     assert.equal(readRunState(statePath, logFile, () => recordedAt + 1000).state, 'running');
+    // An earlier start is the recorded process read through another clock, never a reused pid.
+    assert.equal(readRunState(statePath, logFile, () => recordedAt - 60_000).state, 'running');
     // No second signal (non-Linux): the pid check alone decides, as before.
     assert.equal(readRunState(statePath, logFile, () => null).state, 'running');
   });
 
-  it('records the start time of this process in the marker', () => {
+  it('records the start time of this process in the marker, from the source the reader compares', () => {
     const logFile = path.join(dir, 'stamped.log');
     const statePath = path.join(dir, 'stamped.state');
     fs.writeFileSync(logFile, '', 'utf8');
     markBoardRun(statePath, logFile);
-    const m = /^running (\d+) (\d+)$/.exec(fs.readFileSync(statePath, 'utf8'));
-    assert.ok(m);
-    assert.equal(Number(m[1]), process.pid);
-    assert.ok(Math.abs(Number(m[2]) - (Date.now() - process.uptime() * 1000)) < 5000);
+    const marker = parseRunMarker(fs.readFileSync(statePath, 'utf8'));
+    assert.equal(marker?.pid, process.pid);
+    const fromProc = processStartedAt(process.pid);
+    if (fromProc !== null) {
+      assert.equal(marker?.startedAt, fromProc);
+    } else {
+      assert.ok(Math.abs((marker?.startedAt ?? 0) - (Date.now() - process.uptime() * 1000)) < 5000);
+    }
+  });
+});
+
+describe('parseRunMarker', () => {
+  it('reads a marker with and without a start time', () => {
+    assert.deepEqual(parseRunMarker('running 42 1700000000000'), { pid: 42, startedAt: 1_700_000_000_000 });
+    assert.deepEqual(parseRunMarker('running 42\n'), { pid: 42, startedAt: null });
+  });
+
+  it('reads an exit code, an empty file and other text as no marker', () => {
+    assert.equal(parseRunMarker('0'), null);
+    assert.equal(parseRunMarker(''), null);
+    assert.equal(parseRunMarker('running'), null);
+    assert.equal(parseRunMarker('running 42 later'), null);
   });
 });

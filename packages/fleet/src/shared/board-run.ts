@@ -134,8 +134,10 @@ export const writeState = (statePath: string | null, code: number): void => {
 /**
  * Records a run as started by this board, synchronously: `running <pid>
  * <startedAt>` in its state file, with this board's pid and the epoch
- * milliseconds at which that process started. Call it before the route answers, so
- * a second request reads the run as running.
+ * milliseconds at which that process started — read through
+ * {@link processStartedAt}, the source {@link readRunState} compares against,
+ * where it answers. Call it before the route answers, so a second request
+ * reads the run as running.
  *
  * @param statePath - the run's state file.
  * @param logFile - the run's log, where a board exit names itself.
@@ -146,7 +148,7 @@ export const markBoardRun = (statePath: string, logFile: string): void => {
     exitListenerInstalled = true;
     process.on('exit', endHeldRuns);
   }
-  fs.writeFileSync(statePath, `running ${process.pid} ${ownStartedAt()}`, 'utf8');
+  fs.writeFileSync(statePath, runMarker(process.pid, processStartedAt(process.pid) ?? ownStartedAt()), 'utf8');
   held.set(statePath, logFile);
 };
 
@@ -285,10 +287,22 @@ const alive = (pid: number): boolean => {
   }
 };
 
-/** Tolerance, in milliseconds, between a recorded and a read process start time. */
+/**
+ * How much later than its recorded start a pid may read as started and still
+ * be the recorded process, in milliseconds. Both values come from
+ * {@link processStartedAt} where it answers, so they differ only by the drift
+ * of `/proc/stat`'s whole-second `btime`; where the record fell back to
+ * `process.uptime()`, the two clocks differ by up to about a second.
+ */
 const START_TOLERANCE_MS = 5000;
 
-/** Epoch milliseconds at which this process started. */
+/**
+ * Clock ticks per second in `/proc/<pid>/stat`'s start time — `USER_HZ`,
+ * which Linux fixes at 100 for user space on every mainstream architecture.
+ */
+const USER_HZ = 100;
+
+/** Epoch milliseconds at which this process started, from the monotonic uptime. */
 const ownStartedAt = (): number => Math.round(Date.now() - process.uptime() * 1000);
 
 /**
@@ -305,10 +319,40 @@ export const processStartedAt = (pid: number): number | null => {
     const ticks = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]);
     const boot = /^btime (\d+)$/m.exec(fs.readFileSync('/proc/stat', 'utf8'));
     if (!boot || !Number.isFinite(ticks)) return null;
-    return Number(boot[1]) * 1000 + ticks * 10;
+    return Number(boot[1]) * 1000 + Math.round((ticks * 1000) / USER_HZ);
   } catch {
     return null;
   }
+};
+
+/** A parsed `running <pid> [<startedAt>]` marker. */
+export interface RunMarker {
+  /** The pid of the process that holds the run. */
+  readonly pid: number;
+  /** Epoch milliseconds at which that process started, or `null` where the marker records none. */
+  readonly startedAt: number | null;
+}
+
+/**
+ * The text of a `running` marker.
+ *
+ * @param pid - the pid of the process that holds the run.
+ * @param startedAt - epoch milliseconds at which that process started.
+ * @returns `running <pid> <startedAt>`.
+ */
+export const runMarker = (pid: number, startedAt: number): string => `running ${pid} ${startedAt}`;
+
+/**
+ * Parses a state file's content as a `running` marker. Every reader of the
+ * marker parses it here, so a marker that gains a field stays readable.
+ *
+ * @param recorded - the state file's content; surrounding whitespace is ignored.
+ * @returns the marker's pid and start time, or `null` where the content is
+ *          not a `running` marker — an exit code, or nothing.
+ */
+export const parseRunMarker = (recorded: string): RunMarker | null => {
+  const m = /^running (\d+)(?: (\d+))?$/.exec(recorded.trim());
+  return m ? { pid: Number(m[1]), startedAt: m[2] === undefined ? null : Number(m[2]) } : null;
 };
 
 /**
@@ -319,9 +363,10 @@ export const processStartedAt = (pid: number): number | null => {
  * where it is this board, while this board still holds the run. Otherwise it
  * reads `failed` with {@link STOPPED_RECORD}: the board stopped, and the run
  * ended with it. Where the marker records a start time and the OS can say when
- * that pid started, a pid that started later than the record is a recycled
- * one and reads `failed` the same way. A log with no state file reads `running`, as a run started
- * before the marker existed does.
+ * that pid started, a pid that started more than {@link START_TOLERANCE_MS}
+ * after the record is a reused pid and reads `failed` the same way. A log with
+ * no state file reads `running`, as a run started before the marker existed
+ * does.
  *
  * @param statePath - the run's state file.
  * @param logFile - the run's log.
@@ -339,11 +384,13 @@ export const readRunState = (
   } catch {
     return { state: fs.existsSync(logFile) ? 'running' : 'unknown', recorded: '' };
   }
-  const marker = /^running (\d+)(?: (\d+))?$/.exec(recorded);
+  const marker = parseRunMarker(recorded);
   if (marker) {
-    const pid = Number(marker[1]);
-    const actual = marker[2] === undefined || pid === process.pid ? null : startedAt(pid);
-    const recycled = actual !== null && Math.abs(actual - Number(marker[2])) > START_TOLERANCE_MS;
+    const { pid, startedAt: recordedAt } = marker;
+    const actual = recordedAt === null || pid === process.pid ? null : startedAt(pid);
+    // A reused pid starts later than the process it replaces; an earlier or
+    // equal start is the recorded process read through a coarser clock.
+    const recycled = recordedAt !== null && actual !== null && actual > recordedAt + START_TOLERANCE_MS;
     const holds = pid === process.pid ? held.has(statePath) : alive(pid) && !recycled;
     return holds ? { state: 'running', recorded: '' } : { state: 'failed', recorded: STOPPED_RECORD };
   }
