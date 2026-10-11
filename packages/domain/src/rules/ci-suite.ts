@@ -76,10 +76,11 @@ const withoutDataLists = (command: string): string => {
   let out = command;
   for (const match of [...command.matchAll(FOR_LOOP)].reverse()) {
     const name = match[1];
-    const after = command.slice((match.index ?? 0) + match[0].length);
+    const at = match.index as number; // a `matchAll` result always carries its index
+    const after = command.slice(at + match[0].length);
     const body = after.split(/&&|\|\||[;|\n]/).map((segment) => segment.trim().split(/\s+/).filter((w) => w !== ''));
     if (body.some((words) => words.length > 0 && runsVariable(words, name))) continue;
-    const listStart = (match.index ?? 0) + match[0].indexOf(match[2], match[0].indexOf(' in ') + 1);
+    const listStart = at + match[0].indexOf(match[2], match[0].indexOf(' in ') + 1);
     out = out.slice(0, listStart) + out.slice(listStart + match[2].length);
   }
   return out;
