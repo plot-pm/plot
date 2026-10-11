@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { scriptsFor, primeAgentSettings, type BuildBoardOptions } from '../board.js';
+import { scriptsFor, primeAgentSettings, readConfigAsync, type BuildBoardOptions } from '../board.js';
 import { estateFromEnv } from '../estate.js';
 import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
@@ -143,16 +143,20 @@ export const run = async (
 
   if (argv[0] === 'merge') {
     const [, pr, sha] = argv;
-    if (!pr || !sha || !/^[0-9]+$/.test(pr)) {
+    if (!pr || !sha || !/^[0-9]+$/.test(pr) || !/^[0-9a-f]{40}$/i.test(sha)) {
       process.stderr.write('usage: plot-ask.mjs merge <pr> <sha>\n');
       return 2;
     }
     const { opts } = contextFrom(here);
+    // `Checks wait` is seconds; a value that is not a number falls back to its default.
+    const waitSeconds = Number(await readConfigAsync(opts, 'Checks wait', '3600'));
     const result = await mergeAt(
       {
         host: hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
         scripts: scriptsFor(opts),
         defaultBranch: defaultBranchFile(opts.repoRoot),
+        checksWaitMs: (Number.isFinite(waitSeconds) ? waitSeconds : 3600) * 1000,
+        now: Date.now,
       },
       Number(pr),
       sha,

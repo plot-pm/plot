@@ -415,12 +415,24 @@ test('host: pr-merge github pins the merge with --match-head-commit', () => {
   assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'merge', '5', '--merge', '--match-head-commit', sha]);
 });
 
+// THE STUB FAILS ONLY WHEN THE PIN DOES NOT NAME ITS HEAD. A stub that failed
+// every call passed whatever `--match-head-commit` carried, so a pin dropped or
+// altered in `plot-host.sh` left this test green for the wrong reason.
 test('host: pr-merge github surfaces a host that rejects a moved head, and merges nothing', () => {
-  const stubs = makeStubs({ ghFail: 'Head branch was modified. Review and try the merge again.' });
-  const res = runAllowFail(['pr-merge', '5', '--match-head', 'a'.repeat(40)],
+  const head = 'a'.repeat(40);
+  const stubs = makeStubs();
+  writeFileSync(path.join(stubs.dir, 'gh'),
+    `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > "${stubs.ghArgv}"\n` +
+    `pinned=""\nwhile [ $# -gt 0 ]; do [ "$1" = "--match-head-commit" ] && pinned="$2"; shift; done\n` +
+    `if [ "$pinned" != "${head}" ]; then echo 'Head branch was modified. Review and try the merge again.' >&2; exit 1; fi\n`);
+  chmodSync(path.join(stubs.dir, 'gh'), 0o755);
+  const res = runAllowFail(['pr-merge', '5', '--match-head', 'b'.repeat(40)],
     { env: { PLOT_HOST: 'github' }, stubs });
   assert.notEqual(res.code, 0);
   assert.match(res.stderr, /Head branch was modified/);
+  assert.equal(argvOf(stubs.ghArgv).at(-1), 'b'.repeat(40), 'the pin reached gh');
+  const ok = runAllowFail(['pr-merge', '5', '--match-head', head], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(ok.code, 0, 'the same stub merges when the pin names its head');
 });
 
 test('host: pr-merge bitbucket refuses a pin and calls no bb', () => {

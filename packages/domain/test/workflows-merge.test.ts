@@ -5,6 +5,9 @@ import type { DefaultBranchReading } from '../src/entities/default-branch.js';
 
 const HEAD = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
+const WAIT_MS = 3_600_000;
+/** Thirty minutes after the fixture reading's `askedAt`, inside `Checks wait`. */
+const CLOCK = { now: Date.parse('2026-10-10T00:30:00Z'), checksWaitMs: WAIT_MS };
 
 /** An open, ready PR whose green checks name its head — every refusal passes. */
 const pr = (over: Partial<Pr> = {}): Pr => ({
@@ -45,13 +48,13 @@ const readings = (over: Partial<MergeReadings> = {}): MergeReadings => ({
 });
 
 const refusalOf = (r: MergeReadings, sha = HEAD) => {
-  const out = merge(r, { pr: 42, sha });
+  const out = merge(r, { pr: 42, sha, ...CLOCK });
   return out.outcome === 'refused' ? out.reason : out.outcome;
 };
 
 describe('merge — the controller for a PR merge', () => {
   it('decides one merge pinned to the caller’s sha', () => {
-    const out = merge(readings(), { pr: 42, sha: HEAD });
+    const out = merge(readings(), { pr: 42, sha: HEAD, ...CLOCK });
     expect(out.outcome).not.toBe('refused');
     if (out.outcome === 'refused') return;
     expect(out.writes).toEqual([{ kind: 'pr-merge', pr: 42, deleteBranch: false, sha: HEAD }]);
@@ -96,26 +99,42 @@ describe('merge — the controller for a PR merge', () => {
   });
 
   it('names the branch and its settled sha when the default branch is red', () => {
-    const out = merge(readings({ defaultBranch: reading('red') }), { pr: 42, sha: HEAD });
+    const out = merge(readings({ defaultBranch: reading('red') }), { pr: 42, sha: HEAD, ...CLOCK });
     expect(out.outcome).toBe('refused');
     expect(JSON.stringify(out)).toContain(`main is red on ${OTHER.slice(0, 12)}`);
   });
 
+  it('merges past a red reading older than Checks wait', () => {
+    const late = { now: Date.parse('2026-10-10T01:00:01Z'), checksWaitMs: WAIT_MS };
+    const out = merge(readings({ defaultBranch: reading('red') }), { pr: 42, sha: HEAD, ...late });
+    expect(out.outcome).not.toBe('refused');
+  });
+
+  it('refuses on a red reading exactly at the Checks wait bound', () => {
+    const edge = { now: Date.parse('2026-10-10T01:00:00Z'), checksWaitMs: WAIT_MS };
+    const out = merge(readings({ defaultBranch: reading('red') }), { pr: 42, sha: HEAD, ...edge });
+    expect(out.outcome === 'refused' && out.reason).toBe('default-branch-red');
+  });
+
+  it('refuses unaskable when the default-branch read failed', () => {
+    expect(refusalOf(readings({ defaultBranch: 'unaskable' }))).toBe('unaskable');
+  });
+
   it('merges when the default-branch reading has no settled commit', () => {
     const { settled: _settled, ...unsettled } = reading('red');
-    const out = merge(readings({ defaultBranch: unsettled }), { pr: 42, sha: HEAD });
+    const out = merge(readings({ defaultBranch: unsettled }), { pr: 42, sha: HEAD, ...CLOCK });
     expect(out.outcome).not.toBe('refused');
   });
 
   it('reports a missing default-branch reading instead of treating it as permission', () => {
-    const out = merge(readings({ defaultBranch: null }), { pr: 42, sha: HEAD });
+    const out = merge(readings({ defaultBranch: null }), { pr: 42, sha: HEAD, ...CLOCK });
     expect(out.outcome).not.toBe('refused');
     if (out.outcome === 'refused') return;
     expect(out.detail.defaultBranchRead).toBe(false);
   });
 
   it('names the sha it saw in a refusal', () => {
-    const out = merge(readings({ pr: pr({ headSha: OTHER }) }), { pr: 42, sha: HEAD });
+    const out = merge(readings({ pr: pr({ headSha: OTHER }) }), { pr: 42, sha: HEAD, ...CLOCK });
     expect(out.outcome === 'refused' && out.detail).toContain(OTHER.slice(0, 12));
   });
 });
