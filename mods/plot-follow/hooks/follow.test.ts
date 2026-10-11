@@ -295,4 +295,26 @@ describe('plot-follow', () => {
     await clock.advance(30_000);
     expect(channel.seen.spawned).toHaveLength(2);
   });
+  test('a session.start that finds held findings marks them out of date until a welcome', LISTED, async ($, on) => {
+    const clock = mock.clock(on, { now: T0 });
+    mock.store(on);
+    const channel = fixture(on);
+    await start($);
+    channel.feed(welcome([finding('checks failing', 'one')]));
+    await clock.settle();
+
+    // A reload re-runs session.start; the atom keeps what the old module heard.
+    await start($);
+    await clock.settle();
+    const pane = { plugin: 'plot-follow', surface: 'terminal', component: 'Pane', requestId: 'plot-follow', props: { bodyColumns: 80 } } as const;
+    const stale = await $.ui.mount(pane as never);
+    expect(await stale.find({ type: 'Text', text: /out of date/ })).toBeDefined();
+    expect(await stale.find({ type: 'Text', text: /checks failing — one/ })).toBeDefined();
+    await stale.unmount();
+
+    channel.feed(welcome([finding('checks failing', 'one')]));
+    await clock.settle();
+    const fresh = await $.ui.mount(pane as never);
+    expect(await fresh.find({ type: 'Text', text: /out of date/ })).toBeUndefined();
+  });
 });

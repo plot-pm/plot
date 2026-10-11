@@ -81,7 +81,7 @@ const follow = async (
         at = buffer.indexOf('\n');
         const message = JSON.parse(line);
         if (message.type === 'welcome') {
-          await update($, held, () => ({ findings: message.current, heard: true, stale: false, cwd }));
+          await update($, held, () => ({ findings: message.current, heard: true, stale: false }));
           $.ui.status(undefined);
         } else if (message.type === 'finding') {
           await arrival($, cwd, message.finding, listed);
@@ -144,7 +144,9 @@ export const register: Register = (on, options) => {
     // channel that is not there must not delay it.
     void (async () => {
       $.ui.status(NOT_RUNNING);
-      await update($, held, (h) => ({ ...h, cwd: e.cwd }));
+      // A reload re-runs this hook with the atom intact: what it holds was heard
+      // on a connection that is gone, and stays marked until the channel answers.
+      await update($, held, (h) => ({ ...h, stale: h.heard || h.findings.length > 0 }));
       ensureFollowing($, e.cwd);
     })();
 
@@ -153,14 +155,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e);
-    const { findings, heard, stale, cwd } = await read($, held);
-
-    // A reload loses the loop and keeps the atom: the first render of the new
-    // module finds findings it heard before and no connection behind them.
-    if (!isRunning && !isTimed && cwd !== undefined) {
-      await update($, held, (h) => ({ ...h, stale: h.heard || h.findings.length > 0 }));
-      ensureFollowing($, cwd);
-    }
+    const { findings, heard, stale } = await read($, held);
 
     return (
       <Box flexDirection="column">
