@@ -7,11 +7,12 @@ const HEAD = 'a'.repeat(40);
 const NOW = Date.parse('2026-10-11T12:00:00Z');
 const WAIT_MS = 3_600_000;
 
-const red = (askedAt: string): DefaultBranchReading => ({
-  v: 1, branch: 'main', headSha: 'c'.repeat(40), head: 'red',
-  settled: { sha: 'c'.repeat(40), state: 'red' }, failingRuns: [],
+const settled = (state: 'red' | 'green', askedAt: string): DefaultBranchReading => ({
+  v: 1, branch: 'main', headSha: 'c'.repeat(40), head: state,
+  settled: { sha: 'c'.repeat(40), state }, failingRuns: [],
   headSince: askedAt, askedAt, at: askedAt,
 });
+const red = (askedAt: string): DefaultBranchReading => settled('red', askedAt);
 
 type Read = { ok: true; value: DefaultBranchReading | null } | { ok: false; refusal: string; said: string };
 
@@ -90,9 +91,23 @@ describe('mergeAt', () => {
     expect(calls).toEqual([]);
   });
 
-  it('merges past a red reading older than Checks wait', async () => {
+  it('refuses a red reading older than Checks wait as stale, and merges nothing', async () => {
     const old = new Date(NOW - WAIT_MS - 60_000).toISOString();
     const { p, calls } = ports(pr(), 'answered', { ok: true, value: red(old) });
+    expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: false, reason: 'default-branch-stale' });
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses a days-old green reading as stale, and merges nothing', async () => {
+    const old = new Date(NOW - 3 * 24 * WAIT_MS).toISOString();
+    const { p, calls } = ports(pr(), 'answered', { ok: true, value: settled('green', old) });
+    expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: false, reason: 'default-branch-stale' });
+    expect(calls).toEqual([]);
+  });
+
+  it('merges on a green reading within Checks wait', async () => {
+    const fresh = new Date(NOW - WAIT_MS + 60_000).toISOString();
+    const { p, calls } = ports(pr(), 'answered', { ok: true, value: settled('green', fresh) });
     expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: true, defaultBranchRead: true });
     expect(calls).toHaveLength(1);
   });

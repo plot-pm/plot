@@ -104,10 +104,29 @@ describe('merge — the controller for a PR merge', () => {
     expect(JSON.stringify(out)).toContain(`main is red on ${OTHER.slice(0, 12)}`);
   });
 
-  it('merges past a red reading older than Checks wait', () => {
+  it('refuses a red reading older than Checks wait as stale', () => {
     const late = { now: Date.parse('2026-10-10T01:00:01Z'), checksWaitMs: WAIT_MS };
     const out = merge(readings({ defaultBranch: reading('red') }), { pr: 42, sha: HEAD, ...late });
+    expect(out.outcome === 'refused' && out.reason).toBe('default-branch-stale');
+  });
+
+  it('refuses a green reading older than Checks wait, and names its age', () => {
+    const days = { now: Date.parse('2026-10-13T00:00:00Z'), checksWaitMs: WAIT_MS };
+    const out = merge(readings({ defaultBranch: reading('green') }), { pr: 42, sha: HEAD, ...days });
+    expect(out.outcome === 'refused' && out.reason).toBe('default-branch-stale');
+    expect(out.outcome === 'refused' && out.detail).toContain('the reading of main is 259200 s old; Checks wait is 3600 s.');
+  });
+
+  it('merges on a green reading exactly at the Checks wait bound', () => {
+    const edge = { now: Date.parse('2026-10-10T01:00:00Z'), checksWaitMs: WAIT_MS };
+    const out = merge(readings({ defaultBranch: reading('green') }), { pr: 42, sha: HEAD, ...edge });
     expect(out.outcome).not.toBe('refused');
+  });
+
+  it('refuses a reading whose askedAt does not parse, and quotes it', () => {
+    const out = merge(readings({ defaultBranch: { ...reading('green'), askedAt: 'soon' } }), { pr: 42, sha: HEAD, ...CLOCK });
+    expect(out.outcome === 'refused' && out.reason).toBe('default-branch-stale');
+    expect(out.outcome === 'refused' && out.detail).toContain("has an askedAt that does not parse ('soon')");
   });
 
   it('refuses on a red reading exactly at the Checks wait bound', () => {

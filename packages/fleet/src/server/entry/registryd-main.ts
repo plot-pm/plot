@@ -46,7 +46,7 @@ import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { PortResult } from '@plot-pm/domain';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { viewLanded } from '@plot-pm/domain/rules/known-pr';
-import { checkNamesOf, defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
+import { checkNamesOf, checksWaitMsOf, defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
@@ -808,8 +808,7 @@ export const queueWorldForRepo = (
     defaultBranchRed: async () => {
       const held = await defaultBranchFile(repoRoot).read();
       if (!held.ok) return false;
-      const checksWaitMs =
-        (Number(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')) || 3600) * 1000;
+      const checksWaitMs = checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600'));
       return defaultBranchRed(held.value, Date.now(), checksWaitMs);
     },
     prIndexRows: async () => {
@@ -2018,8 +2017,7 @@ export const run = async (
             ? withHostSlot(prState, call)
             : call(),
         now: () => Date.now(),
-        checksWaitMs:
-          (Number(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')) || 3600) * 1000,
+        checksWaitMs: checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')),
         checks: checkNamesOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Default branch checks', '')),
       };
   const readDefaultBranch = seams.readDefaultBranch ?? (async (): Promise<void> => {

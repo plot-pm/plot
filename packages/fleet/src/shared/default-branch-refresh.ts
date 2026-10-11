@@ -59,14 +59,16 @@ export type DefaultBranchOutcome = 'skipped' | 'asked' | 'unreadable';
 /**
  * Reads the default branch's CI once and records it.
  *
- * Reads the head SHA, and asks for its runs only when the SHA changed or the
- * previous answer is not final. A `green` head is final. A head that is
- * `pending`, `red` or `unknown` is asked again every {@link REASK_MS}, measured
- * from the last ask (`at`), until `Checks wait` has passed since the SHA first
- * appeared (`headSince`). After that it is asked again once per half
- * `Checks wait`, so a red head is renewed before `defaultBranchRed` stops
- * holding it, and a re-run that turns it green lifts the hold on the next ask.
- * A green, unchanged SHA makes no `runsForSha` call and no write.
+ * Reads the head SHA, and asks for its runs when the SHA changed or the
+ * previous ask is old enough. A head that is `pending`, `red` or `unknown` is
+ * asked again every {@link REASK_MS}, measured from the last ask (`at`), until
+ * `Checks wait` has passed since the SHA first appeared (`headSince`). After
+ * that it is asked again once per half `Checks wait`, so a red head is renewed
+ * before `defaultBranchRed` stops holding it, and a re-run that turns it green
+ * lifts the hold on the next ask. A `green` head is asked again once per half
+ * `Checks wait`, measured from `at`, so its `askedAt` stays within the bound:
+ * the merge controller refuses a reading older than `Checks wait`, and a quiet
+ * green branch would otherwise refuse every merge.
  *
  * Only the runs of the workflows in `world.checks` are folded
  * (`declaredRuns`); an empty list folds every run.
@@ -97,8 +99,7 @@ export const refreshDefaultBranch = async (
 
   const unchanged = previous !== null && previous.headSha === sha;
   if (unchanged) {
-    if (previous.head === 'green') return 'skipped';
-    const pastWait = now - Date.parse(previous.headSince) >= world.checksWaitMs;
+    const pastWait = previous.head === 'green' || now - Date.parse(previous.headSince) >= world.checksWaitMs;
     if (now - Date.parse(previous.at) < reaskIntervalMs(world.checksWaitMs, pastWait)) return 'skipped';
   }
 

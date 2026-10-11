@@ -7,6 +7,7 @@ import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { defaultBranchFile } from '@plot-pm/domain/adapters/default-branch/default-branch-file';
+import { checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 import { mergeAt } from './merge.js';
 
@@ -148,14 +149,12 @@ export const run = async (
       return 2;
     }
     const { opts } = contextFrom(here);
-    // `Checks wait` is seconds; a value that is not a number falls back to its default.
-    const waitSeconds = Number(await readConfigAsync(opts, 'Checks wait', '3600'));
     const result = await mergeAt(
       {
         host: hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
         scripts: scriptsFor(opts),
         defaultBranch: defaultBranchFile(opts.repoRoot),
-        checksWaitMs: (Number.isFinite(waitSeconds) ? waitSeconds : 3600) * 1000,
+        checksWaitMs: checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')),
         now: Date.now,
       },
       Number(pr),

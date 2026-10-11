@@ -1,6 +1,6 @@
 import type { DefaultBranchReading } from '../entities/default-branch.js';
 import type { Pr } from '../entities/pr.js';
-import { defaultBranchRed } from '../rules/default-branch.js';
+import { defaultBranchAgeMs } from '../rules/default-branch.js';
 import { type Outcome, decide, refuse } from './decision.js';
 
 /**
@@ -14,7 +14,8 @@ export type MergeRefusal =
   | 'draft'
   | 'checks-not-green'
   | 'checks-unbound'
-  | 'default-branch-red';
+  | 'default-branch-red'
+  | 'default-branch-stale';
 
 /** What `merge` reads. Every reading is the host's, taken fresh for this call. */
 export interface MergeReadings {
@@ -39,7 +40,7 @@ export interface MergeInput {
   readonly sha: string;
   /** The current time, as epoch milliseconds. */
   readonly now: number;
-  /** The `Checks wait` bound, in milliseconds; an older default-branch reading holds nothing. */
+  /** The `Checks wait` bound, in milliseconds; an older default-branch reading refuses the merge. */
   readonly checksWaitMs: number;
 }
 
@@ -49,7 +50,7 @@ export interface MergeDetail {
   readonly pr: number;
   /** The head commit the merge is pinned to. */
   readonly sha: string;
-  /** Whether a default-branch reading existed; absent is reported, not permitted. */
+  /** Whether a default-branch reading within `Checks wait` existed; absent is reported, not permitted. */
   readonly defaultBranchRead: boolean;
 }
 
@@ -64,8 +65,10 @@ const short = (sha: string | undefined): string =>
  * and the default branch is not red. A host that did not answer, or that names
  * no head commit, refuses as `unaskable`, and so does a default-branch read
  * that failed. A missing default-branch reading holds nothing and the decision
- * says so in its detail. A reading older than `input.checksWaitMs` counts as
- * no reading, as {@link defaultBranchRed} defines.
+ * says so in its detail. A reading whose `askedAt` is older than
+ * `input.checksWaitMs`, or does not parse, refuses as `default-branch-stale`:
+ * a merge cannot be undone, so a reading no host confirmed within the bound
+ * permits nothing, whether it reads red or green.
  *
  * `checks-unbound` guards a rollup that names a commit other than the head.
  * `plot-host.sh` sets `checksSha` to `headRefOid` today, so no adapter produces
@@ -103,8 +106,15 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   if (defaultBranch === 'unaskable') {
     return no('unaskable', `the default branch's reading could not be read for PR #${input.pr}. Absent is not green; nothing was merged.`);
   }
-  if (defaultBranch !== null && defaultBranch.settled !== undefined && defaultBranchRed(defaultBranch, input.now, input.checksWaitMs)) {
-    return no('default-branch-red', `${defaultBranch.branch} is red on ${short(defaultBranch.settled.sha)}. A merge now stacks a change on an unproven base.`);
+  if (defaultBranch !== null) {
+    const age = defaultBranchAgeMs(defaultBranch, input.now);
+    if (age === null || age > input.checksWaitMs) {
+      const seen = age === null ? `has an askedAt that does not parse ('${defaultBranch.askedAt}')` : `is ${Math.floor(age / 1000)} s old`;
+      return no('default-branch-stale', `the reading of ${defaultBranch.branch} ${seen}; Checks wait is ${Math.floor(input.checksWaitMs / 1000)} s. A merge needs a reading a host confirmed within that bound; nothing was merged.`);
+    }
+    if (defaultBranch.settled?.state === 'red') {
+      return no('default-branch-red', `${defaultBranch.branch} is red on ${short(defaultBranch.settled.sha)}. A merge now stacks a change on an unproven base.`);
+    }
   }
   return decide('merge', [{ kind: 'pr-merge', pr: input.pr, deleteBranch: false, sha: input.sha }], {
     pr: input.pr,
