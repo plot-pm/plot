@@ -38,7 +38,15 @@ export interface TurnGateState {
   count: number;
   /** Lines of listed findings that arrived while no turn could start. */
   held: readonly HeldLine[];
+  /**
+   * The reading last announced per slot, so a reading that arrives again starts
+   * nothing, whether the pane still holds it or a welcome replaced the pane.
+   */
+  announced: AnnouncedReadings;
 }
+
+/** The reading last announced per slot, keyed by slot. */
+export type AnnouncedReadings = Readonly<Record<string, string>>;
 
 /** One line waiting for the next turn, and the slot of the finding it came from. */
 export interface HeldLine {
@@ -54,12 +62,15 @@ export const EMPTY_TURN_GATE: TurnGateState = {
   day: '',
   count: 0,
   held: [],
+  announced: {},
 };
 
 /** What {@link turnGate} decided. */
 export interface TurnGateResult {
   /** Whether the mod starts a turn now. */
   start: boolean;
+  /** Whether the finding is a reading not announced before; the mod toasts only such a reading. */
+  isNew: boolean;
   /** The turn's text when `start` is true; `''` otherwise. */
   text: string;
   /** The state to persist. */
@@ -70,24 +81,38 @@ export interface TurnGateResult {
 const slotOf = (f: Pick<FollowedFinding, 'monitor' | 'branch'>): string =>
   `${f.monitor}\u0000${f.branch}`;
 
+/** The reading a finding reports in its slot: its name, `since` and `evidence`. */
+const readingOf = (f: Pick<FollowedFinding, 'finding' | 'since' | 'evidence'>): string =>
+  JSON.stringify([f.finding, f.since, f.evidence]);
+
 /** The oldest held lines are dropped past this many, so a capped day cannot grow the store. */
 const HELD_LIMIT = 50;
+
+/** The longest-unchanged slots are forgotten past this many, so the store stays bounded. */
+const ANNOUNCED_LIMIT = 500;
 
 /**
  * Decides whether an arriving finding starts a turn.
  *
- * A finding whose name is not in `listed` changes nothing and never starts a
- * turn. A listed finding starts one when the last turn began at least
+ * A finding whose reading equals the one last announced for its slot (see
+ * {@link isRepeat}) changes nothing and is not new: a fleetd restart or a
+ * reconnect republishes it. Any other reading is new and becomes the slot's
+ * announced reading. A new finding whose name is not in `listed`, or that
+ * `owned` says another session claimed, starts no turn and holds no line. A
+ * listed finding starts one when the last turn began at least
  * {@link TURN_GAP_MS} ago and fewer than {@link TURNS_PER_DAY} turns started on
  * the current UTC day. Otherwise its line joins `held`, and the next turn's
  * text carries every held line followed by the arriving one. A line already
  * held is not added twice. A `clear` starts no turn and removes the held lines
- * of its slot, since the channel has retracted the finding they report.
+ * and the announced reading of its slot, since the channel has retracted the
+ * finding they report.
  *
  * @param state the persisted state
  * @param finding the arriving finding
  * @param now the current time in milliseconds since the epoch
  * @param listed the finding names the operator allows to start a turn
+ * @param owned whether this session holds the reading's claim; `false` when
+ *   another session of the same repository claimed it first
  * @returns the decision and the state to persist
  */
 export const turnGate = (
@@ -95,28 +120,36 @@ export const turnGate = (
   finding: FollowedFinding,
   now: number,
   listed: readonly string[],
+  owned = true,
 ): TurnGateResult => {
+  const slot = slotOf(finding);
+  const others = Object.entries(state.announced).filter(([s]) => s !== slot);
   if (finding.finding === 'clear') {
-    const slot = slotOf(finding);
-    return { start: false, text: '', state: { ...state, held: state.held.filter((h) => h.slot !== slot) } };
+    const held = state.held.filter((h) => h.slot !== slot);
+    return { start: false, isNew: false, text: '', state: { ...state, held, announced: Object.fromEntries(others) } };
   }
-  if (!listed.includes(finding.finding)) return { start: false, text: '', state };
+  if (isRepeat(state.announced, finding)) return { start: false, isNew: false, text: '', state };
+  const announced = Object.fromEntries([...others, [slot, readingOf(finding)]].slice(-ANNOUNCED_LIMIT));
+  if (!owned || !listed.includes(finding.finding)) {
+    return { start: false, isNew: true, text: '', state: { ...state, announced } };
+  }
 
   const day = new Date(now).toISOString().slice(0, 10);
   const count = state.day === day ? state.count : 0;
   const line = `${finding.finding} — ${finding.branch}: ${finding.evidence}`;
   const held = state.held.some((h) => h.line === line)
     ? state.held
-    : [...state.held, { slot: slotOf(finding), line }];
+    : [...state.held, { slot, line }];
   const waited = state.lastStartedAt === null ? Infinity : now - state.lastStartedAt;
 
   if (waited < TURN_GAP_MS || count >= TURNS_PER_DAY) {
-    return { start: false, text: '', state: { ...state, day, count, held: held.slice(-HELD_LIMIT) } };
+    return { start: false, isNew: true, text: '', state: { ...state, day, count, held: held.slice(-HELD_LIMIT), announced } };
   }
   return {
     start: true,
+    isNew: true,
     text: held.map((h) => h.line).join('\n'),
-    state: { lastStartedAt: now, day, count: count + 1, held: [] },
+    state: { lastStartedAt: now, day, count: count + 1, held: [], announced },
   };
 };
 
@@ -138,21 +171,17 @@ export const absorbFinding = (
 };
 
 /**
- * Whether the held findings already carry this finding: the same slot with the
- * same `since` and `evidence`. A fleetd restart republishes every current
- * finding, and an unchanged one starts nothing.
+ * Whether a finding reports the reading last announced for its slot: the same
+ * name, `since` and `evidence`. A fleetd restart or a reconnect republishes
+ * every current finding, and an unchanged one starts nothing. The announced
+ * readings are kept apart from the pane's list, because a `welcome` replaces
+ * that list.
+ *
+ * @param announced the reading last announced per slot
+ * @param arriving the arriving finding
  */
-export const isRepeat = (
-  current: readonly FollowedFinding[],
-  arriving: FollowedFinding,
-): boolean =>
-  current.some(
-    (f) =>
-      slotOf(f) === slotOf(arriving) &&
-      f.finding === arriving.finding &&
-      f.since === arriving.since &&
-      f.evidence === arriving.evidence,
-  );
+export const isRepeat = (announced: AnnouncedReadings, arriving: FollowedFinding): boolean =>
+  announced[slotOf(arriving)] === readingOf(arriving);
 
 /**
  * The pane's text lines.

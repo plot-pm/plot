@@ -247,7 +247,11 @@ describe('plot-follow', () => {
 
   test('two findings arriving together both stay held, and another repository has its own gate', LISTED, async ($, on) => {
     const clock = mock.clock(on, { now: T0 });
-    mock.store(on, { 'turn-gate:/elsewhere': { lastStartedAt: null, day: '', count: 0, held: [{ slot: 'x', line: 'other repo line' }] } });
+    // Another repository's gate, and the single gate every repository shared before.
+    mock.store(on, {
+      'turn-gate:/elsewhere': { lastStartedAt: null, day: '', count: 0, held: [{ slot: 'x', line: 'other repo line' }] },
+      'turn-gate': { lastStartedAt: null, day: '', count: 0, held: ['legacy shared line'] },
+    });
     const channel = fixture(on);
     await start($);
     channel.feed(welcome([]));
@@ -263,7 +267,8 @@ describe('plot-follow', () => {
     expect(channel.seen.turns).toHaveLength(2);
     expect(channel.seen.turns[1]).toContain('two');
     expect(channel.seen.turns[1]).toContain('three');
-    expect(channel.seen.turns[1]).not.toContain('other repo line');
+    expect(channel.seen.turns.join('\n')).not.toContain('other repo line');
+    expect(channel.seen.turns.join('\n')).not.toContain('legacy shared line');
   });
 
   test('a welcome that republishes a held finding starts no turn', LISTED, async ($, on) => {
@@ -309,6 +314,7 @@ describe('plot-follow', () => {
     await clock.settle();
 
     // A reload re-runs session.start; the atom keeps what the old module heard.
+    // The test kit has no reload helper, so a second session.start stands in for one.
     await start($);
     await clock.settle();
     const pane = { plugin: 'plot-follow', surface: 'terminal', component: 'Pane', requestId: 'plot-follow', props: { bodyColumns: 80 } } as const;
@@ -321,5 +327,79 @@ describe('plot-follow', () => {
     await clock.settle();
     const fresh = await $.ui.mount(pane as never);
     expect(await fresh.find({ type: 'Text', text: /out of date/ })).toBeUndefined();
+  });
+
+  test('a fleetd restart that welcomes with nothing starts no second turn for the same finding', LISTED, async ($, on) => {
+    const clock = mock.clock(on, { now: T0 });
+    mock.store(on);
+    const channel = fixture(on);
+    await start($);
+    channel.feed(welcome([]));
+    channel.feed(message('checks failing', 'one'));
+    await clock.settle();
+    expect(channel.seen.turns).toHaveLength(1);
+
+    // fleetd restarts empty: the follower ends, the retry respawns it, and the
+    // channel welcomes with nothing before the monitor republishes the finding.
+    channel.close();
+    await clock.advance(6 * MIN);
+    channel.feed(welcome([]));
+    channel.feed(message('checks failing', 'one'));
+    await clock.settle();
+
+    expect(channel.seen.spawned.length).toBeGreaterThan(1);
+    expect(channel.seen.turns).toHaveLength(1);
+    expect(channel.seen.toasts).toEqual(['checks failing — one']);
+  });
+
+  test('a finding heard only in a welcome is an arrival: it toasts and starts a turn', LISTED, async ($, on) => {
+    const clock = mock.clock(on, { now: T0 });
+    mock.store(on);
+    const channel = fixture(on);
+    await start($);
+    channel.feed(welcome([]));
+    await clock.settle();
+    channel.close();
+
+    // Published while no follower ran: the next welcome is the only place it shows.
+    await clock.advance(MIN);
+    channel.feed(welcome([finding('checks failing', 'missed'), finding('pr merged', 'landed')]));
+    await clock.settle();
+
+    expect(channel.seen.toasts).toEqual(['checks failing — missed', 'pr merged — landed']);
+    expect(channel.seen.turns).toHaveLength(1);
+    expect(channel.seen.turns[0]).toContain('missed');
+  });
+
+  test('a reading another session claimed toasts here and starts no turn here', LISTED, async ($, on) => {
+    const clock = mock.clock(on, { now: T0 });
+    mock.store(on);
+    const channel = fixture(on);
+    await start($);
+    channel.feed({ ...welcome([finding('checks failing', 'one')]), claimed: [false] });
+    channel.feed({ ...message('checks failing', 'two'), claimed: false });
+    await clock.settle();
+
+    expect(channel.seen.toasts).toEqual(['checks failing — one', 'checks failing — two']);
+    expect(channel.seen.turns).toHaveLength(0);
+
+    channel.feed({ ...message('checks failing', 'three'), claimed: true });
+    await clock.settle();
+    expect(channel.seen.turns).toHaveLength(1);
+    expect(channel.seen.turns[0]).not.toContain('two');
+  });
+
+  test('one follower runs while it lives: retry ticks over 60 s spawn no second one', LISTED, async ($, on) => {
+    const clock = mock.clock(on, { now: T0 });
+    mock.store(on);
+    const channel = fixture(on);
+    await start($);
+    channel.feed(welcome([]));
+    await clock.settle();
+
+    await clock.advance(60_000);
+    await clock.settle();
+
+    expect(channel.seen.spawned).toHaveLength(1);
   });
 });
