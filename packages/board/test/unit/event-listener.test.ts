@@ -235,11 +235,16 @@ describe('openSharedEventSource', () => {
     const { sources } = fakeBrowser();
     let clock = 0;
     let refetches = 0;
-    const stopLeader = listenForEvents({ refetch: () => undefined, now: () => clock });
-    listenForEvents({ refetch: () => (refetches += 1), now: () => clock });
+    let leaderRefetches = 0;
+    const stopLeader = listenForEvents({ refetch: () => (leaderRefetches += 1), now: () => clock });
     await settle();
     sources[0].onmessage?.({ data: '{"type":"welcome"}' });
-    expect(refetches).toBe(0);
+    expect(leaderRefetches).toBe(0);
+    // The follower opens later and never hears the welcome of the leader's connection.
+    clock = 30_000;
+    listenForEvents({ refetch: () => (refetches += 1), now: () => clock });
+    await settle();
+    expect(sources).toHaveLength(1);
     clock = 60_000;
     sources[0].onmessage?.({ data: '{"type":"welcome"}' });
     expect(refetches).toBe(1);
