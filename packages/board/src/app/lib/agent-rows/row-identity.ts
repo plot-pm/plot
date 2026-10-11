@@ -244,6 +244,16 @@ export function briefAskedNote(elapsedMs: number): string {
 }
 
 /**
+ * The sentence for a running brief writer, with the age of the ask it answers.
+ * The age is `briefAskedAt`'s: the earliest counting ask, which a running
+ * writer's own start falls at or after.
+ *
+ * @param elapsedMs - milliseconds since the ask.
+ */
+export const briefWritingNote = (elapsedMs: number): string =>
+  `the brief writer has been working for ${askedLabel(elapsedMs)}`;
+
+/**
  * Whether this row's brief writer recorded a failure.
  *
  * Reads the `briefFailed` field the server computed. The client casts the
@@ -273,11 +283,11 @@ export const briefFailedNote = (log: string): string => `the brief writer failed
 /**
  * Whether this branch's own writer is running right now — #1417, the reading
  * `briefAskedAt`'s age could not give: whether the work is still going, read
- * from `briefWriting`, which `briefWriterState` in `@plot-pm/domain` already
+ * from `briefWriter`, which `briefWriterState` in `@plot-pm/domain` already
  * decided against the brief's own presence and the branchless-run rule.
  */
-export const briefWriting = (row: Partial<Pick<AgentRow, 'briefWriting'>>): boolean =>
-  row.briefWriting === 'writing';
+export const briefWriting = (row: Partial<Pick<AgentRow, 'briefWriter'>>): boolean =>
+  row.briefWriter === 'writing';
 
 /** The note a row with a missing brief shows when work, an ask, or a failure is recorded. */
 export interface BriefNote {
@@ -300,19 +310,24 @@ export interface BriefNote {
  * together. The age of an ask is computed against `now`, so the caller reads
  * the clock at render time.
  *
- * @param row - the row, with at least `briefWriting`, `briefFailed` and `briefAskedAt`.
+ * @param row - the row, with at least `briefWriter`, `briefFailed` and `briefAskedAt`.
  * @param now - the reader's clock, in epoch milliseconds.
- * @returns the `writing` note where `briefWriting`, otherwise the `failed`
+ * @returns the `writing` note where `briefWriter` (with its age where
+ *          `briefAskedAt` is recorded), otherwise the `failed`
  *          note where `briefWriterFailed`, otherwise the `asked` note where
  *          `briefAsked`, otherwise null — the row then shows the missing-brief
  *          note.
  */
 export const briefNote = (
-  row: Partial<Pick<AgentRow, 'briefWriting' | 'briefFailed' | 'briefAskedAt'>>,
+  row: Partial<Pick<AgentRow, 'briefWriter' | 'briefFailed' | 'briefAskedAt'>>,
   now: number,
 ): BriefNote | null => {
   if (briefWriting(row)) {
-    return { kind: 'writing', label: 'writing brief', text: 'the brief writer is working now' };
+    const text =
+      typeof row.briefAskedAt === 'number'
+        ? briefWritingNote(now - row.briefAskedAt)
+        : 'the brief writer is working now';
+    return { kind: 'writing', label: 'writing brief', text };
   }
   if (briefWriterFailed(row)) {
     return { kind: 'failed', label: 'brief failed', text: briefFailedNote(row.briefFailed as string) };

@@ -1738,7 +1738,7 @@ export const BriefStateSchema = z.enum(['present', 'missing', 'unknown']);
 export type BriefState = z.infer<typeof BriefStateSchema>;
 
 /**
- * What a branch's brief writer is doing — see `briefWriting` and
+ * What a branch's brief writer is doing — see `briefWriter` and
  * `briefWriterState` in `@plot-pm/domain`.
  */
 export const BriefWriterStateSchema = z.enum(['writing', 'failed', 'asked', 'none']);
@@ -2898,7 +2898,7 @@ export const AgentRowSchema = z.object({
    * validates to `'none'` and renders exactly as the board did before this
    * field existed.
    */
-  briefWriting: BriefWriterStateSchema.default('none'),
+  briefWriter: BriefWriterStateSchema.default('none'),
   /**
    * The name of the earlier slice blocking this row — `waitingOn: 'time'` only,
    * null everywhere else.
