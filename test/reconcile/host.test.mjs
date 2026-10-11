@@ -6367,9 +6367,8 @@ for (const rich of [true, false]) {
 //
 // `gh pr list --head ""` applies NO FILTER, so every PR in the repository
 // matches. Measured 2026-10-01 on `origin/main` (`56a978ea`): `pr_merged ""`
-// exited 0 — *merged* — and `pr_merged_heads ""` printed 98 lines, the head of
-// every merged PR in the repository. The guard that fixes it sits in the three
-// lookups and is pinned here.
+// exited 0 — *merged*. The guard that fixes it sits in the two lookups and is
+// pinned here.
 //
 // WHY THE STUB ANSWERS EVERY CALL THE SAME. The `gh` written below ignores its
 // arguments, exactly as the real `gh` does for `--head ""`, so these cases
@@ -6384,7 +6383,7 @@ for (const rich of [true, false]) {
 // fails: a guard placed AFTER `command -v gh`, or one that answers `none` after
 // asking, passes every return-value check below and writes the file anyway.
 
-// The three lookups are SOURCED, not run, so they need their own runner rather
+// The two lookups are SOURCED, not run, so they need their own runner rather
 // than the `run` helper above, which spawns `plot-host.sh`.
 const prMergedLib = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-pr-merged.sh');
 
@@ -6433,13 +6432,6 @@ test('plot-pr-merged: an empty branch refuses, and gh is never asked', () => {
   // be "conservative" would block nothing real and contradict the plan.
   assert.equal(sourcedPrMerged('pr_open ""', stub.dir).code, 1, 'pr_open "" has no veto to cast');
 
-  // Exit code and stdout are checked SEPARATELY: exit 1 means *cannot ask* and
-  // exit 0 with no output means *asked, nothing merged*, so emptiness alone
-  // cannot tell the two apart.
-  const heads = sourcedPrMerged('pr_merged_heads ""', stub.dir);
-  assert.equal(heads.code, 1, 'pr_merged_heads "" returns 1');
-  assert.equal(heads.stdout, '', 'pr_merged_heads "" prints nothing');
-
   // THE ASSERTION A NAIVE GUARD FAILS. The stub appends its argv on every
   // invocation, so the file exists if and only if `gh` ran at least once.
   assert.equal(
@@ -6463,10 +6455,6 @@ test('plot-pr-merged: a non-empty branch with a merged PR still reads as merged'
     'a real branch still reaches the host',
   );
   assert.equal(sourcedPrMerged('pr_merged feature/x', stub.dir).code, 0, 'a merged PR still reads as merged');
-
-  const heads = sourcedPrMerged('pr_merged_heads feature/x', stub.dir);
-  assert.equal(heads.code, 0, 'pr_merged_heads answers for a real branch');
-  assert.equal(heads.stdout.trim(), 'a'.repeat(40), 'only the MERGED row\'s head is printed');
 
   // And the guard did not swallow the call.
   assert.ok(existsSync(stub.argvFile), 'a non-empty branch does reach gh');
