@@ -30,11 +30,14 @@ const privateTmp = (t) => {
   return dir;
 };
 
+// THE GRACE PERIOD IS 0 UNLESS A CASE ASKS FOR IT, so a case that leaks on
+// purpose fails at once rather than after the 10 s default. The grace cases
+// below set their own value, or delete it to read the default.
 const runWrapped = (tmp, args, extraEnv = {}) =>
   spawnSync('bash', [wrapper, ...args], {
     encoding: 'utf8',
     cwd: repoRoot,
-    env: { ...process.env, TMPDIR: tmp, ...extraEnv },
+    env: { ...process.env, TMPDIR: tmp, PLOT_OWNED_RUN_GRACE_S: '0', ...extraEnv },
   });
 
 test('a clean command leaves no entry and keeps its exit code', (t) => {
@@ -162,6 +165,76 @@ test('one entry fails the run even with PLOT_LEAK_CEILING set', (t) => {
   assert.equal(res.status, 1, 'one entry must fail the run');
   assert.match(res.stderr, /plot-under-abc123\t\(prefix plot-under-\)/, 'the gate names the entry and its prefix');
   assert.doesNotMatch(res.stderr, /ceiling/, 'the report names no ceiling');
+  assert.deepEqual(readdirSync(tmp), [], 'the root is removed');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE GRACE PERIOD — an entry fails the run only if it is still there after it
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Measured 2026-10-11 (#1582): five prefixes failed a run with every test
+// passing, each once. A child that outlives its test removes its own entry
+// shortly after the command ends. Each fixture below starts such a child with
+// its output closed, so `spawnSync` does not wait for it, and with plain
+// `mkdir`/`rmdir`, so a child that runs late cannot recreate the removed root.
+
+// THE DEFAULT, NOT AN OVERRIDE: the case deletes the variable, so a default of
+// 0 fails it.
+test('an entry a child removes within the default grace period passes and is named', (t) => {
+  const tmp = privateTmp(t);
+  const env = { ...process.env, TMPDIR: tmp };
+  delete env.PLOT_OWNED_RUN_GRACE_S;
+  const res = spawnSync('bash', [wrapper, 'sh', '-c',
+    'mkdir "$TMPDIR/plot-late-abc123"; (sleep 1; rmdir "$TMPDIR/plot-late-abc123") >/dev/null 2>&1 & exit 0'], {
+    encoding: 'utf8',
+    cwd: repoRoot,
+    env,
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stderr, /cleared after the run ended, of 1 present at its end: plot-late-abc123 \(\d+\.\d s\)/,
+    'the self-healed entry stays visible in the log');
+  assert.doesNotMatch(res.stderr, /left in the run's TMPDIR/);
+  assert.deepEqual(readdirSync(tmp), [], 'the root is removed');
+});
+
+test('an entry that stays through the grace period fails the run as before', (t) => {
+  const tmp = privateTmp(t);
+  const started = Date.now();
+  const res = runWrapped(tmp, ['sh', '-c', 'mkdir "$TMPDIR/plot-stays-abc123"; exit 0'],
+    { PLOT_OWNED_RUN_GRACE_S: '1' });
+  assert.equal(res.status, 1, 'a leak that stays must fail the run');
+  assert.ok(Date.now() - started >= 1000, 'the gate waited the grace period');
+  assert.match(res.stderr, /plot-stays-abc123\t\(prefix plot-stays-\)/, 'the gate names the entry and its prefix');
+  assert.doesNotMatch(res.stderr, /cleared after the run ended/, 'nothing cleared');
+  assert.deepEqual(readdirSync(tmp), [], 'the root is removed');
+});
+
+test('an entry a child creates during the grace period and leaves fails the run', (t) => {
+  const tmp = privateTmp(t);
+  // The first entry keeps the grace period open until 1.5 s; the second
+  // appears at 0.3 s and stays. A gate that kept only its first listing would
+  // pass this run.
+  const res = runWrapped(tmp, ['sh', '-c',
+    'mkdir "$TMPDIR/plot-first-abc123"; '
+    + '(sleep 1.5; rmdir "$TMPDIR/plot-first-abc123") >/dev/null 2>&1 & '
+    + '(sleep 0.3; mkdir "$TMPDIR/plot-second-abc123") >/dev/null 2>&1 & exit 0'],
+    { PLOT_OWNED_RUN_GRACE_S: '3' });
+  assert.equal(res.status, 1, 'an entry created during the grace period and left must fail the run');
+  assert.match(res.stderr, /plot-second-abc123\t\(prefix plot-second-\)/);
+  assert.match(res.stderr, /cleared after the run ended, of 1 present at its end: plot-first-abc123/);
+  assert.deepEqual(readdirSync(tmp), [], 'the root is removed');
+});
+
+test('a grace period of 0 fails at once, as the gate did before it', (t) => {
+  const tmp = privateTmp(t);
+  const started = Date.now();
+  const res = runWrapped(tmp, ['sh', '-c',
+    'mkdir "$TMPDIR/plot-now-abc123"; (sleep 2; rmdir "$TMPDIR/plot-now-abc123" 2>/dev/null) >/dev/null 2>&1 & exit 0'],
+    { PLOT_OWNED_RUN_GRACE_S: '0' });
+  assert.equal(res.status, 1, 'with no grace the entry fails the run');
+  assert.ok(Date.now() - started < 2000, 'the gate did not wait');
+  assert.match(res.stderr, /plot-now-abc123\t\(prefix plot-now-\)/);
+  assert.doesNotMatch(res.stderr, /cleared after the run ended/);
   assert.deepEqual(readdirSync(tmp), [], 'the root is removed');
 });
 

@@ -39,9 +39,25 @@
 # apply to a per-run root**: no supervisor, board or other agent writes here, so
 # an entry present at the end came from this run and nothing else.
 #
-# So the gate needs no settle delay and no retry loop. Measured across 11 files,
-# 3 of them with `detached: true` spawns: the entry count at exit equalled the
-# count 40-45 s later.
+# Measured across 11 files, 3 of them with `detached: true` spawns: the entry
+# count at exit equalled the count 40-45 s later. A real leak stays.
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# AN ENTRY GETS A GRACE PERIOD BEFORE IT FAILS THE RUN
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Measured 2026-10-11 (#1582): five prefixes failed `validate` within about two
+# hours, each once, with every test passing — `plot-scrub-`, `plot-home-`,
+# `plot-host-prlist-err.`, `plot-host-err.`, `plot-continue-`. Under a slow
+# runner, a child outlives its test's teardown and removes its own entry
+# shortly after the command ends.
+#
+# So when entries remain, the gate polls every 0.5 s for up to
+# `PLOT_OWNED_RUN_GRACE_S` seconds (default 10, whole seconds, 0 disables it)
+# and stops as soon as the root is empty. Only an entry still present at the
+# end fails the run. An entry that cleared is named on one line with the time
+# it took, so a leak that heals itself stays visible in the log. A clean run
+# pays nothing: the wait starts only when an entry is present.
 #
 # ═══════════════════════════════════════════════════════════════════════════
 # THE REGISTRY CHECK RUNS WITH THE ORIGINAL ENVIRONMENT
@@ -290,6 +306,46 @@ timed_out=''
 
 listing=$(leak_listing)
 find_status=$?
+
+# THE GRACE PERIOD. Skipped on a 124, where SIGKILL already ended every child,
+# and on a failed listing, which the branch below reports.
+if [ -z "$timed_out" ] && [ "$find_status" = 0 ] && [ -n "$listing" ]; then
+  grace_s="${PLOT_OWNED_RUN_GRACE_S:-10}"
+  case "$grace_s" in
+    ''|*[!0-9]*)
+      echo "owned-run.sh: PLOT_OWNED_RUN_GRACE_S='${grace_s}' is not a whole number of seconds; using 10" >&2
+      grace_s=10
+      ;;
+  esac
+  # Integer arithmetic in half-second steps: bash 3.2 has no float, and
+  # `sleep 0.5` works in both BSD and GNU `sleep`.
+  first_listing=$listing
+  cleared=''
+  step=0
+  max_steps=$((grace_s * 2))
+  while [ -n "$listing" ] && [ "$step" -lt "$max_steps" ]; do
+    sleep 0.5
+    step=$((step + 1))
+    previous=$listing
+    listing=$(leak_listing)
+    find_status=$?
+    [ "$find_status" = 0 ] || break
+    # Each entry that left in this step is recorded with the time it took.
+    tenths=$((step * 5))
+    while IFS= read -r entry; do
+      [ -n "$entry" ] || continue
+      printf '%s\n' "$listing" | grep -qxF -- "$entry" && continue
+      cleared="${cleared}${cleared:+, }${entry##*/} ($((tenths / 10)).$((tenths % 10)) s)"
+    done <<EOF
+$previous
+EOF
+  done
+  if [ -n "$cleared" ]; then
+    count=$(printf '%s\n' "$first_listing" | grep -c . )
+    echo "owned-run.sh: cleared after the run ended, of ${count} present at its end: ${cleared}" >&2
+  fi
+fi
+
 if [ -n "$timed_out" ]; then
   count=$(printf '%s\n' "$listing" | grep -c . )
   if [ -n "$listing" ]; then
