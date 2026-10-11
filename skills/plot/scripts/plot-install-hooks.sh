@@ -276,13 +276,12 @@ if [ "$verify_only" = 1 ]; then
   # CI run 38028514435 (2026-10-10) SIGKILLed plot-brief-name-gate.sh from
   # outside a probe that took 399 ms, and reading that as "permitted" reported a
   # working gate as missing.
-  drive_gate() { # $1=gate path $2=cwd $3=command → 0 refused, 1 permitted, 3 ended by a signal
+  drive_gate() { # $1=gate path $2=cwd $3=command → 0 refused, 1 permitted, 3 exited 128 or more (raw code in $scratch/rc.$$)
     printf '{"tool_input":{"command":%s}}' "$(jq -Rn --arg c "$3" '$c')" \
       | (cd "$2" && bash "$1") 2>"$scratch/stderr.$$"
     local rc="${PIPESTATUS[1]}"
-    [ "$rc" = 2 ] && return 0
-    [ "$rc" -lt 128 ] && return 1
-    return 3
+    printf '%s' "$rc" >"$scratch/rc.$$"; [ "$rc" = 2 ] && return 0
+    [ "$rc" -lt 128 ] && return 1; return 3
   }
 
   # --- the probers ---
@@ -420,7 +419,7 @@ if [ "$verify_only" = 1 ]; then
         report="${report}  unverified  ${g} — did NOT refuse a guarded write through ${via}; it permitted"$'\n' ;;
       3)
         unverified_count=$((unverified_count + 1))
-        report="${report}  unverified  ${g} — a signal ended the gate twice; Claude Code reads that exit as non-blocking, so it permits"$'\n' ;;
+        report="${report}  unverified  ${g} — exited $(cat "$scratch/rc.$$") twice (128 or more); Claude Code reads that exit as non-blocking, so it permits"$'\n' ;;
       *)
         unprobeable_count=$((unprobeable_count + 1))
         report="${report}  unprobed    ${g} — the condition could not be built here"$'\n' ;;
