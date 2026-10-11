@@ -118,12 +118,14 @@ test('hooks.json: every PreToolUse command quotes its plugin-root expansion', ()
   }
 });
 
-// The state gate is wired, and wired to a script that exists. A hook entry
-// naming a missing file is a gate that never fires, which reads exactly like a
-// gate that passed.
-test('hooks.json: the state gate is wired and its script is on disk', () => {
-  const wired = hookCommands.find((c) => c.includes('plot-state-gate.sh'));
-  assert.ok(wired, 'plot-state-gate.sh must be a PreToolUse hook');
+// The state gate is reached through plot-gates.sh, which is wired, and its
+// launcher is on disk. A hook entry naming a missing file is a gate that never
+// fires, which reads exactly like a gate that passed.
+test('hooks.json: the state gate is reached through plot-gates.sh, and both scripts are on disk', () => {
+  assert.equal(hookCommands.some((c) => c.includes('plot-state-gate.sh')), false, 'the state gate has no entry of its own');
+  const wired = hookCommands.find((c) => c.includes('plot-gates.sh'));
+  assert.ok(wired, 'plot-gates.sh must be a PreToolUse hook');
   const rel = wired.replaceAll('"', '').replace('${CLAUDE_PLUGIN_ROOT}/', '');
   assert.ok(existsSync(path.join(repoRoot, rel)), `${rel} must exist`);
+  assert.ok(existsSync(path.join(repoRoot, 'skills/plot/scripts/plot-state-gate.sh')), 'the state launcher must exist');
 });

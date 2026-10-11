@@ -301,7 +301,7 @@ const gateScripts = [
 ];
 
 // A stub `board/plot-gate.mjs` beside a vendored `plot-gates.sh`: lists
-// `bundle-commit` and `brief-name` and refuses (exit 2) the same staged-bundle condition
+// `bundle-commit`, `brief-name` and `state` and refuses (exit 2) the same staged-bundle condition
 // `probe_bundle_commit_gate` builds, so a fixture that places `plot-gates.sh`
 // proves the gate it lists the way the real bundle would.
 const placeGateBundle = (scriptsDir) => {
@@ -309,7 +309,7 @@ const placeGateBundle = (scriptsDir) => {
   mkdirSync(boardDir, { recursive: true });
   writeFileSync(
     path.join(boardDir, 'plot-gate.mjs'),
-    `if (process.argv.includes('--list')) { console.log('bundle-commit'); console.log('brief-name'); process.exit(0); }
+    `if (process.argv.includes('--list')) { console.log('bundle-commit'); console.log('brief-name'); console.log('state'); process.exit(0); }
 process.exit(2);
 `,
   );
@@ -342,7 +342,7 @@ test('--verify on an uninstalled repository reports unverified, never installed'
   // Named per gate, because "unverified" without the gate is not actionable.
   // plot-gates.sh itself never appears literally: --verify expands it into the
   // gates board/plot-gate.mjs lists, here just bundle-commit.
-  for (const g of shippedGates.filter((n) => n !== 'plot-gates.sh').concat('plot-bundle-commit-gate.sh')) {
+  for (const g of shippedGates.filter((n) => n !== 'plot-gates.sh').concat('plot-bundle-commit-gate.sh', 'plot-state-gate.sh')) {
     assert.match(out, new RegExp(g.replace('.', '\\.')));
   }
 });
@@ -356,7 +356,7 @@ test('--verify proves a gate by its refusal, not by the file being written', () 
   // The state gate is the one with a cheap self-contained condition, and it is
   // the gate that had never fired on any machine. Exit 2 is the contract; the
   // word here is this script's own report of it.
-  assert.match(out, /verified\s+plot-state-gate\.sh/);
+  assert.match(out, /verified\s+plot-controller-gate\.sh/);
   // Needs no remote: a staged misnamed brief is a self-contained condition.
   assert.match(out, /verified\s+plot-brief-name-gate\.sh/);
 });
@@ -540,7 +540,7 @@ test('--verify proves the gate at the path the entry names, not the one beside t
   // not about plot-gates.sh itself.
   const { consumer, installer: inst } = splitInstall({ vendorGates: true });
   assert.equal(
-    existsSync(path.join(path.dirname(inst), 'plot-state-gate.sh')),
+    existsSync(path.join(path.dirname(inst), 'plot-controller-gate.sh')),
     false,
     'the fixture must not place a gate beside the installer, or the readings cannot be told apart',
   );
@@ -548,7 +548,7 @@ test('--verify proves the gate at the path the entry names, not the one beside t
   const { code, out } = runAt(consumer, inst, ['--verify']);
   assert.equal(code, 3, `plot-gates.sh cannot resolve --list from a pure written path (out: ${out})`);
   assert.match(out, /unverified\s+plot-gates\.sh — board\/plot-gate\.mjs missing or lists no gate/);
-  assert.match(out, /verified\s+plot-state-gate\.sh/);
+  assert.match(out, /verified\s+plot-controller-gate\.sh/);
 });
 
 test('--verify reports unverified when neither reading finds the script', () => {
@@ -585,7 +585,7 @@ test('--verify still verifies a plugin install, where only the sibling holds the
   const { code, out } = runAt(consumer, inst, ['--verify']);
   assert.equal(code, 0, `a plugin install with its gates in place must verify (out: ${out})`);
   assert.match(out, /^verified/m);
-  assert.match(out, /verified\s+plot-state-gate\.sh/);
+  assert.match(out, /verified\s+plot-controller-gate\.sh/);
 });
 
 // A stub gate bundle that lists only `brief-name`, logs each run, then ends by
