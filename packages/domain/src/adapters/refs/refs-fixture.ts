@@ -50,6 +50,8 @@ export interface RefsFixture {
   untrackedPaths?: readonly string[];
   /** The working directory relative to the repository root — for {@link Refs.showPrefix}. */
   showPrefix?: string;
+  /** The checked-out branch — for {@link Refs.currentBranch}; absent fails. */
+  currentBranch?: string;
   /** Whether the checkout is a linked worktree — for {@link Refs.linkedWorktree}; absent means `false`. */
   linkedWorktree?: boolean;
   /**
@@ -286,6 +288,9 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       ),
 
     showPrefix: async () => answered(fixture.showPrefix ?? ''),
+
+    currentBranch: async () =>
+      fixture.currentBranch === undefined ? failed<string>() : answered(fixture.currentBranch),
 
     linkedWorktree: async () => answered(fixture.linkedWorktree === true),
 

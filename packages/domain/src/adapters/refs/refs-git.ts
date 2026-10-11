@@ -349,6 +349,8 @@ export const refsGit = (context: ShellContext): Refs => {
 
     showPrefix: () => runScript('git', ['rev-parse', '--show-prefix'], (stdout) => stdout.trim(), inRepo),
 
+    currentBranch: () => runScript('git', ['rev-parse', '--abbrev-ref', 'HEAD'], asText, inRepo),
+
     linkedWorktree: () =>
       runScript(
         'git',

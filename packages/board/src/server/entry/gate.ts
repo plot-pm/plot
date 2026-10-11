@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { controllerInvocation } from '@plot-pm/domain/rules/ci-suite';
@@ -255,6 +255,131 @@ const stateGate: Gate = {
   onError: 'allow',
 };
 
+/**
+ * `phase`: refuses an implementation commit while its plan is still Draft or
+ * Design on a shared ref, and a commit on a branch named in `.plot/hold`.
+ *
+ * `wants` is a pure string test. `ask` reads the current branch, the config
+ * (`Plan directory`, `Story directory`, `Branch prefixes`, `Main branch`) and
+ * `effectivePaths`. `holdRefusal` runs first and for any branch. For a branch
+ * under an implementation prefix whose commit carries a path outside the
+ * plan, story and `.plot/` homes, it reads the plan from `origin/<main>`, then
+ * from `origin/<branch>`, never the working tree. A plan on neither shared ref
+ * but present locally, and an unreadable `origin/<main>`, allow and print that
+ * the phase went UNVERIFIED; a plan nowhere allows silently. A failed config
+ * read throws, which `onError: 'allow'` reports as UNVERIFIED.
+ */
+const phaseGate: Gate = {
+  name: 'phase',
+  wants: (command) => command.includes('git commit'),
+  ask: async (command) => {
+    const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
+    const { scriptsShell } = await import('@plot-pm/domain/adapters/scripts/scripts-shell');
+    const { effectivePaths } = await import('@plot-pm/domain/rules/state-transition');
+    const {
+      holdRefusal,
+      implementationPrefixesOf,
+      outsideReviewArtifacts,
+      phaseGateRefusal,
+      planPathFor,
+      planPhaseOf,
+      slugOfBranch,
+      unpushedPlanNote,
+      unreadableRefNote,
+    } = await import('@plot-pm/domain/rules/phase-gate');
+
+    const cwd = process.cwd();
+    const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    const refs = refsGit({ repoRoot: cwd, scriptDir });
+    const branchRead = await refs.currentBranch();
+    const root = await refs.repoRoot();
+    if (!branchRead.ok || !root.ok) return null;
+    const branch = branchRead.value;
+
+    const scripts = scriptsShell({ repoRoot: cwd, scriptDir });
+    const planDirRead = await scripts.config('Plan directory', 'docs/plans/');
+    const storyDirRead = await scripts.config('Story directory', 'docs/stories/');
+    const prefixRead = await scripts.config('Branch prefixes', 'idea/, feature/, bug/, docs/, infra/');
+    if (!planDirRead.ok || !storyDirRead.ok || !prefixRead.ok) {
+      throw new Error('the Plan directory, Story directory or Branch prefixes config read failed');
+    }
+    const homes = {
+      planDir: planDirRead.value.trim().replace(/\/+$/, ''),
+      storyDir: storyDirRead.value.trim().replace(/\/+$/, ''),
+    };
+
+    const staged = await refs.stagedPaths();
+    const workingChanges = await refs.workingChanges();
+    const showPrefix = await refs.showPrefix();
+    const paths = (
+      staged.ok
+        ? effectivePaths(
+            {
+              staged: staged.value.map((entry) => entry.path),
+              workingChanges: workingChanges.ok ? workingChanges.value : [],
+              showPrefix: showPrefix.ok ? showPrefix.value : '',
+            },
+            command,
+          )
+        : []
+    ).map((entry) => entry.path);
+
+    let hold: string | null = null;
+    try {
+      hold = readFileSync(join(root.value, '.plot', 'hold'), 'utf8');
+    } catch {
+      // No hold file holds nothing.
+    }
+    const held = holdRefusal({ branch, hold, paths, ...homes });
+    if (held !== null) return held;
+
+    const slug = slugOfBranch(branch, implementationPrefixesOf(prefixRead.value));
+    if (slug === null || !paths.some((path) => outsideReviewArtifacts(path, homes))) return null;
+
+    const mainRead = await scripts.config('Main branch', '');
+    let main = mainRead.ok ? mainRead.value.trim() : '';
+    if (main === '') {
+      const head = await refs.defaultBranch();
+      main = head.ok && head.value.trim() !== '' ? head.value.trim() : 'main';
+    }
+    let ref = `origin/${main}`;
+    const mainTip = await refs.resolve(`${ref}^{commit}`);
+    if (!mainTip.ok) {
+      process.stderr.write(`${unreadableRefNote(ref)}\n`);
+      return null;
+    }
+
+    const planOn = async (at: string): Promise<string | null> => {
+      const tip = await refs.resolve(`${at}^{commit}`);
+      if (!tip.ok) return null;
+      const blobs = await refs.listBlobs(at, `${homes.planDir}/`);
+      return blobs.ok ? planPathFor(blobs.value.map((blob) => blob.path), homes.planDir, slug) : null;
+    };
+    let planPath = await planOn(ref);
+    if (planPath === null) {
+      planPath = await planOn(`origin/${branch}`);
+      if (planPath === null) {
+        let local: string[] = [];
+        try {
+          local = readdirSync(join(root.value, homes.planDir)).map((name) => `${homes.planDir}/${name}`);
+        } catch {
+          // No plan directory: no local plan.
+        }
+        if (planPathFor(local, homes.planDir, slug) !== null) {
+          process.stderr.write(`${unpushedPlanNote(slug, ref, branch)}\n`);
+        }
+        return null;
+      }
+      ref = `origin/${branch}`;
+    }
+
+    const text = await refs.showFile(ref, planPath);
+    if (!text.ok) return null;
+    return phaseGateRefusal({ branch, slug, ref, phase: planPhaseOf(text.value), paths, ...homes });
+  },
+  onError: 'allow',
+};
+
 /** Where a call runs, read from git. */
 export interface Where {
   /** The repository's top-level path, or a failure where no git answers. */
@@ -387,7 +512,7 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
 const controllerGate = controllerGateOf({ desk: underDesk, where: gitWhere, backend: hostBackend });
 
 /** The registered gates. */
-export const GATES: readonly Gate[] = [bundleCommitGate, briefNameGate, stateGate, controllerGate];
+export const GATES: readonly Gate[] = [bundleCommitGate, briefNameGate, stateGate, controllerGate, phaseGate];
 
 /** The exit codes the hook contract reads. */
 export const EXIT = { allow: 0, refuse: 2 } as const;

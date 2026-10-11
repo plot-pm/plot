@@ -258,6 +258,13 @@ export interface Refs {
   showPrefix(): Promise<PortResult<string>>;
 
   /**
+   * The checked-out branch's name.
+   *
+   * @returns the name, `HEAD` on a detached head, or a failure where no git answers.
+   */
+  currentBranch(): Promise<PortResult<string>>;
+
+  /**
    * Whether the checkout is a linked worktree: its git directory differs from
    * the common directory every worktree shares. A main checkout, a submodule
    * and a repository whose git directory is not named `.git` answer `false`.
