@@ -14,6 +14,7 @@ import {
   run,
   startDaemon,
   stopOnSignals,
+  writersFor,
   type ChannelSlot,
   type RunSeams,
 } from '../../src/server/entry/registryd-main.js';
@@ -477,5 +478,44 @@ describe('the queue world holds on a settled-red default branch', () => {
 
   it('holds nothing with no file', async () => {
     expect(await held(null)).toBe(false);
+  });
+});
+
+describe('the writers for a mode', () => {
+  const capture = () => {
+    const lines: string[] = [];
+    return { lines, stream: { write: (text: string) => lines.push(text) } };
+  };
+
+  it('sends --once to stdout and stderr and opens no log', () => {
+    const stdout = capture();
+    const stderr = capture();
+    const opened: string[] = [];
+    const writers = writersFor(['--once'], '/logs', { stdout: stdout.stream, stderr: stderr.stream }, (path) => {
+      opened.push(path);
+      return { write: () => undefined };
+    });
+    writers.out('tick\n');
+    writers.err('held\n');
+    expect(stdout.lines).toEqual(['tick\n']);
+    expect(stderr.lines).toEqual(['held\n']);
+    expect(opened).toEqual([]);
+  });
+
+  it('sends the looping daemon to fleetd.log and fleetd.err and not to the terminal', () => {
+    const stdout = capture();
+    const stderr = capture();
+    const logs = new Map<string, string[]>();
+    const writers = writersFor(['--start-agents'], '/logs', { stdout: stdout.stream, stderr: stderr.stream }, (path) => {
+      const lines: string[] = [];
+      logs.set(path, lines);
+      return { write: (text: string) => lines.push(text) };
+    });
+    writers.out('tick\n');
+    writers.err('held\n');
+    expect(logs.get('/logs/fleetd.log')).toEqual(['tick\n']);
+    expect(logs.get('/logs/fleetd.err')).toEqual(['held\n']);
+    expect(stdout.lines).toEqual([]);
+    expect(stderr.lines).toEqual([]);
   });
 });

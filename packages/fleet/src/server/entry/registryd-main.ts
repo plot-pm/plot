@@ -2439,6 +2439,37 @@ export const startDaemon = (
     seams,
   );
 
+/** The pair of writers the daemon's report lines reach. */
+export interface DaemonWriters {
+  readonly out: (text: string) => void;
+  readonly err: (text: string) => void;
+}
+
+/**
+ * Chooses where the report lines go. `--once` is an operator's command, so its
+ * tick reaches the terminal: stdout and stderr. The looping daemon opens its own
+ * rotating log pair, because only the opener can rotate it.
+ *
+ * @param argv - the arguments after the script name.
+ * @param logs - the directory the looping daemon's log pair lives in.
+ * @param stdio - the terminal streams `--once` writes to.
+ * @param open - opens a rotating log at a path.
+ * @returns the writer pair for these arguments.
+ */
+export const writersFor = (
+  argv: readonly string[],
+  logs: string,
+  stdio: { readonly stdout: { write: (text: string) => unknown }; readonly stderr: { write: (text: string) => unknown } } = process,
+  open: (path: string) => { write: (text: string) => unknown } = processLog,
+): DaemonWriters => {
+  if (argsFrom(argv)?.once) {
+    return { out: (text) => void stdio.stdout.write(text), err: (text) => void stdio.stderr.write(text) };
+  }
+  const out = open(join(logs, 'fleetd.log'));
+  const err = open(join(logs, 'fleetd.err'));
+  return { out: (text) => void out.write(text), err: (text) => void err.write(text) };
+};
+
 // Only when RUN, never when imported — a test importing `run` must not have the
 // process loop under it.
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
@@ -2454,14 +2485,8 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   truncateInherited(1);
   truncateInherited(2);
   const logs = logDir(process.env.PLOT_REPO_ROOT ?? process.cwd());
-  const out = processLog(join(logs, 'fleetd.log'));
-  const err = processLog(join(logs, 'fleetd.err'));
-  void startDaemon(
-    process,
-    dirname(fileURLToPath(import.meta.url)),
-    (text) => out.write(text),
-    (text) => err.write(text),
-  )
+  const writers = writersFor(process.argv.slice(2), logs);
+  void startDaemon(process, dirname(fileURLToPath(import.meta.url)), writers.out, writers.err)
     .then((code) => process.exit(code))
     // THE SECOND HALF, AND NOT A SUBSTITUTE FOR THE FIRST. The loop's `catch`
     // covers a failing tick; this covers what throws before the loop is
