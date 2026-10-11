@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -60,5 +60,26 @@ describe('stateReceiptsFile.spend', () => {
     rmSync(fileOf(root));
     mkdirSync(fileOf(root));
     expect(await stateReceiptsFile(root, oidOf).spend(PATH, 'Delivered')).toEqual({ ok: true, value: false });
+  });
+
+  it('clears one of two concurrent spends of one receipt, in every trial', async () => {
+    for (let trial = 0; trial < 20; trial += 1) {
+      const root = repoWith(`${PATH}\tDelivered\n`);
+      const receipts = stateReceiptsFile(root, oidOf);
+      const answers = await Promise.all([receipts.spend(PATH, 'Delivered'), receipts.spend(PATH, 'Delivered')]);
+      expect(answers.filter((answer) => answer.ok && answer.value)).toHaveLength(1);
+    }
+  });
+
+  it('clears a matching receipt whose delete fails for a reason other than its absence', async () => {
+    const root = repoWith(`${PATH}\tDelivered\n`);
+    const dir = join(root, '.plot', 'state', 'state-receipts');
+    chmodSync(dir, 0o500);
+    try {
+      expect(await stateReceiptsFile(root, oidOf).spend(PATH, 'Delivered')).toEqual({ ok: true, value: true });
+      expect(existsSync(fileOf(root))).toBe(true);
+    } finally {
+      chmodSync(dir, 0o700);
+    }
   });
 });

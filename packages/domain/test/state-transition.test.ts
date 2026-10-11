@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  commitStagingOf,
+  effectivePaths,
   lifecycleKindOf,
+  normalizedPath,
   owningCommand,
   slugOf,
   sprintVerb,
   stateTransitionOf,
   stateTransitionRefusal,
   statusStateOf,
+  takesModifiedOf,
 } from '../src/rules/state-transition.js';
 
 const doc = (state: string): string => `# P\n\n## Status\n\n- **State:** ${state}\n- **Type:** feature\n`;
@@ -129,36 +131,119 @@ describe('stateTransitionOf', () => {
   });
 });
 
-describe('commitStagingOf', () => {
-  it('reads a plain commit as carrying the index only', () => {
-    expect(commitStagingOf('git commit -m x')).toEqual({ takesModified: false, addsTree: false, addedPaths: [] });
-  });
-
+describe('takesModifiedOf', () => {
   it('reads -a, -am and --all as taking the modified tracked files', () => {
-    expect(commitStagingOf('git commit -a -m x').takesModified).toBe(true);
-    expect(commitStagingOf('git commit -am x').takesModified).toBe(true);
-    expect(commitStagingOf('git commit -m x -a').takesModified).toBe(true);
-    expect(commitStagingOf('git commit -m x -am').takesModified).toBe(true);
-    expect(commitStagingOf('git commit --all -m x').takesModified).toBe(true);
+    expect(takesModifiedOf('git commit -a -m x')).toBe(true);
+    expect(takesModifiedOf('git commit -am x')).toBe(true);
+    expect(takesModifiedOf('git commit -m x -a')).toBe(true);
+    expect(takesModifiedOf('git commit -m x -am')).toBe(true);
+    expect(takesModifiedOf('git commit --all -m x')).toBe(true);
   });
 
-  it('reads a chained git add of the whole tree', () => {
-    for (const flag of ['-A', '--all', '-a', '.', '-u', '--update']) {
-      expect(commitStagingOf(`git add ${flag} && git commit -m x`).addsTree).toBe(true);
-    }
+  it('reads -am with the message quoted against it', () => {
+    expect(takesModifiedOf('git commit -am"msg"')).toBe(true);
+    expect(takesModifiedOf("git commit -am'msg'")).toBe(true);
+    expect(takesModifiedOf('git commit -a"msg"')).toBe(true);
   });
 
-  it('collects the literal paths of every chained git add, skipping flags', () => {
-    expect(commitStagingOf('git add -f a.md b.md; git add c.md | git commit -m x').addedPaths).toEqual([
-      'a.md',
-      'b.md',
-      'c.md',
+  it('reads -a before a newline, and at the start of the text', () => {
+    expect(takesModifiedOf('git commit -a\n')).toBe(true);
+    expect(takesModifiedOf('-a')).toBe(true);
+  });
+
+  it('reads a plain commit, and a flag that only starts with -a, as the index only', () => {
+    expect(takesModifiedOf('git commit -m x')).toBe(false);
+    expect(takesModifiedOf('git commit --amend -m x')).toBe(false);
+    expect(takesModifiedOf('git commit -m x-am')).toBe(false);
+  });
+});
+
+describe('normalizedPath', () => {
+  it('drops . and empty segments and resolves ..', () => {
+    expect(normalizedPath('./docs//plans/./p.md')).toBe('docs/plans/p.md');
+    expect(normalizedPath('sub/../docs/plans/p.md')).toBe('docs/plans/p.md');
+  });
+
+  it('normalises the root, and a .. above it, to the empty string', () => {
+    expect(normalizedPath('.')).toBe('');
+    expect(normalizedPath('sub/..')).toBe('');
+    expect(normalizedPath('../..')).toBe('');
+  });
+});
+
+describe('effectivePaths', () => {
+  const readings = {
+    staged: ['docs/plans/s.md', 'b.md'],
+    workingChanges: ['docs/plans/w.md', 'docs/plans/s.md', 'a.md'],
+    showPrefix: '',
+  };
+  const at = (showPrefix: string) => ({ ...readings, showPrefix });
+
+  it('carries the staged text of each staged path for a plain commit, sorted', () => {
+    expect(effectivePaths(readings, 'git commit -m x')).toEqual([
+      { path: 'b.md', carries: 'index' },
+      { path: 'docs/plans/s.md', carries: 'index' },
     ]);
   });
 
-  it('ignores a segment without git add', () => {
-    expect(commitStagingOf('echo git add x\ngit commit -m y').addedPaths).toEqual(['x']);
-    expect(commitStagingOf('git status && git commit -m "git add"').addedPaths).toEqual(['"']);
+  it('carries every working copy for -a, and the staged text of a path with no working change', () => {
+    expect(effectivePaths(readings, 'git commit -am"msg"')).toEqual([
+      { path: 'a.md', carries: 'working' },
+      { path: 'b.md', carries: 'index' },
+      { path: 'docs/plans/s.md', carries: 'working' },
+      { path: 'docs/plans/w.md', carries: 'working' },
+    ]);
+  });
+
+  it('carries every working copy for a chained tree flag', () => {
+    for (const flag of ['-A', '--all', '.', '-u', '--update']) {
+      const carried = effectivePaths(readings, `git add ${flag} && git commit -m x`);
+      expect(carried.filter((entry) => entry.carries === 'working').map((entry) => entry.path)).toEqual([
+        'a.md',
+        'docs/plans/s.md',
+        'docs/plans/w.md',
+      ]);
+    }
+  });
+
+  it('carries every working copy for a glob pathspec', () => {
+    for (const spec of ['docs/plans/*.md', 'docs/plans/?.md', 'docs/plans/[sw].md']) {
+      const carried = effectivePaths(readings, `git add ${spec} && git commit -m x`);
+      expect(carried.map((entry) => entry.path)).toContain('docs/plans/w.md');
+    }
+  });
+
+  it('carries every working copy for an absolute pathspec, quoted or not', () => {
+    for (const spec of ['/repo/docs/plans/w.md', '"/repo/docs/plans/w.md"']) {
+      expect(effectivePaths(readings, `git add ${spec} && git commit -m x`)).toContainEqual({
+        path: 'docs/plans/w.md',
+        carries: 'working',
+      });
+    }
+  });
+
+  it('carries what a directory pathspec holds, and nothing beside it', () => {
+    expect(effectivePaths(readings, 'git add docs/plans && git commit -m x')).toEqual([
+      { path: 'b.md', carries: 'index' },
+      { path: 'docs/plans', carries: 'working' },
+      { path: 'docs/plans/s.md', carries: 'working' },
+      { path: 'docs/plans/w.md', carries: 'working' },
+    ]);
+  });
+
+  it('carries a literal pathspec under the show-prefix, normalised and unquoted', () => {
+    expect(effectivePaths(at('sub/'), "git add ../docs/plans/w.md './x.md' && git commit -m x")).toEqual([
+      { path: 'b.md', carries: 'index' },
+      { path: 'docs/plans/s.md', carries: 'index' },
+      { path: 'docs/plans/w.md', carries: 'working' },
+      { path: 'sub/x.md', carries: 'working' },
+    ]);
+  });
+
+  it('carries every working copy for a pathspec that normalises to the root', () => {
+    expect(
+      effectivePaths(at('sub/'), 'git add .. && git commit -m x').filter((entry) => entry.carries === 'working'),
+    ).toHaveLength(3);
   });
 });
 

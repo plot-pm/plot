@@ -76,6 +76,15 @@ describe('chainedStagesOf', () => {
     expect(chainedStagesOf('git add -f a b && git commit', '').adds).toEqual(['a', 'b']);
   });
 
+  it('reads -u and --update as the whole tree, the flag set the state gate shares', () => {
+    expect(chainedStagesOf('git add -u && git commit', '').adds).toEqual([null]);
+    expect(chainedStagesOf('git add --update; git commit', '').adds).toEqual([null]);
+  });
+
+  it('reads a segment holding both git add and git mv as an add only', () => {
+    expect(chainedStagesOf('git add a git mv b c && git commit', '')).toEqual({ adds: ['a', 'git', 'mv', 'b', 'c'], moves: [] });
+  });
+
   it('reads the last argument of git mv as the destination, under the show-prefix', () => {
     expect(chainedStagesOf('git mv -k old.md ./new.md && git commit', 'sub/').moves).toEqual(['sub/new.md']);
   });

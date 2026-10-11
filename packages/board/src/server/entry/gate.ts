@@ -172,14 +172,15 @@ const briefNameGate: Gate = {
  * file's `## Status` section unless a receipt from the script that owns the
  * write clears it.
  *
- * `wants` is a pure string test. `ask` reads what the commit will carry: the
- * index, plus — for `-a`, `--all` or a chained `git add` in the same command,
- * which runs after this hook — the working tree's changes. For each path
- * under the plan or sprint directory it reads `HEAD`'s text and the working
- * copy; `stateTransitionOf` finds a transition, and only then is the path's
- * receipt spent. A failed config read throws, which `onError: 'allow'`
- * reports as UNVERIFIED; an unreadable `HEAD` or index allows. A transition
- * seen with no clearing receipt refuses.
+ * `wants` is a pure string test. `ask` reads the index, the working tree's
+ * changes and the show-prefix; `effectivePaths` decides which paths the
+ * commit carries and, for each, whether it takes the staged text or the
+ * working copy (`-a`, `--all` or a chained `git add`, which runs after this
+ * hook). For each path under the plan or sprint directory it reads `HEAD`'s
+ * text and the text the commit takes; `stateTransitionOf` finds a
+ * transition, and only then is the path's receipt spent. A failed config read
+ * throws, which `onError: 'allow'` reports as UNVERIFIED; an unreadable `HEAD`
+ * or index allows. A transition seen with no clearing receipt refuses.
  */
 const stateGate: Gate = {
   name: 'state',
@@ -188,7 +189,7 @@ const stateGate: Gate = {
     const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
     const { scriptsShell } = await import('@plot-pm/domain/adapters/scripts/scripts-shell');
     const { stateReceiptsFile } = await import('@plot-pm/domain/adapters/state-receipts/state-receipts-file');
-    const { commitStagingOf, lifecycleKindOf, stateTransitionOf, stateTransitionRefusal } = await import(
+    const { effectivePaths, lifecycleKindOf, stateTransitionOf, stateTransitionRefusal } = await import(
       '@plot-pm/domain/rules/state-transition'
     );
     const { gitBlobOid } = await import('./ladder.js');
@@ -205,33 +206,36 @@ const stateGate: Gate = {
     if (!planDir.ok || !sprintDir.ok) throw new Error('the Plan directory or Sprint directory config read failed');
 
     const staged = await refs.stagedPaths();
+    const workingChanges = await refs.workingChanges();
+    const showPrefix = await refs.showPrefix();
     if (!staged.ok) return null;
-    const paths = new Set<string>(staged.value.map((entry) => entry.path));
-    const staging = commitStagingOf(command);
-    if (staging.takesModified || staging.addsTree) {
-      const changes = await refs.workingChanges();
-      if (changes.ok) for (const path of changes.value) paths.add(path);
-    }
-    if (staging.addedPaths.length > 0) {
-      const prefix = await refs.showPrefix();
-      for (const token of staging.addedPaths) {
-        paths.add(`${prefix.ok ? prefix.value : ''}${token.replace(/^\.\//, '')}`);
-      }
-    }
+    const carried = effectivePaths(
+      {
+        staged: staged.value.map((entry) => entry.path),
+        workingChanges: workingChanges.ok ? workingChanges.value : [],
+        showPrefix: showPrefix.ok ? showPrefix.value : '',
+      },
+      command,
+    );
 
     const receipts = stateReceiptsFile(root.value, gitBlobOid);
     const uncleared = [];
-    for (const path of [...paths].sort()) {
+    for (const { path, carries } of carried) {
       const kind = lifecycleKindOf(path, planDir.value.trim(), sprintDir.value.trim());
       if (kind === null) continue;
-      let working: string;
-      try {
-        working = readFileSync(join(root.value, path), 'utf8');
-      } catch {
-        continue;
+      let committed: string | null = null;
+      if (carries === 'working') {
+        try {
+          committed = readFileSync(join(root.value, path), 'utf8');
+        } catch {
+          // No working copy: the commit carries a deletion, which is not a transition.
+        }
+      } else {
+        const index = await refs.showFile(':0', path);
+        if (index.ok) committed = index.value;
       }
       const head = await refs.showFile('HEAD', path);
-      const transition = stateTransitionOf(path, kind, head.ok ? head.value : null, working);
+      const transition = stateTransitionOf(path, kind, head.ok ? head.value : null, committed);
       if (transition === null) continue;
       const spent = await receipts.spend(path, transition.after);
       if (!(spent.ok && spent.value)) uncleared.push(transition);

@@ -223,6 +223,56 @@ test('state gate: a commit that stages for itself is still read', () => {
   assert.equal(r.status, 2, `stderr: ${r.stderr}`);
 });
 
+// A quote against the flag is still `-am`: the shell hands git `-amsg`.
+test('state gate: -am with the message quoted against it takes the working copy', () => {
+  for (const command of ['git commit -am"msg"', "git commit -am'msg'"]) {
+    const dir = repo({ committed: { 'docs/plans/2026-01-01-x.md': plan('Draft') } });
+    writeFileSync(path.join(dir, 'docs', 'plans', '2026-01-01-x.md'), plan('Approved'));
+    const r = run(dir, command);
+    assert.equal(r.status, 2, `${command} must block (stderr: ${r.stderr})`);
+  }
+});
+
+// The shell expands a glob before git sees it, and a directory pathspec adds
+// what it holds; read literally, neither names a file and the edit went through.
+test('state gate: a chained git add of a glob or a directory is read', () => {
+  for (const command of ['git add docs/plans/*.md && git commit -m x', 'git add docs/plans && git commit -m x']) {
+    const dir = repo({ committed: { 'docs/plans/2026-01-01-x.md': plan('Draft') } });
+    writeFileSync(path.join(dir, 'docs', 'plans', '2026-01-01-x.md'), plan('Approved'));
+    const r = run(dir, command);
+    assert.equal(r.status, 2, `${command} must block (stderr: ${r.stderr})`);
+  }
+});
+
+test('state gate: a git add from a subdirectory with a .. pathspec is read', () => {
+  const dir = repo({ committed: { 'docs/plans/2026-01-01-x.md': plan('Draft'), 'sub/keep.txt': 'k\n' } });
+  writeFileSync(path.join(dir, 'docs', 'plans', '2026-01-01-x.md'), plan('Approved'));
+  const r = run(path.join(dir, 'sub'), 'git add ../docs/plans/2026-01-01-x.md && git commit -m x');
+  assert.equal(r.status, 2, `stderr: ${r.stderr}`);
+});
+
+// A plain commit takes the index, not the working copy.
+test('state gate: a staged transition is refused although the working copy is reverted', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Draft') },
+    files: { 'docs/plans/2026-01-01-x.md': plan('Approved') },
+  });
+  writeFileSync(path.join(dir, 'docs', 'plans', '2026-01-01-x.md'), plan('Draft'));
+  const r = run(dir);
+  assert.equal(r.status, 2, `stderr: ${r.stderr}`);
+  assert.match(r.stderr, /Draft -> Approved/);
+});
+
+test('state gate: an unstaged State edit beside a staged Notes hunk passes a plain commit', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Draft') },
+    files: { 'docs/plans/2026-01-01-x.md': `${plan('Draft')}\n## Notes\n\nA note.\n` },
+  });
+  writeFileSync(path.join(dir, 'docs', 'plans', '2026-01-01-x.md'), `${plan('Approved')}\n## Notes\n\nA note.\n`);
+  const r = run(dir);
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+});
+
 test('state gate: a deleted State line is not a transition', () => {
   const dir = repo({
     committed: { 'docs/plans/2026-01-01-x.md': plan('Draft') },

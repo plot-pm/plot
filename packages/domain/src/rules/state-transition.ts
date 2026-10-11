@@ -1,3 +1,5 @@
+import { chainedAddsOf } from './chained-add.js';
+
 /** Whether a lifecycle file is a plan or a sprint. */
 export type LifecycleKind = 'plan' | 'sprint';
 
@@ -140,44 +142,93 @@ export const stateTransitionOf = (
   return { path, kind, before, after };
 };
 
-/** What a commit command stages for itself, before the commit runs. */
-export interface CommitStaging {
-  /** `-a`, `--all` or `-am`: the commit also takes the tracked files modified in the working tree. */
-  takesModified: boolean;
-  /** A chained `git add` names the whole tree (`-A`, `--all`, `-a`, `.`, `-u`, `--update`). */
-  addsTree: boolean;
-  /** The literal path tokens of every chained `git add`, as typed. */
-  addedPaths: readonly string[];
-}
-
 /**
- * What a `git commit` command carries beyond the index. The hook runs before
- * a chained `git add -A && git commit -m x` stages anything, so the index
- * alone is not what the commit will contain.
- *
- * Deliberately crude, and conservative in the same direction: the command
- * splits on `&&`, `;`, `|` and newlines, each segment containing `git add` is
- * read after its last `git add`, and a flag that names the whole tree counts
- * everything. It is not a shell parser.
+ * Whether a `git commit` command takes the tracked files modified in the
+ * working tree: `-a` or `-am` standing as a word, with a quote or the end
+ * after it (`-am"msg"`), or `--all`. A `-a` inside a message reads as taking
+ * them too, which is the conservative direction.
  *
  * @param command - the Bash command text.
  */
-export const commitStagingOf = (command: string): CommitStaging => {
-  const takesModified = / -(a|am) /.test(command) || / -(a|am)$/.test(command) || command.includes(' --all');
-  let addsTree = false;
-  const addedPaths: string[] = [];
-  if (command.includes('git add')) {
-    for (const segment of command.split(/&&|;|\||\n/)) {
-      const at = segment.lastIndexOf('git add');
-      if (at === -1) continue;
-      for (const token of segment.slice(at + 'git add'.length).split(/\s+/)) {
-        if (token === '') continue;
-        if (['-A', '--all', '-a', '.', '-u', '--update'].includes(token)) addsTree = true;
-        else if (!token.startsWith('-')) addedPaths.push(token);
+export const takesModifiedOf = (command: string): boolean =>
+  /(^|\s)-am?(\s|$|["'])/.test(command) || command.includes(' --all');
+
+/**
+ * A path in its normal form: `.` segments and empty segments dropped, and a
+ * `..` segment removing the one before it, as `path.posix.normalize` does. A
+ * `..` above the root is dropped. The root normalises to `''`.
+ *
+ * @param path - a relative path.
+ */
+export const normalizedPath = (path: string): string => {
+  const kept: string[] = [];
+  for (const segment of path.split('/')) {
+    if (segment === '' || segment === '.') continue;
+    if (segment === '..') kept.pop();
+    else kept.push(segment);
+  }
+  return kept.join('/');
+};
+
+/** What the state gate reads before it decides which paths a commit carries. */
+export interface CommitReadings {
+  /** The repository-relative paths the index changes against `HEAD`. */
+  staged: readonly string[];
+  /** The repository-relative paths the working tree changes, untracked included. */
+  workingChanges: readonly string[];
+  /** The working directory relative to the repository root, with a trailing `/`, or `''` at the root. */
+  showPrefix: string;
+}
+
+/** A path a commit carries, and where its committed text is read. */
+export interface EffectivePath {
+  /** The repository-relative path. */
+  path: string;
+  /** `index` when the commit takes the staged text, `working` when it takes the working copy. */
+  carries: 'index' | 'working';
+}
+
+/**
+ * The paths a `git commit` command carries, and for each whether the commit
+ * takes the staged text or the working copy. The hook runs before a chained
+ * `git add -A && git commit -m x` stages anything, so the index alone is not
+ * what the commit will contain.
+ *
+ * The working copy is carried for every working change when the command
+ * takes the modified files ({@link takesModifiedOf}) or a chained `git add`
+ * names the whole tree: a tree flag (`chainedAddsOf`), a pathspec holding `*`,
+ * `?` or `[`, an absolute pathspec, or one that normalises to the root. Any
+ * other pathspec, joined to `showPrefix` and normalised, carries itself and
+ * every working change under it, so a directory counts what it holds. Every
+ * other staged path carries its staged text. Conservative in one direction: a
+ * path read too widely only adds a reading.
+ *
+ * @param readings - the index, the working changes and the show-prefix.
+ * @param command - the Bash command text.
+ * @returns each carried path once, sorted by path.
+ */
+export const effectivePaths = (readings: CommitReadings, command: string): readonly EffectivePath[] => {
+  const working = new Set<string>();
+  const adds = chainedAddsOf(command);
+  const whole =
+    takesModifiedOf(command) ||
+    adds.some((spec) => spec === null || /[*?[]/.test(spec) || spec.replace(/^["']/, '').startsWith('/'));
+  if (whole) {
+    for (const path of readings.workingChanges) working.add(path);
+  } else {
+    for (const spec of adds) {
+      const path = normalizedPath(`${readings.showPrefix}${(spec as string).replace(/^["']|["']$/g, '')}`);
+      if (path === '') {
+        for (const change of readings.workingChanges) working.add(change);
+        continue;
       }
+      working.add(path);
+      for (const change of readings.workingChanges) if (change.startsWith(`${path}/`)) working.add(change);
     }
   }
-  return { takesModified, addsTree, addedPaths };
+  const carried: EffectivePath[] = [...working].map((path) => ({ path, carries: 'working' as const }));
+  for (const path of new Set(readings.staged)) if (!working.has(path)) carried.push({ path, carries: 'index' });
+  return carried.sort((a, b) => (a.path < b.path ? -1 : 1));
 };
 
 /**

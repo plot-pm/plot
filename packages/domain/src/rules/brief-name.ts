@@ -1,5 +1,6 @@
 import type { StagedPath } from '../ports/refs.js';
 import { BRIEFS_DIR, briefPath } from './brief-path.js';
+import { chainedAddsOf } from './chained-add.js';
 
 /** The `Branch prefixes` fallback, the same list `plot-phase-gate.sh` and `plot-release-refs.sh` use. */
 export const DEFAULT_BRANCH_PREFIXES = 'idea/, feature/, bug/, docs/, infra/';
@@ -58,8 +59,8 @@ export const briefComputedPath = (path: string, prefixes: readonly string[]): st
 /** What a commit command stages before it commits. */
 export interface ChainedStages {
   /**
-   * One entry per `git add` pathspec; `null` stands for the whole tree
-   * (`-A`, `--all`, `.`).
+   * One entry per `git add` pathspec, from {@link chainedAddsOf}; `null`
+   * stands for the whole tree (`-A`, `--all`, `-a`, `.`, `-u`, `--update`).
    */
   adds: readonly (string | null)[];
   /** The repository-relative destination of each `git mv`. */
@@ -70,9 +71,9 @@ export interface ChainedStages {
  * The paths a chained `git add` or `git mv` in the same Bash call stages,
  * which a hook reading the index cannot see because it runs first.
  *
- * Deliberately crude: the command splits on `&&`, `;`, `|` and newlines, and
- * each segment is matched by substring for `git add` or `git mv`. It is not a
- * shell parser.
+ * The adds are {@link chainedAddsOf}'s, the one parser the state gate reads
+ * too. A segment holding no `git add` is matched by substring for `git mv`.
+ * It is not a shell parser.
  *
  * @param command - the Bash command text.
  * @param showPrefix - the working directory relative to the repository root,
@@ -80,27 +81,18 @@ export interface ChainedStages {
  * @returns the pathspecs `git add` names and the destinations `git mv` names.
  */
 export const chainedStagesOf = (command: string, showPrefix: string): ChainedStages => {
-  const adds: (string | null)[] = [];
   const moves: string[] = [];
   for (const segment of command.split(/&&|;|\||\n/)) {
-    const add = segment.indexOf('git add');
     const mv = segment.indexOf('git mv');
-    if (add !== -1) {
-      for (const token of segment.slice(add + 'git add'.length).split(/\s+/)) {
-        if (token === '') continue;
-        if (token === '-A' || token === '--all' || token === '.') adds.push(null);
-        else if (!token.startsWith('-')) adds.push(token);
-      }
-    } else if (mv !== -1) {
-      const words = segment
-        .slice(mv + 'git mv'.length)
-        .split(/\s+/)
-        .filter((token) => token !== '' && !token.startsWith('-'));
-      const last = words[words.length - 1];
-      if (last !== undefined) moves.push(`${showPrefix}${last.replace(/^\.\//, '')}`);
-    }
+    if (segment.includes('git add') || mv === -1) continue;
+    const words = segment
+      .slice(mv + 'git mv'.length)
+      .split(/\s+/)
+      .filter((token) => token !== '' && !token.startsWith('-'));
+    const last = words[words.length - 1];
+    if (last !== undefined) moves.push(`${showPrefix}${last.replace(/^\.\//, '')}`);
   }
-  return { adds, moves };
+  return { adds: chainedAddsOf(command), moves };
 };
 
 /**
