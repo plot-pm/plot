@@ -14,7 +14,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, existsSync, readFileSync, renameSync, rmSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, renameSync, rmSync, copyFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -79,12 +79,60 @@ test('controller gate: a direct plot-dispatch.sh call is refused and names the e
   assert.match(r.stderr, /POST \/api\/dispatch/, 'the refusal names the route to call instead');
 });
 
-test('controller gate: the refusal names the command bundle first, then the escape', () => {
+test('controller gate: the dispatch refusal names the command bundle first, then the route, then the escape', () => {
   const r = run(repo(), DISPATCH);
   const bundle = r.stderr.indexOf('plot-dispatch-command.mjs');
   assert.ok(bundle >= 0, `names the bundle (stderr: ${r.stderr})`);
   assert.ok(bundle < r.stderr.indexOf('POST /api/dispatch'), 'the bundle comes before the HTTP route');
   assert.ok(bundle < r.stderr.indexOf('--unowned-action'), 'the bundle comes before the escape');
+});
+
+test('controller gate: the approve, deliver and release refusals name the endpoint first and no bundle (#1458)', () => {
+  // The bundle the old text named is itself refused by this gate with no
+  // receipt, so the first repair it printed was a second refusal.
+  for (const [command, endpoint] of [
+    ['bash skills/plot/scripts/plot-approve.sh some-slug', 'POST /api/approve {"slug":"<slug>"}'],
+    ['bash skills/plot/scripts/plot-deliver.sh some-slug', 'POST /api/deliver {"slug":"<slug>"}'],
+    ['bash skills/plot/scripts/plot-deliver.sh --release 1.2.3 some-slug', 'POST /api/release {"slug":"<slug>","version":"<version>"}'],
+  ]) {
+    const r = run(repo(), command);
+    assert.equal(r.status, 2, `${command} must block`);
+    const at = r.stderr.indexOf(endpoint);
+    assert.ok(at >= 0, `${command} names ${endpoint}:\n${r.stderr}`);
+    assert.ok(at < r.stderr.indexOf('--unowned-action'), 'the endpoint comes before the escape');
+    assert.doesNotMatch(r.stderr, /\.mjs/, 'no bundle is named for this action');
+    assert.match(r.stderr, /TWO calls/, 'the two-call order of the escape is named');
+  }
+});
+
+test('controller gate: every command a refusal prints is itself allowed (#1458)', () => {
+  const dir = repo();
+  const printed = [];
+  for (const [command, action] of [
+    [DISPATCH, 'dispatch'],
+    ['bash skills/plot/scripts/plot-approve.sh some-slug', 'approve'],
+    ['bash skills/plot/scripts/plot-deliver.sh some-slug', 'deliver'],
+    ['bash skills/plot/scripts/plot-deliver.sh --release 1.2.3 some-slug', 'release'],
+  ]) {
+    const r = run(dir, command);
+    assert.equal(r.status, 2);
+    const escape = escapeOf(r.stderr).cmd.replace('<slug>', 'some-slug').replace('"<reason>"', '"no board"');
+    assert.equal(run(dir, escape).status, 0, `the escape printed for ${action} is allowed: ${escape}`);
+    printed.push(escape);
+    const bundle = r.stderr.split('\n').map((l) => l.trim()).find((l) => /^node .*\.mjs/.test(l));
+    if (bundle) assert.equal(run(dir, bundle.replace('<slug>', 'some-slug')).status, 0, `the bundle line is allowed: ${bundle}`);
+  }
+  assert.equal(printed.length, 4);
+});
+
+test('controller gate: the two-call order works, and the chained form is refused', () => {
+  const dir = repo();
+  const r = run(dir, 'bash skills/plot/scripts/plot-approve.sh some-slug');
+  const escape = escapeOf(r.stderr).cmd.replace('<slug>', 'some-slug').replace('"<reason>"', '"no board"');
+  assert.equal(run(dir, `${escape} && bash skills/plot/scripts/plot-approve.sh some-slug`).status, 2,
+    'a chained call is checked before the receipt exists');
+  assert.equal(spawnSync('bash', ['-c', escape], { cwd: dir, encoding: 'utf8' }).status, 0, 'call 1 records the receipt');
+  assert.equal(run(dir, 'bash skills/plot/scripts/plot-approve.sh some-slug').status, 0, 'call 2 clears');
 });
 
 test('controller gate: running the dispatch command bundle is not refused', () => {
@@ -291,11 +339,149 @@ test('controller gate: dispatch modes with no endpoint are not gated', () => {
   }
 });
 
-test('controller gate: gh and git are not gated', () => {
-  const dir = repo();
-  for (const cmd of ['gh pr merge 123 --squash', 'git push origin HEAD:main']) {
-    assert.equal(run(dir, cmd).status, 0, `${cmd} has no endpoint to name`);
+test('controller gate: git push is not gated', () => {
+  assert.equal(run(repo(), 'git push origin HEAD:main').status, 0);
+});
+
+// --- an unpinned merge (#1483 L5) -------------------------------------------
+
+test('controller gate: gh pr merge without a head pin is refused, naming plot-ask.mjs merge', () => {
+  for (const cmd of ['gh pr merge 123 --squash', 'bash skills/plot/scripts/plot-host.sh pr-merge 123']) {
+    const r = run(repo(), cmd);
+    assert.equal(r.status, 2, `${cmd} must block (stderr: ${r.stderr})`);
+    assert.match(r.stderr, /plot-ask\.mjs merge <pr> <sha>/);
   }
+});
+
+test('controller gate: the same merge pinned with its own program\'s flag is allowed', () => {
+  const dir = repo();
+  for (const cmd of [
+    'gh pr merge 123 --squash --match-head-commit abc123',
+    'bash skills/plot/scripts/plot-host.sh pr-merge 123 --match-head abc123',
+  ]) assert.equal(run(dir, cmd).status, 0, `${cmd} is pinned`);
+});
+
+test('controller gate: the refusal names the pin flag of the program refused (M6)', () => {
+  const dir = repo();
+  const gh = run(dir, 'gh pr merge 123 --match-head abc123');
+  assert.equal(gh.status, 2, 'gh takes --match-head-commit, so --match-head pins nothing');
+  assert.match(gh.stderr, /add --match-head-commit <sha>/);
+  const host = run(dir, 'bash skills/plot/scripts/plot-host.sh pr-merge 123 --match-head-commit abc123');
+  assert.equal(host.status, 2, 'plot-host.sh takes --match-head');
+  assert.match(host.stderr, /add --match-head <sha>/);
+  assert.doesNotMatch(host.stderr, /--match-head-commit/);
+});
+
+test('controller gate: an unpinned plot-host.sh pr-merge passes on bitbucket and says nothing pins there (M6)', () => {
+  const dir = repo();
+  const cmd = 'bash skills/plot/scripts/plot-host.sh pr-merge 123';
+  const bb = spawnSync('bash', [gate], {
+    cwd: dir, input: JSON.stringify({ tool_input: { command: cmd } }), encoding: 'utf8',
+    env: { ...process.env, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(bb.status, 0, `bitbucket cannot pin (stderr: ${bb.stderr})`);
+  assert.match(bb.stderr, /cannot pin a merge to a commit/);
+  const gh = spawnSync('bash', [gate], {
+    cwd: dir, input: JSON.stringify({ tool_input: { command: 'gh pr merge 123' } }), encoding: 'utf8',
+    env: { ...process.env, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(gh.status, 2, 'gh pr merge still pins with --match-head-commit');
+});
+
+test('controller gate: a commented pin and a command prefix do not hide an unpinned merge (LOW 7)', () => {
+  const dir = repo();
+  for (const cmd of ['gh pr merge 12 --squash # --match-head-commit abc', 'command gh pr merge 12', 'exec gh pr merge 12']) {
+    assert.equal(run(dir, cmd).status, 2, `${cmd} merges unpinned`);
+  }
+});
+
+test('controller gate: the merge command the refusal prints is allowed', () => {
+  const dir = repo();
+  const r = run(dir, 'gh pr merge 123 --squash');
+  const printed = r.stderr.split('\n').map((l) => l.trim()).find((l) => /^node .*plot-ask\.mjs merge/.test(l));
+  assert.ok(printed, `the refusal prints the controller command:\n${r.stderr}`);
+  assert.equal(run(dir, printed.replace('<pr>', '123').replace('<sha>', 'abc123')).status, 0);
+});
+
+test('controller gate: an unpinned merge inside a dispatch worktree is allowed', () => {
+  const dir = repo();
+  const desk = path.join(dir, '.worktrees', 'feature-x');
+  execSync(`git worktree add -q --detach "${desk}"`, { cwd: dir, stdio: 'pipe' });
+  assert.equal(run(desk, 'gh pr merge 123 --squash').status, 0, 'a desk is exempt');
+});
+
+test('controller gate: gh pr view and a merge named in a commit message are not merges', () => {
+  const dir = repo();
+  for (const cmd of ['gh pr view 123', 'git commit -m "gh pr merge 123"', 'git grep -l "pr merge"']) {
+    assert.equal(run(dir, cmd).status, 0, `${cmd} merges nothing`);
+  }
+});
+
+// --- the reading gaps (#1341, #1449, comments) ------------------------------
+
+test('controller gate: a for-loop word list that the body only reads is not an invocation (#1341)', () => {
+  const dir = repo();
+  assert.equal(run(dir, 'for f in plot-deliver.sh plot-approve.sh; do cmp $f /tmp/$f; done').status, 0);
+  assert.equal(run(dir, 'for f in plot-deliver.sh; do git diff --stat -- $f; wc -l $f; done').status, 0);
+  assert.equal(run(dir, 'for f in plot-deliver.sh; do bash $f x; done').status, 2, 'a body that runs $f is a run');
+});
+
+test('controller gate: a loop body that is not all readers keeps its word list (H3)', () => {
+  const dir = repo();
+  for (const cmd of [
+    'for f in skills/plot/scripts/plot-deliver.sh; do timeout 600 bash $f s; done',
+    'for f in plot-deliver.sh; do bash -e $f s; done',
+    'for f in plot-deliver.sh; do eval "bash $f s"; done',
+    'for f in plot-deliver.sh; do sudo $f s; done',
+    'for f in plot-deliver.sh; do x=$f; bash $x s; done',
+    'for f in plot-deliver.sh; do echo $f | xargs bash; done',
+    'for f in plot-deliver.sh; do cat $(bash $f s); done',
+  ]) {
+    const r = run(dir, cmd);
+    assert.equal(r.status, 2, `${cmd} must block (stderr: ${r.stderr})`);
+  }
+});
+
+test('controller gate: a submodule is not a desk (H4)', () => {
+  const tmp = scratch('plot-controller-gate-submodule-');
+  const sh = (cwd, c) => execSync(c, { cwd, stdio: 'pipe' });
+  const init = (dir) => {
+    mkdirSync(dir, { recursive: true });
+    sh(dir, 'git init -q -b main && git config user.email t@t && git config user.name t && git config commit.gpgsign false');
+    sh(dir, 'git commit -qm init --allow-empty');
+  };
+  const mod = path.join(tmp, 'mod');
+  const sup = path.join(tmp, 'super');
+  init(mod);
+  init(sup);
+  sh(sup, `git -c protocol.file.allow=always submodule add -q "${mod}" mod`);
+  const inner = path.join(sup, 'mod', 'inner');
+  mkdirSync(inner, { recursive: true });
+  mkdirSync(path.join(sup, 'mod', '.plot', 'state'), { recursive: true });
+  const r = run(inner, 'bash skills/plot/scripts/plot-deliver.sh s');
+  assert.equal(r.status, 2, `a submodule subdirectory is the master agent's position (stderr: ${r.stderr})`);
+});
+
+test('controller gate: --status on approve is a run, because approve has no --status mode (H2)', () => {
+  const dir = repo();
+  assert.equal(run(dir, 'bash skills/plot/scripts/plot-approve.sh --status some-slug').status, 2);
+  assert.equal(run(dir, 'bash skills/plot/scripts/plot-deliver.sh --status some-slug').status, 0);
+});
+
+test('controller gate: the value after --who is not a mode (#1449)', () => {
+  const dir = repo();
+  assert.equal(run(dir, 'node skills/plot/scripts/board/plot-approve.mjs --who --dry-run some-slug').status, 2);
+  assert.equal(run(dir, 'node skills/plot/scripts/board/plot-approve.mjs --dry-run some-slug').status, 0);
+});
+
+test('controller gate: an unquoted # comments out a named script, a quoted # does not', () => {
+  const dir = repo();
+  assert.equal(run(dir, 'git status # then plot-deliver.sh x').status, 0);
+  assert.equal(run(dir, 'echo "a # b"; bash skills/plot/scripts/plot-deliver.sh x').status, 2);
+});
+
+test('controller gate: a .mjs glob resolves like a .sh glob', () => {
+  assert.equal(run(repo(), 'node skills/plot/scripts/board/plot-appro?e.mjs some-slug').status, 2);
 });
 
 test('controller gate: it fails OPEN with no .plot/state, and says so', () => {
@@ -313,49 +499,30 @@ test('controller gate: it fails open outside a git repository, and says so', () 
   assert.match(r.stderr, /UNVERIFIED/);
 });
 
-// --- a command that passed the prefilter and cannot be checked is refused ---
+// --- a missing bundle ALLOWS, and says so ------------------------------------
 //
-// Fail-open on the gate's own machinery, closed on the case it exists for: a
-// command naming a gated script IS that case, so a missing bundle refuses it
-// rather than allowing it. `ls`, which never reaches the bundle call, must stay
-// unaffected — that is what proves the prefilter still spares the commands it
-// must, rather than the refusal becoming a second way to block everything.
+// The launcher shape `plot-state-gate.sh` set: exiting 2 here would block every
+// Bash call, including the one that repairs the install.
 
-/** A scratch copy of the gate's own checkout, so the bundle can be moved aside. */
+/** A scratch copy of the gate's own checkout with NO bundle beside it. */
 function gateCopy() {
   const tmp = scratch('plot-controller-gate-nobundle-');
   const dir = path.join(tmp, 'scripts');
   mkdirSync(path.join(dir, 'board'), { recursive: true });
   for (const f of [gate, receipt]) copyFileSync(f, path.join(dir, path.basename(f)));
-  const bundle = path.join(dir, 'board', 'plot-controller-invocation.mjs');
-  copyFileSync(path.join(scripts, 'board', 'plot-controller-invocation.mjs'), bundle);
-  return { dir, bundle };
+  return { dir, bundle: path.join(dir, 'board', 'plot-gate.mjs') };
 }
 
-test('controller gate: a missing bundle refuses a command naming a gated script, exit 2, naming the file and both remedies', () => {
+test('controller gate: a missing bundle allows, exit 0, naming the file and both remedies', () => {
   const { dir, bundle } = gateCopy();
-  renameSync(bundle, `${bundle}.moved`);
   const r = spawnSync('bash', [path.join(dir, 'plot-controller-gate.sh')], {
     cwd: repo(), input: JSON.stringify({ tool_input: { command: DISPATCH } }), encoding: 'utf8',
   });
-  assert.equal(r.status, 2, `must refuse (stderr: ${r.stderr})`);
-  assert.match(r.stderr, /plot-controller-invocation\.mjs/, 'names the missing file');
-  assert.match(r.stderr, /Update the plot plugin/, 'names the plugin-update remedy');
+  assert.equal(r.status, 0, `must allow (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /UNVERIFIED/);
+  assert.ok(r.stderr.includes(bundle), 'names the missing file');
+  assert.match(r.stderr, /update the plot plugin/, 'names the plugin-update remedy');
   assert.match(r.stderr, /pnpm build:board/, 'names the local-build remedy');
-});
-
-test('controller gate: a missing bundle does not block a command the prefilter already spares', () => {
-  // `ls skills/plot/scripts/plot-dispatch.sh` NAMES a gated script, so the
-  // prefilter passes it through to the rule on purpose — the missing-bundle
-  // refusal above is exactly for that case. A plain `ls` naming no gated
-  // script never reaches the rule at all, with or without a bundle, which is
-  // what this proves.
-  const { dir, bundle } = gateCopy();
-  renameSync(bundle, `${bundle}.moved`);
-  const r = spawnSync('bash', [path.join(dir, 'plot-controller-gate.sh')], {
-    cwd: repo(), input: JSON.stringify({ tool_input: { command: 'ls skills/plot/scripts' } }), encoding: 'utf8',
-  });
-  assert.equal(r.status, 0, `a command naming no gated script must still run with no bundle at all (stderr: ${r.stderr})`);
 });
 
 test('controller gate: unparseable hook JSON allows', () => {
@@ -576,7 +743,7 @@ test('controller gate: the `bash <script>` form its own callers use still refuse
 // it from a repository that has no `skills/` directory at all.
 
 /**
- * The gate, its receipt script and the rule's bundle, copied as a plugin
+ * The gate, its receipt script and the gate bundle, copied as a plugin
  * install ships them: `board/` beside the gate, same as `skills/plot/scripts/`.
  */
 function pluginCopy() {
@@ -584,16 +751,13 @@ function pluginCopy() {
   const dir = path.join(tmp, 'plugin cache', 'plot', '9.9.9', 'scripts');
   mkdirSync(path.join(dir, 'board'), { recursive: true });
   for (const f of [gate, receipt]) copyFileSync(f, path.join(dir, path.basename(f)));
-  copyFileSync(
-    path.join(scripts, 'board', 'plot-controller-invocation.mjs'),
-    path.join(dir, 'board', 'plot-controller-invocation.mjs'),
-  );
+  copyFileSync(path.join(scripts, 'board', 'plot-gate.mjs'), path.join(dir, 'board', 'plot-gate.mjs'));
   return dir;
 }
 
 /** The escape line the refusal printed, with the command's words as bash reads them. */
 function escapeOf(stderr) {
-  const line = stderr.split('\n').find((l) => /--unowned-action /.test(l));
+  const line = stderr.split('\n').find((l) => /--unowned-action /.test(l))?.replace(/^\s*\d+\.\s+/, '');
   assert.ok(line, `the refusal prints an escape line:\n${stderr}`);
   const cmd = line.trim();
   const words = spawnSync('bash', ['-c', `printf '%s\\n' ${cmd.replace(/<slug>/, 's').replace(/"<reason>"/, 'r')}`],
@@ -611,7 +775,7 @@ test('controller gate: from a plugin copy, the escape names the receipt script b
   assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
   const { words } = escapeOf(r.stderr);
   assert.equal(words[0], 'bash');
-  assert.equal(words[1], path.join(copy, 'plot-state-receipt.sh'), 'the path is the copy beside the gate, one word');
+  assert.equal(realpathSync(words[1]), realpathSync(path.join(copy, 'plot-state-receipt.sh')), 'the path is the copy beside the gate, one word');
   assert.ok(existsSync(words[1]), `the printed path exists: ${words[1]}`);
 });
 

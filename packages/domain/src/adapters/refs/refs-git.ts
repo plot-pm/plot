@@ -349,6 +349,17 @@ export const refsGit = (context: ShellContext): Refs => {
 
     showPrefix: () => runScript('git', ['rev-parse', '--show-prefix'], (stdout) => stdout.trim(), inRepo),
 
+    linkedWorktree: () =>
+      runScript(
+        'git',
+        ['rev-parse', '--absolute-git-dir', '--path-format=absolute', '--git-common-dir'],
+        (stdout) => {
+          const [gitDir, commonDir] = asLines(stdout);
+          return commonDir !== undefined && gitDir !== commonDir;
+        },
+        inRepo,
+      ),
+
     filesNaming: async (term, globs) => {
       if (globs.length === 0) return answered<readonly string[]>([]);
       // `git grep` exits 1 when nothing matches, which is an answer, not a failure.

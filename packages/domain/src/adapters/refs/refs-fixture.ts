@@ -50,6 +50,8 @@ export interface RefsFixture {
   untrackedPaths?: readonly string[];
   /** The working directory relative to the repository root — for {@link Refs.showPrefix}. */
   showPrefix?: string;
+  /** Whether the checkout is a linked worktree — for {@link Refs.linkedWorktree}; absent means `false`. */
+  linkedWorktree?: boolean;
   /**
    * `<a> <b>` to the two revisions' merge-base sha, for {@link Refs.mergeBase}.
    *
@@ -284,6 +286,8 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       ),
 
     showPrefix: async () => answered(fixture.showPrefix ?? ''),
+
+    linkedWorktree: async () => answered(fixture.linkedWorktree === true),
 
     filesNaming: async (term, globs) => {
       const patterns = globs.map(globToRegExp);

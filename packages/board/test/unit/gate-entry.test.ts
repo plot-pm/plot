@@ -40,8 +40,8 @@ describe('commandOf', () => {
 });
 
 describe('the gate table', () => {
-  it('registers bundle-commit, brief-name, then state, and an empty command still allows', async () => {
-    expect(GATES.map((g) => g.name)).toEqual(['bundle-commit', 'brief-name', 'state']);
+  it('registers bundle-commit, brief-name, state, then controller, and an empty command still allows', async () => {
+    expect(GATES.map((g) => g.name)).toEqual(['bundle-commit', 'brief-name', 'state', 'controller']);
     expect(await run([...GATES], 'all', '')).toEqual({ code: EXIT.allow, warned: [] });
   });
 });

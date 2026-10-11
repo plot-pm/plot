@@ -16,6 +16,7 @@
 - **Started:** 2026-10-11, Jan Wloka, `bug/a-released-plan-queues-nothing`
 - **Started:** 2026-10-11, Jan Wloka, `bug/a-dead-agent-gets-a-fresh-agent`
 - **Started:** 2026-10-11, Jan Wloka, `bug/the-scan-writes-once`
+- **Started:** 2026-10-11, Jan Wloka, `bug/the-board-writes-no-index`
 
 ## Changelog
 
@@ -142,7 +143,7 @@ A `bash -x` trace of `--status` (20:20 CEST, load average 19.56) shows two separ
 
 ### The board writes no index
 
-- `bug/the-board-writes-no-index` — `refreshPrs` takes a required store, the store-writing tests move to `packages/fleet`, the one-writer test covers `prStoreFor` and `prIndexFile`, the board shows the fleet's last PR error, owned-mode refresh skips display reads while `bridged.at` is unchanged, and the blank-line runs go; answers #1445 M2, M3, L4, L6 (blank lines) <!-- builds: the fleet's last PR error beside the index -->
+- `bug/the-board-writes-no-index` — `refreshPrs` takes a required store, the store-writing tests move to `packages/fleet`, the one-writer test covers `prStoreFor` and `prIndexFile`, the board shows the fleet's last PR error, owned-mode refresh skips display reads while `bridged.at` is unchanged, and the blank-line runs go; answers #1445 M2, M3, L4, L6 (blank lines) → #1560 <!-- builds: the fleet's last PR error beside the index -->
 
 ### A failed delivery retries
 

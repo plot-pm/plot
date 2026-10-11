@@ -792,3 +792,46 @@ describe('refsGit: untrackedPaths and showPrefix', () => {
     expect(inSub.ok && inSub.value).toBe('sub/');
   });
 });
+
+describe('refsGit: linkedWorktree', () => {
+  let dir = '';
+
+  beforeAll(() => {
+    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-refs-git-linked-')));
+    const make = (repo: string): void => {
+      fs.mkdirSync(repo, { recursive: true });
+      git(repo, ['init', '--quiet', '--initial-branch=main']);
+      git(repo, ['config', 'user.email', 'test@example.com']);
+      git(repo, ['config', 'user.name', 'Test']);
+      git(repo, ['commit', '--quiet', '--allow-empty', '-m', 'first']);
+    };
+    make(path.join(dir, 'mod'));
+    make(path.join(dir, 'super'));
+    git(path.join(dir, 'super'), ['-c', 'protocol.file.allow=always', 'submodule', 'add', '--quiet', path.join(dir, 'mod'), 'mod']);
+    fs.mkdirSync(path.join(dir, 'super', 'mod', 'inner'));
+    git(path.join(dir, 'super'), ['worktree', 'add', '--quiet', '--detach', path.join(dir, 'desk')]);
+  });
+
+  afterAll(() => {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const linked = async (cwd: string): Promise<boolean | null> => {
+    const answer = await refsGit({ repoRoot: cwd, scriptDir: path.join(dir, 'scripts') }).linkedWorktree();
+    return answer.ok ? answer.value : null;
+  };
+
+  it('answers true in a linked worktree', async () => {
+    expect(await linked(path.join(dir, 'desk'))).toBe(true);
+  });
+
+  it('answers false in a main checkout, a submodule and a submodule subdirectory', async () => {
+    expect(await linked(path.join(dir, 'super'))).toBe(false);
+    expect(await linked(path.join(dir, 'super', 'mod'))).toBe(false);
+    expect(await linked(path.join(dir, 'super', 'mod', 'inner'))).toBe(false);
+  });
+
+  it('fails outside a repository', async () => {
+    expect(await linked(dir)).toBeNull();
+  });
+});

@@ -78,7 +78,10 @@ const parseArgs = (argv: readonly string[]): Args | string => {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--dry-run') dryRun = true;
-    else if (arg === '--who') who = argv[++i] ?? '';
+    else if (arg === '--who') {
+      who = argv[++i] ?? '';
+      if (who.startsWith('-')) return `--who takes a name, not the flag '${who}'`;
+    }
     else if (arg === '-h' || arg === '--help') return '__help__';
     else if (arg.startsWith('-')) return `unknown flag '${arg}'`;
     else slug = arg;

@@ -390,7 +390,9 @@ git commit -m "sprint: commit <slug>"
 git push
 
 gh pr ready <number>          # if currently draft
-gh pr merge <number> --merge --delete-branch
+# Pin the merge to the head you reviewed; the controller gate refuses an unpinned one.
+sha="$(gh pr view <number> --json headRefOid -q .headRefOid)"
+gh pr merge <number> --merge --delete-branch --match-head-commit "$sha"
 ```
 
 Default to **merge commits** (`--merge`) to preserve granular planning history (readiness, deferrals, scope changes are valuable context). If the project's `CLAUDE.md` specifies a different merge strategy, follow that instead. Do NOT default to `--squash` — it collapses the planning trail.

@@ -76,7 +76,7 @@ export const startFleetClock = (
 };
 
 /**
- * Builds the scan the fleet's clock runs: one recorded scan, then the bridge.
+ * Builds the scan the fleet's clock runs: one scan that records nothing of its own, then the bridge.
  *
  * The bridge is written only after `scanOnce` returns. A scan that throws or
  * ends without a terminal pulse line leaves the previous bridge file untouched.
@@ -101,7 +101,7 @@ export const fleetScan = (
 ): (() => Promise<void>) => async () => {
   let landed: FleetReading | null = null;
   try {
-    const result = await scanOnce(world, state, { record: true });
+    const result = await scanOnce(world, state, { record: false });
     if (await writeScan(fleetState, result, now())) landed = result.reading;
     else warn('plot-fleetd: bridge write refused');
   } catch (e) {

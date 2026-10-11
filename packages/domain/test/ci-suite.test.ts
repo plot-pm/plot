@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ciSuiteRefusal, controllerInvocation, programWords, withoutQuotes } from '../src/rules/ci-suite.js';
+import { ciSuiteRefusal, controllerInvocation, programWords, withoutComments, withoutQuotes } from '../src/rules/ci-suite.js';
 
 const SUITES = [
   'pnpm run test:e2e',
@@ -130,7 +130,7 @@ describe('controllerInvocation', () => {
       },
     );
 
-    it.each(['--status', '--dry-run', '--help', '-h'])('plot-approve.sh %s has no endpoint', (mode) => {
+    it.each(['--dry-run', '--help', '-h'])('plot-approve.sh %s has no endpoint', (mode) => {
       expect(controllerInvocation(`skills/plot/scripts/plot-approve.sh ${mode} x`)).toBeNull();
     });
 
@@ -186,7 +186,7 @@ describe('controllerInvocation', () => {
       );
     });
 
-    it.each(['--status', '--dry-run', '--help', '-h'])('%s has no endpoint', (mode) => {
+    it.each(['--dry-run', '--help', '-h'])('%s has no endpoint', (mode) => {
       expect(controllerInvocation(`node skills/plot/scripts/board/plot-approve.mjs ${mode} x`)).toBeNull();
     });
 
@@ -215,5 +215,99 @@ describe('controllerInvocation', () => {
     // paths run in one command.
     expect(controllerInvocation('FOO=1')).toBeNull();
     expect(controllerInvocation('FOO=1 && bash skills/plot/scripts/plot-dispatch.sh x')).toBe('dispatch');
+  });
+});
+
+describe('a word list is data only when every body command is a reader (#1341)', () => {
+  it.each([
+    'for f in plot-deliver.sh plot-approve.sh; do cmp $f /tmp/$f; done',
+    'for f in plot-deliver.sh; do git diff --stat -- "$f"; done',
+    'for f in plot-deliver.sh; do git show HEAD:$f | head -3; git log -1 -- $f; done',
+    'for f in skills/plot/scripts/plot-dispatch.sh; do wc -l ${f}; done',
+    'for f in plot-deliver.sh; do [ -f $f ] && test -x $f && stat $f; done',
+    'for f in plot-deliver.sh; do diff $f x; shasum $f; sha256sum $f; tail -1 $f; grep -c x $f; ls $f; cat $f; done',
+    'for f in plot-deliver.sh; do cmp $f x; done; echo ok',
+  ])('%s answers null', (command) => {
+    expect(controllerInvocation(command)).toBeNull();
+  });
+
+  it.each([
+    ['for f in plot-deliver.sh; do bash $f x; done', 'deliver'],
+    ['for f in plot-approve.sh; do "$f" x; done', 'approve'],
+    ['for f in plot-dispatch.sh; do ./scripts/$f x; done', 'dispatch'],
+    ['for s in a b; do plot-dispatch.sh $s; done', 'dispatch'],
+    ['for f in plot-deliver.sh\ndo\n  bash "$f" x\ndone', 'deliver'],
+    ['for f in skills/plot/scripts/plot-deliver.sh; do timeout 600 bash $f s; done', 'deliver'],
+    ['for f in plot-deliver.sh; do bash -e $f s; done', 'deliver'],
+    ['for f in plot-deliver.sh; do eval "bash $f s"; done', 'deliver'],
+    ['for f in plot-deliver.sh; do sudo $f s; done', 'deliver'],
+    ['for f in plot-deliver.sh; do x=$f; bash $x s; done', 'deliver'],
+    ['for f in plot-deliver.sh; do echo $f | xargs bash; done', 'deliver'],
+    ['for f in plot-deliver.sh; do cmp $f x; bash $f s; done', 'deliver'],
+    ['for f in plot-deliver.sh; do cat $(bash $f s); done', 'deliver'],
+    ['for f in plot-deliver.sh; do grep x `bash $f s`; done', 'deliver'],
+    ['for f in plot-deliver.sh; do diff <(bash $f s) x; done', 'deliver'],
+    ['for f in plot-deliver.sh; do git commit -m $f; done', 'deliver'],
+  ])('%s answers %s', (command, action) => {
+    expect(controllerInvocation(command)).toBe(action);
+  });
+});
+
+describe('the word after --who and --release is a value (#1449)', () => {
+  it('reads --who --dry-run slug as an approve', () => {
+    expect(controllerInvocation('node board/plot-approve.mjs --who --dry-run slug')).toBe('approve');
+    expect(controllerInvocation('plot-approve.sh --who --status slug')).toBe('approve');
+  });
+
+  it('still reads a bare --dry-run as no endpoint', () => {
+    expect(controllerInvocation('node board/plot-approve.mjs --dry-run slug')).toBeNull();
+    expect(controllerInvocation('node board/plot-approve.mjs --who jwloka --dry-run slug')).toBeNull();
+  });
+
+  it('reads --status on approve as a run, because the approve entry has no --status mode', () => {
+    expect(controllerInvocation('plot-approve.sh --status slug')).toBe('approve');
+    expect(controllerInvocation('node board/plot-approve.mjs --status slug')).toBe('approve');
+    expect(controllerInvocation('plot-deliver.sh --status slug')).toBeNull();
+  });
+
+  it('keeps --release as the flag that names the action', () => {
+    expect(controllerInvocation('plot-deliver.sh --release 2.22.3 slug')).toBe('release');
+    expect(controllerInvocation('plot-dispatch.sh --release branch')).toBeNull();
+  });
+});
+
+describe('an unquoted # starts a comment', () => {
+  it('ignores a gated script named in a comment', () => {
+    expect(controllerInvocation('git status # then plot-deliver.sh x')).toBeNull();
+    expect(controllerInvocation('# plot-approve.sh x\nls')).toBeNull();
+  });
+
+  it('reads a command before the comment', () => {
+    expect(controllerInvocation('plot-approve.sh x # why')).toBe('approve');
+  });
+
+  it('does not truncate at a quoted #', () => {
+    expect(controllerInvocation('echo "a # b"; plot-approve.sh x')).toBe('approve');
+    expect(controllerInvocation("echo 'a # b' && plot-deliver.sh x")).toBe('deliver');
+  });
+
+  it('does not read $# or ${#x} as a comment', () => {
+    expect(controllerInvocation('echo $# ; plot-approve.sh x')).toBe('approve');
+    expect(controllerInvocation('echo ${#x}; plot-approve.sh x')).toBe('approve');
+  });
+
+  it('cuts one line at a time', () => {
+    expect(withoutComments('a # b\nc # d\ne')).toBe('a \nc \ne');
+  });
+});
+
+describe('a .mjs glob resolves like a .sh glob', () => {
+  it('answers where exactly one gated bundle matches', () => {
+    expect(controllerInvocation('node board/plot-appro?e.mjs x')).toBe('approve');
+    expect(controllerInvocation('node board/plot-deliv*.mjs x')).toBe('deliver');
+  });
+
+  it('answers null where several match', () => {
+    expect(controllerInvocation('node board/*.mjs x')).toBeNull();
   });
 });

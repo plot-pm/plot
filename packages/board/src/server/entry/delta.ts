@@ -1,5 +1,6 @@
 import { pulseDelta, type PulseDelta } from '@plot-pm/domain/rules/pulse';
 import { FleetReadingSchema } from '@plot-pm/domain/entities/fleet';
+import { fleetHoldsBridge } from '@plot-pm/domain/rules/scan-owner';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -11,6 +12,7 @@ import { pathToFileURL } from 'node:url';
  * Since your last pulse (14 minutes ago):
  *   merged      feature/a-thing (a-plan)
  *   plan ready  a-plan
+ * node plot-delta.mjs --held < .plot/state/last-pulse.json   # exit 0: the fleet holds it
  * ```
  *
  * **IT RENDERS AND DECIDES NOTHING.** `pulseDelta` is the rule and it is in the
@@ -221,6 +223,33 @@ export const answer = (text: string, now: number): string => {
 };
 
 
+/** Whether a parsed bridge field holds a value, which the scan's own write never does. */
+const filled = (value: unknown): boolean =>
+  Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value !== '';
+
+/**
+ * Whether the fleet's writer holds this bridge, so `--log-pulse` leaves it alone.
+ *
+ * `plot-fleet-scan.sh --log-pulse` asks this as `plot-delta.mjs --held <
+ * last-pulse.json`. The rule is `fleetHoldsBridge`; this reads its two facts off
+ * the file: the bridge's `at`, and whether any of `ages`, `approvedAt`,
+ * `ideaPlans` or `branchUrlBase` carries a value.
+ *
+ * @param text - the bridge document, or `''` where there is none.
+ * @param now - epoch ms now.
+ * @returns true when the fleet holds the bridge; false for an empty or unreadable document.
+ */
+export const held = (text: string, now: number): boolean => {
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const carriesTimerFacts = ['ages', 'approvedAt', 'ideaPlans', 'branchUrlBase']
+      .some((key) => filled(parsed[key]));
+    return fleetHoldsBridge({ bridgeAt: takenAt(text), carriesTimerFacts, now });
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Read stdin, print the delta.
  *
@@ -253,5 +282,7 @@ export const run = (
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(run(Buffer.concat(chunks).toString('utf8')));
+  const text = Buffer.concat(chunks).toString('utf8');
+  // `--held` prints nothing: exit 0 means the fleet holds the bridge, 1 that it does not.
+  process.exit(process.argv[2] === '--held' ? (held(text, Date.now()) ? 0 : 1) : run(text));
 }

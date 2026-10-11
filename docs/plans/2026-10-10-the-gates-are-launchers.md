@@ -16,6 +16,7 @@
 - **Started:** 2026-10-11, Jan Wloka, `feature/the-brief-name-gate-is-a-launcher`
 - **Started:** 2026-10-11, Jan Wloka, `feature/the-state-gate-is-a-launcher`
 - **Started:** 2026-10-11, Jan Wloka, `feature/the-controller-gate-is-a-launcher`
+- **Started:** 2026-10-11, Jan Wloka, `feature/the-phase-gate-is-a-launcher`
 
 ## Changelog
 
@@ -163,7 +164,7 @@ On 2026-10-10 jwloka moved three findings from `the-controllers-close-their-revi
 
 ### The phase gate
 
-- `feature/the-phase-gate-is-a-launcher` — `plot-phase-gate.sh` becomes a launcher; `phaseGateRefusal` decides from the branch, the plan's phase on `origin/<main>` or `origin/<branch>`, the `.plot/hold` line and `effectivePaths`; the phase comes from the domain's plan parser, not `plot-plan-meta.sh`; `hooks/hooks.json` holds one entry. Decision count 48 → 47 <!-- builds: phaseGateRefusal -->
+- `feature/the-phase-gate-is-a-launcher` — `plot-phase-gate.sh` becomes a launcher; `phaseGateRefusal` decides from the branch, the plan's phase on `origin/<main>` or `origin/<branch>`, the `.plot/hold` line and `effectivePaths`; the phase comes from the domain's plan parser, not `plot-plan-meta.sh`; `hooks/hooks.json` holds one entry. Decision count 48 → 47 → #1561 <!-- builds: phaseGateRefusal -->
 
 ## Notes
 

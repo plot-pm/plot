@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { fleetOwnsScan, OWNED_BRIDGE_MAX_AGE_MS } from '../src/rules/scan-owner.js';
+import { bridgeIsFresh, fleetHoldsBridge, fleetOwnsScan, OWNED_BRIDGE_MAX_AGE_MS } from '../src/rules/scan-owner.js';
 
 const UP = { asked: true, exitCode: 0, summarised: true };
 const DOWN = { asked: true, exitCode: 1, summarised: true, install: 'not-installed' };
@@ -38,5 +38,31 @@ describe('fleetOwnsScan', () => {
   it('is false with no bridge, and for a bridge from the future', () => {
     expect(fleetOwnsScan({ supervisor: UP, bridgeAt: null, now: NOW })).toBe(false);
     expect(fleetOwnsScan({ supervisor: UP, bridgeAt: NOW + 1, now: NOW })).toBe(false);
+  });
+});
+
+describe('bridgeIsFresh', () => {
+  it('is true up to the age bound and false one millisecond past it', () => {
+    expect(bridgeIsFresh(NOW - OWNED_BRIDGE_MAX_AGE_MS, NOW)).toBe(true);
+    expect(bridgeIsFresh(NOW - OWNED_BRIDGE_MAX_AGE_MS - 1, NOW)).toBe(false);
+  });
+  it('is false with no bridge, and for a bridge from the future', () => {
+    expect(bridgeIsFresh(null, NOW)).toBe(false);
+    expect(bridgeIsFresh(NOW + 1, NOW)).toBe(false);
+  });
+});
+
+describe('fleetHoldsBridge', () => {
+  it('is true for a fresh bridge that carries timer facts', () => {
+    expect(fleetHoldsBridge({ bridgeAt: NOW - 5_000, carriesTimerFacts: true, now: NOW })).toBe(true);
+  });
+  it('is false for a fresh thin bridge, which only the scan writes', () => {
+    expect(fleetHoldsBridge({ bridgeAt: NOW - 5_000, carriesTimerFacts: false, now: NOW })).toBe(false);
+  });
+  it('is false for a stale bridge that carries timer facts (a stopped fleet)', () => {
+    expect(fleetHoldsBridge({ bridgeAt: NOW - OWNED_BRIDGE_MAX_AGE_MS - 1, carriesTimerFacts: true, now: NOW })).toBe(false);
+  });
+  it('is false with no bridge', () => {
+    expect(fleetHoldsBridge({ bridgeAt: null, carriesTimerFacts: false, now: NOW })).toBe(false);
   });
 });

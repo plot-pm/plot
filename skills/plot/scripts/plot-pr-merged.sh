@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Plot helper: the ONE answer to "did the host merge ANY PR for this branch?"
 #
-# SOURCED, NOT RUN. `. "$script_dir/plot-pr-merged.sh"` defines `pr_merged`,
-# `pr_open` and `pr_merged_heads`; the file does nothing else on load. That is what makes sourcing it
+# SOURCED, NOT RUN. `. "$script_dir/plot-pr-merged.sh"` defines `pr_merged` and
+# `pr_open`; the file does nothing else on load. That is what makes sourcing it
 # safe, and it is the same shape — and the same reason — as
 # `plot-worker-state.sh`: the logic could not simply stay in `plot-reap.sh`,
 # because that file parses `$@` and `exit 2`s on an unknown argument at load
@@ -72,9 +72,8 @@
 #
 # AN EMPTY BRANCH IS NOT ASKED ABOUT. `gh pr list --head ""` applies no filter,
 # so every PR in the repository matches: measured 2026-10-01 on `origin/main`
-# (`56a978ea`), `_plot_merged_lookup ""` answered `found`, `pr_merged ""` exited
-# 0 — merged — and `pr_merged_heads ""` printed 98 lines, the head of every
-# merged PR here. So each of the three lookups refuses an empty branch BEFORE
+# (`56a978ea`), `_plot_merged_lookup ""` answered `found` and `pr_merged ""`
+# exited 0 — merged. So each of the two lookups refuses an empty branch BEFORE
 # `command -v gh`, answering `unaskable` rather than `none` because a lookup that
 # did not run is silence and `none` would claim the host spoke; `pr_open ""` then
 # casts no veto, which is safe only because `pr_merged ""` refuses on the same
@@ -192,32 +191,4 @@ pr_open() {
   local answer
   answer=$(_plot_landed none "$(_plot_open_lookup "$1")") || return 1
   case "$answer" in *"	open-pr") return 0 ;; *) return 1 ;; esac
-}
-
-# Which commits did the host merge for this branch? One `headRefOid` per merged
-# PR, one per line.
-#
-# A THIRD QUESTION, asked by `plot-reap.sh` only. After a squash merge the
-# host deletes the branch (`delete_branch_on_merge`), `git fetch --prune`
-# drops the remote-tracking ref, and the branch's own commits are then on no
-# remote ref at all. So "which commits did no remote ever hold?" needs the
-# head the host merged: a commit reachable from it was pushed; a commit beyond
-# it exists only on the desk.
-#
-# Returns 1 when the host cannot be asked. The caller reads that as
-# `unknown`, which keeps the desk: here a failure to observe is the case that
-# loses work. It prints nothing and returns 0 when the host answered and no PR
-# merged.
-pr_merged_heads() {
-  local br="$1" out
-  [ -n "$br" ] || return 1
-  command -v gh >/dev/null 2>&1 || return 1
-  out=$(gh pr list --head "$br" --state all --limit 100 --json mergedAt,headRefOid 2>/dev/null) \
-    || return 1
-  printf '%s' "$out" | node -e '
-let s = "";
-process.stdin.on("data", (d) => { s += d; }).on("end", () => {
-  const rows = JSON.parse(s);
-  for (const r of rows) if (r.mergedAt && r.headRefOid) console.log(r.headRefOid);
-});' 2>/dev/null || return 1
 }

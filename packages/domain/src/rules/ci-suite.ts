@@ -24,6 +24,85 @@ const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=\S*$/;
 export const withoutQuotes = (command: string): string =>
   command.replace(/'[^']*'/g, "''").replace(/"(?:[^"\\]|\\.)*"/g, '""');
 
+/** A single- or double-quoted span. */
+const QUOTED = /'[^']*'|"(?:[^"\\]|\\.)*"/g;
+
+/**
+ * Removes every unquoted `#` comment: the `#` and the rest of its line. A `#`
+ * starts a comment at the start of a line or after whitespace; `$#`, `${#x}`
+ * and a `#` inside quotes do not.
+ *
+ * @param command - the command line.
+ * @returns the command with each comment cut off at its `#`.
+ */
+export const withoutComments = (command: string): string => {
+  const blanked = command.replace(QUOTED, (span) => span.replace(/[^\n]/g, ' '));
+  const lines = command.split('\n');
+  const scanned = blanked.split('\n');
+  return lines
+    .map((line, i) => {
+      const hash = /(^|\s)#/.exec(scanned[i]);
+      return hash === null ? line : line.slice(0, hash.index + hash[1].length);
+    })
+    .join('\n');
+};
+
+/** `for NAME in LIST; do` — the list ends at the first `;` or new line. */
+const FOR_LOOP = /\bfor\s+([A-Za-z_]\w*)\s+in\s+([^;\n]*?)\s*(?:;|\n)\s*do\b/g;
+
+/** Programs that read their operands and never run one. */
+const READERS: ReadonlySet<string> = new Set([
+  'cmp', 'diff', 'cat', 'ls', 'grep', 'head', 'tail', 'wc', 'shasum', 'sha256sum', 'stat', 'test', '[',
+]);
+
+/** The `git` subcommands that read and never run an operand. */
+const GIT_READERS: ReadonlySet<string> = new Set(['diff', 'show', 'log', 'grep']);
+
+/** Whether a simple command's program is a reader: one of `READERS`, or `git diff|show|log|grep`. */
+const isReader = (words: readonly string[]): boolean => {
+  const [head, sub] = programWords(words);
+  if (head === undefined) return false;
+  const name = wordBasename(head);
+  return READERS.has(name) || (name === 'git' && GIT_READERS.has(sub));
+};
+
+/**
+ * The simple commands of a loop body: the text after `do` up to the segment
+ * that is `done`, split on `&&`, `||`, `;`, `|` and new lines.
+ */
+const bodySegments = (after: string): string[][] => {
+  const segments: string[][] = [];
+  for (const segment of after.split(/&&|\|\||[;|\n]/)) {
+    const words = segment.trim().split(/\s+/).filter((w) => w !== '');
+    if (words[0] === 'done') break;
+    if (words.length > 0) segments.push(words);
+  }
+  return segments;
+};
+
+/**
+ * Removes the word list of a `for` loop whose body only reads: every simple
+ * command in the body has a reader as its program (`cmp`, `diff`, `cat`, `ls`,
+ * `grep`, `head`, `tail`, `wc`, `shasum`, `sha256sum`, `stat`, `test`, `[`,
+ * `git diff|show|log|grep`), and the body holds no command substitution. Any
+ * other body keeps the list, so a name in it reads as a run.
+ *
+ * @param command - the command line.
+ * @returns the command with such word lists emptied.
+ */
+const withoutDataLists = (command: string): string => {
+  let out = command;
+  for (const match of [...command.matchAll(FOR_LOOP)].reverse()) {
+    const { index: at } = match;
+    const after = command.slice(at + match[0].length);
+    const body = bodySegments(after);
+    if (!body.every(isReader) || body.some((words) => words.some((w) => /\$\(|`|[<>]\(/.test(w)))) continue;
+    const listStart = at + match[0].indexOf(match[2], match[0].indexOf(' in ') + 1);
+    out = out.slice(0, listStart) + out.slice(listStart + match[2].length);
+  }
+  return out;
+};
+
 /**
  * Strips what precedes the program a simple command runs: `NAME=value`
  * assignments, and `env` with its options and assignments.
@@ -106,16 +185,22 @@ export const ciSuiteRefusal = (command: string, suites: readonly string[]): CiSu
  * data and must be stripped by the caller before this is asked; an unquoted
  * body stays tokenised because it can hold a command substitution.
  *
- * A glob word is matched as a pattern against the three basenames; it answers
- * only where exactly one of them matches, so `*.sh` — matching all three — is
- * not a run.
+ * A glob word ending `.sh` or `.mjs` is matched as a pattern against the gated
+ * basenames; it answers only where exactly one of them matches, so `*.sh` —
+ * matching all three — is not a run.
+ *
+ * An unquoted `#` starts a comment: it and the rest of its line are not read.
+ * The word after `--who` or `--release` is that flag's value and is never read
+ * as a mode. The word list of a `for` loop whose body only runs readers
+ * (`for f in plot-deliver.sh; do cmp $f x; done`) is data, not a run; any
+ * other body keeps the list.
  *
  * @param command - the command line an agent is about to run, with any
  *   single-quoted heredoc body already stripped.
  * @returns the action, or `null` when the command runs none of the three.
  */
 export const controllerInvocation = (command: string): 'dispatch' | 'approve' | 'deliver' | 'release' | null => {
-  for (const segment of command.split(/&&|\|\||[;|\n]/)) {
+  for (const segment of withoutDataLists(withoutComments(command)).split(/&&|\|\||[;|\n]/)) {
     const words = segment.trim().split(/\s+/).filter((word) => word !== '');
     if (words.length === 0) continue;
     if (isReadSegment(words)) continue;
@@ -199,7 +284,7 @@ export const commandRunsScript = (command: string, name: string): boolean =>
 const scriptNamed = (word: string): string | null => {
   const base = wordBasename(word);
   if (base in GATED) return base;
-  if (base.endsWith('.sh') && /[*?[\]]/.test(base)) {
+  if (/\.(sh|mjs)$/.test(base) && /[*?[\]]/.test(base)) {
     const pattern = globToRegExp(base);
     const hits = GATED_NAMES.filter((name) => pattern.test(name));
     if (hits.length === 1) return hits[0];
@@ -208,7 +293,7 @@ const scriptNamed = (word: string): string | null => {
 };
 
 /** Whether a segment's program is a read that this reading carves out: `ls`, `cat`, `git grep`. */
-const isReadSegment = (words: readonly string[]): boolean => {
+export const isReadSegment = (words: readonly string[]): boolean => {
   const program = programWords(words);
   if (program.length === 0) return false;
   const head = wordBasename(program[0]);
@@ -216,10 +301,10 @@ const isReadSegment = (words: readonly string[]): boolean => {
   return head === 'git' && program[1] === 'grep';
 };
 
-/** `plot-dispatch.sh`'s and `plot-deliver.sh`'s modes with no endpoint, or belonging to a different action. */
+/** Each gated script's modes with no endpoint. The approve entry has no `--status` mode, so `--status` on it is a run. */
 const NO_ENDPOINT: Record<string, readonly string[]> = {
-  [APPROVE_SH]: ['--status', '--dry-run', '--help', '-h'],
-  [APPROVE_MJS]: ['--status', '--dry-run', '--help', '-h'],
+  [APPROVE_SH]: ['--dry-run', '--help', '-h'],
+  [APPROVE_MJS]: ['--dry-run', '--help', '-h'],
   [DELIVER_SH]: ['--status', '--dry-run', '--help', '-h'],
   [DELIVER_MJS]: ['--status', '--dry-run', '--help', '-h'],
   [DISPATCH_SH]: [
@@ -227,9 +312,14 @@ const NO_ENDPOINT: Record<string, readonly string[]> = {
   ],
 };
 
+/** The flags whose next word is their value. */
+const VALUE_FLAGS: ReadonlySet<string> = new Set(['--who', '--release']);
+
 /** The action a call on `script` runs, reading `--release` as a fourth action on `plot-deliver.sh`/`plot-deliver.mjs` alone. */
 const actionFor = (script: string, words: readonly string[]): 'dispatch' | 'approve' | 'deliver' | 'release' | null => {
-  if (words.some((word) => NO_ENDPOINT[script]?.includes(word))) return null;
+  // The word after `--who` or `--release` is that flag's value, whatever it looks like.
+  const flags = words.filter((_, i) => !VALUE_FLAGS.has(words[i - 1]));
+  if (flags.some((word) => NO_ENDPOINT[script]?.includes(word))) return null;
   if ((script === DELIVER_SH || script === DELIVER_MJS) && words.includes('--release')) return 'release';
   return GATED[script];
 };

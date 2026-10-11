@@ -16,6 +16,7 @@
 - **Started:** 2026-10-11, Jan Wloka, `bug/the-kill-tests-wait-for-readiness`
 - **Started:** 2026-10-11, Jan Wloka, `bug/the-reaper-reads-what-the-shell-read`
 - **Started:** 2026-10-11, Jan Wloka, `bug/one-answer-to-which-heads-merged`
+- **Started:** 2026-10-11, Jan Wloka, `bug/the-decision-gate-reads-its-table-strictly`
 
 ## Changelog
 
