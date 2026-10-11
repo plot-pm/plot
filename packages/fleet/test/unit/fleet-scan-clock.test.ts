@@ -89,8 +89,8 @@ describe('the fleet writes the whole bridge', () => {
       return emitting(s, a, onLine, o);
     };
     await fleetScan(worldOver(scriptsFake(spy)), fleetStateFile({ repoRoot: repo }), freshScanState(), () => Date.now(), () => {})();
-    // the fleet is the recording writer: no PLOT_SCAN_RECORD=0 here
-    expect(seen[0]?.PLOT_SCAN_RECORD).toBeUndefined();
+    // the fleet is the one writer: the script is told not to record
+    expect(seen[0]?.PLOT_SCAN_RECORD).toBe('0');
   });
 });
 
