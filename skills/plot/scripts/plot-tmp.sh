@@ -85,10 +85,16 @@ _plot_tmp_create() {
     trap '__plot_tmp_pending="TERM 15"' TERM
     trap '__plot_tmp_pending="PIPE 13"' PIPE
   fi
+  # `mktemp` IGNORES THE GROUP SIGNAL. It is a process of its own in the
+  # script's group, and the handlers above do not reach it: a group TERM after
+  # it creates the path and before it prints the name ends it, and the name
+  # never reaches the registry. CI run 38169324238 left one
+  # `plot-host-prlist-err.*` this way (#1582). Ignored signals pass to the child,
+  # so it always prints the name; this shell still records the signal.
   if [ "${3:-}" = -d ]; then
-    __plot_tmp_new=$(mktemp -d "${TMPDIR:-/tmp}/plot-$2.XXXXXX")
+    __plot_tmp_new=$(trap '' INT TERM PIPE; mktemp -d "${TMPDIR:-/tmp}/plot-$2.XXXXXX")
   else
-    __plot_tmp_new=$(mktemp "${TMPDIR:-/tmp}/plot-$2.XXXXXX")
+    __plot_tmp_new=$(trap '' INT TERM PIPE; mktemp "${TMPDIR:-/tmp}/plot-$2.XXXXXX")
   fi
   __plot_tmp_rc=$?
   # THE PATH IS REGISTERED WHEN IT EXISTS, whatever the status says. bash 3.2

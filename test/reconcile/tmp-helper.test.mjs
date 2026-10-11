@@ -281,3 +281,57 @@ for (const shell of ['/bin/bash', 'bash']) {
     assert.deepEqual(got.left, [], 'the subshell died with the path created and unregistered');
   });
 }
+
+// THE GROUP SIGNAL DOES NOT END `mktemp` ITSELF. `mktemp` is a process of its
+// own in the script's group, so the same TERM reaches it. A TERM after it
+// creates the path and before it prints the name ends it, and the name never
+// reaches the registry. CI run 38169324238 left one `plot-host-prlist-err.*`
+// this way (#1582). A stand-in that creates the path, then waits before it
+// prints the name, holds `mktemp` in that window.
+const heldBeforeTheName = (shell, lines) => new Promise((resolve) => {
+  const dir = sandbox();
+  const tmp = path.join(dir, 'tmp');
+  const bin = path.join(dir, 'bin');
+  spawnSync('mkdir', ['-p', tmp, bin]);
+  const created = path.join(dir, 'created');
+  writeFileSync(path.join(bin, 'mktemp'), [
+    '#!/bin/sh',
+    'name=$(/usr/bin/mktemp "$@") || exit $?',
+    `: > '${created}'`,
+    'sleep 0.5',
+    'printf "%s\\n" "$name"',
+    '',
+  ].join('\n'), { mode: 0o755 });
+  const file = writeScript(dir, lines);
+  const child = spawn(shell, [file], {
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, TMPDIR: tmp, PATH: `${bin}:${process.env.PATH}` },
+  });
+  let stdout = '';
+  child.stdout.on('data', (b) => { stdout += b; });
+  const poll = setInterval(() => {
+    if (!existsSync(created)) return;
+    clearInterval(poll);
+    process.kill(-child.pid, 'SIGTERM');
+  }, 10);
+  child.on('exit', (code, signal) => {
+    const result = { code, signal, stdout, left: readdirSync(tmp) };
+    rmSync(dir, { recursive: true, force: true });
+    resolve(result);
+  });
+});
+
+for (const shell of ['/bin/bash', 'bash']) {
+  for (const [where, lines] of [
+    ['in the script', ['plot_tmpfile f held', 'echo "after $f"']],
+    ['inside $(…)', ['out=$(plot_tmpfile f held; echo "$f")', 'echo "after $out"']],
+  ]) {
+    test(`tmp helper (${shell}): a group TERM while mktemp has not printed the name leaves nothing, ${where}`, async () => {
+      const got = await heldBeforeTheName(shell, lines);
+      assert.ok(got.signal === 'SIGTERM' || got.code === 143, `status: ${JSON.stringify(got)}`);
+      assert.doesNotMatch(got.stdout, /after/, 'the owner ran a command after the signal');
+      assert.deepEqual(got.left, [], 'mktemp died with the path created and its name unprinted');
+    });
+  }
+}
