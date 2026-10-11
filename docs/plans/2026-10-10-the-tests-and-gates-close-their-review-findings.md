@@ -147,7 +147,7 @@ Each slice changes one group of files, and no two slices change the same file. T
 
 ### Merged heads answer
 
-- `bug/one-answer-to-which-heads-merged` — `pr_merged_heads` leaves `plot-pr-merged.sh`, so `plot-host.sh pr-merged-heads` is the only answer (issue 1434) <!-- builds: removal of pr_merged_heads -->
+- `bug/one-answer-to-which-heads-merged` → #1558 — `pr_merged_heads` leaves `plot-pr-merged.sh`, so `plot-host.sh pr-merged-heads` is the only answer (issue 1434) <!-- builds: removal of pr_merged_heads -->
 
 ### Decision table reading
 
