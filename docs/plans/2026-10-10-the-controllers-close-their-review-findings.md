@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** the-gates-and-the-review-findings
 - **Issue:** #1447, #1458, #1483
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-10, Jan Wloka, plan-PR #1498 merged
 - **Started:** 2026-10-10, Jan Wloka, `bug/the-entries-write-through-a-port`
 - **Started:** 2026-10-11, Jan Wloka, `bug/the-merge-reads-what-it-claims`
+- **Delivered:** 2026-10-11
 
 ## Changelog
 

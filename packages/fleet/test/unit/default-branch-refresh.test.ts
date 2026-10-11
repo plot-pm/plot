@@ -5,7 +5,7 @@ import { refsFixture } from '@plot-pm/domain/adapters/refs/refs-fixture';
 import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import type { WorkflowShaRun } from '@plot-pm/domain/entities/build';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
-import { defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
+import { defaultBranchAgeMs, defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
 
 import {
   REASK_MS,
@@ -122,13 +122,26 @@ describe('refreshDefaultBranch', () => {
     expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(true);
   });
 
-  it('makes zero runs-for-sha calls for a settled, unchanged SHA', async () => {
+  it('makes zero runs-for-sha calls for a green, unchanged SHA inside half Checks wait', async () => {
     const r = rig();
     r.runs('a1', [run('ci', 'success')]);
     await refreshDefaultBranch(r.world);
-    r.clock(10 * REASK_MS);
+    r.clock(WAIT / 2 - 1);
     expect(await refreshDefaultBranch(r.world)).toBe('skipped');
     expect(r.calls()).toBe(1);
+  });
+
+  it('asks a green, unchanged SHA once per half Checks wait, so askedAt never ages past it', async () => {
+    const r = rig();
+    r.runs('a1', [run('ci', 'success')]);
+    await refreshDefaultBranch(r.world);
+    for (let t = 60_000; t <= 4 * WAIT; t += 60_000) {
+      r.clock(t);
+      await refreshDefaultBranch(r.world);
+      expect(defaultBranchAgeMs(r.stored()!, r.world.now())).toBeLessThan(WAIT / 2);
+    }
+    expect(r.calls()).toBe(1 + 8);
+    expect(r.stored()).toMatchObject({ head: 'green', headSince: new Date(T0).toISOString() });
   });
 
   it('asks a pending head no sooner than five minutes', async () => {

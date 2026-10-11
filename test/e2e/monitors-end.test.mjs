@@ -32,9 +32,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { makeSandbox, sh, staffDesk } from './helpers.mjs';
+import { record, signalOwn, signalRecorded } from '../reconcile/own-process.mjs';
 
 const PLAN_CONFIG = '- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n';
 
@@ -122,7 +124,7 @@ function waitForFile(file, ms = 15000) {
  */
 function detachedSubject(seconds) {
   const pid = execFileSync('sh', ['-c', `sleep ${seconds} >/dev/null 2>&1 & echo $!`], { encoding: 'utf8' }).trim();
-  return Number(pid);
+  return record(Number(pid));
 }
 
 /**
@@ -268,6 +270,35 @@ function dispatchWithLiveSubject(name) {
   return { ...run, subject };
 }
 
+test('signalOwn and signalRecorded refuse a pid that was reused — raw process.kill would not', async () => {
+  // Stands in for "the subject's pid was reused by another process": a real,
+  // alive, unrelated process this file never recorded, or recorded with a
+  // stamp far in the past. Needs none of the dispatch/sandbox machinery the
+  // other tests in this file use — it exercises the same helper they call.
+  const impostor = execFileSync('sh', ['-c', 'sleep 120 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim();
+  const pid = Number(impostor);
+  try {
+    record(pid, Date.now() - 20_000);
+    // The old code at this site was `process.kill(run.subject, 'SIGKILL')` —
+    // unconditional.
+    const sentByPid = signalOwn(pid, 'SIGKILL', { command: 'sleep' });
+    assert.equal(sentByPid, false, 'signalOwn must not signal a pid whose start time disagrees with its stamp');
+    assert.ok(alive(pid), 'the impostor must still be alive after signalOwn refused it');
+
+    const pidFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-monitors-end-')), 'subject.pid');
+    fs.writeFileSync(pidFile, impostor);
+    const past = new Date(Date.now() - 20_000);
+    fs.utimesSync(pidFile, past, past);
+    // The old code at this site was `process.kill(agentPid, 'SIGKILL')`, read
+    // straight from the pid file — also unconditional.
+    const sentByFile = signalRecorded(pidFile, 'SIGKILL', { command: 'sleep' });
+    assert.equal(sentByFile, false, 'signalRecorded must not signal a pid whose file mtime disagrees');
+    assert.ok(alive(pid), 'the impostor must still be alive after signalRecorded refused it');
+  } finally {
+    execFileSync('kill', ['-9', impostor]);
+  }
+});
+
 test('after its subject finishes, no AgentMonitor of THAT worker remains', () => {
   // The ordinary path: the agent exits, the wrapper's `wait` returns, the
   // wrapper writes `.plot-worker.exit` and exits. Before `two-monitors-watch
@@ -286,13 +317,13 @@ test('after its subject finishes, no AgentMonitor of THAT worker remains', () =>
     assert.ok(pids, 'no AgentMonitor process was found for this worktree, so "it is gone" cannot mean anything');
 
     // The subject ends the way an agent ordinarily does.
-    process.kill(run.subject, 'SIGTERM');
+    signalOwn(run.subject, 'SIGTERM', { command: 'sleep' });
 
     assert.ok(waitUntil(() => pids.every((p) => !alive(p))),
       `monitor ${pids.filter(alive).join(', ')} outlived the subject it was watching — `
       + 'it is an orphan now, re-parented to init and looping forever');
   } finally {
-    try { process.kill(run.subject, 'SIGKILL'); } catch { /* already gone */ }
+    signalOwn(run.subject, 'SIGKILL', { command: 'sleep' });
     run.sb.cleanup();
   }
 });
@@ -313,12 +344,12 @@ test('after its subject is killed at the bound, no AgentMonitor of THAT worker r
     });
     assert.ok(pids, 'no AgentMonitor process was found for this worktree');
 
-    process.kill(run.subject, 'SIGKILL');
+    signalOwn(run.subject, 'SIGKILL', { command: 'sleep' });
 
     assert.ok(waitUntil(() => pids.every((p) => !alive(p))),
       `monitor ${pids.filter(alive).join(', ')} outlived a subject killed at its bound`);
   } finally {
-    try { process.kill(run.subject, 'SIGKILL'); } catch { /* already gone */ }
+    signalOwn(run.subject, 'SIGKILL', { command: 'sleep' });
     run.sb.cleanup();
   }
 });
@@ -381,7 +412,7 @@ test('an agent killed at the bound is reported gone by the wrapper, not clear', 
 
     assert.ok(waitUntil(() => alive(agentPid)),
       'the agent was not alive long enough to kill it deliberately');
-    process.kill(agentPid, 'SIGKILL');
+    signalRecorded(run.pidFile, 'SIGKILL', { command: 'sleep' });
 
     assert.ok(waitForFile(run.workerFindings, 10000),
       'the wrapper published nothing about an agent it never killed itself, but that died anyway');

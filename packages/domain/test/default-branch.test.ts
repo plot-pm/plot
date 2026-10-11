@@ -10,7 +10,9 @@ import {
 import {
   advanceSettled,
   checkNamesOf,
+  checksWaitMsOf,
   declaredRuns,
+  defaultBranchAgeMs,
   defaultBranchRed,
   defaultBranchStatus,
   settledRed,
@@ -111,6 +113,39 @@ describe('checkNamesOf — the Default branch checks value', () => {
 
   it.each(['', '  ', ' , '])('reads %j as no names', (value) => {
     expect(checkNamesOf(value)).toEqual([]);
+  });
+});
+
+describe('checksWaitMsOf — the Checks wait value', () => {
+  it.each([
+    ['3600', 3_600_000],
+    ['1800', 1_800_000],
+    ['0.5', 500],
+  ])('reads %j as %d ms', (value, ms) => {
+    expect(checksWaitMsOf(value)).toBe(ms);
+  });
+
+  it.each(['', '0', '-60', 'soon', 'Infinity', 'NaN'])('reads %j as the 3600 s default', (value) => {
+    expect(checksWaitMsOf(value)).toBe(3_600_000);
+  });
+});
+
+describe('defaultBranchAgeMs — the age of askedAt', () => {
+  const at = (askedAt: string): DefaultBranchReading => ({
+    v: DEFAULT_BRANCH_VERSION, branch: 'main', headSha: 'a', head: 'green', failingRuns: [],
+    headSince: askedAt, askedAt, at: askedAt,
+  });
+
+  it('measures from askedAt', () => {
+    expect(defaultBranchAgeMs(at('2026-10-10T00:00:00Z'), Date.parse('2026-10-10T00:01:00Z'))).toBe(60_000);
+  });
+
+  it('reads a future askedAt as zero', () => {
+    expect(defaultBranchAgeMs(at('2026-10-10T00:01:00Z'), Date.parse('2026-10-10T00:00:00Z'))).toBe(0);
+  });
+
+  it('answers null for an askedAt that does not parse', () => {
+    expect(defaultBranchAgeMs(at('soon'), 0)).toBeNull();
   });
 });
 

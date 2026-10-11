@@ -237,6 +237,27 @@ export interface Refs {
   stagedPaths(): Promise<PortResult<readonly StagedPath[]>>;
 
   /**
+   * Lists the untracked files `git add` would stage, honouring `.gitignore`.
+   *
+   * NOT {@link workingChanges}: that merges modified, staged and untracked
+   * paths with no status, so a new file cannot be told from a tracked file
+   * already modified. A commit gate that reads what a chained `git add` in the
+   * same command would add needs only the new files.
+   *
+   * @param pathspec - a pathspec relative to the working directory, or `null`
+   *   for every untracked file in the tree.
+   * @returns the paths, relative to the repository root.
+   */
+  untrackedPaths(pathspec: string | null): Promise<PortResult<readonly string[]>>;
+
+  /**
+   * The working directory relative to the repository root.
+   *
+   * @returns the path with a trailing `/`, or `''` at the root.
+   */
+  showPrefix(): Promise<PortResult<string>>;
+
+  /**
    * Lists the tracked files under the pathspecs that contain a fixed string.
    *
    * @param term - the text to find, matched literally.

@@ -107,6 +107,34 @@ export const advanceSettled = (
 export const settledRed = (reading: DefaultBranchReading | null): boolean =>
   reading?.settled?.state === 'red';
 
+/** The `Checks wait` default, in seconds. */
+export const CHECKS_WAIT_DEFAULT_SECONDS = 3600;
+
+/**
+ * Reads the `Checks wait` config value as milliseconds.
+ *
+ * @param value - the value in seconds, as the config holds it; empty where the key is absent.
+ * @returns the value in milliseconds when it is a positive finite number;
+ *   {@link CHECKS_WAIT_DEFAULT_SECONDS} in milliseconds for anything else,
+ *   including `0`, a negative number and a word.
+ */
+export const checksWaitMsOf = (value: string): number => {
+  const seconds = Number(value);
+  return (Number.isFinite(seconds) && seconds > 0 ? seconds : CHECKS_WAIT_DEFAULT_SECONDS) * 1000;
+};
+
+/**
+ * How long ago a host last answered for a reading.
+ *
+ * @param reading - the default-branch reading.
+ * @param now - the current time, as epoch milliseconds.
+ * @returns the age of `askedAt` in milliseconds, never negative; null when `askedAt` does not parse.
+ */
+export const defaultBranchAgeMs = (reading: DefaultBranchReading, now: number): number | null => {
+  const askedAt = Date.parse(reading.askedAt);
+  return Number.isNaN(askedAt) ? null : readingAge(stamped(reading, askedAt), now);
+};
+
 /**
  * Whether the default branch is red for queueing purposes.
  *
@@ -114,7 +142,9 @@ export const settledRed = (reading: DefaultBranchReading | null): boolean =>
  * `checksWaitMs`, or does not parse, counts as no reading and holds nothing: a
  * red that no host confirmed within the bound is not evidence about the branch
  * now, whether fleetd stopped or the host kept failing. Otherwise reads only
- * the settled part, as {@link settledRed} does.
+ * the settled part, as {@link settledRed} does. A hold is reversible, so an old
+ * reading lifts it; the merge controller refuses an old reading instead
+ * (`default-branch-stale`), because a merge cannot be undone.
  *
  * @param reading - the default-branch reading, or null where there is none.
  * @param now - the current time, as epoch milliseconds.
@@ -127,9 +157,8 @@ export const defaultBranchRed = (
   checksWaitMs: number,
 ): boolean => {
   if (reading === null || !settledRed(reading)) return false;
-  const askedAt = Date.parse(reading.askedAt);
-  if (Number.isNaN(askedAt)) return false;
-  return readingAge(stamped(reading, askedAt), now) <= checksWaitMs;
+  const age = defaultBranchAgeMs(reading, now);
+  return age !== null && age <= checksWaitMs;
 };
 
 /**

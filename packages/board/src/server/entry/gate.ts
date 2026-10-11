@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
  * The `node` entry point `plot-gates.sh` launches: one PreToolUse hook that
@@ -96,8 +96,79 @@ const bundleCommitGate: Gate = {
   onError: 'allow',
 };
 
+/**
+ * `brief-name`: refuses a commit that adds or renames a hand-off brief to
+ * `.plot/briefs/<prefix>-<slug>.md` when no branch has that path as its
+ * `briefPath`.
+ *
+ * `wants` is a pure string test. `ask` reads; `briefNameRefusal` decides. It
+ * reads the `Branch prefixes` config, the index, and — for a `git add` or
+ * `git mv` chained in the same command, which runs after this hook — the
+ * untracked files that `git add` would stage and the working directory's
+ * offset from the repository root. Only for a path `briefNameCandidates`
+ * names does it read more: whether `HEAD` holds it, its text, whether its
+ * computed path exists, and the branch names. A failed config read throws,
+ * which `onError: 'allow'` reports as UNVERIFIED; a failed git read allows.
+ */
+const briefNameGate: Gate = {
+  name: 'brief-name',
+  wants: (command) => command.includes('git commit'),
+  ask: async (command) => {
+    const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
+    const { scriptsShell } = await import('@plot-pm/domain/adapters/scripts/scripts-shell');
+    const { DEFAULT_BRANCH_PREFIXES, briefNameCandidates, briefNameRefusal, briefPrefixesOf, chainedStagesOf } =
+      await import('@plot-pm/domain/rules/brief-name');
+
+    const cwd = process.cwd();
+    const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    const refs = refsGit({ repoRoot: cwd, scriptDir });
+
+    const root = await refs.repoRoot();
+    if (!root.ok) return null;
+    const config = await scriptsShell({ repoRoot: cwd, scriptDir }).config('Branch prefixes', DEFAULT_BRANCH_PREFIXES);
+    if (!config.ok) throw new Error('the Branch prefixes config read failed');
+    const prefixes = briefPrefixesOf(config.value);
+
+    const staged = await refs.stagedPaths();
+    const showPrefix = await refs.showPrefix();
+    if (!staged.ok || !showPrefix.ok) return null;
+
+    const chained = chainedStagesOf(command, showPrefix.value);
+    const untracked: string[] = [];
+    for (const pathspec of chained.adds) {
+      const paths = await refs.untrackedPaths(pathspec);
+      if (paths.ok) untracked.push(...paths.value);
+    }
+    const landed = { staged: staged.value, untracked, moves: chained.moves, prefixes };
+    const candidates = briefNameCandidates(landed);
+    if (candidates.length === 0) return null;
+
+    const inHead = new Set<string>();
+    const texts = new Map<string, string>();
+    const present = new Set<string>();
+    for (const { path, want } of candidates) {
+      const held = refs.fileExistsSync('HEAD', path);
+      if (held.ok && held.value) inHead.add(path);
+      try {
+        texts.set(path, readFileSync(join(root.value, path), 'utf8'));
+      } catch {
+        // No text in the working tree reads as no branch named.
+      }
+      if (existsSync(join(root.value, want))) present.add(want);
+    }
+    const branches = new Set<string>();
+    for (const remote of [false, true]) {
+      const names = await refs.listBranches(remote);
+      if (names.ok) for (const name of names.value) branches.add(name);
+    }
+
+    return briefNameRefusal({ ...landed, inHead, branches, texts, present });
+  },
+  onError: 'allow',
+};
+
 /** The registered gates. */
-export const GATES: readonly Gate[] = [bundleCommitGate];
+export const GATES: readonly Gate[] = [bundleCommitGate, briefNameGate];
 
 /** The exit codes the hook contract reads. */
 export const EXIT = { allow: 0, refuse: 2 } as const;

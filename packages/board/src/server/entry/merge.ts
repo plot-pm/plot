@@ -7,6 +7,10 @@ export interface MergePorts {
   host: Host;
   scripts: Scripts;
   defaultBranch: DefaultBranchStore;
+  /** The `Checks wait` bound, in milliseconds. */
+  checksWaitMs: number;
+  /** The clock, as epoch milliseconds. */
+  now: () => number;
 }
 
 /** What `plot-ask.mjs merge` prints, as one JSON line. */
@@ -21,9 +25,11 @@ export type MergeResult =
  * only whether to try, and a merge cannot be undone. On a pass the merge goes
  * through `plot-host.sh pr-merge --match-head <sha>`, so a push between the
  * reading and the merge fails at the host. A refusal ends the action; nothing
- * retries without the pin.
+ * retries without the pin. A default-branch read that fails refuses as
+ * `unaskable`; an absent reading holds nothing.
  *
- * @param ports - the host, the script port and the default-branch store.
+ * @param ports - the host, the script port, the default-branch store, the
+ *   `Checks wait` bound and the clock.
  * @param pr - the PR number.
  * @param sha - the head commit the caller read the checks for.
  * @returns the merge, or the refusal naming its reason; `host-refused` carries
@@ -35,9 +41,9 @@ export const mergeAt = async (ports: MergePorts, pr: number, sha: string): Promi
   const outcome = merge(
     {
       pr: lookup.ok ? lookup.value : 'unaskable',
-      defaultBranch: reading.ok ? reading.value : null,
+      defaultBranch: reading.ok ? reading.value : 'unaskable',
     },
-    { pr, sha },
+    { pr, sha, now: ports.now(), checksWaitMs: ports.checksWaitMs },
   );
   if (outcome.outcome === 'refused') {
     return { merged: false, reason: outcome.reason, detail: outcome.detail };

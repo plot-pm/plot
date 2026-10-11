@@ -339,6 +339,16 @@ export const refsGit = (context: ShellContext): Refs => {
         inRepo,
       ),
 
+    untrackedPaths: (pathspec) =>
+      runScript(
+        'git',
+        ['ls-files', '--others', '--exclude-standard', '--full-name', ...(pathspec === null ? [] : ['--', pathspec])],
+        asLines,
+        inRepo,
+      ),
+
+    showPrefix: () => runScript('git', ['rev-parse', '--show-prefix'], (stdout) => stdout.trim(), inRepo),
+
     filesNaming: async (term, globs) => {
       if (globs.length === 0) return answered<readonly string[]>([]);
       // `git grep` exits 1 when nothing matches, which is an answer, not a failure.

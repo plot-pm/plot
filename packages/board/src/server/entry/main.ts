@@ -1,12 +1,13 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { scriptsFor, primeAgentSettings, type BuildBoardOptions } from '../board.js';
+import { scriptsFor, primeAgentSettings, readConfigAsync, type BuildBoardOptions } from '../board.js';
 import { estateFromEnv } from '../estate.js';
 import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { defaultBranchFile } from '@plot-pm/domain/adapters/default-branch/default-branch-file';
+import { checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 import { mergeAt } from './merge.js';
 
@@ -143,7 +144,7 @@ export const run = async (
 
   if (argv[0] === 'merge') {
     const [, pr, sha] = argv;
-    if (!pr || !sha || !/^[0-9]+$/.test(pr)) {
+    if (!pr || !sha || !/^[0-9]+$/.test(pr) || !/^[0-9a-f]{40}$/i.test(sha)) {
       process.stderr.write('usage: plot-ask.mjs merge <pr> <sha>\n');
       return 2;
     }
@@ -153,6 +154,8 @@ export const run = async (
         host: hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
         scripts: scriptsFor(opts),
         defaultBranch: defaultBranchFile(opts.repoRoot),
+        checksWaitMs: checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')),
+        now: Date.now,
       },
       Number(pr),
       sha,
