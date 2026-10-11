@@ -273,6 +273,9 @@ const gitWhere = async (cwd: string, scriptDir: string): Promise<Where> => {
   return { root, linked: linked.ok && linked.value };
 };
 
+/** Whether the backend `plot-host.sh` resolved pins a merge: Bitbucket's `pr-merge --match-head` exits 4. */
+const hostPinsMerges = (backend: string): boolean => backend !== 'bitbucket';
+
 /** The backend `plot-host.sh` resolves, or `''` where it does not answer. */
 const hostBackend = async (cwd: string, scriptDir: string): Promise<string> => {
   const { hostShell } = await import('@plot-pm/domain/adapters/host/host-shell');
@@ -361,7 +364,7 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
     const action = controllerInvocation(stripped);
     const refusals: string[] = [];
     for (const program of unpinnedMerges(stripped)) {
-      if (pinUnavailable(program, await readings.backend(cwd, scriptDir))) {
+      if (pinUnavailable(program, hostPinsMerges(await readings.backend(cwd, scriptDir)))) {
         process.stderr.write(`${UNPINNABLE_NOTE}\n`);
       } else {
         refusals.push(unpinnedMergeRefusal(scriptDir, program));

@@ -85,7 +85,7 @@ describe('an unpinned plot-host.sh pr-merge on Bitbucket (M6)', () => {
       const answer = await ask(r, 'bash skills/plot/scripts/plot-host.sh pr-merge 12');
       expect(answer.code).toBe(EXIT.allow);
       expect(answer.warned).toBe('');
-      expect(write.mock.calls.join('')).toContain('nothing pins a merge to a commit');
+      expect(write.mock.calls.join('')).toContain('cannot pin a merge to a commit');
     } finally {
       write.mockRestore();
     }

@@ -380,7 +380,7 @@ test('controller gate: an unpinned plot-host.sh pr-merge passes on bitbucket and
     env: { ...process.env, PLOT_HOST: 'bitbucket' },
   });
   assert.equal(bb.status, 0, `bitbucket cannot pin (stderr: ${bb.stderr})`);
-  assert.match(bb.stderr, /nothing pins a merge to a commit/);
+  assert.match(bb.stderr, /cannot pin a merge to a commit/);
   const gh = spawnSync('bash', [gate], {
     cwd: dir, input: JSON.stringify({ tool_input: { command: 'gh pr merge 123' } }), encoding: 'utf8',
     env: { ...process.env, PLOT_HOST: 'bitbucket' },

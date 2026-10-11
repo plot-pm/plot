@@ -73,14 +73,14 @@ describe('unpinnedMerges', () => {
 });
 
 describe('pinUnavailable', () => {
-  it('lets an unpinned plot-host.sh pr-merge through on bitbucket only', () => {
-    expect(pinUnavailable('plot-host', 'bitbucket')).toBe(true);
-    expect(pinUnavailable('plot-host', 'github')).toBe(false);
-    expect(pinUnavailable('gh', 'bitbucket')).toBe(false);
+  it('lets an unpinned plot-host.sh pr-merge through only where the host cannot pin', () => {
+    expect(pinUnavailable('plot-host', false)).toBe(true);
+    expect(pinUnavailable('plot-host', true)).toBe(false);
+    expect(pinUnavailable('gh', false)).toBe(false);
   });
 
   it('says nothing pins there', () => {
-    expect(UNPINNABLE_NOTE).toContain('nothing pins a merge');
+    expect(UNPINNABLE_NOTE).toContain('cannot pin a merge');
   });
 });
 
