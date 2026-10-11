@@ -194,6 +194,10 @@ describe('briefBranchOf', () => {
     const dotted = '.plot/briefs/feature-v1.2.md';
     expect(briefBranchOf(dotted, readings({ texts: new Map([[dotted, 'idea/feature-v1x2']]) }))).toBeNull();
     expect(briefBranchOf(dotted, readings({ texts: new Map([[dotted, 'idea/feature-v1.2']]) }))).toBe('idea/feature-v1.2');
+    const odd = '.plot/briefs/a.b-x.md';
+    const prefixes = briefPrefixesOf('a.b/');
+    expect(briefBranchOf(odd, readings({ prefixes, texts: new Map([[odd, 'axb/a.b-x']]) }))).toBeNull();
+    expect(briefBranchOf(odd, readings({ prefixes, texts: new Map([[odd, 'a.b/a.b-x']]) }))).toBe('a.b/a.b-x');
   });
 });
 
