@@ -223,11 +223,18 @@ describe('a timeout sends TERM before KILL', () => {
   });
 
   it('sends KILL to a child that ignores TERM after its leader exited on TERM (#1084)', async () => {
-    // `gone()` polls for up to 10s; vitest's 5s default would fire first and
-    // skip the `finally` block that cleans up the straggler.
+    // `gone()` polls for up to 10s after the 2s grace; vitest's 5s default
+    // would fire first and skip the `finally` block that cleans up the
+    // straggler.
+    //
+    // The straggler reports surviving TERM itself: its trap prints a line and
+    // the loop goes on. Reading that line proves it outlived TERM without
+    // asking `kill -0` after the leader's exit event, which under load arrives
+    // after the KILL (#1571). Its `sleep` does not ignore TERM, so only the
+    // straggler's shell survives it.
     const leader = spawn(
       'bash',
-      ['-c', `sh -c 'trap "" TERM; echo ready; sleep 30' & echo $!; wait`],
+      ['-c', `sh -c 'trap "echo survived TERM" TERM; echo ready; while :; do sleep 1; done' & echo $!; wait`],
       { detached: true, stdio: ['ignore', 'pipe', 'ignore'] },
     );
     // The pid and 'ready' lines share one stdout; buffer and split rather than
@@ -254,15 +261,17 @@ describe('a timeout sends TERM before KILL', () => {
     await nextLine(); // 'ready': the straggler's trap is installed.
     try {
       const ended = exited(leader);
-      killGroup(leader, 300);
+      const survived = nextLine();
+      // 2s: the straggler's `sleep` must die and its trap run before the KILL.
+      killGroup(leader, 2_000);
       expect(await ended).toBe('SIGTERM');
-      expect(alive(straggler)).toBe(true);
+      expect(await survived).toBe('survived TERM');
       await gone(straggler);
       expect(alive(straggler)).toBe(false);
     } finally {
       if (alive(straggler)) process.kill(-leader.pid!, 'SIGKILL');
     }
-  }, 15_000);
+  }, 20_000);
 
   it('sends KILL to a group that ignores TERM once the grace has passed', async () => {
     // An ignored signal stays ignored across `exec`, so `sleep` ignores TERM too.
