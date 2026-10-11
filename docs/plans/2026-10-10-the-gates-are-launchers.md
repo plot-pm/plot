@@ -144,7 +144,7 @@ On 2026-10-10 jwloka moved three findings from `the-controllers-close-their-revi
 
 ### The bundle gate
 
-- `feature/the-bundle-gate-is-a-launcher` — `plot-bundle-commit-gate.sh` becomes a launcher; `bundleCommitRefusal` decides from the staged paths and the `shipped*` declarations of `build.mjs`; a staged name-status operation joins `Refs`; `hooks/hooks.json` registers `plot-gates.sh` and drops this gate's line. Decision count 52 → 51 <!-- builds: bundleCommitRefusal and a staged-index Refs operation -->
+- `feature/the-bundle-gate-is-a-launcher` → #1520 — `plot-bundle-commit-gate.sh` becomes a launcher; `bundleCommitRefusal` decides from the staged paths and the `shipped*` declarations of `build.mjs`; a staged name-status operation joins `Refs`; `hooks/hooks.json` registers `plot-gates.sh` and drops this gate's line. Decision count 52 → 51 <!-- builds: bundleCommitRefusal and a staged-index Refs operation -->
 
 ### The brief-name gate
 
