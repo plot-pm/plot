@@ -54,6 +54,7 @@ const bridged = (at: number): BridgedPulse => ({
   branchUrlBase: 'https://github.com/plot-pm/plot/tree/',
   approvedAt: new Map<string, number>([['2026-08-17-a-plan.md', 1_700_000_000_000]]),
   ideaPlans: new Map<string, string>([['idea/a-plan', '2026-08-17-a-plan.md']]),
+  prError: null,
 });
 
 let repo: string;
@@ -81,6 +82,17 @@ describe('the fleet state port round-trips what a restart needs', () => {
     expect(value!.branchUrlBase).toBe('https://github.com/plot-pm/plot/tree/');
     expect(value!.approvedAt.get('2026-08-17-a-plan.md')).toBe(1_700_000_000_000);
     expect(value!.ideaPlans.get('idea/a-plan')).toBe('2026-08-17-a-plan.md');
+  });
+
+  it('round-trips the fleet\'s last PR error, null included', async () => {
+    const state = fleetStateFile({ repoRoot: repo });
+    const now = Date.now();
+    await state.write({ ...bridged(now), prError: 'gh: HTTP 502' });
+    const failing = await state.read();
+    expect(failing.ok && failing.value?.prError).toBe('gh: HTTP 502');
+    await state.write(bridged(now));
+    const healthy = await state.read();
+    expect(healthy.ok && healthy.value?.prError).toBeNull();
   });
 
   it('answers readSync with what read answers, and null past the expiry', async () => {

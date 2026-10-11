@@ -89,6 +89,7 @@ export const startFleetClock = (
  * @param after - runs with the pulse the scan just wrote, on a successful scan
  *   only. A scan that throws or whose bridge write is refused never calls it,
  *   so no automatic write acts on a pulse that did not land.
+ * @param prError - reads the PR reader's last failure sentence, bridged beside the pulse.
  * @returns the function to hand to {@link startFleetClock} as `scan`.
  */
 export const fleetScan = (
@@ -98,11 +99,12 @@ export const fleetScan = (
   now: () => number,
   warn: (line: string) => void,
   after?: (pulse: FleetReading) => Promise<void>,
+  prError: () => string | null = () => null,
 ): (() => Promise<void>) => async () => {
   let landed: FleetReading | null = null;
   try {
     const result = await scanOnce(world, state, { record: false });
-    if (await writeScan(fleetState, result, now())) landed = result.reading;
+    if (await writeScan(fleetState, result, now(), prError())) landed = result.reading;
     else warn('plot-fleetd: bridge write refused');
   } catch (e) {
     warn(`plot-fleetd: scan failed: ${e instanceof Error ? e.message : String(e)}`);

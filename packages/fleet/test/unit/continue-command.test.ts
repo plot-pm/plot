@@ -106,6 +106,7 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
       branchUrlBase: '',
       approvedAt: new Map(),
       ideaPlans: new Map(),
+      prError: null,
     });
     expect(wrote.ok).toBe(true);
     const out: string[] = [];

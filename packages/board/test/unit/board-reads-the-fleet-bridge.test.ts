@@ -36,13 +36,14 @@ const PULSE: FleetReading = {
   },
 };
 
-const bridged = (at: number): BridgedPulse => ({
+const bridged = (at: number, prError: string | null = null): BridgedPulse => ({
   at,
   pulse: PULSE,
   ages: new Map([['feature/a', 3]]),
   branchUrlBase: 'https://example.invalid/tree/',
   approvedAt: new Map(),
   ideaPlans: new Map(),
+  prError,
 });
 
 const temps: string[] = [];
@@ -65,7 +66,7 @@ const fixture = (supervisorUp: boolean) => {
   );
   fs.writeFileSync(
     path.join(dir, 'plot-fleetctl.sh'),
-    `#!/usr/bin/env bash\necho 'summary: install=installed'\nexit ${supervisorUp ? 0 : 1}\n`,
+    `#!/usr/bin/env bash\necho x >> ${JSON.stringify(path.join(dir, 'ctl.log'))}\necho 'summary: install=installed'\nexit ${supervisorUp ? 0 : 1}\n`,
   );
   const hosts = path.join(dir, 'hosts.log');
   const row = JSON.stringify({
@@ -85,7 +86,8 @@ const fixture = (supervisorUp: boolean) => {
   const opts = { repoRoot: dir, scriptsDir: dir };
   const prListed = (): number => (fs.existsSync(hosts) ? fs.readFileSync(hosts, 'utf8').split('\n').filter(Boolean).length : 0);
   const spawned = (): string[] => (fs.existsSync(scans) ? fs.readFileSync(scans, 'utf8').split('\n').filter(Boolean) : []);
-  return { dir, opts, spawned, prListed };
+  const supervisorReads = (): number => (fs.existsSync(path.join(dir, 'ctl.log')) ? fs.readFileSync(path.join(dir, 'ctl.log'), 'utf8').split('\n').filter(Boolean).length : 0);
+  return { dir, opts, spawned, prListed, supervisorReads };
 };
 
 beforeEach(() => {
@@ -191,5 +193,80 @@ describe('the PR side of the board', () => {
     expect(entry.prsByNumber?.get(7)?.head).toBe('feature/a');
     const file = await prIndexFile({ cwd: dir }).location('github');
     expect(fs.existsSync(file.ok ? file.value : '')).toBe(false);
+  });
+});
+
+describe('the PR reader while a fleet runs', () => {
+  const seedStore = async (dir: string) => {
+    const index = prIndexFile({ cwd: dir });
+    const { foldPrIndex } = await vi.importActual<typeof import('@plot-pm/domain')>('@plot-pm/domain');
+    await index.write('github', foldPrIndex(null, { connector: 'github', rows: [heldRow], kind: 'whole', at: new Date().toISOString() }));
+  };
+
+  it('shows the fleet\'s last PR error beside the maps it served', async () => {
+    const { dir, opts } = fixture(true);
+    await seedStore(dir);
+    await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000, 'gh: HTTP 502'));
+    const entry = freshCacheEntry();
+    await refresh(opts, entry);
+    await maybeRefreshPrs(opts, entry);
+    expect(entry.prError).toBe('gh: HTTP 502');
+  });
+
+  it('clears the error once the fleet bridges none', async () => {
+    const { dir, opts } = fixture(true);
+    await seedStore(dir);
+    const entry = freshCacheEntry();
+    entry.prError = 'old';
+    await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
+    await refresh(opts, entry);
+    await maybeRefreshPrs(opts, entry);
+    expect(entry.prError).toBeNull();
+  });
+
+  it('names an unreadable index instead of leaving the reader looking healthy', async () => {
+    const { dir, opts } = fixture(true);
+    await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
+    const entry = freshCacheEntry();
+    await refresh(opts, entry);
+    expect(entry.prError).toBeNull();
+    await maybeRefreshPrs(opts, entry);
+    expect(entry.prError).not.toBeNull();
+  });
+});
+
+describe('an owned refresh', () => {
+  it('skips the display reads while the bridge `at` is unchanged, and redoes them when it advances', async () => {
+    const { dir, opts, supervisorReads } = fixture(true);
+    const state = fleetStateFile({ repoRoot: dir });
+    const at = Date.now() - 2_000;
+    await state.write(bridged(at));
+    const entry = freshCacheEntry();
+    await refresh(opts, entry);
+    const first = supervisorReads();
+    expect(first).toBe(1);
+    entry.versions = new Map([['sentinel', '1']]);
+    entry.unmerged = new Set(['sentinel']);
+    entry.questions = new Map([['sentinel', { firstLine: 'x', askedAt: 'y' }]]);
+    await refresh(opts, entry);
+    expect(supervisorReads()).toBe(first);
+    expect(entry.versions.has('sentinel')).toBe(true);
+    expect(entry.unmerged.has('sentinel')).toBe(true);
+    expect(entry.questions.has('sentinel')).toBe(true);
+    await state.write(bridged(at + 1_000));
+    await refresh(opts, entry);
+    expect(supervisorReads()).toBe(first + 1);
+    expect(entry.versions.has('sentinel')).toBe(false);
+    expect(entry.unmerged.has('sentinel')).toBe(false);
+    expect(entry.questions.has('sentinel')).toBe(false);
+  });
+
+  it('never skips when the board scans for itself', async () => {
+    const { dir, opts, supervisorReads } = fixture(false);
+    await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
+    const entry = freshCacheEntry();
+    await refresh(opts, entry);
+    await refresh(opts, entry);
+    expect(supervisorReads()).toBe(2);
   });
 });

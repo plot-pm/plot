@@ -401,12 +401,14 @@ export const scanOnce = async (
  * @param fleetState - the bridge port.
  * @param result - what the scan read.
  * @param at - epoch ms the scan completed.
+ * @param prError - the fleet's last PR-read failure sentence, or `null`.
  * @returns whether the write landed.
  */
 export const writeScan = async (
   fleetState: FleetState,
   result: ScanResult,
   at: number,
+  prError: string | null = null,
 ): Promise<boolean> => {
   const written = await fleetState.write({
     at,
@@ -415,6 +417,7 @@ export const writeScan = async (
     branchUrlBase: result.branchUrlBase,
     approvedAt: result.approvedAt,
     ideaPlans: result.ideaPlans,
+    prError,
   });
   return written.ok;
 };

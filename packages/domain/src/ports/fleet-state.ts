@@ -62,8 +62,8 @@ export interface FleetState {
 /**
  * What survives a restart: the pulse and the facts read on its own timer.
  *
- * The same shape `pulse-bridge.ts` defined before this port existed — six
- * fields, all six written together on every success so a thin or partial
+ * The shape `pulse-bridge.ts` defined before this port existed, plus `prError`
+ * — seven fields, all written together on every success so a thin or partial
  * write can never become the bridge's final content.
  */
 export interface BridgedPulse {
@@ -77,4 +77,10 @@ export interface BridgedPulse {
   approvedAt: Map<string, number>;
   /** Idea branch → the plan file it carries. */
   ideaPlans: Map<string, string>;
+  /**
+   * The fleet's last PR-read failure or partial-answer sentence, or `null` where
+   * its last pass raised none. The fleet is the only process that asks the host
+   * in owned mode; the board relays this and sets it nowhere.
+   */
+  prError: string | null;
 }

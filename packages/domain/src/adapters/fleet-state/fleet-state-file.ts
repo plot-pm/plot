@@ -75,6 +75,7 @@ const parseBridge = (raw: string, nowMs: number): BridgedPulse | null => {
       branchUrlBase: typeof parsed.branchUrlBase === 'string' ? parsed.branchUrlBase : '',
       approvedAt: toMap(parsed.approvedAt, isNumber),
       ideaPlans: toMap(parsed.ideaPlans, isString),
+      prError: typeof parsed.prError === 'string' ? parsed.prError : null,
     };
   } catch {
     return null;
@@ -134,6 +135,7 @@ export const fleetStateFile = (options: FleetStateFileOptions): FleetState => {
           branchUrlBase: data.branchUrlBase,
           approvedAt: toEntries(data.approvedAt),
           ideaPlans: toEntries(data.ideaPlans),
+          prError: data.prError,
         });
         // The temp name carries the pid: two processes writing at once must
         // not collide on the SAME temp file, which would produce exactly the
