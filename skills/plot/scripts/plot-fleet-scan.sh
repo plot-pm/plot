@@ -221,7 +221,7 @@
 #
 # 2. `.plot/state/last-pulse.json` — the bridge, written by `write_bridge` on
 #    the success path of `--stream` (unless PLOT_SCAN_RECORD=0) and `--log-pulse`
-#    (what /plot-pulse passes). Those are the two callers that produce a pulse
+#    (what /plot-pulse passes; not while the fleet's writer holds the bridge). Those are the two callers that produce a pulse
 #    for somebody to READ; plain `--json` is a query and records nothing. That
 #    is a CACHE WITH AN EXPIRY: `pulse-bridge.ts` discards it after 15 minutes
 #    and on a version mismatch, so it can only ever be a shortcut to an answer
@@ -5122,8 +5122,8 @@ fi
 # each with `toMap`, which yields an empty Map for anything it cannot use, and
 # `branchUrlBase` falls back to `''`. So a scan-written bridge serves the rows,
 # the verdicts and the counts, with unknown ages and no branch links — degraded
-# in the direction the board already handles, and overwritten by the board's own
-# richer write seconds later on the refresh it always issues.
+# in the direction the board already handles. While the fleet runs, its
+# `writeScan` writes the full bridge and `--log-pulse` writes none.
 #
 # TEMP FILE PLUS RENAME, carrying the pid, exactly as `writeBridge` does and for
 # the same reason: `rename` is atomic within a filesystem, so a board reading
@@ -5173,8 +5173,11 @@ write_bridge() {
   # git rather than assuming the two agree.
   local root file tmp
   root=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
-  [ -n "$root" ] || return 0
   file="$root/.plot/state/last-pulse.json"
+  # `--log-pulse` leaves a bridge the fleet's writer holds (`fleetHoldsBridge`):
+  # one writer while a fleet runs. A missing, stale or thin bridge, or a failed
+  # ask, writes as before, so a repository with no board and no fleet keeps its history.
+  [ "$log_pulse" = 1 ] && [ -f "$file" ] && node "$script_dir/board/plot-delta.mjs" --held < "$file" 2>/dev/null && return 0
   mkdir -p "$root/.plot/state" 2>/dev/null || return 0
   tmp="$file.$$.tmp"
   # `at` is when the scan COMPLETED, which is what `pulse-bridge.ts:81` asks for

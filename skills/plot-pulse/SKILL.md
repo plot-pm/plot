@@ -66,7 +66,7 @@ database. It is machine-local and gitignored, it is discarded after fifteen
 minutes and on a version mismatch, and deleting it changes no behaviour: the
 scan re-derives every fact either way, and the only thing lost is the answer to
 *what moved since last time*. A delta is a comparison of two derivations, never
-a memory of one.
+a memory of one. While a fleet runs, its supervisor writes that file, and a pulse does not overwrite a copy the fleet wrote in the last 180 s; the next pulse compares against the fleet's last scan.
 
 **Log clean pulses too.** A pulse that finds nothing wrong must still say so.
 Without that, an idle fleet and a dead fleet look identical — so `--log-pulse`

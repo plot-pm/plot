@@ -41,3 +41,43 @@ export const fleetOwnsScan = (readings: ScanOwnerReadings): boolean => {
   const age = readings.now - readings.bridgeAt;
   return age >= 0 && age <= OWNED_BRIDGE_MAX_AGE_MS;
 };
+
+/**
+ * Whether a bridge was written within {@link OWNED_BRIDGE_MAX_AGE_MS}.
+ *
+ * @param bridgeAt - epoch ms of the bridged pulse, or `null` where there is none.
+ * @param now - epoch ms now.
+ * @returns false with no bridge, for a bridge from the future, and past the bound.
+ */
+export const bridgeIsFresh = (bridgeAt: number | null, now: number): boolean => {
+  if (bridgeAt === null) return false;
+  const age = now - bridgeAt;
+  return age >= 0 && age <= OWNED_BRIDGE_MAX_AGE_MS;
+};
+
+/** What a bridge file shows about its writer. */
+export interface BridgeWriterReadings {
+  /** Epoch ms of the bridged pulse, or `null` where there is none. */
+  bridgeAt: number | null;
+  /**
+   * Whether the bridge carries a fact the fleet reads on its own timers: a
+   * branch age, an approval date, an idea plan or a branch URL base. The
+   * scan's own write carries none of them.
+   */
+  carriesTimerFacts: boolean;
+  /** Epoch ms now. */
+  now: number;
+}
+
+/**
+ * Whether the fleet's writer holds the bridge, so a pulse leaves it alone.
+ *
+ * True when the bridge is fresh and carries a timer fact, which only the
+ * fleet's `writeScan` writes. A missing, stale or thin bridge has no live
+ * writer, and a pulse that records writes it.
+ *
+ * @param readings - the bridge's time, whether it carries timer facts, and the clock.
+ * @returns true when a pulse must not write the bridge.
+ */
+export const fleetHoldsBridge = (readings: BridgeWriterReadings): boolean =>
+  readings.carriesTimerFacts && bridgeIsFresh(readings.bridgeAt, readings.now);
