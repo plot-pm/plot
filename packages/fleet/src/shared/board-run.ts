@@ -42,6 +42,8 @@ export interface BoardRunSpec {
   readonly boundSeconds?: number;
   /** The config reader; {@link readConfig} where absent. */
   readonly readCfg?: BoardConfigReader;
+  /** Called with the agent process's pid once the run has started it. */
+  readonly onStarted?: (pid: number) => void;
 }
 
 /** The runs this board process holds: each state file, and its log. */
@@ -136,17 +138,14 @@ export const writeState = (statePath: string | null, code: number): void => {
  *
  * @param statePath - the run's state file.
  * @param logFile - the run's log, where a board exit names itself.
- * @param exclusive - create the file with `O_EXCL`, so a file already there is
- *   left untouched; this is how a run takes a lock another process can read.
- * @throws where the state file cannot be written; `EEXIST` where `exclusive`
- *   and the file exists.
+ * @throws where the state file cannot be written.
  */
-export const markBoardRun = (statePath: string, logFile: string, exclusive = false): void => {
+export const markBoardRun = (statePath: string, logFile: string): void => {
   if (!exitListenerInstalled) {
     exitListenerInstalled = true;
     process.on('exit', endHeldRuns);
   }
-  fs.writeFileSync(statePath, `running ${process.pid}`, { encoding: 'utf8', flag: exclusive ? 'wx' : 'w' });
+  fs.writeFileSync(statePath, `running ${process.pid}`, 'utf8');
   held.set(statePath, logFile);
 };
 
@@ -235,6 +234,7 @@ export const startBoardRun = async (
       capabilities: [],
       env: spec.env,
       logFile: spec.logFile,
+      onStarted: spec.onStarted,
     })
     .then((result) => {
       if (!result.ok) {
@@ -274,7 +274,7 @@ export interface RunState {
 export const STOPPED_RECORD = 'on the board stopping before the run ended';
 
 /** Whether a process with this pid exists. */
-export const alive = (pid: number): boolean => {
+const alive = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
     return true;

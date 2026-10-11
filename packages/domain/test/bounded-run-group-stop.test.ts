@@ -240,3 +240,24 @@ describe('boundedRunProcess on a command that cannot start', () => {
     expect(result).toEqual({ ok: false, why: 'failed' });
   });
 });
+
+describe('boundedRunProcess onStarted', () => {
+  it('hands the child\'s pid to onStarted, and a throwing callback leaves the run to finish', async () => {
+    outFile = freshOutFile();
+    const { boundedRunProcess } = await import('../src/adapters/bounded-run/bounded-run-process.js');
+    const { processesShell } = await import('../src/adapters/processes/processes-shell.js');
+    const run = boundedRunProcess(processesShell({ repoRoot: process.cwd(), scriptDir: '/nonexistent' }));
+    const started: number[] = [];
+    const result = await run.run('sh', ['-c', 'echo "$$"'], {
+      cwd: scratch,
+      boundSeconds: 0,
+      outFile,
+      onStarted: (pid) => {
+        started.push(pid);
+        throw new Error('the record could not be written');
+      },
+    });
+    expect(result).toMatchObject({ ok: true, value: { status: 0 } });
+    expect(started).toEqual([Number(fs.readFileSync(outFile, 'utf8').trim())]);
+  });
+});

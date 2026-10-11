@@ -124,6 +124,45 @@ describe('the detached dispatch entry', () => {
     expect(warned.join('')).toContain('implement-running');
   });
 
+  it('names the launch log by the launching process\'s pid where no launch id is given', async () => {
+    let launchLog = '';
+    await runDetached([SLUG], repo, SCRIPT_DIR, {
+      launch: (_slug, _root, log) => {
+        launchLog = log;
+        return { pid: 1, exitCode: () => 1 };
+      },
+    }, () => {}, () => {});
+    expect(path.basename(launchLog)).toContain(`.launch.${process.pid}.`);
+  });
+
+  it('gives each launch its own log, so a launch that loses the lock leaves the winner\'s log whole', async () => {
+    const logs: string[] = [];
+    const winner = await runDetached([SLUG], repo, SCRIPT_DIR, {
+      launchId: 'first',
+      launch: (_slug, _root, launchLog) => {
+        logs.push(launchLog);
+        fs.writeFileSync(launchLog, 'the winner wrote this\n');
+        fs.writeFileSync(implementStatePath(repo, SLUG), `running ${process.pid}`);
+        return { pid: process.pid, exitCode: () => null };
+      },
+    }, () => {});
+    expect(winner).toBe(0);
+    const warned: string[] = [];
+    const loser = await runDetached([SLUG], repo, SCRIPT_DIR, {
+      launchId: 'second',
+      launch: (_slug, _root, launchLog) => {
+        logs.push(launchLog);
+        fs.writeFileSync(launchLog, 'plot-dispatch-command: implement-running: already\n');
+        return { pid: 1, exitCode: () => 1 };
+      },
+    }, () => {}, (s) => warned.push(s));
+    expect(loser).toBe(1);
+    expect(warned.join('')).toContain('implement-running');
+    expect(logs[0]).not.toBe(logs[1]);
+    expect(fs.readFileSync(logs[0], 'utf8')).toBe('the winner wrote this\n');
+    expect(fs.existsSync(logs[1])).toBe(false);
+  });
+
   it('gives up where the implement never starts within the wait', async () => {
     const warned: string[] = [];
     const code = await runDetached([SLUG], repo, SCRIPT_DIR, {

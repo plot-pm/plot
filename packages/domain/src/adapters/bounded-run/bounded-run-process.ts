@@ -114,6 +114,14 @@ export const boundedRunProcess = (processes: Processes): BoundedRun => ({
         stdio: ['ignore', out, out],
       });
 
+      // A THROWING CALLBACK MUST NOT ABANDON A STARTED CHILD: the listeners
+      // below are what end and record it.
+      try {
+        if (child.pid !== undefined) options.onStarted?.(child.pid);
+      } catch {
+        /* the caller's record is incomplete; the run goes on */
+      }
+
       let settled = false;
       let timedOut = false;
       let timer: NodeJS.Timeout | undefined;

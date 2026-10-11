@@ -58,6 +58,8 @@ export interface BoundedRunOptions {
   boundSeconds: number;
   /** Where the command's combined output is written as it runs. */
   outFile: string;
+  /** Called with the command's pid once it has started. */
+  onStarted?: (pid: number) => void;
 }
 
 /** What one bounded run produced. */

@@ -385,6 +385,12 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
       pathToClaudeCodeExecutable: deps.pathToClaudeCodeExecutable,
       spawnClaudeCodeProcess: (spawnOptions) => {
         child = deps.spawnClaudeCodeProcess(spawnOptions);
+        const pid = pidOf(child);
+        try {
+          if (pid !== undefined) request.onStarted?.(pid);
+        } catch {
+          /* the caller's record is incomplete; the run goes on */
+        }
         return child;
       },
       abortController,

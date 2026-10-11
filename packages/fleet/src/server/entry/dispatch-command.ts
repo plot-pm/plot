@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
@@ -31,8 +31,10 @@ import {
  * `--foreground` in a detached process, which holds the implement lock and
  * waits for the implement to end, and returns when the state file reads
  * `running <that pid>`. A caller with a tool timeout therefore never holds the
- * implement open. {@link run} is the detached process's body: it waits for the
- * implement and its exit code reports whether the dispatch started.
+ * implement open. Each launch writes its own launch log, named by the launching
+ * process's pid, so a launch that loses the lock leaves the winner's log whole.
+ * {@link run} is the detached process's body: it waits for the implement and
+ * its exit code reports whether the dispatch started.
  *
  * Not listed in the controller gate's `GATED` set: this command is the caller
  * that gate admits, and it writes the receipt itself.
@@ -55,6 +57,8 @@ export interface DispatchCommandDeps {
   launch?: (slug: string, repoRoot: string, launchLog: string) => LaunchedChild;
   /** How long {@link runDetached} waits for the implement to start, in ms; 30 s where absent. */
   startWaitMs?: number;
+  /** Names this launch's log apart from a concurrent launch's; this process's pid where absent. */
+  launchId?: string;
 }
 
 /** The process {@link runDetached} waits on. */
@@ -167,7 +171,7 @@ export const runDetached = async (
     return 1;
   }
   const repoRoot = probe.value;
-  const launchLog = agentLogPath(repoRoot, 'implement', `${slug}.launch`, 'log');
+  const launchLog = agentLogPath(repoRoot, 'implement', `${slug}.launch.${deps.launchId ?? process.pid}`, 'log');
   const child = (deps.launch ?? launchSelf)(slug, repoRoot, launchLog);
   const statePath = implementStatePath(repoRoot, slug);
   const deadline = Date.now() + (deps.startWaitMs ?? 30_000);
@@ -191,6 +195,8 @@ export const runDetached = async (
         /* the process wrote nothing */
       }
       warn(said === '' ? `plot-dispatch-command: the dispatch process exited ${code} before the implement started\n` : said);
+      // Relayed above, and no later reader looks for a launch that started nothing.
+      rmSync(launchLog, { force: true });
       return code === 0 ? 1 : code;
     }
     await new Promise((resolve) => setTimeout(resolve, 50));

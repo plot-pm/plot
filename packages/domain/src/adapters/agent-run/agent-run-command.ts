@@ -66,6 +66,7 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
         env: { ...request.env, ...backgroundGateEnv() },
         boundSeconds: request.boundSeconds,
         outFile: request.logFile,
+        onStarted: request.onStarted,
       },
     );
     if (!result.ok) return failed();

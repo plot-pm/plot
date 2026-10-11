@@ -65,6 +65,8 @@ export interface AgentRunRequest {
   readonly env: Readonly<Record<string, string>>;
   /** Where this run's combined output is appended as it runs; the caller truncates it where it wants a fresh log. */
   readonly logFile: string;
+  /** Called with the agent process's pid once it has started; not called where the connector starts none. */
+  readonly onStarted?: (pid: number) => void;
 }
 
 /**

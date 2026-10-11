@@ -57,6 +57,19 @@ describe('agentRunCommand', () => {
     expect(args).toEqual(['-u', 'PLOT_REPO_ROOT', 'bash', '-c', 'claude -p "$@"', '_', promptText]);
   });
 
+  it('hands the started command\'s pid to request.onStarted', async () => {
+    const boundedRun: BoundedRun = {
+      run: async (_command, _args, options) => {
+        options.onStarted?.(4242);
+        return answered<BoundedRunResult>({ status: 0, timedOut: false, ranSeconds: 1 });
+      },
+    };
+    const adapter = agentRunCommand({ boundedRun, fragment: 'claude -p', limitPatterns: undefined, now: () => 0 });
+    const started: number[] = [];
+    await adapter.run(request({ onStarted: (pid) => started.push(pid) }, dir, logFile));
+    expect(started).toEqual([4242]);
+  });
+
   it('never interpolates request.prompt into the script, even when the prompt contains shell metacharacters', async () => {
     let args: readonly string[] = [];
     const boundedRun: BoundedRun = {
