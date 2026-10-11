@@ -22,7 +22,10 @@ export const phaseWordOf = (raw: string): PlanPhase | null => {
   return null;
 };
 
-/** The value of a `status:` or `phase:` key in a leading `---` front-matter block; `status:` wins. */
+/**
+ * The value of a `status:` or `phase:` key in a leading `---` front-matter
+ * block; `status:` wins, and the first occurrence of each key wins.
+ */
 const frontMatterPhaseOf = (text: string): string => {
   if (!/^---[ \t]*(\n|$)/.test(text)) return '';
   let status = '';
@@ -119,6 +122,14 @@ export const outsideReviewArtifacts = (path: string, { planDir, storyDir }: Revi
   return !path.includes(`/${base}/`);
 };
 
+/**
+ * Whether a path is outside the plan directory. The phase check's carve-out:
+ * under a Draft or Design plan only the plan directory passes, while the hold
+ * check also passes story and `.plot/` paths ({@link outsideReviewArtifacts}).
+ */
+export const outsidePlanDir = (path: string, planDir: string): boolean =>
+  !path.startsWith(`${planDir.replace(/\/+$/, '')}/`);
+
 /** What the hold check reads. */
 export interface HoldReadings extends ReviewHomes {
   /** The current branch. */
@@ -150,7 +161,9 @@ export const holdRefusal = ({ branch, hold, paths, ...homes }: HoldReadings): st
 };
 
 /** What the phase check reads once it holds the plan's phase. */
-export interface PhaseReadings extends ReviewHomes {
+export interface PhaseReadings {
+  /** The `Plan directory` config value. */
+  planDir: string;
   /** The current branch. */
   branch: string;
   /** The branch's slug. */
@@ -166,12 +179,12 @@ export interface PhaseReadings extends ReviewHomes {
 /**
  * The refusal for an implementation commit while its plan is still Draft or
  * Design on the shared ref, or `null`. The refusal names the phase as read.
- * A commit carrying only plan, story or `.plot/` paths passes, as does an
+ * A commit carrying only paths under the plan directory passes, as does an
  * unreadable phase: the gate refuses only on a phase it read.
  */
-export const phaseGateRefusal = ({ branch, slug, ref, phase, paths, ...homes }: PhaseReadings): string | null => {
+export const phaseGateRefusal = ({ branch, slug, ref, phase, paths, planDir }: PhaseReadings): string | null => {
   if (phase !== 'draft' && phase !== 'design') return null;
-  if (!paths.some((path) => outsideReviewArtifacts(path, homes))) return null;
+  if (!paths.some((path) => outsidePlanDir(path, planDir))) return null;
   const title = `${phase.charAt(0).toUpperCase()}${phase.slice(1)}`;
   return [
     `plot phase gate: branch '${branch}' implements plan '${slug}', which is still ${title} on ${ref}.`,

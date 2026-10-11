@@ -263,7 +263,7 @@ const stateGate: Gate = {
  * (`Plan directory`, `Story directory`, `Branch prefixes`, `Main branch`) and
  * `effectivePaths`. `holdRefusal` runs first and for any branch. For a branch
  * under an implementation prefix whose commit carries a path outside the
- * plan, story and `.plot/` homes, it reads the plan from `origin/<main>`, then
+ * plan directory, it reads the plan from `origin/<main>`, then
  * from `origin/<branch>`, never the working tree. A plan on neither shared ref
  * but present locally, and an unreadable `origin/<main>`, allow and print that
  * the phase went UNVERIFIED; a plan nowhere allows silently. A failed config
@@ -279,7 +279,7 @@ const phaseGate: Gate = {
     const {
       holdRefusal,
       implementationPrefixesOf,
-      outsideReviewArtifacts,
+      outsidePlanDir,
       phaseGateRefusal,
       planPathFor,
       planPhaseOf,
@@ -334,7 +334,7 @@ const phaseGate: Gate = {
     if (held !== null) return held;
 
     const slug = slugOfBranch(branch, implementationPrefixesOf(prefixRead.value));
-    if (slug === null || !paths.some((path) => outsideReviewArtifacts(path, homes))) return null;
+    if (slug === null || !paths.some((path) => outsidePlanDir(path, homes.planDir))) return null;
 
     const mainRead = await scripts.config('Main branch', '');
     let main = mainRead.ok ? mainRead.value.trim() : '';
@@ -349,10 +349,14 @@ const phaseGate: Gate = {
       return null;
     }
 
+    // `ls-tree` reads its pathspec against the cwd, so the plan is listed
+    // from the repository root: a commit run from a subdirectory reads the
+    // same plan directory as one run from the top.
+    const atRoot = refsGit({ repoRoot: root.value, scriptDir });
     const planOn = async (at: string): Promise<string | null> => {
       const tip = await refs.resolve(`${at}^{commit}`);
       if (!tip.ok) return null;
-      const blobs = await refs.listBlobs(at, `${homes.planDir}/`);
+      const blobs = await atRoot.listBlobs(at, `${homes.planDir}/`);
       return blobs.ok ? planPathFor(blobs.value.map((blob) => blob.path), homes.planDir, slug) : null;
     };
     let planPath = await planOn(ref);
@@ -375,7 +379,7 @@ const phaseGate: Gate = {
 
     const text = await refs.showFile(ref, planPath);
     if (!text.ok) return null;
-    return phaseGateRefusal({ branch, slug, ref, phase: planPhaseOf(text.value), paths, ...homes });
+    return phaseGateRefusal({ branch, slug, ref, phase: planPhaseOf(text.value), paths, planDir: homes.planDir });
   },
   onError: 'allow',
 };

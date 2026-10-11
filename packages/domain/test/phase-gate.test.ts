@@ -4,6 +4,7 @@ import {
   holdRefusal,
   implementationPrefixesOf,
   isPlanFileFor,
+  outsidePlanDir,
   outsideReviewArtifacts,
   phaseGateRefusal,
   phaseWordOf,
@@ -144,9 +145,27 @@ describe('phaseGateRefusal', () => {
     expect(phaseGateRefusal({ ...base, phase })).toBeNull();
   });
 
-  it('allows a commit carrying only review artifacts', () => {
-    const paths = ['docs/plans/2026-10-10-x.md', 'clients/acme/stories/s/a.md', '.plot/briefs/x.md'];
+  it('allows a commit carrying only plan-directory paths', () => {
+    const paths = ['docs/plans/2026-10-10-x.md', 'docs/plans/active/x.md'];
     expect(phaseGateRefusal({ ...base, phase: 'draft', paths })).toBeNull();
+  });
+
+  it.each([
+    'docs/stories/s/README.md',
+    '.plot/notes.md',
+    'clients/acme/stories/x.md',
+    'epics/e/x.md',
+  ])('refuses a Draft commit carrying only %s', (path) => {
+    expect(phaseGateRefusal({ ...base, phase: 'draft', paths: [path] })).toContain('still Draft');
+  });
+});
+
+describe('outsidePlanDir', () => {
+  it('passes only the plan directory, with or without a trailing slash', () => {
+    expect(outsidePlanDir('docs/plans/a.md', 'docs/plans/')).toBe(false);
+    expect(outsidePlanDir('docs/plans/a.md', 'docs/plans')).toBe(false);
+    expect(outsidePlanDir('docs/plansx/a.md', 'docs/plans')).toBe(true);
+    expect(outsidePlanDir('docs/stories/s/a.md', 'docs/plans')).toBe(true);
   });
 });
 

@@ -108,6 +108,32 @@ test('gate: allows plan-only commit on Draft plan', () => {
   assert.equal(runGate(dir).code, 0);
 });
 
+// The phase check passes only the plan directory. Story and `.plot/` paths
+// pass the HOLD check, not this one: under a Draft plan they refuse.
+test('gate: blocks a story-only commit on Draft plan', () => {
+  const dir = repoWith({ branch: 'feature/x', planPhase: 'Draft', stage: ['docs/stories/s/README.md'] });
+  const r = runGate(dir);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /still Draft/);
+});
+
+test('gate: blocks a .plot/-only commit on Draft plan', () => {
+  const dir = repoWith({ branch: 'feature/x', planPhase: 'Draft', stage: ['.plot/notes.md'] });
+  const r = runGate(dir);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /still Draft/);
+});
+
+// A hook can run with a cwd below the repository root, as `git -C src commit`
+// does. The plan is read from the root all the same.
+test('gate: blocks impl commit on Draft plan from a subdirectory', () => {
+  const dir = repoWith({ branch: 'feature/x', planPhase: 'Draft', stage: ['src/a.js'] });
+  const r = runGate(path.join(dir, 'src'));
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /still Draft/);
+  assert.doesNotMatch(r.stderr, /phase unverified/);
+});
+
 test('gate: allows impl commit on Approved plan', () => {
   const dir = repoWith({ branch: 'feature/x', planPhase: 'Approved', stage: ['src/a.js'] });
   assert.equal(runGate(dir).code, 0);
