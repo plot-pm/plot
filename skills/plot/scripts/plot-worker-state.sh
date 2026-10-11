@@ -1188,6 +1188,10 @@ plot_worker_task_state() { # $1=worktree $2=pr-fact → finished|waiting|stalled
   printf '%s' "$answer"
 }
 
+# Whether the loop `$2` at the desk `$1` is a free agent waiting for a hand-over:
+# `.plot-worker.freewait` names exactly that pid (`deskWaitsFree`'s reading).
+plot_worker_waits_free() { [ "$(tr -d ' \n' < "$1/.plot-worker.freewait" 2>/dev/null)" = "$2" ]; }
+
 # Classify the worker in a worktree.
 #
 # $1 = worktree path
@@ -1324,6 +1328,11 @@ plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
       # means — `stalled` for work only this machine holds, `waiting` for a
       # marker, `finished` for a desk that is clear — because the process has
       # nothing left to say. No exit file exists: the wrapper has not exited.
+      #
+      # A FREE AGENT WAITS HERE: its loop polls for a hand-over with no agent
+      # beneath it, and `.plot-worker.freewait` names the loop's pid
+      # (`deskWaitsFree`'s reading). That desk is occupied, so it reads `running`.
+      plot_worker_waits_free "$wt" "$pid" && { printf 'running\t%s\t' "$pid"; return; }
       printf '%s\t%s\t' "$(plot_worker_task_state "$wt" "$has_pr")" "$pid"
       return
     fi

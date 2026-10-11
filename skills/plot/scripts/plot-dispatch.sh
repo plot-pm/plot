@@ -1030,6 +1030,10 @@ handover_refusal() { # $1=branch $2=worktree $3=state → 0 may hand over, 1 ref
 
   case "$state" in
     running*)
+      if plot_worker_waits_free "$wt" "${state#running }"; then
+        printf 'plot-dispatch: a free agent is waiting on %s (pid %s) — refusing.\n  Its loop is idle, polling for a hand-over. Confirm before replacing it:\n    plot-dispatch.sh --stop %s\n' "$branch" "${state#running }" "$branch" >&2
+        return 1
+      fi
       echo "plot-dispatch: a worker is alive on $branch (pid ${state#running }) — refusing." >&2
       echo "  Stop it first if you mean to replace it:" >&2
       echo "    plot-dispatch.sh --stop $branch" >&2
@@ -2338,11 +2342,11 @@ if [ "$mode" = "start" ]; then
   if [ -n "${PLOT_START_ONE:-}" ]; then
     start_count=1
   else
+  # The count asks the reading `--status` asks (`worker_state`), so a free agent
+  # waiting for a hand-over counts here exactly as it reads there.
   while IFS= read -r wt; do
     [ -n "$wt" ] || continue
-    [ -f "$wt/.plot-worker.pid" ] || continue
-    p=$(cat "$wt/.plot-worker.pid" 2>/dev/null) || continue
-    [ -n "$p" ] && ps -p "$p" >/dev/null 2>&1 && start_running=$((start_running + 1))
+    case "$(worker_state "$wt")" in running*) start_running=$((start_running + 1)) ;; esac
   done <<EOF
 $(git worktree list --porcelain </dev/null 2>/dev/null | awk '/^worktree /{print $2}')
 EOF
