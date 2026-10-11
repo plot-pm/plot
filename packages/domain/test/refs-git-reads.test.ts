@@ -64,6 +64,13 @@ describe('refsGit: the branch and ref readings', () => {
     if (answer.ok) expect(answer.value).toBe('main');
   });
 
+  it('reports the checked-out branch', async () => {
+    const expected = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repo }).toString().trim();
+    const answer = await refs().currentBranch();
+    expect(answer.ok).toBe(true);
+    if (answer.ok) expect(answer.value).toBe(expected);
+  });
+
   it('lists local branches without HEAD', async () => {
     const answer = await refs().listBranches(false);
     expect(answer.ok).toBe(true);

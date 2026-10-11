@@ -60,6 +60,11 @@ describe('refsFixture: an empty fixture still answers every method', () => {
     expect(answer<string>(await refs.defaultBranch())).toBe('trunk');
   });
 
+  it('reports a configured current branch and answers failed without one', async () => {
+    expect(answer<string>(await refsFixture({ currentBranch: 'feature/x' }).currentBranch())).toBe('feature/x');
+    expect(isAnswered(await refsFixture().currentBranch())).toBe(false);
+  });
+
   it('serves remote branches from the local list unless told otherwise', async () => {
     // The default is deliberate: a fixture that had to declare both lists to
     // answer either would make every caller state a fact it does not care about.

@@ -171,25 +171,6 @@ test('a plugin-registered gate reports current and adds no duplicate', () => {
   assert.deepEqual(registeredGates(dir), shippedGates, 'no gate may be registered twice');
 });
 
-test('one gate registered and one missing adds only the missing gate', () => {
-  const [first, ...rest] = shippedGates;
-  const dir = repo({
-    settings: {
-      hooks: {
-        PreToolUse: [
-          { matcher: 'Bash', hooks: [{ type: 'command', command: `"\${CLAUDE_PLUGIN_ROOT}/skills/plot/scripts/${first}"` }] },
-        ],
-      },
-    },
-  });
-  const { code, out } = run(dir);
-  assert.equal(code, 0);
-  assert.match(out, /^written —/);
-  for (const g of rest) assert.match(out, new RegExp(g.replace('.', '\\.')));
-  assert.deepEqual(registeredGates(dir), shippedGates);
-  assert.equal(registeredGates(dir).filter((g) => g === first).length, 1, 'the present gate is not duplicated');
-});
-
 test("a foreign PreToolUse hook is never overwritten", () => {
   const dir = repo({
     settings: {
@@ -301,7 +282,7 @@ const gateScripts = [
 ];
 
 // A stub `board/plot-gate.mjs` beside a vendored `plot-gates.sh`: lists
-// `bundle-commit`, `brief-name`, `state` and `controller` and refuses (exit 2) the same staged-bundle condition
+// `bundle-commit`, `brief-name`, `state`, `controller` and `phase` and refuses (exit 2) the same staged-bundle condition
 // `probe_bundle_commit_gate` builds, so a fixture that places `plot-gates.sh`
 // proves the gate it lists the way the real bundle would.
 const placeGateBundle = (scriptsDir) => {
@@ -309,7 +290,7 @@ const placeGateBundle = (scriptsDir) => {
   mkdirSync(boardDir, { recursive: true });
   writeFileSync(
     path.join(boardDir, 'plot-gate.mjs'),
-    `if (process.argv.includes('--list')) { console.log('bundle-commit'); console.log('brief-name'); console.log('state'); console.log('controller'); process.exit(0); }
+    `if (process.argv.includes('--list')) { console.log('bundle-commit'); console.log('brief-name'); console.log('state'); console.log('controller'); console.log('phase'); process.exit(0); }
 process.exit(2);
 `,
   );
@@ -467,7 +448,7 @@ test('/plot-init reports an unproved gate and continues rather than failing adop
 // the shape `repoWithGates()` cannot express. `vendorGates` puts the gates where
 // the registered command points; `siblingGates` puts them beside the installer.
 // The two are independent, which is exactly the point.
-function splitInstall({ vendorGates = false, siblingGates = false } = {}) {
+function splitInstall({ vendorGates = false, siblingGates = false, siblingBundle = false } = {}) {
   const tmp = scratch('plot-install-hooks-split-');
   const consumer = path.join(tmp, 'consumer');
   // Three below `plugin/` so the installer's own `../../../hooks/hooks.json`
@@ -497,6 +478,7 @@ function splitInstall({ vendorGates = false, siblingGates = false } = {}) {
   };
   if (vendorGates) place(path.join(consumer, 'skills', 'plot', 'scripts'));
   if (siblingGates) place(plugin);
+  if (siblingBundle) placeGateBundle(plugin);
 
   // The entries exactly as gate_command() writes them.
   mkdirSync(path.join(consumer, '.claude'), { recursive: true });
@@ -557,12 +539,12 @@ test('--verify reports unverified when neither reading finds the script', () => 
   // written ABSENT, sibling ABSENT: the entries are registered and nothing would
   // run. A missing hook script exits ~127, which `PreToolUse` treats as
   // non-blocking, so this repository has no gate and must never read as gated.
-  const { consumer, installer: inst } = splitInstall();
+  const { consumer, installer: inst } = splitInstall({ siblingBundle: true });
   const { code, out } = runAt(consumer, inst, ['--verify']);
   assert.equal(code, 3, `a gate registered at a missing script must not verify (out: ${out})`);
   assert.match(out, /^unverified/m);
   assert.doesNotMatch(out, /^verified/m);
-  for (const g of shippedGates) assert.match(out, new RegExp(g.replace('.', '\\.')));
+  for (const g of ['bundle-commit', 'brief-name', 'state', 'controller', 'phase']) assert.match(out, new RegExp(`plot-${g}-gate\\.sh`));
 
   // BOTH READINGS ARE NAMED AND NEITHER IS CHOSEN. `existing_bash_hooks` reads
   // only settings.json and a plugin registers nothing there, so the signal that
@@ -599,7 +581,7 @@ const signalStub = (inst, signal, diesOn) => {
   writeFileSync(
     path.join(path.dirname(inst), 'board', 'plot-gate.mjs'),
     `import { appendFileSync, readFileSync } from 'node:fs';
-if (process.argv.includes('--list')) { console.log('brief-name'); process.exit(0); }
+if (process.argv.includes('--list')) { console.log('brief-name'); console.log('phase'); process.exit(0); }
 appendFileSync(${JSON.stringify(log)}, 'run\\n');
 const n = readFileSync(${JSON.stringify(log)}, 'utf8').trim().split('\\n').length;
 if (${JSON.stringify(diesOn)}.includes(n)) process.kill(process.pid, ${JSON.stringify('SIG' + signal)});

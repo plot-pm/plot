@@ -1,6 +1,6 @@
 // Contract test for hooks/hooks.json — the PreToolUse gate wiring.
 // The command string carries escaped inner quotes:
-//   "\"${CLAUDE_PLUGIN_ROOT}/skills/plot/scripts/plot-phase-gate.sh\""
+//   "\"${CLAUDE_PLUGIN_ROOT}/skills/plot/scripts/plot-gates.sh\""
 // Those quotes are load-bearing: the gate is fail-open by design, so an
 // unquoted expansion under a plugin root containing a space would not
 // error — it would silently never fire. This pins (a) the JSON decodes to
@@ -104,11 +104,11 @@ test('hooks.json: the unquoted form would fail open silently (why the quotes exi
   assert.equal(r.status, 127, 'sh reports command-not-found — which hook runners treat as allow');
 });
 
-// The second gate, added 2026-09-09. It carries the same escaped quotes for the
-// same reason, and a test naming only the first would let the next entry ship
-// unquoted — the exact silent miss the two tests above exist to pin.
+// Every hook command carries the same escaped quotes for the same reason, and a
+// test naming only the first would let the next entry ship unquoted — the exact
+// silent miss the two tests above exist to pin.
 test('hooks.json: every PreToolUse command quotes its plugin-root expansion', () => {
-  assert.ok(hookCommands.length >= 2, 'the phase gate and the state gate are both wired');
+  assert.ok(hookCommands.length >= 1, 'plot-gates.sh is wired');
   for (const command of hookCommands) {
     assert.match(
       command,
@@ -123,6 +123,7 @@ test('hooks.json: every PreToolUse command quotes its plugin-root expansion', ()
 // fires, which reads exactly like a gate that passed.
 test('hooks.json: the state gate is reached through plot-gates.sh, and both scripts are on disk', () => {
   assert.equal(hookCommands.some((c) => c.includes('plot-state-gate.sh')), false, 'the state gate has no entry of its own');
+  assert.equal(hookCommands.some((c) => c.includes('plot-phase-gate.sh')), false, 'the phase gate has no entry of its own');
   const wired = hookCommands.find((c) => c.includes('plot-gates.sh'));
   assert.ok(wired, 'plot-gates.sh must be a PreToolUse hook');
   const rel = wired.replaceAll('"', '').replace('${CLAUDE_PLUGIN_ROOT}/', '');
