@@ -157,7 +157,7 @@ Each slice changes one group of files, and no two slices change the same file. T
 
 ### Bundle declaration pairing
 
-- `bug/a-bundle-declaration-is-one-build-call` — `read_declared` pairs entry and outfile inside one `esbuild.build` call and requires the `copyFileSync` line (issue 1415) <!-- builds: per-call declaration parsing in check-decision-count.sh -->
+- `bug/a-bundle-declaration-is-one-build-call` — `read_declared` pairs entry and outfile inside one `esbuild.build` call and requires the `copyFileSync` line (issue 1415) → #1569 <!-- builds: per-call declaration parsing in check-decision-count.sh -->
 
 ### Gate exit wording
 
