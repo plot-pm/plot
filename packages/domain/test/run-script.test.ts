@@ -223,16 +223,36 @@ describe('a timeout sends TERM before KILL', () => {
   });
 
   it('sends KILL to a child that ignores TERM after its leader exited on TERM (#1084)', async () => {
+    // `gone()` polls for up to 10s; vitest's 5s default would fire first and
+    // skip the `finally` block that cleans up the straggler.
     const leader = spawn(
       'bash',
-      ['-c', `sh -c 'trap "" TERM; sleep 30' & echo $!; wait`],
+      ['-c', `sh -c 'trap "" TERM; echo ready; sleep 30' & echo $!; wait`],
       { detached: true, stdio: ['ignore', 'pipe', 'ignore'] },
     );
-    const straggler = await new Promise<number>((done) =>
-      leader.stdout.once('data', (chunk: Buffer) => done(Number(chunk.toString().trim()))),
-    );
+    // The pid and 'ready' lines share one stdout; buffer and split rather than
+    // assuming one `data` event per line.
+    let buffered = '';
+    const nextLine = (): Promise<string> => {
+      const fromBuffer = buffered.indexOf('\n');
+      if (fromBuffer !== -1) {
+        const line = buffered.slice(0, fromBuffer);
+        buffered = buffered.slice(fromBuffer + 1);
+        return Promise.resolve(line);
+      }
+      return new Promise((done) => {
+        leader.stdout.once('data', (chunk: Buffer) => {
+          buffered += chunk.toString();
+          const at = buffered.indexOf('\n');
+          const line = at === -1 ? buffered : buffered.slice(0, at);
+          buffered = at === -1 ? '' : buffered.slice(at + 1);
+          done(line);
+        });
+      });
+    };
+    const straggler = Number(await nextLine());
+    await nextLine(); // 'ready': the straggler's trap is installed.
     try {
-      await new Promise((r) => setTimeout(r, 200));
       const ended = exited(leader);
       killGroup(leader, 300);
       expect(await ended).toBe('SIGTERM');
@@ -242,12 +262,15 @@ describe('a timeout sends TERM before KILL', () => {
     } finally {
       if (alive(straggler)) process.kill(-leader.pid!, 'SIGKILL');
     }
-  });
+  }, 15_000);
 
   it('sends KILL to a group that ignores TERM once the grace has passed', async () => {
     // An ignored signal stays ignored across `exec`, so `sleep` ignores TERM too.
-    const child = spawn('sh', ['-c', 'trap "" TERM; sleep 30'], { detached: true, stdio: 'ignore' });
-    await new Promise((r) => setTimeout(r, 200));
+    const child = spawn('sh', ['-c', 'trap "" TERM; echo ready; sleep 30'], {
+      detached: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    await new Promise((done) => child.stdout.once('data', done));
     const ended = exited(child);
     killGroup(child, 100);
     expect(await ended).toBe('SIGKILL');
@@ -267,13 +290,18 @@ describe('a timeout sends TERM before KILL', () => {
   });
 
   it('lets a timed-out script remove the temp paths it registered', async () => {
+    // `gone()` polls for up to 10s on top of the 3s timeout above; vitest's 5s
+    // default would fire first.
     const tmp = mkdtempSync(join(tmpdir(), 'plot-kill-term-'));
     try {
       const started = Date.now();
+      // 3s, not 1s: the sourcing and the `mktemp` inside `plot_tmpdir` are the
+      // same line the assertion below parses, so widening the window here is
+      // the whole fix — the line can never be the timeout's bottleneck.
       const run = await runProcess(
         'bash',
         ['-c', `source "${PLOT_TMP}"; plot_tmpdir work probe; echo "$$ $work"; sleep 30`],
-        { timeoutMs: 1_000, env: { TMPDIR: tmp } },
+        { timeoutMs: 3_000, env: { TMPDIR: tmp } },
       );
       expect(Date.now() - started).toBeLessThan(KILL_GRACE_MS);
       expect(run.code).toBe(1);
@@ -285,5 +313,5 @@ describe('a timeout sends TERM before KILL', () => {
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 });
