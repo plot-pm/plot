@@ -129,16 +129,38 @@ read_declared() {
       dist_re = "^const [A-Za-z]+ = path\\.join\\(here, " q "dist/[^" q "]+\\.mjs" q "\\);"
       entry_re = "^[ \t]+entryPoints: \\[path\\.join\\(here, " q "[^" q "]+" q "\\)\\],?[ \t]*$"
       out_re = "^[ \t]+outfile: [A-Za-z]+,?[ \t]*$"
+      copy_re = "^[ \t]*fs\\.copyFileSync\\([A-Za-z]+, *[A-Za-z]+\\);"
+      inblock = 0
     }
-    $0 ~ shipped_re { p = quoted($0); sub(/^.*\/board\//, "", p); shipped[p] = 1; next }
+    # A call opens on a line holding esbuild.build({ and closes on the first
+    # }); at the same indent; entry and outfile are read only between the two.
+    !inblock && /esbuild\.build\(\{[ \t]*$/ {
+      inblock = 1; entry = ""; outv = ""
+      indent = $0; sub(/[^ \t].*$/, "", indent)
+      next
+    }
+    inblock {
+      if ($0 == indent "});") {
+        if (entry != "" && outv != "") calls[++n] = outv "\t" entry
+        inblock = 0; entry = ""; outv = ""
+      } else if ($0 ~ entry_re) entry = quoted($0)
+      else if ($0 ~ out_re) { outv = $2; sub(/,$/, "", outv) }
+      next
+    }
+    $0 ~ shipped_re { p = quoted($0); sub(/^.*\/board\//, "", p); shipped[$2] = p; next }
     $0 ~ dist_re { p = quoted($0); sub(/^dist\//, "", p); dist[$2] = p; next }
-    $0 ~ entry_re { entry = quoted($0); next }
-    $0 ~ out_re {
-      v = $2; sub(/,$/, "", v)
-      if (entry != "" && (v in dist)) built[dist[v]] = entry
-      entry = ""; next
+    $0 ~ copy_re {
+      c = $0; sub(/^[^(]*\(/, "", c); sub(/\).*$/, "", c); split(c, cp, / *, */)
+      copied[cp[1] SUBSEP cp[2]] = 1
+      next
     }
-    END { for (b in built) if (b in shipped) printf "board/%s\t%s\n", b, built[b] }
+    END {
+      for (i = 1; i <= n; i++) {
+        split(calls[i], f, "\t")
+        if (!(f[1] in dist)) continue
+        for (s in shipped) if ((f[1] SUBSEP s) in copied) printf "board/%s\t%s\n", shipped[s], f[2]
+      }
+    }
   ')
   [ -n "$out" ] || fail "$BUILD at HEAD declares no bundle this gate can parse, so the declarations cannot serve as evidence. Fix the parser in this script, not the build."
   printf '%s\n' "$out"

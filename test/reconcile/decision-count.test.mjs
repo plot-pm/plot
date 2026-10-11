@@ -53,12 +53,14 @@ const BUILD_TEXT = [
   "  entryPoints: [path.join(here, 'src/server/entry/new.ts')],",
   '  outfile: newArtifact,',
   '});',
+  'fs.copyFileSync(newArtifact, shippedNew);',
   "const lostArtifact = path.join(here, 'dist/plot-lost.mjs');",
   "const shippedLost = path.join(here, '../../skills/plot/scripts/board/plot-lost.mjs');",
   'await esbuild.build({',
   "  entryPoints: [path.join(here, 'src/server/entry/lost.ts')],",
   '  outfile: lostArtifact,',
   '});',
+  'fs.copyFileSync(lostArtifact, shippedLost);',
   '',
 ].join('\n');
 
@@ -303,6 +305,70 @@ test('an unbuilt bundle with a build.mjs that declares nothing parseable fails c
   writeFileSync(path.join(work, BUILD), 'export default {};\n');
   change(work, row('a.sh', 'launcher', 'execs', 'board/plot-new.mjs'), ...BASE.slice(1));
   const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /declares no bundle this gate can parse/);
+}));
+
+/** Replaces build.mjs with `lines` and flips a.sh to a launcher naming board/plot-new.mjs. */
+const flipWithBuild = (work, lines) => {
+  writeFileSync(path.join(work, BUILD), lines.join('\n') + '\n');
+  change(work, row('a.sh', 'launcher', 'execs', 'board/plot-new.mjs'), ...BASE.slice(1));
+  return run(work, ['pr']);
+};
+
+const DECLS = [
+  "const newArtifact = path.join(here, 'dist/plot-new.mjs');",
+  "const shippedNew = path.join(here, '../../skills/plot/scripts/board/plot-new.mjs');",
+];
+const CALL = ['await esbuild.build({', "  entryPoints: [path.join(here, 'src/server/entry/new.ts')],", '  outfile: newArtifact,', '});'];
+const COPY = 'fs.copyFileSync(newArtifact, shippedNew);';
+
+test('a complete declaration with its copyFileSync line passes', withFixture(({ work }) => {
+  const r = flipWithBuild(work, [...DECLS, ...CALL, COPY]);
+  assert.equal(r.status, 0, r.out);
+}));
+
+test('an entryPoints line in one build call does not pair with the next call\'s outfile', withFixture(({ work }) => {
+  const r = flipWithBuild(work, [
+    ...DECLS,
+    'await esbuild.build({',
+    "  entryPoints: [path.join(here, 'src/server/entry/new.ts')],",
+    '});',
+    'await esbuild.build({',
+    '  outfile: newArtifact,',
+    '});',
+    COPY,
+  ]);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /declares no bundle this gate can parse/);
+}));
+
+test('a declaration that build.mjs never copies is not evidence', withFixture(({ work }) => {
+  const r = flipWithBuild(work, [...DECLS, ...CALL]);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /declares no bundle this gate can parse/);
+}));
+
+test('a copyFileSync of other consts does not vouch for the declared pair', withFixture(({ work }) => {
+  const r = flipWithBuild(work, [...DECLS, ...CALL, 'fs.copyFileSync(otherArtifact, shippedNew);']);
+  assert.equal(r.status, 1, r.out);
+}));
+
+test('a line mentioning dist/x.mjs outside any declaration contributes nothing', withFixture(({ work }) => {
+  const r = flipWithBuild(work, ['const s = `dist/plot-new.mjs still not a declaration`;', ...CALL, COPY]);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /declares no bundle this gate can parse/);
+}));
+
+test('entryPoints and outfile lines inside a template literal are not a declaration', withFixture(({ work }) => {
+  const r = flipWithBuild(work, [
+    ...DECLS,
+    'const doc = `',
+    "  entryPoints: [path.join(here, 'src/server/entry/new.ts')],",
+    '  outfile: newArtifact,',
+    '`;',
+    COPY,
+  ]);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /declares no bundle this gate can parse/);
 }));
