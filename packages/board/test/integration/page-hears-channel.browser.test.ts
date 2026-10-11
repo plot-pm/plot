@@ -45,19 +45,43 @@ describe('the page hears the channel', () => {
 
   const emit = (page: Page) => page.evaluate(() => (window as unknown as { __emit(): void }).__emit());
 
-  it('refetches once for a burst of events, and again after the window', async () => {
+  it('ignores the first welcome, refetches once for a burst, once more at the window end, and again for a later event', async () => {
     const { page, boardRequests } = await openBoard();
     try {
       const before = boardRequests();
+      // The first welcome follows the page's own load and refetches nothing.
+      await page.evaluate(() =>
+        (window as unknown as { __sources: { onmessage(e: unknown): void }[] }).__sources.forEach((s) =>
+          s.onmessage({ data: '{"type":"welcome"}' }),
+        ),
+      );
+      await page.clock.runFor(2_500);
+      expect(boardRequests()).toBe(before);
       for (let i = 0; i < 5; i += 1) await emit(page);
       await expect.poll(boardRequests).toBe(before + 1);
-      await page.clock.runFor(500);
-      await emit(page);
-      expect(boardRequests()).toBe(before + 1);
-      await page.clock.runFor(2_000);
-      await emit(page);
+      // Past the window: the dropped events owe exactly one trailing refetch.
+      await page.clock.runFor(2_500);
       await expect.poll(boardRequests).toBe(before + 2);
+      await page.clock.runFor(2_500);
+      expect(boardRequests()).toBe(before + 2);
+      await emit(page);
+      await expect.poll(boardRequests).toBe(before + 3);
     } finally {
+      await page.close();
+    }
+  });
+
+  it('opens one stream for two pages of one browser', async () => {
+    const { page } = await openBoard();
+    const second = await page.context().newPage();
+    try {
+      await second.addInitScript(FAKE_EVENT_SOURCE);
+      await second.goto(page.url());
+      await second.waitForLoadState('networkidle');
+      const opened = (p: Page) => p.evaluate(() => (window as unknown as { __sources: unknown[] }).__sources.length);
+      expect((await opened(page)) + (await opened(second))).toBe(1);
+    } finally {
+      await second.close();
       await page.close();
     }
   });

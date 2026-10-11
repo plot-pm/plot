@@ -119,38 +119,37 @@ describe('GET /api/events', () => {
     expect(client.events.map((e) => JSON.parse(e).type)).toEqual(['welcome', 'finding', 'finding', 'finding']);
   });
 
-  it('sends one event for a burst and another once the window passes', async () => {
+  it('sends one event for a burst, one trailing event at the window end, and nothing else', async () => {
     const address = socketPath();
     channel = await startChannel({ address });
-    let clock = 0;
-    hubOn(address, { now: () => clock });
+    hubOn(address, { windowMs: 80 });
     const port = await startHttp();
     const client = open(port);
     await until(() => client.events.length === 1);
-    clock = 10_000;
     for (let n = 1; n <= 10; n += 1) channel.publish(finding(n));
-    await until(() => client.events.length === 2);
-    // Let the rest of the burst arrive, then check none became an event.
-    channel.publish(finding(11));
-    await until(() => channel!.findings().length === 11);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(client.events).toHaveLength(2);
-    clock = 12_000;
-    channel.publish(finding(12));
     await until(() => client.events.length === 3);
+    // Events arrive in order: a later finding is the receipt that proves the
+    // burst produced no event beyond the trailing one.
+    channel.publish(finding(99));
+    await until(() => client.events.length === 4);
+    const sent = client.events.map((e) => JSON.parse(e));
+    expect(sent.map((e) => e.type)).toEqual(['welcome', 'finding', 'finding', 'finding']);
+    expect(sent[2].finding.branch).toBe('feature/b10');
+    expect(sent[3].finding.branch).toBe('feature/b99');
   });
 
   it('sends the welcome as one event when the channel holds many findings', async () => {
     const address = socketPath();
     channel = await startChannel({ address });
     for (let n = 1; n <= 30; n += 1) channel.publish(finding(n));
-    hubOn(address);
+    hubOn(address, { windowMs: 80 });
     const port = await startHttp();
     const client = open(port);
     await until(() => client.events.length >= 1);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(client.events).toHaveLength(1);
-    expect(JSON.parse(client.events[0]!).type).toBe('welcome');
+    // A finding after the welcome is the receipt that nothing else came first.
+    channel.publish(finding(99));
+    await until(() => client.events.length >= 2);
+    expect(client.events.map((e) => JSON.parse(e).type)).toEqual(['welcome', 'finding']);
   });
 
   it('sends nothing for a heartbeat', async () => {

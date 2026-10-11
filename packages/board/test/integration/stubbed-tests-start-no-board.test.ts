@@ -668,7 +668,10 @@ const EXPECTED_FILES = 61;
 // default-branch status in the panel (red shows, green shows nothing), and one
 // in `pr-checks-not-asked.browser.test.ts`, for the commit the checks ran on.
 // Both files already drove a page, so `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 557;
+// 557 → 558 on 2026-10-11: one `it(` in `page-hears-channel.browser.test.ts`,
+// proving two pages of one browser open one stream. The file already drove a
+// page, so `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 558;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.

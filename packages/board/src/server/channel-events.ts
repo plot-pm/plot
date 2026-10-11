@@ -56,7 +56,9 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
   const log = options.log ?? (() => undefined);
 
   const streams = new Set<http.ServerResponse>();
-  let window: EventWindow = {};
+  let eventWindow: EventWindow = {};
+  let trailing: NodeJS.Timeout | undefined;
+  let latest = '';
   let subscription: Subscribed | undefined;
   let timer: NodeJS.Timeout | undefined;
   let delay = startMs;
@@ -85,14 +87,32 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
       link = 'up';
       connected = true;
       delay = startMs;
-      window = { admittedAt: now() };
+      eventWindow = { admittedAt: now() };
       broadcast(JSON.stringify({ type: 'welcome' }));
       return;
     }
     if (message.type !== 'finding') return;
-    const ruling = ruleEventWindow(window, now(), windowMs);
-    window = ruling.window;
-    if (ruling.admit) broadcast(JSON.stringify({ type: 'finding', finding: message.finding }));
+    latest = JSON.stringify({ type: 'finding', finding: message.finding });
+    arrive();
+  };
+
+  // A dropped finding still owes the page one event when the window closes; the
+  // ruling is asked again then, so a timer that fires early just reschedules.
+  const arrive = (): void => {
+    const ruling = ruleEventWindow(eventWindow, now(), windowMs);
+    eventWindow = ruling.window;
+    if (ruling.admit) {
+      if (trailing) clearTimeout(trailing);
+      trailing = undefined;
+      broadcast(latest);
+      return;
+    }
+    if (trailing || ruling.trailingAt === undefined || stopped) return;
+    trailing = setTimeout(() => {
+      trailing = undefined;
+      arrive();
+    }, Math.max(1, ruling.trailingAt - now()));
+    trailing.unref?.();
   };
 
   const connect = (): void => {
@@ -145,6 +165,7 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
     close: () => {
       stopped = true;
       if (timer) clearTimeout(timer);
+      if (trailing) clearTimeout(trailing);
       subscription?.close();
       for (const res of [...streams]) res.end();
       streams.clear();
