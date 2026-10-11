@@ -3,7 +3,7 @@ import {
   ruleEventWindow,
   ruleWelcome,
   type EventWindow,
-  type WelcomeWindow,
+  type WelcomeState,
 } from '@plot-pm/domain';
 
 /** The slice of `EventSource` the listener uses, so a test can substitute one. */
@@ -84,8 +84,10 @@ const isWelcome = (event: unknown): boolean => {
  *
  * The event body is ignored: the refetch is the only path into the page's state.
  * An event inside the window is not lost: one trailing refetch fires when the
- * window closes. The first `welcome` after the stream opens refetches nothing,
- * since the page loaded the board itself just before.
+ * window closes. A `welcome` within one window of the listener starting
+ * refetches nothing, since the page loaded the board itself just before; every
+ * later `welcome` refetches, including one relayed from the tab that holds the
+ * shared stream and the first one of a stream this tab opens on taking it over.
  * A stream error is dropped on purpose — `EventSource` reconnects by itself and
  * the 30 s poll stays the authority, so an error neither shows nor stops anything.
  *
@@ -95,7 +97,7 @@ export const listenForEvents = (options: EventListenerOptions): (() => void) => 
   const now = options.now ?? Date.now;
   const windowMs = options.windowMs ?? PAGE_REFETCH_WINDOW_MS;
   let eventWindow: EventWindow = {};
-  let welcomeWindow: WelcomeWindow = { heard: false };
+  const welcomeState: WelcomeState = { startedAt: now() };
   let trailing: ReturnType<typeof setTimeout> | undefined;
   const source = (options.open ?? openSharedEventSource)();
   const arrive = (): void => {
@@ -114,11 +116,7 @@ export const listenForEvents = (options: EventListenerOptions): (() => void) => 
     }, Math.max(1, ruling.trailingAt - now()));
   };
   source.onmessage = (event) => {
-    if (isWelcome(event)) {
-      const welcome = ruleWelcome(welcomeWindow);
-      welcomeWindow = welcome.window;
-      if (!welcome.refetch) return;
-    }
+    if (isWelcome(event) && !ruleWelcome(welcomeState, now(), windowMs)) return;
     arrive();
   };
   source.onerror = () => undefined;

@@ -58,12 +58,22 @@ describe('ruleEventWindow trailing send', () => {
 });
 
 describe('ruleWelcome', () => {
-  it('does not refetch on the first welcome', () => {
-    expect(ruleWelcome({ heard: false }).refetch).toBe(false);
+  const state = { startedAt: 10_000 };
+
+  it('refetches nothing on the page\'s own welcome right after it started listening', () => {
+    expect(ruleWelcome(state, 10_050, 2_000)).toBe(false);
+    expect(ruleWelcome(state, 11_999, 2_000)).toBe(false);
   });
 
-  it('refetches on a later welcome', () => {
-    const first = ruleWelcome({ heard: false });
-    expect(ruleWelcome(first.window).refetch).toBe(true);
+  it('refetches on a welcome a follower hears relayed after the window', () => {
+    expect(ruleWelcome(state, 12_000, 2_000)).toBe(true);
+  });
+
+  it('refetches on the first welcome of a stream taken over later, though it is the first this page hears', () => {
+    expect(ruleWelcome(state, 95_000, 2_000)).toBe(true);
+  });
+
+  it('refetches when the clock moved backwards', () => {
+    expect(ruleWelcome(state, 9_000, 2_000)).toBe(true);
   });
 });

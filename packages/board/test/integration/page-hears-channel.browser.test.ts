@@ -71,18 +71,37 @@ describe('the page hears the channel', () => {
     }
   });
 
-  it('opens one stream for two pages of one browser', async () => {
-    const { page } = await openBoard();
+  it('opens one stream for two pages of one browser, relays its events, and hands it over when its page closes', async () => {
+    const { page, boardRequests } = await openBoard();
     const second = await page.context().newPage();
+    let secondRequests = 0;
+    second.on('request', (req) => {
+      if (new URL(req.url()).pathname === '/api/board') secondRequests += 1;
+    });
     try {
       await second.addInitScript(FAKE_EVENT_SOURCE);
       await second.goto(page.url());
       await second.waitForLoadState('networkidle');
       const opened = (p: Page) => p.evaluate(() => (window as unknown as { __sources: unknown[] }).__sources.length);
       expect((await opened(page)) + (await opened(second))).toBe(1);
+      const firstLeads = (await opened(page)) === 1;
+      const leader = firstLeads ? page : second;
+      const follower = firstLeads ? second : page;
+      const followerRequests = firstLeads ? () => secondRequests : boardRequests;
+      // The follower opened no stream and still refetches on the leader's event.
+      const before = followerRequests();
+      await emit(leader);
+      await expect.poll(followerRequests).toBe(before + 1);
+      // Closing the leader hands the stream to the follower, which opens its own.
+      await leader.close();
+      await expect.poll(() => opened(follower)).toBe(1);
+      await emit(follower);
+      // The handover event may fall inside the window the relayed event opened.
+      await follower.clock.runFor(2_500);
+      await expect.poll(followerRequests).toBe(before + 2);
     } finally {
-      await second.close();
-      await page.close();
+      if (!second.isClosed()) await second.close();
+      if (!page.isClosed()) await page.close();
     }
   });
 

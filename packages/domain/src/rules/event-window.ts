@@ -40,27 +40,26 @@ export const ruleEventWindow = (window: EventWindow, now: number, windowMs: numb
   return inside ? { admit: false, window, trailingAt: admittedAt + windowMs } : { admit: true, window: { admittedAt: now } };
 };
 
-/** Whether the page has already heard one `welcome` on this stream. */
-export interface WelcomeWindow {
-  heard: boolean;
-}
-
-/** The ruling on one `welcome`, and the state to carry forward. */
-export interface WelcomeRuling {
-  refetch: boolean;
-  window: WelcomeWindow;
+/** When the page started listening, in milliseconds. */
+export interface WelcomeState {
+  startedAt: number;
 }
 
 /**
- * Whether a `welcome` makes the page refetch.
+ * Whether a `welcome` at `now` makes the page refetch.
  *
- * The first `welcome` after the page opened its stream is current by
- * construction: the page loaded the board itself a moment earlier. Every later
- * `welcome` (a reconnect to the server or the channel) refetches.
+ * A `welcome` less than `windowMs` after the page started listening is current
+ * by construction: the page loaded the board itself a moment earlier. Every
+ * other `welcome` refetches, whichever connection sent it: a reconnect of the
+ * page's own stream, a reconnect relayed from the tab that holds the shared
+ * stream, or the first `welcome` of a stream this page opened when it took the
+ * stream over from a closed tab. A clock that moved backwards refetches, since a
+ * negative gap proves nothing about recency.
  *
- * @param window the state as of the last `welcome`
+ * @param state when the page started listening
+ * @param now the arrival time in milliseconds
+ * @param windowMs how long after the start a `welcome` refetches nothing
+ * @returns `true` when the page refetches
  */
-export const ruleWelcome = (window: WelcomeWindow): WelcomeRuling => ({
-  refetch: window.heard,
-  window: { heard: true },
-});
+export const ruleWelcome = (state: WelcomeState, now: number, windowMs: number): boolean =>
+  now < state.startedAt || now - state.startedAt >= windowMs;

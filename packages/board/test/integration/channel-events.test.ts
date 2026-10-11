@@ -122,13 +122,14 @@ describe('GET /api/events', () => {
   it('sends one event for a burst, one trailing event at the window end, and nothing else', async () => {
     const address = socketPath();
     channel = await startChannel({ address });
-    hubOn(address, { windowMs: 80 });
+    // A 500 ms window holds the whole burst on a loaded runner, so it never straddles two windows.
+    hubOn(address, { windowMs: 500 });
     const port = await startHttp();
     const client = open(port);
     await until(() => client.events.length === 1);
     // Let the window the welcome opened pass, so the burst's first finding is admitted.
     const opened = Date.now();
-    await until(() => Date.now() - opened > 100);
+    await until(() => Date.now() - opened > 600);
     for (let n = 1; n <= 10; n += 1) channel.publish(finding(n));
     await until(() => client.events.length === 3);
     // Events arrive in order: a later finding is the receipt that proves the
@@ -153,7 +154,9 @@ describe('GET /api/events', () => {
     // A finding after the welcome is the receipt that nothing else came first.
     channel.publish(finding(99));
     await until(() => client.events.length >= 2);
-    expect(client.events.map((e) => JSON.parse(e).type)).toEqual(['welcome', 'finding']);
+    const sent = client.events.map((e) => JSON.parse(e));
+    expect(sent.map((e) => e.type)).toEqual(['welcome', 'finding']);
+    expect(sent[1].finding.branch).toBe('feature/b99');
   });
 
   it('sends nothing for a heartbeat', async () => {
