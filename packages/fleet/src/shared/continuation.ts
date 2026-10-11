@@ -9,13 +9,8 @@ import { deskManifestFor, assignEmptyManifestBranch, writeDeskManifest, writeMan
 import { briefPath } from './brief-path.js';
 import { deskMonitorsShell, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
 import type { DeskMonitors, MonitoredDesk, MonitorPids } from '@plot-pm/domain';
-import {
-  deskLoopAlive,
-  deskWaitsFree,
-  FREE_WAIT_FILENAME,
-  type DeskPidReading,
-  type FreeWaitReading,
-} from '@plot-pm/domain/rules/desk-loop-alive';
+import { deskWaitsFree } from '@plot-pm/domain/rules/desk-loop-alive';
+import { deskFreeWait, readDeskLoop } from './desk-loop.js';
 import { continueTarget } from '@plot-pm/domain/rules/continue-target';
 import { readEnding, ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { endingAsksFreshStart } from '@plot-pm/domain/rules/ending-action';
@@ -374,25 +369,6 @@ const recordedMonitorPids = (manifestFile: string): string[] => {
   }
 };
 
-/**
- * The manifest's `pid` and `wrapperPid`, as {@link DeskPidReading}s; empty
- * strings when the manifest cannot be read, so {@link deskLoopAlive} treats a
- * read failure as nothing to refuse on rather than throwing.
- */
-const recordedLoopPids = (manifestFile: string): DeskPidReading[] => {
-  let m: Record<string, unknown> = {};
-  try {
-    m = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
-  } catch {
-    /* no manifest to read — both readings fall through as empty */
-  }
-  const field = (name: string): string => (typeof m[name] === 'string' ? (m[name] as string) : '');
-  return [
-    { source: 'manifest pid', pid: field('pid') },
-    { source: 'manifest wrapperPid', pid: field('wrapperPid') },
-  ];
-};
-
 /** The desk's `.plot-worker.ending.json`, read as a value — `readEnding` as `registryd.ts` reads it. */
 const deskEnding = (worktree: string): ReturnType<typeof readEnding> => {
   let text: string | null;
@@ -439,34 +415,6 @@ const resumeIdFromTranscript = (worktree: string): string => {
     }
   }
   return newest;
-};
-
-/**
- * Whether a pid is alive, reading an unanswerable signal as alive.
- *
- * **The opposite direction from {@link deskPidAlive}.** There, `EPERM` reads
- * as not-alive because an invented worker only ever narrows a budget on no
- * evidence. Here a wrong *not-alive* starts a second loop on a desk that
- * already holds one — the defect {@link deskLoopAlive} exists to refuse — so
- * `EPERM` (alive, not ours to signal) reads as alive and only `ESRCH` (the
- * process is gone) reads as not-alive.
- */
-const pidAliveEverywhere = (pid: string): boolean => {
-  try {
-    process.kill(Number(pid), 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-};
-
-/** The desk's `.plot-worker.freewait` record, read as a value — `''` when it cannot be read. */
-const deskFreeWait = (worktree: string): FreeWaitReading => {
-  try {
-    return { text: fs.readFileSync(path.join(worktree, FREE_WAIT_FILENAME), 'utf8') };
-  } catch {
-    return { text: null };
-  }
 };
 
 /** What {@link stopAndAwaitExit} answers: the pid is gone, or why it is not. */
@@ -655,15 +603,8 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
   // see its own docblock for the order and for why the ending record is a
   // fallback rather than a second registry.
   const manifestAnswer = deskManifestFor(opts.repoRoot, worktree, opts);
-  const loopPids: DeskPidReading[] = [
-    { source: '.plot-worker.pid', pid: await readDeskPid(worktree) },
-    ...(manifestAnswer.kind === 'named' ? recordedLoopPids(manifestAnswer.path) : []),
-  ];
-  const loop = deskLoopAlive({ pids: loopPids, alive: pidAliveEverywhere });
-  // Asked only when a loop is actually alive — a desk with none holds no
-  // pid for the record to name, so `deskWaitsFree` would only ever answer
-  // false and the read is wasted.
-  const loopWaitsFree = loop.kind === 'alive' && deskWaitsFree(deskFreeWait(worktree), loop.pid);
+  // `readDeskLoop` is the one live-loop reading; `plot-desk-loop.mjs` asks it too.
+  const { loop, waitsFree: loopWaitsFree } = readDeskLoop(worktree, manifestAnswer);
   const target = continueTarget({
     branch,
     manifest: manifestAnswer,
