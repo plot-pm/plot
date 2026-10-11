@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-gates-and-the-review-findings
 - **Issue:** #1447, #1458, #1483
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-10, Jan Wloka, `bug/the-entries-write-through-a-port`
 - **Started:** 2026-10-11, Jan Wloka, `bug/the-merge-reads-what-it-claims`
 - **Delivered:** 2026-10-11
+- **Released:** 2026-10-12, v2.26.0
 
 ## Changelog
 
