@@ -39,7 +39,8 @@ const SHARE_NAME = 'plot-board-events';
  */
 export const openSharedEventSource = (): EventSourceLike => {
   if (typeof BroadcastChannel === 'undefined' || typeof navigator === 'undefined' || !navigator.locks) {
-    return new EventSource(EVENTS_URL);
+    // The DOM's handler type is narrower than the listener's; both are called with a message event.
+    return new EventSource(EVENTS_URL) as unknown as EventSourceLike;
   }
   const relay = new BroadcastChannel(SHARE_NAME);
   const shared: EventSourceLike = { onmessage: null, onerror: null, close: () => undefined };

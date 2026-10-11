@@ -126,6 +126,9 @@ describe('GET /api/events', () => {
     const port = await startHttp();
     const client = open(port);
     await until(() => client.events.length === 1);
+    // Let the window the welcome opened pass, so the burst's first finding is admitted.
+    const opened = Date.now();
+    await until(() => Date.now() - opened > 100);
     for (let n = 1; n <= 10; n += 1) channel.publish(finding(n));
     await until(() => client.events.length === 3);
     // Events arrive in order: a later finding is the receipt that proves the
@@ -134,6 +137,7 @@ describe('GET /api/events', () => {
     await until(() => client.events.length === 4);
     const sent = client.events.map((e) => JSON.parse(e));
     expect(sent.map((e) => e.type)).toEqual(['welcome', 'finding', 'finding', 'finding']);
+    expect(sent[1].finding.branch).toBe('feature/b1');
     expect(sent[2].finding.branch).toBe('feature/b10');
     expect(sent[3].finding.branch).toBe('feature/b99');
   });
