@@ -70,6 +70,7 @@ skills/plot/scripts/board/plot-landed.mjs -merge
 skills/plot/scripts/board/plot-local-checks.mjs -merge
 skills/plot/scripts/board/plot-merge-subject.mjs -merge
 skills/plot/scripts/board/plot-movable.mjs -merge
+skills/plot/scripts/board/plot-old-label.mjs -merge
 skills/plot/scripts/board/plot-panel.mjs -merge
 skills/plot/scripts/board/plot-prompt.mjs -merge
 skills/plot/scripts/board/plot-prompt-exit.mjs -merge

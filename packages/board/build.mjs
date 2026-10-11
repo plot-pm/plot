@@ -243,6 +243,28 @@ await esbuild.build({
 fs.copyFileSync(movableArtifact, shippedMovable);
 fs.chmodSync(shippedMovable, 0o755);
 
+// The old-label migration decision, reachable from plot-fleetctl.sh.
+//
+// A bundle for the reason the fourth one gives: plot-fleetctl.sh ships in the
+// plugin, where `packages/` does not exist, so it cannot import the rule.
+const oldLabelArtifact = path.join(here, 'dist/plot-old-label.mjs');
+const shippedOldLabel = path.join(here, '../../skills/plot/scripts/board/plot-old-label.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/old-label.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: oldLabelArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(oldLabelArtifact, shippedOldLabel);
+fs.chmodSync(shippedOldLabel, 0o755);
+
 // The lifecycle transition, reachable from the two scripts that write it.
 //
 // A FIFTH artifact, for the reason the third and fourth ones give: plot-ask.mjs
@@ -1360,6 +1382,7 @@ const kb = (fs.statSync(shippedArtifact).size / 1024).toFixed(1);
 const askKb = (fs.statSync(shippedAsk).size / 1024).toFixed(1);
 const verdictsKb = (fs.statSync(shippedVerdicts).size / 1024).toFixed(1);
 const movableKb = (fs.statSync(shippedMovable).size / 1024).toFixed(1);
+const oldLabelKb = (fs.statSync(shippedOldLabel).size / 1024).toFixed(1);
 const transitionKb = (fs.statSync(shippedTransition).size / 1024).toFixed(1);
 const promptKb = (fs.statSync(shippedPrompt).size / 1024).toFixed(1);
 const taskKb = (fs.statSync(shippedTask).size / 1024).toFixed(1);
@@ -1398,6 +1421,7 @@ console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-movable.mjs (${movableKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-old-label.mjs (${oldLabelKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-transition.mjs (${transitionKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-prompt.mjs (${promptKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-task.mjs (${taskKb} KB) → skills/plot/scripts/board/`);

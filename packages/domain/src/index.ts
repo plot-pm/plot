@@ -51,6 +51,7 @@ export * from './rules/gates.js';
 export * from './rules/resume.js';
 export * from './rules/fresh-agent.js';
 export * from './rules/movable.js';
+export * from './rules/old-label-migration.js';
 export * from './rules/phase.js';
 export * from './rules/pulse.js';
 export * from './rules/verdict.js';
