@@ -156,15 +156,19 @@ describe('checksVerdict — naming the commit checks ran against', () => {
   it('ends failing and pending details with the short sha', () => {
     const failing = checksVerdict(reading({ checks: 'failing', checksSha: 'a048b6f1234567890' }));
     const pending = checksVerdict(reading({ checks: 'pending', checksSha: 'a048b6f1234567890' }));
-    expect(failing.detail).toContain('a048b6f');
-    expect(pending.detail).toContain('a048b6f');
+    expect(failing.detail.endsWith(' @a048b6f')).toBe(true);
+    expect(pending.detail.endsWith(' @a048b6f')).toBe(true);
+    expect(failing.detail).not.toContain('a048b6f1');
   });
 
-  it('says checks are not bound to a commit where checksSha is absent', () => {
-    const failing = checksVerdict(reading({ checks: 'failing' }));
-    const pending = checksVerdict(reading({ checks: 'pending' }));
-    expect(failing.detail).toContain('not bound to a commit');
-    expect(pending.detail).toContain('not bound to a commit');
+  it('says no commit is recorded where checksSha is absent or empty', () => {
+    for (const checks of ['failing', 'pending'] as const) {
+      for (const checksSha of [undefined, ''] as const) {
+        const { detail } = checksVerdict(reading({ checks, checksSha }));
+        expect(detail).toContain('No commit is recorded for these checks.');
+        expect(detail).not.toContain(' @');
+      }
+    }
   });
 
   it('leaves green, none and unknown untouched by checksSha', () => {

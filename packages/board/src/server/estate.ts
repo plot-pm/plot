@@ -122,7 +122,9 @@ export const mockEstate = (): Estate => {
       write: async () => ({ ok: true, value: undefined }),
     },
     // No reading, which `defaultBranchStatus` already treats as "not red" —
-    // a mock board never ran fleetd and has nothing to report.
+    // a mock board never ran fleetd and has nothing to report. The merge entry
+    // reads this field; `buildBoard` takes its own store from
+    // `BuildBoardOptions.defaultBranchStore`.
     defaultBranch: {
       read: async () => ({ ok: true, value: null }),
       write: async () => ({ ok: true, value: undefined }),

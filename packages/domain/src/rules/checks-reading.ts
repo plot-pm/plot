@@ -127,13 +127,13 @@ export const checksShown = (readings: ChecksReadings): boolean => readings.check
  * does not bind checks to a commit (Jenkins) only `headSha` exists, and
  * printing it there would claim a binding the host never made.
  *
- * @param checksSha - the commit the checks ran against, or absent where the
- *   host does not bind checks to one.
+ * @param checksSha - the commit the checks ran against. Absent or empty where
+ *   the host does not bind checks to one, or where the board did not record it.
  * @returns ` @<short sha>`, or a sentence saying there is none to name.
  */
 const checksShaSuffix = (checksSha: string | undefined): string =>
-  checksSha === undefined
-    ? ' These checks are not bound to a commit.'
+  checksSha === undefined || checksSha === ''
+    ? ' No commit is recorded for these checks.'
     : ` @${checksSha.slice(0, 7)}`;
 
 /**

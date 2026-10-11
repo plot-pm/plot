@@ -4054,11 +4054,20 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       tab: 'agents',
       over: {
         fleet: fleet({ error: null, shrink: null, prError: null }),
-        board: buildBoard({ defaultBranch: { ...RED_DEFAULT_BRANCH, head: 'green', settled: { sha: 'abc1234567890', state: 'green' } } }),
+        // The scenario's own cards ride along so the wait below has a
+        // board-payload signal to hang on; the override alone carries none.
+        board: buildBoard({
+          ...scenario('ten-rows-one-kind-each').board,
+          defaultBranch: { ...RED_DEFAULT_BRANCH, head: 'green', settled: { sha: 'abc1234567890', state: 'green' } },
+        }),
       },
     });
     try {
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      // `Waiting on you` is the FLEET payload. The panel entry this test rules
+      // out is the BOARD payload's, so the poll starts only once a board-only
+      // render exists: a plan's action menu is gated on its board card.
+      await page.locator('[data-plan-actions="plant-tomatoes"]').first().waitFor({ timeout: 10_000 });
       await expect.poll(() => page.locator('[data-status-panel]').count()).toBe(0);
     } finally {
       await page.close();
