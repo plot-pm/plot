@@ -24,11 +24,10 @@ export const phaseWordOf = (raw: string): PlanPhase | null => {
 
 /** The value of a `status:` or `phase:` key in a leading `---` front-matter block; `status:` wins. */
 const frontMatterPhaseOf = (text: string): string => {
-  const lines = text.split('\n');
-  if (!/^---[ \t]*$/.test(lines[0] ?? '')) return '';
+  if (!/^---[ \t]*(\n|$)/.test(text)) return '';
   let status = '';
   let phase = '';
-  for (const line of lines.slice(1)) {
+  for (const line of text.split('\n').slice(1)) {
     if (/^---[ \t]*$/.test(line)) break;
     const value = (): string => line.replace(/^[^:]*:/, '').replace(/^\**[ \t]*/, '').replace(/^"|"$/g, '').trim();
     if (/^status:/i.test(line) && status === '') status = value();

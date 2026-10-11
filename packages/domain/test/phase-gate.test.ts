@@ -46,6 +46,11 @@ describe('planPhaseOf', () => {
     expect(planPhaseOf('---\nphase: "Draft"\n---\n# P\n')).toBe('draft');
   });
 
+  it('keeps the first of a repeated key', () => {
+    expect(planPhaseOf('---\nstatus: Draft\nstatus: Approved\nphase: Released\nphase: Design\n---\n')).toBe('draft');
+    expect(planPhaseOf('---\nphase: Design\nphase: Approved\n---\n')).toBe('design');
+  });
+
   it('answers null for a plan that names no phase', () => {
     expect(planPhaseOf('# P\n\nno status\n')).toBeNull();
   });
