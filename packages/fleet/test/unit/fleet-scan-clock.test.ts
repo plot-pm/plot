@@ -185,4 +185,27 @@ describe('the fleet clock', () => {
     expect(prs).toBe(2);
     expect(REFRESH_MS).toBe(5000);
   });
+
+  it('settles idle only after a scan that started before the stop has ended', async () => {
+    const clock = clockManual(0);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    let ended = false;
+    const pulse = startFleetClock(clock, { scan: async () => { await gate; ended = true; } });
+    clock.advance(1);
+    pulse.stop();
+    let idled = false;
+    const idle = pulse.idle().then(() => { idled = true; });
+    await new Promise((r) => setImmediate(r));
+    expect(idled).toBe(false);
+    release();
+    await idle;
+    expect(ended).toBe(true);
+  });
+
+  it('settles idle at once when no run is in flight', async () => {
+    const pulse = startFleetClock(clockManual(0), { scan: async () => undefined });
+    pulse.stop();
+    await expect(pulse.idle()).resolves.toBeUndefined();
+  });
 });
