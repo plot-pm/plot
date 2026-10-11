@@ -1307,9 +1307,11 @@ EOF
     # and are honestly reported as unconfirmed.
     #
     # THE BOUND IS `--wait` AND NOT A NEW CONSTANT. `ExitTimeOut` is unset in
-    # the plist, so launchd escalates SIGTERM to SIGKILL after 20 s, and
-    # `registryd-main.ts` registers no signal handler — so a real teardown has
-    # an upper bound and the existing 30 s default covers it with margin.
+    # the plist, so launchd escalates SIGTERM to SIGKILL after 20 s. On
+    # SIGTERM `registryd-main.ts` ends its wait between ticks, stops the clock
+    # and the channel, and exits; a second signal exits at once. A teardown
+    # therefore ends within the current tick or at the 20 s escalation, and the
+    # existing 30 s default covers both with margin.
     #
     # THE POLL IS `unload_supervisor`, shared with the old label's migration
     # and its `--stop` below.

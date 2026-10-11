@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,9 +11,13 @@ import {
   prsBeat,
   queueWorldForRepo,
   relayBeat,
+  run,
+  startDaemon,
   stopOnSignals,
   type ChannelSlot,
+  type RunSeams,
 } from '../../src/server/entry/registryd-main.js';
+import type { TickReport } from '../../src/server/entry/registryd.js';
 import { startFleetClock } from '../../src/shared/fleet-clock.js';
 
 import type { RunningChannel } from '../../src/shared/channel-socket.js';
@@ -102,13 +106,313 @@ describe('the desk relay beat', () => {
   });
 });
 
+/** A process stand-in that records its signal handlers and its exit code. */
+const fakeProc = (argv: string[] = ['node', 'plot-fleetd.mjs'], repoRoot = '/nonexistent') => {
+  const handlers = new Map<string, () => void>();
+  const exits: number[] = [];
+  const proc = {
+    argv,
+    env: { PLOT_REPO_ROOT: repoRoot },
+    cwd: () => repoRoot,
+    on: ((name: string, fn: () => void) => {
+      handlers.set(name, fn);
+    }) as never,
+    exit: ((code: number) => {
+      exits.push(code);
+    }) as never,
+  };
+  return { proc, handlers, exits };
+};
+
 describe('stopping on a signal', () => {
-  it.each(['SIGTERM', 'SIGINT'])('flips stop() when %s arrives', (signal) => {
-    const handlers = new Map<string, () => void>();
-    const stop = stopOnSignals({ on: ((name: string, fn: () => void) => { handlers.set(name, fn); }) as never });
+  it.each(['SIGTERM', 'SIGINT'])('flips stop() and settles requested when %s arrives', async (signal) => {
+    const { proc, handlers, exits } = fakeProc();
+    const stop = stopOnSignals(proc);
     expect(stop()).toBe(false);
     handlers.get(signal)?.();
     expect(stop()).toBe(true);
+    await expect(stop.requested).resolves.toBeUndefined();
+    expect(exits).toEqual([]);
+  });
+
+  it.each([
+    ['SIGTERM', 143],
+    ['SIGINT', 130],
+  ])('exits at once with %s on a second signal', (signal, code) => {
+    const { proc, handlers, exits } = fakeProc();
+    stopOnSignals(proc);
+    handlers.get(signal)?.();
+    handlers.get(signal)?.();
+    expect(exits).toEqual([code]);
+  });
+});
+
+/** A completed supervision tick with nothing decided. */
+const completedTick = (): TickReport => ({
+  startedAt: 0,
+  costMs: 1,
+  agents: 0,
+  incomplete: '',
+  handOver: null,
+  decision: {
+    outcome: 'decided',
+    workflow: 'supervise',
+    writes: [],
+    detail: { agents: [], left: [], reaping: [], correcting: [], needingAPerson: [], deferred: [], unclaimed: [] },
+  },
+});
+
+/** Lets every pending promise callback run. */
+const settle = async (turns = 5): Promise<void> => {
+  for (let i = 0; i < turns; i += 1) await new Promise((r) => setImmediate(r));
+};
+
+/** Fires one PR beat (every twelfth beat of the fleet clock) and lets it finish. */
+const prBeat = async (clock: ReturnType<typeof clockManual>): Promise<void> => {
+  for (let i = 0; i < 12; i += 1) {
+    clock.advance(1);
+    await settle(1);
+  }
+  await settle();
+};
+
+/** A flag the test sets, with the `requested` promise `stopOnSignals` gives. */
+const manualStop = () => {
+  let stopped = false;
+  let resolve: () => void = () => undefined;
+  const requested = new Promise<void>((r) => {
+    resolve = r;
+  });
+  const flag = Object.assign(() => stopped, { requested });
+  return {
+    flag,
+    set: () => {
+      stopped = true;
+      resolve();
+    },
+  };
+};
+
+describe('run — the loop wiring', () => {
+  let dir = '';
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'registryd-run-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** The seams every run test shares: no scan, no host read, no socket. */
+  const quiet = (events: string[], overrides: Partial<RunSeams> = {}): RunSeams => ({
+    clock: clockManual(0),
+    scan: async () => undefined,
+    readPrs: async () => undefined,
+    readDefaultBranch: async () => undefined,
+    openChannel: (async () => ({
+      stop: async () => {
+        events.push('channel-stop');
+      },
+    })) as never,
+    overChannel: () => ({
+      indexMonitor: null,
+      deskRelay: async () => {
+        events.push('relay');
+      },
+    }),
+    ...overrides,
+  });
+
+  it('runs the relay after a completed tick and after a failed tick', async () => {
+    const events: string[] = [];
+    const stop = manualStop();
+    let ticks = 0;
+    const code = await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        events.push('sleep');
+        if (events.filter((e) => e === 'sleep').length === 2) stop.set();
+      },
+      stop.flag,
+      () => undefined,
+      dir,
+      quiet(events, {
+        tick: async () => {
+          ticks += 1;
+          events.push(ticks === 1 ? 'tick-ok' : 'tick-throws');
+          if (ticks === 1) return completedTick();
+          throw new Error('host gone');
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    expect(events).toEqual(['tick-ok', 'relay', 'sleep', 'tick-throws', 'relay', 'sleep', 'channel-stop']);
+  });
+
+  it('retries a failed bind on a later PR beat, reads the default branch there, and stops the channel it bound', async () => {
+    const events: string[] = [];
+    const warnings: string[] = [];
+    const clock = clockManual(0);
+    const stop = manualStop();
+    let opens = 0;
+    const code = await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        await prBeat(clock);
+        stop.set();
+      },
+      stop.flag,
+      (s) => warnings.push(s),
+      dir,
+      quiet(events, {
+        clock,
+        tick: async () => completedTick(),
+        readDefaultBranch: async () => {
+          events.push('read-default-branch');
+        },
+        openChannel: (async () => {
+          opens += 1;
+          if (opens === 1) throw new Error('address in use');
+          return {
+            stop: async () => {
+              events.push('channel-stop');
+            },
+          };
+        }) as never,
+      }),
+    );
+    expect(code).toBe(0);
+    expect(opens).toBe(2);
+    expect(warnings.filter((w) => w.includes('the channel could not start'))).toHaveLength(1);
+    expect(events).toContain('read-default-branch');
+    expect(events.at(-1)).toBe('channel-stop');
+  });
+
+  it('warns where the monitor throws on the PR beat', async () => {
+    const events: string[] = [];
+    const warnings: string[] = [];
+    const clock = clockManual(0);
+    const stop = manualStop();
+    await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        await prBeat(clock);
+        stop.set();
+      },
+      stop.flag,
+      (s) => warnings.push(s),
+      dir,
+      quiet(events, {
+        clock,
+        tick: async () => completedTick(),
+        overChannel: () => ({
+          indexMonitor: async () => {
+            throw new Error('monitor blew up');
+          },
+          deskRelay: null,
+        }),
+      }),
+    );
+    expect(warnings).toContain('plot-fleetd: pr-reader failed: monitor blew up');
+  });
+
+  it('returns well before the interval when a stop arrives during the wait', async () => {
+    const events: string[] = [];
+    const stop = manualStop();
+    const started = Date.now();
+    const pending = run(
+      [],
+      dir,
+      () => undefined,
+      () => new Promise<void>(() => undefined),
+      stop.flag,
+      () => undefined,
+      dir,
+      quiet(events, { tick: async () => completedTick() }),
+    );
+    await settle(20);
+    stop.set();
+    expect(await pending).toBe(0);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(events.at(-1)).toBe('channel-stop');
+  });
+
+  it('skips the wait when the stop arrives during the tick', async () => {
+    const events: string[] = [];
+    const stop = manualStop();
+    let sleeps = 0;
+    const code = await run(
+      [],
+      dir,
+      () => undefined,
+      async () => {
+        sleeps += 1;
+      },
+      stop.flag,
+      () => undefined,
+      dir,
+      quiet(events, {
+        tick: async () => {
+          stop.set();
+          return completedTick();
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    expect(sleeps).toBe(0);
+  });
+});
+
+describe('startDaemon — the process entry', () => {
+  let dir = '';
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'registryd-daemon-'));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('ends on SIGTERM during the 60 s wait, well before it elapses', async () => {
+    const { proc, handlers, exits } = fakeProc(['node', 'plot-fleetd.mjs', '--interval', '60'], dir);
+    const events: string[] = [];
+    let ticked: () => void = () => undefined;
+    const firstTick = new Promise<void>((r) => {
+      ticked = r;
+    });
+    const started = Date.now();
+    const pending = startDaemon(proc, dir, () => undefined, () => undefined, {
+      clock: clockManual(0),
+      scan: async () => undefined,
+      readPrs: async () => undefined,
+      readDefaultBranch: async () => undefined,
+      openChannel: (async () => ({
+        stop: async () => {
+          events.push('channel-stop');
+        },
+      })) as never,
+      overChannel: () => ({ indexMonitor: null, deskRelay: null }),
+      tick: async () => {
+        ticked();
+        return completedTick();
+      },
+    });
+    await firstTick;
+    await settle(20);
+    expect(handlers.has('SIGTERM')).toBe(true);
+    handlers.get('SIGTERM')?.();
+    const code = await Promise.race([
+      pending,
+      new Promise<string>((r) => setTimeout(() => r('still waiting'), 5_000)),
+    ]);
+    expect(code).toBe(0);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(events).toEqual(['channel-stop']);
+    expect(exits).toEqual([]);
   });
 });
 

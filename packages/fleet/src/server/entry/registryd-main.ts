@@ -30,6 +30,7 @@ import {
   type RunningChannel,
 } from '@plot-pm/domain/adapters';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
+import type { Clock } from '@plot-pm/domain/ports/clock';
 import type { RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
 import type { NotifyWrite } from '@plot-pm/domain/workflows/decision';
 import {
@@ -1732,20 +1733,64 @@ export const relayBeat = async (slot: Pick<ChannelSlot, 'deskRelay'>, warn: (s: 
 };
 
 /**
+ * A stop flag `run` asks at the top of each loop pass, with an optional
+ * promise that settles when the stop is requested.
+ *
+ * `run` races its wait between ticks against `requested`, so a stop that
+ * arrives during the wait ends the wait at once. A flag with no `requested`
+ * is read only between waits.
+ */
+export type StopFlag = (() => boolean) & { readonly requested?: Promise<void> };
+
+/** The exit code for a second signal: 128 plus the signal's number. */
+const SIGNAL_EXIT: Record<'SIGTERM' | 'SIGINT', number> = { SIGTERM: 143, SIGINT: 130 };
+
+/**
  * Makes a stop flag that SIGTERM and SIGINT set.
  *
- * @param proc - the signal source; `process` unless a test gives one.
- * @returns the function to hand to `run` as `stop`.
+ * The first signal sets the flag and settles `requested`, so `run` ends its
+ * wait, stops the clock and the channel, and returns. A second signal exits
+ * the process at once with 128 plus the signal's number.
+ *
+ * @param proc - the signal source and the exit; `process` unless a test gives one.
+ * @returns the flag to hand to `run` as `stop`.
  */
-export const stopOnSignals = (proc: Pick<NodeJS.Process, 'on'> = process): (() => boolean) => {
+export const stopOnSignals = (proc: Pick<NodeJS.Process, 'on' | 'exit'> = process): StopFlag => {
   let stopped = false;
-  const set = (): void => {
+  let settle: () => void = () => undefined;
+  const requested = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  const on = (signal: 'SIGTERM' | 'SIGINT') => (): void => {
+    if (stopped) proc.exit(SIGNAL_EXIT[signal]);
     stopped = true;
+    settle();
   };
-  proc.on('SIGTERM', set);
-  proc.on('SIGINT', set);
-  return () => stopped;
+  proc.on('SIGTERM', on('SIGTERM'));
+  proc.on('SIGINT', on('SIGINT'));
+  return Object.assign(() => stopped, { requested });
 };
+
+/**
+ * What `run` builds for itself unless a caller gives it: the seams a test
+ * replaces to drive the loop without a host, a scan or a socket.
+ */
+export interface RunSeams {
+  /** One supervision tick; `tick` by default. */
+  tick?: typeof tick;
+  /** The fleet clock's beat source; the system clock by default. */
+  clock?: Clock;
+  /** Opens the channel transport; `startChannel` by default. */
+  openChannel?: typeof startChannel;
+  /** Builds the monitor and the relay over an opened channel. */
+  overChannel?: (channel: RunningChannel) => Pick<ChannelSlot, 'indexMonitor' | 'deskRelay'>;
+  /** The scan the clock runs on every beat. */
+  scan?: () => Promise<void>;
+  /** The PR read on the PR beat. */
+  readPrs?: () => Promise<void>;
+  /** The default-branch read on the PR beat. */
+  readDefaultBranch?: () => Promise<void>;
+}
 
 /**
  * Builds the IndexMonitor's run over the files fleetd writes and the plans it
@@ -1849,6 +1894,7 @@ export const sweepTempIfDue = async (
  * @param stop - asked at the top of each loop pass; true ends the loop.
  * @param warn - where failures go.
  * @param repoRoot - the checkout supervised; `PLOT_REPO_ROOT`, else the working directory.
+ * @param seams - replacements for what `run` builds itself; see {@link RunSeams}.
  * @returns the exit code: 0 for a stopped loop, 2 for a bad argument.
  */
 export const run = async (
@@ -1857,9 +1903,10 @@ export const run = async (
   write: (s: string) => void = (s) => process.stdout.write(s),
   sleep: (ms: number) => Promise<void> = (ms) =>
     new Promise((resolve) => setTimeout(resolve, ms)),
-  stop: () => boolean = () => false,
+  stop: StopFlag = () => false,
   warn: (s: string) => void = (s) => process.stderr.write(s),
   repoRoot: string = process.env.PLOT_REPO_ROOT ?? process.cwd(),
+  seams: RunSeams = {},
 ): Promise<number> => {
   const args = argsFrom(argv);
   if (args === null) {
@@ -1975,33 +2022,37 @@ export const run = async (
           (Number(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')) || 3600) * 1000,
         checks: checkNamesOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Default branch checks', '')),
       };
-  const readDefaultBranch = async (): Promise<void> => {
+  const readDefaultBranch = seams.readDefaultBranch ?? (async (): Promise<void> => {
     if (defaultBranchWorld === null) return;
     try {
       await refreshDefaultBranch(defaultBranchWorld);
     } catch (e) {
       warn(`plot-fleetd: default-branch read failed: ${e instanceof Error ? e.message : String(e)}`);
     }
-  };
-  // THE CHANNEL IS THE LOOP'S ALONE: `--once` opens no socket, which would
-  // leave a stale file behind. A bind that fails is one warning and a daemon
-  // that runs without it — the PR index and the default-branch file are
-  // written whether or not anyone listens.
-  const slot: ChannelSlot = { channel: null, indexMonitor: null, deskRelay: null };
-  const overChannel = (channel: RunningChannel) => ({
-    indexMonitor: indexMonitorOver({ repoRoot, scriptDir: scriptsDir }, channel, write),
-    deskRelay: deskRelayOver({ repoRoot, scriptDir: scriptsDir }, channel, write),
   });
-  if (!args.once) await bindChannelSlot(slot, () => startFleetChannel(repoRoot, warn), overChannel);
+  // THE CHANNEL IS THE LOOP'S ALONE: `--once` opens no socket, which would
+  // leave a stale file behind. A bind that fails at start is one warning; the
+  // daemon runs without the channel until a later PR beat binds it. The PR
+  // index and the default-branch file are written whether or not anyone
+  // listens.
+  const slot: ChannelSlot = { channel: null, indexMonitor: null, deskRelay: null };
+  const overChannel =
+    seams.overChannel ??
+    ((channel: RunningChannel) => ({
+      indexMonitor: indexMonitorOver({ repoRoot, scriptDir: scriptsDir }, channel, write),
+      deskRelay: deskRelayOver({ repoRoot, scriptDir: scriptsDir }, channel, write),
+    }));
+  const openChannel = seams.openChannel ?? startChannel;
+  if (!args.once) await bindChannelSlot(slot, () => startFleetChannel(repoRoot, warn, openChannel), overChannel);
   // A LATER BEAT RETRIES A FAILED BIND, silently: the start warned once, and a
   // live process holding the path would otherwise warn on every beat.
   const retryBind = args.once
     ? undefined
-    : () => bindChannelSlot(slot, () => startFleetChannel(repoRoot, () => undefined), overChannel);
+    : () => bindChannelSlot(slot, () => startFleetChannel(repoRoot, () => undefined, openChannel), overChannel);
   const scanClock = args.once
     ? null
-    : startFleetClock(clockSystem(), {
-        scan: fleetScan(
+    : startFleetClock(seams.clock ?? clockSystem(), {
+        scan: seams.scan ?? fleetScan(
           {
             repoRoot,
             scripts,
@@ -2019,8 +2070,18 @@ export const run = async (
           // and never inside `tick`: a scan that failed calls nothing.
           fleetAutoWrites({ repoRoot, scriptsDir, scripts }, warn),
         ),
-        prs: prsBeat({ readPrs, readDefaultBranch }, slot, retryBind),
+        prs: prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind),
       }, warn);
+  const runTick = seams.tick ?? tick;
+  // THE WAIT BETWEEN TICKS ENDS ON A STOP. A stop read before the wait skips
+  // it; one that arrives during it settles `stop.requested` and ends it, so a
+  // SIGTERM ends the daemon within the current tick rather than after the
+  // interval.
+  const requested = stop.requested ?? new Promise<void>(() => undefined);
+  const pause = async (): Promise<void> => {
+    if (stop()) return;
+    await Promise.race([sleep(args.intervalMs), requested]);
+  };
 
   write(`plot-fleetd: supervising ${registryDir}\n`);
 
@@ -2060,7 +2121,7 @@ export const run = async (
       // THE REGISTRY IS RE-READ HERE, at the top of every tick. That is the
       // whole of the daemon's state: there is nothing else to lose, so
       // `kill -9` costs one tick.
-      report = await tick({
+      report = await runTick({
         registry: () => readRegistry(registryDir, warn, !args.once),
         world,
         queue,
@@ -2089,7 +2150,12 @@ export const run = async (
       // threw halfway decided nothing, and the contract says the decision is
       // empty rather than truncated. The interval is still waited, so a
       // failure that repeats cannot spin.
-      await sleep(args.intervalMs);
+      //
+      // THE RELAY RUNS ON THIS PATH TOO: reading the desks' monitor logs needs
+      // no host call, so a failing tick does not stop desk findings reaching
+      // the channel.
+      await relayBeat(slot, warn);
+      await pause();
       continue;
     }
 
@@ -2172,7 +2238,7 @@ export const run = async (
     // supervisor a restart it does not need for a reading that will be taken
     // again in a minute.
     if (args.once) return code;
-    await sleep(args.intervalMs);
+    await pause();
   }
 };
 
@@ -2344,6 +2410,35 @@ export const reportTick = (
   return 0;
 };
 
+/**
+ * Runs the daemon for a process: its arguments, its repo root, and a stop on
+ * SIGTERM and SIGINT.
+ *
+ * @param proc - the process whose arguments, environment and signals are read.
+ * @param here - the directory of the running bundle; the scripts resolve from it.
+ * @param out - where the report lines go.
+ * @param err - where failures go.
+ * @param seams - replacements for what `run` builds itself; see {@link RunSeams}.
+ * @returns what `run` returns.
+ */
+export const startDaemon = (
+  proc: Pick<NodeJS.Process, 'argv' | 'env' | 'cwd' | 'on' | 'exit'>,
+  here: string,
+  out: (s: string) => void,
+  err: (s: string) => void,
+  seams: RunSeams = {},
+): Promise<number> =>
+  run(
+    proc.argv.slice(2),
+    here,
+    out,
+    undefined,
+    stopOnSignals(proc),
+    err,
+    proc.env.PLOT_REPO_ROOT ?? proc.cwd(),
+    seams,
+  );
+
 // Only when RUN, never when imported — a test importing `run` must not have the
 // process loop under it.
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
@@ -2361,12 +2456,10 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   const logs = logDir(process.env.PLOT_REPO_ROOT ?? process.cwd());
   const out = processLog(join(logs, 'fleetd.log'));
   const err = processLog(join(logs, 'fleetd.err'));
-  void run(
-    process.argv.slice(2),
+  void startDaemon(
+    process,
     dirname(fileURLToPath(import.meta.url)),
     (text) => out.write(text),
-    undefined,
-    stopOnSignals(),
     (text) => err.write(text),
   )
     .then((code) => process.exit(code))
