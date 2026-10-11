@@ -574,7 +574,7 @@ const unitFile = (home, fleetLabel, ctl) =>
 const unitPath = (body) => {
   const m = onLaunchd
     ? body.match(/<key>PATH<\/key>\s*<string>([^<]*)<\/string>/)
-    : body.match(/^Environment=PATH=(.*)$/m);
+    : body.match(/^Environment="?PATH=(.*?)"?$/m);
   assert.ok(m, 'the unit carries no PATH');
   return m[1];
 };
@@ -695,8 +695,8 @@ test('a harness already on the default unit PATH resolves to the same binary', (
 // node's directory comes first.
 
 // A `node` that IS the running node, so `--start`'s major check passes on it.
-const pinnedNodeDir = (box) => {
-  const dir = path.join(box, 'pinned-node-bin');
+const pinnedNodeDir = (box, name = 'pinned-node-bin') => {
+  const dir = path.join(box, name);
   fs.mkdirSync(dir, { recursive: true });
   const bin = path.join(dir, 'node');
   fs.writeFileSync(bin, `#!/bin/sh\nexec '${process.execPath}' "$@"\n`);
@@ -741,11 +741,59 @@ test('--start names the pinned node directory once when the harness lives in it'
   }
 });
 
+test('--start names the pinned node directory once when PLOT_HARNESS is an absolute path into it', () => {
+  // The harness is resolved from the absolute name and node from PATH: two
+  // lookups that end on the same directory string.
+  const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-node-abs-')));
+  try {
+    const pinned = pinnedNodeDir(stubBox);
+    const harness = path.join(pinned.dir, 'claude');
+    fs.writeFileSync(harness, '#!/bin/sh\nexit 0\n');
+    fs.chmodSync(harness, 0o755);
+    const { r, file } = startWith('node-abs', { searchDirs: [pinned.dir], harness });
+    assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
+    const searched = unitPath(fs.readFileSync(file, 'utf8')).split(':');
+    assert.equal(searched.filter((d) => d === pinned.dir).length, 1);
+    assert.equal(searched.slice(1).join(':'), defaultUnitPath());
+  } finally {
+    fs.rmSync(stubBox, { recursive: true, force: true });
+  }
+});
+
+test('refusal: a harness of the same name in the pinned node directory shadows the resolved one', () => {
+  const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-shadow-')));
+  try {
+    const pinned = pinnedNodeDir(stubBox);
+    fs.writeFileSync(path.join(pinned.dir, 'claude'), '#!/bin/sh\nexit 1\n');
+    fs.chmodSync(path.join(pinned.dir, 'claude'), 0o755);
+    const { dir } = stubHarness(stubBox, 'claude');
+    const { r, file } = startWith('harness-shadowed', { searchDirs: [dir, pinned.dir] });
+    assert.equal(r.status, 1);
+    assert.match(r.out, /node's directory holds another 'claude'/);
+    assert.equal(fs.existsSync(file), false, 'a refused start left a unit behind');
+  } finally {
+    fs.rmSync(stubBox, { recursive: true, force: true });
+  }
+});
+
+test('--start fills a node directory holding sed-special characters and a space verbatim', () => {
+  const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-node-odd-')));
+  try {
+    const pinned = pinnedNodeDir(stubBox, 'odd|dir more.v[1]');
+    const { dir } = stubHarness(stubBox, 'claude');
+    const { r, file } = startWith('node-odd', { searchDirs: [pinned.dir, dir] });
+    assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
+    assert.deepEqual(unitPath(fs.readFileSync(file, 'utf8')).split(':').slice(0, 2), [pinned.dir, dir]);
+  } finally {
+    fs.rmSync(stubBox, { recursive: true, force: true });
+  }
+});
+
 // ── The units fill and parse — the check CI can actually run on Linux ─────────
 
 // EACH TEMPLATE HAS ITS OWN SET. The plist carries `__LABEL__` because launchd
 // keys a job by the `Label` inside it (#1051); a systemd unit has no label
-// field, so the service keeps three and its identity problem is #1053's.
+// field, so the service keeps five and its identity problem is #1053's.
 const PLACEHOLDERS = {
   'com.plot-pm.fleetd.plist': ['__FLEETD__', '__HARNESS_DIR__', '__LABEL__', '__NODE_DIR__', '__NODE__', '__REPO_ROOT__'],
   'plot-fleetd.service': ['__FLEETD__', '__HARNESS_DIR__', '__NODE_DIR__', '__NODE__', '__REPO_ROOT__'],
@@ -767,7 +815,7 @@ test('the fill leaves no placeholder in either unit', () => {
       .replaceAll('__REPO_ROOT__', '/tmp/repo')
       .replaceAll('__NODE__', '/tmp/node')
       .replaceAll('__NODE_DIR__', '/tmp')
-    .replaceAll('__HARNESS_DIR__', '/tmp/harness')
+      .replaceAll('__HARNESS_DIR__', '/tmp/harness')
       .replaceAll('__FLEETD__', '/tmp/fleetd.mjs');
     assert.equal(body.match(/__[A-Z_]+__/g), null, `${f} still holds a placeholder after the fill`);
   }

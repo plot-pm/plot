@@ -43,8 +43,9 @@ Environment=PLOT_REPO_ROOT=__REPO_ROOT__
 # directory `plot-fleetctl.sh --start` resolved the harness in with
 # `command -v`, so a worker runs the binary the operator's shell runs. Each
 # comes first for EVERY binary in its directory; on a typical install the
-# harness directory is ~/.local/bin.
-Environment=PATH=__NODE_DIR__:__HARNESS_DIR__:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
+# harness directory is ~/.local/bin. The assignment is quoted, so a directory
+# holding a space stays one value.
+Environment="PATH=__NODE_DIR__:__HARNESS_DIR__:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 
 # `--start-agents` IS WHAT MAKES THIS A SUPERVISOR. The flag defaults off so that
 # `/plot-fleet --once` can run against a live estate for free — a tick without it
