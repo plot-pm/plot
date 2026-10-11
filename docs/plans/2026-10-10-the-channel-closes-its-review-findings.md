@@ -120,7 +120,7 @@ Files: `mods/plot-follow/hooks/follow.tsx`, `packages/domain/src/rules/follow-ch
 
 - **#1481 M1.** The connect loop and the retry timer start only in `session.start` (`follow.tsx:92-114`), while `held` lives in `$.state` (`:24`). A `userConfig` change or `/reload-plugins` reloads the module, drops the timers and keeps the old findings on the pane. The fix starts the loop on module load as well, per the `plugin-authoring` reference, and marks the pane stale until the channel answers.
 - **#1481 M2.** `turnGate` returns early for a name not in `listed` (`follow-channel.ts:86`), and `clear` is never listed, so a held line stays after its `clear`. The fix removes the held line for the branch a `clear` names. Whether a new day keeps the held lines (`:89`, asserted at `follow-channel.test.ts:81-99`) stays as written unless review decides otherwise.
-- **#1481 M3.** `GATE_KEY` (`follow.tsx:20`) is one key for every repo and session, and `readGate` → `turnGate` → `store.set` (`:33-45`) is a read-modify-write without `ifVersion`. The fix keys the gate by repository and writes it with `ifVersion`.
+- **#1481 M3.** `GATE_KEY` (`follow.tsx:20`) is one key for every repo and session, and `readGate` → `turnGate` → `store.set` (`:33-45`) is a read-modify-write without `ifVersion`. The fix keys the gate by repository. `$.store` has no `ifVersion` (it offers `set(key, value)` alone, `claude-code.d.ts:3249-3270` in 2.1.289), so the follower `bin/follow.mjs` claims each reading with an `O_EXCL` lease file under `<repo>/.plot/state/follow-leases/`, and the mod starts a turn only for a reading its follower claimed. Known limit: the gap and the daily count in `$.store` stay a read-modify-write, so two sessions that claim two different readings at the same moment can both start a turn; the lease rules out two turns for one reading.
 - **#1481 L1.** A fleetd restart republishes every finding after `welcome` (`follow.tsx:69-73`), and the gate reads them as new. The fix compares a republished finding with the held line and starts no turn for an unchanged one.
 - **#1481 L2.** The read loop (`follow.tsx:51-83`) calls `lines.return()` only on the `ended` path (`:80`). A throw from `JSON.parse` or `arrive` leaves the follower running, and the next 30 s tick starts a second one. The fix calls `return()` in a `finally`.
 
@@ -166,7 +166,7 @@ Files: `mods/plot-follow/hooks/follow.tsx`, `packages/domain/src/rules/follow-ch
 
 ### Mod reload and gate
 
-- `bug/the-mod-follows-after-a-reload` — the mod reconnects after a reload, a `clear` drops its held line, the turn gate is keyed by repository and written with `ifVersion`, a restart starts no turn for unchanged findings, and the read loop always closes its follower (#1481 M1–M3, L1, L2) <!-- builds: a per-repository turn gate for plot-follow -->
+- `bug/the-mod-follows-after-a-reload` — the mod reconnects after a reload, a `clear` drops its held line, the turn gate is keyed by repository and each reading starts a turn in one session alone through the follower's lease file, a restart or a welcome starts no turn for a reading already announced, and the read loop always closes its follower (#1481 M1–M3, L1, L2) <!-- builds: a per-repository turn gate for plot-follow -->
 
 ## Notes
 
