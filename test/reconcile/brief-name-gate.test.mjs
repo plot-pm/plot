@@ -167,6 +167,33 @@ test('brief-name gate: a chained git mv to a misnamed path is refused', () => {
   assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
 });
 
+test('brief-name gate: a git mv on its own line before the commit is refused', () => {
+  const { dir } = repo({ committed: { '.plot/briefs/feature-legacy.md': brief } });
+  const r = run(dir, 'git mv .plot/briefs/feature-legacy.md .plot/briefs/docs-q.md\ngit commit -m msg');
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /\.plot\/briefs\/q\.md/);
+});
+
+test('brief-name gate: a git add, then a git mv, then the commit, each on its own line, is refused', () => {
+  const { dir } = repo({ committed: { '.plot/briefs/feature-legacy.md': brief }, files: { 'sub/keep.txt': 'k\n' }, stage: false });
+  const r = run(dir, 'git add sub/keep.txt\ngit mv .plot/briefs/feature-legacy.md .plot/briefs/docs-q.md\ngit commit -m msg');
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+});
+
+test('brief-name gate: briefPath of <prefix>/<prefix>-<slug> passes when the brief names its branch', () => {
+  // briefPath('idea/feature-y') is .plot/briefs/feature-y.md: the readers look there.
+  const { dir } = repo({ files: { '.plot/briefs/feature-y.md': '- **Branch:** `idea/feature-y` (base: `main`)\n' } });
+  const r = run(dir);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test('brief-name gate: briefPath of <prefix>/<prefix>-<slug> passes when the branch exists', () => {
+  const { dir, sh } = repo({ files: { '.plot/briefs/feature-z.md': brief } });
+  sh('git branch feature/feature-z');
+  const r = run(dir);
+  assert.equal(r.status, 0, r.stderr);
+});
+
 test('brief-name gate: a chained add of an already-committed misnamed brief is a modify and passes', () => {
   const { dir } = repo({
     committed: { '.plot/briefs/feature-legacy.md': brief },

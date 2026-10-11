@@ -98,14 +98,17 @@ const bundleCommitGate: Gate = {
 
 /**
  * `brief-name`: refuses a commit that adds or renames a hand-off brief to
- * `.plot/briefs/<prefix>-<slug>.md`.
+ * `.plot/briefs/<prefix>-<slug>.md` when no branch has that path as its
+ * `briefPath`.
  *
- * `wants` is a pure string test. `ask` reads the `Branch prefixes` config, the
- * index, and — for a `git add` or `git mv` chained in the same command, which
- * runs after this hook — the untracked files that `git add` would stage and
- * the working directory's offset from the repository root. A path already in
- * `HEAD` is a modify and is never judged. A failed config read throws, which
- * `onError: 'allow'` reports as UNVERIFIED; a failed git read allows.
+ * `wants` is a pure string test. `ask` reads; `briefNameRefusal` decides. It
+ * reads the `Branch prefixes` config, the index, and — for a `git add` or
+ * `git mv` chained in the same command, which runs after this hook — the
+ * untracked files that `git add` would stage and the working directory's
+ * offset from the repository root. Only for a path `briefNameCandidates`
+ * names does it read more: whether `HEAD` holds it, its text, whether its
+ * computed path exists, and the branch names. A failed config read throws,
+ * which `onError: 'allow'` reports as UNVERIFIED; a failed git read allows.
  */
 const briefNameGate: Gate = {
   name: 'brief-name',
@@ -113,7 +116,7 @@ const briefNameGate: Gate = {
   ask: async (command) => {
     const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
     const { scriptsShell } = await import('@plot-pm/domain/adapters/scripts/scripts-shell');
-    const { DEFAULT_BRANCH_PREFIXES, addedOrRenamed, briefComputedPath, briefNameRefusal, briefPrefixesOf, chainedStagesOf } =
+    const { DEFAULT_BRANCH_PREFIXES, briefNameCandidates, briefNameRefusal, briefPrefixesOf, chainedStagesOf } =
       await import('@plot-pm/domain/rules/brief-name');
 
     const cwd = process.cwd();
@@ -125,33 +128,41 @@ const briefNameGate: Gate = {
     const config = await scriptsShell({ repoRoot: cwd, scriptDir }).config('Branch prefixes', DEFAULT_BRANCH_PREFIXES);
     if (!config.ok) throw new Error('the Branch prefixes config read failed');
     const prefixes = briefPrefixesOf(config.value);
-    if (prefixes.length === 0) return null;
 
     const staged = await refs.stagedPaths();
     const showPrefix = await refs.showPrefix();
     if (!staged.ok || !showPrefix.ok) return null;
 
-    const stagedAdds = addedOrRenamed(staged.value);
-    const stagedSet = new Set(stagedAdds);
     const chained = chainedStagesOf(command, showPrefix.value);
-    const fromCommand = new Set<string>(chained.moves);
+    const untracked: string[] = [];
     for (const pathspec of chained.adds) {
-      const untracked = await refs.untrackedPaths(pathspec);
-      if (untracked.ok) for (const path of untracked.value) fromCommand.add(path);
+      const paths = await refs.untrackedPaths(pathspec);
+      if (paths.ok) untracked.push(...paths.value);
+    }
+    const landed = { staged: staged.value, untracked, moves: chained.moves, prefixes };
+    const candidates = briefNameCandidates(landed);
+    if (candidates.length === 0) return null;
+
+    const inHead = new Set<string>();
+    const texts = new Map<string, string>();
+    const present = new Set<string>();
+    for (const { path, want } of candidates) {
+      const held = refs.fileExistsSync('HEAD', path);
+      if (held.ok && held.value) inHead.add(path);
+      try {
+        texts.set(path, readFileSync(join(root.value, path), 'utf8'));
+      } catch {
+        // No text in the working tree reads as no branch named.
+      }
+      if (existsSync(join(root.value, want))) present.add(want);
+    }
+    const branches = new Set<string>();
+    for (const remote of [false, true]) {
+      const names = await refs.listBranches(remote);
+      if (names.ok) for (const name of names.value) branches.add(name);
     }
 
-    // A path already in HEAD is a modify, however the command reaches it.
-    const candidates = new Set(stagedAdds);
-    for (const path of fromCommand) {
-      const inHead = refs.fileExistsSync('HEAD', path);
-      if (!(inHead.ok && inHead.value)) candidates.add(path);
-    }
-
-    const misnamed = [...candidates].sort().flatMap((path) => {
-      const want = briefComputedPath(path, prefixes);
-      return want === null ? [] : [{ path, want, tracked: stagedSet.has(path), wantExists: existsSync(join(root.value, want)) }];
-    });
-    return briefNameRefusal(misnamed);
+    return briefNameRefusal({ ...landed, inHead, branches, texts, present });
   },
   onError: 'allow',
 };
