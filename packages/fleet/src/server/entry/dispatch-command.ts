@@ -1,10 +1,10 @@
-import { spawn } from 'node:child_process';
-import { closeSync, openSync, readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import { fleetStateFile } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
-import type { FleetReading, Scripts } from '@plot-pm/domain';
+import type { DetachedProcess, FleetReading, Scripts } from '@plot-pm/domain';
 import { agentLogPath } from '../../shared/agent-log.js';
 import type { BoardConfigReader } from '../../shared/board-run.js';
 import { implementLogPath, implementStatePath } from '../../shared/implement-run.js';
@@ -58,12 +58,7 @@ export interface DispatchCommandDeps {
 }
 
 /** The process {@link runDetached} waits on. */
-export interface LaunchedChild {
-  /** The pid the implement's state file will name. */
-  pid: number;
-  /** The exit code, once the process has exited; `null` while it lives. */
-  exitCode: () => number | null;
-}
+export type LaunchedChild = DetachedProcess;
 
 /**
  * Reads the pulse the fleet bridged to disk.
@@ -139,21 +134,8 @@ export const run = async (
 const FOREGROUND = '--foreground';
 
 /** Launches this script again with {@link FOREGROUND}, detached, output to `launchLog`. */
-const launchSelf = (slug: string, repoRoot: string, launchLog: string): LaunchedChild => {
-  const out = openSync(launchLog, 'w');
-  let code: number | null = null;
-  const child = spawn(process.execPath, [process.argv[1], FOREGROUND, slug], {
-    cwd: repoRoot,
-    detached: true,
-    stdio: ['ignore', out, out],
-  });
-  closeSync(out);
-  child.on('exit', (c) => {
-    code = c ?? 1;
-  });
-  child.unref();
-  return { pid: child.pid ?? 0, exitCode: () => code };
-};
+const launchSelf = (slug: string, repoRoot: string, launchLog: string): LaunchedChild =>
+  detachedNode().node(process.argv[1], [FOREGROUND, slug], repoRoot, launchLog);
 
 /**
  * Runs the dispatch command and returns once the implement has started.
