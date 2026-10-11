@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { stateReceiptsFile } from '../src/adapters/state-receipts/state-receipts-file.js';
 import { describingAs, type Sides } from './compare.js';
 
 /**
@@ -127,6 +128,72 @@ describe('a state receipt: the entry and the shell write the same bytes', () => 
         adapter: JSON.stringify(entryBytes),
         production: JSON.stringify(shellBytes),
       });
+    }
+    expect(disagreements.map(report)).toEqual([]);
+  });
+});
+
+/**
+ * THE SECOND DECLARED DUPLICATE: reading and spending a receipt.
+ *
+ * `plot-state-receipt.sh`'s `receipt_clears` and `stateReceiptsFile.spend` are
+ * two implementations of ONE decision — a receipt clears a staged value only
+ * when it holds that exact value, and clearing spends it. Neither side is
+ * authoritative; the receipt is written by the shell's `record_state_receipt`
+ * so both read the file an owning script leaves, and a disagreement stops the
+ * branch.
+ */
+const shellClears = (repoRoot: string, relPath: string, value: string): boolean => {
+  try {
+    execFileSync('bash', ['-c', `. "$1" && receipt_clears "$2" "$3"`, 'bash', receiptSh, relPath, value], {
+      cwd: repoRoot,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const receiptFiles = (repoRoot: string): readonly string[] => {
+  try {
+    return readdirSync(path.join(repoRoot, '.plot', 'state', 'state-receipts'));
+  } catch {
+    return [];
+  }
+};
+
+describe('a state receipt: the entry and the shell clear and spend alike', () => {
+  const REL = 'docs/plans/2026-10-04-a-plan.md';
+  const CASES: readonly [string, string | null, string][] = [
+    ['the same value clears', 'Delivered', 'Delivered'],
+    ['another value does not clear', 'Approved', 'Delivered'],
+    ['no receipt does not clear', null, 'Delivered'],
+  ];
+
+  it.each(CASES)('%s', async (_name, recorded, staged) => {
+    const answers = { entry: { cleared: false, left: 0 }, shell: { cleared: false, left: 0 } };
+    for (const side of ['entry', 'shell'] as const) {
+      const repoRoot = scratchRepo();
+      mkdirSync(path.dirname(path.join(repoRoot, REL)), { recursive: true });
+      writeFileSync(path.join(repoRoot, REL), '# a plan\n');
+      if (recorded !== null) shellReceipt(repoRoot, REL, recorded);
+      const cleared =
+        side === 'entry'
+          ? await stateReceiptsFile(repoRoot, gitBlobOid).spend(REL, staged).then((r) => r.ok && r.value)
+          : shellClears(repoRoot, REL, staged);
+      answers[side] = { cleared, left: receiptFiles(repoRoot).length };
+    }
+
+    const disagreements: { subject: string; field: string; adapter: string; production: string }[] = [];
+    for (const field of ['cleared', 'left'] as const) {
+      if (answers.entry[field] !== answers.shell[field]) {
+        disagreements.push({
+          subject: `${recorded ?? 'none'} vs ${staged}`,
+          field,
+          adapter: String(answers.entry[field]),
+          production: String(answers.shell[field]),
+        });
+      }
     }
     expect(disagreements.map(report)).toEqual([]);
   });
