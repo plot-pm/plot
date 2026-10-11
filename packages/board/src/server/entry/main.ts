@@ -2,11 +2,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { scriptsFor, primeAgentSettings, readConfigAsync, type BuildBoardOptions } from '../board.js';
-import { estateFromEnv } from '../estate.js';
+import { estateFromEnv, realEstate } from '../estate.js';
 import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
-import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
-import { defaultBranchFile } from '@plot-pm/domain/adapters/default-branch/default-branch-file';
 import { checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 import { mergeAt } from './merge.js';
@@ -149,11 +147,16 @@ export const run = async (
       return 2;
     }
     const { opts } = contextFrom(here);
+    // The REAL estate, whatever `PLOT_BOARD_MOCK` says: the merge reaches the
+    // real host through `plot-host.sh`, so it reads the real default-branch
+    // reading. A mock estate's null fixture would lift the red-main refusal on
+    // a merge that still lands.
+    const estate = realEstate(opts);
     const result = await mergeAt(
       {
-        host: hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+        host: estate.host,
         scripts: scriptsFor(opts),
-        defaultBranch: defaultBranchFile(opts.repoRoot),
+        defaultBranch: estate.defaultBranch,
         checksWaitMs: checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')),
         now: Date.now,
       },

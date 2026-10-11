@@ -6,7 +6,7 @@ import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
 import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
 import { boardState, fleetState } from './controllers/fleet-state.js';
-import { estateFromEnv } from './estate.js';
+import { boardQueryFor, estateFromEnv } from './estate.js';
 // THE ONE ENTRY THAT REGISTERS THE SDK CONNECTOR: board roles on `Agent runner:
 // sdk` start from this process, so only `board-server.mjs` carries the SDK.
 import './sdk-runner.js';
@@ -471,7 +471,7 @@ async function handleRequest(
       // the same answer; one flag serving several capabilities is precisely
       // how they diverge when a later change makes only one of them local.
       const board = {
-        ...(await boardState({ opts, estate: estate.source })),
+        ...(await boardState(boardQueryFor(opts, estate))),
         dispatch: dispatchAvailability(HOST),
         server: await serverInfo(opts, boundPort),
         approve: approveAvailability(HOST),

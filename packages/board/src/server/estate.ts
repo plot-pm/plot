@@ -12,8 +12,9 @@ import type { Host, PlanStore, Refs } from '@plot-pm/domain';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 
-import type { EstateSource } from './controllers/fleet-state.js';
+import type { EstateSource, FleetStateQuery } from './controllers/fleet-state.js';
 import { realEstateSource } from './controllers/fleet-state.js';
+import type { BuildBoardOptions } from './board.js';
 import { mockCards, mockFleet, mockPlans, mockPulse, mockRequested } from './mock-fleet.js';
 
 /**
@@ -122,9 +123,9 @@ export const mockEstate = (): Estate => {
       write: async () => ({ ok: true, value: undefined }),
     },
     // No reading, which `defaultBranchStatus` already treats as "not red" —
-    // a mock board never ran fleetd and has nothing to report. The merge entry
-    // reads this field; `buildBoard` takes its own store from
-    // `BuildBoardOptions.defaultBranchStore`.
+    // a mock board never ran fleetd and has nothing to report. `boardQueryFor`
+    // hands this field to `buildBoard` for `GET /api/board` and `plot-ask.mjs
+    // board`, so a red real file does not show on a mock board.
     defaultBranch: {
       read: async () => ({ ok: true, value: null }),
       write: async () => ({ ok: true, value: undefined }),
@@ -157,3 +158,24 @@ export const estateFromEnv = (
   opts: EstateOptions,
   env: NodeJS.ProcessEnv = process.env,
 ): Estate => (mockRequested(env) ? mockEstate() : realEstate(opts));
+
+/**
+ * The board question for an estate: its source, and its default-branch store
+ * as the store `buildBoard` reads.
+ *
+ * `GET /api/board` and `plot-ask.mjs board` both ask through this, so the board
+ * reads the default-branch reading from the estate the process chose. A real
+ * estate reads `.plot/state/default-branch.json`; the mock estate reads its
+ * null fixture.
+ *
+ * @param opts - where the repository and the scripts are.
+ * @param estate - the estate this process serves.
+ * @returns the query `boardState` takes.
+ */
+export const boardQueryFor = (
+  opts: BuildBoardOptions,
+  estate: Pick<Estate, 'defaultBranch' | 'source'>,
+): FleetStateQuery => ({
+  opts: { ...opts, defaultBranchStore: estate.defaultBranch },
+  estate: estate.source,
+});

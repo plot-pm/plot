@@ -54,10 +54,9 @@ export interface Ask {
   /**
    * The ports, for the questions a controller answers by asking them.
    *
-   * `deliverable` only. It travels beside `estate` rather than replacing it
-   * because the other two questions still read the synchronous source, and
-   * reshaping a type three questions share to serve one would move work this
-   * slice did not promise.
+   * `deliverable` asks all of them; `board` reads its default-branch store.
+   * Absent means the real estate. It travels beside `estate` rather than
+   * replacing it because `board` and `fleet` still read the synchronous source.
    */
   ports?: Estate;
   /** The configured plan directory, for the estate measurement. */
@@ -132,7 +131,10 @@ export const askOnce = async (
         )
       : ask.question === 'fleet'
         ? await fleetState({ opts: ask.opts, estate: ask.estate })
-        : await boardState({ opts: ask.opts, estate: ask.estate });
+        : await boardState({
+            opts: { ...ask.opts, defaultBranchStore: ports.defaultBranch },
+            estate: ask.estate,
+          });
   return { value, estate, measured: true };
 };
 

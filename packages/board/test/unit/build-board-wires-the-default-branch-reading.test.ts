@@ -37,6 +37,8 @@ const READING: DefaultBranchReading = {
 };
 
 const CHECKS_SHA = 'a048b6f1234567890abcdef1234567890abcdef1';
+// Different from CHECKS_SHA, so each assertion pins its own field.
+const HEAD_SHA = 'b159c7a2345678901bcdef02345678901bcdef02';
 
 const made: string[] = [];
 const savedEnv = {
@@ -65,7 +67,7 @@ const tmp = (prefix: string): string => {
 
 /**
  * The real scripts directory with `plot-host.sh` replaced by one that answers
- * `pr-list` with a single open PR carrying `checksSha`. Everything else is a
+ * `pr-list` with a single open PR carrying `headSha` and `checksSha`. Everything else is a
  * symlink, so the board's plan reader still runs.
  */
 const scriptsWithHost = (): string => {
@@ -77,7 +79,7 @@ const scriptsWithHost = (): string => {
   const row = JSON.stringify({
     number: 42, title: 'a pull request', state: 'OPEN', head: 'feature/one', draft: false,
     checks: 'failing', mergeable: 'mergeable', review: '', url: 'https://example.invalid/42',
-    updatedAt: '2026-10-10T12:00:00Z', failing_checks: ['CI'], checksSha: CHECKS_SHA,
+    updatedAt: '2026-10-10T12:00:00Z', failing_checks: ['CI'], headSha: HEAD_SHA, checksSha: CHECKS_SHA,
   });
   fs.writeFileSync(
     path.join(dir, 'plot-host.sh'),
@@ -110,7 +112,7 @@ const until = async <T>(read: () => T | null | undefined): Promise<T> => {
 };
 
 describe('buildBoard wires the fixture default-branch store and the PR record into its output', () => {
-  it('returns the store\'s reading as `defaultBranch` and a card PR\'s `checksSha`', async () => {
+  it('returns the store\'s reading as `defaultBranch` and a card PR\'s `headSha` and `checksSha`', async () => {
     const home = tmp('plot-board-wires-home-');
     process.env.PLOT_PR_INDEX_HOME = home;
     process.env.PLOT_BUDGET_HOME = home;
@@ -132,10 +134,12 @@ describe('buildBoard wires the fixture default-branch store and the PR record in
 
     expect(board.defaultBranch).toEqual(READING);
     const card = board.columns.flatMap((c) => c.cards).find((c: Card) => c.slug === 'wired');
-    expect(card?.prs.find((pr) => pr.number === 42)?.checksSha).toBe(CHECKS_SHA);
+    const pr = card?.prs.find((p) => p.number === 42);
+    expect(pr?.headSha).toBe(HEAD_SHA);
+    expect(pr?.checksSha).toBe(CHECKS_SHA);
   });
 
-  it('returns no `defaultBranch` where the store holds no reading', async () => {
+  it('returns no `defaultBranch` where the given store reads null (the null-store case)', async () => {
     const home = tmp('plot-board-wires-home-');
     process.env.PLOT_PR_INDEX_HOME = home;
     process.env.PLOT_BUDGET_HOME = home;
