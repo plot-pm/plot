@@ -327,7 +327,9 @@ describe('a known PR number is asked by number when the listing fails', () => {
       },
     });
 
-    expect(read).toBe(0);
+    // ONE FILE READ PER PASS, NO HOST CALL: a merged row settles a branch the
+    // whole listing's page missed (#1454), and nothing is asked by number.
+    expect(read).toBe(1);
     expect(asked.views).toEqual([]);
     expect(hold(readings, 'feature/two')).toBeNull();
   });
@@ -1012,5 +1014,100 @@ describe('a finished plan queues nothing', () => {
   it.each(['', 'design', 'unknown-word'])('does not read phase %j as finished', async (phase) => {
     const readings = await readQueue([], world([waiting(phase)]));
     expect(readings.slices.map((s) => s.branch)).toEqual(['feature/one']);
+  });
+});
+
+/**
+ * A MERGED INDEX ROW SETTLES A BRANCH THE LISTING'S PAGE NO LONGER REACHES (#1454).
+ *
+ * The listing asks the host for its newest 500 merged PRs and answers whole. On
+ * 2026-10-10 the supervisor held three slices on `waits` whose own PRs (#664,
+ * #699, #700) and whose prerequisites' PRs (#661, #695) merged weeks before:
+ * all five sat more than 800 merges back, so the whole listing named none of
+ * them, and the index's MERGED rows were read only when the listing failed.
+ */
+describe('a merged index row settles a branch the listing does not name', () => {
+  const row = (number: number, head: string, state: string, draft = false): PrIndexRow => ({
+    number,
+    head,
+    state,
+    draft,
+    checks: 'none',
+    review: '',
+    url: '',
+  });
+  /** An approved plan whose one slice waits on another plan's branch. */
+  const waiting = (): PlanRecord => {
+    const p = plan([['feature/one']]) as unknown as {
+      slices: { branches: { waitsOn: string[] }[] }[];
+    };
+    p.slices[0].branches[0].waitsOn = ['bug/the-prerequisite'];
+    return p as unknown as PlanRecord;
+  };
+  const world = (rows: PrIndexRow[], over: Partial<QueueWorld> = {}): QueueWorld => ({
+    plans: async () => [waiting()],
+    claimedBranches: async () => new Set<string>(),
+    // WHOLE AND EMPTY: the page of 500 answered in full and named neither branch.
+    mergedBranches: async () => wholeListing([]),
+    prIndexRows: async () => rows,
+    viewLanded: async () => 'unknown',
+    briefPresent: async () => true,
+    sliceHasMerged: async () => false,
+    subjectProven: async () => null,
+    queuedHasLanded: async () => 'not-landed',
+    workerAlive: async () => true,
+    blocked: async () => false,
+    refused: async () => false,
+    remoteHead: async () => 'absent',
+    commitSubjects: async () => ({ ok: true, value: [] }),
+    now: () => 0,
+    defaultBranch: async () => 'main',
+    ...over,
+  });
+  const holds = (readings: Awaited<ReturnType<typeof readQueue>>) =>
+    readings.slices.map((s) => [s.branch, whyNotReady(s)]);
+
+  it('holds nothing on waits where both the slice and its prerequisite merged', async () => {
+    const readings = await readQueue([], world([
+      row(664, 'feature/one', 'MERGED'),
+      row(661, 'bug/the-prerequisite', 'MERGED'),
+    ]));
+    expect(holds(readings)).toEqual([]);
+  });
+
+  it('settles a prerequisite whose PR merged, so its waiting slice is ready', async () => {
+    const readings = await readQueue([], world([row(661, 'bug/the-prerequisite', 'MERGED')]));
+    expect(holds(readings)).toEqual([['feature/one', null]]);
+  });
+
+  it('leaves a slice whose own PR merged out of the queue, before its wait is read', async () => {
+    const readings = await readQueue([], world([row(664, 'feature/one', 'MERGED')]));
+    expect(holds(readings)).toEqual([]);
+  });
+
+  it('settles a slice whose own PR merged for the slices behind it', async () => {
+    const readings = await readQueue([], world([row(664, 'feature/one', 'MERGED')], {
+      plans: async () => [plan([['feature/one'], ['feature/two']])],
+    }));
+    expect(holds(readings)).toEqual([['feature/two', null]]);
+  });
+
+  it('reads an open or draft row as no answer, so the wait still holds', async () => {
+    const readings = await readQueue([], world([
+      row(661, 'bug/the-prerequisite', 'OPEN'),
+      row(662, 'bug/the-prerequisite', 'MERGED', true),
+    ]));
+    expect(holds(readings)).toEqual([['feature/one', 'waits']]);
+    expect(readings.slices[0].waitHeld).toBe('unmerged');
+  });
+
+  it('asks the host nothing for a branch the index settled', async () => {
+    const asked: string[] = [];
+    await readQueue([], world([row(661, 'bug/the-prerequisite', 'MERGED')], {
+      plans: async () => [plan([['bug/the-prerequisite'], ['feature/two']])],
+      queuedHasLanded: async (b) => (asked.push(b), 'not-landed'),
+      remoteHead: async (b) => (asked.push(`ref:${b}`), 'absent'),
+    }));
+    expect(asked).toEqual(['feature/two', 'ref:feature/two']);
   });
 });

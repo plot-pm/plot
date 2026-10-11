@@ -3,6 +3,7 @@ import type { PrIndexRow } from '../src/entities/pr-index.js';
 import {
   VIEWS_PER_PASS,
   blockingBranches,
+  indexMergedHeads,
   knownPrFor,
   landedSource,
   viewLanded,
@@ -43,9 +44,32 @@ describe('knownPrFor', () => {
   });
 });
 
+describe('indexMergedHeads', () => {
+  it('names every head with a merged row, in either case', () => {
+    const rows = [row(661, 'bug/a', 'MERGED'), row(695, 'feature/b', 'merged')];
+    expect([...indexMergedHeads(rows)]).toEqual(['bug/a', 'feature/b']);
+  });
+
+  it('names no head whose rows are open, closed or a merged draft', () => {
+    const rows = [row(1, 'feature/a', 'OPEN'), row(2, 'feature/b', 'CLOSED'), row(3, 'feature/c', 'MERGED', true)];
+    expect([...indexMergedHeads(rows)]).toEqual([]);
+  });
+
+  it('names a head once a merged row exists beside its other rows', () => {
+    const rows = [row(7, 'feature/a', 'CLOSED'), row(9, 'feature/a', 'MERGED')];
+    expect([...indexMergedHeads(rows)]).toEqual(['feature/a']);
+  });
+});
+
 describe('landedSource', () => {
-  it('reads the listing whenever it answered, whatever else is known', () => {
-    expect(landedSource(true, { indexMerged: true, number: 3 })).toBe('listing');
+  it('reads a merged index row even where the listing answered whole', () => {
+    // #1454: the whole listing is one page of 500 merged PRs, so a branch
+    // merged further back is missing from it. The merged row is terminal.
+    expect(landedSource(true, { indexMerged: true, number: 3 })).toBe('index');
+  });
+
+  it('reads the listing where it answered and the index holds no merged row', () => {
+    expect(landedSource(true, { indexMerged: false, number: 3 })).toBe('listing');
     expect(landedSource(true, { indexMerged: false, number: null })).toBe('listing');
   });
 

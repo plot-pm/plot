@@ -15,9 +15,9 @@ export const VIEWS_PER_PASS = 5;
 /**
  * Which reading answers *did this branch land*.
  *
+ * - `index` — the PR index holds a merged row for the branch. A merged PR
+ *   cannot revert, so the row is an answer whatever the listing says.
  * - `listing` — the merged listing answered whole, and its rows decide.
- * - `index` — the listing failed, and the PR index holds a merged row for the
- *   branch. A merged PR cannot revert, so the row is an answer.
  * - `number` — the listing failed, and a PR number is known for the branch.
  *   One lookup by that number answers.
  * - `none` — the listing failed, and nothing names a PR for the branch.
@@ -44,6 +44,29 @@ export interface SliceLine {
 }
 
 /**
+ * Whether an index row records a merged, non-draft PR.
+ *
+ * @param row - one row of the PR index.
+ * @returns true where the row's state is `MERGED`, in either case, and the PR
+ *   is not a draft.
+ */
+const isMergedRow = (row: PrIndexRow): boolean => row.state.toUpperCase() === 'MERGED' && !row.draft;
+
+/**
+ * Every head the PR index holds a merged, non-draft row for.
+ *
+ * The merged listing answers one page of the host's newest merged PRs, so a
+ * branch merged further back is missing from a listing that answered whole.
+ * A merged row is a terminal answer and settles the branch. Any other row, and
+ * a missing row, settles nothing.
+ *
+ * @param rows - the index's rows; empty where there is no index.
+ * @returns the heads with a merged row.
+ */
+export const indexMergedHeads = (rows: readonly PrIndexRow[]): ReadonlySet<string> =>
+  new Set(rows.filter(isMergedRow).map((row) => row.head));
+
+/**
  * What the PR index knows about a branch.
  *
  * @param rows - the index's rows; empty where there is no index.
@@ -52,7 +75,7 @@ export interface SliceLine {
  */
 export const knownPrFor = (rows: readonly PrIndexRow[], branch: string): KnownPr => {
   const own = rows.filter((row) => row.head === branch);
-  const indexMerged = own.some((row) => row.state.toUpperCase() === 'MERGED' && !row.draft);
+  const indexMerged = own.some(isMergedRow);
   const number = own.reduce<number | null>(
     (newest, row) => (newest === null || row.number > newest ? row.number : newest),
     null,
@@ -68,8 +91,8 @@ export const knownPrFor = (rows: readonly PrIndexRow[], branch: string): KnownPr
  * @returns the source to read.
  */
 export const landedSource = (listAnswered: boolean, known: KnownPr): LandedSource => {
-  if (listAnswered) return 'listing';
   if (known.indexMerged) return 'index';
+  if (listAnswered) return 'listing';
   return known.number === null ? 'none' : 'number';
 };
 

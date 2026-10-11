@@ -14,6 +14,7 @@ import type { LandedAnswer } from '@plot-pm/domain/rules/landed';
 import {
   VIEWS_PER_PASS,
   blockingBranches,
+  indexMergedHeads,
   knownPrFor,
   landedSource,
 } from '@plot-pm/domain/rules/known-pr';
@@ -68,9 +69,10 @@ export interface QueueWorld {
   /**
    * The PR index's rows, read from disk and never from the host.
    *
-   * Asked only when the listing was not whole: a merged row answers a branch
-   * for no call, and any row names the number {@link QueueWorld.viewLanded}
-   * asks by. Empty where there is no index.
+   * Asked once per pass. A merged row settles its branch for no call, whether
+   * or not the listing answered whole; where the listing was not whole, any
+   * row names the number {@link QueueWorld.viewLanded} asks by. Empty where
+   * there is no index.
    */
   prIndexRows(): Promise<readonly PrIndexRow[]>;
   /**
@@ -285,12 +287,20 @@ export const readQueue = async (
   // A LISTING THAT IS NOT WHOLE IS NOT THE LAST WORD. A known PR number is
   // asked by number, a request that answered on Bitbucket while the listing
   // returned HTTP 429 (#1140). `landedWithoutListing` bounds those lookups.
+  //
+  // A WHOLE LISTING IS ONE PAGE. It names the host's newest 500 merged PRs, so
+  // a branch merged further back is missing from an answer that is whole. The
+  // index's MERGED rows join the set on every pass: a merged PR cannot revert,
+  // and the index never says *not merged*, so a missing row settles nothing.
+  // On 2026-10-10 three slices and both their prerequisites sat more than 800
+  // merges back and were held on `waits` (#1454).
   const listing = await world.mergedBranches();
-  const merged = new Set(listing.merged);
+  const rows = await world.prIndexRows();
+  const merged = new Set([...listing.merged, ...indexMergedHeads(rows)]);
   const provenFor = await subjectProofOf(plans, claimed, merged, world);
   const answered = listing.whole
     ? new Map<string, LandedAnswer>()
-    : await landedWithoutListing(plans, merged, provenFor, world);
+    : await landedWithoutListing(plans, merged, provenFor, rows, world);
 
   // EVERY AGENT'S STATE IS READ ONCE, HERE, so the `assigned` map below and the
   // `agents` list built further down never ask `workerAlive`/`blocked` twice
@@ -493,8 +503,9 @@ const subjectProofOf = async (
  * When every one of them landed, the next slice is asked in the same pass, so a
  * plan whose earlier slices all merged reaches its queued slice in one pass.
  *
- * **A MERGED INDEX ROW ANSWERS FOR NO CALL**, and a known number costs one
- * lookup, at most {@link VIEWS_PER_PASS} per pass. A branch past the cap reads
+ * **A MERGED INDEX ROW ANSWERS FOR NO CALL.** {@link readQueue} folds those
+ * rows into `merged` before this walk, so their branches are settled here
+ * already. A known number costs one lookup, at most {@link VIEWS_PER_PASS} per pass. A branch past the cap reads
  * `unknown`; a branch with no number is left to the per-branch question. Either
  * way it stays unsettled, so the slices behind it stay held. Nothing is
  * promoted on a lookup that did not answer.
@@ -502,9 +513,11 @@ const subjectProofOf = async (
  * It writes nothing. The board's refresh is the only writer of the PR index.
  *
  * @param plans - every plan on the estate.
- * @param merged - the heads the listing named; landed branches are added to it.
+ * @param merged - the heads the listing and the index's merged rows named;
+ *   landed branches are added to it.
  * @param provenFor - the branches a merge subject proves, per plan. A proven
  *   branch is settled for its own plan only, and is asked nothing.
+ * @param rows - the PR index's rows, as this pass read them.
  * @param world - what to read the estate through.
  * @returns the answers taken by index row or by number, keyed by branch.
  */
@@ -512,10 +525,10 @@ const landedWithoutListing = async (
   plans: readonly PlanRecord[],
   merged: Set<string>,
   provenFor: (plan: PlanRecord) => ReadonlySet<string>,
+  rows: readonly PrIndexRow[],
   world: QueueWorld,
 ): Promise<ReadonlyMap<string, LandedAnswer>> => {
   const answered = new Map<string, LandedAnswer>();
-  const rows = await world.prIndexRows();
   let views = 0;
   for (const plan of plans) {
     const proven = provenFor(plan);
