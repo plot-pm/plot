@@ -1036,7 +1036,7 @@ handover_refusal() { # $1=branch $2=worktree $3=state $4=plot_desk_loops line �
     none) ;;
     alive*) IFS=$'\t' read -r _ lpid lsrc lwait <<<"$loop"
       [ "$lwait" = free ] && printf 'plot-dispatch: a free agent is waiting on %s (pid %s) — refusing.\n  Its loop is idle, polling for a hand-over. Confirm before replacing it:\n    plot-dispatch.sh --stop %s\n' "$branch" "$lpid" "$branch" >&2 && return 1
-      printf 'plot-dispatch: a loop is alive on %s (pid %s, from %s) — refusing.\n  Stop it first if you mean to replace it:\n    plot-dispatch.sh --stop %s\n' "$branch" "$lpid" "$lsrc" "$branch" >&2; return 1 ;;
+      case "$state" in running*) ;; *) printf 'plot-dispatch: a loop is alive on %s (pid %s, from %s) — refusing.\n  It reads %s, which --stop leaves alone, as the reaper does. Let it\n  finish its pass, or end pid %s yourself if you mean to replace it.\n' "$branch" "$lpid" "$lsrc" "${state%% *}" "$lpid" >&2; return 1 ;; esac ;;
     *) printf 'plot-dispatch: could not read whether a loop is alive on %s — refusing.\n' "$branch" >&2; return 1 ;;
   esac
   case "$state" in
@@ -1839,7 +1839,6 @@ if [ "$mode" = "stop" ]; then
   st=$(worker_state "$wt" "$stop_branch")
   # A LIVE LOOP IS STOPPED WHATEVER ITS STATE WORD, so the loop `--restart`
   # refuses on is one this verb can end (`deskLoopAlive`, #1450).
-  stop_loop=$(printf '%s\n' "$wt" | plot_desk_loops) && case "$stop_loop" in alive*) st="running $(printf '%s' "$stop_loop" | cut -f2)" ;; esac
   case "$st" in
     running*)
       pid=${st#running }

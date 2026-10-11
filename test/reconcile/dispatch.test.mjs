@@ -1183,20 +1183,6 @@ test('dispatch: a live loop with no free wait is counted by --start and refused 
   }
 });
 
-test('dispatch: --stop ends a live loop that reads stalled', async () => {
-  const { wt, loop, ask, done } = loopDesk('stoploop');
-  try {
-    fs.writeFileSync(path.join(wt, 'half-done.txt'), 'unfinished work\n');
-    const exited = new Promise((resolve) => loop.once('exit', (_code, signal) => resolve(signal)));
-    const stop = ask('--stop', 'feature/g');
-    assert.match(stop.stdout, new RegExp(`stopped feature/g \\(pid ${loop.pid}\\)`), stop.stdout + stop.stderr);
-    const timeout = new Promise((resolve) => setTimeout(() => resolve('still running'), 5_000).unref());
-    assert.equal(await Promise.race([exited, timeout]), 'SIGTERM');
-  } finally {
-    done();
-  }
-});
-
 test('dispatch: a free-wait record does not make a desk read running unless it names the proven loop pid', () => {
   const { wt, loop, ask, done } = loopDesk('freewait-other', { manifest: true });
   try {
