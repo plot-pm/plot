@@ -1665,6 +1665,88 @@ export const startFleetChannel = async (
   }
 };
 
+/** The channel and the two runs built over it; all `null` while no channel is bound. */
+export interface ChannelSlot {
+  channel: RunningChannel | null;
+  indexMonitor: (() => Promise<void>) | null;
+  deskRelay: (() => Promise<void>) | null;
+}
+
+/**
+ * Binds the slot to a channel and builds the runs over it.
+ *
+ * @param slot - the slot to fill; left untouched where it already holds a channel.
+ * @param open - one attempt to open the channel.
+ * @param over - builds the monitor and the relay over an opened channel.
+ * @returns true where the slot holds a channel after the call.
+ */
+export const bindChannelSlot = async (
+  slot: ChannelSlot,
+  open: () => Promise<RunningChannel | null>,
+  over: (channel: RunningChannel) => Pick<ChannelSlot, 'indexMonitor' | 'deskRelay'>,
+): Promise<boolean> => {
+  if (slot.channel !== null) return true;
+  const channel = await open();
+  if (channel === null) return false;
+  Object.assign(slot, { channel }, over(channel));
+  return true;
+};
+
+/**
+ * Builds the `prs` beat: the PR read, the default-branch read, a bind retry
+ * where the slot has no channel, then the IndexMonitor.
+ *
+ * The order is load-bearing: the monitor reads the default-branch file that
+ * `readDefaultBranch` has just refreshed. The monitor and the retry are read
+ * from the slot on each beat, so a channel bound by the retry serves the same
+ * beat.
+ *
+ * @param reads - the two reads that precede the monitor.
+ * @param slot - the channel and its runs.
+ * @param retry - one more bind attempt; absent where the daemon opens no channel.
+ * @returns the function to hand to `startFleetClock` as `prs`.
+ */
+export const prsBeat = (
+  reads: { readPrs: () => Promise<void>; readDefaultBranch: () => Promise<void> },
+  slot: ChannelSlot,
+  retry?: () => Promise<unknown>,
+): (() => Promise<void>) => async () => {
+  await reads.readPrs();
+  await reads.readDefaultBranch();
+  if (slot.channel === null) await retry?.();
+  await slot.indexMonitor?.();
+};
+
+/**
+ * Runs the desk relay once, outside the tick's own failure path.
+ *
+ * @param slot - the channel and its runs; no relay runs where it has none.
+ * @param warn - receives the reason where the relay throws.
+ */
+export const relayBeat = async (slot: Pick<ChannelSlot, 'deskRelay'>, warn: (s: string) => void): Promise<void> => {
+  try {
+    await slot.deskRelay?.();
+  } catch (e) {
+    warn(`plot-fleetd: desk relay failed: ${e instanceof Error ? e.message : String(e)}\n`);
+  }
+};
+
+/**
+ * Makes a stop flag that SIGTERM and SIGINT set.
+ *
+ * @param proc - the signal source; `process` unless a test gives one.
+ * @returns the function to hand to `run` as `stop`.
+ */
+export const stopOnSignals = (proc: Pick<NodeJS.Process, 'on'> = process): (() => boolean) => {
+  let stopped = false;
+  const set = (): void => {
+    stopped = true;
+  };
+  proc.on('SIGTERM', set);
+  proc.on('SIGINT', set);
+  return () => stopped;
+};
+
 /**
  * Builds the IndexMonitor's run over the files fleetd writes and the plans it
  * reads.
@@ -1905,13 +1987,17 @@ export const run = async (
   // leave a stale file behind. A bind that fails is one warning and a daemon
   // that runs without it — the PR index and the default-branch file are
   // written whether or not anyone listens.
-  const channel = args.once ? null : await startFleetChannel(repoRoot, warn);
-  const indexMonitor =
-    channel === null
-      ? null
-      : indexMonitorOver({ repoRoot, scriptDir: scriptsDir }, channel, write);
-  const deskRelay =
-    channel === null ? null : deskRelayOver({ repoRoot, scriptDir: scriptsDir }, channel, write);
+  const slot: ChannelSlot = { channel: null, indexMonitor: null, deskRelay: null };
+  const overChannel = (channel: RunningChannel) => ({
+    indexMonitor: indexMonitorOver({ repoRoot, scriptDir: scriptsDir }, channel, write),
+    deskRelay: deskRelayOver({ repoRoot, scriptDir: scriptsDir }, channel, write),
+  });
+  if (!args.once) await bindChannelSlot(slot, () => startFleetChannel(repoRoot, warn), overChannel);
+  // A LATER BEAT RETRIES A FAILED BIND, silently: the start warned once, and a
+  // live process holding the path would otherwise warn on every beat.
+  const retryBind = args.once
+    ? undefined
+    : () => bindChannelSlot(slot, () => startFleetChannel(repoRoot, () => undefined), overChannel);
   const scanClock = args.once
     ? null
     : startFleetClock(clockSystem(), {
@@ -1933,19 +2019,15 @@ export const run = async (
           // and never inside `tick`: a scan that failed calls nothing.
           fleetAutoWrites({ repoRoot, scriptsDir, scripts }, warn),
         ),
-        prs: async () => {
-          await readPrs();
-          await readDefaultBranch();
-          await indexMonitor?.();
-        },
-      });
+        prs: prsBeat({ readPrs, readDefaultBranch }, slot, retryBind),
+      }, warn);
 
   write(`plot-fleetd: supervising ${registryDir}\n`);
 
   for (;;) {
     if (stop()) {
       scanClock?.stop();
-      await channel?.stop();
+      await slot.channel?.stop();
       return 0;
     }
     // A THROWN TICK IS A REPORTED TICK, NOT A DEAD DAEMON.
@@ -2036,11 +2118,7 @@ export const run = async (
     // `escalation` world follows: a question ages whether or not this daemon
     // may grow the fleet.
     await notifyEscalations(report, repoRoot, notifier, escalated, write, warn);
-    try {
-      await deskRelay?.();
-    } catch (e) {
-      warn(`plot-fleetd: desk relay failed: ${e instanceof Error ? e.message : String(e)}\n`);
-    }
+    await relayBeat(slot, warn);
     // A FRESH SESSION IS A START, so it is gated by `--start-agents` like the
     // starts above. A tick that was not allowed to start reports and acts on
     // nothing.
@@ -2288,7 +2366,7 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
     dirname(fileURLToPath(import.meta.url)),
     (text) => out.write(text),
     undefined,
-    undefined,
+    stopOnSignals(),
     (text) => err.write(text),
   )
     .then((code) => process.exit(code))

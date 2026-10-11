@@ -40,29 +40,34 @@ export interface FleetClockWork {
  * supervision loop, which this clock does not share.
  *
  * @param clock - the beat source; a manual clock in tests.
- * @param work - what each subscriber runs. A rejection is contained: it ends
- *   that run and leaves the guard open for the next beat.
+ * @param work - what each subscriber runs. A rejection is contained and
+ *   warned: it ends that run and leaves the guard open for the next beat.
+ * @param warn - receives a one-line reason when a subscriber's run rejects.
  * @returns the running pulse; `stop()` cancels it.
  */
-export const startFleetClock = (clock: Clock, work: FleetClockWork): RunningPulse => {
+export const startFleetClock = (
+  clock: Clock,
+  work: FleetClockWork,
+  warn: (line: string) => void = () => undefined,
+): RunningPulse => {
   const pulse = startPulse(clock, REFRESH_MS);
-  const guarded = (run: () => Promise<void>): (() => Promise<void>) => {
+  const guarded = (name: string, run: () => Promise<void>): (() => Promise<void>) => {
     let inFlight = false;
     return async () => {
       if (inFlight) return;
       inFlight = true;
       try {
         await run();
-      } catch {
-        /* the run reports its own failure; the clock only survives it */
+      } catch (e) {
+        warn(`plot-fleetd: ${name} failed: ${e instanceof Error ? e.message : String(e)}`);
       } finally {
         inFlight = false;
       }
     };
   };
   const ticks: Record<string, () => Promise<void>> = {
-    'fleet-scan': guarded(work.scan),
-    'pr-reader': guarded(work.prs ?? (async () => undefined)),
+    'fleet-scan': guarded('fleet-scan', work.scan),
+    'pr-reader': guarded('pr-reader', work.prs ?? (async () => undefined)),
   };
   for (const { name, everyNthBeat } of fleetDivisors()) {
     pulse.add({ name, everyNthBeat, tick: ticks[name] });
