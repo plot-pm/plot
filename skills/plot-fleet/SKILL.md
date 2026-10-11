@@ -174,6 +174,7 @@ Pulling the fix changes the template and nothing on the machine. **Run `--stop`
 then `--start` to re-fill it**; that is the whole upgrade path, and there is no
 other. The symptom to recognise is a tick reporting `handed=N` while the agents
 it named keep an empty `branch:` and go on being quiet.
+A unit installed before 2026-10-11 also keeps `ProcessType` Adaptive, which runs the daemon in the background band and times out its scans on a loaded Mac, until `--stop` then `--start`.
 
 ### 5. Stop the fleet
 
