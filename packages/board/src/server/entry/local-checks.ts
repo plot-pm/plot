@@ -177,11 +177,16 @@ export const refuse = async (
   return EXIT.refused;
 };
 
-// Only when RUN, never when imported. `pathToFileURL` on the realpath, because
+// Only when RUN as plot-local-checks.mjs, never when imported — the gate bundle
+// bundles this module and shares its `import.meta.url`. `pathToFileURL` on the realpath, because
 // `import.meta.url` is realpath-resolved and `process.argv[1]` is not. The
 // scripts sit one directory above the bundle, in a repository and under a
 // plugin install alike.
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+if (
+  process.argv[1] &&
+  path.basename(process.argv[1]) === 'plot-local-checks.mjs' &&
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+) {
   const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   if (process.argv[2] === '--ci-suite-refusal') {
     const chunks: Buffer[] = [];

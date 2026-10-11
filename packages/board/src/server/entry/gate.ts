@@ -1,6 +1,14 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { controllerInvocation } from '@plot-pm/domain/rules/ci-suite';
+import {
+  controllerRefusal,
+  mayRunController,
+  unpinnedMerge,
+  unpinnedMergeRefusal,
+  withoutQuotedHeredocs,
+} from '@plot-pm/domain/rules/controller-gate';
 
 /**
  * The `node` entry point `plot-gates.sh` launches: one PreToolUse hook that
@@ -32,6 +40,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * answers by its own `onError`: `'allow'` lets the call through and says the
  * gate went UNVERIFIED; `'refuse'` exits 2 and names the gate (#1245).
  */
+
+/** Whether two paths name one directory, symlinks resolved. */
+const sameDirectory = (a: string, b: string): boolean => {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return a === b;
+  }
+};
 
 /** One gate: when it applies and how it answers. */
 export interface Gate {
@@ -245,8 +262,75 @@ const stateGate: Gate = {
   onError: 'allow',
 };
 
+/**
+ * `controller`: refuses a command that runs a controller-owned action
+ * (`dispatch`, `approve`, `deliver`, `release`) without the controller's
+ * receipt, and a `gh pr merge` or `pr-merge` with no head pin.
+ *
+ * `wants` is a pure string test; an unattended agent (`PLOT_UNATTENDED=1`)
+ * always passes it for the CI-suite arm. `ask` runs in order: the
+ * single-quoted heredoc strip; the CI-suite arm (an unattended agent in a
+ * linked worktree holding `.plot-worker.pid`); the per-word prefilter; the
+ * git check; the desk exemption (a linked worktree is a worker's own call);
+ * `controllerInvocation` and `unpinnedMerge`; and the action receipt, which
+ * is read and left in place. No git, or no `.plot/state/`, allows the action
+ * and says it went UNVERIFIED. A failure after the prefilter refuses, because
+ * the command named a gated script.
+ */
+const controllerGate: Gate = {
+  name: 'controller',
+  wants: (command) => (process.env.PLOT_UNATTENDED === '1' && command !== '') || mayRunController(command),
+  ask: async (command) => {
+    const stripped = withoutQuotedHeredocs(command);
+    const cwd = process.cwd();
+    const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
+    const refs = refsGit({ repoRoot: cwd, scriptDir });
+    const root = await refs.repoRoot();
+
+    const { treesGit } = await import('@plot-pm/domain/adapters/trees/trees-git');
+    const main = root.ok ? await treesGit({ repoRoot: cwd, scriptDir }).mainRoot(cwd) : null;
+    const linked = root.ok && main !== null && main.ok && !sameDirectory(main.value, root.value);
+
+    if (process.env.PLOT_UNATTENDED === '1' && root.ok && linked && existsSync(join(root.value, '.plot-worker.pid'))) {
+      try {
+        const { refuse } = await import('./local-checks.js');
+        let text = '';
+        const code = await refuse(root.value, scriptDir, stripped, (s) => {
+          text += s;
+        });
+        if (code === 3) return text.trimEnd();
+      } catch {
+        // A check against habit: a failure here allows, as the shell arm's ERR trap did.
+      }
+    }
+
+    if (!mayRunController(stripped)) return null;
+    if (!root.ok) {
+      process.stderr.write('plot-controller-gate: no git here — controller routing went UNVERIFIED.\n');
+      return null;
+    }
+    if (linked) return null;
+
+    const action = controllerInvocation(stripped);
+    const refusals: string[] = [];
+    if (unpinnedMerge(stripped)) refusals.push(unpinnedMergeRefusal(scriptDir));
+    if (action !== null) {
+      if (!existsSync(join(root.value, '.plot', 'state'))) {
+        process.stderr.write(`plot-controller-gate: no .plot/state/ — controller routing went UNVERIFIED for ${action}.\n`);
+      } else {
+        const { actionReceiptsFile } = await import('@plot-pm/domain/adapters/action-receipts/action-receipts-file');
+        const cleared = await actionReceiptsFile(root.value).clears(action);
+        if (!(cleared.ok && cleared.value)) refusals.unshift(controllerRefusal(action, scriptDir));
+      }
+    }
+    return refusals.length === 0 ? null : refusals.join('\n').trimEnd();
+  },
+  onError: 'refuse',
+};
+
 /** The registered gates. */
-export const GATES: readonly Gate[] = [bundleCommitGate, briefNameGate, stateGate];
+export const GATES: readonly Gate[] = [bundleCommitGate, briefNameGate, stateGate, controllerGate];
 
 /** The exit codes the hook contract reads. */
 export const EXIT = { allow: 0, refuse: 2 } as const;

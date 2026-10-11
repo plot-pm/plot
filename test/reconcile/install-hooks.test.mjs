@@ -301,7 +301,7 @@ const gateScripts = [
 ];
 
 // A stub `board/plot-gate.mjs` beside a vendored `plot-gates.sh`: lists
-// `bundle-commit`, `brief-name` and `state` and refuses (exit 2) the same staged-bundle condition
+// `bundle-commit`, `brief-name`, `state` and `controller` and refuses (exit 2) the same staged-bundle condition
 // `probe_bundle_commit_gate` builds, so a fixture that places `plot-gates.sh`
 // proves the gate it lists the way the real bundle would.
 const placeGateBundle = (scriptsDir) => {
@@ -309,7 +309,7 @@ const placeGateBundle = (scriptsDir) => {
   mkdirSync(boardDir, { recursive: true });
   writeFileSync(
     path.join(boardDir, 'plot-gate.mjs'),
-    `if (process.argv.includes('--list')) { console.log('bundle-commit'); console.log('brief-name'); console.log('state'); process.exit(0); }
+    `if (process.argv.includes('--list')) { console.log('bundle-commit'); console.log('brief-name'); console.log('state'); console.log('controller'); process.exit(0); }
 process.exit(2);
 `,
   );
@@ -548,7 +548,9 @@ test('--verify proves the gate at the path the entry names, not the one beside t
   const { code, out } = runAt(consumer, inst, ['--verify']);
   assert.equal(code, 3, `plot-gates.sh cannot resolve --list from a pure written path (out: ${out})`);
   assert.match(out, /unverified\s+plot-gates\.sh — board\/plot-gate\.mjs missing or lists no gate/);
-  assert.match(out, /verified\s+plot-controller-gate\.sh/);
+  // The controller gate has no hook entry of its own: it is reached through
+  // `plot-gates.sh`, so a written path that cannot list gates cannot probe it.
+  assert.doesNotMatch(out, /plot-controller-gate/);
 });
 
 test('--verify reports unverified when neither reading finds the script', () => {
