@@ -124,3 +124,7 @@ So each state is built in a real repository with a real origin, and read back th
 ## The listing-page comparison
 
 `corpus/listing-page.corpus.test.ts` compares `pagePossiblyTruncated` (`rules/listing-page.ts`) against `pr_list_report_truncation` (`plot-host.sh`). `pr-list` runs on every board refresh, so the shell keeps its copy. The corpus is built: 63 cases over GitHub and two `bb` versions, three limits and seven row counts, run through `plot-host.sh pr-list` against stub CLIs. The rule reads each case's paging through `listingPagingFor`, so the comparison also holds the two page-length tables together: `BITBUCKET_PAGE_LENGTHS` in `adapters/host/listing-paging.ts` and `BB_LIST_PAGE_VERSIONS` in the script.
+
+## The free-wait comparison
+
+`corpus/desk-waits-free.corpus.test.ts` compares `deskWaitsFree` (`rules/desk-loop-alive.ts`) against `plot_worker_waits_free` (`plot-worker-state.sh`). `plot_worker_state` reads the free-wait record once per desk per fleet-scan pass, so the shell keeps its copy. `plot-dispatch.sh` asks `board/plot-desk-loop.mjs` once per `--start`, `--stop` and `--restart` and holds no copy of `deskLoopAlive`. The corpus is built: 17 record texts against two pids. One divergence is declared: a record padded with U+00A0, which `String.prototype.trim` removes and bash's `[:space:]` in the C locale does not.
