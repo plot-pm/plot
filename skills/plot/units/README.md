@@ -192,3 +192,5 @@ Both unit templates pass `--start-agents` and `--sweep-temp`: the plist as `Prog
 **The log says `supervising` and then nothing.** That is a correct quiet daemon. The first tick line arrives immediately; the next arrives 60 seconds later.
 
 **Every tick reports incomplete with the same reason.** The reading is genuinely broken rather than transient. Reproduce it with `--once` in a terminal, where the same reason prints and the exit code is `1`.
+
+**Old `registryd.*` logs remain after the rename.** Nothing rotates `.plot/logs/registryd.log`, `registryd.err` and their `.1`–`.3` generations any more, and they can hold about 40 MB per repo. After `/plot-fleet --stop` and `/plot-fleet --start` move the supervisor to `fleetd.log`, move them to the trash: `trash .plot/logs/registryd.*`.

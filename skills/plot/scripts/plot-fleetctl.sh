@@ -502,12 +502,11 @@ plot_processes_block() { # $1=pid to skip
 # Seconds since the supervisor last wrote its log, or empty when there is no
 # log or its mtime cannot be read. Empty is not zero: no reading is not a fresh
 # tick. Evidence only — the staleness judgement is `rules/supervisor-reading.ts`.
-# A unit filled before the rename to plot-fleetd writes `registryd.log` until
-# `--stop` and `--start` fill it again, so that name is read when `fleetd.log`
-# is absent.
+# A supervisor process started before this change keeps writing `registryd.log`
+# while `fleetd.log` sits empty or stale, so the log with the newer mtime is read.
 tick_age_seconds() {
-  local log touched
-  log="$repo_root/.plot/logs/fleetd.log"; [ -f "$log" ] || log="$repo_root/.plot/logs/registryd.log"
+  local log touched old="$repo_root/.plot/logs/registryd.log"
+  log="$repo_root/.plot/logs/fleetd.log"; if [ ! -f "$log" ] || [ "$old" -nt "$log" ]; then log="$old"; fi
   [ -f "$log" ] || return 0
   # GNU FIRST, AND THE ORDER IS THE WHOLE FIX. `-f` means `--format` on BSD and
   # `--file-system` on GNU, and BOTH EXIT 0 — measured 2026-09-25 on Alpine,
@@ -834,7 +833,7 @@ if [ "$mode" = "status" ]; then
     # written for up to 60 s — so a reader gets the number and this derives
     # nothing from it.
     [ -z "$tick_age" ] || echo "  last tick: ${tick_age}s ago (evidence, not the verdict — a busy tick writes at most every 60s)"
-    printf '  Most often a crash loop: KeepAlive restarts it and it exits again, so the label stays held.\n  Read why before restarting: %s\n  then repair it: /plot-fleet --stop, then /plot-fleet --start\n' "$repo_root/.plot/logs/fleetd.log"
+    printf '  Most often a crash loop: KeepAlive restarts it and it exits again, so the label stays held.\n  Read why before restarting: %s (startup and crash output: fleetd.err, or the journal under systemd)\n  then repair it: /plot-fleet --stop, then /plot-fleet --start\n' "$repo_root/.plot/logs/fleetd.log"
   else
     # THREE STATES WHERE THERE WERE TWO, AND THE REPAIR IS PRINTED. The two
     # failures read identically to a person and cost differently: an operator
@@ -874,7 +873,7 @@ if [ "$mode" = "status" ]; then
       # once will crash again after `--start`. The log is named here for that
       # reason: the repair is the same command, the DIAGNOSIS is what differs.
       installed)
-        printf 'supervisor: STOPPED (%s) — a --start finished here and the supervisor is gone since\n  Nothing unloaded it: --stop clears this marker only after a clean unload.\n  So it died on its own — a crash, a logout, or an OS update.\n  Read why before restarting: .plot/logs/fleetd.log\n  then start it: /plot-fleet --start\n' "$LABEL"
+        printf 'supervisor: STOPPED (%s) — a --start finished here and the supervisor is gone since\n  Nothing unloaded it: --stop clears this marker only after a clean unload.\n  So it died on its own — a crash, a logout, or an OS update.\n  Read why before restarting: .plot/logs/fleetd.log (startup and crash output: fleetd.err, or the journal under systemd)\n  then start it: /plot-fleet --start\n' "$LABEL"
         ;;
       *)
         printf 'supervisor: not installed (%s) — no unit on this machine\n  start it: /plot-fleet --start\n' "$LABEL"

@@ -1366,11 +1366,22 @@ test('--status reads the tick age from registryd.log while fleetd.log is absent'
   const age = Number((/^summary:.* tick_age=(\d+)$/m.exec(r.out) ?? [])[1]);
   assert.ok(age >= 90_000, `registryd.log alone gave no tick age: ${r.out}`);
 
-  // Once fleetd.log exists it is the reading, and the old file is left alone.
-  fs.writeFileSync(path.join(logs, 'fleetd.log'), 'tick\n');
-  const fresh = run(ctl, ['--status'], root, guardBin, env);
-  const freshAge = Number((/^summary:.* tick_age=(\d+)$/m.exec(fresh.out) ?? [])[1]);
-  assert.ok(freshAge < 90_000, `tick_age=${freshAge} still reads registryd.log beside fleetd.log`);
+  // A fresh, empty fleetd.log does not win by existing: registryd.log is the
+  // one a pre-change process keeps ticking into, and the newer mtime is read.
+  const fresh = path.join(logs, 'fleetd.log');
+  fs.writeFileSync(fresh, '');
+  const older = new Date(Date.now() - 180_000_000);
+  fs.utimesSync(fresh, older, older);
+  const ticking = run(ctl, ['--status'], root, guardBin, env);
+  const tickingAge = Number((/^summary:.* tick_age=(\d+)$/m.exec(ticking.out) ?? [])[1]);
+  assert.ok(tickingAge >= 90_000 && tickingAge < 180_000, `tick_age=${tickingAge} did not read the newer registryd.log beside an older fleetd.log`);
+
+  // Once fleetd.log is the newer file it is the reading, and the old file is left alone.
+  const now = new Date();
+  fs.utimesSync(fresh, now, now);
+  const after = run(ctl, ['--status'], root, guardBin, env);
+  const freshAge = Number((/^summary:.* tick_age=(\d+)$/m.exec(after.out) ?? [])[1]);
+  assert.ok(freshAge < 90_000, `tick_age=${freshAge} still reads registryd.log beside a newer fleetd.log`);
   assert.ok(fs.existsSync(old), '--status moved or removed registryd.log');
 });
 

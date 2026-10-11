@@ -18,7 +18,7 @@ import { dirname, join } from 'node:path';
  * **THE WRITER ROTATES BECAUSE ONLY THE OPENER CAN.** launchd opens
  * `fleetd.log` and `fleetd.err` through the unit's `StandardOutPath` and
  * `StandardErrorPath`; `plot-boardctl.sh` opens `board.log` with `>>` before it
- * `exec`s the board; and a hand-started `nohup … >> registryd.log` loop exists
+ * `exec`s the board; and a hand-started `nohup … >> <name>.log` loop exists
  * too. A writer that inherited its descriptor FOLLOWS THE INODE across a rename
  * and never creates the new name, so external rotation — `newsyslog`,
  * `logrotate`, a person's `mv` — cannot work: measured 2026-09-30,
