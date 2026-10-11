@@ -8,6 +8,7 @@ import { fleetStateFile } from '@plot-pm/domain/adapters/fleet-state/fleet-state
 import type { FleetReading } from '@plot-pm/domain';
 import { run } from '../../src/server/entry/continue-command.js';
 import { branchFromPulse, continueBranch } from '../../src/shared/continue-command.js';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 
 // The refusals the continue controller keeps, with no board: they are answered
 // from the pulse value alone, before any agent starts.
@@ -65,7 +66,7 @@ describe('the continue entry', () => {
 describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
   const dirs: string[] = [];
   afterEach(() => {
-    for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+    for (const d of dirs.splice(0)) rmTree(d);
   });
 
   it('starts a new pid through the default bridged pulse', async () => {
