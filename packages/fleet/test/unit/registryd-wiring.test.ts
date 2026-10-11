@@ -325,17 +325,24 @@ describe('run — the loop wiring', () => {
     const events: string[] = [];
     const stop = manualStop();
     const started = Date.now();
+    let entered: () => void = () => undefined;
+    const waiting = new Promise<void>((r) => {
+      entered = r;
+    });
     const pending = run(
       [],
       dir,
       () => undefined,
-      () => new Promise<void>(() => undefined),
+      () => {
+        entered();
+        return new Promise<void>(() => undefined);
+      },
       stop.flag,
       () => undefined,
       dir,
       quiet(events, { tick: async () => completedTick() }),
     );
-    await settle(20);
+    await waiting;
     stop.set();
     expect(await pending).toBe(0);
     expect(Date.now() - started).toBeLessThan(5_000);
@@ -396,9 +403,11 @@ describe('startDaemon — the process entry', () => {
         },
       })) as never,
       overChannel: () => ({ indexMonitor: null, deskRelay: null }),
+      // A THROWING TICK reaches the wait with no spawn in between, so the
+      // signal below arrives while the 60 s wait runs.
       tick: async () => {
         ticked();
-        return completedTick();
+        throw new Error('host gone');
       },
     });
     await firstTick;
