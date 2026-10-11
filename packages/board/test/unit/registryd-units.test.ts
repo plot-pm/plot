@@ -114,7 +114,7 @@ describe('both units tell the daemon which estate it supervises', () => {
     // git, gh and node are on none of the minimal PATHs launchd and systemd
     // hand a job, and every one of the daemon's readings needs one of them.
     expect(read(PLIST)).toContain('<key>PATH</key>');
-    expect(read(SERVICE)).toMatch(/^Environment=PATH=/m);
+    expect(read(SERVICE)).toMatch(/^Environment="PATH=/m);
   });
 });
 
