@@ -1870,10 +1870,14 @@ if [ "$mode" = "stop" ]; then
       else
         echo "  signalled its whole process group $stop_pgid"
       fi
+      # A PERSON'S STOP IS RECORDED AS ONE, so the supervisor's tick leaves the
+      # desk alone. A worker that exits non-zero with no ending gets a fresh
+      # agent from the tick (`killedWorkerEnding`); a `stopped` ending answers
+      # `leave` in `endingAction`, and the desk keeps its claim.
+      printf '{"reason":"stopped","actor":"operator","branch":"%s","detail":"plot-dispatch --stop"}\n' "$stop_branch" 2>/dev/null >"$wt/.plot-worker.ending.json" || true
       # The worktree and its claim are left in place: the branch is still taken,
       # and deleting either would be the kind of write this design avoids.
-      echo "  worktree kept at $wt — the claim stands until you release it:"
-      echo "    plot-dispatch.sh --release $stop_branch"
+      printf '  worktree kept at %s — the claim stands until you release it:\n    plot-dispatch.sh --release %s\n' "$wt" "$stop_branch"
       ;;
     finished*|waiting*|stalled*|failed*|ended*) echo "$stop_branch is not running ($st)" ;;
     *)      echo "$stop_branch has no worker" ;;

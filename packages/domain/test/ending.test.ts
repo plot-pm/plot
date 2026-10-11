@@ -41,7 +41,7 @@ describe('the ending sits beside the exit code', () => {
 });
 
 describe('a bound expiry and a context exhaustion are different endings', () => {
-  it('reads the fifteen reasons apart', () => {
+  it('reads the sixteen reasons apart', () => {
     expect(EndingReasonSchema.options).toEqual([
       'bound',
       'quiet',
@@ -58,6 +58,7 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
       'run-limit',
       'spend-limit',
       'nothing-done',
+      'stopped',
     ]);
   });
 
@@ -215,8 +216,8 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
 });
 
 describe('the actor is carried with the reason, and does not follow from it', () => {
-  it('reads the three actors', () => {
-    expect(EndingActorSchema.options).toEqual(['bound', 'monitor', 'agent']);
+  it('reads the five actors', () => {
+    expect(EndingActorSchema.options).toEqual(['bound', 'monitor', 'agent', 'operator', 'supervisor']);
   });
 
   it('parses an ending that attributes itself to the agent, and judges it elsewhere', () => {

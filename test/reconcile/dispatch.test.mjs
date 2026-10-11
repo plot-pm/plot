@@ -4523,6 +4523,18 @@ test('dispatch: --stop from another group ends its own agent and its monitors, a
       if (pid > 0) assert.ok(waitGone(pid), `the stopped agent's ${key} must end:\n${stopOut}`);
     }
 
+    // A PERSON'S STOP LEAVES A `stopped` ENDING, so the supervisor's tick
+    // reads a stop rather than a worker that exited with no account.
+    const ending = JSON.parse(fs.readFileSync(path.join(desks[0], '.plot-worker.ending.json'), 'utf8'));
+    assert.deepEqual(ending, {
+      reason: 'stopped',
+      actor: 'operator',
+      branch: stamped[0].branch,
+      detail: 'plot-dispatch --stop',
+    }, stopOut);
+    assert.equal(fs.existsSync(path.join(desks[1], '.plot-worker.ending.json')), false,
+      'the sibling must not get an ending');
+
     // AND THE SIBLING IS STILL RUNNING.
     assert.ok(isAlive(wrappers[1]), `the sibling's wrapper must survive the stop:\n${stopOut}`);
     assert.ok(isAlive(agents[1]), `the sibling's agent must survive the stop:\n${stopOut}`);

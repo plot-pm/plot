@@ -7,7 +7,7 @@ import { questionEscalation, type Rung } from '@plot-pm/domain/rules/question-es
 import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
 import { freshAgentAnswer } from '@plot-pm/domain/rules/fresh-agent';
 import { freshAgentTurnLimitAnswer } from '@plot-pm/domain/rules/fresh-agent-turn-limit';
-import { readEnding, ENDING_FILENAME, type EndingReading, type EndingReason } from '@plot-pm/domain/entities/ending';
+import { readEnding, ENDING_FILENAME, type Ending, type EndingReason } from '@plot-pm/domain/entities/ending';
 import {
   endingAction,
   endingReleaseBranch,
@@ -15,6 +15,8 @@ import {
   boundAnswer,
   needsPersonMarker,
   endingAsksPersonOutright,
+  isBoundEnding,
+  killedWorkerEnding,
   type EndingActionVerdict,
   type PrOpenReading,
   type PrMergedReading,
@@ -685,8 +687,9 @@ export interface FreshAgentCandidateReadings {
   endingAsked: boolean;
   /**
    * Whether the host merged a PR for the branch. Asked only for an ending in
-   * `NEEDS_PERSON_ENDINGS` that no ask names yet; `'unanswerable'` for every
-   * other desk and wherever the host gave no answer.
+   * `NEEDS_PERSON_ENDINGS` or a `bound`/`unreadable`/`quiet` ending that no
+   * ask names yet; `'unanswerable'` for every other desk and wherever the
+   * host gave no answer.
    */
   prMerged: PrMergedReading;
   /**
@@ -699,14 +702,14 @@ export interface FreshAgentCandidateReadings {
   heldFiles: readonly string[] | null;
   /**
    * Whether the branch holds a commit beyond its claim. Asked only for a
-   * `bound`/`unreadable` ending no person was asked about, which is the one
-   * case in this population {@link endingAction} reads it for;
+   * `bound`/`unreadable`/`quiet` ending no person was asked about, which is
+   * the one case in this population {@link endingAction} reads it for;
    * `'unanswerable'` for every other desk.
    */
   commitBeyondClaim: CommitReading;
   /**
    * Whether an open PR still carries the branch. Asked only for a
-   * `bound`/`unreadable` ending no person was asked about, the same reasoning as
+   * `bound`/`unreadable`/`quiet` ending no person was asked about, the same reasoning as
    * {@link FreshAgentCandidateReadings.commitBeyondClaim}; `'unanswerable'`
    * for every other desk.
    */
@@ -735,32 +738,45 @@ export const runFromEndingDetail = (detail: string): { runUrl: string; conclusio
   return { runUrl: url, conclusion };
 };
 
-/**
- * Whether an ending is `bound`, `unreadable` or `quiet` — the reasons a
- * session stops with its work still on the desk, and {@link endingAction}'s
- * own `release-claim`/`start-fresh` split.
- *
- * @param ending - the desk's ending reason, or `null` where none was read.
- * @returns true for `bound`, `unreadable` and `quiet`; false otherwise.
- */
-export const isBoundEnding = (ending: EndingReason | null): boolean =>
-  ending === 'bound' || ending === 'unreadable' || ending === 'quiet';
+/** `.plot-worker.exit`'s filename — the exit code the worker's wrapper records. */
+export const EXIT_FILENAME = '.plot-worker.exit';
+
+/** One ending {@link killedWorkerEndings} found a desk owes. */
+export interface KilledWorkerEnding {
+  /** The desk, absolute. */
+  worktree: string;
+  /** The ending the tick writes to the desk. */
+  ending: Ending;
+}
 
 /**
- * The ending reason one tick acts on, from what {@link readEnding} read.
+ * The endings this tick writes for candidate desks whose worker exited
+ * non-zero and wrote none, from {@link killedWorkerEnding}.
  *
- * **A KILLED WORKER WRITES NO ENDING FILE.** `absent` on a desk no manifest
- * names and a plan claims is the shape a SIGKILLed worker leaves (#1440), and
- * it reads `unreadable` — the floor stopped the session and Plot has no
- * account of why — so {@link endingAction}'s `bound` row decides whether the
- * desk holds work. A file that exists but does not parse stays `null`, which
- * answers `leave`.
+ * Reads each desk's ending file and exit record, and asks `loopAlive` only
+ * for a desk whose ending file is absent.
  *
- * @param reading - the desk's `.plot-worker.ending.json`, read as a value.
- * @returns the written reason, `unreadable` for an absent file, else `null`.
+ * @param candidates - the desks {@link freshAgentCandidateTrees} named.
+ * @param deskFile - reads one file from a desk, or null where it is not there.
+ * @param loopAlive - whether a live loop holds the desk.
+ * @returns one entry per desk that owes an ending, in the order given.
  */
-export const tickEnding = (reading: EndingReading): EndingReason | null =>
-  reading.read === 'ended' ? reading.ending.reason : reading.read === 'absent' ? 'unreadable' : null;
+export const killedWorkerEndings = (
+  candidates: readonly RegisteredTreeReadings[],
+  deskFile: (worktree: string, name: string) => string | null,
+  loopAlive: (worktree: string) => boolean,
+): readonly KilledWorkerEnding[] =>
+  candidates.flatMap((tree) => {
+    const reading = readEnding(deskFile(tree.path, ENDING_FILENAME));
+    if (reading.read !== 'absent') return [];
+    const ending = killedWorkerEnding({
+      ending: reading,
+      exit: deskFile(tree.path, EXIT_FILENAME),
+      loopAlive: loopAlive(tree.path),
+      branch: tree.branch,
+    });
+    return ending === null ? [] : [{ worktree: tree.path, ending }];
+  });
 
 /**
  * Whether `Trees.dirtyPaths`' own reading shows a dirty tree.
@@ -818,7 +834,7 @@ export const readFreshAgentCandidates = async (
   const out: FreshAgentCandidateReadings[] = [];
   for (const tree of candidates) {
     const endingReading = readEnding(deskFile(tree.path, ENDING_FILENAME));
-    const ending = tickEnding(endingReading);
+    const ending = endingReading.read === 'ended' ? endingReading.ending.reason : null;
     const detail = endingReading.read === 'ended' ? endingReading.ending.detail : '';
     const { runUrl, conclusion } = runFromEndingDetail(detail);
     const plan = tree.plan ?? '';
@@ -846,14 +862,14 @@ export const readFreshAgentCandidates = async (
       endingAsked,
       // THE HOST IS ASKED ONLY WHERE ITS ANSWER CAN CHANGE THE VERDICT.
       // `endingAction` reads `prMerged` for the five outright reasons and for
-      // `bound`/`unreadable`; an ending already asked about answers `leave`
-      // whatever the host says.
+      // `bound`/`unreadable`/`quiet`; an ending already asked about answers
+      // `leave` whatever the host says.
       prMerged:
         (endingAsksPersonOutright(ending) || isBoundEnding(ending)) && !endingAsked
           ? await asks.prMerged(tree.branch)
           : 'unanswerable',
       heldFiles: await heldFiles(tree.path),
-      // `endingAction` reads these two for `bound`/`unreadable` only. Every
+      // `endingAction` reads these two for `bound`/`unreadable`/`quiet` only. Every
       // other ending, and an ending already asked about, reads
       // `'unanswerable'` without a git or host call.
       commitBeyondClaim:
@@ -891,7 +907,7 @@ export interface FreshAgentDecision {
   /**
    * The branch whose claim this tick releases through
    * {@link FreshAgentPorts.release}: the desk's own branch for a
-   * `bound`/`unreadable` `release-claim`, `''` for every other decision. A
+   * `bound`/`unreadable`/`quiet` `release-claim`, `''` for every other decision. A
    * take-up `holding-work` `release-claim` carries `''` here, because
    * {@link applyNothingDoneDecisions} releases that one.
    */
@@ -921,23 +937,24 @@ export const markerTextFor = (reading: FreshAgentCandidateReadings): string => {
  *
  * **ONE RULE, ONE SHARED COUNT, AT MOST ONE ANSWER.** `endingAction` answers
  * `start-fresh` or `needs-a-person` for `corrections-spent`, `turn-limit`,
- * `bound`/`unreadable`, and an after-prompt `holding-work` ending alike,
- * reading the same `priorFreshSessions` count for all of them — so a slice
- * that already spent its one fresh session on one ending gets
+ * `bound`/`unreadable`/`quiet`, and an after-prompt `holding-work` ending
+ * alike, reading the same `priorFreshSessions` count for all of them — so a
+ * slice that already spent its one fresh session on one ending gets
  * `needs-a-person` from another rather than a second fresh session. A
  * candidate is `!registered` by construction (see
  * {@link freshAgentCandidateTrees}), so every reading carries
  * `hasManifest: false`; `commitBeyondClaim`/`prOpen` are filler
  * (`'unanswerable'`, per {@link readFreshAgentCandidates}) for every ending
- * but `bound`/`unreadable`, since none of the others reads the branch's work
- * — and `'unanswerable'` there is harmless because only the `bound`/
- * `unreadable` row reads either field at all. For `bound`/`unreadable`
- * themselves all three readings — `commitBeyondClaim`, `prOpen`, and
- * `dirtyTree` (via {@link dirtyTreeReading} of `heldFiles`) — are real, never
- * filler, because that row can answer `release-claim` on "nothing beyond the
- * claim" and a desk full of unlanded work must never be read as empty here.
+ * but `bound`/`unreadable`/`quiet`, since none of the others reads the
+ * branch's work — and `'unanswerable'` there is harmless because only that
+ * row reads either field at all. For `bound`/`unreadable`/`quiet` themselves
+ * all three readings — `commitBeyondClaim`, `prOpen`, and `dirtyTree` (via
+ * {@link dirtyTreeReading} of `heldFiles`) — are real, never filler, because
+ * that row can answer `release-claim` on "nothing beyond the claim" and a
+ * desk full of unlanded work must never be read as empty here. The desk's
+ * `PLOT-BLOCKED` marker reaches the rule as `blockedMarker`.
  *
- * **THIS STEP RELEASES A TIMED-OUT DESK'S CLAIM.** A `bound`/`unreadable`
+ * **THIS STEP RELEASES A STRANDED DESK'S CLAIM.** A `bound`/`unreadable`/`quiet`
  * `release-claim` carries the desk's branch as
  * {@link FreshAgentDecision.releaseBranch}, because only this step reads the
  * real `dirtyTree`; {@link nothingDoneDecisions} answers `leave` for the same
@@ -964,11 +981,12 @@ export const freshAgentDecisions = (
       dirtyTree: bound ? dirtyTreeReading(reading.heldFiles) : 'no',
       prMerged: reading.prMerged,
       endingAsked: reading.endingAsked,
+      blockedMarker: reading.escalated,
     });
     // THE COMPOSED ANSWER FOLLOWS WHICH ENDING FIRED, NOT JUST THE VERDICT.
     // `freshAgentAnswer`'s whole text is about a spent correction budget,
     // `holdingWorkAnswer`'s is about uncommitted work from a refused prompt,
-    // and `boundAnswer`'s is about a timed-out session — reusing one for an
+    // and `boundAnswer`'s is about an interrupted session — reusing one for an
     // ending that never had that problem would misdescribe the session.
     const answer =
       verdict !== 'start-fresh'
@@ -1239,7 +1257,7 @@ export const readNothingDoneCandidates = (
       plan: tree.plan ?? '',
       branch: tree.branch,
       worktree: tree.path,
-      ending: tickEnding(endingReading),
+      ending: endingReading.read === 'ended' ? endingReading.ending.reason : null,
       refusedAssignment: endingReading.read === 'ended' ? endingReading.ending.refusedAssignment : '',
     };
   });
@@ -1292,14 +1310,14 @@ export interface NothingDoneDecision {
  * `Trees.commitBeyondClaim`, so the two readings are one implementation asked
  * twice.
  *
- * **`bound`/`unreadable` NEVER REACH `endingAction` HERE.** This step and
- * {@link freshAgentDecisions} read the same desk population
+ * **`bound`/`unreadable`/`quiet` NEVER REACH `endingAction` HERE.** This step
+ * and {@link freshAgentDecisions} read the same desk population
  * (`nothingDoneCandidateTrees`/`freshAgentCandidateTrees` share one filter),
- * and `endingAction`'s `bound`/`unreadable` row can answer `release-claim` on
- * "nothing beyond the claim" — a verdict this step could only reach with a
- * filler `dirtyTree`, never the real one. The fresh-agent step owns the real
- * `dirtyTree` reading (from `heldFiles`) and releases the claim itself, and
- * this step's own verdict for a `bound`/`unreadable` candidate is always
+ * and `endingAction`'s `bound`/`unreadable`/`quiet` row can answer
+ * `release-claim` on "nothing beyond the claim" — a verdict this step could
+ * only reach with a filler `dirtyTree`, never the real one. The fresh-agent
+ * step owns the real `dirtyTree` reading (from `heldFiles`) and releases the
+ * claim itself, and this step's own verdict for such a candidate is always
  * `leave`, so one desk still gets one verdict this tick: the fresh-agent
  * step's.
  *
@@ -1340,11 +1358,13 @@ export const nothingDoneDecisions = async (
       // NOT READ HERE: both feed only a `needs-a-person` answer, and this step
       // applies `release-claim` alone. The fresh-agent step reads them.
       prMerged: 'unanswerable' as const,
-      // `bound`/`unreadable` are filtered out above, so `dirtyTree` is never
-      // read by the remaining endings — filler, matching `commitBeyondClaim`
-      // and `prOpen`'s own filler pattern for endings that don't need them.
+      // `bound`/`unreadable`/`quiet` are filtered out above, so `dirtyTree`
+      // and `blockedMarker` are never read by the remaining endings — filler,
+      // matching `commitBeyondClaim` and `prOpen`'s own filler pattern for
+      // endings that don't need them.
       dirtyTree: 'no' as const,
       endingAsked: false,
+      blockedMarker: false,
     };
     out.push({ branch: endingReleaseBranch(readings), worktree: reading.worktree, verdict: endingAction(readings) });
   }

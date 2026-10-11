@@ -89,6 +89,7 @@ import {
   tickLine,
   unclaimedLines,
   freshAgentCandidateTrees,
+  killedWorkerEndings,
   readFreshAgentCandidates,
   freshAgentDecisions,
   applyFreshAgentDecisions,
@@ -128,6 +129,8 @@ import type { SupervisionReportStore } from '@plot-pm/domain/ports/supervision-r
 import { logDir, processLog, truncateInherited } from '../../shared/process-log.js';
 import { readConfig } from '../../shared/config-reader.js';
 import { continueOnDesk, type DeskContinuation, type DeskContinuationInput } from '../../shared/continuation.js';
+import { readDeskLoop } from '../../shared/desk-loop.js';
+import type { Desk } from '@plot-pm/domain/ports/desk';
 import { randomUUID } from 'node:crypto';
 import type { Agents } from '@plot-pm/domain/ports/agents';
 
@@ -1476,11 +1479,15 @@ export const freshAgentDeskReads = (
   askMerged: (branch: string) => ReturnType<Host['prMerged']>,
 ): {
   deskFile: (worktree: string, name: string) => string | null;
+  loopAlive: (worktree: string) => boolean;
   heldFiles: (worktree: string) => Promise<readonly string[] | null>;
   hasMarker: (worktree: string) => Promise<boolean>;
   asks: FreshAgentAskReads;
 } => ({
   deskFile: (worktree, name) => fileOrNull(join(worktree, name)),
+  // A CANDIDATE HAS NO MANIFEST, so the desk's `.plot-worker.pid` is the one
+  // pid source `deskLoopAlive` reads here.
+  loopAlive: (worktree) => readDeskLoop(worktree, { kind: 'unnamed' }).loop.kind === 'alive',
   // A DEDICATED READ, NOT `world`'s `dirtyPaths` OR `dirtyCountOf`. Both
   // collapse a failed read into a lossy value (`[]` or a count of `1`) for
   // their own consumers; `holdingWorkAnswer` needs `null` preserved so it can
@@ -1517,19 +1524,24 @@ export const freshAgentDeskReads = (
 /**
  * Reads, decides and applies the fresh-agent step for one completed tick.
  *
- * Desks whose worker ended `corrections-spent`, `turn-limit`, or an
- * after-prompt `holding-work` with no manifest left get one fresh session
- * through the continue workflow. A second such ending for the same slice, and
- * a `blocked`, `spend-limit`, `unstarted`, `run-limit` or `checks-unanswered`
+ * First, a desk whose worker exited non-zero, wrote no ending and holds no
+ * live loop gets an `unreadable` ending from {@link killedWorkerEndings},
+ * written to the desk; a failed write is reported and the desk is read as it
+ * stands. Then desks whose worker ended `corrections-spent`, `turn-limit`,
+ * `bound`, `unreadable`, `quiet`, or an after-prompt `holding-work` with no
+ * manifest left get one fresh session through the continue workflow, or a
+ * claim release where a `bound`/`unreadable`/`quiet` branch holds nothing
+ * beyond its claim. A second such ending for the same slice, and a
+ * `blocked`, `spend-limit`, `unstarted`, `run-limit` or `checks-unanswered`
  * ending, gets a `PLOT-BLOCKED.md` marker and one row in
  * `.plot/state/ending-asks.tsv`, once per ending. A failure anywhere in the
  * step is reported on stderr and never ends the daemon: the next tick reads
  * the same desks and the records again.
  *
  * @param report - the completed tick, whose `trees` name the candidates.
- * @param deps - how to read a desk file, the record, a desk's held files and
- *   marker, the ask reads, the ports to act through, and the repository's
- *   `Correction budget`.
+ * @param deps - how to read a desk file and its live loop, how to write an
+ *   ending, the record, a desk's held files and marker, the ask reads, the
+ *   ports to act through, and the repository's `Correction budget`.
  * @param write - where a started session or an escalation is reported.
  * @param warn - where a refusal or a failure is reported.
  * @returns what was applied, in desk order.
@@ -1538,6 +1550,8 @@ export const startFreshAgents = async (
   report: TickReport,
   deps: {
     deskFile: (worktree: string, name: string) => string | null;
+    loopAlive: (worktree: string) => boolean;
+    writeEnding: Desk['writeEnding'];
     record: Pick<FreshAgentRecordStore, 'rowsFor'>;
     heldFiles: (worktree: string) => Promise<readonly string[] | null>;
     hasMarker: (worktree: string) => Promise<boolean>;
@@ -1551,6 +1565,14 @@ export const startFreshAgents = async (
   try {
     const candidates = freshAgentCandidateTrees(report.trees ?? []);
     if (candidates.length === 0) return [];
+    for (const { worktree, ending } of killedWorkerEndings(candidates, deps.deskFile, deps.loopAlive)) {
+      const written = await deps.writeEnding(worktree, ending);
+      if (written.ok) {
+        write(`plot-fleetd fresh-agent ${ending.branch}: recorded — ${ending.detail}; wrote an unreadable ending\n`);
+      } else {
+        warn(`plot-fleetd fresh-agent ${ending.branch}: unrecorded — ${ending.detail}; the ending could not be written\n`);
+      }
+    }
     const readings = await readFreshAgentCandidates(
       candidates,
       deps.deskFile,
@@ -1956,16 +1978,18 @@ export const run = async (
   // THE DAEMON IS THE ONLY WRITER OF THE ASK RECORD, for the same reason.
   const endingAsks = endingAskRecordFile({ cwd: repoRoot });
   // ONE RELEASE PATH FOR BOTH STEPS: the fresh-agent step releases a
-  // timed-out desk, the nothing-done step every other `release-claim`.
+  // `bound`/`unreadable`/`quiet` desk, the nothing-done step every other
+  // `release-claim`.
   const releaseContext = { repoRoot, scriptDir: scriptsDir };
   const releaseClaimOf = async (branch: string) => {
     const { result } = await gatherReadingsAndRelease(branch, releaseContext);
     return { released: result.released, detail: result.detail };
   };
+  const freshAgentDesk = deskFs(treesGit({ repoRoot, scriptDir: scriptsDir }));
   const freshAgentPorts: FreshAgentPorts = {
     record: freshAgentRecord,
     asks: endingAsks,
-    desk: deskFs(treesGit({ repoRoot, scriptDir: scriptsDir })),
+    desk: freshAgentDesk,
     now: () => new Date(),
     start: async ({ branch, worktree, answer, beforeStart }) => {
       const base = await refsGit({ repoRoot, scriptDir: scriptsDir }).defaultBranch();
@@ -2192,6 +2216,7 @@ export const run = async (
         report,
         {
           ...freshAgentDeskReads({ repoRoot, scriptDir: scriptsDir }, endingAsks, (branch) => merges.ask(branch)),
+          writeEnding: freshAgentDesk.writeEnding,
           record: freshAgentRecord,
           ports: freshAgentPorts,
           budget: Number.isInteger(budget) && budget >= 0 ? budget : 2,

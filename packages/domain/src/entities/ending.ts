@@ -104,13 +104,18 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   freed the loop but never released it. The loop ends here and writes no
  *   seal; the supervisor's tick is the one that may release the claim, since
  *   `releaseClaim` refuses a live peer the loop cannot see from inside itself.
+ * - `stopped` — a person stopped the worker through `plot-dispatch.sh --stop`.
+ *   The stop keeps the desk and the claim, and the supervisor's tick leaves
+ *   the desk alone: the person who stopped it decides what happens next. Its
+ *   actor is `operator`.
  *
  * `unstarted`, `limited`, `unregistered`, `holding-work`, `blocked`,
  * `checks-unanswered`, `corrections-spent`, `turn-limit`, `run-limit`,
  * `spend-limit` AND `nothing-done` ARE THE REASONS NO WATCHER PRODUCED. The
  * other four are the floor firing or the monitor publishing; these eleven are
  * the agent's own loop reporting what it found, which is why their actor is
- * `agent`.
+ * `agent`. `stopped` is a person's act, written by `plot-dispatch.sh --stop`
+ * with actor `operator`.
  *
  * **THEY ARE KEPT APART BECAUSE THE REPAIR DIFFERS.** Both are a non-zero
  * prompt exit, and collapsing them is exactly what #1141 reported: `unstarted`
@@ -142,6 +147,7 @@ export const EndingReasonSchema = z.enum([
   'run-limit',
   'spend-limit',
   'nothing-done',
+  'stopped',
 ]);
 export type EndingReason = z.infer<typeof EndingReasonSchema>;
 
@@ -158,6 +164,12 @@ export type EndingReason = z.infer<typeof EndingReasonSchema>;
  * - `agent` — the agent's own process reported the ending: a command that
  *   failed to start, or the agent's loop finding its own desk holding
  *   unlanded work.
+ * - `operator` — a person stopped the worker with `plot-dispatch.sh --stop`.
+ *   It writes `stopped` and nothing else.
+ * - `supervisor` — the supervisor's tick found a desk whose worker exited
+ *   non-zero, left no ending and no live loop, and no person stopped it. It
+ *   writes `unreadable` for that desk, so the tick acts on a recorded ending
+ *   rather than on an absent file.
  *
  * **THE `agent` ACTOR WAS REMOVED AND IS BACK FOR ONE REASON.** It was admitted
  * from the start, documented as *"the agent stopped itself"*, and written by
@@ -179,13 +191,13 @@ export type EndingReason = z.infer<typeof EndingReasonSchema>;
  * use"* is the whole diagnosis, and it is a sentence rather than a party.
  *
  * `ENDING_ACTORS` in `transitions/agent.ts` is the list a reader off disk is
- * checked against, and it carries all three again for the same reason.
+ * checked against, and it carries all five for the same reason.
  */
 // plot-state: classification — WHICH PARTY ended the worker, recorded once
 //                              beside the reason and not determined by it.
 //                              transitions/agent.ts holds ENDING_ACTORS and the
 //                              attribution rule.
-export const EndingActorSchema = z.enum(['bound', 'monitor', 'agent']);
+export const EndingActorSchema = z.enum(['bound', 'monitor', 'agent', 'operator', 'supervisor']);
 export type EndingActor = z.infer<typeof EndingActorSchema>;
 
 /**

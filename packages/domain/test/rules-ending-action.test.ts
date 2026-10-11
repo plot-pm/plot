@@ -8,7 +8,11 @@ import {
   needsPersonMarker,
   secondFreshSessionMarker,
   NEEDS_PERSON_ENDINGS,
+  BOUND_ENDINGS,
+  isBoundEnding,
+  killedWorkerEnding,
   type EndingActionReadings,
+  type KilledWorkerReadings,
 } from '../src/rules/ending-action.js';
 import { EndingReasonSchema, type EndingReading, type EndingReason } from '../src/entities/ending.js';
 
@@ -23,6 +27,7 @@ const readings = (over: Partial<EndingActionReadings> = {}): EndingActionReading
   dirtyTree: 'no',
   prMerged: 'not-merged',
   endingAsked: false,
+  blockedMarker: false,
   ...over,
 });
 
@@ -147,6 +152,12 @@ describe('endingAction', () => {
       it(`reads an unanswerable merge as not merged on a ${reason} ending`, () => {
         expect(endingAction(readings({ ending: reason, commitBeyondClaim: 'yes', prMerged: 'unanswerable' }))).toBe('start-fresh');
       });
+
+      it(`leaves a ${reason} desk that carries a PLOT-BLOCKED marker — no fresh session answers the person's question, no release`, () => {
+        expect(endingAction(readings({ ending: reason, commitBeyondClaim: 'yes', blockedMarker: true }))).toBe('leave');
+        expect(endingAction(readings({ ending: reason, blockedMarker: true }))).toBe('leave');
+        expect(endingAction(readings({ ending: reason, commitBeyondClaim: 'yes', priorFreshSessions: 1, blockedMarker: true }))).toBe('leave');
+      });
     });
   }
 
@@ -205,6 +216,16 @@ describe('endingAction', () => {
 
   it('leaves a missing ending alone', () => {
     expect(endingAction(readings({ ending: null }))).toBe('leave');
+  });
+
+  it('leaves a stopped ending alone — the person who stopped the worker decides', () => {
+    expect(endingAction(readings({ ending: 'stopped', commitBeyondClaim: 'no', prOpen: false }))).toBe('leave');
+    expect(endingAction(readings({ ending: 'stopped', commitBeyondClaim: 'yes' }))).toBe('leave');
+  });
+
+  it('reads the marker on the bound row only — a marker does not change a corrections-spent or nothing-done answer', () => {
+    expect(endingAction(readings({ ending: 'corrections-spent', blockedMarker: true }))).toBe('start-fresh');
+    expect(endingAction(readings({ blockedMarker: true }))).toBe('release-claim');
   });
 
   it('a manifest-named desk answers leave for every ending', () => {
@@ -273,8 +294,8 @@ describe('needsPersonMarker', () => {
     }
   });
 
-  it('composes the second-fresh-session question for corrections-spent, turn-limit, holding-work, bound and unreadable', () => {
-    for (const reason of ['corrections-spent', 'turn-limit', 'holding-work', 'bound', 'unreadable'] as const) {
+  it('composes the second-fresh-session question for corrections-spent, turn-limit, holding-work, bound, unreadable and quiet', () => {
+    for (const reason of ['corrections-spent', 'turn-limit', 'holding-work', 'bound', 'unreadable', 'quiet'] as const) {
       const text = needsPersonMarker(reason, 'infra/x', 'ignored');
       expect(text).toBe(secondFreshSessionMarker(reason, 'infra/x'));
       expect(text).toContain('already had its one fresh session');
@@ -282,7 +303,16 @@ describe('needsPersonMarker', () => {
     }
   });
 
-  it('refuses to compose for an ending outside its five', () => {
+  it('composes for every ending endingAction can answer needs-a-person for', () => {
+    for (const ending of EndingReasonSchema.options) {
+      const asks = [0, 1].some(
+        (priorFreshSessions) => endingAction(readings({ ending, commitBeyondClaim: 'yes', priorFreshSessions })) === 'needs-a-person',
+      );
+      if (asks) expect(() => needsPersonMarker(ending, 'infra/x', ''), ending).not.toThrow();
+    }
+  });
+
+  it('refuses to compose for an ending outside its eleven', () => {
     expect(() => needsPersonMarker('nothing-done', 'infra/x', '')).toThrow();
   });
 
@@ -341,11 +371,11 @@ describe('endingAsksFreshStart', () => {
     ending: { reason, actor: 'agent', branch, detail: '', refusedAssignment } as never,
   });
 
-  it('answers true for exactly the endings endingAction starts a first fresh session for, outside bound/unreadable', () => {
-    // bound/unreadable are excluded here because their start-fresh answer is
-    // conditional on readings this function never sees (commitBeyondClaim,
-    // prOpen, dirtyTree) — see the dedicated assertions below.
-    for (const reason of EndingReasonSchema.options.filter((r) => r !== 'bound' && r !== 'unreadable' && r !== 'quiet')) {
+  it('answers true for exactly the endings endingAction starts a first fresh session for, outside bound/unreadable/quiet', () => {
+    // bound, unreadable and quiet are excluded here because their start-fresh
+    // answer is conditional on readings this function never sees
+    // (commitBeyondClaim, prOpen, dirtyTree) — see the dedicated assertions below.
+    for (const reason of EndingReasonSchema.options.filter((r) => !BOUND_ENDINGS.has(r))) {
       const expected = endingAction(readings({ ending: reason })) === 'start-fresh';
       expect(endingAsksFreshStart(ended(reason), 'infra/x'), reason).toBe(expected);
     }
@@ -379,5 +409,59 @@ describe('endingAsksFreshStart', () => {
   it('answers false for an absent or unreadable ending', () => {
     expect(endingAsksFreshStart({ read: 'absent' }, 'infra/x')).toBe(false);
     expect(endingAsksFreshStart({ read: 'unreadable', why: 'not JSON' }, 'infra/x')).toBe(false);
+  });
+});
+
+describe('isBoundEnding', () => {
+  it('answers true for bound, unreadable and quiet only, and false for null', () => {
+    const bound = EndingReasonSchema.options.filter((r) => isBoundEnding(r));
+    expect(bound).toEqual(['bound', 'quiet', 'unreadable']);
+    expect(isBoundEnding(null)).toBe(false);
+  });
+});
+
+describe('killedWorkerEnding', () => {
+  const desk = (over: Partial<KilledWorkerReadings> = {}): KilledWorkerReadings => ({
+    ending: { read: 'absent' },
+    exit: '143',
+    loopAlive: false,
+    branch: 'infra/x',
+    ...over,
+  });
+
+  it('writes an unreadable ending as the supervisor for a non-zero exit with no ending and no live loop', () => {
+    expect(killedWorkerEnding(desk())).toEqual({
+      reason: 'unreadable',
+      actor: 'supervisor',
+      branch: 'infra/x',
+      detail: 'the worker exited 143 and wrote no ending',
+      refusedAssignment: '',
+    });
+    expect(killedWorkerEnding(desk({ exit: '137\n' }))?.detail).toBe('the worker exited 137 and wrote no ending');
+  });
+
+  it('writes nothing for a desk no worker ran — a desk cut by hand has no exit record', () => {
+    expect(killedWorkerEnding(desk({ exit: null }))).toBeNull();
+  });
+
+  it('writes nothing for a worker that exited 0, or an exit record that holds no code', () => {
+    for (const exit of ['0', '', 'x', '-1', '1.5']) expect(killedWorkerEnding(desk({ exit })), exit).toBeNull();
+  });
+
+  it('writes nothing while a loop is alive on the desk', () => {
+    expect(killedWorkerEnding(desk({ loopAlive: true }))).toBeNull();
+  });
+
+  it('writes nothing over an ending that exists — a person\'s stopped ending among them — or one that does not parse', () => {
+    const stopped: EndingReading = {
+      read: 'ended',
+      ending: { reason: 'stopped', actor: 'operator', branch: 'infra/x', detail: '', refusedAssignment: '' },
+    };
+    expect(killedWorkerEnding(desk({ ending: stopped }))).toBeNull();
+    expect(killedWorkerEnding(desk({ ending: { read: 'unreadable', why: 'not JSON' } }))).toBeNull();
+  });
+
+  it('writes nothing for a detached desk, which names no branch to start', () => {
+    expect(killedWorkerEnding(desk({ branch: '' }))).toBeNull();
   });
 });

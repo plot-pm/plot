@@ -362,6 +362,11 @@ describe('endingIsAttributable refuses an agent that recorded itself as the acto
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'monitor' }))).toBe(true);
   });
 
+  it('accepts the operator who stopped a worker and the supervisor that recorded a silent exit', () => {
+    expect(isDecision(endingIsAttributable(SESSION, { actor: 'operator' }))).toBe(true);
+    expect(isDecision(endingIsAttributable(SESSION, { actor: 'supervisor' }))).toBe(true);
+  });
+
   it('refuses a spelling neither actor uses', () => {
     const result = endingIsAttributable(SESSION, { actor: 'registry' });
     expect(isRefusal(result)).toBe(true);
@@ -389,9 +394,11 @@ describe('endingIsAttributable refuses an agent that recorded itself as the acto
   it('holds the enum to the actors that have writers', () => {
     // `agent` was removed on 2026-09-04 because nothing wrote it, and returned
     // on 2026-09-05 with the `unstarted` writer. The list is what has a writer,
-    // never what has been imagined — a sixth actor still needs one.
-    expect(EndingActorSchema.options).toEqual(['bound', 'monitor', 'agent']);
-    expect(ENDING_ACTORS).toEqual(['bound', 'monitor', 'agent']);
+    // never what has been imagined. `operator` is written by
+    // `plot-dispatch.sh --stop`, `supervisor` by the registry tick's
+    // `killedWorkerEnding`.
+    expect(EndingActorSchema.options).toEqual(['bound', 'monitor', 'agent', 'operator', 'supervisor']);
+    expect(ENDING_ACTORS).toEqual(['bound', 'monitor', 'agent', 'operator', 'supervisor']);
   });
 
   it('reads a string rather than the type, because an ending file is bytes first', () => {

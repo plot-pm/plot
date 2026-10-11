@@ -98,14 +98,19 @@ const NEXT: Readonly<Record<AgentState, readonly AgentState[]>> = {
  * So the premise this removal rested on — *nothing writes it* — is what the
  * fourth `write_ending` call changed, and `agent` is back in
  * `EndingReasonSchema`'s company for that one reason. The narrowing argument
- * survives intact for the other four, which is why this list is three rather
+ * survives intact for the other four, which is why this list is closed rather
  * than open: {@link endingIsAttributable} still refuses anything else, and a
- * fifth actor still needs a writer before it is admitted.
+ * new actor still needs a writer before it is admitted.
+ *
+ * **`operator` AND `supervisor` HAVE WRITERS.** `plot-dispatch.sh --stop`
+ * writes a `stopped` ending as `operator`, and the supervisor's tick writes
+ * `unreadable` as `supervisor` for a worker that exited non-zero with no
+ * ending (`killedWorkerEnding` in `rules/ending-action.ts`).
  *
  * The refusal stays meaningful whatever the enum holds, because a manifest or
  * an ending file read off disk carries a string before it carries a type.
  */
-export const ENDING_ACTORS: readonly EndingActor[] = ['bound', 'monitor', 'agent'];
+export const ENDING_ACTORS: readonly EndingActor[] = ['bound', 'monitor', 'agent', 'operator', 'supervisor'];
 
 /**
  * A fact a transition needs but cannot measure — supplied by a caller.
@@ -465,7 +470,7 @@ export const endingIsAttributable = (
     return refuse(
       session,
       'ending-actor-unrecognised',
-      `'${input.actor}' is not an ending actor — the three are ${ENDING_ACTORS.join(', ')}.`,
+      `'${input.actor}' is not an ending actor — the actors are ${ENDING_ACTORS.join(', ')}.`,
     );
   }
 
