@@ -2,13 +2,16 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { rmTree } from '../helpers.mjs';
-import { refreshPrs, freshCacheEntry, type CacheEntry, type PrRecord } from '../../src/server/fleet.js';
-import { prIndexFile } from '@plot-pm/domain/adapters';
+import { hostShell, prIndexFile, scriptsShell } from '@plot-pm/domain/adapters';
 import { decodePrIndex, PR_INDEX_VERSION, type PrIndex } from '@plot-pm/domain';
 
-// THE SUBJECT: `refreshPrs` reads a durable store before its host call and
-// writes it after, so the ANSWER survives the process.
+import { freshPrState, refreshPrs, type PrRecord, type PrState } from '../../src/shared/pr-refresh.js';
+import { removeTree as rmTree } from '../rm-tree.mjs';
+
+// THE SUBJECT: the fleet's `refreshPrs` reads a durable store before its host
+// call and writes it after, so the ANSWER survives the process. The fleet is
+// the PR index's only writer, so the tests that write the real file live here.
+// The board folds into an in-memory overlay and writes no file.
 //
 // THE FULL READ'S FILTER IS `--rich-open` SINCE 2026-10-02 and the delta's is
 // still `--rich`. A full read asks about a history that is almost entirely
@@ -108,8 +111,8 @@ afterEach(() => {
  * filename is known to the test and no `plot-config.sh` lookup is needed.
  */
 const refresh = async (
-  scriptsDir: string, home: string, entry: CacheEntry = freshCacheEntry(),
-): Promise<CacheEntry> => {
+  scriptsDir: string, home: string, entry: PrState = freshPrState(),
+): Promise<PrState> => {
   process.env.PLOT_PR_INDEX_HOME = home;
   // THE SLOT CLAIMS GO SOMEWHERE THIS SUITE OWNS TOO, and that is a correctness
   // fix rather than a speed one. `slotsFile()` defaults to `~/.plot/state/`,
@@ -121,9 +124,13 @@ const refresh = async (
   process.env.PLOT_BUDGET_HOME = home;
   entry.backend = 'github';
   // The gate is not consulted: `refreshPrs` is called directly, which is why it
-  // is exported. Driving it through `maybeRefreshPrs` would prove the cadence
-  // gate was open and nothing about the store.
-  await refreshPrs({ repoRoot: scriptsDir, scriptsDir }, entry, prIndexFile({ cwd: scriptsDir }));
+  // is exported. Driving it through `fleetPrs` would prove the cadence gate was
+  // open and nothing about the store.
+  const context = { repoRoot: scriptsDir, scriptDir: scriptsDir };
+  await refreshPrs(
+    { scripts: scriptsShell(context), host: hostShell(context), store: prIndexFile({ cwd: scriptsDir }) },
+    entry,
+  );
   return entry;
 };
 
@@ -212,7 +219,7 @@ describe('whose a PR is survives the store', () => {
   it('seeds a restarted process with the stored author', async () => {
     const home = storeHome();
     await refresh(host([line({ author: 'jwloka' })]), home);
-    const restarted = await refresh(host([], 3, 'the host is unreachable'), home, freshCacheEntry());
+    const restarted = await refresh(host([], 3, 'the host is unreachable'), home, freshPrState());
     expect(restarted.prsByNumber?.get(1)?.author).toBe('jwloka');
   });
 });
@@ -382,7 +389,7 @@ describe('the store seeds a cold process', () => {
 
     // A new process: a fresh entry, and a host that answers nothing at all.
     const restarted = await refresh(host([], 3, 'the host is unreachable'), home,
-      freshCacheEntry());
+      freshPrState());
     // The rows came from disk, because the host refused.
     expect(restarted.prsByNumber?.get(1)?.head).toBe('feature/one');
     expect(restarted.prsByNumber?.get(2)?.head).toBe('feature/two');
@@ -391,7 +398,7 @@ describe('the store seeds a cold process', () => {
   it('does not stamp prAt, so the operator is told how old the data is', async () => {
     const home = storeHome();
     await refresh(host([line()]), home);
-    const restarted = await refresh(host([], 3, 'unreachable'), home, freshCacheEntry());
+    const restarted = await refresh(host([], 3, 'unreachable'), home, freshPrState());
     // `prAt` answers "how old is this DATA". A seeded map is as old as the
     // store, and stamping it now would report stale rows as fresh — the one lie
     // this path could tell, and `prAgeSeconds` is what an operator reads to
@@ -456,7 +463,7 @@ describe('the call asks only for the delta', () => {
     expect(onDisk(home)?.watermark).toBe('2026-09-20T18:42:10Z');
 
     const second = host([]);
-    await refresh(second, home, freshCacheEntry());
+    await refresh(second, home, freshPrState());
     // The stamp the HOST wrote, not this machine's rendering of it. A client
     // two seconds fast excludes the PRs updated in that gap from every later
     // window — forever, because the window never reopens.
@@ -479,7 +486,7 @@ describe('the call asks only for the delta', () => {
     // A new process, and a window answering about ONE pull request.
     const entry = await refresh(
       host([line({ number: 5, head: 'feature/b5', state: 'MERGED', updatedAt: '2026-09-20T18:00:00Z' })]),
-      home, freshCacheEntry());
+      home, freshPrState());
 
     // The store is right AND the maps are right. Asserting only the first is
     // what lets the board render 1 PR while the file holds 12.
@@ -513,7 +520,7 @@ describe('the call asks only for the delta', () => {
     expect(onDisk(home)?.complete).toBe(true);
 
     await refresh(host([line({ number: 2, head: 'feature/two', state: 'MERGED' })]),
-      home, freshCacheEntry());
+      home, freshPrState());
     expect(onDisk(home)?.complete).toBe(true);
     // The rows the window did not mention are still there, which is what makes
     // the wholeness claim true rather than merely written.
@@ -535,7 +542,7 @@ describe('the call asks only for the delta', () => {
     // three separate fake hosts would each show one call and hide the sequence.
     const home = storeHome();
     const shared = host([line({ updatedAt: '2026-09-20T12:00:00Z' })]);
-    for (let i = 0; i < 3; i += 1) await refresh(shared, home, freshCacheEntry());
+    for (let i = 0; i < 3; i += 1) await refresh(shared, home, freshPrState());
 
     const calls = argvOf(shared).filter((l) => l.startsWith('pr-list'));
     expect(calls).toHaveLength(3);
@@ -560,7 +567,7 @@ describe('the call asks only for the delta', () => {
     expect(onDisk(home)?.rows).toHaveLength(1000);
 
     // A quiet estate: the window answers about nothing at all.
-    const entry = await refresh(host([]), home, freshCacheEntry());
+    const entry = await refresh(host([]), home, freshPrState());
     expect(entry.prsByNumber?.size).toBe(1000);
     expect(entry.prs?.size).toBe(1000);
     expect(entry.prsByHead?.get('feature/b1000')?.number).toBe(1000);
@@ -577,7 +584,7 @@ describe('the call asks only for the delta', () => {
     await refresh(host([line()]), home);
     const before = fs.readFileSync(path.join(home, 'github.json'), 'utf8');
 
-    const entry = await refresh(host([]), home, freshCacheEntry());
+    const entry = await refresh(host([]), home, freshPrState());
     expect(entry.prError).toBeNull();
     // The rows survived the empty window — the fold merged nothing into them.
     expect(entry.prsByNumber?.get(1)?.head).toBe('feature/one');
@@ -599,7 +606,7 @@ describe('the call asks only for the delta', () => {
     const before = fs.readFileSync(path.join(home, 'github.json'), 'utf8');
 
     const failed = host([], 3, 'could not reach the host');
-    const entry = await refresh(failed, home, freshCacheEntry());
+    const entry = await refresh(failed, home, freshPrState());
     expect(entry.prError).toBeTruthy();
     // The file is untouched, watermark included.
     expect(fs.readFileSync(path.join(home, 'github.json'), 'utf8')).toBe(before);
@@ -607,7 +614,7 @@ describe('the call asks only for the delta', () => {
     // AND THE NEXT PASS RE-ASKS THE SAME WINDOW, which is the half that
     // matters: a store left alone is only useful if the window reopens.
     const retry = host([]);
-    await refresh(retry, home, freshCacheEntry());
+    await refresh(retry, home, freshPrState());
     expect(prListCall(retry)).toContain('--since 2026-09-20T18:42:10Z');
   });
 
@@ -636,7 +643,7 @@ describe('the call asks only for the delta', () => {
     // The full read answers about ONE PR, and the other leaves the store —
     // which is the whole point of keeping a full read at all.
     const full = host([line({ number: 1 })]);
-    await refresh(full, home, freshCacheEntry());
+    await refresh(full, home, freshPrState());
     expect(prListCall(full)).toBe('pr-list --rich-open --state all --limit 1000');
     expect(onDisk(home)?.rows.map((r) => r.number)).toEqual([1]);
     expect(onDisk(home)?.complete).toBe(true);
@@ -662,8 +669,8 @@ describe('the call asks only for the delta', () => {
     }));
 
     const shared = host([line({ updatedAt: '2026-09-20T12:00:00Z' })]);
-    await refresh(shared, home, freshCacheEntry());
-    await refresh(shared, home, freshCacheEntry());
+    await refresh(shared, home, freshPrState());
+    await refresh(shared, home, freshPrState());
 
     const calls = argvOf(shared).filter((l) => l.startsWith('pr-list'));
     expect(calls.filter((c) => !c.includes('--since'))).toHaveLength(1);
@@ -694,7 +701,7 @@ describe('the call asks only for the delta', () => {
 
     // The full read is due and the host times out.
     dueAgain();
-    const entry = freshCacheEntry();
+    const entry = freshPrState();
     const failing = host([], 1, 'HTTP 504: We could not respond to your request in time');
     await refresh(failing, home, entry);
     expect(prListCall(failing)).toBe('pr-list --rich-open --state all --limit 1000');
@@ -742,7 +749,7 @@ describe('the call asks only for the delta', () => {
     expect(onDisk(home)).not.toHaveProperty('wholeAt');
 
     const next = host([line()]);
-    await refresh(next, home, freshCacheEntry());
+    await refresh(next, home, freshPrState());
     expect(prListCall(next)).toBe('pr-list --rich-open --state all --limit 1000');
   });
 
@@ -758,7 +765,7 @@ describe('the call asks only for the delta', () => {
     const entry = await refresh(
       host([line({ number: 2, head: 'feature/two', state: 'MERGED', updatedAt: '2026-09-20T18:00:00Z' })],
         7, 'the closed state did not answer'),
-      home, freshCacheEntry());
+      home, freshPrState());
     // The gap is still SAID — a short list reported as whole is the quiet wrong
     // answer this path refuses everywhere.
     expect(entry.prError).toContain('did not answer');
@@ -813,7 +820,7 @@ describe('the full read asks verdicts of open PRs only', () => {
     const before = fs.readFileSync(path.join(home, 'github.json'), 'utf8');
 
     // Exit 3 with no rows is what a failed half produces.
-    await refresh(host([], 3, 'plot-host: pr-list: gh: all call down'), home, freshCacheEntry());
+    await refresh(host([], 3, 'plot-host: pr-list: gh: all call down'), home, freshPrState());
     expect(fs.readFileSync(path.join(home, 'github.json'), 'utf8')).toBe(before);
   });
 
@@ -840,7 +847,7 @@ describe('the full read asks verdicts of open PRs only', () => {
     const second = host([terminal({
       number: 5, head: 'feature/five', updatedAt: '2026-10-01T12:00:00Z',
     })]);
-    await refresh(second, home, freshCacheEntry());
+    await refresh(second, home, freshPrState());
     expect(prListCall(second)).toBe('pr-list --rich-open --state all --limit 1000');
     expect(onDisk(home)?.rows[0]).toMatchObject({
       number: 5,
@@ -943,7 +950,7 @@ describe('a pending check is asked again (#1277)', () => {
         updatedAt: '2026-09-20T12:00:00Z',
       })],
     );
-    const entry = await refresh(scripts, home, freshCacheEntry());
+    const entry = await refresh(scripts, home, freshPrState());
 
     const calls = argvOf(scripts).filter((l) => l.startsWith('pr-list'));
     expect(calls).toHaveLength(2);
@@ -957,7 +964,7 @@ describe('a pending check is asked again (#1277)', () => {
     await refresh(host([line({ number: 9, head: 'feature/nine', checks: 'green' })]), home);
 
     const scripts = twoFacedHost([], [line({ number: 9, head: 'feature/nine', checks: 'green' })]);
-    await refresh(scripts, home, freshCacheEntry());
+    await refresh(scripts, home, freshPrState());
     expect(argvOf(scripts).filter((l) => l.startsWith('pr-list'))).toHaveLength(1);
   });
 
@@ -971,7 +978,7 @@ describe('a pending check is asked again (#1277)', () => {
     })]), home);
 
     const scripts = twoFacedHost([], [line({ number: 9, head: 'feature/nine', checks: 'green' })]);
-    await refresh(scripts, home, freshCacheEntry());
+    await refresh(scripts, home, freshPrState());
     expect(argvOf(scripts).filter((l) => l.startsWith('pr-list'))).toHaveLength(1);
   });
 
@@ -999,14 +1006,14 @@ describe('a pending check is asked again (#1277)', () => {
         updatedAt: '2026-09-20T12:00:00Z',
       })],
     );
-    await refresh(scripts, home, freshCacheEntry());
+    await refresh(scripts, home, freshPrState());
 
     expect(onDisk(home)?.rows.find((r) => r.number === 9)?.checks).toBe('pending');
     expect(onDisk(home)?.watermark).toBe(watermarkBefore);
 
     // And the NEXT delta's --since is unchanged by the re-ask having run.
     const next = twoFacedHost([], []);
-    await refresh(next, home, freshCacheEntry());
+    await refresh(next, home, freshPrState());
     expect(prListCall(next)).toBe(`pr-list --rich --state all --limit 1000 --since ${watermarkBefore}`);
   });
 
@@ -1033,7 +1040,7 @@ describe('a pending check is asked again (#1277)', () => {
     );
     fs.chmodSync(path.join(dir, 'plot-host.sh'), 0o755);
 
-    const entry = await refresh(dir, home, freshCacheEntry());
+    const entry = await refresh(dir, home, freshPrState());
     expect(fs.readFileSync(path.join(home, 'github.json'), 'utf8')).not.toBe(before);
     expect(onDisk(home)?.rows.find((r) => r.number === 9)?.checks).toBe('pending');
     // A failed re-ask is not a failed FULL read — only `window.kind ===
@@ -1049,7 +1056,7 @@ describe('a pending check is asked again (#1277)', () => {
       number: 9, head: 'feature/nine', state: 'OPEN', checks: 'pending',
       updatedAt: '2026-09-20T12:00:00Z',
     })];
-    let entry = freshCacheEntry();
+    let entry = freshPrState();
     const scriptDirs: string[] = [];
     for (let i = 0; i < 6; i += 1) {
       const scripts = twoFacedHost([], stillPending);

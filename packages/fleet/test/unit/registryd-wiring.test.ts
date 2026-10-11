@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { clockManual, defaultBranchFile } from '@plot-pm/domain/adapters';
+import { clockManual, defaultBranchFile, fleetStateFile } from '@plot-pm/domain/adapters';
 import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 
 import {
@@ -22,6 +23,7 @@ import type { TickReport } from '../../src/server/entry/registryd.js';
 import { startFleetClock } from '../../src/shared/fleet-clock.js';
 
 import type { RunningChannel } from '../../src/shared/channel-socket.js';
+import { removeTree } from '../rm-tree.mjs';
 
 const emptySlot = (): ChannelSlot => ({ channel: null, indexMonitor: null, deskRelay: null });
 const fakeChannel = (): RunningChannel => ({ stop: async () => undefined }) as unknown as RunningChannel;
@@ -374,6 +376,90 @@ describe('run — the loop wiring', () => {
     expect(code).toBe(0);
     expect(sleeps).toBe(0);
   });
+});
+
+describe('run — the PR reader\'s failure reaches the bridge', () => {
+  let root = '';
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    removeTree(root);
+  });
+
+  /**
+   * A repository and a scripts directory: `plot-host.sh` refuses `pr-list`, and
+   * `plot-fleet-scan.sh` emits one pulse. Nothing else is reached.
+   */
+  const fixture = () => {
+    root = mkdtempSync(join(tmpdir(), 'registryd-pr-error-'));
+    const repo = join(root, 'repo');
+    const scripts = join(root, 'scripts');
+    mkdirSync(repo);
+    mkdirSync(scripts);
+    execFileSync('git', ['init', '--quiet'], { cwd: repo });
+    vi.stubEnv('PLOT_PR_INDEX_HOME', join(root, 'pr-index'));
+    vi.stubEnv('PLOT_BUDGET_HOME', join(root, 'budget'));
+    const reading = JSON.stringify({
+      kind: 'reading',
+      reading: {
+        main: 'main', head: 'abc1234', plans: [],
+        summary: {
+          plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0,
+          waiting: 0, prereq_missing: 0, host: 'unknown',
+        },
+      },
+    });
+    writeFileSync(
+      join(scripts, 'plot-host.sh'),
+      '#!/usr/bin/env bash\ncase "$1" in\n  backend) echo github ;;\n'
+      + '  pr-list) echo "the host is unreachable" >&2; exit 3 ;;\nesac\nexit 0\n',
+    );
+    writeFileSync(join(scripts, 'plot-fleet-scan.sh'), `#!/usr/bin/env bash\nprintf '%s\\n' ${JSON.stringify(reading)}\n`);
+    for (const helper of ['plot-config.sh', 'plot-plan-meta.sh']) {
+      writeFileSync(join(scripts, helper), '#!/usr/bin/env bash\nexit 0\n');
+    }
+    for (const f of ['plot-host.sh', 'plot-fleet-scan.sh', 'plot-config.sh', 'plot-plan-meta.sh']) chmodSync(join(scripts, f), 0o755);
+    // `run` resolves its scripts directory as the parent of `here`.
+    return { repo, here: join(scripts, 'entry') };
+  };
+
+  it('bridges the sentence the real PR reader holds after a refused pr-list', async () => {
+    const { repo, here } = fixture();
+    const clock = clockManual(0);
+    const stop = manualStop();
+    const state = fleetStateFile({ repoRoot: repo });
+    const bridgedError = async (): Promise<string | null> => {
+      const read = await state.read();
+      return read.ok && read.value !== null ? read.value.prError : null;
+    };
+    let seen: string | null = null;
+    const code = await run(
+      [],
+      here,
+      () => undefined,
+      async () => {
+        // Beats until a scan has run after the PR beat. The PR read and the scan
+        // both spawn real scripts, so each beat waits for them in real time.
+        for (let beat = 0; beat < 200 && seen === null; beat += 1) {
+          clock.advance(1);
+          await new Promise((r) => setTimeout(r, 50));
+          seen = await bridgedError();
+        }
+        stop.set();
+      },
+      stop.flag,
+      () => undefined,
+      repo,
+      {
+        clock,
+        tick: async () => completedTick(),
+        readDefaultBranch: async () => undefined,
+        openChannel: (async () => ({ stop: async () => undefined })) as never,
+        overChannel: () => ({ indexMonitor: null, deskRelay: null }),
+      },
+    );
+    expect(code).toBe(0);
+    expect(seen).toContain('the host is unreachable');
+  }, 30_000);
 });
 
 describe('startDaemon — the process entry', () => {

@@ -3,15 +3,16 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { rmTree } from '../helpers.mjs';
-import { refreshPrs, freshCacheEntry, type CacheEntry } from '../../src/server/fleet.js';
-import { prIndexFile } from '@plot-pm/domain/adapters';
+import { hostShell, prIndexFile, scriptsShell } from '@plot-pm/domain/adapters';
 import { foldPrIndex } from '@plot-pm/domain';
+
+import { freshPrState, refreshPrs, type PrState } from '../../src/shared/pr-refresh.js';
+import { removeTree as rmTree } from '../rm-tree.mjs';
 
 // THE SUBJECT: `fleet.ts` used to hold ONE module-level PR store, built with no
 // `cwd`, so every repository a process read shared the store of wherever the
-// process started — `packages/board` in this suite's own case. A fleet entry
-// now resolves its store from its OWN `repoRoot`, through `prStoreFor`.
+// process started. A PR reader now resolves its store from its OWN `repoRoot`:
+// `prIndexFile({ cwd: repoRoot })`, as `registryd-main.ts` builds it.
 //
 // Every fixture here is a REAL repository (`git init`), because the subject is
 // which file `prIndexFile({ cwd })` resolves to, and that resolution shells out
@@ -66,10 +67,14 @@ const seedStore = async (repoRoot: string, row: { number: number; head: string }
   await store.write('github', folded);
 };
 
-const refresh = async (repoRoot: string, scriptsDir: string): Promise<CacheEntry> => {
-  const entry = freshCacheEntry();
+const refresh = async (repoRoot: string, scriptsDir: string): Promise<PrState> => {
+  const entry = freshPrState();
   entry.backend = 'github';
-  await refreshPrs({ repoRoot, scriptsDir }, entry, prIndexFile({ cwd: repoRoot }));
+  const context = { repoRoot, scriptDir: scriptsDir };
+  await refreshPrs(
+    { scripts: scriptsShell(context), host: hostShell(context), store: prIndexFile({ cwd: repoRoot }) },
+    entry,
+  );
   return entry;
 };
 

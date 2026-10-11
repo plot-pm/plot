@@ -533,7 +533,7 @@ export interface CacheEntry {
   /**
    * The bridge `at` the last OWNED refresh applied, or null after a fleet-less
    * one. An owned refresh that reads the same `at` skips the display reads
-   * (supervisor, versions, unmerged, questions) the bridge's silence cannot have changed.
+   * (versions, unmerged, questions). It still reads the supervisor.
    */
   appliedBridgeAt: number | null;
   /**
@@ -1771,12 +1771,15 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // moves faster than this reading does.
     const bridge = await fleetStateFor(opts).read();
     const bridged = bridge.ok ? bridge.value : null;
-    // OWNED MODE ONLY: the fleet produces the new state, and a bridge whose `at`
-    // matches the one the last owned tick applied cannot have changed these four
-    // answers either. A fleet-less tick never sets `appliedBridgeAt`, so the
-    // board keeps computing them itself there.
-    const unchanged = bridged !== null && bridged.at === entry.appliedBridgeAt;
-    if (!unchanged) entry.supervisor = await readSupervisor(opts);
+    // The supervisor is read on EVERY tick: it is the liveness probe. A stopped
+    // fleet stops moving the bridge `at`, so a skip keyed on that `at` would keep
+    // `supervisor: up` and the scan unowned for up to `OWNED_BRIDGE_MAX_AGE_MS`.
+    entry.supervisor = await readSupervisor(opts);
+    // The three display reads below (versions, unmerged, questions) are skipped
+    // on an OWNED tick whose bridge `at` equals the one the last owned tick
+    // applied. A fleet-less tick sets `appliedBridgeAt` to null, so the board
+    // keeps computing them itself there.
+    const sameBridge = bridged !== null && bridged.at === entry.appliedBridgeAt;
     // Default mode, WITH the fetch: the refresh is off the request path, so a
     // second of work is free — and the fetch is what lets the board see
     // branches a remote worker pushed. `--stream` is the only flag added.
@@ -1849,6 +1852,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
       bridgeAt: bridged.at,
       now: Date.now(),
     });
+    const skipDisplay = owned && sameBridge;
     let scanned: ScanResult | null = null;
     if (!owned) {
       scanned = await scanOnce(
@@ -1929,13 +1933,13 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // THE RELEASE VERSION, from the release branch's own `package.json`. From
     // the REFS for the reason stated one line up: the PR map is on its own
     // timer and is still null at the first git refresh.
-    if (!unchanged) entry.versions = await releaseVersions(opts);
+    if (!skipDisplay) entry.versions = await releaseVersions(opts);
     // WHICH BRANCHES STILL CARRY WORK, from the refs for the reason stated
     // above: this is a question about git, and the PR map is on its own timer.
     // `complete.main` rather than a literal — the default branch is the pulse's
     // to name, and a repo whose trunk is not `main` must not have every one of
     // its branches read as unmerged.
-    if (!unchanged) entry.unmerged = await unmergedBranches(opts, complete.main);
+    if (!skipDisplay) entry.unmerged = await unmergedBranches(opts, complete.main);
     // WHAT THE WAITING WORKERS ASKED, read here and nowhere else.
     //
     // After `entry.pulse` is assigned, because the pulse is what says WHICH
@@ -1945,7 +1949,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // Costs nothing on a fleet with no questions in it: `workerQuestions`
     // returns immediately when the pulse names no `waiting` branch with a local
     // worktree, so the ordinary refresh spawns nothing at all.
-    if (!unchanged) entry.questions = await workerQuestions(parsed);
+    if (!skipDisplay) entry.questions = await workerQuestions(parsed);
     entry.appliedBridgeAt = owned && bridged !== null ? bridged.at : null;
     entry.at = owned && bridged !== null ? bridged.at : Date.now();
     entry.error = null;

@@ -408,7 +408,7 @@ export const writeScan = async (
   fleetState: FleetState,
   result: ScanResult,
   at: number,
-  prError: string | null = null,
+  prError: string | null,
 ): Promise<boolean> => {
   const written = await fleetState.write({
     at,

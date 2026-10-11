@@ -249,13 +249,13 @@ describe('an owned refresh', () => {
     entry.unmerged = new Set(['sentinel']);
     entry.questions = new Map([['sentinel', { firstLine: 'x', askedAt: 'y' }]]);
     await refresh(opts, entry);
-    expect(supervisorReads()).toBe(first);
+    expect(supervisorReads()).toBe(first + 1);
     expect(entry.versions.has('sentinel')).toBe(true);
     expect(entry.unmerged.has('sentinel')).toBe(true);
     expect(entry.questions.has('sentinel')).toBe(true);
     await state.write(bridged(at + 1_000));
     await refresh(opts, entry);
-    expect(supervisorReads()).toBe(first + 1);
+    expect(supervisorReads()).toBe(first + 2);
     expect(entry.versions.has('sentinel')).toBe(false);
     expect(entry.unmerged.has('sentinel')).toBe(false);
     expect(entry.questions.has('sentinel')).toBe(false);
@@ -268,5 +268,24 @@ describe('an owned refresh', () => {
     await refresh(opts, entry);
     await refresh(opts, entry);
     expect(supervisorReads()).toBe(2);
+  });
+});
+
+describe('a fleet that stops between two bridge writes', () => {
+  it('reads the supervisor again and takes the scan over on the next tick', async () => {
+    const { dir, opts, spawned, supervisorReads } = fixture(true);
+    await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
+    const entry = freshCacheEntry();
+    await refresh(opts, entry);
+    expect(spawned()).toEqual([]);
+    // The operator stops the fleet: the supervisor reads down, and the bridge
+    // keeps the `at` the last owned tick applied.
+    fs.writeFileSync(
+      path.join(dir, 'plot-fleetctl.sh'),
+      `#!/usr/bin/env bash\necho x >> ${JSON.stringify(path.join(dir, 'ctl.log'))}\necho 'summary: install=installed'\nexit 1\n`,
+    );
+    await refresh(opts, entry);
+    expect(supervisorReads()).toBe(2);
+    expect(spawned()).toEqual(['0']);
   });
 });

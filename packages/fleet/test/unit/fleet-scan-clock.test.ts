@@ -56,7 +56,7 @@ const worldOver = (scripts: Scripts) => ({ repoRoot: repo, scripts, refs: refsFa
 describe('the fleet writes the whole bridge', () => {
   it('carries all six fields, with ages, approvals and the URL base non-empty', async () => {
     const state = fleetStateFile({ repoRoot: repo });
-    await fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {})();
+    await fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {}, () => null)();
     const read = await state.read();
     expect(read.ok && read.value).toBeTruthy();
     if (!read.ok || read.value === null) return;
@@ -70,14 +70,14 @@ describe('the fleet writes the whole bridge', () => {
 
   it('leaves the previous bridge byte-identical when a scan ends without a pulse', async () => {
     const state = fleetStateFile({ repoRoot: repo });
-    await fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {})();
+    await fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {}, () => null)();
     const file = fs.readdirSync(path.join(repo, '.plot', 'state')).map((f) => path.join(repo, '.plot', 'state', f))[0];
     const before = fs.readFileSync(file);
     const warned: string[] = [];
     const silent: Scripts['stream'] = async () => undefined as never;
-    await fleetScan(worldOver(scriptsFake(silent)), state, freshScanState(), () => Date.now() + 5, (l) => warned.push(l))();
+    await fleetScan(worldOver(scriptsFake(silent)), state, freshScanState(), () => Date.now() + 5, (l) => warned.push(l), () => null)();
     const throwing: Scripts['stream'] = async () => { throw new Error('killed at budget'); };
-    await fleetScan(worldOver(scriptsFake(throwing)), state, freshScanState(), () => Date.now() + 9, (l) => warned.push(l))();
+    await fleetScan(worldOver(scriptsFake(throwing)), state, freshScanState(), () => Date.now() + 9, (l) => warned.push(l), () => null)();
     expect(fs.readFileSync(file).equals(before)).toBe(true);
     expect(warned).toHaveLength(2);
   });
@@ -88,9 +88,29 @@ describe('the fleet writes the whole bridge', () => {
       seen.push(o?.env);
       return emitting(s, a, onLine, o);
     };
-    await fleetScan(worldOver(scriptsFake(spy)), fleetStateFile({ repoRoot: repo }), freshScanState(), () => Date.now(), () => {})();
+    await fleetScan(worldOver(scriptsFake(spy)), fleetStateFile({ repoRoot: repo }), freshScanState(), () => Date.now(), () => {}, () => null)();
     // the fleet is the one writer: the script is told not to record
     expect(seen[0]?.PLOT_SCAN_RECORD).toBe('0');
+  });
+});
+
+describe('the fleet bridges its PR reader\'s last failure', () => {
+  it('writes the sentence a failing PR reader holds beside the pulse', async () => {
+    const state = fleetStateFile({ repoRoot: repo });
+    await fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {}, () => 'gh: HTTP 502')();
+    const read = await state.read();
+    expect(read.ok && read.value?.prError).toBe('gh: HTTP 502');
+  });
+
+  it('writes null once the PR reader holds no failure', async () => {
+    const state = fleetStateFile({ repoRoot: repo });
+    let held: string | null = 'gh: HTTP 502';
+    const scan = fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {}, () => held);
+    await scan();
+    held = null;
+    await scan();
+    const read = await state.read();
+    expect(read.ok && read.value !== null && read.value.prError).toBeNull();
   });
 });
 
@@ -98,7 +118,7 @@ describe('the automatic writes run on the scan the fleet just wrote', () => {
   it('hands the pass the pulse the scan wrote, after the bridge write', async () => {
     const state = fleetStateFile({ repoRoot: repo });
     const seen: Array<{ head: string; bridged: boolean }> = [];
-    await fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {}, async (pulse) => {
+    await fleetScan(worldOver(scriptsFake(emitting)), state, freshScanState(), () => Date.now(), () => {}, () => null, async (pulse) => {
       const read = await state.read();
       seen.push({ head: pulse.head, bridged: read.ok && read.value !== null });
     })();
@@ -111,8 +131,8 @@ describe('the automatic writes run on the scan the fleet just wrote', () => {
     const after = async () => { passes += 1; };
     const silent: Scripts['stream'] = async () => undefined as never;
     const throwing: Scripts['stream'] = async () => { throw new Error('killed at budget'); };
-    await fleetScan(worldOver(scriptsFake(silent)), state, freshScanState(), () => Date.now(), () => {}, after)();
-    await fleetScan(worldOver(scriptsFake(throwing)), state, freshScanState(), () => Date.now(), () => {}, after)();
+    await fleetScan(worldOver(scriptsFake(silent)), state, freshScanState(), () => Date.now(), () => {}, () => null, after)();
+    await fleetScan(worldOver(scriptsFake(throwing)), state, freshScanState(), () => Date.now(), () => {}, () => null, after)();
     expect(passes).toBe(0);
   });
 
