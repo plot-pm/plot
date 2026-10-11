@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-gates-and-the-review-findings
 - **Issue:** #1436, #1438, #1439, #1440, #1441, #1443, #1445, #1450, #1453, #1454, #1487, #1503
@@ -23,6 +23,7 @@
 - **Started:** 2026-10-11, Jan Wloka, `bug/the-unit-runs-its-harness`
 - **Started:** 2026-10-11, Jan Wloka, `bug/the-docs-name-fleetd`
 - **Delivered:** 2026-10-11
+- **Released:** 2026-10-12, v2.26.0
 
 ## Changelog
 
