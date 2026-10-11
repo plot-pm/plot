@@ -90,36 +90,29 @@
   <key>StandardErrorPath</key>
   <string>__REPO_ROOT__/.plot/logs/fleetd.err</string>
 
-  <!-- PRIORITY AND EVICTION ELIGIBILITY ARE TWO THINGS, and `Background` bought
-       both. The daemon is idle 94% of a 60 s interval and shares a machine with
-       the workers it supervises, so it must never be what makes a worker slow —
-       that reasoning is right, and it argues for scheduling priority alone.
+  <!-- PRIORITY AND EVICTION ELIGIBILITY ARE TWO THINGS. The daemon is idle 94%
+       of a 60 s interval and shares a machine with the workers it supervises,
+       so it must not slow a worker. `Nice` carries that politeness.
 
-       Measured 2026-09-07: the job was removed SIX times in one session.
-       `runs = 1`, `last exit code = (never exited)`, `registryd.err` 0 bytes and
-       no launchd log line each time — removed by the system, not crashed, and
-       it never came back on its own. Lifetimes ran 48 s to 17 min.
+       `ProcessType` Standard with `Nice` 10 keeps the daemon off the background
+       band and out of the Background eviction. Measured 2026-10-11 at load 10
+       on 16 cores, one scan took 33 s at normal priority, 34 s under `nice`
+       10, and 94 s in the background band, which is over the fleet's 90 s scan
+       budget.
 
-       WHAT TRIGGERS IT IS NOT KNOWN, and load is not it: one incarnation died
-       at load 4.30 and another served at 30.70. Five explanations were tested
-       and disproved — load, memory pressure, `AbandonProcessGroup` (with a
-       control unit), `--once`, and `--start` racing a loaded job.
+       `Adaptive` acts as Background for this daemon: launchd promotes an
+       Adaptive job only while it serves XPC traffic, and plot-fleetd serves
+       none. The daemon and its scan child then ran at priority 4 on the
+       efficiency cores with throttled I/O, and every scan timed out.
 
-       THE EVIDENCE FOR THIS KEY IS THE COMPARISON, NOT THE TRIGGER. `node
-       --watch board-server.mjs` ran 2 days 12 hours unbroken beside it on the
-       same machine: two long-lived Node processes in one repo, and only the one
-       declaring `Background` is taken. That is the whole argument, and it does
-       not depend on knowing when.
+       `Background` makes the job evictable. Measured 2026-09-07, launchd
+       removed the job six times in one session, with `runs = 1`, no exit code,
+       an empty error log and no launchd log line each time.
 
-       THE SYSTEMD UNIT NEEDS NO SUCH CHANGE, and that is the argument rather
-       than an inconsistency: `Nice=10` and `IOSchedulingClass=idle` are
-       priority alone and evict nothing. The two platforms disagreed only in the
-       field that matters.
-
-       `Adaptive` keeps the job schedulable without the throughput class's
-       eviction; `Nice` carries the politeness the reasoning above asks for. -->
+       The systemd unit needs no such change: `Nice=10` and
+       `IOSchedulingClass=idle` set priority and evict nothing. -->
   <key>ProcessType</key>
-  <string>Adaptive</string>
+  <string>Standard</string>
   <key>Nice</key>
   <integer>10</integer>
 </dict>
