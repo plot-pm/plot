@@ -6,6 +6,7 @@ import type { Held } from '../types';
 import {
   EMPTY_TURN_GATE,
   absorbFinding,
+  isRepeat,
   paneLines,
   raisesToast,
   turnGate,
@@ -17,7 +18,6 @@ import {
 // a copy of packages/domain/src/rules/follow-channel.ts.
 
 const PANE = 'plot-follow';
-const GATE_KEY = 'turn-gate';
 const RETRY_MS = 30_000;
 const NOT_RUNNING = 'fleet channel: not running';
 
@@ -29,57 +29,72 @@ const parseList = (raw: unknown): string[] =>
     .map((name) => name.trim())
     .filter((name) => name !== '');
 
+/** The store key of one repository's gate; two repositories never share held lines. */
+const gateKey = (cwd: string): string => `turn-gate:${cwd}`;
+
 /** The persisted gate, or an empty one where the store holds anything else. */
-const readGate = async ($: EngineInterface): Promise<TurnGateState> => {
-  const stored = (await $.store.get(GATE_KEY)) as Partial<TurnGateState> | undefined;
-  return stored && typeof stored.count === 'number' && Array.isArray(stored.held)
-    ? { ...EMPTY_TURN_GATE, ...stored }
-    : EMPTY_TURN_GATE;
+const readGate = async ($: EngineInterface, cwd: string): Promise<TurnGateState> => {
+  const stored = (await $.store.get(gateKey(cwd))) as Partial<TurnGateState> | undefined;
+  if (!stored || typeof stored.count !== 'number' || !Array.isArray(stored.held)) return EMPTY_TURN_GATE;
+  // A line stored as a bare string predates slots; it keeps its text and can no longer be cleared.
+  const held = stored.held.map((h) => (typeof h === 'string' ? { slot: '', line: h } : h));
+  return { ...EMPTY_TURN_GATE, ...stored, held };
 };
 
-const arrive = async ($: EngineInterface, finding: FollowedFinding, listed: string[]) => {
+const arrive = async ($: EngineInterface, cwd: string, finding: FollowedFinding, listed: string[]) => {
+  // A finding the pane already holds, unchanged, is a republish after a fleetd restart.
+  if (isRepeat((await read($, held)).findings, finding)) return;
   await update($, held, (h) => ({ ...h, findings: [...absorbFinding(h.findings, finding)] }));
   if (raisesToast(finding.finding)) $.ui.toast(`${finding.finding} — ${finding.branch}`);
-  const decided = turnGate(await readGate($), finding, await $.clock.now(), listed);
-  await $.store.set(GATE_KEY, decided.state);
+  const decided = turnGate(await readGate($, cwd), finding, await $.clock.now(), listed);
+  await $.store.set(gateKey(cwd), decided.state);
   if (decided.start) void $.prompt.submit({ text: decided.text });
 };
 
 /** Runs the follower and relays its lines; resolves when it has ended. */
-const follow = async ($: EngineInterface, cwd: string, listed: string[]) => {
+const follow = async (
+  $: EngineInterface,
+  cwd: string,
+  listed: string[],
+  arrival: typeof arrive,
+) => {
   const child = $.process.spawn({ argv: ['node', `${$.plugin.root}/bin/follow.mjs`, cwd] });
   const lines = child[Symbol.asyncIterator]();
   let buffer = '';
   let code: number | null = null;
-  for (;;) {
-    const step = await lines.next();
-    if (step.done) {
-      code = step.value.code;
-      break;
-    }
-    if (step.value.stream !== 'stdout') continue;
-    buffer += step.value.text;
-    let at = buffer.indexOf('\n');
-    let ended = false;
-    while (at !== -1) {
-      const line = buffer.slice(0, at);
-      buffer = buffer.slice(at + 1);
-      at = buffer.indexOf('\n');
-      const message = JSON.parse(line);
-      if (message.type === 'welcome') {
-        await update($, held, () => ({ findings: message.current, heard: true }));
-        $.ui.status(undefined);
-      } else if (message.type === 'finding') {
-        await arrive($, message.finding, listed);
-      } else if (message.type === 'served' || message.type === 'refused') {
-        ended = true;
+  let exhausted = false;
+  try {
+    for (;;) {
+      const step = await lines.next();
+      if (step.done) {
+        exhausted = true;
+        code = step.value.code;
+        break;
       }
+      if (step.value.stream !== 'stdout') continue;
+      buffer += step.value.text;
+      let at = buffer.indexOf('\n');
+      let ended = false;
+      while (at !== -1) {
+        const line = buffer.slice(0, at);
+        buffer = buffer.slice(at + 1);
+        at = buffer.indexOf('\n');
+        const message = JSON.parse(line);
+        if (message.type === 'welcome') {
+          await update($, held, () => ({ findings: message.current, heard: true, stale: false, cwd }));
+          $.ui.status(undefined);
+        } else if (message.type === 'finding') {
+          await arrival($, cwd, message.finding, listed);
+        } else if (message.type === 'served' || message.type === 'refused') {
+          ended = true;
+        }
+      }
+      // A served subscription is over, whatever the follower does next.
+      if (ended) break;
     }
-    // A served subscription is over, whatever the follower does next.
-    if (ended) {
-      await lines.return?.(undefined as never);
-      break;
-    }
+  } finally {
+    // Whatever ended the loop, a follower still running is closed here, once.
+    if (!exhausted) await lines.return?.(undefined as never);
   }
   // The exit code tells a quiet channel from a dead follower; silence does not.
   await update($, held, (h) => ({ ...h, heard: false }));
@@ -88,6 +103,38 @@ const follow = async ($: EngineInterface, cwd: string, listed: string[]) => {
 
 export const register: Register = (on, options) => {
   const listed = parseList(options.turnOn);
+  // State of this module instance: a reload builds a new one and the old loop is gone.
+  let isRunning = false;
+  let isTimed = false;
+  let queue: Promise<unknown> = Promise.resolve();
+
+  // One arrival at a time: a read-modify-write of the gate must not interleave
+  // with the next finding's, or the later write drops the earlier held line.
+  const inTurn: typeof arrive = (...args) => {
+    const run = queue.then(() => arrive(...args));
+    queue = run.catch(() => undefined);
+    return run;
+  };
+
+  const connect = async ($: EngineInterface, cwd: string) => {
+    if (isRunning) return;
+    isRunning = true;
+    try {
+      await follow($, cwd, listed, inTurn);
+    } catch {
+      $.ui.status(NOT_RUNNING);
+    } finally {
+      isRunning = false;
+    }
+  };
+
+  const ensureFollowing = ($: EngineInterface, cwd: string) => {
+    void connect($, cwd);
+    if (!isTimed) {
+      isTimed = true;
+      $.clock.every(RETRY_MS, () => void connect($, cwd));
+    }
+  };
 
   on('session.start', async ($, e, next) => {
     const started = await next(e);
@@ -97,20 +144,8 @@ export const register: Register = (on, options) => {
     // channel that is not there must not delay it.
     void (async () => {
       $.ui.status(NOT_RUNNING);
-      let isRunning = false;
-      const connect = async () => {
-        if (isRunning) return;
-        isRunning = true;
-        try {
-          await follow($, e.cwd, listed);
-        } catch {
-          $.ui.status(NOT_RUNNING);
-        } finally {
-          isRunning = false;
-        }
-      };
-      void connect();
-      $.clock.every(RETRY_MS, () => void connect());
+      await update($, held, (h) => ({ ...h, cwd: e.cwd }));
+      ensureFollowing($, e.cwd);
     })();
 
     return started;
@@ -118,11 +153,18 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e);
-    const { findings, heard } = await read($, held);
+    const { findings, heard, stale, cwd } = await read($, held);
+
+    // A reload loses the loop and keeps the atom: the first render of the new
+    // module finds findings it heard before and no connection behind them.
+    if (!isRunning && !isTimed && cwd !== undefined) {
+      await update($, held, (h) => ({ ...h, stale: h.heard || h.findings.length > 0 }));
+      ensureFollowing($, cwd);
+    }
 
     return (
       <Box flexDirection="column">
-        {paneLines(findings, heard).map((line) => (
+        {paneLines(findings, heard, stale).map((line) => (
           <Text>{line}</Text>
         ))}
       </Box>

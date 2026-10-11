@@ -37,7 +37,15 @@ export interface TurnGateState {
   /** Turns started on `day`. */
   count: number;
   /** Lines of listed findings that arrived while no turn could start. */
-  held: readonly string[];
+  held: readonly HeldLine[];
+}
+
+/** One line waiting for the next turn, and the slot of the finding it came from. */
+export interface HeldLine {
+  /** The finding's monitor and branch; `''` for a line stored before slots were kept. */
+  slot: string;
+  /** The line the turn's text carries. */
+  line: string;
 }
 
 /** The state before any finding arrived. */
@@ -58,6 +66,10 @@ export interface TurnGateResult {
   state: TurnGateState;
 }
 
+/** The slot a finding occupies: one reading per monitor and branch. */
+const slotOf = (f: Pick<FollowedFinding, 'monitor' | 'branch'>): string =>
+  `${f.monitor}\u0000${f.branch}`;
+
 /** The oldest held lines are dropped past this many, so a capped day cannot grow the store. */
 const HELD_LIMIT = 50;
 
@@ -69,7 +81,8 @@ const HELD_LIMIT = 50;
  * {@link TURN_GAP_MS} ago and fewer than {@link TURNS_PER_DAY} turns started on
  * the current UTC day. Otherwise its line joins `held`, and the next turn's
  * text carries every held line followed by the arriving one. A line already
- * held is not added twice.
+ * held is not added twice. A `clear` starts no turn and removes the held lines
+ * of its slot, since the channel has retracted the finding they report.
  *
  * @param state the persisted state
  * @param finding the arriving finding
@@ -83,12 +96,18 @@ export const turnGate = (
   now: number,
   listed: readonly string[],
 ): TurnGateResult => {
+  if (finding.finding === 'clear') {
+    const slot = slotOf(finding);
+    return { start: false, text: '', state: { ...state, held: state.held.filter((h) => h.slot !== slot) } };
+  }
   if (!listed.includes(finding.finding)) return { start: false, text: '', state };
 
   const day = new Date(now).toISOString().slice(0, 10);
   const count = state.day === day ? state.count : 0;
   const line = `${finding.finding} — ${finding.branch}: ${finding.evidence}`;
-  const held = state.held.includes(line) ? state.held : [...state.held, line];
+  const held = state.held.some((h) => h.line === line)
+    ? state.held
+    : [...state.held, { slot: slotOf(finding), line }];
   const waited = state.lastStartedAt === null ? Infinity : now - state.lastStartedAt;
 
   if (waited < TURN_GAP_MS || count >= TURNS_PER_DAY) {
@@ -96,17 +115,13 @@ export const turnGate = (
   }
   return {
     start: true,
-    text: held.join('\n'),
+    text: held.map((h) => h.line).join('\n'),
     state: { lastStartedAt: now, day, count: count + 1, held: [] },
   };
 };
 
 /** Whether a finding of this name raises a toast. */
 export const raisesToast = (name: string): boolean => TOAST_ON.includes(name);
-
-/** The slot a finding occupies: one reading per monitor and branch. */
-const slotOf = (f: Pick<FollowedFinding, 'monitor' | 'branch'>): string =>
-  `${f.monitor}\u0000${f.branch}`;
 
 /**
  * The findings held after one finding arrives.
@@ -123,16 +138,40 @@ export const absorbFinding = (
 };
 
 /**
+ * Whether the held findings already carry this finding: the same slot with the
+ * same `since` and `evidence`. A fleetd restart republishes every current
+ * finding, and an unchanged one starts nothing.
+ */
+export const isRepeat = (
+  current: readonly FollowedFinding[],
+  arriving: FollowedFinding,
+): boolean =>
+  current.some(
+    (f) =>
+      slotOf(f) === slotOf(arriving) &&
+      f.finding === arriving.finding &&
+      f.since === arriving.since &&
+      f.evidence === arriving.evidence,
+  );
+
+/**
  * The pane's text lines.
  *
  * @param current the findings held
  * @param heard whether a `welcome` has arrived on this connection; without one
  *   the pane says it has heard nothing and never reads as an all-clear
+ * @param stale whether the findings were heard before a reload and the channel
+ *   has not answered since; the pane shows them under a warning line
  */
-export const paneLines = (current: readonly FollowedFinding[], heard: boolean): string[] => {
-  if (!heard) return ['fleet channel: nothing heard yet'];
-  if (current.length === 0) return ['fleet channel: no current findings'];
-  return [...current]
+export const paneLines = (
+  current: readonly FollowedFinding[],
+  heard: boolean,
+  stale = false,
+): string[] => {
+  if (!heard && !stale) return ['fleet channel: nothing heard yet'];
+  if (current.length === 0 && !stale) return ['fleet channel: no current findings'];
+  const lines = [...current]
     .sort((a, b) => a.since.localeCompare(b.since))
     .map((f) => `${f.finding} — ${f.branch} (${f.monitor}): ${f.evidence}`);
+  return stale ? ['fleet channel: reconnecting, findings may be out of date', ...lines] : lines;
 };

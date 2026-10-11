@@ -5,6 +5,7 @@ import {
   TURNS_PER_DAY,
   TURN_GAP_MS,
   absorbFinding,
+  isRepeat,
   paneLines,
   raisesToast,
   turnGate,
@@ -52,7 +53,7 @@ describe('turnGate', () => {
     const third = turnGate(second.state, finding({ branch: 'feature/three' }), T0 + 6 * MIN, LISTED);
 
     expect(second.start).toBe(false);
-    expect(second.state.held).toEqual(['checks failing — feature/two: pull request #1']);
+    expect(second.state.held.map((h) => h.line)).toEqual(['checks failing — feature/two: pull request #1']);
     expect(third.start).toBe(true);
     expect(third.text).toBe(
       [
@@ -88,7 +89,7 @@ describe('turnGate', () => {
     }
 
     expect(started).toBe(TURNS_PER_DAY);
-    expect(state.held).toEqual(['checks failing — b24: pull request #1']);
+    expect(state.held.map((h) => h.line)).toEqual(['checks failing — b24: pull request #1']);
 
     const nextDay = Date.UTC(2026, 9, 11, 9, 0, 0);
     const reset = turnGate(state, finding({ branch: 'next' }), nextDay, LISTED);
@@ -104,6 +105,18 @@ describe('turnGate', () => {
     expect(turnGate(reloaded, finding({ branch: 'b' }), T0 + MIN, LISTED).start).toBe(false);
   });
 
+  it('drops the held line of a slot when a clear arrives for it, and keeps the others', () => {
+    const gated: TurnGateState = { ...EMPTY_TURN_GATE, lastStartedAt: T0, day: '2026-10-10', count: 1 };
+    const one = turnGate(gated, finding({ branch: 'one' }), T0 + MIN, LISTED);
+    const two = turnGate(one.state, finding({ branch: 'two' }), T0 + MIN, LISTED);
+    expect(two.state.held).toHaveLength(2);
+
+    const cleared = turnGate(two.state, finding({ branch: 'one', finding: 'clear' }), T0 + 2 * MIN, LISTED);
+
+    expect(cleared.start).toBe(false);
+    expect(cleared.state.held.map((h) => h.line)).toEqual(['checks failing — two: pull request #1']);
+  });
+
   it('keeps the held lines bounded', () => {
     let state: TurnGateState = { ...EMPTY_TURN_GATE, lastStartedAt: T0, day: '2026-10-10', count: TURNS_PER_DAY };
     for (let i = 0; i < 80; i += 1) {
@@ -111,7 +124,7 @@ describe('turnGate', () => {
     }
 
     expect(state.held.length).toBeLessThanOrEqual(50);
-    expect(state.held.at(-1)).toContain('b79');
+    expect(state.held.at(-1)?.line).toContain('b79');
   });
 });
 
@@ -151,7 +164,27 @@ describe('absorbFinding', () => {
   });
 });
 
+describe('isRepeat', () => {
+  it('is true for the same slot with the same since and evidence', () => {
+    expect(isRepeat([finding()], finding())).toBe(true);
+  });
+
+  it('is false for a changed evidence, a changed since, another slot or nothing held', () => {
+    expect(isRepeat([finding()], finding({ evidence: 'pull request #2' }))).toBe(false);
+    expect(isRepeat([finding()], finding({ since: '2026-10-10T10:00:00Z' }))).toBe(false);
+    expect(isRepeat([finding()], finding({ branch: 'other' }))).toBe(false);
+    expect(isRepeat([], finding())).toBe(false);
+  });
+});
+
 describe('paneLines', () => {
+  it('marks findings heard before a reload as out of date rather than as nothing heard', () => {
+    const lines = paneLines([finding()], false, true);
+
+    expect(lines[0]).toBe('fleet channel: reconnecting, findings may be out of date');
+    expect(lines[1]).toContain('feature/one');
+  });
+
   it('says it has heard nothing before a welcome, never an all-clear', () => {
     expect(paneLines([], false)).toEqual(['fleet channel: nothing heard yet']);
   });
