@@ -1114,6 +1114,44 @@ test('dispatch: --status distinguishes a live worker from a dead one', () => {
   fs.rmSync(wt, { recursive: true, force: true });
 });
 
+test('dispatch: a desk whose loop waits free reads running to --status and --restart', () => {
+  // The disagreement-shaped fixture: a live wrapper pid with no agent beneath
+  // it, no PR, no claim marker, a clean tree. Without the free-wait record
+  // that desk reads `finished`; with it, `running`.
+  const { tmp, repo: r } = repoWithPlan('- **Phase:** Approved', 'freewait');
+  const wt = desk(r, 'feature/g', path.join(r, '.worktrees', 'feature-g'));
+  const loop = spawn('sleep', ['60'], { stdio: 'ignore' });
+  try {
+    fs.writeFileSync(path.join(wt, '.plot-worker.pid'), `${loop.pid}\n`);
+    fs.writeFileSync(path.join(wt, '.plot-worker.wrapper.pid'), `${loop.pid}\n`);
+    // A fresh loop is inside the agent grace window and reads as unaskable; zero
+    // it so the absent agent is a definite absence.
+    const env = { ...process.env, PLOT_AGENT_GRACE_SECONDS: '0' };
+    const status = () => execFileSync('bash', [dispatch, '--status', 'g'],
+      { encoding: 'utf8', cwd: r, timeout: 20_000, env });
+
+    assert.match(status(), /finished \d/, 'with no free-wait record the loop-without-agent desk is finished');
+
+    fs.writeFileSync(path.join(wt, '.plot-worker.freewait'), `${loop.pid}\n`);
+    const out = status();
+    assert.match(out, new RegExp(`running ${loop.pid}`));
+    assert.doesNotMatch(out, /finished \d/);
+
+    const start = spawnSync('bash', [dispatch, '--start', '1'],
+      { encoding: 'utf8', cwd: r, timeout: 30_000, env });
+    assert.match(start.stdout, /running=1/, '--start counts the same agent --status reads running');
+
+    const restart = spawnSync('bash', [dispatch, '--offline', '--restart', 'feature/g'],
+      { encoding: 'utf8', cwd: r, timeout: 30_000, env });
+    assert.notEqual(restart.status, 0, '--restart must still refuse an occupied desk');
+    assert.match(restart.stderr, /free agent is waiting on feature\/g/);
+  } finally {
+    loop.kill();
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(wt, { recursive: true, force: true });
+  }
+});
+
 test('dispatch: --stop refuses without a branch and never kills everything', () => {
   // A --stop that could take no argument and mean "all" is one fat-finger away
   // from killing a whole fleet.
