@@ -2006,14 +2006,19 @@ function holdOldLabelOnly(box, guardBin, oldWorkdir, { unloads = false } = {}) {
  *
  * @param args - the verb and its flags; `--wait 1` bounds an unload that never lands
  * @param opts.unloads - whether a bootout of the old label takes effect
+ * @param opts.rule - `missing` moves the old-label rule's bundle away; `silent`
+ *   replaces it with one that exits 3 and prints nothing
  */
-function underNewDefault(label, oldWorkdir, args = ['--start'], { unloads = false } = {}) {
+function underNewDefault(label, oldWorkdir, args = ['--start'], { unloads = false, rule } = {}) {
   const s = sandbox(label);
+  const bundle = path.join(path.dirname(s.ctl), 'board', 'plot-old-label.mjs');
+  if (rule === 'missing') fs.renameSync(bundle, path.join(s.box, 'moved-plot-old-label.mjs'));
+  if (rule === 'silent') fs.writeFileSync(bundle, 'process.exit(3);\n');
   const calls = holdOldLabelOnly(s.box, s.guardBin, typeof oldWorkdir === 'function' ? oldWorkdir(s) : oldWorkdir, { unloads });
   const home = fakeHome(s.box, { unit: true, label: 'com.plot-pm.registryd' });
   const r = run(s.ctl, args, s.root, s.guardBin, { HOME: home });
   const oldPlist = path.join(home, 'Library', 'LaunchAgents', 'com.plot-pm.registryd.plist');
-  return { ...s, r, calls: launchctlCalls(calls), oldPlist };
+  return { ...s, r, calls: launchctlCalls(calls), oldPlist, bundle };
 }
 const startUnderNewDefault = (label, oldWorkdir, opts) => underNewDefault(label, oldWorkdir, ['--start', '--wait', '1'], opts);
 const OLD_BOOTOUT = `bootout gui/${process.getuid()}/com.plot-pm.registryd`;
@@ -2097,6 +2102,36 @@ test('old label: --stop never touches an old-label supervisor of another checkou
   assert.equal(r.status, 0, r.out);
   assert.deepEqual(calls, []);
   assert.ok(fs.existsSync(oldPlist));
+});
+
+// A RULE THAT CANNOT BE ASKED NAMES ITS BUNDLE, never the unreadable checkout:
+// the old-label unit below names this checkout as its working directory, so a
+// refusal saying *cannot be determined* would name a condition that holds.
+test('old label: a missing rule bundle refuses --start as a broken installation and names the bundle', () => {
+  const { r, calls, oldPlist, bundle } = startUnderNewDefault('old-rule-missing', (s) => s.root, { unloads: true, rule: 'missing' });
+  assert.equal(r.status, 1, r.out);
+  assert.ok(r.out.includes(`plot-fleetctl: no old-label rule at ${bundle}\n`), r.out);
+  assert.match(r.out, /broken or partial installation of Plot/, r.out);
+  assert.match(r.out, /run 'pnpm build:board'/, r.out);
+  assert.doesNotMatch(r.out, /cannot be determined/, r.out);
+  assert.deepEqual(calls, [], 'nothing was booted out or bootstrapped');
+  assert.ok(fs.existsSync(oldPlist));
+});
+
+test('old label: a rule bundle that gives no answer refuses --stop and names the bundle and node', () => {
+  const { r, calls, oldPlist, bundle } = underNewDefault('old-rule-silent', (s) => s.root, ['--stop', '--wait', '1'], { unloads: true, rule: 'silent' });
+  assert.equal(r.status, 1, r.out);
+  assert.ok(r.out.includes(`plot-fleetctl: the old-label rule at ${bundle} gave no answer\n  node on PATH: `), r.out);
+  assert.match(r.out, /broken or partial installation of Plot/, r.out);
+  assert.doesNotMatch(r.out, /cannot be determined/, r.out);
+  assert.deepEqual(calls, []);
+  assert.ok(fs.existsSync(oldPlist));
+});
+
+test('old label: --status with a missing rule bundle names the bundle and does not read the old label as this fleet', () => {
+  const { r, bundle } = underNewDefault('old-rule-status', (s) => s.root, ['--status'], { rule: 'missing' });
+  assert.ok(r.out.includes(`plot-fleetctl: no old-label rule at ${bundle}\n`), r.out);
+  assert.doesNotMatch(r.out, /under the old label/, r.out);
 });
 
 test('migration: an old-label unit serving another checkout is never touched', () => {
@@ -2761,19 +2796,25 @@ test('processes: the arm follows uname, not platform(), so a host with no init s
 });
 
 // THE OLD-LABEL RULE, ASKED THROUGH ITS BUNDLE. The three readings
-// `supervisor_checkout` prints and the one word each answers; an unreadable
-// line exits 2, which `retire_old_label` reads as `refuse`.
-const askOldLabel = (line) => {
+// `supervisor_checkout` prints and the one word each answers per verb; an
+// unreadable line or verb exits 2, which `old_label_action` refuses on.
+const askOldLabel = (line, verb) => {
   const bundle = path.join(scripts, 'board', 'plot-old-label.mjs');
-  return spawnSync(process.execPath, [bundle], { input: line, encoding: 'utf8' });
+  return spawnSync(process.execPath, [bundle, ...(verb ? [verb] : [])], { input: line, encoding: 'utf8' });
 };
-test('old-label bundle: this checkout unloads, another leaves, unknown refuses', () => {
-  assert.equal(askOldLabel('this /repos/a\n').stdout, 'unload-and-remove\n');
-  assert.equal(askOldLabel('another /repos/b\n').stdout, 'leave\n');
-  assert.equal(askOldLabel('unknown\n').stdout, 'refuse\n');
+test('old-label bundle: retire unloads this checkout, leaves another, refuses unknown', () => {
+  assert.equal(askOldLabel('this /repos/a\n', 'retire').stdout, 'unload-and-remove\n');
+  assert.equal(askOldLabel('another /repos/b\n', 'retire').stdout, 'leave\n');
+  assert.equal(askOldLabel('unknown\n', 'retire').stdout, 'refuse\n');
 });
-test('old-label bundle: an unreadable line exits 2 and prints no action', () => {
-  const r = askOldLabel('somewhere /repos/c\n');
-  assert.equal(r.status, 2);
-  assert.equal(r.stdout, '');
+test('old-label bundle: status notes this checkout and leaves another and unknown', () => {
+  assert.equal(askOldLabel('this /repos/a\n', 'status').stdout, 'note\n');
+  assert.equal(askOldLabel('another /repos/b\n', 'status').stdout, 'leave\n');
+  assert.equal(askOldLabel('unknown\n', 'status').stdout, 'leave\n');
+});
+test('old-label bundle: an unreadable line or verb exits 2 and prints no action', () => {
+  for (const r of [askOldLabel('somewhere /repos/c\n', 'retire'), askOldLabel('this /repos/a\n'), askOldLabel('this /repos/a\n', 'stop')]) {
+    assert.equal(r.status, 2);
+    assert.equal(r.stdout, '');
+  }
 });

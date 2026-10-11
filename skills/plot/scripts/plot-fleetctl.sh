@@ -106,8 +106,7 @@ UNIT_DIR="$script_dir/../units"
 # `units/README.md` documents for a second repository.
 unit_name() {
   case "$LABEL" in
-    com.plot-pm.fleetd) printf '%s' plot-fleetd; return ;;
-    com.plot-pm.registryd) printf '%s' plot-registryd; return ;;
+    com.plot-pm.fleetd|com.plot-pm.registryd) printf 'plot-%s' "${LABEL#com.plot-pm.}"; return ;;
     com.plot-pm.fleetd.*) prefix=plot-fleetd rest=${LABEL#com.plot-pm.fleetd.} ;;
     com.plot-pm.registryd.*) prefix=plot-registryd rest=${LABEL#com.plot-pm.registryd.} ;;
     *) prefix=plot-fleetd rest=$LABEL ;;
@@ -589,15 +588,27 @@ unload_supervisor() {
   poll_while supervisor_loaded
 }
 
+# A BUNDLE THAT CANNOT BE ASKED IS A BROKEN INSTALLATION. Prints the refusal
+# that names the condition in $1, then the optional lines in $2 (`\n` escapes
+# read), and returns 1.
+broken_install() {
+  printf "plot-fleetctl: %s\n%b  Every bundle is tracked in git, so this is a broken or partial installation of Plot.\n  Reinstall or update the Plot plugin. In a development checkout of Plot, run 'pnpm build:board'.\n" "$1" "${2:-}" >&2
+  return 1
+}
+
 # THE OLD DEFAULT LABEL. `com.plot-pm.registryd` was the default before the
 # rename to `com.plot-pm.fleetd`, and a unit installed under it keeps running
-# under it. Under the new default only, prints `supervisor_checkout`'s answer
-# for a job loaded under the old label, or nothing when none is loaded. A
-# custom label never asks.
-old_label_checkout() {
-  [ "$LABEL" = com.plot-pm.fleetd ] || return 0
-  local LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd
-  ! supervisor_loaded || supervisor_checkout
+# under it. The caller sets LABEL and UNIT_NAME to the old label's, and only
+# under the new default: a custom label never asks. Prints what the old-label
+# rule answers verb $1 (`retire` or `status`) for the loaded job, or nothing
+# when none is loaded. Returns 1 after naming the bundle when the rule cannot
+# be asked.
+old_label_action() {
+  local rule="$script_dir/board/plot-old-label.mjs"
+  supervisor_loaded || return 0
+  supervisor_checkout | node "$rule" "$1" 2>/dev/null && return 0
+  [ -f "$rule" ] || { broken_install "no old-label rule at $rule"; return 1; }
+  broken_install "the old-label rule at $rule gave no answer" "  node on PATH: $(command -v node || echo none)\n"
 }
 
 # Retires a supervisor loaded under the old default label, for `--start`'s
@@ -606,15 +617,14 @@ old_label_checkout() {
 # are removed only once the unload is confirmed. One serving another checkout is
 # that checkout's and is left alone. A dry run names the step and changes
 # nothing. Returns 1 after printing why when the old label is still loaded at
-# the bound, or when which checkout it serves cannot be read.
+# the bound, when which checkout it serves cannot be read, or when the old-label
+# rule cannot be asked.
 retire_old_label() {
-  local served action=refuse
-  served=$(old_label_checkout)
-  [ -n "$served" ] || return 0
-  action=$(printf '%s\n' "$served" | node "$script_dir/board/plot-old-label.mjs" 2>/dev/null) || action=refuse
-  local LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd
-  [ "$action" != leave ] || return 0
-  [ "$action" = unload-and-remove ] || { printf "plot-fleetctl: '%s' (the old default label) is loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it is left loaded and nothing runs beside it.\n  Read it: %s\n" "$LABEL" "$(platform)" "$(read_cmd)" >&2; return 1; }
+  [ "$LABEL" = com.plot-pm.fleetd ] || return 0
+  local action LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd
+  action=$(old_label_action retire) || return 1
+  [ "$action" != refuse ] || { printf "plot-fleetctl: '%s' (the old default label) is loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it is left loaded and nothing runs beside it.\n  Read it: %s\n" "$LABEL" "$(platform)" "$(read_cmd)" >&2; return 1; }
+  [ "$action" = unload-and-remove ] || return 0
   [ "$dry_run" = 0 ] || { echo "would migrate the old label '$LABEL' — it serves this repository: unload it, then remove its unit file"; return 0; }
   echo "plot-fleetctl: unloading the old label '$LABEL' — it serves this repository"
   unload_supervisor || { printf "plot-fleetctl: '%s' did NOT unload within %ss (the unload exited %s) — it is still loaded\n  Its unit file is kept, so two supervisors would serve one estate. Read it: %s\n" "$LABEL" "$wait_bound" "$unload_rc" "$(read_cmd)" >&2; return 1; }
@@ -791,8 +801,8 @@ if [ "$mode" = "status" ]; then
     supervisor_loaded && sup_loaded=0
     # A JOB STILL UNDER THE OLD DEFAULT LABEL IS THIS FLEET'S SUPERVISOR when it
     # serves this checkout, so the reading below is taken from it and says so.
-    [ "$sup_loaded" = 0 ] || case "$(old_label_checkout)" in
-      this\ *) LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd sup_loaded=0 old_note="  under the old label; /plot-fleet --start migrates it" ;;
+    [ "$sup_loaded" = 0 ] || [ "$LABEL" != com.plot-pm.fleetd ] || case "$(LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd old_label_action status)" in
+      note) LABEL=com.plot-pm.registryd UNIT_NAME=plot-registryd sup_loaded=0 old_note="  under the old label; /plot-fleet --start migrates it" ;;
     esac
     [ "$sup_loaded" = 0 ] && sup_pid=$(supervisor_pid)
   fi
@@ -980,10 +990,7 @@ fi
 # --once: the gate
 # ---------------------------------------------------------------------------
 if [ "$mode" = "once" ]; then
-  [ -f "$fleetd" ] || {
-    printf "plot-fleetctl: no supervisor artifact at %s\n  Every bundle is tracked in git, so this is a broken or partial installation of Plot.\n  Reinstall or update the Plot plugin. In a development checkout of Plot, run 'pnpm build:board'.\n" "$fleetd" >&2
-    exit 1
-  }
+  [ -f "$fleetd" ] || { broken_install "no supervisor artifact at $fleetd"; exit 1; }
   exec node "$fleetd" --once
 fi
 
@@ -992,10 +999,7 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$mode" = "start" ]; then
   # REFUSAL 1 — nothing to start.
-  [ -f "$fleetd" ] || {
-    printf "plot-fleetctl: no supervisor artifact at %s\n  The unit would name a file that does not exist.\n  Every bundle is tracked in git, so this is a broken or partial installation of Plot.\n  Reinstall or update the Plot plugin. In a development checkout of Plot, run 'pnpm build:board'.\n" "$fleetd" >&2
-    exit 1
-  }
+  [ -f "$fleetd" ] || { broken_install "no supervisor artifact at $fleetd" '  The unit would name a file that does not exist.\n'; exit 1; }
 
   # REFUSAL 2 — the wrong node. The unit bakes this path in permanently.
   node_bin=$(command -v node) || {
