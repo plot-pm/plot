@@ -1460,12 +1460,12 @@ export function PlanActions({
   // branch menu and the card came to disagree in the first place.
   //
   // Approve reads `controls.approve` (a `draft` or `design` plan) and
-  // Commission design reads `controls.commission` (a `draft` plan only, the one
+  // Commission design reads `controls.needsDesign` (a `draft` plan only, the one
   // state `server/commission.ts` accepts). Each then asks its OWN binding
   // whether the server will act, below.
   const isDraftPlan = Boolean(card && isDraft(card));
   const canApprove = Boolean(isDraftPlan && approve);
-  const canCommission = Boolean(card?.controls.commission && commission);
+  const canCommission = Boolean(card?.controls.needsDesign && commission);
   // Needs design reads `controls.needsDesign` (a `draft` plan only) and asks the
   // Approve binding whether the server will act: both are a local, same-origin act.
   const canNeedsDesign = Boolean(card?.controls.needsDesign && approve);

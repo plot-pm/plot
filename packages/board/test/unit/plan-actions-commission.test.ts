@@ -5,7 +5,7 @@ import { PlanActions } from '../../src/app/lib/agent-rows/menus.js';
 import { CardSchema } from '../../src/contract/schema.js';
 import { controlsFor } from '../fixtures/card-controls.js';
 
-// The plan row's menu offers Commission design where `controls.commission`
+// The plan row's menu offers Commission design where `controls.needsDesign`
 // holds, which `cardControls` answers on a `draft` plan only: the commission
 // endpoint refuses every other state. Approve is refused in both renders, so
 // the menu opens only where Commission is offered and will act.

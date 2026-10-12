@@ -87,7 +87,7 @@ function approvedCard(slug: string, file: string, eligible = 1): Card {
 /** A Draft card — Implement/Dispatch must NOT appear. */
 function draftCard(slug: string, file: string): Card {
   return {
-    slug, title: slug, type: 'feature', phase: 'Discovery', path: file, prs: [], controls: { approve: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false },
+    slug, title: slug, type: 'feature', phase: 'Discovery', path: file, prs: [], controls: { approve: true, needsDesign: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false },
     sliceSummary: { waves: 2, branches: 2, eligible: 1, deferred: 0 },
   } as Card;
 }
