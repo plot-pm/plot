@@ -33,8 +33,7 @@ See [plot/README.md](../plot/README.md) for the full development history and [pl
 - **The `Evidence: executed|read` gate checks the claim, not the command.** Step 5 requires each juror to commit to having executed or only read, and `plot-panel.mjs check` refuses a verdict that omits the line. It cannot verify that the command a juror names actually ran, or that its output matches — a juror writing `executed` having run nothing defeats it, and only a person reading the verdict sees that. Validating the command is a change to `readJuror`, which is deliberately vocabulary-agnostic; it would need its own plan.
 - **A delivery with no panel record is unquestioned, not clean.** Step 5 falls back to the per-PR refutation when `skills/plot-panel/` is absent, and reports that it did. Nothing prevents a reader from treating the fallback as equivalent.
 - Relies on `../plot/scripts/plot-impl-status.sh` via relative path.
-- **The daemon verify pass has no board row yet.** `verificationRow` (domain) computes the Waiting on you row for a stopped plan or a halted fleet, and the pass persists refusals in `.plot/state/auto-verify-in-flight.json`; the board payload and render do not read either.
-- **A hand-run success does not lift a fleet halt.** The halt lifts through `lastSuccessAt`, which only the daemon pass writes.
+- **The board renders no verification row yet.** The verify pass writes its refusals and the `verificationRow` rows to `.plot/state/auto-verify-in-flight.json`. `/plot-fleet --status` prints them through `plot-verify.mjs status`, and `/api/fleet` carries them in its `verification` field, but *Waiting on you* does not render a row from that field.
 
 ## Planned Improvements
 

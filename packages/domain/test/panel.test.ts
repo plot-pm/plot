@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   PANEL_DIRECTORY,
+  archiveRound,
   commitmentLine,
+  isArchivedRound,
   jurorPath,
   moderationPath,
   panelDir,
@@ -279,5 +281,31 @@ describe('a list of one reads exactly as the bare commitment', () => {
 
   it.each(files)('gives the same reading for %j', (text) => {
     expect(readJuror('x', text, [draft])).toEqual(readJuror('x', text, draft));
+  });
+});
+
+describe('a second round with one prefix moves the first round aside', () => {
+  it('moves every current file of the prefix to the next round number', () => {
+    expect(archiveRound(['verify-a.md', 'verify-panel.md', 'panel.md', 'a.md', 'verify-notes.txt'], 'verify-')).toEqual([
+      { from: 'verify-a.md', to: 'verify-1-a.md' },
+      { from: 'verify-panel.md', to: 'verify-1-panel.md' },
+    ]);
+  });
+
+  it('numbers after the highest archived round and leaves archived files in place', () => {
+    expect(archiveRound(['verify-1-a.md', 'verify-3-a.md', 'verify-a.md'], 'verify-')).toEqual([
+      { from: 'verify-a.md', to: 'verify-4-a.md' },
+    ]);
+    expect(archiveRound(['verify-1-a.md'], 'verify-')).toEqual([]);
+  });
+
+  it('archives nothing for an empty prefix', () => {
+    expect(archiveRound(['a.md', 'panel.md'], '')).toEqual([]);
+  });
+
+  it('tells an archived file from a current one', () => {
+    expect(isArchivedRound('verify-2-a.md', 'verify-')).toBe(true);
+    expect(isArchivedRound('verify-a.md', 'verify-')).toBe(false);
+    expect(isArchivedRound('deliver-2-a.md', 'verify-')).toBe(false);
   });
 });

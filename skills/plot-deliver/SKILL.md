@@ -563,7 +563,7 @@ Resolve the slug to its plan file as step 2 does, then read the file's phase wit
 
 - `Approved`: stop. "Not delivered yet. Run `/plot-deliver <slug>`."
 - `Draft` or earlier: stop. "Not approved. Run `/plot-reject <slug>` first if it was delivered in error."
-- `Released`: stop. A released plan is no longer verified here.
+- `Released`: continue for a person's run. Under `PLOT_UNATTENDED=1`, stop: the fleet verifies Delivered plans only.
 - `Delivered`: continue.
 
 ### V2. Refuse a tracer plan
@@ -580,7 +580,7 @@ A plan with `Tracer: yes` is never verified (decisions D5 and D14); `verificatio
 node skills/plot/scripts/board/plot-verify.mjs prepare <slug> [--at <sha>]
 ```
 
-`prepare` builds `tools/` and `pin/` under `.plot/state/verify/<slug>/`, installs dependencies in `pin/`, and prints a `summary:` line with the judged commit. Exit 1 is a refusal that names its reason (`fetch-failed`, `tools-unavailable`, `pin-not-found`, `install-failed`); stop and report it. From here every command comes from the `tools/` tree. `--at <sha>` changes the judged commit, and the record's "judged at" field names it.
+`prepare` builds `tools/` and `pin/` under `.plot/state/verify/<slug>/`, installs dependencies in `pin/`, and prints a `summary:` line with the judged commit. Exit 1 is a refusal that names its reason (`fetch-failed`, `tools-unavailable`, `pin-not-found`, `install-failed`); stop and report it. `prepare` moves the juror files of an earlier run, `.plot/panels/<slug>/verify-*.md`, to `verify-<n>-*.md`, and `fold` reads no file named that way, so the record holds only this run's judgement. From here every command comes from the `tools/` tree. `--at <sha>` changes the judged commit, and the record's "judged at" field names it.
 
 ### V4. Read the claims
 
@@ -592,13 +592,13 @@ The command prints one numbered line per claim. N is the number of lines. A plan
 
 ### V5. Run the panel
 
-Call [`/plot-panel`](../plot-panel/SKILL.md) with the plan as Subject, the step 5 lenses, the step 5 rubric, and **Prefix `verify-`**. The Commitment is a list of labels:
+Read the tools tree's `/plot-panel` text, `<repository root>/.plot/state/verify/<slug>/tools/skills/plot-panel/SKILL.md`, by its absolute path, and run the panel it describes. Do not use an installed `/plot-panel`. Give it the plan as Subject, the step 5 lenses, the step 5 rubric, and **Prefix `verify-`**. The Commitment is a list of labels:
 
 ```
 Position, Evidence, Claim-1, Claim-2, …, Claim-N
 ```
 
-`Position` takes `supported|refuted`, `Evidence` takes `executed|read`, and each `Claim-<n>` takes `supported|refuted`. Each juror commits to every label in its file, runs from the `pin/` tree, and judges each claim by trying to refute it. `/plot-panel` gates the list with one `check` call per label per juror and sends a refused juror back once; this step implements none of that. Without `skills/plot-panel/` the run stops: a verification no lens questioned records nothing.
+`Position` takes `supported|refuted`, `Evidence` takes `executed|read`, and each `Claim-<n>` takes `supported|refuted`. Each juror commits to every label in its file, runs from the `pin/` tree, and judges each claim by trying to refute it. `/plot-panel` gates the list with one `check` call per label per juror and sends a refused juror back once; this step implements none of that. If that file does not exist, the run stops and names the file: a verification no lens questioned records nothing.
 
 > **Unattended (`PLOT_UNATTENDED=1`):** run the panel. The daemon path exists for this.
 > `PLOT-UNASKED: Run the verification panel? — default — panel run, record written`
@@ -610,5 +610,7 @@ node .plot/state/verify/<slug>/tools/skills/plot/scripts/board/plot-verify.mjs r
 ```
 
 `record` folds the juror files into one verdict per claim, books the `Verified:` line and the `## Verification` section through a booking worktree, and removes the trees. A juror file that names no position for a claim refuses the fold and writes no record. Print the `summary:` line it produced, which names the number of claims and the number refuted.
+
+A record that a person's run writes also clears the plan's failure record and a fleet halt: the supervisor's next pass reads the record at `origin/<default branch>` and counts it as a successful run.
 
 Verify mode opens no issue for a refuted claim; that is a later step of the estate.

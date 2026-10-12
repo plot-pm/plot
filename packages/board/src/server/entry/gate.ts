@@ -471,10 +471,10 @@ export interface ControllerReadings {
  * `ask` runs in order: the single-quoted heredoc strip; two text tests that
  * read no git — the per-word prefilter, and for an unattended agent
  * (`PLOT_UNATTENDED=1`) whether the working directory or one above it holds
- * `.plot-worker.pid`; when both answer no, the call is allowed here. Then git
- * is read once: the repository root and whether it is a linked worktree. The
- * CI-suite arm runs for an unattended agent in a linked worktree holding
- * `.plot-worker.pid`. After the prefilter: no git allows and says it went
+ * `.plot-worker.pid` or `.plot-verify.pid`; when both answer no, the call is
+ * allowed here. Then git is read once: the repository root and whether it is a
+ * linked worktree. The CI-suite arm runs for an unattended agent in a linked
+ * worktree holding `.plot-worker.pid` or `.plot-verify.pid`. After the prefilter: no git allows and says it went
  * UNVERIFIED; a linked worktree (a desk) is a worker's own call and is
  * allowed; then `controllerInvocation`, `unpinnedMerges` and the action
  * receipt, which is read and left in place. An unpinned `plot-host.sh

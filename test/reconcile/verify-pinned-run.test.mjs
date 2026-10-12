@@ -299,6 +299,26 @@ test('fold names one verdict per claim and refuses an incomplete juror file', ()
   }
 });
 
+test('a second prepare moves the earlier run\'s juror files aside, and fold reads only this run\'s', () => {
+  const box = sandbox();
+  try {
+    assert.equal(verify(box, ['prepare', SLUG]).code, 0);
+    jurors(box, { stale: SUPPORTED, kept: SUPPORTED });
+    assert.equal(verify(box, ['prepare', SLUG]).code, 0);
+    const panels = path.join(box.dir, '.plot/panels', SLUG);
+    assert.deepEqual(fs.readdirSync(panels).sort(), ['verify-1-kept.md', 'verify-1-stale.md']);
+    jurors(box, { kept: 'Claim-1: supported\nClaim-2: refuted\nClaim-3: supported\n' });
+    const folded = verify(box, ['fold', SLUG]);
+    assert.equal(folded.code, 0, folded.err);
+    assert.match(folded.out, /Claim-1 supported .* 1 of 1 \(kept\)$/m);
+    assert.equal(folded.out.includes('stale'), false, 'the earlier run\'s juror is not folded');
+    assert.equal(verify(box, ['prepare', SLUG]).code, 0);
+    assert.deepEqual(fs.readdirSync(panels).sort(), ['verify-1-kept.md', 'verify-1-stale.md', 'verify-2-kept.md']);
+  } finally {
+    box.cleanup();
+  }
+});
+
 test('record books one commit and a second run leaves exactly one record', () => {
   const box = sandbox();
   try {
@@ -481,6 +501,23 @@ test('prepare refuses install-failed on a non-zero install and removes its trees
     assert.equal(fs.existsSync(runDir(box)), false);
     assert.equal(g(box.dir, 'worktree', 'list').split('\n').filter((l) => /state\/verify|plot\/verify-/.test(l)).length, 0);
     assert.equal(onMain(box, PLAN).includes('Verified'), false);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('status prints the fleet\'s verification block, and nothing where the fleet recorded nothing', () => {
+  const box = sandbox();
+  try {
+    const empty = verify(box, ['status']);
+    assert.equal(empty.code, 0, empty.err);
+    assert.equal(empty.out, '');
+    write(box.dir, '.plot/state/auto-verify-in-flight.json', JSON.stringify({
+      failures: {}, failedAt: [1, 2, 3], lastSuccessAt: 0, running: {}, refusals: { 'the-plan': 'halted' }, rows: [], last: {},
+    }));
+    const halted = verify(box, ['status']);
+    assert.equal(halted.code, 0, halted.err);
+    assert.equal(halted.out, 'verification: halted, 0 running, 1 refused\n  the-plan  refused: halted\n');
   } finally {
     box.cleanup();
   }

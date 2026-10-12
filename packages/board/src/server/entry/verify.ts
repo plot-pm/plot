@@ -9,7 +9,7 @@ import { runProcess } from '@plot-pm/domain/adapters/run-script';
 import type { Host, PlanStore, Refs, Scripts, Trees } from '@plot-pm/domain';
 import { claimsOf, renderClaims } from '@plot-pm/domain/rules/claims';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
-import { jurorPath, moderationPath, panelDir } from '@plot-pm/domain/rules/panel';
+import { archiveRound, isArchivedRound, jurorPath, moderationPath, panelDir } from '@plot-pm/domain/rules/panel';
 import {
   foldVerification,
   verificationBody,
@@ -17,6 +17,7 @@ import {
   type ClaimVerdict,
 } from '@plot-pm/domain/rules/verification';
 import { withRecord, withSection } from '@plot-pm/domain/workflows/rendering';
+import { readVerifyStatus, verifyStatusLines } from '@plot-pm/fleet/shared/auto-verify';
 import { commitAndPush, localDate, realPlanPath, Refused, type Printer } from './ladder.js';
 import {
   existsSync,
@@ -24,6 +25,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -38,6 +40,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * plot-verify.mjs claims <slug> <sha>
  * plot-verify.mjs fold <slug>
  * plot-verify.mjs record <slug>
+ * plot-verify.mjs status
  * ```
  *
  * `prepare` builds two detached trees under `.plot/state/verify/<slug>/`:
@@ -51,6 +54,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * `verify-<lens>.md` into one verdict per claim, books the `Verified:` line and
  * the `## Verification` section through a booking worktree, and removes every
  * tree it made.
+ *
+ * `status` prints the fleet's verification block for `/plot-fleet --status`:
+ * the halt, the runs the fleet started, the refusal per plan and the plans
+ * waiting on a person. It prints nothing where the fleet recorded nothing.
  *
  * Exit 0 on success, 1 on a refusal. A refusal writes no record.
  */
@@ -105,7 +112,7 @@ interface Context {
 
 /** What the command line asked for. */
 interface Args {
-  command: 'prepare' | 'claims' | 'fold' | 'record';
+  command: 'prepare' | 'claims' | 'fold' | 'record' | 'status';
   slug: string;
   at: string;
   sha: string;
@@ -119,8 +126,9 @@ interface Args {
  */
 const parseArgs = (argv: readonly string[]): Args | string => {
   const [command, ...rest] = argv;
+  if (command === 'status') return rest.length === 0 ? { command, slug: '', at: '', sha: '' } : 'status takes no argument';
   if (command !== 'prepare' && command !== 'claims' && command !== 'fold' && command !== 'record') {
-    return 'need a subcommand: prepare <slug> [--at <sha>] | claims <slug> <sha> | fold <slug> | record <slug>';
+    return 'need a subcommand: prepare <slug> [--at <sha>] | claims <slug> <sha> | fold <slug> | record <slug> | status';
   }
   let at = '';
   const positional: string[] = [];
@@ -318,6 +326,19 @@ const prepareTools = async (ctx: Context, slug: string): Promise<void> => {
 };
 
 /**
+ * Moves an earlier run's `verify-*` files to `verify-<n>-*`, so the fold of
+ * this run reads only the juror files this run writes.
+ *
+ * @param ctx - the ports and paths.
+ * @param slug - the plan's slug.
+ */
+const archiveJurors = (ctx: Context, slug: string): void => {
+  const dir = path.join(ctx.repoRoot, panelDir(slug));
+  if (!existsSync(dir)) return;
+  for (const { from, to } of archiveRound(readdirSync(dir), PREFIX)) renameSync(path.join(dir, from), path.join(dir, to));
+};
+
+/**
  * Builds the pinned tree and the run's facts, beside an existing tools tree.
  *
  * @param ctx - the ports and paths.
@@ -367,6 +388,7 @@ const preparePin = async (ctx: Context, args: Args, rel: string, write: Printer)
     const record = await ctx.planStore.readPlan(path.join(pin, rel));
     const branches = record.ok ? record.value.slices.flatMap((s) => s.branches.filter((b) => !b.deferred).map((b) => b.branch)) : [];
     const files = await changedFilesOf(ctx, branches);
+    archiveJurors(ctx, args.slug);
     const facts: RunFacts = { slug: args.slug, plan: rel, delivery, judged, tools: toolsSha, deliveredOn, files };
     writeFileSync(path.join(dir, 'run.json'), `${JSON.stringify(facts, null, 2)}\n`);
     writeFileSync(path.join(dir, 'files.txt'), files.map((f) => `${f}\n`).join(''));
@@ -435,7 +457,7 @@ const readJurors = (ctx: Context, slug: string): { lens: string; text: string | 
   if (!existsSync(dir)) return [];
   const moderation = path.basename(moderationPath(slug, PREFIX));
   return readdirSync(dir)
-    .filter((name) => name.startsWith(PREFIX) && name.endsWith('.md') && name !== moderation)
+    .filter((name) => name.startsWith(PREFIX) && name.endsWith('.md') && name !== moderation && !isArchivedRound(name, PREFIX))
     .sort()
     .map((name) => {
       const lens = name.slice(PREFIX.length, -'.md'.length);
@@ -616,6 +638,10 @@ export const run = async (
   if (repoRoot === null) {
     warn("plot-verify: not a git repository — run this from inside the checkout\n");
     return 1;
+  }
+  if (parsed.command === 'status') {
+    write(verifyStatusLines(readVerifyStatus(repoRoot)));
+    return 0;
   }
   const context = { repoRoot, scriptDir };
   const ctx: Context = {

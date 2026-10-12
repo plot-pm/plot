@@ -51,6 +51,44 @@ export const panelDir = (subject: string): string => `${PANEL_DIRECTORY}/${subje
 export const jurorPath = (subject: string, lens: string, prefix: string = ''): string =>
   `${panelDir(subject)}/${prefix}${lens}.md`;
 
+/** The leading `<n>-` of a file an earlier round was moved to, after its prefix. */
+const ROUND_NUMBER = /^(\d+)-/;
+
+/**
+ * Whether a file name in a panel directory is an earlier round's file,
+ * `<prefix><n>-<rest>`, which {@link archiveRound} names.
+ *
+ * @param name - the file's base name.
+ * @param prefix - the round's prefix, such as `verify-`.
+ * @returns `true` for an archived file.
+ */
+export const isArchivedRound = (name: string, prefix: string): boolean =>
+  name.startsWith(prefix) && ROUND_NUMBER.test(name.slice(prefix.length));
+
+/**
+ * The moves that archive a panel round's files before the next round with the
+ * same prefix writes its own: every `<prefix>*.md` that is not archived yet
+ * moves to `<prefix><n>-*.md`, where `n` is one more than the highest archived
+ * round. A round with an empty prefix is never archived, because the moves
+ * would take every file of the directory.
+ *
+ * @param names - the base names in the panel directory.
+ * @param prefix - the round's prefix, such as `verify-`.
+ * @returns the moves, `from` and `to` as base names; empty where there is nothing to move.
+ */
+export const archiveRound = (
+  names: readonly string[],
+  prefix: string,
+): readonly { readonly from: string; readonly to: string }[] => {
+  if (prefix === '') return [];
+  const current = names.filter((name) => name.startsWith(prefix) && name.endsWith('.md') && !isArchivedRound(name, prefix));
+  const rounds = names
+    .filter((name) => isArchivedRound(name, prefix))
+    .map((name) => Number(ROUND_NUMBER.exec(name.slice(prefix.length))![1]));
+  const round = Math.max(0, ...rounds) + 1;
+  return current.map((from) => ({ from, to: `${prefix}${round}-${from.slice(prefix.length)}` }));
+};
+
 /**
  * The moderator's reconciliation, which is the panel's one output for a reader.
  *
