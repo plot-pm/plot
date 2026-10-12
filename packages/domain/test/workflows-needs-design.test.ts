@@ -61,6 +61,13 @@ describe('planNeedsDesign write targets', () => {
     expect(out.writes).toContainEqual({ kind: 'push', branch: 'plot/needs-design-a-plan', onto: 'default' });
   });
 
+  it.each(['in-session', 'ballot'])('writes in the caller checkout and pushes nothing for Review: %s under Impl: same-branch', (review) => {
+    const out = planNeedsDesign(ready({ review, impl: 'same-branch', pr: { number: 0, state: 'NONE', head: '' } }), on);
+    if (!decided(out)) throw new Error('expected a decision');
+    expect(out.detail).toEqual({ slug: 'a-plan', target: 'caller-checkout', branch: '', pr: 0 });
+    expect(kinds(out.writes)).toEqual(['plan-phase', 'plan-record', 'plan-section', 'commit']);
+  });
+
   it.each([
     ['NONE', 'has no plan PR'],
     ['CLOSED', 'is closed'],
