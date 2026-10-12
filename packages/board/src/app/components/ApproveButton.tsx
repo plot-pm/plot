@@ -40,6 +40,8 @@ export interface ApproveButtonProps {
   approve: DispatchInfo;
   /** Reports that a click is outstanding (true) or has settled (false). */
   onApproving?: (active: boolean) => void;
+  /** Approves the plan's spike branch alone: posts `"spike":true` and names the spike in its labels. */
+  spike?: boolean;
 }
 
 type State =
@@ -61,12 +63,13 @@ type State =
  * Exported for test: the two branches are display logic with a real edge case,
  * and the PR-less one is the branch a fixture is most likely to hit.
  */
-export function armedLabel(card: Card): string {
+export function armedLabel(card: Card, spike = false): string {
+  if (spike) return `Approve spike — approves the spike of ${card.slug}?`;
   const pr = card.prs[0];
   return pr ? `Approve — merges PR #${pr.number}?` : `Approve — approves ${card.slug}?`;
 }
 
-export function ApproveButton({ card, approve, onApproving }: ApproveButtonProps) {
+export function ApproveButton({ card, approve, onApproving, spike = false }: ApproveButtonProps) {
   const [state, setState] = useState<State>({ kind: 'idle' });
   const armed = state.kind === 'armed';
   const running = state.kind === 'running';
@@ -185,7 +188,7 @@ export function ApproveButton({ card, approve, onApproving }: ApproveButtonProps
       const res = await fetch('/api/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug: card.slug }),
+        body: JSON.stringify(spike ? { slug: card.slug, spike: true } : { slug: card.slug }),
         signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });
       const body = (await res.json()) as { error?: string };
@@ -239,7 +242,7 @@ export function ApproveButton({ card, approve, onApproving }: ApproveButtonProps
         // The armed state is announced, not merely coloured: a reader on a
         // screen reader must hear that this click is the one that acts.
         aria-pressed={armed}
-        title={approve.available ? `Run /plot-approve ${card.slug}` : approve.reason}
+        title={approve.available ? `Run /plot-approve ${card.slug}${spike ? ' --spike' : ''}` : approve.reason}
         // Dimmed while in flight, on the SAME state that drives the label —
         // `running`, never a timer of its own — so the contrast comes back
         // exactly when the poll resolves the click. The refused styling stays
@@ -253,7 +256,7 @@ export function ApproveButton({ card, approve, onApproving }: ApproveButtonProps
               : 'text-xs font-medium text-blue-600 hover:underline dark:text-blue-400'
         }
       >
-        {running ? 'approving…' : armed ? armedLabel(card) : 'Approve'}
+        {running ? 'approving…' : armed ? armedLabel(card, spike) : spike ? 'Approve spike' : 'Approve'}
         {/* Beside the word, never instead of it. Motion must not be the only
             carrier of a fact, and the label is what a screen reader gets. */}
         {running && <ActingSpinner />}
