@@ -95,7 +95,9 @@ function board(over: Record<string, unknown> = {}) {
 
 /** A board card, matched to a fleet row by `path` basename === the row's `planFile`. */
 function card(slug: string, file: string, phase: string) {
-  return { slug, title: slug, type: 'feature', phase, path: file, prs: [] };
+  const draft = phase === 'Discovery';
+  const controls = { approve: draft, interrogate: draft, dispatch: !draft, readyToStart: !draft };
+  return { slug, title: slug, type: 'feature', phase, path: file, prs: [], controls };
 }
 
 /**

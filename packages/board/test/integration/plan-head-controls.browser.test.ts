@@ -95,6 +95,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
 function draftCard(slug: string, file: string) {
   return {
     slug, title: slug, type: 'feature', phase: 'Discovery', path: file, prs: [],
+    controls: { approve: true, interrogate: true, dispatch: false, readyToStart: false },
   };
 }
 
