@@ -89,7 +89,9 @@ If the user provides multiple slugs (comma-separated or as a list), or asks to c
 3. Create all plan files on that branch, each with its own file and active symlink
 4. Create a single PR titled "Plan: <title1>, <title2>, ..."
 
-The plans are still independent after approval — `/plot-approve` processes each slug separately. It finds the batch PR by the plan file each slug names, not by the branch name. Approving the first slug merges the batch PR once and lands the other plans on the default branch as `Draft`; its summary names them in `carried=`. Approving each further slug finds the PR already merged and flips only that plan.
+The plans are still independent after approval — `/plot-approve` processes each slug separately. It finds the batch PR by the plan file each slug names, not by the branch name. Approving the first slug merges the batch PR once and lands the other plans on the default branch in the state each file declares, `Draft` or `Design`; its summary names them in `carried=`. Approving each further slug finds the PR already merged and flips only that plan.
+
+Each plan gets its own answer to the design question (step 5). A plan that starts in `Design` is approved by a named person (`/plot-approve <slug>` with `--who <handle>`), so the batch PR's merge does not approve it.
 
 **Detection:** Multiple `:` entries in `$ARGUMENTS`, words like "batch"/"together"/"all at once" in conversation context, or an explicit list of slugs.
 
@@ -144,7 +146,7 @@ available) and — once per repo, not per plan — suggest declaring them:
   - **Hard gate:** if a plan with the identical slug already exists (file or branch), stop and ask the user to pick a different name
     - **Unattended (`PLOT_UNATTENDED=1`):** refuses identically — it is a gate, and inventing `<slug>-2` would defeat it.
       `PLOT-UNASKED: Pick a different slug, since <slug> already exists? — refused — gate; nothing created`
-  - **Soft warning:** if any existing plan title shares 3+ significant words with the proposed title, warn the user and ask to confirm this is intentionally separate work (only check Draft/Approved plans, not Delivered ones)
+  - **Soft warning:** if any existing plan title shares 3+ significant words with the proposed title, warn the user and ask to confirm this is intentionally separate work (only check Draft/Design/Approved plans, not Delivered ones)
     - **Unattended (`PLOT_UNATTENDED=1`):** proceed — it is a warning by construction, not a gate — but name the overlapping plans in the output.
       `PLOT-UNASKED: Is this intentionally separate from <slug>? — default — proceeded; the overlap is listed above`
 
@@ -266,9 +268,7 @@ data model, a changed contract, or an architecture the slices depend on.
 > **Smaller models:** don't recommend — ask the question in plain words
 > and write `State: Draft` unless the user says yes.
 
-> **Unattended (`PLOT_UNATTENDED=1`):** do not stop. Read the answer from
-> `$ARGUMENTS` if the prompt gives one. If it gives none, write
-> `State: Draft` and continue to step 6.
+> **Unattended (`PLOT_UNATTENDED=1`):** do not stop. Only an explicit answer counts: a line `Design: yes` or `Design: no` in the prompt. **Do not infer it from the title** or the description — a person decides design, and the fleet never does (D3 in `DESIGN-phases.md`). Any other prompt gives no answer: write `State: Draft` and continue to step 6.
 > `PLOT-UNASKED: Does this plan carry significant design decisions? — default — proceeded; State: Draft`
 
 ### 6. Create the Plan
@@ -285,8 +285,7 @@ Resolve the plan template via the `Plan template` config key (repo-root-relative
 places; the template files themselves stay `State: Draft`:
 
 - Set `- **State:** Design`.
-- Add `- **Design:** <date>, <who>, <channel>` to the `## Status` block, in
-  the shape of the other transition records.
+- Add `- **Design:** <CREATE_DATE>, <who>, cli` to the `## Status` block, in the shape of the other transition records. `<who>` is the person who answered yes: a handle from the `People` config key where the repo declares one, otherwise the git user name (`git config user.name`). `cli` is the channel, the value a terminal command writes in this record. Unattended, the answer came from a `Design: yes` line in the prompt, so `<who>` is `prompt`.
 - Add a `## Spec` section after `## Design`, holding only
   `_To be filled in during Design._`
 
@@ -450,6 +449,8 @@ And for `pr`:
 > the approval), and `/plot-implement <slug>` fans out the
 > implementation branches.
 
-Always include `Progress: [x] Draft > [ ] Approved > [ ] Delivered > [ ] Released`.
-For a plan created in `State: Design`, print
-`Progress: [x] Draft > [x] Design > [ ] Approved > [ ] Delivered > [ ] Released`.
+For a plan created in `State: Design`, on any review channel:
+
+> Plan created in Design on `<branch>` (`docs/plans/<date>-<slug>.md`). The next work is the design: fill in `## Spec` before anyone approves the plan. A named person approves a Design plan: `/plot-approve <slug>` records the approval with `--who <handle>`, a handle from `People`. With `Review: pr`, the merge of the plan PR is not the approval. With `Review: ballot`, the tally is the approval.
+
+Include exactly one Progress line. For a plan in `State: Draft`, print `Progress: [x] Draft > [ ] Approved > [ ] Delivered > [ ] Released`. For a plan in `State: Design`, print `Progress: [x] Draft > [x] Design > [ ] Approved > [ ] Delivered > [ ] Released`.
