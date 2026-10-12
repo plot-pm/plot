@@ -1,3 +1,5 @@
+import { DEFAULT_PHASE_MAP, phaseWorkflows } from '../rules/workflow-phases.js';
+
 /**
  * The development workflow: the phases work passes through, in order, who leads
  * each, and the work each one names.
@@ -104,49 +106,22 @@ export type WorkflowName =
 /**
  * The workflows belonging to each phase, in the order a phase performs them.
  *
- * WHAT THIS ADDS: `WorkflowName` is a flat union of nine names, and the phases
- * are an ordered list of five. Nothing connected them, so *which work does this
- * phase name* had no answer in the domain.
+ * Derived, not listed: {@link phaseWorkflows} places each lifecycle workflow in the first
+ * declared phase holding a state it acts on, applied here to {@link DEFAULT_PHASE_MAP}.
+ * `approve` acts on `draft` and `design`; `dispatch`, `implement` and `deliver` act on
+ * `approved`; `release` acts on `delivered`.
  *
  * **THE FLEET'S WORKFLOWS BELONG TO NO PHASE, AND THAT IS THE ASSERTION.**
- * `assign`, `reap`, `supervise` and `agent-loop` act on **agents and desks**;
- * the five below act on **a plan moving through its lifecycle**. The two sets
- * share no successor relation — reaping a desk does not come after delivering
- * a plan in any sense a workflow could compute — so a list mixing them cannot
- * answer *what comes next*. They are absent here deliberately, not pending.
- * `agent-loop` decides one agent's own pass rather than a plan's lifecycle
- * move, which is why it joins the three rather than gaining a phase of its
- * own.
+ * `assign`, `reap`, `supervise` and `agent-loop` act on **agents and desks**; the five above
+ * act on **a plan moving through its lifecycle**. The two sets share no successor relation, so
+ * a list mixing them cannot answer *what comes next*. They are absent deliberately, and
+ * {@link phaseOf} answers `null` for them: `null` is a stated answer. No phase is invented for
+ * them.
  *
- * So this is a PARTITION rather than an annotation: {@link phaseOf} answers
- * `null` for those three, and `null` is a stated answer.
- *
- * **NO PHASE IS INVENTED FOR THEM.** A `Fleet` phase would put them back into
- * an ordering they have no place in, and the board would gain a column for work
- * that no plan passes through.
- *
- * Placement follows each workflow's own writes, never a reading of its name:
- *
- * - `Discovery` performs none of these. It produces an approved story, and no
- *   workflow in this package acts on a story.
- * - `Design` ends at `approve`, which writes `State: Approved`.
- * - `Development` holds `dispatch` and `implement` — both act on an already
- *   Approved plan and write no phase — and ends at `deliver`, which writes
- *   `State: Delivered`. That matches the phase's own note that development
- *   ends at the merge.
- * - `Testing` ends at `release`, which writes `State: Released`.
- * - `Released` performs none: it is where work has arrived.
- *
- * A phase performing no workflow gets an empty list, which is a statement that
- * this package expresses none of its work — not that the phase is idle.
+ * A phase acting on no workflow gets an empty list, which states that this package expresses
+ * none of its work, not that the phase is idle.
  */
-export const PHASE_WORKFLOWS: Record<Phase, readonly WorkflowName[]> = {
-  Discovery: [],
-  Design: ['approve'],
-  Development: ['dispatch', 'implement', 'deliver'],
-  Testing: ['release'],
-  Released: [],
-};
+export const PHASE_WORKFLOWS = phaseWorkflows(DEFAULT_PHASE_MAP) as Record<Phase, readonly WorkflowName[]>;
 
 /**
  * The phase a workflow belongs to, or `null` where it belongs to none.

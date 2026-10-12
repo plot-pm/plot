@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 import type { BranchState } from '../entities/fleet.js';
-import type { StoryStatus } from '../entities/story.js';
 import type { Phase } from '../entities/workflow.js';
 import type { Landed } from './deliverable.js';
 
@@ -55,35 +54,6 @@ export const toBoardPhase = (helperPhase: string, _started = false): Phase | nul
   }
 };
 
-
-/**
- * The workflow phase a story status belongs to.
- *
- * Total over the six statuses, unlike {@link toBoardPhase}: a status is a value
- * of a closed enum, so there is no unrecognised case to answer `null` for.
- *
- * Discovery produces an approved story, so a story being written is in it and a
- * `ready` story is what Design starts from. `paused` holds Development rather
- * than returning to Design: pausing stops work, it does not undo it.
- *
- * @param status - the story's status, from its frontmatter.
- * @returns the phase the story's work has reached.
- */
-export const storyPhase = (status: StoryStatus): Phase => {
-  switch (status) {
-    case 'draft':
-      return 'Discovery';
-    case 'ready':
-      return 'Design';
-    case 'active':
-    case 'paused':
-      return 'Development';
-    case 'in-review':
-      return 'Testing';
-    case 'done':
-      return 'Released';
-  }
-};
 
 /**
  * The column ONE BRANCH belongs to, which is not always its plan's.

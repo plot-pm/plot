@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Story } from '../src/entities/story.js';
 import {
   BOARD_PHASES,
   DevelopmentWorkflow,
@@ -11,7 +10,7 @@ import {
   type Phase,
   type WorkflowName,
 } from '../src/entities/workflow.js';
-import { storyPhase, toBoardPhase } from '../src/rules/phase.js';
+import { toBoardPhase } from '../src/rules/phase.js';
 import {
   approvable,
   deliverable,
@@ -19,7 +18,6 @@ import {
   type PlanState,
   type TransitionPlan,
 } from '../src/transitions/plan.js';
-import { STORY_LIFECYCLE, storyStatusSettable } from '../src/transitions/story.js';
 
 /** A plan in the state a test needs, with everything else valid. */
 const planIn = (phase: PlanState): TransitionPlan => ({
@@ -29,18 +27,6 @@ const planIn = (phase: PlanState): TransitionPlan => ({
   approvedRecord: phase === 'draft' || phase === 'design' ? '' : '2026-09-04, Jan Wloka',
   deliveredRecord: phase === 'delivered' || phase === 'released' ? '2026-09-05, Jan Wloka' : '',
   releasedRecord: phase === 'released' ? '2026-09-06, v1.0.0' : '',
-});
-
-/** A story in the status a test needs, with everything else valid. */
-const storyIn = (status: Story['status']): Story => ({
-  slug: 'the-domain-knows-what-plot-knows',
-  title: 'The domain knows what Plot knows',
-  status,
-  path: 'the-domain-knows-what-plot-knows/STORY-the-domain-knows-what-plot-knows.md',
-  created: '2026-09-01',
-  updated: '2026-09-06',
-  author: 'jwloka',
-  archived: null,
 });
 
 /** The plan states the workflow knows, which is what the mapping is total over. */
@@ -90,16 +76,9 @@ describe('a state maps to exactly one phase', () => {
     }
   });
 
-  it('gives every story status exactly one phase, with no status unmapped', () => {
-    for (const status of STORY_LIFECYCLE) {
-      expect(BOARD_PHASES).toContain(storyPhase(status));
-    }
-  });
-
   it('answers null for a plan state the workflow does not know', () => {
     // The states no phase holds: a verdict and a relation, not places in the
-    // workflow. There is no such case for a story, whose statuses are a closed
-    // enum with no unmapped member.
+    // workflow.
     expect(toBoardPhase('rejected')).toBeNull();
     expect(toBoardPhase('superseded')).toBeNull();
     expect(toBoardPhase('none')).toBeNull();
@@ -139,24 +118,6 @@ describe('the phase order agrees with the state transitions', () => {
     // The loop must have had edges to check: a transition set that refused
     // everything would pass vacuously.
     expect(edges.length).toBeGreaterThan(0);
-  });
-
-  it('never sends a story status backwards through the phases', () => {
-    const edges: string[] = [];
-    for (const from of STORY_LIFECYCLE) {
-      for (const to of STORY_LIFECYCLE) {
-        if (from === to || !storyStatusSettable(storyIn(from), to)) continue;
-        edges.push(`${from} -> ${to}`);
-        expect(phaseOrder(storyPhase(to))).toBeGreaterThanOrEqual(phaseOrder(storyPhase(from)));
-      }
-    }
-    expect(edges.length).toBeGreaterThan(0);
-  });
-
-  it('reads a pause as holding its phase rather than returning to an earlier one', () => {
-    // `active -> paused -> active` is the one round trip in either lifecycle.
-    // Pausing stops work; it does not undo it, so the phase does not move.
-    expect(storyPhase('paused')).toBe(storyPhase('active'));
   });
 });
 
