@@ -56,19 +56,19 @@ describe('cardControls', () => {
 
   it('offers Approve and Interrogate on a Design plan, and not Commission or the rounds badge', () => {
     expect(cardControls({ state: 'design', status: 'open', started: false })).toEqual({
-      approve: true, needsDesign: false, interrogate: true, commission: false, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false,
+      approve: true, needsDesign: false, interrogate: true, commission: false, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null,
     });
   });
 
   it('offers Commission and the rounds badge on a Draft plan', () => {
     expect(cardControls({ state: 'draft', status: 'draft', started: false })).toEqual({
-      approve: true, needsDesign: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false, approveSpike: false,
+      approve: true, needsDesign: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null,
     });
   });
 
   it('offers nothing on a state the workflow does not know', () => {
     expect(cardControls({ state: 'weird', status: 'draft', started: false })).toEqual({
-      approve: false, needsDesign: false, interrogate: false, commission: false, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false,
+      approve: false, needsDesign: false, interrogate: false, commission: false, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null,
     });
   });
 });
@@ -77,5 +77,30 @@ describe('CardControlsSchema', () => {
   it('reads a payload written before needsDesign existed as needsDesign: false', () => {
     const older = { approve: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false };
     expect(CardControlsSchema.parse(older).needsDesign).toBe(false);
+  });
+});
+
+describe('cardControls — a Design plan against its spike', () => {
+  const slices = [
+    { name: 'Spike', branches: [{ branch: 'feature/spike', spike: true }] },
+    { name: 'Rest', branches: [{ branch: 'feature/rest' }] },
+  ];
+  const at = (spikeApproved: string, spikeMerged?: boolean) =>
+    cardControls({ state: 'design', status: 'open', started: false, slices, spikeApproved, spikeMerged });
+
+  it('offers only the spike approval before the spike is approved', () => {
+    expect(at('')).toMatchObject({ spikeState: 'spike-not-approved', approveSpike: true, confirmSlices: false, approve: false });
+  });
+
+  it('offers neither approval while the approved spike is unmerged', () => {
+    expect(at('2026-10-13, jwloka, in-session')).toMatchObject({ spikeState: 'spike-approved', approveSpike: false, confirmSlices: false, approve: false });
+  });
+
+  it('words the approval as Confirm slices once the spike has merged', () => {
+    expect(at('2026-10-13, jwloka, in-session', true)).toMatchObject({ spikeState: 'spike-merged', confirmSlices: true, approve: true });
+  });
+
+  it('leaves a Design plan with no spike its plain Approve', () => {
+    expect(cardControls({ state: 'design', status: 'open', started: false })).toMatchObject({ approve: true, confirmSlices: false, spikeState: null });
   });
 });

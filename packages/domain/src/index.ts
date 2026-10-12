@@ -46,6 +46,7 @@ export * from './rules/event-window.js';
 export * from './rules/index-findings.js';
 export * from './rules/eligible.js';
 export * from './rules/spike.js';
+export * from './rules/spike-confirm.js';
 export * from './rules/draft-placement.js';
 export * from './rules/pr-row.js';
 export * from './rules/gates.js';

@@ -1,6 +1,7 @@
 import { type Outcome, type Write, decide, refuse } from './decision.js';
 import { approvalArm } from '../rules/approval-arm.js';
 import { approveSpike as approveSpikeTransition } from '../transitions/plan.js';
+import { confirmRefusal, type ConfirmReading } from '../rules/spike-confirm.js';
 import {
   unnamedBranchDetail,
   unnamedBranches,
@@ -27,6 +28,8 @@ export type ApproveRefusal =
   | 'spike-none'
   | 'spike-not-first'
   | 'spike-approved'
+  | 'spike-unmerged'
+  | 'slices-unpushed'
   | 'pr-closed'
   | 'pr-absent'
   | 'pr-ambiguous';
@@ -69,6 +72,19 @@ export interface ApproveReadings {
   approvedRecord: string;
   /** The `Spike approved:` record as written, or `''`. Absent reads as `''`. */
   spikeApprovedRecord?: string;
+  /**
+   * The host's `mergedAt` reading for the spike branch, named by that branch.
+   *
+   * Read only for a `design` plan that records `Spike approved:`; an absent
+   * reading there refuses `spike-unmerged`.
+   */
+  spikeMerged?: ConfirmReading;
+  /**
+   * Whether the plan file in the checkout equals the copy on
+   * `origin/<default branch>`, named by the file's path. Read and judged like
+   * {@link spikeMerged}; an absent reading refuses `slices-unpushed`.
+   */
+  slicesPushed?: ConfirmReading;
   /** What the host says about the plan PR. */
   pr: ApprovePrReading;
 }
@@ -170,8 +186,8 @@ export interface ApproveDetail {
  * @returns a decision naming every write, or a refusal naming the rule that
  *   fired: `plan-not-found`, `plan-unparseable`, `state-terminal`,
  *   `state-unreadable`, `state-wrong`, `slice-unnamed`, `review-human`,
- *   `reviewer-undeclared`, `review-unrecognised`, `pr-closed`, `pr-absent` or
- *   `pr-ambiguous`.
+ *   `reviewer-undeclared`, `review-unrecognised`, `spike-unmerged`,
+ *   `slices-unpushed`, `pr-closed`, `pr-absent` or `pr-ambiguous`.
  */
 export const approve = (
   readings: ApproveReadings,
@@ -269,6 +285,18 @@ export const approve = (
         `plan '${slug}' records an unrecognised 'Review:' answer ('${readings.review}'). Refusing rather than treating it as 'pr'.`,
       );
   }
+
+  // A Design plan whose spike is approved leaves Design only after the spike
+  // merged and the rewritten slices reached the default branch. Asked before
+  // the PR is read, so the refusal names the spike rather than the plan PR.
+  const unconfirmed = confirmRefusal({
+    slug,
+    phase: readings.phase,
+    spikeApproved: readings.spikeApprovedRecord ?? '',
+    spikeMerged: readings.spikeMerged,
+    slicesPushed: readings.slicesPushed,
+  });
+  if (unconfirmed) return no(unconfirmed.reason, unconfirmed.detail);
 
   // An in-session plan is reviewed in the room and carries no plan PR, so the
   // PR readings say nothing about it. Asking them anyway refuses `pr-absent`

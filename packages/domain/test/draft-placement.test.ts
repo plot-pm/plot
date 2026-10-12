@@ -80,3 +80,23 @@ describe('draftPlacement — merged and non-draft phases', () => {
     expect(draftPlacement(draft({ planPhase: '', state: 'blocked' }))).toBeNull();
   });
 });
+
+describe('draftPlacement — design plans', () => {
+  it('places a Design plan\'s open branch as a Draft plan\'s', () => {
+    expect(draftPlacement(draft({ planPhase: 'design', state: 'open' }))).toEqual({
+      group: 'waiting-on-you',
+      note: 'draft',
+    });
+  });
+
+  it('answers null for the approved spike of a Design plan', () => {
+    expect(draftPlacement(draft({ planPhase: 'design', state: 'open', approvedSpike: true }))).toBeNull();
+  });
+
+  it('ignores approvedSpike on a Draft plan', () => {
+    expect(draftPlacement(draft({ approvedSpike: true }))).toEqual({
+      group: 'waiting-on-you',
+      note: 'draft',
+    });
+  });
+});

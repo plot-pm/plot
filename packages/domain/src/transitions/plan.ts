@@ -5,6 +5,7 @@
 import { normalizeVersion } from '../entities/version.js';
 import { approvalArm } from '../rules/approval-arm.js';
 import { spikeOf, type SpikeSlice } from '../rules/spike.js';
+import { confirmRefusal } from '../rules/spike-confirm.js';
 import {
   unnamedBranchDetail,
   unnamedBranches,
@@ -108,6 +109,8 @@ export type RefusalReason =
   | 'spike-none'
   | 'spike-not-first'
   | 'spike-approved'
+  | 'spike-unmerged'
+  | 'slices-unpushed'
   | 'precondition-unmet';
 
 /**
@@ -223,6 +226,21 @@ export interface ApproveInput {
    * plan file.
    */
   slices?: readonly NamedSlice[];
+  /**
+   * The host's `mergedAt` reading for the plan's spike branch, named by that branch.
+   *
+   * Read only for a `design` plan that records `Spike approved:`, where an
+   * absent reading refuses `spike-unmerged`. Any other plan ignores it.
+   */
+  spikeMerged?: Precondition;
+  /**
+   * Whether the plan file in the approver's checkout equals the copy on
+   * `origin/<default branch>`, named by the file's path.
+   *
+   * Read and judged like {@link spikeMerged}; an absent reading refuses
+   * `slices-unpushed`.
+   */
+  slicesPushed?: Precondition;
 }
 
 /**
@@ -241,9 +259,10 @@ export const approvable = (plan: TransitionPlan): boolean =>
 /**
  * Decides the write that approving a plan calls for.
  *
- * Carries the mechanical refusals only — the state and the review channel. A
- * host-dependent check, such as whether the plan PR merged, is supplied as a
- * precondition reading rather than performed here.
+ * Carries the mechanical refusals only — the state, the review channel and,
+ * for a `design` plan that records `Spike approved:`, the two readings that
+ * confirm its slices. A host-dependent check, such as whether the plan PR
+ * merged, is supplied as a precondition reading rather than performed here.
  *
  * `approved` is not refused: it is the idempotent case, where a missing record
  * is still repairable.
@@ -260,8 +279,13 @@ export const approvable = (plan: TransitionPlan): boolean =>
  *   against, plus any readings.
  * @returns a decision carrying `approved` and its record, or a refusal naming
  *   the gate that fired: `state-terminal`, `state-unreadable`, `state-wrong`,
- *   `review-human`, `reviewer-undeclared`, `review-unrecognised` or
- *   `precondition-unmet`.
+ *   `review-human`, `reviewer-undeclared`, `review-unrecognised`,
+ *   `spike-unmerged`, `slices-unpushed` or `precondition-unmet`.
+ *
+ * A `design` plan that records `Spike approved:` refuses `spike-unmerged`
+ * until `input.spikeMerged` is met, then `slices-unpushed` until
+ * `input.slicesPushed` is met. A `draft` plan, an `approved` plan and a
+ * `design` plan with no spike record are not asked.
  */
 export const approve = (plan: TransitionPlan, input: ApproveInput): TransitionResult => {
   switch (plan.phase) {
@@ -341,6 +365,15 @@ export const approve = (plan: TransitionPlan, input: ApproveInput): TransitionRe
         `plan '${plan.slug}' records an unrecognised 'Review:' answer ('${plan.review}'). Refusing rather than treating it as 'pr'.`,
       );
   }
+
+  const unconfirmed = confirmRefusal({
+    slug: plan.slug,
+    phase: plan.phase,
+    spikeApproved: plan.spikeApprovedRecord ?? '',
+    spikeMerged: input.spikeMerged,
+    slicesPushed: input.slicesPushed,
+  });
+  if (unconfirmed) return refuse(plan.slug, unconfirmed.reason, unconfirmed.detail);
 
   const blocked = unmet(plan.slug, input.preconditions ?? []);
   if (blocked) return blocked;

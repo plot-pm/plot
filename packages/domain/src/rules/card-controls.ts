@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import type { PlanStatus } from './phase.js';
 import { spikeOf, type SpikeSlice } from './spike.js';
+import { spikeCardState, type SpikeCardState } from './spike-confirm.js';
 
 /** The controls a plan card offers. Each boolean answers whether the card renders that control. */
 export const CardControlsSchema = z.object({
@@ -13,6 +14,8 @@ export const CardControlsSchema = z.object({
   dispatch: z.boolean(),
   readyToStart: z.boolean(),
   approveSpike: z.boolean().default(false),
+  confirmSlices: z.boolean().default(false),
+  spikeState: z.enum(['spike-not-approved', 'spike-approved', 'spike-merged']).nullable().default(null),
 });
 export type CardControls = z.infer<typeof CardControlsSchema>;
 
@@ -28,6 +31,8 @@ export interface CardControlsReadings {
   slices?: readonly SpikeSlice[];
   /** The `Spike approved:` record as written, or `''`. Absent reads as `''`. */
   spikeApproved?: string;
+  /** Whether the host reports the spike branch's PR merged. Absent reads as not merged. */
+  spikeMerged?: boolean;
 }
 
 /**
@@ -45,8 +50,13 @@ export interface CardControlsReadings {
  * `approveSpike` holds on a `design` plan whose one `<!-- spike -->` branch is the
  * only branch of the first slice and which records no `Spike approved:` line.
  *
- * @param readings - the plan's state, status, started record, slices and spike record.
- * @returns the eight control booleans.
+ * `spikeState` is the card's spike line (see {@link spikeCardState}), and
+ * `confirmSlices` holds when it is `spike-merged`: the plan's own Approve
+ * control then reads *Confirm slices and approve*, and a `design` plan whose
+ * spike has not merged offers no Approve at all.
+ *
+ * @param readings - the plan's state, status, started record, slices, spike record and spike merge reading.
+ * @returns the control booleans and the spike state.
  */
 export const cardControls = (readings: CardControlsReadings): CardControls => {
   const draft = readings.state === 'draft';
@@ -60,8 +70,9 @@ export const cardControls = (readings: CardControlsReadings): CardControls => {
     spike !== undefined &&
     spike.slice === 0 &&
     slices[0].branches.length === 1;
+  const spikeState: SpikeCardState | null = spikeCardState(readings);
   return {
-    approve: underReview,
+    approve: underReview && spikeState !== 'spike-not-approved' && spikeState !== 'spike-approved',
     needsDesign: draft,
     interrogate: underReview,
     commission: draft,
@@ -69,5 +80,7 @@ export const cardControls = (readings: CardControlsReadings): CardControls => {
     dispatch,
     readyToStart: dispatch && !readings.started,
     approveSpike,
+    confirmSlices: spikeState === 'spike-merged',
+    spikeState,
   };
 };

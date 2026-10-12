@@ -5,9 +5,10 @@ import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { Host, PlanStore, Refs, Scripts, Trees } from '@plot-pm/domain';
 import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
-import { approve, approveSpike, isRefusal, type TransitionPlan } from '@plot-pm/domain/transitions/plan';
+import { approve, approveSpike, isRefusal, type Precondition, type TransitionPlan } from '@plot-pm/domain/transitions/plan';
 import { approve as approveWorkflow, approveSpike as approveSpikeWorkflow, type ApproveReadings, type ApproveRefusal } from '@plot-pm/domain/workflows/approve';
 import { planStateOf } from '@plot-pm/domain/entities/plan';
+import { spikeOf } from '@plot-pm/domain/rules/spike';
 import { flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { SPIKE_APPROVED_FIELD, spikeReceiptKey } from '@plot-pm/domain/rules/state-transition';
 import { clearHolds } from '@plot-pm/domain/rules/hold-clear';
@@ -175,6 +176,7 @@ const transitionPlanOf = (slug: string, record: PlanRecord): TransitionPlan => (
   approvedRecord: record.approvedRaw,
   deliveredRecord: record.deliveredRaw,
   releasedRecord: record.releasedRaw,
+  spikeApprovedRecord: record.spikeApprovedRaw,
 });
 
 /** The handles `People` declares, lower-cased: the text before each `=`. */
@@ -423,6 +425,47 @@ const remotePlanOf = async (
   };
 };
 
+/**
+ * The two readings a Design plan with an approved spike owes its approval.
+ *
+ * The spike's merge is the host's `mergedAt` for its branch and nothing else.
+ * The slices are pushed when the plan file in this checkout equals its copy on
+ * `origin/<main>`; a plan read from the default branch or a PR head is that copy
+ * by construction. A host that cannot say, a plan outside the repository and a
+ * file the default branch does not hold all read as unmet.
+ */
+const confirmReadingsOf = async (
+  ctx: Context,
+  plan: PlanRecord,
+  planFile: string,
+  main: string,
+  inCheckout: boolean,
+): Promise<{ spikeMerged: Precondition; slicesPushed: Precondition }> => {
+  const branch = spikeOf(plan.slices)?.branch ?? '';
+  let spikeMerged: Precondition = { name: 'spike', met: false, detail: 'the plan names no single spike branch' };
+  if (branch !== '') {
+    const answer = await ctx.host.prMerged(branch);
+    spikeMerged = {
+      name: branch,
+      met: answer.ok && answer.value === 'merged',
+      detail: !answer.ok ? 'the host could not be asked' : answer.value === 'merged' ? undefined : answer.value === 'unknown' ? 'the host could not say' : 'the host holds no merged PR for it',
+    };
+  }
+  if (!inCheckout) return { spikeMerged, slicesPushed: { name: planFile, met: true } };
+  const rel = realPlanPath(ctx.repoRoot, planFile);
+  if (rel === null) {
+    return { spikeMerged, slicesPushed: { name: planFile, met: false, detail: 'it is outside the repository' } };
+  }
+  await ctx.trees.fetch(ctx.repoRoot, main);
+  const there = await ctx.refs.showFile(`origin/${main}`, rel);
+  const here = await ctx.planStore.readText(path.join(ctx.repoRoot, rel));
+  const same = there.ok && here.ok && here.value === there.value;
+  return {
+    spikeMerged,
+    slicesPushed: { name: rel, met: same, detail: same ? undefined : there.ok ? `it differs from origin/${main}` : `origin/${main} holds no copy` },
+  };
+};
+
 /** What the refusal sentences name besides the domain's reason. */
 interface RefusalContext {
   slug: string;
@@ -457,6 +500,8 @@ const refusalText = (reason: ApproveRefusal, detail: string, c: RefusalContext):
     case 'spike-none':
     case 'spike-not-first':
     case 'spike-approved':
+    case 'spike-unmerged':
+    case 'slices-unpushed':
       return `${detail}\n  Nothing was merged and nothing was written.`;
     case 'slice-unnamed':
       return `${detail}\n  The plan was not approved, nothing was merged and its phase is unchanged.`;
@@ -490,6 +535,8 @@ interface WriteRequest {
   dirs: Dirs;
   /** Records `Spike approved:` and clears the spike branch's hold instead of approving the plan. */
   spike?: boolean;
+  /** The readings `perform` took for a Design plan with an approved spike; the domain re-judges them. */
+  confirm?: { spikeMerged?: Precondition; slicesPushed?: Precondition };
 }
 
 /**
@@ -520,6 +567,7 @@ const applyLocalWrites = async (ctx: Context, request: WriteRequest): Promise<Wr
     channel: request.channel,
     people: request.people,
     slices: read.value.slices,
+    ...request.confirm,
   });
   if (isRefusal(decision)) throw new Refused(decision.detail);
 
@@ -760,6 +808,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   // checkout, which is where the board runs this. It is read from the
   // default branch as fetched, or from the head of the open PR that changes it.
   let planFile = await findPlanFile(ctx.planStore, dirs, slug);
+  const inCheckout = planFile !== '';
   let plan: PlanRecord | undefined;
   let listedOpen: readonly OpenPr[] | undefined;
   if (planFile !== '') {
@@ -829,6 +878,10 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
     }
   }
 
+  const confirm =
+    !args.spike && plan !== undefined && phase === 'design' && plan.spikeApprovedRaw.trim() !== ''
+      ? await confirmReadingsOf(ctx, plan, planFile, main, inCheckout)
+      : undefined;
   const readings: ApproveReadings = {
     slug,
     file: planFile,
@@ -857,7 +910,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
       ? `plan-PR #${pr.number} reviewed`
       : `plan-PR #${pr.number} merged`;
   const verdict = (args.spike ? approveSpikeWorkflow : approveWorkflow)(
-    { ...readings, spikeApprovedRecord: plan?.spikeApprovedRaw ?? '' },
+    { ...readings, spikeApprovedRecord: plan?.spikeApprovedRaw ?? '', ...confirm },
     { on: localDate(), who: args.who, channel: args.spike ? spikeChannel : 'in-session', people },
   );
   // The reviewer is a human in the room, and `process.env` is not the domain's to read.
@@ -978,6 +1031,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
     prNumber: pr.number,
     dirs,
     ...(args.spike ? { spike: true } : {}),
+    ...(confirm === undefined ? {} : { confirm }),
   });
   // A batch PR's merge lands its other plans unapproved; the summary names them
   // so a reader approves each by its own slug.
