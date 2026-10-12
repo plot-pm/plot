@@ -19,6 +19,9 @@ import { pathToFileURL } from 'node:url';
  * plot-panel.mjs check Position proceed,amend,reject contracts < verdict.md
  * committed	contracts	amend
  *
+ * plot-panel.mjs check Position proceed,amend contracts Claim-1 supported,refuted < verdict.md
+ * committed	contracts	proceed
+ *
  * plot-panel.mjs reconcile < readings.tsv
  * divided	amend=contracts,scope	proceed=evidence
  * ```
@@ -51,11 +54,15 @@ export const EXIT = {
  * Reads one juror's file against the caller's required shape.
  *
  * @param lens - the persona whose file this is.
- * @param commitment - the label and positions the caller requires.
+ * @param commitment - the label and positions the caller requires, or a list of them.
  * @param text - the file's contents.
  * @returns `<read>\t<lens>\t<position-or-why>`.
  */
-export const check = (lens: string, commitment: Commitment, text: string): string => {
+export const check = (
+  lens: string,
+  commitment: Commitment | readonly Commitment[],
+  text: string,
+): string => {
   const reading = readJuror(lens, text, commitment);
   return reading.read === 'committed'
     ? `committed\t${reading.lens}\t${reading.position}\n`
@@ -189,25 +196,35 @@ export const run = (
       return line.startsWith('refused\t') ? EXIT.refused : EXIT.ok;
     }
     if (verb === 'check') {
-      const [, label, positions, lens] = argv;
-      if (!label || !positions || !lens) {
+      const [, label, positions, lens, ...more] = argv;
+      if (!label || !positions || !lens || more.length % 2 !== 0) {
         process.stderr.write(
-          'plot-panel: usage: plot-panel.mjs check <label> <a,b,c> <lens> < juror.md\n',
+          'plot-panel: usage: plot-panel.mjs check <label> <a,b,c> <lens> [<label> <a,b,c>]... < juror.md\n',
         );
         return EXIT.usage;
       }
-      const refusal = vocabularyRefusal(positions);
-      if (refusal) {
-        process.stderr.write(`plot-panel: ${refusal}\n`);
-        return EXIT.usage;
+      // The first pair is the label the panel is reconciled over; each further
+      // pair is gated and never reconciled.
+      const given: [string, string][] = [[label, positions]];
+      for (let i = 0; i < more.length; i += 2) given.push([more[i]!, more[i + 1]!]);
+      for (const [, vocabulary] of given) {
+        const refusal = vocabularyRefusal(vocabulary);
+        if (refusal) {
+          process.stderr.write(`plot-panel: ${refusal}\n`);
+          return EXIT.usage;
+        }
       }
-      const commitment: Commitment = { label, positions: positions.split(',') };
-      const line = check(lens, commitment, stdin);
+      const commitments: Commitment[] = given.map(([l, p]) => ({
+        label: l,
+        positions: p.split(','),
+      }));
+      const line = check(lens, commitments, stdin);
       // THE REFUSAL GETS ITS OWN CODE. A caller reading only `$?` must not be
       // able to treat a hedge as a verdict, and `1` is what a broken pipe or a
       // missing file already means to a shell.
       if (!line.startsWith('committed\t')) {
-        process.stderr.write(`plot-panel: ${lens} must write '${commitmentLine(commitment)}'\n`);
+        const lines = commitments.map((c) => `'${commitmentLine(c)}'`).join(' and ');
+        process.stderr.write(`plot-panel: ${lens} must write ${lines}\n`);
         write(line);
         return EXIT.refused;
       }

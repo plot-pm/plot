@@ -42,8 +42,8 @@ A wave holds slices from several plans and is *"sized by the agents available, b
 |-------|-----------|-------|
 | 1. Take the panel's parameters | Small | Read the plan path and the caller's commitment shape |
 | 2. Fan out the jurors | Frontier | Each juror reads a plan and judges it; that is the whole task |
-| 3. Check every verdict | Small | One script call per file, exit code decides |
-| 4. Send a refused juror back | Small | Mechanical: re-run the same juror with the refusal appended |
+| 3. Check every verdict | Small | One script call per file, every label in the call, exit code decides |
+| 4. Send a refused juror back | Small | Mechanical: re-run the same juror once with every refusal appended |
 | 5. Reconcile | Frontier | Naming a disagreement, and naming a shared blind spot, is judgment |
 | 6. Record the round | Small | Increment one field by a rule `/challenge-the-plan` already owns |
 
@@ -55,14 +55,15 @@ A wave holds slices from several plans and is *"sized by the agents available, b
 
 ## Parameters
 
-A caller supplies four things. Nothing here is defaulted by the mechanism except where stated.
+A caller supplies the first four of these; **Prefix** is optional. Nothing here is defaulted by the mechanism except where stated.
 
 | Parameter | What it is |
 |-----------|-----------|
 | **Subject** | The path to **one** plan file |
 | **Lenses** | The personas, one per juror. The caller chooses how many |
-| **Commitment** | The label and the words that count as a position |
+| **Commitment** | A list of one or more `label` + words pairs. A juror must commit to every label. Only the **first** is reconciled |
 | **Rubric** | The questions every juror answers, identical across lenses |
+| **Prefix** | Optional. Put before each file name (`verify-<lens>.md`, `verify-panel.md`), so a second round on one plan never overwrites the first. Defaults to none |
 
 **How many jurors is the caller's choice, and the mechanism takes N.** Four lenses is a guess nobody has measured; the first real number comes from running it. Do not hardcode one.
 
@@ -76,7 +77,7 @@ So the juror brief is assembled as:
 <the rubric — identical for every juror>
 <the subject — the same plan path for every juror>
 <the lens — THE ONLY LINE THAT DIFFERS>
-<the commitment — identical, and what the gate will check>
+<the commitments — identical, one line per label, and what the gate will check>
 ```
 
 If you find yourself writing a second rubric for a second lens, the lens is doing work the rubric should: put the difference in the persona sentence and leave the questions alone.
@@ -84,6 +85,8 @@ If you find yourself writing a second rubric for a second lens, the lens is doin
 ### The commitment is the caller's vocabulary
 
 A Draft juror commits to `proceed|amend|reject`. A delivery juror commits to `supported|refuted` plus the command it ran. **The mechanism does not know either** — it takes the required shape and validates against it. Hardcoding a vocabulary is what makes the second caller impossible.
+
+**A list gates every label and reconciles the first.** A caller passing `Position, Evidence, Claim-1, Claim-2` requires all four lines in each file, and the panel reconciles over `Position` alone. A panel of per-claim positions has no single conclusion to fold, and averaging is what step 5 refuses. A caller that needs each claim's own result calls `check` once per label and reads the readings itself. A list of one behaves as a single commitment does.
 
 ## Steps
 
@@ -108,13 +111,15 @@ mkdir -p "$PANEL"
 
 Launch one `Task` agent per lens, **in parallel, in a single message**. Each receives the assembled brief from the section above, and each is told exactly where to write:
 
-> Write your verdict to `.plot/panels/<subject>/<lens>.md`.
+> Write your verdict to `.plot/panels/<subject>/<prefix><lens>.md`.
 >
-> **Your file must contain a line naming your position:**
+> **Your file must contain one line per label, each naming your position:**
 >
 > ```
 > <Label>: <one of the caller's words>
 > ```
+>
+> One such line for every label the caller listed.
 >
 > A file without that line is **refused** and you will be asked again. The line is checked mechanically — hedging in prose around it does not satisfy it, and neither does two different positions in one file.
 
@@ -122,14 +127,14 @@ Launch one `Task` agent per lens, **in parallel, in a single message**. Each rec
 
 ### 3. Check every verdict
 
-Never read the files and judge for yourself whether they committed. **Ask the gate**, once per juror:
+Never read the files and judge for yourself whether they committed. **Ask the gate**, once per juror. The first label and positions come first; each further label follows as another `<label> <positions>` pair:
 
 ```bash
 node skills/plot/scripts/board/plot-panel.mjs check "$LABEL" "$POSITIONS" "$LENS" \
-  < "$PANEL/$LENS.md"
+  ["$LABEL2" "$POSITIONS2" ...] < "$PANEL/$PREFIX$LENS.md"
 ```
 
-Exit `0` is a commitment and prints `committed\t<lens>\t<position>`. Exit `3` is a refusal naming what is wrong. Exit `2` means the arguments were unusable — a broken caller, not a hedging juror.
+Exit `0` is a commitment to every label and prints `committed\t<lens>\t<position of the first label>`. Exit `3` is a refusal naming what is wrong. Exit `2` means the arguments were unusable — a broken caller, not a hedging juror.
 
 **This is the part that is more than parallel subagents.** Fan-out, file-writing and reconciliation all work perfectly with the gate absent: the panel runs, produces N files and a summary, and looks finished. The gate's absence is invisible at runtime, which is exactly why it is a check rather than a sentence in the brief. A juror asked in prose to commit can answer "did I?" with yes without it being true.
 
@@ -137,7 +142,7 @@ Exit `0` is a commitment and prints `committed\t<lens>\t<position>`. Exit `3` is
 
 ### 4. Send a refused juror back
 
-Re-run **that juror only**, with the refusal text appended to its brief. The refusal names what was wrong: no line, a word outside the vocabulary, an empty file, or two positions at once.
+Re-run **that juror only**, with the refusal text appended to its brief. The refusal names what was wrong: no line, a word outside the vocabulary, an empty file, or two positions at once. **One send-back carries every refusal.** The gate joins the refusals for all labels in one message (`no 'Claim-1:' line …; no 'Claim-2:' line …`), so append that whole message. A send-back per label would spend the one allowance on the first label and refuse the juror on the second.
 
 **Once.** A juror that hedges twice is reported as refused and the panel is refused with it — a juror that will not commit has not reviewed, and a second re-run is a loop that ends when the context does.
 
@@ -152,7 +157,7 @@ Ask the mechanism what the panel amounts to:
 printf '%s\n' "${READINGS[@]}" | node skills/plot/scripts/board/plot-panel.mjs reconcile
 ```
 
-It answers `unanimous`, `divided` (naming each position and who holds it), or `refused`.
+It answers `unanimous`, `divided` (naming each position and who holds it), or `refused`. Each reading carries the **first** label's position; the other labels were gated in step 3 and are not reconciled.
 
 Then **write the moderation** to `.plot/panels/<subject>/panel.md`. This is judgment and the script does none of it:
 

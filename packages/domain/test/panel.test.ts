@@ -194,3 +194,90 @@ describe('where a panel writes is a stated decision', () => {
     );
   });
 });
+
+describe('a list of commitments gates every label and reads the first', () => {
+  const claim = (n: number): Commitment => ({
+    label: `Claim-${n}`,
+    positions: ['supported', 'refuted'],
+  });
+  const list = [draft, claim(1), claim(2)];
+
+  it('commits on the first label when every label is satisfied', () => {
+    const text = 'Position: amend\nClaim-1: supported\nClaim-2: refuted\n';
+
+    expect(readJuror('evidence', text, list)).toEqual({
+      read: 'committed',
+      lens: 'evidence',
+      position: 'amend',
+    });
+  });
+
+  it('refuses a juror that omits one label, naming it', () => {
+    const reading = readJuror('evidence', 'Position: amend\nClaim-1: supported\n', list);
+
+    expect(reading.read).toBe('uncommitted');
+    if (reading.read !== 'uncommitted') throw new Error('unreachable');
+    expect(reading.why).toContain("no 'Claim-2:' line");
+    expect(reading.why).not.toContain("'Position:'");
+  });
+
+  it('names every missing label in one refusal, so one send-back repairs all', () => {
+    const reading = readJuror('evidence', 'Position: amend\n', list);
+
+    expect(reading.read).toBe('uncommitted');
+    if (reading.read !== 'uncommitted') throw new Error('unreachable');
+    expect(reading.why).toContain("no 'Claim-1:' line");
+    expect(reading.why).toContain("no 'Claim-2:' line");
+  });
+
+  it('refuses when the first label is the one missing, though the rest committed', () => {
+    const reading = readJuror('evidence', 'Claim-1: supported\nClaim-2: refuted\n', list);
+
+    expect(reading.read).toBe('uncommitted');
+  });
+
+  it('keeps Claim-1 and Claim-10 apart', () => {
+    const reading = readJuror('evidence', 'Claim-10: supported\n', [claim(1)]);
+
+    expect(reading.read).toBe('uncommitted');
+  });
+
+  it('answers a juror that wrote nothing as empty, once', () => {
+    expect(readJuror('evidence', null, list)).toEqual({
+      read: 'empty',
+      lens: 'evidence',
+      why: 'wrote no file',
+    });
+  });
+
+  it('reconciles over the first label alone', () => {
+    const a = readJuror('a', 'Position: amend\nClaim-1: supported\n', [draft, claim(1)]);
+    const b = readJuror('b', 'Position: amend\nClaim-1: refuted\n', [draft, claim(1)]);
+
+    expect(readPanel([a, b])).toEqual({
+      panel: 'unanimous',
+      position: 'amend',
+      lenses: ['a', 'b'],
+    });
+  });
+
+  it('refuses an empty list rather than committing to nothing', () => {
+    expect(() => readJuror('a', 'Position: amend', [])).toThrow('at least one commitment');
+  });
+});
+
+describe('a list of one reads exactly as the bare commitment', () => {
+  const files = [
+    null,
+    '',
+    'Position: amend',
+    'Position: maybe',
+    'prose only',
+    'Position: amend\nPosition: reject',
+    'Position: proceed — and Position: proceed',
+  ];
+
+  it.each(files)('gives the same reading for %j', (text) => {
+    expect(readJuror('x', text, [draft])).toEqual(readJuror('x', text, draft));
+  });
+});

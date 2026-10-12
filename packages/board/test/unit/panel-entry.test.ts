@@ -164,3 +164,64 @@ describe('the usage line shows the comma form', () => {
     expect(errors.join('')).toContain('<a,b,c>');
   });
 });
+
+/** Runs `check` with a full argument list, capturing stdout and stderr. */
+const checkArgs = (args: string[], text: string) => {
+  const out: string[] = [];
+  const errors: string[] = [];
+  const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((s) => {
+    errors.push(String(s));
+    return true;
+  });
+  try {
+    const code = run(['check', ...args], text, (s) => out.push(s));
+    return { code, stdout: out.join(''), stderr: errors.join('') };
+  } finally {
+    stderr.mockRestore();
+  }
+};
+
+describe('check takes further label/positions pairs', () => {
+  const list = ['Position', 'proceed,amend,reject', 'j', 'Claim-1', 'supported,refuted', 'Claim-2', 'supported,refuted'];
+
+  it('commits on the first label when every pair is satisfied', () => {
+    const { code, stdout } = checkArgs(list, 'Position: amend\nClaim-1: supported\nClaim-2: refuted\n');
+
+    expect(code).toBe(EXIT.ok);
+    expect(stdout).toBe('committed\tj\tamend\n');
+  });
+
+  it('refuses a juror that omits Claim-2, once, naming it', () => {
+    const { code, stdout, stderr } = checkArgs(list, 'Position: amend\nClaim-1: supported\n');
+
+    expect(code).toBe(EXIT.refused);
+    expect(stdout).toContain("no 'Claim-2:' line");
+    expect(stderr).toContain("'Claim-2: <supported|refuted>'");
+    expect(stderr).toContain("'Position: <proceed|amend|reject>'");
+  });
+
+  it('refuses a dangling label with no positions as unusable arguments', () => {
+    const { code } = checkArgs([...list, 'Claim-3'], 'Position: amend\n');
+
+    expect(code).toBe(EXIT.usage);
+  });
+
+  it('refuses an unusable vocabulary on a further pair', () => {
+    const { code, stderr } = checkArgs(['Position', 'proceed,amend', 'j', 'Claim-1', 'a|b'], '');
+
+    expect(code).toBe(EXIT.usage);
+    expect(stderr).toContain("not '|'");
+  });
+
+  it('behaves as before with one pair', () => {
+    const single = checkArgs(['Position', 'proceed,amend,reject', 'j'], 'Position: amend\n');
+    const refused = checkArgs(['Position', 'proceed,amend,reject', 'j'], 'prose\n');
+
+    expect(single).toEqual({ code: EXIT.ok, stdout: 'committed\tj\tamend\n', stderr: '' });
+    expect(refused.code).toBe(EXIT.refused);
+    expect(refused.stderr).toBe("plot-panel: j must write 'Position: <proceed|amend|reject>'\n");
+    expect(refused.stdout).toBe(
+      "uncommitted\tj\tno 'Position:' line — Position: <proceed|amend|reject>\n",
+    );
+  });
+});

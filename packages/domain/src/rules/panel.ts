@@ -90,44 +90,24 @@ export type JurorReading =
   | { read: 'uncommitted'; lens: string; why: string }
   | { read: 'empty'; lens: string; why: string };
 
-/** The line a juror must write, as the prompt shows it. */
+/**
+ * The line a juror must write, as the prompt shows it.
+ *
+ * @param commitment - one required label.
+ * @returns `<Label>: <a|b|c>`.
+ */
 export const commitmentLine = (commitment: Commitment): string =>
   `${commitment.label}: <${commitment.positions.join('|')}>`;
 
 /**
- * Reads a juror's committed position out of its file.
- *
- * **THE GATE, AND IT IS THE PART THAT IS MORE THAN PARALLEL SUBAGENTS.**
- * Fan-out, file-writing and reconciliation all work perfectly with this absent:
- * the panel runs, produces N files and a summary, and looks finished. So the
- * absence of the gate is invisible at runtime, which is exactly why it is a
- * check rather than a sentence in a prompt. CLAUDE.md's own test applies — a
- * juror asked in prose to commit can answer "did I?" with yes without it being
- * true; a juror whose file is refused cannot.
- *
- * **THE LABEL IS MATCHED AT THE START OF A LINE.** A juror discussing the
- * rubric — "the Position line must name one of three words" — mentions the
- * label mid-sentence, and a substring match would read that as the commitment.
- * The measured shape of a hedge is prose, so prose must not be able to satisfy
- * the gate by quoting it.
- *
- * **A POSITION IS MATCHED WHOLE, CASE-INSENSITIVELY.** `reject` must not be
- * satisfied by `rejected-this-reading`, because the position is a word the
- * moderator counts rather than a string it searches.
+ * Reads one label's committed position out of a juror's file.
  *
  * @param lens - the persona whose file this is.
- * @param text - the file's contents, or `null` when nothing was written.
- * @param commitment - the shape the caller requires.
- * @returns the position, or why this file is not a verdict.
+ * @param text - the file's contents, never empty.
+ * @param commitment - the label and words required.
+ * @returns the position, or why this label is not committed.
  */
-export const readJuror = (
-  lens: string,
-  text: string | null,
-  commitment: Commitment,
-): JurorReading => {
-  if (text === null) return { read: 'empty', lens, why: 'wrote no file' };
-  if (text.trim() === '') return { read: 'empty', lens, why: 'wrote an empty file' };
-
+const readLabel = (lens: string, text: string, commitment: Commitment): JurorReading => {
   const label = commitment.label.toLowerCase();
   const claimed = text
     .split('\n')
@@ -172,6 +152,62 @@ export const readJuror = (
 };
 
 /**
+ * Reads a juror's committed position out of its file.
+ *
+ * **THE GATE, AND IT IS THE PART THAT IS MORE THAN PARALLEL SUBAGENTS.**
+ * Fan-out, file-writing and reconciliation all work perfectly with this absent:
+ * the panel runs, produces N files and a summary, and looks finished. So the
+ * absence of the gate is invisible at runtime, which is exactly why it is a
+ * check rather than a sentence in a prompt. CLAUDE.md's own test applies — a
+ * juror asked in prose to commit can answer "did I?" with yes without it being
+ * true; a juror whose file is refused cannot.
+ *
+ * **THE LABEL IS MATCHED AT THE START OF A LINE.** A juror discussing the
+ * rubric — "the Position line must name one of three words" — mentions the
+ * label mid-sentence, and a substring match would read that as the commitment.
+ * The measured shape of a hedge is prose, so prose must not be able to satisfy
+ * the gate by quoting it.
+ *
+ * **A POSITION IS MATCHED WHOLE, CASE-INSENSITIVELY.** `reject` must not be
+ * satisfied by `rejected-this-reading`, because the position is a word the
+ * moderator counts rather than a string it searches.
+ *
+ * **A LIST GATES EVERY LABEL AND READS THE FIRST.** Given several commitments
+ * the file must satisfy all of them. A committed reading carries the position
+ * of the first label only; a refusal names every label that failed, joined by
+ * `; `, so one send-back can repair them together. A caller that needs each
+ * label's own position calls this once per label.
+ *
+ * @param lens - the persona whose file this is.
+ * @param text - the file's contents, or `null` when nothing was written.
+ * @param commitment - the shape the caller requires: one label, or a non-empty list.
+ * @returns the first label's position, or why this file is not a verdict.
+ * @throws when `commitment` is an empty list.
+ */
+export const readJuror = (
+  lens: string,
+  text: string | null,
+  commitment: Commitment | readonly Commitment[],
+): JurorReading => {
+  const commitments: readonly Commitment[] = 'label' in commitment ? [commitment] : commitment;
+  if (commitments.length === 0) throw new Error('a panel needs at least one commitment');
+
+  if (text === null) return { read: 'empty', lens, why: 'wrote no file' };
+  if (text.trim() === '') return { read: 'empty', lens, why: 'wrote an empty file' };
+
+  const readings = commitments.map((c) => readLabel(lens, text, c));
+  const refused = readings.filter((r) => r.read !== 'committed');
+  if (refused.length === 0) return readings[0]!;
+  if (readings.length === 1) return refused[0]!;
+
+  return {
+    read: 'uncommitted',
+    lens,
+    why: refused.map((r) => (r as { why: string }).why).join('; '),
+  };
+};
+
+/**
  * What a panel amounts to once every juror has been read.
  *
  * **`refused` NAMES THE JURORS RATHER THAN COUNTING THEM**, because the action
@@ -201,6 +237,10 @@ export type PanelReading =
  * that started no juror; reporting it `unanimous` over zero positions is the
  * vacuous-truth reading, and it would report a panel that never ran as a panel
  * that agreed.
+ *
+ * **ONE READING PER JUROR, OVER THE FIRST LABEL.** A juror gated on several
+ * labels is read by {@link readJuror} as its first label, so a panel is
+ * reconciled over that label alone and the rest are gated, never folded.
  *
  * @param readings - one per juror.
  * @returns the refusals, the split, or the agreement.
