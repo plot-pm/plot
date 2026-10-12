@@ -100,6 +100,7 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
   process.stdout.write(JSON.stringify({
     number: state.number, state: state.state, isDraft: state.draft,
     url: 'https://example.invalid/pr/' + state.number, mergeCommit: null,
+    headRefOid: state.headSha ?? null,
   }));
 } else if (argv[0] === 'pr' && argv[1] === 'ready') {
   // TAKING A PR OUT OF DRAFT, modelled as the host really behaves: the flag
@@ -327,6 +328,72 @@ test('approve: a Design plan refuses under PLOT_UNATTENDED=1 with the Design wor
   assert.match(err, /Design phase/, err);
   assert.match(err, /D10/, err);
   assert.notEqual(hostState().state, 'MERGED');
+});
+
+// --- the spike's channels (design-work-proves-the-path, Acceptance) ---------
+//
+// A Design plan on `Review: pr` whose plan PR already merged still owes a
+// person. Three routes reach the bundle: the bundle itself, the board-free
+// route (an unowned-action receipt, then the bundle), and the board's script
+// arm, which runs the bundle with the slug alone and PLOT_APPROVE_ENTRY=board
+// (packages/board/src/server/approve.ts). Each refuses with and without the
+// spike markers, which the arm never reads.
+
+const SPIKE_MARKED = PLAN({ phase: 'Design' })
+  .replace('- **Started:**', '- **Spike approved:** 2026-10-01, jwloka, in-session\n- **Started:**')
+  .replace('`feature/alpha` — the first', '`feature/alpha` <!-- spike --> — the first');
+
+const receiptScript = path.join(SCRIPTS, 'plot-state-receipt.sh');
+
+test('approve: a Design plan with a merged plan PR refuses with no --who on every route, with and without the spike markers', () => {
+  for (const [label, body] of [['marked', SPIKE_MARKED], ['unmarked', PLAN({ phase: 'Design' })]]) {
+    const routes = {
+      bundle: () => run(['approve-me'], { expectFail: true }),
+      'board-free': () => {
+        execFileSync('bash', [receiptScript, '--unowned-action', 'approve', 'approve-me', 'test: no board'], {
+          cwd: repo,
+          stdio: 'pipe',
+        });
+        return run(['approve-me'], { expectFail: true });
+      },
+      'script arm': () => run(['approve-me'], { expectFail: true, env: { PLOT_APPROVE_ENTRY: 'board' } }),
+    };
+    for (const [route, attempt] of Object.entries(routes)) {
+      makeRepo(body);
+      assert.equal(/Spike approved:/.test(body) && /<!-- spike -->/.test(body), label === 'marked');
+      setHostState({ number: 42, state: 'MERGED', draft: false });
+      const { code, err } = attempt();
+      assert.equal(code, 1, `${label} / ${route}`);
+      assert.match(err, /Design phase/, `${label} / ${route}: ${err}`);
+      assert.match(err, /--who/, `${label} / ${route}: ${err}`);
+      refreshMain();
+      assert.match(planOnMain(), /- \*\*Phase:\*\* Design/, `${label} / ${route}: nothing may be written`);
+    }
+  }
+});
+
+test('approve: a Design plan with a merged plan PR approves with a declared --who and records in-session', () => {
+  makeRepo(PLAN({ phase: 'Design' }));
+  setHostState({ number: 42, state: 'MERGED', draft: false });
+  const { code, out } = run(['approve-me', '--who', 'jwloka']);
+  assert.equal(code, 0, out);
+  refreshMain();
+  const plan = planOnMain();
+  assert.match(plan, /- \*\*Phase:\*\* Approved/, plan);
+  assert.match(plan, /- \*\*Approved:\*\* \d{4}-\d{2}-\d{2}, jwloka, in-session/, plan);
+  const calls = fs.readFileSync(path.join(stubDir, 'calls.log'), 'utf8');
+  assert.doesNotMatch(calls, /pr merge/, 'an already-merged PR is not merged again');
+});
+
+test('approve: a Design plan with an open plan PR and --who merges it pinned to the PR head', () => {
+  const head = 'c0ffee'.padEnd(40, '0');
+  makeRepo(PLAN({ phase: 'Design' }));
+  setHostState({ number: 42, state: 'OPEN', draft: false, headSha: head });
+  const { code, out } = run(['approve-me', '--who', 'jwloka']);
+  assert.equal(code, 0, out);
+  assert.equal(hostState().state, 'MERGED');
+  const calls = fs.readFileSync(path.join(stubDir, 'calls.log'), 'utf8');
+  assert.match(calls, new RegExp(`^gh .*pr merge 42 .*--match-head-commit ${head}`, 'm'), calls);
 });
 
 test('approve: a Draft plan on Review: pr still needs no --who', () => {

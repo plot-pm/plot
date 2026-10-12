@@ -19,7 +19,7 @@ describe('approvalArm', () => {
     expect(approvalArm({ phase: 'draft', review: 'in-session' })).toBe('person');
   });
 
-  it('answers pr for an unrecognised review: the workflow refuses it by its own rule', () => {
+  it('answers pr for an unrecognised review on a Design plan', () => {
     expect(approvalArm({ phase: 'design', review: 'vote' })).toBe('pr');
   });
 });
