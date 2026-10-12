@@ -5,6 +5,8 @@ import {
   autoVerify,
   failuresSinceSuccess,
   recordVerifyFailure,
+  settleVerifyRun,
+  settleVerifyRuns,
   verificationRow,
   verifyHalted,
   verifyStart,
@@ -25,6 +27,7 @@ const input = (over: Partial<VerifyStartInput> = {}): VerifyStartInput => ({
   machineOverride: false,
   held: [],
   going: new Set(),
+  handRun: false,
   store: EMPTY,
   now: 1_000_000,
   ...over,
@@ -62,9 +65,24 @@ describe('verifyStart', () => {
     expect(verifyStart(input({ held: [held('waits'), held('no-brief')] }))).toEqual({ start: true });
   });
 
-  it('names running for the same plan only', () => {
+  it('names running while any verify run is going, for this plan or another', () => {
     expect(verifyStart(input({ going: new Set(['ship-it']) }))).toEqual({ start: false, reason: 'running' });
-    expect(verifyStart(input({ going: new Set(['another-plan']) }))).toEqual({ start: true });
+    expect(verifyStart(input({ going: new Set(['another-plan']) }))).toEqual({ start: false, reason: 'running' });
+  });
+
+  it("names hand-run for a plan whose trees a person's run holds", () => {
+    expect(verifyStart(input({ handRun: true }))).toEqual({ start: false, reason: 'hand-run' });
+  });
+
+  it('names queue-unread while no queue pass has been read', () => {
+    expect(verifyStart(input({ held: null }))).toEqual({ start: false, reason: 'queue-unread' });
+  });
+
+  it('names waiting inside the delay after a failure', () => {
+    const f = recordVerifyFailure(undefined, 'abc1234', 1_000_000);
+    const store: VerifyStore = { failures: { 'ship-it': f }, failedAt: [1_000_000], lastSuccessAt: 0 };
+    expect(verifyStart(input({ store, now: 1_000_001 }))).toEqual({ start: false, reason: 'waiting' });
+    expect(verifyStart(input({ store, now: 1_060_000 }))).toEqual({ start: true });
   });
 
   it('names tracer', () => {
@@ -138,11 +156,91 @@ describe('verificationRow', () => {
     expect(row?.reason).toContain('the fleet is halted on verification failures');
   });
 
+  it('names both a stopped plan and a halted fleet when both hold', () => {
+    let f = recordVerifyFailure(undefined, 'abc1234', 1);
+    f = recordVerifyFailure(recordVerifyFailure(f, 'abc1234', 2), 'abc1234', 3);
+    const store: VerifyStore = { failures: { 'ship-it': f }, failedAt: [1, 2, 3], lastSuccessAt: 0 };
+    const row = verificationRow('ship-it', 'abc1234', store, 'l', 1_000_000);
+    expect(row).toMatchObject({ stopped: true, fleetHalted: true });
+    expect(row?.reason).toBe(
+      'verification failed 3 times; the fleet stopped retrying this plan; the fleet is halted on verification failures',
+    );
+  });
+
   it('returns null for no record or a record under another delivery commit', () => {
     const f = recordVerifyFailure(undefined, 'abc1234', 100);
     const store: VerifyStore = { failures: { 'ship-it': f }, failedAt: [100], lastSuccessAt: 0 };
     expect(verificationRow('other', 'abc1234', store, 'l', 1)).toBeNull();
     expect(verificationRow('ship-it', 'def5678', store, 'l', 1)).toBeNull();
+  });
+});
+
+describe('settleVerifyRun', () => {
+  const plan = { deliveryCommit: 'abc1234', verified: false };
+
+  it('is a success when the default branch holds a current record for the judged commit', () => {
+    expect(settleVerifyRun(0, 'abc1234', { ...plan, verified: true })).toEqual({ settle: 'success' });
+    expect(settleVerifyRun(null, 'abc1234', { ...plan, verified: true })).toEqual({ settle: 'success' });
+  });
+
+  it('is a failure on the time bound, on a non-zero exit, and on a clean exit with no record', () => {
+    expect(settleVerifyRun(124, 'abc1234', plan)).toEqual({ settle: 'failure', why: 'the run reached Worker bound' });
+    expect(settleVerifyRun(2, 'abc1234', plan)).toEqual({ settle: 'failure', why: 'the run exited 2' });
+    expect(settleVerifyRun(0, 'abc1234', plan)).toEqual({ settle: 'failure', why: 'the run left no record' });
+    expect(settleVerifyRun(null, 'abc1234', plan)).toEqual({ settle: 'failure', why: 'the run left no record' });
+  });
+
+  it('is gone, neither success nor failure, for a plan that left Delivered or was delivered again', () => {
+    expect(settleVerifyRun(0, 'abc1234', null)).toEqual({ settle: 'gone', why: 'the plan no longer reads Delivered' });
+    expect(settleVerifyRun(1, 'abc1234', { ...plan, deliveryCommit: 'def5678' })).toEqual({
+      settle: 'gone',
+      why: 'the plan was delivered again',
+    });
+  });
+});
+
+describe('settleVerifyRuns', () => {
+  const plans = (entries: Record<string, { deliveryCommit: string; verified: boolean }>) => new Map(Object.entries(entries));
+
+  it('records a failure under the judged commit and adds it to failedAt', () => {
+    const out = settleVerifyRuns(EMPTY, [{ slug: 'a', commit: 'c1', code: 1 }], plans({ a: { deliveryCommit: 'c1', verified: false } }), new Set(), 50);
+    expect(out.store.failures.a).toEqual({ count: 1, lastAt: 50, reading: 'c1' });
+    expect(out.store.failedAt).toEqual([50]);
+    expect(out.settled).toEqual([{ slug: 'a', settlement: { settle: 'failure', why: 'the run exited 1' } }]);
+  });
+
+  it('clears the plan and the halt on a success', () => {
+    const before: VerifyStore = { failures: { a: { count: 2, lastAt: 9, reading: 'c1' } }, failedAt: [7, 8, 9], lastSuccessAt: 0 };
+    expect(verifyHalted(before)).toBe(true);
+    const out = settleVerifyRuns(before, [{ slug: 'a', commit: 'c1', code: 0 }], plans({ a: { deliveryCommit: 'c1', verified: true } }), new Set(), 50);
+    expect(out.store).toEqual({ failures: {}, failedAt: [], lastSuccessAt: 50 });
+    expect(verifyHalted(out.store)).toBe(false);
+  });
+
+  it('changes nothing for a run whose plan left Delivered', () => {
+    const out = settleVerifyRuns(EMPTY, [{ slug: 'a', commit: 'c1', code: 0 }], plans({}), new Set(), 50);
+    expect(out.store).toEqual(EMPTY);
+    expect(out.settled[0]?.settlement.settle).toBe('gone');
+  });
+
+  it("counts a person's record as a success that clears the failure and lifts the halt", () => {
+    const before: VerifyStore = { failures: { a: { count: 3, lastAt: 9, reading: 'c1' } }, failedAt: [7, 8, 9], lastSuccessAt: 0 };
+    const out = settleVerifyRuns(before, [], plans({ a: { deliveryCommit: 'c1', verified: true } }), new Set(), 50);
+    expect(out.store).toEqual({ failures: {}, failedAt: [], lastSuccessAt: 50 });
+    expect(out.settled).toEqual([{ slug: 'a', settlement: { settle: 'success' } }]);
+  });
+
+  it('keeps the failure of a plan with no record, or with a run still going', () => {
+    const before: VerifyStore = { failures: { a: { count: 1, lastAt: 9, reading: 'c1' }, b: { count: 1, lastAt: 9, reading: 'c2' } }, failedAt: [9, 9], lastSuccessAt: 0 };
+    const out = settleVerifyRuns(
+      before,
+      [],
+      plans({ a: { deliveryCommit: 'c1', verified: false }, b: { deliveryCommit: 'c2', verified: true } }),
+      new Set(['b']),
+      50,
+    );
+    expect(out.store).toEqual(before);
+    expect(out.settled).toEqual([]);
   });
 });
 

@@ -43,7 +43,7 @@ import { headroomFor } from '@plot-pm/domain/entities/machine';
 import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer } from '@plot-pm/domain/ports/host';
-import type { PortResult } from '@plot-pm/domain';
+import type { HeldSlice, PortResult } from '@plot-pm/domain';
 import { landed, type LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { viewLanded } from '@plot-pm/domain/rules/known-pr';
 import { checkNamesOf, checksWaitMsOf, defaultBranchRed } from '@plot-pm/domain/rules/default-branch';
@@ -2074,6 +2074,9 @@ export const run = async (
   if (!args.once) await bindChannelSlot(slot, () => startFleetChannel(repoRoot, warn, openChannel), overChannel);
   // A LATER BEAT RETRIES A FAILED BIND, silently: the start warned once, and a
   // live process holding the path would otherwise warn on every beat.
+  // THE QUEUE'S LAST HOLDS, for the verify pass on the scan clock. `null`
+  // until a tick completes, and after one that did not: no reading holds nothing back.
+  const queueHolds: { held: readonly HeldSlice[] | null } = { held: null };
   const retryBind = args.once
     ? undefined
     : () => bindChannelSlot(slot, () => startFleetChannel(repoRoot, () => undefined, openChannel), overChannel);
@@ -2099,7 +2102,7 @@ export const run = async (
           () => prState.prError,
           // THE AUTOMATIC WRITES RUN HERE, on the pulse this scan just wrote
           // and never inside `tick`: a scan that failed calls nothing.
-          fleetAutoWrites({ repoRoot, scriptsDir, scripts }, warn),
+          fleetAutoWrites({ repoRoot, scriptsDir, scripts }, warn, () => queueHolds.held),
         ),
         prs: prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind),
       }, warn);
@@ -2205,6 +2208,7 @@ export const run = async (
     if (report.incomplete === '') {
       report = { ...report, spend: await spendForTick(scripts, tally.calls, args.intervalMs) };
     }
+    queueHolds.held = report.incomplete === '' && report.handOver !== null ? report.handOver.detail.held : null;
     const code = reportTick(report, write, warn, !args.once);
     // THE ONE CHANNEL TO THE BOARD, written beside the log and for the same
     // reason: the tick's judgement is worth nothing to an operator that cannot
