@@ -289,15 +289,12 @@ export async function handleApprove(
   }
 
   // `"spike": true` approves the plan's spike branch alone, a mode of this
-  // action. It runs the script arm only: the configured `Approve command` hands
-  // the agent a prompt that names no spike.
+  // action. It runs the script arm whatever `Approve command` says: the
+  // configured command hands the agent a prompt that names no spike, and a
+  // person approves a spike on every channel, which an unattended agent
+  // refuses. `agentArm` is therefore false for every spike request.
   const spike = (body as { spike?: unknown })?.spike === true;
-  if (spike && command) {
-    json(409, {
-      error: `the configured Approve command cannot approve a spike alone — remove the 'Approve command' key so the board runs plot-approve.sh --spike directly, or run: plot-approve.mjs --spike --who <handle> ${slug}`,
-    });
-    return;
-  }
+  const agentArm = command !== '' && !spike;
 
   // THE BOARD PASSES NO NAME OF ITS OWN. No config key or server field names
   // the operator, so the person who clicks supplies `who` — and the domain
@@ -320,7 +317,7 @@ export async function handleApprove(
   // The script arm (no `Approve command`) needs no such check:
   // `plot-approve.sh --who` performs the write itself and refuses on its own
   // terms if `who` is empty or undeclared.
-  if (approveCommand(opts)) {
+  if (agentArm) {
     const facts = readPlanFacts(opts, slug);
     if (facts !== null && ['', 'none', 'unknown'].includes(facts.phase.trim().toLowerCase())) {
       json(409, {
@@ -378,7 +375,7 @@ export async function handleApprove(
   // these same plugin hooks and runs from the repository root, so the approve
   // agent's own script call is gated exactly as a master agent's is.
   recordActionReceipt(opts.repoRoot, 'approve', slug);
-  if (command) {
+  if (agentArm) {
     fs.closeSync(out);
     // A REFUSED OUTCOME IS NOT DONE. `startBoardRun` records `outcome:
     // 'refused'` as code 1 with the summary, so the card reports the refusal;
