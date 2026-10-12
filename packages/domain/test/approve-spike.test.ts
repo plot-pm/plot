@@ -64,6 +64,18 @@ describe('approveSpike — the writes', () => {
     }
   });
 
+  it('pushes to the work branch and merges nothing for a plan that rides it', () => {
+    const out = approveSpike(readings({ impl: 'same-branch' }), input());
+    expect(decided(out) && out.writes.map((w) => w.kind)).toEqual(['plan-record', 'hold-clear', 'commit', 'push']);
+    expect(decided(out) && out.writes[3]).toEqual({ kind: 'push', branch: '', onto: '' });
+  });
+
+  it('reads absent slices and an absent record as none', () => {
+    const { slices: _slices, spikeApprovedRecord: _record, ...rest } = readings();
+    const out = approveSpike(rest, input());
+    expect(refused(out) && out.reason).toBe('spike-none');
+  });
+
   it('marks a draft PR ready before it merges', () => {
     const out = approveSpike(readings({ pr: { number: 42, state: 'OPEN', draft: true, branch: 'idea/a-plan' } }), input());
     expect(decided(out) && out.writes.map((w) => w.kind).slice(0, 2)).toEqual(['pr-ready', 'pr-merge']);
@@ -110,6 +122,18 @@ describe('approveSpike — the refusals', () => {
     expect(reason(readings({ review: 'mystery' }))).toBe('review-unrecognised');
   });
 
+  it('refuses a missing, unparseable or unreadable plan', () => {
+    expect(reason(readings({ file: '' }))).toBe('plan-not-found');
+    expect(reason(readings({ parsed: false }))).toBe('plan-unparseable');
+    expect(reason(readings({ phase: '' }))).toBe('state-unreadable');
+    expect(reason(readings({ phase: 'NONE' }))).toBe('state-unreadable');
+  });
+
+  it('reads an empty Review: answer as a plan-PR channel', () => {
+    const out = approveSpike(readings({ review: '' }), input());
+    expect(decided(out) && out.writes.map((w) => w.kind)[0]).toBe('pr-merge');
+  });
+
   it('refuses a closed or absent PR and a rival PR', () => {
     expect(reason(readings({ pr: { number: 42, state: 'CLOSED', draft: false, branch: 'x' } }))).toBe('pr-closed');
     expect(reason(readings({ pr: { number: 0, state: 'NONE', draft: false, branch: 'x' } }))).toBe('pr-absent');
@@ -122,6 +146,22 @@ describe('approveSpike — the refusals', () => {
       { on: 'd', who: 'jwloka', channel: 'c', people: ['jwloka'], slices: SPIKE },
     );
     expect(out.outcome).toBe('decided');
+  });
+
+  it('refuses a transition whose phase is unreadable', () => {
+    const out = transition(
+      { slug: 'x', phase: 'none', review: 'pr', approvedRecord: '', deliveredRecord: '', releasedRecord: '' },
+      { on: 'd', who: 'jwloka', channel: 'c', people: ['jwloka'], slices: SPIKE },
+    );
+    expect(out.outcome === 'refused' && out.reason).toBe('state-unreadable');
+  });
+
+  it('refuses a transition whose reading is unmet', () => {
+    const out = transition(
+      { slug: 'x', phase: 'design', review: 'pr', approvedRecord: '', deliveredRecord: '', releasedRecord: '' },
+      { on: 'd', who: 'jwloka', channel: 'c', people: ['jwloka'], slices: SPIKE, preconditions: [{ name: 'pr-open', met: false }] },
+    );
+    expect(out.outcome === 'refused' && out.reason).toBe('precondition-unmet');
   });
 });
 
@@ -155,6 +195,13 @@ describe('the Spike approved gate', () => {
     expect(of(plan('a'), plan('b'))).toHaveLength(1);
     expect(of(plan('a'), plan(''))).toHaveLength(1);
     expect(of(plan('a'), plan('a'))).toEqual([]);
+  });
+
+  it('names the deleted same-slug plan a renamed record came from', () => {
+    const old = 'docs/plans/2026-10-11-x.md';
+    const t = spikeTransitionOf(path, 'plan', null, plan('d, w, c'), { path: old, head: plan('') });
+    expect(t).toMatchObject({ before: '', after: 'd, w, c', renamedFrom: old });
+    expect(spikeTransitionOf(path, 'plan', plan(''), plan('d, w, c'), { path: old, head: plan('') })).not.toHaveProperty('renamedFrom');
   });
 
   it('keeps the State receipt key and the spike key apart', () => {
