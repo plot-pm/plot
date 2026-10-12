@@ -22,6 +22,8 @@ For docs/infra work, this is the end — live when merged. For features/bugs, `/
 
 Example: `/plot-deliver sse-backpressure`
 
+**`--verify <slug> [--at <sha>]`** judges a plan that is already Delivered instead of delivering one. See [Verify mode](#verify-mode); steps 1-9 do not run in it.
+
 <!-- keep in sync with plot/SKILL.md Setup -->
 ## Setup
 
@@ -45,6 +47,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 7-8. Deliver and Board Status | Small | File ops, git commands, board sync; the phase edit plus the `Delivered:` record are the transition, the index write is best-effort; the issue status write is one script call inside `plot-deliver.sh`, reported and never gating |
 | 7b. Delivery-Landed Gate | Small | Run the reconcile scan, grep for the delivered plan; gate progression on the real grep result |
 | 9. Summary | Small | Template formatting |
+| Verify mode | Frontier (orchestrator + jurors) + Small (the preflight, the gate, the record) | Judging each numbered claim as supported or refuted is the same judgment as step 5's panel; the phase and tracer refusals, `plot-verify.mjs` and the per-label `check` calls are script calls an exit code decides |
 
 Step 5 is the prime example of subagent delegation: a frontier orchestrator handles the judgment (extracting deliverables, consolidating Done/Partial/Missing), while the jurors handle the evidence in parallel. Without subagents, the frontier model does everything sequentially.
 
@@ -547,3 +550,65 @@ Print:
   - If feature/bug: "Run `/plot-release` when ready to cut a versioned release."
   - If docs/infra: "Live on main — no release needed."
 - Tip: Run `/plot` to see overall status and what to do next
+
+## Verify mode
+
+`/plot-deliver --verify <slug> [--at <sha>]` judges the claims of a plan that is already Delivered, at the commit that delivered it or at `--at`, and records the result. It delivers nothing, releases no ref and touches no `State:` line. The fleet starts the same run through `Verify command`; both read this section from the **tools tree** (`origin/<default branch>`, fetched by `prepare`), never from an installed copy or from the pinned tree.
+
+Steps 1-9 do not run in Verify mode. Two of them are reused with different inputs: step 2's phase check runs inverted (below) and step 5's panel runs with a per-claim commitment list.
+
+### V1. Check the phase
+
+Resolve the slug to its plan file as step 2 does, then read the file's phase with `plot-plan-meta.sh`. Step 2 refuses everything but Approved; this step refuses everything but Delivered:
+
+- `Approved`: stop. "Not delivered yet. Run `/plot-deliver <slug>`."
+- `Draft` or earlier: stop. "Not approved. Run `/plot-reject <slug>` first if it was delivered in error."
+- `Released`: stop. A released plan is no longer verified here.
+- `Delivered`: continue.
+
+### V2. Refuse a tracer plan
+
+A plan with `Tracer: yes` is never verified (decisions D5 and D14); `verificationOf` reads it as `unverified` whatever it carries. Stop here, before `prepare`, so the preparer does not make the same check a second time:
+
+```bash
+../plot/scripts/plot-plan-meta.sh "$PLAN_FILE" | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("tracer") else 1)' && echo "tracer: not verified"
+```
+
+### V3. Prepare the trees
+
+```bash
+node skills/plot/scripts/board/plot-verify.mjs prepare <slug> [--at <sha>]
+```
+
+`prepare` builds `tools/` and `pin/` under `.plot/state/verify/<slug>/`, installs dependencies in `pin/`, and prints a `summary:` line with the judged commit. Exit 1 is a refusal that names its reason (`fetch-failed`, `tools-unavailable`, `pin-not-found`, `install-failed`); stop and report it. From here every command comes from the `tools/` tree. `--at <sha>` changes the judged commit, and the record's "judged at" field names it.
+
+### V4. Read the claims
+
+```bash
+node .plot/state/verify/<slug>/tools/skills/plot/scripts/board/plot-verify.mjs claims <slug> <judged sha>
+```
+
+The command prints one numbered line per claim. N is the number of lines. A plan with no claims stops the run: there is nothing to judge.
+
+### V5. Run the panel
+
+Call [`/plot-panel`](../plot-panel/SKILL.md) with the plan as Subject, the step 5 lenses, the step 5 rubric, and **Prefix `verify-`**. The Commitment is a list of labels:
+
+```
+Position, Evidence, Claim-1, Claim-2, …, Claim-N
+```
+
+`Position` takes `supported|refuted`, `Evidence` takes `executed|read`, and each `Claim-<n>` takes `supported|refuted`. Each juror commits to every label in its file, runs from the `pin/` tree, and judges each claim by trying to refute it. `/plot-panel` gates the list with one `check` call per label per juror and sends a refused juror back once; this step implements none of that. Without `skills/plot-panel/` the run stops: a verification no lens questioned records nothing.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** run the panel. The daemon path exists for this.
+> `PLOT-UNASKED: Run the verification panel? — default — panel run, record written`
+
+### V6. Record
+
+```bash
+node .plot/state/verify/<slug>/tools/skills/plot/scripts/board/plot-verify.mjs record <slug>
+```
+
+`record` folds the juror files into one verdict per claim, books the `Verified:` line and the `## Verification` section through a booking worktree, and removes the trees. A juror file that names no position for a claim refuses the fold and writes no record. Print the `summary:` line it produced, which names the number of claims and the number refuted.
+
+Verify mode opens no issue for a refuted claim; that is a later step of the estate.
