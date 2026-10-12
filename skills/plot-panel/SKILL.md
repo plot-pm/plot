@@ -63,7 +63,7 @@ A caller supplies the first four of these; **Prefix** is optional. Nothing here 
 | **Lenses** | The personas, one per juror. The caller chooses how many |
 | **Commitment** | A list of one or more `label` + words pairs. A juror must commit to every label. Only the **first** is reconciled |
 | **Rubric** | The questions every juror answers, identical across lenses |
-| **Prefix** | Optional. Put before each file name (`verify-<lens>.md`, `verify-panel.md`), so a second round on one plan never overwrites the first. Defaults to none |
+| **Prefix** | Optional. Put before each file name, the moderation included (`verify-<lens>.md`, `verify-panel.md`), so a prefixed round never overwrites an unprefixed one. Two rounds with the same prefix write the same files. Defaults to none |
 
 **How many jurors is the caller's choice, and the mechanism takes N.** Four lenses is a guess nobody has measured; the first real number comes from running it. Do not hardcode one.
 
@@ -104,7 +104,7 @@ mkdir -p "$PANEL"
 
 **Verdict files are tracked, not machine-local.** `.plot/state/` is git-ignored and reaped with the desk (`.gitignore:30`); `.plot/panels/` is tracked. A panel's reasoning is an artifact a person reads a week later, and this repo has measured the alternative repeatedly: an observation that exists only in one agent's context dies with it.
 
-> **Unattended (`PLOT_UNATTENDED=1`):** nothing to ask — the caller supplied every parameter. If one is missing, refuse; a panel run with a guessed commitment validates against a vocabulary nobody chose.
+> **Unattended (`PLOT_UNATTENDED=1`):** nothing to ask — the caller supplied every parameter. If one of the four required parameters is missing, refuse; Prefix defaults to none. A panel run with a guessed commitment validates against a vocabulary nobody chose.
 > `PLOT-UNASKED: Which commitment shape should the jurors use? — refused — no panel run, the caller must name it`
 
 ### 2. Fan out the jurors
@@ -159,7 +159,7 @@ printf '%s\n' "${READINGS[@]}" | node skills/plot/scripts/board/plot-panel.mjs r
 
 It answers `unanimous`, `divided` (naming each position and who holds it), or `refused`. Each reading carries the **first** label's position; the other labels were gated in step 3 and are not reconciled.
 
-Then **write the moderation** to `.plot/panels/<subject>/panel.md`. This is judgment and the script does none of it:
+Then **write the moderation** to `.plot/panels/<subject>/<prefix>panel.md`. This is judgment and the script does none of it:
 
 - **Name the disagreements. Never average them.** Two jurors saying `amend` and one saying `reject` is not "mostly amend" — it is a disagreement about whether a named problem is fatal, and the moderation's job is to say what that problem is. A number replaces the one thing a reader needs.
 - **A unanimous panel is reconciled too.** The mechanism reports unanimity and does not skip the moderator, because **a moderator reading four agreements is how a shared blind spot gets named**. Four jurors who all read the same plan and all missed the same thing agree perfectly. Ask what the lenses had in common before accepting what they concluded.
