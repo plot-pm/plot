@@ -182,14 +182,19 @@ test('state gate: an owning script’s receipt clears the transition', () => {
   assert.equal(r.status, 0, `the owner must pass (stderr: ${r.stderr})`);
 });
 
-// Draft -> Design is a person's move, and `plot-needs-design.mjs` leaves the
-// receipt through the same `recordStateReceipt` shape the owners above use.
-test('state gate: Draft -> Design passes with the needs-design bundle’s receipt', () => {
+// Draft -> Design is a person's move. `plot-needs-design.mjs` writes its receipt
+// with the TypeScript `recordStateReceipt` in `entry/ladder.ts`, so this case
+// calls that writer, not the shell `record_state_receipt` the owners above use.
+test('state gate: Draft -> Design passes with the needs-design bundle’s receipt', async () => {
+  const { recordStateReceipt } = await import(
+    path.join(here, '..', '..', 'packages', 'board', 'src', 'server', 'entry', 'ladder.ts')
+  );
   const dir = repo({
     committed: { 'docs/plans/2026-01-01-x.md': plan('Draft') },
     files: { 'docs/plans/2026-01-01-x.md': plan('Design') },
   });
-  recordReceipt(dir, 'docs/plans/2026-01-01-x.md', 'Design');
+  recordStateReceipt(dir, 'docs/plans/2026-01-01-x.md', 'Design');
+  assert.ok(existsSync(path.join(dir, '.plot', 'state', 'state-receipts')), 'the bundle writer left a receipt');
   const r = run(dir);
   assert.equal(r.status, 0, `the bundle's receipt must pass (stderr: ${r.stderr})`);
 });
