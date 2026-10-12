@@ -6,6 +6,7 @@ import {
   receiptOf,
   spikeApprovalOf,
   spikeReceiptKey,
+  spikeTransitionOf,
   stateTransitionRefusal,
   stateTransitionsOf,
 } from '../src/rules/state-transition.js';
@@ -94,6 +95,13 @@ describe('approveSpike — the refusals', () => {
     expect(reason(readings(), input({ who: 'stranger' }))).toBe('reviewer-undeclared');
   });
 
+  it('refuses an unreadable state, a missing plan and an unparseable plan', () => {
+    expect(reason(readings({ phase: '' }))).toBe('state-unreadable');
+    expect(reason(readings({ phase: 'NONE' }))).toBe('state-unreadable');
+    expect(reason(readings({ file: '' }))).toBe('plan-not-found');
+    expect(reason(readings({ parsed: false }))).toBe('plan-unparseable');
+  });
+
   it('requires a person on every review channel, ballot included', () => {
     for (const review of ['pr', 'NONE', 'in-session', 'ballot']) {
       expect(reason(readings({ review }), input({ who: '' }))).toBe('review-human');
@@ -127,6 +135,13 @@ describe('the Spike approved gate', () => {
     committed: committed === null ? null : { text: committed, link: false },
   });
   const of = (head: string | null, committed: string | null) => stateTransitionsOf([read(head, committed)], 'docs/plans/', 'docs/sprints/');
+
+  it('reads a spike record carried by a rename as an addition from the deleted file', () => {
+    const renamed = { path: 'docs/plans/2026-10-11-x.md', head: plan('') };
+    const moved = spikeTransitionOf(path, 'plan', null, plan('d, w, c'), renamed);
+    expect(moved).toMatchObject({ before: '', after: 'd, w, c', renamedFrom: renamed.path });
+    expect(spikeTransitionOf(path, 'plan', null, plan('d, w, c'))).not.toHaveProperty('renamedFrom');
+  });
 
   it('reads the record', () => {
     expect(spikeApprovalOf(plan('2026-10-12, jwloka, in-session'))).toBe('2026-10-12, jwloka, in-session');
