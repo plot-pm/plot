@@ -100,6 +100,9 @@ const WRITE_ROUTES = [
   // the same and gated by the same loopback boundary: releasing a branch's
   // claim must not be reachable by a phone reading the board over Tailscale.
   { path: '/api/release-claim', body: { branch: 'feature/x' } },
+  // Needs design moves a Draft plan to Design: it writes `State:` and pushes, so it
+  // is gated by the same loopback boundary as /api/approve.
+  { path: '/api/needs-design', body: { slug: 'ship-the-widget' } },
 ];
 
 /** Give a spawn that should NOT have happened time to leave its mark. */
