@@ -116,7 +116,8 @@ const controlsFor = (over: Partial<CardInput>): CardControls => {
   const phase = over.phase ?? CARD_DEFAULTS.phase;
   const state = phase === 'Discovery' || phase === 'Design' ? 'draft' : 'approved';
   const status = phase === 'Development' ? 'approved' : 'draft';
-  return cardControls({ state, status, started: over.started ?? false });
+  // An absent `started` reads as started: the old predicate demanded an explicit false.
+  return cardControls({ state, status, started: over.started !== false });
 };
 
 export const card = (over: Partial<CardInput> = {}): Card =>
