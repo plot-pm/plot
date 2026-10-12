@@ -51,8 +51,9 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 2. Read Ceremony Bounds | Small | plot-config.sh reads, hard gates are mechanical |
 | 3. Pre-flight Checks | Small (hard gate), Mid (soft warning + deliverable search) | Slug collision is mechanical, and reads the plan directory rather than the index so a missing symlink cannot bypass the gate; title similarity needs mid-tier. The deliverable search is a script call at Small, but naming the artifact and judging whether a candidate is the same thing is Mid |
 | 4. Answer the Ceremony Questions | Mid | Weight assessment + recommendation; smaller models ask instead of recommending |
-| 5-8. Create the Plan through Board Status | Small | Git/host commands, template resolution, file ops; the plan file is staged before the best-effort index link |
-| 9. Summary | Small | Template formatting |
+| 5. Ask the Design Question | Mid | A Mid model recommends an answer from the plan's weight; a Small model asks. The unattended default is mechanical |
+| 6-9. Create the Plan through Board Status | Small | Git/host commands, template resolution, file ops; the plan file is staged before the best-effort index link |
+| 10. Summary | Small | Template formatting |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
 >
@@ -118,7 +119,7 @@ TRACKER=$(../plot/scripts/plot-config.sh get "Tracker" "plot")
 - **`Plan PRs: never`** → no idea branch and no plan PR, ever (typical: a
   knowledge/workspace repo where everything lands on the default branch
   directly). The `Review:` answer cannot be `pr`; proceed with the direct
-  flow in step 5.
+  flow in step 6.
 
 If no posture keys are declared at all, behave as before (PR flow
 available) and — once per repo, not per plan — suggest declaring them:
@@ -189,7 +190,7 @@ available) and — once per repo, not per plan — suggest declaring them:
 > deliverables: a plan citing `readingLoss` to say *"unlike `readingLoss`"* is
 > not duplicating it. The author names the artifact, and the answer is recorded
 > in the plan as a `<!-- builds: ... -->` annotation on the slice's branch line
-> in step 5, where the next reader can see what this plan claimed to build.
+> in step 6, where the next reader can see what this plan claimed to build.
 
 > **Smaller models:** Skip the title similarity check. Enforce the hard gate (identical slug) only. Ask the user: "Could not check for similar plan titles. Please verify manually that this doesn't overlap with existing plans." Still run the deliverable search — it is a script call whose output is read, not judged.
 
@@ -197,7 +198,7 @@ available) and — once per repo, not per plan — suggest declaring them:
 
 Every plan records two independent answers (Manifesto Principle 10).
 Decide them now — within the bounds from step 2 — and record them in the
-plan's `## Status` block in step 5. Never re-derive them downstream; the
+plan's `## Status` block in step 6. Never re-derive them downstream; the
 recorded answers drive `/plot-approve`, `/plot-implement`, and
 `/plot-deliver`.
 
@@ -244,7 +245,33 @@ the override in the plan's Notes.
 > **Smaller models:** don't assess weight — present both question tables
 > and ask.
 
-### 5. Create the Plan
+### 5. Ask the Design Question
+
+This is a step of its own, not a third ceremony question: the ceremony
+count stays at two (Manifesto Principle 10). It decides whether the plan
+starts in `Design` instead of `Draft`.
+
+Ask: **"Does this plan carry significant design decisions?"** — choices
+that need a written spec before anyone approves the plan, such as a new
+data model, a changed contract, or an architecture the slices depend on.
+
+- **Default: no.** Recommend `yes` only when the plan's weight and the
+  conversation show such decisions. Without a clear yes, the plan starts
+  in `State: Draft`.
+- **yes** — step 6 writes `State: Design`, a `Design:` record, and an
+  empty `## Spec` section.
+- **no** — step 6 writes the plan as it does today: `State: Draft`, no
+  `Design:` record, no `## Spec` section.
+
+> **Smaller models:** don't recommend — ask the question in plain words
+> and write `State: Draft` unless the user says yes.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** do not stop. Read the answer from
+> `$ARGUMENTS` if the prompt gives one. If it gives none, write
+> `State: Draft` and continue to step 6.
+> `PLOT-UNASKED: Does this plan carry significant design decisions? — assumed no — State: Draft`
+
+### 6. Create the Plan
 
 ```bash
 CREATE_DATE=$(date -u +%Y-%m-%d)
@@ -253,6 +280,17 @@ DEFAULT_BRANCH=$(../plot/scripts/plot-host.sh default-branch)
 ```
 
 Resolve the plan template via the `Plan template` config key (repo-root-relative path; falls back to the shipped template). Write `docs/plans/${CREATE_DATE}-<slug>.md` from it, substituting `<title>` and `<slug>`, and fill the `Review:` and `Impl:` Status fields with the step-4 answers.
+
+**If the step-5 answer is yes**, the file differs from the template in three
+places; the template files themselves stay `State: Draft`:
+
+- Set `- **State:** Design`.
+- Add `- **Design:** <date>, <who>, <channel>` to the `## Status` block, in
+  the shape of the other transition records.
+- Add a `## Spec` section after `## Design`, holding only
+  `_To be filled in during Design._`
+
+If the answer is no, or the question was skipped, write none of these.
 
 **If this plan answers a tracker issue, record it as `- **Issue:** #<n>` in the
 `## Status` block** (several, comma-separated, where one plan answers more than
@@ -313,7 +351,7 @@ Always ask — don't infer from the title.
 
 - **`Review: pr`, `Impl: same branch`** — the work branch
   (`feature/<slug>` or type-appropriate prefix) is created instead, the
-  plan is its first commit, and the draft PR opens from it (step 7). No
+  plan is its first commit, and the draft PR opens from it (step 8). No
   idea branch; approval will be recorded in-file, not by merge.
 
 - **`Review: in-session` or `ballot`, `Impl: same branch`** — the plan
@@ -325,7 +363,7 @@ Always ask — don't infer from the title.
   commits directly to the current branch (knowledge repos: the default
   branch). No branch is created.
 
-### 6. Commit the Plan (and link it, best effort)
+### 7. Commit the Plan (and link it, best effort)
 
 The **plan file is the plan**. Its `State:` field is what makes it visible to
 every reader, so the commit must not depend on the index write succeeding:
@@ -358,7 +396,7 @@ Push per the flow: `git push -u origin idea/<slug>` (PR flow),
 current branch directly (direct flow — on knowledge repos this is the
 default branch, which is the point).
 
-### 7. Create PR (`Review: pr` only)
+### 8. Create PR (`Review: pr` only)
 
 Create a **draft** PR (plan is still being written/refined):
 
@@ -383,7 +421,7 @@ an in-file transition record. For `ballot`: point reviewers at the
 committed plan file and collect ballots; `/plot-approve` records the
 tally.
 
-### 8. Update Board Status
+### 9. Update Board Status
 
 If `## Plot Config` includes a project board (`owner/number`), update the plan PR status:
 
@@ -393,7 +431,7 @@ If `## Plot Config` includes a project board (`owner/number`), update the plan P
 
 If no project board is configured, skip this step.
 
-### 9. Summary — orient, don't enumerate
+### 10. Summary — orient, don't enumerate
 
 Close by telling the user where they are and what falls out next, and
 why (Principle 11). Adapt to the recorded answers, e.g. for
@@ -412,4 +450,6 @@ And for `pr`:
 > the approval), and `/plot-implement <slug>` fans out the
 > implementation branches.
 
-Always include: `Progress: [x] Draft > [ ] Approved > [ ] Delivered > [ ] Released`.
+Always include `Progress: [x] Draft > [ ] Approved > [ ] Delivered > [ ] Released`.
+For a plan created in `State: Design`, print
+`Progress: [x] Draft > [x] Design > [ ] Approved > [ ] Delivered > [ ] Released`.

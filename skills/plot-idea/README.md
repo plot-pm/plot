@@ -28,7 +28,7 @@ See [plot/README.md](../plot/README.md) for the full development history and [pl
 
 Step 3 searches the estate for what each slice declares it will build, through
 [`plot-deliverable-search.sh`](../plot/scripts/plot-deliverable-search.sh), and
-records the answer as the slice's `builds:` annotation in step 5.
+records the answer as the slice's `builds:` annotation in step 6.
 
 **Measured over one week on the Plot repo:** five plans proposed something the
 estate already had — `normalizeVersion` (10 callers),
