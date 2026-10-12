@@ -1,5 +1,5 @@
 import {
-  AgentEntrySchema, AgentRowSchema, BoardSchema, CardSchema, ColumnSchema, FleetSchema, FleetShape,
+  AgentEntrySchema, AgentRowSchema, BoardSchema, CardSchema, ColumnSchema, FleetSchema, FleetShape, PHASE_LEADERSHIP,
   SprintCardSchema, StoryCardSchema, SliceSchema,
   type AgentEntry, type AgentRow, type Board, type Card, type Column, type Fleet,
   type SprintCard, type StoryCard, type Slice,
@@ -119,8 +119,18 @@ export const card = (over: Partial<CardInput> = {}): Card =>
 /** One board column — a phase and the cards in it. */
 const COLUMN_DEFAULTS: ColumnInput = { phase: 'Development', cards: [] };
 
+/**
+ * What the server derives for a default phase name: its leadership, its own
+ * accent, and the checklist on Testing. A name outside the five gets the schema
+ * defaults — no leadership, a neutral accent — as a declared phase does.
+ */
+const defaultColumnFields = (phase: string): Partial<ColumnInput> =>
+  Object.prototype.hasOwnProperty.call(PHASE_LEADERSHIP, phase)
+    ? { leadership: PHASE_LEADERSHIP[phase as keyof typeof PHASE_LEADERSHIP], accent: phase, checklist: phase === 'Testing' }
+    : {};
+
 export const column = (over: Partial<ColumnInput> = {}): Column =>
-  ColumnSchema.parse({ ...COLUMN_DEFAULTS, ...over });
+  ColumnSchema.parse({ ...COLUMN_DEFAULTS, ...defaultColumnFields(over.phase ?? COLUMN_DEFAULTS.phase), ...over });
 
 /**
  * One registry entry — an Agent, as `/api/fleet` carries it.

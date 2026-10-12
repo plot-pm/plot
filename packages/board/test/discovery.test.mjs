@@ -1,4 +1,4 @@
-// The Discovery column, end to end: a REAL git repo whose Draft plan lives only
+// The column a Draft plan reads in (Design under the default map), end to end: a REAL git repo whose Draft plan lives only
 // on an idea branch, read by the built artifact through the real helpers. No
 // stubs, no hand-built metadata.
 //
@@ -41,7 +41,7 @@ const DRAFT_PLAN = `# A column that can finally hold something
 
 ## Branches
 
-- \`bug/board-shows-discovery\` — Draft maps to Discovery
+- \`bug/board-shows-discovery\` — Draft maps to Design
 `;
 
 /** An `Impl: same branch` plan: its Draft rides feature/, not idea/. */
@@ -144,7 +144,7 @@ function makeRepoUnderReview() {
   };
 }
 
-describe('board: a Draft plan under review appears in Discovery', () => {
+describe('board: a Draft plan under review appears in Design', () => {
   let fixture, server, board;
 
   before(async () => {
@@ -165,7 +165,7 @@ describe('board: a Draft plan under review appears in Discovery', () => {
   it('renders the Draft plan that exists only on an idea branch', () => {
     // The headline, and the reason both halves of this change are one change:
     // remapping alone leaves this empty, because the file is not on disk.
-    assert.deepEqual(inPhase('Discovery'), [
+    assert.deepEqual(inPhase('Design'), [
       'board-shows-discovery', 'carries-its-own-plan',
     ]);
   });
@@ -175,13 +175,13 @@ describe('board: a Draft plan under review appears in Discovery', () => {
     // invisible for the identical reason, and `Branch prefixes` is config.
     const card = cards().find((c) => c.slug === 'carries-its-own-plan');
     assert.ok(card, 'the feature-branch plan should render');
-    assert.equal(card.phase, 'Discovery');
+    assert.equal(card.phase, 'Design');
   });
 
-  it('leaves Design holding only approved-not-started plans', () => {
-    // Design now means exactly one thing. The started plan is Development, and
-    // nothing Draft may leak back in.
-    assert.deepEqual(inPhase('Design'), []);
+  it('keeps the started plan out of the column that holds the drafts', () => {
+    // Under the default map `plan:draft` and `plan:design` share Design. The
+    // started plan is Development and must not be drawn there too.
+    assert.deepEqual(inPhase('Design'), ['board-shows-discovery', 'carries-its-own-plan']);
     assert.deepEqual(inPhase('Development'), ['board-acts-through-plot']);
   });
 
@@ -229,20 +229,20 @@ describe('board: a Draft plan under review appears in Discovery', () => {
     fs.rmSync(path.join(fixture.repo, 'docs/plans', late), { force: true });
 
     const next = await fetchBoard(server.port);
-    const discovery = next.columns.find((c) => c.phase === 'Discovery');
+    const discovery = next.columns.find((c) => c.phase === 'Design');
     assert.ok(
       discovery.cards.some((c) => c.slug === 'arrived-late'),
       'a plan on a new branch must not be hidden by the tip cache',
     );
   });
 
-  it('opens a Discovery plan — the card and the viewer read the same sources', async () => {
+  it('opens a Draft plan — the card and the viewer read the same sources', async () => {
     // The bug this pins: cards gained a branch source, `/plan/<file>` did not.
-    // A Discovery card rendered fine and clicking it answered
+    // A Draft card rendered fine and clicking it answered
     // "Failed to load plan: HTTP 404" — one consumer seeing half the sources.
     const board = await fetchBoard(server.port);
-    const discovery = board.columns.find((c) => c.phase === 'Discovery');
-    assert.ok(discovery.cards.length > 0, 'fixture must produce a Discovery card');
+    const discovery = board.columns.find((c) => c.phase === 'Design');
+    assert.ok(discovery.cards.length > 0, 'fixture must produce a Draft card');
 
     for (const card of discovery.cards) {
       const file = path.basename(card.path);
@@ -301,11 +301,11 @@ describe('board: a repo with no prefixed branches behaves exactly as before', ()
     if (tmp) rmTree(tmp);
   });
 
-  it('serves the working-tree plans and an empty Discovery column', async () => {
+  it('serves the working-tree plans and an empty Design column', async () => {
     const board = await fetchBoard(server.port);
     const counts = Object.fromEntries(board.columns.map((c) => [c.phase, c.cards.length]));
     assert.deepEqual(counts, {
-      Discovery: 0, Design: 0, Development: 1, Testing: 0, Released: 0,
+      Design: 0, Development: 1, Testing: 0, Released: 0,
     });
   });
 });
@@ -476,10 +476,10 @@ describe('board: a plan in the working tree AND on its branch is ONE card', () =
     assert.ok(!card.path.includes(os.tmpdir()), 'no staging path may reach a card');
   });
 
-  it('still places it in Discovery — the skip must not cost the phase', () => {
+  it('still places it in Design — the skip must not cost the phase', () => {
     // Dropping the wrong copy, or dropping both, would empty the column that
     // the whole surrounding suite exists to keep full.
-    const discovery = board.columns.find((c) => c.phase === 'Discovery');
+    const discovery = board.columns.find((c) => c.phase === 'Design');
     assert.deepEqual(discovery.cards.map((c) => c.slug), ['board-shows-discovery']);
   });
 });

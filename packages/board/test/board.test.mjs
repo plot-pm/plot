@@ -116,11 +116,11 @@ describe('board: contract fields + frontmatter visibility', () => {
     if (tmp) rmTree(tmp);
   });
 
-  it('returns the 5 workflow phase columns in order', async () => {
+  it('returns the 4 plan phase columns of the default map, in order', async () => {
     const board = await fetchBoard(server.port);
     assert.deepEqual(
       board.columns.map((c) => c.phase),
-      ['Discovery', 'Design', 'Development', 'Testing', 'Released'],
+      ['Design', 'Development', 'Testing', 'Released'],
     );
   });
 
@@ -169,8 +169,9 @@ describe('board: contract fields + frontmatter visibility', () => {
   it('maps phases to columns and omits non-board phases (Rejected)', async () => {
     const board = await fetchBoard(server.port);
     const byPhase = Object.fromEntries(board.columns.map((c) => [c.phase, c.cards.map((x) => x.slug)]));
-    assert.ok(byPhase.Discovery.includes('webhook-support'), 'a Draft plan lands in Discovery');
-    assert.ok(!byPhase.Design.includes('webhook-support'), 'and not also in Design — a column is a partition');
+    assert.ok(byPhase.Design.includes('webhook-support'), 'a Draft plan lands in Design, where the default map puts plan:draft');
+    assert.ok(!byPhase.Development.includes('webhook-support'), 'and not also in Development — a column is a partition');
+    assert.equal(byPhase.Discovery, undefined, 'Discovery holds stories, so the plans board has no such column');
     assert.equal(byPhase.Testing[0], 'sprint-support', 'Delivered belongs to Testing alone');
     const all = board.columns.flatMap((c) => c.cards.map((x) => x.slug));
     assert.ok(!all.includes('rejected-idea'), 'rejected plan must not appear on the board');
@@ -258,10 +259,10 @@ describe('board: missing optional dirs', () => {
   it('serves a valid empty-ish board when sprints/stories dirs are absent', async () => {
     const board = await fetchBoard(server.port);
     assert.ok(board.generatedAt);
-    assert.equal(board.columns.length, 5);
+    assert.equal(board.columns.length, 4);
     assert.deepEqual(board.sprints, []);
     assert.deepEqual(board.stories, []);
-    assert.equal(board.columns.find((c) => c.phase === 'Discovery').cards[0].slug, 'webhook-support');
+    assert.equal(board.columns.find((c) => c.phase === 'Design').cards[0].slug, 'webhook-support');
   });
 });
 
@@ -362,14 +363,14 @@ describe('board: Approved is Development, Ready or In progress, via the started 
     assert.equal(started.started, true);
   });
 
-  it('a Draft plan sits in Discovery and carries no started flag', async () => {
+  it('a Draft plan sits in Design and carries no started flag', async () => {
     // `started` is the Ready-vs-In-progress flag on an approved card only. A
     // Draft plan is in neither column — it is still being shaped — and must
     // carry no flag that implies otherwise.
     const board = await fetchBoard(server.port);
-    const discovery = board.columns.find((c) => c.phase === 'Discovery');
-    const card = discovery.cards.find((c) => c.slug === 'draft-plan');
-    assert.ok(card, 'a Draft plan belongs in Discovery');
+    const design = board.columns.find((c) => c.phase === 'Design');
+    const card = design.cards.find((c) => c.slug === 'draft-plan');
+    assert.ok(card, 'a Draft plan belongs in Design');
     assert.equal(card.started, undefined);
   });
 
@@ -529,7 +530,7 @@ describe('board: a card carries its interrogation round, or carries nothing', ()
     const card = cardOf(board, 'questioned-approved');
     assert.ok(card, 'the plan should render as a card');
     assert.equal(card.rounds, 4);
-    assert.notEqual(card.phase, 'Discovery');
+    assert.notEqual(card.phase, 'Design');
   });
 
   it('does not disturb the neighbouring fields', async () => {
@@ -539,6 +540,6 @@ describe('board: a card carries its interrogation round, or carries nothing', ()
     const card = cardOf(board, 'questioned-draft');
     assert.equal(card.title, 'A well-questioned draft');
     assert.equal(card.type, 'feature');
-    assert.equal(card.phase, 'Discovery');
+    assert.equal(card.phase, 'Design');
   });
 });

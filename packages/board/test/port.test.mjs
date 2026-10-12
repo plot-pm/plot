@@ -87,7 +87,7 @@ describe('PORT=0 binds zero and reports what the OS gave', () => {
     // process intended to use — those were two separate facts before this fix.
     const board = await fetchBoard(server.port);
     assert.ok(board.generatedAt, 'expected a board payload from the reported port');
-    assert.equal(board.columns.length, 5);
+    assert.equal(board.columns.length, 4);
   });
 });
 

@@ -111,18 +111,18 @@ describe('the board reads the ref, not the checkout', () => {
       const board = await fetchBoard(server.port);
       const card = cardFor(board, 'probe');
       assert.ok(card, 'the plan must reach the board');
-      // Approved maps to the Development column; Draft would be Discovery.
+      // Approved maps to the Development column; Draft would be Design.
       assert.equal(card.phase, 'Development');
     });
 
     it('carries no rounds badge for a plan the checkout thinks is Draft', async () => {
-      // Item 3. `roundsBadgeText` renders only for a Discovery card, so the
+      // Item 3. `roundsBadgeText` renders only for a Draft card, so the
       // badge beside phase Development was the same stale parse showing a
       // second face. A fix that corrected `phase` and left `status` derived
       // from something else would pass item 1 alone.
       const board = await fetchBoard(server.port);
       const card = cardFor(board, 'probe');
-      assert.notEqual(card.phase, 'Discovery');
+      assert.notEqual(card.phase, 'Design');
       assert.equal(card.status, 'approved');
     });
 

@@ -25,13 +25,12 @@ describe('tiny-garden: data layer (built artifact + real helpers)', () => {
     const board = await fetchBoard(server.port);
     const counts = Object.fromEntries(board.columns.map((c: any) => [c.phase, c.cards.length]));
     // Workflow phases, not plan states: the fixture's 2 Draft plans are still
-    // being shaped, so they are Discovery; its 2 Approved ones are Development,
+    // being shaped, so they read in Design, where the default map puts plan:draft; its 2 Approved ones are Development,
     // whether or not a branch has started — approved-but-unstarted is work
-    // waiting for an agent, not design in progress. The Design column is empty
-    // because no fixture plan is in the Design phase. Its 3 Delivered ones are
+    // waiting for an agent, not design in progress. There is no Discovery column: Discovery holds stories. Its 3 Delivered ones are
     // Testing, because Development ends at the merge. This is the measured case
     // the plan names: approved-unstarted plans move OUT of Design.
-    expect(counts).toEqual({ Discovery: 2, Design: 0, Development: 2, Testing: 3, Released: 1 });
+    expect(counts).toEqual({ Design: 2, Development: 2, Testing: 3, Released: 1 });
   });
 
   it('excludes the Rejected plan from every column', async () => {
