@@ -81,10 +81,12 @@ describe('PlanStore reads this repository’s plans', () => {
       .filter((plan) => !KNOWN.includes(plan.phase))
       .map((plan) => `${plan.file}: ${plan.phase}`);
     expect(unknown).toEqual([]);
-    // And the estate really does hold both kinds: a lifecycle phase somewhere,
-    // so this is not vacuous.
+    // And the estate really does hold a lifecycle phase somewhere, so this is
+    // not vacuous. Any lifecycle phase counts: an estate whose every plan is
+    // released or withdrawn is a finished estate, not an unread one, while a
+    // parser that read nothing reports only `NONE` and `UNKNOWN`.
     expect(
-      plans.value.some((plan) => plan.phase === 'delivered' || plan.phase === 'approved'),
+      plans.value.some((plan) => plan.phase !== 'NONE' && plan.phase !== 'UNKNOWN'),
     ).toBe(true);
   });
 
