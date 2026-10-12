@@ -1,3 +1,4 @@
+import { fencedLines } from '../rules/fences.js';
 import type { Decision, Write } from './decision.js';
 
 /**
@@ -106,7 +107,9 @@ export const withRecord = (
  * Replaces one `##` section of a plan, or appends it where the plan has none.
  *
  * The section runs from its heading to the next `## ` heading or the end of
- * the file. A second call with the same heading leaves one section.
+ * the file. A line inside a fenced code block is never a heading, so an example
+ * section shown in a fence is neither replaced nor ends the section. A second
+ * call with the same heading leaves one section.
  *
  * @param text - the plan file's contents.
  * @param heading - the heading text without its `## `.
@@ -115,14 +118,15 @@ export const withRecord = (
  */
 export const withSection = (text: string, heading: string, body: string): string => {
   const lines = text.split('\n');
+  const fenced = fencedLines(lines);
   const wanted = `## ${heading}`;
-  const start = lines.findIndex((line) => line.trimEnd() === wanted);
+  const start = lines.findIndex((line, i) => !fenced[i] && line.trimEnd() === wanted);
   const rendered = [wanted, '', ...body.replace(/\n+$/, '').split('\n'), ''];
   if (start === -1) {
     const kept = text.endsWith('\n') ? text : `${text}\n`;
     return `${kept}\n${rendered.join('\n')}`;
   }
-  let end = lines.findIndex((line, i) => i > start && ANY_HEADING.test(line));
+  let end = lines.findIndex((line, i) => i > start && !fenced[i] && ANY_HEADING.test(line));
   if (end === -1) end = lines.length;
   return [...lines.slice(0, start), ...rendered, ...lines.slice(end)].join('\n');
 };

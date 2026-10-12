@@ -3,6 +3,8 @@
  * in file order, then its `## Acceptance` items where it has that section.
  */
 
+import { fencedLines } from './fences.js';
+
 /** Matches a `## ` heading and captures its title. */
 const HEADING = /^##[ \t]+(.*?)[ \t]*$/;
 
@@ -14,7 +16,8 @@ const TOP_ITEM = /^(?:[-*]|\d+\.)[ \t]+(?:\[[ xX]\][ \t]+)?(.*)$/;
  *
  * An indented line continues the item above it and joins to it with one space.
  * A top-level line that is not a list item, such as a `###` heading or a
- * paragraph, ends the item above it and is not a claim.
+ * paragraph, ends the item above it and is not a claim. A line inside a fenced
+ * code block is neither a heading nor a claim.
  *
  * @param text - the plan file's contents.
  * @param title - the section's heading text, compared case-insensitively.
@@ -24,7 +27,10 @@ const itemsOf = (text: string, title: string): string[] => {
   const items: string[] = [];
   let inside = false;
   let open = false;
-  for (const line of text.split('\n')) {
+  const lines = text.split('\n');
+  const fenced = fencedLines(lines);
+  for (const [i, line] of lines.entries()) {
+    if (fenced[i]) continue;
     const heading = HEADING.exec(line);
     if (heading !== null) {
       inside = heading[1]!.toLowerCase() === title.toLowerCase();

@@ -1,12 +1,14 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
 import { performDecision } from '../src/adapters/performer/perform-fs.js';
 import { recordCommitOf } from '../src/adapters/refs/refs-git.js';
 import { claimsOf, renderClaims } from '../src/rules/claims.js';
+import { fencedLines } from '../src/rules/fences.js';
 import { jurorPath, moderationPath } from '../src/rules/panel.js';
 import { foldVerification, verificationBody, verifiedValue } from '../src/rules/verification.js';
 import { withRecord, withSection } from '../src/workflows/rendering.js';
@@ -151,6 +153,84 @@ describe('withSection and the plan-section write', () => {
     expect(twice).toContain('## After');
   });
 
+  it('skips a fenced ## Verification and a fenced heading inside the section', () => {
+    const text = [
+      '# P',
+      '',
+      '## Design',
+      '',
+      '```markdown',
+      '## Verification',
+      '',
+      '- example',
+      '```',
+      '',
+      'Design text.',
+      '',
+      '## Verification',
+      '',
+      '- old',
+      '',
+      '~~~',
+      '## Not a heading',
+      '~~~',
+      '',
+      '## After',
+      '',
+    ].join('\n');
+    const out = withSection(text, 'Verification', '- new\n');
+    expect(out).toContain('```markdown\n## Verification\n\n- example\n```\n\nDesign text.');
+    expect(out).toContain('## Verification\n\n- new\n\n## After');
+    expect(out).not.toContain('- old');
+    expect(out).not.toContain('## Not a heading');
+  });
+
+  it('appends a section where the only ## Verification is fenced', () => {
+    const text = '# P\n\n```\n## Verification\n```\n';
+    expect(withSection(text, 'Verification', '- a\n')).toBe(`${text}\n## Verification\n\n- a\n`);
+  });
+
+  it('keeps every other heading and every line of the real plan file', () => {
+    const fixture = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'the-fleet-verifies-what-it-delivered.md');
+    const text = readFileSync(fixture, 'utf8');
+    const headings = (t: string) => {
+      const lines = t.split('\n');
+      const fenced = fencedLines(lines);
+      return lines.filter((line, i) => !fenced[i] && /^#{1,6} /.test(line));
+    };
+    expect(text.split('\n').filter((line) => line === '## Verification')).toHaveLength(1);
+    const out = withSection(text, 'Verification', '- Claim-1 supported — x\n');
+    expect(headings(out)).toEqual([...headings(text), '## Verification']);
+    expect(out.startsWith(text)).toBe(true);
+    const again = withSection(out, 'Verification', '- Claim-1 refuted — x\n');
+    expect(again.startsWith(text)).toBe(true);
+    expect(headings(again)).toEqual(headings(out));
+    expect(claimsOf(text)).toEqual(claimsOf(out));
+  });
+});
+
+describe('fencedLines', () => {
+  const flags = (text: string) => fencedLines(text.split('\n')).map((f) => (f ? 1 : 0)).join('');
+
+  it('marks a backtick and a tilde fence, opener and closer included', () => {
+    expect(flags('a\n```js\nx\n```\nb\n~~~\ny\n~~~\nc')).toBe('011101110');
+  });
+
+  it('closes only on the same character, at least as long, with nothing after it', () => {
+    expect(flags('````\n```\n~~~~\n```` x\n`````\nz')).toBe('111110');
+  });
+
+  it('opens no fence for a backtick info string holding a backtick, and runs an unclosed fence to the end', () => {
+    expect(flags('```a`b\nx\n   ~~~\ny')).toBe('0011');
+    expect(flags('    ```\nx')).toBe('00');
+  });
+});
+
+describe('claimsOf over fences', () => {
+  it('reads no heading and no item inside a fence', () => {
+    const text = '## Changelog\n\n- one\n\n```\n## Acceptance\n- fake\n```\n\n- two\n';
+    expect(claimsOf(text)).toEqual(['one', 'two']);
+  });
 });
 
 describe('recordCommitOf', () => {
