@@ -1,4 +1,5 @@
 import { planRecord } from '@plot-pm/domain/adapters';
+import { cardControls } from '@plot-pm/domain';
 import type { FleetReading, PlanRecord } from '@plot-pm/domain';
 
 import { FleetSchema, RowKindSchema } from '../contract/schema.js';
@@ -462,9 +463,16 @@ export const MOCK_KINDS = RowKindSchema.options;
  * see `PlanCard`'s `isReadyToStart`, which read `phase === 'Design'` until #289.
  */
 export function mockCards(): Column[] {
-  const card = (over: Partial<Card> & Pick<Card, 'slug' | 'title' | 'path'>): Card => ({
-    type: 'feature', phase: 'Development', prs: [], ...over,
-  } as Card);
+  const card = (over: Partial<Card> & Pick<Card, 'slug' | 'title' | 'path'>): Card => {
+    const phase = over.phase ?? 'Development';
+    const underReview = phase === 'Discovery' || phase === 'Design';
+    const controls = cardControls({
+      state: underReview ? 'draft' : 'approved',
+      status: phase === 'Development' ? 'approved' : 'draft',
+      started: over.started ?? false,
+    });
+    return { type: 'feature', phase: 'Development', prs: [], controls, ...over } as Card;
+  };
   return [
     {
       phase: 'Development',

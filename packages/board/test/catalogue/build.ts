@@ -4,6 +4,7 @@ import {
   type AgentEntry, type AgentRow, type Board, type Card, type Column, type Fleet,
   type SprintCard, type StoryCard, type Slice,
 } from '../../src/contract/schema.js';
+import { cardControls, type CardControls } from '@plot-pm/domain';
 import type { z } from 'zod';
 
 /**
@@ -102,7 +103,7 @@ export const slice = (over: Partial<SliceInput> = {}): Slice =>
   SliceSchema.parse({ ...SLICE_DEFAULTS, ...over });
 
 /** One plan card, as `/api/board` carries it. */
-const CARD_DEFAULTS: CardInput = {
+const CARD_DEFAULTS: Omit<CardInput, 'controls'> = {
   slug: 'a-plan',
   title: 'A plan',
   type: 'feature',
@@ -110,8 +111,16 @@ const CARD_DEFAULTS: CardInput = {
   path: 'docs/plans/2026-08-24-a-plan.md',
 };
 
+/** The controls today's column mapping implies: Discovery is under review, Development is approved. */
+const controlsFor = (over: Partial<CardInput>): CardControls => {
+  const phase = over.phase ?? CARD_DEFAULTS.phase;
+  const state = phase === 'Discovery' || phase === 'Design' ? 'draft' : 'approved';
+  const status = phase === 'Development' ? 'approved' : 'draft';
+  return cardControls({ state, status, started: over.started ?? false });
+};
+
 export const card = (over: Partial<CardInput> = {}): Card =>
-  CardSchema.parse({ ...CARD_DEFAULTS, ...over });
+  CardSchema.parse({ ...CARD_DEFAULTS, controls: controlsFor(over), ...over });
 
 /** One board column — a phase and the cards in it. */
 const COLUMN_DEFAULTS: ColumnInput = { phase: 'Development', cards: [] };

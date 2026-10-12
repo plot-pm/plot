@@ -14,6 +14,7 @@ import {
   ChecksSchema,
   MergeabilitySchema,
   DefaultBranchReadingSchema,
+  CardControlsSchema,
   type Phase,
   type SprintState,
 } from '@plot-pm/domain';
@@ -597,6 +598,14 @@ export const CardSchema = z.object({
    * since a plan the mapper drops (rejected/unknown) never becomes a card.
    */
   status: PlanStatusSchema.optional(),
+  /**
+   * The controls this card offers, decided server-side by the domain's
+   * `cardControls` from the plan's state, status and `Started:` record. The wire
+   * carries the answered booleans, never the raw state, so the client makes no
+   * state-versus-phase judgment of its own. Each one answers whether the card
+   * renders the control, not whether the command succeeds.
+   */
+  controls: CardControlsSchema,
   /**
    * The date belonging to THIS card's phase, as `YYYY-MM-DD` — or "" where the
    * plan records none.

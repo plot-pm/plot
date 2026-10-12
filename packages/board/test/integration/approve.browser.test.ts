@@ -54,12 +54,20 @@ const VIEWPORT = { width: 1280, height: 900 };
 function detachedGarden(): string {
   const dir = boxedDir('plot-garden-');
   fs.cpSync(FIXTURE, dir, { recursive: true });
+  // The shared fixture holds no Design plan, and 35 suites read it. Written into
+  // this copy only.
+  fs.writeFileSync(
+    path.join(dir, 'docs/plans/2026-06-20-design-greenhouse.md'),
+    '# Design the greenhouse\n\n## Status\n\n- **Phase:** Design\n- **Type:** feature\n',
+  );
   return dir;
 }
 
 /** The fixture's two Draft plans — with a plan PR, and without one. */
 const DRAFT_WITH_PR = 'Plant heirloom tomatoes';
 const DRAFT_WITHOUT_PR = 'Start a pumpkin patch';
+/** A plan in Design: it shares the Discovery column and the approve transition accepts its state. */
+const DESIGN = 'Design the greenhouse';
 /** Approved, Delivered and Released cards, one each — none may offer Approve. */
 const NOT_DRAFT = ['Fix the leaky soaker hose', 'Deal with the zucchini glut', 'Harvest the first apple crop'];
 
@@ -133,22 +141,22 @@ describe('approve: a Draft card can act, behind one confirmation', () => {
     }
   });
 
-  it('offers Approve on NO card outside Discovery', async () => {
+  it('offers Approve on a Draft card and a Design card, and on no other', async () => {
     const page = await openBoard();
     try {
+      for (const title of [DRAFT_WITH_PR, DRAFT_WITHOUT_PR, DESIGN]) {
+        const card = cardFor(page, title);
+        await card.first().waitFor({ timeout: 10_000 });
+        expect(await card.getByRole('button', { name: 'Approve' }).count()).toBe(1);
+      }
       // An approved plan has nothing to approve, and offering it would invite a
-      // second approval whose one effect is a confusing error. Asserted across
-      // Design/Testing/Released rather than on one card, so a rule keyed on the
-      // wrong column would show up.
+      // second approval whose one effect is a confusing error.
       for (const title of NOT_DRAFT) {
         const card = cardFor(page, title);
         await card.first().waitFor({ timeout: 10_000 });
-        expect(await card.getByRole('button', { name: /^Approve/ }).count())
-          .toBe(0);
+        expect(await card.getByRole('button', { name: /^Approve/ }).count()).toBe(0);
       }
-      // …and the board really does hold both kinds, so this is an absence
-      // rather than an empty board.
-      expect(await page.getByRole('button', { name: 'Approve' }).count()).toBe(2);
+      expect(await page.getByRole('button', { name: 'Approve' }).count()).toBe(3);
     } finally {
       await page.close();
     }
