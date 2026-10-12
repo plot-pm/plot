@@ -1,5 +1,5 @@
 import type { MouseEvent } from 'react';
-import type { Card, DispatchInfo, Phase, StoryCard } from '../../contract/schema.js';
+import type { Card, DispatchInfo, StoryCard } from '../../contract/schema.js';
 import { Badge, typeVariant } from './ui/badge.js';
 import { cn } from '../lib/utils.js';
 import { planHref, storyHref } from '../lib/plan.js';
@@ -10,7 +10,8 @@ import { InterrogateButton } from './InterrogateButton.js';
 
 // Colour only ever REPEATS what the column header already says in symbol and
 // word — it must not be the sole carrier of the human/agent distinction.
-const PHASE_ACCENT: Record<Phase, string> = {
+const PHASE_ACCENT: Record<string, string> = {
+  neutral: 'border-l-slate-300',
   Discovery: 'border-l-sky-400',
   Design: 'border-l-slate-400',
   Development: 'border-l-green-500',
@@ -274,6 +275,8 @@ const ChecksNote = ({ pr }: { pr: Card['prs'][number] }) => {
 
 export interface PlanCardProps {
   card: Card;
+  /** The column's `accent`: a default phase's name, or `'neutral'`. */
+  accent?: string;
   /** Show the sprint badge (suppressed when a sprint filter is active). */
   showSprint: boolean;
   /** Show the story badge (suppressed when a story filter is active). */
@@ -321,6 +324,7 @@ export interface PlanCardProps {
 
 export function PlanCard({
   card,
+  accent = 'neutral',
   showSprint,
   showStory,
   dispatch,
@@ -356,7 +360,7 @@ export function PlanCard({
       className={cn(
         'scroll-mt-20 rounded-md border border-l-4 bg-white p-3 shadow-sm',
         'border-slate-200 dark:border-slate-700 dark:bg-slate-900',
-        PHASE_ACCENT[card.phase],
+        PHASE_ACCENT[accent] ?? PHASE_ACCENT.neutral,
         // A ring rather than a background: the left border already carries the
         // phase, and a second colour fill would compete with it.
         highlighted && 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-950',

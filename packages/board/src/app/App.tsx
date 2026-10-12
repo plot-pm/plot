@@ -1302,6 +1302,7 @@ export function App() {
         <StoryModal
           story={openStory}
           cards={allCards}
+          phases={board ? board.columns.map((c) => c.phase) : []}
           onClose={() => setOpenStory(null)}
           onShowInBoard={onShowStoryInBoard}
           onOpenSprint={onOpenSprint}

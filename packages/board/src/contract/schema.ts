@@ -423,7 +423,8 @@ export const CardSchema = z.object({
   slug: z.string(),
   title: z.string(),
   type: z.string(),
-  phase: z.enum(BOARD_PHASES),
+  /** A phase name from the board's own column list — the declared map decides which. */
+  phase: z.string(),
   sprint: z.string().optional(),
   story: z.string().optional(),
   assignee: z.string().optional(),
@@ -742,7 +743,14 @@ export const PlanSourceSchema = z.object({
 export type PlanSource = z.infer<typeof PlanSourceSchema>;
 
 export const ColumnSchema = z.object({
-  phase: z.enum(BOARD_PHASES),
+  /** The declared phase name; the board's columns are the plan phases of the `Workflow phases` map. */
+  phase: z.string(),
+  /** Who leads the phase; `null` for a name outside the five defaults. */
+  leadership: z.object({ icon: z.string(), who: z.string() }).nullable().default(null),
+  /** The phase's own name for a default phase, `'neutral'` otherwise. */
+  accent: z.string().default('neutral'),
+  /** Whether the column shows the delivery checklist. */
+  checklist: z.boolean().default(false),
   cards: z.array(CardSchema),
 });
 export type Column = z.infer<typeof ColumnSchema>;
@@ -1323,6 +1331,11 @@ export const BoardSchema = z.object({
    * board declining to claim a provenance it does not have.
    */
   planSource: PlanSourceSchema.default({ ref: '', resolved: false, localOnly: 0, behind: null }),
+  /**
+   * Why the `Workflow phases` value was refused, or `null` when it parsed or was absent. A refused
+   * value draws the default map, and the board shows this text above the columns.
+   */
+  phaseMapRefusal: z.string().nullable().default(null),
   sprints: z.array(SprintCardSchema),
   stories: z.array(StoryCardSchema),
   /**
@@ -1342,20 +1355,6 @@ export const BoardSchema = z.object({
 });
 export type Board = z.infer<typeof BoardSchema>;
 
-/**
- * Map a helper `phase` value to a board column, or null if the plan should not
- * appear on the board (rejected / superseded / unknown / legacy plans).
- *
- * The second parameter (`_started`) no longer changes any answer — an approved
- * plan is Development whether or not a branch has started. It is kept, unread,
- * so that `rowPhase` and the board card compose ONE mapping rather than two that
- * can drift, and so the seam is already in place the day a phase forks on
- * `started` again. Callers pass the real value; this function ignores it.
- */
-// THE PHASE MAPPING IS A DOMAIN RULE, RE-EXPORTED HERE. A phase is a rule about
-// a Plan; this file is the contract the view reads. Moved to
-// `packages/domain/src/rules/phase.ts` — see that file for the argument.
-export { toBoardPhase } from '@plot-pm/domain';
 
 
 // --- Fleet: what agents are doing, and what they wait for -------------------
@@ -2492,7 +2491,7 @@ export const AgentRowSchema = z.object({
    * phase is rejected, superseded or simply unknown — and the cell then renders
    * empty rather than guessing a column.
    */
-  phase: z.enum(BOARD_PHASES).nullable().default(null),
+  phase: z.string().nullable().default(null),
   /**
    * The section this row renders under — or `null` for UNPLACED, a row the
    * board is currently unable to place.

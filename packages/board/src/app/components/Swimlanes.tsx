@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import type { Board, Card, StoryCard } from '../../contract/schema.js';
-import { BOARD_PHASES, PHASE_LEADERSHIP } from '../../contract/schema.js';
 import { NO_STORY, passesFilter, passesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
 import { checksUnaskableOn, storyHref } from '../lib/plan.js';
 import { PlanCard } from './PlanCard.js';
@@ -51,19 +50,15 @@ interface Lane {
 }
 
 /**
- * The phase columns a lane renders — every board phase, in board order.
+ * The phase columns a lane renders — the payload's own columns, in payload order.
  *
- * It used to drop Discovery, on the reasoning that the row header *was* the
- * Discovery cell. That was only coherent while no plan could ever be in
- * Discovery: the filter hid nothing because there was nothing to hide. Now that
- * Draft plans land there, a row header that silently dropped them would be the
- * same bug wearing different clothes — work visible in the column view and gone
- * from the lane view.
+ * A lane cell and a board column are the same phase because both read this one
+ * list; the declared `Workflow phases` map decided it on the server.
  *
  * Exported so a test can assert the two views over ONE payload rather than
  * re-deriving the list and agreeing with itself.
  */
-export const LANE_PHASES = BOARD_PHASES;
+export const lanePhases = (board: Board): Board['columns'] => board.columns;
 
 /**
  * Group cards into lanes. Stories keep their declared order; the catch-all goes
@@ -139,7 +134,7 @@ export function Swimlanes({
   );
   const lanes = buildLanes(visible, board.stories);
 
-  const phases = LANE_PHASES;
+  const phases = lanePhases(board);
 
   return (
     <div className="overflow-x-auto">
@@ -154,13 +149,13 @@ export function Swimlanes({
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Story
           </div>
-          {phases.map((phase) => (
+          {phases.map(({ phase, leadership }) => (
             <div
               key={phase}
               className="flex items-baseline gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
-              title={`${phase} — ${PHASE_LEADERSHIP[phase].who}`}
+              title={leadership ? `${phase} — ${leadership.who}` : phase}
             >
-              <span aria-hidden>{PHASE_LEADERSHIP[phase].icon}</span>
+              {leadership && <span aria-hidden>{leadership.icon}</span>}
               {phase}
             </div>
           ))}
@@ -213,7 +208,7 @@ export function Swimlanes({
                     : `${lane.cards.length} plan${lane.cards.length === 1 ? '' : 's'}`}
                 </div>
               </div>
-              {phases.map((phase) => {
+              {phases.map(({ phase, accent }) => {
                 const cards = lane.cards.filter((c) => c.phase === phase);
                 return (
                   // A row is as tall as its FULLEST cell, and the others stay
@@ -225,6 +220,7 @@ export function Swimlanes({
                       <PlanCard
                         key={card.path}
                         card={card}
+                        accent={accent}
                         showSprint={showSprint}
                         // The row already says which story this is; repeating it
                         // on every card is noise.

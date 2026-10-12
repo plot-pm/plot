@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import type { Card, Phase, StoryCard } from '../../contract/schema.js';
-import { BOARD_PHASES } from '../../contract/schema.js';
+import type { Card, StoryCard } from '../../contract/schema.js';
 import { planHref, storyHref } from '../lib/plan.js';
 import { DocModal } from './DocModal.js';
 
@@ -57,6 +56,8 @@ export interface StoryModalProps {
    * the rendering that depends on it.
    */
   cards: Card[];
+  /** The board's plan phases in column order — the order the story's plans read in. */
+  phases: readonly string[];
   onClose: () => void;
   /** Switch to the board, filtered to this story. */
   onShowInBoard?: (story: StoryCard) => void;
@@ -80,8 +81,8 @@ export interface StoryModalProps {
  * Exported for test — the disagreement between a stale prose section and the
  * live cards is the assertion that matters, and it is made here.
  */
-export function plansInStory(cards: Card[], slug: string): Card[] {
-  const order = new Map<Phase, number>(BOARD_PHASES.map((p, i) => [p, i]));
+export function plansInStory(cards: Card[], slug: string, phases: readonly string[]): Card[] {
+  const order = new Map<string, number>(phases.map((p, i) => [p, i]));
   return cards
     .filter((c) => c.story === slug)
     .slice()
@@ -114,8 +115,8 @@ function designDocHref(story: StoryCard, docName: string): string {
   return `/design/${encodeURIComponent(`${story.slug}/${docName}`)}`;
 }
 
-export function StoryModal({ story, cards, onClose, onShowInBoard, onOpenSprint }: StoryModalProps) {
-  const plans = plansInStory(cards, story.slug);
+export function StoryModal({ story, cards, phases, onClose, onShowInBoard, onOpenSprint }: StoryModalProps) {
+  const plans = plansInStory(cards, story.slug, phases);
   const [designExpanded, setDesignExpanded] = useState(false);
   // In-overlay navigation: null = story view, Card = plan view, string = design doc
   const [viewingPlan, setViewingPlan] = useState<Card | null>(null);

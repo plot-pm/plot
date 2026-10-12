@@ -33,7 +33,7 @@ import {
   type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
-import { workingTreeSprints, planStatusBySlug, planEstate, readConfigAsync, scriptsFor, refsFor, fleetStateFor, treesFor, hostFor, buildPortFor, type BuildBoardOptions } from './board.js';
+import { workingTreeSprints, planStatusBySlug, planEstate, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, fleetStateFor, treesFor, hostFor, buildPortFor, type BuildBoardOptions } from './board.js';
 import type { BuildPort } from '@plot-pm/domain';
 // The cadence division is a DOMAIN rule, not a board decision: `CLAUDE.md`
 // settles that every rendered or wired state is a domain property, and this one
@@ -2220,54 +2220,6 @@ export function stopFleetRefresh(): void {
   caches.clear();
 }
 
-/**
- * Which board phase a ROW is in — from the PAIR, never from the plan file alone.
- *
- * The obvious implementation carries the plan's phase onto its rows and maps it
- * with `toBoardPhase`. Once that mapping reads `approved` as Development
- * regardless of `started`, the row's word and the board's column agree for an
- * approved plan whatever git says — which is the point of the Design-is-a-phase
- * change: an approved-but-unstarted plan is Development, waiting for an agent,
- * on both surfaces. `toBoardPhase` stays the single definition of the mapping
- * and gains no second implementation here; this function composes it with the
- * branch state, and every phase word it can return came out of that call.
- *
- * The `started` half it supplies from git no longer moves an approved plan, but
- * it is still read and still passed, so this function keeps composing the one
- * mapping rather than restating it — and the moment `toBoardPhase` grows a
- * phase that forks on `started` again, the composition is already in place.
- *
- * TWO PLACES THE COMPOSITION IS DELIBERATELY NOT SYMMETRIC — kept because they
- * describe intent, even where the current mapping makes them return the same
- * value the fall-through would.
- *
- * **"git wins" applies to an ABSENT record, not to a recorded decision.** A
- * commit landing under a plan already marked `delivered` does NOT pull the row
- * back to Development. The two cases are not mirror images: a missing `Started:`
- * line is nobody having written something down, and evidence outranks an
- * absence; a commit after delivery contradicts something a human recorded, and
- * a follow-up fix does not repeal it. Sending a plan visibly backwards for a
- * typo fix teaches readers to distrust the column. The commit is not hidden —
- * the row's age still shows something moved.
- *
- * **`deferred` reads the row from the plan's own phase, git ignored.** The
- * annotation does not mean "paused, resuming later": the vocabulary is explicit
- * that the branch *isn't needed* and was *given up deliberately*, and
- * `plot-deliver` skips deferred branches in its completeness gate — a plan
- * delivers without them. So the row returns to where it is decided whether the
- * branch is wanted at all, which is the plan's own phase. (With the Design fork
- * gone this equals the started mapping for every phase, but the intent stands:
- * a handed-back branch answers to the plan, not to its commits.)
- *
- * The `deferred` FACT is not carried by the phase — a bare Development row is
- * indistinguishable from one an agent is on. `state` carries it, and the row
- * renders a badge from that.
- */
-// A PHASE IS A DOMAIN RULE. `rowPhase` moved to
-// `packages/domain/src/rules/phase.ts`; imported for this file's own use and
-// re-exported for the callers that already look here.
-export { rowPhase };
-
 
 /**
  * Which group a branch belongs to, and why.
@@ -2503,7 +2455,6 @@ import {
   reportedCause,
   quietNote,
   readingLoss,
-  rowPhase,
   sliceReadings,
   startabilityVerdict,
   startPulse,
@@ -2511,6 +2462,9 @@ import {
   type QuietBranchReadings,
   type QuietKind,
   type RunningPulse,
+  DEFAULT_PHASE_MAP,
+  phaseOfPlan,
+  type PhaseMap,
 } from '@plot-pm/domain';
 import { clockSystem } from '@plot-pm/domain/adapters';
 
@@ -5053,6 +5007,11 @@ export function rowsFromPulse(
    * field existed.
    */
   prAt?: number | null,
+  /**
+   * The declared phases. A row reads its plan's state through this map and never auto-bumps: no
+   * `deliverable` flag is passed. Defaults to the map a repository gets with no `Workflow phases` key.
+   */
+  phaseMap: PhaseMap = DEFAULT_PHASE_MAP,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   // WHETHER THE HOST WAS ASKED AT ALL, read once for the whole pulse because
@@ -5458,9 +5417,8 @@ export function rowsFromPulse(
           // is prose the row composes, and a reason the plan wrote is a fact
           // the row renders. "" everywhere the question does not arise.
           deferredReason: b.deferred_reason,
-          // From the PAIR — see `rowPhase`. The plan supplies its phase; this
-          // branch supplies the evidence that outranks a missing record.
-          phase: rowPhase(plan.phase, b.state),
+          // The row sits in its plan's column, whatever its branch state says.
+          phase: phaseOfPlan(phaseMap, { state: plan.phase }),
           group,
           ageMinutes: age,
           note: b.claimed ? `${rowNote} · ${b.claimed}` : rowNote,
@@ -5831,15 +5789,14 @@ export function rowsFromPulse(
       state: 'wip',
       // No plan, so no deferral and nothing to explain.
       deferredReason: '',
-      // An idea branch CARRIES a plan still under review, and a plan under
-      // review is Discovery by definition — that is what the phase means, and
-      // the branch name is a convention Plot itself writes rather than a guess.
+      // An idea branch CARRIES a plan still under review, so its row reads in the
+      // phase holding `plan:draft`; the branch name is a convention Plot itself
+      // writes rather than a guess.
       //
       // Every other planless branch gets null. There is no plan to read a phase
-      // from, and inventing one would be worse than the empty cell: `Discovery`
-      // on a release branch is a confident wrong answer where nothing is the
-      // honest one. Same rule as `plan: ''` two lines down.
-      phase: /^idea\//.test(branch) ? 'Discovery' : null,
+      // from, and inventing one would be worse than the empty cell. Same rule as
+      // `plan: ''` two lines down.
+      phase: /^idea\//.test(branch) ? phaseOfPlan(phaseMap, { state: 'draft' }) : null,
       group,
       ageMinutes,
       note,
@@ -6522,7 +6479,7 @@ export async function buildFleet(
   // THE PLAN ESTATE IS PARSED ONCE, and three answers read it: the sprint
   // counts, the estate totals and the Draft plans WAITING ON YOU names.
   const estate = planEstate(opts, entry.pulse, entry.pulseComplete);
-  const [sprints, totals, masterAgentBranch, membership, settings, { draftPlans }, supervision] =
+  const [sprints, totals, masterAgentBranch, membership, settings, { draftPlans }, supervision, phasesValue] =
     await Promise.all([
       estate.then((e) => activeSprints(opts, entry.pulse, entry.pulseComplete, e.statusBySlug)),
       estate.then((e) => estateTotals(opts, entry.pulse, entry.pulseComplete, e.statusBySlug)),
@@ -6546,7 +6503,10 @@ export async function buildFleet(
       // forks a script that walks every desk, 0.46-1.42 s measured. This is one
       // `readFile` over a cached path, in `existsSync`'s class.
       readSupervisionReport(opts),
+      // The declared phases, read beside its siblings so no serial spawn is added.
+      readConfigAsync(opts, 'Workflow phases', ''),
     ]);
+  const { map: phaseMap } = declaredPhaseMap(phasesValue);
   // THE ROWS READ THE SCAN, THEN THE HAND-OVER — see `withHandOver`. Applied to
   // the result rather than threaded into `rowsFromPulse`, because `entry.agents`
   // is in scope HERE (`refresh` fills it, and the sections and the live count
@@ -6578,7 +6538,7 @@ export async function buildFleet(
       // off the cache entry, on the two independent timers that created the
       // defect: the git refresh that fills `tipAt` and the PR-fetch timer that
       // stamps `prAt`.
-      entry.tipAt, entry.prAt), entry.agents)
+      entry.tipAt, entry.prAt, phaseMap), entry.agents)
     : [];
 
   // THE SECTIONS, REMEMBERED OR CARRIED FORWARD — the whole of this fix, in the

@@ -1,5 +1,5 @@
 import { planRecord } from '@plot-pm/domain/adapters';
-import { cardControls } from '@plot-pm/domain';
+import { DEFAULT_PHASE_MAP, cardControls, phaseColumns, phaseOfPlan } from '@plot-pm/domain';
 import type { FleetReading, PlanRecord, PlanStatus } from '@plot-pm/domain';
 
 import { FleetSchema, RowKindSchema } from '../contract/schema.js';
@@ -11,6 +11,9 @@ import type { Fleet, AgentRow, Card, Column } from '../contract/schema.js';
  * is how it is already configured, and adding the first flag for a development
  * aid would be the wrong place to start.
  */
+/** The phase an `idea/` row reads in: the one holding `plan:draft`. */
+const IDEA_PHASE = phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'draft' });
+
 export const MOCK_ENV = 'PLOT_BOARD_MOCK';
 
 /** On only for an exact `1`. A truthy guess must not reach a real estate. */
@@ -304,7 +307,7 @@ export function mockFleet(): Fleet {
       branchUrl: 'https://example.invalid/tree/idea/a-wave-is-a-thing-not-a-label',
       plan: 'a-wave-is-a-thing-not-a-label',
       planFile: 'docs/plans/2026-08-20-a-wave-is-a-thing-not-a-label.md',
-      wave: '', state: 'wip', phase: 'Discovery',
+      wave: '', state: 'wip', phase: IDEA_PHASE,
       ageMinutes: 90, note: 'PR #305, draft — waiting on its author',
       pr: {
         number: 305, url: 'https://example.invalid/pull/305', draft: true,
@@ -323,7 +326,7 @@ export function mockFleet(): Fleet {
       branchUrl: 'https://example.invalid/tree/idea/the-row-is-legible',
       plan: 'the-row-is-legible',
       planFile: 'docs/plans/2026-08-20-the-row-is-legible.md',
-      wave: '', state: 'wip', phase: 'Discovery',
+      wave: '', state: 'wip', phase: IDEA_PHASE,
       ageMinutes: 240, note: 'PR #306, green — ready for approval',
       pr: {
         number: 306, url: 'https://example.invalid/pull/306', draft: false,
@@ -473,10 +476,12 @@ export function mockCards(): Column[] {
     return { type: 'feature', phase: 'Development', prs: [], controls, ...over } as Card;
   };
   const approved = { state: 'approved', status: 'approved' } as const;
+  const column = (name: string, cards: Card[]): Column => {
+    const { name: phase, ...drawing } = phaseColumns(DEFAULT_PHASE_MAP).find((entry) => entry.name === name)!;
+    return { phase, ...drawing, cards };
+  };
   return [
-    {
-      phase: 'Development',
-      cards: [
+    column('Development', [
         card(approved, {
           slug: 'fleet-scan-asks-the-host',
           title: 'The fleet scan asks the host once, not once per branch',
@@ -498,11 +503,8 @@ export function mockCards(): Column[] {
           path: 'docs/plans/2026-08-20-a-row-is-a-tuple.md',
           story: 'plot-board', started: true,
         }),
-      ],
-    },
-    {
-      phase: 'Testing',
-      cards: [
+    ]),
+    column('Testing', [
         card({ state: 'delivered', status: 'delivered' }, {
           slug: 'opus5-longhorizon-hardening',
           title: 'Opus 5 long-horizon hardening',
@@ -520,8 +522,7 @@ export function mockCards(): Column[] {
             { number: 59, url: 'https://example.invalid/pull/59', checks: 'unknown', mergeable: 'unknown', author: '' },
           ],
         }),
-      ],
-    },
+    ]),
   ];
 }
 

@@ -8,14 +8,11 @@ import {
   SprintStateSchema,
   StoryCardSchema,
   StoryStatusSchema,
-  toBoardPhase,
-  BOARD_PHASES,
   STORY_LIFECYCLE,
   type Board,
   type Card,
   type Column,
   type CardPr,
-  type Phase,
   type PlanStatus,
   type DraftPlan,
   type SprintCard,
@@ -48,6 +45,11 @@ import {
   type SliceSpendRecord,
   type Trees,
   planSpend,
+  DEFAULT_PHASE_MAP,
+  parsePhaseMap,
+  phaseColumns,
+  phaseOfPlan,
+  type PhaseMap,
 } from '@plot-pm/domain';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import {
@@ -1144,39 +1146,48 @@ export function leadingDate(record: string): string {
 }
 
 /**
- * The date belonging to a card's OWN phase — the whole reason the card carries
- * one field rather than four.
+ * The date belonging to a card's OWN plan state — the whole reason the card
+ * carries one field rather than four.
  *
- * Each column measures recency on its own clock: `Released` by when the work
- * shipped, `Testing` by when it was delivered, `Development` by when the plan
- * was approved, `Design` by when it entered Design. Reading one record for
- * every column would sort most of them by a date that is not theirs.
- *
- * `Design` and `Development` read DIFFERENT records now that Design is its own
- * phase: a plan in Design has an `Approved:` date only if it later leaves for
- * Approved, so while it sits in Design the only date it owns is `Design:`.
- *
- * `Discovery` has none, and that is correct rather than a gap: a Draft plan has
- * recorded no transition yet, so there is no date to be recent by. Such cards
- * keep the order they arrived in.
+ * Each column measures recency on its own clock, and a column that holds several
+ * states reads the state the card is in: `released` by when the work shipped,
+ * `delivered` by when it was delivered, `approved` by when the plan was approved,
+ * `design` by when it entered Design. A `draft` has recorded no transition yet,
+ * so there is no date to be recent by and such cards keep the order they arrived
+ * in. The key is the state rather than the column name because the declared map
+ * names the columns.
  *
  * Exported for test — this mapping is the load-bearing half of the truncation,
  * and getting it wrong produces a column that looks sorted and is not.
  */
-export function phaseDateOf(phase: Phase, meta: PlanMeta): string {
-  switch (phase) {
-    case 'Released':
+export function phaseDateOf(state: string, meta: PlanMeta): string {
+  switch (state) {
+    case 'released':
       return leadingDate(meta.released_raw);
-    case 'Testing':
+    case 'delivered':
       return leadingDate(meta.delivered_raw);
-    case 'Design':
+    case 'design':
       return leadingDate(meta.design_raw);
-    case 'Development':
+    case 'approved':
       return leadingDate(meta.approved_raw);
-    case 'Discovery':
+    default:
       return '';
   }
 }
+
+/**
+ * The declared phase map, or the default with the reason the declaration was refused.
+ *
+ * @param value - the `Workflow phases` config value; empty when the key is absent.
+ * @returns the phases to draw and the refusal text, `null` when nothing was refused.
+ */
+export const declaredPhaseMap = (value: string): { map: PhaseMap; refusal: string | null } => {
+  if (value.trim() === '') return { map: DEFAULT_PHASE_MAP, refusal: null };
+  const parsed = parsePhaseMap(value);
+  if (parsed.ok) return { map: parsed.map, refusal: null };
+  const { entry, reason } = parsed.refusal;
+  return { map: DEFAULT_PHASE_MAP, refusal: entry ? `Workflow phases: "${entry}" — ${reason}` : `Workflow phases: ${reason}` };
+};
 
 /** slug from a date-prefixed plan filename (YYYY-MM-DD-<slug>.md). */
 function planSlug(file: string): string {
@@ -1863,16 +1874,18 @@ const resolveStoryFile = async (
  */
 export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
   const refs = refsFor(opts);
-  // THREE INDEPENDENT CONFIG READS, ASKED TOGETHER. Each is its own
+  // FOUR INDEPENDENT CONFIG READS, ASKED TOGETHER. Each is its own
   // `plot-config.sh` spawn and none needs another's answer, so awaiting them
-  // in sequence would serialise three ~58 ms waits for nothing. They are off
+  // in sequence would serialise four ~58 ms waits for nothing. They are off
   // the event loop now, which is what makes the concurrency free — the point
   // of this migration in one line.
-  const [planDir, sprintDir, storyDir] = await Promise.all([
+  const [planDir, sprintDir, storyDir, phasesValue] = await Promise.all([
     readConfigAsync(opts, 'Plan directory', 'docs/plans/'),
     readConfigAsync(opts, 'Sprint directory', 'docs/sprints/'),
     readConfigAsync(opts, 'Story directory', 'docs/stories/'),
+    readConfigAsync(opts, 'Workflow phases', ''),
   ]);
+  const { map: phaseMap, refusal: phaseMapRefusal } = declaredPhaseMap(phasesValue);
 
   const repoRoot = resolvedRepoRoot(opts);
   const defaultBranch = await defaultBranchOf(opts, refs);
@@ -2075,12 +2088,8 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // fails silently and merely looks untidy.
     const canonical = canonicalPath.get(meta.file);
     const relPath = canonical ?? path.relative(repoRoot, meta.file);
-    // `started` no longer moves the phase — an approved plan is Development with
-    // or without a Started: record — but toBoardPhase keeps the parameter so the
-    // board and rowPhase compose the one mapping, and passing the real value
-    // keeps this call honest rather than hard-coding a flag the answer ignores.
     const started = meta.started_raw.length > 0;
-    const mapped = toBoardPhase(meta.phase, started);
+    const mapped = phaseOfPlan(phaseMap, { state: meta.phase });
     if (!mapped) continue;
     // An approved plan whose every non-deferred branch has merged reaches the
     // phase after Development on its own — the code has landed and git can prove
@@ -2113,7 +2122,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     const judging = chooseDeliveryPulse(meta, pulse, pulseComplete, lastComplete);
     const status = planStatus(meta, judging, judging !== null);
     const deliverable = status === 'deliverable';
-    const phase = deliverable ? toBoardPhase('delivered')! : mapped;
+    const phase = phaseOfPlan(phaseMap, { state: meta.phase, deliverable });
     if (!phase) continue;
     const slug = planSlug(relPath);
     const card: Card = {
@@ -2151,7 +2160,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
       // below: "" is a real answer here — this plan records no date for its
       // phase — and a truncating column must be able to tell that apart from a
       // card built by a server too old to have looked.
-      phaseDate: phaseDateOf(phase, meta),
+      phaseDate: phaseDateOf(deliverable ? 'delivered' : meta.phase, meta),
     };
     if (meta.sprint) card.sprint = meta.sprint;
     if (meta.story) card.story = meta.story;
@@ -2188,7 +2197,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     }
     // Kept for the tile's Ready/In-progress badge; the column now says the same
     // thing, but a Development card still benefits from the explicit flag. Gated
-    // on the card's OWN phase, not the plan's: an approved plan whose slices have
+    // on the card's OWN state, not the plan's: an approved plan whose slices have
     // all merged has been bumped out of Development, and the Ready/In-progress
     // badge is a Development affordance that must not ride along into Testing.
     //
@@ -2203,7 +2212,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // work has all landed is past that question. Gating on `started_raw` would
     // ride the Development affordance into Testing — the very thing this comment
     // forbids. The phase is the correct gate; the record is not.
-    if (phase === 'Development') card.started = started;
+    if (meta.phase === 'approved' && !deliverable) card.started = started;
     // Computed for every plan that HAS slices, single-slice ones included. The
     // old `> 1` guard was right about "2 slices · 3 branches" being noise on a
     // one-slice plan and wrong about the rest: whether anyone is working on a
@@ -2251,9 +2260,10 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     cards.push(card);
   }
 
-  const columns: Column[] = BOARD_PHASES.map((phase) => ({
-    phase,
-    cards: cards.filter((c) => c.phase === phase),
+  const columns: Column[] = phaseColumns(phaseMap).map(({ name, ...drawing }) => ({
+    phase: name,
+    ...drawing,
+    cards: cards.filter((c) => c.phase === name),
   }));
 
   const stories = await collectStories(
@@ -2274,6 +2284,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
   return {
     generatedAt: new Date().toISOString(),
     columns,
+    phaseMapRefusal,
     // WHERE THE PLANS ABOVE CAME FROM. Reported on every board, not only a
     // broken one: "these came from origin/main" is a fact a reader needs stated
     // rather than inferred from the absence of a warning, and its absence is
