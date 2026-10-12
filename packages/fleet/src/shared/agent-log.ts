@@ -322,6 +322,7 @@ export const KINDS = [
   'idea-issue',
   'implement',
   'interrogate',
+  'needs-design',
   'release',
   'reslice',
   'resolve',

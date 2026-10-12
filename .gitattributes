@@ -56,6 +56,7 @@ skills/plot/scripts/board/plot-claim-answer.mjs -merge
 skills/plot/scripts/board/plot-checkout-yield.mjs -merge
 skills/plot/scripts/board/plot-continue-command.mjs -merge
 skills/plot/scripts/board/plot-approve.mjs -merge
+skills/plot/scripts/board/plot-needs-design.mjs -merge
 skills/plot/scripts/board/plot-deliver.mjs -merge
 skills/plot/scripts/board/plot-dispatch-command.mjs -merge
 skills/plot/scripts/board/plot-delta.mjs -merge

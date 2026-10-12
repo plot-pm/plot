@@ -1245,6 +1245,27 @@ await esbuild.build({
 fs.copyFileSync(approveArtifact, shippedApprove);
 fs.chmodSync(shippedApprove, 0o755);
 
+// The Draft → Design move — the same operator-command entry shape as
+// plot-approve.mjs above, with no `.sh` launcher: a person starts it from the
+// board or by hand, and no skill names a script path for it.
+const needsDesignArtifact = path.join(here, 'dist/plot-needs-design.mjs');
+const shippedNeedsDesign = path.join(here, '../../skills/plot/scripts/board/plot-needs-design.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/needs-design.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: needsDesignArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(needsDesignArtifact, shippedNeedsDesign);
+fs.chmodSync(shippedNeedsDesign, 0o755);
+
 // The estate sweep's mechanical half — same reason as plot-deliver.mjs above:
 // `plot-reap.sh` gathered its readings and asked `rules/reapable.ts` through a
 // path derived from its own checkout, which resolves only inside the plot
@@ -1437,6 +1458,7 @@ const checkoutYieldKb = (fs.statSync(shippedCheckoutYield).size / 1024).toFixed(
 const emptyClaimKb = (fs.statSync(shippedEmptyClaim).size / 1024).toFixed(1);
 const deliverKb = (fs.statSync(shippedDeliver).size / 1024).toFixed(1);
 const approveKb = (fs.statSync(shippedApprove).size / 1024).toFixed(1);
+const needsDesignKb = (fs.statSync(shippedNeedsDesign).size / 1024).toFixed(1);
 const claimAnswerKb = (fs.statSync(shippedClaimAnswer).size / 1024).toFixed(1);
 const reapKb = (fs.statSync(shippedReap).size / 1024).toFixed(1);
 const gateKb = (fs.statSync(shippedGate).size / 1024).toFixed(1);
@@ -1477,6 +1499,7 @@ console.log(`Built plot-checkout-yield.mjs (${checkoutYieldKb} KB) → skills/pl
 console.log(`Built plot-empty-claim.mjs (${emptyClaimKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-deliver.mjs (${deliverKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-approve.mjs (${approveKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-needs-design.mjs (${needsDesignKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-claim-answer.mjs (${claimAnswerKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-reap.mjs (${reapKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-gate.mjs (${gateKb} KB) → skills/plot/scripts/board/`);

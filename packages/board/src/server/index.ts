@@ -28,6 +28,7 @@ import {
   handleApprove,
 } from './approve.js';
 import { handleRelease, releaseStatus } from './release.js';
+import { handleNeedsDesign } from './needs-design.js';
 import { handleIdea, ideaAvailability, ideaStatus } from './idea.js';
 import { handleStory, storyAvailability, storyStatus } from './story.js';
 import { commissionAvailability, commissionStatus, handleCommission } from './commission.js';
@@ -240,6 +241,9 @@ async function handleRequest(
   // so it cannot be set by reflex — see write-gate.ts.
   const WRITE_ROUTES = [
     { path: '/api/approve', verb: 'approving', handle: handleApprove },
+    // POST /api/needs-design — a Draft plan moves to Design. Detached, like
+    // /api/approve; the bundle refuses under PLOT_UNATTENDED=1 on its own.
+    { path: '/api/needs-design', verb: 'moving to design', handle: handleNeedsDesign },
     // POST /api/release — cut a Delivered plan's `Released:` record.
     //
     // The same class of route as /api/approve, and the same binding: it runs

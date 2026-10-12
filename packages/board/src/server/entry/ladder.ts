@@ -129,7 +129,7 @@ export const commitAndPush = async (
   message: string,
   title: string,
   body: string,
-  noun: 'approval' | 'delivery' | 'release' | 'verification',
+  noun: 'approval' | 'delivery' | 'release' | 'verification' | 'design move',
   nothingMessage: string,
   write: Printer,
 ): Promise<{ pushed: string } | { rejected: true }> => {
