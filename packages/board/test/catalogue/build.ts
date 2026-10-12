@@ -4,8 +4,10 @@ import {
   type AgentEntry, type AgentRow, type Board, type Card, type Column, type Fleet,
   type SprintCard, type StoryCard, type Slice,
 } from '../../src/contract/schema.js';
-import { cardControls, type CardControls, type PlanStatus } from '@plot-pm/domain';
+import { controlsFor } from '../fixtures/card-controls.js';
 import type { z } from 'zod';
+
+export { controlsFor };
 
 /**
  * THE ONE BUILDER. Every named state in the catalogue is assembled from these
@@ -109,34 +111,6 @@ const CARD_DEFAULTS: Omit<CardInput, 'controls'> = {
   type: 'feature',
   phase: 'Development',
   path: 'docs/plans/2026-08-24-a-plan.md',
-};
-
-/**
- * The plan state and status a fixture card in each column stands for: the
- * inverse of `toBoardPhase`, with the status `planStatus` answers for that
- * state. A card's controls come from these readings through `cardControls`, the
- * rule the server calls, so a fixture never restates the rule.
- */
-const READINGS_BY_PHASE: Record<Card['phase'], { state: string; status: PlanStatus }> = {
-  Discovery: { state: 'draft', status: 'draft' },
-  Design: { state: 'design', status: 'draft' },
-  Development: { state: 'approved', status: 'approved' },
-  Testing: { state: 'delivered', status: 'delivered' },
-  Released: { state: 'released', status: 'released' },
-};
-
-/**
- * The controls the server computes for a fixture card. A card's own `status`
- * replaces the column's. An absent `started` reads as started, because a
- * fixture that states no `started` stood for a card without the Ready badge.
- */
-export const controlsFor = (over: Partial<CardInput>): CardControls => {
-  const readings = READINGS_BY_PHASE[over.phase ?? CARD_DEFAULTS.phase];
-  return cardControls({
-    state: readings.state,
-    status: over.status ?? readings.status,
-    started: over.started !== false,
-  });
 };
 
 export const card = (over: Partial<CardInput> = {}): Card =>

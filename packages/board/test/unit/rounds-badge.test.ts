@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { roundsBadgeClass, roundsBadgeText, roundsRecorded } from '../../src/app/components/PlanCard.js';
 import { AgentRowSchema, CardSchema, type Card } from '../../src/contract/schema.js';
-import { controlsFor } from '../catalogue/build.js';
+import { controlsFor } from '../fixtures/card-controls.js';
 
 // What a card SAYS about how hard its plan has been questioned. The interesting
 // cases are the ones where the honest answer is nothing at all — an absent

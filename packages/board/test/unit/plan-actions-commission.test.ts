@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { PlanActions } from '../../src/app/lib/agent-rows/menus.js';
-import { card } from '../catalogue/build.js';
+import { CardSchema } from '../../src/contract/schema.js';
+import { controlsFor } from '../fixtures/card-controls.js';
 
 // The plan row's menu offers Commission design where `controls.commission`
 // holds, which `cardControls` answers on a `draft` plan only: the commission
@@ -11,7 +12,10 @@ import { card } from '../catalogue/build.js';
 const render = (phase: 'Discovery' | 'Design'): string =>
   renderToStaticMarkup(createElement(PlanActions, {
     plan: 'a-plan',
-    card: card({ phase }),
+    card: CardSchema.parse({
+      slug: 'a-plan', title: 'A plan', type: 'feature', phase,
+      path: 'docs/plans/2026-08-24-a-plan.md', controls: controlsFor({ phase }),
+    }),
     approve: { available: false, reason: 'approve refused' },
     commission: { available: true, reason: '' },
   }));
