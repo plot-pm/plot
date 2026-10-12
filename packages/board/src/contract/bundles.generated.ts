@@ -64,6 +64,7 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
   'skills/plot/scripts/board/plot-local-checks.mjs',
   'skills/plot/scripts/board/plot-merge-subject.mjs',
   'skills/plot/scripts/board/plot-movable.mjs',
+  'skills/plot/scripts/board/plot-needs-design.mjs',
   'skills/plot/scripts/board/plot-old-label.mjs',
   'skills/plot/scripts/board/plot-panel.mjs',
   'skills/plot/scripts/board/plot-plan-undeliver.mjs',
