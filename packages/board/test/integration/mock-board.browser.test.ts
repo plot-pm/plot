@@ -193,10 +193,10 @@ describe('a field the builder omits fails rather than rendering undefined', () =
   });
 
   it('throws on a value the schema does not admit', () => {
-    // The bug this caught for real while the builder was being written:
-    // `Approved` is a PLAN phase, and `AgentRow.phase` carries one of the five
-    // BOARD phases. A cast accepts it and renders a column that does not exist.
-    expect(() => row({ phase: 'Approved' as never })).toThrow(/phase/);
+    // `AgentRow.phase` is a declared phase NAME, so any string is admitted and a
+    // value of another type is not. A cast accepts it and renders a column that
+    // does not exist.
+    expect(() => row({ phase: 42 as never })).toThrow(/phase/);
   });
 
   it('parses rather than casts, so a fleet with a bad row does not build', () => {
