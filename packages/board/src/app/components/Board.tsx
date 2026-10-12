@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import type { Board, Card, StoryCard } from '../../contract/schema.js';
 import { NO_STORY, passesFilter, passesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
 import { checksUnaskableOn } from '../lib/plan.js';
@@ -22,6 +22,17 @@ import { PlanSourceLine } from './PlanSourceLine.js';
  * week `Testing` overtook it.
  */
 export const COLUMN_LIMIT = 5;
+
+/**
+ * The `grid-template-columns` value of the board at the `xl` breakpoint: one
+ * equal track per declared column, so the grid has no empty track and wraps no
+ * column onto a second row.
+ *
+ * @param count - the number of columns the payload declares.
+ * @returns a `repeat(count, minmax(0, 1fr))` track list.
+ */
+export const boardGridColumns = (count: number): string =>
+  `repeat(${count}, minmax(0, 1fr))`;
 
 /**
  * How recent a card is, for ordering — its phase date as a comparable number,
@@ -196,7 +207,10 @@ export function BoardView({
         {board.phaseMapRefusal} — drawing the default phases.
       </p>
     )}
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+    <div
+      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-(--board-columns)"
+      style={{ '--board-columns': boardGridColumns(board.columns.length) } as CSSProperties}
+    >
       {board.columns.map((column) => {
         // Sprint and story filters intersect.
         const cards = column.cards.filter(
