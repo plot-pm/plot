@@ -79,6 +79,12 @@ describe('verifyStart', () => {
 });
 
 describe('verify failures', () => {
+  it('names waiting until the delay after the last failure has passed', () => {
+    const f = recordVerifyFailure(undefined, 'abc1234', 1_000_000);
+    const store: VerifyStore = { failures: { 'ship-it': f }, failedAt: [1_000_000], lastSuccessAt: 0 };
+    expect(verifyStart(input({ store, now: 1_000_001 }))).toEqual({ start: false, reason: 'waiting' });
+  });
+
   it('stops a plan after three failures under one delivery commit', () => {
     let f = recordVerifyFailure(undefined, 'abc1234', 1);
     f = recordVerifyFailure(f, 'abc1234', 2);
@@ -106,6 +112,15 @@ describe('verify failures', () => {
 });
 
 describe('verificationRow', () => {
+  it('names the plan stop and the plural count', () => {
+    let f = recordVerifyFailure(undefined, 'abc1234', 1);
+    f = recordVerifyFailure(recordVerifyFailure(f, 'abc1234', 2), 'abc1234', 3);
+    const store: VerifyStore = { failures: { 'ship-it': f }, failedAt: [1], lastSuccessAt: 0 };
+    const row = verificationRow('ship-it', 'abc1234', store, 'l', 1_000_000);
+    expect(row?.stopped).toBe(true);
+    expect(row?.reason).toBe('verification failed 3 times; the fleet stopped retrying this plan');
+  });
+
   it('names the log, the reason and the restart command', () => {
     const f = recordVerifyFailure(undefined, 'abc1234', 100);
     const store: VerifyStore = { failures: { 'ship-it': f }, failedAt: [100], lastSuccessAt: 0 };
