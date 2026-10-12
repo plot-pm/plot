@@ -866,3 +866,22 @@ test('approve: exit 0 with a PR proceeds through the same capture', () => {
   assert.match(out, /pr=#42\(OPEN\)/);
   assert.equal(hostState().state, 'MERGED');
 });
+
+// --- --spike (the-spike-is-approved-alone) ----------------------------------
+
+const SPIKE_FIRST = PLAN({ phase: 'Design' })
+  .replace('`feature/alpha` — the first', '`feature/alpha` <!-- spike --> — the first')
+  .replace('- `feature/beta` — the second', '\n### Wave two\n- `feature/beta` — the second');
+
+test('approve: --spike --dry-run merges nothing, writes nothing, pushes nothing', () => {
+  makeRepo(SPIKE_FIRST);
+  const shaBefore = git(repo, 'rev-parse', 'origin/main').trim();
+  const { code, out } = run(['--spike', '--dry-run', '--who', 'jwloka', 'approve-me']);
+  assert.equal(code, 0, out);
+  assert.equal(hostState().state, 'OPEN', 'a dry run must not merge');
+  refreshMain();
+  assert.equal(git(repo, 'rev-parse', 'origin/main').trim(), shaBefore);
+  assert.equal(git(repo, 'status', '--porcelain').trim(), '');
+  assert.doesNotMatch(planOnMain(), /Spike approved:\*\* \d/);
+  assert.equal(fs.existsSync(path.join(repo, '.plot', 'state', 'state-receipts')), false, 'no receipt either');
+});

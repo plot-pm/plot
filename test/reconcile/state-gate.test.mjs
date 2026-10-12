@@ -554,3 +554,66 @@ test('state gate: the receipt file is safe to source under set -u', () => {
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
   assert.match(r.stdout, /ok/);
 });
+
+// --- the spike approval is a second transition with its own receipt key -----
+const spikePlan = (state, spike = '') =>
+  `# P\n\n## Status\n\n- **State:** ${state}\n${spike ? `- **Spike approved:** ${spike}\n` : ''}- **Type:** feature\n`;
+const SPIKE_PATH = 'docs/plans/2026-01-01-x.md';
+const SPIKE_RECORD = '2026-10-12, jwloka, in-session';
+
+// A receipt under an arbitrary key, written the way `record_state_receipt` does:
+// the file is named by the git blob oid of the whole key string.
+const recordKeyedReceipt = (dir, key, value) => {
+  const oid = execSync('git hash-object --stdin', { cwd: dir, input: key, encoding: 'utf8' }).trim();
+  const receipts = path.join(dir, '.plot', 'state', 'state-receipts');
+  mkdirSync(receipts, { recursive: true });
+  writeFileSync(path.join(receipts, oid), `${key}\t${value}\n`);
+};
+
+test('state gate: a hand-written Spike approved record is refused and names the spike command', () => {
+  const dir = repo({
+    committed: { [SPIKE_PATH]: spikePlan('Design') },
+    files: { [SPIKE_PATH]: spikePlan('Design', SPIKE_RECORD) },
+  });
+  const r = run(dir);
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /plot-approve\.mjs --spike x/);
+});
+
+test('state gate: the spike receipt clears the record, once', () => {
+  const dir = repo({
+    committed: { [SPIKE_PATH]: spikePlan('Design') },
+    files: { [SPIKE_PATH]: spikePlan('Design', SPIKE_RECORD) },
+  });
+  recordKeyedReceipt(dir, `${SPIKE_PATH}#Spike approved`, SPIKE_RECORD);
+  assert.equal(run(dir).status, 0, 'the owner must pass');
+  assert.equal(run(dir).status, 2, 'the receipt is spent');
+});
+
+test('state gate: a State receipt does not clear the spike record', () => {
+  const dir = repo({
+    committed: { [SPIKE_PATH]: spikePlan('Design') },
+    files: { [SPIKE_PATH]: spikePlan('Design', SPIKE_RECORD) },
+  });
+  recordReceipt(dir, SPIKE_PATH, SPIKE_RECORD);
+  assert.equal(run(dir).status, 2);
+});
+
+test('state gate: a spike receipt does not clear a State transition', () => {
+  const dir = repo({
+    committed: { [SPIKE_PATH]: spikePlan('Draft') },
+    files: { [SPIKE_PATH]: spikePlan('Approved') },
+  });
+  recordKeyedReceipt(dir, `${SPIKE_PATH}#Spike approved`, 'Approved');
+  assert.equal(run(dir).status, 2);
+});
+
+test('state gate: removing a Spike approved record is refused and no command owns it', () => {
+  const dir = repo({
+    committed: { [SPIKE_PATH]: spikePlan('Design', SPIKE_RECORD) },
+    files: { [SPIKE_PATH]: spikePlan('Design') },
+  });
+  const r = run(dir);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /No command removes/);
+});

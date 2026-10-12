@@ -145,7 +145,7 @@ describe('the Spike approved gate', () => {
   it('keeps the State receipt key and the spike key apart', () => {
     const both = of(plan(''), `${plan('2026-10-12, jwloka, in-session')}`.replace('Design', 'Approved'));
     expect(both.map((t) => receiptOf(t).key).sort()).toEqual([path, spikeReceiptKey(path)].sort());
-    const [state, spike] = both.sort((a, b) => (a.field ? 1 : 0) - (b.field ? 1 : 0));
+    const [state, spike] = [...both].sort((a, b) => (a.field ? 1 : 0) - (b.field ? 1 : 0));
     expect(receiptOf(state).key).not.toBe(receiptOf(spike).key);
   });
 
