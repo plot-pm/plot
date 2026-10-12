@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { BOARD_PHASES, planStatus, rowPhase, toBoardPhase, type PlanReadings } from '../src/rules/phase.js';
+import { planStatus, type PlanReadings } from '../src/rules/phase.js';
 
 /**
  * The phase rules, moved from the board's view layer.
@@ -16,61 +16,6 @@ const readings = (over: Partial<PlanReadings> = {}): PlanReadings => ({
   landed: 'not-merged',
   anyClaimed: false,
   ...over,
-});
-
-describe('toBoardPhase — the column a plan phase belongs to', () => {
-  it('maps every phase the plan format states', () => {
-    expect(toBoardPhase('draft')).toBe('Discovery');
-    expect(toBoardPhase('design')).toBe('Design');
-    expect(toBoardPhase('approved')).toBe('Development');
-    expect(toBoardPhase('delivered')).toBe('Testing');
-    expect(toBoardPhase('released')).toBe('Released');
-  });
-
-  it('answers null for a phase it does not know', () => {
-    // Not a default column: a phase this does not know is a plan format this
-    // board does not understand, and Discovery would be a confident answer to
-    // a question nobody could answer.
-    expect(toBoardPhase('withdrawn')).toBeNull();
-    expect(toBoardPhase('')).toBeNull();
-  });
-
-  it('ignores the started flag, which is a seam rather than an input', () => {
-    // Kept in the signature for the day a phase forks on `started` again; with
-    // the Design fork gone it changes no answer, and a test says so rather than
-    // leaving a reader to infer it from an unused parameter.
-    expect(toBoardPhase('approved', true)).toBe(toBoardPhase('approved', false));
-  });
-
-  it('returns only columns the board declares', () => {
-    for (const phase of ['draft', 'design', 'approved', 'delivered', 'released']) {
-      expect(BOARD_PHASES).toContain(toBoardPhase(phase));
-    }
-  });
-});
-
-describe('rowPhase — the column ONE branch belongs to', () => {
-  it('sends a deferred branch back to its plan phase, whatever its commits say', () => {
-    // The one place intent outranks git: a branch given up is not work in
-    // progress, however far ahead it is.
-    expect(rowPhase('approved', 'deferred')).toBe('Development');
-    expect(rowPhase('delivered', 'deferred')).toBe('Testing');
-  });
-
-  it('reads merged and wip as started, and claimed as not', () => {
-    // An empty claim marker is a dispatcher taking a branch, not an agent
-    // having built anything. The mapping does not fork on it today, so what is
-    // asserted is that all three land in the plan's column.
-    expect(rowPhase('approved', 'merged')).toBe('Development');
-    expect(rowPhase('approved', 'wip')).toBe('Development');
-    expect(rowPhase('approved', 'claimed')).toBe('Development');
-    expect(rowPhase('approved', 'open')).toBe('Development');
-  });
-
-  it('carries the null through for a phase it does not know', () => {
-    expect(rowPhase('withdrawn', 'open')).toBeNull();
-    expect(rowPhase('withdrawn', 'deferred')).toBeNull();
-  });
 });
 
 describe('planStatus — what a reader acts on', () => {
@@ -121,7 +66,7 @@ describe('planStatus — what a reader acts on', () => {
   it('answers withdrawn for a plan somebody rejected or superseded', () => {
     // THE DEFECT: both fell through the default arm to `draft`/`open`, so the
     // estate counter reported work nobody intends to do as outstanding. A
-    // withdrawn plan renders no card at all — `toBoardPhase` answers null — so
+    // withdrawn plan renders no card at all — `phaseOfPlan` answers null — so
     // the board looked right while the number did not.
     expect(planStatus(readings({ phase: 'rejected' }))).toBe('withdrawn');
     expect(planStatus(readings({ phase: 'superseded' }))).toBe('withdrawn');

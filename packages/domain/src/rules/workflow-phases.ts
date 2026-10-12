@@ -1,6 +1,7 @@
 import type { StoryStatus } from '../entities/story.js';
 import { StoryStatusSchema } from '../entities/story.js';
 import type { WorkflowName } from '../entities/workflow.js';
+import type { Phase } from '../entities/workflow.js';
 
 /** A plan state a phase can hold. `rejected` and `superseded` are absent: no phase holds them. */
 export type DeclarablePlanState = 'draft' | 'design' | 'approved' | 'delivered' | 'released';
@@ -167,6 +168,66 @@ export const phaseOfStory = (map: PhaseMap, status: StoryStatus): string | null 
  */
 export const planPhases = (map: PhaseMap): string[] =>
   map.filter((entry) => entry.plan.length > 0).map((entry) => entry.name);
+
+/**
+ * Who leads a phase: a symbol and a word.
+ *
+ * Carried as both, never as colour alone — roughly one man in twelve
+ * distinguishes red from green poorly, and the same page turns up in greyscale
+ * screenshots. Colour may only repeat what these say.
+ */
+export interface PhaseLeadership {
+  /** The symbol, shown beside the word rather than instead of it. */
+  icon: string;
+  /** Who leads the phase, as a word. */
+  who: string;
+}
+
+/**
+ * Who leads each phase.
+ *
+ * A fact about how a team works, so it belongs beside the phases rather than in
+ * the view that draws them.
+ */
+export const PHASE_LEADERSHIP: Record<Phase, PhaseLeadership> = {
+  Discovery: { icon: '👤', who: 'human-led' },
+  Design: { icon: '👤', who: 'human-led' },
+  Development: { icon: '🤖', who: 'agent-led' },
+  Testing: { icon: '👤', who: 'human-led' },
+  Released: { icon: '✓', who: 'done' },
+};
+
+/** One column of the plans board, as the declared map draws it. */
+export interface PhaseColumn {
+  name: string;
+  /** The default phase's leadership; `null` for a name outside the five defaults. */
+  leadership: PhaseLeadership | null;
+  /** The default phase's own name as its accent; `'neutral'` for a name outside the five defaults. */
+  accent: string;
+  /** Whether the column shows the delivery checklist: the phase holding `plan:delivered`. */
+  checklist: boolean;
+}
+
+const hasOwn = (record: object, key: string): boolean => Object.prototype.hasOwnProperty.call(record, key);
+
+/**
+ * The columns of the plans board.
+ *
+ * One column per phase holding a plan state, in declared order.
+ *
+ * @param map - the declared phases.
+ * @returns the columns with their leadership, accent and checklist flag.
+ */
+export const phaseColumns = (map: PhaseMap): PhaseColumn[] =>
+  map.filter((entry) => entry.plan.length > 0).map((entry) => {
+    const isDefault = hasOwn(PHASE_LEADERSHIP, entry.name);
+    return {
+      name: entry.name,
+      leadership: isDefault ? PHASE_LEADERSHIP[entry.name as keyof typeof PHASE_LEADERSHIP] : null,
+      accent: isDefault ? entry.name : 'neutral',
+      checklist: entry.plan.includes('delivered'),
+    };
+  });
 
 /** The lifecycle workflows and the plan states each acts on, in the order a phase performs them. */
 const WORKFLOW_ACTS_ON: readonly (readonly [WorkflowName, readonly DeclarablePlanState[]])[] = [

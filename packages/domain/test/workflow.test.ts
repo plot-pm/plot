@@ -10,7 +10,9 @@ import {
   type Phase,
   type WorkflowName,
 } from '../src/entities/workflow.js';
-import { toBoardPhase } from '../src/rules/phase.js';
+import { DEFAULT_PHASE_MAP, phaseOfPlan } from '../src/rules/workflow-phases.js';
+
+const toBoardPhase = (state: string) => phaseOfPlan(DEFAULT_PHASE_MAP, { state });
 import {
   approvable,
   deliverable,

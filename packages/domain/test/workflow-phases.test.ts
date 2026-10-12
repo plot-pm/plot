@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { StoryStatusSchema } from '../src/entities/story.js';
-import { BOARD_PHASES, PHASE_WORKFLOWS } from '../src/entities/workflow.js';
+import { BOARD_PHASES, PHASE_LEADERSHIP, PHASE_WORKFLOWS } from '../src/entities/workflow.js';
 import {
   DEFAULT_PHASE_MAP,
   parsePhaseMap,
+  phaseColumns,
   phaseOfPlan,
   phaseOfStory,
   phaseWorkflows,
@@ -160,5 +161,43 @@ describe('phaseWorkflows', () => {
 
   it('gives a workflow to no phase when none holds its states', () => {
     expect(phaseWorkflows(parsed('A = plan:draft'))).toEqual({ A: ['approve'] });
+  });
+});
+
+describe('phaseColumns', () => {
+  it('draws the four plan phases of the default map, with leadership and accent each', () => {
+    const columns = phaseColumns(DEFAULT_PHASE_MAP);
+    expect(columns.map((column) => column.name)).toEqual(['Design', 'Development', 'Testing', 'Released']);
+    for (const column of columns) {
+      expect(column.accent).toBe(column.name);
+      expect(column.leadership).toEqual(PHASE_LEADERSHIP[column.name as keyof typeof PHASE_LEADERSHIP]);
+    }
+    expect(columns.find((column) => column.name === 'Development')?.leadership?.who).toBe('agent-led');
+  });
+
+  it('flags the checklist on exactly the phase holding plan:delivered', () => {
+    expect(phaseColumns(DEFAULT_PHASE_MAP).filter((column) => column.checklist).map((column) => column.name))
+      .toEqual(['Testing']);
+    const custom = parsed('Idea = plan:draft, plan:design; Build = plan:approved; Done = plan:delivered, plan:released');
+    expect(phaseColumns(custom).filter((column) => column.checklist).map((column) => column.name))
+      .toEqual(['Done']);
+  });
+
+  it('answers null leadership and the neutral accent for a name outside the five', () => {
+    const custom = parsed('Idea = plan:draft, plan:design; Build = plan:approved; Done = plan:delivered, plan:released');
+    expect(phaseColumns(custom)).toEqual([
+      { name: 'Idea', leadership: null, accent: 'neutral', checklist: false },
+      { name: 'Build', leadership: null, accent: 'neutral', checklist: false },
+      { name: 'Done', leadership: null, accent: 'neutral', checklist: true },
+    ]);
+  });
+
+  it('draws no column for a phase holding only stories', () => {
+    expect(phaseColumns(parsed('Ideas = story:*; Work = plan:draft')).map((column) => column.name))
+      .toEqual(['Work']);
+  });
+
+  it('answers no leadership for a name that is an Object.prototype key', () => {
+    expect(phaseColumns(parsed('constructor = plan:draft'))[0]).toMatchObject({ leadership: null, accent: 'neutral' });
   });
 });

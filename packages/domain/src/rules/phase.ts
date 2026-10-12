@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-import type { BranchState } from '../entities/fleet.js';
-import type { Phase } from '../entities/workflow.js';
 import type { Landed } from './deliverable.js';
 
 // THE PHASES BELONG TO THE WORKFLOW, RE-EXPORTED HERE. This file holds the
@@ -25,53 +23,6 @@ export const PlanStatusSchema = z.enum([
   'draft', 'open', 'approved', 'in-progress', 'deliverable', 'delivered', 'released', 'withdrawn',
 ]);
 export type PlanStatus = z.infer<typeof PlanStatusSchema>;
-
-/**
- * The workflow phase a plan state belongs to, or `null` for a state there is none.
- *
- * `null` rather than a default: a state this does not know is a plan format the
- * workflow does not understand, and putting it in Discovery would answer a
- * question nobody could answer.
- *
- * @param helperPhase - the state as the plan file spells it, lowercased.
- * @param _started - unused; kept as the seam a `started`-forking state would use.
- * @returns the phase, or `null` where the state is not one the workflow knows.
- */
-export const toBoardPhase = (helperPhase: string, _started = false): Phase | null => {
-  switch (helperPhase) {
-    case 'draft':
-      return 'Discovery';
-    case 'design':
-      return 'Design';
-    case 'approved':
-      return 'Development';
-    case 'delivered':
-      return 'Testing';
-    case 'released':
-      return 'Released';
-    default:
-      return null;
-  }
-};
-
-
-/**
- * The column ONE BRANCH belongs to, which is not always its plan's.
- *
- * A deferred branch returns to the plan's own phase whatever its commits say —
- * the one place intent outranks git, because a branch given up is not work in
- * progress.
- *
- * @param planPhase - the governing plan's phase, lowercased.
- * @param state - the branch's state, as the scan reports it.
- * @returns the column, or `null` where the phase is not one this board knows.
- */
-export const rowPhase = (planPhase: string, state: BranchState): Phase | null => {
-  if (state === 'deferred') return toBoardPhase(planPhase, false);
-  // `merged` and `wip` count as started; `claimed` does NOT — an empty claim
-  // marker is a dispatcher taking a branch, not an agent having built anything.
-  return toBoardPhase(planPhase, state === 'wip' || state === 'merged');
-};
 
 /**
  * What was read of ONE plan, from the file and from the pulse.

@@ -1,4 +1,4 @@
-import { DEFAULT_PHASE_MAP, phaseWorkflows } from '../rules/workflow-phases.js';
+import { DEFAULT_PHASE_MAP, PHASE_LEADERSHIP, phaseWorkflows } from '../rules/workflow-phases.js';
 
 /**
  * The development workflow: the phases work passes through, in order, who leads
@@ -41,33 +41,8 @@ export const BOARD_PHASES = [
 /** One phase of the development workflow. */
 export type Phase = (typeof BOARD_PHASES)[number];
 
-/**
- * Who leads a phase: a symbol and a word.
- *
- * Carried as both, never as colour alone — roughly one man in twelve
- * distinguishes red from green poorly, and the same page turns up in greyscale
- * screenshots. Colour may only repeat what these say.
- */
-export interface PhaseLeadership {
-  /** The symbol, shown beside the word rather than instead of it. */
-  icon: string;
-  /** Who leads the phase, as a word. */
-  who: string;
-}
-
-/**
- * Who leads each phase.
- *
- * A fact about how a team works, so it belongs beside the phases rather than in
- * the view that draws them.
- */
-export const PHASE_LEADERSHIP: Record<Phase, PhaseLeadership> = {
-  Discovery: { icon: '👤', who: 'human-led' },
-  Design: { icon: '👤', who: 'human-led' },
-  Development: { icon: '🤖', who: 'agent-led' },
-  Testing: { icon: '👤', who: 'human-led' },
-  Released: { icon: '✓', who: 'done' },
-};
+export { PHASE_LEADERSHIP } from '../rules/workflow-phases.js';
+export type { PhaseLeadership } from '../rules/workflow-phases.js';
 
 /**
  * A phase's position in the workflow, counting from zero.
