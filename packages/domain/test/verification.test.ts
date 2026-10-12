@@ -112,6 +112,14 @@ describe('verifiedValue and verificationBody', () => {
   });
 });
 
+describe('verificationBody with every juror refuting', () => {
+  it('names no supporting lens', () => {
+    const fold = foldVerification(['one'], [{ lens: 'a', text: 'Claim-1: refuted\n' }]);
+    if (fold.fold !== 'record') throw new Error('expected a record');
+    expect(verificationBody(fold.verdicts)).toBe('- Claim-1 refuted — one — a refuted\n');
+  });
+});
+
 describe('withRecord replace mode', () => {
   it('overwrites a filled line and keeps one', () => {
     const once = withRecord(PLAN, 'Verified', 'first', 'replace').text;
@@ -129,6 +137,10 @@ describe('withRecord replace mode', () => {
 });
 
 describe('withSection and the plan-section write', () => {
+  it('appends a section after text with no final newline', () => {
+    expect(withSection('# P', 'Verification', '- a\n')).toBe('# P\n\n## Verification\n\n- a\n');
+  });
+
   it('appends a missing section and replaces an existing one in place', () => {
     const once = withSection(PLAN, 'Verification', '- a\n');
     expect(once.endsWith('## Verification\n\n- a\n')).toBe(true);
