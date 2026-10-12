@@ -326,6 +326,7 @@ export const KINDS = [
   'reslice',
   'resolve',
   'story-issue',
+  'verify',
 ] as const;
 
 /**

@@ -61,6 +61,7 @@ import type { DeskMergeReading, PlanBranchLine } from '@plot-pm/domain/rules/gat
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../../shared/registry.js';
 import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
 import { fleetAutoWrites } from '../../shared/auto-writes.js';
+import { verifyingCount } from '../../shared/auto-verify.js';
 import { runDeskRelay } from '../../shared/desk-relay.js';
 import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
@@ -806,6 +807,8 @@ export const queueWorldForRepo = (
         failed: false,
       };
     },
+    // A GOING VERIFY RUN HOLDS AN AGENT SLOT, so `scaleUp` counts it.
+    verifying: () => verifyingCount(repoRoot),
     // READS THE FILE FLEETD WRITES AND NEVER THE HOST. A missing, unparseable
     // or other-version file is no reading, and no reading holds nothing.
     defaultBranchRed: async () => {

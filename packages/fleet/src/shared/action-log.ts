@@ -45,3 +45,13 @@ export const dispatchLogPath = (repoRoot: string, slug: string): string =>
  */
 export const deliverLogPath = (repoRoot: string, slug: string): string =>
   agentLogPath(repoRoot, 'deliver', slug, 'log');
+
+/**
+ * Where a verification run writes its output.
+ *
+ * @param repoRoot - the repository the fleet serves.
+ * @param slug - the plan slug.
+ * @returns an absolute path; the file need not exist.
+ */
+export const verifyLogPath = (repoRoot: string, slug: string): string =>
+  agentLogPath(repoRoot, 'verify', slug, 'log');

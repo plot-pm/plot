@@ -38,6 +38,8 @@ import type { AgentEntry } from './registry.js';
  * interface, so a bug here reports the wrong queue and can destroy nothing.
  */
 export interface QueueWorld {
+  /** How many verify runs are going; absent for none. They hold an agent slot. */
+  verifying?(): number;
   /** Every plan on the estate, as the plan store parses them. */
   plans(): Promise<readonly PlanRecord[]>;
   /** The remote branches that exist — a ref IS a claim. */
@@ -388,6 +390,7 @@ export const readQueue = async (
     mergedSet: mergedSetOf(listing),
     orphanedClaims: orphaned,
     defaultBranchRed: world.defaultBranchRed ? await world.defaultBranchRed() : false,
+    verifying: world.verifying ? world.verifying() : 0,
   };
 };
 

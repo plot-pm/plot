@@ -1,6 +1,7 @@
-import type { FleetReading } from '@plot-pm/domain';
+import { freeAgentCount, liveAgentCount, type FleetReading, type HeldSlice } from '@plot-pm/domain';
 
 import { runAutoDeliverPass } from './auto-deliver.js';
+import { runAutoVerifyPass } from './auto-verify.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
 import type { ActOptions } from './action-log.js';
 import { readMachine } from './machine-reading.js';
@@ -43,6 +44,20 @@ export const fleetAutoWrites = (
       const machine = await readMachine(opts);
       own = maybeAutoDispatch(opts, pulse, controls, entries, own, machine, briefsAsked);
       runAutoDeliverPass(opts, pulse);
+      // VERIFICATION GOES LAST: it takes an agent slot only when no slice is
+      // waiting for one, and dispatch has just had its turn at them.
+      const noFreeAgent =
+        pulse.plans.some((p) => p.phase === 'approved' && p.slices.some((w) => w.verdict === 'eligible')) &&
+        liveAgentCount(entries, pulse) >= controls.parallelAgents &&
+        freeAgentCount(entries, pulse) <= 0;
+      const held: HeldSlice[] = noFreeAgent
+        ? [{ branch: '', hold: 'no-free-agent', waitsOn: [], waitHeld: '', assignedTo: '' } as HeldSlice]
+        : [];
+      await runAutoVerifyPass(opts, pulse, {
+        headroom: machine.headroom,
+        machineOverride: controls.machineOverride,
+        held,
+      });
     } catch (e) {
       warn(`plot-fleetd: automatic writes failed: ${e instanceof Error ? e.message : String(e)}`);
     }
