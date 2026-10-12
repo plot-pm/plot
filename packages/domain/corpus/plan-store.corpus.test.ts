@@ -74,6 +74,8 @@ const KNOWN_UNCARRIED = [
   'spike_approved_raw',
   // The scan carries it to the pulse plan; no PlanStore reader decides on it.
   'tracer',
+  // The board reads it through its own PlanMeta; no PlanStore reader decides on it.
+  'verified_raw',
   'issues',
   'malformed_prs',
   'changelog',

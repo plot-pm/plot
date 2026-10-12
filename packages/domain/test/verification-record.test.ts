@@ -102,6 +102,14 @@ describe('refutedClaims', () => {
     expect(refutedClaims(planText({ claims: ['- Claim-3 refuted', '- Claim-x refuted — a — b'] }))).toEqual([]);
   });
 
+  it('omits a refuted line that has no lens column', () => {
+    expect(refutedClaims(planText({ claims: ['- Claim-3 refuted — Thing'] }))).toEqual([]);
+  });
+
+  it('ignores a claim line inside a fenced block', () => {
+    expect(refutedClaims(planText({ claims: ['```', BAD, '```'] }))).toEqual([]);
+  });
+
   it('answers empty where the section is absent', () => {
     expect(refutedClaims(planText())).toEqual([]);
   });
