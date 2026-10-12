@@ -22,9 +22,9 @@ implementation start are two events). This command ends with the plan in
 phase Approved, a transition record in the file, and an offer to chain
 into `/plot-implement` for the fast-paced case.
 
-**Input:** `$ARGUMENTS` is the `<slug>` of an existing plan.
+**Input:** `$ARGUMENTS` is the `<slug>` of an existing plan, and optionally `--spike`.
 
-Example: `/plot-approve sse-backpressure`
+Example: `/plot-approve sse-backpressure`, or `/plot-approve sse-backpressure --spike` to approve the spike of a Design plan alone (step 3c).
 
 <!-- keep in sync with plot/SKILL.md Setup -->
 ## Setup
@@ -49,6 +49,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 3. Effect and Record (`pr`) | Small | One call to `plot-approve.sh`; read back its summary |
 | 3. `Review: in-session` | Small | One call: `plot-approve.sh --who <handle>`; read back its summary |
 | 3b. Record by hand (`ballot` only) | Mid | The tally, then the same records without a script |
+| 3c. Spike approval (`--spike`) | Small | One call: `plot-approve.sh --spike --who <handle> <slug>`; read back its summary. Stop if a spike approval was asked for and the call has no `--spike` |
 | 4. Summary | Small | Orientation template |
 
 **What this skill judges and what the script collects.** Manifesto
@@ -83,7 +84,7 @@ If `$ARGUMENTS` is empty or missing:
 > only one candidate" is not consent to approve it.
 > `PLOT-UNASKED: Which plan should be approved? — stopped — <n> candidates; none approved`
 
-Extract `slug` from `$ARGUMENTS` (trimmed, lowercase, hyphens only).
+Extract `slug` from `$ARGUMENTS` (trimmed, lowercase, hyphens only). If `$ARGUMENTS` carries `--spike`, steps 2 to 3b do not apply: do step 3c, then step 4.
 
 ### Batch Mode
 
@@ -96,6 +97,8 @@ recorded `Review:` answer decides what "approve" means. If the field is
 missing (pre-Plot-2 plan on an idea branch), treat it as `pr`.
 
 **`Review: pr`** — the mechanical half is `plot-approve.sh`'s (step 3). A plan in the Design phase takes the `in-session` path instead: a person names themselves with `--who`.
+
+**A Design plan with a spike has two approvals.** When the first slice holds one branch marked `<!-- spike -->` and the plan has no `Spike approved:` record, ask the person which approval they give: the spike alone (step 3c), or the whole plan (step 3). The whole-plan approval moves the plan to Approved and clears the hold of every branch. Never pick the whole-plan approval because the person did not say `--spike`.
 It reads the PR state itself and refuses a draft, a closed, or an absent
 PR with the reason on stderr, so do **not** pre-check it here — a second
 copy of those preconditions is exactly the duplication this split
@@ -352,6 +355,47 @@ a merge commit merely coincides with it in the `pr` flow.
 6. Commit where the plan lives — the work branch (`same branch`) or the
    current branch (direct flow). Both channels record locally; there is
    no push at the default branch to classify.
+
+### 3c. Approve the spike alone — `--spike`
+
+A plan in the Design phase can mark one branch `<!-- spike -->`. That branch must be the only branch of the first slice. The spike approval licenses that one branch: the fleet can dispatch it while the rest of the plan stays in Design. A person approves the spike on every review channel, `Review: ballot` included.
+
+Get the explicit go from the person, then make one call. Do not do this by hand:
+
+```bash
+../plot/scripts/plot-approve.sh --spike --who <handle> <slug>
+```
+
+`<handle>` is the person who gave the go, and the `People` config key must declare it. The script does these steps:
+
+1. Under `Review: pr`, `none` or `ballot`, it takes an open draft plan PR out of draft and merges it pinned to the reviewed head (`--match-head-commit`). Under `Review: in-session`, under `Impl: same branch`, or when the plan PR is already merged, it merges nothing.
+2. It writes `- **Spike approved:** <date>, <handle>, <channel>` in `## Status`, and a state receipt under `<plan path>#Spike approved`.
+3. It removes the `.plot/hold` entry of the spike branch only. The holds of the other branches stay.
+4. It commits `plot: approve spike of <slug>` and pushes it to the default branch.
+5. It appends a row to `.plot/state/in-session-approvals.tsv` whose fifth column is `spike`.
+
+The phase stays Design, and no `Approved:` record is written. Carry the script's `step:` lines and `summary:` line into the summary of step 4.
+
+**Without `--spike`, the same script approves the whole plan.** On a Design plan it moves the phase to Approved and clears the hold of every branch. If the person asked for the spike approval, check that the command line carries `--spike` before you run it. `--spike --dry-run` shows what the script would write, and merges, writes and pushes nothing.
+
+**On a refusal (exit 1), report the script's own words and stop.** It refuses:
+
+- `state-wrong` — the plan is not in the Design phase.
+- `spike-approved` — the plan already carries a `Spike approved:` record. A second run is not a repair.
+- `spike-none` — no branch is marked `<!-- spike -->`, or more than one is.
+- `spike-not-first` — the spike is not the only branch of the first slice.
+- `review-human` — `--who` is missing or empty.
+- `reviewer-undeclared` — `People` does not declare the handle.
+- `pr-closed`, `pr-absent` or `pr-ambiguous` — the plan PR is closed, missing, or not the only open PR that changes the plan file.
+
+Do not work around a refusal, and do not write the `Spike approved:` line by hand: `plot-state-gate.sh` refuses a commit that adds, changes or removes it without the script's receipt.
+
+The board's *Approve spike* button sends `POST /api/approve {"slug":"<slug>","spike":true,"who":"<handle>"}`, which runs the same script with `--spike`.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** refuse. A person approves a spike on every channel, and the script refuses `--spike` under `PLOT_UNATTENDED=1`; nothing merges and nothing is written.
+> `PLOT-UNASKED: Approve the spike of <slug>? — refused — a person approves a spike; nothing written`
+
+After a spike approval, step 4 says that the spike branch can now be implemented with `/plot-implement`, and that the plan stays in Design until a person approves it whole after the spike merges.
 
 ### 4. Summary — orient, then offer to chain
 
