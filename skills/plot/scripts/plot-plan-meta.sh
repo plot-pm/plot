@@ -265,6 +265,8 @@
 #                  record left empty (a bookkeeping fault plot-reconcile-scan
 #                  reports), and a consumer that needs a DATE must read this
 #                  rather than infer one from the phase.
+#   verified_raw   the verification record as written (`## Status` `Verified:`),
+#                  "" if absent or a placeholder. Read by `verificationOf`.
 #   started_raw    implementation-start records, one raw string per
 #                  `Started:` line in `## Status` (repeatable; front matter
 #                  `started:` contributes one entry); [] if absent.
@@ -317,7 +319,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","spike_approved_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","spike_approved_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","verified_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -497,7 +499,7 @@ function reset_state() {
   canon_state = ""; canon_phase = ""; canon_type = ""
   canon_sprint = ""; canon_story = ""; canon_assignee = ""; status_assignee = ""
   canon_review = ""; canon_impl = ""; canon_approved = ""; canon_released = ""
-  canon_delivered = ""; canon_design = ""
+  canon_delivered = ""; canon_design = ""; canon_verified = ""
   canon_rounds = ""
   h1_title = ""
   # "" means the plan carries no readable round — NOT zero. Emitted by omitting
@@ -772,7 +774,7 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   if (tolower(canon_tracer) ~ /^(yes|true)/) out = out ",\"tracer\":true"
   out = out ",\"approved_raw\":\"" jesc(approved) "\""
   out = out ",\"released_raw\":\"" jesc(released) "\""
-  out = out ",\"delivered_raw\":\"" jesc(delivered) "\""
+  out = out ",\"delivered_raw\":\"" jesc(delivered) "\",\"verified_raw\":\"" jesc(canon_verified) "\""
   out = out ",\"started_raw\":["
   for (i = 1; i <= n_started; i++) out = out (i > 1 ? "," : "") "\"" jesc(started[i]) "\""
   out = out "]"
@@ -1007,6 +1009,7 @@ section == "status" {
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**approved[:*]/ && canon_approved == "") canon_approved = strip_placeholder(val_after_colon($0))
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**released[:*]/ && canon_released == "") canon_released = strip_placeholder(val_after_colon($0))
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**delivered[:*]/ && canon_delivered == "") canon_delivered = strip_placeholder(val_after_colon($0))
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**verified[:*]/ && canon_verified == "") canon_verified = strip_placeholder(val_after_colon($0))
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**started[:*]/) {
     _s = strip_placeholder(val_after_colon($0))
     if (_s != "") started[++n_started] = _s
