@@ -1,0 +1,375 @@
+// Contract test for a pinned verification run: `plot-verify.mjs` prepares two
+// trees, folds juror files into verdicts, and books the record onto the default
+// branch.
+//
+// THE SANDBOX CARRIES ITS OWN COPY OF THE SCRIPTS, committed, because `prepare`
+// takes its tools from `origin/<main>` and finds them at the same path the
+// running bundle lives under. The delivery commit holds a stub
+// `plot-local-checks.mjs` that ignores `--files`; the commit after it replaces
+// the stub with the real bundle. A run that used the pin's own code would check
+// nothing and report success, and the first test fails on exactly that.
+//
+// NO MODEL RUNS HERE. The test writes the juror files, the host is a stub that
+// names one merge commit, and `pnpm` is a stub that exits with a chosen code.
+//
+// Needs `plot-verify.mjs` and `plot-local-checks.mjs` built under
+// `skills/plot/scripts/board/` (`pnpm build:board`).
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const scripts = path.resolve(here, '../../skills/plot/scripts');
+const SLUG = 'the-plan';
+const PLAN = 'docs/plans/2026-10-01-the-plan.md';
+const SCRIPTS_REL = 'skills/plot/scripts';
+
+const g = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
+
+const write = (dir, rel, text) => {
+  fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+  fs.writeFileSync(path.join(dir, rel), text);
+};
+
+const commit = (dir, message) => {
+  g(dir, 'add', '-A');
+  g(dir, 'commit', '-q', '--allow-empty', '-m', message);
+  return g(dir, 'rev-parse', 'HEAD');
+};
+
+const STUB_LOCAL_CHECKS = '#!/usr/bin/env node\n// an older bundle: reads no arguments\n';
+const STUB_HOST = `#!/usr/bin/env bash
+case "$1" in
+  default-branch) echo main ;;
+  pr-merge-commit) printf '%s\\n' "\${PLOT_STUB_MERGE_SHA:-}" ;;
+  *) exit 3 ;;
+esac
+`;
+const STUB_PNPM = '#!/usr/bin/env bash\nexit "${STUB_PNPM_EXIT:-0}"\n';
+
+const planText = (delivered) => `# The plan
+
+## Status
+
+- **State:** Delivered
+- **Type:** feature
+- **Review:** pr
+- **Approved:** 2026-10-01, T
+- **Delivered:** ${delivered}
+
+## Changelog
+
+- First change.
+- Second change.
+
+## Acceptance
+
+- Acceptance one.
+
+## Slices
+
+### Slice one
+
+- \`feature/slice-one\`
+
+## Notes
+`;
+
+/**
+ * A repository with a bare origin, one plan and a delivery commit.
+ *
+ * @param options.delivered whether the plan's `Delivered:` is ever filled.
+ * @param options.toolsCommitted whether `origin/main` carries the real bundles.
+ * @returns the paths and commits a test asserts on, and `cleanup`.
+ */
+const sandbox = ({ delivered = true, toolsCommitted = true } = {}) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-verify-run-'));
+  const dir = path.join(root, 'work');
+  const remote = path.join(root, 'origin.git');
+  const bin = path.join(root, 'bin');
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote]);
+  execFileSync('git', ['init', '-q', '-b', 'main', dir]);
+  g(dir, 'config', 'user.email', 't@example.com');
+  g(dir, 'config', 'user.name', 'T');
+  g(dir, 'remote', 'add', 'origin', remote);
+
+  write(dir, 'CLAUDE.md',
+    '## Plot Config\n\n- **Plan directory:** docs/plans/\n'
+    + '- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/\n'
+    + '- **Local checks:** docs/plans/*.md = echo check-plan {changed}\n');
+  for (const name of fs.readdirSync(scripts).filter((n) => n.endsWith('.sh'))) {
+    write(dir, `${SCRIPTS_REL}/${name}`, fs.readFileSync(path.join(scripts, name), 'utf8'));
+    fs.chmodSync(path.join(dir, SCRIPTS_REL, name), 0o755);
+  }
+  write(dir, `${SCRIPTS_REL}/plot-host.sh`, STUB_HOST);
+  write(dir, `${SCRIPTS_REL}/board/plot-local-checks.mjs`, STUB_LOCAL_CHECKS);
+  write(dir, PLAN, planText(''));
+  commit(dir, 'base');
+  write(dir, 'src/a.js', 'export const a = 1;\n');
+  const mergeSha = commit(dir, 'slice one');
+
+  let deliverySha = '';
+  if (delivered) {
+    write(dir, PLAN, planText('2026-10-05, T'));
+    deliverySha = commit(dir, 'plot: deliver the-plan');
+    write(dir, PLAN, `${planText('2026-10-05, T')}\nA later note.\n`);
+  }
+  const driftSha = commit(dir, 'a later edit');
+
+  const real = (name) => fs.readFileSync(path.join(scripts, 'board', name), 'utf8');
+  for (const name of ['plot-local-checks.mjs', 'plot-verify.mjs']) {
+    if (name === 'plot-local-checks.mjs' && !toolsCommitted) continue;
+    write(dir, `${SCRIPTS_REL}/board/${name}`, real(name));
+  }
+  if (toolsCommitted) {
+    commit(dir, 'build the bundles');
+  } else {
+    // The running bundle must exist on disk; origin/main never holds it.
+    g(dir, 'push', '-q', 'origin', 'main');
+    g(dir, 'fetch', '-q', 'origin');
+  }
+  g(dir, 'push', '-q', 'origin', 'main');
+  g(dir, 'fetch', '-q', 'origin');
+  fs.chmodSync(path.join(dir, SCRIPTS_REL, 'board', 'plot-verify.mjs'), 0o755);
+
+  write(bin, 'pnpm', STUB_PNPM);
+  fs.chmodSync(path.join(bin, 'pnpm'), 0o755);
+
+  return {
+    dir,
+    remote,
+    bin,
+    mergeSha,
+    deliverySha,
+    driftSha,
+    cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
+  };
+};
+
+/** Runs the sandbox's own `plot-verify.mjs`. */
+const verify = (box, args, env = {}) => {
+  const run = spawnSync('node', [path.join(box.dir, SCRIPTS_REL, 'board', 'plot-verify.mjs'), ...args], {
+    cwd: box.dir,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${box.bin}:${process.env.PATH}`,
+      PLOT_STUB_MERGE_SHA: box.mergeSha,
+      PLOT_REPO_ROOT: '',
+      PLOT_UNATTENDED: '',
+      ...env,
+    },
+  });
+  return { code: run.status, out: run.stdout, err: run.stderr };
+};
+
+const runDir = (box) => path.join(box.dir, '.plot/state/verify', SLUG);
+
+const jurors = (box, files) => {
+  for (const [lens, text] of Object.entries(files)) {
+    write(box.dir, `.plot/panels/${SLUG}/verify-${lens}.md`, text);
+  }
+};
+
+const SUPPORTED = 'Claim-1: supported\nClaim-2: supported\nClaim-3: supported\n';
+
+const onMain = (box, rel) => {
+  g(box.dir, 'fetch', '-q', 'origin');
+  return g(box.dir, 'show', `origin/main:${rel}`);
+};
+
+const count = (text, re) => (text.match(re) ?? []).length;
+
+test('the tools tree reads --files at the delivery commit and the pin\'s own bundle reads nothing', () => {
+  const box = sandbox();
+  try {
+    const prepared = verify(box, ['prepare', SLUG]);
+    assert.equal(prepared.code, 0, prepared.err);
+    const list = path.join(box.dir, 'list.txt');
+    fs.writeFileSync(list, `${PLAN}\n`);
+    const pin = path.join(runDir(box), 'pin');
+    const tools = path.join(runDir(box), 'tools');
+    const viaTools = spawnSync('node', [path.join(tools, SCRIPTS_REL, 'board/plot-local-checks.mjs'), '--files', list], {
+      cwd: pin, encoding: 'utf8',
+    });
+    const viaPin = spawnSync('node', [path.join(pin, SCRIPTS_REL, 'board/plot-local-checks.mjs'), '--files', list], {
+      cwd: pin, encoding: 'utf8',
+    });
+    assert.match(viaTools.stdout, /echo check-plan .*2026-10-01-the-plan\.md/);
+    assert.equal(viaPin.stdout, '');
+    assert.equal(g(pin, 'rev-parse', 'HEAD'), box.deliverySha);
+    assert.equal(g(tools, 'rev-parse', 'HEAD'), g(box.dir, 'rev-parse', 'origin/main'));
+    assert.equal(g(pin, 'status', '--porcelain'), '', 'the pid marker is excluded from the pin tree');
+    assert.ok(fs.existsSync(path.join(pin, '.plot-verify.pid')));
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('prepare pins the commit that added Delivered, not a later edit of the plan', () => {
+  const box = sandbox();
+  try {
+    assert.notEqual(box.deliverySha, box.driftSha);
+    const prepared = verify(box, ['prepare', SLUG]);
+    assert.equal(prepared.code, 0, prepared.err);
+    assert.match(prepared.out, new RegExp(`summary: pin=${box.deliverySha} `));
+    const files = fs.readFileSync(path.join(runDir(box), 'files.txt'), 'utf8').trim().split('\n');
+    assert.deepEqual(files, ['src/a.js']);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('claims prints a numbered list and no line a juror could paste as a commitment', () => {
+  const box = sandbox();
+  try {
+    const claims = verify(box, ['claims', SLUG, box.deliverySha]);
+    assert.equal(claims.code, 0, claims.err);
+    const lines = claims.out.trimEnd().split('\n');
+    assert.deepEqual(lines, ['1. First change.', '2. Second change.', '3. Acceptance one.']);
+    assert.equal(lines.filter((l) => /^Claim-[0-9]+:/.test(l)).length, 0);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('fold names one verdict per claim and refuses an incomplete juror file', () => {
+  const box = sandbox();
+  try {
+    assert.equal(verify(box, ['prepare', SLUG]).code, 0);
+
+    jurors(box, { a: SUPPORTED, b: SUPPORTED, c: SUPPORTED });
+    const agreed = verify(box, ['fold', SLUG]);
+    assert.equal(agreed.code, 0, agreed.err);
+    const lines = agreed.out.trimEnd().split('\n');
+    assert.equal(lines.length, 3);
+    lines.forEach((line, i) => assert.match(line, new RegExp(`^- Claim-${i + 1} supported .* 3 of 3 \\(a, b, c\\)$`)));
+
+    jurors(box, { b: 'Claim-1: supported\nClaim-2: refuted\nClaim-3: supported\n' });
+    const split = verify(box, ['fold', SLUG]);
+    assert.equal(split.code, 0, split.err);
+    assert.match(split.out, /Claim-2 refuted .* b refuted; a, c supported/);
+    assert.equal(count(split.out, /refuted/g), 2, 'the refuted line names its lens once and the verdict once');
+
+    jurors(box, { b: 'Claim-1: supported\nClaim-3: supported\n' });
+    const missing = verify(box, ['fold', SLUG]);
+    assert.notEqual(missing.code, 0);
+    assert.equal(missing.out, '');
+    assert.match(missing.err, /Claim-2 by b/);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('record books one commit and a second run leaves exactly one record', () => {
+  const box = sandbox();
+  try {
+    assert.equal(verify(box, ['prepare', SLUG]).code, 0);
+    jurors(box, { a: SUPPORTED, b: SUPPORTED, c: SUPPORTED });
+    const first = verify(box, ['record', SLUG], { PLOT_VERIFY_WHO: 'Verifier' });
+    assert.equal(first.code, 0, first.err + first.out);
+    assert.equal(g(box.dir, 'log', '-1', '--format=%s', 'origin/main'), 'plot: verify the-plan');
+    let plan = onMain(box, PLAN);
+    assert.equal(count(plan, /^- \*\*Verified:\*\*/gm), 1);
+    assert.equal(count(plan, /^## Verification$/gm), 1);
+    const toolsSha = g(box.dir, 'rev-parse', '--short=7', 'origin/main~1');
+    assert.match(plan, new RegExp(`delivery 2026-10-05 at ${box.deliverySha.slice(0, 7)}, judged at ${box.deliverySha.slice(0, 7)} with tools at ${toolsSha}, 3 supported, 0 refuted`));
+    assert.match(plan, /- Claim-1 supported — First change\./);
+
+    assert.equal(verify(box, ['prepare', SLUG]).code, 0);
+    jurors(box, { b: 'Claim-1: supported\nClaim-2: refuted\nClaim-3: supported\n' });
+    const second = verify(box, ['record', SLUG]);
+    assert.equal(second.code, 0, second.err + second.out);
+    plan = onMain(box, PLAN);
+    assert.equal(count(plan, /^- \*\*Verified:\*\*/gm), 1);
+    assert.equal(count(plan, /^## Verification$/gm), 1);
+    assert.match(plan, /2 supported, 1 refuted/);
+    assert.match(plan, /- Claim-2 refuted — Second change\./);
+    assert.equal(plan.includes('A later note.'), true, 'the booking starts from origin/main and keeps a later edit');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('a refused fold writes no record', () => {
+  const box = sandbox();
+  try {
+    assert.equal(verify(box, ['prepare', SLUG]).code, 0);
+    const before = g(box.dir, 'rev-parse', 'origin/main');
+    jurors(box, { a: SUPPORTED, b: 'Claim-1: supported\n' });
+    const recorded = verify(box, ['record', SLUG]);
+    assert.notEqual(recorded.code, 0);
+    assert.match(recorded.err, /Claim-2 by b/);
+    g(box.dir, 'fetch', '-q', 'origin');
+    assert.equal(g(box.dir, 'rev-parse', 'origin/main'), before);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('record leaves no tree, no booking branch and no worktree', () => {
+  const box = sandbox();
+  try {
+    assert.equal(verify(box, ['prepare', SLUG]).code, 0);
+    jurors(box, { a: SUPPORTED, b: SUPPORTED });
+    const recorded = verify(box, ['record', SLUG]);
+    assert.equal(recorded.code, 0, recorded.err + recorded.out);
+    assert.equal(fs.existsSync(runDir(box)), false);
+    assert.equal(g(box.dir, 'branch', '--list', 'plot/verify-*'), '');
+    assert.equal(g(box.dir, 'worktree', 'list').split('\n').filter((l) => /state\/verify|plot\/verify-/.test(l)).length, 0);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('prepare refuses tools-unavailable where origin/main holds no plot-verify.mjs', () => {
+  const box = sandbox({ toolsCommitted: false });
+  try {
+    const prepared = verify(box, ['prepare', SLUG]);
+    assert.notEqual(prepared.code, 0);
+    assert.match(prepared.err, /tools-unavailable: .*plot-verify\.mjs/);
+    assert.equal(fs.existsSync(runDir(box)), false);
+    assert.equal(g(box.dir, 'worktree', 'list').split('\n').filter((l) => /state\/verify|plot\/verify-/.test(l)).length, 0);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('prepare refuses pin-not-found where Delivered is never filled', () => {
+  const box = sandbox({ delivered: false });
+  try {
+    const prepared = verify(box, ['prepare', SLUG]);
+    assert.notEqual(prepared.code, 0);
+    assert.match(prepared.err, /pin-not-found/);
+    assert.equal(fs.existsSync(runDir(box)), false);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('prepare refuses install-failed on a non-zero install and removes its trees', () => {
+  const box = sandbox();
+  try {
+    const prepared = verify(box, ['prepare', SLUG], { STUB_PNPM_EXIT: '1' });
+    assert.notEqual(prepared.code, 0);
+    assert.match(prepared.err, /install-failed/);
+    assert.equal(fs.existsSync(runDir(box)), false);
+    assert.equal(g(box.dir, 'worktree', 'list').split('\n').filter((l) => /state\/verify|plot\/verify-/.test(l)).length, 0);
+    assert.equal(onMain(box, PLAN).includes('Verified'), false);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('plot-local-checks.mjs exits 2 on an argument it does not know', () => {
+  const bundle = path.join(scripts, 'board/plot-local-checks.mjs');
+  const unknown = spawnSync('node', [bundle, '--bogus'], { cwd: here, encoding: 'utf8' });
+  assert.equal(unknown.status, 2);
+  assert.match(unknown.stderr, /unknown argument --bogus/);
+  const bare = spawnSync('node', [bundle, '--files'], { cwd: here, encoding: 'utf8' });
+  assert.equal(bare.status, 2);
+});

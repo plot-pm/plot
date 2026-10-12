@@ -64,6 +64,7 @@ node_modules/
 .plot-worker.wrapper.pid
 .plot-worker.exit
 .plot-worker.log
+.plot-verify.pid
 .plot-worker.monitor.agent.jsonl
 .plot-worker.monitor.worker.jsonl
 .plot-worker.monitor.build.jsonl
