@@ -305,4 +305,16 @@ describe('stateTransitionRefusal', () => {
     expect(text).toContain('/plot-sprint s start');
     expect(text).toContain('a missing transition is the gap');
   });
+
+  it('names a removal, an addition and a rename', () => {
+    const text = stateTransitionRefusal([
+      { path: 'docs/plans/2026-01-01-x.md', kind: 'plan', before: 'Design', after: '' },
+      { path: 'docs/plans/2026-01-01-y.md', kind: 'plan', before: '', after: 'Approved' },
+      { path: 'docs/plans/2026-02-02-z.md', kind: 'plan', before: 'Design', after: 'Approved', renamedFrom: 'docs/plans/2026-01-01-z.md' },
+    ]);
+    expect(text).toContain('Design -> (line removed), written by hand.');
+    expect(text).toContain("No command removes a 'State:' line");
+    expect(text).toContain('(no State line) -> Approved, written by hand.');
+    expect(text).toContain('Design -> Approved, written by hand (renamed from docs/plans/2026-01-01-z.md).');
+  });
 });
