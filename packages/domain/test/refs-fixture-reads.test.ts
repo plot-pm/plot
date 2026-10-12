@@ -190,6 +190,13 @@ describe('refsFixture: the merge-subject readings', () => {
     });
   });
 
+  it('answers a stated first-parent addition, and an empty sha for any other file', async () => {
+    const stated = refsFixture({ firstParentAdditions: { 'origin/main:docs/plans/a.md': 'm1' } });
+    expect(await stated.firstParentAddition('origin/main', 'docs/plans/a.md')).toEqual({ ok: true, value: 'm1' });
+    expect(await stated.firstParentAddition('origin/main', 'docs/plans/b.md')).toEqual({ ok: true, value: '' });
+    expect(await refsFixture({}).firstParentAddition('origin/main', 'docs/plans/a.md')).toEqual({ ok: true, value: '' });
+  });
+
   it('answers at most max merges, newest first', async () => {
     const answer = await refs.mergeSubjects('origin/main', 1);
     expect(answer.ok && answer.value.map((m) => m.sha)).toEqual(['m2']);

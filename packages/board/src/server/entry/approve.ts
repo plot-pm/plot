@@ -11,13 +11,15 @@ import { planStateOf } from '@plot-pm/domain/entities/plan';
 import { flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { clearHolds } from '@plot-pm/domain/rules/hold-clear';
 import {
+  isPlanFile,
   namesPlan,
+  planPrOf,
   planPrsCarrying,
   planSlugOf,
-  prNumberInSubject,
-  type PlanBlob,
-  type PlanPrCandidate,
-  type PlanPrMatch,
+  type NamedPr,
+  type OpenPr,
+  type PlanPrFound,
+  type PlanPrReadings,
 } from '@plot-pm/domain/rules/plan-pr';
 import { annotateSprintItem } from '@plot-pm/domain/rules/sprint-annotation';
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
@@ -230,22 +232,21 @@ const readPlanPr = async (ctx: Context, branch: string): Promise<PlanPr> => {
   return { number: pr.number, state: pr.state, draft: pr.draft, headSha: pr.headSha };
 };
 
-/** How many merges on the default branch the merged-PR lookup reads at most. */
-const MERGES_READ = 50;
+/** How many open PRs, and how many merged PRs, the plan-PR lookup lists at most. */
+const PRS_LISTED = 100;
 
 /**
- * The plan files directly under the plan directory at one revision: regular
- * files ending in `.md`, without the active and delivered index symlinks.
+ * The plan files directly under the plan directory at one revision, without
+ * the active and delivered index symlinks.
  *
- * @returns the files, or `[]` where git cannot list the revision.
+ * @returns the paths, or `[]` where git cannot list the revision.
  */
-const planBlobsAt = async (ctx: Context, dirs: Dirs, ref: string): Promise<PlanBlob[]> => {
+const planFilesAt = async (ctx: Context, dirs: Dirs, ref: string): Promise<string[]> => {
   const listed = await ctx.refs.listBlobs(ref, dirs.planDir);
   if (!listed.ok) return [];
   return listed.value
-    .filter((blob) => blob.mode !== '120000' && blob.path.endsWith('.md'))
-    .filter((blob) => !blob.path.slice(dirs.planDir.length).includes('/'))
-    .map((blob) => ({ path: blob.path, sha: blob.sha }));
+    .filter((blob) => blob.mode !== '120000' && isPlanFile(dirs.planDir, blob.path))
+    .map((blob) => blob.path);
 };
 
 /**
@@ -271,95 +272,124 @@ const readPlanAt = async (ctx: Context, ref: string, file: string): Promise<Plan
   }
 };
 
-/**
- * The revision to read an open PR's head at: the head commit the host named
- * where git holds it, else `origin/<head>` after fetching the branch.
- */
-const headRevisionOf = async (ctx: Context, head: string, headSha: string): Promise<string> => {
-  if (headSha !== '') {
-    const held = await ctx.refs.resolve(`${headSha}^{commit}`);
-    if (held.ok) return headSha;
-  }
-  await ctx.trees.fetch(ctx.repoRoot, head);
-  return headSha !== '' && (await ctx.refs.resolve(`${headSha}^{commit}`)).ok ? headSha : `origin/${head}`;
+/** Whether git holds a commit. */
+const holdsCommit = async (ctx: Context, sha: string): Promise<boolean> =>
+  sha !== '' && (await ctx.refs.resolve(`${sha}^{commit}`)).ok;
+
+/** The words a host refusal printed, or the adapter's default sentence. */
+const hostSaid = (ctx: Context): string => {
+  const said = ctx.host.lastRefusal()?.said ?? '';
+  return said !== '' ? said : 'The host adapter gave no reason.';
 };
 
 /**
- * The open PRs whose head adds or changes the plan a slug names.
+ * The open PRs, each with the paths its head changes against its merge base
+ * with the default branch.
  *
- * ONE HOST CALL: `pr-list --state open`, which names every open PR's head
- * branch and head commit. Whether a head carries the plan is then a git
- * question about that commit, which spends no host quota. The host has no
- * question for *the PR that changes this file*: GitHub's PR search does not
- * index paths, and asking each PR for its files costs one call per PR.
+ * ONE HOST CALL: `pr-list --state open --limit 100`, which names every open
+ * PR's head branch and head commit. The heads git does not hold are fetched
+ * in ONE `git fetch`. Whether a head changes the plan file is then a git
+ * question, which spends no host quota. A PR from a fork, or whose head
+ * commit git cannot resolve after the fetch, is skipped: it is never read at
+ * `origin/<head>`, which may not be the commit the merge would be pinned to.
  *
  * @throws Refused where the host cannot list its open PRs.
  */
-const openPlanPrs = async (
-  ctx: Context,
-  dirs: Dirs,
-  slug: string,
-  mainPlans: readonly PlanBlob[],
-): Promise<PlanPrMatch[]> => {
-  const listed = await ctx.host.prList('open');
+const openPrsOf = async (ctx: Context): Promise<OpenPr[]> => {
+  const listed = await ctx.host.prList('open', PRS_LISTED);
   if (!listed.ok) {
-    const said = ctx.host.lastRefusal()?.said ?? '';
-    throw new Refused(`the host could not list its open PRs to find the one that carries '${slug}' (plot-host.sh pr-list refused the call).\n  ${said !== '' ? said : 'The host adapter gave no reason.'}\n  The plan was not approved and its phase is unchanged. Re-run the approval once the host answers.`);
+    throw new Refused(`the host could not list its open PRs to find the one that changes the plan (plot-host.sh pr-list refused the call).\n  ${hostSaid(ctx)}\n  The plan was not approved and its phase is unchanged. Re-run the approval once the host answers.`);
   }
-  const candidates: PlanPrCandidate[] = [];
-  for (const pr of listed.value) {
-    if (pr.repo !== '' || pr.head === '') continue;
-    const at = await headRevisionOf(ctx, pr.head, pr.headSha ?? '');
-    candidates.push({
-      number: pr.number,
-      head: pr.head,
-      draft: pr.draft,
-      headSha: pr.headSha ?? '',
-      plans: await planBlobsAt(ctx, dirs, at),
-    });
+  const own = listed.value.filter((pr) => pr.repo === '' && pr.head !== '' && (pr.headSha ?? '') !== '');
+  const missing: string[] = [];
+  for (const pr of own) {
+    if (!(await holdsCommit(ctx, pr.headSha ?? ''))) missing.push(pr.head);
   }
-  return planPrsCarrying(slug, mainPlans, candidates);
+  if (missing.length > 0) await ctx.trees.fetch(ctx.repoRoot, missing);
+  const open: OpenPr[] = [];
+  for (const pr of own) {
+    const headSha = pr.headSha ?? '';
+    if (!(await holdsCommit(ctx, headSha))) continue;
+    const changed = await ctx.refs.changedFiles(headSha);
+    if (!changed.ok) continue;
+    open.push({ number: pr.number, head: pr.head, draft: pr.draft, headSha, changed: changed.value });
+  }
+  return open;
 };
 
 /**
- * The merged PR that brought a plan file onto the default branch.
+ * Asks `planPrOf` until it answers, reading each reading it names.
  *
- * Walks the newest merges on `origin/<main>` and takes the first whose
- * first-parent diff adds the file. Its subject names a PR number, and the host
- * confirms it: the PR counts only where the host reports it MERGED, at that
- * merge commit where it names one. A plan that reached the default branch by
- * squash or by a direct push has no such merge, and the lookup answers
- * nothing.
- *
- * @returns the PR as the host reported it, or undefined.
+ * Host refusals throw, and the caller holds them until the domain has judged
+ * the phase and the review channel.
  */
-const mergedPlanPr = async (ctx: Context, main: string, file: string): Promise<PlanPr | undefined> => {
-  const merges = await ctx.refs.mergeSubjects(`origin/${main}`, MERGES_READ);
-  if (!merges.ok) return undefined;
-  for (const merge of merges.value) {
-    const files = await ctx.refs.commitFiles(merge.sha);
-    if (!files.ok || !files.value.includes(file)) continue;
-    const number = prNumberInSubject(merge.subject);
-    if (number === null) return undefined;
-    const asked = await ctx.host.prState(number);
-    if (!asked.ok || asked.value === null || asked.value.state !== 'MERGED') return undefined;
-    if (asked.value.mergeCommit !== '' && asked.value.mergeCommit !== merge.sha) return undefined;
-    return { number, state: 'MERGED', draft: false };
+const choosePlanPr = async (
+  ctx: Context,
+  readings: PlanPrReadings,
+  main: string,
+  file: string,
+): Promise<PlanPrFound | undefined> => {
+  let current = readings;
+  for (;;) {
+    const answer = planPrOf(current);
+    if (answer.outcome === 'none') return undefined;
+    if (answer.outcome === 'found') return answer;
+    switch (answer.ask) {
+      case 'named': {
+        const pr = await readPlanPr(ctx, `idea/${current.slug}`);
+        const state = pr.state;
+        const named: NamedPr | null = state === 'MERGED' || state === 'OPEN' || state === 'CLOSED'
+          ? { number: pr.number, state, draft: pr.draft, headSha: pr.headSha }
+          : null;
+        current = { ...current, named };
+        break;
+      }
+      case 'open':
+        current = { ...current, open: await openPrsOf(ctx) };
+        break;
+      case 'addition': {
+        const added = await ctx.refs.firstParentAddition(`origin/${main}`, file);
+        const sha = added.ok ? added.value : '';
+        const second = sha === '' ? undefined : await ctx.refs.resolve(`${sha}^2`);
+        current = { ...current, addition: { sha, secondParent: second?.ok ? second.value : '' } };
+        break;
+      }
+      case 'merged': {
+        const listed = await ctx.host.prList('merged', PRS_LISTED);
+        if (!listed.ok) {
+          throw new Refused(`the host could not list its merged PRs to find the one that brought the plan onto the default branch (plot-host.sh pr-list refused the call).\n  ${hostSaid(ctx)}\n  The plan was not approved and its phase is unchanged. Re-run the approval once the host answers.`);
+        }
+        current = { ...current, merged: listed.value.map((pr) => ({ number: pr.number, headSha: pr.headSha ?? '' })) };
+        break;
+      }
+      case 'confirm': {
+        const asked = await ctx.host.prState(answer.number);
+        if (!asked.ok) {
+          throw new Refused(`the host could not be asked for PR #${answer.number} (plot-host.sh pr-state refused the call).\n  ${hostSaid(ctx)}\n  The plan was not approved and its phase is unchanged. Re-run the approval once the host answers.`);
+        }
+        current = {
+          ...current,
+          confirmed: asked.value === null ? null : { state: asked.value.state, mergeCommit: asked.value.mergeCommit },
+        };
+        break;
+      }
+    }
   }
-  return undefined;
 };
 
-/** A plan read from a revision, with the open PR it was found on. */
+/** A plan read from a revision, with the open PRs listed to find it. */
 interface RemotePlan {
   file: string;
   record: PlanRecord | undefined;
-  /** The PRs found carrying the plan; empty where the default branch holds it. */
-  matches: readonly PlanPrMatch[];
+  /** Where it was read: `origin/<main>`, or `PR #N (<head>)`. */
+  source: string;
+  /** The open PRs listed to find it; absent where the default branch holds it. */
+  open?: readonly OpenPr[];
 }
 
 /**
- * Finds a plan the checkout does not hold: on `origin/<main>` first, then on
- * the head of an open PR that adds or changes it.
+ * Finds a plan the checkout does not hold: on `origin/<main>` first, then at
+ * the head of the first open PR that changes it.
  *
  * @returns the plan and where it came from, or undefined where neither holds
  *   it.
@@ -369,17 +399,21 @@ const remotePlanOf = async (
   dirs: Dirs,
   main: string,
   slug: string,
-  mainPlans: readonly PlanBlob[],
+  mainPlans: readonly string[],
 ): Promise<RemotePlan | undefined> => {
-  const onMain = mainPlans.find((blob) => namesPlan(slug, blob.path));
+  const onMain = mainPlans.find((file) => namesPlan(slug, file));
   if (onMain !== undefined) {
-    return { file: onMain.path, record: await readPlanAt(ctx, `origin/${main}`, onMain.path), matches: [] };
+    return { file: onMain, record: await readPlanAt(ctx, `origin/${main}`, onMain), source: `origin/${main}` };
   }
-  const matches = await openPlanPrs(ctx, dirs, slug, mainPlans);
-  const first = matches[0];
+  const open = await openPrsOf(ctx);
+  const [first] = planPrsCarrying(slug, dirs.planDir, open);
   if (first === undefined) return undefined;
-  const at = await headRevisionOf(ctx, first.pr.head, first.pr.headSha);
-  return { file: first.file, record: await readPlanAt(ctx, at, first.file), matches };
+  return {
+    file: first.file,
+    record: await readPlanAt(ctx, first.pr.headSha, first.file),
+    source: `PR #${first.pr.number} (${first.pr.head})`,
+    open,
+  };
 };
 
 /** What the refusal sentences name besides the domain's reason. */
@@ -639,21 +673,21 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
 
   // The default branch's plan files, read once and only where a question needs
   // them: a plan this checkout does not hold, or a plan PR not on `idea/<slug>`.
-  let mainPlans: PlanBlob[] | undefined;
-  const plansOnMain = async (): Promise<PlanBlob[]> => {
+  let mainPlans: string[] | undefined;
+  const plansOnMain = async (): Promise<string[]> => {
     if (mainPlans === undefined) {
       await ctx.trees.fetch(ctx.repoRoot, main);
-      mainPlans = await planBlobsAt(ctx, dirs, `origin/${main}`);
+      mainPlans = await planFilesAt(ctx, dirs, `origin/${main}`);
     }
     return mainPlans;
   };
 
   // A plan on an unmerged plan PR is absent from the default branch's
   // checkout, which is where the board runs this. It is read from the
-  // default branch as fetched, or from the head of the open PR that carries it.
+  // default branch as fetched, or from the head of the open PR that changes it.
   let planFile = await findPlanFile(ctx.planStore, dirs, slug);
   let plan: PlanRecord | undefined;
-  let matches: readonly PlanPrMatch[] | undefined;
+  let listedOpen: readonly OpenPr[] | undefined;
   if (planFile !== '') {
     const read = await ctx.planStore.readPlan(planFile);
     plan = read.ok ? read.value : undefined;
@@ -662,8 +696,8 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
     if (remote !== undefined) {
       planFile = remote.file;
       plan = remote.record;
-      if (remote.matches.length > 0) matches = remote.matches;
-      write(`step: plan ${planFile} is not in this checkout — read it from ${remote.matches[0] !== undefined ? `PR #${remote.matches[0].pr.number} (${remote.matches[0].pr.head})` : `origin/${main}`}\n`);
+      listedOpen = remote.open;
+      write(`step: plan ${planFile} is not in this checkout — read it from ${remote.source}\n`);
     }
   }
   const phase = plan?.phase ?? '';
@@ -678,34 +712,36 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   // is held until the domain has judged the phase and the review channel, so
   // those refusals keep their precedence over it.
   //
-  // The plan PR is the PR that adds or changes the plan file. `idea/<slug>` is
-  // asked first, as one call answers the single-plan shape; a batch PR sits on
-  // `idea/batch-<first-slug>`, so where that branch has no PR the open PRs are
-  // searched for the file, and then the merges that brought it to the default
-  // branch.
+  // The plan PR is the PR that adds or changes the plan file, and `planPrOf`
+  // chooses it: `idea/<slug>` first, then the open PRs that change the file
+  // against their merge base where the default branch does not hold it, then
+  // the merged PR that brought it onto the default branch where it does.
   const sameBranch = !inSession && impl === 'same-branch';
   let prBranch = sameBranch ? await sameBranchOf(ctx, slug) : `idea/${slug}`;
   let pr: PlanPr = { number: 0, state: 'NONE', draft: false };
-  let rivals: number[] = [];
+  let rivals: readonly number[] = [];
   let carried: readonly string[] = [];
   let hostRefusal: Refused | undefined;
   if (plan !== undefined && !inSession) {
     try {
-      if (matches === undefined) pr = await readPlanPr(ctx, prBranch);
-      if (pr.state === 'NONE' && !sameBranch) {
-        matches ??= await openPlanPrs(ctx, dirs, slug, await plansOnMain());
-        const onMain = (await plansOnMain()).some((blob) => blob.path === planFile);
-        if (matches.length === 0 && onMain) {
-          const merged = await mergedPlanPr(ctx, main, planFile);
-          if (merged !== undefined) pr = merged;
+      if (sameBranch) {
+        pr = await readPlanPr(ctx, prBranch);
+      } else {
+        // An active-index symlink names the plan by its real path on the default branch.
+        const realFile = realPlanPath(ctx.repoRoot, planFile) ?? planFile;
+        const onMain = (await plansOnMain()).includes(realFile);
+        const found = await choosePlanPr(
+          ctx,
+          { slug, planDir: dirs.planDir, onMain, ...(listedOpen === undefined ? {} : { open: listedOpen }) },
+          main,
+          realFile,
+        );
+        if (found !== undefined) {
+          pr = { number: found.number, state: found.state, draft: found.draft, headSha: found.headSha || undefined };
+          if (found.branch !== '') prBranch = found.branch;
+          rivals = found.rivals;
+          carried = found.carried;
         }
-      }
-      const [first, ...others] = matches ?? [];
-      if (pr.state === 'NONE' && first !== undefined) {
-        pr = { number: first.pr.number, state: 'OPEN', draft: first.pr.draft, headSha: first.pr.headSha || undefined };
-        prBranch = first.pr.head;
-        rivals = others.map((m) => m.pr.number);
-        carried = first.carried;
       }
     } catch (err) {
       if (!(err instanceof Refused)) throw err;

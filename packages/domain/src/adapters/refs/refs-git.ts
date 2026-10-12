@@ -609,6 +609,14 @@ export const refsGit = (context: ShellContext): Refs => {
         { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
       ),
 
+    firstParentAddition: (ref, path) =>
+      runScript(
+        'git',
+        ['log', '--first-parent', '--diff-merges=first-parent', '--diff-filter=A', '--max-count=1', '--no-patch', '--format=%H', ref, '--', path],
+        asText,
+        inRepo,
+      ),
+
     mergeSubjects: (ref, max) =>
       runScript(
         'git',

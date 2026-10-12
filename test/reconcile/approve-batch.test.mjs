@@ -19,6 +19,7 @@ const SCRIPTS = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
 const BATCH = 'idea/batch-first-plan';
 const FIRST = 'docs/plans/2026-10-12-first-plan.md';
 const SECOND = 'docs/plans/2026-10-12-second-plan.md';
+const OLD = 'docs/plans/2026-09-01-old-plan.md';
 
 const made = [];
 const track = (dir) => {
@@ -120,7 +121,7 @@ const merges = () => hostCalls().split('\n').filter((l) => /^gh pr merge\b/.test
  * branch adding two plans under one open draft PR, #77. The caller's checkout
  * stays on main, so neither plan is in it.
  */
-const makeBatch = ({ first = PLAN('First plan'), extraPrs = [] } = {}) => {
+const makeBatch = ({ first = PLAN('First plan'), extraPrs = [], old = false } = {}) => {
   const tmp = track(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-approve-batch-')));
   const origin = path.join(tmp, 'origin.git');
   const repo = path.join(tmp, 'repo');
@@ -134,6 +135,7 @@ const makeBatch = ({ first = PLAN('First plan'), extraPrs = [] } = {}) => {
     '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n- **Sprint directory:** docs/sprints/\n');
   fs.mkdirSync(path.join(repo, 'docs', 'plans', 'active'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'docs', 'plans', '.keep'), '');
+  if (old) fs.writeFileSync(path.join(repo, OLD), PLAN('Old plan'));
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'skeleton');
   git(repo, 'push', '-q', 'origin', 'main');
@@ -157,6 +159,26 @@ const makeBatch = ({ first = PLAN('First plan'), extraPrs = [] } = {}) => {
   const prs = [{ number: 77, head: BATCH, state: 'OPEN', draft: true, headRefOid: head }, ...extraPrs];
   fs.writeFileSync(statePath, JSON.stringify({ mergeClone, prs }));
   return { repo, head };
+};
+
+/** Commits a file change on a branch cut from origin/main and pushes it; returns the commit. */
+const pushChange = (repo, branch, file, content, from = 'origin/main') => {
+  git(repo, 'fetch', '-q', 'origin');
+  git(repo, 'checkout', '-q', '-B', branch, from);
+  fs.writeFileSync(path.join(repo, file), content);
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', `change ${file}`);
+  git(repo, 'push', '-q', '-f', 'origin', `${branch}:${branch}`);
+  const sha = git(repo, 'rev-parse', 'HEAD').trim();
+  git(repo, 'checkout', '-q', '--detach', 'origin/main');
+  return sha;
+};
+
+/** Adds a PR to the host stub's state. */
+const addPr = (pr) => {
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  state.prs.push(pr);
+  fs.writeFileSync(statePath, JSON.stringify(state));
 };
 
 const childEnv = () => {
@@ -217,8 +239,8 @@ test('approve batch: run from the batch worktree, where the plan is local, it fi
 });
 
 test('approve batch: a plan two open PRs both change is refused before any merge', () => {
-  const { repo, head } = makeBatch({ extraPrs: [{ number: 78, head: BATCH, state: 'OPEN', draft: false, headRefOid: '' }] });
-  void head;
+  const { repo, head } = makeBatch();
+  addPr({ number: 78, head: BATCH, state: 'OPEN', draft: false, headRefOid: head });
   const r = approve(repo, 'first-plan');
   assert.notEqual(r.status, 0, r.stdout);
   assert.match(r.stderr, /more than one open PR \(#77, #78\)/, r.stderr);
@@ -239,4 +261,59 @@ test('approve batch: a slug no checkout, default branch or open PR holds is refu
   assert.notEqual(r.status, 0, r.stdout);
   assert.match(r.stderr, /no plan found for 'no-such-plan'/, r.stderr);
   assert.deepEqual(merges(), []);
+});
+
+test('approve batch: carried= names only the plans the batch changes, not one main edited after the batch branched', () => {
+  const { repo } = makeBatch({ old: true });
+  pushChange(repo, 'main', OLD, PLAN('Old plan').replace('the work', 'edited on main'));
+  const r = approve(repo, 'first-plan');
+  assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+  assert.match(r.stdout, /^summary: merged=yes .* carried=second-plan$/m, r.stdout);
+});
+
+test('approve batch: an open PR editing a plan the merged batch landed is not merged; the batch PR answers', () => {
+  const { repo } = makeBatch();
+  assert.equal(approve(repo, 'first-plan').status, 0);
+  const sweep = pushChange(repo, 'chore/typo-sweep', SECOND, PLAN('Second plan').replace('the work', 'the work, typo fixed'));
+  addPr({ number: 90, head: 'chore/typo-sweep', state: 'OPEN', draft: false, headRefOid: sweep });
+  fs.rmSync(callsPath, { force: true });
+
+  const r = approve(repo, 'second-plan');
+  assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+  assert.deepEqual(merges(), [], `the typo sweep must not merge:\n${hostCalls()}`);
+  assert.match(r.stdout, /^summary: merged=already /m, r.stdout);
+  assert.match(onMain(repo, SECOND), /\*\*Approved:\*\* .*plan-PR #77 merged/);
+});
+
+test('approve batch: a plan pushed straight to main is refused pr-absent, whatever the open PRs change', () => {
+  const { repo } = makeBatch({ old: true });
+  const unrelated = pushChange(repo, 'feature/readme', 'README.md', 'readme\n');
+  pushChange(repo, 'main', OLD, PLAN('Old plan').replace('the work', 'edited on main'));
+  const edit = pushChange(repo, 'chore/old-edit', OLD, PLAN('Old plan').replace('the work', 'edited by a PR'));
+  addPr({ number: 91, head: 'feature/readme', state: 'OPEN', draft: false, headRefOid: unrelated });
+  addPr({ number: 92, head: 'chore/old-edit', state: 'OPEN', draft: false, headRefOid: edit });
+
+  const r = approve(repo, 'old-plan');
+  assert.notEqual(r.status, 0, r.stdout);
+  assert.match(r.stderr, /no PR found for branch 'idea\/old-plan'/, r.stderr);
+  assert.deepEqual(merges(), [], hostCalls());
+});
+
+test('approve batch: an open PR whose head commit git cannot resolve is skipped, never read at origin/<head>', () => {
+  const { repo } = makeBatch();
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  state.prs[0].headRefOid = 'f'.repeat(40);
+  fs.writeFileSync(statePath, JSON.stringify(state));
+  const r = approve(repo, 'first-plan');
+  assert.notEqual(r.status, 0, r.stdout);
+  assert.match(r.stderr, /no plan found for 'first-plan'/, r.stderr);
+  assert.deepEqual(merges(), []);
+});
+
+test('approve batch: the open PRs are listed once, with an explicit limit', () => {
+  const { repo } = makeBatch();
+  assert.equal(approve(repo, 'first-plan').status, 0);
+  const lists = hostCalls().split('\n').filter((l) => /^gh pr list\b/.test(l));
+  assert.equal(lists.length, 1, hostCalls());
+  assert.match(lists[0], /--limit 100\b/, lists[0]);
 });

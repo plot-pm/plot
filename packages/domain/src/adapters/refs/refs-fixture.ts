@@ -65,6 +65,8 @@ export interface RefsFixture {
   filesNaming?: Readonly<Record<string, readonly string[]>>;
   /** The paths whose `merge` attribute is unset. */
   mergeUnset?: readonly string[];
+  /** `<ref>:<path>` to the first-parent commit that added it; absent answers `''`. */
+  firstParentAdditions?: Readonly<Record<string, string>>;
   /** Files each commit changed, keyed by sha — what `commitFiles` answers. */
   commitFiles?: Readonly<Record<string, readonly string[]>>;
   /** `<ref>:<path>` to that file's content at that ref. */
@@ -410,6 +412,9 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
         new Map(Object.entries(additions).filter(([path]) => path.startsWith(prefix))),
       );
     },
+
+    firstParentAddition: async (ref, path) =>
+      answered((fixture.firstParentAdditions ?? {})[`${ref}:${path}`] ?? ''),
 
     mergeSubjects: async (_ref, max) =>
       failing.has('mergeSubjects')

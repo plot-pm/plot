@@ -189,6 +189,8 @@ describe('treesGit: desk-reset, commit, push', () => {
   it('fetch brings origin\'s branch down, and answers failed for a branch it lacks', async () => {
     expect(await trees().fetch(desk, 'main')).toEqual({ ok: true, value: undefined });
     expect((await trees().fetch(desk, 'no-such-branch')).ok).toBe(false);
+    expect(await trees().fetch(desk, ['main'])).toEqual({ ok: true, value: undefined });
+    expect((await trees().fetch(desk, ['main', 'no-such-branch'])).ok).toBe(false);
   });
 
   it('originHead names the default branch origin points at', async () => {

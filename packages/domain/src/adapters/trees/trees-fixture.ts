@@ -149,7 +149,7 @@ export interface TreesFixture {
     commits: { path: string; message: string }[];
     pushes: { path: string; branch: string }[];
     commitsAs: { path: string; who: string; message: string }[];
-    fetches?: { path: string; branch: string }[];
+    fetches?: { path: string; branch: string | readonly string[] }[];
     stages: { path: string; pathspecs: readonly string[] }[];
     /** Every line `excludePath` appended; a line already ignored is not recorded. */
     excludes?: { path: string; line: string }[];

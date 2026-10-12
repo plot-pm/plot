@@ -478,17 +478,18 @@ export interface Trees {
   commitStaged(path: string, message: string): Promise<PortResult<void>>;
 
   /**
-   * Fetches one branch from `origin` into its remote-tracking ref.
+   * Fetches branches from `origin` into their remote-tracking refs, in one
+   * call.
    *
-   * `git -C <path> fetch -q origin <branch>`. A lifecycle write fetches before
+   * `git -C <path> fetch -q origin <branch>…`. A lifecycle write fetches before
    * it books against `origin/<branch>`, because a stale ref guarantees a
    * non-fast-forward push.
    *
    * @param path - the checkout to fetch in, absolute.
-   * @param branch - the branch to fetch.
+   * @param branch - the branch to fetch, or several.
    * @returns nothing; a failure means the fetch did not complete.
    */
-  fetch(path: string, branch: string): Promise<PortResult<void>>;
+  fetch(path: string, branch: string | readonly string[]): Promise<PortResult<void>>;
 
   /**
    * The default branch `origin` points at, as last fetched.

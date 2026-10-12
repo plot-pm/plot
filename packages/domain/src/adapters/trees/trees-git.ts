@@ -540,7 +540,7 @@ export const treesGit = (context: ShellContext): Trees => {
     },
 
     fetch: async (path, branch): Promise<PortResult<void>> => {
-      const run = await runProcess('git', ['-C', path, 'fetch', '-q', 'origin', branch], inRepo);
+      const run = await runProcess('git', ['-C', path, 'fetch', '-q', 'origin', ...(typeof branch === 'string' ? [branch] : branch)], inRepo);
       return run.code === 0 ? answered(undefined) : failed<void>();
     },
 

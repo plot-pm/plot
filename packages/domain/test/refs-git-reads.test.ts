@@ -542,6 +542,14 @@ describe('refsGit: the merge-subject readings', () => {
     expect((await subjects().planAdditions('origin/nope', 'docs/plans')).ok).toBe(false);
   });
 
+  it('maps a file a merged branch added to the merge commit, and a root file to the root', async () => {
+    const reads = subjects();
+    expect(await reads.firstParentAddition('origin/main', 'work.txt')).toEqual({ ok: true, value: sha('origin/main') });
+    expect(await reads.firstParentAddition('origin/main', 'README.md')).toEqual({ ok: true, value: sha('added^1') });
+    expect(await reads.firstParentAddition('origin/main', 'no-such-file')).toEqual({ ok: true, value: '' });
+    expect((await reads.firstParentAddition('origin/nope', 'work.txt')).ok).toBe(false);
+  });
+
   it('reads the merges with their full hashes and subjects', async () => {
     const answer = await subjects().mergeSubjects('origin/main', 10);
     expect(answer.ok).toBe(true);

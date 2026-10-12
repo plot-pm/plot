@@ -569,6 +569,20 @@ export interface Refs {
   planAdditions(ref: string, dir: string): Promise<PortResult<ReadonlyMap<string, string>>>;
 
   /**
+   * The newest commit on a ref's first-parent line that added a file.
+   *
+   * A merge commit is diffed against its first parent, so a file a merged
+   * branch added maps to the merge commit, and a squash-merged file maps to
+   * the squash commit: in both cases the commit the default branch gained.
+   *
+   * @param ref - the revision to walk, such as `origin/main`.
+   * @param path - the file's path, relative to the repository root.
+   * @returns the full sha; `''` where no commit on that line added the path.
+   *   A failure where the ref cannot be read.
+   */
+  firstParentAddition(ref: string, path: string): Promise<PortResult<string>>;
+
+  /**
    * The merge commits on a ref, newest first.
    *
    * @param ref - the revision to walk, such as `origin/main`.
