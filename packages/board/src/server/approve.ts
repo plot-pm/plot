@@ -288,6 +288,17 @@ export async function handleApprove(
     return;
   }
 
+  // `"spike": true` approves the plan's spike branch alone, a mode of this
+  // action. It runs the script arm only: the configured `Approve command` hands
+  // the agent a prompt that names no spike.
+  const spike = (body as { spike?: unknown })?.spike === true;
+  if (spike && command) {
+    json(409, {
+      error: `the configured Approve command cannot approve a spike alone — remove the 'Approve command' key so the board runs plot-approve.sh --spike directly, or run: plot-approve.mjs --spike --who <handle> ${slug}`,
+    });
+    return;
+  }
+
   // THE BOARD PASSES NO NAME OF ITS OWN. No config key or server field names
   // the operator, so the person who clicks supplies `who` — and the domain
   // (through `plot-approve.sh --who`) refuses a handle `People` does not
@@ -409,7 +420,7 @@ export async function handleApprove(
         /* nothing further to do */
       }
     };
-    const args = who ? [slug, '--who', who] : [slug];
+    const args = [...(spike ? ['--spike'] : []), ...(who ? ['--who', who] : []), slug];
     scriptsFor(opts).start(APPROVE_SCRIPT, args, {
       log: out,
       onExit,

@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { controllerInvocation } from '@plot-pm/domain/rules/ci-suite';
 import {
+  carriesSpikeFlag,
   controllerRefusal,
   mayRunController,
   pinUnavailable,
@@ -532,7 +533,7 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
       } else {
         const { actionReceiptsFile } = await import('@plot-pm/domain/adapters/action-receipts/action-receipts-file');
         const cleared = await actionReceiptsFile(root.value).clears(action);
-        if (!(cleared.ok && cleared.value)) refusals.unshift(controllerRefusal(action, scriptDir));
+        if (!(cleared.ok && cleared.value)) refusals.unshift(controllerRefusal(action, scriptDir, carriesSpikeFlag(stripped)));
       }
     }
     return refusals.length === 0 ? null : refusals.join('\n').trimEnd();
