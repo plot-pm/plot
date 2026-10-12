@@ -269,7 +269,7 @@ data model, a changed contract, or an architecture the slices depend on.
 > **Unattended (`PLOT_UNATTENDED=1`):** do not stop. Read the answer from
 > `$ARGUMENTS` if the prompt gives one. If it gives none, write
 > `State: Draft` and continue to step 6.
-> `PLOT-UNASKED: Does this plan carry significant design decisions? — assumed no — State: Draft`
+> `PLOT-UNASKED: Does this plan carry significant design decisions? — default — proceeded; State: Draft`
 
 ### 6. Create the Plan
 
