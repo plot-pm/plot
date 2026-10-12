@@ -48,19 +48,19 @@ describe('cardControls', () => {
 
   it('offers Approve and Interrogate on a Design plan, and not Commission or the rounds badge', () => {
     expect(cardControls({ state: 'design', status: 'open', started: false })).toEqual({
-      approve: true, interrogate: true, commission: false, roundsBadge: false, dispatch: false, readyToStart: false,
+      approve: true, interrogate: true, commission: false, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false,
     });
   });
 
   it('offers Commission and the rounds badge on a Draft plan', () => {
     expect(cardControls({ state: 'draft', status: 'draft', started: false })).toEqual({
-      approve: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false,
+      approve: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false, approveSpike: false,
     });
   });
 
   it('offers nothing on a state the workflow does not know', () => {
     expect(cardControls({ state: 'weird', status: 'draft', started: false })).toEqual({
-      approve: false, interrogate: false, commission: false, roundsBadge: false, dispatch: false, readyToStart: false,
+      approve: false, interrogate: false, commission: false, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false,
     });
   });
 });
