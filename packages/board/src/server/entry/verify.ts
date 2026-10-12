@@ -42,11 +42,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  *
  * `prepare` builds two detached trees under `.plot/state/verify/<slug>/`:
  * `tools/` at `origin/<main>` and `pin/` at the commit that added the plan's
- * `Delivered:` value. Every command of the run takes its code from `tools/`;
- * `pin/` is a working directory and a source of files. `record` folds the juror
- * files `verify-<lens>.md` into one verdict per claim, books the `Verified:`
- * line and the `## Verification` section through a booking worktree, and
- * removes every tree it made.
+ * `Delivered:` value, or at the `--at` commit. Every command of the run takes
+ * its code from `tools/`: a copy started from anywhere else hands its command
+ * over to `tools/`'s `plot-verify.mjs` once that tree exists, and prints its
+ * output. `pin/` is a working directory and a source of files. The repository
+ * root is the one the git common directory names, so any tree of the
+ * repository serves as the working directory. `record` folds the juror files
+ * `verify-<lens>.md` into one verdict per claim, books the `Verified:` line and
+ * the `## Verification` section through a booking worktree, and removes every
+ * tree it made.
  *
  * Exit 0 on success, 1 on a refusal. A refusal writes no record.
  */
@@ -60,6 +64,15 @@ const PREFIX = 'verify-';
 /** Ten minutes: the bound on one frozen install. */
 const INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
 
+/** The bound on a handed-over command: one install and ten minutes more. */
+const HANDOVER_TIMEOUT_MS = INSTALL_TIMEOUT_MS + 10 * 60 * 1000;
+
+/** Set on a handed-over command, so the tools tree's copy hands over no further. */
+const HANDOVER_ENV = 'PLOT_VERIFY_HANDED_OVER';
+
+/** The bundle's path below the scripts directory. */
+const BUNDLE = path.join('board', 'plot-verify.mjs');
+
 /** What `prepare` leaves for `fold` and `record`. */
 interface RunFacts {
   slug: string;
@@ -67,9 +80,11 @@ interface RunFacts {
   plan: string;
   /** The commit that added the plan's `Delivered:` value. */
   delivery: string;
+  /** The commit the claims are judged at: `--at`, or the delivery commit. */
+  judged: string;
   /** The commit the tools tree sits at. */
   tools: string;
-  /** The plan's own `Delivered:` date. */
+  /** The `Delivered:` date the plan carries at the delivery commit. */
   deliveredOn: string;
   /** Every path the plan's merged slice branches changed. */
   files: readonly string[];
@@ -79,6 +94,8 @@ interface RunFacts {
 interface Context {
   repoRoot: string;
   scriptDir: string;
+  /** `scriptDir` relative to the root of the tree that holds it. */
+  scriptsRel: string;
   refs: Refs;
   host: Host;
   planStore: PlanStore;
@@ -210,52 +227,130 @@ const changedFilesOf = async (ctx: Context, branches: readonly string[]): Promis
   return [...files];
 };
 
+/** Matches a filled `Delivered:` line and captures its date. */
+const DELIVERED_ON = /^[ \t]*[-*][ \t]*\*\*Delivered:\*\*[ \t]*(\d{4}-\d{2}-\d{2})/m;
+
+/** The tools tree's copy of this bundle for one run. */
+const toolsBundle = (ctx: Context, slug: string): string =>
+  path.join(runDir(ctx.repoRoot, slug), 'tools', ctx.scriptsRel, BUNDLE);
+
 /**
- * Builds the pinned run's trees and facts.
+ * Whether this invocation hands its command over to the tools tree's copy.
+ *
+ * @param ctx - the ports and paths.
+ * @param slug - the plan's slug.
+ * @returns `true` where the tools tree holds a copy and this process is neither
+ *   that copy nor a command already handed over.
+ */
+const handsOver = (ctx: Context, slug: string): boolean => {
+  if (process.env[HANDOVER_ENV] === '1') return false;
+  const tools = toolsBundle(ctx, slug);
+  if (!existsSync(tools)) return false;
+  const own = path.join(ctx.scriptDir, BUNDLE);
+  return !existsSync(own) || realpathSync(own) !== realpathSync(tools);
+};
+
+/**
+ * Runs the command in the tools tree's copy and prints what it printed.
+ *
+ * The working directory is `pin/` where it exists, and `tools/` before it does.
+ * The hand-over is named on stderr, so stdout carries the copy's output alone.
+ *
+ * @param ctx - the ports and paths.
+ * @param slug - the plan's slug.
+ * @param argv - the arguments this process received.
+ * @param write - where the copy's stdout goes.
+ * @param warn - where the copy's stderr goes.
+ * @returns the copy's exit code.
+ */
+const handOver = async (
+  ctx: Context,
+  slug: string,
+  argv: readonly string[],
+  write: Printer,
+  warn: Printer,
+): Promise<number> => {
+  const bundle = toolsBundle(ctx, slug);
+  const pin = path.join(runDir(ctx.repoRoot, slug), 'pin');
+  const cwd = existsSync(pin) ? pin : path.join(runDir(ctx.repoRoot, slug), 'tools');
+  warn(`plot-verify: hand over to ${bundle}\n`);
+  const ran = await runProcess('node', [bundle, ...argv], {
+    cwd,
+    env: { [HANDOVER_ENV]: '1' },
+    timeoutMs: HANDOVER_TIMEOUT_MS,
+  });
+  write(ran.stdout);
+  warn(ran.stderr);
+  return ran.code;
+};
+
+/**
+ * Builds the tools tree at a freshly fetched `origin/<main>`.
+ *
+ * @param ctx - the ports and paths.
+ * @param slug - the plan's slug.
+ * @throws {Refused} on `fetch-failed` and `tools-unavailable`; the run's
+ *   directory is removed first.
+ */
+const prepareTools = async (ctx: Context, slug: string): Promise<void> => {
+  const main = await resolveMain(ctx);
+  const fetched = await git(ctx.repoRoot, ['fetch', '-q', 'origin', main]);
+  if (fetched.code !== 0) {
+    throw new Refused(`fetch-failed: git fetch origin ${main} exited ${fetched.code}\n${fetched.stderr.trim()}`);
+  }
+  const head = await git(ctx.repoRoot, ['rev-parse', '--verify', '--quiet', `origin/${main}^{commit}`]);
+  if (head.code !== 0) throw new Refused(`fetch-failed: origin/${main} names no commit after the fetch`);
+
+  await removeRun(ctx, slug);
+  const tools = path.join(runDir(ctx.repoRoot, slug), 'tools');
+  mkdirSync(path.dirname(tools), { recursive: true });
+  try {
+    const added = await ctx.trees.add(tools, head.stdout.trim());
+    if (!added.ok) throw new Refused(`tools-unavailable: could not add a tree at origin/${main}`);
+    for (const needed of ['plot-verify.mjs', 'plot-local-checks.mjs']) {
+      const wanted = path.join(tools, ctx.scriptsRel, 'board', needed);
+      if (!existsSync(wanted)) throw new Refused(`tools-unavailable: ${wanted}`);
+    }
+  } catch (err) {
+    await removeRun(ctx, slug);
+    throw err;
+  }
+};
+
+/**
+ * Builds the pinned tree and the run's facts, beside an existing tools tree.
  *
  * @param ctx - the ports and paths.
  * @param args - the request.
+ * @param rel - the plan file, relative to the repository root.
  * @param write - where progress goes.
  * @returns the exit code.
- * @throws {Refused} on `pin-not-found`, `tools-unavailable` and `install-failed`.
+ * @throws {Refused} on `tools-unavailable`, `pin-not-found` and
+ *   `install-failed`; the run's directory is removed first.
  */
-const prepare = async (ctx: Context, args: Args, write: Printer): Promise<number> => {
-  const planFile = await findPlanFile(ctx, args.slug);
-  if (planFile === '') throw new Refused(`no plan found for '${args.slug}'`);
-  const rel = realPlanPath(ctx.repoRoot, planFile) ?? planFile;
-
-  const main = await resolveMain(ctx);
-  await git(ctx.repoRoot, ['fetch', '-q', 'origin', main]);
-
-  let delivery = args.at;
-  if (delivery === '') {
-    const found = await ctx.refs.recordCommit(rel, 'Delivered');
-    delivery = found.ok && found.value !== null ? found.value : '';
-  }
-  if (delivery === '') {
-    throw new Refused(`pin-not-found: no commit on origin/${main} added a filled 'Delivered:' to ${rel}`);
-  }
-  const resolved = await git(ctx.repoRoot, ['rev-parse', '--verify', '--quiet', `${delivery}^{commit}`]);
-  if (resolved.code !== 0) throw new Refused(`pin-not-found: ${delivery} names no commit`);
-  delivery = resolved.stdout.trim();
-  const toolsSha = (await git(ctx.repoRoot, ['rev-parse', `origin/${main}`])).stdout.trim();
-
-  await removeRun(ctx, args.slug);
+const preparePin = async (ctx: Context, args: Args, rel: string, write: Printer): Promise<number> => {
   const dir = runDir(ctx.repoRoot, args.slug);
-  mkdirSync(dir, { recursive: true });
   const tools = path.join(dir, 'tools');
   const pin = path.join(dir, 'pin');
   try {
-    const toolsAdded = await ctx.trees.add(tools, `origin/${main}`);
-    if (!toolsAdded.ok) throw new Refused(`tools-unavailable: could not add a tree at origin/${main}`);
-    const scriptsRel = path.relative(ctx.repoRoot, ctx.scriptDir);
-    for (const needed of ['plot-verify.mjs', 'plot-local-checks.mjs']) {
-      const wanted = path.join(tools, scriptsRel, 'board', needed);
-      if (!existsSync(wanted)) throw new Refused(`tools-unavailable: ${wanted}`);
-    }
+    const toolsHead = existsSync(tools) ? await git(tools, ['rev-parse', 'HEAD']) : null;
+    if (toolsHead === null || toolsHead.code !== 0) throw new Refused(`tools-unavailable: no tools tree at ${tools}`);
+    const toolsSha = toolsHead.stdout.trim();
 
-    const pinAdded = await ctx.trees.add(pin, delivery);
-    if (!pinAdded.ok) throw new Refused(`pin-not-found: could not add a tree at ${delivery}`);
+    const found = await ctx.refs.recordCommit(rel, 'Delivered');
+    const delivery = found.ok && found.value !== null ? found.value : '';
+    if (delivery === '') {
+      throw new Refused(`pin-not-found: no commit on the default branch added a filled 'Delivered:' to ${rel}`);
+    }
+    const wanted = args.at === '' ? delivery : args.at;
+    const resolved = await git(ctx.repoRoot, ['rev-parse', '--verify', '--quiet', `${wanted}^{commit}`]);
+    if (resolved.code !== 0) throw new Refused(`pin-not-found: ${wanted} names no commit`);
+    const judged = resolved.stdout.trim();
+    const atDelivery = await ctx.refs.showFile(delivery, rel);
+    const deliveredOn = (atDelivery.ok ? DELIVERED_ON.exec(atDelivery.value)?.[1] : undefined) ?? '';
+
+    const pinAdded = await ctx.trees.add(pin, judged);
+    if (!pinAdded.ok) throw new Refused(`pin-not-found: could not add a tree at ${judged}`);
     writeFileSync(path.join(pin, '.plot-verify.pid'), `${process.pid}\n`);
     await ctx.trees.excludePath(pin, '.plot-verify.pid');
 
@@ -270,26 +365,51 @@ const prepare = async (ctx: Context, args: Args, write: Printer): Promise<number
     }
 
     const record = await ctx.planStore.readPlan(path.join(pin, rel));
-    const deliveredRaw = record.ok ? record.value.deliveredRaw : '';
     const branches = record.ok ? record.value.slices.flatMap((s) => s.branches.filter((b) => !b.deferred).map((b) => b.branch)) : [];
     const files = await changedFilesOf(ctx, branches);
-    const facts: RunFacts = {
-      slug: args.slug,
-      plan: rel,
-      delivery,
-      tools: toolsSha,
-      deliveredOn: /\d{4}-\d{2}-\d{2}/.exec(deliveredRaw)?.[0] ?? '',
-      files,
-    };
+    const facts: RunFacts = { slug: args.slug, plan: rel, delivery, judged, tools: toolsSha, deliveredOn, files };
     writeFileSync(path.join(dir, 'run.json'), `${JSON.stringify(facts, null, 2)}\n`);
     writeFileSync(path.join(dir, 'files.txt'), files.map((f) => `${f}\n`).join(''));
-    write(`step: pin ${delivery.slice(0, 7)} tools ${toolsSha.slice(0, 7)} install ${installMs} ms\n`);
-    write(`summary: pin=${delivery} tools=${toolsSha} install_ms=${installMs} files=${files.length}\n`);
+    write(`step: pin ${judged.slice(0, 7)} delivery ${delivery.slice(0, 7)} tools ${toolsSha.slice(0, 7)} install ${installMs} ms\n`);
+    write(`summary: pin=${judged} delivery=${delivery} tools=${toolsSha} install_ms=${installMs} files=${files.length}\n`);
     return 0;
   } catch (err) {
     await removeRun(ctx, args.slug);
     throw err;
   }
+};
+
+/**
+ * Builds the pinned run's trees and facts.
+ *
+ * The tools tree comes first. A copy other than the tools tree's then hands the
+ * rest of `prepare` over to that copy, which builds the pinned tree.
+ *
+ * @param ctx - the ports and paths.
+ * @param args - the request.
+ * @param argv - the arguments this process received, for the hand-over.
+ * @param write - where progress goes.
+ * @param warn - where the handed-over copy's refusals go.
+ * @returns the exit code.
+ * @throws {Refused} on `fetch-failed`, `tools-unavailable`, `pin-not-found`
+ *   and `install-failed`.
+ */
+const prepare = async (
+  ctx: Context,
+  args: Args,
+  argv: readonly string[],
+  write: Printer,
+  warn: Printer,
+): Promise<number> => {
+  const planFile = await findPlanFile(ctx, args.slug);
+  if (planFile === '') throw new Refused(`no plan found for '${args.slug}'`);
+  const rel = realPlanPath(ctx.repoRoot, planFile) ?? planFile;
+
+  if (process.env[HANDOVER_ENV] !== '1') {
+    await prepareTools(ctx, args.slug);
+    if (handsOver(ctx, args.slug)) return handOver(ctx, args.slug, argv, write, warn);
+  }
+  return preparePin(ctx, args, rel, write);
 };
 
 /**
@@ -333,8 +453,8 @@ const readJurors = (ctx: Context, slug: string): { lens: string; text: string | 
  * @returns the verdicts, or `null` where the fold refused.
  */
 const foldRun = async (ctx: Context, facts: RunFacts, warn: Printer): Promise<readonly ClaimVerdict[] | null> => {
-  const text = await ctx.refs.showFile(facts.delivery, facts.plan);
-  if (!text.ok) throw new Refused(`cannot read the plan at ${facts.delivery}`);
+  const text = await ctx.refs.showFile(facts.judged, facts.plan);
+  if (!text.ok) throw new Refused(`cannot read the plan at ${facts.judged}`);
   const folded = foldVerification(claimsOf(text.value), readJurors(ctx, facts.slug));
   if (folded.fold === 'record') return folded.verdicts;
   for (const r of folded.refusals) warn(`plot-verify: refused ${r.label} by ${r.lens === '' ? '(no juror)' : r.lens}: ${r.why}\n`);
@@ -373,7 +493,10 @@ const record = async (ctx: Context, args: Args, write: Printer, warn: Printer): 
 
   const main = await resolveMain(ctx);
   const who = process.env.PLOT_VERIFY_WHO || (await git(ctx.repoRoot, ['config', 'user.name'])).stdout.trim() || 'plot';
-  await git(ctx.repoRoot, ['fetch', '-q', 'origin', main]);
+  const fetched = await git(ctx.repoRoot, ['fetch', '-q', 'origin', main]);
+  if (fetched.code !== 0) {
+    throw new Refused(`fetch-failed: git fetch origin ${main} exited ${fetched.code}\n${fetched.stderr.trim()}\n  Nothing was written.`);
+  }
 
   const wtRootCfg = await ctx.scripts.config('Worktree root', '');
   const wtRoot = deskRoot({ configured: wtRootCfg.ok ? wtRootCfg.value.trim() : '', repoRoot: ctx.repoRoot });
@@ -395,7 +518,7 @@ const record = async (ctx: Context, args: Args, write: Printer, warn: Printer): 
         today: localDate(),
         deliveredOn: facts.deliveredOn,
         delivery: facts.delivery,
-        judged: facts.delivery,
+        judged: facts.judged,
         tools: facts.tools,
       },
       verdicts,
@@ -436,10 +559,42 @@ const record = async (ctx: Context, args: Args, write: Printer, warn: Printer): 
 };
 
 /**
+ * Resolves the repository root from the git common directory, so a linked
+ * tree such as `pin/` or `tools/` answers the main checkout.
+ *
+ * @param cwd - a directory inside the repository.
+ * @param scriptDir - the directory holding `plot-*.sh`.
+ * @returns the root, or `null` outside a repository.
+ */
+const resolveRepoRoot = async (cwd: string, scriptDir: string): Promise<string | null> => {
+  const common = await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const dir = common.stdout.trim();
+  if (common.code === 0 && path.basename(dir) === '.git') return path.dirname(dir);
+  const probe = await refsGit({ repoRoot: cwd, scriptDir }).repoRoot();
+  return probe.ok ? probe.value : null;
+};
+
+/**
+ * The scripts directory relative to the root of the tree that holds it.
+ *
+ * @param scriptDir - the directory holding `plot-*.sh`.
+ * @param repoRoot - the repository root, for a scripts directory in no tree.
+ * @returns the relative path.
+ */
+const scriptsRelOf = async (scriptDir: string, repoRoot: string): Promise<string> => {
+  const top = await git(scriptDir, ['rev-parse', '--show-toplevel']);
+  if (top.code !== 0) return path.relative(repoRoot, scriptDir);
+  return path.relative(realpathSync(top.stdout.trim()), realpathSync(scriptDir));
+};
+
+/**
  * Dispatches one subcommand.
  *
+ * A command for a run whose tools tree exists goes to that tree's copy of this
+ * bundle, unless this process is that copy.
+ *
  * @param argv - the arguments after the script name.
- * @param cwd - a directory inside the repository.
+ * @param cwd - a directory inside the repository or one of its linked trees.
  * @param scriptDir - the directory holding `plot-*.sh`.
  * @param write - where output goes.
  * @param warn - where refusals go.
@@ -457,16 +612,16 @@ export const run = async (
     warn(`plot-verify: ${parsed}\n`);
     return 1;
   }
-  const probe = await refsGit({ repoRoot: cwd, scriptDir }).repoRoot();
-  if (!probe.ok) {
+  const repoRoot = await resolveRepoRoot(cwd, scriptDir);
+  if (repoRoot === null) {
     warn("plot-verify: not a git repository — run this from inside the checkout\n");
     return 1;
   }
-  const repoRoot = probe.value;
   const context = { repoRoot, scriptDir };
   const ctx: Context = {
     repoRoot,
     scriptDir,
+    scriptsRel: await scriptsRelOf(scriptDir, repoRoot),
     refs: refsGit(context),
     host: hostShell(context),
     planStore: planStoreShell(context),
@@ -474,9 +629,12 @@ export const run = async (
     trees: treesGit(context),
   };
   try {
+    if (parsed.command !== 'prepare' && handsOver(ctx, parsed.slug)) {
+      return await handOver(ctx, parsed.slug, argv, write, warn);
+    }
     switch (parsed.command) {
       case 'prepare':
-        return await prepare(ctx, parsed, write);
+        return await prepare(ctx, parsed, argv, write, warn);
       case 'claims':
         return await claims(ctx, parsed, write);
       case 'fold':
