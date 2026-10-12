@@ -23,7 +23,8 @@ export type ApproveRefusal =
   | 'review-unrecognised'
   | 'slice-unnamed'
   | 'pr-closed'
-  | 'pr-absent';
+  | 'pr-absent'
+  | 'pr-ambiguous';
 
 /** What `approve` reads about the plan it would approve. */
 export interface ApproveReadings {
@@ -75,6 +76,17 @@ export interface ApprovePrReading {
   draft: boolean;
   /** The branch the PR belongs to. */
   branch: string;
+  /**
+   * The other open PRs that also add or change the plan file.
+   *
+   * Absent or empty where the PR is the only one.
+   */
+  rivals?: readonly number[];
+  /**
+   * The other plan files the PR adds or changes, which its merge lands on the
+   * default branch unapproved. Absent or empty for a PR carrying one plan.
+   */
+  carried?: readonly string[];
 }
 
 /** What `approve` records beyond the plan. */
@@ -114,6 +126,12 @@ export interface ApproveDetail {
   sameBranch: boolean;
   /** Whether the phase and record were already on the default branch. */
   alreadyRecorded: boolean;
+  /**
+   * The other plan files this approval's merge lands on the default branch,
+   * where they stay in their own phase. Empty where the decision merges
+   * nothing.
+   */
+  carried: readonly string[];
 }
 
 /**
@@ -129,13 +147,17 @@ export interface ApproveDetail {
  * the PR refusals, the PR writes and the `plan-PR #N` channel text are all
  * skipped and `input.channel` is recorded instead.
  *
+ * A PR that carries other plans besides this one, a batch PR, merges once: the
+ * decision names those plans in `carried`, and approves only this one.
+ *
  * @param readings - what the adapters measured about the plan and its PR.
  * @param input - the date, approver, channel and declared handles to record
  *   against.
  * @returns a decision naming every write, or a refusal naming the rule that
  *   fired: `plan-not-found`, `plan-unparseable`, `state-terminal`,
  *   `state-unreadable`, `state-wrong`, `slice-unnamed`, `review-human`,
- *   `reviewer-undeclared`, `review-unrecognised`, `pr-closed` or `pr-absent`.
+ *   `reviewer-undeclared`, `review-unrecognised`, `pr-closed`, `pr-absent` or
+ *   `pr-ambiguous`.
  */
 export const approve = (
   readings: ApproveReadings,
@@ -242,10 +264,21 @@ export const approve = (
           `no PR found for branch '${readings.pr.branch}'. Run /plot-idea first, or push the branch.`,
         );
     }
+    // Merging is irreversible, so a plan two open PRs both change is refused
+    // rather than approved through whichever the host listed first.
+    const rivals = readings.pr.rivals ?? [];
+    if (rivals.length > 0) {
+      const all = [readings.pr.number, ...rivals].map((n) => `#${n}`).join(', ');
+      return no(
+        'pr-ambiguous',
+        `the plan file of '${slug}' is changed by more than one open PR (${all}) — refusing rather than choosing one to merge.`,
+      );
+    }
   }
 
   const sameBranch = readings.impl === 'same-branch';
   const writes: Write[] = [];
+  let carried: readonly string[] = [];
 
   // Step 2 — the PR. Skipped entirely under `same branch`, where merging here
   // would land an unfinished implementation on the default branch.
@@ -254,6 +287,7 @@ export const approve = (
     // mergeable on either host.
     if (readings.pr.draft) writes.push({ kind: 'pr-ready', pr: readings.pr.number });
     writes.push({ kind: 'pr-merge', pr: readings.pr.number, deleteBranch: true });
+    carried = readings.pr.carried ?? [];
   }
 
   // Step 3 — the phase. Already flipped is nothing to write, not a refusal.
@@ -315,6 +349,7 @@ export const approve = (
     pr: readings.pr.number,
     sameBranch,
     alreadyRecorded: phaseWritten && recordWritten,
+    carried,
   });
 };
 

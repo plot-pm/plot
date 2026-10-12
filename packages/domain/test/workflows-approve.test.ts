@@ -416,3 +416,44 @@ describe('the two approve rules agree about a reviewer', () => {
     expect(workflow).toBe(expected);
   });
 });
+
+describe('approve — a batch PR carrying several plans', () => {
+  const batch = {
+    number: 1608,
+    state: 'OPEN' as const,
+    draft: true,
+    branch: 'idea/batch-plot-works-in-five-phases',
+    carried: ['docs/plans/2026-10-12-the-board-has-three-tabs.md'],
+  };
+
+  it('merges the PR once and approves only the named plan, naming the plans the merge carries', () => {
+    const out = approve(ready({ pr: batch }), on());
+    expect(decided(out) && kinds(out.writes).filter((k) => k === 'pr-merge')).toEqual(['pr-merge']);
+    const phases = decided(out) ? out.writes.filter((w) => w.kind === 'plan-phase') : [];
+    expect(phases).toEqual([{ kind: 'plan-phase', file: 'docs/plans/2026-08-30-a-plan.md', phase: 'Approved' }]);
+    expect(decided(out) && out.detail.carried).toEqual(batch.carried);
+  });
+
+  it('approves the second plan of a merged batch without merging again, and names no carried plan', () => {
+    const out = approve(ready({ pr: { ...batch, state: 'MERGED', draft: false } }), on());
+    expect(decided(out) && kinds(out.writes)).not.toContain('pr-merge');
+    expect(decided(out) && kinds(out.writes)).toContain('plan-phase');
+    expect(decided(out) && out.detail.carried).toEqual([]);
+  });
+
+  it('carries nothing for a PR that reported no other plan', () => {
+    const out = approve(ready(), on());
+    expect(decided(out) && out.detail.carried).toEqual([]);
+  });
+
+  it('refuses a plan two open PRs both change, before any write', () => {
+    const out = approve(ready({ pr: { ...batch, rivals: [1609] } }), on());
+    expect(refused(out) && out.reason).toBe('pr-ambiguous');
+    expect(refused(out) && out.detail).toContain('#1608, #1609');
+  });
+
+  it('keeps the review refusals ahead of the ambiguity', () => {
+    const out = approve(ready({ review: 'ballot', pr: { ...batch, rivals: [1609] } }), on());
+    expect(refused(out) && out.reason).toBe('review-human');
+  });
+});

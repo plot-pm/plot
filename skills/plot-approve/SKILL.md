@@ -252,6 +252,13 @@ summary: merged=yes phase=flipped record=written holds=2 sprint=updated push=cle
 | `holds` | how many `.plot/hold` entries were cleared (`0` is normal) |
 | `sprint` | `updated` \| `already` \| `none` \| `missing` |
 | `push` | `clean` \| `bypassed` \| `unknown` \| `micro-pr` \| `local` \| `nothing-to-commit` |
+| `carried` | present only where this run merged a PR that carried other plans: their slugs, comma-separated |
+
+**The plan PR is the PR that adds or changes the plan file.** The script asks the host for the PR of `idea/<slug>` first. Where that branch has no PR, it lists the open PRs (one host call) and reads each head's plan files from git, so a batch PR on `idea/batch-<first-slug>` is found by the plan file it adds. Where no open PR carries the plan and the default branch holds it, it reads the merges on the default branch for the one that added the file, and the host confirms that PR merged. Two open PRs that both change the plan file are refused, before any merge.
+
+**A plan the checkout does not hold is read from where it is.** The board runs the script in the default branch's checkout, where a plan on an unmerged plan PR does not exist. The script then reads the plan from the default branch as fetched, or from the head of the open PR that carries it, and prints a `step:` line naming the source.
+
+**A batch PR merges once and approves one plan.** Approving one slug of a batch PR merges the PR, flips only that plan, and names the other plans in `carried=` — they land on the default branch in their own phase, `Draft`. Approve each by its own slug: the PR is then already merged, so the run reports `merged=already` and flips that plan.
 
 **Carry `push: bypassed` into the summary verbatim.** It means the
 commit landed but branch protection was waived, and it names the rules
@@ -259,8 +266,10 @@ stepped over and the checks that did not run. Nothing needs undoing —
 but a missing CI run must not be a mystery later.
 
 **On a refusal (exit 1), report the script's own words and stop.** It
-refuses a plan that is not Draft, a `Review:` it cannot act on, and a
-PR that is draft, closed, or absent. Do not work around a refusal.
+refuses a plan that is not Draft, a `Review:` it cannot act on, a
+PR that is draft, closed, or absent, and a plan that two open PRs both
+change.
+Do not work around a refusal.
 
 **It is idempotent, and re-running it is the repair.** Step 2 merges the
 PR — the one irreversible write — so an interruption after it can leave

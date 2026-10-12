@@ -88,7 +88,7 @@ If the user provides multiple slugs (comma-separated or as a list), or asks to c
 3. Create all plan files on that branch, each with its own file and active symlink
 4. Create a single PR titled "Plan: <title1>, <title2>, ..."
 
-The plans are still independent after approval — `/plot-approve` processes each slug separately.
+The plans are still independent after approval — `/plot-approve` processes each slug separately. It finds the batch PR by the plan file each slug names, not by the branch name. Approving the first slug merges the batch PR once and lands the other plans on the default branch as `Draft`; its summary names them in `carried=`. Approving each further slug finds the PR already merged and flips only that plan.
 
 **Detection:** Multiple `:` entries in `$ARGUMENTS`, words like "batch"/"together"/"all at once" in conversation context, or an explicit list of slugs.
 
