@@ -1458,12 +1458,13 @@ export function PlanActions({
   // is the single spelling of that rule. Two spellings drift — which is how the
   // branch menu and the card came to disagree in the first place.
   //
-  // BOTH draft acts share this one gate. A Draft plan is what a person decides
-  // about, and Approve and Commission design are the two answers; each then asks
-  // its OWN binding whether the server will act, below.
+  // Approve reads `controls.approve` (a `draft` or `design` plan) and
+  // Commission design reads `controls.commission` (a `draft` plan only, the one
+  // state `server/commission.ts` accepts). Each then asks its OWN binding
+  // whether the server will act, below.
   const isDraftPlan = Boolean(card && isDraft(card));
   const canApprove = Boolean(isDraftPlan && approve);
-  const canCommission = Boolean(isDraftPlan && commission);
+  const canCommission = Boolean(card?.controls.commission && commission);
   // Deliver's OWN gate, disjoint from the draft one: the card's `deliverable`
   // bit, which the server sets only where it auto-bumped a fully-merged plan
   // into Testing — never on a plan already delivered. So this is true on exactly

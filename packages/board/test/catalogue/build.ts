@@ -4,7 +4,7 @@ import {
   type AgentEntry, type AgentRow, type Board, type Card, type Column, type Fleet,
   type SprintCard, type StoryCard, type Slice,
 } from '../../src/contract/schema.js';
-import { cardControls, type CardControls } from '@plot-pm/domain';
+import { cardControls, type CardControls, type PlanStatus } from '@plot-pm/domain';
 import type { z } from 'zod';
 
 /**
@@ -111,13 +111,32 @@ const CARD_DEFAULTS: Omit<CardInput, 'controls'> = {
   path: 'docs/plans/2026-08-24-a-plan.md',
 };
 
-/** The controls today's column mapping implies: Discovery is under review, Development is approved. */
-const controlsFor = (over: Partial<CardInput>): CardControls => {
-  const phase = over.phase ?? CARD_DEFAULTS.phase;
-  const state = phase === 'Discovery' || phase === 'Design' ? 'draft' : 'approved';
-  const status = phase === 'Development' ? 'approved' : 'draft';
-  // An absent `started` reads as started: the old predicate demanded an explicit false.
-  return cardControls({ state, status, started: over.started !== false });
+/**
+ * The plan state and status a fixture card in each column stands for: the
+ * inverse of `toBoardPhase`, with the status `planStatus` answers for that
+ * state. A card's controls come from these readings through `cardControls`, the
+ * rule the server calls, so a fixture never restates the rule.
+ */
+const READINGS_BY_PHASE: Record<Card['phase'], { state: string; status: PlanStatus }> = {
+  Discovery: { state: 'draft', status: 'draft' },
+  Design: { state: 'design', status: 'draft' },
+  Development: { state: 'approved', status: 'approved' },
+  Testing: { state: 'delivered', status: 'delivered' },
+  Released: { state: 'released', status: 'released' },
+};
+
+/**
+ * The controls the server computes for a fixture card. A card's own `status`
+ * replaces the column's. An absent `started` reads as started, because a
+ * fixture that states no `started` stood for a card without the Ready badge.
+ */
+export const controlsFor = (over: Partial<CardInput>): CardControls => {
+  const readings = READINGS_BY_PHASE[over.phase ?? CARD_DEFAULTS.phase];
+  return cardControls({
+    state: readings.state,
+    status: over.status ?? readings.status,
+    started: over.started !== false,
+  });
 };
 
 export const card = (over: Partial<CardInput> = {}): Card =>

@@ -1,19 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { roundsBadgeClass, roundsBadgeText, roundsRecorded } from '../../src/app/components/PlanCard.js';
 import { AgentRowSchema, CardSchema, type Card } from '../../src/contract/schema.js';
+import { controlsFor } from '../catalogue/build.js';
 
 // What a card SAYS about how hard its plan has been questioned. The interesting
 // cases are the ones where the honest answer is nothing at all — an absent
 // count and a settled plan both render no badge, for different reasons.
 
+// The controls come from the column's plan state through `cardControls`, the
+// rule the server calls: a Draft card carries the badge and a Design card does not.
 const card = (over: Partial<Card> = {}): Card => {
   const phase = over.phase ?? 'Discovery';
-  const underReview = phase === 'Discovery' || phase === 'Design';
   return {
     slug: 'x', title: 'X', type: 'feature', phase,
     path: 'docs/plans/2026-08-17-x.md', prs: [], phaseDate: '',
-    controls: { approve: underReview, interrogate: underReview, dispatch: false, readyToStart: false },
-    ...over,
+    controls: controlsFor({ phase }), ...over,
   };
 };
 
@@ -54,14 +55,12 @@ describe('roundsBadgeText', () => {
     // Past Discovery the count is history: the design question it answers was
     // settled by approval, and a number nobody acts on is the crowding this
     // board keeps removing.
-    for (const phase of ['Development', 'Testing', 'Released'] as const) {
+    for (const phase of ['Design', 'Development', 'Testing', 'Released'] as const) {
       expect(roundsBadgeText(card({ phase, rounds: 3 }))).toBe('');
       expect(roundsBadgeText(card({ phase }))).toBe('');
     }
-    // …and every card under review with a count does carry it, Design included:
-    // `isDraft` reads `controls.approve`, which holds on both `draft` and `design`.
+    // …and every Draft card with a count does carry it.
     expect(roundsBadgeText(card({ phase: 'Discovery', rounds: 3 }))).toBe('3 rounds');
-    expect(roundsBadgeText(card({ phase: 'Design', rounds: 3 }))).toBe('3 rounds');
   });
 
   it('says "1 round", not "1 rounds"', () => {
