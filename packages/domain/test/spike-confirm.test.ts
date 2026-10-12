@@ -19,6 +19,10 @@ describe('spikeCardState', () => {
     expect(spikeCardState({ state: 'design', slices, spikeApproved: '  ', spikeMerged: true })).toBe('spike-not-approved');
   });
 
+  it('answers spike-not-approved when no record was read', () => {
+    expect(spikeCardState({ state: 'design', slices })).toBe('spike-not-approved');
+  });
+
   it('answers spike-approved while the approved spike has not merged', () => {
     expect(spikeCardState({ state: 'design', slices, spikeApproved: '2026-10-13 by jwloka' })).toBe('spike-approved');
   });
@@ -65,6 +69,11 @@ describe('confirmRefusal', () => {
     const r = confirmRefusal(ready({ slicesPushed: { name: 'docs/plans/beans.md', met: false } }));
     expect(r?.reason).toBe('slices-unpushed');
     expect(r?.detail).toContain('docs/plans/beans.md');
+  });
+
+  it('quotes the source detail on a slices-unpushed refusal', () => {
+    const r = confirmRefusal(ready({ slicesPushed: { name: 'docs/plans/beans.md', met: false, detail: 'origin copy differs' } }));
+    expect(r?.detail).toContain('(origin copy differs)');
   });
 
   it('refuses slices-unpushed when the push reading is absent', () => {
