@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +9,7 @@ import { gatherReadingsAndRelease } from '../release-claim.js';
 import { checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 import { mergeAt } from './merge.js';
+import { planGateAnswer, planGateAskFrom } from './plangate.js';
 
 /**
  * The `node` entry point a skill runs.
@@ -18,6 +20,7 @@ import { mergeAt } from './merge.js';
  * node skills/plot/scripts/board/plot-ask.mjs deliverable <slug> <plan-file>
  * node skills/plot/scripts/board/plot-ask.mjs release-claim <branch>
  * node skills/plot/scripts/board/plot-ask.mjs merge <pr> <sha>
+ * <plan-meta JSON> | node skills/plot/scripts/board/plot-ask.mjs plangate --slug <slug> --default-branch <main> [--source <text>] [--ref-resolved] [--allow-local]
  * ```
  *
  * **`release-claim` is a WRITE, not a `Question`.** The three questions above
@@ -167,10 +170,26 @@ export const run = async (
     return result.merged ? 0 : 1;
   }
 
+  if (argv[0] === 'plangate') {
+    // The dispatch phase and `Impl:` gate, read from the plan-meta record on
+    // stdin. Exit 0 lets the fan-out go on; 1 prints the rule's detail and the
+    // next command on stderr. Stdout stays empty.
+    const ask = planGateAskFrom(argv.slice(1));
+    if (!ask) {
+      process.stderr.write(
+        'usage: plot-ask.mjs plangate --slug <slug> --default-branch <main> [--source <text>] [--ref-resolved] [--allow-local]  (plan-meta JSON on stdin)\n',
+      );
+      return 2;
+    }
+    const { code, lines } = planGateAnswer(ask, readFileSync(0, 'utf8'));
+    for (const line of lines) process.stderr.write(`${line}\n`);
+    return code;
+  }
+
   const question = questionFrom(argv);
   if (!question) {
     process.stderr.write(
-      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha>\n',
+      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha> | plangate --slug <slug> --default-branch <main>\n',
     );
     return 2;
   }

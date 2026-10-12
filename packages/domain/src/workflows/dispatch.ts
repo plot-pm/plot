@@ -471,6 +471,53 @@ const launchable = (
   return '';
 };
 
+/** The refusals {@link plangate} can return. */
+export type PlanGateRefusal = Extract<
+  DispatchRefusal,
+  | 'plan-not-found' | 'ref-unreadable' | 'plan-unreadable' | 'phase-draft' | 'state-terminal'
+  | 'state-unreadable' | 'state-wrong' | 'impl-same-branch' | 'impl-other-repo' | 'impl-none'
+  | 'impl-unrecognised'
+>;
+
+/**
+ * The command or edit that clears a plan-gate refusal.
+ *
+ * @param reason - the refusal {@link plangate} returned.
+ * @param slug - the plan's slug.
+ * @param defaultBranch - the shared ref's branch name.
+ * @returns one line naming the next step.
+ */
+export const planGateHint = (
+  reason: PlanGateRefusal,
+  slug: string,
+  defaultBranch: string,
+): string => {
+  switch (reason) {
+    case 'plan-not-found':
+      return `Check the slug and push the plan to ${defaultBranch}: ls docs/plans | grep -i ${slug}`;
+    case 'ref-unreadable':
+      return `Run \`git fetch origin ${defaultBranch}\`, or pass --allow-local to gate on the working tree.`;
+    case 'plan-unreadable':
+      return `Check the plan's phase and format with plot-plan-meta.sh, then push a readable plan.`;
+    case 'phase-draft':
+      return `Review it, then: /plot-approve ${slug}`;
+    case 'state-terminal':
+      return 'Nothing to dispatch. To start new work: /plot-idea';
+    case 'state-unreadable':
+      return `Set the plan's phase on its 'State:' line and push it, or approve it: /plot-approve ${slug}`;
+    case 'state-wrong':
+      return `Correct the 'State:' line in the plan and push it, or approve it: /plot-approve ${slug}`;
+    case 'impl-same-branch':
+      return `There is nothing to fan out. Implement on that branch instead: /plot-implement ${slug}`;
+    case 'impl-other-repo':
+      return 'Dispatch from the implementation repo instead.';
+    case 'impl-none':
+      return 'There is nothing to implement. To start new work: /plot-idea';
+    case 'impl-unrecognised':
+      return "Set the plan's 'Impl:' line to one of: own branches, same branch, other repo, none — then push it.";
+  }
+};
+
 /**
  * The phase and ceremony gate, or nothing where it passes.
  *
@@ -483,7 +530,7 @@ const launchable = (
  * @param input - whether the working-tree escape was named.
  * @returns the refusal, or undefined when the plan may be fanned out.
  */
-const plangate = (
+export const plangate = (
   readings: DispatchReadings,
   input: DispatchInput,
 ): Refusal<DispatchRefusal> | undefined => {

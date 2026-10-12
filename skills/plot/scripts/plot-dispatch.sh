@@ -2951,57 +2951,23 @@ else
 fi
 
 gate_meta=$("$script_dir/plot-plan-meta.sh" "$gate_blob" 2>/dev/null) || gate_meta=""
-gate_phase=$(printf '%s' "$gate_meta" | sed -n 's/.*"phase":"\([^"]*\)".*/\1/p')
-gate_impl=$(printf '%s' "$gate_meta" | sed -n 's/.*"impl":"\([^"]*\)".*/\1/p')
-
-case "$gate_phase" in
-  approved) ;;
-  draft)
-    echo "plot-dispatch: plan '$slug' is still Draft on $gate_source — nothing may be dispatched." >&2
-    echo "  The gate reads the plan as it exists on the shared ref. If you approved it" >&2
-    echo "  locally, push that approval; an approval nobody else can see is not one." >&2
-    echo "  Review it, then: /plot-approve $slug" >&2
-    exit 1 ;;
-  delivered|released)
-    echo "plot-dispatch: plan '$slug' is already $gate_phase — its work is done." >&2
-    echo "  Nothing to dispatch. To start new work: /plot-idea" >&2
-    exit 1 ;;
-  "")
-    echo "plot-dispatch: cannot read the phase of '$slug' ($gate_source)." >&2
-    echo "  Refusing rather than guessing — dispatching starts real work." >&2
-    exit 1 ;;
-  *)
-    echo "plot-dispatch: plan '$slug' is in phase '$gate_phase', not Approved." >&2
-    echo "  Correct the 'State:' line in the plan and push it, or approve it:" >&2
-    echo "  /plot-approve $slug" >&2
-    exit 1 ;;
-esac
-
-# Fan-out only makes sense where implementation happens on its own branches
-# here. NONE means a pre-Plot-2 plan that never recorded an answer — allowed,
-# since those predate the question.
-case "$gate_impl" in
-  own-branches|NONE|"") ;;
-  same-branch)
-    echo "plot-dispatch: plan '$slug' records 'Impl: same branch' — plan and code" >&2
-    echo "  travel on one branch, so there is nothing to fan out." >&2
-    echo "  Implement on that branch instead: /plot-implement $slug" >&2
-    exit 1 ;;
-  other-repo)
-    echo "plot-dispatch: plan '$slug' records 'Impl: other repo' — implementation" >&2
-    echo "  happens elsewhere. Dispatch from the implementation repo instead." >&2
-    exit 1 ;;
-  none)
-    echo "plot-dispatch: plan '$slug' records 'Impl: none' — knowledge-only work," >&2
-    echo "  nothing to implement." >&2
-    exit 1 ;;
-  *)
-    echo "plot-dispatch: plan '$slug' records an unrecognised 'Impl:' answer" >&2
-    echo "  ('$gate_impl'). Refusing rather than guessing." >&2
-    echo "  Set the plan's 'Impl:' line to one of: own branches, same branch," >&2
-    echo "  other repo, none — then push it." >&2
-    exit 1 ;;
-esac
+# The phase and `Impl:` rules live in the domain (`plangate`); this asks the
+# bundle and fails closed when it cannot answer. Exit 1 is the bundle's own
+# refusal, which it has already explained on stderr.
+gate_args=(--slug "$slug" --source "$gate_source" --default-branch "$MAIN")
+[ -n "$gate_sha" ] && gate_args+=(--ref-resolved)
+[ "$allow_local" = 1 ] && gate_args+=(--allow-local)
+gate_rc=127
+if [ -f "$script_dir/board/plot-ask.mjs" ]; then
+  gate_rc=0
+  printf '%s' "$gate_meta" | node "$script_dir/board/plot-ask.mjs" plangate "${gate_args[@]}" || gate_rc=$?
+fi
+if [ "$gate_rc" != 0 ]; then
+  [ "$gate_rc" = 1 ] && exit 1
+  echo "plot-dispatch: cannot ask the plan gate about the phase of '$slug' — board/plot-ask.mjs is missing or failed." >&2
+  echo "  Refusing rather than guessing — dispatching starts real work." >&2
+  exit 1
+fi
 
 # MAIN was resolved and origin fetched above, before the phase gate — the gate
 # needs the shared ref to read the plan from it.
