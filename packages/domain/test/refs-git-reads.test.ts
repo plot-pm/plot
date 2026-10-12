@@ -719,8 +719,8 @@ describe('stagedPathsOf', () => {
     expect(stagedPathsOf('M\texisting.mjs\n')).toEqual([{ status: 'modified', path: 'existing.mjs' }]);
   });
 
-  it('reads a rename by its new path alone', () => {
-    expect(stagedPathsOf('R100\told.mjs\tnew.mjs\n')).toEqual([{ status: 'renamed', path: 'new.mjs' }]);
+  it('reads a rename by its new path, and names the path it left', () => {
+    expect(stagedPathsOf('R100\told.mjs\tnew.mjs\n')).toEqual([{ status: 'renamed', path: 'new.mjs', from: 'old.mjs' }]);
   });
 
   it('drops a deleted path entirely', () => {

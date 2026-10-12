@@ -255,7 +255,7 @@ export const stagedPathsOf = (stdout: string): readonly StagedPath[] =>
     const [status, a, b] = line.split('\t');
     if (status === 'A') return a ? [{ status: 'added', path: a }] : [];
     if (status === 'M') return a ? [{ status: 'modified', path: a }] : [];
-    if (status?.startsWith('R')) return b ? [{ status: 'renamed', path: b }] : [];
+    if (status?.startsWith('R')) return b ? [{ status: 'renamed', path: b, ...(a ? { from: a } : {}) }] : [];
     return [];
   });
 

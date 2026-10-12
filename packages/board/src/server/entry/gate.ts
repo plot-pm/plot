@@ -253,6 +253,13 @@ const stateGate: Gate = {
     const deleted = read.flatMap((file) =>
       file.committed === null && file.head !== null ? [{ path: file.path, head: file.head }] : [],
     );
+    // Git pairs a staged rename into one entry under its new path, so the
+    // deleted file never appears in `read`.
+    for (const entry of staged.value) {
+      if (entry.from === undefined) continue;
+      const left = await refs.showFile('HEAD', entry.from);
+      if (left.ok) deleted.push({ path: entry.from, head: left.value });
+    }
     for (const { path, kind, committed, head } of read) {
       const renamed = head === null ? renamedFromOf(path, kind, deleted, planDir.value.trim(), sprintDir.value.trim()) : null;
       const transition = stateTransitionOf(path, kind, head, committed, renamed);

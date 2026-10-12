@@ -43,6 +43,8 @@ export interface StagedPath {
   status: 'added' | 'modified' | 'renamed';
   /** The path, relative to the repository root — the new path for a rename. */
   path: string;
+  /** The path a rename left, relative to the repository root. Set only on `renamed`. */
+  from?: string;
 }
 
 /** A branch and the commit its tip points at. */
