@@ -88,3 +88,12 @@ test('a read, a commit message and an unlisted command pass at the desk', () => 
   assert.equal(ask(desk, 'pnpm run test:board').status, 0);
   assert.equal(ask(desk, 'node --test test/reconcile/reap.test.mjs').status, 0);
 });
+
+test('a pinned verification tree holding .plot-verify.pid is refused like a desk', () => {
+  const { desk } = estate();
+  fs.unlinkSync(path.join(desk, '.plot-worker.pid'));
+  fs.writeFileSync(path.join(desk, '.plot-verify.pid'), '12345');
+  const r = ask(desk, 'pnpm run test:contracts');
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stderr, /`pnpm run test:contracts` is a CI suite/);
+});

@@ -12,6 +12,12 @@ export interface CiSuiteRefusal {
   readonly suite: string;
 }
 
+/**
+ * The files whose presence marks a tree as under a managed process: a fleet
+ * desk holds the first, a pinned verification run's `pin/` tree the second.
+ */
+export const MANAGED_PROCESS_MARKERS: readonly string[] = ['.plot-worker.pid', '.plot-verify.pid'];
+
 /** A leading `NAME=value` assignment. */
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=\S*$/;
 
