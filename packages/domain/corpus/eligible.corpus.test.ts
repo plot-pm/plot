@@ -4,11 +4,18 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { FleetReadingSchema, type FleetReading } from '../src/entities/fleet.js';
+import { namedSlices } from '../src/rules/branch-state.js';
 import { isClaimable, sliceVerdicts } from '../src/rules/eligible.js';
 import { planQueue } from '../src/rules/queue.js';
 import type { PlanRecord } from '../src/ports/plan-store.js';
 import { describeDisagreement, type Disagreement } from './compare.js';
-import { readFleetScan, readListEligible, type Estate } from './production.js';
+import {
+  readEstatePlanSlices,
+  readFleetScan,
+  readListEligible,
+  readMainBranch,
+  type Estate,
+} from './production.js';
 import { git, planPath, planText, sandboxWith, type Sandbox } from './sandbox.js';
 
 /**
@@ -132,12 +139,21 @@ const offeredByPulse = (read: FleetReading): string[] =>
 let pulse: FleetReading;
 let offered: string[];
 
+/** How many plans the plan reader found on the estate, terminal ones included. */
+let estatePlanCount: number;
+
+/** The live slices the plan reader names: the population the scan must report. */
+let liveSlices: Set<string>;
+
 beforeAll(() => {
   // ONE SCAN FOR THE PULSE AND ONE FOR THE LIST, and they must be this way
   // round rather than derived from each other: the whole question is whether
   // two emissions of one rule agree, and a list computed from the pulse in this
   // file would agree by construction.
   ({ pulse, offered } = readBothSurfaces(estate));
+  const estatePlans = readEstatePlanSlices(estate, readMainBranch(estate));
+  estatePlanCount = estatePlans.length;
+  liveSlices = namedSlices(estatePlans);
 });
 
 describe('one comparison reads one fetch', () => {
@@ -178,7 +194,7 @@ describe('one comparison reads one fetch', () => {
 });
 
 describe('the estate is really being read', () => {
-  it('parses a pulse with waves in it', () => {
+  it('parses a pulse with waves whenever the plans name a live slice', () => {
     // THE VACUITY GUARD, first, because every assertion below is over these
     // collections. A scan that failed to read the estate reports zero plans and
     // every comparison then passes having compared nothing.
@@ -199,7 +215,31 @@ describe('the estate is really being read', () => {
     // The guard is named for a scan that read NOTHING, and that is `> 0`. Any
     // floor above it is a second assertion nobody wrote down — that the estate
     // stays a certain size — and this file has now paid for it twice.
-    expect(pulse.summary.waves).toBeGreaterThan(0);
+    //
+    // AND `> 0` IS ITSELF A FLOOR when no plan is in flight. Measured on
+    // 86fb1210d and 9d439d4e3: no plan was Approved and undelivered, the scan
+    // reported 0 plans and 0 waves with `host: ok`, and this line failed every
+    // CI run. So the guard reads a second source. The plan directory always
+    // holds plans, terminal ones included, and a reader that read nothing
+    // finds none. The plans' live slices then decide what the pulse must hold:
+    // when they name a branch, the scan must report waves; when they name
+    // none, the pulse must name no live slice either.
+    expect(estatePlanCount).toBeGreaterThan(0);
+    if (liveSlices.size > 0) {
+      expect(pulse.summary.waves).toBeGreaterThan(0);
+      return;
+    }
+    const scanned = pulse.plans.map((plan) => ({
+      phase: plan.phase,
+      slices: plan.slices.flatMap((slice) =>
+        slice.branches.map((b) => ({ branch: b.branch, deferred: b.deferred })),
+      ),
+    }));
+    // eslint-disable-next-line no-console
+    console.log(
+      `the plans name no live slice; the scan reports ${pulse.summary.waves} wave(s) and must name no live slice`,
+    );
+    expect([...namedSlices(scanned)]).toEqual([]);
   });
 });
 
@@ -234,9 +274,14 @@ describe('every slice the board renders follows from the readings it is shown', 
     // silently visited fewer than the scan reported fails here rather than
     // passing with a shorter list.
     expect(compared).toBe(pulse.summary.waves);
-    // `> 0` for the reason above: this counts what the estate holds, and the
-    // estate shrinks when plans deliver.
-    expect(compared).toBeGreaterThan(0);
+    // `> 0` only where the plans name a live slice, for the reason above: this
+    // counts what the estate holds, and the estate shrinks to nothing when
+    // every plan delivers.
+    if (liveSlices.size > 0) expect(compared).toBeGreaterThan(0);
+    if (compared === 0) {
+      // eslint-disable-next-line no-console
+      console.log('compared 0 slices: the estate holds no live slice');
+    }
     expect(found.map(describeDisagreement)).toEqual([]);
   });
 });

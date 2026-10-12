@@ -196,6 +196,28 @@ const readNamedSlices = (): Set<string> =>
 
 let sliceNames: Set<string>;
 
+/** How many plans the rule's reader found on the estate, terminal ones included. */
+let estatePlanCount: number;
+
+/** The live slices the rule's reader names: the population the scan must report. */
+let liveSlices: Set<string>;
+
+/**
+ * The live slices a pulse names, by the same rule.
+ *
+ * @param reading - the pulse to read.
+ * @returns the branch names of every non-deferred slice of a non-terminal plan.
+ */
+const pulseLiveSlices = (reading: FleetReading): Set<string> =>
+  namedSlices(
+    reading.plans.map((plan) => ({
+      phase: plan.phase,
+      slices: plan.slices.flatMap((slice) =>
+        slice.branches.map((b) => ({ branch: b.branch, deferred: b.deferred })),
+      ),
+    })),
+  );
+
 /**
  * How far the host got — `HOST_VERDICT`'s own word, classified in
  * `production.ts` from the same exit code and stderr text the scan reads.
@@ -363,6 +385,9 @@ beforeAll(() => {
   rawHost = String((raw.summary as { host?: unknown } | undefined)?.host ?? '');
   pulse = FleetReadingSchema.parse(raw);
   mainBranch = readMainBranch(estate);
+  const estatePlans = readEstatePlanSlices(estate, mainBranch);
+  estatePlanCount = estatePlans.length;
+  liveSlices = namedSlices(estatePlans);
   refs = readRemoteRefs(estate);
   mergeSubjects = readMergeSubjects(estate, mainBranch);
   prList = readPrList(estate);
@@ -370,17 +395,32 @@ beforeAll(() => {
 });
 
 describe('the estate is really being read', () => {
-  it('parses a pulse with branches in it', () => {
+  it('parses a pulse with branches whenever the plans name a live slice', () => {
     // THE VACUITY GUARD, first, because every assertion below is over these
     // collections. A scan that failed to read the estate reports zero plans and
     // every comparison then passes having compared nothing.
     //
-    // `> 0` AND NOT A FLOOR. `eligible.corpus.test.ts` has paid twice for a
-    // higher number: a wave count is the backlog, it falls when work ships, and
-    // a floor above zero fails every open pull request the day five plans
-    // deliver. Whether a case was exercised is a property of the estate, not of
-    // the code.
-    expect(pulse.summary.branches).toBeGreaterThan(0);
+    // THE BRANCH COUNT IS THE BACKLOG, so it cannot be the guard by itself: it
+    // reaches zero whenever no plan is in flight. Measured on 86fb1210d and
+    // 9d439d4e3: no plan was Approved and undelivered, the scan reported 0
+    // plans and 0 branches with `host: ok`, and `> 0` failed every CI run.
+    //
+    // So the guard reads a second source. The plan directory always holds
+    // plans, terminal ones included, and a reader that read nothing finds
+    // none. The plans' live slices then decide what the pulse must hold: when
+    // they name a branch, the scan must report branches; when they name none,
+    // the pulse must name no live slice either, which is the two sides
+    // agreeing on emptiness rather than one side reading nothing.
+    expect(estatePlanCount).toBeGreaterThan(0);
+    if (liveSlices.size > 0) {
+      expect(pulse.summary.branches).toBeGreaterThan(0);
+      return;
+    }
+    // eslint-disable-next-line no-console
+    console.log(
+      `the plans name no live slice; the scan reports ${pulse.summary.branches} branch(es) and must name no live slice`,
+    );
+    expect([...pulseLiveSlices(pulse)]).toEqual([]);
   });
 
   it('resolved the default branch', () => {
@@ -479,7 +519,14 @@ describe('the rule reproduces the shell for every branch on the estate', () => {
     // shorter list. Asserted against the FIRST pulse, because the second pass
     // re-runs the scan and its footer belongs to that later reading.
     expect(first.compared).toBe(pulse.summary.branches);
-    expect(first.compared).toBeGreaterThan(0);
+    // `> 0` only where the plans name a live slice: an estate with no plan in
+    // flight has no branch to compare, and the vacuity guard above has already
+    // checked that the scan agrees.
+    if (liveSlices.size > 0) expect(first.compared).toBeGreaterThan(0);
+    if (first.compared === 0) {
+      // eslint-disable-next-line no-console
+      console.log('compared 0 branches: the estate holds no live slice');
+    }
     if (first.disagreements.length === 0) return;
 
     // eslint-disable-next-line no-console
@@ -507,7 +554,7 @@ describe('the rule reproduces the shell for every branch on the estate', () => {
       console.log(`${settled} disagreement(s) settled on the second pass — the estate moved mid-run`);
     }
 
-    expect(second.compared).toBeGreaterThan(0);
+    if (liveSlices.size > 0) expect(second.compared).toBeGreaterThan(0);
     expect(persisted.map(describeDisagreement)).toEqual([]);
   });
 
@@ -570,8 +617,9 @@ describe('the rule reproduces the shell for every branch on the estate', () => {
       .map(([state, count]) => `${state}=${count}`)
       .join(' ');
     // eslint-disable-next-line no-console
-    console.log(`branch states exercised against production: ${report}`);
-    expect(seen.size).toBeGreaterThan(0);
+    console.log(`branch states exercised against production: ${report || 'none, the estate holds no branch'}`);
+    // The walk finds a state exactly when the scan's footer counts a branch.
+    expect(seen.size > 0).toBe(pulse.summary.branches > 0);
   });
 });
 
