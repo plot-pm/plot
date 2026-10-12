@@ -197,7 +197,14 @@ export const run = (
     }
     if (verb === 'check') {
       const [, label, positions, lens, ...more] = argv;
-      if (!label || !positions || !lens || more.length % 2 !== 0) {
+      const labels = [label, ...more.filter((_, i) => i % 2 === 0)];
+      if (
+        !label ||
+        !positions ||
+        !lens ||
+        more.length % 2 !== 0 ||
+        labels.some((l) => l === undefined || l.trim() === '')
+      ) {
         process.stderr.write(
           'plot-panel: usage: plot-panel.mjs check <label> <a,b,c> <lens> [<label> <a,b,c>]... < juror.md\n',
         );

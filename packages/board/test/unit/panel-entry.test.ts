@@ -206,6 +206,16 @@ describe('check takes further label/positions pairs', () => {
     expect(code).toBe(EXIT.usage);
   });
 
+  it('refuses an empty label in a further pair as unusable arguments', () => {
+    for (const empty of ['', '  ']) {
+      const { code, stdout, stderr } = checkArgs(['Position', 'proceed,amend', 'j', empty, 'x,y'], 'Position: amend\n:x\n');
+
+      expect(code, JSON.stringify(empty)).toBe(EXIT.usage);
+      expect(stdout).toBe('');
+      expect(stderr).toContain('usage:');
+    }
+  });
+
   it('refuses an unusable vocabulary on a further pair', () => {
     const { code, stderr } = checkArgs(['Position', 'proceed,amend', 'j', 'Claim-1', 'a|b'], '');
 
