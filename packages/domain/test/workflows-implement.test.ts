@@ -30,6 +30,14 @@ describe('implement — the refusals, each without a repository', () => {
     expect(refused(out) && out.reason).toBe('state-too-early');
   });
 
+  it('admits the approved spike branch of a design plan and refuses a sibling branch', () => {
+    const design = { phase: 'design', spikeBranch: 'feature/spike' };
+    const spike = implement(ready({ ...design, nextBranch: 'feature/spike' }), on);
+    expect(decided(spike)).toBe(true);
+    const sibling = implement(ready({ ...design, nextBranch: 'feature/one' }), on);
+    expect(refused(sibling) && sibling.reason).toBe('state-too-early');
+  });
+
   it.each(['delivered', 'released'])('refuses a %s plan — nothing to start', (phase) => {
     const out = implement(ready({ phase }), on);
     expect(refused(out) && out.reason).toBe('state-terminal');

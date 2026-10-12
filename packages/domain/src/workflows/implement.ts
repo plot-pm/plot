@@ -57,6 +57,12 @@ export interface ImplementReadings {
   defaultBranch: string;
   /** The `Started:` records the plan already carries. */
   startedRecords: readonly string[];
+  /**
+   * The plan's spike branch where its `Spike approved:` record is present, else `''`.
+   *
+   * Absent reads as `''`. Admits only that branch of a `design` plan.
+   */
+  spikeBranch?: string;
 }
 
 /** What `implement` records beyond the plan. */
@@ -131,8 +137,15 @@ export const implement = (
   switch (readings.phase) {
     case 'approved':
       break;
-    case 'draft':
     case 'design':
+      // Only the approved spike is startable under a Design plan; every other
+      // branch, and a plan with no approved spike, is too early.
+      if ((readings.spikeBranch ?? '') !== '' && readings.nextBranch === readings.spikeBranch) break;
+      return no(
+        'state-too-early',
+        `plan isn't approved yet — review it and run /plot-approve ${readings.slug} first.`,
+      );
+    case 'draft':
       return no(
         'state-too-early',
         `plan isn't approved yet — review it and run /plot-approve ${readings.slug} first.`,

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   dispatch,
+  plangate,
   decided,
   refused,
   type DispatchCandidate,
@@ -126,6 +127,29 @@ describe('dispatch — the phase gate, read from the shared ref', () => {
 
   it('refuses a phase it does not recognise', () => {
     const out = dispatch(estate({ gate: gate({ phase: 'design' }) }));
+    expect(refused(out) && out.reason).toBe('state-wrong');
+  });
+});
+
+describe('dispatch — the approved spike of a Design plan', () => {
+  const spiked = gate({ phase: 'design', spikeBranch: 'feature/spike' });
+  const spike = candidate({ branch: 'feature/spike' });
+
+  it('fans out the spike branch', () => {
+    const out = dispatch(estate({ gate: spiked, candidates: [spike] }));
+    expect(decided(out) && out.detail.dispatched).toEqual(['feature/spike']);
+  });
+
+  it('refuses any other branch of the same plan as spike-only', () => {
+    const out = dispatch(estate({ gate: spiked, candidates: [spike, candidate()] }));
+    expect(refused(out) && out.reason).toBe('spike-only');
+    const one = plangate(estate({ gate: spiked }), { branch: 'feature/one' });
+    expect(one?.reason).toBe('spike-only');
+    expect(plangate(estate({ gate: spiked }), { branch: 'feature/spike' })).toBeUndefined();
+  });
+
+  it('keeps a Design plan with no approved spike closed', () => {
+    const out = dispatch(estate({ gate: gate({ phase: 'design', spikeBranch: '' }), candidates: [spike] }));
     expect(refused(out) && out.reason).toBe('state-wrong');
   });
 });

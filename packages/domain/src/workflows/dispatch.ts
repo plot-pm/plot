@@ -26,6 +26,8 @@ export type DispatchRefusal =
   | 'impl-other-repo'
   | 'impl-none'
   | 'impl-unrecognised'
+  /** A `design` plan's spike is approved, and this branch is not the spike. */
+  | 'spike-only'
   | 'branch-missing'
   | 'no-worktree'
   | 'reached-review'
@@ -97,6 +99,12 @@ export interface PlanGateReadings {
   impl: string;
   /** What the gate read, for a message: the ref and sha, or the working tree. */
   source: string;
+  /**
+   * The plan's spike branch where its `Spike approved:` record is present, else `''`.
+   *
+   * Absent reads as `''`: a caller that did not read the record admits nothing.
+   */
+  spikeBranch?: string;
 }
 
 /** One branch the fleet scan offered, and what this machine holds for it. */
@@ -181,6 +189,8 @@ export interface DispatchInput {
   max?: number;
   /** Whether `--max` was given a value that is a number at all. */
   maxIsNumeric?: boolean;
+  /** The one branch the gate is asked about; absent asks about the plan as a whole. */
+  branch?: string;
 }
 
 /** One branch this run would not dispatch, and why. */
@@ -266,6 +276,14 @@ export const dispatch = (
 
   const gateRefusal = plangate(readings, input);
   if (gateRefusal) return gateRefusal;
+  // A Design plan fans out its spike alone: the scan offers no other branch,
+  // and a candidate it did offer is refused here rather than started.
+  if (readings.gate?.phase === 'design') {
+    for (const candidate of readings.candidates) {
+      const refusal = plangate(readings, { ...input, branch: candidate.branch });
+      if (refusal) return refusal;
+    }
+  }
 
   const max = input.max ?? 0;
   const worker = workerConfig(readings.workerCommand, input.noStart ?? false);
@@ -476,7 +494,7 @@ export type PlanGateRefusal = Extract<
   DispatchRefusal,
   | 'plan-not-found' | 'ref-unreadable' | 'plan-unreadable' | 'phase-draft' | 'state-terminal'
   | 'state-unreadable' | 'state-wrong' | 'impl-same-branch' | 'impl-other-repo' | 'impl-none'
-  | 'impl-unrecognised'
+  | 'impl-unrecognised' | 'spike-only'
 >;
 
 /**
@@ -513,6 +531,8 @@ export const planGateHint = (
       return 'Dispatch from the implementation repo instead.';
     case 'impl-none':
       return 'There is nothing to implement. To start new work: /plot-idea';
+    case 'spike-only':
+      return `Only the approved spike may run while the plan is in Design. Merge the spike, then: /plot-approve ${slug}`;
     case 'impl-unrecognised':
       return "Set the plan's 'Impl:' line to one of: own branches, same branch, other repo, none — then push it.";
   }
@@ -574,6 +594,22 @@ export const plangate = (
   switch (gate.phase) {
     case 'approved':
       break;
+    case 'design': {
+      // A Design plan passes for its approved spike branch alone. With no
+      // approved spike it is still a wrong state; with one, any branch other
+      // than the spike is refused by name.
+      const spike = gate.spikeBranch ?? '';
+      if (spike === '') {
+        return no('state-wrong', `plan '${slug}' is in state 'design', not Approved.`);
+      }
+      if (input.branch !== undefined && input.branch !== spike) {
+        return no(
+          'spike-only',
+          `plan '${slug}' is in Design and only its spike '${spike}' is approved — '${input.branch}' stays closed until the plan is approved.`,
+        );
+      }
+      break;
+    }
     case 'draft':
       return no(
         'phase-draft',

@@ -174,16 +174,27 @@ export interface PhaseReadings {
   phase: PlanPhase | null;
   /** The repository-relative paths the commit carries. */
   paths: readonly string[];
+  /**
+   * The plan's spike branch where its `Spike approved:` record is present, else `''`.
+   *
+   * Absent reads as `''`: a caller that did not read the record admits nothing.
+   */
+  spikeBranch?: string;
 }
 
 /**
  * The refusal for an implementation commit while its plan is still Draft or
  * Design on the shared ref, or `null`. The refusal names the phase as read.
  * A commit carrying only paths under the plan directory passes, as does an
- * unreadable phase: the gate refuses only on a phase it read.
+ * unreadable phase: the gate refuses only on a phase it read. A commit on the
+ * approved spike branch of a `design` plan passes; every other branch of that
+ * plan still refuses.
  */
-export const phaseGateRefusal = ({ branch, slug, ref, phase, paths, planDir }: PhaseReadings): string | null => {
+export const phaseGateRefusal = ({
+  branch, slug, ref, phase, paths, planDir, spikeBranch = '',
+}: PhaseReadings): string | null => {
   if (phase !== 'draft' && phase !== 'design') return null;
+  if (phase === 'design' && spikeBranch !== '' && branch === spikeBranch) return null;
   if (!paths.some((path) => outsidePlanDir(path, planDir))) return null;
   const title = `${phase.charAt(0).toUpperCase()}${phase.slice(1)}`;
   return [

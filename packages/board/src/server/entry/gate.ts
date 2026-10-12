@@ -1,5 +1,6 @@
-import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { controllerInvocation } from '@plot-pm/domain/rules/ci-suite';
 import {
@@ -297,6 +298,29 @@ const stateGate: Gate = {
  * the phase went UNVERIFIED; a plan nowhere allows silently. A failed config
  * read throws, which `onError: 'allow'` reports as UNVERIFIED.
  */
+/**
+ * The plan's spike branch where it records `Spike approved:`, else `''`.
+ *
+ * Parses the plan text in a private scratch directory; an unparseable plan
+ * admits nothing.
+ */
+const approvedSpikeOf = async (text: string, planPath: string, cwd: string, scriptDir: string): Promise<string> => {
+  const { planStoreShell } = await import('@plot-pm/domain/adapters/plan-store/plan-store-shell');
+  const { spikeOf } = await import('@plot-pm/domain/rules/spike');
+  const store = planStoreShell({ repoRoot: cwd, scriptDir });
+  const dir = mkdtempSync(join(tmpdir(), 'plot-gate-plan-'));
+  try {
+    const scratch = join(dir, basename(planPath));
+    const written = await store.writeText(scratch, text);
+    if (!written.ok) return '';
+    const read = await store.readPlan(scratch);
+    if (!read.ok || read.value.spikeApprovedRaw.trim() === '') return '';
+    return spikeOf(read.value.slices.map((slice) => ({ branches: slice.branches })))?.branch ?? '';
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
+
 const phaseGate: Gate = {
   name: 'phase',
   wants: (command) => command.includes('git commit'),
@@ -407,7 +431,10 @@ const phaseGate: Gate = {
 
     const text = await refs.showFile(ref, planPath);
     if (!text.ok) return null;
-    return phaseGateRefusal({ branch, slug, ref, phase: planPhaseOf(text.value), paths, planDir: homes.planDir });
+    const phase = planPhaseOf(text.value);
+    // Only a Design plan can admit a branch, so only then is the plan parsed.
+    const spikeBranch = phase === 'design' ? await approvedSpikeOf(text.value, planPath, cwd, scriptDir) : '';
+    return phaseGateRefusal({ branch, slug, ref, phase, paths, planDir: homes.planDir, spikeBranch });
   },
   onError: 'allow',
 };

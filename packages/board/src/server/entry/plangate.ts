@@ -1,3 +1,4 @@
+import { spikeOf } from '@plot-pm/domain/rules/spike';
 import { plangate, planGateHint, type PlanGateRefusal } from '@plot-pm/domain/workflows/dispatch';
 
 /** What `plot-ask.mjs plangate` was told, after flag parsing. */
@@ -7,6 +8,7 @@ export interface PlanGateAsk {
   defaultBranch: string;
   refResolved: boolean;
   allowLocal: boolean;
+  branch?: string;
 }
 
 /** The answer: an exit code, and the lines to print on stderr. */
@@ -15,7 +17,7 @@ export interface PlanGateAnswer {
   lines: string[];
 }
 
-const FLAGS_WITH_VALUE = ['--slug', '--source', '--default-branch'] as const;
+const FLAGS_WITH_VALUE = ['--slug', '--source', '--default-branch', '--branch'] as const;
 
 /**
  * Parse the flags of `plot-ask.mjs plangate`.
@@ -41,7 +43,24 @@ export const planGateAskFrom = (argv: readonly string[]): PlanGateAsk | null => 
   const slug = values.get('--slug');
   const defaultBranch = values.get('--default-branch');
   if (!slug || !defaultBranch) return null;
-  return { slug, source: values.get('--source') ?? '', defaultBranch, refResolved, allowLocal };
+  const branch = values.get('--branch');
+  return { slug, source: values.get('--source') ?? '', defaultBranch, refResolved, allowLocal, ...(branch ? { branch } : {}) };
+};
+
+/**
+ * The spike branch of a plan-meta record that carries `Spike approved:`, else `''`.
+ *
+ * @param meta - one `plot-plan-meta.sh` record, or null.
+ */
+const spikeBranchOf = (meta: Record<string, unknown> | null): string => {
+  const raw = meta?.spike_approved_raw;
+  if (typeof raw !== 'string' || raw.trim() === '') return '';
+  const slices = meta?.slices ?? meta?.waves;
+  if (!Array.isArray(slices)) return '';
+  const shaped = slices.map((slice: { branches?: { branch?: string; spike?: boolean }[] }) => ({
+    branches: (slice.branches ?? []).map((b) => ({ branch: b.branch ?? '', ...(b.spike === true ? { spike: true } : {}) })),
+  }));
+  return spikeOf(shaped)?.branch ?? '';
 };
 
 /**
@@ -83,9 +102,10 @@ export const planGateAnswer = (ask: PlanGateAsk, metaJson: string): PlanGateAnsw
         phase: text('phase'),
         impl: text('impl'),
         source: ask.source,
+        spikeBranch: spikeBranchOf(meta),
       },
     },
-    { allowLocal: ask.allowLocal },
+    { allowLocal: ask.allowLocal, ...(ask.branch ? { branch: ask.branch } : {}) },
   );
   if (!refusal) return { code: 0, lines: [] };
   return {

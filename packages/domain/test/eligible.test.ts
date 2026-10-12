@@ -280,3 +280,24 @@ describe('isClaimable — the prerequisite is the third fact', () => {
     expect(isClaimable('eligible', 'open')).toBe(true);
   });
 });
+
+describe('sliceVerdict — the approved spike of a Design plan', () => {
+  const design = (over: Partial<SliceReadings> = {}): SliceReadings =>
+    owed({ phase: 'design', spikeApproved: true, ...over });
+
+  it('admits the spike slice and keeps every other slice of the plan unapproved', () => {
+    const verdicts = sliceVerdicts([design({ spike: true }), design({ spike: false })]);
+    expect(verdicts).toEqual(['eligible', 'unapproved']);
+  });
+
+  it('withholds the word until Spike approved: is recorded, or when the flags are unread', () => {
+    expect(sliceVerdict(design({ spike: true, spikeApproved: false }), true)).toBe('unapproved');
+    expect(sliceVerdict(owed({ phase: 'design', spike: true }), true)).toBe('unapproved');
+    expect(sliceVerdict(owed({ phase: 'design', spikeApproved: true }), true)).toBe('unapproved');
+  });
+
+  it('admits nothing outside design, and orders the spike behind an unfinished slice', () => {
+    expect(sliceVerdict(owed({ phase: 'draft', spike: true, spikeApproved: true }), true)).toBe('unapproved');
+    expect(sliceVerdict(design({ spike: true }), false)).toBe('blocked');
+  });
+});

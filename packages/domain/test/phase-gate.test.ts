@@ -141,6 +141,13 @@ describe('phaseGateRefusal', () => {
     expect(phaseGateRefusal({ ...base, phase: 'draft' })).toContain('/plot-approve x');
   });
 
+  it('passes a commit on the approved spike branch of a design plan, and only that branch', () => {
+    const design = { ...base, phase: 'design' as const, spikeBranch: 'feature/spike' };
+    expect(phaseGateRefusal({ ...design, branch: 'feature/spike' })).toBeNull();
+    expect(phaseGateRefusal({ ...design, branch: 'feature/other' })).toContain('still Design');
+    expect(phaseGateRefusal({ ...base, phase: 'draft', branch: 'feature/spike', spikeBranch: 'feature/spike' })).toContain('still Draft');
+  });
+
   it.each(['approved', 'delivered', 'released', null] as const)('allows phase %s', (phase) => {
     expect(phaseGateRefusal({ ...base, phase })).toBeNull();
   });

@@ -37,7 +37,7 @@ describe('plangate', () => {
     const reasons: PlanGateRefusal[] = [
       'plan-not-found', 'ref-unreadable', 'plan-unreadable', 'phase-draft', 'state-terminal',
       'state-unreadable', 'state-wrong', 'impl-same-branch', 'impl-other-repo', 'impl-none',
-      'impl-unrecognised',
+      'impl-unrecognised', 'spike-only',
     ];
     for (const reason of reasons) expect(planGateHint(reason, 'g', 'main')).toMatch(/\S/);
     expect(planGateHint('ref-unreadable', 'g', 'trunk')).toContain('git fetch origin trunk');
@@ -52,6 +52,10 @@ describe('plangate', () => {
     expect(no({ refResolved: false, file: '' }, { allowLocal: true })).toBe('plan-not-found');
     expect(no({ file: '' })).toBe('plan-not-found');
     expect(no({ parsed: false })).toBe('plan-unreadable');
+  });
+
+  it('names the slug and the next command in the spike-only hint', () => {
+    expect(planGateHint('spike-only', 'my-plan', 'main')).toContain('/plot-approve my-plan');
   });
 
   it('names the slug in the approve hint', () => {
