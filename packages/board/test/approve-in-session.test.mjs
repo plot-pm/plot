@@ -157,3 +157,52 @@ describe('POST /api/approve: a cross-origin request still answers 403 before the
     assert.deepEqual(ran.runs(), []);
   });
 });
+
+const planWithPhase = (phase, review) => `# Ship the widget
+## Status
+- **Phase:** ${phase}
+- **Type:** feature
+- **Review:** ${review}
+`;
+
+describe('POST /api/approve: a Design plan needs a person whatever its channel', () => {
+  let tmp, server, stub, ran;
+
+  before(async () => {
+    tmp = makeRepo({
+      plans: [
+        { name: '2026-08-16-design-pr.md', content: planWithPhase('Design', 'pr') },
+        { name: '2026-08-16-design-none.md', content: '# Ship the widget\n## Status\n- **Phase:** Design\n- **Type:** feature\n' },
+        { name: '2026-08-16-no-phase.md', content: planWithPhase('none', 'pr') },
+      ],
+    });
+    ran = writeApproveCommand(tmp);
+    stub = makeStubScripts();
+    server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
+  });
+
+  after(() => {
+    server?.kill();
+    stub?.cleanup();
+    if (tmp) rmTree(tmp);
+  });
+
+  it('answers 409 naming the Design phase for Review: pr, and spawns nothing', async () => {
+    const res = await approve(server.port, 'design-pr');
+    assert.equal(res.status, 409, res.body);
+    assert.match(JSON.parse(res.body).error, /Design/);
+    await settle();
+    assert.deepEqual(ran.runs(), []);
+  });
+
+  it('answers 409 for a Design plan declaring no Review', async () => {
+    const res = await approve(server.port, 'design-none');
+    assert.equal(res.status, 409, res.body);
+  });
+
+  it('answers 409 state-unreadable when the phase cannot be read', async () => {
+    const res = await approve(server.port, 'no-phase');
+    assert.equal(res.status, 409, res.body);
+    assert.match(res.body, /state-unreadable/);
+  });
+});

@@ -7,8 +7,10 @@ import {
   owningCommand,
   slugOf,
   sprintVerb,
+  renamedFromOf,
   stateTransitionOf,
   stateTransitionRefusal,
+  stateTransitionsOf,
   statusStateOf,
   takesModifiedOf,
 } from '../src/rules/state-transition.js';
@@ -114,12 +116,32 @@ describe('stateTransitionOf', () => {
     expect(at(doc('Draft'), null)).toBeNull();
   });
 
-  it('passes a HEAD version with no State value', () => {
-    expect(at('# P\n', doc('Draft'))).toBeNull();
+  it('finds an added State line: a transition from none', () => {
+    expect(at('# P\n', doc('Draft'))).toMatchObject({ before: '', after: 'Draft' });
   });
 
-  it('passes a deleted State line', () => {
-    expect(at(doc('Draft'), '# P\n\n## Status\n')).toBeNull();
+  it('finds a removed State line: a transition to none', () => {
+    expect(at(doc('Draft'), '# P\n\n## Status\n')).toMatchObject({ before: 'Draft', after: '' });
+  });
+
+  it('passes a HEAD version and a working copy that both hold no State value', () => {
+    expect(at('# P\n', '# P\n\nmore\n')).toBeNull();
+  });
+
+  it('reads a deleted same-slug file as the before of a creation', () => {
+    const renamed = { path: 'docs/plans/2025-12-01-x.md', head: doc('Design') };
+    expect(stateTransitionOf('docs/plans/2026-01-01-x.md', 'plan', null, doc('Approved'), renamed)).toEqual({
+      path: 'docs/plans/2026-01-01-x.md',
+      kind: 'plan',
+      before: 'Design',
+      after: 'Approved',
+      renamedFrom: 'docs/plans/2025-12-01-x.md',
+    });
+  });
+
+  it('passes a rename that keeps the value', () => {
+    const renamed = { path: 'docs/plans/2025-12-01-x.md', head: doc('Design') };
+    expect(stateTransitionOf('docs/plans/2026-01-01-x.md', 'plan', null, doc('Design'), renamed)).toBeNull();
   });
 
   it('passes an unchanged value while the rest of the file changes', () => {
@@ -128,6 +150,91 @@ describe('stateTransitionOf', () => {
 
   it('finds a value no lifecycle admits', () => {
     expect(at(doc('Draft'), doc('Planned'))?.after).toBe('Planned');
+  });
+});
+
+describe('renamedFromOf', () => {
+  const old = (path: string) => ({ path, head: doc('Design') });
+  const find = (path: string, deleted: ReturnType<typeof old>[]) =>
+    renamedFromOf(path, 'plan', deleted, 'docs/plans/', 'docs/sprints/');
+
+  it('finds the deleted file with the same slug under another date', () => {
+    expect(find('docs/plans/2026-02-02-x.md', [old('docs/plans/2026-01-01-x.md')])?.path).toBe(
+      'docs/plans/2026-01-01-x.md',
+    );
+  });
+
+  it('ignores a deletion with another slug', () => {
+    expect(find('docs/plans/2026-02-02-x.md', [old('docs/plans/2026-01-01-y.md')])).toBeNull();
+  });
+
+  it('ignores a deletion of another kind', () => {
+    expect(find('docs/plans/2026-02-02-x.md', [old('docs/sprints/2026-W01-x.md')])).toBeNull();
+  });
+});
+
+describe('stateTransitionsOf', () => {
+  const file = (text: string) => ({ text, link: false });
+  const link = (target: string) => ({ text: target, link: true });
+  const read = (
+    path: string,
+    head: { text: string; link: boolean } | null,
+    committed: { text: string; link: boolean } | null,
+  ) => ({ path, kind: 'plan' as const, head, committed });
+  const of = (...readings: ReturnType<typeof read>[]) => stateTransitionsOf(readings, 'docs/plans/', 'docs/sprints/');
+
+  it('finds a changed value', () => {
+    expect(of(read('docs/plans/2026-01-01-x.md', file(doc('Draft')), file(doc('Approved'))))).toEqual([
+      { path: 'docs/plans/2026-01-01-x.md', kind: 'plan', before: 'Draft', after: 'Approved' },
+    ]);
+  });
+
+  it('reads a deleted same-slug plan as the before of an added one', () => {
+    expect(
+      of(
+        read('docs/plans/2026-01-01-x.md', file(doc('Design')), null),
+        read('docs/plans/2026-02-02-x.md', null, file(doc('Draft'))),
+      ),
+    ).toEqual([
+      {
+        path: 'docs/plans/2026-02-02-x.md',
+        kind: 'plan',
+        before: 'Design',
+        after: 'Draft',
+        renamedFrom: 'docs/plans/2026-01-01-x.md',
+      },
+    ]);
+  });
+
+  it('passes a symlink added, removed or moved between index directories', () => {
+    expect(of(read('docs/plans/active/x.md', null, link('../2026-01-01-x.md')))).toEqual([]);
+    expect(of(read('docs/plans/active/x.md', link('../2026-01-01-x.md'), null))).toEqual([]);
+    expect(
+      of(
+        read('docs/plans/delivered/x.md', link('../2026-01-01-x.md'), null),
+        read('docs/plans/active/x.md', null, link('../2026-01-01-x.md')),
+      ),
+    ).toEqual([]);
+  });
+
+  it('never reads a deleted symlink as the before of an added plan', () => {
+    expect(
+      of(read('docs/plans/active/x.md', link('../2026-01-01-x.md'), null), read('docs/plans/2026-02-02-x.md', null, file(doc('Draft')))),
+    ).toEqual([]);
+  });
+
+  it('never reads an added symlink as a rename of a deleted plan', () => {
+    expect(
+      of(read('docs/plans/2026-01-01-x.md', file(doc('Design')), null), read('docs/plans/active/x.md', null, link('../2026-01-01-x.md'))),
+    ).toEqual([]);
+  });
+
+  it('reads a plan that replaces a symlink as a creation', () => {
+    expect(of(read('docs/plans/2026-01-01-x.md', link('elsewhere.md'), file(doc('Draft'))))).toEqual([]);
+  });
+
+  it('reads a symlink that replaces a plan as a deletion', () => {
+    expect(of(read('docs/plans/2026-01-01-x.md', file(doc('Draft')), link('elsewhere.md')))).toEqual([]);
   });
 });
 
@@ -263,5 +370,17 @@ describe('stateTransitionRefusal', () => {
     expect(text).not.toContain('/plot-approve x');
     expect(text).toContain('/plot-sprint s start');
     expect(text).toContain('a missing transition is the gap');
+  });
+
+  it('names a removal, an addition and a rename', () => {
+    const text = stateTransitionRefusal([
+      { path: 'docs/plans/2026-01-01-x.md', kind: 'plan', before: 'Design', after: '' },
+      { path: 'docs/plans/2026-01-01-y.md', kind: 'plan', before: '', after: 'Approved' },
+      { path: 'docs/plans/2026-02-02-z.md', kind: 'plan', before: 'Design', after: 'Approved', renamedFrom: 'docs/plans/2026-01-01-z.md' },
+    ]);
+    expect(text).toContain('Design -> (line removed), written by hand.');
+    expect(text).toContain("No command removes a 'State:' line");
+    expect(text).toContain('(no State line) -> Approved, written by hand.');
+    expect(text).toContain('Design -> Approved, written by hand (renamed from docs/plans/2026-01-01-z.md).');
   });
 });

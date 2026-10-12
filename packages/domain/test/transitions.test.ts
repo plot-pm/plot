@@ -54,7 +54,7 @@ describe('approve', () => {
   });
 
   it('approves a design plan, the forward exit from the transitional phase', () => {
-    const result = approve(planWith({ phase: 'design' }), approvedBy({ who: 'Jan Wloka', channel: 'plan-PR #42 merged' }));
+    const result = approve(planWith({ phase: 'design' }), approvedBy({ who: 'jwloka', channel: 'in-session' }));
     expect(isDecision(result)).toBe(true);
   });
 
@@ -457,6 +457,18 @@ describe('the offer is separate from the act', () => {
     expect(approvable(planWith())).toBe(true);
     expect(approvable(planWith({ phase: 'delivered' }))).toBe(false);
     expect(approvable(planWith({ review: 'in-session' }))).toBe(false);
+    expect(approvable(planWith({ phase: 'design', review: 'pr' }))).toBe(false);
+  });
+
+  it('approve names the Design phase when a Design plan on Review: pr owes a person', () => {
+    const result = approve(planWith({ phase: 'design', review: 'pr' }), approvedBy({ who: '', channel: 'in-session' }));
+    expect(isRefusal(result) && result.reason).toBe('review-human');
+    expect(isRefusal(result) && result.detail).toContain('Design phase');
+  });
+
+  it('approve takes a Design plan on Review: pr once a declared person is named', () => {
+    const result = approve(planWith({ phase: 'design', review: 'pr' }), approvedBy({ who: 'jwloka', channel: 'in-session' }));
+    expect(isRefusal(result)).toBe(false);
   });
 
   it('deliverable reports whether the board should offer Deliver', () => {

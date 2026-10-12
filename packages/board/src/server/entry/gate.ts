@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { controllerInvocation } from '@plot-pm/domain/rules/ci-suite';
@@ -182,13 +182,16 @@ const briefNameGate: Gate = {
  * file's `## Status` section unless a receipt from the script that owns the
  * write clears it.
  *
- * `wants` is a pure string test. `ask` reads the index, the working tree's
- * changes and the show-prefix; `effectivePaths` decides which paths the
- * commit carries and, for each, whether it takes the staged text or the
- * working copy (`-a`, `--all` or a chained `git add`, which runs after this
- * hook). For each path under the plan or sprint directory it reads `HEAD`'s
- * text and the text the commit takes; `stateTransitionOf` finds a
- * transition, and only then is the path's receipt spent. A failed config read
+ * `wants` is a pure string test. `ask` reads the index (deletions and modes
+ * included), the working tree's changes and the show-prefix; `effectivePaths`
+ * decides which paths the commit carries and, for each, whether it takes the
+ * staged text or the working copy (`-a`, `--all` or a chained `git add`, which
+ * runs after this hook). For each path under the plan or sprint directory, and
+ * for the old path of each rename git paired, it reads `HEAD`'s version and
+ * the version the commit takes, each with whether it is a symbolic link (the
+ * mode git holds, or `lstat` for a working copy, which is never followed);
+ * `stateTransitionsOf` finds the transitions, and only then is a path's
+ * receipt spent. A failed config read
  * throws, which `onError: 'allow'` reports as UNVERIFIED; an unreadable `HEAD`
  * or index allows. A transition seen with no clearing receipt refuses.
  */
@@ -199,7 +202,7 @@ const stateGate: Gate = {
     const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
     const { scriptsShell } = await import('@plot-pm/domain/adapters/scripts/scripts-shell');
     const { stateReceiptsFile } = await import('@plot-pm/domain/adapters/state-receipts/state-receipts-file');
-    const { effectivePaths, lifecycleKindOf, stateTransitionOf, stateTransitionRefusal } = await import(
+    const { SYMLINK_MODE, effectivePaths, lifecycleKindOf, stateTransitionRefusal, stateTransitionsOf } = await import(
       '@plot-pm/domain/rules/state-transition'
     );
     const { gitBlobOid } = await import('./ladder.js');
@@ -215,7 +218,7 @@ const stateGate: Gate = {
     const sprintDir = await scripts.config('Sprint directory', 'docs/sprints/');
     if (!planDir.ok || !sprintDir.ok) throw new Error('the Plan directory or Sprint directory config read failed');
 
-    const staged = await refs.stagedPaths();
+    const staged = await refs.stagedEntries();
     const workingChanges = await refs.workingChanges();
     const showPrefix = await refs.showPrefix();
     if (!staged.ok) return null;
@@ -228,26 +231,49 @@ const stateGate: Gate = {
       command,
     );
 
-    const receipts = stateReceiptsFile(root.value, gitBlobOid);
-    const uncleared = [];
+    // `ls-tree` reads its pathspec against the cwd, so `HEAD`'s mode is read
+    // from the repository root.
+    const atRoot = refsGit({ repoRoot: root.value, scriptDir });
+    const headOf = async (path: string) => {
+      const text = await refs.showFile('HEAD', path);
+      if (!text.ok) return null;
+      const blobs = await atRoot.listBlobs('HEAD', path);
+      const link = blobs.ok && blobs.value.some((blob) => blob.path === path && blob.mode === SYMLINK_MODE);
+      return { text: text.value, link };
+    };
+    const indexModes = new Map(staged.value.map((entry) => [entry.path, entry.indexMode]));
+    const readings = [];
     for (const { path, carries } of carried) {
       const kind = lifecycleKindOf(path, planDir.value.trim(), sprintDir.value.trim());
       if (kind === null) continue;
-      let committed: string | null = null;
+      let committed = null;
       if (carries === 'working') {
         try {
-          committed = readFileSync(join(root.value, path), 'utf8');
+          const full = join(root.value, path);
+          committed = lstatSync(full).isSymbolicLink()
+            ? { text: readlinkSync(full), link: true }
+            : { text: readFileSync(full, 'utf8'), link: false };
         } catch {
-          // No working copy: the commit carries a deletion, which is not a transition.
+          // No working copy: the commit carries a deletion.
         }
       } else {
         const index = await refs.showFile(':0', path);
-        if (index.ok) committed = index.value;
+        if (index.ok) committed = { text: index.value, link: indexModes.get(path) === SYMLINK_MODE };
       }
-      const head = await refs.showFile('HEAD', path);
-      const transition = stateTransitionOf(path, kind, head.ok ? head.value : null, committed);
-      if (transition === null) continue;
-      const spent = await receipts.spend(path, transition.after);
+      readings.push({ path, kind, head: await headOf(path), committed });
+    }
+    // Git pairs a staged rename into one entry under its new path, so the
+    // path it left is read here.
+    for (const entry of staged.value) {
+      if (entry.from === undefined || readings.some((reading) => reading.path === entry.from)) continue;
+      const kind = lifecycleKindOf(entry.from, planDir.value.trim(), sprintDir.value.trim());
+      if (kind !== null) readings.push({ path: entry.from, kind, head: await headOf(entry.from), committed: null });
+    }
+
+    const receipts = stateReceiptsFile(root.value, gitBlobOid);
+    const uncleared = [];
+    for (const transition of stateTransitionsOf(readings, planDir.value.trim(), sprintDir.value.trim())) {
+      const spent = await receipts.spend(transition.path, transition.after);
       if (!(spent.ok && spent.value)) uncleared.push(transition);
     }
     return stateTransitionRefusal(uncleared);

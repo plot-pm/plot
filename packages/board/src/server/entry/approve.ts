@@ -21,6 +21,7 @@ import {
   type PlanPrFound,
   type PlanPrReadings,
 } from '@plot-pm/domain/rules/plan-pr';
+import { approvalArm } from '@plot-pm/domain/rules/approval-arm';
 import { annotateSprintItem } from '@plot-pm/domain/rules/sprint-annotation';
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
 import {
@@ -705,7 +706,12 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   const impl = plan?.impl ?? '';
   const sprint = plan?.sprint ?? '';
 
+  // Two readings. `inSession` is the channel and decides the PR read, the merge
+  // and `sameBranch`; `person` is the arm, which reads the phase too, and
+  // decides the named handle, the channel word and the unattended refusal. A
+  // Design plan on `Review: pr` is `person` and not `inSession`.
   const inSession = review === 'in-session';
+  const person = approvalArm({ phase, review }) === 'person';
   const people = peopleHandles(await configured(ctx.scripts, 'People', ''));
 
   // The PR is read only for a plan that carries one. A host that cannot answer
@@ -778,8 +784,12 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
     people,
   });
   // The reviewer is a human in the room, and `process.env` is not the domain's to read.
-  if (inSession && process.env.PLOT_UNATTENDED === '1' && (verdict.outcome !== 'refused' || verdict.reason === 'review-human' || verdict.reason === 'reviewer-undeclared')) {
-    throw new Refused(`plan '${slug}' declares 'Review: in-session' — the reviewer is a human in the room.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug}`);
+  if (person && process.env.PLOT_UNATTENDED === '1' && (verdict.outcome !== 'refused' || verdict.reason === 'review-human' || verdict.reason === 'reviewer-undeclared')) {
+    throw new Refused(
+      inSession
+        ? `plan '${slug}' declares 'Review: in-session' — the reviewer is a human in the room.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug}`
+        : `plan '${slug}' is in the Design phase — a person approves it (D10), whatever its 'Review:' channel declares.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug} --who <handle>`,
+    );
   }
   if (verdict.outcome === 'refused') {
     throw new Refused(refusalText(verdict.reason, verdict.detail, {
@@ -798,7 +808,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
     write(`step: plan ${planFile} — phase=${phase} review=${review} impl=${impl} pr=#${pr.number}(${pr.state})\n`);
   }
 
-  const who = inSession
+  const who = person
     ? args.who
     : args.who || process.env.PLOT_APPROVE_WHO || (await userNameOf(ctx));
   const today = localDate();
@@ -855,7 +865,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   if (rel === null) {
     throw new Refused(`${planFile} is outside the repository root (${ctx.repoRoot}).\n  Move the plan under ${dirs.planDir} inside this checkout and re-run.`);
   }
-  const channel = inSession
+  const channel = person
     ? 'in-session'
     : sameBranch
       ? `plan-PR #${pr.number} reviewed`
@@ -906,7 +916,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
     push = outcome.push;
   }
 
-  if (inSession && push !== 'nothing-to-commit' && push !== 'n/a') {
+  if (person && push !== 'nothing-to-commit' && push !== 'n/a') {
     const entry = process.env.PLOT_APPROVE_ENTRY === 'board' ? 'board' : 'script';
     const logDir = path.join(await mainRootOf(ctx), '.plot', 'state');
     try {

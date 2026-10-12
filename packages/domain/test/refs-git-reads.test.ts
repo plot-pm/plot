@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { additionsOf, commitSubjectsOf, mergesOf, refsGit, stagedPathsOf } from '../src/adapters/refs/refs-git.js';
+import { additionsOf, commitSubjectsOf, mergesOf, refsGit, stagedEntriesOf, stagedPathsOf } from '../src/adapters/refs/refs-git.js';
 import { runBytes, runProcess, asText } from '../src/adapters/run-script.js';
 
 /**
@@ -719,8 +719,8 @@ describe('stagedPathsOf', () => {
     expect(stagedPathsOf('M\texisting.mjs\n')).toEqual([{ status: 'modified', path: 'existing.mjs' }]);
   });
 
-  it('reads a rename by its new path alone', () => {
-    expect(stagedPathsOf('R100\told.mjs\tnew.mjs\n')).toEqual([{ status: 'renamed', path: 'new.mjs' }]);
+  it('reads a rename by its new path, and names the path it left', () => {
+    expect(stagedPathsOf('R100\told.mjs\tnew.mjs\n')).toEqual([{ status: 'renamed', path: 'new.mjs', from: 'old.mjs' }]);
   });
 
   it('drops a deleted path entirely', () => {
@@ -733,6 +733,85 @@ describe('stagedPathsOf', () => {
 
   it('answers an empty list for empty output', () => {
     expect(stagedPathsOf('')).toEqual([]);
+  });
+});
+
+describe('stagedEntriesOf', () => {
+  const sha = (c: string) => c.repeat(40);
+  const line = (head: string, index: string, status: string, ...paths: string[]) =>
+    [`:${head} ${index} ${sha('a')} ${sha('b')} ${status}`, ...paths].join('\t');
+
+  it('reads an addition, a modification and a deletion with both modes', () => {
+    const stdout = [
+      line('000000', '120000', 'A', 'docs/plans/active/x.md'),
+      line('100644', '100644', 'M', 'kept.md'),
+      line('100644', '000000', 'D', 'gone.md'),
+      '',
+    ].join('\n');
+    expect(stagedEntriesOf(stdout)).toEqual([
+      { status: 'added', path: 'docs/plans/active/x.md', headMode: '000000', indexMode: '120000' },
+      { status: 'modified', path: 'kept.md', headMode: '100644', indexMode: '100644' },
+      { status: 'deleted', path: 'gone.md', headMode: '100644', indexMode: '000000' },
+    ]);
+  });
+
+  it('reads a type change as a modification', () => {
+    expect(stagedEntriesOf(line('100644', '120000', 'T', 'p.md'))).toEqual([
+      { status: 'modified', path: 'p.md', headMode: '100644', indexMode: '120000' },
+    ]);
+  });
+
+  it('reads a rename by its new path and names the path it left', () => {
+    expect(stagedEntriesOf(line('120000', '120000', 'R100', 'old.md', 'new.md'))).toEqual([
+      { status: 'renamed', path: 'new.md', from: 'old.md', headMode: '120000', indexMode: '120000' },
+    ]);
+  });
+
+  it('reads a copy as an addition of its new path', () => {
+    expect(stagedEntriesOf(line('100644', '100644', 'C75', 'src.md', 'copy.md'))).toEqual([
+      { status: 'added', path: 'copy.md', headMode: '100644', indexMode: '100644' },
+    ]);
+  });
+
+  it('drops an unmerged or unknown status, a rename or copy missing its new path, and a line in another shape', () => {
+    const stdout = [
+      line('100644', '100644', 'U', 'u.md'),
+      line('100644', '100644', 'X', 'x.md'),
+      line('100644', '100644', 'R100', 'only-old.md'),
+      line('100644', '100644', 'C100', 'only-src.md'),
+      line('100644', '100644', 'M'),
+      'M\tname-status.md',
+    ].join('\n');
+    expect(stagedEntriesOf(stdout)).toEqual([]);
+  });
+});
+
+describe('refsGit: stagedEntries reads deletions and modes', () => {
+  let dir = '';
+
+  beforeAll(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-refs-git-entries-'));
+    git(dir, ['init', '--quiet', '--initial-branch=main']);
+    git(dir, ['config', 'user.email', 'test@example.com']);
+    git(dir, ['config', 'user.name', 'Test']);
+    fs.writeFileSync(path.join(dir, 'gone.txt'), 'gone\n');
+    git(dir, ['add', '-A']);
+    git(dir, ['commit', '--quiet', '-m', 'first']);
+    git(dir, ['rm', '--quiet', 'gone.txt']);
+    fs.symlinkSync('target.txt', path.join(dir, 'link.txt'));
+    git(dir, ['add', 'link.txt']);
+  });
+
+  afterAll(() => {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('answers a staged deletion and a staged symlink with their modes', async () => {
+    const answer = await refsGit({ repoRoot: dir, scriptDir: path.join(dir, 'scripts') }).stagedEntries();
+    expect(answer.ok && answer.value).toEqual([
+      { status: 'deleted', path: 'gone.txt', headMode: '100644', indexMode: '000000' },
+      { status: 'added', path: 'link.txt', headMode: '000000', indexMode: '120000' },
+    ]);
   });
 });
 

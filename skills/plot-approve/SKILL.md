@@ -95,7 +95,7 @@ Read the plan (`../plot/scripts/plot-plan-meta.sh <plan-file>`) — its
 recorded `Review:` answer decides what "approve" means. If the field is
 missing (pre-Plot-2 plan on an idea branch), treat it as `pr`.
 
-**`Review: pr`** — the mechanical half is `plot-approve.sh`'s (step 3).
+**`Review: pr`** — the mechanical half is `plot-approve.sh`'s (step 3). A plan in the Design phase takes the `in-session` path instead: a person names themselves with `--who`.
 It reads the PR state itself and refuses a draft, a closed, or an absent
 PR with the reason on stderr, so do **not** pre-check it here — a second
 copy of those preconditions is exactly the duplication this split
@@ -121,7 +121,11 @@ approvals unless the user explicitly rules).
 >
 > - **`Review: pr`** — the approval is the PR's non-draft state, a fact
 >   `plot-approve.sh` reads for itself. Proceed; the script's own refusals are
->   unchanged.
+>   unchanged. **Exception: a plan in the Design phase.** A person approves a
+>   Design plan (D10) on every channel, so `Review: pr` refuses like
+>   `in-session`: `plot-approve.sh` needs `--who <handle>` and refuses under
+>   `PLOT_UNATTENDED=1`.
+>   `PLOT-UNASKED: Approve <slug> in Design phase? — refused — a person approves a Design plan; phase unchanged`
 > - **`Review: ballot`** — the approval is the ballot files, also facts. Tally
 >   them and proceed only on a complete tally. A missing ballot stops in both
 >   modes, exactly as it does now.

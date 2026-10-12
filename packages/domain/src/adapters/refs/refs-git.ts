@@ -15,6 +15,7 @@ import type {
   Refs,
   RemoteHeadAnswer,
   RemoteShaReading,
+  StagedEntry,
   StagedPath,
   TreeBlob,
 } from '../../ports/refs.js';
@@ -255,7 +256,7 @@ export const stagedPathsOf = (stdout: string): readonly StagedPath[] =>
     const [status, a, b] = line.split('\t');
     if (status === 'A') return a ? [{ status: 'added', path: a }] : [];
     if (status === 'M') return a ? [{ status: 'modified', path: a }] : [];
-    if (status?.startsWith('R')) return b ? [{ status: 'renamed', path: b }] : [];
+    if (status?.startsWith('R')) return b ? [{ status: 'renamed', path: b, ...(a ? { from: a } : {}) }] : [];
     return [];
   });
 
@@ -276,6 +277,42 @@ export const recordCommitOf = (stdout: string, field: string): string | null => 
   }
   return null;
 };
+
+/**
+ * Walks a `git diff --cached --raw -M --no-abbrev` listing into
+ * {@link StagedEntry} values.
+ *
+ * Each line is `:<head mode> <index mode> <sha> <sha> <status>`, a tab, and
+ * one path — two for a rename or a copy. `A`, `M`, `T` (a type change), `D`
+ * and an `R`-prefixed status map to their entry; a `C`-prefixed copy reads as
+ * an addition of its new path. `U`, `X` and a line in any other shape are
+ * dropped.
+ *
+ * @param stdout - the listing.
+ * @returns each staged entry, in the order given.
+ */
+export const stagedEntriesOf = (stdout: string): readonly StagedEntry[] =>
+  asLines(stdout).flatMap((line): readonly StagedEntry[] => {
+    const [meta = '', a, b] = line.split('\t');
+    const fields = /^:(\d{6}) (\d{6}) \S+ \S+ ([A-Z])\d*$/.exec(meta);
+    if (fields === null || !a) return [];
+    const modes = { headMode: fields[1]!, indexMode: fields[2]! };
+    switch (fields[3]) {
+      case 'A':
+        return [{ status: 'added', path: a, ...modes }];
+      case 'M':
+      case 'T':
+        return [{ status: 'modified', path: a, ...modes }];
+      case 'D':
+        return [{ status: 'deleted', path: a, ...modes }];
+      case 'R':
+        return b ? [{ status: 'renamed', path: b, from: a, ...modes }] : [];
+      case 'C':
+        return b ? [{ status: 'added', path: b, ...modes }] : [];
+      default:
+        return [];
+    }
+  });
 
 export const refsGit = (context: ShellContext): Refs => {
   const scan = scriptPath(context, 'plot-fleet-scan.sh');
@@ -356,6 +393,8 @@ export const refsGit = (context: ShellContext): Refs => {
         stagedPathsOf,
         inRepo,
       ),
+
+    stagedEntries: () => runScript('git', ['diff', '--cached', '--raw', '-M', '--no-abbrev'], stagedEntriesOf, inRepo),
 
     untrackedPaths: (pathspec) =>
       runScript(

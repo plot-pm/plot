@@ -29,12 +29,16 @@ function git(cwd, ...args) {
   return execFileSync('git', args, { encoding: 'utf8', cwd });
 }
 
-function run(args, { cwd = repo, expectFail = false } = {}) {
+function run(args, { cwd = repo, expectFail = false, env = {} } = {}) {
   try {
+    // A fleet worker's own loop sets PLOT_UNATTENDED; only a test that means to
+    // assert the unattended refusal passes it back in.
+    const childEnv = { ...process.env, PATH: `${stubDir}:${process.env.PATH}`, PLOT_HOST: 'github', ...env };
+    if (!('PLOT_UNATTENDED' in env)) delete childEnv.PLOT_UNATTENDED;
     const out = execFileSync('bash', [approve, ...args], {
       encoding: 'utf8',
       cwd,
-      env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+      env: childEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     if (expectFail) assert.fail(`expected a refusal, got:\n${out}`);
@@ -96,6 +100,7 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
   process.stdout.write(JSON.stringify({
     number: state.number, state: state.state, isDraft: state.draft,
     url: 'https://example.invalid/pr/' + state.number, mergeCommit: null,
+    headRefOid: state.headSha ?? null,
   }));
 } else if (argv[0] === 'pr' && argv[1] === 'ready') {
   // TAKING A PR OUT OF DRAFT, modelled as the host really behaves: the flag
@@ -140,7 +145,7 @@ function makeRepo(planBody = PLAN(), files = {}) {
   git(repo, 'config', 'commit.gpgsign', 'false');
 
   fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
-    '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n- **Sprint directory:** docs/sprints/\n');
+    '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n- **Sprint directory:** docs/sprints/\n- **People:** jwloka = Jan Wloka; eins78 = Max Albrecht\n');
   fs.mkdirSync(path.join(repo, 'docs', 'plans', 'active'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'docs', 'plans', '2026-08-17-approve-me.md'), planBody);
   fs.symlinkSync('../2026-08-17-approve-me.md',
@@ -290,12 +295,11 @@ test('approve: Approved: fills the placeholder rather than appending after the l
   assert.equal(lines.filter((l) => l.startsWith('- **Approved:**')).length, 1);
 });
 
-test('approve: a plan in Design is approvable — flips to Approved and records it', () => {
-  // Design is a decided-enough phase to approve directly: the spike answered
-  // its question. The script must accept it as it accepts Draft, flip the phase
-  // (from Design, not just from Draft), and fill the Approved: record.
+test('approve: a plan in Design is approvable by a named person — flips to Approved and records in-session', () => {
+  // Design plans are approved by a person (D10) whatever `Review:` declares: the
+  // plan PR is still merged, and the record names the person and the channel.
   makeRepo(PLAN({ phase: 'Design' }));
-  const { code, out } = run(['approve-me']);
+  const { code, out } = run(['approve-me', '--who', 'jwloka']);
   assert.equal(code, 0, `approving from Design must succeed:\n${out}`);
   assert.match(out, /merged PR #42/);
   assert.equal(hostState().state, 'MERGED');
@@ -305,8 +309,106 @@ test('approve: a plan in Design is approvable — flips to Approved and records 
   assert.match(plan, /- \*\*Phase:\*\* Approved/,
     `Design must be flipped to Approved on main:\n${plan}`);
   assert.doesNotMatch(plan, /- \*\*Phase:\*\* Design/, 'no Design phase may remain');
-  assert.match(plan, /- \*\*Approved:\*\* \d{4}-\d{2}-\d{2}, .*plan-PR #42 merged/,
-    `the record must be filled:\n${plan}`);
+  assert.match(plan, /- \*\*Approved:\*\* \d{4}-\d{2}-\d{2}, jwloka, in-session/,
+    `the record must name the person and the channel:\n${plan}`);
+});
+
+test('approve: a Design plan on Review: pr refuses with no --who and merges nothing', () => {
+  makeRepo(PLAN({ phase: 'Design' }));
+  const { code, err } = run(['approve-me'], { expectFail: true });
+  assert.equal(code, 1);
+  assert.match(err, /--who/, err);
+  assert.notEqual(hostState().state, 'MERGED', 'a refusal must merge nothing');
+});
+
+test('approve: a Design plan refuses under PLOT_UNATTENDED=1 with the Design wording', () => {
+  makeRepo(PLAN({ phase: 'Design' }));
+  const { code, err } = run(['approve-me', '--who', 'jwloka'], { expectFail: true, env: { PLOT_UNATTENDED: '1' } });
+  assert.equal(code, 1);
+  assert.match(err, /Design phase/, err);
+  assert.match(err, /D10/, err);
+  assert.notEqual(hostState().state, 'MERGED');
+});
+
+// --- the spike's channels (design-work-proves-the-path, Acceptance) ---------
+//
+// A Design plan on `Review: pr` whose plan PR already merged still owes a
+// person. Three routes reach the bundle: the bundle itself, the board-free
+// route (an unowned-action receipt, then the bundle), and the board's script
+// arm, which runs the bundle with the slug alone and PLOT_APPROVE_ENTRY=board
+// (packages/board/src/server/approve.ts). Each refuses with and without the
+// spike markers, which the arm never reads.
+
+const SPIKE_MARKED = PLAN({ phase: 'Design' })
+  .replace('- **Started:**', '- **Spike approved:** 2026-10-01, jwloka, in-session\n- **Started:**')
+  .replace('`feature/alpha` — the first', '`feature/alpha` <!-- spike --> — the first');
+
+const receiptScript = path.join(SCRIPTS, 'plot-state-receipt.sh');
+
+test('approve: a Design plan with a merged plan PR refuses with no --who on every route, with and without the spike markers', () => {
+  for (const [label, body] of [['marked', SPIKE_MARKED], ['unmarked', PLAN({ phase: 'Design' })]]) {
+    const routes = {
+      bundle: () => run(['approve-me'], { expectFail: true }),
+      'board-free': () => {
+        execFileSync('bash', [receiptScript, '--unowned-action', 'approve', 'approve-me', 'test: no board'], {
+          cwd: repo,
+          stdio: 'pipe',
+        });
+        return run(['approve-me'], { expectFail: true });
+      },
+      'script arm': () => run(['approve-me'], { expectFail: true, env: { PLOT_APPROVE_ENTRY: 'board' } }),
+    };
+    for (const [route, attempt] of Object.entries(routes)) {
+      makeRepo(body);
+      assert.equal(/Spike approved:/.test(body) && /<!-- spike -->/.test(body), label === 'marked');
+      setHostState({ number: 42, state: 'MERGED', draft: false });
+      const { code, err } = attempt();
+      assert.equal(code, 1, `${label} / ${route}`);
+      assert.match(err, /Design phase/, `${label} / ${route}: ${err}`);
+      assert.match(err, /--who/, `${label} / ${route}: ${err}`);
+      refreshMain();
+      assert.match(planOnMain(), /- \*\*Phase:\*\* Design/, `${label} / ${route}: nothing may be written`);
+    }
+  }
+});
+
+test('approve: a Design plan with a merged plan PR approves with a declared --who and records in-session', () => {
+  makeRepo(PLAN({ phase: 'Design' }));
+  setHostState({ number: 42, state: 'MERGED', draft: false });
+  const { code, out } = run(['approve-me', '--who', 'jwloka']);
+  assert.equal(code, 0, out);
+  refreshMain();
+  const plan = planOnMain();
+  assert.match(plan, /- \*\*Phase:\*\* Approved/, plan);
+  assert.match(plan, /- \*\*Approved:\*\* \d{4}-\d{2}-\d{2}, jwloka, in-session/, plan);
+  const calls = fs.readFileSync(path.join(stubDir, 'calls.log'), 'utf8');
+  assert.doesNotMatch(calls, /pr merge/, 'an already-merged PR is not merged again');
+});
+
+test('approve: a Design plan with an open plan PR and --who merges it pinned to the PR head', () => {
+  const head = 'c0ffee'.padEnd(40, '0');
+  makeRepo(PLAN({ phase: 'Design' }));
+  setHostState({ number: 42, state: 'OPEN', draft: false, headSha: head });
+  const { code, out } = run(['approve-me', '--who', 'jwloka']);
+  assert.equal(code, 0, out);
+  assert.equal(hostState().state, 'MERGED');
+  const calls = fs.readFileSync(path.join(stubDir, 'calls.log'), 'utf8');
+  assert.match(calls, new RegExp(`^gh .*pr merge 42 .*--match-head-commit ${head}`, 'm'), calls);
+});
+
+test('approve: a Draft plan on Review: pr still needs no --who', () => {
+  makeRepo(PLAN({ phase: 'Draft' }));
+  const { code } = run(['approve-me']);
+  assert.equal(code, 0);
+  assert.equal(hostState().state, 'MERGED');
+});
+
+test('approve: a Design plan on Review: ballot keeps the ballot refusal', () => {
+  makeRepo(PLAN({ phase: 'Design', review: 'ballot' }));
+  const { code, err } = run(['approve-me', '--who', 'jwloka'], { expectFail: true });
+  assert.equal(code, 1);
+  assert.match(err, /ballot/i, err);
+  assert.notEqual(hostState().state, 'MERGED');
 });
 
 // --- the three refusals -----------------------------------------------------

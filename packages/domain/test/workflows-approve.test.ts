@@ -457,3 +457,61 @@ describe('approve — a batch PR carrying several plans', () => {
     expect(refused(out) && out.reason).toBe('review-human');
   });
 });
+
+describe('approve — the person arm of a Design plan', () => {
+  const design = (over: Partial<ApproveReadings> = {}) => ready({ phase: 'design', review: 'pr', ...over });
+
+  it.each(['pr', 'NONE', ''])('refuses review-human with no reviewer on Review: %j', (review) => {
+    const out = approve(design({ review }), on({ who: '' }));
+    expect(refused(out) && out.reason).toBe('review-human');
+    expect(refused(out) && out.detail).toContain('Design phase');
+  });
+
+  it('refuses a handle the People key never declared', () => {
+    const out = approve(design(), on({ who: 'stranger' }));
+    expect(refused(out) && out.reason).toBe('reviewer-undeclared');
+  });
+
+  it('still refuses with no reviewer after the plan PR merged', () => {
+    const out = approve(design({ pr: { number: 42, state: 'MERGED', draft: false, branch: 'idea/a-plan' } }), on({ who: '' }));
+    expect(refused(out) && out.reason).toBe('review-human');
+  });
+
+  // The pin to the PR head is the bundle's (`entry/approve.ts`), proven in
+  // test/reconcile/approve.test.mjs; the domain write names the PR alone.
+  it('merges an open plan PR and records the channel in-session', () => {
+    const out = approve(design(), on());
+    expect(decided(out)).toBe(true);
+    const writes = decided(out) ? out.writes : [];
+    expect(writes).toContainEqual({ kind: 'pr-merge', pr: 42, deleteBranch: true });
+    expect(writes).toContainEqual({
+      kind: 'plan-record',
+      file: 'docs/plans/2026-08-30-a-plan.md',
+      field: 'Approved',
+      value: '2026-08-30, jwloka, in-session',
+    });
+  });
+
+  it('keeps a Draft plan on Review: pr on the plain pr arm', () => {
+    const out = approve(ready({ phase: 'draft', review: 'pr' }), on({ who: '' }));
+    expect(decided(out)).toBe(true);
+  });
+
+  it('refuses an unrecognised review on a Design plan rather than treating it as pr', () => {
+    const out = approve(design({ review: 'vote' }), on());
+    expect(refused(out) && out.reason).toBe('review-unrecognised');
+  });
+
+  it('keeps a ballot Design plan refused review-human', () => {
+    const out = approve(design({ review: 'ballot' }), on());
+    expect(refused(out) && out.reason).toBe('review-human');
+    expect(refused(out) && out.detail).toContain('ballot');
+  });
+
+  it('does not depend on the Approved record: a plan with and without one refuses alike', () => {
+    for (const approvedRecord of ['', '2026-10-01, jwloka, in-session']) {
+      const out = approve(design({ approvedRecord }), on({ who: '' }));
+      expect(refused(out) && out.reason).toBe('review-human');
+    }
+  });
+});

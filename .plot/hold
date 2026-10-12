@@ -1,15 +1,3 @@
-feature/a-slice-is-marked-spike spike-first (D29), plan design-work-proves-the-path: held until feature/the-design-approvals-are-gated meets its Acceptance in CI
-feature/the-spike-is-approved-alone spike-first (D29), plan design-work-proves-the-path: held until feature/the-design-approvals-are-gated meets its Acceptance in CI
-feature/the-spike-can-be-dispatched spike-first (D29), plan design-work-proves-the-path: held until feature/the-design-approvals-are-gated meets its Acceptance in CI
-feature/the-slices-are-confirmed-after-the-spike spike-first (D29), plan design-work-proves-the-path: held until feature/the-design-approvals-are-gated meets its Acceptance in CI
-feature/a-tracer-plan-stays-in-design spike-first (D29), plan design-work-proves-the-path: held until feature/the-design-approvals-are-gated meets its Acceptance in CI
-feature/a-tracer-plan-ships-with-its-dependent spike-first (D29), plan design-work-proves-the-path: held until feature/the-design-approvals-are-gated meets its Acceptance in CI
-feature/a-delivered-plan-carries-its-verification spike-first (D29), plan the-fleet-verifies-what-it-delivered: held until feature/a-pinned-run-verifies-one-plan meets its Acceptance in CI
-feature/the-jurors-fold-into-one-line-per-claim spike-first (D29), plan the-fleet-verifies-what-it-delivered: held until feature/a-pinned-run-verifies-one-plan meets its Acceptance in CI
-feature/the-fleet-verifies-a-delivered-plan spike-first (D29), plan the-fleet-verifies-what-it-delivered: held until feature/a-pinned-run-verifies-one-plan meets its Acceptance in CI
-feature/a-tracker-opens-an-issue spike-first (D29), plan the-fleet-verifies-what-it-delivered: held until feature/a-pinned-run-verifies-one-plan meets its Acceptance in CI
-feature/a-refuted-claim-opens-an-issue spike-first (D29), plan the-fleet-verifies-what-it-delivered: held until feature/a-pinned-run-verifies-one-plan meets its Acceptance in CI
-feature/the-fleet-keeps-the-release-checklist spike-first (D29), plan the-fleet-verifies-what-it-delivered: held until feature/a-pinned-run-verifies-one-plan meets its Acceptance in CI
 feature/the-tracker-lists-closed-issues spike-first (D29), plan tickets-and-stories-have-lanes: held until feature/the-fleet-indexes-issues meets its Acceptance in CI
 feature/the-board-reads-archived-stories spike-first (D29), plan tickets-and-stories-have-lanes: held until feature/the-fleet-indexes-issues meets its Acceptance in CI
 feature/the-index-holds-closed-issues spike-first (D29), plan tickets-and-stories-have-lanes: held until feature/the-fleet-indexes-issues meets its Acceptance in CI

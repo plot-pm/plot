@@ -43,6 +43,25 @@ export interface StagedPath {
   status: 'added' | 'modified' | 'renamed';
   /** The path, relative to the repository root — the new path for a rename. */
   path: string;
+  /** The path a rename left, relative to the repository root. Set only on `renamed`. */
+  from?: string;
+}
+
+/**
+ * One path the index holds staged against `HEAD`, with the mode each side
+ * holds. Unlike {@link StagedPath}, a deletion is carried.
+ */
+export interface StagedEntry {
+  /** `added` (a copy included), `modified` (a type change included), `renamed`, or `deleted`. */
+  status: 'added' | 'modified' | 'renamed' | 'deleted';
+  /** The path, relative to the repository root — the new path for a rename. */
+  path: string;
+  /** The path a rename left, relative to the repository root. Set only on `renamed`. */
+  from?: string;
+  /** The six-digit mode in `HEAD`, `000000` for an addition. */
+  headMode: string;
+  /** The six-digit mode in the index, `000000` for a deletion. */
+  indexMode: string;
 }
 
 /** A branch and the commit its tip points at. */
@@ -235,6 +254,16 @@ export interface Refs {
    * @returns each staged path with its status, relative to the repository root.
    */
   stagedPaths(): Promise<PortResult<readonly StagedPath[]>>;
+
+  /**
+   * Lists every path the index holds staged against `HEAD`, deletions
+   * included, with the mode `HEAD` and the index hold for it. Rename
+   * detection runs at git's default similarity, so a delete and an add below
+   * it arrive as two entries.
+   *
+   * @returns each staged entry, relative to the repository root, in git's order.
+   */
+  stagedEntries(): Promise<PortResult<readonly StagedEntry[]>>;
 
   /**
    * Lists the untracked files `git add` would stage, honouring `.gitignore`.

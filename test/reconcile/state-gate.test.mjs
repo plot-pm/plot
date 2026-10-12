@@ -12,7 +12,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -63,8 +63,11 @@ function repo({ files = {}, committed = {} } = {}) {
 }
 
 function run(dir, command = 'git commit -m x') {
+  const env = { ...process.env };
+  delete env.PLOT_UNATTENDED;
   return spawnSync('bash', [gate], {
     cwd: dir,
+    env,
     input: JSON.stringify({ tool_input: { command } }),
     encoding: 'utf8',
   });
@@ -273,13 +276,193 @@ test('state gate: an unstaged State edit beside a staged Notes hunk passes a pla
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
 });
 
-test('state gate: a deleted State line is not a transition', () => {
+const noState = '# P\n\n## Status\n\n- **Type:** feature\n';
+
+// #1611: removing the line and adding it back with another value in a second
+// commit wrote any state with no receipt, because each half had no value to
+// compare against.
+test('state gate: removing a State line is a transition to none and is refused', () => {
   const dir = repo({
     committed: { 'docs/plans/2026-01-01-x.md': plan('Draft') },
-    files: { 'docs/plans/2026-01-01-x.md': '# P\n\n## Status\n\n- **Type:** feature\n' },
+    files: { 'docs/plans/2026-01-01-x.md': noState },
   });
   const r = run(dir);
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /Draft -> \(line removed\)/);
+});
+
+test('state gate: adding a State line to a plan HEAD holds none for is refused', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': noState },
+    files: { 'docs/plans/2026-01-01-x.md': plan('Draft') },
+  });
+  const r = run(dir);
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /\(no State line\) -> Draft/);
+});
+
+test('state gate: the two-commit path of #1611 is refused at the second commit', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Design') },
+    files: { 'docs/plans/2026-01-01-x.md': noState },
+  });
+  assert.equal(run(dir).status, 2, 'the removal is refused on its own');
+  // The first commit lands by a route the gate does not see, then the add follows.
+  execSync('git commit -qm removed --no-verify', { cwd: dir });
+  writeFileSync(path.join(dir, 'docs', 'plans', '2026-01-01-x.md'), plan('Draft'));
+  execSync('git add -A', { cwd: dir });
+  const r = run(dir);
+  assert.equal(r.status, 2, `the re-add must block (stderr: ${r.stderr})`);
+});
+
+test('state gate: a rename to another date prefix with a changed State is refused', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Design') },
+    files: { 'docs/plans/2026-02-02-x.md': plan('Approved') },
+  });
+  execSync('git rm -q docs/plans/2026-01-01-x.md', { cwd: dir });
+  const r = run(dir);
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /Design -> Approved/);
+  assert.match(r.stderr, /renamed from docs\/plans\/2026-01-01-x\.md/);
+});
+
+// The plan's Acceptance names this rename exactly: Design to Draft.
+test('state gate: a rename of a Design plan to another date prefix with State: Draft is refused', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Design') },
+    files: { 'docs/plans/2026-02-02-x.md': plan('Draft') },
+  });
+  execSync('git rm -q docs/plans/2026-01-01-x.md', { cwd: dir });
+  const r = run(dir);
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /Design -> Draft, written by hand \(renamed from docs\/plans\/2026-01-01-x\.md\)/);
+});
+
+test('state gate: a rename that keeps the State passes', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Design') },
+    files: { 'docs/plans/2026-02-02-x.md': plan('Design') },
+  });
+  execSync('git rm -q docs/plans/2026-01-01-x.md', { cwd: dir });
+  const r = run(dir);
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+});
+
+test('state gate: a new plan beside an unrelated deletion still passes', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-old.md': plan('Delivered') },
+    files: { 'docs/plans/2026-02-02-new.md': plan('Draft') },
+  });
+  execSync('git rm -q docs/plans/2026-01-01-old.md', { cwd: dir });
+  const r = run(dir);
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+});
+
+test('state gate: a controller write carrying its receipt still passes after a rename', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Design') },
+    files: { 'docs/plans/2026-02-02-x.md': plan('Approved') },
+  });
+  execSync('git rm -q docs/plans/2026-01-01-x.md', { cwd: dir });
+  recordReceipt(dir, 'docs/plans/2026-02-02-x.md', 'Approved');
+  const r = run(dir);
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+});
+
+// #1616 review H3: git pairs a delete and an add as a rename only above its
+// similarity threshold. Below it the index holds `D` and `A`, and a gate that
+// dropped the `D` read the new path as a creation.
+test('state gate: a same-slug rename git does not pair is still refused', () => {
+  const filler = (word) => Array.from({ length: 40 }, (_, i) => `${word} line ${i}`).join('\n');
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': `${plan('Design')}\n## Notes\n\n${filler('old')}\n` },
+    files: { 'docs/plans/2026-02-02-x.md': `${plan('Approved')}\n## Notes\n\n${filler('new')}\n` },
+  });
+  execSync('git rm -q docs/plans/2026-01-01-x.md', { cwd: dir });
+  const status = execSync('git diff --cached --name-status -M', { cwd: dir, encoding: 'utf8' });
+  assert.match(status, /^D\tdocs\/plans\/2026-01-01-x\.md$/m, `the fixture must not pair (got: ${status})`);
+  assert.match(status, /^A\tdocs\/plans\/2026-02-02-x\.md$/m);
+  const r = run(dir);
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /Design -> Approved/);
+  assert.match(r.stderr, /renamed from docs\/plans\/2026-01-01-x\.md/);
+});
+
+// --- index symlinks ---------------------------------------------------------
+//
+// #1616 review H1: `docs/plans/active/<slug>.md` and `delivered/<slug>.md` are
+// symlinks. Git stores a symlink as its target path and carries no `State:`
+// line, but a working-copy read follows the link and returns the plan's text.
+
+const link = (dir, rel, target) => {
+  mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+  symlinkSync(target, path.join(dir, rel));
+};
+
+test('state gate: a symlink added to the active index passes', () => {
+  const dir = repo({ committed: { 'docs/plans/2026-01-01-x.md': plan('Approved') } });
+  link(dir, 'docs/plans/active/x.md', '../2026-01-01-x.md');
+  for (const command of ['git add -A && git commit -m x', 'git commit -am x']) {
+    const r = run(dir, command);
+    assert.equal(r.status, 0, `${command} (stderr: ${r.stderr})`);
+  }
+  execSync('git add -A', { cwd: dir });
+  const r = run(dir);
+  assert.equal(r.status, 0, `a staged symlink (stderr: ${r.stderr})`);
+});
+
+test('state gate: a symlink removed from the active index passes', () => {
+  const dir = repo({ committed: { 'docs/plans/2026-01-01-x.md': plan('Approved') } });
+  link(dir, 'docs/plans/active/x.md', '../2026-01-01-x.md');
+  execSync('git add -A && git commit -qm link --no-verify', { cwd: dir });
+  execSync('git rm -q docs/plans/active/x.md', { cwd: dir });
+  for (const command of ['git commit -m x', 'git add -A && git commit -m x']) {
+    const r = run(dir, command);
+    assert.equal(r.status, 0, `${command} (stderr: ${r.stderr})`);
+  }
+});
+
+// /plot-reject steps 4, 5 and 7, as SKILL.md writes them.
+test('state gate: /plot-reject moving the symlink back with its receipted write passes', () => {
+  const dir = repo({ committed: { 'docs/plans/2026-01-01-x.md': plan('Delivered') } });
+  link(dir, 'docs/plans/delivered/x.md', '../2026-01-01-x.md');
+  execSync('git add -A && git commit -qm delivered --no-verify', { cwd: dir });
+  writeFileSync(path.join(dir, 'docs', 'plans', '2026-01-01-x.md'), plan('Approved'));
+  const e = unowned(dir, 'docs/plans/2026-01-01-x.md', 'Approved', '/plot-reject has no controller');
+  assert.equal(e.status, 0, `escape must succeed (stderr: ${e.stderr})`);
+  execSync('git rm -q docs/plans/delivered/x.md', { cwd: dir });
+  link(dir, 'docs/plans/active/x.md', '../2026-01-01-x.md');
+  execSync('git add docs/plans/active/x.md docs/plans/2026-01-01-x.md', { cwd: dir });
+  const r = run(dir, 'git add docs/plans/ docs/sprints/ && git commit -m "plot: reject x"');
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+});
+
+// The delivery's own write: the plan flips to Delivered under the owner's
+// receipt and its symlink moves from active/ to delivered/.
+test('state gate: a receipted delivery moving the symlink to delivered passes', () => {
+  const dir = repo({ committed: { 'docs/plans/2026-01-01-x.md': plan('Approved') } });
+  link(dir, 'docs/plans/active/x.md', '../2026-01-01-x.md');
+  execSync('git add -A && git commit -qm approved --no-verify', { cwd: dir });
+  writeFileSync(path.join(dir, 'docs', 'plans', '2026-01-01-x.md'), plan('Delivered'));
+  recordReceipt(dir, 'docs/plans/2026-01-01-x.md', 'Delivered');
+  execSync('git rm -q docs/plans/active/x.md', { cwd: dir });
+  link(dir, 'docs/plans/delivered/x.md', '../2026-01-01-x.md');
+  const r = run(dir, 'git add -A && git commit -m "plot: deliver x"');
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+});
+
+test('state gate: a symlink move beside a hand-written plan transition still refuses the plan', () => {
+  const dir = repo({ committed: { 'docs/plans/2026-01-01-x.md': plan('Delivered') } });
+  link(dir, 'docs/plans/delivered/x.md', '../2026-01-01-x.md');
+  execSync('git add -A && git commit -qm delivered --no-verify', { cwd: dir });
+  writeFileSync(path.join(dir, 'docs', 'plans', '2026-01-01-x.md'), plan('Approved'));
+  execSync('git rm -q docs/plans/delivered/x.md', { cwd: dir });
+  link(dir, 'docs/plans/active/x.md', '../2026-01-01-x.md');
+  const r = run(dir, 'git add -A && git commit -m x');
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /docs\/plans\/2026-01-01-x\.md\n {4}Delivered -> Approved/);
+  assert.doesNotMatch(r.stderr, /active\/x\.md/, 'the symlink is not a transition');
 });
 
 // Fail-open on its own machinery: outside a git repository the gate can see no
