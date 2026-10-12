@@ -249,6 +249,12 @@
 #                  carries the line, whatever its phase: a plan that WENT
 #                  THROUGH design keeps the record after moving on, exactly as
 #                  `approved_raw` outlives the Approved phase.
+#   spike_approved_raw  the `Spike approved:` record as written (`## Status`);
+#                  "" if absent. Read by the spike rules, never decided here.
+#   tracer         true when `## Status` says `Tracer: yes`; the key is ABSENT
+#                  otherwise, because no line is no reading
+#   waves[].branches[].spike  true when the branch line carries a bare
+#                  `<!-- spike -->`; ABSENT otherwise
 #   approved_raw   the approval transition record as written (`## Status`
 #                  `Approved:` or front matter `approved:` — who/when/channel,
 #                  e.g. "2026-07-30, alice, in-session"); "" if absent
@@ -311,7 +317,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","spike_approved_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -486,6 +492,7 @@ function reset_state() {
   fm_title = ""; fm_sprint = ""; fm_story = ""; fm_assignee = ""
   fm_review = ""; fm_impl = ""; fm_approved = ""; fm_started = ""; fm_released = ""
   fm_delivered = ""; fm_design = ""
+  canon_spike_approved = ""; canon_tracer = ""
   fm_rounds = ""
   canon_state = ""; canon_phase = ""; canon_type = ""
   canon_sprint = ""; canon_story = ""; canon_assignee = ""; status_assignee = ""
@@ -504,7 +511,7 @@ function reset_state() {
   fm_issue = ""; canon_issue = ""
   delete issues; n_issues = 0
   delete wave_names; delete wave_of; delete wave_seq; delete wave_count
-  delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; n_waves = 0
+  delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; delete spike_of; n_waves = 0
   delete branch_heading
   delete waits_of; delete waits_set; delete waits_n
   delete unread_waits_branch; delete unread_waits_value; n_unread_waits = 0
@@ -680,6 +687,8 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
       out = out (first ? "" : ",") "{\"branch\":\"" jesc(ordered_b[i]) "\",\"deferred\":" deferred_of[i] \
             ",\"deferred_reason\":\"" jesc(deferred_why[i]) "\"" \
             ",\"claimed\":\"" jesc(claimed_of[i]) "\""
+      # ABSENT, NOT false, where the branch line carries no `<!-- spike -->`.
+      if (spike_of[i] == 1) out = out ",\"spike\":true"
       # ABSENT, NOT EMPTY ARRAY, where no prerequisite was declared. The key
       # appears only on a branch whose line carries a `waits:` annotation, so a
       # consumer reading `waits_on` gets a list of one or more names or no key
@@ -758,6 +767,9 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   out = out ",\"review_raw\":\"" jesc(review) "\",\"review\":\"" norm_review(review) "\""
   out = out ",\"impl_raw\":\"" jesc(impl) "\",\"impl\":\"" norm_impl(impl) "\""
   out = out ",\"design_raw\":\"" jesc(design) "\""
+  out = out ",\"spike_approved_raw\":\"" jesc(canon_spike_approved) "\""
+  # ABSENT unless `## Status` says `Tracer: yes`: no line is no reading.
+  if (tolower(canon_tracer) ~ /^(yes|true)/) out = out ",\"tracer\":true"
   out = out ",\"approved_raw\":\"" jesc(approved) "\""
   out = out ",\"released_raw\":\"" jesc(released) "\""
   out = out ",\"delivered_raw\":\"" jesc(delivered) "\""
@@ -989,6 +1001,8 @@ section == "status" {
   # capture to avoid storing empties. These four are scalars, and now do the
   # same: a placeholder no longer counts as a value, so ORDER STOPS MATTERING.
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**design[:*]/ && canon_design == "") canon_design = strip_placeholder(val_after_colon($0))
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**spike approved[:*]/ && canon_spike_approved == "") canon_spike_approved = strip_placeholder(val_after_colon($0))
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**tracer[:*]/ && canon_tracer == "") canon_tracer = strip_placeholder(val_after_colon($0))
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**rounds[:*]/ && canon_rounds == "") canon_rounds = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**approved[:*]/ && canon_approved == "") canon_approved = strip_placeholder(val_after_colon($0))
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**released[:*]/ && canon_released == "") canon_released = strip_placeholder(val_after_colon($0))
@@ -1225,6 +1239,7 @@ section == "slices" && slice_shape != "heading" {
     # and no reason was recorded, which is a different statement from a reason
     # of "".
     deferred_why[n_branches] = defer_note
+    spike_of[n_branches] = ($0 ~ /<!--[ \t]*spike[ \t]*-->/) ? 1 : 0
     # Claim reflection, written by the worker after its ref push succeeds. This
     # is a reflection, not the claim: git refs remain authoritative.
     claimed_of[n_branches] = claim_note
@@ -1371,6 +1386,7 @@ section == "slices" && slice_shape == "heading" {
     # shape; `deferred:` carries the reason.
     deferred_of[n_branches] = ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) ? "true" : "false"
     deferred_why[n_branches] = defer_note
+    spike_of[n_branches] = ($0 ~ /<!--[ \t]*spike[ \t]*-->/) ? 1 : 0
     claimed_of[n_branches] = claim_note
     store_waits(n_branches, b)
     builds_of[n_branches] = builds_note

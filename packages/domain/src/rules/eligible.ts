@@ -29,6 +29,20 @@ export interface SliceReadings {
    * field exists to close.
    */
   branches: number;
+  /**
+   * Whether the slice holds a branch annotated `<!-- spike -->`.
+   *
+   * Absent where the caller did not read the annotation, which is a different
+   * statement from `false`. {@link sliceVerdict} does not read it yet.
+   */
+  spike?: boolean;
+  /**
+   * The plan's `Spike approved:` record as written; `''` where it read none.
+   *
+   * Absent where the caller did not read it. {@link sliceVerdict} does not read
+   * it yet.
+   */
+  spikeApproved?: string;
 }
 
 /**

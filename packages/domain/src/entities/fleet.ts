@@ -710,6 +710,14 @@ export const PlanSchema = z.preprocess(readEitherSpelling, z.object({
    * guessed column.
    */
   phase: z.string().default(''),
+  /**
+   * Whether the plan's `## Status` says `Tracer: yes`.
+   *
+   * Defaults to false so a pulse from an older scan still validates. The scan
+   * emits the key only for a tracer plan, so false here is also the reading of
+   * a plan that said nothing.
+   */
+  tracer: z.boolean().default(false),
   slices: z.array(PlanSliceSchema),
 }));
 

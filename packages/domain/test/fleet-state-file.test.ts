@@ -38,6 +38,7 @@ const PULSE: FleetReading = {
   plans: [{
     file: '2026-08-17-a-plan.md',
     phase: 'approved',
+    tracer: false,
     slices: SLICES,
   }],
   summary: {

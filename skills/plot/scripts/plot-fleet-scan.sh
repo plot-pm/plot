@@ -3050,6 +3050,7 @@ add_ref_plan() { # $1=path in ref
 plan_meta_files=()
 plan_meta_phases=()
 plan_meta_types=()
+plan_meta_spikes=()
 plan_meta_waves=()
 
 # WHERE THE LAST LOOKUP LANDED, so the next one starts there instead of at 0.
@@ -3107,7 +3108,15 @@ for line in sys.stdin:
     f = d.get("file")
     if not f:
         continue
-    print("\t".join(["P", clean(f), clean(d.get("phase", "")), clean(d.get("type", ""))]))
+    # THREE SPIKE READINGS ride the P row, each "-" when absent for the
+    # tab-collapse reason every middle column here gives: the `Tracer: yes`
+    # line, the `Spike approved:` record, and the waves holding a spike
+    # branch. Nothing reads them yet.
+    spike_waves = ",".join(str(i) for i, w in enumerate(d.get("waves", []) or [])
+                           if any(b.get("spike") for b in w.get("branches", []) or []))
+    print("\t".join(["P", clean(f), clean(d.get("phase", "")), clean(d.get("type", "")) or "-",
+                     "1" if d.get("tracer") else "0",
+                     clean(d.get("spike_approved_raw", "")) or "-", spike_waves or "-"]))
     for i, w in enumerate(d.get("waves", []) or []):
         name = w.get("name")
         for b in w.get("branches", []) or []:
@@ -3150,12 +3159,12 @@ for line in sys.stdin:
     case "$kind" in
       P)
         plan_meta_files+=("$file")
-        # `rest` is "<phase>\t<type>", two tokens with no tabs inside either.
-        plan_meta_phases+=("${rest%%$'\t'*}")
-        case "$rest" in
-          *$'\t'*) plan_meta_types+=("${rest#*$'\t'}") ;;
-          *) plan_meta_types+=("") ;;
-        esac
+        # `rest` is "<phase>\t<type>\t<tracer>\t<spike approved>\t<spike waves>",
+        # no token holding a tab. The last three travel together, unread.
+        IFS=$'\t' read -r _ph _ty _sp <<< "$rest"
+        plan_meta_phases+=("$_ph")
+        plan_meta_types+=("${_ty#-}")
+        plan_meta_spikes+=("$_sp")
         plan_meta_waves+=("")
         ;;
       W)
@@ -4241,6 +4250,7 @@ for plan in "${plans[@]}"; do
   # interpreted: this script collects and reports, and which column a row reads
   # is a judgment that belongs one layer up (Manifesto Principle 3).
   plan_phase="${plan_meta_phases[$meta_i]}"
+  IFS=$'\t' read -r -a _plan_spike <<< "${plan_meta_spikes[$meta_i]}"
 
   # THE RELEASE SCOPE, decided by the PHASE alone. A terminal plan stays in the
   # pulse only while it is `delivered`: its work has landed and its version has
@@ -4558,7 +4568,10 @@ for plan in "${plans[@]}"; do
         *) outstanding=$((outstanding + 1)) ;;
       esac
     done <<< "$states"
-    wave_readings+="$outstanding	$plan_phase	$wave_states"$'\n'
+    # THE TWO SPIKE COLUMNS, appended and not yet read: whether this slice
+    # holds a `<!-- spike -->` branch, and the plan's `Spike approved:` record.
+    _spike=0; case ",${_plan_spike[2]}," in *",$wid,"*) _spike=1 ;; esac
+    wave_readings+="$outstanding	$plan_phase	$wave_states	$_spike	${_plan_spike[1]}"$'\n'
     wave_degraded_list+="$_loose_degraded_branches"$'\n'
   done
 
@@ -4986,6 +4999,7 @@ for plan in "${plans[@]}"; do
     # branch's git state into a row phase; nothing here decides which column
     # anything reads.
     json_plan+=",\"phase\":\"$(json_str "$plan_phase")\""
+    [ "${_plan_spike[0]}" = 1 ] && json_plan+=",\"tracer\":true"
     json_plan+=",\"waves\":[$json_waves]}"
     json_plans+="${json_plans:+,}$json_plan"
     # THE STREAM'S POINT: this plan is fully derived, so a consumer can render

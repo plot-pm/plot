@@ -107,6 +107,8 @@
      A charter this clone does not hold is REPORTED, never refused — a plan
      written where `reviewer` is declared stays dispatchable where it is not. -->
 
+<!-- Spike: mark the slice that proves the design by writing the word spike as an HTML comment on its branch line, beside deferred:/claimed:/waits:. Optional; a plan marking none has no spike. -->
+
 - `feature/<slug>` — <description>
 
 ## Notes

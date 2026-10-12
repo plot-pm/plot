@@ -107,6 +107,13 @@ export const PlanMetaSchema = z.preprocess(readEitherSpelling, z.object({
        */
       deferred_reason: z.string().default(''),
       claimed: z.string().default(''),
+      /**
+       * Whether the branch line carries `<!-- spike -->`: the slice a person
+       * approves and dispatches alone. Defaulted, so output from a parser
+       * predating the annotation still validates; `false` here means the parser
+       * reported no annotation, not that the plan was checked and has none.
+       */
+      spike: z.boolean().default(false),
     })).default([]),
   })).default([]),
   prs: z.array(z.number()).default([]),
@@ -147,6 +154,10 @@ export const PlanMetaSchema = z.preprocess(readEitherSpelling, z.object({
    * has only this one, so `phaseDateOf` reads it rather than `approved_raw`.
    */
   design_raw: z.string().default(''),
+  /** The `Spike approved:` record as written; `''` until a person approves the spike. */
+  spike_approved_raw: z.string().default(''),
+  /** Whether `## Status` says `Tracer: yes`. Defaulted so an older parser's output validates. */
+  tracer: z.boolean().default(false),
   approved_raw: z.string().default(''),
   // Empty until /plot-release records it. Defaulted so a plan written
   // before the field existed still parses — the board must never fail on
