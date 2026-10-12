@@ -10,6 +10,7 @@ import { StoryModal } from './components/StoryModal.js';
 import { BLOCKED_REASON, UnreachableOverlay } from './components/UnreachableOverlay.js';
 import { MultiSelect } from './components/ui/MultiSelect.js';
 import { listenForEvents } from './lib/event-listener.js';
+import { synthesizedSprintMembers } from './lib/sprint.js';
 import { boardForReader, readMineOnly, readerFrom, writeMineOnly } from './lib/agent-rows/mine-filter.js';
 import {
   NO_SPRINT,
@@ -863,20 +864,9 @@ export function App() {
             // above take.
             timebox: 'none' as const,
             timeboxLabel: '',
-            members: matchingCards.map((c) => ({
-              slug: c.slug,
-              // Every member here names a plan, so the label renders from the
-              // slug and the text is never read. Filled from the card's title
-              // rather than left `''` so the value is honest if it ever is.
-              text: c.title,
-              tier: 'could' as const,
-              // `Released` is the only terminal phase the board models —
-              // `Delivered` is a PLAN phase and never appears in a card's
-              // `phase`, whose values are Discovery | Design | Development |
-              // Testing | Released (schema.ts:169).
-              checked: c.phase === 'Released',
-              known: true,
-            })),
+            // A member is checked by its plan's `status`, never by the
+            // declared column name in `phase`.
+            members: synthesizedSprintMembers(matchingCards),
           };
         }
       }
