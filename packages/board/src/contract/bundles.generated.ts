@@ -83,5 +83,6 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
   'skills/plot/scripts/board/plot-task.mjs',
   'skills/plot/scripts/board/plot-transition.mjs',
   'skills/plot/scripts/board/plot-verdicts.mjs',
+  'skills/plot/scripts/board/plot-verify.mjs',
   'skills/plot/scripts/board/plot-worker-loop.mjs',
 ];

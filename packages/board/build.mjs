@@ -405,6 +405,28 @@ await esbuild.build({
 fs.copyFileSync(issueStatusArtifact, shippedIssueStatus);
 fs.chmodSync(shippedIssueStatus, 0o755);
 
+// A pinned verification run: prepare, claims, fold and record.
+//
+// Its own artifact for the reason the issue-status one is: it spawns git, pnpm
+// and plot-host.sh, which plot-transition.mjs does not.
+const verifyArtifact = path.join(here, 'dist/plot-verify.mjs');
+const shippedVerify = path.join(here, '../../skills/plot/scripts/board/plot-verify.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/verify.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: verifyArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(verifyArtifact, shippedVerify);
+fs.chmodSync(shippedVerify, 0o755);
+
 // The agent state, for the callers already in node.
 //
 // The same reason the seventh gives, and it is NOT on the hot path the seventh
@@ -1405,6 +1427,7 @@ const reconcileKb = (fs.statSync(shippedReconcile).size / 1024).toFixed(1);
 const deskRootKb = (fs.statSync(shippedDeskRoot).size / 1024).toFixed(1);
 const issueSourceKb = (fs.statSync(shippedIssueSource).size / 1024).toFixed(1);
 const issueStatusKb = (fs.statSync(shippedIssueStatus).size / 1024).toFixed(1);
+const verifyKb = (fs.statSync(shippedVerify).size / 1024).toFixed(1);
 const prIndexLookupKb = (fs.statSync(shippedPrIndexLookup).size / 1024).toFixed(1);
 const agentSettingsKb = (fs.statSync(shippedAgentSettings).size / 1024).toFixed(1);
 const startCommandKb = (fs.statSync(shippedStartCommand).size / 1024).toFixed(1);
@@ -1444,6 +1467,7 @@ console.log(`Built plot-reconcile.mjs (${reconcileKb} KB) → skills/plot/script
 console.log(`Built plot-desk-root.mjs (${deskRootKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-issue-source.mjs (${issueSourceKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-issue-status.mjs (${issueStatusKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-verify.mjs (${verifyKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-pr-index-lookup.mjs (${prIndexLookupKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-agent-settings.mjs (${agentSettingsKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-start-command.mjs (${startCommandKb} KB) → skills/plot/scripts/board/`);
