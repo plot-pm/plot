@@ -244,8 +244,8 @@
 #                  Empty until /plot-release records it; the tag stays the git
 #                  truth and this merely reflects it.
 #   design_raw     the design transition record as written (`## Status`
-#                  `Design:` or front matter `design:` — who/when, and what the
-#                  design work is); "" if absent. Reported for any plan that
+#                  `Design:` or front matter `design:` — who/when/channel, e.g.
+#                  "2026-10-12, alice, cli"); "" if absent. Reported for any plan that
 #                  carries the line, whatever its phase: a plan that WENT
 #                  THROUGH design keeps the record after moving on, exactly as
 #                  `approved_raw` outlives the Approved phase.
