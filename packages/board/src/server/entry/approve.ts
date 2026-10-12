@@ -68,7 +68,8 @@ const USAGE = [
   '# Usage: plot-approve.sh [--dry-run] [--spike] [--who <name>] <slug>',
   '#   --dry-run   say what would happen; merge nothing, write nothing, push nothing',
   '#   --spike     approve the plan\'s spike branch alone: record `Spike approved:`, clear its hold, leave the phase',
-  '#   --who       the name recorded in the `Approved:` line (default: git user.name)',
+  '#   --who       the declared handle recorded in the `Approved:` or `Spike approved:` line; required for a',
+  '#               spike and for a plan a person approves, otherwise defaults to git user.name',
   '#   <slug>      the plan to approve',
   '# Output: one `step:` line per step, then a machine-countable summary:',
   '#             summary: merged=yes phase=flipped record=written holds=1 sprint=none push=clean',
@@ -104,7 +105,7 @@ const parseArgs = (argv: readonly string[]): Args | string => {
     else if (arg.startsWith('-')) return `unknown flag '${arg}'`;
     else slug = arg;
   }
-  if (slug === '') return 'need a plan slug (usage: plot-approve.sh [--dry-run] <slug>)';
+  if (slug === '') return 'need a plan slug (usage: plot-approve.sh [--dry-run] [--spike] [--who <name>] <slug>)';
   return { dryRun, spike, who, slug };
 };
 
@@ -1013,12 +1014,14 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
     push = outcome.push;
   }
 
-  if (person && !args.spike && push !== 'nothing-to-commit' && push !== 'n/a') {
+  // A spike approval appends a fifth column, `spike`; a whole-plan row keeps four.
+  if (person && push !== 'nothing-to-commit' && push !== 'n/a') {
     const entry = process.env.PLOT_APPROVE_ENTRY === 'board' ? 'board' : 'script';
+    const mode = args.spike ? '\tspike' : '';
     const logDir = path.join(await mainRootOf(ctx), '.plot', 'state');
     try {
       mkdirSync(logDir, { recursive: true });
-      appendFileSync(path.join(logDir, 'in-session-approvals.tsv'), `${today}\t${slug}\t${who}\t${entry}\n`);
+      appendFileSync(path.join(logDir, 'in-session-approvals.tsv'), `${today}\t${slug}\t${who}\t${entry}${mode}\n`);
     } catch {
       // The log counts approvals; a write that fails must not undo one.
     }
@@ -1098,7 +1101,8 @@ const bookApproval = async (
 
     if ('rejected' in landed) {
       const stranded = inSession ? 'the in-session approval IS DECIDED' : `PR #${prNumber} IS MERGED`;
-      warn(`plot-approve: the approval is committed on '${bookbr}' but could not reach ${main}.\n  ${stranded} — the plan must not stay at Phase: Draft.\n  Land '${bookbr}' by hand, or re-run this command once the push works.\n`);
+      const unlanded = spike ? `the plan has no 'Spike approved:' record on ${main}, so the spike stays held` : 'the plan must not stay at Phase: Draft';
+      warn(`plot-approve: the approval is committed on '${bookbr}' but could not reach ${main}.\n  ${stranded} — ${unlanded}.\n  Land '${bookbr}' by hand, or re-run this command once the push works.\n`);
       keepBranch = true;
       await ctx.trees.removeOnly(tmpwt);
       return { report, exit: 1 };
