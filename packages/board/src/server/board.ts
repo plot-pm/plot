@@ -32,6 +32,7 @@ import {
   deliveryPulse as chooseDeliveryPulse,
   derivedStanding,
   statusDrift,
+  cardControls,
   timeboxLabel,
   timeboxStanding,
   planStatus as decidePlanStatus,
@@ -2120,6 +2121,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
       title: meta.title || slug,
       type: meta.type || 'unknown',
       phase,
+      controls: cardControls({ state: meta.phase, status, started }),
       path: relPath,
       // The parser emits a GitHub `#N` as a number; the row prints a string.
       issues: meta.issues.map(String),

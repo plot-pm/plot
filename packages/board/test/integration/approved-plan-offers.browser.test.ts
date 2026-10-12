@@ -79,7 +79,7 @@ function blockedFleet(over: Partial<Fleet> = {}): Fleet {
 /** An approved card with eligible work, matching the fleet. */
 function approvedCard(slug: string, file: string, eligible = 1): Card {
   return {
-    slug, title: slug, type: 'feature', phase: 'Development', path: file, prs: [],
+    slug, title: slug, type: 'feature', phase: 'Development', path: file, prs: [], controls: { approve: false, interrogate: false, commission: false, roundsBadge: false, dispatch: true, readyToStart: true },
     sliceSummary: { waves: 2, branches: 2, eligible, deferred: 0 },
   } as Card;
 }
@@ -87,7 +87,7 @@ function approvedCard(slug: string, file: string, eligible = 1): Card {
 /** A Draft card — Implement/Dispatch must NOT appear. */
 function draftCard(slug: string, file: string): Card {
   return {
-    slug, title: slug, type: 'feature', phase: 'Discovery', path: file, prs: [],
+    slug, title: slug, type: 'feature', phase: 'Discovery', path: file, prs: [], controls: { approve: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false },
     sliceSummary: { waves: 2, branches: 2, eligible: 1, deferred: 0 },
   } as Card;
 }
@@ -95,7 +95,7 @@ function draftCard(slug: string, file: string): Card {
 /** A delivered card — Implement/Dispatch must NOT appear. */
 function deliveredCard(slug: string, file: string): Card {
   return {
-    slug, title: slug, type: 'feature', phase: 'Delivered', path: file, prs: [],
+    slug, title: slug, type: 'feature', phase: 'Delivered', path: file, prs: [], controls: { approve: false, interrogate: false, commission: false, roundsBadge: false, dispatch: false, readyToStart: false },
     sliceSummary: { waves: 2, branches: 2, eligible: 0, deferred: 0 },
   } as Card;
 }

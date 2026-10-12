@@ -38,7 +38,7 @@ const PHASE_ACCENT: Record<Phase, string> = {
  * cannot drift into disagreeing about what Ready means.
  */
 export function isReadyToStart(card: Card): boolean {
-  return card.phase === 'Development' && card.started === false;
+  return card.controls.readyToStart;
 }
 
 /**
@@ -48,28 +48,19 @@ export function isReadyToStart(card: Card): boolean {
  * where it could only fail, or hide from approved-but-unstarted plans, which is
  * the first-dispatch case the button is most for.
  *
- * **This is now exactly `phase === 'Development'`**, and it is written that way
- * rather than as the two-branch union it used to be. While Design and
- * Development split `approved` on `started`, the union named two real cases;
- * once approved maps to Development regardless, the same union reads
- * `(Development && !started) || (Development && started)` — a tautology whose
- * shape suggests a distinction the board no longer draws.
- *
- * Kept as a named predicate rather than inlined: it is the one place that says
- * *which board column means approved*, and the dispatch gate it mirrors lives
- * in a shell script that cannot import it.
+ * Reads `controls.dispatch`, which the server decides from the plan's status
+ * (`approved` or `in-progress`). Kept as a named predicate: the dispatch gate it
+ * mirrors lives in a shell script that cannot import it.
  */
 export function isApproved(card: Card): boolean {
-  return card.phase === 'Development';
+  return card.controls.dispatch;
 }
 
 /**
  * A plan still under review — the one state `/plot-approve` acts on.
  *
- * `Discovery` IS Draft on this board: the mapping is one-to-one and documented
- * in `toBoardPhase` (a plan under review is the investigation deciding whether
- * there is a commitment at all, and approval is where it ends). No other column
- * can hold a Draft plan, so the column is the honest test.
+ * Reads `controls.approve`, which the server decides from the plan's state:
+ * `draft` and `design` both qualify. The card makes no column-name judgment.
  *
  * Note what this deliberately does NOT check: whether the plan PR is ready,
  * whether one exists, what review channel the plan declared. Every one of those
@@ -81,7 +72,7 @@ export function isApproved(card: Card): boolean {
  * the plan names twice, and both halves are this one expression.
  */
 export function isDraft(card: Card): boolean {
-  return card.phase === 'Discovery';
+  return card.controls.approve;
 }
 
 /**
@@ -213,9 +204,9 @@ export function costBadgeDetail(card: Card): string {
 /**
  * The interrogation badge's text, or "" when there is nothing to say.
  *
- * **Draft only.** Past Discovery the count is history: approval settled the
- * question it measures. `isDraft` is reused so the badge, the Approve button
- * and the Interrogate button agree about what Draft means.
+ * **Draft only.** Past Draft the count is history: approval settled the
+ * question it measures. Reads `controls.roundsBadge`, which the server decides
+ * from the plan's state: `draft` qualifies and `design` does not.
  *
  * **Absent and 0 are two statements, and both render.** `undefined` means no
  * interrogation is recorded, and the badge says `not interrogated`; a recorded
@@ -225,7 +216,7 @@ export function costBadgeDetail(card: Card): string {
  * {@link roundsRecorded} tells the two apart for styling.
  */
 export function roundsBadgeText(card: Card): string {
-  if (!isDraft(card)) return '';
+  if (!card.controls.roundsBadge) return '';
   if (card.rounds === undefined) return 'not interrogated';
   return card.rounds === 1 ? '1 round' : `${card.rounds} rounds`;
 }

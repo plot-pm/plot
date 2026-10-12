@@ -144,7 +144,7 @@ The bundle and the endpoint write the state receipt through `recordStateReceipt(
 
 ### The card carries its controls
 
-- `feature/the-card-carries-its-controls` — `rules/card-controls.ts` with `cardControls` and `card-controls.test.ts`; `CardSchema.controls`, computed on the server; `isDraft`, `isApproved` and `isReadyToStart` read it, and `menus.tsx:1204`, `:1464-1466` follow; `board.ts:2204` reads `controls.dispatch`; `App.tsx:877` reads `status`; `approve.browser.test.ts:136` and the unit fixtures follow; Draft still reads in Discovery, and a Design card gains Approve and Interrogate <!-- builds: cardControls and the card's controls field -->
+- `feature/the-card-carries-its-controls` — `rules/card-controls.ts` with `cardControls` and `card-controls.test.ts`; `CardSchema.controls`, computed on the server; `isDraft`, `isApproved` and `isReadyToStart` read it, and `menus.tsx:1204`, `:1464-1466` follow; `board.ts:2204` reads `controls.dispatch`; `App.tsx:877` reads `status`; `approve.browser.test.ts:136` and the unit fixtures follow; Draft still reads in Discovery, and a Design card gains Approve and Interrogate → #1617 <!-- builds: cardControls and the card's controls field -->
 
 ### The board draws the map
 

@@ -4,7 +4,10 @@ import {
   type AgentEntry, type AgentRow, type Board, type Card, type Column, type Fleet,
   type SprintCard, type StoryCard, type Slice,
 } from '../../src/contract/schema.js';
+import { controlsFor } from '../fixtures/card-controls.js';
 import type { z } from 'zod';
+
+export { controlsFor };
 
 /**
  * THE ONE BUILDER. Every named state in the catalogue is assembled from these
@@ -102,7 +105,7 @@ export const slice = (over: Partial<SliceInput> = {}): Slice =>
   SliceSchema.parse({ ...SLICE_DEFAULTS, ...over });
 
 /** One plan card, as `/api/board` carries it. */
-const CARD_DEFAULTS: CardInput = {
+const CARD_DEFAULTS: Omit<CardInput, 'controls'> = {
   slug: 'a-plan',
   title: 'A plan',
   type: 'feature',
@@ -111,7 +114,7 @@ const CARD_DEFAULTS: CardInput = {
 };
 
 export const card = (over: Partial<CardInput> = {}): Card =>
-  CardSchema.parse({ ...CARD_DEFAULTS, ...over });
+  CardSchema.parse({ ...CARD_DEFAULTS, controls: controlsFor(over), ...over });
 
 /** One board column — a phase and the cards in it. */
 const COLUMN_DEFAULTS: ColumnInput = { phase: 'Development', cards: [] };

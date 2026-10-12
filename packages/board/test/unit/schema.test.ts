@@ -175,9 +175,11 @@ describe('PlanMetaSchema — the ceremony fields the board carries', () => {
   });
 });
 
+const NO_CONTROLS = { approve: false, interrogate: false, commission: false, roundsBadge: false, dispatch: false, readyToStart: false } as const;
+
 describe('SliceSummarySchema — plan shape and git occupancy, kept apart', () => {
   const base = {
-    slug: 'x', title: 'X', type: 'feature', phase: 'Development', path: 'docs/plans/x.md',
+    slug: 'x', title: 'X', type: 'feature', phase: 'Development', path: 'docs/plans/x.md', controls: NO_CONTROLS,
   } as const;
 
   it('is carried on the card as an optional field', () => {
@@ -190,7 +192,7 @@ describe('SliceSummarySchema — plan shape and git occupancy, kept apart', () =
     expect(card.sliceSummary?.claimed).toBe(1);
     expect(card.sliceSummary?.eligible).toBe(2);
     const bare = CardSchema.parse({
-      slug: 'y', title: 'Y', type: 'docs', phase: 'Design', path: 'docs/plans/y.md',
+      slug: 'y', title: 'Y', type: 'docs', phase: 'Design', path: 'docs/plans/y.md', controls: NO_CONTROLS,
     });
     expect(bare.sliceSummary).toBeUndefined();
   });
@@ -213,7 +215,7 @@ describe('SliceSummarySchema — plan shape and git occupancy, kept apart', () =
 });
 
 describe('CardSchema — pull requests', () => {
-  const base = { slug: 'x', title: 'X', type: 'feature', path: 'docs/plans/x.md' };
+  const base = { slug: 'x', title: 'X', type: 'feature', path: 'docs/plans/x.md', controls: NO_CONTROLS };
 
   it('carries each PR as a number, the host-supplied url, and what it said about the build', () => {
     const card = CardSchema.parse({
@@ -409,7 +411,7 @@ describe('AgentRowSchema — a branch row carries no repair', () => {
 describe('rounds — absent is not zero, on both sides of the contract', () => {
   const meta = { file: 'docs/plans/x.md', format: 'canonical', phase: 'draft' };
   const card = {
-    slug: 'x', title: 'X', type: 'feature', phase: 'Discovery', path: 'docs/plans/x.md',
+    slug: 'x', title: 'X', type: 'feature', phase: 'Discovery', path: 'docs/plans/x.md', controls: NO_CONTROLS,
   } as const;
 
   it('carries a round the helper reported', () => {

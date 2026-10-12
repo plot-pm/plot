@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
+import { controlsFor } from '../catalogue/build.js';
 import {expandAgentFolds } from '../helpers.mjs';
-import { ELIGIBLE_NOTE, DRAFT_PLAN_NOTE, type AgentRow, type Fleet, type Board } from '../../src/contract/schema.js';
+import { ELIGIBLE_NOTE, DRAFT_PLAN_NOTE, type AgentRow, type Board, type Card, type Fleet } from '../../src/contract/schema.js';
 
 /**
  * THE WHOLE OPERATOR PATH, WALKED ONCE — approve a plan, and it appears in NOT
@@ -94,8 +95,9 @@ function board(over: Record<string, unknown> = {}) {
 }
 
 /** A board card, matched to a fleet row by `path` basename === the row's `planFile`. */
-function card(slug: string, file: string, phase: string) {
-  return { slug, title: slug, type: 'feature', phase, path: file, prs: [] };
+function card(slug: string, file: string, phase: Card['phase']) {
+  const controls = controlsFor({ phase });
+  return { slug, title: slug, type: 'feature', phase, path: file, prs: [], controls };
 }
 
 /**

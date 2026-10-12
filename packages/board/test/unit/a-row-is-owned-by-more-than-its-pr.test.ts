@@ -65,7 +65,8 @@ const agent = (over: Partial<AgentEntry> = {}): AgentEntry => AgentEntrySchema.p
 });
 const card = (over: Partial<Card> = {}): Card => CardSchema.parse({
   slug: 'a-plan', title: 'A plan', type: 'feature', phase: 'Development',
-  path: 'docs/plans/2026-08-24-a-plan.md', ...over,
+  path: 'docs/plans/2026-08-24-a-plan.md',
+  controls: { approve: false, interrogate: false, commission: false, roundsBadge: false, dispatch: true, readyToStart: false }, ...over,
 });
 const column = (over: Partial<Column> = {}): Column => ColumnSchema.parse({ phase: 'Development', cards: [], ...over });
 const board = (over: Partial<Board> = {}): Board => BoardSchema.parse({

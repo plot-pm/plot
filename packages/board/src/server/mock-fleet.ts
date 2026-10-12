@@ -1,5 +1,6 @@
 import { planRecord } from '@plot-pm/domain/adapters';
-import type { FleetReading, PlanRecord } from '@plot-pm/domain';
+import { cardControls } from '@plot-pm/domain';
+import type { FleetReading, PlanRecord, PlanStatus } from '@plot-pm/domain';
 
 import { FleetSchema, RowKindSchema } from '../contract/schema.js';
 import type { Fleet, AgentRow, Card, Column } from '../contract/schema.js';
@@ -462,14 +463,21 @@ export const MOCK_KINDS = RowKindSchema.options;
  * see `PlanCard`'s `isReadyToStart`, which read `phase === 'Design'` until #289.
  */
 export function mockCards(): Column[] {
-  const card = (over: Partial<Card> & Pick<Card, 'slug' | 'title' | 'path'>): Card => ({
-    type: 'feature', phase: 'Development', prs: [], ...over,
-  } as Card);
+  // Each card states the plan's state and status, and `cardControls` answers its
+  // controls from them, as `buildBoard` does.
+  const card = (
+    plan: { state: string; status: PlanStatus },
+    over: Partial<Card> & Pick<Card, 'slug' | 'title' | 'path'>,
+  ): Card => {
+    const controls = cardControls({ ...plan, started: over.started ?? false });
+    return { type: 'feature', phase: 'Development', prs: [], controls, ...over } as Card;
+  };
+  const approved = { state: 'approved', status: 'approved' } as const;
   return [
     {
       phase: 'Development',
       cards: [
-        card({
+        card(approved, {
           slug: 'fleet-scan-asks-the-host',
           title: 'The fleet scan asks the host once, not once per branch',
           path: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
@@ -478,13 +486,13 @@ export function mockCards(): Column[] {
           // Development that nothing has begun.
           started: false,
         }),
-        card({
+        card(approved, {
           slug: 'every-section-has-one-subject',
           title: 'Every section has one subject',
           path: 'docs/plans/2026-08-20-every-section-has-one-subject.md',
           story: 'plot-board', started: true,
         }),
-        card({
+        card(approved, {
           slug: 'a-row-is-a-tuple',
           title: 'A row is a tuple',
           path: 'docs/plans/2026-08-20-a-row-is-a-tuple.md',
@@ -495,7 +503,7 @@ export function mockCards(): Column[] {
     {
       phase: 'Testing',
       cards: [
-        card({
+        card({ state: 'delivered', status: 'delivered' }, {
           slug: 'opus5-longhorizon-hardening',
           title: 'Opus 5 long-horizon hardening',
           path: 'docs/plans/2026-07-25-opus5-longhorizon-hardening.md',

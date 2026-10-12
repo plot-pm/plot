@@ -79,7 +79,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
 /** An Approved card for a plan, matched to a fleet row by `path` basename. */
 function approvedCard(slug: string, file: string) {
   return {
-    slug, title: slug, type: 'feature', phase: 'Approved', path: file, prs: [],
+    slug, title: slug, type: 'feature', phase: 'Approved', path: file, prs: [], controls: { approve: false, interrogate: false, commission: false, roundsBadge: false, dispatch: true, readyToStart: true },
   };
 }
 

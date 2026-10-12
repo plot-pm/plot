@@ -1,15 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { roundsBadgeClass, roundsBadgeText, roundsRecorded } from '../../src/app/components/PlanCard.js';
 import { AgentRowSchema, CardSchema, type Card } from '../../src/contract/schema.js';
+import { controlsFor } from '../fixtures/card-controls.js';
 
 // What a card SAYS about how hard its plan has been questioned. The interesting
 // cases are the ones where the honest answer is nothing at all — an absent
 // count and a settled plan both render no badge, for different reasons.
 
-const card = (over: Partial<Card> = {}): Card => ({
-  slug: 'x', title: 'X', type: 'feature', phase: 'Discovery',
-  path: 'docs/plans/2026-08-17-x.md', prs: [], phaseDate: '', ...over,
-});
+// The controls come from the column's plan state through `cardControls`, the
+// rule the server calls: a Draft card carries the badge and a Design card does not.
+const card = (over: Partial<Card> = {}): Card => {
+  const phase = over.phase ?? 'Discovery';
+  return {
+    slug: 'x', title: 'X', type: 'feature', phase,
+    path: 'docs/plans/2026-08-17-x.md', prs: [], phaseDate: '',
+    controls: controlsFor({ phase }), ...over,
+  };
+};
 
 describe('roundsBadgeText', () => {
   it('shows the round on a Draft card', () => {
