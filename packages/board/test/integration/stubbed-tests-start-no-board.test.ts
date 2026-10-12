@@ -456,7 +456,10 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 60 → 61 on 2026-10-10: `page-hears-channel.browser.test.ts`, for the page's
 // refetch on a channel event. It serves its state through the catalogue and
 // starts no board.
-const EXPECTED_FILES = 61;
+// 61 → 62 on 2026-10-12: `refuted-badge.browser.test.ts`, for the refuted badge
+// on a Delivered card. A plain addition; it serves its state through the
+// catalogue and starts no board.
+const EXPECTED_FILES = 62;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -671,7 +674,9 @@ const EXPECTED_FILES = 61;
 // 557 → 558 on 2026-10-11: one `it(` in `page-hears-channel.browser.test.ts`,
 // proving two pages of one browser open one stream. The file already drove a
 // page, so `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 558;
+// 558 → 560 on 2026-10-12: the two `it(` of `refuted-badge.browser.test.ts`,
+// a new file counted in `EXPECTED_FILES` above.
+const EXPECTED_TESTS = 560;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
