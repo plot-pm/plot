@@ -459,7 +459,7 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 61 → 62 on 2026-10-12: `refuted-badge.browser.test.ts`, for the refuted badge
 // on a Delivered card. A plain addition; it serves its state through the
 // catalogue and starts no board.
-const EXPECTED_FILES = 62;
+const EXPECTED_FILES = 63;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -676,7 +676,9 @@ const EXPECTED_FILES = 62;
 // page, so `EXPECTED_FILES` is unchanged.
 // 558 → 560 on 2026-10-12: the two `it(` of `refuted-badge.browser.test.ts`,
 // a new file counted in `EXPECTED_FILES` above.
-const EXPECTED_TESTS = 560;
+const EXPECTED_TESTS = 564;
+// 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
+// the three spike card states and the confirm control. Added, not moved.
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
