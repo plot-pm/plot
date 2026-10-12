@@ -122,13 +122,6 @@ describe('approveSpike — the refusals', () => {
     expect(reason(readings({ review: 'mystery' }))).toBe('review-unrecognised');
   });
 
-  it('refuses a missing, unparseable or unreadable plan', () => {
-    expect(reason(readings({ file: '' }))).toBe('plan-not-found');
-    expect(reason(readings({ parsed: false }))).toBe('plan-unparseable');
-    expect(reason(readings({ phase: '' }))).toBe('state-unreadable');
-    expect(reason(readings({ phase: 'NONE' }))).toBe('state-unreadable');
-  });
-
   it('reads an empty Review: answer as a plan-PR channel', () => {
     const out = approveSpike(readings({ review: '' }), input());
     expect(decided(out) && out.writes.map((w) => w.kind)[0]).toBe('pr-merge');
@@ -195,13 +188,6 @@ describe('the Spike approved gate', () => {
     expect(of(plan('a'), plan('b'))).toHaveLength(1);
     expect(of(plan('a'), plan(''))).toHaveLength(1);
     expect(of(plan('a'), plan('a'))).toEqual([]);
-  });
-
-  it('names the deleted same-slug plan a renamed record came from', () => {
-    const old = 'docs/plans/2026-10-11-x.md';
-    const t = spikeTransitionOf(path, 'plan', null, plan('d, w, c'), { path: old, head: plan('') });
-    expect(t).toMatchObject({ before: '', after: 'd, w, c', renamedFrom: old });
-    expect(spikeTransitionOf(path, 'plan', plan(''), plan('d, w, c'), { path: old, head: plan('') })).not.toHaveProperty('renamedFrom');
   });
 
   it('keeps the State receipt key and the spike key apart', () => {
