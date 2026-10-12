@@ -184,6 +184,12 @@ export interface QueueReadings {
   /** Every registered agent, in registry order. */
   agents: readonly QueueAgent[];
   /**
+   * How many verify runs are going. Each holds a process slot beside the
+   * agents, so `scaleUp` counts it as running; {@link matchQueue} never reads it.
+   * Absent means none.
+   */
+  verifying?: number;
+  /**
    * How fully the host answered which branches merged, where it was asked.
    *
    * **OPTIONAL BECAUSE IT IS A REPORT AND NOT A MATCHING INPUT.**
