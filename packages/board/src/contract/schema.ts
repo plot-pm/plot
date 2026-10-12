@@ -174,6 +174,8 @@ export const PlanMetaSchema = z.preprocess(readEitherSpelling, z.object({
    * the phase, and never to now.
    */
   delivered_raw: z.string().default(''),
+  /** The `Verified:` record as written; `''` where the plan has none. */
+  verified_raw: z.string().default(''),
   started_raw: z.array(z.string()).default([]),
   /**
    * How many rounds of `/plot:challenge-the-plan` this plan has been through.
@@ -459,6 +461,17 @@ export const CardSchema = z.object({
    * which is card-only for the same reason.
    */
   rounds: z.number().optional(),
+  /**
+   * The verification state of a Delivered plan, decided by the domain's
+   * `verificationOf`. ATTACHED ONLY TO A DELIVERED PLAN: a card in any other
+   * phase has no record to read, and `unverified` is not a statement about it.
+   * `refuted` is the count of refuted claim lines the reader could parse; a line
+   * it cannot parse is left out of the count, never guessed.
+   */
+  verification: z.object({
+    state: z.enum(['unverified', 'supported', 'refuted', 'stale']),
+    refuted: z.number(),
+  }).optional(),
   /**
    * What this plan's slices cost, summed over the ones measured on THIS
    * machine, with the unmeasured ones counted beside the sum.

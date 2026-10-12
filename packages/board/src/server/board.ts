@@ -24,6 +24,7 @@ import {
   type SliceSummary,
   type StoryStatus,
   type StoryStanding } from '../contract/schema.js';
+import { refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
 import {
   allSlicesMerged,
   deliveryPulse as chooseDeliveryPulse,
@@ -2020,9 +2021,21 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
   // a count and a wrong one only for a decision.
   const lastComplete = lastCompletePulseFor(opts);
   const cards: Card[] = [];
+  const deliveredReadings = new Map<string, { text: string; deliveryCommit: string | null }>();
   let metas: PlanMeta[];
   try {
     metas = await readPlanMeta(opts, [...files, ...staged]);
+    // The staged copies are deleted below, so the text a Delivered plan's
+    // verification record is read from is taken while they exist.
+    for (const meta of metas) {
+      if (meta.phase !== 'delivered') continue;
+      const text = (() => { try { return fs.readFileSync(meta.file, 'utf8'); } catch { return null; } })();
+      if (text === null) continue;
+      const canonical = canonicalPath.get(meta.file);
+      const rel = canonical ?? path.relative(repoRoot, meta.file);
+      const found = await refs.recordCommit(rel, 'Delivered');
+      deliveredReadings.set(meta.file, { text, deliveryCommit: found.ok ? found.value : null });
+    }
   } finally {
     // The staged copies exist only for the duration of that one parse. Removed
     // in a `finally` so a parser failure cannot leave temp directories behind
@@ -2162,6 +2175,14 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
       // card built by a server too old to have looked.
       phaseDate: phaseDateOf(deliverable ? 'delivered' : meta.phase, meta),
     };
+    const delivered = deliveredReadings.get(meta.file);
+    if (delivered !== undefined) {
+      const plan = { text: delivered.text, tracer: meta.tracer, deliveredRaw: meta.delivered_raw };
+      card.verification = {
+        state: verificationOf(plan, delivered.deliveryCommit),
+        refuted: refutedClaims(delivered.text).length,
+      };
+    }
     if (meta.sprint) card.sprint = meta.sprint;
     if (meta.story) card.story = meta.story;
     if (meta.assignee) card.assignee = meta.assignee;
