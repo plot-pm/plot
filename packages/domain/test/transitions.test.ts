@@ -53,8 +53,8 @@ describe('approve', () => {
     expect(result.field).toBe('Approved');
   });
 
+  it('approves a design plan, the forward exit from the transitional phase', () => {
     const result = approve(planWith({ phase: 'design' }), approvedBy({ who: 'jwloka', channel: 'in-session' }));
-    const result = approve(planWith({ phase: 'design' }), approvedBy({ who: 'Jan Wloka', channel: 'plan-PR #42 merged' }));
     expect(isDecision(result)).toBe(true);
   });
 
