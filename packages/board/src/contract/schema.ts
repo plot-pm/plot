@@ -3966,6 +3966,31 @@ export const DraftPlanSchema = z.object({
 });
 export type DraftPlan = z.infer<typeof DraftPlanSchema>;
 
+/**
+ * The fleet's automatic verification, as `plot-fleetd` last wrote it to
+ * `.plot/state/auto-verify-in-flight.json`.
+ */
+export const VerificationStatusSchema = z.object({
+  /** Whether the fleet starts no verify run of any plan: three failed runs since the last success. */
+  halted: z.boolean(),
+  /** The plans with a run the fleet started that has not settled. */
+  running: z.array(z.string()),
+  /** The last reason the fleet gave per plan for starting no run. */
+  refusals: z.record(z.string(), z.string()),
+  /** The plans whose verification waits on a person, with the restart command. */
+  rows: z.array(
+    z.object({
+      slug: z.string(),
+      reason: z.string(),
+      log: z.string(),
+      restart: z.string(),
+      stopped: z.boolean(),
+      fleetHalted: z.boolean(),
+    }),
+  ),
+});
+export type VerificationStatus = z.infer<typeof VerificationStatusSchema>;
+
 export const FleetShape = z.object({
   generatedAt: z.string(),
   /** Seconds since the cached scan completed — the tab shows this. */
@@ -4394,6 +4419,12 @@ export const FleetShape = z.object({
    * default is also the "unknown host" answer, so the two are consistent.
    */
   branchUrlBase: z.string().default(''),
+  /**
+   * The fleet's automatic verification: the halt, the runs, the refusal per
+   * plan and the *Waiting on you* rows. `null` where the state file cannot be
+   * read. The board renders no row from it yet.
+   */
+  verification: VerificationStatusSchema.nullable().default(null),
 });
 export const FleetSchema = z.preprocess(readEitherSpelling, FleetShape);
 export type Fleet = z.infer<typeof FleetSchema>;

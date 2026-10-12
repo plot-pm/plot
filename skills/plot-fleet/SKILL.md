@@ -36,7 +36,7 @@ give the old behaviour to somebody asking for fleet control.
 
 | Verb | What it does |
 |------|--------------|
-| `--status` | Is the supervisor alive, which agents run, how long each has been quiet, and which other Plot processes run on this machine. **Starts nothing.** |
+| `--status` | Is the supervisor alive, which agents run, how long each has been quiet, which other Plot processes run on this machine, and what automatic verification did. **Starts nothing.** |
 | `--once` | One supervisor tick against the live estate, then exit. **The gate.** |
 | `--start [N]` | Probe, fill the unit, load it, then bring up N free agents. |
 | `--stop` | Stop every dispatched agent through `/plot-dispatch --stop`, then unload the supervisor. |
@@ -100,6 +100,14 @@ tick is a crash loop with a restart policy.
 **It starts nothing** — a status that started what it was asked about could
 never report an absence. Exit 0 means the supervisor is loaded, 1 means it is
 not, so a caller can gate on it without parsing prose.
+
+**Then print the verification block.** Run this after the status script and print its output below the status:
+
+```bash
+node ../plot/scripts/board/plot-verify.mjs status
+```
+
+It reads `.plot/state/auto-verify-in-flight.json`, which the supervisor's verify pass writes, and starts nothing. It prints whether verification is halted, the plan whose run is going, the reason the fleet gave per Delivered plan for starting no run (`off`, `starved`, `no-free-agent`, `queue-unread`, `running`, `hand-run`, `tracer`, `halted`, `stopped`, `waiting`), and each plan that waits on a person with its restart command `/plot-deliver --verify <slug>`. It prints nothing when the fleet recorded nothing. The same reading is the `verification` field of the board's `/api/fleet` payload.
 
 **A second block follows the `summary:` line when another checkout is involved.**
 It lists every Plot supervisor, board and top-level scan on this machine, found
