@@ -9,5 +9,5 @@ A person can move a Draft plan to Design from the board's Needs design button, f
 plan: docs/plans/2026-10-12-the-phases-are-declared.md
 bumps:
   skills:
-    plot-approve: minor
+    plot: minor
 -->
