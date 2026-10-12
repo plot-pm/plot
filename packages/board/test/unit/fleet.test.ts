@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
-  agentPr, classify, compareWithinGroup, draftNote, humanAge, prState, prStates, rowPhase, rowsFromPulse,
+  agentPr, classify, compareWithinGroup, draftNote, humanAge, prState, prStates, rowsFromPulse,
   rateLimitBackoffMs,
   prGateOpen,
   prNextDueAt,
@@ -19,12 +19,12 @@ import {
 import { workerQuestions } from '@plot-pm/fleet/shared/worker-question';
 import { rmTree } from '../helpers.mjs';
 import {
-  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, PR_UNKNOWN_NOTE, toBoardPhase, unknownPhaseNote,
+  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, PR_UNKNOWN_NOTE, unknownPhaseNote,
   type AgentRow, type FleetReading,
 } from '../../src/contract/schema.js';
 import { showsWorkerLog } from '../../src/app/components/AgentList.js';
 import type { PrRecord } from '../../src/server/fleet.js';
-import { prRowPlacement } from '@plot-pm/domain';
+import { parsePhaseMap, prRowPlacement } from '@plot-pm/domain';
 
 // The classifier is where the tab's judgments live: which group a branch lands
 // in IS the answer to "what should I do next". Tested as pure functions rather
@@ -1534,102 +1534,6 @@ describe('the section follows the plan through rowsFromPulse', () => {
   });
 });
 
-describe('rowPhase — derived from the PAIR, never from the plan file alone', () => {
-  // The whole reason this function exists rather than a field carried straight
-  // through: reading the plan file alone produces rows that contradict
-  // themselves, and the repo had the example sitting in it.
-
-  it('walks a same-branch plan Discovery → Development as its plan moves', () => {
-    // `board-ui-polish` is the case that made this concrete: its plan was
-    // written, interrogated and approved ON the branch an agent then built on,
-    // so one row passed through Discovery and then Development. Design is no
-    // longer a stop on this path — it is its own phase, entered deliberately
-    // for a spike, not a state an approved-unstarted row falls into.
-    expect(rowPhase('draft', 'wip')).toBe('Discovery');
-    expect(rowPhase('approved', 'claimed')).toBe('Development');
-    expect(rowPhase('approved', 'wip')).toBe('Development');
-  });
-
-  it('reads a Design plan as Design on its rows', () => {
-    // Design is a real phase now. A row for a plan in Design says Design
-    // whatever its branch state — the work is human-led and git does not
-    // promote it out.
-    expect(rowPhase('design', 'open')).toBe('Design');
-    expect(rowPhase('design', 'wip')).toBe('Design');
-    expect(rowPhase('design', 'merged')).toBe('Design');
-    expect(rowPhase('design', 'deferred')).toBe('Design');
-  });
-
-  it('reads an approved plan as Development on every branch state', () => {
-    // The opus5 shape that motivated this derivation — Phase: Approved, zero
-    // Started: records, real commits on six branches — no longer diverges: an
-    // approved plan is Development whether the branch has work, an empty claim,
-    // or nothing. The board card and the row agree by construction, which is
-    // what the Design-is-a-phase change bought.
-    expect(rowPhase('approved', 'wip')).toBe('Development');
-    expect(rowPhase('approved', 'merged')).toBe('Development');
-    expect(rowPhase('approved', 'claimed')).toBe('Development');
-    expect(rowPhase('approved', 'open')).toBe('Development');
-  });
-
-  it('keeps a delivered plan at Testing when a late commit lands', () => {
-    // "git wins" is about an ABSENT record, not about overruling a recorded
-    // decision. A missing `Started:` line is nobody having written something
-    // down; a commit after delivery contradicts something a human wrote, and a
-    // follow-up fix does not repeal it.
-    //
-    // Load-bearing: the SYMMETRIC implementation — git evidence overriding the
-    // plan in both directions — passes every other test in this file and fails
-    // only here. Without it, a plan goes visibly backwards for a typo fix.
-    expect(rowPhase('delivered', 'wip')).toBe('Testing');
-    expect(rowPhase('delivered', 'merged')).toBe('Testing');
-    expect(rowPhase('released', 'wip')).toBe('Released');
-  });
-
-  it('reads a deferred branch from the plan phase, git ignored', () => {
-    // `deferred` is not "paused, resuming later": the vocabulary says the
-    // branch isn't needed and was given up deliberately, and /plot-deliver
-    // skips deferred branches in its completeness gate. So the row is read from
-    // the plan's own phase, not from whatever commits the branch carries.
-    //
-    // With the Design fork gone, an approved plan is Development whether or not
-    // its branch was handed back — the divergence this case once produced
-    // (Development for real commits vs Design for a deferred one) is gone. The
-    // `deferred` FACT is not lost: it rides the `state` badge, not the phase.
-    expect(rowPhase('approved', 'deferred')).toBe('Development');
-    expect(rowPhase('draft', 'deferred')).toBe('Discovery');
-  });
-
-  it('leaves a deferred branch alone once the plan is past deciding', () => {
-    expect(rowPhase('delivered', 'deferred')).toBe('Testing');
-    expect(rowPhase('released', 'deferred')).toBe('Released');
-  });
-
-  it('names no phase where none is honest', () => {
-    // rejected / superseded / a pulse from a scan too old to report one. An
-    // empty cell beats a guessed column.
-    expect(rowPhase('rejected', 'wip')).toBeNull();
-    expect(rowPhase('', 'wip')).toBeNull();
-  });
-
-  it('calls toBoardPhase rather than restating the mapping', () => {
-    // A second copy is how the two views drift apart, and the board's column
-    // and the row's word are the same claim about the same plan. Asserted as an
-    // agreement rather than by inspection: every phase word rowPhase can
-    // produce must be one toBoardPhase produced for the same inputs.
-    for (const p of ['draft', 'design', 'approved', 'delivered', 'released', 'rejected', '']) {
-      // The un-started half: no branch, an empty claim, or work handed back.
-      for (const state of ['open', 'claimed', 'deferred'] as const) {
-        expect(rowPhase(p, state)).toBe(toBoardPhase(p, false));
-      }
-      // And the started half, which git alone decides.
-      for (const state of ['wip', 'merged'] as const) {
-        expect(rowPhase(p, state)).toBe(toBoardPhase(p, true));
-      }
-    }
-  });
-});
-
 // --- a claim is not a worker -------------------------------------------------
 //
 // On 2026-08-17 three rows sat in WORKING with a pulsing green dot while nobody
@@ -2358,17 +2262,32 @@ describe('rowsFromPulse', () => {
       expect(rows.every((r) => r.phase === null)).toBe(true);
     });
 
-    it('calls an idea branch Discovery, and every other planless branch nothing', () => {
-      // An idea branch CARRIES a plan under review, and a plan under review is
-      // Discovery by definition. A release branch carries no plan at all, and
-      // `Discovery` on it would be a confident wrong answer.
+    it('reads an idea branch in the phase that holds a draft plan, and every other planless branch nothing', () => {
+      // An idea branch CARRIES a plan under review, so its row sits wherever the
+      // declared map puts `draft` — Design under the default map. A release
+      // branch carries no plan at all, and a phase on it would be a confident
+      // wrong answer.
       const prs = new Map([
         ['idea/some-slug', pr({ head: 'idea/some-slug' })],
         ['changeset-release/main', pr({ head: 'changeset-release/main' })],
       ]);
       const rows = rowsFromPulse(pulse, ages, 'plot', QUIET, prs);
-      expect(rows.find((r) => r.branch === 'idea/some-slug')!.phase).toBe('Discovery');
+      expect(rows.find((r) => r.branch === 'idea/some-slug')!.phase).toBe('Design');
       expect(rows.find((r) => r.branch === 'changeset-release/main')!.phase).toBeNull();
+    });
+
+    it('names a row\'s phase from the declared map, not from the five defaults', () => {
+      const parsed = parsePhaseMap('Idea = plan:draft, plan:design; Build = plan:approved; Done = plan:delivered, plan:released');
+      if (!parsed.ok) throw new Error('fixture map must parse');
+      const prs = new Map([['idea/some-slug', pr({ head: 'idea/some-slug' })]]);
+      const rows = (state: string) => rowsFromPulse(
+        withPhase(state), ages, 'plot', QUIET, prs,
+        // The 14 optional parameters between `prs` and `phaseMap`, all defaulted.
+        ...Array(14).fill(undefined) as [], parsed.map,
+      );
+      expect(rows('approved').filter((r) => r.branch.startsWith('feature/')).every((r) => r.phase === 'Build')).toBe(true);
+      expect(rows('delivered').filter((r) => r.branch.startsWith('feature/')).every((r) => r.phase === 'Done')).toBe(true);
+      expect(rows('approved').find((r) => r.branch === 'idea/some-slug')!.phase).toBe('Idea');
     });
 
     it('gives a deferred branch the phase AND the fact, not one or the other', () => {

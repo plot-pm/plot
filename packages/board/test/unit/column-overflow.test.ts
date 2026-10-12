@@ -164,7 +164,7 @@ describe('truncateColumn — a highlighted card is never hidden', () => {
   });
 });
 
-describe('phaseDateOf — each column measures recency on its own clock', () => {
+describe('phaseDateOf — each plan state measures recency on its own clock', () => {
   const dates = {
     design_raw: '2026-01-01, jwloka, tracer bullet',
     approved_raw: '2026-02-02, jwloka, plan-PR #146 merged',
@@ -176,37 +176,37 @@ describe('phaseDateOf — each column measures recency on its own clock', () => 
     // The mapping is the load-bearing half. One record for every column would
     // sort at least three of them by a date that is not theirs — and the result
     // looks sorted, which is why it needs pinning rather than eyeballing.
-    expect(phaseDateOf('Released', meta(dates))).toBe('2026-08-08');
-    expect(phaseDateOf('Testing', meta(dates))).toBe('2026-05-05');
+    expect(phaseDateOf('released', meta(dates))).toBe('2026-08-08');
+    expect(phaseDateOf('delivered', meta(dates))).toBe('2026-05-05');
   });
 
   it('reads Design by its DESIGN date and Development by its APPROVAL date', () => {
     // Design is its own phase now, with its own record: a plan in Design has a
     // `Design:` date but not yet an `Approved:` one, so the two columns cannot
     // share a clock. Development sorts by approval, Design by entry into Design.
-    expect(phaseDateOf('Design', meta(dates))).toBe('2026-01-01');
-    expect(phaseDateOf('Development', meta(dates))).toBe('2026-02-02');
+    expect(phaseDateOf('design', meta(dates))).toBe('2026-01-01');
+    expect(phaseDateOf('approved', meta(dates))).toBe('2026-02-02');
   });
 
   it('gives a Design card no date when it records no Design: line', () => {
     // Same discipline as Testing/Released: no borrowing another phase's record.
     // A Design column with no design_raw sorts by arrival, not by approval.
-    expect(phaseDateOf('Design', meta({ approved_raw: '2026-02-02' }))).toBe('');
+    expect(phaseDateOf('design', meta({ approved_raw: '2026-02-02' }))).toBe('');
   });
 
-  it('gives Discovery no date at all', () => {
+  it('gives a draft plan no date at all', () => {
     // Correct rather than a gap: a Draft plan has recorded no transition, so
     // there is nothing it is recent BY. Asserted with every other record
     // present, so a fallback chain would fail here.
-    expect(phaseDateOf('Discovery', meta(dates))).toBe('');
+    expect(phaseDateOf('draft', meta(dates))).toBe('');
   });
 
   it('never falls back to another phase\'s record', () => {
     // A delivered-not-released plan is the state of five plans today. Reading
     // its release date must yield "" rather than borrowing the delivery date —
     // a plausible order that answers a different question.
-    expect(phaseDateOf('Released', meta({ delivered_raw: '2026-05-05' }))).toBe('');
-    expect(phaseDateOf('Testing', meta({ approved_raw: '2026-01-01' }))).toBe('');
+    expect(phaseDateOf('released', meta({ delivered_raw: '2026-05-05' }))).toBe('');
+    expect(phaseDateOf('delivered', meta({ approved_raw: '2026-01-01' }))).toBe('');
   });
 });
 

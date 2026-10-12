@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { allSlicesMerged } from '../../src/server/board.js';
-import { toBoardPhase, PlanMetaSchema, type FleetReading } from '../../src/contract/schema.js';
+import { DEFAULT_PHASE_MAP, phaseOfPlan } from '@plot-pm/domain';
+import { PlanMetaSchema, type FleetReading } from '../../src/contract/schema.js';
 
 // A plan whose every non-deferred branch has merged reaches the phase after
 // Development on its own — detection the scan already does, now read by the
@@ -321,17 +322,15 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
   });
 });
 
-describe('the bump reaches the phase after Development, read from the mapping', () => {
-  // The wiring in `buildBoard` computes the target as `toBoardPhase('delivered')`
-  // rather than a literal, so the rename wave (Named: Testing → Testing) needs no
-  // edit here — the mapping stays the one definition of which column `delivered`
-  // lands in, and this derivation follows it. Pinning the current value keeps the
-  // reference discoverable; the rename wave updates this one line, not the logic.
+describe('the bump reaches the phase after Development, read from the map', () => {
+  // `buildBoard` computes the target as `phaseOfPlan(map, { state: 'delivered' })`
+  // rather than a literal, so a declared map decides which column `delivered`
+  // lands in and this derivation follows it.
   it('is the same column a delivered plan lands in', () => {
-    const afterDevelopment = toBoardPhase('delivered');
+    const afterDevelopment = phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'delivered' });
     expect(afterDevelopment).toBe('Testing');
     // ...and it is NOT Development — the bump must actually move the card.
     expect(afterDevelopment).not.toBe('Development');
-    expect(afterDevelopment).not.toBe(toBoardPhase('approved'));
+    expect(afterDevelopment).not.toBe(phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'approved' }));
   });
 });

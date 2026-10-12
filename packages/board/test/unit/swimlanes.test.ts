@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildLanes, LANE_PHASES } from '../../src/app/components/Swimlanes.js';
+import { buildLanes, lanePhases } from '../../src/app/components/Swimlanes.js';
 import { BOARD_PHASES, type Board, type Card, type Phase, type StoryCard }
   from '../../src/contract/schema.js';
 
@@ -80,11 +80,11 @@ describe('buildLanes', () => {
 
     const inColumns = board.columns.flatMap((c) => c.cards.map((x) => x.slug)).sort();
     // What a lane actually renders: for each lane, the cards it buckets into
-    // each of LANE_PHASES — the same expression the component uses.
+    // each of lanePhases(board) — the same expression the component uses.
     const lanes = buildLanes(board.columns.flatMap((c) => c.cards), board.stories);
     const inLanes = lanes
-      .flatMap((lane) => LANE_PHASES.flatMap(
-        (phase) => lane.cards.filter((c) => c.phase === phase).map((c) => c.slug),
+      .flatMap((lane) => lanePhases(board).flatMap(
+        ({ phase }) => lane.cards.filter((c) => c.phase === phase).map((c) => c.slug),
       ))
       .sort();
 
@@ -93,10 +93,11 @@ describe('buildLanes', () => {
     expect(inLanes).toContain('under-review');
   });
 
-  it('renders every board phase as a lane column, Discovery included', () => {
-    // Pinned as a list rather than as "does not filter", so a future filter of
-    // any shape fails here.
-    expect(LANE_PHASES).toEqual(BOARD_PHASES);
+  it('renders the payload\'s own columns as lane columns, in payload order', () => {
+    // Pinned as the payload's list rather than as "does not filter", so a future
+    // filter of any shape fails here — and a declared map needs no second list.
+    const board = { columns: [{ phase: 'Idea' }, { phase: 'Build' }] } as unknown as Board;
+    expect(lanePhases(board).map((c) => c.phase)).toEqual(['Idea', 'Build']);
   });
 
   it('carries the story status into the row subtitle', () => {

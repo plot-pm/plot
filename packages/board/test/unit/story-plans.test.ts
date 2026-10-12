@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import type { Card } from '../../src/contract/schema';
 import { plansInStory } from '../../src/app/components/StoryModal';
 
+const PHASES = ['Discovery', 'Design', 'Development', 'Testing', 'Released'];
+
 /** A card with only the fields the story overlay's plan list reads. */
 function card(slug: string, phase: Card['phase'], story?: string): Card {
   return {
@@ -23,7 +25,7 @@ describe('plansInStory', () => {
       card('mulch', 'Testing', 'berry-patch'),
       card('loose', 'Design'),
     ];
-    expect(plansInStory(cards, 'berry-patch').map((c) => c.slug)).toEqual(['netting', 'mulch']);
+    expect(plansInStory(cards, 'berry-patch', PHASES).map((c) => c.slug)).toEqual(['netting', 'mulch']);
   });
 
   it('orders by board phase, so the list reads as a pipeline', () => {
@@ -32,8 +34,15 @@ describe('plansInStory', () => {
       card('idea', 'Discovery', 's'),
       card('building', 'Development', 's'),
     ];
-    expect(plansInStory(cards, 's').map((c) => c.phase)).toEqual([
+    expect(plansInStory(cards, 's', PHASES).map((c) => c.phase)).toEqual([
       'Discovery', 'Development', 'Released',
+    ]);
+  });
+
+  it('orders by the phases it is given, so a declared map sets the pipeline', () => {
+    const cards = [card('done', 'Done', 's'), card('idea', 'Idea', 's'), card('build', 'Build', 's')];
+    expect(plansInStory(cards, 's', ['Idea', 'Build', 'Done']).map((c) => c.phase)).toEqual([
+      'Idea', 'Build', 'Done',
     ]);
   });
 
@@ -50,7 +59,7 @@ describe('plansInStory', () => {
       card('netting', 'Design', 'berry-patch'),
       card('compost', 'Testing', 'berry-patch'),
     ];
-    const derived = plansInStory(cards, 'berry-patch').map((c) => c.slug);
+    const derived = plansInStory(cards, 'berry-patch', PHASES).map((c) => c.slug);
     expect(derived).toEqual(['netting', 'compost']);
     expect(storyProse).toContain('Dig the second bed');
     expect(derived).not.toContain('second-bed');
@@ -59,13 +68,13 @@ describe('plansInStory', () => {
   it('answers empty for a story with no plans, rather than throwing', () => {
     // "Shaped, nothing planned yet" is a real state — the same one the swimlane
     // row states as "no plans yet".
-    expect(plansInStory([card('loose', 'Design')], 'berry-patch')).toEqual([]);
+    expect(plansInStory([card('loose', 'Design')], 'berry-patch', PHASES)).toEqual([]);
   });
 
   it('does not mutate the caller\'s array while sorting', () => {
     const cards = [card('b', 'Released', 's'), card('a', 'Discovery', 's')];
     const before = cards.map((c) => c.slug);
-    plansInStory(cards, 's');
+    plansInStory(cards, 's', PHASES);
     expect(cards.map((c) => c.slug)).toEqual(before);
   });
 });

@@ -1,64 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { toBoardPhase, BOARD_PHASES, PHASE_LEADERSHIP } from '../../src/contract/schema.js';
+import { BOARD_PHASES, PHASE_LEADERSHIP } from '../../src/contract/schema.js';
 import { countChecklist } from '../../src/server/board.js';
 
-describe('toBoardPhase', () => {
-  it('reads Design as its own phase — design in progress, not an absence', () => {
-    // The substantive change: Design is a real phase Plot has, not a state the
-    // board infers from approved-and-unstarted. A plan in Design is one where a
-    // question approval cannot answer still stands — a spike, a tracer bullet,
-    // a spec against reality — and someone is doing that work.
-    expect(toBoardPhase('design')).toBe('Design');
-    // `started` must not move it either way: entering Design is a human act, and
-    // a stray flag cannot promote design work out of its own column.
-    expect(toBoardPhase('design', false)).toBe('Design');
-    expect(toBoardPhase('design', true)).toBe('Design');
-  });
-
-  it('reads Approved as Development, started or not', () => {
-    // The other half of the change: an approved plan is Development whether or
-    // not a branch has started. Approved-but-unstarted is work waiting for an
-    // agent — it belongs beside the Start button in Development, not in Design.
-    // The measured case (three approved-unstarted plans) moves out of Design.
-    expect(toBoardPhase('approved', false)).toBe('Development');
-    expect(toBoardPhase('approved', true)).toBe('Development');
-  });
-
-  it('ends Development at the merge — Delivered is Testing alone', () => {
-    // A column is a partition. Delivered means the code landed and the agents
-    // are done; verification and signoff are human-led.
-    expect(toBoardPhase('delivered')).toBe('Testing');
-    expect(toBoardPhase('delivered', true)).toBe('Testing');
-  });
-
-  it('reads Draft as Discovery — the phase where the plan is still being found', () => {
-    // Draft IS the discovery phase: a plan under review is the investigation
-    // deciding whether there is a commitment, and approval is where discovery
-    // ends. Mapping it to Design put finished designs and unfinished ones in
-    // one column, and left Discovery a column that could never hold anything.
-    expect(toBoardPhase('draft')).toBe('Discovery');
-    // `started` must not move it: a Draft plan has no Started: record, and a
-    // stray flag must not promote one out of Discovery.
-    expect(toBoardPhase('draft', true)).toBe('Discovery');
-  });
-
-  it('keeps Released in Released', () => {
-    expect(toBoardPhase('released')).toBe('Released');
-  });
-
-  it('returns null for states the board does not render', () => {
-    // Rejected/superseded/unknown plans must not silently land in a column.
-    expect(toBoardPhase('rejected')).toBeNull();
-    expect(toBoardPhase('')).toBeNull();
-  });
-
-  it('ignores a defaulted started flag — approved is Development regardless', () => {
-    // `started` no longer forks the answer, so a caller that omits it lands in
-    // the same column as one that passes either value. The parameter survives
-    // only so the board and rowPhase compose one mapping.
-    expect(toBoardPhase('approved')).toBe('Development');
-  });
-
+describe('PHASE_LEADERSHIP', () => {
   it('gives every column a leadership symbol AND word', () => {
     // Colour may only repeat these — one man in twelve distinguishes red from
     // green poorly, and the board turns up in greyscale screenshots.
