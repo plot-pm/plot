@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { controllerInvocation } from '@plot-pm/domain/rules/ci-suite';
 import {
+  carriesSpikeFlag,
   controllerRefusal,
   mayRunController,
   pinUnavailable,
@@ -202,7 +203,7 @@ const stateGate: Gate = {
     const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
     const { scriptsShell } = await import('@plot-pm/domain/adapters/scripts/scripts-shell');
     const { stateReceiptsFile } = await import('@plot-pm/domain/adapters/state-receipts/state-receipts-file');
-    const { SYMLINK_MODE, effectivePaths, lifecycleKindOf, stateTransitionRefusal, stateTransitionsOf } = await import(
+    const { SYMLINK_MODE, effectivePaths, lifecycleKindOf, receiptOf, stateTransitionRefusal, stateTransitionsOf } = await import(
       '@plot-pm/domain/rules/state-transition'
     );
     const { gitBlobOid } = await import('./ladder.js');
@@ -273,7 +274,8 @@ const stateGate: Gate = {
     const receipts = stateReceiptsFile(root.value, gitBlobOid);
     const uncleared = [];
     for (const transition of stateTransitionsOf(readings, planDir.value.trim(), sprintDir.value.trim())) {
-      const spent = await receipts.spend(transition.path, transition.after);
+      const { key, value } = receiptOf(transition);
+      const spent = await receipts.spend(key, value);
       if (!(spent.ok && spent.value)) uncleared.push(transition);
     }
     return stateTransitionRefusal(uncleared);
@@ -531,7 +533,7 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
       } else {
         const { actionReceiptsFile } = await import('@plot-pm/domain/adapters/action-receipts/action-receipts-file');
         const cleared = await actionReceiptsFile(root.value).clears(action);
-        if (!(cleared.ok && cleared.value)) refusals.unshift(controllerRefusal(action, scriptDir));
+        if (!(cleared.ok && cleared.value)) refusals.unshift(controllerRefusal(action, scriptDir, carriesSpikeFlag(stripped)));
       }
     }
     return refusals.length === 0 ? null : refusals.join('\n').trimEnd();

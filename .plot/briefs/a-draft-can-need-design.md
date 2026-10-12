@@ -89,4 +89,8 @@ This branch owns:
 - `CLAUDE.md:499`, `:518` and generated `AGENTS.md`
 - A changeset file
 
-No other branch of this plan is in flight: the three merged siblings (`the-idea-asks-about-design` #1628, `the-card-carries-its-controls` #1617, `the-board-draws-the-declared-phases` #1623) already hold their changes on `main`, and `the-prose-names-the-declared-phases` has not started — so there is no live collision to track on this plan. If you find something the plan did not anticipate, report it rather than improvising outside scope.
+No other branch of this plan is in flight: the three merged siblings (`the-idea-asks-about-design` #1628, `the-card-carries-its-controls` #1617, `the-board-draws-the-declared-phases` #1623) already hold their changes on `main`, and `the-prose-names-the-declared-phases` has not started — so there is no live collision to track on this plan.
+
+**A cross-plan collision does exist, though.** PR #1629 (`feature/the-spike-is-approved-alone`, sibling plan `design-work-proves-the-path`, open as of 2026-10-12) touches `transitions/plan.ts`, `rules/state-transition.ts`, `rules/card-controls.ts`, `workflows/decision.ts` and `skills/plot-approve/SKILL.md` — five of the files this brief lists under *Scope guard*. It is a different plan's branch, not a wave this slice waits on, so there is no ordering rule forcing a sequence; whichever of the two merges second absorbs a rebase. Check `gh pr view 1629 --json state,headRefName` before starting: if it has merged, rebase onto main and re-read the current shape of those files before adding `needsDesign`/`design`'s plumbing rather than assuming this brief's line numbers still hold; if still open, expect your own PR's review to flag the overlap and budget a rebase pass near the end rather than being surprised by one.
+
+If you find something the plan did not anticipate, report it rather than improvising outside scope.

@@ -5,10 +5,11 @@ import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { Host, PlanStore, Refs, Scripts, Trees } from '@plot-pm/domain';
 import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
-import { approve, isRefusal, type TransitionPlan } from '@plot-pm/domain/transitions/plan';
-import { approve as approveWorkflow, type ApproveReadings, type ApproveRefusal } from '@plot-pm/domain/workflows/approve';
+import { approve, approveSpike, isRefusal, type TransitionPlan } from '@plot-pm/domain/transitions/plan';
+import { approve as approveWorkflow, approveSpike as approveSpikeWorkflow, type ApproveReadings, type ApproveRefusal } from '@plot-pm/domain/workflows/approve';
 import { planStateOf } from '@plot-pm/domain/entities/plan';
 import { flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
+import { SPIKE_APPROVED_FIELD, spikeReceiptKey } from '@plot-pm/domain/rules/state-transition';
 import { clearHolds } from '@plot-pm/domain/rules/hold-clear';
 import {
   isPlanFile,
@@ -43,7 +44,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * The `node` entry point `plot-approve.sh` launches, once per plan approved.
  *
  * ```
- * plot-approve.mjs [--dry-run] [--who <name>] <slug>
+ * plot-approve.mjs [--dry-run] [--spike] [--who <name>] <slug>
  * ```
  *
  * Performs the mechanical half of approving a plan: reads the ceremony
@@ -64,9 +65,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 /** The usage block `-h` prints; lines 2 to 12 of the launcher this entry replaced. */
 const USAGE = [
   '# Plot helper: perform the MECHANICAL half of approving a plan.',
-  '# Usage: plot-approve.sh [--dry-run] [--who <name>] <slug>',
+  '# Usage: plot-approve.sh [--dry-run] [--spike] [--who <name>] <slug>',
   '#   --dry-run   say what would happen; merge nothing, write nothing, push nothing',
-  '#   --who       the name recorded in the `Approved:` line (default: git user.name)',
+  '#   --spike     approve the plan\'s spike branch alone: record `Spike approved:`, clear its hold, leave the phase',
+  '#   --who       the declared handle recorded in the `Approved:` or `Spike approved:` line; required for a',
+  '#               spike and for a plan a person approves, otherwise defaults to git user.name',
   '#   <slug>      the plan to approve',
   '# Output: one `step:` line per step, then a machine-countable summary:',
   '#             summary: merged=yes phase=flipped record=written holds=1 sprint=none push=clean',
@@ -79,6 +82,7 @@ const USAGE = [
 /** What the command line asked for. */
 interface Args {
   dryRun: boolean;
+  spike: boolean;
   who: string;
   slug: string;
 }
@@ -86,11 +90,13 @@ interface Args {
 /** Parses argv; returns the message to refuse with, or `__help__`. */
 const parseArgs = (argv: readonly string[]): Args | string => {
   let dryRun = false;
+  let spike = false;
   let who = '';
   let slug = '';
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--dry-run') dryRun = true;
+    else if (arg === '--spike') spike = true;
     else if (arg === '--who') {
       who = argv[++i] ?? '';
       if (who.startsWith('-')) return `--who takes a name, not the flag '${who}'`;
@@ -99,8 +105,8 @@ const parseArgs = (argv: readonly string[]): Args | string => {
     else if (arg.startsWith('-')) return `unknown flag '${arg}'`;
     else slug = arg;
   }
-  if (slug === '') return 'need a plan slug (usage: plot-approve.sh [--dry-run] <slug>)';
-  return { dryRun, who, slug };
+  if (slug === '') return 'need a plan slug (usage: plot-approve.sh [--dry-run] [--spike] [--who <name>] <slug>)';
+  return { dryRun, spike, who, slug };
 };
 
 /** The ports and paths this entry needs. */
@@ -448,6 +454,10 @@ const refusalText = (reason: ApproveRefusal, detail: string, c: RefusalContext):
       return `cannot read the phase of '${slug}' (${planFile}) — refusing rather than guessing.\n  Its '## Status' section needs a line reading '- **State:** Draft'.`;
     case 'state-wrong':
       return `plan '${slug}' is in phase '${phase}' — only a Draft or Design plan can be approved.\n  If that phase is wrong, correct the 'State:' line in ${planFile} and push it.`;
+    case 'spike-none':
+    case 'spike-not-first':
+    case 'spike-approved':
+      return `${detail}\n  Nothing was merged and nothing was written.`;
     case 'slice-unnamed':
       return `${detail}\n  The plan was not approved, nothing was merged and its phase is unchanged.`;
     case 'review-human':
@@ -478,6 +488,8 @@ interface WriteRequest {
   people: readonly string[];
   prNumber: number;
   dirs: Dirs;
+  /** Records `Spike approved:` and clears the spike branch's hold instead of approving the plan. */
+  spike?: boolean;
 }
 
 /**
@@ -500,6 +512,7 @@ const applyLocalWrites = async (ctx: Context, request: WriteRequest): Promise<Wr
 
   const read = await ctx.planStore.readPlan(target);
   if (!read.ok) throw new Refused(`cannot parse ${target} — refusing rather than guessing.`);
+  if (request.spike) return applySpikeWrites(ctx, request, present.value, read.value);
   const scratchPlan = transitionPlanOf(slug, read.value);
   const decision = approve(scratchPlan, {
     on: request.today,
@@ -561,6 +574,66 @@ const applyLocalWrites = async (ctx: Context, request: WriteRequest): Promise<Wr
 
   const annotated = await annotateSprint(ctx.planStore, root, request, read.value.sprint, branches[0] ?? '');
   return { phase, record, holds, sprint: annotated.outcome, sprintFile: annotated.file };
+};
+
+/**
+ * Records `Spike approved:` and clears the spike branch's hold inside
+ * `request.root`. The phase is not flipped and no sprint item is annotated.
+ *
+ * The record is replaced only when the parser reads it back from a scratch copy;
+ * a refusal leaves the file byte-identical. Files the receipt under
+ * `<plan path>#Spike approved`, the key the state gate spends for this line.
+ *
+ * @throws Refused where the domain refuses or the file has no `## Status` section.
+ */
+const applySpikeWrites = async (
+  ctx: Context,
+  request: WriteRequest,
+  content: string,
+  record: PlanRecord,
+): Promise<WriteReport> => {
+  const { root, rel, slug } = request;
+  const target = path.join(root, rel);
+  const decision = approveSpike(
+    { ...transitionPlanOf(slug, record), spikeApprovedRecord: record.spikeApprovedRaw },
+    {
+      on: request.today,
+      who: request.who,
+      channel: request.channel,
+      people: request.people,
+      slices: record.slices,
+    },
+  );
+  if (decision.outcome === 'refused') throw new Refused(decision.detail);
+
+  const inserted = insertStatusRecord(content, SPIKE_APPROVED_FIELD, decision.record);
+  if (!inserted.changed) {
+    throw new Refused(`${rel} has no '## Status' section — nowhere to record the spike approval.\n  Nothing was written. Fix the section and re-run.`);
+  }
+  const scratchPath = `${target}.plot-reread`;
+  const scratched = await ctx.planStore.writeText(scratchPath, inserted.content);
+  if (!scratched.ok) throw new Refused(`could not write ${scratchPath} to check the parser's reading.\n  Nothing was written to the plan.`);
+  const reread = await ctx.planStore.readPlan(scratchPath);
+  unlinkSyncSafe(scratchPath);
+  if (!reread.ok || reread.value.spikeApprovedRaw.trim() !== decision.record) {
+    throw new Refused(`${rel} — wrote the 'Spike approved:' record, but the parser does not read it back.\n  Nothing was written — the plan is unchanged.`);
+  }
+  const written = await ctx.planStore.writeText(target, inserted.content);
+  if (!written.ok) throw new Refused(`could not write ${rel}.\n  The plan is unchanged. Check the file's permissions, then re-run this.`);
+  recordStateReceipt(ctx.repoRoot, spikeReceiptKey(rel), decision.record);
+
+  const holdFile = path.join(root, '.plot', 'hold');
+  let holds = '0';
+  const heldHolds = await ctx.planStore.readText(holdFile);
+  if (heldHolds.ok && heldHolds.value !== null) {
+    const cleared = clearHolds(heldHolds.value, [decision.branch]);
+    if (cleared.removed > 0 && cleared.kept !== undefined) {
+      const kept = await ctx.planStore.writeText(holdFile, cleared.kept);
+      if (!kept.ok) throw new Refused(`could not write ${holdFile}.\n  The holds are unchanged. Re-run this.`);
+    }
+    holds = String(cleared.removed);
+  }
+  return { phase: 'unchanged', record: 'written', holds, sprint: 'none', sprintFile: '' };
 };
 
 /**
@@ -711,7 +784,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   // decides the named handle, the channel word and the unattended refusal. A
   // Design plan on `Review: pr` is `person` and not `inSession`.
   const inSession = review === 'in-session';
-  const person = approvalArm({ phase, review }) === 'person';
+  const person = args.spike || approvalArm({ phase, review }) === 'person';
   const people = peopleHandles(await configured(ctx.scripts, 'People', ''));
 
   // The PR is read only for a plan that carries one. A host that cannot answer
@@ -777,21 +850,32 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
       carried,
     },
   };
-  const verdict = approveWorkflow(readings, {
-    on: localDate(),
-    who: args.who,
-    channel: 'in-session',
-    people,
-  });
+  // A spike approval records the channel it rode: the plan PR's merge, or the room.
+  const spikeChannel = inSession
+    ? 'in-session'
+    : sameBranch
+      ? `plan-PR #${pr.number} reviewed`
+      : `plan-PR #${pr.number} merged`;
+  const verdict = (args.spike ? approveSpikeWorkflow : approveWorkflow)(
+    { ...readings, spikeApprovedRecord: plan?.spikeApprovedRaw ?? '' },
+    { on: localDate(), who: args.who, channel: args.spike ? spikeChannel : 'in-session', people },
+  );
   // The reviewer is a human in the room, and `process.env` is not the domain's to read.
   if (person && process.env.PLOT_UNATTENDED === '1' && (verdict.outcome !== 'refused' || verdict.reason === 'review-human' || verdict.reason === 'reviewer-undeclared')) {
     throw new Refused(
-      inSession
+      args.spike
+        ? `a person approves the spike of '${slug}' on every review channel.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug} --spike --who <handle>`
+        : inSession
         ? `plan '${slug}' declares 'Review: in-session' — the reviewer is a human in the room.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug}`
         : `plan '${slug}' is in the Design phase — a person approves it (D10), whatever its 'Review:' channel declares.\n  Refusing under PLOT_UNATTENDED=1: there is nobody here to name. Approve it from a session: /plot-approve ${slug} --who <handle>`,
     );
   }
   if (verdict.outcome === 'refused') {
+    if (args.spike && (verdict.reason === 'state-wrong' || verdict.reason === 'review-human' || verdict.reason === 'reviewer-undeclared')) {
+      throw new Refused(verdict.reason === 'state-wrong'
+        ? `${verdict.detail}\n  Nothing was merged and nothing was written.`
+        : `${verdict.detail}\n  Name the reviewer: plot-approve.mjs --spike --who <handle> ${slug}`);
+    }
     throw new Refused(refusalText(verdict.reason, verdict.detail, {
       slug, planFile, scriptDir: ctx.scriptDir, dirs, phase, review, prBranch, prNumber: pr.number,
     }));
@@ -813,6 +897,17 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
     : args.who || process.env.PLOT_APPROVE_WHO || (await userNameOf(ctx));
   const today = localDate();
   const branches = plan.branches;
+
+  if (args.dryRun && args.spike) {
+    if (!inSession) {
+      if (pr.draft) write(`step: would mark PR #${pr.number} ready for review\n`);
+      if (pr.state !== 'MERGED' && !sameBranch) write(`step: would merge PR #${pr.number}\n`);
+    }
+    write(`step: would fill Spike approved: ${today}, ${who}, ${spikeChannel} and leave the phase\n`);
+    write(`step: would clear the .plot/hold entry for: ${verdict.detail.spike ?? ''}\n`);
+    write('summary: merged=' + (inSession ? 'skipped-in-session' : 'would') + ' phase=unchanged record=would holds=would sprint=none push=would\n');
+    return 0;
+  }
 
   if (args.dryRun) {
     if (inSession) {
@@ -865,7 +960,9 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   if (rel === null) {
     throw new Refused(`${planFile} is outside the repository root (${ctx.repoRoot}).\n  Move the plan under ${dirs.planDir} inside this checkout and re-run.`);
   }
-  const channel = person
+  const channel = args.spike
+    ? spikeChannel
+    : person
     ? 'in-session'
     : sameBranch
       ? `plan-PR #${pr.number} reviewed`
@@ -880,6 +977,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
     people,
     prNumber: pr.number,
     dirs,
+    ...(args.spike ? { spike: true } : {}),
   });
   // A batch PR's merge lands its other plans unapproved; the summary names them
   // so a reader approves each by its own slug.
@@ -897,7 +995,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
       push = 'nothing-to-commit';
       write('step: nothing to commit — the approval was already recorded\n');
     } else {
-      const committed = await ctx.trees.commitStaged(ctx.repoRoot, `plot: approve ${slug}`);
+      const committed = await ctx.trees.commitStaged(ctx.repoRoot, args.spike ? `plot: approve spike of ${slug}` : `plot: approve ${slug}`);
       if (!committed.ok) {
         throw new Refused(`could not commit the approval.\n  The PR is already merged; the local record is what is missing. See what git refused: git -C ${ctx.repoRoot} status. Then re-run this — it is idempotent.`);
       }
@@ -916,12 +1014,14 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
     push = outcome.push;
   }
 
+  // A spike approval appends a fifth column, `spike`; a whole-plan row keeps four.
   if (person && push !== 'nothing-to-commit' && push !== 'n/a') {
     const entry = process.env.PLOT_APPROVE_ENTRY === 'board' ? 'board' : 'script';
+    const mode = args.spike ? '\tspike' : '';
     const logDir = path.join(await mainRootOf(ctx), '.plot', 'state');
     try {
       mkdirSync(logDir, { recursive: true });
-      appendFileSync(path.join(logDir, 'in-session-approvals.tsv'), `${today}\t${slug}\t${who}\t${entry}\n`);
+      appendFileSync(path.join(logDir, 'in-session-approvals.tsv'), `${today}\t${slug}\t${who}\t${entry}${mode}\n`);
     } catch {
       // The log counts approvals; a write that fails must not undo one.
     }
@@ -978,17 +1078,21 @@ const bookApproval = async (
     const report = await applyLocalWrites(ctx, request);
     await stageApproval(ctx, tmpwt, request.rel, report);
 
-    const body = inSession
-      ? `Records the in-session approval of \`${slug}\` by ${who}.`
-      : `Records the approval of \`${slug}\` (plan-PR #${prNumber} merged).`;
+    const spike = flow.args.spike;
+    const subject = spike ? `plot: approve spike of ${slug}` : `plot: approve ${slug}`;
+    const body = spike
+      ? `Records the spike approval of \`${slug}\` by ${who}.`
+      : inSession
+        ? `Records the in-session approval of \`${slug}\` by ${who}.`
+        : `Records the approval of \`${slug}\` (plan-PR #${prNumber} merged).`;
     const landed = await commitAndPush(
       ctx,
       tmpwt,
       bookbr,
       main,
       who,
-      `plot: approve ${slug}`,
-      `plot: approve ${slug}`,
+      subject,
+      subject,
       body,
       'approval',
       `nothing to commit — the approval is already recorded on ${main}`,
@@ -997,7 +1101,8 @@ const bookApproval = async (
 
     if ('rejected' in landed) {
       const stranded = inSession ? 'the in-session approval IS DECIDED' : `PR #${prNumber} IS MERGED`;
-      warn(`plot-approve: the approval is committed on '${bookbr}' but could not reach ${main}.\n  ${stranded} — the plan must not stay at Phase: Draft.\n  Land '${bookbr}' by hand, or re-run this command once the push works.\n`);
+      const unlanded = spike ? `the plan has no 'Spike approved:' record on ${main}, so the spike stays held` : 'the plan must not stay at Phase: Draft';
+      warn(`plot-approve: the approval is committed on '${bookbr}' but could not reach ${main}.\n  ${stranded} — ${unlanded}.\n  Land '${bookbr}' by hand, or re-run this command once the push works.\n`);
       keepBranch = true;
       await ctx.trees.removeOnly(tmpwt);
       return { report, exit: 1 };

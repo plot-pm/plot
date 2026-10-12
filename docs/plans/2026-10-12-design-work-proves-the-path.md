@@ -12,6 +12,7 @@
 - **Rounds:** 3
 - **Approved:** 2026-10-12, Jan Wloka, plan-PR #1608 merged
 - **Started:** 2026-10-12, Jan Wloka, `feature/the-spike-is-approved-alone`
+- **Started:** 2026-10-12, Jan Wloka, `feature/the-spike-can-be-dispatched`
 
 ## Changelog
 

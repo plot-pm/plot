@@ -117,7 +117,7 @@ describe('POST /api/approve: the script arm (no Approve command) passes --who', 
     // `makeStubScripts`'s plot-approve.sh stub echoes `stub plot-approve.sh $*`
     // to its own log — the log this route opens, not the dispatcher's marker.
     const log = fs.readFileSync(JSON.parse(res.body).log, 'utf8');
-    assert.match(log, /stub plot-approve\.sh ship-the-widget --who jwloka/, log);
+    assert.match(log, /stub plot-approve\.sh --who jwloka ship-the-widget/, log);
   });
 
   it('with no who in the body, runs the stub with the slug alone', async () => {

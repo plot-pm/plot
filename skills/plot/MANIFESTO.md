@@ -20,7 +20,7 @@ This also makes plans transparent. Plans-as-files are more visible than backlog 
 
 ### 2. Plans are approved before implementation
 
-The key design insight: implementation only ever references a stable, **approved** plan. Anyone with repo access can see what was promised and compare it to what was delivered. Merging the plan to main first is how PR-reviewed plans realize this — but the invariant is the recorded approval, not the merge: a plan that rides its work branch with an in-session approval recorded in the file satisfies it just as well. Guardrails read the recorded phase, not pull-request state.
+The key design insight: implementation only ever references a stable, **approved** plan. Anyone with repo access can see what was promised and compare it to what was delivered. Merging the plan to main first is how PR-reviewed plans realize this — but the invariant is the recorded approval, not the merge: a plan that rides its work branch with an in-session approval recorded in the file satisfies it just as well. Guardrails read the recorded phase, not pull-request state. A recorded spike approval (`Spike approved:`) licenses implementation of its one branch and no other.
 
 ### 3. Commands, not code
 

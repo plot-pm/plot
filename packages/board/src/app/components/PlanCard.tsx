@@ -549,6 +549,11 @@ export function PlanCard({
         {approve && isDraft(card) && (
           <ApproveButton card={card} approve={approve} onApproving={onStarting} />
         )}
+        {/* The spike alone, on the domain's `controls.approveSpike`: a Design plan
+            whose one spike branch is the only branch of the first slice. */}
+        {approve && card.controls.approveSpike && (
+          <ApproveButton card={card} approve={approve} onApproving={onStarting} spike />
+        )}
         {/* Beside Approve, on the same `isDraft` rule. Approve stays enabled at
             every round count: the badge informs, and nothing here gates. */}
         {interrogate && isDraft(card) && (

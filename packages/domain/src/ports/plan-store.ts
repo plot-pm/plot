@@ -49,6 +49,8 @@ export interface PlanRecord {
   impl: string;
   /** The `Approved:` record verbatim, or `''`. */
   approvedRaw: string;
+  /** The `Spike approved:` record verbatim, or `''`. */
+  spikeApprovedRaw: string;
   /** The `Delivered:` record verbatim, or `''`. */
   deliveredRaw: string;
   /** The `Released:` record verbatim, or `''`. */
@@ -77,6 +79,8 @@ export interface PlanRecordBranch {
   claimed: string;
   /** Every branch this one's `<!-- waits: ... -->` annotation names, empty where it names none. */
   waitsOn: readonly string[];
+  /** Whether the branch line carries `<!-- spike -->`; absent where it does not. */
+  spike?: boolean;
 }
 
 /**

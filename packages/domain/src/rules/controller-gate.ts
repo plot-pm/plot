@@ -115,6 +115,18 @@ const ENDPOINT: Record<ControllerAction, string> = {
   release: 'POST /api/release {"slug":"<slug>","version":"<version>"}',
 };
 
+/** The request body of the spike mode of `approve`. */
+const SPIKE_ENDPOINT = 'POST /api/approve {"slug":"<slug>","spike":true}';
+
+/**
+ * Whether a command line asks for the spike mode of `approve`.
+ *
+ * @param command - the command line, with quoted heredoc bodies removed.
+ * @returns true when a word of the command is exactly `--spike`.
+ */
+export const carriesSpikeFlag = (command: string): boolean =>
+  command.split(/\s+/).includes('--spike');
+
 /**
  * The refusal for a controller-owned action called with no controller receipt.
  * It names the HTTP endpoint first and the receipt escape second. Only
@@ -124,9 +136,11 @@ const ENDPOINT: Record<ControllerAction, string> = {
  *
  * @param action - the action the command runs.
  * @param scriptDir - the absolute directory holding the plot scripts.
+ * @param spike - whether the command line carries `--spike`; an `approve`
+ *   refusal then names the request body that carries `"spike":true`.
  * @returns the text for stderr.
  */
-export const controllerRefusal = (action: ControllerAction, scriptDir: string): string => {
+export const controllerRefusal = (action: ControllerAction, scriptDir: string, spike = false): string => {
   const owner = action === 'release' ? 'deliver' : action;
   const named = `plot-${owner}.sh`;
   const lines = [`plot-controller-gate: ${named} is a controller-owned action.`, '', '  Call the controller instead:'];
@@ -134,7 +148,7 @@ export const controllerRefusal = (action: ControllerAction, scriptDir: string): 
     lines.push(`      node ${shellQuote(`${scriptDir}/board/plot-dispatch-command.mjs`)} <slug>`);
     lines.push(`    which runs with no board. With the board up, ${ENDPOINT[action]} is its button, and /plot-dispatch asks it.`);
   } else {
-    lines.push(`      ${ENDPOINT[action]}`);
+    lines.push(`      ${spike && action === 'approve' ? SPIKE_ENDPOINT : ENDPOINT[action]}`);
     lines.push(`    which is the board's button, and /plot-${owner} asks it.`);
   }
   lines.push(

@@ -866,3 +866,92 @@ test('approve: exit 0 with a PR proceeds through the same capture', () => {
   assert.match(out, /pr=#42\(OPEN\)/);
   assert.equal(hostState().state, 'MERGED');
 });
+
+// --- --spike (the-spike-is-approved-alone) ----------------------------------
+
+const SPIKE_FIRST = PLAN({ phase: 'Design' })
+  .replace('`feature/alpha` — the first', '`feature/alpha` <!-- spike --> — the first')
+  .replace('- `feature/beta` — the second', '\n### Wave two\n- `feature/beta` — the second');
+
+test('approve: --spike --dry-run merges nothing, writes nothing, pushes nothing', () => {
+  makeRepo(SPIKE_FIRST);
+  const shaBefore = git(repo, 'rev-parse', 'origin/main').trim();
+  const { code, out } = run(['--spike', '--dry-run', '--who', 'jwloka', 'approve-me']);
+  assert.equal(code, 0, out);
+  assert.equal(hostState().state, 'OPEN', 'a dry run must not merge');
+  refreshMain();
+  assert.equal(git(repo, 'rev-parse', 'origin/main').trim(), shaBefore);
+  assert.equal(git(repo, 'status', '--porcelain').trim(), '');
+  assert.doesNotMatch(planOnMain(), /Spike approved:\*\* \d/);
+  assert.equal(fs.existsSync(path.join(repo, '.plot', 'state', 'state-receipts')), false, 'no receipt either');
+});
+
+const SPIKE_KEY = 'docs/plans/2026-08-17-approve-me.md#Spike approved';
+const spikeReceipts = () => {
+  const dir = path.join(repo, '.plot', 'state', 'state-receipts');
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).filter((t) => t.startsWith(`${SPIKE_KEY}\t`));
+};
+const spikeHold = () => ({
+  '.plot/hold': ['feature/alpha review pending', 'feature/beta review pending', ''].join('\n'),
+});
+
+test('approve: --spike merges the draft plan PR pinned to its head, records the spike and clears only its hold', () => {
+  const head = 'c0ffee'.padEnd(40, '1');
+  makeRepo(SPIKE_FIRST, spikeHold());
+  setHostState({ number: 42, state: 'OPEN', draft: true, headSha: head });
+  const { code, out } = run(['--spike', '--who', 'jwloka', 'approve-me']);
+  assert.equal(code, 0, out);
+
+  assert.equal(hostState().state, 'MERGED');
+  const calls = fs.readFileSync(path.join(stubDir, 'calls.log'), 'utf8');
+  assert.match(calls, /^gh .*pr ready 42/m, calls);
+  assert.match(calls, new RegExp(`^gh .*pr merge 42 .*--match-head-commit ${head}`, 'm'), calls);
+
+  refreshMain();
+  const plan = planOnMain();
+  assert.match(plan, /- \*\*Spike approved:\*\* \d{4}-\d{2}-\d{2}, jwloka, plan-PR #42 merged/, plan);
+  assert.match(plan, /- \*\*Phase:\*\* Design/, 'the phase must stay Design');
+  assert.doesNotMatch(plan, /- \*\*Approved:\*\* \d/, 'no whole-plan approval may be recorded');
+  assert.equal(git(repo, 'log', '-1', '--format=%s', 'origin/main').trim(), 'plot: approve spike of approve-me');
+
+  const hold = git(repo, 'show', 'origin/main:.plot/hold');
+  assert.doesNotMatch(hold, /feature\/alpha/, `the spike hold must go:\n${hold}`);
+  assert.match(hold, /feature\/beta/, `every other hold must stay:\n${hold}`);
+
+  const receipts = spikeReceipts();
+  assert.equal(receipts.length, 1, 'one receipt under the spike key');
+  assert.match(receipts[0], /\t\d{4}-\d{2}-\d{2}, jwloka, plan-PR #42 merged\n$/);
+
+  const log = fs.readFileSync(path.join(repo, '.plot', 'state', 'in-session-approvals.tsv'), 'utf8').trim().split('\n');
+  assert.equal(log.length, 1);
+  assert.match(log[0], /^\d{4}-\d{2}-\d{2}\tapprove-me\tjwloka\tscript\tspike$/, `the spike row is marked:\n${log[0]}`);
+});
+
+test('approve: --spike under PLOT_UNATTENDED=1 refuses and merges nothing', () => {
+  makeRepo(SPIKE_FIRST, spikeHold());
+  setHostState({ number: 42, state: 'OPEN', draft: true, headSha: 'c0ffee'.padEnd(40, '2') });
+  const shaBefore = git(repo, 'rev-parse', 'origin/main').trim();
+  const { code, err } = run(['--spike', '--who', 'jwloka', 'approve-me'], { expectFail: true, env: { PLOT_UNATTENDED: '1' } });
+  assert.equal(code, 1);
+  assert.match(err, /a person approves the spike of 'approve-me'/, err);
+  assert.equal(hostState().state, 'OPEN', 'the PR must not be merged');
+  refreshMain();
+  assert.equal(git(repo, 'rev-parse', 'origin/main').trim(), shaBefore, 'nothing may be pushed to main');
+  assert.doesNotMatch(planOnMain(), /Spike approved:\*\* \d/);
+  assert.deepEqual(spikeReceipts(), []);
+});
+
+test('approve: a second --spike refuses spike-approved', () => {
+  makeRepo(SPIKE_FIRST, spikeHold());
+  setHostState({ number: 42, state: 'OPEN', draft: false, headSha: 'c0ffee'.padEnd(40, '3') });
+  assert.equal(run(['--spike', '--who', 'jwloka', 'approve-me']).code, 0);
+  refreshMain();
+  const shaBefore = git(repo, 'rev-parse', 'origin/main').trim();
+  git(repo, 'pull', '-q', '--ff-only', 'origin', 'main');
+  const { code, err } = run(['--spike', '--who', 'jwloka', 'approve-me'], { expectFail: true });
+  assert.equal(code, 1);
+  assert.match(err, /spike-approved|already carries a 'Spike approved:' record/, err);
+  refreshMain();
+  assert.equal(git(repo, 'rev-parse', 'origin/main').trim(), shaBefore, 'a re-run pushes nothing');
+});

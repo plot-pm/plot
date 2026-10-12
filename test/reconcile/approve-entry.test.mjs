@@ -177,7 +177,7 @@ test('approve entry: an unknown flag exits 1 and a missing slug names the usage'
   assert.match(flag.stderr, /plot-approve: unknown flag '--frobnicate'/);
   const none = approve(repo, []);
   assert.equal(none.status, 1);
-  assert.match(none.stderr, /plot-approve: need a plan slug \(usage: plot-approve\.sh \[--dry-run\] <slug>\)/);
+  assert.match(none.stderr, /plot-approve: need a plan slug \(usage: plot-approve\.sh \[--dry-run\] \[--spike\] \[--who <name>\] <slug>\)/);
 });
 
 // --- refusals leave the host untouched ---------------------------------------

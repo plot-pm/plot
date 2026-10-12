@@ -2146,7 +2146,13 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
       title: meta.title || slug,
       type: meta.type || 'unknown',
       phase,
-      controls: cardControls({ state: meta.phase, status, started }),
+      controls: cardControls({
+        state: meta.phase,
+        status,
+        started,
+        slices: meta.slices,
+        spikeApproved: meta.spike_approved_raw,
+      }),
       path: relPath,
       // The parser emits a GitHub `#N` as a number; the row prints a string.
       issues: meta.issues.map(String),
