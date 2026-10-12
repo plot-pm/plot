@@ -33,6 +33,27 @@ describe('plangate', () => {
     }
   });
 
+  it('hints every refusal the gate can return', () => {
+    const reasons: PlanGateRefusal[] = [
+      'plan-not-found', 'ref-unreadable', 'plan-unreadable', 'phase-draft', 'state-terminal',
+      'state-unreadable', 'state-wrong', 'impl-same-branch', 'impl-other-repo', 'impl-none',
+      'impl-unrecognised',
+    ];
+    for (const reason of reasons) expect(planGateHint(reason, 'g', 'main')).toMatch(/\S/);
+    expect(planGateHint('ref-unreadable', 'g', 'trunk')).toContain('git fetch origin trunk');
+    expect(planGateHint('plan-not-found', 'g', 'trunk')).toContain('grep -i g');
+  });
+
+  it('refuses the ways the gate cannot read the plan', () => {
+    const base = readings({ phase: 'approved', impl: 'own-branches' });
+    const no = (gate: object, input = {}) => plangate({ ...base, gate: { ...base.gate, ...gate } }, input)?.reason;
+    expect(plangate({ ...base, gate: undefined }, {})?.reason).toBe('plan-not-found');
+    expect(no({ refResolved: false })).toBe('ref-unreadable');
+    expect(no({ refResolved: false, file: '' }, { allowLocal: true })).toBe('plan-not-found');
+    expect(no({ file: '' })).toBe('plan-not-found');
+    expect(no({ parsed: false })).toBe('plan-unreadable');
+  });
+
   it('names the slug in the approve hint', () => {
     expect(planGateHint('phase-draft', 'my-plan', 'main')).toBe('Review it, then: /plot-approve my-plan');
   });

@@ -70,6 +70,9 @@ const KNOWN_UNCARRIED = [
   'review_raw',
   'impl_raw',
   'design_raw',
+  // Read by the spike rules in a later slice; no domain rule decides on them yet.
+  'spike_approved_raw',
+  'tracer',
   'issues',
   'malformed_prs',
   'changelog',
