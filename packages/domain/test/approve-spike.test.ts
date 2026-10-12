@@ -133,6 +133,30 @@ describe('approveSpike — the refusals', () => {
     expect(reason(readings({ pr: { number: 42, state: 'OPEN', draft: false, branch: 'x', rivals: [43] } }))).toBe('pr-ambiguous');
   });
 
+  it('reads an absent spike record as none and an absent slice list as no spike', () => {
+    const { spikeApprovedRecord: _record, ...noRecord } = readings();
+    expect(reason(noRecord)).toBe('decided');
+    const { slices: _slices, ...noSlices } = readings();
+    expect(reason(noSlices)).toBe('spike-none');
+  });
+
+  it('pushes nowhere and merges nothing for a same-branch plan', () => {
+    const out = approveSpike(readings({ impl: 'same-branch' }), input());
+    expect(decided(out) && out.writes.map((w) => w.kind)).toEqual(['plan-record', 'hold-clear', 'commit', 'push']);
+    expect(decided(out) && out.writes[3]).toMatchObject({ branch: '', onto: '' });
+  });
+
+  it('refuses on the first unmet precondition, with and without its detail', () => {
+    const plan = { slug: 'x', phase: 'design' as const, review: 'pr' as const, approvedRecord: '', deliveredRecord: '', releasedRecord: '' };
+    const base = { on: 'd', who: 'jwloka', channel: 'c', people: ['jwloka'], slices: SPIKE };
+    const detailed = transition(plan, { ...base, preconditions: [{ name: 'pr', met: true }, { name: 'ci', met: false, detail: 'red' }] });
+    expect(detailed).toMatchObject({ outcome: 'refused', reason: 'precondition-unmet' });
+    expect(JSON.stringify(detailed)).toContain("the reading 'ci' refused: red");
+    const bare = transition(plan, { ...base, preconditions: [{ name: 'ci', met: false }] });
+    expect(JSON.stringify(bare)).toContain("the reading 'ci' is not met");
+    expect(transition(plan, { ...base, preconditions: [{ name: 'ci', met: true }] }).outcome).toBe('decided');
+  });
+
   it('is a transition that does not consult approvalArm', () => {
     const out = transition(
       { slug: 'x', phase: 'design', review: 'pr', approvedRecord: '', deliveredRecord: '', releasedRecord: '' },
