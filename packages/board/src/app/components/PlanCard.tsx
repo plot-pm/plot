@@ -222,18 +222,6 @@ export function roundsBadgeText(card: Card): string {
   return card.rounds === 1 ? '1 round' : `${card.rounds} rounds`;
 }
 
-/**
- * The refuted badge's text, or "" when there is nothing to say.
- *
- * Only a `refuted` record draws a badge. `unverified`, `supported` and `stale`
- * draw none, and a refuted record whose claim lines the reader could not count
- * draws none rather than a guessed number.
- */
-export const refutedBadgeText = (card: Card): string =>
-  card.verification?.state === 'refuted' && card.verification.refuted > 0
-    ? `${card.verification.refuted} refuted`
-    : '';
-
 /** Whether the plan records a `Rounds:` value at all, 0 included. */
 export const roundsRecorded = (card: Card): boolean => card.rounds !== undefined;
 
@@ -435,14 +423,14 @@ export function PlanCard({
             "has anyone pushed on this yet?". A plan recording no round is
             marked `not interrogated` in an outlined badge; a recorded 0 is the
             filled `0 rounds`. The two must never look alike. */}
-        {refutedBadgeText(card) && (
+        {card.verification?.badge && (
           <span data-refuted-badge={card.slug} className="inline-flex">
             <Badge
               variant="neutral"
               className="border border-red-400 bg-red-50 text-red-800 dark:border-red-500 dark:bg-red-950 dark:text-red-200"
               title="Verification refuted claims of this delivered plan; see ## Verification in the plan"
             >
-              {refutedBadgeText(card)}
+              {card.verification.badge}
             </Badge>
           </span>
         )}

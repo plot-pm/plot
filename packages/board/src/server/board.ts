@@ -24,7 +24,7 @@ import {
   type SliceSummary,
   type StoryStatus,
   type StoryStanding } from '../contract/schema.js';
-import { refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
+import { refutedBadge, refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
 import {
   allSlicesMerged,
   deliveryPulse as chooseDeliveryPulse,
@@ -2026,7 +2026,9 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
   try {
     metas = await readPlanMeta(opts, [...files, ...staged]);
     // The staged copies are deleted below, so the text a Delivered plan's
-    // verification record is read from is taken while they exist.
+    // verification record is read from is taken while they exist. A plan whose
+    // delivery commit cannot be read gets no verification: an error is not a
+    // reading that agrees with the record.
     for (const meta of metas) {
       if (meta.phase !== 'delivered') continue;
       const text = (() => { try { return fs.readFileSync(meta.file, 'utf8'); } catch { return null; } })();
@@ -2034,7 +2036,8 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
       const canonical = canonicalPath.get(meta.file);
       const rel = canonical ?? path.relative(repoRoot, meta.file);
       const found = await refs.recordCommit(rel, 'Delivered');
-      deliveredReadings.set(meta.file, { text, deliveryCommit: found.ok ? found.value : null });
+      if (!found.ok) continue;
+      deliveredReadings.set(meta.file, { text, deliveryCommit: found.value });
     }
   } finally {
     // The staged copies exist only for the duration of that one parse. Removed
@@ -2177,11 +2180,15 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     };
     const delivered = deliveredReadings.get(meta.file);
     if (delivered !== undefined) {
-      const plan = { text: delivered.text, tracer: meta.tracer, deliveredRaw: meta.delivered_raw };
-      card.verification = {
-        state: verificationOf(plan, delivered.deliveryCommit),
-        refuted: refutedClaims(delivered.text).length,
+      const plan = {
+        text: delivered.text,
+        tracer: meta.tracer,
+        deliveredRaw: meta.delivered_raw,
+        verifiedRaw: meta.verified_raw,
       };
+      const state = verificationOf(plan, delivered.deliveryCommit);
+      const refuted = refutedClaims(delivered.text).length;
+      card.verification = { state, refuted, badge: refutedBadge(state, refuted) };
     }
     if (meta.sprint) card.sprint = meta.sprint;
     if (meta.story) card.story = meta.story;

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
+import { refutedBadge, type Verification } from '@plot-pm/domain/rules/verification-record';
 import { openCatalogue, board as buildBoard, card as buildCard, column, type Catalogue } from '../catalogue/index.js';
 
 /**
@@ -7,16 +8,18 @@ import { openCatalogue, board as buildBoard, card as buildCard, column, type Cat
  *
  * Plan file: docs/plans/2026-10-12-the-fleet-verifies-what-it-delivered.md
  *
- * Whether a badge shows is decided by `verificationOf` and unit-tested in
+ * The badge text is decided by `refutedBadge` and unit-tested in
  * `packages/domain/test/verification-record.test.ts`. This test proves the
  * badge is seen: `refuted` draws `2 refuted`, and the other three answers draw
  * nothing.
  */
-const delivered = (slug: string, verification?: { state: 'unverified' | 'supported' | 'refuted' | 'stale'; refuted: number }) =>
+const delivered = (slug: string, verification?: { state: Verification; refuted: number }) =>
   buildCard({
     slug, title: slug, type: 'feature', phase: 'Testing',
     path: `docs/plans/2026-10-12-${slug}.md`, prs: [], phaseDate: '2026-10-12',
-    ...(verification === undefined ? {} : { verification }),
+    ...(verification === undefined ? {} : {
+      verification: { ...verification, badge: refutedBadge(verification.state, verification.refuted) },
+    }),
   });
 
 describe('a refuted verification shows a badge', () => {

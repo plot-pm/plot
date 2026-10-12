@@ -265,8 +265,8 @@
 #                  record left empty (a bookkeeping fault plot-reconcile-scan
 #                  reports), and a consumer that needs a DATE must read this
 #                  rather than infer one from the phase.
-#   verified_raw   the verification record as written (`## Status` `Verified:`),
-#                  "" if absent or a placeholder. Read by `verificationOf`.
+#   verified_raw   the `Verified:` record of `## Status`, outside fences; "" if
+#                  absent or a placeholder. The board passes it to verificationOf.
 #   started_raw    implementation-start records, one raw string per
 #                  `Started:` line in `## Status` (repeatable; front matter
 #                  `started:` contributes one entry); [] if absent.

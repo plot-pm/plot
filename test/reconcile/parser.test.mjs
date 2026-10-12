@@ -294,6 +294,42 @@ test('parser: released_raw is empty when no record exists', () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+test('parser: verified_raw reads a filled Verified line, and a placeholder or a fenced example as empty', () => {
+  const dir = scratch('plot-parser-verified-');
+  const status = (verified) => `# Verified plan
+
+## Status
+
+- **State:** Delivered
+- **Type:** feature
+- **Delivered:** 2026-10-19
+${verified}
+`;
+  const record = '2026-10-20, delivery 2026-10-19 at 1a2b3c4, judged at 1a2b3c4 with tools at 9f8e7d6, 1 supported, 0 refuted';
+  const filled = path.join(dir, '2026-10-12-filled.md');
+  writeFileSync(filled, status(`- **Verified:** ${record}`));
+  const placeholder = path.join(dir, '2026-10-12-placeholder.md');
+  writeFileSync(placeholder, status('- **Verified:** <!-- date, delivery <date> at <sha> -->'));
+  const fenced = path.join(dir, '2026-10-12-fenced.md');
+  writeFileSync(fenced, `${status('')}
+## Design
+
+\`\`\`markdown
+- **Verified:** ${record}
+
+## Verification
+
+- Claim-1 supported — <claim> — 3 of 3 (executed: behaviour)
+\`\`\`
+`);
+  const [a, b, c] = execFileSync('bash', [parser, filled, placeholder, fenced], { encoding: 'utf8' })
+    .trim().split('\n').map((line) => JSON.parse(line));
+  assert.equal(a.verified_raw, record);
+  assert.equal(a.delivered_raw, '2026-10-19', 'the new field must not disturb the neighbouring records');
+  assert.equal(b.verified_raw, '');
+  assert.equal(c.verified_raw, '');
+});
+
 // --- rounds: the interrogation count -----------------------------------------
 //
 // Asserted against REAL plan files in docs/plans, not against fixtures, and

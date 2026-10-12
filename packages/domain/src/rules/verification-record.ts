@@ -17,6 +17,11 @@ export interface VerifiablePlan {
   readonly tracer: boolean;
   /** `plot-plan-meta.sh`'s `delivered_raw`: the `Delivered:` value, or `''`. */
   readonly deliveredRaw: string;
+  /**
+   * `plot-plan-meta.sh`'s `verified_raw`: the `Verified:` value of `## Status`
+   * outside fenced blocks, or `''` for no line or a placeholder.
+   */
+  readonly verifiedRaw: string;
 }
 
 /** One refuted claim line of `## Verification`. */
@@ -31,9 +36,6 @@ export interface RefutedClaim {
   readonly noIssue: string | null;
 }
 
-/** Matches the `Verified:` line of `## Status` and captures its value. */
-const VERIFIED = /^[ \t]*[-*]?[ \t]*\**verified:\**[ \t]*(.*?)[ \t]*$/im;
-
 /** Matches the record's delivery date and commit. */
 const DELIVERY = /\bdelivery (\d{4}-\d{2}-\d{2}) at ([0-9a-f]{7,40})\b/;
 
@@ -43,15 +45,12 @@ const CLAIM_LINE = /^[-*][ \t]+Claim-(\d+)[ \t]+(supported|refuted)[ \t]+—[ \t
 /** Matches the leading `YYYY-MM-DD` of a record value. */
 const LEADING_DATE = /^\d{4}-\d{2}-\d{2}/;
 
-/** Reads the filled `Verified:` value, or `''` for no line or a placeholder. */
-const verifiedOf = (text: string): string => {
-  const value = VERIFIED.exec(text)?.[1] ?? '';
-  return value.startsWith('<!--') ? '' : value;
-};
-
-/** Reads the lines of the `## Verification` section, outside fenced blocks. */
+/**
+ * Reads the lines of the `## Verification` section, outside fenced blocks,
+ * with a trailing carriage return removed from each line.
+ */
 const sectionLines = (text: string): string[] => {
-  const lines = text.split('\n');
+  const lines = text.split('\n').map((line) => line.replace(/\r$/, ''));
   const fenced = fencedLines(lines);
   const body: string[] = [];
   let inside = false;
@@ -103,14 +102,15 @@ const sameCommit = (a: string, b: string): boolean => a.startsWith(b) || b.start
 /**
  * Answers the verification state of a Delivered plan from its text.
  *
- * `unverified` for a tracer plan, whatever it carries, and for a plan with no
- * filled `Verified:` line. `stale` when the record's delivery date differs from
- * the plan's `Delivered:` date, when the plan has no `Delivered:` date, or when
- * `deliveryCommit` is given and differs from the record's delivery commit.
- * Otherwise `refuted` when any claim line says so and `supported` when none
- * does. A record whose delivery cannot be read is `stale`, never trusted.
+ * `unverified` for a tracer plan, whatever it carries, and for a plan whose
+ * `verifiedRaw` is `''`. `stale` when the record's delivery date differs from
+ * the plan's `Delivered:` date, when the plan has no `Delivered:` date, when
+ * `deliveryCommit` is given and differs from the record's delivery commit, or
+ * when `## Verification` holds no claim line outside fenced blocks. Otherwise
+ * `refuted` when any claim line says so and `supported` when none does. A
+ * record whose delivery cannot be read is `stale`, never trusted.
  *
- * @param plan - the plan text and the two readings the parser supplies.
+ * @param plan - the plan text and the three readings the parser supplies.
  * @param deliveryCommit - what `recordCommit(file, 'Delivered')` answered, or
  *   `null` where the caller has no reading.
  * @returns the verification state.
@@ -120,7 +120,7 @@ export const verificationOf = (
   deliveryCommit: string | null,
 ): Verification => {
   if (plan.tracer) return 'unverified';
-  const record = verifiedOf(plan.text);
+  const record = plan.verifiedRaw;
   if (record === '') return 'unverified';
   const delivered = LEADING_DATE.exec(plan.deliveredRaw)?.[0] ?? '';
   const named = DELIVERY.exec(record);
@@ -129,5 +129,21 @@ export const verificationOf = (
     return 'stale';
   }
   const lines = sectionLines(plan.text).filter((line) => CLAIM_LINE.test(line));
+  if (lines.length === 0) return 'stale';
   return lines.some((line) => CLAIM_LINE.exec(line)![2] === 'refuted') ? 'refuted' : 'supported';
 };
+
+/**
+ * The text of a Delivered card's refuted badge, or `''` for no badge.
+ *
+ * Only a `refuted` state with at least one counted claim draws a badge, as
+ * `<n> refuted`. `unverified`, `supported` and `stale` draw none, and a
+ * `refuted` state whose claim lines could not be counted draws none rather than
+ * a guessed number.
+ *
+ * @param state - what {@link verificationOf} answered.
+ * @param refuted - how many claims {@link refutedClaims} read.
+ * @returns the badge text, or `''`.
+ */
+export const refutedBadge = (state: Verification, refuted: number): string =>
+  state === 'refuted' && refuted > 0 ? `${refuted} refuted` : '';

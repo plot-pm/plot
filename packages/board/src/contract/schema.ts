@@ -466,11 +466,14 @@ export const CardSchema = z.object({
    * `verificationOf`. ATTACHED ONLY TO A DELIVERED PLAN: a card in any other
    * phase has no record to read, and `unverified` is not a statement about it.
    * `refuted` is the count of refuted claim lines the reader could parse; a line
-   * it cannot parse is left out of the count, never guessed.
+   * it cannot parse is left out of the count, never guessed. `badge` is the
+   * card's badge text from the domain's `refutedBadge`, `''` for no badge.
+   * A Delivered plan whose delivery commit could not be read carries none.
    */
   verification: z.object({
     state: z.enum(['unverified', 'supported', 'refuted', 'stale']),
     refuted: z.number(),
+    badge: z.string().default(''),
   }).optional(),
   /**
    * What this plan's slices cost, summed over the ones measured on THIS
