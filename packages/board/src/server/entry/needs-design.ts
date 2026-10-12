@@ -32,7 +32,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * The `node` entry point that moves a Draft plan to Design.
  *
  * ```
- * plot-needs-design.mjs [--who <name>] <slug>
+ * plot-needs-design.mjs [--who <name>] [--channel board|cli] <slug>
  * ```
  *
  * Writes `State: Design`, the dated `Design:` record and an empty `## Spec`
@@ -40,6 +40,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * head branch, the caller's checkout under `Impl: same branch`, or a booking
  * worktree on `plot/needs-design-<slug>` pushed to the default branch. After the
  * plan write it leaves the state receipt `plot-state-gate.sh` reads.
+ *
+ * `--channel` names the channel the `Design:` record carries: the board's route
+ * passes `board`, and a person's direct run records the default, `cli`.
  *
  * A person makes this move. The entry refuses under `PLOT_UNATTENDED=1` before
  * it reads anything, and no flag lifts that refusal.
@@ -51,8 +54,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 /** The usage block `-h` prints. */
 const USAGE = [
   '# Plot helper: move a Draft plan to Design.',
-  '# Usage: plot-needs-design.mjs [--who <name>] <slug>',
+  '# Usage: plot-needs-design.mjs [--who <name>] [--channel board|cli] <slug>',
   '#   --who       the name recorded in the `Design:` line (default: git user.name)',
+  '#   --channel   the channel recorded in the `Design:` line (default: cli)',
   '#   <slug>      the plan to move',
   '# Output: one `step:` line per step, then a machine-countable summary:',
   '#             summary: target=plan-pr phase=flipped record=written push=clean',
@@ -65,23 +69,29 @@ const USAGE = [
 interface Args {
   who: string;
   slug: string;
+  channel: 'board' | 'cli';
 }
 
 /** Parses argv; returns the message to refuse with, or `__help__`. */
 const parseArgs = (argv: readonly string[]): Args | string => {
   let who = '';
   let slug = '';
+  let channel: Args['channel'] = 'cli';
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--who') {
       who = argv[++i] ?? '';
       if (who.startsWith('-')) return `--who takes a name, not the flag '${who}'`;
+    } else if (arg === '--channel') {
+      const named = argv[++i] ?? '';
+      if (named !== 'board' && named !== 'cli') return `--channel takes 'board' or 'cli', not '${named}'`;
+      channel = named;
     } else if (arg === '-h' || arg === '--help') return '__help__';
     else if (arg.startsWith('-')) return `unknown flag '${arg}'`;
     else slug = arg;
   }
-  if (slug === '') return 'need a plan slug (usage: plot-needs-design.mjs [--who <name>] <slug>)';
-  return { who, slug };
+  if (slug === '') return 'need a plan slug (usage: plot-needs-design.mjs [--who <name>] [--channel board|cli] <slug>)';
+  return { who, slug, channel };
 };
 
 /** The ports and paths this entry needs. */
@@ -431,8 +441,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer)
   const today = localDate();
   const userName = await ctx.trees.userName(ctx.repoRoot);
   const who = args.who.trim() || (userName.ok ? userName.value.trim() : '');
-  const channel = process.env.PLOT_NEEDS_DESIGN_ENTRY === 'board' ? 'board' : 'cli';
-  const verdict = planNeedsDesign(readings, { on: today, who, channel });
+  const verdict = planNeedsDesign(readings, { on: today, who, channel: args.channel });
   if (verdict.outcome === 'refused') {
     throw new Refused(`${verdict.detail}\n  Nothing was written; the plan is unchanged.`);
   }

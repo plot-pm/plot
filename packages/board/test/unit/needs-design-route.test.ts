@@ -68,9 +68,22 @@ describe('POST /api/needs-design', () => {
     assert.equal(answer.status, 202);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].script, BUNDLE);
-    assert.deepEqual(calls[0].args, ['a-draft-to-design', '--who', 'jwloka']);
+    assert.deepEqual(calls[0].args, ['a-draft-to-design', '--channel', 'board', '--who', 'jwloka']);
     assert.equal(calls[0].cwd, dir);
     assert.equal(answer.body.log, calls[0].log);
+  });
+
+  it('tells the bundle its channel is board, with or without a who', async () => {
+    const calls: (readonly string[])[] = [];
+    const detached: Detached = {
+      node: (_script, args) => {
+        calls.push(args);
+        return { pid: 1, exitCode: () => null };
+      },
+    };
+    const answer = await post(repo(), { slug: 'a-draft-to-design' }, detached);
+    assert.equal(answer.status, 202);
+    assert.deepEqual(calls, [['a-draft-to-design', '--channel', 'board']]);
   });
 
   it('refuses a body without a plan slug and starts nothing', async () => {

@@ -26,9 +26,10 @@ export const needsDesignLogPath = (repoRoot: string, slug: string): string =>
 /**
  * Handles `POST /api/needs-design`.
  *
- * Starts `plot-needs-design.mjs <slug> [--who <name>]` detached and answers 202
- * with the log path, because the bundle can push to the host and the server
- * answers no other viewer while it waits. The route spawns nothing itself: the
+ * Starts `plot-needs-design.mjs <slug> --channel board [--who <name>]` detached
+ * and answers 202 with the log path, because the bundle can push to the host and
+ * the server answers no other viewer while it waits. `--channel board` makes the
+ * bundle record `board` as the move's channel. The route spawns nothing itself: the
  * `Detached` port starts the bundle, which inherits the board's environment and
  * refuses a run under `PLOT_UNATTENDED=1` on its own.
  *
@@ -72,7 +73,7 @@ export const handleNeedsDesign = async (
 
   const log = needsDesignLogPath(opts.repoRoot, slug);
   const script = path.join(opts.scriptsDir, NEEDS_DESIGN_BUNDLE);
-  const args = who ? [slug, '--who', who] : [slug];
+  const args = [slug, '--channel', 'board', ...(who ? ['--who', who] : [])];
   try {
     fs.mkdirSync(path.dirname(log), { recursive: true });
     (opts.detached ?? detachedNode()).node(script, args, opts.repoRoot, log);
