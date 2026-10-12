@@ -3,6 +3,7 @@
 // VALUE import — a bundle taking one transition took `zod` with it, at 324 KB
 // for four lines of string handling. See `entities/version.ts`.
 import { normalizeVersion } from '../entities/version.js';
+import { approvalArm } from '../rules/approval-arm.js';
 import {
   unnamedBranchDetail,
   unnamedBranches,
@@ -241,8 +242,9 @@ export const approvable = (plan: TransitionPlan): boolean =>
  * `approved` is not refused: it is the idempotent case, where a missing record
  * is still repairable.
  *
- * `Review: in-session` approves when `input.who` names a handle `input.people`
- * declares. An empty or whitespace `who` refuses `review-human`; a handle the
+ * The `person` arm of {@link approvalArm} — `Review: in-session`, and a Design
+ * plan on any other channel but a ballot — approves when `input.who` names a
+ * handle `input.people` declares. An empty or whitespace `who` refuses `review-human`; a handle the
  * project never declared refuses `reviewer-undeclared`. The two are separate
  * reasons because they have separate repairs — name a reviewer, or declare the
  * one named.
@@ -299,14 +301,16 @@ export const approve = (plan: TransitionPlan, input: ApproveInput): TransitionRe
   switch (plan.review) {
     case 'pr':
     case 'none':
-      break;
     case 'in-session': {
+      if (approvalArm(plan) !== 'person') break;
       const who = input.who.trim();
       if (who === '') {
         return refuse(
           plan.slug,
           'review-human',
-          `plan '${plan.slug}' declares 'Review: in-session' — name the reviewer with --who.`,
+          plan.review === 'in-session'
+            ? `plan '${plan.slug}' declares 'Review: in-session' — name the reviewer with --who.`
+            : `plan '${plan.slug}' is in the Design phase — a person approves it. Name the reviewer with --who.`,
         );
       }
       if (!input.people.includes(who)) {

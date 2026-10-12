@@ -13,6 +13,7 @@ import {
 } from './dispatch.js';
 import { scriptsFor } from './board.js';
 import { recordActionReceipt } from './action-receipt.js';
+import { approvalArm } from '@plot-pm/domain/rules/approval-arm';
 import { PlanMetaSchema } from '../contract/schema.js';
 
 /**
@@ -136,15 +137,16 @@ function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null
 }
 
 /**
- * The plan's declared `Review:` channel, read from the file — never inferred.
+ * The plan's phase and declared `Review:` channel, read from the file — never
+ * inferred.
  *
  * Null where the plan cannot be found or parsed, which the 409 check below
- * reads as "not in-session" (nothing to refuse on) rather than guessing: a
- * plan this route cannot read is a plan `plot-approve.sh` will refuse for its
- * own reason a moment later, and inventing a 409 for it here would report a
- * cause this route never measured.
+ * reads as "nothing to refuse on" rather than guessing: a plan this route
+ * cannot read is a plan `plot-approve.sh` will refuse for its own reason a
+ * moment later, and inventing a 409 for it here would report a cause this
+ * route never measured.
  */
-function readReview(opts: BuildBoardOptions, slug: string): string | null {
+const readPlanFacts = (opts: BuildBoardOptions, slug: string): { phase: string; review: string } | null => {
   const file = resolvePlanBySlug(opts, slug);
   if (!file) return null;
   try {
@@ -152,11 +154,12 @@ function readReview(opts: BuildBoardOptions, slug: string): string | null {
     if (!answer.ok) return null;
     const line = answer.value.split('\n').map((l) => l.trim()).find(Boolean);
     if (!line) return null;
-    return PlanMetaSchema.parse(JSON.parse(line)).review || null;
+    const meta = PlanMetaSchema.parse(JSON.parse(line));
+    return { phase: meta.phase, review: meta.review };
   } catch {
     return null;
   }
-}
+};
 
 /**
  * Where the command's own words go, keyed by slug and in {@link agentLogDir} —
@@ -294,20 +297,34 @@ export async function handleApprove(
   const whoRaw = (body as { who?: unknown })?.who;
   const who = typeof whoRaw === 'string' ? whoRaw : '';
 
-  // `POST /api/approve` ANSWERS 409 ON THE AGENT ARM FOR AN IN-SESSION PLAN.
+  // `POST /api/approve` ANSWERS 409 ON THE AGENT ARM FOR EVERY PERSON-ARM PLAN.
   // With an `Approve command` declared, the command arm below would run
-  // `claude -p /plot-approve` UNATTENDED, and `/plot-approve` refuses
-  // `in-session` under `PLOT_UNATTENDED=1` by its own rule (nobody is in the
-  // room). Spawning that agent would start a process that can only refuse, so
-  // this is read and refused here instead — spawning nothing, recording no
-  // receipt. The script arm (no `Approve command`) needs no such check:
+  // `claude -p /plot-approve` UNATTENDED, and `/plot-approve` refuses the
+  // `person` arm of `approvalArm` under `PLOT_UNATTENDED=1` by its own rule
+  // (nobody is in the room): an `in-session` plan in any phase, and a Design
+  // plan on any channel but a ballot. A plan whose phase reads `NONE` or empty
+  // is refused for `state-unreadable` by the workflow before anything else.
+  // Spawning that agent would start a process that can only refuse, so this is
+  // read and refused here instead — spawning nothing, recording no receipt.
+  // The script arm (no `Approve command`) needs no such check:
   // `plot-approve.sh --who` performs the write itself and refuses on its own
   // terms if `who` is empty or undeclared.
-  if (approveCommand(opts) && readReview(opts, slug) === 'in-session') {
-    json(409, {
-      error: `plan '${slug}' declares 'Review: in-session' — the configured Approve command would run /plot-approve unattended, which refuses this channel by its own rule (nobody is in the room to approve it). Approve it from a session, or remove the 'Approve command' key so the board runs plot-approve.sh --who directly.`,
-    });
-    return;
+  if (approveCommand(opts)) {
+    const facts = readPlanFacts(opts, slug);
+    if (facts !== null && ['', 'none', 'unknown'].includes(facts.phase.trim().toLowerCase())) {
+      json(409, {
+        error: `plan '${slug}' has no readable State: state-unreadable — the configured Approve command would run /plot-approve and be refused. Fix the 'State:' line in the plan.`,
+      });
+      return;
+    }
+    if (facts !== null && approvalArm(facts) === 'person') {
+      json(409, {
+        error: facts.review === 'in-session'
+          ? `plan '${slug}' declares 'Review: in-session' — the configured Approve command would run /plot-approve unattended, which refuses this channel by its own rule (nobody is in the room to approve it). Approve it from a session, or remove the 'Approve command' key so the board runs plot-approve.sh --who directly.`
+          : `plan '${slug}' is in the Design phase — a person approves it (D10), whatever its 'Review:' channel declares. The configured Approve command would run /plot-approve unattended, which refuses it (nobody is in the room to approve it). Approve it from a session, or remove the 'Approve command' key so the board runs plot-approve.sh --who directly.`,
+      });
+      return;
+    }
   }
 
   const log = approveLogPath(opts.repoRoot, slug);

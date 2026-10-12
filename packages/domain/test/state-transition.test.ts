@@ -7,6 +7,7 @@ import {
   owningCommand,
   slugOf,
   sprintVerb,
+  renamedFromOf,
   stateTransitionOf,
   stateTransitionRefusal,
   statusStateOf,
@@ -114,12 +115,32 @@ describe('stateTransitionOf', () => {
     expect(at(doc('Draft'), null)).toBeNull();
   });
 
-  it('passes a HEAD version with no State value', () => {
-    expect(at('# P\n', doc('Draft'))).toBeNull();
+  it('finds an added State line: a transition from none', () => {
+    expect(at('# P\n', doc('Draft'))).toMatchObject({ before: '', after: 'Draft' });
   });
 
-  it('passes a deleted State line', () => {
-    expect(at(doc('Draft'), '# P\n\n## Status\n')).toBeNull();
+  it('finds a removed State line: a transition to none', () => {
+    expect(at(doc('Draft'), '# P\n\n## Status\n')).toMatchObject({ before: 'Draft', after: '' });
+  });
+
+  it('passes a HEAD version and a working copy that both hold no State value', () => {
+    expect(at('# P\n', '# P\n\nmore\n')).toBeNull();
+  });
+
+  it('reads a deleted same-slug file as the before of a creation', () => {
+    const renamed = { path: 'docs/plans/2025-12-01-x.md', head: doc('Design') };
+    expect(stateTransitionOf('docs/plans/2026-01-01-x.md', 'plan', null, doc('Approved'), renamed)).toEqual({
+      path: 'docs/plans/2026-01-01-x.md',
+      kind: 'plan',
+      before: 'Design',
+      after: 'Approved',
+      renamedFrom: 'docs/plans/2025-12-01-x.md',
+    });
+  });
+
+  it('passes a rename that keeps the value', () => {
+    const renamed = { path: 'docs/plans/2025-12-01-x.md', head: doc('Design') };
+    expect(stateTransitionOf('docs/plans/2026-01-01-x.md', 'plan', null, doc('Design'), renamed)).toBeNull();
   });
 
   it('passes an unchanged value while the rest of the file changes', () => {
@@ -128,6 +149,26 @@ describe('stateTransitionOf', () => {
 
   it('finds a value no lifecycle admits', () => {
     expect(at(doc('Draft'), doc('Planned'))?.after).toBe('Planned');
+  });
+});
+
+describe('renamedFromOf', () => {
+  const old = (path: string) => ({ path, head: doc('Design') });
+  const find = (path: string, deleted: ReturnType<typeof old>[]) =>
+    renamedFromOf(path, 'plan', deleted, 'docs/plans/', 'docs/sprints/');
+
+  it('finds the deleted file with the same slug under another date', () => {
+    expect(find('docs/plans/2026-02-02-x.md', [old('docs/plans/2026-01-01-x.md')])?.path).toBe(
+      'docs/plans/2026-01-01-x.md',
+    );
+  });
+
+  it('ignores a deletion with another slug', () => {
+    expect(find('docs/plans/2026-02-02-x.md', [old('docs/plans/2026-01-01-y.md')])).toBeNull();
+  });
+
+  it('ignores a deletion of another kind', () => {
+    expect(find('docs/plans/2026-02-02-x.md', [old('docs/sprints/2026-W01-x.md')])).toBeNull();
   });
 });
 

@@ -273,11 +273,84 @@ test('state gate: an unstaged State edit beside a staged Notes hunk passes a pla
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
 });
 
-test('state gate: a deleted State line is not a transition', () => {
+const noState = '# P\n\n## Status\n\n- **Type:** feature\n';
+
+// #1611: removing the line and adding it back with another value in a second
+// commit wrote any state with no receipt, because each half had no value to
+// compare against.
+test('state gate: removing a State line is a transition to none and is refused', () => {
   const dir = repo({
     committed: { 'docs/plans/2026-01-01-x.md': plan('Draft') },
-    files: { 'docs/plans/2026-01-01-x.md': '# P\n\n## Status\n\n- **Type:** feature\n' },
+    files: { 'docs/plans/2026-01-01-x.md': noState },
   });
+  const r = run(dir);
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /Draft -> \(line removed\)/);
+});
+
+test('state gate: adding a State line to a plan HEAD holds none for is refused', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': noState },
+    files: { 'docs/plans/2026-01-01-x.md': plan('Draft') },
+  });
+  const r = run(dir);
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /\(no State line\) -> Draft/);
+});
+
+test('state gate: the two-commit path of #1611 is refused at the second commit', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Design') },
+    files: { 'docs/plans/2026-01-01-x.md': noState },
+  });
+  assert.equal(run(dir).status, 2, 'the removal is refused on its own');
+  // The first commit lands by a route the gate does not see, then the add follows.
+  execSync('git commit -qm removed --no-verify', { cwd: dir });
+  writeFileSync(path.join(dir, 'docs', 'plans', '2026-01-01-x.md'), plan('Draft'));
+  execSync('git add -A', { cwd: dir });
+  const r = run(dir);
+  assert.equal(r.status, 2, `the re-add must block (stderr: ${r.stderr})`);
+});
+
+test('state gate: a rename to another date prefix with a changed State is refused', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Design') },
+    files: { 'docs/plans/2026-02-02-x.md': plan('Approved') },
+  });
+  execSync('git rm -q docs/plans/2026-01-01-x.md', { cwd: dir });
+  const r = run(dir);
+  assert.equal(r.status, 2, `must block (stderr: ${r.stderr})`);
+  assert.match(r.stderr, /Design -> Approved/);
+  assert.match(r.stderr, /renamed from docs\/plans\/2026-01-01-x\.md/);
+});
+
+test('state gate: a rename that keeps the State passes', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Design') },
+    files: { 'docs/plans/2026-02-02-x.md': plan('Design') },
+  });
+  execSync('git rm -q docs/plans/2026-01-01-x.md', { cwd: dir });
+  const r = run(dir);
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+});
+
+test('state gate: a new plan beside an unrelated deletion still passes', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-old.md': plan('Delivered') },
+    files: { 'docs/plans/2026-02-02-new.md': plan('Draft') },
+  });
+  execSync('git rm -q docs/plans/2026-01-01-old.md', { cwd: dir });
+  const r = run(dir);
+  assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+});
+
+test('state gate: a controller write carrying its receipt still passes after a rename', () => {
+  const dir = repo({
+    committed: { 'docs/plans/2026-01-01-x.md': plan('Design') },
+    files: { 'docs/plans/2026-02-02-x.md': plan('Approved') },
+  });
+  execSync('git rm -q docs/plans/2026-01-01-x.md', { cwd: dir });
+  recordReceipt(dir, 'docs/plans/2026-02-02-x.md', 'Approved');
   const r = run(dir);
   assert.equal(r.status, 0, `stderr: ${r.stderr}`);
 });

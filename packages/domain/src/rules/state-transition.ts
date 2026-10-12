@@ -109,37 +109,85 @@ export interface StateTransition {
   /** The repository-relative path. */
   path: string;
   kind: LifecycleKind;
-  /** The value in `HEAD`. */
+  /** The value in `HEAD`; `''` when `HEAD` holds no `State:` line. */
   before: string;
-  /** The value being committed. */
+  /** The value being committed; `''` when the commit removes the line. */
   after: string;
+  /** The deleted same-slug path whose `HEAD` value is `before`, for a rename. */
+  renamedFrom?: string;
 }
+
+/** A file the commit deletes, with the text `HEAD` holds. */
+export interface DeletedFile {
+  /** The repository-relative path. */
+  path: string;
+  /** The file's text in `HEAD`. */
+  head: string;
+}
+
+/**
+ * The deleted file a new path replaces: the one of the same kind and the same
+ * slug. A plan renamed to another date prefix keeps its slug, and the new path
+ * has no `HEAD` version to compare against.
+ *
+ * @param path - the new path.
+ * @param kind - the file's kind.
+ * @param deleted - the files the commit deletes, in path order.
+ * @param planDir - the `Plan directory` config value.
+ * @param sprintDir - the `Sprint directory` config value.
+ * @returns the first deleted file with the same slug, or `null`.
+ */
+export const renamedFromOf = (
+  path: string,
+  kind: LifecycleKind,
+  deleted: readonly DeletedFile[],
+  planDir: string,
+  sprintDir: string,
+): DeletedFile | null =>
+  deleted.find(
+    (file) =>
+      file.path !== path &&
+      lifecycleKindOf(file.path, planDir, sprintDir) === kind &&
+      slugOf(kind, file.path) === slugOf(kind, path),
+  ) ?? null;
 
 /**
  * The transition a file's commit carries, or `null` when it carries none.
  *
- * Passes, in this order: a file with no `HEAD` version (a creation), a
- * working copy with no `State:` value (a deleted line), and an unchanged
- * value. A `HEAD` version with no `State:` value also passes: there is no
- * before to change from.
+ * A removal is a transition to none and an addition is a transition from none:
+ * both change the value, and a line deleted in one commit and added back in the
+ * next would otherwise write any value with no receipt. A file with no `HEAD`
+ * version is a creation and passes, unless the commit deletes a same-slug file
+ * ({@link renamedFromOf}); then the deleted file's text is `before`. A working
+ * copy that cannot be read and an unchanged value pass. A `HEAD` version and a
+ * working copy that both hold no value pass.
  *
  * @param path - the repository-relative path.
  * @param kind - the file's kind.
  * @param head - the file's text in `HEAD`, or `null` when `HEAD` holds no such file.
  * @param working - the file's text being committed, or `null` when unreadable.
+ * @param renamed - the same-slug file the commit deletes, or `null`.
  */
 export const stateTransitionOf = (
   path: string,
   kind: LifecycleKind,
   head: string | null,
   working: string | null,
+  renamed: DeletedFile | null = null,
 ): StateTransition | null => {
-  if (head === null || working === null) return null;
-  const before = statusStateOf(head);
-  if (before === '') return null;
+  if (working === null) return null;
+  const source = head ?? renamed?.head ?? null;
+  if (source === null) return null;
+  const before = statusStateOf(source);
   const after = statusStateOf(working);
-  if (after === '' || before === after) return null;
-  return { path, kind, before, after };
+  if (before === after) return null;
+  return {
+    path,
+    kind,
+    before,
+    after,
+    ...(head === null && renamed !== null ? { renamedFrom: renamed.path } : {}),
+  };
 };
 
 /**
@@ -242,12 +290,16 @@ export const effectivePaths = (readings: CommitReadings, command: string): reado
 export const stateTransitionRefusal = (uncleared: readonly StateTransition[]): string | null => {
   if (uncleared.length === 0) return null;
   const lines = ['plot state gate: a lifecycle field has one writer, and this commit is not it.'];
-  for (const { path, kind, before, after } of uncleared) {
+  for (const { path, kind, before, after, renamedFrom } of uncleared) {
+    const owner =
+      after === ''
+        ? "No command removes a 'State:' line: a removal is a transition to none, and the line has one writer."
+        : `The command that owns this write: ${owningCommand(kind, slugOf(kind, path), after)}`;
     lines.push(
       '',
       `  ${path}`,
-      `    ${before} -> ${after}, written by hand.`,
-      `    The command that owns this write: ${owningCommand(kind, slugOf(kind, path), after)}`,
+      `    ${before === '' ? '(no State line)' : before} -> ${after === '' ? '(line removed)' : after}, written by hand${renamedFrom === undefined ? '' : ` (renamed from ${renamedFrom})`}.`,
+      `    ${owner}`,
     );
   }
   lines.push(

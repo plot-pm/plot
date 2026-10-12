@@ -1,4 +1,5 @@
 import { type Outcome, type Write, decide, refuse } from './decision.js';
+import { approvalArm } from '../rules/approval-arm.js';
 import {
   unnamedBranchDetail,
   unnamedBranches,
@@ -142,8 +143,13 @@ export interface ApproveDetail {
  * are the idempotent case the script exists to repair, since its one
  * irreversible step is the merge and every step after it is local.
  *
- * `Review: in-session` approves when `input.who` names a handle `input.people`
- * declares, and its decision reads no PR at all — such a plan carries none, so
+ * The `person` arm of {@link approvalArm} — `Review: in-session` in any phase,
+ * and a Design plan on `pr`, `NONE` or an empty field — approves when
+ * `input.who` names a handle `input.people` declares, and records
+ * `input.channel`. A Design plan on `Review: pr` still reads its PR and merges
+ * it.
+ *
+ * `Review: in-session` decides its approval with no PR at all — such a plan carries none, so
  * the PR refusals, the PR writes and the `plan-PR #N` channel text are all
  * skipped and `input.channel` is recorded instead.
  *
@@ -213,25 +219,38 @@ export const approve = (
   // `pr`. An unrecognised value is refused rather than defaulted: treating one
   // as `pr` approves a plan nobody discussed, with a commit indistinguishable
   // from a legitimate one.
+  // `inSession` and `person` are two readings. `inSession` is the channel
+  // alone and decides whether a plan PR exists to read and merge; `person` is
+  // the arm, which reads the phase too, and decides whether a named handle is
+  // owed. A Design plan on `Review: pr` is `person` and not `inSession`: its
+  // PR still merges, and a person still approves.
+  const inSession = readings.review === 'in-session';
+  const person = approvalArm(readings) === 'person';
+  const demandPerson = (): Outcome<ApproveDetail, ApproveRefusal> | undefined => {
+    const named = input.who.trim();
+    if (named === '') {
+      return no(
+        'review-human',
+        inSession
+          ? `plan '${slug}' declares 'Review: in-session' — name the reviewer with --who.`
+          : `plan '${slug}' is in the Design phase — a person approves it. Name the reviewer with --who.`,
+      );
+    }
+    if (!input.people.includes(named)) {
+      return no(
+        'reviewer-undeclared',
+        `'${named}' is not a handle this project declares — add it to the 'People' config key, or name one it declares.`,
+      );
+    }
+    return undefined;
+  };
   switch (readings.review) {
     case 'pr':
     case 'NONE':
     case '':
-      break;
     case 'in-session': {
-      const named = input.who.trim();
-      if (named === '') {
-        return no(
-          'review-human',
-          `plan '${slug}' declares 'Review: in-session' — name the reviewer with --who.`,
-        );
-      }
-      if (!input.people.includes(named)) {
-        return no(
-          'reviewer-undeclared',
-          `'${named}' is not a handle this project declares — add it to the 'People' config key, or name one it declares.`,
-        );
-      }
+      const owed = person ? demandPerson() : undefined;
+      if (owed !== undefined) return owed;
       break;
     }
     case 'ballot':
@@ -246,8 +265,6 @@ export const approve = (
   // An in-session plan is reviewed in the room and carries no plan PR, so the
   // PR readings say nothing about it. Asking them anyway refuses `pr-absent`
   // for the plan's intended shape.
-  const inSession = readings.review === 'in-session';
-
   if (!inSession) {
     switch (readings.pr.state) {
       case 'MERGED':
@@ -301,7 +318,7 @@ export const approve = (
   // invisible to the scan.
   const recordWritten = readings.approvedRecord.trim() !== '';
   if (!recordWritten) {
-    const channel = inSession
+    const channel = person
       ? input.channel
       : sameBranch
         ? `plan-PR #${readings.pr.number} reviewed`

@@ -199,7 +199,7 @@ const stateGate: Gate = {
     const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
     const { scriptsShell } = await import('@plot-pm/domain/adapters/scripts/scripts-shell');
     const { stateReceiptsFile } = await import('@plot-pm/domain/adapters/state-receipts/state-receipts-file');
-    const { effectivePaths, lifecycleKindOf, stateTransitionOf, stateTransitionRefusal } = await import(
+    const { effectivePaths, lifecycleKindOf, renamedFromOf, stateTransitionOf, stateTransitionRefusal } = await import(
       '@plot-pm/domain/rules/state-transition'
     );
     const { gitBlobOid } = await import('./ladder.js');
@@ -230,6 +230,7 @@ const stateGate: Gate = {
 
     const receipts = stateReceiptsFile(root.value, gitBlobOid);
     const uncleared = [];
+    const read = [];
     for (const { path, carries } of carried) {
       const kind = lifecycleKindOf(path, planDir.value.trim(), sprintDir.value.trim());
       if (kind === null) continue;
@@ -238,14 +239,23 @@ const stateGate: Gate = {
         try {
           committed = readFileSync(join(root.value, path), 'utf8');
         } catch {
-          // No working copy: the commit carries a deletion, which is not a transition.
+          // No working copy: the commit carries a deletion.
         }
       } else {
         const index = await refs.showFile(':0', path);
         if (index.ok) committed = index.value;
       }
       const head = await refs.showFile('HEAD', path);
-      const transition = stateTransitionOf(path, kind, head.ok ? head.value : null, committed);
+      read.push({ path, kind, committed, head: head.ok ? head.value : null });
+    }
+    // A deletion is not a transition, but the file that replaces it under
+    // another date prefix has no `HEAD` version of its own.
+    const deleted = read.flatMap((file) =>
+      file.committed === null && file.head !== null ? [{ path: file.path, head: file.head }] : [],
+    );
+    for (const { path, kind, committed, head } of read) {
+      const renamed = head === null ? renamedFromOf(path, kind, deleted, planDir.value.trim(), sprintDir.value.trim()) : null;
+      const transition = stateTransitionOf(path, kind, head, committed, renamed);
       if (transition === null) continue;
       const spent = await receipts.spend(path, transition.after);
       if (!(spent.ok && spent.value)) uncleared.push(transition);
