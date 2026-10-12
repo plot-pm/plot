@@ -9,6 +9,8 @@ export interface NamedBranchLine {
   branch: string;
   /** Whether the plan gave this branch up. */
   deferred?: boolean;
+  /** Whether the branch line carries `<!-- spike -->`. */
+  spike?: boolean;
 }
 
 /**

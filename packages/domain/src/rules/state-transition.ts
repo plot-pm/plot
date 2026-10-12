@@ -30,6 +30,45 @@ export const statusStateOf = (text: string): string => {
   return '';
 };
 
+/** The field name of the spike approval record, as the plan file spells it. */
+export const SPIKE_APPROVED_FIELD = 'Spike approved';
+
+/**
+ * The `Spike approved:` record in a plan's `## Status` section.
+ *
+ * Scoped to that section for the reason {@link statusStateOf} is. A line
+ * matches when it is a bullet or bare, optionally bold, and its key is followed
+ * by `:` or `*`. The first match wins. An unfilled placeholder reads as no
+ * record.
+ *
+ * @param text - the file's content.
+ * @returns the value with surrounding whitespace removed; `''` when the
+ *   section holds no such line or the line holds no value.
+ */
+export const spikeApprovalOf = (text: string): string => {
+  let inStatus = false;
+  for (const line of text.split('\n')) {
+    if (line.startsWith('## ')) {
+      inStatus = line.startsWith('## Status');
+      continue;
+    }
+    if (inStatus && /^[ \t]*[-*]?[ \t]*\**spike approved[:*]/i.test(line)) {
+      return line.replace(/^[^:]*:\**[ \t]*/, '').replace(/[ \t]*$/, '');
+    }
+  }
+  return '';
+};
+
+/**
+ * The key a receipt for the `Spike approved:` record is filed under: the plan
+ * path and the field name. A `State:` receipt is keyed on the bare path, and a
+ * receipt is found by the oid of its whole key, so neither spends as the
+ * other.
+ *
+ * @param path - the plan's repository-relative path.
+ */
+export const spikeReceiptKey = (path: string): string => `${path}#${SPIKE_APPROVED_FIELD}`;
+
 /**
  * Whether a path is a plan or a sprint file, by directory membership only.
  *
@@ -115,7 +154,24 @@ export interface StateTransition {
   after: string;
   /** The deleted same-slug path whose `HEAD` value is `before`, for a rename. */
   renamedFrom?: string;
+  /**
+   * The field the transition changes. Absent for the `State:` line; the
+   * `Spike approved:` record sets it, and its receipt is filed under
+   * {@link spikeReceiptKey}.
+   */
+  field?: typeof SPIKE_APPROVED_FIELD;
 }
+
+/**
+ * The key the receipt that clears a transition is filed under, and the value it
+ * holds.
+ *
+ * @param transition - a transition from {@link stateTransitionsOf}.
+ */
+export const receiptOf = (transition: StateTransition): { key: string; value: string } => ({
+  key: transition.field === SPIKE_APPROVED_FIELD ? spikeReceiptKey(transition.path) : transition.path,
+  value: transition.after,
+});
 
 /** A file the commit deletes, with the text `HEAD` holds. */
 export interface DeletedFile {
@@ -190,6 +246,44 @@ export const stateTransitionOf = (
   };
 };
 
+/**
+ * The transition of a plan's `Spike approved:` record a commit carries, or
+ * `null` when it carries none.
+ *
+ * Judged as {@link stateTransitionOf} judges the `State:` line, except that a
+ * plan with no `HEAD` version and no same-slug deletion reads its `before` as
+ * `''`: a new plan file that arrives holding the record is an addition, since
+ * the record opens dispatch and `/plot-idea` never writes one. Only a plan can
+ * carry the record.
+ *
+ * @param path - the repository-relative path.
+ * @param kind - the file's kind.
+ * @param head - the file's text in `HEAD`, or `null` when `HEAD` holds no such file.
+ * @param working - the file's text being committed, or `null` when unreadable.
+ * @param renamed - the same-slug file the commit deletes, or `null`.
+ */
+export const spikeTransitionOf = (
+  path: string,
+  kind: LifecycleKind,
+  head: string | null,
+  working: string | null,
+  renamed: DeletedFile | null = null,
+): StateTransition | null => {
+  if (kind !== 'plan' || working === null) return null;
+  const source = head ?? renamed?.head ?? null;
+  const before = source === null ? '' : spikeApprovalOf(source);
+  const after = spikeApprovalOf(working);
+  if (before === after) return null;
+  return {
+    path,
+    kind,
+    before,
+    after,
+    field: SPIKE_APPROVED_FIELD,
+    ...(head === null && renamed !== null ? { renamedFrom: renamed.path } : {}),
+  };
+};
+
 /** The mode git gives a symbolic link. */
 export const SYMLINK_MODE = '120000';
 
@@ -220,7 +314,8 @@ export interface LifecycleReading {
  * makes it a deletion, and a deleted link is never a rename source. A path with
  * a `HEAD` version and no committed one is a deletion, and is the rename source
  * {@link renamedFromOf} searches for a path with no `HEAD` version. Each path
- * is then judged by {@link stateTransitionOf}.
+ * is then judged by {@link stateTransitionOf} and, for a plan, by
+ * {@link spikeTransitionOf}.
  *
  * @param readings - every lifecycle path the commit carries, plus the old path
  *   of each rename git paired.
@@ -245,8 +340,11 @@ export const stateTransitionsOf = (
   );
   return files.flatMap(({ path, kind, head, committed }) => {
     const renamed = head === null ? renamedFromOf(path, kind, deleted, planDir, sprintDir) : null;
-    const transition = stateTransitionOf(path, kind, head, committed, renamed);
-    return transition === null ? [] : [transition];
+    const transitions = [
+      stateTransitionOf(path, kind, head, committed, renamed),
+      spikeTransitionOf(path, kind, head, committed, renamed),
+    ];
+    return transitions.filter((transition): transition is StateTransition => transition !== null);
   });
 };
 
@@ -350,15 +448,19 @@ export const effectivePaths = (readings: CommitReadings, command: string): reado
 export const stateTransitionRefusal = (uncleared: readonly StateTransition[]): string | null => {
   if (uncleared.length === 0) return null;
   const lines = ['plot state gate: a lifecycle field has one writer, and this commit is not it.'];
-  for (const { path, kind, before, after, renamedFrom } of uncleared) {
+  for (const { path, kind, before, after, renamedFrom, field } of uncleared) {
+    const spike = field === SPIKE_APPROVED_FIELD;
+    const name = spike ? 'Spike approved' : 'State';
     const owner =
       after === ''
-        ? "No command removes a 'State:' line: a removal is a transition to none, and the line has one writer."
-        : `The command that owns this write: ${owningCommand(kind, slugOf(kind, path), after)}`;
+        ? `No command removes a '${name}:' line: a removal is a transition to none, and the line has one writer.`
+        : spike
+          ? `The command that owns this write: node skills/plot/scripts/board/plot-approve.mjs --spike ${slugOf(kind, path)} --who <handle>`
+          : `The command that owns this write: ${owningCommand(kind, slugOf(kind, path), after)}`;
     lines.push(
       '',
       `  ${path}`,
-      `    ${before === '' ? '(no State line)' : before} -> ${after === '' ? '(line removed)' : after}, written by hand${renamedFrom === undefined ? '' : ` (renamed from ${renamedFrom})`}.`,
+      `    ${before === '' ? `(no ${name} line)` : before} -> ${after === '' ? '(line removed)' : after}, written by hand${renamedFrom === undefined ? '' : ` (renamed from ${renamedFrom})`}.`,
       `    ${owner}`,
     );
   }

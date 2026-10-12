@@ -4,6 +4,7 @@
 // for four lines of string handling. See `entities/version.ts`.
 import { normalizeVersion } from '../entities/version.js';
 import { approvalArm } from '../rules/approval-arm.js';
+import { spikeOf, type SpikeSlice } from '../rules/spike.js';
 import {
   unnamedBranchDetail,
   unnamedBranches,
@@ -71,6 +72,8 @@ export interface TransitionPlan {
   rejectedRecord?: string;
   /** The `Superseded:` line as written, or `''`. Optional for the reason above. */
   supersededRecord?: string;
+  /** The `Spike approved:` line as written, or `''`. Optional for the reason above. */
+  spikeApprovedRecord?: string;
 }
 
 /**
@@ -102,6 +105,9 @@ export type RefusalReason =
   | 'successor-missing'
   | 'refs-swept'
   | 'slice-unnamed'
+  | 'spike-none'
+  | 'spike-not-first'
+  | 'spike-approved'
   | 'precondition-unmet';
 
 /**
@@ -347,6 +353,147 @@ export const approve = (plan: TransitionPlan, input: ApproveInput): TransitionRe
     field: 'Approved',
     record: written === '' ? `${input.on}, ${input.who}, ${input.channel}` : written,
     alreadyRecorded: plan.phase === 'approved' && written !== '',
+  };
+};
+
+/** What `approveSpike` needs beyond the plan. */
+export interface ApproveSpikeInput {
+  /** The date to record, ISO-8601. */
+  on: string;
+  /** The handle to record as approver. */
+  who: string;
+  /** How the approval happened, e.g. `plan-PR #42 merged`. */
+  channel: string;
+  /** The handles the project declares, as the `People` config key spells them. */
+  people: readonly string[];
+  /** The plan's slices in document order, as the parser reported them. */
+  slices: readonly SpikeSlice[];
+  /** Readings an adapter measured, such as the plan PR's state. */
+  preconditions?: readonly Precondition[];
+}
+
+/**
+ * A spike approval that should be written: the record that dates it.
+ *
+ * The plan stays in `design`, so unlike {@link Decision} it carries no phase.
+ */
+export interface SpikeDecision {
+  readonly outcome: 'decided';
+  /** The plan to write to. */
+  readonly slug: string;
+  /** The `## Status` field the record belongs on. */
+  readonly field: 'Spike approved';
+  /** The record's value, without its `- **Field:** ` prefix. */
+  readonly record: string;
+  /** The spike branch the record licenses. */
+  readonly branch: string;
+}
+
+/** What `approveSpike` answers: the write it decided on, or the gate that stopped it. */
+export type SpikeResult = SpikeDecision | Refusal;
+
+/**
+ * Decides the write that approving a plan's spike alone calls for.
+ *
+ * Applies to a `design` plan with exactly one `<!-- spike -->` branch, which is
+ * the only branch of the first slice, and no `Spike approved:` record. The
+ * approver is a person on every review channel: `who` must name a handle
+ * `people` declares, and {@link approvalArm} is not consulted.
+ *
+ * @param plan - the plan whose spike to approve.
+ * @param input - the date, approver, channel, declared handles and slices.
+ * @returns a decision carrying the record, or a refusal: `state-terminal`,
+ *   `state-unreadable`, `state-wrong`, `spike-approved`, `spike-none`,
+ *   `spike-not-first`, `review-unrecognised`, `review-human`,
+ *   `reviewer-undeclared` or `precondition-unmet`.
+ */
+export const approveSpike = (plan: TransitionPlan, input: ApproveSpikeInput): SpikeResult => {
+  switch (plan.phase) {
+    case 'design':
+      break;
+    case 'none':
+      return refuse(
+        plan.slug,
+        'state-unreadable',
+        `cannot read the state of '${plan.slug}' — refusing rather than guessing.`,
+      );
+    default:
+      return refuse(
+        plan.slug,
+        'state-wrong',
+        `plan '${plan.slug}' is in state '${plan.phase}' — only a Design plan has a spike to approve.`,
+      );
+  }
+
+  if ((plan.spikeApprovedRecord ?? '').trim() !== '') {
+    return refuse(
+      plan.slug,
+      'spike-approved',
+      `plan '${plan.slug}' already carries a 'Spike approved:' record — nothing to approve.`,
+    );
+  }
+
+  const marked = input.slices.reduce(
+    (n, { branches }) => n + branches.filter((b) => b.spike === true).length,
+    0,
+  );
+  const spike = spikeOf(input.slices);
+  if (!spike) {
+    return refuse(
+      plan.slug,
+      'spike-none',
+      marked === 0
+        ? `plan '${plan.slug}' marks no branch '<!-- spike -->' — there is no spike to approve.`
+        : `plan '${plan.slug}' marks ${marked} branches '<!-- spike -->' — a plan names exactly one spike.`,
+    );
+  }
+  if (spike.slice !== 0 || input.slices[0].branches.length !== 1) {
+    return refuse(
+      plan.slug,
+      'spike-not-first',
+      `the spike '${spike.branch}' must be the only branch of the first slice.`,
+    );
+  }
+
+  switch (plan.review) {
+    case 'pr':
+    case 'none':
+    case 'in-session':
+    case 'ballot':
+      break;
+    default:
+      return refuse(
+        plan.slug,
+        'review-unrecognised',
+        `plan '${plan.slug}' records an unrecognised 'Review:' answer ('${plan.review}'). Refusing rather than treating it as 'pr'.`,
+      );
+  }
+
+  const who = input.who.trim();
+  if (who === '') {
+    return refuse(
+      plan.slug,
+      'review-human',
+      `a person approves the spike of '${plan.slug}' on every review channel. Name the reviewer with --who.`,
+    );
+  }
+  if (!input.people.includes(who)) {
+    return refuse(
+      plan.slug,
+      'reviewer-undeclared',
+      `'${who}' is not a handle this project declares — add it to the 'People' config key, or name one it declares.`,
+    );
+  }
+
+  const blocked = unmet(plan.slug, input.preconditions ?? []);
+  if (blocked) return blocked;
+
+  return {
+    outcome: 'decided',
+    slug: plan.slug,
+    field: 'Spike approved',
+    record: `${input.on}, ${who}, ${input.channel}`,
+    branch: spike.branch,
   };
 };
 

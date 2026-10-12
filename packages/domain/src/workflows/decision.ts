@@ -74,7 +74,7 @@ export interface PlanRecordWrite {
   /** The plan file the write lands in, relative to the repository root. */
   readonly file: string;
   /** Which record — the field name as the file spells it. */
-  readonly field: 'Approved' | 'Started' | 'Delivered' | 'Released' | 'Verified';
+  readonly field: 'Approved' | 'Spike approved' | 'Started' | 'Delivered' | 'Released' | 'Verified';
   /** The record's value, without its `- **Field:** ` prefix. */
   readonly value: string;
   /** `'replace'` overwrites a filled line of this field; only `Verified` passes it. */

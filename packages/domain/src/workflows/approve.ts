@@ -1,5 +1,6 @@
 import { type Outcome, type Write, decide, refuse } from './decision.js';
 import { approvalArm } from '../rules/approval-arm.js';
+import { approveSpike as approveSpikeTransition } from '../transitions/plan.js';
 import {
   unnamedBranchDetail,
   unnamedBranches,
@@ -23,6 +24,9 @@ export type ApproveRefusal =
   | 'reviewer-undeclared'
   | 'review-unrecognised'
   | 'slice-unnamed'
+  | 'spike-none'
+  | 'spike-not-first'
+  | 'spike-approved'
   | 'pr-closed'
   | 'pr-absent'
   | 'pr-ambiguous';
@@ -63,6 +67,8 @@ export interface ApproveReadings {
   sprintFile: string;
   /** The `Approved:` record as written, or `''`. */
   approvedRecord: string;
+  /** The `Spike approved:` record as written, or `''`. Absent reads as `''`. */
+  spikeApprovedRecord?: string;
   /** What the host says about the plan PR. */
   pr: ApprovePrReading;
 }
@@ -133,6 +139,8 @@ export interface ApproveDetail {
    * nothing.
    */
   carried: readonly string[];
+  /** The spike branch whose hold the approval clears; present only for a spike approval. */
+  spike?: string;
 }
 
 /**
@@ -382,4 +390,126 @@ const stagedPaths = (readings: ApproveReadings): string[] => {
   if (readings.branches.length > 0) paths.push('.plot/hold');
   if (readings.sprint !== '' && readings.sprintFile !== '') paths.push(readings.sprintFile);
   return paths;
+};
+
+/**
+ * Decides what approving a plan's spike alone would write.
+ *
+ * A mode of `approve`, not a second action: it reads the same {@link ApproveReadings}
+ * and answers under the `approve` workflow name. The plan stays in Design. The
+ * mechanical gates are {@link approveSpikeTransition}'s; this adds the file and
+ * PR readings. A person approves on every review channel, so `input.who` must
+ * name a handle `input.people` declares, and `Review: ballot` is read as a
+ * plan-PR channel.
+ *
+ * `Review: in-session` carries no plan PR: the PR writes are skipped. Otherwise
+ * an open PR is marked ready when draft, then merged with the branch retired,
+ * unless the plan rides its work branch. The decision writes the
+ * `Spike approved:` record, clears the spike branch's hold, and commits the plan
+ * file and `.plot/hold`.
+ *
+ * @param readings - what the adapters measured about the plan and its PR.
+ * @param input - the date, approver, channel and declared handles to record.
+ * @returns a decision naming every write, or a refusal: `plan-not-found`,
+ *   `plan-unparseable`, `state-unreadable`, `state-wrong`, `spike-approved`,
+ *   `spike-none`, `spike-not-first`, `review-unrecognised`, `review-human`,
+ *   `reviewer-undeclared`, `pr-closed`, `pr-absent` or `pr-ambiguous`.
+ */
+export const approveSpike = (
+  readings: ApproveReadings,
+  input: ApproveInput,
+): Outcome<ApproveDetail, ApproveRefusal> => {
+  const { slug } = readings;
+  const no = (reason: ApproveRefusal, detail: string) => refuse('approve', reason, detail);
+
+  if (readings.file === '') return no('plan-not-found', `no plan found for '${slug}'.`);
+  if (!readings.parsed) {
+    return no('plan-unparseable', `cannot parse '${readings.file}' — refusing rather than guessing.`);
+  }
+
+  const phase = readings.phase === '' || readings.phase === 'NONE' ? 'none' : readings.phase;
+  const review = readings.review === 'NONE' || readings.review === '' ? 'pr' : readings.review;
+  const decided = approveSpikeTransition(
+    {
+      slug,
+      phase: phase as 'design',
+      review,
+      approvedRecord: readings.approvedRecord,
+      deliveredRecord: '',
+      releasedRecord: '',
+      spikeApprovedRecord: readings.spikeApprovedRecord ?? '',
+    },
+    {
+      on: input.on,
+      who: input.who,
+      channel: input.channel,
+      people: input.people,
+      slices: readings.slices ?? [],
+    },
+  );
+  if (decided.outcome === 'refused') {
+    return no(decided.reason as ApproveRefusal, decided.detail);
+  }
+
+  const inSession = review === 'in-session';
+  if (!inSession) {
+    switch (readings.pr.state) {
+      case 'MERGED':
+      case 'OPEN':
+        break;
+      case 'CLOSED':
+        return no(
+          'pr-closed',
+          `the plan PR for '${slug}' (#${readings.pr.number}) is closed. Reopen it or create a new one.`,
+        );
+      default:
+        return no(
+          'pr-absent',
+          `no PR found for branch '${readings.pr.branch}'. Run /plot-idea first, or push the branch.`,
+        );
+    }
+    const rivals = readings.pr.rivals ?? [];
+    if (rivals.length > 0) {
+      const all = [readings.pr.number, ...rivals].map((n) => `#${n}`).join(', ');
+      return no(
+        'pr-ambiguous',
+        `the plan file of '${slug}' is changed by more than one open PR (${all}) — refusing rather than choosing one to merge.`,
+      );
+    }
+  }
+
+  const sameBranch = readings.impl === 'same-branch';
+  const writes: Write[] = [];
+  let carried: readonly string[] = [];
+  if (!inSession && !sameBranch && readings.pr.state !== 'MERGED') {
+    if (readings.pr.draft) writes.push({ kind: 'pr-ready', pr: readings.pr.number });
+    writes.push({ kind: 'pr-merge', pr: readings.pr.number, deleteBranch: true });
+    carried = readings.pr.carried ?? [];
+  }
+  writes.push({
+    kind: 'plan-record',
+    file: readings.file,
+    field: 'Spike approved',
+    value: decided.record,
+  });
+  writes.push({ kind: 'hold-clear', branch: decided.branch });
+  writes.push({
+    kind: 'commit',
+    message: `plot: approve spike of ${slug}`,
+    paths: [readings.file, '.plot/hold'],
+  });
+  writes.push({
+    kind: 'push',
+    branch: sameBranch ? '' : `plot/approve-${slug}`,
+    onto: sameBranch ? '' : 'default',
+  });
+
+  return decide('approve', writes, {
+    slug,
+    pr: readings.pr.number,
+    sameBranch,
+    alreadyRecorded: false,
+    carried,
+    spike: decided.branch,
+  });
 };

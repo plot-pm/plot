@@ -29,6 +29,7 @@ interface RawPlan {
   review?: string;
   impl?: string;
   approved_raw?: string;
+  spike_approved_raw?: string;
   delivered_raw?: string;
   released_raw?: string;
   started_raw?: string[];
@@ -46,6 +47,7 @@ interface RawBranch {
   deferred_reason?: string;
   claimed?: string;
   waits_on?: string | readonly string[];
+  spike?: boolean;
 }
 
 /**
@@ -73,6 +75,7 @@ export const branchOf = (raw: RawBranch): PlanRecordBranch => ({
     : raw.waits_on
       ? [raw.waits_on]
       : [],
+  ...(raw.spike === true ? { spike: true } : {}),
 });
 
 const sliceOf = (raw: RawSlice): PlanRecordSlice => ({
@@ -133,6 +136,7 @@ const planOf = (raw: RawPlan): PlanRecord => ({
   review: raw.review ?? '',
   impl: raw.impl ?? '',
   approvedRaw: raw.approved_raw ?? '',
+  spikeApprovedRaw: raw.spike_approved_raw ?? '',
   deliveredRaw: raw.delivered_raw ?? '',
   releasedRaw: raw.released_raw ?? '',
   startedRaw: raw.started_raw ?? [],
