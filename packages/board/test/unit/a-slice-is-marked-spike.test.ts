@@ -50,11 +50,11 @@ describe('slicesFrom — the two spike columns', () => {
     expect('spikeApproved' in s).toBe(false);
   });
 
-  it('reads five columns, with - standing for an empty record', () => {
-    const [a, b] = slicesFrom('1\tapproved\topen\t0\t-\n0\tapproved\tmerged\t1\t2026-10-12, jwloka\n');
+  it('reads five columns as two flags', () => {
+    const [a, b] = slicesFrom('1\tapproved\topen\t0\t0\n0\tapproved\tmerged\t1\t1\n');
     expect(a.spike).toBe(false);
-    expect(a.spikeApproved).toBe('');
+    expect(a.spikeApproved).toBe(false);
     expect(b.spike).toBe(true);
-    expect(b.spikeApproved).toBe('2026-10-12, jwloka');
+    expect(b.spikeApproved).toBe(true);
   });
 });

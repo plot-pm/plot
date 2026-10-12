@@ -37,12 +37,12 @@ export interface SliceReadings {
    */
   spike?: boolean;
   /**
-   * The plan's `Spike approved:` record as written; `''` where it read none.
+   * Whether the plan carries a `Spike approved:` record.
    *
-   * Absent where the caller did not read it. {@link sliceVerdict} does not read
-   * it yet.
+   * Absent where the caller did not read it, which is a different statement
+   * from `false`. {@link sliceVerdict} does not read it yet.
    */
-  spikeApproved?: string;
+  spikeApproved?: boolean;
 }
 
 /**

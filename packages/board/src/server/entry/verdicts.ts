@@ -62,8 +62,8 @@ export interface SliceLine extends SliceReadings {
 /**
  * Parse one slice per line: `outstanding<TAB>phase<TAB>state|state|...`, then
  * optionally `<TAB>spike<TAB>spikeApproved` — `1` or `0` for a spike branch in
- * the slice, and the plan's `Spike approved:` record or `-`. The rule does not
- * read the two columns yet.
+ * the slice, and `1` or `0` for a `Spike approved:` record in the plan. The
+ * rule does not read the two columns yet.
  *
  * A line that does not parse is NOT skipped. An unreadable count would silently
  * become `0` and read `complete` — the verdict that says work has landed — so a
@@ -98,10 +98,9 @@ export const slicesFrom = (text: string): SliceLine[] =>
         states: parsed,
         branches: parsed.length,
         // Both ABSENT where the line stops at the states, so an older caller's
-        // line reads as unread rather than as `false` and empty. `-` stands in
-        // for empty on the wire, for the tab-collapse reason the scan gives.
+        // line reads as unread rather than as `false`.
         ...(spike === undefined ? {} : { spike: spike === '1' }),
-        ...(spikeApproved === undefined ? {} : { spikeApproved: spikeApproved === '-' ? '' : spikeApproved }),
+        ...(spikeApproved === undefined ? {} : { spikeApproved: spikeApproved === '1' }),
       };
     });
 

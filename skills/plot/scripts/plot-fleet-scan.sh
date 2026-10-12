@@ -3108,15 +3108,15 @@ for line in sys.stdin:
     f = d.get("file")
     if not f:
         continue
-    # THREE SPIKE READINGS ride the P row, each "-" when absent for the
-    # tab-collapse reason every middle column here gives: the `Tracer: yes`
-    # line, the `Spike approved:` record, and the waves holding a spike
-    # branch. Nothing reads them yet.
+    # EVERY MIDDLE COLUMN IS NEVER EMPTY — phase and type "-" when absent —
+    # because `IFS=$'\t' read` collapses a run of tabs. THREE SPIKE READINGS
+    # follow: `Tracer: yes` (1/0), a `Spike approved:` record (1/0), and the
+    # waves holding a spike branch. Nothing reads them yet.
     spike_waves = ",".join(str(i) for i, w in enumerate(d.get("waves", []) or [])
                            if any(b.get("spike") for b in w.get("branches", []) or []))
-    print("\t".join(["P", clean(f), clean(d.get("phase", "")), clean(d.get("type", "")) or "-",
+    print("\t".join(["P", clean(f), clean(d.get("phase", "")) or "-", clean(d.get("type", "")) or "-",
                      "1" if d.get("tracer") else "0",
-                     clean(d.get("spike_approved_raw", "")) or "-", spike_waves or "-"]))
+                     "1" if d.get("spike_approved_raw") else "0", spike_waves or "-"]))
     for i, w in enumerate(d.get("waves", []) or []):
         name = w.get("name")
         for b in w.get("branches", []) or []:
@@ -3162,7 +3162,7 @@ for line in sys.stdin:
         # `rest` is "<phase>\t<type>\t<tracer>\t<spike approved>\t<spike waves>",
         # no token holding a tab. The last three travel together, unread.
         IFS=$'\t' read -r _ph _ty _sp <<< "$rest"
-        plan_meta_phases+=("$_ph")
+        plan_meta_phases+=("${_ph#-}")
         plan_meta_types+=("${_ty#-}")
         plan_meta_spikes+=("$_sp")
         plan_meta_waves+=("")
@@ -4569,7 +4569,7 @@ for plan in "${plans[@]}"; do
       esac
     done <<< "$states"
     # THE TWO SPIKE COLUMNS, appended and not yet read: whether this slice
-    # holds a `<!-- spike -->` branch, and the plan's `Spike approved:` record.
+    # holds a `<!-- spike -->` branch, and whether the plan records `Spike approved:`.
     _spike=0; case ",${_plan_spike[2]}," in *",$wid,"*) _spike=1 ;; esac
     wave_readings+="$outstanding	$plan_phase	$wave_states	$_spike	${_plan_spike[1]}"$'\n'
     wave_degraded_list+="$_loose_degraded_branches"$'\n'
