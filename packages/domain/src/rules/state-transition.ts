@@ -95,12 +95,14 @@ export const owningCommand = (kind: LifecycleKind, slug: string, to: string): st
     return `/plot-sprint ${slug} ${sprintVerb(to)}  (or: bash skills/plot/scripts/plot-sprint-state.sh ${slug} ${to})`;
   }
   switch (to.toLowerCase()) {
+    case 'design':
+      return `needs-design ${slug}  (or: node skills/plot/scripts/board/plot-needs-design.mjs ${slug} --who <handle>)`;
     case 'approved':
       return `/plot-approve ${slug}  (or: bash skills/plot/scripts/plot-approve.sh ${slug})`;
     case 'delivered':
       return `/plot-deliver ${slug}  (or: bash skills/plot/scripts/plot-deliver.sh ${slug})`;
     default:
-      return `/plot-approve or /plot-deliver — the plan lifecycle is Draft > Approved > Delivered > Released,\n                    and no command writes '${to}'. If the phase itself is wrong, that is a finding to report.`;
+      return `/plot-approve or /plot-deliver — the plan lifecycle is Draft > Design > Approved > Delivered > Released,\n                    and no command writes '${to}'. If the phase itself is wrong, that is a finding to report.`;
   }
 };
 

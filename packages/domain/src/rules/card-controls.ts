@@ -5,6 +5,7 @@ import type { PlanStatus } from './phase.js';
 /** The controls a plan card offers. Each boolean answers whether the card renders that control. */
 export const CardControlsSchema = z.object({
   approve: z.boolean(),
+  needsDesign: z.boolean(),
   interrogate: z.boolean(),
   commission: z.boolean(),
   roundsBadge: z.boolean(),
@@ -27,7 +28,7 @@ export interface CardControlsReadings {
  * The controls a plan card offers.
  *
  * `approve` and `interrogate` hold on the `draft` and `design` states.
- * `commission` and `roundsBadge` hold on the `draft` state only: the commission
+ * `needsDesign`, `commission` and `roundsBadge` hold on the `draft` state only: the commission
  * command refuses every other state, and the interrogation-rounds badge shows
  * on a Draft card only. `dispatch` holds where `status` is `approved` or `in-progress`. `readyToStart` holds where
  * `dispatch` holds and the plan records no `Started:` entry.
@@ -36,7 +37,7 @@ export interface CardControlsReadings {
  * whether the command succeeds: each command keeps its own preconditions.
  *
  * @param readings - the plan's state, status and started record.
- * @returns the six control booleans.
+ * @returns the seven control booleans.
  */
 export const cardControls = (readings: CardControlsReadings): CardControls => {
   const draft = readings.state === 'draft';
@@ -44,6 +45,7 @@ export const cardControls = (readings: CardControlsReadings): CardControls => {
   const dispatch = readings.status === 'approved' || readings.status === 'in-progress';
   return {
     approve: underReview,
+    needsDesign: draft,
     interrogate: underReview,
     commission: draft,
     roundsBadge: draft,

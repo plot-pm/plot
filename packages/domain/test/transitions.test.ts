@@ -6,6 +6,7 @@ import {
   deliverable,
   isDecision,
   isRefusal,
+  needsDesign,
   reject,
   rejectable,
   releasable,
@@ -41,6 +42,44 @@ const approvedBy = (over: Partial<ApproveInput> = {}): ApproveInput => ({
   channel: 'plan-PR #42 merged',
   people: ['jwloka', 'eins78'],
   ...over,
+});
+
+describe('needsDesign', () => {
+  const input = { on: '2026-10-12', who: 'jwloka', channel: 'board' };
+
+  it('moves a draft plan to design and dates the record', () => {
+    expect(needsDesign(planWith({ phase: 'draft' }), input)).toEqual({
+      outcome: 'decided',
+      slug: 'a-plan',
+      phase: 'design',
+      field: 'Design',
+      record: '2026-10-12, jwloka, board',
+      alreadyRecorded: false,
+    });
+  });
+
+  it.each([
+    ['design', 'state-wrong', "is in state 'design'"],
+    ['approved', 'state-wrong', "is in state 'approved'"],
+    ['rejected', 'state-wrong', "is in state 'rejected'"],
+    ['superseded', 'state-wrong', "is in state 'superseded'"],
+    ['delivered', 'state-terminal', 'is already delivered'],
+    ['released', 'state-terminal', 'is already released'],
+    ['none', 'state-unreadable', 'cannot read the state'],
+  ] as const)('refuses %s as %s', (phase, reason, text) => {
+    const result = needsDesign(planWith({ phase }), input);
+    expect(result).toMatchObject({ outcome: 'refused', reason });
+    expect((result as { detail: string }).detail).toContain(text);
+  });
+
+  it('refuses review-human for an empty or blank who', () => {
+    for (const who of ['', '  ']) {
+      expect(needsDesign(planWith({ phase: 'draft' }), { ...input, who })).toMatchObject({
+        outcome: 'refused',
+        reason: 'review-human',
+      });
+    }
+  });
 });
 
 describe('approve', () => {

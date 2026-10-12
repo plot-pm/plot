@@ -35,6 +35,7 @@ describe('evidence — what each workflow’s expression can be checked against'
       'dispatch',
       'implement',
       'merge',
+      'needs-design',
       'reap',
       'reconcile',
       'release',

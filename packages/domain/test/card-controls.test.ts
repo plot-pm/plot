@@ -20,6 +20,14 @@ describe('cardControls', () => {
     }
   });
 
+  it.each([...STATES, 'rejected', 'superseded', 'none'])('needsDesign holds on draft only: %s', (state) => {
+    for (const status of STATUSES) {
+      for (const started of [false, true]) {
+        expect(cardControls({ state, status, started }).needsDesign).toBe(state === 'draft');
+      }
+    }
+  });
+
   it.each(STATES)('commission and roundsBadge hold on draft only: %s', (state) => {
     const draft = state === 'draft';
     for (const status of STATUSES) {
@@ -48,19 +56,19 @@ describe('cardControls', () => {
 
   it('offers Approve and Interrogate on a Design plan, and not Commission or the rounds badge', () => {
     expect(cardControls({ state: 'design', status: 'open', started: false })).toEqual({
-      approve: true, interrogate: true, commission: false, roundsBadge: false, dispatch: false, readyToStart: false,
+      approve: true, needsDesign: false, interrogate: true, commission: false, roundsBadge: false, dispatch: false, readyToStart: false,
     });
   });
 
   it('offers Commission and the rounds badge on a Draft plan', () => {
     expect(cardControls({ state: 'draft', status: 'draft', started: false })).toEqual({
-      approve: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false,
+      approve: true, needsDesign: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false,
     });
   });
 
   it('offers nothing on a state the workflow does not know', () => {
     expect(cardControls({ state: 'weird', status: 'draft', started: false })).toEqual({
-      approve: false, interrogate: false, commission: false, roundsBadge: false, dispatch: false, readyToStart: false,
+      approve: false, needsDesign: false, interrogate: false, commission: false, roundsBadge: false, dispatch: false, readyToStart: false,
     });
   });
 });

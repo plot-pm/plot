@@ -82,6 +82,12 @@ describe('sprintVerb and owningCommand', () => {
     expect(owningCommand('plan', 'x', 'delivered')).toBe('/plot-deliver x  (or: bash skills/plot/scripts/plot-deliver.sh x)');
   });
 
+  it('names the needs-design bundle for Design', () => {
+    expect(owningCommand('plan', 'x', 'Design')).toBe(
+      'needs-design x  (or: node skills/plot/scripts/board/plot-needs-design.mjs x --who <handle>)',
+    );
+  });
+
   it('names the sprint command with its verb', () => {
     expect(owningCommand('sprint', 's', 'Active')).toBe(
       '/plot-sprint s start  (or: bash skills/plot/scripts/plot-sprint-state.sh s Active)',
@@ -90,7 +96,7 @@ describe('sprintVerb and owningCommand', () => {
 
   it('names the lifecycle for a state no command writes', () => {
     const text = owningCommand('plan', 'x', 'Planned');
-    expect(text).toContain('Draft > Approved > Delivered > Released');
+    expect(text).toContain('Draft > Design > Approved > Delivered > Released');
     expect(text).toContain("no command writes 'Planned'");
   });
 });

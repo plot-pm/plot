@@ -133,10 +133,10 @@ export interface Decision {
   /** The state to write. The field is named `phase` because the wire key is. */
   readonly phase: Extract<
     PlanState,
-    'approved' | 'delivered' | 'released' | 'rejected' | 'superseded'
+    'design' | 'approved' | 'delivered' | 'released' | 'rejected' | 'superseded'
   >;
   /** The `## Status` field the record belongs on. */
-  readonly field: 'Approved' | 'Delivered' | 'Released' | 'Rejected' | 'Superseded';
+  readonly field: 'Design' | 'Approved' | 'Delivered' | 'Released' | 'Rejected' | 'Superseded';
   /** The record's value, without its `- **Field:** ` prefix. */
   readonly record: string;
   /** Whether the plan already carries this state and record, leaving nothing to write. */
@@ -347,6 +347,74 @@ export const approve = (plan: TransitionPlan, input: ApproveInput): TransitionRe
     field: 'Approved',
     record: written === '' ? `${input.on}, ${input.who}, ${input.channel}` : written,
     alreadyRecorded: plan.phase === 'approved' && written !== '',
+  };
+};
+
+/** What `needsDesign` needs beyond the plan. */
+export interface NeedsDesignInput {
+  /** The date to record, ISO-8601. */
+  on: string;
+  /** The person who moves the plan into Design. */
+  who: string;
+  /** The channel the move came through, `board` or `cli`. */
+  channel: string;
+}
+
+/**
+ * Decides the write that moving a Draft plan into Design calls for.
+ *
+ * Only a `draft` plan moves. Every other state refuses by name: `delivered` and
+ * `released` as `state-terminal`, `none` as `state-unreadable`, and `design`,
+ * `approved`, `rejected` and `superseded` as `state-wrong`. An empty `who`
+ * refuses `review-human`, because a person makes this move.
+ *
+ * @param plan - the plan to move.
+ * @param input - the date, person and channel to record.
+ * @returns a decision carrying `design` and its `Design:` record, or a refusal
+ *   naming the gate that fired: `state-terminal`, `state-unreadable`,
+ *   `state-wrong` or `review-human`.
+ */
+export const needsDesign = (plan: TransitionPlan, input: NeedsDesignInput): TransitionResult => {
+  switch (plan.phase) {
+    case 'draft':
+      break;
+    case 'delivered':
+    case 'released':
+      return refuse(
+        plan.slug,
+        'state-terminal',
+        `plan '${plan.slug}' is already ${plan.phase} — it cannot need design.`,
+      );
+    case 'none':
+      return refuse(
+        plan.slug,
+        'state-unreadable',
+        `cannot read the state of '${plan.slug}' — refusing rather than guessing.`,
+      );
+    default:
+      return refuse(
+        plan.slug,
+        'state-wrong',
+        `plan '${plan.slug}' is in state '${plan.phase}' — only a Draft plan can move to Design.`,
+      );
+  }
+
+  const who = input.who.trim();
+  if (who === '') {
+    return refuse(
+      plan.slug,
+      'review-human',
+      `a person moves '${plan.slug}' to Design — name them with --who.`,
+    );
+  }
+
+  return {
+    outcome: 'decided',
+    slug: plan.slug,
+    phase: 'design',
+    field: 'Design',
+    record: `${input.on}, ${who}, ${input.channel}`,
+    alreadyRecorded: false,
   };
 };
 

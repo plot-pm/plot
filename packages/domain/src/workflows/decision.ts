@@ -65,7 +65,7 @@ export interface PlanPhaseWrite {
   /** The plan file the write lands in, relative to the repository root. */
   readonly file: string;
   /** The phase to write, capitalised as the file spells it. */
-  readonly phase: 'Approved' | 'Delivered' | 'Released';
+  readonly phase: 'Design' | 'Approved' | 'Delivered' | 'Released';
 }
 
 /** Fills one dated `## Status` record, replacing the template's placeholder. */
@@ -74,7 +74,7 @@ export interface PlanRecordWrite {
   /** The plan file the write lands in, relative to the repository root. */
   readonly file: string;
   /** Which record — the field name as the file spells it. */
-  readonly field: 'Approved' | 'Started' | 'Delivered' | 'Released' | 'Verified';
+  readonly field: 'Design' | 'Approved' | 'Started' | 'Delivered' | 'Released' | 'Verified';
   /** The record's value, without its `- **Field:** ` prefix. */
   readonly value: string;
   /** `'replace'` overwrites a filled line of this field; only `Verified` passes it. */
@@ -784,6 +784,8 @@ export const EVIDENCE: Readonly<Record<WorkflowName, Evidence>> = {
   // exit code to compare against.
   assign: 'fixture',
   deliver: 'script',
+  // FIXTURE-VERIFIED ONLY. No script exists: the bundle `plot-needs-design.mjs` is the command.
+  'needs-design': 'fixture',
   dispatch: 'script',
   reap: 'script',
   // Transcribed from `plot-reconcile-scan.sh`, which has an exit code and a
