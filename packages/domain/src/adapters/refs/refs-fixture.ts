@@ -15,6 +15,7 @@ import type {
   Refs,
   RemoteHeadAnswer,
   RemoteShaReading,
+  StagedEntry,
   StagedPath,
   TreeBlob,
 } from '../../ports/refs.js';
@@ -46,6 +47,8 @@ export interface RefsFixture {
   workingChanges?: readonly string[];
   /** The paths staged against `HEAD`, each with its status — for {@link Refs.stagedPaths}. */
   stagedPaths?: readonly StagedPath[];
+  /** The entries staged against `HEAD`, deletions included — for {@link Refs.stagedEntries}. */
+  stagedEntries?: readonly StagedEntry[];
   /** The untracked, unignored paths — for {@link Refs.untrackedPaths}, filtered by the pathspec as a path prefix. */
   untrackedPaths?: readonly string[];
   /** The working directory relative to the repository root — for {@link Refs.showPrefix}. */
@@ -287,6 +290,8 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
     workingChanges: async () => answered(fixture.workingChanges ?? []),
 
     stagedPaths: async () => answered<readonly StagedPath[]>(fixture.stagedPaths ?? []),
+
+    stagedEntries: async () => answered<readonly StagedEntry[]>(fixture.stagedEntries ?? []),
 
     untrackedPaths: async (pathspec) =>
       answered(

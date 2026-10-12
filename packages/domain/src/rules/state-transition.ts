@@ -190,6 +190,66 @@ export const stateTransitionOf = (
   };
 };
 
+/** The mode git gives a symbolic link. */
+export const SYMLINK_MODE = '120000';
+
+/** One side of a lifecycle path: its text, and whether it is a symbolic link. */
+export interface FileVersion {
+  /** The text git stores: a symbolic link's is its target path. */
+  text: string;
+  /** Whether the version is a symbolic link ({@link SYMLINK_MODE}). */
+  link: boolean;
+}
+
+/** A path under the plan or sprint directory, as the state gate read it. */
+export interface LifecycleReading {
+  /** The repository-relative path. */
+  path: string;
+  kind: LifecycleKind;
+  /** The version in `HEAD`, or `null` when `HEAD` holds no such path. */
+  head: FileVersion | null;
+  /** The version the commit takes, or `null` when the commit deletes the path or it is unreadable. */
+  committed: FileVersion | null;
+}
+
+/**
+ * The transitions a commit carries, in the order of `readings`.
+ *
+ * A symbolic link reads as no file: it holds a target path and no `State:`
+ * line, so a link in `HEAD` makes the path a creation, a link the commit takes
+ * makes it a deletion, and a deleted link is never a rename source. A path with
+ * a `HEAD` version and no committed one is a deletion, and is the rename source
+ * {@link renamedFromOf} searches for a path with no `HEAD` version. Each path
+ * is then judged by {@link stateTransitionOf}.
+ *
+ * @param readings - every lifecycle path the commit carries, plus the old path
+ *   of each rename git paired.
+ * @param planDir - the `Plan directory` config value.
+ * @param sprintDir - the `Sprint directory` config value.
+ */
+export const stateTransitionsOf = (
+  readings: readonly LifecycleReading[],
+  planDir: string,
+  sprintDir: string,
+): readonly StateTransition[] => {
+  const textOf = (version: FileVersion | null): string | null =>
+    version === null || version.link ? null : version.text;
+  const files = readings.map(({ path, kind, head, committed }) => ({
+    path,
+    kind,
+    head: textOf(head),
+    committed: textOf(committed),
+  }));
+  const deleted = files.flatMap(({ path, head, committed }) =>
+    committed === null && head !== null ? [{ path, head }] : [],
+  );
+  return files.flatMap(({ path, kind, head, committed }) => {
+    const renamed = head === null ? renamedFromOf(path, kind, deleted, planDir, sprintDir) : null;
+    const transition = stateTransitionOf(path, kind, head, committed, renamed);
+    return transition === null ? [] : [transition];
+  });
+};
+
 /**
  * Whether a `git commit` command takes the tracked files modified in the
  * working tree: `-a` or `-am` standing as a word, with a quote or the end

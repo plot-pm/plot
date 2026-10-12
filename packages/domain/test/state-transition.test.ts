@@ -10,6 +10,7 @@ import {
   renamedFromOf,
   stateTransitionOf,
   stateTransitionRefusal,
+  stateTransitionsOf,
   statusStateOf,
   takesModifiedOf,
 } from '../src/rules/state-transition.js';
@@ -169,6 +170,71 @@ describe('renamedFromOf', () => {
 
   it('ignores a deletion of another kind', () => {
     expect(find('docs/plans/2026-02-02-x.md', [old('docs/sprints/2026-W01-x.md')])).toBeNull();
+  });
+});
+
+describe('stateTransitionsOf', () => {
+  const file = (text: string) => ({ text, link: false });
+  const link = (target: string) => ({ text: target, link: true });
+  const read = (
+    path: string,
+    head: { text: string; link: boolean } | null,
+    committed: { text: string; link: boolean } | null,
+  ) => ({ path, kind: 'plan' as const, head, committed });
+  const of = (...readings: ReturnType<typeof read>[]) => stateTransitionsOf(readings, 'docs/plans/', 'docs/sprints/');
+
+  it('finds a changed value', () => {
+    expect(of(read('docs/plans/2026-01-01-x.md', file(doc('Draft')), file(doc('Approved'))))).toEqual([
+      { path: 'docs/plans/2026-01-01-x.md', kind: 'plan', before: 'Draft', after: 'Approved' },
+    ]);
+  });
+
+  it('reads a deleted same-slug plan as the before of an added one', () => {
+    expect(
+      of(
+        read('docs/plans/2026-01-01-x.md', file(doc('Design')), null),
+        read('docs/plans/2026-02-02-x.md', null, file(doc('Draft'))),
+      ),
+    ).toEqual([
+      {
+        path: 'docs/plans/2026-02-02-x.md',
+        kind: 'plan',
+        before: 'Design',
+        after: 'Draft',
+        renamedFrom: 'docs/plans/2026-01-01-x.md',
+      },
+    ]);
+  });
+
+  it('passes a symlink added, removed or moved between index directories', () => {
+    expect(of(read('docs/plans/active/x.md', null, link('../2026-01-01-x.md')))).toEqual([]);
+    expect(of(read('docs/plans/active/x.md', link('../2026-01-01-x.md'), null))).toEqual([]);
+    expect(
+      of(
+        read('docs/plans/delivered/x.md', link('../2026-01-01-x.md'), null),
+        read('docs/plans/active/x.md', null, link('../2026-01-01-x.md')),
+      ),
+    ).toEqual([]);
+  });
+
+  it('never reads a deleted symlink as the before of an added plan', () => {
+    expect(
+      of(read('docs/plans/active/x.md', link('../2026-01-01-x.md'), null), read('docs/plans/2026-02-02-x.md', null, file(doc('Draft')))),
+    ).toEqual([]);
+  });
+
+  it('never reads an added symlink as a rename of a deleted plan', () => {
+    expect(
+      of(read('docs/plans/2026-01-01-x.md', file(doc('Design')), null), read('docs/plans/active/x.md', null, link('../2026-01-01-x.md'))),
+    ).toEqual([]);
+  });
+
+  it('reads a plan that replaces a symlink as a creation', () => {
+    expect(of(read('docs/plans/2026-01-01-x.md', link('elsewhere.md'), file(doc('Draft'))))).toEqual([]);
+  });
+
+  it('reads a symlink that replaces a plan as a deletion', () => {
+    expect(of(read('docs/plans/2026-01-01-x.md', file(doc('Draft')), link('elsewhere.md')))).toEqual([]);
   });
 });
 
