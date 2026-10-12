@@ -24,11 +24,13 @@ describe('spikeOf', () => {
     expect(spikeOf([])).toBeUndefined();
   });
 
-  it('answers the first annotation when a plan carries two', () => {
-    const slices = [
+  it('answers nothing when a plan carries two annotations', () => {
+    expect(spikeOf([
       { branches: [{ branch: 'feature/a', spike: true }] },
       { branches: [{ branch: 'feature/b', spike: true }] },
-    ];
-    expect(spikeOf(slices)).toEqual({ branch: 'feature/a', slice: 0 });
+    ])).toBeUndefined();
+    expect(spikeOf([
+      { branches: [{ branch: 'feature/a', spike: true }, { branch: 'feature/b', spike: true }] },
+    ])).toBeUndefined();
   });
 });
