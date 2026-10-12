@@ -3,6 +3,13 @@ import { spikeOf, type SpikeSlice } from './spike.js';
 /** Where a Design plan stands against its spike, as its card words it. */
 export type SpikeCardState = 'spike-not-approved' | 'spike-approved' | 'spike-merged';
 
+/** The line a card shows for each {@link SpikeCardState}. */
+export const SPIKE_CARD_TEXT: Readonly<Record<SpikeCardState, string>> = {
+  'spike-not-approved': 'spike not approved yet',
+  'spike-approved': 'spike approved — waiting for its PR to merge',
+  'spike-merged': 'spike merged — confirm the slices to approve',
+};
+
 /** What `spikeCardState` reads of one plan. */
 export interface SpikeCardReadings {
   /** The plan's state as the file spells it, lowercased. */

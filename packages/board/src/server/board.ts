@@ -24,6 +24,7 @@ import {
   type SliceSummary,
   type StoryStatus,
   type StoryStanding } from '../contract/schema.js';
+import { spikeOf } from '@plot-pm/domain/rules/spike';
 import { refutedBadge, refutedClaims, verificationOf } from '@plot-pm/domain/rules/verification-record';
 import {
   allSlicesMerged,
@@ -1041,6 +1042,21 @@ function anyBranchClaimed(meta: PlanMeta, pulse: FleetReading | null): boolean {
   const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
   if (!plan) return false;
   return plan.slices.some((w) => w.branches.some((b) => b.state === 'claimed'));
+}
+
+/**
+ * Whether the pulse shows the plan's spike branch merged.
+ *
+ * Display only: the card words its control from this, and `approve` re-reads the
+ * host's `mergedAt` before it writes anything. Absent plan, cold cache, an
+ * unmatched name and a plan with no single spike all read as not merged.
+ */
+function spikeBranchMerged(meta: PlanMeta, pulse: FleetReading | null): boolean {
+  const branch = spikeOf(meta.slices)?.branch;
+  if (branch === undefined) return false;
+  const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
+  if (!plan) return false;
+  return plan.slices.some((w) => w.branches.some((b) => b.branch === branch && b.state === 'merged'));
 }
 
 /**
@@ -2152,6 +2168,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
         started,
         slices: meta.slices,
         spikeApproved: meta.spike_approved_raw,
+        spikeMerged: spikeBranchMerged(meta, pulse),
       }),
       path: relPath,
       // The parser emits a GitHub `#N` as a number; the row prints a string.

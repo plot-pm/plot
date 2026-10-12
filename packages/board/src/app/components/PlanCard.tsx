@@ -5,6 +5,7 @@ import { cn } from '../lib/utils.js';
 import { planHref, storyHref } from '../lib/plan.js';
 import { checksVerdict } from '@plot-pm/domain';
 import { StartWorkButton } from './StartWorkButton.js';
+import { SPIKE_CARD_TEXT } from '@plot-pm/domain/rules/spike-confirm';
 import { ApproveButton } from './ApproveButton.js';
 import { InterrogateButton } from './InterrogateButton.js';
 
@@ -547,7 +548,13 @@ export function PlanCard({
             precisely what running through the skill exists to avoid. The
             command refuses in its own words instead, and the card shows them. */}
         {approve && isDraft(card) && (
-          <ApproveButton card={card} approve={approve} onApproving={onStarting} />
+          <ApproveButton card={card} approve={approve} onApproving={onStarting} confirm={card.controls.confirmSlices} />
+        )}
+        {/* Where a Design plan stands against its spike, on the domain's `controls.spikeState`. */}
+        {card.controls.spikeState && (
+          <span data-spike-state={card.controls.spikeState} className="text-xs text-slate-500 dark:text-slate-400">
+            {SPIKE_CARD_TEXT[card.controls.spikeState]}
+          </span>
         )}
         {/* The spike alone, on the domain's `controls.approveSpike`: a Design plan
             whose one spike branch is the only branch of the first slice. */}

@@ -15,6 +15,7 @@ export const CardControlsSchema = z.object({
   readyToStart: z.boolean(),
   approveSpike: z.boolean().default(false),
   confirmSlices: z.boolean().default(false),
+  // plot-state: reading — where a Design plan stands against its spike; every board build re-reads it from the plan record and the pulse.
   spikeState: z.enum(['spike-not-approved', 'spike-approved', 'spike-merged']).nullable().default(null),
 });
 export type CardControls = z.infer<typeof CardControlsSchema>;

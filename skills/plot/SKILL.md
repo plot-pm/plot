@@ -281,7 +281,7 @@ Stories (`<story directory>/{slug}/`, per the `Story directory` key) are the lon
 
 ### tracer-bullets
 
-Plans can define a `### Tracer` subsection in `## Slices` (see plan template). When using `### Tracer`, wrap remaining branches in a `### Implementation` subsection — `/plot-approve` parses only `### Implementation` and skips tracer branches. Format:
+Plans can define a `### Tracer` subsection in `## Slices` (see plan template). When using `### Tracer`, wrap remaining branches in a `### Implementation` subsection. `/plot-approve` step 2b reads the `### Tracer` heading for a Draft plan, and reads the `<!-- spike -->` annotation for a Design plan. Format:
 
 ```markdown
 ### Tracer

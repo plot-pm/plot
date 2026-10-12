@@ -45,7 +45,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 |-------|-----------|-------|
 | 1. Parse Input | Small | Slug lookup via helper scripts |
 | 2. Determine Review State | Small | plot-plan-meta.sh reports the channel |
-| 2b. Suggest Tracer Bullet | Mid | Heuristic evaluation of plan design |
+| 2b. Suggest Tracer Bullet | Mid | Heuristic evaluation of plan design. For a Design plan, read the spike annotation instead and name the fix of a `spike-unmerged` or `slices-unpushed` refusal |
 | 3. Effect and Record (`pr`) | Small | One call to `plot-approve.sh`; read back its summary |
 | 3. `Review: in-session` | Small | One call: `plot-approve.sh --who <handle>`; read back its summary |
 | 3b. Record by hand (`ballot` only) | Mid | The tally, then the same records without a script |
@@ -146,7 +146,14 @@ approvals unless the user explicitly rules).
 
 Before approving, check if a tracer bullet might be valuable. This is a suggestion, never a hard gate.
 
-Read the plan file and check for a `### Tracer` subsection under `## Slices`:
+**For a Design plan, this step reads the spike annotation, not the `### Tracer` heading.** A Design plan whose `Spike approved:` record exists is approved whole only after two facts hold, and the approval refuses by name when either does not:
+
+- `spike-unmerged` — the host reports no merged PR for the spike branch. Wait for the spike's PR to merge, then run `/plot-approve <slug>` again. If the spike should not gate the plan, drop the `<!-- spike -->` annotation from the plan and run it again.
+- `slices-unpushed` — the plan file in this checkout differs from the copy on the default branch. Commit and push the rewritten slices to the default branch, then run `/plot-approve <slug>` again.
+
+The merge reading is the host's `mergedAt` for the spike branch. A merge subject on the default branch and git ancestry do not answer it. A Draft plan, an Approved plan and a Design plan with no `Spike approved:` record do not meet either refusal.
+
+For a Draft plan, read the plan file and check for a `### Tracer` subsection under `## Slices`:
 
 - **If `### Tracer` exists with `Status: Complete`:** proceed normally. Mention in summary: "Tracer bullet validated."
 - **If `### Tracer` exists but incomplete:** warn: "This plan has an incomplete tracer bullet. Consider finishing it with the `tracer-bullets` skill before approving. Proceed anyway?"
@@ -384,6 +391,7 @@ The phase stays Design, and no `Approved:` record is written. Carry the script's
 - `spike-approved` — the plan already carries a `Spike approved:` record. A second run is not a repair.
 - `spike-none` — no branch is marked `<!-- spike -->`, or more than one is.
 - `spike-not-first` — the spike is not the only branch of the first slice.
+- `spike-unmerged` and `slices-unpushed` — the whole-plan approval of a Design plan with an approved spike (step 2b). They do not apply to `--spike`.
 - `review-human` — `--who` is missing or empty.
 - `reviewer-undeclared` — `People` does not declare the handle.
 - `pr-closed`, `pr-absent` or `pr-ambiguous` — the plan PR is closed, missing, or not the only open PR that changes the plan file.

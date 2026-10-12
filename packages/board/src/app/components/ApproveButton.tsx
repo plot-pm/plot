@@ -42,6 +42,8 @@ export interface ApproveButtonProps {
   onApproving?: (active: boolean) => void;
   /** Approves the plan's spike branch alone: posts `"spike":true` and names the spike in its labels. */
   spike?: boolean;
+  /** Words the approval as confirming the rewritten slices once the spike has merged; the action is the plain approve. */
+  confirm?: boolean;
 }
 
 type State =
@@ -63,13 +65,14 @@ type State =
  * Exported for test: the two branches are display logic with a real edge case,
  * and the PR-less one is the branch a fixture is most likely to hit.
  */
-export function armedLabel(card: Card, spike = false): string {
+export function armedLabel(card: Card, spike = false, confirm = false): string {
   if (spike) return `Approve spike — approves the spike of ${card.slug}?`;
+  if (confirm) return `Confirm slices and approve — approves ${card.slug}?`;
   const pr = card.prs[0];
   return pr ? `Approve — merges PR #${pr.number}?` : `Approve — approves ${card.slug}?`;
 }
 
-export function ApproveButton({ card, approve, onApproving, spike = false }: ApproveButtonProps) {
+export function ApproveButton({ card, approve, onApproving, spike = false, confirm = false }: ApproveButtonProps) {
   const [state, setState] = useState<State>({ kind: 'idle' });
   const armed = state.kind === 'armed';
   const running = state.kind === 'running';
@@ -256,7 +259,7 @@ export function ApproveButton({ card, approve, onApproving, spike = false }: App
               : 'text-xs font-medium text-blue-600 hover:underline dark:text-blue-400'
         }
       >
-        {running ? 'approving…' : armed ? armedLabel(card, spike) : spike ? 'Approve spike' : 'Approve'}
+        {running ? 'approving…' : armed ? armedLabel(card, spike, confirm) : spike ? 'Approve spike' : confirm ? 'Confirm slices and approve' : 'Approve'}
         {/* Beside the word, never instead of it. Motion must not be the only
             carrier of a fact, and the label is what a screen reader gets. */}
         {running && <ActingSpinner />}
