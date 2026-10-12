@@ -6,7 +6,7 @@ import { spikeOf, type SpikeSlice } from './spike.js';
 /** The controls a plan card offers. Each boolean answers whether the card renders that control. */
 export const CardControlsSchema = z.object({
   approve: z.boolean(),
-  needsDesign: z.boolean(),
+  needsDesign: z.boolean().default(false),
   interrogate: z.boolean(),
   commission: z.boolean(),
   roundsBadge: z.boolean(),

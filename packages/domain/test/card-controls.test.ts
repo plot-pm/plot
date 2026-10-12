@@ -1,6 +1,6 @@
 // The controls a plan card offers, decided over values.
 import { describe, it, expect } from 'vitest';
-import { cardControls } from '../src/rules/card-controls.js';
+import { cardControls, CardControlsSchema } from '../src/rules/card-controls.js';
 import type { PlanStatus } from '../src/rules/phase.js';
 
 const STATES = ['draft', 'design', 'approved', 'delivered', 'released'];
@@ -70,5 +70,12 @@ describe('cardControls', () => {
     expect(cardControls({ state: 'weird', status: 'draft', started: false })).toEqual({
       approve: false, needsDesign: false, interrogate: false, commission: false, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false,
     });
+  });
+});
+
+describe('CardControlsSchema', () => {
+  it('reads a payload written before needsDesign existed as needsDesign: false', () => {
+    const older = { approve: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false };
+    expect(CardControlsSchema.parse(older).needsDesign).toBe(false);
   });
 });
