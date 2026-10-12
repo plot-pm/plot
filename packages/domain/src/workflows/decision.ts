@@ -23,6 +23,7 @@ import type { EndingActor, EndingReason } from '../entities/ending.js';
 export type Write =
   | PlanPhaseWrite
   | PlanRecordWrite
+  | PlanSectionWrite
   | PlanAnnotationWrite
   | HoldClearWrite
   | SprintAnnotationWrite
@@ -73,9 +74,22 @@ export interface PlanRecordWrite {
   /** The plan file the write lands in, relative to the repository root. */
   readonly file: string;
   /** Which record — the field name as the file spells it. */
-  readonly field: 'Approved' | 'Started' | 'Delivered' | 'Released';
+  readonly field: 'Approved' | 'Started' | 'Delivered' | 'Released' | 'Verified';
   /** The record's value, without its `- **Field:** ` prefix. */
   readonly value: string;
+  /** `'replace'` overwrites a filled line of this field; only `Verified` passes it. */
+  readonly mode?: 'replace';
+}
+
+/** Replaces, or adds, one `##` section of a plan file. */
+export interface PlanSectionWrite {
+  readonly kind: 'plan-section';
+  /** The plan file the write lands in, relative to the repository root. */
+  readonly file: string;
+  /** The section's heading text, without its `## `. */
+  readonly heading: string;
+  /** The section's lines, without the heading. */
+  readonly body: string;
 }
 
 /** Annotates one branch line in a plan's slice section. */

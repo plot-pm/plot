@@ -6,6 +6,7 @@ import {
   HOLD_FILE,
   withPhase,
   withRecord,
+  withSection,
   withSprintAnnotation,
   withoutHold,
 } from '../../workflows/rendering.js';
@@ -137,9 +138,18 @@ const applyWrite = (context: PerformContext, write: Write): readonly string[] =>
 
     case 'plan-record': {
       const file = resolve(context, write.file);
-      const next = withRecord(readOrEmpty(file), write.field, write.value);
+      const next = withRecord(readOrEmpty(file), write.field, write.value, write.mode);
       if (!next.wrote) return [];
       writeFileSync(file, next.text);
+      return [write.file];
+    }
+
+    case 'plan-section': {
+      const file = resolve(context, write.file);
+      const before = readOrEmpty(file);
+      const after = withSection(before, write.heading, write.body);
+      if (after === before) return [];
+      writeFileSync(file, after);
       return [write.file];
     }
 

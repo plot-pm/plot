@@ -60,25 +60,35 @@ const placeholderFor = (field: string): RegExp =>
  *
  * @param text - the plan file's contents.
  * @param field - the record's field name, as the file spells it.
+ * With `mode: 'replace'` a line that already holds a value is overwritten, so
+ * a field written on every re-run (`Verified`) keeps one line. Without it a
+ * filled line is never touched and the new value appends: every other field is
+ * written once per lifecycle event, and overwriting one would erase history.
+ *
+ * @param text - the plan file's contents.
+ * @param field - the record's field name, as the file spells it.
  * @param value - the record's value, without its prefix.
+ * @param mode - `'replace'` to overwrite a filled line of this field.
  * @returns the new contents, and whether a `## Status` section was found.
  */
 export const withRecord = (
   text: string,
   field: string,
   value: string,
+  mode?: 'replace',
 ): { text: string; wrote: boolean } => {
   const lines = text.split('\n');
   const start = lines.findIndex((line) => STATUS_HEADING.test(line));
   if (start === -1) return { text, wrote: false };
 
   const placeholder = placeholderFor(field);
+  const filled = new RegExp(`^[ \\t]*[-*][ \\t]*\\*\\*${field}:\\*\\*`);
   let slot = -1;
   let insert = start;
   for (let i = start + 1; i < lines.length; i += 1) {
     const line = lines[i] as string;
     if (ANY_HEADING.test(line)) break;
-    if (placeholder.test(line)) {
+    if (placeholder.test(line) || (mode === 'replace' && filled.test(line))) {
       slot = i;
       break;
     }
@@ -90,6 +100,31 @@ export const withRecord = (
   if (slot === -1) next.splice(insert + 1, 0, rendered);
   else next[slot] = rendered;
   return { text: next.join('\n'), wrote: true };
+};
+
+/**
+ * Replaces one `##` section of a plan, or appends it where the plan has none.
+ *
+ * The section runs from its heading to the next `## ` heading or the end of
+ * the file. A second call with the same heading leaves one section.
+ *
+ * @param text - the plan file's contents.
+ * @param heading - the heading text without its `## `.
+ * @param body - the section's lines, without the heading.
+ * @returns the new contents.
+ */
+export const withSection = (text: string, heading: string, body: string): string => {
+  const lines = text.split('\n');
+  const wanted = `## ${heading}`;
+  const start = lines.findIndex((line) => line.trimEnd() === wanted);
+  const rendered = [wanted, '', ...body.replace(/\n+$/, '').split('\n'), ''];
+  if (start === -1) {
+    const kept = text.endsWith('\n') ? text : `${text}\n`;
+    return `${kept}\n${rendered.join('\n')}`;
+  }
+  let end = lines.findIndex((line, i) => i > start && ANY_HEADING.test(line));
+  if (end === -1) end = lines.length;
+  return [...lines.slice(0, start), ...rendered, ...lines.slice(end)].join('\n');
 };
 
 /**
@@ -264,6 +299,7 @@ export const pathsOf = (write: Write): readonly string[] => {
     case 'plan-phase':
     case 'plan-record':
     case 'plan-annotation':
+    case 'plan-section':
       return [write.file];
     case 'hold-clear':
       return [HOLD_FILE];

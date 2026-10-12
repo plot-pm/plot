@@ -44,18 +44,22 @@ export const panelDir = (subject: string): string => `${PANEL_DIRECTORY}/${subje
  *
  * @param subject - the plan slug the panel questioned.
  * @param lens - the persona that wrote it.
+ * @param prefix - put before the lens in the file name, so a second round on the
+ *   same plan (`verify-`) never overwrites the first. Defaults to none.
  * @returns the file path, relative to the repo root.
  */
-export const jurorPath = (subject: string, lens: string): string =>
-  `${panelDir(subject)}/${lens}.md`;
+export const jurorPath = (subject: string, lens: string, prefix: string = ''): string =>
+  `${panelDir(subject)}/${prefix}${lens}.md`;
 
 /**
  * The moderator's reconciliation, which is the panel's one output for a reader.
  *
  * @param subject - the plan slug the panel questioned.
+ * @param prefix - put before `panel.md`, as {@link jurorPath} does. Defaults to none.
  * @returns the file path, relative to the repo root.
  */
-export const moderationPath = (subject: string): string => `${panelDir(subject)}/panel.md`;
+export const moderationPath = (subject: string, prefix: string = ''): string =>
+  `${panelDir(subject)}/${prefix}panel.md`;
 
 /**
  * What a caller requires a juror to commit to.

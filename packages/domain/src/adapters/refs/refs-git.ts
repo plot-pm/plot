@@ -259,6 +259,24 @@ export const stagedPathsOf = (stdout: string): readonly StagedPath[] =>
     return [];
   });
 
+/**
+ * Finds the first commit in a `git log -p` stream that adds a filled record.
+ *
+ * @param stdout - commits as `@@<sha>`, each followed by its zero-context patch.
+ * @param field - the record's field name.
+ * @returns the sha of the newest such commit, or `null` where none adds a value.
+ */
+export const recordCommitOf = (stdout: string, field: string): string | null => {
+  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const added = new RegExp(`^\\+[ \\t]*[-*][ \\t]*\\*\\*${escaped}:\\*\\*[ \\t]*(?!<!--)\\S`);
+  let sha: string | null = null;
+  for (const line of stdout.split('\n')) {
+    if (line.startsWith('@@') && /^@@[0-9a-f]{7,64}$/.test(line)) sha = line.slice(2);
+    else if (sha !== null && added.test(line)) return sha;
+  }
+  return null;
+};
+
 export const refsGit = (context: ShellContext): Refs => {
   const scan = scriptPath(context, 'plot-fleet-scan.sh');
   const inRepo = { cwd: context.repoRoot };
@@ -403,6 +421,26 @@ export const refsGit = (context: ShellContext): Refs => {
         asLines,
         inRepo,
       ),
+
+    recordCommit: async (file, field) => {
+      const main = await defaultBranch();
+      if (!main.ok) return main as PortResult<string | null>;
+      const escaped = field.replace(/[.[\]\\*^$+?(){}|]/g, '\\$&');
+      // `-G` narrows the walk to commits whose diff touches a line of this
+      // field; the patch then says whether the line was ADDED with a value.
+      // `-m --first-parent` is one reading, as in `commitFiles`: a squash or a
+      // merge commit carries the plan's diff against its first parent.
+      return runScript(
+        'git',
+        [
+          'log', '-m', '--first-parent', '-U0', '--format=@@%H',
+          `-G^[ \t]*[-*][ \t]*\\*\\*${escaped}:\\*\\*`,
+          `origin/${main.value}`, '--', file,
+        ],
+        (stdout) => recordCommitOf(stdout, field),
+        { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
+      );
+    },
 
     pulse: async () => {
       const run = await runProcess('bash', [scan, '--json'], {

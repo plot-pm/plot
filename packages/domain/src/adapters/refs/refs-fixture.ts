@@ -69,6 +69,8 @@ export interface RefsFixture {
   firstParentAdditions?: Readonly<Record<string, string>>;
   /** Files each commit changed, keyed by sha — what `commitFiles` answers. */
   commitFiles?: Readonly<Record<string, readonly string[]>>;
+  /** The commit that filled a record, keyed `<file>\t<field>` — what `recordCommit` answers. */
+  recordCommits?: Readonly<Record<string, string>>;
   /** `<ref>:<path>` to that file's content at that ref. */
   files?: Readonly<Record<string, string>>;
   /**
@@ -313,6 +315,7 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
     },
 
     commitFiles: async (sha) => answered(commitFiles[sha] ?? []),
+    recordCommit: async (file, field) => answered(fixture.recordCommits?.[`${file}\t${field}`] ?? null),
 
     pulse: async () =>
       fixture.pulse === undefined ? unaskable<FleetReading>() : answered(fixture.pulse),

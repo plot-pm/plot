@@ -308,6 +308,27 @@ export interface Refs {
   commitFiles(sha: string): Promise<PortResult<readonly string[]>>;
 
   /**
+   * The newest first-parent commit on the default branch whose diff ADDS a
+   * filled value to a record field of a file.
+   *
+   * THE COMMIT THAT WROTE THE VALUE, not the newest commit touching the file.
+   * A plan's `Delivered:` line outlives the commit that filled it, and later
+   * edits to the file (a note, an annotation) would move a "newest touching"
+   * answer forward with each one. A pin built on this answer stays on the
+   * commit that delivered.
+   *
+   * A filled value is a non-empty one: the template's `<!-- YYYY-MM-DD -->`
+   * placeholder and a bare `- **Field:**` do not count.
+   *
+   * @param file - the file to read, relative to the repository root.
+   * @param field - the record's field name, as the file spells it, such as `Delivered`.
+   * @returns the commit's sha, or `null` when no commit on the default branch
+   *   added a filled value — an ANSWER. A history that could not be read is a
+   *   failed result, never `null`.
+   */
+  recordCommit(file: string, field: string): Promise<PortResult<string | null>>;
+
+  /**
    * Reads the fleet's whole state in one pass.
    *
    * The expensive operation on this port, and deliberately one call: the scan

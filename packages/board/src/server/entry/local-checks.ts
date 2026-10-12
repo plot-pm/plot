@@ -11,7 +11,7 @@ import {
   type LocalChecksAnswer,
 } from '@plot-pm/domain/rules/local-checks';
 import { ciSuiteRefusal } from '@plot-pm/domain/rules/ci-suite';
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -34,6 +34,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * `Local checks limit` and `CI suites` config keys, and the `-merge` attribute
  * for each changed path. One command goes out per line, then the report as
  * `#` lines, then a `summary:` line. Exit 0 always; 2 outside a git repository.
+ *
+ * `--files <path>` reads the changed paths from that file, one per line, instead
+ * of the branch and the working tree. Any other argument exits 2.
  */
 
 /** The exit codes the caller reads. */
@@ -44,6 +47,8 @@ export const EXIT = {
   notRepository: 2,
   /** `--ci-suite-refusal`: the command runs a suite only CI runs. */
   refused: 3,
+  /** An argument this command does not know, or `--files` without a readable path. */
+  usage: 2,
 } as const;
 
 /**
@@ -73,6 +78,8 @@ export const render = (answer: LocalChecksAnswer, ciSuites: readonly string[]): 
  * @param scriptDir - the directory holding `plot-*.sh`.
  * @param write - where the answer goes.
  * @param warn - where an error goes.
+ * @param filesFrom - a file listing the changed paths, one per line; when given,
+ *   it replaces the branch and working-tree reading.
  * @returns the process exit code.
  */
 export const run = async (
@@ -80,7 +87,20 @@ export const run = async (
   scriptDir: string,
   write: (s: string) => void = (s) => process.stdout.write(s),
   warn: (s: string) => void = (s) => process.stderr.write(s),
+  filesFrom: string | null = null,
 ): Promise<number> => {
+  let listed: string[] | null = null;
+  if (filesFrom !== null) {
+    try {
+      listed = readFileSync(filesFrom, 'utf8')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line !== '');
+    } catch {
+      warn(`plot-local-checks: cannot read the file list ${filesFrom}\n`);
+      return EXIT.usage;
+    }
+  }
   const probe = await refsGit({ repoRoot: cwd, scriptDir }).repoRoot();
   if (!probe.ok) {
     warn('plot-local-checks: not inside a git repository\n');
@@ -97,15 +117,15 @@ export const run = async (
   const scripts = scriptsShell(context);
 
   const [committed, working, rawChecks, rawLimit, rawSuites] = await Promise.all([
-    refs.changedFiles('HEAD'),
-    refs.workingChanges(),
+    listed === null ? refs.changedFiles('HEAD') : Promise.resolve({ ok: true as const, value: [] as string[] }),
+    listed === null ? refs.workingChanges() : Promise.resolve({ ok: true as const, value: [] as string[] }),
     scripts.config('Local checks', ''),
     scripts.config('Local checks limit', String(DEFAULT_LOCAL_CHECKS_LIMIT)),
     scripts.config('CI suites', ''),
   ]);
-  if (!committed.ok) warn('plot-local-checks: could not read the branch against the default branch; reading the working tree only\n');
+  if (listed === null && !committed.ok) warn('plot-local-checks: could not read the branch against the default branch; reading the working tree only\n');
 
-  const changed = [...new Set([...(committed.ok ? committed.value : []), ...(working.ok ? working.value : [])])];
+  const changed = listed ?? [...new Set([...(committed.ok ? committed.value : []), ...(working.ok ? working.value : [])])];
   const checks = parseLocalChecks(rawChecks.ok ? rawChecks.value.trim() : '');
   const limit = Number.parseInt(rawLimit.ok ? rawLimit.value.trim() : '', 10);
 
@@ -193,5 +213,11 @@ if (
     for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
     process.exit(await refuse(process.cwd(), scriptDir, Buffer.concat(chunks).toString('utf8')));
   }
-  process.exit(await run(process.cwd(), scriptDir));
+  const args = process.argv.slice(2);
+  if (args.length === 0) process.exit(await run(process.cwd(), scriptDir));
+  if (args.length === 2 && args[0] === '--files') {
+    process.exit(await run(process.cwd(), scriptDir, undefined, undefined, args[1]));
+  }
+  process.stderr.write(`plot-local-checks: unknown argument ${args[0]}\nusage: plot-local-checks.mjs [--files <path>]\n`);
+  process.exit(EXIT.usage);
 }
