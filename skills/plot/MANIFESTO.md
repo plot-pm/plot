@@ -52,9 +52,9 @@ Plot contains zero hardcoded project names, paths, or configuration. Adopting pr
 
 Commands discover context rather than demanding exact arguments. If there's one open plan PR, Plot proposes it. If the slug is obvious from the conversation, Plot suggests it. Missing or ambiguous input triggers a helpful suggestion, never a cryptic error. The system should feel forgiving, not bureaucratic.
 
-### 7. Phase guardrails
+### 7. State guardrails
 
-Each command checks the current workflow phase before acting. An unreviewed draft cannot be approved. A plan with open implementation PRs cannot be delivered. Undelivered work cannot be released. These guardrails prevent common workflow mistakes at the point where they'd cause the most confusion.
+Each command checks the plan's current state before acting. An unreviewed draft cannot be approved. A plan with open implementation PRs cannot be delivered. Undelivered work cannot be released. These guardrails prevent common workflow mistakes at the point where they'd cause the most confusion.
 
 ### 8. Plans stay in place
 
@@ -96,17 +96,18 @@ Two things follow, and both cost something:
 
 This principle is a rule, not a gate: nothing can force an agent to genuinely doubt itself. What Plot *can* do, and does, is demand the artifact instead of the assertion wherever an objective one exists.
 
-## Four phases, four artifacts
+## Five phases, five artifacts
 
-Plot's phases (below) are **states of a plan**. Cutting across them are four
-*activities*, each turning one durable artifact into the next:
+Plot's states (below) are **states of a plan**. Cutting across them are five
+*activities* (the board's phases), each turning one durable artifact into the next:
 
 | Activity | Turns | Into | Plot phase |
 |---|---|---|---|
 | **Discovery** | a request, a bug report, an idea | a story (`docs/stories/`) — or straight to a plan, for small work | *before* Draft |
 | **Design** | a story or a request | a plan, reviewed before any code exists | Draft → Approved |
 | **Development** | an approved plan | merged branches | Approved → Delivered |
-| **Endgame** | delivered work | a verified release | Delivered → Released |
+| **Testing** | delivered work | a verified release | Delivered → Released |
+| **Released** | a verified release | a tagged version with changelog | Released |
 
 The artifact is the point of each phase, and it is what survives the session
 that produced it. **Discovery is the one that predates Plot's own states** —
@@ -145,15 +146,15 @@ estate produced it.
 
 ## Lifecycle
 
-Plot has four plan-level phases: **Draft**, **Approved**, **Delivered**, and **Released** — universal across every ceremony choice. What varies with the recorded `Review:`/`Impl:` answers is how a transition is *effected*; what never varies is that it is *recorded* in the plan (who, when, through which channel — e.g. `Approved: 2026-07-30, alice, in-session`).
+Plot has five plan states: **Draft**, **Design** (optional, between Draft and Approved), **Approved**, **Delivered**, and **Released** — universal across every ceremony choice. What varies with the recorded `Review:`/`Impl:` answers is how a transition is *effected*; what never varies is that it is *recorded* in the plan (who, when, through which channel — e.g. `Approved: 2026-07-30, alice, in-session`).
 
 A PR-reviewed plan starts as a draft on an `idea/` branch and merges to main on approval. An in-session-reviewed plan is approved by recording the human's go in the file — on the work branch itself when plan and code travel together. **Approval and implementation start are two events**: approving a plan makes it *ready*; starting it (creating branches, briefing the implementer, recording `Started:`) is its own step, because under human pacing days may pass between the two — and re-entry after a gap begins with a staleness check of the plan's assumptions, not blind execution. When all implementation work is merged, the plan is delivered — its symlink moves from `active/` to `delivered/` and the Phase field is updated. For features and bugs, a separate release step cuts a versioned tag with changelog entries. For docs and infra work, delivery is the end — it's live when merged to main.
 
-The release phase includes a verification loop. An RC (release candidate) tag is cut from delivered plans, and a verification checklist is generated — one item per delivered feature or bug fix. The team tests against the checklist: automated CI for technical tests, manual verification for user stories. Bugs found during this endgame phase are fixed via normal `bug/` branches, merged to main, and a new RC is cut. When all checklist items pass, a final release tag is created.
+The release phase includes a verification loop. An RC (release candidate) tag is cut from delivered plans, and a verification checklist is generated — one item per delivered feature or bug fix. The team tests against the checklist: automated CI for technical tests, manual verification for user stories. Bugs found during the Testing phase are fixed via normal `bug/` branches, merged to main, and a new RC is cut. When all checklist items pass, a final release tag is created.
 
 - **RC tags:** `v1.2.0-rc.1`, `v1.2.0-rc.2`, etc.
 - **Verification checklist:** generated from delivered plans, lives as `docs/releases/v<version>-checklist.md` (git-native, like everything else).
-- **Endgame fixes:** normal branches, normal PRs, new RC. No special process.
+- **Testing fixes:** normal branches, normal PRs, new RC. No special process.
 - **Sign-off:** humans give final OK on each checklist item. Agents can guide testing but never sign off.
 
 The `/plot` dispatcher reads the current git state and suggests the next action.
@@ -164,7 +165,7 @@ Not every step in the workflow should move at the same speed. Plot recognizes th
 
 **Automate ASAP** — Mechanical transitions with no judgment required. These should be scripted and fast. Examples: merging an approved plan PR, creating implementation branches, delivering a plan (moving symlink), cutting an RC tag, generating a verification checklist, creating a final release tag.
 
-**Natural pauses** — Steps where real work happens and the workflow should wait. These aren't bottlenecks; they're the point. Examples: implementing a feature on a branch, running the endgame verification checklist, writing a plan.
+**Natural pauses** — Steps where real work happens and the workflow should wait. These aren't bottlenecks; they're the point. Examples: implementing a feature on a branch, running the Testing verification checklist, writing a plan.
 
 **Human-paced** — Steps that require a human decision. No agent should rush these. Examples: reviewing and approving a plan, deciding when to release, signing off on a verification checklist item, choosing the version number.
 

@@ -14,9 +14,10 @@ consumes:
 | **Discovery** | a request or an idea | a story (`docs/stories/`) — optional; small work goes straight to Design |
 | **Design** | a story or request | a plan, reviewed *before* any code exists |
 | **Development** | an approved plan | merged branches |
-| **Endgame** | delivered work | a verified release |
+| **Testing** | delivered work | a verified release |
+| **Released** | a verified release | a tagged version with changelog |
 
-A **plan** is a markdown file in `docs/plans/`. It describes something the team has decided to build — context, recommendation, files to change, verification steps. Plans move through four phases:
+A **plan** is a markdown file in `docs/plans/`. It describes something the team has decided to build — context, recommendation, files to change, verification steps. Plans move through four states, plus an optional Design state:
 
 ```
 /plot-idea (Draft)     Create plan branch + file + draft PR
@@ -209,7 +210,7 @@ Features and bug fixes go one step further. To cut a versioned release:
 /plot-release
 ```
 
-Plot tags an RC (release candidate), generates a verification checklist (one item per delivered feature or bug fix), and walks you through testing. Bugs found during this endgame are fixed via normal `bug/` branches and a new RC is cut. When every checklist item passes, Plot creates the final tag and writes the changelog from the delivered plans.
+Plot tags an RC (release candidate), generates a verification checklist (one item per delivered feature or bug fix), and walks you through testing. Bugs found during Testing are fixed via normal `bug/` branches and a new RC is cut. When every checklist item passes, Plot creates the final tag and writes the changelog from the delivered plans.
 
 ## Sprints (optional)
 

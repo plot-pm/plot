@@ -62,14 +62,16 @@ Optional, and worth it once several branches are in flight: `/plot-board-setup` 
 
 ## Lifecycle
 
-Four phases, four artefacts. Each transition is recorded in the plan itself — who, when, through which channel — so no phase boundary needs a tool beside it to know where things stand.
+Four states and an optional fifth, Design. Each transition is recorded in the plan itself — who, when, through which channel — so no state boundary needs a tool beside it to know where things stand.
 
 ```
    Draft  ──────────  /plot-idea       plan file, idea branch, draft PR
      │
      │                challenge-the-plan (optional) — interrogate before agreeing
      │
-     ├─ /plot-approve  ⏳ a human agrees. The plan freezes here.
+     ├──────────────► Design  (optional) ── design work before approval
+     │                  │
+     ├─ /plot-approve ◄─┘  ⏳ a human agrees. The plan freezes here.
      ▼
  Approved ──────────  /plot-implement  branches, worktrees, briefs
      │

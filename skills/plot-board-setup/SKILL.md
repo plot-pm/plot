@@ -511,7 +511,7 @@ each entry having a `phase` and a `cards` array.
 **Do not assert specific column names.** They are the board's own display
 pipeline, not the plan phases, and they have already changed once: an older
 plugin build served `Draft / Approved / Delivered / Released`, while the build
-in this checkout serves `Discovery / Design / Development / Endgame /
+in this checkout serves `Discovery / Design / Development / Testing /
 Released`. A gate naming those strings would fail on a healthy board every
 time the pipeline is renamed — reporting a broken board when the board is
 fine, which is the exact confusion this command exists to remove.

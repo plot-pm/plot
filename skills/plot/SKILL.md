@@ -124,7 +124,7 @@ flowchart LR
     end
     subgraph Release
         G -->|"⚡ /plot-release rc"| H["RC tag +<br/>checklist"]
-        H -->|"⏸ endgame testing"| I{"All verified?"}
+        H -->|"⏸ Testing"| I{"All verified?"}
         I -->|"no: fix → new RC"| H
         I -->|"⏳ sign-off"| J["⚡ /plot-release"]
     end
@@ -169,17 +169,18 @@ infra/<slug>    →  PR  →  merge
 
 ## Phases
 
-### Plan Phases
+### Plan States
 
-| Phase | Meaning | Trigger | Transition Pacing |
+| State | Meaning | Trigger | Transition Pacing |
 |-------|---------|---------|-------------------|
 | Draft | Plan being written/refined | `/plot-idea` | ⏸ natural pause (writing) |
+| Design | Optional. Plan needs design work before approval | `/plot-idea` design question, or *Needs design* later | ⏸ natural pause (design) |
 | Approved | Plan merged, impl branches created | `/plot-approve` | ⏳ human-paced (review) → ⚡ automate (branch creation) |
 | Delivered | All impl PRs merged, plan delivered | `/plot-deliver` | ⏸ natural pause (implementation) → ⚡ automate (delivery) |
 | Delivered → Approved | Premature delivery reversed | `/plot-reject` | ⚡ automate |
-| Released | Included in a versioned release | `/plot-release` | ⚡ automate (RC tag) → ⏸ endgame → ⏳ sign-off → ⏳ human-paced (version bump, tag, push) |
+| Released | Included in a versioned release | `/plot-release` | ⚡ automate (RC tag) → ⏸ testing → ⏳ sign-off → ⏳ human-paced (version bump, tag, push) |
 
-The Release phase includes an RC verification loop. Individual plans don't track a "Testing" phase — the release checklist does. The `tracer-bullets` skill can be used during Draft (to validate before approving) or Approved (as first implementation branch) — it is a sibling skill, not a plot phase.
+The Release phase includes an RC verification loop. Testing is a board phase, not a plan state; the release checklist tracks it per plan. The `tracer-bullets` skill can be used during Draft (to validate before approving) or Approved (as first implementation branch) — it is a sibling skill, not a plot phase.
 
 ### Sprint Phases
 
@@ -263,7 +264,7 @@ pnpm board   # serves http://localhost:<Board port>, default 7777
 
 The port is the `Board port` key in `## Plot Config` (read from `CLAUDE.md`, else `AGENTS.md`). A second checkout on one machine declares its own port there once, and `/plot-board` binds it. Plot's own `pnpm board` script reads the key too; a project whose `Board command` is a script of its own passes the key's value to the server as `PORT`, so the restart command the board shows binds the declared port. `/plot-board --port N` and `PORT=N pnpm board` override the key for one run.
 
-The board renders 4 columns (Draft / Approved / Delivered / Released) from the project's plans, and offers **multi-select sprint and story filters** (URL state: `?sprint=a,b` and `?story=c,d`; the two intersect). It reads plans through `plot-plan-meta.sh` — the same plan-format contract the rest of Plot uses — so canonical and front-matter plans both render, and directory locations come from `## Plot Config` (`Plan directory`, `Sprint directory`, `Story directory`). It is a read-only, local-only tool with no external dependencies at runtime.
+The board renders the declared phases as columns, from the project's plans, and offers **multi-select sprint and story filters** (URL state: `?sprint=a,b` and `?story=c,d`; the two intersect). It reads plans through `plot-plan-meta.sh` — the same plan-format contract the rest of Plot uses — so canonical and front-matter plans both render, and directory locations come from `## Plot Config` (`Plan directory`, `Sprint directory`, `Story directory`). It is a read-only, local-only tool with no external dependencies at runtime.
 
 The board is a TypeScript package, `@plot-pm/board` (`packages/board`, vite + react + shadcn + zod). The plugin ships a single prebuilt artifact, `skills/plot/scripts/board/board-server.mjs`, so `pnpm board` works with no install step; the source is only needed to rebuild it (`pnpm build:board`). Because it is a built binary rather than a skill step, it has no row in the Model Guidance table — but keeping it working is part of the [Definition of Done](../../docs/definition-of-done.md).
 

@@ -35,7 +35,7 @@ section is one of them.
 |---|---|---|
 | `plan` | slug | plan filename |
 | `planFile` | `YYYY-MM-DD-<slug>.md` | plan directory |
-| `phase` | `Discovery` · `Development` · `Endgame` · `Released` · `null` | `State:` + transition records |
+| `phase` | `Discovery` · `Design` · `Development` · `Testing` · `Released` · `null` | `State:` + transition records |
 | `brief` | path or `""` | `.plot/briefs/` |
 | `version` | release version | `git tag --contains` |
 
@@ -151,7 +151,7 @@ board reads one owner's status to answer another owner's question.**
 
 | owner | field | values | answers |
 |---|---|---|---|
-| **plan** | `phase` | Discovery · Development · Endgame · Released | *is this committed to, and how far has it gone* |
+| **plan** | `phase` | Discovery · Design · Development · Testing · Released | *is this committed to, and how far has it gone* |
 | **wave** | `verdict` | complete · eligible · blocked | *may this slice be started, is it finished* |
 | **branch** | `state` | open · wip · merged · deferred | *what happened to this ref* |
 | **PR** | `pr.state` | green · pending · failing · conflicts · closed · none · unknown | *what does the host say about this proposal* |

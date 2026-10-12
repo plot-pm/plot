@@ -203,11 +203,11 @@ Every skill includes a `## Model Guidance` table mapping steps to capability tie
 
 Smaller models degrade gracefully — they ask humans where larger models decide autonomously. When changing steps in a skill, update its Model Guidance table.
 
-## Phase Guardrails
+## State Guardrails
 
-Four workflow phases: **Draft → Approved → Delivered → Released**
+Five plan states: **Draft → Design → Approved → Delivered → Released**, with Design optional.
 
-Each command validates the current phase before acting:
+Each command validates the current state before acting:
 - Cannot approve an unreviewed draft
 - Cannot deliver with open implementation PRs
 - Cannot release undelivered work
@@ -528,14 +528,14 @@ variant of ports-and-adapters, not a deviation from the rule above.
 - A **gate** is a hard stop with objective verification — enforced via hooks (PreToolUse / PostToolUse) where the agent cannot proceed without meeting a concrete, checkable condition.
 - **The test:** Can you answer "Did I complete this?" without actually doing the work? If yes, it's a rule. If no, it's a gate.
 
-When writing skills that include critical workflows (phase guardrails, branch creation, PR state checks, destructive operations), prefer gates via hooks over prose-only instructions. Even when the user casually says "add a rule for X," evaluate whether it should be a gate and implement accordingly.
+When writing skills that include critical workflows (state guardrails, branch creation, PR state checks, destructive operations), prefer gates via hooks over prose-only instructions. Even when the user casually says "add a rule for X," evaluate whether it should be a gate and implement accordingly.
 
 **Skill authors:** If your skill includes a "MUST" or "NEVER" instruction, ask: is this enforced by a hook, or just written in prose? If prose-only, it's a rule and will eventually be violated. Convert critical MUSTs to gates.
 
 **`plot-host.sh` is the ONE place that talks to the host CLI — and that is now a gate.** It was prose here throughout, and on 2026-09-05 four scripts violated it: `plot-reconcile-scan.sh`, `plot-agent-monitor.sh`, `plot-pr-state.sh` and `plot-pr-merged.sh` each held their own `gh` call. A second caller does not merely duplicate — every one of those asked about GitHub and nothing else, so a Bitbucket checkout got a helper that was absent rather than wrong. `scripts/check-host-cli-callers.sh` is the gate; its exception list names four scripts, each with the reason it asks a different question.
 
 **Examples in plot:**
-- The four phase guardrails (cannot approve unreviewed draft, cannot deliver with open impl PRs, cannot release undelivered work, etc.) are rules embedded in spoke commands. Stronger forms would be gates: a PreToolUse hook on `gh pr merge` that reads the plan's phase and blocks merges that violate the lifecycle. **What a gate now covers is the write those guardrails protect**: `plot-state-gate.sh` refuses a `State:` line changed by anything but the script that owns it, so a guardrail cannot be skipped by editing the field it guards. The guardrails themselves are still rules — the gate says *who may write*, not *whether this transition is allowed*, which is the domain's answer and only reachable by calling it.
+- The four state guardrails (cannot approve unreviewed draft, cannot deliver with open impl PRs, cannot release undelivered work, etc.) are rules embedded in spoke commands. Stronger forms would be gates: a PreToolUse hook on `gh pr merge` that reads the plan's state and blocks merges that violate the lifecycle. **What a gate now covers is the write those guardrails protect**: `plot-state-gate.sh` refuses a `State:` line changed by anything but the script that owns it, so a guardrail cannot be skipped by editing the field it guards. The guardrails themselves are still rules — the gate says *who may write*, not *whether this transition is allowed*, which is the domain's answer and only reachable by calling it.
 - The "always run `pnpm test`" instruction in Testing above is a rule — a candidate for a gate via a pre-commit / pre-push hook.
 
 ## One Answer To "Did This Land"

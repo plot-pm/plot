@@ -19,7 +19,7 @@ erDiagram
     PR     ||--o{ BUILD   : "one per check run"
 
     PLAN {
-        string phase "STATUS — Discovery Development Endgame Released"
+        string phase "STATUS — Discovery Design Development Testing Released"
         text   approved_delivered_released "detail only, never parsed"
         array  started "its LENGTH is the fact"
         string review_impl "ceremony answers"
@@ -198,7 +198,7 @@ fields and `pnpm run test:contracts` tests it.
 | `slug` | id | from the filename |
 | `file` | path | `YYYY-MM-DD-<slug>.md` |
 | `title` · `type` | text | `feature` · `bug` · `docs` · `infra` |
-| **`phase`** | **status** | Discovery · Development · Endgame · Released *(+ Design, defined and unused)* |
+| **`phase`** | **status** | Discovery · Design · Development · Testing · Released |
 | `review` | ceremony | `pr`·`in-session`·`ballot` — read by `planStatus` for the `open`/`draft` split; that use is the whole of its contract |
 | `sprint` · `story` · `assignee` · `issues[]` | belonging | free text / ids |
 | `approved` · `delivered` · `released` · `design` | **record, text** | the raw line; display only |
