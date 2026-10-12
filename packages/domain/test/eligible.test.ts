@@ -296,6 +296,12 @@ describe('sliceVerdict — the approved spike of a Design plan', () => {
     expect(sliceVerdict(owed({ phase: 'design', spikeApproved: true }), true)).toBe('unapproved');
   });
 
+  it('keeps a spike slice that also names a sibling unapproved, so neither branch is claimable', () => {
+    const shared = design({ spike: true, branches: 2, outstanding: 2 });
+    expect(sliceVerdict(shared, true)).toBe('unapproved');
+    expect(isClaimable(sliceVerdict(shared, true), 'open')).toBe(false);
+  });
+
   it('admits nothing outside design, and orders the spike behind an unfinished slice', () => {
     expect(sliceVerdict(owed({ phase: 'draft', spike: true, spikeApproved: true }), true)).toBe('unapproved');
     expect(sliceVerdict(design({ spike: true }), false)).toBe('blocked');

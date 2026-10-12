@@ -39,3 +39,25 @@ export const spikeOf = (slices: readonly SpikeSlice[]): Spike | undefined => {
     branches.filter((b) => b.spike === true).map((b) => ({ branch: b.branch, slice })));
   return found.length === 1 ? found[0] : undefined;
 };
+
+/**
+ * The position of the slice that holds a plan's spike, among the slices a
+ * caller shows, or nothing.
+ *
+ * For a caller that reports annotation counts rather than branches: the fleet
+ * scan shows only slices with implementation branches, so `plan` can exceed the
+ * sum of `shown`. The answer is {@link spikeOf}'s over the same counts, with the
+ * unshown annotations held by one slice after the shown ones.
+ *
+ * @param shown - the number of annotated branches in each shown slice, in order.
+ * @param plan - the number of annotated branches in the whole plan.
+ * @returns the zero-based position in `shown` of the slice holding the plan's one
+ *   spike, or undefined where the plan has no spike or the spike is unshown.
+ */
+export const spikeSliceOf = (shown: readonly number[], plan: number): number | undefined => {
+  const unshown = Math.max(plan - shown.reduce((sum, n) => sum + n, 0), 0);
+  const spike = spikeOf([...shown, unshown].map((n) => ({
+    branches: Array.from({ length: n }, () => ({ branch: '', spike: true })),
+  })));
+  return spike !== undefined && spike.slice < shown.length ? spike.slice : undefined;
+};

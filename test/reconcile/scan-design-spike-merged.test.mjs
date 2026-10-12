@@ -1,8 +1,9 @@
 // A Design plan whose spike branch merged is not drift: section 1 (phase vs
 // index) and section 2 (merged-but-not-delivered) both skip a `design` plan, so
 // the sweep stays quiet while the plan iterates and confirms its slices. The
-// control plan is identical except for its phase, so a sweep that stopped
-// skipping `design` fails here rather than passing on an empty estate.
+// control plan is identical except for its phase and branch, and section 2
+// names it, so a sweep that read nothing fails here rather than passing on an
+// empty estate.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -55,18 +56,22 @@ before(() => {
 - **Delivered index:** plans/delivered/
 `);
   w('plans/2026-10-12-design-plan.md', plan('Design', 'feature/design-spike'));
+  w('plans/2026-10-12-approved-plan.md', plan('Approved', 'feature/approved-spike'));
   fs.mkdirSync(path.join(repo, 'plans', 'active'), { recursive: true });
   fs.mkdirSync(path.join(repo, 'plans', 'delivered'), { recursive: true });
+  fs.symlinkSync('../2026-10-12-approved-plan.md', path.join(repo, 'plans', 'active', '2026-10-12-approved-plan.md'));
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'plans');
   git(repo, 'push', '-q', 'origin', 'main');
-  git(repo, 'checkout', '-q', '-b', 'feature/design-spike');
-  w('src/spike.txt', 'spike\n');
-  git(repo, 'add', '-A');
-  git(repo, 'commit', '-q', '-m', 'the spike');
-  git(repo, 'checkout', '-q', 'main');
-  git(repo, 'merge', '-q', '--no-ff', '-m', 'Merge pull request #1 from o/feature/design-spike', 'feature/design-spike');
-  git(repo, 'push', '-q', 'origin', 'main', 'feature/design-spike');
+  [['feature/design-spike', 1], ['feature/approved-spike', 2]].forEach(([branch, pr]) => {
+    git(repo, 'checkout', '-q', '-b', branch);
+    w(`src/${pr}.txt`, `${branch}\n`);
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', `the work on ${branch}`);
+    git(repo, 'checkout', '-q', 'main');
+    git(repo, 'merge', '-q', '--no-ff', '-m', `Merge pull request #${pr} from o/${branch}`, branch);
+  });
+  git(repo, 'push', '-q', 'origin', 'main', 'feature/design-spike', 'feature/approved-spike');
 
   const env = { ...process.env };
   delete env.PLOT_REPO_ROOT;
@@ -80,7 +85,11 @@ const section = (n) => report.split(`== ${n}. `)[1].split('\n== ')[0];
 test('scan: a merged spike of a Design plan is neither drift nor merged-but-not-delivered', () => {
   const footer = report.trim().split('\n').at(-1);
   assert.match(footer, /\bdrift=0\b/, footer);
-  assert.match(footer, /\bmerged_not_delivered=0\b/, footer);
+  assert.match(footer, /\bmerged_not_delivered=1\b/, footer);
   assert.doesNotMatch(section(1), /design-plan/, section(1));
   assert.doesNotMatch(section(2), /design-plan/, section(2));
+});
+
+test('scan: the Approved twin, whose branch merged the same way, is merged-but-not-delivered', () => {
+  assert.match(section(2), /approved-plan/, section(2));
 });

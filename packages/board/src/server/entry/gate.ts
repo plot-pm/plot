@@ -285,20 +285,6 @@ const stateGate: Gate = {
 };
 
 /**
- * `phase`: refuses an implementation commit while its plan is still Draft or
- * Design on a shared ref, and a commit on a branch named in `.plot/hold`.
- *
- * `wants` is a pure string test. `ask` reads the current branch, the config
- * (`Plan directory`, `Story directory`, `Branch prefixes`, `Main branch`) and
- * `effectivePaths`. `holdRefusal` runs first and for any branch. For a branch
- * under an implementation prefix whose commit carries a path outside the
- * plan directory, it reads the plan from `origin/<main>`, then
- * from `origin/<branch>`, never the working tree. A plan on neither shared ref
- * but present locally, and an unreadable `origin/<main>`, allow and print that
- * the phase went UNVERIFIED; a plan nowhere allows silently. A failed config
- * read throws, which `onError: 'allow'` reports as UNVERIFIED.
- */
-/**
  * The plan's spike branch where it records `Spike approved:`, else `''`.
  *
  * Parses the plan text in a private scratch directory; an unparseable plan
@@ -321,6 +307,20 @@ const approvedSpikeOf = async (text: string, planPath: string, cwd: string, scri
   }
 };
 
+/**
+ * `phase`: refuses an implementation commit while its plan is still Draft or
+ * Design on a shared ref, and a commit on a branch named in `.plot/hold`.
+ *
+ * `wants` is a pure string test. `ask` reads the current branch, the config
+ * (`Plan directory`, `Story directory`, `Branch prefixes`, `Main branch`) and
+ * `effectivePaths`. `holdRefusal` runs first and for any branch. For a branch
+ * under an implementation prefix whose commit carries a path outside the
+ * plan directory, it reads the plan from `origin/<main>`, then
+ * from `origin/<branch>`, never the working tree. A plan on neither shared ref
+ * but present locally, and an unreadable `origin/<main>`, allow and print that
+ * the phase went UNVERIFIED; a plan nowhere allows silently. A failed config
+ * read throws, which `onError: 'allow'` reports as UNVERIFIED.
+ */
 const phaseGate: Gate = {
   name: 'phase',
   wants: (command) => command.includes('git commit'),
