@@ -49,6 +49,7 @@ import {
   type SupervisorRun,
   handedTo,
   issueAbsence,
+  issueIntervalMs,
   issueSource,
   draftPlacement,
   prRowPlacement,
@@ -60,7 +61,7 @@ import {
 // one would bound only itself, which is the failure the port's own comment
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
-import { issueIndexFile, TRACKER_LISTERS } from '@plot-pm/domain/adapters';
+import { issueIndexFile, TRACKER_LISTERS, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
 import {
@@ -755,6 +756,21 @@ export interface CacheEntry {
   stopped: boolean;
   running: boolean;
   prRunning: boolean;
+  /**
+   * Epoch ms the no-fleet issue read is next due. 0 so the first read runs at
+   * once. In memory only: the board with no fleet writes no issue index.
+   */
+  issueNextAt: number;
+  /** Whether `issueNextAt` is a backoff the tracker's refusal named, held with no slack. */
+  issueNextIsBackoff: boolean;
+  /** How many requests the last no-fleet issue read spent; 0 before the first. */
+  issueRequests: number;
+  /** Epoch ms the tracker's named backoff ends, or null where there is none. */
+  issueBackoffUntil: number | null;
+  /** The connector the last no-fleet issue read asked, or null before the first. */
+  issueConnector: string | null;
+  /** The account that connector's budget is keyed by, or null where unread. */
+  issueAccount: string | null;
 }
 
 const caches = new Map<string, CacheEntry>();
@@ -1543,29 +1559,40 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     entry.issueAbsence = issueAbsence(source.reason);
     return;
   }
-  const said = await scriptsFor(opts).hostSaid(['issue-list', '--limit', String(ISSUE_LIMIT)]);
+  const startedAt = Date.now();
+  const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
+  const gitHost = entry.backend ?? 'github';
+  const tracker = trackerForIssues(declared.ok ? declared.value : '', gitHost, context);
+  const spent = await tracker.spender();
+  entry.issueConnector = spent.ok ? spent.value.connector : gitHost;
+  entry.issueAccount = spent.ok ? spent.value.account : null;
+  entry.issueRequests = 1;
+  entry.issueNextAt = startedAt + issueIntervalMs(entry.issueRequests);
+  entry.issueNextIsBackoff = false;
+  entry.issueBackoffUntil = null;
+  const said = await tracker.issueList(ISSUE_LIMIT);
   // `unaskable` is the adapter saying THIS HOST CANNOT BE ASKED — a standing
   // fact, not an outage: a disabled tracker, or a `bb` with no issue command.
   // It clears any stale error and empties the list, because there is nothing
   // to keep and nothing failed. The adapter read the exit code; this reads the
   // word, and keeps the adapter's sentence as the reason the board shows.
-  if (said.answer === 'unaskable') {
+  if (!said.ok && said.why === 'unaskable') {
     entry.issues = [];
     entry.issueAnswer = 'unsupported';
     entry.issueError = null;
-    entry.issueAbsence = issueAbsence(said.said);
+    entry.issueAbsence = issueAbsence(tracker.lastRefusal() ?? said.reason ?? '');
     return;
   }
   entry.issueAbsence = null;
-  if (said.answer === 'failed') {
-    const message = said.said;
+  if (!said.ok) {
+    const message = tracker.lastRefusal() ?? 'the issue read failed and said nothing';
     entry.issueAnswer = 'failed';
     entry.issueError = message; // `entry.issues` keeps its last good value on purpose
-    // The issue poll is the neighbour the PR refresh's backoff never reached. It
-    // runs on the SAME gate (`prNextAt`), so a rate limit HERE must push that
-    // gate out too — otherwise the poll re-fires on the ordinary cadence and
-    // spends the exhausted budget to be refused again. The wait comes from the
-    // host's own message, exactly as the PR refresh derives it.
+    // The issue poll is the neighbour the PR refresh's backoff never reached.
+    // A rate limit HERE must push the PR gate (`prNextAt`) out too — otherwise
+    // the PR refresh re-fires on the ordinary cadence and spends the exhausted
+    // budget to be refused again. The wait comes from the host's own message,
+    // exactly as the PR refresh derives it.
     // AWAITED because #272 gave this a second shape: where the message carries
     // no reset, it asks the host for the real one and returns a Promise. The
     // synchronous paths still return a number, so the await costs a microtask
@@ -1575,6 +1602,9 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     const backoff = waitOf(reaction);
     if (backoff !== null) {
       // Measured from NOW — the host's "wait 90 seconds" starts when it said so.
+      entry.issueBackoffUntil = Date.now() + backoff;
+      entry.issueNextAt = entry.issueBackoffUntil;
+      entry.issueNextIsBackoff = true;
       // EXTEND-ONLY: never pull the gate in. A longer backoff the PR fetch set a
       // tick earlier is a floor the host named, and this poll's own ceiling has
       // no business shortening it — the same "more conservative only" rule
@@ -1587,7 +1617,14 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     }
     return;
   }
-  const open = openIssuesOf(said.stdout);
+  const open = said.value.map((issue) => ({
+    number: issueKey(issue.id),
+    title: issue.title,
+    url: issue.url,
+    createdAt: issue.createdAt ?? '',
+    status: issue.status,
+    statusCategory: issue.statusCategory,
+  }));
   const referenced = await referencedIssues(opts);
   if (referenced === null) {
     // The plans could not be read, so "which of these is unplanned" has no
@@ -1786,6 +1823,17 @@ export const refreshPrs = async (
     host: hostFor(opts),
     store,
     afterAnswer: (open) => refreshRuns(opts, entry, open, build),
+    // The board's own copy of the issue gate's cadence; null until its first read.
+    issueGate: async () =>
+      entry.issueConnector === null
+        ? null
+        : {
+            connector: entry.issueConnector,
+            account: entry.issueAccount,
+            requests: entry.issueRequests,
+            nextAt: entry.issueNextAt,
+            backoffUntil: entry.issueBackoffUntil,
+          },
   };
   await refreshPrsWith(world, entry);
 };
@@ -1821,7 +1869,7 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
     // After, and outside `refreshPrs`, because the two fail independently: a
     // tracker outage must not blank the PR map, and a PR failure must not
     // retract the inbox.
-    await refreshIssues(opts, entry);
+    if (prGateOpen(entry.issueNextAt, entry.issueNextIsBackoff)) await refreshIssues(opts, entry);
   } finally {
     entry.prRunning = false;
   }
@@ -2151,6 +2199,7 @@ export function freshCacheEntry(): CacheEntry {
     prAccount: null, prSlotsHeld: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false, prIntervalMs: PR_REFRESH_MS,
+    issueNextAt: 0, issueNextIsBackoff: false, issueRequests: 0, issueBackoffUntil: null, issueConnector: null, issueAccount: null,
     // Null, never 'github': "not yet asked" and "asked, and it is GitHub" are
     // different answers, and `resolveBackend` distinguishes them to ask once.
     backend: null,

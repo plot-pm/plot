@@ -60,6 +60,8 @@ Both hosts filter by update time **server-side**, so the expensive fields are co
 .plot/state/index/<connector>.json
 ```
 
+**The issue index is the exception.** It lives in `.plot/state/index/issues.json`, one file for the source `issueSource` names, and it does not follow the delta-plus-daily-full-read shape of the table below. Each pass replaces two bounded sets whole — every open issue up to 1000, and the issues closed in the last 14 days — so there is no watermark, no `updatedAt` and no separate full read ([tickets-and-stories-have-lanes](../../plans/2026-10-12-tickets-and-stories-have-lanes.md), *Fold*).
+
 `.plot/state/` is machine-local and gitignored — `plot-boardctl.sh:83`'s reason: an index travelling in a commit would describe another machine's account.
 
 ```jsonc
@@ -119,7 +121,7 @@ jen  not indexed — `jen job list` is 14 ms
 |---|---|---|---|---|
 | **github** | PRs: state, head, checks, merge commit | `--search "updated:>$watermark"` | daily | 943 ms vs 29 811 ms |
 | **bitbucket** | the same | `q=updated_on>=$watermark` | daily | 2 983 ms vs 10 575 ms |
-| **jira** | issue status | JQL `updated >= "$watermark"` | daily | JQL operator, same shape |
+| **jira** | issue status | JQL `updated >= "$watermark"` | daily | JQL operator, same shape. The issue index (`tickets-and-stories-have-lanes`) does not use this row: it replaces its open and closed sets whole on every pass, not as a delta |
 | **jenkins** | build result per job | **not indexed** | — | 12–98 ms |
 | **git** | refs, merge state | **not indexed** | — | 104 ms local |
 

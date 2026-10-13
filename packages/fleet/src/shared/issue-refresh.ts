@@ -1,11 +1,13 @@
 import {
+  ISSUE_INDEX_CLOSED_DAYS,
+  ISSUE_INDEX_OPEN_LIMIT,
   ISSUE_INDEX_VERSION,
-  ISSUE_LIST_LIMIT,
   ISSUE_REFRESH_MS,
   issueIntervalMs,
   issueSource,
   type Issue,
   type IssueIndex,
+  type IssueIndexClosed,
   type IssueIndexRow,
   type IssueSource,
 } from '@plot-pm/domain';
@@ -65,7 +67,10 @@ const rowOf = (issue: Issue): IssueIndexRow => ({
   ...(issue.createdAt === null ? {} : { createdAt: issue.createdAt }),
   ...(issue.status === '' ? {} : { status: issue.status }),
   ...(issue.statusCategory === '' ? {} : { statusCategory: issue.statusCategory }),
+  ...(issue.closedAt === null ? {} : { closedAt: issue.closedAt }),
 });
+
+const DAY_MS = 86_400_000;
 
 /** Whether a backoff is live and on the spender's own connector and account. */
 const holdsFor = (
@@ -98,13 +103,22 @@ const unaskableReason = (source: Exclude<IssueSource, { ask: 'nobody' }>, gitHos
  * - The pass asks nothing while a live backoff is held on its own connector and
  *   account: the PR pass's, or the one the index recorded. It sets
  *   `issueNextAt` to the backoff's end, as a hard floor.
- * - An answered read writes `requests: 1`, `nextAt` one {@link issueIntervalMs}
- *   after the pass started, `backoffUntil: null`, and at most
- *   {@link ISSUE_LIST_LIMIT} rows with `complete` true where fewer came back.
+ * - An answered open read writes `nextAt` one {@link issueIntervalMs} after the
+ *   pass started, `backoffUntil: null`, and at most
+ *   {@link ISSUE_INDEX_OPEN_LIMIT} rows with `complete` true where fewer came
+ *   back. `requests` is 1 for the open read, and 2 where the closed read below
+ *   also ran.
+ * - An answered open read is followed by a closed read of the last
+ *   {@link ISSUE_INDEX_CLOSED_DAYS} days, written under `closed` with its own
+ *   `answer`, `at`, `complete` and `rows`. Each pass replaces both sets whole.
+ *   A closed read that fails or is unsupported keeps the previous `closed`
+ *   rows, `complete` and `at` and leaves the open rows as the open read set
+ *   them. A closed read is not asked where the open read did not answer.
  * - A refused read writes `requests`, `nextAt`, `failedAt` and `reason`, keeps
  *   the previous `rows`, `complete` and `at` of the same source and connector,
  *   and writes `backoffUntil` where {@link hostReaction} reads a rate limit in
- *   the refusal. The `reason` of an unaskable read is the sentence the port
+ *   the refusal, and keeps the previous `closed` of the same source and
+ *   connector. The `reason` of an unaskable read is the sentence the port
  *   carried, or a sentence naming the source where it carried none.
  *
  * @param world - what the pass reaches.
@@ -139,8 +153,70 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
     return;
   }
 
+  const result = await tracker.issueList(ISSUE_INDEX_OPEN_LIMIT);
+  const sameHeld = held !== null && held.source === source.ask && held.connector === spender.connector;
+  const keptClosed: Pick<IssueIndex, 'closed'> = sameHeld && held.closed !== undefined ? { closed: held.closed } : {};
+
+  if (result.ok) {
+    const since = new Date(startedAt - ISSUE_INDEX_CLOSED_DAYS * DAY_MS).toISOString();
+    const closedResult = await tracker.issueListClosed(since, ISSUE_INDEX_OPEN_LIMIT);
+    const spentClosed = !closedResult.ok && closedResult.why === 'unaskable' ? 0 : 1;
+    const requests = 1 + spentClosed;
+    const nextAt = startedAt + issueIntervalMs(requests);
+    const at = new Date(startedAt).toISOString();
+    let closed: IssueIndexClosed;
+    let backoffUntil: number | null = null;
+    let error: string | null = null;
+    if (closedResult.ok) {
+      closed = {
+        since,
+        at,
+        answer: 'answered',
+        rows: closedResult.value.issues.map(rowOf),
+        complete: closedResult.value.complete,
+      };
+    } else {
+      const unsupported = closedResult.why === 'unaskable';
+      const refusal = tracker.lastRefusal();
+      const stated = unsupported ? closedResult.reason : undefined;
+      error = refusal ?? stated ?? (unsupported
+        ? 'the tracker lists no closed issues'
+        : 'the closed issue read failed and said nothing');
+      const finishedAt = clock();
+      const wait = unsupported ? null : waitOf(hostReaction(error, null, finishedAt));
+      backoffUntil = wait === null ? null : finishedAt + wait;
+      const kept = keptClosed.closed;
+      closed = {
+        since,
+        at: kept?.at ?? at,
+        answer: unsupported ? 'unsupported' : 'failed',
+        failedAt: at,
+        reason: error,
+        ...(kept?.rows !== undefined ? { rows: kept.rows } : {}),
+        ...(kept?.complete !== undefined ? { complete: kept.complete } : {}),
+      };
+    }
+    state.issueError = error;
+    state.issueNextAt = backoffUntil ?? nextAt;
+    state.issueNextIsBackoff = backoffUntil !== null;
+    await world.issueStore.write({
+      v: ISSUE_INDEX_VERSION,
+      source: source.ask,
+      connector: spender.connector,
+      ...(spender.account === null ? {} : { account: spender.account }),
+      requests,
+      nextAt: backoffUntil ?? nextAt,
+      backoffUntil,
+      at,
+      answer: 'answered',
+      rows: result.value.map(rowOf),
+      complete: result.value.length < ISSUE_INDEX_OPEN_LIMIT,
+      closed,
+    });
+    return;
+  }
+
   const requests = 1;
-  const result = await tracker.issueList(ISSUE_LIST_LIMIT);
   const nextAt = startedAt + issueIntervalMs(requests);
   const base: Pick<IssueIndex, 'v' | 'source' | 'connector' | 'account' | 'requests' | 'nextAt'> = {
     v: ISSUE_INDEX_VERSION,
@@ -150,22 +226,6 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
     requests,
     nextAt,
   };
-
-  if (result.ok) {
-    state.issueError = null;
-    state.issueNextAt = nextAt;
-    state.issueNextIsBackoff = false;
-    await world.issueStore.write({
-      ...base,
-      backoffUntil: null,
-      at: new Date(startedAt).toISOString(),
-      answer: 'answered',
-      rows: result.value.map(rowOf),
-      complete: result.value.length < ISSUE_LIST_LIMIT,
-    });
-    return;
-  }
-
   const finishedAt = clock();
   const answer: IssueIndex['answer'] = result.why === 'unaskable' ? 'unsupported' : 'failed';
   const refusal = tracker.lastRefusal();
@@ -180,16 +240,16 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
   state.issueNextIsBackoff = backoffUntil !== null;
 
   const failedAt = new Date(startedAt).toISOString();
-  const same = held !== null && held.source === source.ask && held.connector === spender.connector;
   await world.issueStore.write({
     ...base,
     backoffUntil,
-    at: same ? held.at : failedAt,
+    at: sameHeld ? held.at : failedAt,
     answer,
     failedAt,
     reason,
-    ...(same && held.rows !== undefined ? { rows: held.rows } : {}),
-    ...(same && held.complete !== undefined ? { complete: held.complete } : {}),
+    ...(sameHeld && held.rows !== undefined ? { rows: held.rows } : {}),
+    ...(sameHeld && held.complete !== undefined ? { complete: held.complete } : {}),
+    ...keptClosed,
   });
 };
 

@@ -175,8 +175,8 @@ export const PR_BACKOFF_MAX_MS = 120_000;
  * `bitbucket.org/quatico/ekzweb` (issue #226):
  *
  *     GitHub      1 request  → refresh every  60 s → 60 requests / hour
- *     Bitbucket   4 requests → refresh every 240 s → 60 requests / hour
- *                 (3 for pr-list --state all, 1 for issue-list)
+ *     Bitbucket   3 requests → refresh every 180 s → 60 requests / hour
+ *                 (3 for pr-list --state all; the issue read runs on its own gate)
  *
  * Before the cadence stretched, an un-throttled 60 s tick spent 4 × 60 = 240
  * Bitbucket requests an hour. A board left open a working day made ~1400
@@ -204,26 +204,26 @@ export const PR_BACKOFF_MAX_MS = 120_000;
  */
 export const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
   // One `gh pr list --state all` call, whatever the states asked for; the
-  // GitHub `issue-list` and `runs` calls ride the same GraphQL budget and the
-  // board's own measurement treats the refresh as one unit there.
+  // GitHub `runs` call rides the same GraphQL budget and the board's own
+  // measurement treats the refresh as one unit there. The issue reads run on
+  // their own gate (`issueIntervalMs`) and are not part of this cost.
   github: 1,
   // Three for `pr-list --state all` (open, merged, declined — `bb` has no `all`
-  // state) plus one for `issue-list`, which now reaches the network instead of
-  // exiting 4. Do not "fix" the three by inventing an `all` — it would fabricate
-  // an answer the host cannot give.
+  // state). The issue read runs on its own gate and is not part of this cost.
+  // Do not "fix" the three by inventing an `all` — it would fabricate an answer
+  // the host cannot give.
   //
-  // FOUR IS THE COST OF THE CALL THIS FILE MAKES, and since #333 that is a
+  // THREE IS THE COST OF THE CALL THIS FILE MAKES, and since #333 that is a
   // statement about a call SHAPE rather than about the backend. `pr-list` now
   // takes a repeatable `--branch`: given branches, the Bitbucket arm asks its
   // REST endpoint about each one by name — branches × states queries, exact and
   // complete — and given none it lists as before. `refreshPrs` below passes
-  // none, so it still makes three listings plus the issue call, and four is
-  // what it spends.
+  // none, so it still makes three listings, and three is what it spends.
   //
   // WHOEVER MOVES THIS FILE ONTO THE SWEEP MUST CHANGE THIS NUMBER, and the
-  // arithmetic is `branches × 3 + 1` rather than a constant. On the repository
-  // measured 2026-09-20 that is 11 × 3 + 1 = 34 against today's 4, which takes
-  // the interval from 240 s to roughly half an hour — so such a change is a
+  // arithmetic is `branches × 3` rather than a constant. On the repository
+  // measured 2026-09-20 that is 11 × 3 = 33 against today's 3, which takes
+  // the interval from 180 s to roughly half an hour — so such a change is a
   // cadence decision, not a call-site edit. `plot-fleet-scan.sh` pays that cost
   // deliberately: it runs on an operator's command, not on a 5 s timer, and it
   // is the caller whose join the truncation actually breaks.
@@ -234,7 +234,7 @@ export const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
   //
   // A DELTA CHANGED WHAT EACH REQUEST COSTS AND NOT HOW MANY ARE MADE, so this
   // number is unchanged by the `--since` slice. The Bitbucket arm still calls
-  // once per state plus once for issues, whether or not a window narrows each
+  // once per state, whether or not a window narrows each
   // call: a windowed listing goes through `bb_window_listing`, which asks REST
   // with `updated_on>=` and walks its pages, so it narrows but still spends one
   // call per state. GitHub likewise makes one call with `--search` exactly as
@@ -246,7 +246,7 @@ export const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
   // and must still be spaced as one. Lowering this to "pay for" a faster call
   // would tighten the cadence against a limit that never moved — the ~1400
   // requests and account-wide `HTTP 429` this table's own header records.
-  bitbucket: 4,
+  bitbucket: 3,
 };
 
 /**
@@ -663,7 +663,7 @@ export const prConcurrencyBound = (entry: PrState): number | null => {
  * periods apart spends the same number of requests per hour on every host.
  *
  *     github      60_000 x 1 =  60_000 ms  ->  60 refreshes,  60 requests / hour
- *     bitbucket   60_000 x 4 = 240_000 ms  ->  15 refreshes,  60 requests / hour
+ *     bitbucket   60_000 x 3 = 180_000 ms  ->  20 refreshes,  60 requests / hour
  *
  * DERIVED, NOT CONFIGURED, and the plan's open point is answered that way on
  * purpose: a configured cadence is a second number that must be kept true, and
