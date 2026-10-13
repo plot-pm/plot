@@ -657,7 +657,7 @@ export function App() {
     history.replaceState(null, '', url);
     // Leaving the Delivery tab is the reader moving on, so the branch arrival
     // marker goes — the same reason the plan highlight clears on the next
-    // filter change. Kept while staying on the tab: switching to agents is how
+    // filter change. Kept while staying on the tab: switching to Delivery is how
     // `revealBranch` itself gets here.
     if (next !== 'delivery') setHighlightBranch('');
   };
@@ -824,7 +824,7 @@ export function App() {
    *
    * No `?plan=` highlight, because a story is not one card: the filter IS the
    * landing. Everything else matches the plan modal's version, including
-   * clearing the agents tab from the URL.
+   * clearing the Delivery tab from the URL.
    */
   const onShowStoryInBoard = useCallback(
     (story: StoryCard) => {
@@ -986,7 +986,7 @@ export function App() {
     return () => cancelAnimationFrame(id);
   }, [validHighlight, tab, lanes, board, showReleased]);
 
-  // Scroll to a revealed branch's row once it exists — the Agents-tab twin of
+  // Scroll to a revealed branch's row once it exists — the Delivery-tab twin of
   // the plan-card scroll above. Keyed on `revealNonce` so a repeated reveal of
   // the same branch fires again; `highlightBranch` is read for the target but
   // does not gate the re-run.

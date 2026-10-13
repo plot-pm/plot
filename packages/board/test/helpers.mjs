@@ -656,7 +656,7 @@ export const SLICE_ROW = '[data-slice-row]';
 export const SLICE_FOLDS = ['[data-slice-toggle]', '[data-slice-branch-toggle]'];
 
 /**
- * Open every fold on the Agents tab, plans first and then waves.
+ * Open every fold on the Delivery tab, plans first and then waves.
  *
  * ## Why this is shared rather than copied
  *

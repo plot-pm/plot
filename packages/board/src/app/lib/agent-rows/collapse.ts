@@ -28,7 +28,7 @@ export const COLLAPSED_BY_DEFAULT: WaitingGroup[] = ['quiet', 'done'];
  *
  * The distinction that justifies it: **a URL is shareable, and collapse state
  * should not be.** Everything in the query string today is worth sending to
- * someone — *look at this plan*, *look at the agents tab*. A link carrying
+ * someone — *look at this plan*, *look at the Delivery tab*. A link carrying
  * `?collapsed=quiet,done` would hand my personal tidying to whoever opened it,
  * rebuilding their view as a side effect of "have a look at this". Collapse is
  * convenience, not subject matter.
