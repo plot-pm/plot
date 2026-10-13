@@ -304,7 +304,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       if (mode === 'ok') return route.fallback();
       return answer(route, '');
     });
-    await page.goto(tab === 'agents' ? `${baseURL}?tab=delivery` : baseURL);
+    await page.goto(tab === 'agents' ? `${baseURL}?tab=agents` : baseURL);
     // Wait for real content, so there is a payload to degrade FROM.
     if (tab === 'agents') await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     else await page.getByText(CARD).waitFor({ timeout: 10_000 });

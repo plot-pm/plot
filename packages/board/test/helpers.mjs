@@ -660,7 +660,7 @@ export const SLICE_FOLDS = ['[data-slice-toggle]', '[data-slice-branch-toggle]']
  *
  * ## Why this is shared rather than copied
  *
- * Seventeen integration files open `?tab=delivery`; fifteen of them opened no
+ * Seventeen integration files open `?tab=agents`; fifteen of them opened no
  * folds at all. That was harmless while rows arrived unfolded — and became 30s
  * of locator timeout per assertion once the wave kind landed, because a branch
  * row now arrives inside a wave inside a plan, shut twice over.

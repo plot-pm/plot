@@ -82,7 +82,7 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
       r.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet(rows)) }));
     await page.route('**/api/worker-log*', (r) =>
       r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(logBody) }));
-    await page.goto(`${cat.mock.baseURL}?tab=delivery`);
+    await page.goto(`${cat.mock.baseURL}?tab=agents`);
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
@@ -265,7 +265,7 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
         r.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet([row()])) }));
       await page.route('**/api/worker-log*', (r) =>
         r.fulfill({ contentType: 'application/json', body: JSON.stringify(ok()) }));
-      await page.goto(`${cat.mock.baseURL}?tab=delivery`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       await openPanel(page);
@@ -295,7 +295,7 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
       // The log GROWS between polls, as a live worker's does.
       await page.route('**/api/worker-log*', (r) =>
         r.fulfill({ contentType: 'application/json', body: JSON.stringify(ok({ text })) }));
-      await page.goto(`${cat.mock.baseURL}?tab=delivery`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       await openPanel(page);
@@ -323,7 +323,7 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
         calls++;
         return r.fulfill({ contentType: 'application/json', body: JSON.stringify(ok()) });
       });
-      await page.goto(`${cat.mock.baseURL}?tab=delivery`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // THE POINT OF SERVING ON DEMAND: the board has been open and polling,
