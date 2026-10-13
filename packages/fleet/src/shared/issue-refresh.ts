@@ -1,45 +1,60 @@
-import { issueIntervalMs, type Issue, type IssueIndex, type IssueIndexRow } from '@plot-pm/domain';
-import { trackerForIssues, type ShellContext } from '@plot-pm/domain/adapters';
+import {
+  ISSUE_INDEX_VERSION,
+  ISSUE_LIST_LIMIT,
+  ISSUE_REFRESH_MS,
+  issueIntervalMs,
+  issueSource,
+  type Issue,
+  type IssueIndex,
+  type IssueIndexRow,
+  type IssueSource,
+} from '@plot-pm/domain';
+import { TRACKER_LISTERS, trackerOfSource, type ShellContext } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
+import type { TrackerSpender } from '@plot-pm/domain/ports/tracker';
 
-/**
- * What the issue gate keeps from one pass to the next, and what a caller reads
- * back for the PR pass's subtraction (D28).
- *
- * The store IS this state, read and written whole: unlike the PR reader there
- * is no in-memory map to seed, because `cadenceRateOf` needs only the four
- * fields {@link IssueIndex} already carries.
- */
+import { hostReaction, prGateOpen, waitOf, type IssueGateReading } from './pr-refresh.js';
+
+/** What the issue gate keeps from one pass to the next. */
 export interface IssueState {
   /** Epoch ms the next pass is due. 0 so the first pass runs at once. */
   issueNextAt: number;
-  /** The last pass's failure sentence, or null. */
+  /** Whether `issueNextAt` is a backoff a refusal named, compared with no slack. */
+  issueNextIsBackoff: boolean;
+  /** The last pass's failure or absence sentence, or null. */
   issueError: string | null;
 }
 
 /** An issue state as a fresh process holds it. */
 export const freshIssueState = (): IssueState => ({
   issueNextAt: 0,
+  issueNextIsBackoff: false,
   issueError: null,
 });
 
+/** The PR pass's own backoff, as the issue pass reads it. */
+export interface PrBackoffReading {
+  /** The PR pass's connector, or null before its first pass. */
+  connector: string | null;
+  /** The PR pass's account, or null where unread. */
+  account: string | null;
+  /** Epoch ms the PR pass's backoff ends, or null where it holds none. */
+  until: number | null;
+}
+
 /** What one issue pass reaches. */
 export interface IssueWorld {
-  /** Where the scripts and the repository are — builds the tracker per pass. */
+  /** Where the scripts and the repository are; the pass builds its tracker from it. */
   context: ShellContext;
   /** The repository's declared `Tracker` config value, verbatim. */
   declaredTracker: string;
   /** The repository's git host backend word. */
   gitHost: string;
-  /** The issue index. The pass folds the tracker's answer into it. */
-  store: IssueIndexStore;
-  /**
-   * Reads the PR pass's own backoff, so the issue pass never asks while a
-   * shared connector and account is already waiting out a backoff the PR
-   * pass learned about first.
-   */
-  prBackoff: () => { connector: string | null; account: string | null; until: number | null };
-  /** The clock in epoch ms; defaults to `Date.now`. A test injects one. */
+  /** The issue index; the pass is its one writer. */
+  issueStore: IssueIndexStore;
+  /** Reads the PR pass's backoff. The issue pass never writes the PR state. */
+  prBackoff: () => PrBackoffReading;
+  /** The clock in epoch ms; defaults to `Date.now`. */
   now?: () => number;
 }
 
@@ -52,113 +67,149 @@ const rowOf = (issue: Issue): IssueIndexRow => ({
   ...(issue.statusCategory === '' ? {} : { statusCategory: issue.statusCategory }),
 });
 
+/** Whether a backoff is live and on the spender's own connector and account. */
+const holdsFor = (
+  until: number | null,
+  connector: string | null,
+  account: string | null,
+  spender: TrackerSpender,
+  now: number,
+): boolean =>
+  until !== null && until > now && connector === spender.connector && account === spender.account;
+
 /**
- * One issue pass: reads the tracker's open issues and folds the answer into
- * the issue index.
+ * The sentence an `unaskable` read keeps where the tracker left no refusal.
  *
- * ASKS NOTHING WHILE THE PR PASS'S OWN BACKOFF IS ON THE SAME CONNECTOR AND
- * ACCOUNT. The two passes can share one connector's budget — `trackerGitHost`
- * reads through the git host's own — and a backoff either pass learns about
- * is a fact about that shared budget, not about which pass asked. Asking
- * anyway would spend into a wait the PR pass already measured.
+ * @param source - who was asked.
+ * @param gitHost - the repository's git host backend word.
+ * @returns the reason the open issues are not listed.
+ */
+const unaskableReason = (source: Exclude<IssueSource, { ask: 'nobody' }>, gitHost: string): string =>
+  source.ask === 'git-host'
+    ? `the git host \`${gitHost}\` lists no issues`
+    : `the declared tracker \`${source.scheme}\` cannot be asked for its issues`;
+
+/**
+ * One issue pass: reads the open issues of the source `issueSource` names and
+ * writes the issue index.
  *
- * A FAILED PASS KEEPS THE PREVIOUS `rows` AND `at`; `requests` and `nextAt`
- * move regardless, because scheduling the next pass is owed whether or not
- * this one answered.
+ * - A `nobody` source asks nothing and writes no file; `issueError` holds the
+ *   source's reason.
+ * - The pass asks nothing while a live backoff is held on its own connector and
+ *   account: the PR pass's, or the one the index recorded. It sets
+ *   `issueNextAt` to the backoff's end, as a hard floor.
+ * - An answered read writes `requests: 1`, `nextAt` one {@link issueIntervalMs}
+ *   after the pass started, `backoffUntil: null`, and at most
+ *   {@link ISSUE_LIST_LIMIT} rows with `complete` true where fewer came back.
+ * - A refused read writes `requests`, `nextAt`, `failedAt` and `reason`, keeps
+ *   the previous `rows`, `complete` and `at` of the same source and connector,
+ *   and writes `backoffUntil` where {@link hostReaction} reads a rate limit in
+ *   the refusal.
  *
- * @param world - what the pass reaches; the fleet is the index's only writer.
+ * @param world - what the pass reaches.
  * @param state - the cadence carried between passes.
  */
 export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): Promise<void> => {
   const clock = world.now ?? Date.now;
   const startedAt = clock();
-  const tracker = trackerForIssues(world.declaredTracker, world.gitHost, world.context);
-  const previous = await world.store.read();
-  const held = previous.ok ? previous.value : null;
+  const source = issueSource({ declared: world.declaredTracker, gitHost: world.gitHost, listers: TRACKER_LISTERS });
+  if (source.ask === 'nobody') {
+    state.issueError = source.reason;
+    state.issueNextAt = startedAt + ISSUE_REFRESH_MS;
+    state.issueNextIsBackoff = false;
+    return;
+  }
+  const tracker = trackerOfSource(source, world.declaredTracker, world.gitHost, world.context);
+  const spent = await tracker.spender();
+  const spender: TrackerSpender = spent.ok ? spent.value : { connector: world.gitHost, account: null };
 
-  const backoff = world.prBackoff();
-  const connector = held?.connector ?? world.gitHost;
-  const account = held?.account ?? null;
-  if (
-    backoff.until !== null &&
-    backoff.until > startedAt &&
-    backoff.connector === connector &&
-    backoff.account === account
-  ) {
-    state.issueNextAt = backoff.until;
+  const previous = await world.issueStore.read();
+  const held = previous.ok ? previous.value : null;
+  const pr = world.prBackoff();
+  const holds = [
+    holdsFor(pr.until, pr.connector, pr.account, spender, startedAt) ? pr.until : null,
+    held !== null && holdsFor(held.backoffUntil, held.connector, held.account ?? null, spender, startedAt)
+      ? held.backoffUntil
+      : null,
+  ].filter((until): until is number => until !== null);
+  if (holds.length > 0) {
+    state.issueNextAt = Math.max(...holds);
+    state.issueNextIsBackoff = true;
     return;
   }
 
   const requests = 1;
-  const result = await tracker.issueList();
+  const result = await tracker.issueList(ISSUE_LIST_LIMIT);
   const nextAt = startedAt + issueIntervalMs(requests);
-  state.issueNextAt = nextAt;
-
-  const base = {
-    v: 1 as const,
-    source: (world.declaredTracker.trim() === '' ? 'git-host' : 'tracker') as IssueIndex['source'],
-    connector: world.gitHost,
+  const base: Pick<IssueIndex, 'v' | 'source' | 'connector' | 'account' | 'requests' | 'nextAt'> = {
+    v: ISSUE_INDEX_VERSION,
+    source: source.ask,
+    connector: spender.connector,
+    ...(spender.account === null ? {} : { account: spender.account }),
     requests,
     nextAt,
   };
 
   if (result.ok) {
     state.issueError = null;
-    const next: IssueIndex = {
+    state.issueNextAt = nextAt;
+    state.issueNextIsBackoff = false;
+    await world.issueStore.write({
       ...base,
       backoffUntil: null,
       at: new Date(startedAt).toISOString(),
       answer: 'answered',
       rows: result.value.map(rowOf),
-      complete: true,
-    };
-    await world.store.write(next);
+      complete: result.value.length < ISSUE_LIST_LIMIT,
+    });
     return;
   }
 
+  const finishedAt = clock();
   const answer: IssueIndex['answer'] = result.why === 'unaskable' ? 'unsupported' : 'failed';
-  const reason = tracker.lastRefusal() ?? answer;
+  const refusal = tracker.lastRefusal();
+  const reason = refusal ?? (answer === 'unsupported'
+    ? unaskableReason(source, world.gitHost)
+    : 'the issue read failed and said nothing');
+  const wait = answer === 'failed' ? waitOf(hostReaction(reason, null, finishedAt)) : null;
+  const backoffUntil = wait === null ? null : finishedAt + wait;
   state.issueError = reason;
+  state.issueNextAt = backoffUntil ?? nextAt;
+  state.issueNextIsBackoff = backoffUntil !== null;
+
   const failedAt = new Date(startedAt).toISOString();
-  const next: IssueIndex = held === null
-    ? {
-        ...base,
-        backoffUntil: null,
-        at: failedAt,
-        answer,
-        failedAt,
-        reason,
-      }
-    : {
-        ...held,
-        ...base,
-        backoffUntil: held.backoffUntil,
-        at: held.at,
-        answer,
-        failedAt,
-        reason,
-      };
-  await world.store.write(next);
+  const same = held !== null && held.source === source.ask && held.connector === spender.connector;
+  await world.issueStore.write({
+    ...base,
+    backoffUntil,
+    at: same ? held.at : failedAt,
+    answer,
+    failedAt,
+    reason,
+    ...(same && held.rows !== undefined ? { rows: held.rows } : {}),
+    ...(same && held.complete !== undefined ? { complete: held.complete } : {}),
+  });
 };
 
 /**
  * Whether the issue gate's next pass is due.
  *
- * The same shape `prGateOpen` answers in: an ordinary pass opens exactly at
- * `issueNextAt`, with no slack of its own to keep the issue clock simple.
+ * The PR gate's own comparison: an ordinary `issueNextAt` opens within the
+ * PR pass's tick slack, and a backoff opens only at or after `issueNextAt`.
  *
  * @param issueNextAt - epoch ms the next pass is due.
- * @param now - epoch ms; defaults to `Date.now`.
+ * @param hard - whether `issueNextAt` is a backoff.
+ * @param now - the clock in epoch ms; defaults to `Date.now`.
  * @returns whether a pass may run now.
  */
-export const issueGateOpen = (issueNextAt: number, now: () => number = Date.now): boolean =>
-  now() >= issueNextAt;
+export const issueGateOpen = (issueNextAt: number, hard: boolean, now: () => number = Date.now): boolean =>
+  prGateOpen(issueNextAt, hard, now());
 
 /**
  * Builds the issue pass the fleet's clock runs: one tracker read behind its
- * own cadence gate, folded into the issue index.
+ * own cadence gate, written to the issue index.
  *
- * @param world - what the pass reaches; the fleet is the index's only writer.
+ * @param world - what the pass reaches.
  * @param state - the cadence carried between passes.
  * @param warn - receives a one-line reason when a pass throws.
  * @returns the function to hand to `startFleetClock` as `issues`.
@@ -168,10 +219,31 @@ export const fleetIssues = (
   state: IssueState,
   warn: (line: string) => void,
 ): (() => Promise<void>) => async () => {
-  if (!issueGateOpen(state.issueNextAt, world.now ?? Date.now)) return;
+  if (!issueGateOpen(state.issueNextAt, state.issueNextIsBackoff, world.now ?? Date.now)) return;
   try {
     await refreshIssueIndex(world, state);
   } catch (e) {
     warn(`plot-fleetd: issue read failed: ${e instanceof Error ? e.message : String(e)}`);
   }
+};
+
+/**
+ * Builds the PR pass's reader of the issue gate's cadence fields.
+ *
+ * @param store - the issue index.
+ * @returns a reader answering the index's `connector`, `account` (null where
+ *   absent), `requests`, `nextAt` and `backoffUntil`; null where the index is
+ *   missing, unreadable or of another version.
+ */
+export const issueGateOf = (store: IssueIndexStore) => async (): Promise<IssueGateReading | null> => {
+  const read = await store.read();
+  if (!read.ok || read.value === null) return null;
+  const held = read.value;
+  return {
+    connector: held.connector,
+    account: held.account ?? null,
+    requests: held.requests,
+    nextAt: held.nextAt,
+    backoffUntil: held.backoffUntil,
+  };
 };

@@ -65,7 +65,7 @@ import { fleetAutoWrites } from '../../shared/auto-writes.js';
 import { verifyingCount } from '../../shared/auto-verify.js';
 import { runDeskRelay } from '../../shared/desk-relay.js';
 import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js';
-import { fleetIssues, freshIssueState } from '../../shared/issue-refresh.js';
+import { fleetIssues, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
 import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
 import { freshScanState } from '../../shared/fleet-scan.js';
@@ -2018,11 +2018,10 @@ export const run = async (
   // must neither delay a supervision tick nor start a second scan. `--once`
   // runs one tick and no scan.
   const prState = freshPrState();
-  // THE ISSUE GATE RIDES ITS OWN CADENCE, beside the PR reader rather than
-  // inside it: `fleet-clock.ts`'s divisors give it a slower beat
-  // (`ISSUE_REFRESH_MS` against `PR_REFRESH_MS`), and `issueState` is read
-  // back by the PR pass's `issueGate` below so the two share one connector's
-  // budget without either owning the other's schedule.
+  // THE ISSUE GATE RUNS ON ITS OWN BEAT, every `ISSUE_REFRESH_MS`
+  // (`fleet-clock.ts`). It reads the PR state's backoff and never writes it;
+  // the PR pass reads the issue gate's cadence fields from `issues.json`
+  // through `issueGateOf` and never writes that file.
   const issueState = freshIssueState();
   const issueStore = issueIndexFile({ cwd: repoRoot });
   const readIssues = fleetIssues(
@@ -2033,7 +2032,7 @@ export const run = async (
         const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
         return answer.ok ? answer.value : 'github';
       })(),
-      store: issueStore,
+      issueStore,
       prBackoff: () => ({
         connector: prState.backend,
         account: prState.prAccount,
@@ -2048,18 +2047,7 @@ export const run = async (
       scripts,
       host: hostShell({ repoRoot, scriptDir: scriptsDir }),
       store: prIndexFile({ cwd: repoRoot }),
-      issueGate: async () => {
-        const read = await issueStore.read();
-        if (!read.ok || read.value === null) return null;
-        const held = read.value;
-        return {
-          connector: held.connector,
-          account: held.account ?? null,
-          requests: held.requests,
-          nextAt: held.nextAt,
-          backoffUntil: held.backoffUntil,
-        };
-      },
+      issueGate: issueGateOf(issueStore),
     },
     prState,
     warn,

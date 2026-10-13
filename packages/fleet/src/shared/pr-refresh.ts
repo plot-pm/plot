@@ -1386,10 +1386,9 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
   // changes what the CADENCE divides by, never what the board displays.
   const gate = (await world.issueGate?.()) ?? null;
   const scheduleRate = cadenceRateOf(rate, gate, backend, entry.prAccount, clock());
-  // A BACKOFF THE ISSUE GATE NAMED, ON THE SAME CONNECTOR AND ACCOUNT, HOLDS
-  // THIS PASS TOO. The two passes can share one connector's budget, so a wait
-  // either one learns about is a fact about that shared budget — asking again
-  // here would spend into a wait already measured.
+  // A LIVE BACKOFF THE ISSUE GATE RECORDED ON THIS CONNECTOR AND ACCOUNT HOLDS
+  // THIS PASS: it asks the host nothing, moves `prNextAt` to the backoff's end
+  // where that is later, and returns before the store seed and the host call.
   if (
     gate !== null &&
     gate.backoffUntil !== null &&
@@ -1399,6 +1398,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
   ) {
     entry.prNextAt = Math.max(entry.prNextAt, gate.backoffUntil);
     entry.prNextIsBackoff = true;
+    return;
   }
   // THE EVIDENCE, READ WHERE IT IS FREE. Counting the claims is one `readdir`
   // and no host request, and it is taken here rather than in the payload
