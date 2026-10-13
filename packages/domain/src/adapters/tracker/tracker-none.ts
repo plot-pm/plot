@@ -1,7 +1,7 @@
 import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { unaskable, type PortResult } from '../../port-result.js';
-import type { ClosedIssues, StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
+import type { ClosedIssues, IssueRead, StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
 
 /**
  * A tracker a repository never declared.
@@ -29,6 +29,7 @@ export const trackerNone = (reason?: string): Tracker => ({
   config: (): TrackerConfig => ({ scheme: '', baseUrl: '' }),
   issueList: async (): Promise<PortResult<readonly Issue[]>> => unaskable(reason),
   issueListClosed: async (): Promise<PortResult<ClosedIssues>> => unaskable(reason),
+  issueListOpen: async (): Promise<PortResult<IssueRead>> => unaskable(reason),
   issueView: async (): Promise<PortResult<Issue>> => unaskable(reason),
   statusWrite: async (): Promise<PortResult<StatusOutcome>> => unaskable(reason),
   limit: async (): Promise<PortResult<readonly LimitReading[]>> => unaskable(reason),

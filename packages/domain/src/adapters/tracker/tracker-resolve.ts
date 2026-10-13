@@ -2,7 +2,7 @@ import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { unaskable, type PortResult } from '../../port-result.js';
 import { issueSource, type IssueSource, type IssueSourceReading } from '../../rules/issue-source.js';
-import type { ClosedIssues, StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
+import type { ClosedIssues, IssueRead, StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { trackerReads } from './tracker-shell.js';
@@ -98,6 +98,7 @@ export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker 
     config: (): TrackerConfig => ({ scheme: '', baseUrl: '' }),
     issueList: (limit): Promise<PortResult<readonly Issue[]>> => reads.issueList(limit),
     issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
+    issueListOpen: (limit): Promise<PortResult<IssueRead>> => reads.issueListOpen(limit),
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
     statusWrite: async (): Promise<PortResult<StatusOutcome>> =>
       unaskable("no Tracker declared; the git host's issues are read-only to Plot"),

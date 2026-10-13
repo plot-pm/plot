@@ -1,8 +1,10 @@
 import type { Issue } from '../../entities/issue.js';
+import { ISSUE_PAGE_ROWS } from '../../entities/issue-index.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type {
   ClosedIssues,
+  IssueRead,
   StatusOutcome,
   StatusWrite,
   Tracker,
@@ -44,6 +46,9 @@ export interface TrackerFixture {
   spender?: TrackerSpender;
 }
 
+/** The requests a read of `rows` rows spends: one per started page, at least 1. */
+const pagesOf = (rows: number): number => Math.max(1, Math.ceil(rows / ISSUE_PAGE_ROWS));
+
 /**
  * A `Tracker` that answers from values, reaching nothing.
  *
@@ -76,7 +81,13 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
       const closed = issues
         .filter((issue) => issue.closedAt !== null && issue.closedAt >= since)
         .sort((a, b) => (b.closedAt ?? '').localeCompare(a.closedAt ?? ''));
-      return answered({ issues: closed.slice(0, limit), complete: closed.length < limit });
+      return answered({ issues: closed.slice(0, limit), complete: closed.length < limit, pages: pagesOf(Math.min(closed.length, limit)) });
+    },
+
+    // Every fixture issue with no `closedAt`, in fixture order.
+    issueListOpen: async (limit): Promise<PortResult<IssueRead>> => {
+      const open = issues.filter((issue) => issue.closedAt === null);
+      return answered({ issues: open.slice(0, limit), complete: open.length < limit, pages: pagesOf(Math.min(open.length, limit)) });
     },
 
     issueView: async (id): Promise<PortResult<Issue>> => {

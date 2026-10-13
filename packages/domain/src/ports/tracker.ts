@@ -79,14 +79,24 @@ export interface StatusWrite {
 export type StatusOutcome = 'written' | 'no-target';
 
 /**
- * The issues a tracker closed in a window, and whether the read reached its end.
+ * The issues one paged read returned, whether it reached its end, and what it
+ * spent.
  */
-export interface ClosedIssues {
-  /** The closed issues, newest close first, without bodies. */
+export interface IssueRead {
+  /** The issues, without bodies. */
   issues: readonly Issue[];
   /** False where the read stopped at its limit, so more may exist. */
   complete: boolean;
+  /**
+   * The requests the read spent: the larger of the script calls it made and
+   * `ceil(rows / ISSUE_PAGE_ROWS)`, because one `gh` call pages inside its own
+   * process. At least 1.
+   */
+  pages: number;
 }
+
+/** The issues a tracker closed in a window: an {@link IssueRead}, newest close first. */
+export type ClosedIssues = IssueRead;
 
 /**
  * Reads a tracker, and writes one fact back to it.
@@ -137,6 +147,19 @@ export interface Tracker {
    *   and has no git host to read issues from instead.
    */
   issueList(limit?: number): Promise<PortResult<readonly Issue[]>>;
+
+  /**
+   * Lists the tracker's open issues page by page, without bodies.
+   *
+   * A read that returns `limit` rows, or stops on a page token it has seen,
+   * reports `complete: false`.
+   *
+   * @param limit - how many issues to read at most.
+   * @returns the open issues in the tracker's order, whether the read reached
+   *   its end, and the requests it spent; `unaskable` where no tracker can be
+   *   asked.
+   */
+  issueListOpen(limit: number): Promise<PortResult<IssueRead>>;
 
   /**
    * Lists the issues the tracker closed at or after `since`, without bodies.

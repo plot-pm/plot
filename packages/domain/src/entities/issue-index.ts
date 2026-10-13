@@ -11,8 +11,13 @@ import { z } from 'zod';
  */
 export const ISSUE_INDEX_VERSION = 1;
 
-/** How many open issues one issue pass asks for: one page, as the board asked before the index existed. */
-export const ISSUE_LIST_LIMIT = 50;
+/**
+ * Rows in one page of an issue read, as `plot-host.sh` names it
+ * (`ISSUE_PAGE_ROWS`): Jira's `maxResults` on a paged read, and the rows `gh`
+ * fetches per request inside its one process. A read of N rows spends at least
+ * `ceil(N / ISSUE_PAGE_ROWS)` requests.
+ */
+export const ISSUE_PAGE_ROWS = 100;
 
 /** How many open issues the index folds: the cap of the open read, above which `complete` is false. */
 export const ISSUE_INDEX_OPEN_LIMIT = 1000;
@@ -63,15 +68,16 @@ export const IssueIndexAnswerSchema = z.union([
  * their own answer.
  *
  * `answer` and `failedAt` track the closed read alone: a failed closed read
- * keeps the previous `rows`, `complete` and `at` and leaves the open read's
- * rows untouched. `at` moves only on an answered closed read.
+ * keeps the previous `since`, `rows`, `complete` and `at` and leaves the open
+ * read's rows untouched. `at` moves only on an answered closed read, and is
+ * absent where no closed read has answered.
  */
 export const IssueIndexClosedSchema = z
   .object({
     /** The earliest closing time the read asked for, ISO-8601. */
     since: z.string(),
-    /** When the closed read last answered, ISO-8601. */
-    at: z.string(),
+    /** When the closed read last answered, ISO-8601; absent where none has answered. */
+    at: z.string().optional(),
     /** The closed read's own outcome. */
     answer: IssueIndexAnswerSchema,
     /** When the closed read last answered anything but `answered`; absent otherwise. */

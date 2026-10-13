@@ -144,3 +144,85 @@ echo '${row(1)}'`);
     });
   });
 });
+
+describe('the pages a read spent', () => {
+  it('counts one request for an empty answered read', async () => {
+    const { context } = hostThat('exit 0');
+    expect(value(await trackerGithub(context).issueListClosed(SINCE, 1000)).pages).toBe(1);
+  });
+
+  it('counts one request per 100 rows where one gh call paged inside its process', async () => {
+    const lines = Array.from({ length: 150 }, (_, i) => `echo '${row(i + 1)}'`).join('\n');
+    const { context, argv } = hostThat(lines);
+    const closed = value(await trackerGithub(context).issueListClosed(SINCE, 1000));
+    expect(calls(argv)).toHaveLength(1);
+    expect(closed.pages).toBe(2);
+  });
+
+  it('counts one request per script call where the script printed a token', async () => {
+    const { context } = hostThat(`case "$*" in
+  *"--page-token p2"*) exit 0 ;;
+  *) echo '${row(1)}'; echo '{"nextPageToken":"p2"}' ;;
+esac`);
+    expect(value(await trackerJira(context, 'https://x.invalid').issueListClosed(SINCE, 50)).pages).toBe(2);
+  });
+});
+
+describe('issueListOpen', () => {
+  const open = (n: number): string => JSON.stringify({ number: `PROJ-${n}`, title: `t${n}`, url: 'u', createdAt: 'c' });
+
+  it('asks for a paged read and follows the token until none is printed', async () => {
+    const { context, argv } = hostThat(`case "$*" in
+  *"--page-token p2"*) echo '${open(2)}' ;;
+  *) echo '${open(1)}'; echo '{"nextPageToken":"p2"}' ;;
+esac`);
+    const read = await trackerJira(context, 'https://x.invalid').issueListOpen(1000);
+    expect(read).toEqual({
+      ok: true,
+      value: {
+        issues: [expect.objectContaining({ id: 'PROJ-1' }), expect.objectContaining({ id: 'PROJ-2' })],
+        complete: true,
+        pages: 2,
+      },
+    });
+    expect(calls(argv)).toEqual(['issue-list --paged --limit 1000', 'issue-list --paged --limit 999 --page-token p2']);
+  });
+
+  it('keeps the script order, which is the tracker order', async () => {
+    const { context } = hostThat(`echo '${open(3)}'; echo '${open(1)}'; echo '${open(2)}'`);
+    const read = value(await trackerGithub(context).issueListOpen(1000));
+    expect(read.issues.map((issue) => issue.id)).toEqual(['PROJ-3', 'PROJ-1', 'PROJ-2']);
+  });
+
+  it('reports a read that stopped at its limit as incomplete', async () => {
+    const { context } = hostThat(`echo '${open(1)}'; echo '${open(2)}'; echo '{"nextPageToken":"p2"}'`);
+    const read = value(await trackerJira(context, 'https://x.invalid').issueListOpen(2));
+    expect(read.issues).toHaveLength(2);
+    expect(read.complete).toBe(false);
+  });
+
+  it('stops, incomplete, on a token it has already followed', async () => {
+    const { context, argv } = hostThat(`echo '${open(1)}'; echo '{"nextPageToken":"same"}'`);
+    const read = value(await trackerJira(context, 'https://x.invalid').issueListOpen(1000));
+    expect(calls(argv)).toHaveLength(2);
+    expect(read.complete).toBe(false);
+    expect(read.pages).toBe(2);
+  });
+
+  it('fails the whole read where a later page fails', async () => {
+    const { context } = hostThat(`case "$*" in
+  *"--page-token p2"*) echo 'boom' >&2; exit 3 ;;
+  *) echo '${open(1)}'; echo '{"nextPageToken":"p2"}' ;;
+esac`);
+    const read = await trackerJira(context, 'https://x.invalid').issueListOpen(1000);
+    expect(read.ok).toBe(false);
+  });
+
+  it('answers unaskable on trackerNone', async () => {
+    expect(await trackerNone('plans are the tracker').issueListOpen(5)).toEqual({
+      ok: false,
+      why: 'unaskable',
+      reason: 'plans are the tracker',
+    });
+  });
+});

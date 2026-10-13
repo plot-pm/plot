@@ -6987,6 +6987,23 @@ test('host: issue-list jira open read is unchanged: no resolutiondate, no token 
   assert.ok(argv.includes('maxResults=50'));
 });
 
+test('host: issue-list jira --paged open read asks 100 a page and prints the next token', () => {
+  const body = JSON.stringify({
+    issues: [{ key: 'PROJ-1', fields: { summary: 'Open', created: 'c', status: { name: 'To Do', statusCategory: { name: 'To Do' } } } }],
+    nextPageToken: 'tok-2',
+  });
+  const stub = makeJiraCurlStub({ body });
+  const res = runJira(['issue-list', '--limit', '1000', '--paged', '--page-token', 'tok-1'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const lines = res.stdout.trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(lines.map((l) => l.number ?? l.nextPageToken), ['PROJ-1', 'tok-2']);
+  assert.ok(!('closedAt' in lines[0]));
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  assert.ok(argv.includes('fields=summary,created,status'));
+  assert.ok(argv.includes('maxResults=100'));
+  assert.ok(argv.includes('nextPageToken=tok-1'));
+});
+
 test('host: issue-list github closed records one extra call per 100 rows past the first', () => {
   const rows = (n) => JSON.stringify(Array.from({ length: n }, (_, i) => ({
     number: i + 1, title: 't', url: 'u', createdAt: 'c', closedAt: 'd',

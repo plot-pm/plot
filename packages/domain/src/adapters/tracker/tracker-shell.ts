@@ -1,7 +1,8 @@
 import type { Issue } from '../../entities/issue.js';
+import { ISSUE_PAGE_ROWS } from '../../entities/issue-index.js';
 import type { TrackerSpender } from '../../ports/tracker.js';
 import { LimitBasisSchema, type LimitBasis, type LimitReading } from '../../entities/limit.js';
-import type { ClosedIssues } from '../../ports/tracker.js';
+import type { ClosedIssues, IssueRead } from '../../ports/tracker.js';
 import { answered, unaskable, type PortResult } from '../../port-result.js';
 import { asJson, asJsonLines, resultOf, runProcess, type ScriptRun } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
@@ -198,6 +199,53 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
   const ask = async <T>(args: readonly string[], parse: (stdout: string) => T) =>
     record(await runProcess('bash', [host, ...args], run), parse);
 
+  /**
+   * Reads `issue-list` page by page.
+   *
+   * One script call reads one page and holds no loop: the script prints the
+   * next page's token as a last line, and this passes it back as
+   * `--page-token`. A script that prints none (GitHub pages inside its one
+   * process) is read once. The read stops at `limit` rows and reports
+   * `complete: false` there; it also stops, incomplete, when a page makes no
+   * progress, so a tracker repeating its token cannot loop it.
+   *
+   * `pages` is the larger of the script calls made and
+   * `ceil(rows / ISSUE_PAGE_ROWS)`, because one `gh` call spends one request
+   * per page inside its process.
+   *
+   * Exit 4 answers `unaskable` carrying the script's stated reason. Any page
+   * that fails fails the whole read, because rows from the pages before it
+   * would pass for the end of the list.
+   *
+   * @param head - the `issue-list` arguments every page repeats.
+   * @param limit - how many issues to read at most.
+   * @returns the issues in the script's order, whether the read reached its
+   *   end, and the requests it spent.
+   */
+  const walk = async (head: readonly string[], limit: number): Promise<PortResult<IssueRead>> => {
+    const issues: Issue[] = [];
+    let token: string | null = null;
+    const seen = new Set<string>();
+    let calls = 0;
+    while (issues.length < limit) {
+      const args = [...head, '--limit', String(limit - issues.length)];
+      if (token !== null) args.push('--page-token', token);
+      const page = record(await runProcess('bash', [host, ...args], run), (stdout) => pageOf(stdout));
+      calls += 1;
+      if (!page.ok) return page;
+      issues.push(...page.value.issues);
+      token = page.value.next;
+      if (token === null || page.value.issues.length === 0 || seen.has(token)) break;
+      seen.add(token);
+    }
+    const kept = issues.slice(0, limit);
+    return answered({
+      issues: kept,
+      complete: token === null && issues.length < limit,
+      pages: Math.max(1, calls, Math.ceil(kept.length / ISSUE_PAGE_ROWS)),
+    });
+  };
+
   return {
     issueList: (limit?: number): Promise<PortResult<readonly Issue[]>> =>
       ask(['issue-list', ...(limit === undefined ? [] : ['--limit', String(limit)])], (stdout) =>
@@ -205,41 +253,30 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
       ),
 
     /**
-     * Lists the issues closed at or after `since`, walking the script's pages.
+     * Lists the open issues, walking the script's pages: `issue-list --paged`.
+     * See {@link walk}.
      *
-     * One script call reads one page and holds no loop: the script prints the
-     * next page's token as a last line, and this passes it back as
-     * `--page-token`. A script that prints none (GitHub pages inside its one
-     * process) is read once. The read stops at `limit` rows and reports
-     * `complete: false` there; it also stops, incomplete, when a page makes no
-     * progress, so a tracker repeating its token cannot loop it. The rows are
-     * sorted by `closedAt` after the last page, because no tracker search
-     * promises that order: GitHub ignores a close-date sort.
-     *
-     * Exit 4 answers `unaskable` carrying the script's stated reason. Any page
-     * that fails fails the whole read, because rows from the pages before it
-     * would pass for the end of the list.
+     * @param limit - how many issues to read at most.
+     * @returns the open issues in the script's order, whether the read reached
+     *   its end, and the requests it spent.
+     */
+    issueListOpen: (limit: number): Promise<PortResult<IssueRead>> =>
+      walk(['issue-list', '--paged'], limit),
+
+    /**
+     * Lists the issues closed at or after `since`, walking the script's pages,
+     * and sorts them by `closedAt` after the last page, because no tracker
+     * search promises that order: GitHub ignores a close-date sort. See
+     * {@link walk}.
      *
      * @param since - the earliest closing time to include, ISO-8601.
      * @param limit - how many issues to read at most.
-     * @returns the closed issues, newest first, and whether the read reached its end.
+     * @returns the closed issues, newest first, whether the read reached its
+     *   end, and the requests it spent.
      */
     issueListClosed: async (since: string, limit: number): Promise<PortResult<ClosedIssues>> => {
-      const issues: Issue[] = [];
-      let token: string | null = null;
-      const seen = new Set<string>();
-      while (issues.length < limit) {
-        const args = ['issue-list', '--state', 'closed', '--since', since, '--limit', String(limit - issues.length)];
-        if (token !== null) args.push('--page-token', token);
-        const page = record(await runProcess('bash', [host, ...args], run), (stdout) => pageOf(stdout));
-        if (!page.ok) return page;
-        issues.push(...page.value.issues);
-        token = page.value.next;
-        if (token === null || page.value.issues.length === 0 || seen.has(token)) break;
-        seen.add(token);
-      }
-      const reachedEnd = token === null && issues.length < limit;
-      return answered({ issues: newestCloseFirst(issues).slice(0, limit), complete: reachedEnd });
+      const read = await walk(['issue-list', '--state', 'closed', '--since', since], limit);
+      return read.ok ? answered({ ...read.value, issues: newestCloseFirst(read.value.issues) }) : read;
     },
 
     issueView: (id: string): Promise<PortResult<Issue>> =>

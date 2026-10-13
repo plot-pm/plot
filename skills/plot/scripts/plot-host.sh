@@ -255,7 +255,7 @@
 #                                 human click as merely pending forever.
 #                                 NOTHING on bitbucket (bb has no run listing) —
 #                                 unavailable, never "no run".
-#   issue-list [--limit N] [--state open|closed] [--since <iso>] [--page-token T]
+#   issue-list [--limit N] [--state open|closed] [--since <iso>] [--page-token T] [--paged]
 #                                 tracker issues as JSON lines, open by default.
 #                                 `--state closed` needs `--since` (a date, or
 #                                 a date and `THH:MM`) and adds `closedAt` to
@@ -266,9 +266,11 @@
 #                                 profile zone (JQL takes no offset), and reads
 #                                 one page of 100, printing
 #                                 `{"nextPageToken":"…"}` as a last line for the
-#                                 caller to pass back as `--page-token`. ONLY
-#                                 the closed read prints that line; the open
-#                                 read's output is issue rows alone. EXIT 4 where the closed read
+#                                 caller to pass back as `--page-token`. The
+#                                 closed read and an open read given `--paged`
+#                                 print that line, and on Jira ask 100 rows a
+#                                 page; an open read without `--paged` prints
+#                                 issue rows alone. EXIT 4 where the closed read
 #                                 cannot be asked at all: Bitbucket (`bb issue
 #                                 list` prints no closing date) and Jira with no
 #                                 `Ticket prefixes`, both before any bb or curl.
@@ -4648,13 +4650,14 @@ case "$op" in
     # of them reproduces `an-outage-is-not-an-answer` — a board that says "no
     # issues" because it could not reach the tracker is stating a fact it does
     # not have.
-    limit=""; state="open"; since=""; page_token=""
+    limit=""; state="open"; since=""; page_token=""; paged=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --limit) limit="${2:?}"; shift 2 ;;
         --state) state="${2:?}"; shift 2 ;;
         --since) since="${2:?}"; shift 2 ;;
         --page-token) page_token="${2:?}"; shift 2 ;;
+        --paged) paged=1; shift ;;
         *) die "issue-list: unknown arg $1" ;;
       esac
     done
@@ -4710,7 +4713,9 @@ case "$op" in
       jql="${PLOT_JIRA_JQL:-assignee = currentUser() AND resolution = EMPTY${scope} ORDER BY created DESC}"
       # maxResults bounds ONE page. The inbox is small by construction (a
       # person's open tickets), so its default stays 50; the caller's --limit
-      # caps it. v2 `search/jql` takes the same params as v3 but returns
+      # caps it. A paged read (`--paged`, and every closed read) asks at most
+      # ISSUE_PAGE_ROWS per page and prints the next page's token. v2
+      # `search/jql` takes the same params as v3 but returns
       # `summary`/`description` as plain strings.
       max="${limit:-50}"
       fields="summary,created,status"
@@ -4718,20 +4723,19 @@ case "$op" in
         # THE CLOSED READ REQUIRES `Ticket prefixes` AND READS NOT PLOT_JIRA_JQL.
         # An unscoped `resolved >=` query reads the whole instance — the hazard
         # `tracker_projects` measured for the open read — so with none declared
-        # the read exits 4 before any curl. `jira_require_config` and the page
-        # size follow: a page is ISSUE_PAGE_ROWS, and the TypeScript adapter
-        # walks the pages, so this arm holds no loop. JQL dates take
+        # the read exits 4 before any curl. `jira_require_config` follows. The
+        # closed read is always paged: a page is ISSUE_PAGE_ROWS, and the
+        # TypeScript adapter walks the pages, so this arm holds no loop. JQL dates take
         # `yyyy-MM-dd` or `yyyy-MM-dd HH:mm`, so the ISO `since` is cut to the
         # shape it has: a date-only `since` sends the date alone. JQL takes no
         # offset, so Jira reads the time in the reader's profile zone.
         [ -n "$scope" ] || { echo "plot-host: closed Jira issues need 'Ticket prefixes' declared; an unscoped resolved query reads the whole instance" >&2; exit 4; }
         when="${since:0:10} ${since:11:5}"
         jql="assignee = currentUser() AND resolved >= \"${when% }\"${scope} ORDER BY resolved DESC"
-        fields="$fields,resolutiondate"
-        max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"
+        fields="$fields,resolutiondate"; paged=1
       fi
-      token_args=()
-      [ -n "$page_token" ] && token_args=(--data-urlencode "nextPageToken=$page_token")
+      [ -z "$paged" ] || { max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; }
+      token_args=(); [ -z "$page_token" ] || token_args=(--data-urlencode "nextPageToken=$page_token")
       # jq builds the query string so a JQL with spaces/quotes is encoded once,
       # not hand-escaped. --data-urlencode via curl -G keeps the token out of the
       # URL and the JQL correctly encoded.
@@ -4753,11 +4757,12 @@ case "$op" in
       # substitutes for the other: the name is what a person reads, the
       # category is what a board groups on. A board grouping on the name
       # fragments across projects that spell the same stage differently.
-      # A closed row adds `closedAt`, the ticket's `resolutiondate`. The closed
+      # A closed row adds `closedAt`, the ticket's `resolutiondate`. A paged
       # read prints the next page's token as a LAST JSON line,
-      # `{"nextPageToken":"…"}`, for the adapter to strip and loop on. The open
-      # read prints no token line: its readers take every line as an issue.
-      printf '%s' "$body" | jq -c --arg base "$base" --arg state "$state" '(.issues[]? | {
+      # `{"nextPageToken":"…"}`, for the adapter to strip and loop on. An open
+      # read without `--paged` prints no token line: the readers of that read
+      # take every line as an issue.
+      printf '%s' "$body" | jq -c --arg base "$base" --arg state "$state" --arg paged "$paged" '(.issues[]? | {
           number: .key,
           title: (.fields.summary // ""),
           url: ($base + "/browse/" + .key),
@@ -4765,7 +4770,7 @@ case "$op" in
           status: (.fields.status.name // ""),
           statusCategory: (.fields.status.statusCategory.name // "")
         } + (if $state == "closed" then {closedAt: (.fields.resolutiondate // "")} else {} end)),
-        (select($state == "closed") | (.nextPageToken // empty) | {nextPageToken: .})'
+        (select($paged == "1") | (.nextPageToken // empty) | {nextPageToken: .})'
     elif [ "$be" = "github" ]; then
       # `gh issue list` — not `gh api /issues`. On GitHub every PR IS an issue,
       # so the REST endpoint returns both, and every open PR would arrive here

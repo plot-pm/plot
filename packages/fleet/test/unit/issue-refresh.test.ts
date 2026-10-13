@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { issueIndexFile } from '@plot-pm/domain/adapters';
-import { ISSUE_INDEX_VERSION, type IssueIndex } from '@plot-pm/domain';
+import { cadenceRateOf, ISSUE_INDEX_VERSION, type IssueIndex } from '@plot-pm/domain';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 
 import {
@@ -40,7 +40,7 @@ const issueLine = (n: number): string =>
  * A scripts directory whose `plot-host.sh` answers `spend-rate` with the
  * connector's account and `issue-list` as told, recording every call.
  */
-type FakeList = { rows?: number; stderr?: string; code?: number };
+type FakeList = { rows?: number; stderr?: string; code?: number; token?: string };
 
 const fakeHost = (
   issueList: FakeList,
@@ -54,6 +54,7 @@ const fakeHost = (
   const closedLine = (n: number): string => JSON.stringify({ ...JSON.parse(issueLine(n)), closedAt: '2026-10-12T00:00:00Z' });
   const answer = (list: FakeList, line: (n: number) => string): string =>
     `${linesOf(list, line)}\n`
+    + (list.token ? `  printf '%s\\n' ${JSON.stringify(JSON.stringify({ nextPageToken: list.token }))}\n` : '')
     + (list.stderr ? `  printf '%s\\n' ${JSON.stringify(list.stderr)} >&2\n` : '')
     + `  exit ${list.code ?? 0}\n`;
   fs.writeFileSync(
@@ -157,7 +158,7 @@ describe('one issue pass (Acceptance 2)', () => {
     });
     expect(argv()).toEqual([
       'spend-rate --connector github',
-      'issue-list --limit 1000',
+      'issue-list --paged --limit 1000',
       `issue-list --state closed --since ${SINCE} --limit 1000`,
     ]);
     expect(state).toEqual({ issueNextAt: NOW + 240_000, issueNextIsBackoff: false, issueError: null });
@@ -219,7 +220,7 @@ describe('the issue pass and the PR pass backoff (Acceptance 5)', () => {
       }),
       freshIssueState(),
     );
-    expect(argv()).toContain('issue-list --limit 1000');
+    expect(argv()).toContain('issue-list --paged --limit 1000');
     expect((await onDisk(store))?.answer).toBe('answered');
   });
 
@@ -230,7 +231,7 @@ describe('the issue pass and the PR pass backoff (Acceptance 5)', () => {
       worldOf(dir, store, { prBackoff: () => ({ connector: 'github', account: 'someone-else', until: NOW + 300_000 }) }),
       freshIssueState(),
     );
-    expect(argv()).toContain('issue-list --limit 1000');
+    expect(argv()).toContain('issue-list --paged --limit 1000');
   });
 
   it('runs once the PR state\'s backoff has passed', async () => {
@@ -240,7 +241,7 @@ describe('the issue pass and the PR pass backoff (Acceptance 5)', () => {
       worldOf(dir, store, { prBackoff: () => ({ connector: 'github', account: ACCOUNT, until: NOW }) }),
       freshIssueState(),
     );
-    expect(argv()).toContain('issue-list --limit 1000');
+    expect(argv()).toContain('issue-list --paged --limit 1000');
   });
 });
 
@@ -271,7 +272,7 @@ describe('the closed set of the index', () => {
     expect(index?.at).toBe(new Date(NOW).toISOString());
     expect(index?.rows).toHaveLength(1);
     expect(await closedOf(store)).toEqual({
-      since: SINCE,
+      since: kept.since,
       at: kept.at,
       answer: 'failed',
       failedAt: new Date(NOW).toISOString(),
@@ -317,6 +318,77 @@ describe('the closed set of the index', () => {
     expect(index?.closed?.answer).toBe('unsupported');
     expect(index?.closed?.rows).toBeUndefined();
     expect(index?.answer).toBe('answered');
+  });
+});
+
+describe('the requests a pass spent (D28)', () => {
+  it('counts 2 open pages and 1 closed request for 150 open and 0 closed rows: requests 3, nextAt 360 s on', async () => {
+    const { dir } = fakeHost({ rows: 150 }, { rows: 0 });
+    const store = issueIndexFile({ home: storeHome() });
+    const state = freshIssueState();
+    await refreshIssueIndex(worldOf(dir, store), state);
+    const index = await onDisk(store);
+    expect(index?.requests).toBe(3);
+    expect(index?.nextAt).toBe(NOW + 360_000);
+    expect(state.issueNextAt).toBe(NOW + 360_000);
+  });
+
+  it('counts 10 + 10 pages for 1000 open and 1000 closed rows: requests 20, nextAt 2400 s on', async () => {
+    const { dir } = fakeHost({ rows: 1000 }, { rows: 1000 });
+    const store = issueIndexFile({ home: storeHome() });
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    const index = await onDisk(store);
+    expect(index?.requests).toBe(20);
+    expect(index?.nextAt).toBe(NOW + 2_400_000);
+    expect(index?.complete).toBe(false);
+    expect(index?.closed?.complete).toBe(false);
+  });
+
+  it('hands cadenceRateOf a reading whose subtraction is the spend the pass really made', async () => {
+    const { dir } = fakeHost({ rows: 150 }, { rows: 0 });
+    const store = issueIndexFile({ home: storeHome() });
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    const gate = await issueGateOf(store)();
+    expect(gate).not.toBeNull();
+    // 3 requests every 360 s is 30 an hour, the bound the subtraction assumes.
+    expect((gate!.requests * 3_600_000) / (gate!.nextAt - NOW)).toBe(30);
+    expect(cadenceRateOf({ perHour: 100 }, gate, 'github', ACCOUNT, NOW + 1_000)).toEqual({ perHour: 70 });
+  });
+
+  it('counts each page of a paged open read, and reports a repeated token as incomplete (M1)', async () => {
+    const { dir, argv } = fakeHost({ rows: 1, token: 'same' }, { rows: 0 });
+    const store = issueIndexFile({ home: storeHome() });
+    await refreshIssueIndex(worldOf(dir, store, { declaredTracker: 'jira https://x.invalid' }), freshIssueState());
+    const index = await onDisk(store);
+    expect(argv().filter((call) => call.startsWith('issue-list --paged'))).toEqual([
+      'issue-list --paged --limit 1000',
+      'issue-list --paged --limit 999 --page-token same',
+    ]);
+    expect(index?.complete).toBe(false);
+    expect(index?.requests).toBe(3);
+  });
+});
+
+describe('a closed read that never answered (L1)', () => {
+  it('records no at and the asked since where a first closed read fails', async () => {
+    const { dir } = fakeHost({ rows: 1 }, { stderr: 'boom', code: 1 });
+    const store = issueIndexFile({ home: storeHome() });
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    expect((await onDisk(store))?.closed).toEqual({
+      since: SINCE,
+      answer: 'failed',
+      failedAt: new Date(NOW).toISOString(),
+      reason: 'boom',
+    });
+  });
+
+  it('records no at where the first closed read is unsupported', async () => {
+    const { dir } = fakeHost({ rows: 1 }, { stderr: 'bb lists no closed date', code: 4 });
+    const store = issueIndexFile({ home: storeHome() });
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    const closed = (await onDisk(store))?.closed;
+    expect(closed?.answer).toBe('unsupported');
+    expect(closed && 'at' in closed).toBe(false);
   });
 });
 
