@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  checklistSummary,
   freshChecklist,
   hasRcLine,
   renderChecklistEntry,
@@ -36,6 +37,17 @@ describe('hasRcLine', () => {
   it('ignores an RC: line inside a fenced block', () => {
     const text = '# Release Checklist\n\n```\nRC: v1.2.0-rc.1 (2026-10-13)\n```\n\n## Verification\n';
     expect(hasRcLine(text)).toBe(false);
+  });
+});
+
+describe('checklistSummary', () => {
+  it('joins a plan\'s Changelog entries with "; "', () => {
+    const text = '# P\n\n## Changelog\n\n- one\n- two\n';
+    expect(checklistSummary(text)).toBe('one; two');
+  });
+
+  it('is empty where the plan has no Changelog section', () => {
+    expect(checklistSummary('# P\n\n## Status\n')).toBe('');
   });
 });
 
