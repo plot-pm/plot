@@ -315,7 +315,7 @@ Every view state in this story is a domain property, per CLAUDE.md's *Every rend
 | `planStatus` | changed; adds `proven` for a tracer plan | `design-work-proves-the-path` |
 | `phaseGateRefusal`, `plangate` | changed; admit the approved spike branch of a Design plan | `design-work-proves-the-path` |
 | `boardTabOf(param)` | new | `the-board-has-three-tabs` |
-| `planningColumns(map, showReleased)` | new | `the-board-has-three-tabs` |
+| `planningColumns(columns, showReleased)`, `revealsReleased(columns, slug)` | new | `the-board-has-three-tabs` |
 | `assigneeHandle(assignee, source, directory)` | new; reads `People` tracker spellings | `the-board-has-three-tabs` |
 | `waitingTickets(issues, inbox, reader, directory, source)`, `activeSprintScope(rows, sprints)` | new; `waitingTickets` answers the tickets and, on GitHub and Bitbucket, an unmatched-reader notice | `the-board-has-three-tabs` |
 | `ticketLane(issue, reading, now)`, `storyLanes(map)`, `storyLane(map, standing, location)` | new | `tickets-and-stories-have-lanes` |
