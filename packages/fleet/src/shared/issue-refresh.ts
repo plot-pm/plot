@@ -104,7 +104,8 @@ const unaskableReason = (source: Exclude<IssueSource, { ask: 'nobody' }>, gitHos
  * - A refused read writes `requests`, `nextAt`, `failedAt` and `reason`, keeps
  *   the previous `rows`, `complete` and `at` of the same source and connector,
  *   and writes `backoffUntil` where {@link hostReaction} reads a rate limit in
- *   the refusal.
+ *   the refusal. The `reason` of an unaskable read is the sentence the port
+ *   carried, or a sentence naming the source where it carried none.
  *
  * @param world - what the pass reaches.
  * @param state - the cadence carried between passes.
@@ -168,7 +169,8 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
   const finishedAt = clock();
   const answer: IssueIndex['answer'] = result.why === 'unaskable' ? 'unsupported' : 'failed';
   const refusal = tracker.lastRefusal();
-  const reason = refusal ?? (answer === 'unsupported'
+  const stated = result.why === 'unaskable' ? result.reason : undefined;
+  const reason = refusal ?? stated ?? (answer === 'unsupported'
     ? unaskableReason(source, world.gitHost)
     : 'the issue read failed and said nothing');
   const wait = answer === 'failed' ? waitOf(hostReaction(reason, null, finishedAt)) : null;

@@ -62,7 +62,7 @@ else
   echo '${row(2)}'
 fi`);
     const closed = value(await trackerJira(context, 'https://x.invalid').issueListClosed(SINCE, 5));
-    expect(closed.issues.map((issue) => issue.id)).toEqual(['1', '2']);
+    expect(closed.issues.map((issue) => issue.id)).toEqual(['2', '1']);
     expect(closed.complete).toBe(true);
     expect(calls(argv)[1]).toBe(`issue-list --state closed --since ${SINCE} --limit 4 --page-token p2`);
   });
@@ -77,8 +77,33 @@ fi`);
   it('does not loop on a token it has already followed', async () => {
     const { context, argv } = hostThat(`echo '${row(1)}'; echo '{"nextPageToken":"same"}'`);
     const closed = value(await trackerJira(context, 'https://x.invalid').issueListClosed(SINCE, 50));
-    expect(closed.issues.length).toBeLessThanOrEqual(2);
-    expect(calls(argv).length).toBeLessThanOrEqual(2);
+    expect(calls(argv)).toHaveLength(2);
+    expect(closed.issues).toHaveLength(2);
+    expect(closed.complete).toBe(false);
+  });
+
+  it('returns rows that arrive out of close order newest close first', async () => {
+    // GitHub search ignores a close-date sort (measured 2026-10-13: #1578,
+    // closed 15:55, listed before #1571, closed 19:41), so the adapter sorts.
+    const closedAt = (n: number, at: string): string =>
+      JSON.stringify({ number: n, title: 't', url: 'u', createdAt: 'c', status: 'closed', statusCategory: 'Done', closedAt: at });
+    const { context } = hostThat(`if [ -z "$(echo "$*" | grep -- --page-token)" ]; then
+  echo '${closedAt(1578, '2026-10-12T15:55:00Z')}'; echo '${closedAt(1, '')}'; echo '{"nextPageToken":"p2"}'
+else
+  echo '${closedAt(1571, '2026-10-12T19:41:00Z')}'; echo '${closedAt(1600, '2026-10-13T08:00:00Z')}'
+fi`);
+    const closed = value(await trackerJira(context, 'https://x.invalid').issueListClosed(SINCE, 10));
+    expect(closed.issues.map((issue) => issue.id)).toEqual(['1600', '1571', '1578', '1']);
+    expect(closed.complete).toBe(true);
+  });
+
+  it('answers unaskable without the script prefix in its reason', async () => {
+    const { context } = hostThat(`echo "plot-host: bitbucket lists no closing date" >&2; exit 4`);
+    expect(await trackerGithub(context).issueListClosed(SINCE, 5)).toEqual({
+      ok: false,
+      why: 'unaskable',
+      reason: 'bitbucket lists no closing date',
+    });
   });
 
   it('answers unaskable with the script reason on exit 4', async () => {

@@ -175,7 +175,8 @@ describe('trackerOfSource and trackerForIssues', () => {
     const { context, argv } = hostThat('exit 0');
     expect(await trackerOfSource({ ask: 'nobody', reason: 'r' }, 'linear', 'github', context).issueList())
       .toEqual({ ok: false, why: 'unaskable', reason: 'r' });
-    expect((await trackerForIssues('linear', 'github', context).issueList()).ok).toBe(false);
+    expect(await trackerForIssues('linear', 'github', context).issueList())
+      .toMatchObject({ ok: false, why: 'unaskable', reason: expect.any(String) });
     expect(calls(argv)).toEqual([]);
   });
 });

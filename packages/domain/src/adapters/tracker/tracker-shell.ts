@@ -76,6 +76,36 @@ export const pageOf = (stdout: string): { issues: Issue[]; next: string | null }
   };
 };
 
+/** The prefix `plot-host.sh` puts on every line it writes to stderr. */
+const SCRIPT_PREFIX = /^plot-host: /;
+
+/**
+ * Reads the reason an exit-4 run stated on stderr.
+ *
+ * @param stderr - the script's stderr.
+ * @returns the trimmed text without the `plot-host: ` prefix, or undefined when it is empty.
+ */
+export const unaskableReasonOf = (stderr: string): string | undefined =>
+  stderr.trim().replace(SCRIPT_PREFIX, '') || undefined;
+
+/**
+ * Milliseconds since the epoch of an issue's `closedAt`, or -Infinity when it
+ * is absent or does not parse, so such an issue sorts last.
+ */
+const closedMs = (issue: Issue): number => {
+  const ms = issue.closedAt === null ? Number.NaN : Date.parse(issue.closedAt);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+};
+
+/**
+ * Orders closed issues newest close first.
+ *
+ * @param issues - the issues, in any order.
+ * @returns a new array; issues with no readable `closedAt` come last, in their input order.
+ */
+export const newestCloseFirst = (issues: readonly Issue[]): Issue[] =>
+  [...issues].sort((a, b) => closedMs(b) - closedMs(a) || 0);
+
 /**
  * Reads a number the script may have reported as null, absent or nonsense.
  *
@@ -153,12 +183,16 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
    */
   let refusal: string | null = null;
 
+  /**
+   * Maps one run into a result and keeps its refusal. Exit 4 answers
+   * `unaskable` carrying the reason the script stated on stderr.
+   */
   const record = <T>(script: ScriptRun, parse: (stdout: string) => T): PortResult<T> => {
     refusal =
       script.code === 0 || script.code === 4
         ? null
         : script.stderr.trim() || script.stdout.trim() || `plot-host.sh exited ${script.code}`;
-    return resultOf(script, parse);
+    return script.code === 4 ? unaskable(unaskableReasonOf(script.stderr)) : resultOf(script, parse);
   };
 
   const ask = async <T>(args: readonly string[], parse: (stdout: string) => T) =>
@@ -178,7 +212,9 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
      * `--page-token`. A script that prints none (GitHub pages inside its one
      * process) is read once. The read stops at `limit` rows and reports
      * `complete: false` there; it also stops, incomplete, when a page makes no
-     * progress, so a tracker repeating its token cannot loop it.
+     * progress, so a tracker repeating its token cannot loop it. The rows are
+     * sorted by `closedAt` after the last page, because no tracker search
+     * promises that order: GitHub ignores a close-date sort.
      *
      * Exit 4 answers `unaskable` carrying the script's stated reason. Any page
      * that fails fails the whole read, because rows from the pages before it
@@ -195,18 +231,15 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
       while (issues.length < limit) {
         const args = ['issue-list', '--state', 'closed', '--since', since, '--limit', String(limit - issues.length)];
         if (token !== null) args.push('--page-token', token);
-        const script = await runProcess('bash', [host, ...args], run);
-        const page = record(script, (stdout) => pageOf(stdout));
-        if (!page.ok) {
-          return script.code === 4 ? unaskable(script.stderr.trim() || undefined) : page;
-        }
+        const page = record(await runProcess('bash', [host, ...args], run), (stdout) => pageOf(stdout));
+        if (!page.ok) return page;
         issues.push(...page.value.issues);
         token = page.value.next;
         if (token === null || page.value.issues.length === 0 || seen.has(token)) break;
         seen.add(token);
       }
       const reachedEnd = token === null && issues.length < limit;
-      return answered({ issues: issues.slice(0, limit), complete: reachedEnd });
+      return answered({ issues: newestCloseFirst(issues).slice(0, limit), complete: reachedEnd });
     },
 
     issueView: (id: string): Promise<PortResult<Issue>> =>

@@ -184,6 +184,16 @@ describe('a tracker is asked apart from the git host', () => {
     );
   });
 
+  it('carries the sentence an exit 4 states, without the script prefix, on every read', async () => {
+    const said = scriptsThat({ 'plot-host.sh': "echo 'plot-host: bitbucket has no issue listing' >&2; exit 4" });
+    const tracker = trackerGithub(said);
+    const expected = { ok: false, why: 'unaskable', reason: 'bitbucket has no issue listing' };
+    expect(await tracker.issueList()).toEqual(expected);
+    expect(await tracker.issueView('7')).toEqual(expected);
+    expect(await tracker.limit()).toEqual(expected);
+    expect(tracker.lastRefusal()).toBeNull();
+  });
+
   it('tells an empty inbox apart from both refusals', async () => {
     // An empty list means the tracker answered and holds none. Collapsing it
     // into either refusal is a board saying *you have no tickets* about a
