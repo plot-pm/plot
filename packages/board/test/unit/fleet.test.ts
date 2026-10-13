@@ -3982,11 +3982,10 @@ describe('prGateOpen — a cadence target bends, a host backoff does not', () =>
 
 describe('the cadence knows what a refresh costs', () => {
   // Issue #226, measured against `bitbucket.org/quatico/ekzweb`. The board's
-  // refresh assumed ONE request per refresh. On Bitbucket it is four — three for
+  // refresh assumed ONE request per refresh. On Bitbucket it is three — for
   // `pr-list --state all` (open/merged/declined, because `bb` has no `all`
-  // state) plus one for `issue-list`, which now reaches the tracker instead of
-  // exiting 4 — so an un-stretched 60 s cadence would spend 240 requests an hour
-  // there against 60 on GitHub, and a board left open a working day reached
+  // state); the issue read runs on its own gate — so an un-stretched 60 s
+  // cadence would spend 180 requests an hour there against 60 on GitHub, and a board left open a working day reached
   // `HTTP 429` account wide, taking the operator's own shell down with it.
   //
   // These assert the COUNT, in requests per hour, because the count is what the
@@ -4043,13 +4042,13 @@ describe('the cadence knows what a refresh costs', () => {
 
   it('spends measurably fewer requests per hour on Bitbucket than the naive cadence', () => {
     // THE assertion, in the unit the host meters. The naive cadence refreshed
-    // every period regardless, so Bitbucket paid 4 requests 60 times over.
+    // every period regardless, so Bitbucket paid 3 requests 60 times over.
     const naiveRefreshes = 60;                        // one per minute, [0, 1h)
-    const naiveRequests = naiveRefreshes * 4;         // 240 — the measured shape
+    const naiveRequests = naiveRefreshes * 3;         // 180
     const { requests } = requestsPerHour('bitbucket');
     expect(requests).toBeLessThan(naiveRequests);
-    // Not merely fewer — a quarter, which is the whole cost being accounted for.
-    expect(requests).toBeLessThanOrEqual(Math.ceil(naiveRequests / 4) + 4);
+    // Not merely fewer — a third, which is the whole cost being accounted for.
+    expect(requests).toBeLessThanOrEqual(Math.ceil(naiveRequests / 3) + 3);
   });
 
   it('spends the SAME requests per hour on both hosts — the invariant', () => {
@@ -4059,8 +4058,8 @@ describe('the cadence knows what a refresh costs', () => {
     const gh = requestsPerHour('github');
     const bb = requestsPerHour('bitbucket');
     expect(bb.requests).toBe(gh.requests);
-    // And it got there by refreshing a quarter as often, not by luck.
-    expect(bb.refreshes * 4).toBe(gh.refreshes * 1);
+    // And it got there by refreshing a third as often, not by luck.
+    expect(bb.refreshes * 3).toBe(gh.refreshes * 1);
   });
 
   it('leaves a GitHub-configured board unchanged', () => {
@@ -4082,18 +4081,17 @@ describe('the cadence knows what a refresh costs', () => {
   });
 
   it('stretches the Bitbucket period by the cost and nothing else', () => {
-    // Four now, not three: `issue-list` reaches the tracker instead of exiting
-    // 4, so a refresh costs pr-list's three plus one issue call. The period is
-    // the cost times the base tick — 4 × 60 s.
-    expect(prRefreshMsFor('bitbucket')).toBe(240_000);
-    expect(prRequestsPerRefresh('bitbucket')).toBe(4);
+    // Three: pr-list's three. The issue read runs on its own gate, so a refresh
+    // does not pay for it. The period is the cost times the base tick — 3 × 60 s.
+    expect(prRefreshMsFor('bitbucket')).toBe(180_000);
+    expect(prRequestsPerRefresh('bitbucket')).toBe(3);
   });
 
   it('keeps a Bitbucket board FRESHER than the cost multiple would allow at worst', () => {
     // The trade, bounded rather than open-ended. Four minutes is the price of
-    // the same budget; a reader is entitled to know it is four and not ten.
+    // the same budget; a reader is entitled to know it is three and not ten.
     const { worstAge } = requestsPerHour('bitbucket');
-    expect(worstAge).toBeLessThan(4 * PERIOD + 2_000);
+    expect(worstAge).toBeLessThan(3 * PERIOD + 2_000);
   });
 
   it('lands the stretched gate ON a rigid tick, so no period is ever skipped', () => {
@@ -4115,14 +4113,13 @@ describe('the cadence knows what a refresh costs', () => {
     // window rather than about the cadence. The property meant here is that no
     // tick is refused for being early, and this asserts that directly.
     const bbDue = prNextDueAt(0, null, 1_400, 'bitbucket').at;
-    expect(bbDue).toBe(240_000);
+    expect(bbDue).toBe(180_000);
     for (const jitter of [0, -1, -50, -1_000]) {
-      expect(prGateOpen(bbDue, false, 240_000 + jitter)).toBe(true);
+      expect(prGateOpen(bbDue, false, 180_000 + jitter)).toBe(true);
     }
-    // And the three ticks the stretched period is meant to refuse still are.
+    // And the two ticks the stretched period is meant to refuse still are.
     expect(prGateOpen(bbDue, false, 60_000)).toBe(false);
     expect(prGateOpen(bbDue, false, 120_000)).toBe(false);
-    expect(prGateOpen(bbDue, false, 180_000)).toBe(false);
   });
 
   it('costs 1 for an unrecognised backend — the naive assumption, kept as the default', () => {
@@ -4142,10 +4139,10 @@ describe('the cadence knows what a refresh costs', () => {
     }
   });
 
-  it('reproduces the measured 240-per-hour cost with the naive cadence', () => {
+  it('reproduces the 180-per-hour cost with the naive cadence', () => {
     // The control. A test that passes both ways is not testing this defect, so
     // the replaced policy is asserted to FAIL the bar the shipped one clears.
-    // The naive per-refresh cost is now four (pr-list's three plus issue-list).
+    // The naive per-refresh cost is three (pr-list's three).
     let refreshes = 1;
     let due = naive(0, null, 1_400);
     for (let now = PERIOD; now < HOUR_MS; now += PERIOD) {
@@ -4153,8 +4150,8 @@ describe('the cadence knows what a refresh costs', () => {
       refreshes++;
       due = naive(now, null, now + 1_400);
     }
-    expect(refreshes * 4).toBeGreaterThanOrEqual(240); // the reported 240/hour
-    expect(refreshes * 4).toBeGreaterThan(requestsPerHour('bitbucket').requests);
+    expect(refreshes * 3).toBeGreaterThanOrEqual(180); // 60 refreshes of 3
+    expect(refreshes * 3).toBeGreaterThan(requestsPerHour('bitbucket').requests);
   });
 
   it('holds a rate-limit backoff for its FULL delay, cost or no cost', () => {
@@ -4173,7 +4170,7 @@ describe('the cadence knows what a refresh costs', () => {
 
   it('never SHORTENS a backoff below the cost-aware cadence either', () => {
     // The direction that would be a real defect: a 120 s ceiling backoff on
-    // Bitbucket, where the ordinary cadence is already 240 s. The backoff is
+    // Bitbucket, where the ordinary cadence is already 180 s. The backoff is
     // shorter, and it is still honoured exactly — a backoff is a floor on when
     // the host may be called, not a ceiling on how long the board may wait, and
     // the gate that follows it is the ordinary one again.
@@ -4188,11 +4185,10 @@ describe('the cadence knows what a refresh costs', () => {
 
   it('returns an ordinary Bitbucket failure to the COST-AWARE cadence, not the naive one', () => {
     // A VPN blip is not a quota, so it rejoins the ordinary rhythm — and on
-    // Bitbucket the ordinary rhythm is the stretched one (240 s now the issue
-    // call is counted). Rejoining at 60 s would let every failure quietly
-    // reopen the defect.
+    // Bitbucket the ordinary rhythm is the stretched one (180 s). Rejoining at
+    // 60 s would let every failure quietly reopen the defect.
     const due = prNextDueAt(1_000, null, 5_000, 'bitbucket');
-    expect(due).toEqual({ at: 241_000, hard: false });
+    expect(due).toEqual({ at: 181_000, hard: false });
   });
 
   it('derives the cost from the backend and never from counting responses', () => {
@@ -4831,7 +4827,7 @@ describe('the PR cadence divides by what the account is observed to spend', () =
     // Every pre-existing caller passes none, so this is the whole compatibility
     // claim in one line.
     expect(prRefreshMsFor('github')).toBe(PERIOD);
-    expect(prRefreshMsFor('bitbucket')).toBe(4 * PERIOD);
+    expect(prRefreshMsFor('bitbucket')).toBe(3 * PERIOD);
   });
 
   it('leaves the cadence exactly where it is on an absent rate', () => {
@@ -4839,7 +4835,7 @@ describe('the PR cadence divides by what the account is observed to spend', () =
     // inside one millisecond. That is an absent rate rather than a zero one, and
     // it must not stretch OR collapse the interval.
     expect(prRefreshMsFor('github', { perHour: null })).toBe(PERIOD);
-    expect(prRefreshMsFor('bitbucket', { perHour: null })).toBe(4 * PERIOD);
+    expect(prRefreshMsFor('bitbucket', { perHour: null })).toBe(3 * PERIOD);
     // And a record that could not be read at all says the same thing.
     expect(prRefreshMsFor('github', null)).toBe(PERIOD);
   });
@@ -4924,22 +4920,22 @@ describe('the PR cadence divides by what the account is observed to spend', () =
   });
 
   it('composes with the cost multiplier rather than replacing it', () => {
-    // Bitbucket's refresh costs four requests AND its account may be shared.
+    // Bitbucket's refresh costs three requests AND its account may be shared.
     // Both terms apply, and the account still spends 60 an hour.
-    let intervals = [4 * PERIOD, 4 * PERIOD];
+    let intervals = [3 * PERIOD, 3 * PERIOD];
     for (let step = 0; step < 400; step++) {
       const observed = intervals.reduce((total, ms) => total + spendOf(ms, 'bitbucket'), 0);
       intervals = intervals.map((ms) => prRefreshMsFor('bitbucket', { perHour: observed }, ms));
     }
     expect(intervals.reduce((sum, ms) => sum + spendOf(ms, 'bitbucket'), 0)).toBeCloseTo(60, 2);
-    expect(intervals[0]).toBeCloseTo(8 * PERIOD, -1);
+    expect(intervals[0]).toBeCloseTo(6 * PERIOD, -1);
   });
 
   it('keeps the subscriber divisor derived from the interval', () => {
     // `boardDivisors` reads its 12 off `PR_REFRESH_MS`, and the division happens
     // at the GATE rather than in the subscription — the pulse keeps firing every
     // twelfth beat and the gate refuses the ticks the stretch does not entitle.
-    // That is the same mechanism Bitbucket's 240 s already uses, so nothing here
+    // That is the same mechanism Bitbucket's 180 s already uses, so nothing here
     // writes a divisor down.
     const src = readFileSync('src/server/fleet.ts', 'utf8');
     expect(src).toContain('divisorFor(base, PR_REFRESH_MS)');

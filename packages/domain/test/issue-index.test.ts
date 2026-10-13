@@ -75,3 +75,26 @@ describe('an unreadable store is nothing to start from', () => {
     expect(decodeIssueIndex(extra)).toBeNull();
   });
 });
+
+describe('the closed set', () => {
+  const closed = {
+    since: '2026-09-29T00:00:00.000Z',
+    at: '2026-10-13T00:00:00.000Z',
+    answer: 'answered' as const,
+    rows: [{ number: '2', title: 'Done', url: 'https://example.test/2', closedAt: '2026-10-12T00:00:00Z' }],
+    complete: false,
+  };
+
+  it('round-trips a closed block', () => {
+    const original = store({ closed });
+    expect(decodeIssueIndex(encodeIssueIndex(original))).toEqual(original);
+  });
+
+  it('decodes a file with no closed block as "not read", without inventing one', () => {
+    expect(decodeIssueIndex(encodeIssueIndex(store()))).not.toHaveProperty('closed');
+  });
+
+  it('refuses a closed block with an unknown answer', () => {
+    expect(decodeIssueIndex(JSON.stringify({ ...store(), closed: { ...closed, answer: 'maybe' } }))).toBeNull();
+  });
+});
