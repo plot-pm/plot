@@ -1108,7 +1108,9 @@ export function App() {
             Story lanes
           </label>
         )}
-        {tab === 'planning' && (
+        {/* Only where a column is released-only: a map that mixes released
+            with another state has nothing for this box to show. */}
+        {tab === 'planning' && board?.columns.some((c) => c.releasedOnly) && (
           <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
             <input
               type="checkbox"
