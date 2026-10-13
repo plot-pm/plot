@@ -104,6 +104,11 @@ describe('phaseOfPlan — a tracer plan', () => {
     expect(phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'released', tracer: true })).toBe('Released');
   });
 
+  it('reads a tracer plan in its state\'s own phase when no phase holds plan:design', () => {
+    const map = parsed('Build = plan:draft, plan:approved; Done = plan:delivered, plan:released');
+    expect(phaseOfPlan(map, { state: 'approved', tracer: true })).toBe('Build');
+  });
+
   it('reads a non-tracer plan as before', () => {
     expect(phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'approved', deliverable: true, tracer: false })).toBe('Testing');
     expect(phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'approved' })).toBe('Development');
