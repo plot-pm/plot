@@ -1268,6 +1268,7 @@ export function App() {
               onOpenPlan={setOpenPlan}
               onOpenStory={onOpenStory}
               highlight={validHighlight}
+              showReleased={showReleased}
             />
           ) : (
             <BoardView

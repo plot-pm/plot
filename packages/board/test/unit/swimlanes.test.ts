@@ -80,10 +80,10 @@ describe('buildLanes', () => {
 
     const inColumns = board.columns.flatMap((c) => c.cards.map((x) => x.slug)).sort();
     // What a lane actually renders: for each lane, the cards it buckets into
-    // each of lanePhases(board) — the same expression the component uses.
+    // each of lanePhases(board, true) — the same expression the component uses.
     const lanes = buildLanes(board.columns.flatMap((c) => c.cards), board.stories);
     const inLanes = lanes
-      .flatMap((lane) => lanePhases(board).flatMap(
+      .flatMap((lane) => lanePhases(board, true).flatMap(
         ({ phase }) => lane.cards.filter((c) => c.phase === phase).map((c) => c.slug),
       ))
       .sort();
@@ -97,7 +97,15 @@ describe('buildLanes', () => {
     // Pinned as the payload's list rather than as "does not filter", so a future
     // filter of any shape fails here — and a declared map needs no second list.
     const board = { columns: [{ phase: 'Idea' }, { phase: 'Build' }] } as unknown as Board;
-    expect(lanePhases(board).map((c) => c.phase)).toEqual(['Idea', 'Build']);
+    expect(lanePhases(board, false).map((c) => c.phase)).toEqual(['Idea', 'Build']);
+  });
+
+  it('drops a released-only column unless showReleased, as the column view does', () => {
+    const board = {
+      columns: [{ phase: 'Design' }, { phase: 'Released', releasedOnly: true }],
+    } as unknown as Board;
+    expect(lanePhases(board, false).map((c) => c.phase)).toEqual(['Design']);
+    expect(lanePhases(board, true).map((c) => c.phase)).toEqual(['Design', 'Released']);
   });
 
   it('carries the story status into the row subtitle', () => {
