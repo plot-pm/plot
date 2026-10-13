@@ -1,13 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
   NO_SPRINT,
+  activeSprintButton,
   passesFilter,
   rowIsSprintExempt,
   sanitizeSelection,
   sprintFilterOptions,
   withCounts,
 } from '../../src/app/lib/filters';
-import type { Board, Card } from '../../src/contract/schema';
+import type { Board, Card, FleetSprint } from '../../src/contract/schema';
 
 /** Minimal Board with the given cards (one Draft column) and sprint directory. */
 function mkBoard(
@@ -144,6 +145,25 @@ describe('sanitizeSelection', () => {
     // After sanitizing, the invalid filter falls away and all cards pass:
     const clean = sanitizeSelection(raw, options);
     expect(cards.filter((c) => passesFilter(c, clean, 'sprint', NO_SPRINT))).toHaveLength(3);
+  });
+});
+
+describe('activeSprintButton', () => {
+  const sprintA = { slug: 'a-slug', title: 'Sprint A' } as unknown as FleetSprint;
+  const sprintB = { slug: 'b-slug', title: 'Sprint B' } as unknown as FleetSprint;
+
+  it('is disabled with no selection and names the reason when no sprint is Active', () => {
+    expect(activeSprintButton([])).toEqual({
+      selection: [],
+      disabled: true,
+      sentence: 'No sprint is Active.',
+    });
+  });
+
+  it('selects every Active sprint and is enabled', () => {
+    const result = activeSprintButton([sprintA, sprintB]);
+    expect(result.selection).toEqual(['a-slug', 'b-slug']);
+    expect(result.disabled).toBe(false);
   });
 });
 

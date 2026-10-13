@@ -32,7 +32,7 @@ import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { agentRowKey } from '@plot-pm/domain/rules/desk-manifest';
 import { SprintFilter } from './SprintFilter.js';
-import { rowIsSprintExempt, sanitizeSelection, slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
+import { activeSprintButton, rowIsSprintExempt, sanitizeSelection, slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
 // THE BOARD'S ONE AGE DIALECT, borrowed rather than reimplemented. A second
 // formatter would drift from this one the first time either changed — the same
 // reason `ageLabel` was split out of `age` so an issue row and a branch row
@@ -533,11 +533,16 @@ export function AgentList({
       return next;
     });
   };
+  // SELECT EVERY ACTIVE SPRINT — D32 (story Open Point 12). The button sets
+  // the SAME state the per-sprint checkboxes do, so the rows, the exempt mark
+  // and the hidden count all come from the existing join unchanged.
+  const selectAllSprints = (slugs: string[]) => setSprintFilter(new Set(slugs));
 
   // The fleet's active sprints, guarded for payloads predating the field.
   // Zod's `.default([])` only fires at PARSE time; the client CASTS, so
   // `fleet.sprints` is `undefined` on an older server's payload.
   const activeSprints: FleetSprint[] = fleet.sprints ?? [];
+  const sprintSelectAll = useMemo(() => activeSprintButton(activeSprints), [activeSprints]);
 
   // SPRINT MEMBERSHIP — a lookup from sprint slug to its member plan slugs.
   //
@@ -895,6 +900,8 @@ export function AgentList({
             onToggle={toggleSprintFilter}
             estateTotals={fleet.estateTotals}
             report={sprintReport}
+            selectAll={sprintSelectAll}
+            onSelectAll={() => selectAllSprints(sprintSelectAll.selection)}
           />
         </div>
 
