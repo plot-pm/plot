@@ -281,4 +281,17 @@ describe('verificationBody with issue notes', () => {
     expect(issue.body).toContain('Claim-1');
     expect(issue.body).toContain('abcdef0');
   });
+
+  it('shortens a long claim in the title and names the supporting lenses in the body', () => {
+    const long = 'x'.repeat(100);
+    const mixed = foldVerification([long], [
+      { lens: 'a', text: 'Claim-1: refuted\n' },
+      { lens: 'b', text: 'Claim-1: supported\n' },
+    ]);
+    if (mixed.fold !== 'record') throw new Error('expected a record');
+    const issue = refutedIssue('p', mixed.verdicts[0]!, 'abcdef0123');
+    expect(issue.title).toBe(`Refuted claim of p: ${'x'.repeat(79)}…`);
+    expect(issue.body).toContain('Refuted by a; b supported.');
+    expect(issue.body).toContain(`> ${long}`);
+  });
 });
