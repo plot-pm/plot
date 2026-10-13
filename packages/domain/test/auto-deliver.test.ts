@@ -146,6 +146,10 @@ describe('rules/auto-deliver', () => {
       const after = [tracer(), dependent({ phase: 'delivered' })];
       expect(slugs(after, { failures: failures(after), now: 1_000 })).toEqual([]);
     });
+    it('names a tracer plan once when two dependents wait on it', () => {
+      const second = dependent({ file: '2026-10-03-c-second.md', branch: 'feature/e' });
+      expect(slugs([tracer(), dependent(), second])).toEqual(['b-dependent', 'a-tracer', 'c-second']);
+    });
     it('leaves a plain plan alone', () => {
       expect(slugs([dependent({ waits: [] })])).toEqual(['b-dependent']);
     });
