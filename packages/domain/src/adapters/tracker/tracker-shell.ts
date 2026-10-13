@@ -1,4 +1,5 @@
 import type { Issue } from '../../entities/issue.js';
+import type { TrackerSpender } from '../../ports/tracker.js';
 import { LimitBasisSchema, type LimitBasis, type LimitReading } from '../../entities/limit.js';
 import { answered, type PortResult } from '../../port-result.js';
 import { asJson, asJsonLines, resultOf, runProcess, type ScriptRun } from '../run-script.js';
@@ -161,6 +162,25 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
     },
 
     lastRefusal: (): string | null => refusal,
+
+    /**
+     * Names this connector and the account its budget lines are keyed by.
+     *
+     * Reads `plot-host.sh spend-rate --connector <connector>`, which reads the
+     * budget record and asks no service. Leaves the last refusal unchanged,
+     * because it reads no tracker. A run that fails or prints no account
+     * answers a null account.
+     *
+     * @returns the connector and account, always answered.
+     */
+    spender: async (): Promise<PortResult<TrackerSpender>> => {
+      const said = resultOf(
+        await runProcess('bash', [host, 'spend-rate', '--connector', shell.connector], run),
+        (stdout) => asJson<{ account?: unknown }>(stdout).account,
+      );
+      const account = said.ok && typeof said.value === 'string' && said.value !== '' ? said.value : null;
+      return answered({ connector: shell.connector, account });
+    },
 
     /** Lets a write record its own refusal on the same reading. */
     refuse: (said: string | null): void => {

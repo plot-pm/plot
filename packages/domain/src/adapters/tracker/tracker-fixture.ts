@@ -6,6 +6,7 @@ import type {
   StatusWrite,
   Tracker,
   TrackerConfig,
+  TrackerSpender,
 } from '../../ports/tracker.js';
 
 /** The tracker a fixture answers as. */
@@ -38,6 +39,8 @@ export interface TrackerFixture {
   statusWriteFails?: boolean;
   /** The limit readings `limit` reports. */
   limits?: readonly LimitReading[];
+  /** What `spender` reports; connector `fixture` and a null account by default. */
+  spender?: TrackerSpender;
 }
 
 /**
@@ -90,5 +93,8 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
     // Every operation above answers, so there is never a call this could be
     // about.
     lastRefusal: (): string | null => null,
+
+    spender: async (): Promise<PortResult<TrackerSpender>> =>
+      answered(fixture.spender ?? { connector: 'fixture', account: null }),
   };
 };

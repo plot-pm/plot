@@ -3011,7 +3011,12 @@ plot_on_exit budget_memo_clear
 # account cannot be read still share one real budget, and dropping their lines
 # would under-count the machine — the failure this plan exists to remove. They
 # group together under one honest name instead.
+#
+# JIRA IS KEYED BY `jira_budget_account`, the key `budget_record_jira` writes,
+# and `PLOT_BUDGET_ACCOUNT` does not override it, because that writer reads no
+# override either.
 budget_account() {
+  [ "${1:-}" != jira ] || { jira_budget_account; return; }
   if [ -n "${PLOT_BUDGET_ACCOUNT:-}" ]; then printf '%s\n' "$PLOT_BUDGET_ACCOUNT"; return; fi
   local who=''
   case "$1" in
@@ -5221,7 +5226,7 @@ case "$op" in
     # `perHour` IS null WHERE THERE IS NO SPAN TO DIVIDE BY — one line, or
     # several written inside one millisecond. An invented rate would be exactly
     # the dishonest cadence input this slice exists to remove.
-    _sr_connector=""; _sr_account=""; _sr_bucket=""
+    _sr_connector="$be"; _sr_account=""; _sr_bucket=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --connector) _sr_connector="${2:?}"; shift 2 ;;
@@ -5232,9 +5237,9 @@ case "$op" in
     done
     # Defaults name THIS connector and THIS account, which is what a caller
     # asking "what am I spending?" means. An explicit triple is for a caller
-    # asking about a connector it is not itself using.
-    [ -n "$_sr_connector" ] || _sr_connector="$be"
-    [ -n "$_sr_account" ] || _sr_account="$(budget_account "$be")"
+    # asking about a connector it is not itself using. An omitted `--account`
+    # names this machine's account on the connector asked.
+    [ -n "$_sr_account" ] || _sr_account="$(budget_account "$_sr_connector")"
     # AN OMITTED `--bucket` MEANS EVERY BUCKET, which is what *what am I
     # spending?* asks. One connector meters several pools independently, and the
     # cadence this feeds is about how fast the ACCOUNT is going — it spends both,

@@ -1,7 +1,7 @@
 import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { unaskable, type PortResult } from '../../port-result.js';
-import type { StatusOutcome, Tracker, TrackerConfig } from '../../ports/tracker.js';
+import type { StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
 
 /**
  * A tracker a repository never declared.
@@ -32,4 +32,5 @@ export const trackerNone = (): Tracker => ({
   // NEVER A REFUSAL. A tracker nobody declared is not refusing anything; it is
   // answering, permanently and correctly, that there is nothing to ask.
   lastRefusal: (): string | null => null,
+  spender: async (): Promise<PortResult<TrackerSpender>> => unaskable(),
 });

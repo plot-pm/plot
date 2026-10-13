@@ -6,6 +6,7 @@ import type {
   StatusWrite,
   Tracker,
   TrackerConfig,
+  TrackerSpender,
 } from '../../ports/tracker.js';
 import { asText, runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
@@ -108,5 +109,7 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
 
     lastRefusal: (): string | null => reads.lastRefusal(),
+
+    spender: (): Promise<PortResult<TrackerSpender>> => reads.spender(),
   };
 };

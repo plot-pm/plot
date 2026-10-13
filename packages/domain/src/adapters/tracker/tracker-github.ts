@@ -6,6 +6,7 @@ import type {
   StatusWrite,
   Tracker,
   TrackerConfig,
+  TrackerSpender,
 } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
@@ -121,5 +122,7 @@ export const trackerGithub = (context: ShellContext): Tracker => {
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
 
     lastRefusal: (): string | null => reads.lastRefusal(),
+
+    spender: (): Promise<PortResult<TrackerSpender>> => reads.spender(),
   };
 };

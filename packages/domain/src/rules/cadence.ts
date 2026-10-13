@@ -293,26 +293,21 @@ export const issueSpendPerHour = (requests: number): number =>
   (requests * HOUR_MS) / issueIntervalMs(requests);
 
 /**
- * The PR pass's spend rate, net of what the issue gate is itself spending on
- * the same connector and account.
+ * The PR pass's spend rate with the issue gate's own spend subtracted, where
+ * both spend one budget.
  *
- * ONLY WHERE THE READING IS FRESH AND ABOUT THE SAME SPENDER. A gate reading
- * for another connector or account says nothing about this one's spend, and a
- * reading older than one issue interval may already be stale — both leave
- * `perHour` exactly as read. Elsewhere this is the subtraction that keeps the
- * PR pass from throttling itself against spend that is already accounted for
- * by the gate's own backoff.
- *
- * NEVER NEGATIVE. A gate spending more than the account's whole observed rate
- * means the window is younger than the gate's own cadence, not that the PR
- * pass may spend backwards.
+ * Subtracts {@link issueSpendPerHour} of the gate's `requests` only where the
+ * gate's `connector` and `account` equal `backend` and `account`, and the
+ * gate's `nextAt` lies no more than one {@link issueIntervalMs} before `now`.
+ * Every other case returns `rate` unchanged. The result is never below 0.
  *
  * @param rate - the PR pass's own spend rate, or null where unread.
  * @param gate - the issue gate's last reading, or null where there is none.
- * @param backend - this pass's connector.
- * @param account - this pass's account.
+ * @param backend - the PR pass's connector.
+ * @param account - the PR pass's account, or null where unread.
  * @param now - epoch milliseconds.
- * @returns `rate` with the gate's own spend subtracted, where applicable.
+ * @returns `rate` with the gate's spend subtracted where it applies; `rate`
+ *   itself otherwise, including a null rate and a null `perHour`.
  */
 export const cadenceRateOf = <T extends Pick<SpendRate, 'perHour'>>(
   rate: T | null,

@@ -42,6 +42,7 @@ export {
   trackerShell,
   trackerForIssues,
   trackerGitHost,
+  trackerOfSource,
 } from './tracker/tracker-resolve.js';
 export { trackerFixture, type TrackerFixture } from './tracker/tracker-fixture.js';
 

@@ -15,6 +15,7 @@
 //    concurrency and real `bash` processes, at a line length that approaches
 //    `MAX_LINE_BYTES` — a test that never nears the cap has not tested the
 //    guarantee the cap exists to give.
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
@@ -621,6 +622,23 @@ test('budget: spend-rate accepts an explicit triple', () => {
   assert.equal(out.connector, 'bitbucket');
   assert.equal(out.spent, 1);
   assert.equal(out.basis, 'predicted');
+});
+
+test('budget: spend-rate --connector jira names the account the Jira lines are keyed by', () => {
+  // The issue gate reads its spender from here (D28). Jira lines are written
+  // under `jira_budget_account`, never under PLOT_BUDGET_ACCOUNT, so the read
+  // must name the same key or it counts nothing.
+  const home = makeHome();
+  const stub = makeGh();
+  const email = 'someone@example.invalid';
+  const account = `jira:${createHash('sha256').update(email).digest('hex').slice(0, 12)}`;
+  inBudget(home, `budget_append jira ${account} api 1 1000 - - unknown`);
+  const out = JSON.parse(
+    runHost(['spend-rate', '--connector', 'jira'], { home, stub, env: { JIRA_EMAIL: email } }).stdout,
+  );
+  assert.equal(out.connector, 'jira');
+  assert.equal(out.account, account);
+  assert.equal(out.spent, 1);
 });
 
 test('budget: spend-rate refuses an argument it does not know', () => {

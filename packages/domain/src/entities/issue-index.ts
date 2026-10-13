@@ -11,6 +11,9 @@ import { z } from 'zod';
  */
 export const ISSUE_INDEX_VERSION = 1;
 
+/** How many open issues one issue pass asks for: one page, as the board asked before the index existed. */
+export const ISSUE_LIST_LIMIT = 50;
+
 /**
  * One open issue as the store holds it — exactly what the tracker answered,
  * and nothing the board inferred.
@@ -48,31 +51,22 @@ export const IssueIndexAnswerSchema = z.union([
 ]);
 
 /**
- * What one repository's issue store holds — the open issues the gate last
- * read, and the cadence bookkeeping the PR pass reads back.
+ * What one repository's issue store holds: the open issues the issue gate last
+ * read, and the gate's cadence fields the PR pass reads.
  *
- * **THE GATE'S OWN READING, FOR THE PR PASS TO SUBTRACT AGAINST.**
- * `connector`, `account`, `requests` and `nextAt` are {@link cadenceRateOf}'s
- * input, carried on the file rather than recomputed, because the PR pass and
- * the issue pass are two processes on the same cadence and neither owns the
- * other's state. `backoffUntil` is the same carry for the backoff hold:
- * present and in the future where the tracker named a wait, `null` otherwise.
+ * `connector`, `account`, `requests`, `nextAt` and `backoffUntil` are the
+ * input of {@link cadenceRateOf} and of the PR pass's backoff hold. They come
+ * from the tracker's own spender reading for the source the pass asked.
  *
- * **`account` IS OPTIONAL AND NEVER DEFAULTED TO `null` BY A READER.** A
- * connector with no notion of account — `trackerGitHost` sharing the git
- * host's own budget — never writes the key, and {@link cadenceRateOf} already
- * treats an absent gate account and a `null` PR account as matching only when
- * both sides agree, so the distinction between "no account" and "account not
- * yet known" survives the round trip.
+ * `account` is absent where the budget record named no account; a reader reads
+ * an absent account as `null`.
  *
- * **`source` IS A KEY, NOT A VERDICT.** A reader compares it against its own
- * `issueSource` reading and refuses the rows on a mismatch; nothing reads it
- * to decide a lane, a lifecycle step or a spend.
+ * `source` is a key: a reader compares it with its own `issueSource` reading
+ * and refuses the rows where they differ.
  *
- * **A FAILED PASS KEEPS THE PREVIOUS `rows` AND `at`.** `answer: 'failed'`
- * carries `failedAt` and `reason`; `at` moves only on an answered read, the
- * same rule `askedAt` follows elsewhere. `rows` and `complete` are absent on
- * an `unsupported`/`failed` first pass — there is nothing kept yet.
+ * A failed pass keeps the previous `rows`, `complete` and `at`, and writes
+ * `failedAt` and `reason`. `rows` and `complete` are absent where no pass has
+ * answered yet.
  */
 export const IssueIndexSchema = z
   .object({

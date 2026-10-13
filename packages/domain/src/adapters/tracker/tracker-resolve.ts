@@ -1,8 +1,8 @@
 import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { unaskable, type PortResult } from '../../port-result.js';
-import { issueSource, type IssueSourceReading } from '../../rules/issue-source.js';
-import type { StatusOutcome, Tracker, TrackerConfig } from '../../ports/tracker.js';
+import { issueSource, type IssueSource, type IssueSourceReading } from '../../rules/issue-source.js';
+import type { StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { trackerReads } from './tracker-shell.js';
@@ -101,27 +101,28 @@ export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker 
     statusWrite: async (): Promise<PortResult<StatusOutcome>> => unaskable(),
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
     lastRefusal: (): string | null => reads.lastRefusal(),
+    spender: (): Promise<PortResult<TrackerSpender>> => reads.spender(),
   };
 };
 
 /**
- * Who answers this repository's open-issue list, resolved to a `Tracker`.
+ * The connector that answers one {@link issueSource} answer.
  *
- * THE ONE CALLER OF {@link issueSource} THAT BUILDS A CONNECTOR FROM THE
- * ANSWER. A declared tracker with a connector resolves through
- * {@link trackerFor}; a repository that declared none resolves through
- * {@link trackerGitHost}; a declared tracker no connector lists, or one
- * scoped to a git host this repository does not run, resolves to
- * {@link trackerNone} — `unaskable`, carrying {@link issueSource}'s own
- * reason rather than a second one invented here.
+ * `tracker` resolves through {@link trackerFor}, `git-host` through
+ * {@link trackerGitHost}, and `nobody` to {@link trackerNone}.
  *
+ * @param source - who answers the open-issue list.
  * @param declared - the `Tracker` config key's value, verbatim.
  * @param gitHost - the repository's git host backend word.
  * @param context - where the scripts and the repository are.
  * @returns the connector that answers this repository's issues.
  */
-export const trackerForIssues = (declared: string, gitHost: string, context: ShellContext): Tracker => {
-  const source = issueSource({ declared, gitHost, listers: TRACKER_LISTERS } satisfies IssueSourceReading);
+export const trackerOfSource = (
+  source: IssueSource,
+  declared: string,
+  gitHost: string,
+  context: ShellContext,
+): Tracker => {
   switch (source.ask) {
     case 'tracker':
       return trackerFor(declared, context);
@@ -131,3 +132,22 @@ export const trackerForIssues = (declared: string, gitHost: string, context: She
       return trackerNone();
   }
 };
+
+/**
+ * Who answers this repository's open-issue list, resolved to a `Tracker`.
+ *
+ * Reads {@link issueSource} over {@link TRACKER_LISTERS} and resolves the
+ * answer through {@link trackerOfSource}.
+ *
+ * @param declared - the `Tracker` config key's value, verbatim.
+ * @param gitHost - the repository's git host backend word.
+ * @param context - where the scripts and the repository are.
+ * @returns the connector that answers this repository's issues.
+ */
+export const trackerForIssues = (declared: string, gitHost: string, context: ShellContext): Tracker =>
+  trackerOfSource(
+    issueSource({ declared, gitHost, listers: TRACKER_LISTERS } satisfies IssueSourceReading),
+    declared,
+    gitHost,
+    context,
+  );

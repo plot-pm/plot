@@ -30,6 +30,20 @@ export interface TrackerConfig {
 }
 
 /**
+ * Whose budget a tracker's reads spend.
+ *
+ * The key the machine's budget record files a connector's calls under, so a
+ * caller can tell whether two readers spend one budget. Two readers spend one
+ * budget only where both fields are equal.
+ */
+export interface TrackerSpender {
+  /** The connector's own name, as its limit readings and budget lines are tagged. */
+  connector: string;
+  /** The account the budget record keys this connector's lines by; null where it could not be read. */
+  account: string | null;
+}
+
+/**
  * What a status write is told, and the whole of what Plot may say to a tracker.
  *
  * THE SUBJECT IS A PLOT ARTIFACT, not a tracker one. Plot names the PR it
@@ -178,4 +192,16 @@ export interface Tracker {
    * @returns the last refusal, verbatim, or null where the last call answered.
    */
   lastRefusal(): string | null;
+
+  /**
+   * Names the budget this tracker's reads spend.
+   *
+   * Read from `plot-host.sh spend-rate`, which reads the machine's budget
+   * record and asks no service. A record that cannot be read answers the
+   * connector with a null account.
+   *
+   * @returns the connector and account; `unaskable` where the repository
+   *   declared no tracker and has no git host to read issues from instead.
+   */
+  spender(): Promise<PortResult<TrackerSpender>>;
 }
