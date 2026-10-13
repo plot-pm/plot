@@ -138,4 +138,33 @@ describe('withChecklistEntry', () => {
     const next = withChecklistEntry(text, verified('a', '1/1'));
     expect(next).toContain('RC: v1.2.0-rc.1 (2026-10-13)');
   });
+
+  it('ignores a heading-shaped line inside a fenced block when locating a section', () => {
+    const text = '# Release Checklist\n\n```\n## Verification\n- [ ] fenced — fenced summary — verified 1/1\n```\n\n## Verification\n\n';
+    const next = withChecklistEntry(text, verified('a', '1/1'));
+    const lines = next.split('\n');
+    const fencedAt = lines.indexOf('```');
+    expect(lines[fencedAt + 1]).toBe('## Verification');
+    expect(next).toContain('- [ ] fenced — fenced summary — verified 1/1');
+    const realHeadingAt = lines.lastIndexOf('## Verification');
+    expect(lines[realHeadingAt + 1]).toBe('- [ ] a — a summary — verified 1/1');
+  });
+
+  it('ignores an item-shaped line inside a fenced block when removing a stale entry for the same slug', () => {
+    const text =
+      '# Release Checklist\n\n```\n- [ ] a — fenced summary — verified 9/9\n```\n\n## Verification\n\n- [ ] a — a summary — verified 1/1\n';
+    const next = withChecklistEntry(text, verified('a', '2/2'));
+    expect(next).toContain('- [ ] a — fenced summary — verified 9/9');
+    expect(next).toContain('- [ ] a — a summary — verified 2/2');
+    expect(next).not.toContain('- [ ] a — a summary — verified 1/1');
+  });
+
+  it('inserts at the top when neither the target heading nor Verification exists', () => {
+    const text = '# Release Checklist\n\n## Automated Tests\n\n- [ ] CI passes on RC tag\n';
+    const next = withChecklistEntry(text, verified('a', '1/1'));
+    const lines = next.split('\n');
+    expect(lines[0]).toBe('## Verification');
+    expect(next.indexOf('## Verification')).toBeLessThan(next.indexOf('## Automated Tests'));
+    expect(next).toContain('- [ ] a — a summary — verified 1/1');
+  });
 });
