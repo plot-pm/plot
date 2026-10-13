@@ -379,12 +379,17 @@ controller  →  domain  →  port  ←  adapter  →  script / git / process
   another has TWO remote services with two accounts, two tokens and two windows
   — and asking one interface about both made a capability belonging to one
   service report *not my department* through the other. The tracker's two
-  implementations are likewise two connectors rather than one adapter with a
-  vendor branch: neither ever sees the other's credentials or budget. A
-  repository that declared no tracker gets `trackerNone`, which answers
-  `unaskable` on every operation **including the write** — a silent success
-  there would report a status reaching a tracker somebody configured while
-  nothing left the machine.
+  vendor-reaching implementations are likewise two connectors rather than one
+  adapter with a vendor branch: neither ever sees the other's credentials or
+  budget. A repository that declared no tracker and tracks issues as git-host
+  issues gets `trackerGitHost` instead, which is NOT a third connector of its
+  own — it is `trackerReads` built over the git host's EXISTING connector,
+  tagged with that connector's backend word so its `limit()` reports the
+  `host` bucket and nothing opens a second budget nothing would charge
+  against. A repository with neither a declared tracker nor a git host to read
+  from gets `trackerNone`, which answers `unaskable` on every operation
+  **including the write** — a silent success there would report a status
+  reaching a tracker somebody configured while nothing left the machine.
 
   **It stays on the adapter side of the port, with one exception that is not
   yet fixed — and the exception has moved.** `Host` names six questions and no

@@ -36,7 +36,13 @@ export { hostFixture, type HostFixture } from './host/host-fixture.js';
 export { trackerGithub } from './tracker/tracker-github.js';
 export { trackerJira } from './tracker/tracker-jira.js';
 export { trackerNone } from './tracker/tracker-none.js';
-export { TRACKER_LISTERS, trackerFor, trackerShell } from './tracker/tracker-resolve.js';
+export {
+  TRACKER_LISTERS,
+  trackerFor,
+  trackerShell,
+  trackerForIssues,
+  trackerGitHost,
+} from './tracker/tracker-resolve.js';
 export { trackerFixture, type TrackerFixture } from './tracker/tracker-fixture.js';
 
 // THE NOTIFIER'S ONE ADAPTER AND ITS `none`, following the tracker's shape:
@@ -106,6 +112,15 @@ export {
   PR_INDEX_HOME_ENV,
   type PrIndexFileOptions,
 } from './pr-index/pr-index-file.js';
+
+// THE ISSUE STORE'S FILE ADAPTER. One file under the COMMON git dir's
+// `.plot/state/index/`, so every dispatch worktree of one repository reads
+// the store the reaper cannot delete.
+export {
+  issueIndexFile,
+  ISSUE_INDEX_HOME_ENV,
+  type IssueIndexFileOptions,
+} from './issue-index/issue-index-file.js';
 
 // THE DEFAULT-BRANCH READING'S FILE ADAPTER. One file under `.plot/state/`,
 // written by `plot-fleetd` only.

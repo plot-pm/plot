@@ -1,9 +1,15 @@
-import type { Tracker } from '../../ports/tracker.js';
+import type { Issue } from '../../entities/issue.js';
+import type { LimitReading } from '../../entities/limit.js';
+import { unaskable, type PortResult } from '../../port-result.js';
+import { issueSource, type IssueSourceReading } from '../../rules/issue-source.js';
+import type { StatusOutcome, Tracker, TrackerConfig } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
+import { trackerReads } from './tracker-shell.js';
 import { trackerGithub } from './tracker-github.js';
 import { trackerJira } from './tracker-jira.js';
 import { trackerNone } from './tracker-none.js';
+import { TRACKER_LISTERS } from './tracker-listers.js';
 
 // RE-EXPORTED FROM ITS OWN MODULE, so every importer of this file is unchanged
 // while a shell entry can import the list without the connectors below it.
@@ -60,4 +66,68 @@ export const trackerShell = async (context: ShellContext): Promise<Tracker> => {
   // would send a status write to a vendor nobody named; answering with the one
   // that reaches nothing keeps the failure visible at the call that needed it.
   return trackerFor(said.code === 0 ? said.stdout : '', context);
+};
+
+/**
+ * Reads and writes issues through the git host's own connector, for a
+ * repository that declared no tracker.
+ *
+ * NOT A CONNECTOR OF ITS OWN. It opens no account, holds no token and starts
+ * no window — it is {@link trackerReads} driven with no `PLOT_TRACKER`
+ * override, so `plot-host.sh issue-list`/`issue-view` fall through to their
+ * own default (the git host's native issues), and `connector` is tagged with
+ * the git host's OWN backend word so `limit()`'s existing filter
+ * (`tracker-shell.ts`) reports that connector's bucket and nothing else. A
+ * caller reading this `Tracker`'s `limit()` is reading the git host's budget,
+ * not a second one nothing would charge against.
+ *
+ * THE WRITE ANSWERS `unaskable`, always. A status write has nowhere native to
+ * land on a git host's own issue — there is no second surface the way
+ * `trackerGithub`'s Projects write is one — and `unaskable` is the honest
+ * answer the port-doc correction states: no tracker was declared, so no
+ * status write was asked for either.
+ *
+ * @param gitHost - the repository's git host backend word, as `plot-host.sh
+ *   backend` reports it.
+ * @param context - where the scripts and the repository are.
+ * @returns a `Tracker` backed by the git host's own connector.
+ */
+export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker => {
+  const reads = trackerReads({ context, scheme: '', baseUrl: '', connector: gitHost }, {});
+  return {
+    config: (): TrackerConfig => ({ scheme: '', baseUrl: '' }),
+    issueList: (limit): Promise<PortResult<readonly Issue[]>> => reads.issueList(limit),
+    issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
+    statusWrite: async (): Promise<PortResult<StatusOutcome>> => unaskable(),
+    limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
+    lastRefusal: (): string | null => reads.lastRefusal(),
+  };
+};
+
+/**
+ * Who answers this repository's open-issue list, resolved to a `Tracker`.
+ *
+ * THE ONE CALLER OF {@link issueSource} THAT BUILDS A CONNECTOR FROM THE
+ * ANSWER. A declared tracker with a connector resolves through
+ * {@link trackerFor}; a repository that declared none resolves through
+ * {@link trackerGitHost}; a declared tracker no connector lists, or one
+ * scoped to a git host this repository does not run, resolves to
+ * {@link trackerNone} — `unaskable`, carrying {@link issueSource}'s own
+ * reason rather than a second one invented here.
+ *
+ * @param declared - the `Tracker` config key's value, verbatim.
+ * @param gitHost - the repository's git host backend word.
+ * @param context - where the scripts and the repository are.
+ * @returns the connector that answers this repository's issues.
+ */
+export const trackerForIssues = (declared: string, gitHost: string, context: ShellContext): Tracker => {
+  const source = issueSource({ declared, gitHost, listers: TRACKER_LISTERS } satisfies IssueSourceReading);
+  switch (source.ask) {
+    case 'tracker':
+      return trackerFor(declared, context);
+    case 'git-host':
+      return trackerGitHost(gitHost, context);
+    case 'nobody':
+      return trackerNone();
+  }
 };

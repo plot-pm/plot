@@ -67,19 +67,25 @@ export type StatusOutcome = 'written' | 'no-target';
 /**
  * Reads a tracker, and writes one fact back to it.
  *
- * A TRACKER IS NOT A GIT HOST. `Tracker` is declared independently of the git
- * host, so a repository whose code lives with one vendor and whose tickets live
- * with another has two foreign services and needs two interfaces. Asking the
- * git host about issues made a capability belonging to a different service
- * report *not my department* — the `unaskable` this port keeps for the case it
- * really names, a repository that declared no tracker at all.
+ * A TRACKER IS NOT A GIT HOST, BUT ONE IMPLEMENTATION READS THROUGH IT.
+ * `Tracker` is declared independently of the git host, so a repository whose
+ * code lives with one vendor and whose tickets live with another has two
+ * foreign services and needs two interfaces — that case keeps its own
+ * account, credentials and budget. But a repository that named NO tracker and
+ * tracks issues as git-host issues has only one foreign service, and
+ * `trackerGitHost` answers that case by reading through the git host
+ * connector's own budget rather than opening a second one nothing would
+ * charge against. `unaskable` is kept for the one case left — a repository
+ * that declared no tracker and has no git host to fall back to.
  *
- * EVERY IMPLEMENTATION IS A CONNECTOR. A tracker is a remote service with an
- * account, credentials, a rate limit and a transport choice, which is what
- * separates a connector from an adapter reaching the local machine. Each
- * implementation therefore owns its OWN budget: one vendor's token, limits and
- * refusals say nothing about another's, and a single implementation branching
- * on scheme would have to hold two of each.
+ * MOST IMPLEMENTATIONS ARE CONNECTORS; `trackerGitHost` IS NOT ONE OF ITS OWN.
+ * A tracker reaching a vendor directly is a remote service with an account,
+ * credentials, a rate limit and a transport choice, which is what separates a
+ * connector from an adapter reaching the local machine, and that
+ * implementation owns its OWN budget. `trackerGitHost` reaches no vendor of
+ * its own — it is built from `trackerReads` over the git host's existing
+ * connector, tagged with that connector's backend word, so its `limit()`
+ * reports the `host` bucket and no second budget is ever opened.
  *
  * THE WRITE IS ONE FACT AND STAYS ONE. Plot writes a status to the tracker it
  * was told about and writes nothing else — no ticket, no comment, no label, no
@@ -103,7 +109,8 @@ export interface Tracker {
    * an issue is worth a plan.
    *
    * @param limit - how many to ask for; the connector's own page when omitted.
-   * @returns the issues; `unaskable` where the repository declared no tracker.
+   * @returns the issues; `unaskable` where the repository declared no tracker
+   *   and has no git host to read issues from instead.
    */
   issueList(limit?: number): Promise<PortResult<readonly Issue[]>>;
 
@@ -116,7 +123,8 @@ export interface Tracker {
    * @param id - the issue's identifier, opaque — equality only, because one
    *   tracker yields a number and another a key and only one of them is a
    *   number by accident of the vendor.
-   * @returns the issue; `unaskable` where the repository declared no tracker.
+   * @returns the issue; `unaskable` where the repository declared no tracker
+   *   and has no git host to read issues from instead.
    */
   issueView(id: string): Promise<PortResult<Issue>>;
 

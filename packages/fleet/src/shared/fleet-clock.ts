@@ -1,4 +1,11 @@
-import { createPulse, divisorFor, startPulse, type FleetReading, type RunningPulse } from '@plot-pm/domain';
+import {
+  createPulse,
+  divisorFor,
+  ISSUE_REFRESH_MS,
+  startPulse,
+  type FleetReading,
+  type RunningPulse,
+} from '@plot-pm/domain';
 import type { Clock } from '@plot-pm/domain/ports/clock';
 
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
@@ -7,18 +14,21 @@ import { prGateOpen, refreshPrs, type PrState, type PrWorld } from './pr-refresh
 import { PR_REFRESH_MS, REFRESH_MS, scanOnce, writeScan, type ScanState, type ScanWorld } from './fleet-scan.js';
 
 /**
- * The fleet's two subscribers and the divisor each counts by.
+ * The fleet's three subscribers and the divisor each counts by.
  *
  * Derived from the base beat, never written down: `12` is right only while the
- * base is 5 s, and `divisorFor` reads it off `REFRESH_MS` and `PR_REFRESH_MS`.
+ * base is 5 s, and `divisorFor` reads it off `REFRESH_MS`, `PR_REFRESH_MS` and
+ * `ISSUE_REFRESH_MS`.
  *
- * @returns the scan at every beat and the PR reader at every twelfth.
+ * @returns the scan at every beat, the PR reader at every twelfth, and the
+ *   issue reader at every twenty-fourth.
  */
 export const fleetDivisors = (): { name: string; everyNthBeat: number }[] => {
   const base = createPulse(REFRESH_MS, 0);
   return [
     { name: 'fleet-scan', everyNthBeat: divisorFor(base, REFRESH_MS) },
     { name: 'pr-reader', everyNthBeat: divisorFor(base, PR_REFRESH_MS) },
+    { name: 'issue-reader', everyNthBeat: divisorFor(base, ISSUE_REFRESH_MS) },
   ];
 };
 
@@ -28,6 +38,8 @@ export interface FleetClockWork {
   scan: () => Promise<void>;
   /** One PR refresh behind its cadence gate. Never called while one is in flight. */
   prs?: () => Promise<void>;
+  /** One issue refresh behind its own cadence gate. Never called while one is in flight. */
+  issues?: () => Promise<void>;
 }
 
 /** The fleet's running clock: the pulse, plus a wait for the runs it started. */
@@ -85,6 +97,7 @@ export const startFleetClock = (
   const ticks: Record<string, () => Promise<void>> = {
     'fleet-scan': guarded('fleet-scan', work.scan),
     'pr-reader': guarded('pr-reader', work.prs ?? (async () => undefined)),
+    'issue-reader': guarded('issue-reader', work.issues ?? (async () => undefined)),
   };
   for (const { name, everyNthBeat } of fleetDivisors()) {
     pulse.add({ name, everyNthBeat, tick: ticks[name] });

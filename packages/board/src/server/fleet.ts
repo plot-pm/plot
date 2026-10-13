@@ -60,7 +60,8 @@ import {
 // one would bound only itself, which is the failure the port's own comment
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
-import { TRACKER_LISTERS } from '@plot-pm/domain/adapters';
+import { issueIndexFile, TRACKER_LISTERS } from '@plot-pm/domain/adapters';
+import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
 import {
   applyPrMaps,
@@ -1614,6 +1615,86 @@ const overlayFor = (opts: BuildBoardOptions, entry: CacheEntry): PrIndexStore =>
   return created;
 };
 
+const issueStores = new Map<string, IssueIndexStore>();
+
+/** The issue index store for a repo root, cached so its `git rev-parse` runs once. */
+const issueStoreFor = (repoRoot: string): IssueIndexStore => {
+  const held = issueStores.get(repoRoot);
+  if (held !== undefined) return held;
+  const created = issueIndexFile({ cwd: repoRoot });
+  issueStores.set(repoRoot, created);
+  return created;
+};
+
+/**
+ * Serves the inbox from the issue gate's own store, and asks the host
+ * nothing: under a fleet, the issue gate is the index's only writer.
+ *
+ * ABSENT IS NOT FALSE. A missing file (`read()` answering `ok` with `null`),
+ * a `nobody` source baked into the store's `answer: 'unsupported'`, and a
+ * `failed` answer with no kept `rows` are each distinct — none collapses into
+ * "no issues," the same distinction `refreshIssues` keeps for the host path.
+ * The unplanned filter and {@link ISSUE_LIMIT} cap apply HERE, at the read,
+ * never at the gate's write — so a filter or cap later tightened here changes
+ * what the board shows without touching the file the gate wrote.
+ */
+async function readIssuesFromStore(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
+  const held = await issueStoreFor(opts.repoRoot).read();
+  if (!held.ok || held.value === null) {
+    // Nothing to serve and nothing served before: say so rather than keep
+    // whatever a fleet-less run left, which would read as a healthy answer.
+    if (entry.issueAnswer === 'answered' && entry.issues.length === 0) return;
+    entry.issues = [];
+    entry.issueAnswer = 'unsupported';
+    entry.issueError = null;
+    entry.issueAbsence = 'Open issues are not listed: the fleet has left no issue index to read.';
+    return;
+  }
+  const index = held.value;
+  if (index.answer === 'unsupported') {
+    entry.issues = [];
+    entry.issueAnswer = 'unsupported';
+    entry.issueError = null;
+    entry.issueAbsence = issueAbsence(index.reason ?? '');
+    return;
+  }
+  if (index.answer === 'failed') {
+    // The same rule `refreshIssues` follows: a failed pass keeps the last kept
+    // rows rather than blanking the inbox, and names the reason without
+    // touching `entry.issues`.
+    entry.issueAnswer = 'failed';
+    entry.issueError = index.reason ?? 'the issue gate failed to read open issues';
+    entry.issueAbsence = null;
+    return;
+  }
+  const referenced = await referencedIssues(opts);
+  if (referenced === null) {
+    entry.issueAnswer = 'failed';
+    entry.issueError = 'plans could not be read, so no issue can be called unplanned';
+    entry.issueAbsence = null;
+    return;
+  }
+  const now = Date.now();
+  entry.issues = (index.rows ?? [])
+    .filter((row) => !referenced.has(issueKey(row.number)))
+    .slice(0, ISSUE_LIMIT)
+    .map((row) => {
+      const at = row.createdAt ? Date.parse(row.createdAt) : NaN;
+      return {
+        kind: 'ticket' as const,
+        number: issueKey(row.number),
+        title: row.title,
+        url: row.url,
+        ageMinutes: Number.isNaN(at) ? null : Math.max(0, Math.round((now - at) / 60_000)),
+        status: row.status ?? '',
+        statusCategory: row.statusCategory ?? '',
+      };
+    });
+  entry.issueAnswer = 'answered';
+  entry.issueError = null;
+  entry.issueAbsence = null;
+}
+
 /**
  * Whether the fleet owns the PR index: the supervisor reads `up` and the bridge
  * is fresh. The same signal as the scan's, so one fleet answers both.
@@ -1687,7 +1768,7 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
   try {
     if (await fleetOwnsPrs(opts, entry)) {
       await readPrsFromStore(opts, entry);
-      await refreshIssues(opts, entry);
+      await readIssuesFromStore(opts, entry);
       return;
     }
     // NO FLEET RUNS: the board asks the host itself and folds the answer in

@@ -30,6 +30,7 @@ export * from './entities/limit.js';
 export * from './entities/budget.js';
 export * from './entities/slice-spend.js';
 export * from './entities/pr-index.js';
+export * from './entities/issue-index.js';
 export * from './entities/supervision-report.js';
 export * from './entities/wave.js';
 export * from './entities/finding.js';

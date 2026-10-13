@@ -2,6 +2,7 @@ import {
   SLOT_POLL_MS,
   answerKind,
   boundFromLimit,
+  cadenceRateOf,
   concurrencyBound,
   foldPrIndex,
   heldSlots,
@@ -102,6 +103,24 @@ export const freshPrState = (): PrState => ({
   backend: null,
 });
 
+/**
+ * The issue gate's own cadence reading, as the PR pass reads it back for
+ * {@link cadenceRateOf}'s subtraction (D28) — the same four fields
+ * `IssueIndex` carries, plus `backoffUntil` for the backoff hold.
+ */
+export interface IssueGateReading {
+  /** Which connector the issue gate last asked through. */
+  connector: string;
+  /** The account the issue gate's budget is keyed by, or null where it has none. */
+  account: string | null;
+  /** How many requests the issue gate's last pass spent. */
+  requests: number;
+  /** Epoch ms the issue gate's next pass is due. */
+  nextAt: number;
+  /** Epoch ms the tracker's named backoff ends, or null where there is none. */
+  backoffUntil: number | null;
+}
+
 /** What one PR pass reaches. */
 export interface PrWorld {
   /** Asks the host and reads the spend record. */
@@ -114,6 +133,11 @@ export interface PrWorld {
   afterAnswer?: (open: Map<string, PrRecord>) => Promise<void>;
   /** The `Checks wait` bound in ms; defaults to `PR_CHECKS_WAIT_MS`. */
   checksWaitMs?: number;
+  /**
+   * Reads the issue gate's last cadence reading, or null where there is none.
+   * Absent entirely where no issue gate runs alongside this PR pass.
+   */
+  issueGate?: () => Promise<IssueGateReading | null>;
   /** The clock in epoch ms; defaults to `Date.now`. A test injects one. */
   now?: () => number;
 }
@@ -1356,6 +1380,26 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     entry.prLimitBasis = rate.basis;
     entry.prAccount = rate.account;
   }
+  // THE ISSUE GATE'S OWN READING, where this world runs one alongside. Read
+  // AFTER the banner fields above are stamped from the raw `rate`, so the
+  // banner keeps showing this pass's own unsubtracted spend — D28 only ever
+  // changes what the CADENCE divides by, never what the board displays.
+  const gate = (await world.issueGate?.()) ?? null;
+  const scheduleRate = cadenceRateOf(rate, gate, backend, entry.prAccount, clock());
+  // A BACKOFF THE ISSUE GATE NAMED, ON THE SAME CONNECTOR AND ACCOUNT, HOLDS
+  // THIS PASS TOO. The two passes can share one connector's budget, so a wait
+  // either one learns about is a fact about that shared budget — asking again
+  // here would spend into a wait already measured.
+  if (
+    gate !== null &&
+    gate.backoffUntil !== null &&
+    gate.backoffUntil > clock() &&
+    gate.connector === backend &&
+    gate.account === entry.prAccount
+  ) {
+    entry.prNextAt = Math.max(entry.prNextAt, gate.backoffUntil);
+    entry.prNextIsBackoff = true;
+  }
   // THE EVIDENCE, READ WHERE IT IS FREE. Counting the claims is one `readdir`
   // and no host request, and it is taken here rather than in the payload
   // assembly so the number the banner shows is the one this refresh gated on.
@@ -1616,7 +1660,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       entry.prError = message;
       const reaction = hostReaction(message, rate?.resetAt ?? null);
       applyReaction(entry, reaction);
-      scheduleNextPr(entry, startedAt, waitOf(reaction), backend, rate);
+      scheduleNextPr(entry, startedAt, waitOf(reaction), backend, scheduleRate);
     } else {
       // The happy path: the host answered and at least some PRs are readable.
       //
@@ -1688,7 +1732,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // undo the saving on the connector this slice never set out to narrow.
       await world.afterAnswer?.(map);
       entry.prAt = Date.now();
-      scheduleNextPr(entry, startedAt, null, backend, rate);
+      scheduleNextPr(entry, startedAt, null, backend, scheduleRate);
       // THE ROWS ARE KEPT AND THE GAP IS STILL SAID. A partial answer reached
       // here because its rows are real; recording no error would report a page
       // missing a whole host state as a complete reading, which is the quiet
@@ -1735,7 +1779,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     // it said so, not when we started asking. An ordinary failure rejoins the
     // ordinary cadence, so it anchors to the start like a success does; a
     // failed call should not push the next attempt out by its own duration.
-    scheduleNextPr(entry, startedAt, waitOf(reaction), backend, rate);
+    scheduleNextPr(entry, startedAt, waitOf(reaction), backend, scheduleRate);
   }
 };
 

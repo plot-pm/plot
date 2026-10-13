@@ -15,6 +15,7 @@ import {
   machineSystem,
   planStoreShell,
   prIndexFile,
+  issueIndexFile,
   supervisionReportFile,
   tempSweepShell,
   notifierCommand,
@@ -64,6 +65,7 @@ import { fleetAutoWrites } from '../../shared/auto-writes.js';
 import { verifyingCount } from '../../shared/auto-verify.js';
 import { runDeskRelay } from '../../shared/desk-relay.js';
 import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js';
+import { fleetIssues, freshIssueState } from '../../shared/issue-refresh.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
 import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
 import { freshScanState } from '../../shared/fleet-scan.js';
@@ -1814,6 +1816,8 @@ export interface RunSeams {
   readPrs?: () => Promise<void>;
   /** The default-branch read on the PR beat. */
   readDefaultBranch?: () => Promise<void>;
+  /** The issue read on the issue beat. */
+  readIssues?: () => Promise<void>;
 }
 
 /**
@@ -2014,11 +2018,48 @@ export const run = async (
   // must neither delay a supervision tick nor start a second scan. `--once`
   // runs one tick and no scan.
   const prState = freshPrState();
+  // THE ISSUE GATE RIDES ITS OWN CADENCE, beside the PR reader rather than
+  // inside it: `fleet-clock.ts`'s divisors give it a slower beat
+  // (`ISSUE_REFRESH_MS` against `PR_REFRESH_MS`), and `issueState` is read
+  // back by the PR pass's `issueGate` below so the two share one connector's
+  // budget without either owning the other's schedule.
+  const issueState = freshIssueState();
+  const issueStore = issueIndexFile({ cwd: repoRoot });
+  const readIssues = fleetIssues(
+    {
+      context: { repoRoot, scriptDir: scriptsDir },
+      declaredTracker: await readConfigAsync({ repoRoot, scriptsDir }, 'Tracker', ''),
+      gitHost: await (async () => {
+        const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
+        return answer.ok ? answer.value : 'github';
+      })(),
+      store: issueStore,
+      prBackoff: () => ({
+        connector: prState.backend,
+        account: prState.prAccount,
+        until: prState.prNextIsBackoff ? prState.prNextAt : null,
+      }),
+    },
+    issueState,
+    warn,
+  );
   const readPrs = fleetPrs(
     {
       scripts,
       host: hostShell({ repoRoot, scriptDir: scriptsDir }),
       store: prIndexFile({ cwd: repoRoot }),
+      issueGate: async () => {
+        const read = await issueStore.read();
+        if (!read.ok || read.value === null) return null;
+        const held = read.value;
+        return {
+          connector: held.connector,
+          account: held.account ?? null,
+          requests: held.requests,
+          nextAt: held.nextAt,
+          backoffUntil: held.backoffUntil,
+        };
+      },
     },
     prState,
     warn,
@@ -2105,6 +2146,7 @@ export const run = async (
           fleetAutoWrites({ repoRoot, scriptsDir, scripts }, warn, () => queueHolds.held),
         ),
         prs: prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind),
+        issues: seams.readIssues ?? readIssues,
       }, warn);
   const runTick = seams.tick ?? tick;
   // THE WAIT BETWEEN TICKS ENDS ON A STOP. A stop read before the wait skips

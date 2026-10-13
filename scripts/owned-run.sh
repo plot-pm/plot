@@ -5,8 +5,9 @@
 #
 # Wraps the whole script string of `test:contracts` and `test:board`,
 # `bounded.sh` included. It creates one root, points `TMPDIR`, `HOME`,
-# `PLOT_BUDGET_HOME` and `PLOT_PR_INDEX_HOME` inside it for the whole process
-# tree, runs the command, and removes the root whatever the exit code.
+# `PLOT_BUDGET_HOME`, `PLOT_PR_INDEX_HOME` and `PLOT_ISSUE_INDEX_HOME` inside it
+# for the whole process tree, runs the command, and removes the root whatever
+# the exit code.
 #
 # ═══════════════════════════════════════════════════════════════════════════
 # WHAT THIS FIXES
@@ -244,6 +245,7 @@ TMPDIR="$root" \
 HOME="$root/home" \
 PLOT_BUDGET_HOME="$root/budget" \
 PLOT_PR_INDEX_HOME="$root/pr-index" \
+PLOT_ISSUE_INDEX_HOME="$root/issue-index" \
   "$@" &
 child_pid=$!
 wait "$child_pid"
