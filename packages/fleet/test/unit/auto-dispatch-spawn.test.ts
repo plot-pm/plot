@@ -14,7 +14,8 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { maybeAutoDispatch } from '../../src/shared/auto-dispatch.js';
+import { dispatchCandidates } from '@plot-pm/domain';
+import { maybeAutoDispatch, findMissingBriefs } from '../../src/shared/auto-dispatch.js';
 import { FleetReadingSchema, type FleetReading } from '@plot-pm/domain/entities/fleet';
 import type { AgentEntry } from '../../src/shared/registry.js';
 import type { FleetSettings } from '../../src/shared/fleet-settings-store.js';
@@ -134,6 +135,27 @@ describe('maybeAutoDispatch — the spawn half', () => {
     await settle();
     expect(runs()).toEqual(['--max 1 ship-it']);
     expect(next.has('feature/a')).toBe(true);
+  });
+
+  it('spawns plot-dispatch.sh for the approved spike of a Design plan', async () => {
+    const { opts, runs } = fixture(['feature/d-spike']);
+    const p = pulse([['2026-10-12-d.md', 'design', [
+      slice('Spike', 'eligible', [['feature/d-spike', 'open']]),
+      slice('Rest', 'blocked', [['feature/d-rest', 'open']]),
+    ]]]);
+    const next = maybeAutoDispatch(opts, p, on(5), [], new Set());
+    await settle();
+    expect(runs()).toEqual(['--max 1 d']);
+    expect(next.has('feature/d-spike')).toBe(true);
+  });
+
+  it('a briefless approved spike reaches missingBriefs and starts nothing', async () => {
+    const { opts, runs } = fixture([]);
+    const p = pulse([['2026-10-12-d.md', 'design', [slice('Spike', 'eligible', [['feature/d-spike', 'open']])]]]);
+    expect(findMissingBriefs(opts.repoRoot, dispatchCandidates(p, new Set()))).toEqual(new Set(['feature/d-spike']));
+    maybeAutoDispatch(opts, p, on(5), [], new Set());
+    await settle();
+    expect(runs()).toEqual([]);
   });
 
   it('spawns NOTHING while the switch is off', async () => {

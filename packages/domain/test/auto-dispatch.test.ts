@@ -1679,3 +1679,60 @@ describe('pruneInFlight — a mark the pulse no longer shows as startable', () =
     expect([...kept]).toEqual(['feature/pending']);
   });
 });
+
+describe('a Design plan with an approved spike dispatches the spike alone', () => {
+  // `sliceVerdict` marks only the spike slice eligible; the pulse here carries
+  // that verdict, and the admission filters must let the Design plan through.
+  const design = (briefless = false) => ({
+    p: pulse([['2026-10-12-d.md', 'design', [
+      slice('Spike', 'eligible', [['feature/d-spike', 'open']]),
+      slice('Rest', 'blocked', [['feature/d-rest', 'open']]),
+    ]]]),
+    missing: new Set(briefless ? ['feature/d-spike'] : []),
+  });
+
+  it('planAutoDispatch gives the briefed spike max 1', () => {
+    const { p, missing } = design();
+    const plans = planAutoDispatch({
+      controls: controls(true, 5), pulse: p, liveCount: 0, inFlight: new Set(), missingBriefs: missing,
+    });
+    expect(plans.map((x) => x.max)).toEqual([1]);
+  });
+
+  it('startableBranches names the spike and not the unapproved slice', () => {
+    const { p, missing } = design();
+    expect(startableBranches(p, 'd', new Set(), missing)).toEqual(['feature/d-spike']);
+  });
+
+  it('dispatchCandidates names the briefless spike only', () => {
+    const { p } = design(true);
+    expect(dispatchCandidates(p, new Set())).toEqual(['feature/d-spike']);
+  });
+
+  it('firstBrieflessBranch returns the briefless spike', () => {
+    const { p, missing } = design(true);
+    expect(firstBrieflessBranch(p, 'd', missing)).toBe('feature/d-spike');
+  });
+
+  it('skippedPlans reports the briefless spike as no-brief and nothing starts', () => {
+    const { p, missing } = design(true);
+    expect(skippedPlans(p, new Set(), missing)).toEqual([{ slug: 'd', reason: 'no-brief' }]);
+    expect(planAutoDispatch({
+      controls: controls(true, 5), pulse: p, liveCount: 0, inFlight: new Set(), missingBriefs: missing,
+    })).toEqual([]);
+  });
+
+  it('skippedClaimedBranches names a ref-held spike', () => {
+    const p = pulse([['2026-10-12-d.md', 'design', [slice('Spike', 'eligible', [['feature/d-spike', 'open', true]])]]]);
+    expect(skippedClaimedBranches(p, new Set())).toEqual(['feature/d-spike']);
+  });
+
+  it('a Design plan with no approved spike is in no answer', () => {
+    const p = pulse([['2026-10-12-d.md', 'design', [slice('Spike', 'blocked', [['feature/d-spike', 'open']])]]]);
+    expect(skippedPlans(p, new Set(), new Set())).toEqual([]);
+    expect(dispatchCandidates(p, new Set())).toEqual([]);
+    expect(planAutoDispatch({
+      controls: controls(true, 5), pulse: p, liveCount: 0, inFlight: new Set(), missingBriefs: new Set(),
+    })).toEqual([]);
+  });
+});
