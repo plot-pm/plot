@@ -6,15 +6,18 @@ import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-s
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { runProcess } from '@plot-pm/domain/adapters/run-script';
-import type { Host, PlanStore, Refs, Scripts, Trees } from '@plot-pm/domain';
+import { trackerForIssues } from '@plot-pm/domain/adapters/tracker/tracker-resolve';
+import type { Host, PlanStore, Refs, Scripts, Tracker, Trees } from '@plot-pm/domain';
 import { claimsOf, renderClaims } from '@plot-pm/domain/rules/claims';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { archiveRound, isArchivedRound, jurorPath, moderationPath, panelDir } from '@plot-pm/domain/rules/panel';
 import {
   foldVerification,
+  refutedIssue,
   verificationBody,
   verifiedValue,
   type ClaimVerdict,
+  type IssueNote,
 } from '@plot-pm/domain/rules/verification';
 import { withRecord, withSection } from '@plot-pm/domain/workflows/rendering';
 import { readVerifyStatus, verifyStatusLines } from '@plot-pm/fleet/shared/auto-verify';
@@ -499,6 +502,69 @@ const fold = async (ctx: Context, args: Args, write: Printer, warn: Printer): Pr
   return 0;
 };
 
+/** The file holding the issues a plan's verification opened, below the repository root. */
+const issueStatePath = (repoRoot: string, slug: string): string => path.join(repoRoot, VERIFY_DIR, `${slug}.json`);
+
+/**
+ * Reads the issue ids a plan's earlier runs opened, keyed by claim text.
+ *
+ * @param file - the state file.
+ * @returns the ids; empty where the file is absent or unreadable.
+ */
+const readIssueState = (file: string): Record<string, string> => {
+  if (!existsSync(file)) return {};
+  try {
+    const issues = (JSON.parse(readFileSync(file, 'utf8')) as { issues?: Record<string, unknown> }).issues ?? {};
+    return Object.fromEntries(Object.entries(issues).filter((e): e is [string, string] => typeof e[1] === 'string'));
+  } catch {
+    return {};
+  }
+};
+
+/**
+ * Opens one issue per refuted claim that has none, recording each id before the next call.
+ *
+ * Claims match by text, never by number: a re-reading of the Changelog can renumber them.
+ * `issueOpen` does not look for a duplicate, so the state file is the only retry guard.
+ *
+ * @param tracker - the connector that opens the issues.
+ * @param stateFile - where the opened ids are kept.
+ * @param slug - the plan's slug.
+ * @param judged - the commit the claims were judged at.
+ * @param verdicts - what the fold answered.
+ * @returns the issue note per refuted claim text.
+ */
+export const openRefutedIssues = async (
+  tracker: Tracker,
+  stateFile: string,
+  slug: string,
+  judged: string,
+  verdicts: readonly ClaimVerdict[],
+): Promise<Map<string, IssueNote>> => {
+  const known = readIssueState(stateFile);
+  const notes = new Map<string, IssueNote>();
+  for (const v of verdicts) {
+    if (v.verdict !== 'refuted') continue;
+    const have = known[v.claim];
+    if (have !== undefined) {
+      notes.set(v.claim, { issue: have });
+      continue;
+    }
+    const opened = await tracker.issueOpen({ ...refutedIssue(slug, v, judged), labels: ['ai-generated'] });
+    if (opened.ok) {
+      known[v.claim] = opened.value.id;
+      mkdirSync(path.dirname(stateFile), { recursive: true });
+      writeFileSync(`${stateFile}.tmp`, `${JSON.stringify({ issues: known }, null, 2)}\n`);
+      renameSync(`${stateFile}.tmp`, stateFile);
+      notes.set(v.claim, { issue: opened.value.id });
+    } else {
+      const reason = (!opened.ok && opened.why === 'unaskable' ? opened.reason : undefined) ?? tracker.lastRefusal();
+      notes.set(v.claim, { noIssue: reason ?? 'the tracker did not open the issue' });
+    }
+  }
+  return notes;
+};
+
 /**
  * Books the record onto the default branch and removes every tree.
  *
@@ -535,6 +601,15 @@ const record = async (ctx: Context, args: Args, write: Printer, warn: Printer): 
     const present = await ctx.planStore.readText(target);
     if (!present.ok || present.value === null) throw new Refused(`${facts.plan} is not present on origin/${main}`);
 
+    const declared = await ctx.scripts.config('Tracker', '');
+    const backend = await ctx.host.backend();
+    const tracker = trackerForIssues(
+      declared.ok ? declared.value.trim() : '',
+      backend.ok ? backend.value : '',
+      { repoRoot: ctx.repoRoot, scriptDir: ctx.scriptDir },
+    );
+    const notes = await openRefutedIssues(tracker, issueStatePath(ctx.repoRoot, args.slug), args.slug, facts.judged, verdicts);
+
     const value = verifiedValue(
       {
         today: localDate(),
@@ -546,7 +621,7 @@ const record = async (ctx: Context, args: Args, write: Printer, warn: Printer): 
       verdicts,
     );
     const recorded = withRecord(present.value, 'Verified', value, 'replace');
-    const landed = withSection(recorded.text, 'Verification', verificationBody(verdicts));
+    const landed = withSection(recorded.text, 'Verification', verificationBody(verdicts, notes));
     const written = await ctx.planStore.writeText(target, landed);
     if (!written.ok) throw new Refused(`could not write ${facts.plan}.\n  Re-run this — it is idempotent.`);
     await ctx.trees.stage(tmpwt, [facts.plan]);

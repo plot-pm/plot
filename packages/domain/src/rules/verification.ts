@@ -116,19 +116,57 @@ export const verifiedValue = (
   return `${facts.today}, delivery ${facts.deliveredOn} at ${short(facts.delivery)}, judged at ${short(facts.judged)} with tools at ${short(facts.tools)}, ${verdicts.length - refuted} supported, ${refuted} refuted`;
 };
 
+/** Where a refuted claim's issue stands: opened as `issue`, or not opened for `noIssue`. */
+export type IssueNote = { readonly issue: string } | { readonly noIssue: string };
+
+/**
+ * Renders the issue reference that ends a refuted claim's line.
+ *
+ * @param note - what came of the claim's issue.
+ * @returns `#<id>`, or `no issue: <reason>` on one line with no ` — `.
+ */
+export const issueReference = (note: IssueNote): string =>
+  'issue' in note ? `#${note.issue}` : `no issue: ${note.noIssue.replace(/\s+/g, ' ').replace(/ — /g, ' - ').trim()}`;
+
+/**
+ * The title and body of the issue a refuted claim opens.
+ *
+ * @param slug - the plan's slug.
+ * @param verdict - the refuted claim.
+ * @param judged - the commit the claim was judged at.
+ * @returns the issue's title and body.
+ */
+export const refutedIssue = (
+  slug: string,
+  verdict: ClaimVerdict,
+  judged: string,
+): { readonly title: string; readonly body: string } => {
+  const claim = verdict.claim.length > 80 ? `${verdict.claim.slice(0, 79)}…` : verdict.claim;
+  const supported = verdict.supported.length > 0 ? `; ${verdict.supported.join(', ')} supported` : '';
+  return {
+    title: `Refuted claim of ${slug}: ${claim}`,
+    body: `Verification of \`${slug}\` at ${short(judged)} refuted ${claimLabel(verdict.n)}.\n\n> ${verdict.claim}\n\nRefuted by ${verdict.refuted.join(', ')}${supported}.\n`,
+  };
+};
+
 /**
  * Renders the body of the plan's `## Verification` section.
  *
  * @param verdicts - what the fold answered.
+ * @param notes - the issue note per refuted claim text; a claim with none ends at its lenses.
  * @returns one list line per claim, each ending in a newline.
  */
-export const verificationBody = (verdicts: readonly ClaimVerdict[]): string =>
+export const verificationBody = (
+  verdicts: readonly ClaimVerdict[],
+  notes: ReadonlyMap<string, IssueNote> = new Map(),
+): string =>
   verdicts
     .map((v) => {
       const lenses =
         v.verdict === 'supported'
           ? `${v.supported.length} of ${v.supported.length} (${v.supported.join(', ')})`
           : `${v.refuted.join(', ')} refuted${v.supported.length > 0 ? `; ${v.supported.join(', ')} supported` : ''}`;
-      return `- ${claimLabel(v.n)} ${v.verdict} — ${v.claim} — ${lenses}\n`;
+      const note = v.verdict === 'refuted' ? notes.get(v.claim) : undefined;
+      return `- ${claimLabel(v.n)} ${v.verdict} — ${v.claim} — ${lenses}${note === undefined ? '' : ` — ${issueReference(note)}`}\n`;
     })
     .join('');
