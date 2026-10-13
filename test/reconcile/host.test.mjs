@@ -6860,7 +6860,7 @@ const runGh = (args, stub, extraEnv = {}) =>
     env: { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, PLOT_HOST: 'github', ...extraEnv },
   });
 
-test('host: issue-list github --state closed searches by close date and carries closedAt', () => {
+test('host: issue-list github --state closed searches by close date, asks no sort, and carries closedAt', () => {
   const stubs = makeStubs({
     ghJson: JSON.stringify([
       { number: 7, title: 'Done thing', url: 'u', createdAt: '2026-08-01T00:00:00Z', closedAt: '2026-09-02T10:00:00Z' },
@@ -6874,7 +6874,9 @@ test('host: issue-list github --state closed searches by close date and carries 
   });
   const argv = readFileSync(stubs.ghArgv, 'utf8').split('\n');
   assert.equal(argv[argv.indexOf('--state') + 1], 'closed');
-  assert.equal(argv[argv.indexOf('--search') + 1], 'closed:>=2026-09-01T00:00:00Z sort:closed-desc');
+  // GitHub search ignores `sort:closed-desc` (measured 2026-10-13), so no sort
+  // qualifier is sent and the adapter sorts by `closedAt`.
+  assert.equal(argv[argv.indexOf('--search') + 1], 'closed:>=2026-09-01T00:00:00Z');
   assert.equal(argv[argv.indexOf('--json') + 1], 'number,title,url,createdAt,closedAt');
 });
 
@@ -6891,6 +6893,7 @@ test('host: issue-list --state closed without --since, or with a bad one, is a u
   for (const args of [
     ['issue-list', '--state', 'closed'],
     ['issue-list', '--state', 'closed', '--since', '2026-09-01" OR 1=1'],
+    ['issue-list', '--state', 'closed', '--since', '2026-09-01T12'],
     ['issue-list', '--state', 'merged'],
   ]) {
     const res = runGh(args, stubs);
@@ -6953,10 +6956,32 @@ test('host: issue-list jira --state closed scopes by prefix, reads resolutiondat
   assert.ok(argv.includes('nextPageToken=tok-1'));
 });
 
+test('host: issue-list jira --state closed with a date-only --since sends the date alone, and a last page prints no token', () => {
+  const body = JSON.stringify({ issues: [{ key: 'PROJ-6', fields: {
+    summary: 'Shipped', created: 'c', resolutiondate: '2026-09-03T10:00:00.000+0000',
+    status: { name: 'Done', statusCategory: { name: 'Done' } },
+  } }] });
+  const stub = makeJiraCurlStub({ body });
+  const res = runJira(['issue-list', '--state', 'closed', '--since', '2026-09-01'], stub, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(res.stdout.trim().split('\n').map((l) => JSON.parse(l).number), ['PROJ-6']);
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  assert.ok(argv.includes('jql=assignee = currentUser() AND resolved >= "2026-09-01" AND project IN (PROJ) ORDER BY resolved DESC'), argv.join('\n'));
+});
+
 test('host: issue-list jira open read is unchanged: no resolutiondate, no token line', () => {
-  const stub = makeJiraCurlStub({ body: JSON.stringify({ issues: [], nextPageToken: 'ignored' }) });
+  const body = JSON.stringify({
+    issues: [{ key: 'PROJ-1', fields: { summary: 'Open', created: 'c', status: { name: 'To Do', statusCategory: { name: 'To Do' } } } }],
+    nextPageToken: 'ignored',
+  });
+  const stub = makeJiraCurlStub({ body });
   const res = runJira(['issue-list'], stub);
   assert.equal(res.status, 0, res.stderr);
+  // Every line is an issue: the board's no-fleet inbox reads each line as one.
+  const lines = res.stdout.trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(lines.map((l) => l.number), ['PROJ-1']);
+  assert.ok(!res.stdout.includes('nextPageToken'), res.stdout);
+  assert.ok(!('closedAt' in lines[0]));
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
   assert.ok(argv.includes('fields=summary,created,status'));
   assert.ok(argv.includes('maxResults=50'));

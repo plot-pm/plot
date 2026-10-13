@@ -257,13 +257,18 @@
 #                                 unavailable, never "no run".
 #   issue-list [--limit N] [--state open|closed] [--since <iso>] [--page-token T]
 #                                 tracker issues as JSON lines, open by default.
-#                                 `--state closed` needs `--since` and adds
-#                                 `closedAt` to each row, newest close first:
-#                                 GitHub keeps what closed at or after `since`;
-#                                 Jira requires `Ticket prefixes` and reads one
-#                                 page of 100, printing `{"nextPageToken":"…"}`
-#                                 as a last line for the caller to pass back as
-#                                 `--page-token`. EXIT 4 where the closed read
+#                                 `--state closed` needs `--since` (a date, or
+#                                 a date and `THH:MM`) and adds `closedAt` to
+#                                 each row, in no promised order — the caller
+#                                 sorts: GitHub keeps what closed at or after
+#                                 `since`; Jira requires `Ticket prefixes`,
+#                                 reads `since`'s time in the reader's Jira
+#                                 profile zone (JQL takes no offset), and reads
+#                                 one page of 100, printing
+#                                 `{"nextPageToken":"…"}` as a last line for the
+#                                 caller to pass back as `--page-token`. ONLY
+#                                 the closed read prints that line; the open
+#                                 read's output is issue rows alone. EXIT 4 where the closed read
 #                                 cannot be asked at all: Bitbucket (`bb issue
 #                                 list` prints no closing date) and Jira with no
 #                                 `Ticket prefixes`, both before any bb or curl.
@@ -4656,7 +4661,7 @@ case "$op" in
     # `--since` is spliced into a JQL string and a search qualifier, so its shape
     # is checked here: a value outside it is a usage error, never a query.
     [[ "$state" =~ ^(open|closed)$ ]] || die "issue-list: --state is open or closed, not '$state'"
-    [ "$state" = open ] || [[ "$since" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9:.]+Z?)?$ ]] || die "issue-list: --state closed needs --since <iso>"
+    [ "$state" = open ] || [[ "$since" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}[0-9:.]*Z?)?$ ]] || die "issue-list: --state closed needs --since <iso>"
     limit_args=()
     [ -n "$limit" ] && limit_args=(--limit "$limit")
     # WHO LISTS THESE ISSUES IS ASKED ONCE, HERE, BEFORE THE ARMS — after the
@@ -4664,9 +4669,9 @@ case "$op" in
     # rather than as a tracker refusal. The arms below then dispatch on the
     # ANSWER, never on a second reading of the config.
     source_said="$(issue_source)" || exit 1
-      # Exit 4, the code this op already documents as *this host cannot be
-      # asked at all* — a configuration a person fixes, not a call to retry.
-      # NOTHING HAS BEEN SPENT: no `gh`, no `bb`, no curl has run yet.
+    # Exit 4, the code this op already documents as *this host cannot be
+    # asked at all* — a configuration a person fixes, not a call to retry.
+    # NOTHING HAS BEEN SPENT: no `gh`, no `bb`, no curl has run yet.
     [ "${source_said%%$'\t'*}" != nobody ] || { echo "plot-host: ${source_said#*$'\t'}" >&2; exit 4; }
     if [ "$source_said" = $'tracker\tjira' ]; then
       # Jira, resolved through the REST API — DISPATCHED ON `Tracker`, never on
@@ -4716,9 +4721,12 @@ case "$op" in
         # the read exits 4 before any curl. `jira_require_config` and the page
         # size follow: a page is ISSUE_PAGE_ROWS, and the TypeScript adapter
         # walks the pages, so this arm holds no loop. JQL dates take
-        # `yyyy-MM-dd HH:mm`, so the ISO `since` is cut to that shape.
+        # `yyyy-MM-dd` or `yyyy-MM-dd HH:mm`, so the ISO `since` is cut to the
+        # shape it has: a date-only `since` sends the date alone. JQL takes no
+        # offset, so Jira reads the time in the reader's profile zone.
         [ -n "$scope" ] || { echo "plot-host: closed Jira issues need 'Ticket prefixes' declared; an unscoped resolved query reads the whole instance" >&2; exit 4; }
-        jql="assignee = currentUser() AND resolved >= \"${since:0:10} ${since:11:5}\"${scope} ORDER BY resolved DESC"
+        when="${since:0:10} ${since:11:5}"
+        jql="assignee = currentUser() AND resolved >= \"${when% }\"${scope} ORDER BY resolved DESC"
         fields="$fields,resolutiondate"
         max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"
       fi
@@ -4745,9 +4753,10 @@ case "$op" in
       # substitutes for the other: the name is what a person reads, the
       # category is what a board groups on. A board grouping on the name
       # fragments across projects that spell the same stage differently.
-      # A closed row adds `closedAt`, the ticket's `resolutiondate`. The next
-      # page's token is printed as a LAST JSON line, `{"nextPageToken":"…"}`, for
-      # the adapter to strip and loop on; the open read's rows are unchanged.
+      # A closed row adds `closedAt`, the ticket's `resolutiondate`. The closed
+      # read prints the next page's token as a LAST JSON line,
+      # `{"nextPageToken":"…"}`, for the adapter to strip and loop on. The open
+      # read prints no token line: its readers take every line as an issue.
       printf '%s' "$body" | jq -c --arg base "$base" --arg state "$state" '(.issues[]? | {
           number: .key,
           title: (.fields.summary // ""),
@@ -4756,7 +4765,7 @@ case "$op" in
           status: (.fields.status.name // ""),
           statusCategory: (.fields.status.statusCategory.name // "")
         } + (if $state == "closed" then {closedAt: (.fields.resolutiondate // "")} else {} end)),
-        ((.nextPageToken // empty) | {nextPageToken: .})'
+        (select($state == "closed") | (.nextPageToken // empty) | {nextPageToken: .})'
     elif [ "$be" = "github" ]; then
       # `gh issue list` — not `gh api /issues`. On GitHub every PR IS an issue,
       # so the REST endpoint returns both, and every open PR would arrive here
@@ -4771,9 +4780,11 @@ case "$op" in
       # unstarted by the only vocabulary GitHub has.
       gh_state="$state"
       # A CLOSED READ IS THE SAME ARM with `closedAt` asked for and a search that
-      # keeps what closed since `$since`, newest close first.
+      # keeps what closed since `$since`. GitHub search has no close-date sort
+      # (`sort:closed-desc` was measured ignored, 2026-10-13), so the adapter
+      # sorts by `closedAt`.
       gh_json="number,title,url,createdAt"; search_args=()
-      [ "$gh_state" = open ] || { gh_json+=",closedAt"; search_args=(--search "closed:>=$since sort:closed-desc"); }
+      [ "$gh_state" = open ] || { gh_json+=",closedAt"; search_args=(--search "closed:>=$since"); }
       if out="$(gh issue list --state "$gh_state" ${limit_args[@]+"${limit_args[@]}"} \
                   ${search_args[@]+"${search_args[@]}"} --json "$gh_json" 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"

@@ -1459,6 +1459,59 @@ async function referencedIssues(opts: BuildBoardOptions): Promise<Set<string> | 
   return referenced;
 }
 
+/** One open issue the no-fleet inbox reads from an `issue-list` line. */
+export interface OpenIssueLine {
+  number: string;
+  title: string;
+  url: string;
+  createdAt: string;
+  status: string;
+  statusCategory: string;
+}
+
+/**
+ * Reads `plot-host.sh issue-list` output as the no-fleet inbox's open issues.
+ *
+ * A line that does not parse, or that carries no `number`, is skipped. A
+ * pagination line such as `{"nextPageToken":"…"}` has no `number`, and an
+ * issue built from it would carry the key `undefined`.
+ *
+ * @param raw - the script's stdout, one JSON object per line.
+ * @returns the issues, in the order the script printed them.
+ */
+export const openIssuesOf = (raw: string): OpenIssueLine[] => {
+  const open: OpenIssueLine[] = [];
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const issue = JSON.parse(line) as {
+        number?: string | number; title?: string; url?: string; createdAt?: string;
+        status?: string; statusCategory?: string;
+      };
+      if ((typeof issue.number !== 'string' && typeof issue.number !== 'number') || issue.number === '') continue;
+      open.push({
+        number: issueKey(issue.number),
+        title: issue.title ?? '',
+        url: typeof issue.url === 'string' ? issue.url : '',
+        createdAt: typeof issue.createdAt === 'string' ? issue.createdAt : '',
+        // A CAST, NOT A PARSE — so the type guards are what stand in for one.
+        // `plot-host.sh` emits both keys on all three backends, but this is a
+        // hand-written projection reading named keys, and a key it does not
+        // name is a key the board never shows: that is precisely how the status
+        // reached the wire and stopped here. `''` where the host said nothing,
+        // which the renderer already has an answer for.
+        status: typeof issue.status === 'string' ? issue.status : '',
+        statusCategory:
+          typeof issue.statusCategory === 'string' ? issue.statusCategory : '',
+      });
+    } catch {
+      // One malformed line is not a reason to discard the rest, and not a
+      // reason to call the whole lookup failed either.
+    }
+  }
+  return open;
+};
+
 /**
  * Open tracker issues no plan references — the board's inbox.
  *
@@ -1534,38 +1587,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     }
     return;
   }
-  const raw = said.stdout;
-  const open: {
-    number: string; title: string; url: string; createdAt: string;
-    status: string; statusCategory: string;
-  }[] = [];
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const issue = JSON.parse(line) as {
-        number: string | number; title?: string; url?: string; createdAt?: string;
-        status?: string; statusCategory?: string;
-      };
-      open.push({
-        number: issueKey(issue.number),
-        title: issue.title ?? '',
-        url: typeof issue.url === 'string' ? issue.url : '',
-        createdAt: typeof issue.createdAt === 'string' ? issue.createdAt : '',
-        // A CAST, NOT A PARSE — so the type guards are what stand in for one.
-        // `plot-host.sh` emits both keys on all three backends, but this is a
-        // hand-written projection reading named keys, and a key it does not
-        // name is a key the board never shows: that is precisely how the status
-        // reached the wire and stopped here. `''` where the host said nothing,
-        // which the renderer already has an answer for.
-        status: typeof issue.status === 'string' ? issue.status : '',
-        statusCategory:
-          typeof issue.statusCategory === 'string' ? issue.statusCategory : '',
-      });
-    } catch {
-      // One malformed line is not a reason to discard the rest, and not a
-      // reason to call the whole lookup failed either.
-    }
-  }
+  const open = openIssuesOf(said.stdout);
   const referenced = await referencedIssues(opts);
   if (referenced === null) {
     // The plans could not be read, so "which of these is unplanned" has no
