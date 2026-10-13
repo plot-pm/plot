@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   boardSharePerHour,
+  cadenceRateOf,
   cadenceStretch,
   CADENCE_DAMPING,
+  ISSUE_PAGE_MS,
+  ISSUE_REFRESH_MS,
+  issueIntervalMs,
+  issueSpendPerHour,
   MAX_CADENCE_STRETCH,
   othersPerHour,
   refreshIntervalMs,
@@ -287,5 +292,86 @@ describe('the step is damped, and that is what makes it settle', () => {
     // A current interval below the base would report a share above the board's
     // own, which is a state no caller can be in and must not compute one.
     expect(cadenceStretch(0, INTERVAL, 1_000, GITHUB)).toBe(1);
+  });
+});
+
+describe('the issue gate waits at least the refresh floor', () => {
+  it('holds the floor for a one-page pass', () => {
+    expect(issueIntervalMs(1)).toBe(120_000);
+  });
+
+  it('waits proportionally longer for a pass that paged further', () => {
+    expect(issueIntervalMs(4)).toBe(480_000);
+  });
+
+  it('derives the floor and the page cost from the same constants', () => {
+    expect(issueIntervalMs(1)).toBe(ISSUE_REFRESH_MS);
+    expect(issueIntervalMs(4)).toBe(4 * ISSUE_PAGE_MS);
+  });
+});
+
+describe('the issue gate spends the same share whatever it pages', () => {
+  it.each([1, 2, 5, 10, 21])('spends 30 requests an hour for a %i-request pass', (requests) => {
+    expect(issueSpendPerHour(requests)).toBe(30);
+  });
+});
+
+describe('the PR pass nets out what the issue gate already spent', () => {
+  const NOW = 1_000_000;
+  const GATE = {
+    connector: 'github',
+    account: 'acct',
+    requests: 1,
+    nextAt: NOW + 1,
+  };
+
+  it('passes a null rate through unchanged', () => {
+    expect(cadenceRateOf(null, GATE, 'github', 'acct', NOW)).toBeNull();
+  });
+
+  it('passes a rate with no perHour through unchanged', () => {
+    const rate = { perHour: null };
+    expect(cadenceRateOf(rate, GATE, 'github', 'acct', NOW)).toBe(rate);
+  });
+
+  it('passes the rate through unchanged where there is no gate reading', () => {
+    const rate = { perHour: 60 };
+    expect(cadenceRateOf(rate, null, 'github', 'acct', NOW)).toBe(rate);
+  });
+
+  it('passes the rate through unchanged for a different connector', () => {
+    const rate = { perHour: 60 };
+    expect(cadenceRateOf(rate, GATE, 'bitbucket', 'acct', NOW)).toBe(rate);
+  });
+
+  it('passes the rate through unchanged for a different account', () => {
+    const rate = { perHour: 60 };
+    expect(cadenceRateOf(rate, GATE, 'github', 'other-acct', NOW)).toBe(rate);
+  });
+
+  it('passes the rate through unchanged where the gate reading has gone stale', () => {
+    const rate = { perHour: 60 };
+    const interval = issueIntervalMs(GATE.requests);
+    const stale = { ...GATE, nextAt: NOW - interval - 1 };
+    expect(cadenceRateOf(rate, stale, 'github', 'acct', NOW)).toBe(rate);
+  });
+
+  it('subtracts the gate spend from a fresh reading for the same spender', () => {
+    const rate = { perHour: 60 };
+    const result = cadenceRateOf(rate, GATE, 'github', 'acct', NOW);
+    expect(result).toEqual({ perHour: 60 - issueSpendPerHour(GATE.requests) });
+  });
+
+  it('never subtracts below zero', () => {
+    const rate = { perHour: 10 };
+    const result = cadenceRateOf(rate, GATE, 'github', 'acct', NOW);
+    expect(result?.perHour).toBe(0);
+  });
+
+  it('matches a gate reading with no account against a null account', () => {
+    const rate = { perHour: 60 };
+    const gate = { ...GATE, account: null };
+    const result = cadenceRateOf(rate, gate, 'github', null, NOW);
+    expect(result).toEqual({ perHour: 60 - issueSpendPerHour(gate.requests) });
   });
 });
