@@ -1627,23 +1627,35 @@ const issueStoreFor = (repoRoot: string): IssueIndexStore => {
 };
 
 /**
- * Serves the inbox from the issue gate's own store, and asks the host
- * nothing: under a fleet, the issue gate is the index's only writer.
+ * Serves the inbox from the issue index fleetd writes, and asks the host
+ * nothing.
  *
- * ABSENT IS NOT FALSE. A missing file (`read()` answering `ok` with `null`),
- * a `nobody` source baked into the store's `answer: 'unsupported'`, and a
- * `failed` answer with no kept `rows` are each distinct — none collapses into
- * "no issues," the same distinction `refreshIssues` keeps for the host path.
- * The unplanned filter and {@link ISSUE_LIMIT} cap apply HERE, at the read,
- * never at the gate's write — so a filter or cap later tightened here changes
- * what the board shows without touching the file the gate wrote.
+ * - A `nobody` source shows the source's reason; no index is read.
+ * - A missing or unreadable index shows *the fleet has left no issue index to
+ *   read*, never an empty inbox.
+ * - An index whose `source` differs from this board's own `issueSource`
+ *   reading shows no rows and names the mismatch.
+ * - An `unsupported` index shows its reason.
+ * - A `failed` index shows its kept rows under the failure line.
+ * - An answered index shows its rows minus the issues a plan names, at most
+ *   {@link ISSUE_LIMIT}.
  */
-async function readIssuesFromStore(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
+const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<void> => {
+  const declared = await scriptsFor(opts).config('Tracker', '');
+  const source = issueSource({
+    declared: declared.ok ? declared.value : '',
+    gitHost: entry.backend ?? 'github',
+    listers: TRACKER_LISTERS,
+  });
+  if (source.ask === 'nobody') {
+    entry.issues = [];
+    entry.issueAnswer = 'unsupported';
+    entry.issueError = null;
+    entry.issueAbsence = issueAbsence(source.reason);
+    return;
+  }
   const held = await issueStoreFor(opts.repoRoot).read();
   if (!held.ok || held.value === null) {
-    // Nothing to serve and nothing served before: say so rather than keep
-    // whatever a fleet-less run left, which would read as a healthy answer.
-    if (entry.issueAnswer === 'answered' && entry.issues.length === 0) return;
     entry.issues = [];
     entry.issueAnswer = 'unsupported';
     entry.issueError = null;
@@ -1651,20 +1663,19 @@ async function readIssuesFromStore(opts: BuildBoardOptions, entry: CacheEntry): 
     return;
   }
   const index = held.value;
+  if (index.source !== source.ask) {
+    entry.issues = [];
+    entry.issueAnswer = 'failed';
+    entry.issueError =
+      `the issue index holds issues from \`${index.source}\`, and this repository reads them from \`${source.ask}\``;
+    entry.issueAbsence = null;
+    return;
+  }
   if (index.answer === 'unsupported') {
     entry.issues = [];
     entry.issueAnswer = 'unsupported';
     entry.issueError = null;
     entry.issueAbsence = issueAbsence(index.reason ?? '');
-    return;
-  }
-  if (index.answer === 'failed') {
-    // The same rule `refreshIssues` follows: a failed pass keeps the last kept
-    // rows rather than blanking the inbox, and names the reason without
-    // touching `entry.issues`.
-    entry.issueAnswer = 'failed';
-    entry.issueError = index.reason ?? 'the issue gate failed to read open issues';
-    entry.issueAbsence = null;
     return;
   }
   const referenced = await referencedIssues(opts);
@@ -1690,10 +1701,15 @@ async function readIssuesFromStore(opts: BuildBoardOptions, entry: CacheEntry): 
         statusCategory: row.statusCategory ?? '',
       };
     });
+  entry.issueAbsence = null;
+  if (index.answer === 'failed') {
+    entry.issueAnswer = 'failed';
+    entry.issueError = index.reason ?? 'the issue gate failed to read open issues';
+    return;
+  }
   entry.issueAnswer = 'answered';
   entry.issueError = null;
-  entry.issueAbsence = null;
-}
+};
 
 /**
  * Whether the fleet owns the PR index: the supervisor reads `up` and the bridge
