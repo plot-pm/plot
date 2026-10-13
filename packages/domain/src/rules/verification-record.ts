@@ -30,11 +30,20 @@ export interface RefutedClaim {
   readonly n: number;
   /** The claim's text. */
   readonly claim: string;
-  /** The issue number the line names, or `null`. */
-  readonly issue: number | null;
+  /**
+   * The issue id the line names, without its `#`, or `null`: a number such as
+   * `1712`, or a key such as `PROJ-12`.
+   */
+  readonly issue: string | null;
   /** The reason after `no issue:`, or `null`. */
   readonly noIssue: string | null;
 }
+
+/**
+ * Matches the issue reference that ends a refuted line: `#1712`, `1712`,
+ * `PROJ-12` or `#PROJ-12`. An id of any other shape is not read back.
+ */
+const ISSUE_TAIL = /^#?([A-Z][A-Z0-9_]*-\d+|\d+)$/;
 
 /** Matches the record's delivery date and commit. */
 const DELIVERY = /\bdelivery (\d{4}-\d{2}-\d{2}) at ([0-9a-f]{7,40})\b/;
@@ -78,12 +87,12 @@ export const refutedClaims = (text: string): readonly RefutedClaim[] => {
     const m = CLAIM_LINE.exec(line);
     if (m === null || m[2] !== 'refuted') continue;
     const parts = m[3]!.split(' — ');
-    let issue: number | null = null;
+    let issue: string | null = null;
     let noIssue: string | null = null;
-    const tail = /^#(\d+)$/.exec(parts.at(-1)!) ?? null;
+    const tail = ISSUE_TAIL.exec(parts.at(-1)!) ?? null;
     const none = /^no issue:[ \t]*(.*)$/.exec(parts.at(-1)!) ?? null;
     if (tail !== null && parts.length > 2) {
-      issue = Number(tail[1]);
+      issue = tail[1]!;
       parts.pop();
     } else if (none !== null && parts.length > 2) {
       noIssue = none[1]!;

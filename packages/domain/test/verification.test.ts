@@ -11,6 +11,7 @@ import { claimsOf, renderClaims } from '../src/rules/claims.js';
 import { fencedLines } from '../src/rules/fences.js';
 import { jurorPath, moderationPath } from '../src/rules/panel.js';
 import { foldVerification, refutedIssue, verificationBody, verifiedValue } from '../src/rules/verification.js';
+import { refutedClaims } from '../src/rules/verification-record.js';
 import { withRecord, withSection } from '../src/workflows/rendering.js';
 
 const PLAN = `# P
@@ -293,5 +294,17 @@ describe('verificationBody with issue notes', () => {
     expect(issue.title).toBe(`Refuted claim of p: ${'x'.repeat(79)}…`);
     expect(issue.body).toContain('Refuted by a; b supported.');
     expect(issue.body).toContain(`> ${long}`);
+  });
+
+  it.each([
+    ['1712', '#1712'],
+    ['PROJ-12', 'PROJ-12'],
+  ])('round-trips the id %s through the line reader', (id, rendered) => {
+    const body = verificationBody(fold.verdicts, new Map([['one', { issue: id }], ['two', { noIssue: 'a — b' }]]));
+    expect(body).toContain(`— a refuted — ${rendered}\n`);
+    expect(refutedClaims(`# P\n\n## Verification\n\n${body}`)).toEqual([
+      { n: 1, claim: 'one', issue: id, noIssue: null },
+      { n: 2, claim: 'two', issue: null, noIssue: 'a - b' },
+    ]);
   });
 });

@@ -122,11 +122,19 @@ export type IssueNote = { readonly issue: string } | { readonly noIssue: string 
 /**
  * Renders the issue reference that ends a refuted claim's line.
  *
+ * A numeric id renders as `#<id>` and any other id, such as the Jira key
+ * `PROJ-12`, renders bare; `refutedClaims` reads both back. The reason is the
+ * port's text with every run of whitespace collapsed to one space and every
+ * ` — ` written as ` - `, so the line stays one line and its ` — ` columns
+ * still separate.
+ *
  * @param note - what came of the claim's issue.
- * @returns `#<id>`, or `no issue: <reason>` on one line with no ` — `.
+ * @returns `#<id>`, `<id>`, or `no issue: <reason>`.
  */
-export const issueReference = (note: IssueNote): string =>
-  'issue' in note ? `#${note.issue}` : `no issue: ${note.noIssue.replace(/\s+/g, ' ').replace(/ — /g, ' - ').trim()}`;
+export const issueReference = (note: IssueNote): string => {
+  if ('issue' in note) return /^\d+$/.test(note.issue) ? `#${note.issue}` : note.issue;
+  return `no issue: ${note.noIssue.replace(/\s+/g, ' ').replace(/ — /g, ' - ').trim()}`;
+};
 
 /**
  * The title and body of the issue a refuted claim opens.

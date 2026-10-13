@@ -81,7 +81,7 @@ describe('verificationOf', () => {
   it('reads the claim lines of a CRLF file', () => {
     const text = planText({ verified: RECORD, claims: [OK, BAD] }).replace(/\n/g, '\r\n');
     expect(verificationOf(plan({ verified: RECORD }, { text }), SHA)).toBe('refuted');
-    expect(refutedClaims(text)).toEqual([{ n: 2, claim: 'Does another', issue: 1712, noIssue: null }]);
+    expect(refutedClaims(text)).toEqual([{ n: 2, claim: 'Does another', issue: '1712', noIssue: null }]);
   });
 
   it('answers supported when every claim line is supported', () => {
@@ -128,7 +128,7 @@ describe('verificationOf', () => {
 describe('refutedClaims', () => {
   it('reads the number, text and issue of a refuted line', () => {
     expect(refutedClaims(planText({ claims: [OK, BAD] }))).toEqual([
-      { n: 2, claim: 'Does another', issue: 1712, noIssue: null },
+      { n: 2, claim: 'Does another', issue: '1712', noIssue: null },
     ]);
   });
 

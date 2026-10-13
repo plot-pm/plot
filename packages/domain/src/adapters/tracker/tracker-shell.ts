@@ -5,6 +5,7 @@ import type { ClosedIssues, IssueOpenOutcome } from '../../ports/tracker.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import { asJson, asJsonLines, resultOf, runProcess, type ScriptRun } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
+import { ISSUE_MAY_EXIST } from '../../rules/refuted-issues.js';
 
 /** One issue as `plot-host.sh` reports it, before it is read as the entity. */
 interface RawIssue {
@@ -88,15 +89,8 @@ const SCRIPT_PREFIX = /^plot-host: /;
 export const unaskableReasonOf = (stderr: string): string | undefined =>
   stderr.trim().replace(SCRIPT_PREFIX, '') || undefined;
 
-/**
- * The prefix of an issue-open refusal where the tracker may have opened the issue.
- *
- * A refusal that starts with it means the request may have reached the tracker:
- * the run ended at its time bound or by a signal, or the tracker answered with
- * no identifier this connector could read. A refusal without it means the
- * tracker refused the request or was not reached.
- */
-export const ISSUE_MAY_EXIST = 'the issue may exist: ';
+/** The may-exist prefix, which `rules/refuted-issues.ts` defines and reads. */
+export { ISSUE_MAY_EXIST };
 
 /**
  * Reads an `issue-open` run into the port's answer, and records its refusal.
