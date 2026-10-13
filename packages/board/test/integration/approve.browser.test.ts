@@ -89,9 +89,9 @@ describe('approve: a Draft card can act, behind one confirmation', () => {
     if (garden) rmTree(garden);
   });
 
-  async function openBoard(): Promise<Page> {
+  async function openBoard(query = ''): Promise<Page> {
     const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(baseURL);
+    await page.goto(`${baseURL}${query}`);
     await page.getByText(DRAFT_WITH_PR).waitFor({ timeout: 10_000 });
     return page;
   }
@@ -142,7 +142,8 @@ describe('approve: a Draft card can act, behind one confirmation', () => {
   });
 
   it('offers Approve on a Draft card and a Design card, and on no other', async () => {
-    const page = await openBoard();
+    // NOT_DRAFT holds a Released plan, which Planning hides until Show released is on.
+    const page = await openBoard('?released=1');
     try {
       for (const title of [DRAFT_WITH_PR, DRAFT_WITHOUT_PR, DESIGN]) {
         const card = cardFor(page, title);
