@@ -9,7 +9,8 @@ import { type Board, type Card } from '../../src/contract/schema.js';
  * The unit suite owns the decision (`spikeCardState`, `cardControls`). This
  * owns the half a page states: the line shows the domain's wording, and the
  * *Confirm slices and approve* control appears once — and only once — the spike
- * has merged.
+ * has merged. Interrogate stays on the card in every state, because it reads
+ * `controls.interrogate` and not the Approve control.
  *
  * `/api/board` is served from the mock, so every claim is about what the tab
  * renders from a board payload.
@@ -38,6 +39,7 @@ const board = (c: Card) => ({
   continue: { available: false, reason: '' },
   idea: { available: false, reason: '' },
   commission: { available: true, reason: '' },
+  interrogate: { available: true, reason: '' },
   server: { restartCommand: '', port: 0 },
 });
 
@@ -70,6 +72,7 @@ describe('a Design plan card states where its spike stands', () => {
       expect(await article(page).getByRole('button', { name: 'Approve spike' }).count()).toBe(1);
       expect(await article(page).getByRole('button', { name: 'Confirm slices and approve' }).count()).toBe(0);
       expect(await article(page).getByRole('button', { name: 'Approve', exact: true }).count()).toBe(0);
+      expect(await article(page).locator('[data-interrogate="greenhouse"]').count()).toBe(1);
     } finally {
       await page.close();
     }
@@ -80,6 +83,7 @@ describe('a Design plan card states where its spike stands', () => {
     try {
       await expect.poll(() => article(page).locator('[data-spike-state="spike-approved"]').count()).toBe(1);
       expect(await article(page).getByRole('button', { name: /Approve|Confirm slices/ }).count()).toBe(0);
+      expect(await article(page).locator('[data-interrogate="greenhouse"]').count()).toBe(1);
     } finally {
       await page.close();
     }

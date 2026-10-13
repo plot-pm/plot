@@ -561,9 +561,11 @@ export function PlanCard({
         {approve && card.controls.approveSpike && (
           <ApproveButton card={card} approve={approve} onApproving={onStarting} spike />
         )}
-        {/* Beside Approve, on the same `isDraft` rule. Approve stays enabled at
-            every round count: the badge informs, and nothing here gates. */}
-        {interrogate && isDraft(card) && (
+        {/* On the domain's `controls.interrogate`, not on Approve: a Design plan
+            whose spike has not merged hides Approve and keeps Interrogate.
+            Approve stays enabled at every round count: the badge informs, and
+            nothing here gates. */}
+        {interrogate && card.controls.interrogate && (
           <InterrogateButton card={card} interrogate={interrogate} pulse={pulse} onActing={onStarting} />
         )}
         {card.assignee && (

@@ -1051,13 +1051,31 @@ function anyBranchClaimed(meta: PlanMeta, pulse: FleetReading | null): boolean {
  * host's `mergedAt` before it writes anything. Absent plan, cold cache, an
  * unmatched name and a plan with no single spike all read as not merged.
  */
-function spikeBranchMerged(meta: PlanMeta, pulse: FleetReading | null): boolean {
+export const spikeBranchMerged = (meta: Pick<PlanMeta, 'file' | 'slices'>, pulse: FleetReading | null): boolean => {
   const branch = spikeOf(meta.slices)?.branch;
   if (branch === undefined) return false;
   const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
   if (!plan) return false;
   return plan.slices.some((w) => w.branches.some((b) => b.branch === branch && b.state === 'merged'));
-}
+};
+
+/**
+ * The key `approvedSpikes` holds a branch under: the plan file's basename, as
+ * the pulse names a plan, and the branch.
+ */
+export const approvedSpikeKey = (planFile: string, branch: string): string =>
+  `${path.basename(planFile)}\u0000${branch}`;
+
+/**
+ * The branch a `design` plan's `Spike approved:` record licenses, or undefined.
+ *
+ * The branch is the one `spikeOf` names. A plan in another phase, a plan with
+ * no record, and a plan with no annotation or more than one answer undefined.
+ */
+export const approvedSpikeOf = (meta: Pick<PlanMeta, 'phase' | 'slices' | 'spike_approved_raw'>): string | undefined =>
+  meta.phase.toLowerCase() === 'design' && meta.spike_approved_raw.trim() !== ''
+    ? spikeOf(meta.slices)?.branch
+    : undefined;
 
 /**
  * A plan's MEASURED status — one of seven, derived every scan and stored
@@ -2478,7 +2496,7 @@ export async function planEstate(
   opts: BuildBoardOptions,
   pulse: FleetReading | null,
   complete: boolean,
-): Promise<{ statusBySlug: Map<string, PlanStatus>; draftPlans: DraftPlan[] }> {
+): Promise<{ statusBySlug: Map<string, PlanStatus>; draftPlans: DraftPlan[]; approvedSpikes: Set<string> }> {
   const refs = refsFor(opts);
   const planDir = await readConfigAsync(opts, 'Plan directory', 'docs/plans/');
   const repoRoot = resolvedRepoRoot(opts);
@@ -2492,6 +2510,7 @@ export async function planEstate(
   );
   const bySlug = new Map<string, PlanStatus>();
   const draftPlans: DraftPlan[] = [];
+  const approvedSpikes = new Set<string>();
   // Ref-read plans have no file, so the parse needs a scratch copy — the same
   // staging `buildBoard` does, and removed in the same `finally` for the same
   // reason. `slug` is cut from the CANONICAL path, never the staged one.
@@ -2520,6 +2539,8 @@ export async function planEstate(
       bySlug.set(planSlug(relPath), planStatus(meta, pulse, complete));
       const draft = draftPlanOf(meta, relPath);
       if (draft) draftPlans.push(draft);
+      const spike = approvedSpikeOf(meta);
+      if (spike !== undefined) approvedSpikes.add(approvedSpikeKey(relPath, spike));
     }
   } finally {
     // Same removal, same reading — see the longer note on the other stage-dir
@@ -2527,7 +2548,7 @@ export async function planEstate(
     // and it also awaits the parser before reaching this line.
     if (stageDir) fs.rmSync(stageDir, { recursive: true, force: true });
   }
-  return { statusBySlug: bySlug, draftPlans };
+  return { statusBySlug: bySlug, draftPlans, approvedSpikes };
 }
 
 // ─── Plan viewer: render a single plan file to HTML ──────────────────────────

@@ -33,7 +33,7 @@ import {
   type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
-import { workingTreeSprints, planStatusBySlug, planEstate, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, fleetStateFor, treesFor, hostFor, buildPortFor, type BuildBoardOptions } from './board.js';
+import { workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, fleetStateFor, treesFor, hostFor, buildPortFor, type BuildBoardOptions } from './board.js';
 import type { BuildPort } from '@plot-pm/domain';
 // The cadence division is a DOMAIN rule, not a board decision: `CLAUDE.md`
 // settles that every rendered or wired state is a domain property, and this one
@@ -2946,7 +2946,18 @@ function classifyGroup(
    * and for the same one use.
    */
   fetchAt: number | null = null,
+  /**
+   * Whether this branch is the spike a `design` plan's `Spike approved:`
+   * record licenses — `spikeOf` over the plan's slices, plus the record. That
+   * branch places as a branch of an approved plan: `draftPlacement` answers
+   * `null` for it, and the unrecognised-phase arms below let it through.
+   * Defaults to `false`, so every caller that does not know reads as before.
+   */
+  approvedSpike = false,
 ): { group: WaitingGroup; note: string } {
+  // A phase the board places branches under as runnable work: `approved`, and
+  // `design` for the one branch its approved spike names.
+  const runnablePhase = planPhase === 'approved' || (planPhase === 'design' && approvedSpike);
   // A deferred branch is never `working` — the group is about the claim the row
   // makes, not about the age of its last commit, so a fresh commit does not
   // pull it in. Work somebody gave up is not work in progress.
@@ -3026,10 +3037,12 @@ function classifyGroup(
       // approval, which is #231's measurement and is untouched here.
       //
       // THE RULE DECIDES THIS NOW, not an inline `planPhase === 'draft'` check
-      // — see `draftPlacement`. It answers `null` for any non-draft phase, so
-      // the allowlist below still runs unchanged for those.
+      // — see `draftPlacement`. It answers `null` for any phase but `draft` and
+      // `design`, and for a Design plan's approved spike, so the allowlist
+      // below still runs unchanged for those.
       const placement = draftPlacement({
         planPhase,
+        approvedSpike,
         state: 'deferred',
         deferredReason,
         fresh: false,
@@ -3058,7 +3071,7 @@ function classifyGroup(
     // the `open` arm where one deliberately does. There is nothing here for it
     // to protect: a deferred row never reads `working`, because the group is
     // about the claim the row makes and shelved work is not work in progress.
-    if (planPhase !== '' && planPhase !== 'approved') {
+    if (planPhase !== '' && !runnablePhase) {
       return { group: 'done', note: unknownPhaseNote(planPhase) };
     }
     // BELOW THE PHASE, THE SHELF STILL SPEAKS — and the note is not the word
@@ -3234,6 +3247,7 @@ function classifyGroup(
     {
       const placement = draftPlacement({
         planPhase,
+        approvedSpike,
         state: 'open',
         deferredReason: '',
         fresh: false,
@@ -3299,7 +3313,7 @@ function classifyGroup(
     // guess — reading it as unstartable would empty the section wholesale
     // against an older scan. It falls through to the git answer, exactly as
     // before.
-    if (planPhase !== '' && planPhase !== 'approved') {
+    if (planPhase !== '' && !runnablePhase) {
       // A phase the board has not been taught. Not startable — see the
       // allowlist note above — and the sentence says the board cannot place it
       // rather than inventing a reason it cannot know.
@@ -3541,7 +3555,7 @@ function classifyGroup(
     {
       const fresh = ageMinutes !== null && ageMinutes <= quietMinutes;
       const local = localDirty || localAhead > 0 || localLocked;
-      const placement = draftPlacement({ planPhase, state: 'claimed', deferredReason: '', fresh, local });
+      const placement = draftPlacement({ planPhase, approvedSpike, state: 'claimed', deferredReason: '', fresh, local });
       if (placement) return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
     }
     if (ageMinutes !== null && ageMinutes <= quietMinutes) {
@@ -3623,7 +3637,7 @@ function classifyGroup(
   // and `local` depend on its own quiet-window check below, so it asks the
   // rule there instead, with the real readings rather than `false`/`false`.
   if (state !== 'wip') {
-    const placement = draftPlacement({ planPhase, state, deferredReason: '', fresh: false, local: false });
+    const placement = draftPlacement({ planPhase, approvedSpike, state, deferredReason: '', fresh: false, local: false });
     if (placement) return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
   }
   const prerequisite = waitsOn.length === 0 ? 'an unnamed prerequisite' : prerequisiteList(waitsOn);
@@ -3663,7 +3677,7 @@ function classifyGroup(
   {
     const fresh = ageMinutes !== null && ageMinutes <= quietMinutes;
     const local = localDirty || localAhead > 0 || localLocked;
-    const placement = draftPlacement({ planPhase, state: 'wip', deferredReason: '', fresh, local });
+    const placement = draftPlacement({ planPhase, approvedSpike, state: 'wip', deferredReason: '', fresh, local });
     if (placement) return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
   }
   if (ageMinutes !== null && ageMinutes <= quietMinutes) {
@@ -5012,6 +5026,12 @@ export function rowsFromPulse(
    * `deliverable` flag is passed. Defaults to the map a repository gets with no `Workflow phases` key.
    */
   phaseMap: PhaseMap = DEFAULT_PHASE_MAP,
+  /**
+   * The approved spike of each `design` plan, keyed by `approvedSpikeKey` —
+   * `planEstate`'s `approvedSpikes`. A branch in it places as a branch of an
+   * approved plan. Absent reads as none.
+   */
+  approvedSpikes?: ReadonlySet<string> | null,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   // WHETHER THE HOST WAS ASKED AT ALL, read once for the whole pulse because
@@ -5236,7 +5256,10 @@ export function rowsFromPulse(
           // THIS BRANCH'S TIP, and the PULSE'S FETCH TIME — #1240. A fetch
           // that landed before this branch's own tip cannot assert that no
           // PR exists for it; see `fetchPredatesTip`.
-          tipAt?.get(b.branch) ?? null, prAt ?? null);
+          tipAt?.get(b.branch) ?? null, prAt ?? null,
+          // WHETHER THIS IS THE DESIGN PLAN'S APPROVED SPIKE, which places as
+          // a branch of an approved plan rather than one waiting on review.
+          approvedSpikes?.has(approvedSpikeKey(plan.file, b.branch)) ?? false);
         // THE CLOSED PR, READ HERE BECAUSE `classifyGroup` CANNOT SEE ONE.
         //
         // That function states the rule twice and records the mistake being
@@ -6479,7 +6502,7 @@ export async function buildFleet(
   // THE PLAN ESTATE IS PARSED ONCE, and three answers read it: the sprint
   // counts, the estate totals and the Draft plans WAITING ON YOU names.
   const estate = planEstate(opts, entry.pulse, entry.pulseComplete);
-  const [sprints, totals, masterAgentBranch, membership, settings, { draftPlans }, supervision, phasesValue] =
+  const [sprints, totals, masterAgentBranch, membership, settings, { draftPlans, approvedSpikes }, supervision, phasesValue] =
     await Promise.all([
       estate.then((e) => activeSprints(opts, entry.pulse, entry.pulseComplete, e.statusBySlug)),
       estate.then((e) => estateTotals(opts, entry.pulse, entry.pulseComplete, e.statusBySlug)),
@@ -6538,7 +6561,9 @@ export async function buildFleet(
       // off the cache entry, on the two independent timers that created the
       // defect: the git refresh that fills `tipAt` and the PR-fetch timer that
       // stamps `prAt`.
-      entry.tipAt, entry.prAt, phaseMap), entry.agents)
+      entry.tipAt, entry.prAt, phaseMap,
+      // EACH DESIGN PLAN'S APPROVED SPIKE, from the plan estate parsed above.
+      approvedSpikes), entry.agents)
     : [];
 
   // THE SECTIONS, REMEMBERED OR CARRIED FORWARD — the whole of this fix, in the
