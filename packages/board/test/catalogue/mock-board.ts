@@ -58,7 +58,7 @@ import { scenario, type Scenario, type ScenarioName } from './states.js';
  *   - `tuple-row` mounts ONE COMPONENT and hands it its data as props. It never
  *     fetches, so it needs no origin and `setContent` costs it nothing.
  *   - The board's client FETCHES. `App.tsx` polls `/api/board` and `/api/fleet`
- *     on relative URLs and reads `location.search` for `?tab=agents`. Under
+ *     on relative URLs and reads `location.search` for `?tab=delivery`. Under
  *     `setContent` the page's origin is `about:blank`: a relative fetch has no
  *     base to resolve against, `page.route('**\/api/*')` has no request to
  *     intercept, and the query string the tab selection reads cannot be set.

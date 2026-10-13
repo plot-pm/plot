@@ -1,7 +1,7 @@
 import type { FleetSprint, SprintCounts } from '../../contract/schema.js';
 
 /**
- * The sprint filter control for the Agents tab.
+ * The sprint filter control for the Delivery tab.
  *
  * Shows one toggle per Active sprint, each with its target release and three
  * exhaustive counts: open, WIP, done. When no sprint is Active the control is
@@ -81,7 +81,7 @@ function formatCounts(counts: SprintCounts, isEstate: boolean): string {
 }
 
 /**
- * The sprint filter for the Agents tab. One row per active sprint, each with
+ * The sprint filter for the Delivery tab. One row per active sprint, each with
  * a toggle, release target, and three exhaustive counts.
  *
  * Shows estate totals when filter is OFF, sprint numbers when ON — the

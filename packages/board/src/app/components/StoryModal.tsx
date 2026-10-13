@@ -61,7 +61,7 @@ export interface StoryModalProps {
   onClose: () => void;
   /** Switch to the board, filtered to this story. */
   onShowInBoard?: (story: StoryCard) => void;
-  /** Navigate to a sprint in the Agents tab. */
+  /** Navigate to a sprint in the Delivery tab. */
   onOpenSprint?: (sprintSlug: string) => void;
 }
 

@@ -20,7 +20,7 @@ import type { PlanSource } from '../../contract/schema.js';
  *
  * ALWAYS TRUE, SO NEVER A STATUS PANEL. `StatusPanel`'s contract is to vanish
  * when there is nothing wrong; a line that is true on every board cannot live
- * in it. Same split, and the same reasoning, as the Agents tab's
+ * in it. Same split, and the same reasoning, as the Delivery tab's
  * `… · scanned 4s ago · PR data 16s ago` footer — statuses at the top, ages at
  * the foot where the eye lands after the rows.
  *
@@ -90,7 +90,7 @@ export function PlanSourceLine({
   //
   // Not styled as an error: a repo with no remote is a legitimate place to run
   // `pnpm board`, and this is the honest report of what such a board can see,
-  // not a fault. Amber rather than rose for the same reason the Agents tab
+  // not a fault. Amber rather than rose for the same reason the Delivery tab
   // reserves rose for a dead server.
   // Nothing to report, and NOT an error: a payload with no `planSource` is an
   // older server's, and the honest answer is silence rather than a line

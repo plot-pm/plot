@@ -199,7 +199,7 @@ describe('a stuck branch says so in its row', () => {
       const real = await ctx.newPage();
       await real.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
-      await real.goto(`${opts.url}?tab=agents`);
+      await real.goto(`${opts.url}?tab=delivery`);
       await real.getByText('Waiting on you').waitFor({ timeout: 10_000 });
       await expandAgentFolds(real);
       return real;

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  openCatalogue, expandAgentFolds, board, row, slice, fleet, scenario, SCENARIOS,
+  openCatalogue, expandAgentFolds, board, card, column, row, slice, fleet, scenario, SCENARIOS,
   startMockBoard, type Catalogue, type MockBoard, type Scenario,
 } from '../catalogue/index.js';
 import { AgentRowSchema, FleetSchema } from '../../src/contract/schema.js';
@@ -34,6 +34,44 @@ describe('the mock board serves named states', () => {
 
   afterAll(async () => {
     await cat?.close();
+  });
+
+  describe('Show released', () => {
+    const withReleased = {
+      board: board({
+        columns: [
+          column({ phase: 'Design', cards: [card({ slug: 'a-draft', title: 'A draft plan', phase: 'Design', path: 'docs/plans/2026-08-24-a-draft.md' })] }),
+          column({ phase: 'Released', releasedOnly: true, cards: [card({ slug: 'an-old-one', title: 'An old released plan', phase: 'Released', path: 'docs/plans/2026-02-20-an-old-one.md' })] }),
+        ],
+      }),
+    };
+
+    it('hides a released-only column until the box is checked', async () => {
+      const page = await cat.open('an-empty-estate', { over: withReleased });
+      try {
+        await page.getByText('A draft plan').waitFor({ timeout: 15_000 });
+        expect(await page.getByText('An old released plan').count()).toBe(0);
+        const box = page.getByLabel('Show released');
+        expect(await box.isChecked()).toBe(false);
+        await box.check();
+        await page.getByText('An old released plan').waitFor({ timeout: 10_000 });
+        expect(new URL(page.url()).searchParams.get('released')).toBe('1');
+      } finally {
+        await page.close();
+      }
+    });
+
+    it('?released=1 shows the column and the checked box', async () => {
+      const page = await cat.browser.newPage();
+      try {
+        cat.mock.serve('an-empty-estate', withReleased);
+        await page.goto(`${cat.mock.baseURL}?released=1`);
+        await page.getByText('An old released plan').waitFor({ timeout: 15_000 });
+        expect(await page.getByLabel('Show released').isChecked()).toBe(true);
+      } finally {
+        await page.close();
+      }
+    });
   });
 
   it('serves the page itself, so routing is real', async () => {

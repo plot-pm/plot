@@ -1,4 +1,5 @@
 import { useMemo, useState, type CSSProperties } from 'react';
+import { planningColumns } from '@plot-pm/domain/rules/workflow-phases';
 import type { Board, Card, StoryCard } from '../../contract/schema.js';
 import { NO_STORY, passesFilter, passesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
 import { checksUnaskableOn } from '../lib/plan.js';
@@ -144,6 +145,8 @@ export interface BoardViewProps {
   onOpenStory?: (story: StoryCard) => void;
   /** Slug of the card just arrived at, or "" — see PlanCard's `highlighted`. */
   highlight?: string;
+  /** Whether the released-only columns are drawn; `?released=1`. */
+  showReleased?: boolean;
   /**
    * How old the plan read is, in seconds, from the fleet pulse — or null before
    * any scan has landed.
@@ -167,7 +170,10 @@ export function BoardView({
   onOpenStory,
   highlight = '',
   planAgeSeconds = null,
+  showReleased = false,
 }: BoardViewProps) {
+  // The grid sizes by the SHOWN columns, not the payload's.
+  const columns = planningColumns(board.columns, showReleased);
   const showSprint = sprintSel.length === 0;
   const showStory = storySel.length === 0;
   // Which columns the reader has opened up, by phase.
@@ -175,7 +181,7 @@ export function BoardView({
   // Component state rather than the URL, and rather than localStorage. The
   // board's convention is that the query string holds what is worth SENDING to
   // someone — `?tab`, `?lanes`, `?plan` — and "I unfolded Released" is not; the
-  // sibling collapse work makes the same argument for the Agents tab's groups.
+  // sibling collapse work makes the same argument for the Delivery tab's groups.
   // Nor is it persisted: unlike a group a reader collapses to keep it out of
   // the way for the session, this is opened to answer one question, and the
   // truncated view is the one worth returning to.
@@ -209,9 +215,9 @@ export function BoardView({
     )}
     <div
       className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-(--board-columns)"
-      style={{ '--board-columns': boardGridColumns(board.columns.length) } as CSSProperties}
+      style={{ '--board-columns': boardGridColumns(columns.length) } as CSSProperties}
     >
-      {board.columns.map((column) => {
+      {columns.map((column) => {
         // Sprint and story filters intersect.
         const cards = column.cards.filter(
           (c) =>
@@ -296,7 +302,7 @@ export function BoardView({
               {/* The control for the rest — the half that makes this truncation
                   rather than a hard cut. It renders only where there IS a rest:
                   a column under the limit offers nothing, the same rule the
-                  Agents tab's groups follow (a collapse control on a group with
+                  Delivery tab's groups follow (a collapse control on a group with
                   nothing to hide is an offer that leads nowhere).
 
                   It says the NUMBER hidden, not "show more". `Show 8 older` is

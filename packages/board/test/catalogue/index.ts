@@ -41,7 +41,7 @@ export interface Catalogue {
     name: ScenarioName,
     opts?: {
       over?: Partial<Scenario>;
-      tab?: 'agents' | 'board';
+      tab?: 'discovery' | 'planning' | 'delivery' | 'agents' | 'board';
       viewport?: { width: number; height: number };
       /**
        * The context's `prefers-reduced-motion`, for a test whose subject is an

@@ -374,7 +374,7 @@ export function mockFleet(): Fleet {
     },
     stuck: { stuck: 0, artifact: 0, conflict: 1, unpushed: 0, ci: 0 },
     prAgeSeconds: 0,
-    // A SPRINT, because the Agents tab reads it from HERE and not from the
+    // A SPRINT, because the Delivery tab reads it from HERE and not from the
     // board payload — so without one the sprint chip, its counts and its
     // timebox cannot be seen on a mock at all. Stated `late` on purpose: the
     // interesting state is the one a reader cannot produce on demand, and a

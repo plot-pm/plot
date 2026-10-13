@@ -232,7 +232,7 @@ describe('a split plan counts what is elsewhere', () => {
             summary: { plans: 1, waves: 2, branches: 2, claimed: 0, eligible: 1, blocked: 1, deferred: 0 },
           })),
         }));
-      await page.goto(`${cat.mock.baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=delivery`);
       await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
       const summary = planHead(notStarted(page), 'whole-plan').locator('[data-slice-summary]');
       await expect.poll(() => summary.textContent(), { timeout: 10_000 })

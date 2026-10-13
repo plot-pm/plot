@@ -213,6 +213,8 @@ export interface PhaseColumn {
   accent: string;
   /** Whether the column shows the delivery checklist: the phase holding `plan:delivered`. */
   checklist: boolean;
+  /** Whether the phase holds `plan:released` and no other plan state; the Planning tab hides it unless asked. */
+  releasedOnly: boolean;
 }
 
 const hasOwn = (record: object, key: string): boolean => Object.prototype.hasOwnProperty.call(record, key);
@@ -233,8 +235,19 @@ export const phaseColumns = (map: PhaseMap): PhaseColumn[] =>
       leadership: isDefault ? PHASE_LEADERSHIP[entry.name as keyof typeof PHASE_LEADERSHIP] : null,
       accent: isDefault ? entry.name : 'neutral',
       checklist: entry.plan.includes('delivered'),
+      releasedOnly: entry.plan.every((state) => state === 'released'),
     };
   });
+
+/**
+ * The columns the Planning tab shows.
+ *
+ * @param columns - any column list; a column without `releasedOnly` stays.
+ * @param showReleased - whether the reader asked for the released-only columns.
+ * @returns the columns, minus released-only ones unless `showReleased`.
+ */
+export const planningColumns = <T extends { releasedOnly?: boolean }>(columns: T[], showReleased: boolean): T[] =>
+  showReleased ? columns : columns.filter((column) => column.releasedOnly !== true);
 
 /** The lifecycle workflows and the plan states each acts on, in the order a phase performs them. */
 const WORKFLOW_ACTS_ON: readonly (readonly [WorkflowName, readonly DeclarablePlanState[]])[] = [

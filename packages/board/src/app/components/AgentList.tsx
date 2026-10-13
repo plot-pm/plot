@@ -18,7 +18,7 @@ import {
  * `.default()` never runs here and `fleet.fleetControls` is genuinely
  * `undefined` on any payload written before the field existed (a stubbed
  * fixture, a board mid-upgrade, a cached response). Reading through it threw
- * and took the whole Agents tab down with it.
+ * and took the whole Delivery tab down with it.
  *
  * `absent is not false`: an absent control block is *unknown*, and the safe
  * reading of unknown here is the same one the schema declares — a fleet that
@@ -577,7 +577,7 @@ export function AgentList({
   // membership map is built from active sprints only.
   //
   // So the filter reads a DERIVATION rather than the stored `Set`, with the rule
-  // the Plans tab already applies to its URL selection (`App.tsx:937`): keep the
+  // the Planning tab already applies to its URL selection (`App.tsx:937`): keep the
   // selected values that are still options, and let an all-stale selection
   // collapse to no filter. No new rule, and the control and the filter can no
   // longer answer from two different sprint sets.

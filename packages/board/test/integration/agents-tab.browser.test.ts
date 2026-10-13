@@ -1475,7 +1475,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.route('**/api/board', (route) => route.abort('connectionrefused'));
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
-      await page.goto(`${cat.mock.baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=delivery`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // This test builds its own page rather than going through `openAgents`, so
@@ -1485,6 +1485,18 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await rowFor(page, 'feature/untaken').waitFor({ timeout: 10_000 });
       expect(await menu(page, 'feature/untaken').count()).toBe(0);
       expect(await startButtons(page).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('?tab=agents opens Delivery, rewrites the URL, and the tab bar carries the new labels', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      expect(new URL(page.url()).searchParams.get('tab')).toBe('delivery');
+      const labels = await page.getByRole('navigation', { name: 'Views' }).getByRole('button').allTextContents();
+      expect(labels).toEqual(['Discovery', 'Planning', 'Delivery']);
     } finally {
       await page.close();
     }
@@ -1694,7 +1706,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const page = await context.newPage();
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
-      await page.goto(`${cat.mock.baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=delivery`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // The default, on a context that has stored nothing.
@@ -1759,7 +1771,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           contentType: 'application/json',
           body: JSON.stringify(extra ? two : one),
         }));
-      await page.goto(`${cat.mock.baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=delivery`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       await expect.poll(() => heading(page, 'Quiet').textContent()).toContain('(1)');
@@ -1795,7 +1807,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           contentType: 'application/json',
           body: JSON.stringify(quietened ? after : before),
         }));
-      await page.goto(`${cat.mock.baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=delivery`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // The reader opens QUIET deliberately.
@@ -1869,7 +1881,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.setViewportSize({ width: 1280, height: 1100 });
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(many) }));
-      await page.goto(`${cat.mock.baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=delivery`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // The header counts the PLAN HEADS the reader sees, not the rows folded
@@ -2113,10 +2125,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // stops" is exactly the kind of claim prose makes and code forgets.
     const page = await openAgents();
     try {
-      await page.getByRole('button', { name: 'Plans' }).click();
+      await page.getByRole('button', { name: 'Planning' }).click();
       await expect.poll(() => footer(page).count()).toBe(0);
       // Returning brings it back live rather than frozen where it left off.
-      await page.getByRole('button', { name: 'Agents' }).click();
+      await page.getByRole('button', { name: 'Delivery' }).click();
       await footer(page).waitFor({ timeout: 5_000 });
       const read = async () => {
         const t = (await footer(page).textContent()) ?? '';
@@ -2271,7 +2283,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await cat.browser.newPage();
     try {
       await page.route('**/api/fleet', (route) => route.abort('connectionrefused'));
-      await page.goto(`${cat.mock.baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=delivery`);
       await page.getByText('Loading…').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // No pulse ever arrived, so there is no "last heard" moment to report.
@@ -2922,7 +2934,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           })),
         })),
       }));
-      await page.goto(`${cat.mock.baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=delivery`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       await expect.poll(() => group(page, 'Waiting on you')
@@ -3251,7 +3263,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await context.newPage();
     await page.route('**/api/fleet', (route) =>
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) }));
-    await page.goto(`${cat.mock.baseURL}?tab=agents`);
+    await page.goto(`${cat.mock.baseURL}?tab=delivery`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return { page, swap: (next: Fleet) => { current = next; } };
@@ -3453,7 +3465,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     await page.setViewportSize({ width, height: 900 });
     await page.route('**/api/fleet', (route) =>
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
-    await page.goto(`${cat.mock.baseURL}?tab=agents`);
+    await page.goto(`${cat.mock.baseURL}?tab=delivery`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;

@@ -22,7 +22,7 @@ export const COLLAPSED_BY_DEFAULT: WaitingGroup[] = ['quiet', 'done'];
  * Where the collapse state lives.
  *
  * `localStorage`, and that is a deliberate departure. The board's convention for
- * view state is the URL — `?tab=agents`, `?lanes=1`, `?plan=…`, written with
+ * view state is the URL — `?tab=delivery`, `?lanes=1`, `?plan=…`, written with
  * `history.replaceState` — and there is no other `localStorage` in the app, so
  * this introduces a second mechanism for what looks like the same kind of state.
  *

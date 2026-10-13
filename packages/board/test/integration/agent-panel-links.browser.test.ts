@@ -202,7 +202,7 @@ describe('the agent panel facts are destinations', () => {
     try {
       await page.route('**/api/agent-panel*', (r) =>
         r.fulfill({ contentType: 'application/json', body: JSON.stringify(panel()) }));
-      await page.goto(`${cat.mock.baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=delivery`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
       await expandAgentFolds(page);
       await openPanel(page);

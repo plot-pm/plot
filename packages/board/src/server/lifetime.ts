@@ -9,7 +9,7 @@
  * `packages/board/test/helpers.mjs` sets) and had **PID 1 as their parent** —
  * the test runs that spawned them were long gone, eighteen seconds apart, and
  * both were still answering `/api/fleet` with 200 and still polling. They are
- * orphans, and they are why the Agents tab reported `0 branches across 0 plans`
+ * orphans, and they are why the Delivery tab reported `0 branches across 0 plans`
  * during a five-agent run.
  *
  * The tests are not undisciplined: 26 `startServer(` calls against 24 `.kill()`

@@ -304,7 +304,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       if (mode === 'ok') return route.fallback();
       return answer(route, '');
     });
-    await page.goto(tab === 'agents' ? `${baseURL}?tab=agents` : baseURL);
+    await page.goto(tab === 'agents' ? `${baseURL}?tab=delivery` : baseURL);
     // Wait for real content, so there is a payload to degrade FROM.
     if (tab === 'agents') await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     else await page.getByText(CARD).waitFor({ timeout: 10_000 });
@@ -315,9 +315,9 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     // The Agents tab needs the board's cards too — that is where Start work
     // and the restart command come from.
     if (tab === 'agents') {
-      await page.getByRole('button', { name: 'Plans' }).click();
+      await page.getByRole('button', { name: 'Planning' }).click();
       await page.getByText(CARD).waitFor({ timeout: 10_000 });
-      await page.getByRole('button', { name: 'Agents' }).click();
+      await page.getByRole('button', { name: 'Delivery' }).click();
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     }

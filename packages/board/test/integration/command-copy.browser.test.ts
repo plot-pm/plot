@@ -327,7 +327,7 @@ describe('the command can be read in full: one line, then the whole thing, copie
           ok: true, branch: BRANCH, path: '/tmp/wt/.plot-worker.log',
           text: '', bytes: 0, truncated: false, modifiedAt: new Date().toISOString(),
         }) }));
-      await page.goto(`${cat.mock.baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=delivery`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       await page.locator('[data-row-actions]').first().click();
