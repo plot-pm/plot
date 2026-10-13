@@ -1757,7 +1757,36 @@ export async function collectStories(
   ref?: string,
   refs?: Refs,
 ): Promise<StoryCard[]> {
-  const root = path.join(repoRoot, storyDir);
+  return collectStoryCards(repoRoot, storyDir, allPlans, false, ref, refs);
+}
+
+/**
+ * Discover archived stories under `<storyDir>/archived/<slug>/STORY-<slug>.md`.
+ * Archived is a location, not a status: only files physically under `archived/`
+ * count. Reads the ref first and the working tree second, the ref winning, as
+ * `collectStories` does. Returns `[]` where no archived directory exists.
+ */
+export async function collectArchivedStories(
+  repoRoot: string,
+  storyDir: string,
+  allPlans: PlanMeta[],
+  ref?: string,
+  refs?: Refs,
+): Promise<StoryCard[]> {
+  return collectStoryCards(repoRoot, storyDir, allPlans, true, ref, refs);
+}
+
+const collectStoryCards = async (
+  repoRoot: string,
+  storyDir: string,
+  allPlans: PlanMeta[],
+  archived: boolean,
+  ref?: string,
+  refs?: Refs,
+): Promise<StoryCard[]> => {
+  const root = archived
+    ? path.join(repoRoot, storyDir, 'archived')
+    : path.join(repoRoot, storyDir);
   const stories: StoryCard[] = [];
   const takenSlugs = new Set<string>();
 
@@ -1791,7 +1820,7 @@ export async function collectStories(
     if (!m) continue;
     // `archived` is skipped on both paths — an archived story never populates
     // the filter list, which is what the walk below has always done.
-    if (relPath.split('/').includes('archived')) continue;
+    if (relPath.split('/').includes('archived') !== archived) continue;
     const slug = m[1];
     if (takenSlugs.has(slug)) continue;
     // No design docs from a ref: the tree carries the story file the caller
@@ -1803,7 +1832,7 @@ export async function collectStories(
   }
 
   for (const entry of fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }) : []) {
-    if (!entry.isDirectory() || entry.name === 'archived') continue;
+    if (!entry.isDirectory() || (!archived && entry.name === 'archived')) continue;
     const dir = path.join(root, entry.name);
     let storyFile: string | undefined;
     try {
@@ -1874,7 +1903,7 @@ export async function collectStories(
     if (parsed.success) stories.push(parsed.data);
   }
   return stories;
-}
+};
 
 /**
  * Resolve a story SLUG to its absolute file, restricted to the stories the
@@ -2342,6 +2371,9 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
   const stories = await collectStories(
     repoRoot, storyDir, metas, `origin/${defaultBranch}`, refs,
   );
+  const archivedStories = await collectArchivedStories(
+    repoRoot, storyDir, metas, `origin/${defaultBranch}`, refs,
+  );
   // THE LAST TWO READS, ASKED TOGETHER, for the same reason the three config
   // reads at the top are: the sprint estate and the release directory need
   // nothing from each other. Both are hoisted out of the object literal
@@ -2429,6 +2461,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // `[slug]` carries, so the two join directly.
     sprints,
     stories,
+    archivedStories,
     // Semantic topics extracted from story and plan titles using TF-IDF
     topics: extractTopics(stories.map((s) => ({
       slug: s.slug,

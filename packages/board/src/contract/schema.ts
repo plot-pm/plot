@@ -1366,6 +1366,11 @@ export const BoardSchema = z.object({
   sprints: z.array(SprintCardSchema),
   stories: z.array(StoryCardSchema),
   /**
+   * Stories that live under `<Story directory>/archived/`. A location, not a status; never part of
+   * `stories` or the Planning tab's filter. `[]` where no archived directory exists.
+   */
+  archivedStories: z.array(StoryCardSchema).default([]),
+  /**
    * Semantic topics extracted from story and plan titles using TF-IDF.
    * Each topic includes the story slugs it appears in, enabling filtering
    * that shows a story even when the topic was found in one of its plans.
