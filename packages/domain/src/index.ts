@@ -58,6 +58,8 @@ export * from './rules/old-label-migration.js';
 export * from './rules/phase.js';
 export * from './rules/board-tab.js';
 export * from './rules/workflow-phases.js';
+export * from './rules/ticket-lane.js';
+export * from './rules/story-lane.js';
 export * from './rules/card-controls.js';
 export * from './rules/pulse.js';
 export * from './rules/verdict.js';
