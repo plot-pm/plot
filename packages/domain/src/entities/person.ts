@@ -64,7 +64,11 @@ export const declaresSpelling = (raw: string, directory: PersonDirectory): boole
  * The form is `handle = Spelling, Spelling; handle = Spelling`: one entry per
  * person, separated by `;`, each naming the handle and then the other
  * spellings of that person. Every handle also resolves to itself, so an entry
- * with no `=` declares a person with one spelling. Handles are lowercased.
+ * with no `=` declares a person with one spelling. Handles are lowercased. A
+ * spelling may carry a tracker prefix, `<tracker>:<account>` (for example
+ * `jira:jan.wloka@quatico.com`), to declare that tracker's account for the
+ * handle alongside its ordinary spellings; the prefix is part of the spelling,
+ * compared and stored like any other free text.
  *
  * A spelling that two entries claim for different handles resolves to nobody:
  * it is dropped, so it stays undeclared.

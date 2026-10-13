@@ -1,4 +1,5 @@
 import { declaresSpelling, resolvePerson, samePerson, type PersonDirectory } from '../entities/person.js';
+import type { IssueSource } from './issue-source.js';
 
 /**
  * Whose a row is, as far as the board can tell.
@@ -28,6 +29,12 @@ export interface Reader {
 }
 
 /**
+ * The service a ticket's assignee is compared against: the `IssueSource` the
+ * board resolved, narrowed to the word {@link ticketOwnership} matches on.
+ */
+export type TicketSource = 'github' | 'bitbucket' | 'jira';
+
+/**
  * What a row carries that says whose it is.
  *
  * - `pr` — a row with a PR; `author` is the host's handle, `''` or absent
@@ -36,13 +43,16 @@ export interface Reader {
  *   `state` is the agent's state word. Either is absent on an older server.
  * - `plan` — a plan card; `assignee` is the plan's `Assignee:` line, free
  *   text, `''` or absent where the plan names nobody.
- * - `other` — an issue, a build, or a branch with no PR. None carries an
- *   owner.
+ * - `ticket` — an issue row; `assignees` is the tracker's assignee list, `[]`
+ *   where nobody is assigned; `source` is whose vocabulary the assignees are
+ *   written in, `null` where the board could not resolve it.
+ * - `other` — a build, or a branch with no PR. None carries an owner.
  */
 export type OwnedRow =
   | { kind: 'pr'; author?: string }
   | { kind: 'agent'; identity?: string; state?: string }
   | { kind: 'plan'; assignee?: string }
+  | { kind: 'ticket'; assignees?: string[]; source?: TicketSource | null }
   | { kind: 'other' };
 
 /** Agent states that say nothing about a desk on this machine. */
@@ -90,6 +100,98 @@ const planOwnership = (assignee: string | undefined, reader: Reader): Ownership 
 };
 
 /**
+ * The tracker prefix a `jira:` spelling declares, lowercased.
+ *
+ * `jira` is the only tracker scheme {@link ticketOwnership} resolves through a
+ * declared spelling today — a `git-host` ticket's assignee is a host login,
+ * compared directly as {@link prOwnership} does.
+ */
+const JIRA_PREFIX = 'jira:';
+
+/**
+ * Whose a ticket's assignee is, where the source is `jira`: never compared to
+ * the reader's host login directly, only through a declared `jira:` spelling.
+ *
+ * `mine` where a `jira:` spelling of the reader's handle names any assignee.
+ * `theirs` where a `jira:` spelling of another handle names one. `unknown`
+ * where no handle's `jira:` spelling names any assignee — including where the
+ * directory declares none at all.
+ */
+const jiraTicketOwnership = (assignees: string[], reader: Reader): Ownership => {
+  const login = comparableLogin(reader);
+  if (login === '') return 'unknown';
+  const directory = reader.directory ?? {};
+  const self = resolvePerson(login, directory);
+  for (const assignee of assignees) {
+    const spelling = `${JIRA_PREFIX}${assignee.trim()}`;
+    if (!declaresSpelling(spelling, directory)) continue;
+    if (samePerson(resolvePerson(spelling, directory), self)) return 'mine';
+    return 'theirs';
+  }
+  return 'unknown';
+};
+
+/**
+ * Whose a ticket is, by its assignees against the reader's host login.
+ *
+ * A `github`/`bitbucket` assignee is a host login, matched as {@link
+ * prOwnership} matches a PR author: an exact match counts even with no
+ * declared spelling. A `jira` assignee only resolves through a declared
+ * `jira:` spelling, as {@link jiraTicketOwnership}. A `null` source, or an
+ * empty assignee list, is `unknown` — unassigned is not `theirs`.
+ *
+ * Every assignee is checked; any match is `mine`.
+ */
+const ticketOwnership = (
+  assignees: string[] | undefined, source: TicketSource | null | undefined, reader: Reader,
+): Ownership => {
+  const list = assignees ?? [];
+  if (list.length === 0 || source === null || source === undefined) return 'unknown';
+  if (source === 'jira') return jiraTicketOwnership(list, reader);
+  const login = comparableLogin(reader);
+  if (login === '') return 'unknown';
+  const directory = reader.directory ?? {};
+  const self = resolvePerson(login, directory);
+  let sawTheirs = false;
+  for (const assignee of list) {
+    const by = assignee.trim();
+    if (by === '') continue;
+    if (samePerson(resolvePerson(by, directory), self)) return 'mine';
+    sawTheirs = true;
+  }
+  return sawTheirs ? 'theirs' : 'unknown';
+};
+
+/**
+ * Maps a resolved `IssueSource` and git-host backend to the vocabulary a
+ * ticket's assignees are written in.
+ *
+ * A declared tracker names its own scheme: `jira` reads as `jira`,
+ * `github-issues` as `github`. A repository with no declared tracker asks its
+ * git host, so its assignees are host logins — `github` and `bitbucket`
+ * resolve, and a backend this board has not resolved, or any other backend,
+ * answers `null`.
+ *
+ * @param source - who answers the open-issue list, from {@link issueSource}.
+ * @param backend - the git host's resolved backend word; ignored for `tracker`.
+ * @returns the source a ticket's assignees are compared against, or `null`
+ *   where it cannot be determined.
+ */
+export const ticketSourceOf = (source: IssueSource, backend: string): TicketSource | null => {
+  if (source.ask === 'tracker') {
+    if (source.scheme === 'jira') return 'jira';
+    if (source.scheme === 'github-issues') return 'github';
+    return null;
+  }
+  if (source.ask === 'git-host') {
+    if (backend === 'github') return 'github';
+    if (backend === 'bitbucket') return 'bitbucket';
+    return null;
+  }
+  return null;
+};
+
+/**
  * Whose an agent row is, by the machine's own record.
  *
  * `mine` where this machine's registry declared the agent and its desk is on
@@ -117,6 +219,8 @@ export const ownership = (row: OwnedRow, reader: Reader): Ownership => {
       return agentOwnership(row.identity, row.state);
     case 'plan':
       return planOwnership(row.assignee, reader);
+    case 'ticket':
+      return ticketOwnership(row.assignees, row.source, reader);
     default:
       return 'unknown';
   }
