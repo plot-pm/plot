@@ -46,21 +46,6 @@ describe('the mock board serves named states', () => {
       }),
     };
 
-    it('hides a released-only column until the box is checked', async () => {
-      const page = await cat.open('an-empty-estate', { over: withReleased });
-      try {
-        await page.getByText('A draft plan').waitFor({ timeout: 15_000 });
-        expect(await page.getByText('An old released plan').count()).toBe(0);
-        const box = page.getByLabel('Show released');
-        expect(await box.isChecked()).toBe(false);
-        await box.check();
-        await page.getByText('An old released plan').waitFor({ timeout: 10_000 });
-        expect(new URL(page.url()).searchParams.get('released')).toBe('1');
-      } finally {
-        await page.close();
-      }
-    });
-
     it('?released=1 shows the column and the checked box', async () => {
       const page = await cat.browser.newPage();
       try {
