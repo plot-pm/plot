@@ -6,4 +6,7 @@ The fleet folds its open-issue read into its own file-backed index (`.plot/state
 
 <!--
 plan: docs/plans/2026-10-12-tickets-and-stories-have-lanes.md
+bumps:
+  skills:
+    plot: patch
 -->
