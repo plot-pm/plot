@@ -267,6 +267,18 @@ export const landedBranches = (plan: FleetReading['plans'][number]): number =>
  *    a plan would be delivered a dozen times over while the first run was still
  *    working. Idempotence makes that harmless, not free.
  *
+ * A tracer plan (`plan.tracer`) keeps phase `approved` on the pulse and reads
+ * `proven` on the board, so the gates above alone would deliver it by itself.
+ * It is named in two cases only, each through the same gates:
+ *
+ *  - **With its dependent.** A non-tracer plan that passes every gate also
+ *    names each tracer plan that one of its branches lists in `waits_on`, after
+ *    the dependent, so the caller delivers the dependent first.
+ *  - **After its dependent.** A tracer plan whose delivery did not take, while a
+ *    plan that waits on it has already delivered or released, is named alone.
+ *
+ * A tracer plan with no dependent is delivered by a person.
+ *
  * Note what is NOT re-derived: merge state comes from the pulse, never from the
  * plan file, because the plan file carries no merge record and inventing one
  * here would answer a different question than the scan does.
@@ -274,58 +286,121 @@ export const landedBranches = (plan: FleetReading['plans'][number]): number =>
 export const planAutoDeliver = (input: PlanAutoDeliverInput): AutoDeliverPlan[] => {
   const { pulse, inFlight, complete = true, failures = {}, now = 0 } = input;
   if (!pulse) return [];
-  const out: AutoDeliverPlan[] = [];
+  type Plan = FleetReading['plans'][number];
+  const ready = (plan: Plan): boolean =>
+    isDeliverable(plan, pulse, inFlight, complete, failures, now);
+  const owners = new Map<string, Plan>();
   for (const plan of pulse.plans) {
-    if (plan.phase.toLowerCase() !== 'approved') continue;
+    for (const slice of plan.slices) for (const b of slice.branches) owners.set(b.branch, plan);
+  }
+  const out: AutoDeliverPlan[] = [];
+  const named = new Set<string>();
+  const push = (plan: Plan): void => {
     const slug = planSlug(plan.file);
-    if (inFlight.has(slug)) continue;
-    // The measurement. It answers `not-merged` for a plan the pulse does not
-    // know and for any unmerged non-deferred branch.
-    //
-    // THE WORD, not truthiness: since #491 this returns
-    // 'merged' | 'not-merged' | 'unknown', and 'unknown' means the scan could
-    // not answer. Auto-delivery acts only on a definite yes — delivering on an
-    // unanswered question is the defect #491 removes, one layer up.
-    //
-    // `allSlicesConfirmed` RATHER THAN `allSlicesMerged`, so a landing only a
-    // merge subject proves reads `unknown` here and no tick starts a delivery.
-    // THAT IS WHAT KEEPS THIS PATH FROM STICKING: without it, a subject-proven
-    // plan reads merged during a throttle, the first tick starts
-    // `plot-deliver.sh`, which asks the host and refuses, and
-    // `pruneDelivering` keeps the slug in `inFlight` while the plan still
-    // reads approved and merged — so no later tick delivers until the board
-    // restarts. With it, nothing enters `inFlight` and the first tick after
-    // the host confirms the merge delivers.
-    if (allSlicesConfirmed(joinKey(plan.file), pulse, complete) !== 'merged') continue;
-
-    // AND AT LEAST ONE BRANCH MUST HAVE LANDED HERE. This gate is narrower
-    // than the rule above on purpose, and the asymmetry is the whole point.
-    //
-    // A plan whose every slice is deferred IS deliverable — that is what
-    // `allSlicesMerged` now says, and it is right for the board's Deliver
-    // control and for `/plot-deliver`, where a person is deciding. It is not
-    // right for THIS path, which runs unattended on the scan's clock with no
-    // switch and no cap, and chains delivery to a reap and then to
-    // `plot-release-refs.sh --yes` — a ref deletion that cannot be undone.
-    //
-    // Measured 2026-09-22, before this gate existed: widening the rule alone
-    // would have auto-delivered two approved plans on the next tick, one of
-    // them `a-failed-tick-must-not-end-the-daemon`, whose delivery panel
-    // refuted it and left three corrections owed to a person. An automatic
-    // path must not resolve a question a person has been asked.
-    //
-    // A deferred branch is work NOT DONE HERE, so nothing about it was
-    // verified on this machine. `landedBranches > 0` is the measurement that
-    // something was: a PR merged, and the scan saw it.
-    if (landedBranches(plan) === 0) continue;
-
-    // A FAILED DELIVERY WAITS, AND STOPS AFTER THE BOUND. A delivery that
-    // always fails would otherwise restart on every pass.
-    if (retryVerdict(failures[slug], deliveryReading(plan), now) !== 'ready') continue;
-
+    if (named.has(slug)) return;
+    named.add(slug);
     out.push({ slug, file: plan.file });
+  };
+  for (const plan of pulse.plans) {
+    // A tracer plan never delivers alone while its dependent is unfinished: it
+    // is `proven`, which only a person or its dependent's delivery moves.
+    if (plan.tracer) {
+      // Retry: the dependent delivered on an earlier pass and this plan's own
+      // delivery did not take, so the dependent's gate no longer pulls it in.
+      if (ready(plan) && dependentsOf(plan, pulse.plans, owners).some(deliveredPlan)) push(plan);
+      continue;
+    }
+    if (!ready(plan)) continue;
+    push(plan);
+    // Dependent first, tracer plan after: the caller iterates in order and
+    // chains reap and release-refs per plan, so the dependent must be
+    // delivered before its tracer plan's own delivery starts.
+    for (const slice of plan.slices) {
+      for (const b of slice.branches) {
+        for (const waited of b.waits_on) {
+          const owner = owners.get(waited);
+          if (owner && owner !== plan && owner.tracer && ready(owner)) push(owner);
+        }
+      }
+    }
   }
   return out;
+};
+
+/** Whether a plan has delivered, from the pulse's phase. */
+const deliveredPlan = (plan: FleetReading['plans'][number]): boolean =>
+  ['delivered', 'released'].includes(plan.phase.toLowerCase());
+
+/** The other plans with a branch that `waits:` on a branch of `tracer`. */
+const dependentsOf = (
+  tracer: FleetReading['plans'][number],
+  plans: FleetReading['plans'],
+  owners: ReadonlyMap<string, FleetReading['plans'][number]>,
+): FleetReading['plans'] =>
+  plans.filter(
+    (plan) =>
+      plan !== tracer &&
+      plan.slices.some((slice) =>
+        slice.branches.some((b) => b.waits_on.some((w) => owners.get(w) === tracer)),
+      ),
+  );
+
+/** Every gate `planAutoDeliver` documents, for one plan. */
+const isDeliverable = (
+  plan: FleetReading['plans'][number],
+  pulse: FleetReading,
+  inFlight: Set<string>,
+  complete: boolean,
+  failures: Readonly<Record<string, DeliveryFailure>>,
+  now: number,
+): boolean => {
+  if (plan.phase.toLowerCase() !== 'approved') return false;
+  const slug = planSlug(plan.file);
+  if (inFlight.has(slug)) return false;
+  // The measurement. It answers `not-merged` for a plan the pulse does not
+  // know and for any unmerged non-deferred branch.
+  //
+  // THE WORD, not truthiness: since #491 this returns
+  // 'merged' | 'not-merged' | 'unknown', and 'unknown' means the scan could
+  // not answer. Auto-delivery acts only on a definite yes — delivering on an
+  // unanswered question is the defect #491 removes, one layer up.
+  //
+  // `allSlicesConfirmed` RATHER THAN `allSlicesMerged`, so a landing only a
+  // merge subject proves reads `unknown` here and no tick starts a delivery.
+  // THAT IS WHAT KEEPS THIS PATH FROM STICKING: without it, a subject-proven
+  // plan reads merged during a throttle, the first tick starts
+  // `plot-deliver.sh`, which asks the host and refuses, and
+  // `pruneDelivering` keeps the slug in `inFlight` while the plan still
+  // reads approved and merged — so no later tick delivers until the board
+  // restarts. With it, nothing enters `inFlight` and the first tick after
+  // the host confirms the merge delivers.
+  if (allSlicesConfirmed(joinKey(plan.file), pulse, complete) !== 'merged') return false;
+
+  // AND AT LEAST ONE BRANCH MUST HAVE LANDED HERE. This gate is narrower
+  // than the rule above on purpose, and the asymmetry is the whole point.
+  //
+  // A plan whose every slice is deferred IS deliverable — that is what
+  // `allSlicesMerged` now says, and it is right for the board's Deliver
+  // control and for `/plot-deliver`, where a person is deciding. It is not
+  // right for THIS path, which runs unattended on the scan's clock with no
+  // switch and no cap, and chains delivery to a reap and then to
+  // `plot-release-refs.sh --yes` — a ref deletion that cannot be undone.
+  //
+  // Measured 2026-09-22, before this gate existed: widening the rule alone
+  // would have auto-delivered two approved plans on the next tick, one of
+  // them `a-failed-tick-must-not-end-the-daemon`, whose delivery panel
+  // refuted it and left three corrections owed to a person. An automatic
+  // path must not resolve a question a person has been asked.
+  //
+  // A deferred branch is work NOT DONE HERE, so nothing about it was
+  // verified on this machine. `landedBranches > 0` is the measurement that
+  // something was: a PR merged, and the scan saw it.
+  if (landedBranches(plan) === 0) return false;
+
+  // A FAILED DELIVERY WAITS, AND STOPS AFTER THE BOUND. A delivery that
+  // always fails would otherwise restart on every pass.
+  if (retryVerdict(failures[slug], deliveryReading(plan), now) !== 'ready') return false;
+  return true;
 };
 
 /**

@@ -44,7 +44,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 1-4. Parse through Verify PRs | Small | Git/gh commands, helper script, state checks; discovery and existence read each plan's declared phase via `plot-plan-meta.sh` — the index is never asked |
 | 5. Verify Completeness | Frontier (orchestrator + jurors) + Small (the gate) | Orchestrator extracts deliverables and reads the panel's moderation; `/plot-panel` fans out one juror per lens, each running `gh pr diff` across the plan's PRs; the two commitment checks are one script call each |
 | 6. Release Note Check | Small | File existence checks |
-| 7-8. Deliver and Board Status | Small | File ops, git commands, board sync; the phase edit plus the `Delivered:` record are the transition, the index write is best-effort; the issue status write is one script call inside `plot-deliver.sh`, reported and never gating |
+| 7-8. Deliver and Board Status | Small | The fleet delivers a proven tracer plan with its first dependent, after it; a proven tracer plan with no dependent is a person's `/plot-deliver <slug>`. File ops, git commands, board sync; the phase edit plus the `Delivered:` record are the transition, the index write is best-effort; the issue status write is one script call inside `plot-deliver.sh`, reported and never gating |
 | 7b. Delivery-Landed Gate | Small | Run the reconcile scan, grep for the delivered plan; gate progression on the real grep result |
 | 9. Summary | Small | Template formatting |
 | Verify mode | Frontier (orchestrator + jurors) + Small (the preflight, the gate, the record) | Judging each numbered claim as supported or refuted is the same judgment as step 5's panel; the phase and tracer refusals, `plot-verify.mjs` and the per-label `check` calls are script calls an exit code decides |
@@ -550,6 +550,12 @@ Print:
   - If feature/bug: "Run `/plot-release` when ready to cut a versioned release."
   - If docs/infra: "Live on main — no release needed."
 - Tip: Run `/plot` to see overall status and what to do next
+
+## Delivering a tracer plan
+
+A plan with `Tracer: yes` whose every non-deferred slice merged reads `proven` on the board, not `deliverable`. The status only keeps the **automatic** path from delivering it alone: the fleet names a proven tracer plan only after the first plan that `waits:` on one of its branches, and retries it alone once that plan has delivered.
+
+A proven tracer plan with no dependent plan is delivered by a person (decision D14). Run `/plot-deliver <slug>` directly. The steps are the same as for any approved plan with every slice merged, and the manual command ignores the `proven` status.
 
 ## Verify mode
 
