@@ -249,6 +249,19 @@ export const phaseColumns = (map: PhaseMap): PhaseColumn[] =>
 export const planningColumns = <T extends { releasedOnly?: boolean }>(columns: T[], showReleased: boolean): T[] =>
   showReleased ? columns : columns.filter((column) => column.releasedOnly !== true);
 
+/**
+ * Whether arriving at a plan must turn on the released-only columns first.
+ *
+ * @param columns - the board's columns, each with its cards.
+ * @param slug - the plan arrived at, from *Show in board* or `?plan=`.
+ * @returns true when the plan's card sits in a released-only column, which `planningColumns` hides by default.
+ */
+export const revealsReleased = <T extends { releasedOnly?: boolean; cards: readonly { slug: string }[] }>(
+  columns: readonly T[],
+  slug: string,
+): boolean =>
+  slug !== '' && columns.some((column) => column.releasedOnly === true && column.cards.some((card) => card.slug === slug));
+
 /** The lifecycle workflows and the plan states each acts on, in the order a phase performs them. */
 const WORKFLOW_ACTS_ON: readonly (readonly [WorkflowName, readonly DeclarablePlanState[]])[] = [
   ['approve', ['draft', 'design']],

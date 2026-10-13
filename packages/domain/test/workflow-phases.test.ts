@@ -8,6 +8,7 @@ import {
   phaseColumns,
   planningColumns,
   phaseOfPlan,
+  revealsReleased,
   phaseOfStory,
   phaseWorkflows,
   planPhases,
@@ -247,5 +248,25 @@ describe('planningColumns', () => {
 
   it('keeps a column with no releasedOnly key', () => {
     expect(planningColumns([{ phase: 'A' }, { phase: 'B', releasedOnly: true }], false)).toEqual([{ phase: 'A' }]);
+  });
+});
+
+describe('revealsReleased', () => {
+  const columns = [
+    { phase: 'Design', cards: [{ slug: 'a-draft' }] },
+    { phase: 'Released', releasedOnly: true, cards: [{ slug: 'an-old-one' }] },
+  ];
+
+  it('answers true for a plan whose card sits in a released-only column', () => {
+    expect(revealsReleased(columns, 'an-old-one')).toBe(true);
+  });
+
+  it('answers false for a plan in a shown column', () => {
+    expect(revealsReleased(columns, 'a-draft')).toBe(false);
+  });
+
+  it('answers false for an unknown slug and for no slug', () => {
+    expect(revealsReleased(columns, 'gone')).toBe(false);
+    expect(revealsReleased([{ phase: 'Released', releasedOnly: true, cards: [{ slug: '' }] }], '')).toBe(false);
   });
 });

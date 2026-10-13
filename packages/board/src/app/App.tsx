@@ -6,6 +6,7 @@ import { Swimlanes } from './components/Swimlanes.js';
 import { PlanModal } from './components/PlanModal.js';
 import { SprintModal } from './components/SprintModal.js';
 import { boardTabOf, type BoardTab } from '@plot-pm/domain/rules/board-tab';
+import { revealsReleased } from '@plot-pm/domain/rules/workflow-phases';
 import { StoriesTab } from './components/StoriesTab.js';
 import { StoryModal } from './components/StoryModal.js';
 import { BLOCKED_REASON, UnreachableOverlay } from './components/UnreachableOverlay.js';
@@ -147,12 +148,20 @@ export function App() {
   const [showReleased, setShowReleased] = useState(
     () => new URLSearchParams(location.search).get('released') === '1',
   );
-  const onShowReleased = (next: boolean) => {
+  const writeShowReleased = useCallback((next: boolean) => {
     setShowReleased(next);
     const url = new URL(location.href);
     if (next) url.searchParams.set('released', '1');
     else url.searchParams.delete('released');
     history.replaceState(null, '', url);
+  }, []);
+  // The reader's own toggle is the next interaction, so the arrival highlight
+  // goes with it — the same rule as the sprint and story filters. It also stops
+  // the arrival effect below from turning the box back on.
+  const onShowReleased = (next: boolean) => {
+    writeShowReleased(next);
+    setHighlight('');
+    writeList('plan', []);
   };
   // "ONLY MY WORK" ON THE PLANNING TAB. One stored preference governs both tabs:
   // the Delivery tab's control writes the same key, and each tab renders alone,
@@ -952,6 +961,13 @@ export function App() {
   // exactly as the sprint and story selections are.
   const validHighlight = allCards.some((c) => c.slug === highlight) ? highlight : '';
 
+  // An arrival at a Released plan — *Show in board* or a `?plan=` link — turns
+  // the released-only columns on first. Without it the card is in the payload
+  // but not in the document, and the scroll below aims at nothing.
+  useEffect(() => {
+    if (!showReleased && board && revealsReleased(board.columns, highlight)) writeShowReleased(true);
+  }, [highlight, board, showReleased, writeShowReleased]);
+
   // Scroll to the highlighted card once it exists. Deferred a frame for the same
   // reason the story jump is: the element is not in the document until the tab
   // and filter have rendered, and a scroll to nothing looks exactly like a
@@ -968,7 +984,7 @@ export function App() {
       });
     });
     return () => cancelAnimationFrame(id);
-  }, [validHighlight, tab, lanes, board]);
+  }, [validHighlight, tab, lanes, board, showReleased]);
 
   // Scroll to a revealed branch's row once it exists — the Agents-tab twin of
   // the plan-card scroll above. Keyed on `revealNonce` so a repeated reveal of
