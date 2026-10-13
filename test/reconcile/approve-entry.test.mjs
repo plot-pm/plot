@@ -79,6 +79,13 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
   state.state = 'MERGED';
   fs.writeFileSync(file, JSON.stringify(state));
   process.stdout.write('merged');
+} else if (argv[0] === 'pr' && argv[1] === 'list' && argv.includes('--head') && argv.includes('mergedAt')) {
+  // The spike's merge reading (plot-host.sh pr-merged): 'merged', 'open' or 'fail'.
+  if (state.spike === 'fail') {
+    process.stderr.write('HTTP 502: Bad Gateway');
+    process.exit(1);
+  }
+  process.stdout.write(JSON.stringify(state.spike === 'merged' ? [{ mergedAt: '2026-10-12T10:00:00Z' }] : state.spike === 'open' ? [{ mergedAt: null }] : []));
 } else if (argv[0] === 'pr' && argv[1] === 'create') {
   process.stdout.write('https://example.invalid/pr/999');
 } else if (argv[0] === 'repo' && argv[1] === 'view') {
@@ -107,7 +114,7 @@ const makeRepo = (planBody, host = { number: 42, state: 'OPEN', draft: false }) 
   git(repo, 'config', 'user.name', 'Plot Test');
   git(repo, 'config', 'commit.gpgsign', 'false');
   fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
-    '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n- **Sprint directory:** docs/sprints/\n');
+    '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n- **Sprint directory:** docs/sprints/\n- **People:** jwloka = Jan Wloka\n');
   fs.mkdirSync(path.join(repo, 'docs', 'plans', 'active'), { recursive: true });
   fs.writeFileSync(path.join(repo, PLAN_REL), planBody);
   fs.symlinkSync('../2026-08-17-approve-me.md', path.join(repo, 'docs', 'plans', 'active', 'approve-me.md'));
@@ -201,6 +208,114 @@ for (const [name, build] of REFUSALS) {
       'no state receipt exists for a write that did not happen');
   });
 }
+
+// --- a Design plan with a spike (design-work-proves-the-path, Confirming the slices)
+
+const SPIKE_PLAN = ({ record = '2026-10-12, jwloka, in-session' } = {}) => `# Approve me
+
+## Status
+
+- **Phase:** Design
+- **Type:** feature
+- **Story:**
+- **Sprint:**
+- **Review:** in-session
+- **Impl:** own branches
+- **Spike approved:** ${record}
+- **Approved:**
+- **Started:**
+- **Delivered:**
+
+## Branches
+
+### The spike
+- \`feature/spike\` <!-- spike --> — the spike
+
+### The rest
+- \`feature/rest\` — the rest
+`;
+
+const approveWho = (repo) => approve(repo, ['--who', 'jwloka', 'approve-me']);
+
+/** Asserts a refusal that merged nothing, wrote nothing and left no receipt. */
+const refusedCleanly = (repo, r, before) => {
+  assert.notEqual(r.status, 0, `must refuse:\n${r.stdout}\n${r.stderr}`);
+  assert.deepEqual(mutatingCalls(), [], hostCalls());
+  assert.equal(planOnMain(repo), before, 'the plan on main is byte-identical');
+  assert.equal(fs.existsSync(path.join(repo, '.plot', 'state', 'state-receipts')), false,
+    'no state receipt exists for a write that did not happen');
+};
+
+test('approve entry: a Design plan whose spike has not merged refuses spike-unmerged and writes nothing', () => {
+  const { repo } = makeRepo(SPIKE_PLAN(), { number: 0, state: 'NONE', draft: false, spike: 'open' });
+  const before = planOnMain(repo);
+  const r = approveWho(repo);
+  refusedCleanly(repo, r, before);
+  assert.match(r.stderr, /the spike 'feature\/spike' of 'approve-me' has not merged \(the host holds no merged PR for it\)/, r.stderr);
+  assert.match(r.stderr, /remove the '<!-- spike -->' annotation/, r.stderr);
+  assert.match(hostCalls(), /^gh pr list --head feature\/spike\b/m, 'the merge is the host\'s answer for the spike branch');
+});
+
+test('approve entry: a Design plan whose annotated spike was never approved refuses spike-unmerged', () => {
+  const { repo } = makeRepo(SPIKE_PLAN({ record: '' }), { number: 0, state: 'NONE', draft: false, spike: 'open' });
+  const before = planOnMain(repo);
+  const r = approveWho(repo);
+  refusedCleanly(repo, r, before);
+  assert.match(r.stderr, /the spike 'feature\/spike' of 'approve-me' has not merged/, r.stderr);
+});
+
+test('approve entry: a host that cannot answer the spike merge refuses and writes nothing', () => {
+  const { repo } = makeRepo(SPIKE_PLAN(), { number: 0, state: 'NONE', draft: false, spike: 'fail' });
+  const before = planOnMain(repo);
+  const r = approveWho(repo);
+  refusedCleanly(repo, r, before);
+  assert.match(r.stderr, /has not merged \(the host could not say\)/, r.stderr);
+});
+
+test('approve entry: a merged spike with uncommitted slice edits refuses slices-unpushed and names the commit', () => {
+  const { repo } = makeRepo(SPIKE_PLAN(), { number: 0, state: 'NONE', draft: false, spike: 'merged' });
+  const before = planOnMain(repo);
+  fs.appendFileSync(path.join(repo, PLAN_REL), '- `feature/more` — a rewritten slice\n');
+  const r = approveWho(repo);
+  refusedCleanly(repo, r, before);
+  assert.match(r.stderr, new RegExp(`${PLAN_REL} has edits in this checkout that are not committed\\. Commit them and push them`), r.stderr);
+});
+
+test('approve entry: a merged spike with a checkout that is only behind is told to pull, not to push', () => {
+  const { repo, origin } = makeRepo(SPIKE_PLAN(), { number: 0, state: 'NONE', draft: false, spike: 'merged' });
+  const other = path.join(path.dirname(origin), 'other');
+  git(path.dirname(origin), 'clone', '-q', origin, other);
+  git(other, 'config', 'user.email', 'test@example.invalid');
+  git(other, 'config', 'user.name', 'Plot Test');
+  git(other, 'config', 'commit.gpgsign', 'false');
+  fs.appendFileSync(path.join(other, PLAN_REL), '- `feature/more` — a rewritten slice\n');
+  git(other, 'commit', '-qam', 'plot: rewrite the slices');
+  git(other, 'push', '-q', 'origin', 'main');
+  const before = planOnMain(repo);
+  const r = approveWho(repo);
+  refusedCleanly(repo, r, before);
+  assert.match(r.stderr, new RegExp(`${PLAN_REL} in this checkout is behind origin/main\\. Pull the default branch`), r.stderr);
+  assert.doesNotMatch(r.stderr, /[Pp]ush/, r.stderr);
+});
+
+test('approve entry: a merged spike with pushed slices approves', () => {
+  const { repo } = makeRepo(SPIKE_PLAN(), { number: 0, state: 'NONE', draft: false, spike: 'merged' });
+  const r = approveWho(repo);
+  assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+  const plan = planOnMain(repo);
+  assert.match(plan, /\*\*Phase:\*\* Approved/, plan);
+  assert.match(plan, /- \*\*Approved:\*\* \d{4}-\d{2}-\d{2}, jwloka, in-session/, plan);
+  assert.match(plan, /- \*\*Spike approved:\*\* 2026-10-12, jwloka, in-session/, 'the spike record stays');
+});
+
+test('approve entry: a Design plan whose spike annotation was removed approves on the person arm', () => {
+  const body = SPIKE_PLAN().replace(' <!-- spike -->', '');
+  const { repo } = makeRepo(body, { number: 0, state: 'NONE', draft: false, spike: 'open' });
+  const r = approveWho(repo);
+  assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+  assert.match(planOnMain(repo), /\*\*Phase:\*\* Approved/);
+  assert.doesNotMatch(hostCalls(), /^gh pr list --head feature\/spike\b/m, 'a plan with no spike reads no spike merge');
+});
 
 // --- the receipts ------------------------------------------------------------
 

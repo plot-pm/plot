@@ -229,8 +229,8 @@ export interface ApproveInput {
   /**
    * The host's `mergedAt` reading for the plan's spike branch, named by that branch.
    *
-   * Read only for a `design` plan that records `Spike approved:`, where an
-   * absent reading refuses `spike-unmerged`. Any other plan ignores it.
+   * Read only for a `design` plan whose `slices` name one spike branch, where
+   * an absent reading refuses `spike-unmerged`. Any other plan ignores it.
    */
   spikeMerged?: Precondition;
   /**
@@ -260,8 +260,8 @@ export const approvable = (plan: TransitionPlan): boolean =>
  * Decides the write that approving a plan calls for.
  *
  * Carries the mechanical refusals only — the state, the review channel and,
- * for a `design` plan that records `Spike approved:`, the two readings that
- * confirm its slices. A host-dependent check, such as whether the plan PR
+ * for a `design` plan whose slices name one spike branch, the two readings
+ * that confirm its slices. A host-dependent check, such as whether the plan PR
  * merged, is supplied as a precondition reading rather than performed here.
  *
  * `approved` is not refused: it is the idempotent case, where a missing record
@@ -282,10 +282,11 @@ export const approvable = (plan: TransitionPlan): boolean =>
  *   `review-human`, `reviewer-undeclared`, `review-unrecognised`,
  *   `spike-unmerged`, `slices-unpushed` or `precondition-unmet`.
  *
- * A `design` plan that records `Spike approved:` refuses `spike-unmerged`
- * until `input.spikeMerged` is met, then `slices-unpushed` until
- * `input.slicesPushed` is met. A `draft` plan, an `approved` plan and a
- * `design` plan with no spike record are not asked.
+ * A `design` plan whose `input.slices` name one spike branch refuses
+ * `spike-unmerged` until `input.spikeMerged` is met, then `slices-unpushed`
+ * until `input.slicesPushed` is met, whether or not it records `Spike
+ * approved:`. A `draft` plan, an `approved` plan and a `design` plan with no
+ * spike annotation, or with more than one, are not asked.
  */
 export const approve = (plan: TransitionPlan, input: ApproveInput): TransitionResult => {
   switch (plan.phase) {
@@ -369,7 +370,7 @@ export const approve = (plan: TransitionPlan, input: ApproveInput): TransitionRe
   const unconfirmed = confirmRefusal({
     slug: plan.slug,
     phase: plan.phase,
-    spikeApproved: plan.spikeApprovedRecord ?? '',
+    slices: input.slices ?? [],
     spikeMerged: input.spikeMerged,
     slicesPushed: input.slicesPushed,
   });

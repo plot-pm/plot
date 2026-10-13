@@ -3,12 +3,13 @@ import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
-import type { Host, PlanStore, Refs, Scripts, Trees } from '@plot-pm/domain';
+import type { Host, PlanStore, PortResult, Refs, Scripts, Trees } from '@plot-pm/domain';
 import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
 import { approve, approveSpike, isRefusal, type Precondition, type TransitionPlan } from '@plot-pm/domain/transitions/plan';
 import { approve as approveWorkflow, approveSpike as approveSpikeWorkflow, type ApproveReadings, type ApproveRefusal } from '@plot-pm/domain/workflows/approve';
 import { planStateOf } from '@plot-pm/domain/entities/plan';
 import { spikeOf } from '@plot-pm/domain/rules/spike';
+import { slicesPushedOf } from '@plot-pm/domain/rules/spike-confirm';
 import { flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { SPIKE_APPROVED_FIELD, spikeReceiptKey } from '@plot-pm/domain/rules/state-transition';
 import { clearHolds } from '@plot-pm/domain/rules/hold-clear';
@@ -425,14 +426,27 @@ const remotePlanOf = async (
   };
 };
 
+/** The readings a Design plan with a spike owes its approval, and the slices they were taken for. */
+interface ConfirmTaken {
+  /** The slices whose spike the readings name: the default branch's copy where it names one. */
+  slices: PlanRecord['slices'];
+  spikeMerged: Precondition;
+  slicesPushed: Precondition;
+}
+
 /**
- * The two readings a Design plan with an approved spike owes its approval.
+ * The two readings a Design plan with a spike owes its approval, or undefined
+ * where neither the checkout's copy nor the default branch's copy names one
+ * spike branch.
  *
- * The spike's merge is the host's `mergedAt` for its branch and nothing else.
- * The slices are pushed when the plan file in this checkout equals its copy on
- * `origin/<main>`; a plan read from the default branch or a PR head is that copy
- * by construction. A host that cannot say, a plan outside the repository and a
- * file the default branch does not hold all read as unmet.
+ * The spike is read from the copy on `origin/<main>`, which the approval
+ * books, and from the checkout's copy where the default branch names none. Its
+ * merge is the host's `mergedAt` for its branch and nothing else. The slices
+ * reading compares the working tree, `HEAD`, the merge base and `origin/<main>`
+ * through `slicesPushedOf`, so a checkout that is only behind is told to pull.
+ * A plan read from the default branch or a PR head is that copy by
+ * construction. A host that cannot say and a plan outside the repository read
+ * as unmet.
  */
 const confirmReadingsOf = async (
   ctx: Context,
@@ -440,30 +454,37 @@ const confirmReadingsOf = async (
   planFile: string,
   main: string,
   inCheckout: boolean,
-): Promise<{ spikeMerged: Precondition; slicesPushed: Precondition }> => {
-  const branch = spikeOf(plan.slices)?.branch ?? '';
-  let spikeMerged: Precondition = { name: 'spike', met: false, detail: 'the plan names no single spike branch' };
-  if (branch !== '') {
-    const answer = await ctx.host.prMerged(branch);
-    spikeMerged = {
-      name: branch,
-      met: answer.ok && answer.value === 'merged',
-      detail: !answer.ok ? 'the host could not be asked' : answer.value === 'merged' ? undefined : answer.value === 'unknown' ? 'the host could not say' : 'the host holds no merged PR for it',
-    };
+): Promise<ConfirmTaken | undefined> => {
+  const rel = inCheckout ? realPlanPath(ctx.repoRoot, planFile) : null;
+  let remote: PlanRecord | undefined;
+  if (rel !== null) {
+    await ctx.trees.fetch(ctx.repoRoot, main);
+    remote = await readPlanAt(ctx, `origin/${main}`, rel);
   }
-  if (!inCheckout) return { spikeMerged, slicesPushed: { name: planFile, met: true } };
-  const rel = realPlanPath(ctx.repoRoot, planFile);
-  if (rel === null) {
-    return { spikeMerged, slicesPushed: { name: planFile, met: false, detail: 'it is outside the repository' } };
-  }
-  await ctx.trees.fetch(ctx.repoRoot, main);
-  const there = await ctx.refs.showFile(`origin/${main}`, rel);
-  const here = await ctx.planStore.readText(path.join(ctx.repoRoot, rel));
-  const same = there.ok && here.ok && here.value === there.value;
-  return {
-    spikeMerged,
-    slicesPushed: { name: rel, met: same, detail: same ? undefined : there.ok ? `it differs from origin/${main}` : `origin/${main} holds no copy` },
+  const slices = remote !== undefined && spikeOf(remote.slices) !== undefined ? remote.slices : plan.slices;
+  const spike = spikeOf(slices);
+  if (spike === undefined) return undefined;
+  const answer = await ctx.host.prMerged(spike.branch);
+  const spikeMerged: Precondition = {
+    name: spike.branch,
+    met: answer.ok && answer.value === 'merged',
+    detail: !answer.ok ? 'the host could not be asked' : answer.value === 'merged' ? undefined : answer.value === 'unknown' ? 'the host could not say' : 'the host holds no merged PR for it',
   };
+  if (!inCheckout) return { slices, spikeMerged, slicesPushed: { name: planFile, met: true } };
+  if (rel === null) {
+    return { slices, spikeMerged, slicesPushed: { name: planFile, met: false, detail: 'is outside the repository. Approve it from a checkout of the repository' } };
+  }
+  const text = (r: PortResult<string | null>): string | undefined => (r.ok && r.value !== null ? r.value : undefined);
+  const base = await ctx.refs.mergeBase('HEAD', `origin/${main}`);
+  const slicesPushed = slicesPushedOf({
+    file: rel,
+    main,
+    working: text(await ctx.planStore.readText(path.join(ctx.repoRoot, rel))),
+    head: text(await ctx.refs.showFile('HEAD', rel)),
+    base: base.ok ? text(await ctx.refs.showFile(base.value, rel)) : undefined,
+    remote: text(await ctx.refs.showFile(`origin/${main}`, rel)),
+  });
+  return { slices, spikeMerged, slicesPushed };
 };
 
 /** What the refusal sentences name besides the domain's reason. */
@@ -535,7 +556,7 @@ interface WriteRequest {
   dirs: Dirs;
   /** Records `Spike approved:` and clears the spike branch's hold instead of approving the plan. */
   spike?: boolean;
-  /** The readings `perform` took for a Design plan with an approved spike; the domain re-judges them. */
+  /** The readings `perform` took for a Design plan with a spike; the domain re-judges them. */
   confirm?: { spikeMerged?: Precondition; slicesPushed?: Precondition };
 }
 
@@ -879,7 +900,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
   }
 
   const confirm =
-    !args.spike && plan !== undefined && phase === 'design' && plan.spikeApprovedRaw.trim() !== ''
+    !args.spike && plan !== undefined && phase === 'design'
       ? await confirmReadingsOf(ctx, plan, planFile, main, inCheckout)
       : undefined;
   const readings: ApproveReadings = {
@@ -910,7 +931,11 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
       ? `plan-PR #${pr.number} reviewed`
       : `plan-PR #${pr.number} merged`;
   const verdict = (args.spike ? approveSpikeWorkflow : approveWorkflow)(
-    { ...readings, spikeApprovedRecord: plan?.spikeApprovedRaw ?? '', ...confirm },
+    {
+      ...readings,
+      spikeApprovedRecord: plan?.spikeApprovedRaw ?? '',
+      ...(confirm === undefined ? {} : { confirmSlices: confirm.slices, spikeMerged: confirm.spikeMerged, slicesPushed: confirm.slicesPushed }),
+    },
     { on: localDate(), who: args.who, channel: args.spike ? spikeChannel : 'in-session', people },
   );
   // The reviewer is a human in the room, and `process.env` is not the domain's to read.
@@ -1031,7 +1056,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
     prNumber: pr.number,
     dirs,
     ...(args.spike ? { spike: true } : {}),
-    ...(confirm === undefined ? {} : { confirm }),
+    ...(confirm === undefined ? {} : { confirm: { spikeMerged: confirm.spikeMerged, slicesPushed: confirm.slicesPushed } }),
   });
   // A batch PR's merge lands its other plans unapproved; the summary names them
   // so a reader approves each by its own slug.

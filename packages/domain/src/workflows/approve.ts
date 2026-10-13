@@ -75,8 +75,8 @@ export interface ApproveReadings {
   /**
    * The host's `mergedAt` reading for the spike branch, named by that branch.
    *
-   * Read only for a `design` plan that records `Spike approved:`; an absent
-   * reading there refuses `spike-unmerged`.
+   * Read only for a `design` plan whose slices name one spike branch; an
+   * absent reading there refuses `spike-unmerged`.
    */
   spikeMerged?: ConfirmReading;
   /**
@@ -85,6 +85,11 @@ export interface ApproveReadings {
    * {@link spikeMerged}; an absent reading refuses `slices-unpushed`.
    */
   slicesPushed?: ConfirmReading;
+  /**
+   * The slices the spike refusals read: the copy of the plan on the default
+   * branch, which the approval books. Absent reads `slices`.
+   */
+  confirmSlices?: readonly NamedSlice[];
   /** What the host says about the plan PR. */
   pr: ApprovePrReading;
 }
@@ -286,13 +291,13 @@ export const approve = (
       );
   }
 
-  // A Design plan whose spike is approved leaves Design only after the spike
-  // merged and the rewritten slices reached the default branch. Asked before
+  // A Design plan with a spike leaves Design only after the spike merged and
+  // the rewritten slices reached the default branch. Asked before
   // the PR is read, so the refusal names the spike rather than the plan PR.
   const unconfirmed = confirmRefusal({
     slug,
     phase: readings.phase,
-    spikeApproved: readings.spikeApprovedRecord ?? '',
+    slices: readings.confirmSlices ?? readings.slices ?? [],
     spikeMerged: readings.spikeMerged,
     slicesPushed: readings.slicesPushed,
   });

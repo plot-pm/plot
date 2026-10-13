@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { approve as transition, isRefusal, type ApproveInput as TransitionInput } from '../src/transitions/plan.js';
 import { approve, decided, refused, type ApproveInput, type ApproveReadings } from '../src/workflows/index.js';
+import { cardControls } from '../src/rules/card-controls.js';
 
 const SPIKE = [
   { name: 'The spike', branches: [{ branch: 'feature/spike', spike: true }] },
@@ -34,7 +35,7 @@ const reason = (r: ApproveReadings) => {
   return refused(out) ? out.reason : decided(out) ? 'decided' : 'other';
 };
 
-describe('approve of a Design plan whose spike is approved — the workflow', () => {
+describe('approve of a Design plan with a spike — the workflow', () => {
   it('approves when the spike has merged and the slices are pushed', () => {
     expect(reason(readings())).toBe('decided');
   });
@@ -55,8 +56,32 @@ describe('approve of a Design plan whose spike is approved — the workflow', ()
     expect(reason(readings({ slicesPushed: undefined }))).toBe('slices-unpushed');
   });
 
-  it('leaves a Design plan with no approved spike unaffected', () => {
-    expect(reason(readings({ spikeApprovedRecord: '', spikeMerged: undefined, slicesPushed: undefined }))).toBe('decided');
+  it('refuses spike-unmerged for a Design plan whose annotated spike was never approved', () => {
+    expect(reason(readings({ spikeApprovedRecord: '', spikeMerged: undefined, slicesPushed: undefined }))).toBe('spike-unmerged');
+  });
+
+  it('approves a Design plan whose spike annotation was removed, on the person arm', () => {
+    const plain = [
+      { name: 'The spike', branches: [{ branch: 'feature/spike' }] },
+      { name: 'The rest', branches: [{ branch: 'feature/rest' }] },
+    ];
+    expect(reason(readings({ slices: plain, spikeMerged: undefined, slicesPushed: undefined, review: 'in-session' }))).toBe('decided');
+  });
+
+  it('approves a Design plan with two spike annotations, which has no spike', () => {
+    const two = [
+      { name: 'The spike', branches: [{ branch: 'feature/spike', spike: true }] },
+      { name: 'The rest', branches: [{ branch: 'feature/rest', spike: true }] },
+    ];
+    expect(reason(readings({ slices: two, spikeMerged: undefined, slicesPushed: undefined, review: 'in-session' }))).toBe('decided');
+  });
+
+  it('reads the spike from confirmSlices where the bundle supplies the default branch\'s copy', () => {
+    const plain = [
+      { name: 'The spike', branches: [{ branch: 'feature/spike' }] },
+      { name: 'The rest', branches: [{ branch: 'feature/rest' }] },
+    ];
+    expect(reason(readings({ slices: plain, confirmSlices: SPIKE, spikeMerged: undefined }))).toBe('spike-unmerged');
   });
 
   it('leaves a Draft plan unaffected', () => {
@@ -64,7 +89,7 @@ describe('approve of a Design plan whose spike is approved — the workflow', ()
   });
 });
 
-describe('approve of a Design plan whose spike is approved — the transition', () => {
+describe('approve of a Design plan with a spike — the transition', () => {
   const plan = (spikeApprovedRecord: string, phase: 'design' | 'draft' = 'design') => ({
     slug: 'a-plan',
     phase,
@@ -74,7 +99,7 @@ describe('approve of a Design plan whose spike is approved — the transition', 
     releasedRecord: '',
     spikeApprovedRecord,
   });
-  const base: TransitionInput = { on: '2026-10-13', who: 'jwloka', channel: 'plan-PR #42 merged', people: ['jwloka'] };
+  const base: TransitionInput = { on: '2026-10-13', who: 'jwloka', channel: 'plan-PR #42 merged', people: ['jwloka'], slices: SPIKE };
   const spikeOn = '2026-10-12, jwloka, in-session';
 
   it('refuses spike-unmerged without a merge reading', () => {
@@ -91,11 +116,47 @@ describe('approve of a Design plan whose spike is approved — the transition', 
     expect(isRefusal(transition(plan(spikeOn), { ...base, spikeMerged: MERGED, slicesPushed: PUSHED }))).toBe(false);
   });
 
-  it('transitions a Design plan with no approved spike without either reading', () => {
-    expect(isRefusal(transition(plan(''), base))).toBe(false);
+  it('refuses spike-unmerged for a Design plan whose spike was never approved', () => {
+    const out = transition(plan(''), base);
+    expect(isRefusal(out) && out.reason).toBe('spike-unmerged');
+  });
+
+  it('transitions a Design plan with no spike annotation without either reading', () => {
+    const plain = [{ name: 'The rest', branches: [{ branch: 'feature/rest' }] }];
+    expect(isRefusal(transition(plan(spikeOn), { ...base, slices: plain }))).toBe(false);
   });
 
   it('transitions a Draft plan without either reading', () => {
     expect(isRefusal(transition(plan(spikeOn, 'draft'), base))).toBe(false);
   });
+});
+
+describe('the card and the approval give one answer about a Design plan', () => {
+  const PLAIN = [{ name: 'The rest', branches: [{ branch: 'feature/rest' }] }];
+  const TWO = [{ name: 'Both', branches: [{ branch: 'feature/a', spike: true }, { branch: 'feature/b', spike: true }] }];
+  const cases = [
+    { name: 'a spike never approved, unmerged', slices: SPIKE, record: '', merged: false },
+    { name: 'a spike never approved, merged', slices: SPIKE, record: '', merged: true },
+    { name: 'an approved spike, unmerged', slices: SPIKE, record: '2026-10-12, jwloka, in-session', merged: false },
+    { name: 'an approved spike, merged', slices: SPIKE, record: '2026-10-12, jwloka, in-session', merged: true },
+    { name: 'no spike annotation', slices: PLAIN, record: '', merged: false },
+    { name: 'the annotation removed after the spike approval', slices: PLAIN, record: '2026-10-12, jwloka, in-session', merged: false },
+    { name: 'two spike annotations', slices: TWO, record: '2026-10-12, jwloka, in-session', merged: false },
+  ];
+
+  for (const c of cases) {
+    it(`agrees for ${c.name}`, () => {
+      const card = cardControls({ state: 'design', status: 'open', started: false, slices: c.slices, spikeApproved: c.record, spikeMerged: c.merged });
+      const out = approve(
+        readings({
+          review: 'in-session',
+          slices: c.slices,
+          spikeApprovedRecord: c.record,
+          spikeMerged: { name: 'feature/spike', met: c.merged },
+        }),
+        input(),
+      );
+      expect(card.approve).toBe(decided(out));
+    });
+  }
 });
