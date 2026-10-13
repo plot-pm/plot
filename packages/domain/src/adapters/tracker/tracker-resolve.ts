@@ -2,7 +2,7 @@ import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { unaskable, type PortResult } from '../../port-result.js';
 import { issueSource, type IssueSource, type IssueSourceReading } from '../../rules/issue-source.js';
-import type { ClosedIssues, StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
+import type { ClosedIssues, IssueOpenOutcome, StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { trackerReads } from './tracker-shell.js';
@@ -100,6 +100,8 @@ export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker 
     issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
     statusWrite: async (): Promise<PortResult<StatusOutcome>> =>
+      unaskable("no Tracker declared; the git host's issues are read-only to Plot"),
+    issueOpen: async (): Promise<PortResult<IssueOpenOutcome>> =>
       unaskable("no Tracker declared; the git host's issues are read-only to Plot"),
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
     lastRefusal: (): string | null => reads.lastRefusal(),

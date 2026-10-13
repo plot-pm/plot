@@ -50,7 +50,8 @@ export interface TrackerSpender {
  * moved and the status it moved it to; which ticket, card or item that
  * corresponds to is the tracker's own mapping and the connector's to resolve.
  * Widening this to a body, a label or an assignee is the mirror this port
- * exists to refuse.
+ * exists to refuse; `IssueOpen` is the one other write, and it carries a body
+ * and labels because it states a fact Plot itself produced.
  */
 export interface StatusWrite {
   /** The pull request the status is about, as its address; `''` where there is none. */
@@ -77,6 +78,30 @@ export interface StatusWrite {
  * A write that broke is a `PortResult` failure and is not a member here.
  */
 export type StatusOutcome = 'written' | 'no-target';
+
+/**
+ * What an issue-open write is told: the whole of the second write Plot may make.
+ */
+export interface IssueOpen {
+  /** The issue's title. */
+  title: string;
+  /** The issue's body, verbatim. */
+  body: string;
+  /** The labels to apply, verbatim; empty for none. */
+  labels: readonly string[];
+}
+
+/**
+ * What came of an issue-open write: the issue exists, and this is its identifier.
+ *
+ * The identifier is opaque, like `issueView`'s: a number on one tracker, a key on
+ * another. A write that broke is a `PortResult` failure and is not a member here.
+ */
+export interface IssueOpenOutcome {
+  outcome: 'opened';
+  /** The new issue's identifier, as the tracker states it. */
+  id: string;
+}
 
 /**
  * The issues a tracker closed in a window, and whether the read reached its end.
@@ -111,9 +136,10 @@ export interface ClosedIssues {
  * connector, tagged with that connector's backend word, so its `limit()`
  * reports the `host` bucket and no second budget is ever opened.
  *
- * THE WRITE IS ONE FACT AND STAYS ONE. Plot writes a status to the tracker it
- * was told about and writes nothing else — no ticket, no comment, no label, no
- * transition it was not asked for. A plan referencing an issue remains Plot's
+ * THE WRITES ARE TWO FACTS AND STAY TWO. Plot writes a status to the tracker
+ * it was told about, and opens an issue for a claim it refuted. It writes
+ * nothing else — no comment, no label on an existing issue, no transition it
+ * was not asked for. A plan referencing an issue remains Plot's
  * record; the status is the one fact the tracker owns a copy of, because it is
  * the one a person reads in the tracker rather than in Plot.
  */
@@ -170,11 +196,12 @@ export interface Tracker {
   /**
    * Records one status against a pull request, and nothing else.
    *
-   * THE ONE WRITE ON THIS PORT. It is allowed where creating and closing
-   * tickets is not, for the reason the read-only rule was written to protect:
-   * a mirrored ticket ages into a lie, while a status Plot itself just caused
-   * is the fact Plot is the authority on. It is also idempotent by nature — the
-   * same status written twice is the same status.
+   * THE FIRST OF TWO WRITES ON THIS PORT; {@link Tracker.issueOpen} is the
+   * second. It is allowed where closing tickets is not, for the reason the
+   * read-only rule was written to protect: a mirrored ticket ages into a lie,
+   * while a status Plot itself just caused is the fact Plot is the authority
+   * on. It is also idempotent by nature — the same status written twice is the
+   * same status.
    *
    * A REPOSITORY WITH NO TRACKER ANSWERS `unaskable`, NEVER `written`. A silent
    * success here is the failure this operation exists to make impossible: it
@@ -187,6 +214,24 @@ export interface Tracker {
    *   no tracker was declared.
    */
   statusWrite(write: StatusWrite): Promise<PortResult<StatusOutcome>>;
+
+  /**
+   * Opens one issue, and nothing else.
+   *
+   * THE SECOND WRITE ON THIS PORT, for a different reason than `statusWrite`:
+   * the issue states a fact Plot itself produced (a claim the verify workflow
+   * refuted), not a copy of tracker state. It is NOT idempotent — the same call
+   * twice opens two issues — and the port does not look for a duplicate. The
+   * caller records what it opened.
+   *
+   * A REPOSITORY WITH NO TRACKER ANSWERS `unaskable`, NEVER `opened`, for the
+   * reason `statusWrite` does.
+   *
+   * @param write - the title, body and labels of the issue.
+   * @returns `opened` with the new issue's identifier; `unaskable` where no
+   *   tracker was declared or the declared one cannot open issues.
+   */
+  issueOpen(write: IssueOpen): Promise<PortResult<IssueOpenOutcome>>;
 
   /**
    * What is this connector's limit, and how well does it know it?

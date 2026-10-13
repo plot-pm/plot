@@ -7004,3 +7004,58 @@ test('host: issue-list github closed records one extra call per 100 rows past th
   assert.equal(spent(101) - one, 1);
   assert.equal(spent(250) - one, 2);
 });
+
+// --- issue-open: THE SECOND WRITE TO A TRACKER -------------------------------
+
+test('host: issue-open opens one github issue and prints its number', () => {
+  const stubs = makeStubs({ ghJson: 'https://github.com/o/r/issues/42\n' });
+  const out = run(
+    ['issue-open', 'A claim failed', 'the evidence', 'ai-generated', 'verify'],
+    { env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' }, stubs },
+  );
+  assert.equal(out.trim(), '42');
+  assert.deepEqual(argvOf(stubs.ghArgv), [
+    'issue', 'create', '--title', 'A claim failed', '--body', 'the evidence',
+    '--label', 'ai-generated', '--label', 'verify',
+  ]);
+});
+
+test('host: issue-open exits 4 where the declared tracker cannot open an issue', () => {
+  const stubs = makeStubs();
+  const res = runAllowFail(['issue-open', 't', 'b'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'linear' },
+    stubs,
+  });
+  assert.equal(res.code, 4);
+  assert.equal(argvOf(stubs.ghArgv), null, 'gh is never called for a tracker it cannot answer as');
+});
+
+test('host: issue-open reports a failed create as exit 3 with no number', () => {
+  const stubs = makeStubs({ ghFail: 'HTTP 502' });
+  const res = runAllowFail(['issue-open', 't', 'b'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs,
+  });
+  assert.equal(res.code, 3);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: issue-open creates a Jira issue in the first declared project and prints its key', () => {
+  const stub = makeJiraSequenceStub([{ body: '{"id":"1","key":"PROJ-9"}', status: 201 }]);
+  const res = runJira(['issue-open', 'T', 'B', 'ai-generated'], stub, {
+    PLOT_TICKET_PREFIXES: 'PROJ, OTHER',
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'PROJ-9');
+  const call = readFileSync(stub.argvFile, 'utf8');
+  assert.match(call, /^POST$/m);
+  assert.match(call, /"project":\{"key":"PROJ"\}/);
+  assert.match(call, /"labels":\["ai-generated"\]/);
+});
+
+test('host: issue-open exits 4 for Jira with no Ticket prefixes declared', () => {
+  const stub = makeJiraSequenceStub([{ body: '{}', status: 201 }]);
+  const res = runJira(['issue-open', 'T', 'B'], stub);
+  assert.equal(res.status, 4);
+  assert.equal(res.stdout.trim(), '');
+});

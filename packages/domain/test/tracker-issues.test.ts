@@ -153,6 +153,36 @@ esac`);
   });
 });
 
+describe('issueOpen on a repository with no Tracker', () => {
+  const write = { title: 't', body: 'b', labels: ['ai-generated'] };
+
+  it('answers unaskable through trackerGitHost, with the statusWrite sentence, and calls nothing', async () => {
+    const { context, argv } = hostThat('exit 0');
+    expect(await trackerGitHost('github', context).issueOpen(write)).toEqual({
+      ok: false,
+      why: 'unaskable',
+      reason: "no Tracker declared; the git host's issues are read-only to Plot",
+    });
+    expect(calls(argv)).toEqual([]);
+  });
+
+  it('answers unaskable through trackerNone, with the reason it was built with', async () => {
+    expect(await trackerNone('plans are the tracker').issueOpen(write)).toEqual({
+      ok: false,
+      why: 'unaskable',
+      reason: 'plans are the tracker',
+    });
+  });
+
+  it('resolves every issueSource arm to a tracker that answers issueOpen', async () => {
+    const { context } = hostThat('exit 0');
+    const viaNobody = trackerOfSource({ ask: 'nobody', reason: 'none declared' }, '', '', context);
+    expect(await viaNobody.issueOpen(write)).toEqual({ ok: false, why: 'unaskable', reason: 'none declared' });
+    const viaGitHost = trackerOfSource({ ask: 'git-host' }, '', 'github', context);
+    expect((await viaGitHost.issueOpen(write)).ok).toBe(false);
+  });
+});
+
 describe('trackerOfSource and trackerForIssues', () => {
   it('resolve a repository with no Tracker key to the git host reader', async () => {
     const { context } = hostThat(SPEND);

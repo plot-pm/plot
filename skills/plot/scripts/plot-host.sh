@@ -296,10 +296,11 @@
 #                                 abandoned work beside finished work.
 #                                 READ-ONLY. Plot writes no label, no assignee
 #                                 and no close-on-merge, because a copy of
-#                                 tracker state ages into a lie. The one write
-#                                 that exists is `issue-status`, and it records
+#                                 tracker state ages into a lie. The writes
+#                                 that exist are `issue-status`, which records
 #                                 a status Plot itself just caused rather than
-#                                 mirroring one the tracker holds.
+#                                 mirroring one the tracker holds, and
+#                                 `issue-open`.
 #                                 `url` is "" when the host omits it, and a
 #                                 consumer renders the number as plain text
 #                                 rather than inventing an address — the rule
@@ -360,7 +361,11 @@
 #                                 as issue-list. Jira answers 404 for a missing
 #                                 key, which is exit 3 here (the tracker moved),
 #                                 never an empty body.
-#   issue-status <key> <status>   THE ONE WRITE TO A TRACKER: record one status
+#   issue-open <title> <body> [label...]
+#                                 THE SECOND OF TWO WRITES TO A TRACKER: open
+#                                 one issue and print its number or key. Jira
+#                                 and github-issues only; exit 4 elsewhere.
+#   issue-status <key> <status>   THE FIRST OF TWO WRITES TO A TRACKER: record one status
 #                                 against one issue, and nothing else. No
 #                                 create, no close, no comment, no label — a
 #                                 plan referencing an issue is Plot's record,
@@ -5024,6 +5029,32 @@ case "$op" in
     printf '%s\n' 'written'
     ;;
 
+  issue-open)
+    # THE SECOND WRITE TO A TRACKER: open one issue, and nothing else. Not
+    # idempotent — the same call twice opens two issues — so the caller records
+    # what it opened; this op never looks for a duplicate. Takes
+    # `<title> <body> [label...]` and prints the new issue's number or key.
+    # Exit 4 where the declared tracker is neither jira nor github-issues: the
+    # host cannot be asked, which is not a failure.
+    title="${1:?issue-open needs a title}"; body="${2-}"; shift; shift
+    case "$(tracker_scheme)" in
+      jira)
+        jira_require_config
+        project="$(tracker_projects | head -1)"
+        [ -n "$project" ] || { echo "plot-host: opening a Jira issue needs 'Ticket prefixes' declared" >&2; exit 4; }
+        raw="$(jira_curl "/rest/api/2/issue" -X POST -H 'Content-Type: application/json' \
+          --data "$(jq -cn --arg p "$project" --arg t "$title" --arg b "$body" \
+            '{fields:{project:{key:$p},issuetype:{name:"Task"},summary:$t,description:$b,labels:$ARGS.positional}}' \
+            --args ${@+"$@"})")"; curl_rc=$?
+        jira_check "$raw" "$curl_rc" | jq -r '.key' ;;
+      github-issues)
+        for l in ${@+"$@"}; do set -- "$@" --label "$l"; shift; done
+        out="$(gh issue create --title "$title" --body "$body" ${@+"$@"} 2>"$HOST_ERR")" || gh_fail
+        printf '%s\n' "${out##*/}" ;;
+      *) exit 4 ;;
+    esac
+    ;;
+
   pr-body)
     num="${1:?pr-body needs a PR number}"; shift
     body=""
@@ -5296,6 +5327,6 @@ case "$op" in
     ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|pr-body|rate-limit|limit|ci-limit|spend-rate)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|pr-body|rate-limit|limit|ci-limit|spend-rate)"
     ;;
 esac

@@ -3,13 +3,15 @@ import type { LimitReading } from '../../entities/limit.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type {
   ClosedIssues,
+  IssueOpen,
+  IssueOpenOutcome,
   StatusOutcome,
   StatusWrite,
   Tracker,
   TrackerConfig,
   TrackerSpender,
 } from '../../ports/tracker.js';
-import { runProcess } from '../run-script.js';
+import { asText, runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { trackerReads } from './tracker-shell.js';
 
@@ -61,6 +63,8 @@ export const trackerGithub = (context: ShellContext): Tracker => {
     { PLOT_TRACKER: SCHEME },
   );
   const config = scriptPath(context, 'plot-config.sh');
+  const host = scriptPath(context, 'plot-host.sh');
+  const run = { cwd: context.repoRoot, env: { PLOT_TRACKER: SCHEME } };
   const updateBoard = scriptPath(context, 'plot-update-board.sh');
   const inRepo = { cwd: context.repoRoot };
 
@@ -120,6 +124,25 @@ export const trackerGithub = (context: ShellContext): Tracker => {
       }
       reads.refuse(null);
       return answered<StatusOutcome>('written');
+    },
+
+    issueOpen: async (write: IssueOpen): Promise<PortResult<IssueOpenOutcome>> => {
+      const said = await runProcess('bash', [host, 'issue-open', write.title, write.body, ...write.labels], run);
+      // EXIT 4 IS A CONFIGURATION FACT, as in `statusWrite`: this connector is
+      // not the declared tracker, or cannot open an issue there.
+      if (said.code === 4) {
+        reads.refuse(null);
+        return { ok: false, why: 'unaskable', reason: said.stderr.trim() || undefined };
+      }
+      const id = asText(said.stdout);
+      // AN EXIT 0 WITH NO IDENTIFIER IS NOT AN OPENED ISSUE. The caller records
+      // the id to avoid opening a second one; an empty one records nothing.
+      if (said.code !== 0 || id === '') {
+        reads.refuse(said.stderr.trim() || said.stdout.trim() || `plot-host.sh exited ${said.code}`);
+        return failed();
+      }
+      reads.refuse(null);
+      return answered<IssueOpenOutcome>({ outcome: 'opened', id });
     },
 
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),

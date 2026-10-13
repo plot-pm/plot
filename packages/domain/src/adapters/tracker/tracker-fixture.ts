@@ -3,6 +3,8 @@ import type { LimitReading } from '../../entities/limit.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type {
   ClosedIssues,
+  IssueOpen,
+  IssueOpenOutcome,
   StatusOutcome,
   StatusWrite,
   Tracker,
@@ -36,6 +38,10 @@ export interface TrackerFixture {
    * from a write that broke.
    */
   outcome?: StatusOutcome;
+  /** Where every `issueOpen` is recorded, in call order, before it can refuse. */
+  opened?: IssueOpen[];
+  /** Whether an issue-open write fails outright. */
+  issueOpenFails?: boolean;
   /** Whether a status write fails outright. */
   statusWriteFails?: boolean;
   /** The limit readings `limit` reports. */
@@ -62,6 +68,7 @@ export interface TrackerFixture {
 export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
   const issues = fixture.issues ?? [];
   const written = fixture.written ?? [];
+  const opened = fixture.opened ?? [];
   return {
     config: (): TrackerConfig => ({
       scheme: fixture.scheme ?? 'fixture',
@@ -93,6 +100,13 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
       written.push(write);
       if (fixture.statusWriteFails === true) return failed();
       return answered(fixture.outcome ?? 'written');
+    },
+
+    issueOpen: async (write): Promise<PortResult<IssueOpenOutcome>> => {
+      // RECORDED BEFORE IT REFUSES, like `statusWrite`.
+      opened.push(write);
+      if (fixture.issueOpenFails === true) return failed();
+      return answered<IssueOpenOutcome>({ outcome: 'opened', id: String(opened.length) });
     },
 
     limit: async (): Promise<PortResult<readonly LimitReading[]>> =>
