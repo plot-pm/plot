@@ -12,6 +12,16 @@ import { claimsOf, renderClaims } from '@plot-pm/domain/rules/claims';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { archiveRound, isArchivedRound, jurorPath, moderationPath, panelDir } from '@plot-pm/domain/rules/panel';
 import {
+  ISSUE_MAY_EXIST,
+  issueSteps,
+  parseIssueState,
+  renderIssueState,
+  settleOpen,
+  type IssueEntry,
+  type IssueState,
+} from '@plot-pm/domain/rules/refuted-issues';
+import { refutedClaims, type RefutedClaim } from '@plot-pm/domain/rules/verification-record';
+import {
   foldVerification,
   refutedIssue,
   verificationBody,
@@ -101,7 +111,7 @@ interface RunFacts {
 }
 
 /** The ports and paths one invocation needs. */
-interface Context {
+export interface Context {
   repoRoot: string;
   scriptDir: string;
   /** `scriptDir` relative to the root of the tree that holds it. */
@@ -111,10 +121,12 @@ interface Context {
   planStore: PlanStore;
   scripts: Scripts;
   trees: Trees;
+  /** Resolves the tracker that opens issues from the declared `Tracker` key and the git host's backend. */
+  issueTracker: (declared: string, backend: string) => Tracker;
 }
 
 /** What the command line asked for. */
-interface Args {
+export interface Args {
   command: 'prepare' | 'claims' | 'fold' | 'record' | 'status';
   slug: string;
   at: string;
@@ -506,33 +518,52 @@ const fold = async (ctx: Context, args: Args, write: Printer, warn: Printer): Pr
 const issueStatePath = (repoRoot: string, slug: string): string => path.join(repoRoot, VERIFY_DIR, `${slug}.json`);
 
 /**
- * Reads the issue ids a plan's earlier runs opened, keyed by claim text.
+ * Reads the issue state file.
  *
  * @param file - the state file.
- * @returns the ids; empty where the file is absent or unreadable.
+ * @returns its entries; empty where the file is absent.
+ * @throws {Refused} when the file exists and does not parse, so nothing opens.
  */
-const readIssueState = (file: string): Record<string, string> => {
+const readIssueState = (file: string): IssueState => {
   if (!existsSync(file)) return {};
-  try {
-    const issues = (JSON.parse(readFileSync(file, 'utf8')) as { issues?: Record<string, unknown> }).issues ?? {};
-    return Object.fromEntries(Object.entries(issues).filter((e): e is [string, string] => typeof e[1] === 'string'));
-  } catch {
-    return {};
+  const state = parseIssueState(readFileSync(file, 'utf8'));
+  if (state === null) {
+    throw new Refused(`${file} does not parse as an issue state file.\n  No issue was opened and nothing was written. Repair or remove the file, then re-run.`);
   }
+  return state;
 };
 
 /**
- * Opens one issue per refuted claim that has none, recording each id before the next call.
+ * Writes the issue state file through a temporary file and a rename.
  *
- * Claims match by text, never by number: a re-reading of the Changelog can renumber them.
- * `issueOpen` does not look for a duplicate, so the state file is the only retry guard.
+ * @param file - the state file.
+ * @param state - the entries.
+ */
+const writeIssueState = (file: string, state: IssueState): void => {
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(`${file}.tmp`, renderIssueState(state));
+  renameSync(`${file}.tmp`, file);
+};
+
+/**
+ * Opens the issues `issueSteps` names, recording each claim in the state file
+ * before and after its call.
+ *
+ * Before each `issueOpen` the claim's entry becomes `{ pending: true }`; the
+ * answer replaces it through `settleOpen`. A run that ends between the call
+ * and the second write leaves `pending`, and no later run opens that claim
+ * until a person clears the entry, as `issueSteps` describes. `issueOpen` does
+ * not look for a duplicate, so the state file and the plan's own lines are the
+ * only guard against a second issue.
  *
  * @param tracker - the connector that opens the issues.
- * @param stateFile - where the opened ids are kept.
+ * @param stateFile - the issue state file.
  * @param slug - the plan's slug.
  * @param judged - the commit the claims were judged at.
  * @param verdicts - what the fold answered.
+ * @param recorded - the refuted lines of the plan on the default branch.
  * @returns the issue note per refuted claim text.
+ * @throws {Refused} when the state file exists and does not parse; nothing opens.
  */
 export const openRefutedIssues = async (
   tracker: Tracker,
@@ -540,27 +571,26 @@ export const openRefutedIssues = async (
   slug: string,
   judged: string,
   verdicts: readonly ClaimVerdict[],
+  recorded: readonly RefutedClaim[] = [],
 ): Promise<Map<string, IssueNote>> => {
-  const known = readIssueState(stateFile);
+  const entries: Record<string, IssueEntry> = { ...readIssueState(stateFile) };
   const notes = new Map<string, IssueNote>();
-  for (const v of verdicts) {
-    if (v.verdict !== 'refuted') continue;
-    const have = known[v.claim];
-    if (have !== undefined) {
-      notes.set(v.claim, { issue: have });
+  for (const step of issueSteps(verdicts, recorded, entries)) {
+    if (step.step === 'note') {
+      notes.set(step.claim, step.note);
       continue;
     }
-    const opened = await tracker.issueOpen({ ...refutedIssue(slug, v, judged), labels: ['ai-generated'] });
-    if (opened.ok) {
-      known[v.claim] = opened.value.id;
-      mkdirSync(path.dirname(stateFile), { recursive: true });
-      writeFileSync(`${stateFile}.tmp`, `${JSON.stringify({ issues: known }, null, 2)}\n`);
-      renameSync(`${stateFile}.tmp`, stateFile);
-      notes.set(v.claim, { issue: opened.value.id });
-    } else {
-      const reason = (!opened.ok && opened.why === 'unaskable' ? opened.reason : undefined) ?? tracker.lastRefusal();
-      notes.set(v.claim, { noIssue: reason ?? 'the tracker did not open the issue' });
-    }
+    entries[step.claim] = { pending: true };
+    writeIssueState(stateFile, entries);
+    const opened = await tracker.issueOpen({ ...refutedIssue(slug, step.verdict, judged), labels: ['ai-generated'] });
+    const answer = opened.ok
+      ? { opened: opened.value.id }
+      : { refused: (opened.why === 'unaskable' ? opened.reason : undefined) ?? tracker.lastRefusal() };
+    const settled = settleOpen(answer, tracker.config().scheme);
+    if (settled.entry === null) delete entries[step.claim];
+    else entries[step.claim] = settled.entry;
+    writeIssueState(stateFile, entries);
+    notes.set(step.claim, settled.note);
   }
   return notes;
 };
@@ -574,7 +604,7 @@ export const openRefutedIssues = async (
  * @param warn - where refusals go.
  * @returns the exit code.
  */
-const record = async (ctx: Context, args: Args, write: Printer, warn: Printer): Promise<number> => {
+export const record = async (ctx: Context, args: Args, write: Printer, warn: Printer): Promise<number> => {
   const facts = readFacts(ctx.repoRoot, args.slug);
   const verdicts = await foldRun(ctx, facts, warn);
   if (verdicts === null) return 1;
@@ -603,12 +633,20 @@ const record = async (ctx: Context, args: Args, write: Printer, warn: Printer): 
 
     const declared = await ctx.scripts.config('Tracker', '');
     const backend = await ctx.host.backend();
-    const tracker = trackerForIssues(
-      declared.ok ? declared.value.trim() : '',
-      backend.ok ? backend.value : '',
-      { repoRoot: ctx.repoRoot, scriptDir: ctx.scriptDir },
+    const tracker = ctx.issueTracker(declared.ok ? declared.value.trim() : '', backend.ok ? backend.value : '');
+    const notes = await openRefutedIssues(
+      tracker,
+      issueStatePath(ctx.repoRoot, args.slug),
+      args.slug,
+      facts.judged,
+      verdicts,
+      refutedClaims(present.value),
     );
-    const notes = await openRefutedIssues(tracker, issueStatePath(ctx.repoRoot, args.slug), args.slug, facts.judged, verdicts);
+    for (const [claim, note] of notes) {
+      if ('noIssue' in note && note.noIssue.startsWith(ISSUE_MAY_EXIST)) {
+        warn(`plot-verify: no issue opened for "${claim}": ${note.noIssue}\n  Once checked, write {"issue": "<id>"} as its entry in ${issueStatePath(ctx.repoRoot, args.slug)}, or remove the entry where no issue exists.\n`);
+      }
+    }
 
     const value = verifiedValue(
       {
@@ -728,6 +766,7 @@ export const run = async (
     planStore: planStoreShell(context),
     scripts: scriptsShell(context),
     trees: treesGit(context),
+    issueTracker: (declared, backend) => trackerForIssues(declared, backend, context),
   };
   try {
     if (parsed.command !== 'prepare' && handsOver(ctx, parsed.slug)) {
