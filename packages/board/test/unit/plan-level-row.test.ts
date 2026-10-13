@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { verificationRows } from '../../src/app/lib/agent-rows/plan-level-row.js';
+import {
+  planFileForSlug,
+  planLevelStatus,
+  sectionCount,
+  verificationRows,
+} from '../../src/app/lib/agent-rows/plan-level-row.js';
+import { sectionTally, tallyLabel } from '../../src/app/lib/agent-rows/sections.js';
 import { VerificationStatusSchema, type VerificationStatus } from '../../src/contract/schema.js';
 
 // A RUN THE FLEET MAKES ON A PLAN, NOT A BRANCH.
@@ -82,5 +88,70 @@ describe('verificationRows', () => {
 
   it('verification: null answers zero rows and no haltedLine — not a placeholder', () => {
     expect(verificationRows(null)).toEqual({ working: [], waiting: [], haltedLine: null });
+  });
+});
+
+describe('planLevelStatus', () => {
+  it('answers verification for a verify row that is not stopped', () => {
+    expect(planLevelStatus({ kind: 'verify', stopped: false })).toBe('verification');
+  });
+
+  it('answers stopped for a stopped row of either kind', () => {
+    expect(planLevelStatus({ kind: 'verify', stopped: true })).toBe('stopped');
+    expect(planLevelStatus({ kind: 'spec', stopped: true })).toBe('stopped');
+  });
+
+  it('answers design, not verification, for a spec row', () => {
+    expect(planLevelStatus({ kind: 'spec', stopped: false })).toBe('design');
+  });
+});
+
+describe('planFileForSlug', () => {
+  const cards = [
+    { slug: 'alpha', path: 'docs/plans/2026-10-01-alpha.md' },
+    { slug: 'beta', path: 'docs/plans/2026-10-02-beta.md' },
+  ];
+
+  it('answers the file name of the card whose slug matches', () => {
+    expect(planFileForSlug(cards, 'beta')).toBe('2026-10-02-beta.md');
+  });
+
+  it('answers an empty string where no card holds the slug', () => {
+    expect(planFileForSlug(cards, 'gamma')).toBe('');
+    expect(planFileForSlug([], 'alpha')).toBe('');
+  });
+});
+
+describe('sectionCount', () => {
+  const held = (planLevel: { working: number; waiting: number }) => ({
+    branches: 2, registry: 3, broken: 1, drafts: 1, planLevel,
+  });
+  const payload = verification({ halted: true, running: ['beta'], rows: [row()] });
+  const { working, waiting, haltedLine } = verificationRows(payload);
+  const withRows = held({ working: working.length, waiting: waiting.length });
+  const without = held({ working: 0, waiting: 0 });
+
+  it('counts the running plan-level row in Working', () => {
+    expect(sectionCount('working', without)).toBe(3);
+    expect(sectionCount('working', withRows)).toBe(4);
+  });
+
+  it('counts the failed plan-level row in Waiting on you, and not the halted line', () => {
+    expect(haltedLine).not.toBeNull();
+    expect(sectionCount('waiting-on-you', without)).toBe(4);
+    expect(sectionCount('waiting-on-you', withRows)).toBe(5);
+  });
+
+  it('adds the failed plan-level row to the Waiting on you heading as a plan line', () => {
+    const unplanned = { tickets: 0, drafts: 1, agents: 0 };
+    const plain = sectionTally([], 'waiting-on-you', [], unplanned);
+    const shown = sectionTally([], 'waiting-on-you', [], { ...unplanned, planLevel: waiting.length });
+    expect(shown.plans).toBe(plain.plans + 1);
+    expect(tallyLabel(plain)).toBe('(1 plan)');
+    expect(tallyLabel(shown)).toBe('(2 plans)');
+  });
+
+  it('counts only branch rows in every other section', () => {
+    expect(sectionCount('done', withRows)).toBe(2);
   });
 });

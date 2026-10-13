@@ -14,6 +14,7 @@ import { MultiSelect } from './components/ui/MultiSelect.js';
 import { listenForEvents } from './lib/event-listener.js';
 import { synthesizedSprintMembers } from './lib/sprint.js';
 import { boardForReader, readMineOnly, readerFrom, writeMineOnly } from './lib/agent-rows/mine-filter.js';
+import { planFileForSlug } from './lib/agent-rows/plan-level-row.js';
 import {
   NO_SPRINT,
   NO_STORY,
@@ -727,6 +728,19 @@ export function App() {
   );
 
   /**
+   * The plan file of the board card whose `slug` is `slug`, or `''`.
+   *
+   * A plan-level row names a plan by slug and carries no file, so its plan link
+   * reads the file from the card. `''` before the board loads or where no card
+   * holds the slug: the row then renders the slug with no link.
+   */
+  const planFileForSlugOnBoard = useCallback(
+    (slug: string): string =>
+      board ? planFileForSlug(board.columns.flatMap((c) => c.cards), slug) : '',
+    [board],
+  );
+
+  /**
    * Open a fleet row's plan in the modal; report whether it did.
    *
    * A false answer lets the row's anchor navigate to the plain plan page, which
@@ -1164,6 +1178,7 @@ export function App() {
               // no card gets no button rather than a broken one. `pulse` counts
               // BOARD refreshes, which is what moves a started row.
               cardForPlanFile={cardForPlanFile}
+              planFileForSlug={planFileForSlugOnBoard}
               dispatch={dispatchInfo}
               // The other half of what a row can DO. Until now the Delivery tab
               // was given only dispatch, so its menu could offer only `Start

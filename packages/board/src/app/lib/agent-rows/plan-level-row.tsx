@@ -40,9 +40,9 @@ const HALTED_LINE = 'The fleet starts no verify run until a person restarts one.
  * @param verification - the fleet's last-known verification state, or null.
  * @returns the rows for each section, and the halted line where one applies.
  */
-export function verificationRows(
+export const verificationRows = (
   verification: VerificationStatus | null,
-): { working: PlanLevelRow[]; waiting: PlanLevelRow[]; haltedLine: string | null } {
+): { working: PlanLevelRow[]; waiting: PlanLevelRow[]; haltedLine: string | null } => {
   if (verification === null) return { working: [], waiting: [], haltedLine: null };
 
   const waiting: PlanLevelRow[] = verification.rows.map((row) => ({
@@ -69,18 +69,70 @@ export function verificationRows(
   const haltedLine = verification.halted && !anyRowHalted ? HALTED_LINE : null;
 
   return { working, waiting, haltedLine };
-}
+};
 
 /**
- * A plan-level run as a WAITING ON YOU or WORKING row: the plan's name, its
- * sentence, and where the payload carries one, the restart command and the
- * log path — both rendered as plain text, never links, by this board's
- * standing rule against a fabricated href.
+ * The status word a plan-level row shows: `stopped` for a stopped run of
+ * either kind, otherwise `verification` for a `verify` row and `design` for a
+ * `spec` row.
  *
- * `planFile` is resolved by the caller (`cardForPlanFile`-style matching on the
- * row's `plan` against the board's cards), the same indirection `DraftPlanRowView`
- * needs for a row with no `AgentRow` of its own. Renders the slug with no plan
- * link where no card matches.
+ * @param row - the plan-level row.
+ * @returns the word the row renders beside the plan name.
+ */
+export const planLevelStatus = (row: Pick<PlanLevelRow, 'kind' | 'stopped'>): string =>
+  row.stopped ? 'stopped' : row.kind === 'spec' ? 'design' : 'verification';
+
+/**
+ * The plan file of the board card whose `slug` is `slug`, as the basename the
+ * `/plan/<file>` route reads, or `''` where no card holds that slug.
+ *
+ * @param cards - the board payload's cards.
+ * @param slug - the plan slug a plan-level row names.
+ * @returns the card's plan file name, or `''`.
+ */
+export const planFileForSlug = (
+  cards: readonly { slug: string; path: string }[],
+  slug: string,
+): string => {
+  const card = cards.find((c) => c.slug === slug);
+  return card ? (card.path.split(/[/\\]/).pop() ?? '') : '';
+};
+
+/**
+ * The number a section's heading shows. *Working* counts its registry rows and
+ * its running plan-level rows. *Waiting on you* counts its branch rows, broken
+ * agents, draft plans and waiting plan-level rows; the halted line is not a row
+ * and no count includes it. Every other section counts its branch rows.
+ *
+ * @param section - the section key.
+ * @param held - how many rows of each kind the section holds.
+ * @returns the section's count.
+ */
+export const sectionCount = (
+  section: string,
+  held: {
+    branches: number;
+    registry: number;
+    broken: number;
+    drafts: number;
+    planLevel: { working: number; waiting: number };
+  },
+): number =>
+  section === 'working'
+    ? held.registry + held.planLevel.working
+    : section === 'waiting-on-you'
+      ? held.branches + held.broken + held.drafts + held.planLevel.waiting
+      : held.branches;
+
+/**
+ * A plan-level run as a WAITING ON YOU or WORKING row: the plan's name, the
+ * status word `planLevelStatus` answers, the reason, and where the payload
+ * carries one, the restart command and the log path, both as plain text and
+ * never as links.
+ *
+ * `planFile` comes from the caller, which reads it off the board card whose
+ * `slug` is the row's `plan` (`planFileForSlug`). `''` renders the slug with no
+ * plan link.
  */
 export const PlanLevelRowView = (
   { row, planFile, onOpenPlan }: {
@@ -95,7 +147,7 @@ export const PlanLevelRowView = (
         plan: row.plan,
         planFile,
         issues: [],
-        phase: row.stopped ? 'stopped' : 'verification',
+        phase: planLevelStatus(row),
         waitingDays: null,
       })}
       onOpenPlan={onOpenPlan}
@@ -107,6 +159,11 @@ export const PlanLevelRowView = (
         {row.restart && (
           <span data-plan-level-restart className="shrink-0 truncate font-mono text-xs text-slate-400 dark:text-slate-500">
             {row.restart}
+          </span>
+        )}
+        {row.log && (
+          <span data-plan-level-log className="shrink-0 truncate font-mono text-xs text-slate-400 dark:text-slate-500">
+            {row.log}
           </span>
         )}
       </>}

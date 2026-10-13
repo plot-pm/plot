@@ -410,7 +410,8 @@ export interface SectionTally {
  * own top-level lines otherwise — a slice row per grouped slice plus each loose
  * row. Summing the per-group render keeps the header equal to the section BY
  * CONSTRUCTION, so a section that only partly folds cannot drift. A draft plan
- * counts here too: it is a plan line, with no branch to be a slice of.
+ * counts here too: it is a plan line, with no branch to be a slice of. So does
+ * a plan-level row (`planLevel`), a run the fleet makes on a plan.
  *
  * **`slices` IS THE SCOPE THE BARE NUMBER WAS REACHING FOR** — the count of
  * top-level rows a reader reaches by expanding every head: one row per slice the
@@ -445,7 +446,7 @@ export const sectionTally = (
   rows: AgentRow[],
   section: WaitingGroup,
   slices: Slice[] | undefined,
-  unplanned: { tickets: number; drafts: number; agents: number },
+  unplanned: { tickets: number; drafts: number; agents: number; planLevel?: number },
 ): SectionTally => {
   const countsPlans = section === 'not-started';
   let planLines = 0;
@@ -473,7 +474,7 @@ export const sectionTally = (
     planLines += countsPlans || planHeads || headed ? 1 : groupSlices;
   }
   return {
-    plans: planLines + unplanned.drafts,
+    plans: planLines + unplanned.drafts + (unplanned.planLevel ?? 0),
     slices: sliceLines,
     branches: branchLines,
     tickets: unplanned.tickets,

@@ -185,6 +185,12 @@ export interface AgentListProps {
    */
   cardForPlanFile?: (planFile: string) => Card | null;
   /**
+   * The plan file of the board card whose `slug` is `slug`, or `''` where the
+   * board holds none. A plan-level row names only its plan's slug, so its plan
+   * link reads the file from here. Absent before the board's first payload.
+   */
+  planFileForSlug?: (slug: string) => string;
+  /**
    * Whether this server will act on Start work, and why not. Absent where the
    * board has not said — no button renders at all, rather than one whose
    * outcome is unknown. Same rule `PlanCard` follows.

@@ -79,7 +79,7 @@ import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, SliceRow, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
 import { workingAgentRows, brokenAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
-import { PlanLevelRowView, verificationRows } from '../lib/agent-rows/plan-level-row.js';
+import { PlanLevelRowView, sectionCount, verificationRows } from '../lib/agent-rows/plan-level-row.js';
 import { hasExceptions } from '../lib/agent-rows/stuck.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
 // These moved out of this file when the row estate was split into three
@@ -302,6 +302,7 @@ export function AgentList({
   staleSeconds = null,
   onOpenPlan,
   cardForPlanFile,
+  planFileForSlug,
   dispatch,
   approve,
   commission,
@@ -480,14 +481,11 @@ export function AgentList({
   // no banner at all, by `verificationRows`'s own rule.
   const { working: workingPlanRows, waiting: verificationWaitingRows, haltedLine } =
     verificationRows(fleet?.verification ?? null);
-  // THE SLUG → PLAN FILE LOOKUP a plan-level row needs: the payload names only
-  // `slug` (`VerificationStatusSchema.rows[].slug`), never a plan file, so the
-  // file is read off whichever branch row names the same plan — the same two
-  // fields `cardForPlanFile` joins on, reached through the fleet's own rows
-  // instead of the board's cards because that is what this component already
-  // has. "" where no row names that plan, which `PlanLevelRowView` renders as
-  // the slug with no link — the same degradation `cardForPlanFile` documents.
-  const planFileBySlug = new Map((fleet?.rows ?? []).map((r) => [r.plan, r.planFile]));
+  // THE PLAN FILE of a plan-level row: the payload names only the slug, so the
+  // file is the `path` of the board card with that slug (`planFileForSlug`).
+  // "" before the board loads or where no card holds the slug, which
+  // `PlanLevelRowView` renders as the slug with no link.
+  const planFileOf = (slug: string): string => planFileForSlug?.(slug) ?? '';
 
   const [openSlices, setOpenSlices] = useState<Set<string>>(() => new Set());
   const sliceKey = sliceKeyOf;
@@ -1102,16 +1100,17 @@ export function AgentList({
         // agents is the tally — Done when #1, N entries → N rows — so `countOf`
         // answers the agents here and the rows everywhere else.
         const workingSection = key === 'working';
-        const waitingOnYouSection = key === 'waiting-on-you';
         // THE COUNT IS OF WHAT THE SECTION HOLDS — branches, issues and broken
         // agents where applicable. WORKING counts its registry entries AND the
         // fleet's own plan-level runs; WAITING ON YOU adds issues, broken agents,
         // draft plans and the fleet's failed verify runs to its branch rows.
-        const countOf = workingSection
-          ? workingRows.length + workingPlanRows.length
-          : waitingOnYouSection
-            ? rows.length + brokenRows.length + draftRows.length + verificationWaitingRows.length
-            : rows.length;
+        const countOf = sectionCount(key, {
+          branches: rows.length,
+          registry: workingRows.length,
+          broken: brokenRows.length,
+          drafts: draftRows.length,
+          planLevel: { working: workingPlanRows.length, waiting: verificationWaitingRows.length },
+        });
         // The plan scope the blocked-by jump needs ABOVE the row. WORKING orders
         // by agent, so there is no per-plan `<ul>` to tag the way the grouped
         // sections have; the section's own grid carries it instead. First match
@@ -1244,7 +1243,7 @@ export function AgentList({
         const unplanned = { tickets: issues.length, drafts: drafts.length, agents: broken.length };
         const tallyOf = workingSection
           ? { plans: countOf, slices: countOf, branches: 0, tickets: 0, agents: 0 }
-          : sectionTally(rows, key, slices, unplanned);
+          : sectionTally(rows, key, slices, { ...unplanned, planLevel: verifications.length });
         // EACH KIND UNDER ITS OWN NAME — and the wording is `tallyLabel`'s, not
         // this component's: a label built here could only be asserted by
         // rendering a page. One number where there is one kind and nothing
@@ -1538,7 +1537,7 @@ export function AgentList({
                       <PlanLevelRowView
                         key={`plan-level-${row.kind}-${row.plan}`}
                         row={row}
-                        planFile={planFileBySlug.get(row.plan) ?? ''}
+                        planFile={planFileOf(row.plan)}
                         onOpenPlan={onOpenPlan}
                       />
                     ))}
@@ -2409,9 +2408,9 @@ export function AgentList({
                 // they open the section and look for the rows. A single site
                 // would leave whichever of those two readings unlabelled.
                 // `none` is only printed where there is nothing AT ALL. A
-                // section holding issue rows or broken agent rows and no branches
-                // is not empty, and the word would sit above the rows contradicting
-                // them.
+                // section holding issue rows, broken agent rows, draft plans or
+                // plan-level rows and no branches is not empty, and the word
+                // would sit above the rows contradicting them.
                 issues.length === 0 && broken.length === 0 && drafts.length === 0 && verifications.length === 0 && (
                 <li role="row" className="px-3 py-2 text-sm text-slate-400 dark:text-slate-600">
                   <span role="gridcell">
@@ -2445,7 +2444,7 @@ export function AgentList({
                 <PlanLevelRowView
                   key={`plan-level-${row.kind}-${row.plan}`}
                   row={row}
-                  planFile={planFileBySlug.get(row.plan) ?? ''}
+                  planFile={planFileOf(row.plan)}
                   onOpenPlan={onOpenPlan}
                 />
               ))}
