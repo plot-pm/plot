@@ -56,6 +56,12 @@ export interface Issue {
    * work.
    */
   statusCategory: string;
+  /**
+   * When the tracker says the issue closed, ISO-8601 — a read, like `status`.
+   * null on an open issue, and on a closed issue whose tracker states no date
+   * (Bitbucket, always).
+   */
+  closedAt: string | null;
 }
 
 /**

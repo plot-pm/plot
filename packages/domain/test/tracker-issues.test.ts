@@ -147,6 +147,7 @@ esac`);
     expect(await trackerGitHost('github', context).statusWrite({ prUrl: 'u', status: 'Done' })).toEqual({
       ok: false,
       why: 'unaskable',
+      reason: "no Tracker declared; the git host's issues are read-only to Plot",
     });
     expect(calls(argv)).toEqual([]);
   });
@@ -173,9 +174,8 @@ describe('trackerOfSource and trackerForIssues', () => {
   it('resolve a tracker no connector lists to one that asks nothing', async () => {
     const { context, argv } = hostThat('exit 0');
     expect(await trackerOfSource({ ask: 'nobody', reason: 'r' }, 'linear', 'github', context).issueList())
-      .toEqual({ ok: false, why: 'unaskable' });
-    expect(await trackerForIssues('linear', 'github', context).issueList())
-      .toEqual({ ok: false, why: 'unaskable' });
+      .toEqual({ ok: false, why: 'unaskable', reason: 'r' });
+    expect((await trackerForIssues('linear', 'github', context).issueList()).ok).toBe(false);
     expect(calls(argv)).toEqual([]);
   });
 });

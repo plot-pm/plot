@@ -2,6 +2,7 @@ import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type {
+  ClosedIssues,
   StatusOutcome,
   StatusWrite,
   Tracker,
@@ -69,6 +70,14 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
 
     issueList: async (limit): Promise<PortResult<readonly Issue[]>> =>
       answered(limit === undefined ? issues : issues.slice(0, limit)),
+
+    // Every fixture issue with a `closedAt` at or after `since`, newest first.
+    issueListClosed: async (since, limit): Promise<PortResult<ClosedIssues>> => {
+      const closed = issues
+        .filter((issue) => issue.closedAt !== null && issue.closedAt >= since)
+        .sort((a, b) => (b.closedAt ?? '').localeCompare(a.closedAt ?? ''));
+      return answered({ issues: closed.slice(0, limit), complete: closed.length < limit });
+    },
 
     issueView: async (id): Promise<PortResult<Issue>> => {
       const found = issues.find((issue) => issue.id === id);

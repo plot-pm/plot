@@ -2,7 +2,7 @@ import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { unaskable, type PortResult } from '../../port-result.js';
 import { issueSource, type IssueSource, type IssueSourceReading } from '../../rules/issue-source.js';
-import type { StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
+import type { ClosedIssues, StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { trackerReads } from './tracker-shell.js';
@@ -81,10 +81,10 @@ export const trackerShell = async (context: ShellContext): Promise<Tracker> => {
  * caller reading this `Tracker`'s `limit()` is reading the git host's budget,
  * not a second one nothing would charge against.
  *
- * THE WRITE ANSWERS `unaskable`, always. A status write has nowhere native to
- * land on a git host's own issue — there is no second surface the way
- * `trackerGithub`'s Projects write is one — and `unaskable` is the honest
- * answer the port-doc correction states: no tracker was declared, so no
+ * THE WRITE ANSWERS `unaskable`, always, and says why. A status write has
+ * nowhere native to land on a git host's own issue — there is no second surface
+ * the way `trackerGithub`'s Projects write is one — and `unaskable` is the
+ * honest answer the port-doc correction states: no tracker was declared, so no
  * status write was asked for either.
  *
  * @param gitHost - the repository's git host backend word, as `plot-host.sh
@@ -97,8 +97,10 @@ export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker 
   return {
     config: (): TrackerConfig => ({ scheme: '', baseUrl: '' }),
     issueList: (limit): Promise<PortResult<readonly Issue[]>> => reads.issueList(limit),
+    issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
-    statusWrite: async (): Promise<PortResult<StatusOutcome>> => unaskable(),
+    statusWrite: async (): Promise<PortResult<StatusOutcome>> =>
+      unaskable("no Tracker declared; the git host's issues are read-only to Plot"),
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
     lastRefusal: (): string | null => reads.lastRefusal(),
     spender: (): Promise<PortResult<TrackerSpender>> => reads.spender(),
@@ -129,7 +131,7 @@ export const trackerOfSource = (
     case 'git-host':
       return trackerGitHost(gitHost, context);
     case 'nobody':
-      return trackerNone();
+      return trackerNone(source.reason);
   }
 };
 

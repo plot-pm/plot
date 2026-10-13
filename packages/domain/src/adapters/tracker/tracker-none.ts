@@ -1,7 +1,7 @@
 import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { unaskable, type PortResult } from '../../port-result.js';
-import type { StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
+import type { ClosedIssues, StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
 
 /**
  * A tracker a repository never declared.
@@ -21,16 +21,19 @@ import type { StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../.
  * chosen one, so routing this case through either connector would make the
  * absence wear a vendor's failure shape.
  *
+ * @param reason - why nobody answers, as `issueSource` states it; carried on
+ *   every `unaskable` answer.
  * @returns a `Tracker` that reaches nothing and says so.
  */
-export const trackerNone = (): Tracker => ({
+export const trackerNone = (reason?: string): Tracker => ({
   config: (): TrackerConfig => ({ scheme: '', baseUrl: '' }),
-  issueList: async (): Promise<PortResult<readonly Issue[]>> => unaskable(),
-  issueView: async (): Promise<PortResult<Issue>> => unaskable(),
-  statusWrite: async (): Promise<PortResult<StatusOutcome>> => unaskable(),
-  limit: async (): Promise<PortResult<readonly LimitReading[]>> => unaskable(),
+  issueList: async (): Promise<PortResult<readonly Issue[]>> => unaskable(reason),
+  issueListClosed: async (): Promise<PortResult<ClosedIssues>> => unaskable(reason),
+  issueView: async (): Promise<PortResult<Issue>> => unaskable(reason),
+  statusWrite: async (): Promise<PortResult<StatusOutcome>> => unaskable(reason),
+  limit: async (): Promise<PortResult<readonly LimitReading[]>> => unaskable(reason),
   // NEVER A REFUSAL. A tracker nobody declared is not refusing anything; it is
   // answering, permanently and correctly, that there is nothing to ask.
   lastRefusal: (): string | null => null,
-  spender: async (): Promise<PortResult<TrackerSpender>> => unaskable(),
+  spender: async (): Promise<PortResult<TrackerSpender>> => unaskable(reason),
 });

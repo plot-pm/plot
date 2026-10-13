@@ -2,6 +2,7 @@ import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type {
+  ClosedIssues,
   StatusOutcome,
   StatusWrite,
   Tracker,
@@ -72,6 +73,8 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
     config: (): TrackerConfig => ({ scheme: SCHEME, baseUrl }),
 
     issueList: (limit): Promise<PortResult<readonly Issue[]>> => reads.issueList(limit),
+
+    issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
 
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
 

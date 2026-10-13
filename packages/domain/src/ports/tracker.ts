@@ -79,6 +79,16 @@ export interface StatusWrite {
 export type StatusOutcome = 'written' | 'no-target';
 
 /**
+ * The issues a tracker closed in a window, and whether the read reached its end.
+ */
+export interface ClosedIssues {
+  /** The closed issues, newest close first, without bodies. */
+  issues: readonly Issue[];
+  /** False where the read stopped at its limit, so more may exist. */
+  complete: boolean;
+}
+
+/**
  * Reads a tracker, and writes one fact back to it.
  *
  * A TRACKER IS NOT A GIT HOST, BUT ONE IMPLEMENTATION READS THROUGH IT.
@@ -127,6 +137,21 @@ export interface Tracker {
    *   and has no git host to read issues from instead.
    */
   issueList(limit?: number): Promise<PortResult<readonly Issue[]>>;
+
+  /**
+   * Lists the issues the tracker closed at or after `since`, without bodies.
+   *
+   * Newest close first. A read that returns `limit` rows reports
+   * `complete: false`, because a read that stopped has not told the caller
+   * everything.
+   *
+   * @param since - the earliest closing time to include, ISO-8601.
+   * @param limit - how many issues to read at most.
+   * @returns the closed issues; `unaskable` with its reason where the tracker
+   *   states no closing date (Bitbucket), a Jira tracker declares no
+   *   `Ticket prefixes`, or no tracker can be asked.
+   */
+  issueListClosed(since: string, limit: number): Promise<PortResult<ClosedIssues>>;
 
   /**
    * Reads one issue, with its body.

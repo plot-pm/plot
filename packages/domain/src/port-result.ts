@@ -9,7 +9,7 @@
 export type PortResult<T> =
   | { ok: true; value: T }
   | { ok: false; why: 'failed' }
-  | { ok: false; why: 'unaskable' };
+  | { ok: false; why: 'unaskable'; reason?: string };
 
 /**
  * Builds an answered result.
@@ -32,9 +32,13 @@ export const failed = <T>(): PortResult<T> => ({ ok: false, why: 'failed' });
 /**
  * Builds the result of a call this source cannot answer at all.
  *
- * @returns a result with `ok: false` and `why: 'unaskable'`.
+ * @param reason - why the source cannot be asked, where it states one. A caller
+ *   reading only `why` is unaffected.
+ * @returns a result with `ok: false` and `why: 'unaskable'`, carrying `reason`
+ *   when one was given.
  */
-export const unaskable = <T>(): PortResult<T> => ({ ok: false, why: 'unaskable' });
+export const unaskable = <T>(reason?: string): PortResult<T> =>
+  reason === undefined ? { ok: false, why: 'unaskable' } : { ok: false, why: 'unaskable', reason };
 
 /**
  * Narrows a result to its answered form.
