@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { planningColumns } from '@plot-pm/domain/rules/workflow-phases';
 import type { Board, Card, StoryCard } from '../../contract/schema.js';
 import { NO_STORY, passesFilter, passesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
 import { checksUnaskableOn, storyHref } from '../lib/plan.js';
@@ -33,6 +34,8 @@ export interface SwimlanesProps {
    * of the layout rather than of the plans.
    */
   planAgeSeconds?: number | null;
+  /** Whether the released-only columns are drawn; `?released=1`. Same switch as `BoardView`'s. */
+  showReleased?: boolean;
 }
 
 /** One row: a story (or the catch-all), with its plans bucketed by phase. */
@@ -50,15 +53,18 @@ interface Lane {
 }
 
 /**
- * The phase columns a lane renders — the payload's own columns, in payload order.
+ * The phase columns a lane renders — the payload's own columns, in payload order,
+ * minus the released-only ones unless `showReleased`.
  *
  * A lane cell and a board column are the same phase because both read this one
- * list; the declared `Workflow phases` map decided it on the server.
+ * list through `planningColumns`; the declared `Workflow phases` map decided it
+ * on the server.
  *
  * Exported so a test can assert the two views over ONE payload rather than
  * re-deriving the list and agreeing with itself.
  */
-export const lanePhases = (board: Board): Board['columns'] => board.columns;
+export const lanePhases = (board: Board, showReleased: boolean): Board['columns'] =>
+  planningColumns(board.columns, showReleased);
 
 /**
  * Group cards into lanes. Stories keep their declared order; the catch-all goes
@@ -113,6 +119,7 @@ export function Swimlanes({
   onOpenStory,
   highlight = '',
   planAgeSeconds = null,
+  showReleased = false,
 }: SwimlanesProps) {
   const showSprint = sprintSel.length === 0;
 
@@ -127,14 +134,15 @@ export function Swimlanes({
     [board.sprints],
   );
 
-  const visible = board.columns.flatMap((c) => c.cards).filter(
+  const phases = lanePhases(board, showReleased);
+
+  // Counted over the SHOWN columns, so a lane's plan count matches its cells.
+  const visible = phases.flatMap((c) => c.cards).filter(
     (c) =>
       passesSprintFilter(c, sprintSel, membership) &&
       passesFilter(c, storySel, 'story', NO_STORY),
   );
   const lanes = buildLanes(visible, board.stories);
-
-  const phases = lanePhases(board);
 
   return (
     <div className="overflow-x-auto">

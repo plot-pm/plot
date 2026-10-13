@@ -56,7 +56,7 @@ export interface StoriesTabProps {
   topics: Topic[];
   /** Open a story in the modal. */
   onOpenStory: (story: StoryCard) => void;
-  /** Open a sprint in the Agents tab. */
+  /** Open a sprint in the Delivery tab. */
   onOpenSprint?: (sprintSlug: string) => void;
 }
 
@@ -114,7 +114,7 @@ function renderInlineMarkdown(text: string): React.ReactNode {
 }
 
 /**
- * Stories tab — the strategic layer above plans.
+ * Discovery tab — the strategic layer above plans.
  *
  * Shows story cards grouped by status (Draft/Active/Done/Archived), with a tag
  * cloud for topic navigation. Clicking a story opens the StoryModal.

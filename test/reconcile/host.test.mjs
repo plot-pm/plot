@@ -7021,3 +7021,59 @@ test('host: issue-list github closed records one extra call per 100 rows past th
   assert.equal(spent(101) - one, 1);
   assert.equal(spent(250) - one, 2);
 });
+
+// --- issue-open: THE SECOND WRITE TO A TRACKER -------------------------------
+
+test('host: issue-open opens one github issue and prints its address', () => {
+  const stubs = makeStubs({ ghJson: 'https://github.com/o/r/issues/42\n' });
+  const out = run(
+    ['issue-open', 'A claim failed', 'the evidence', '--label', 'ai-generated', '--label', 'verify'],
+    { env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' }, stubs },
+  );
+  assert.equal(out.trim(), 'https://github.com/o/r/issues/42');
+  assert.deepEqual(argvOf(stubs.ghArgv), [
+    'issue', 'create', '--title', 'A claim failed', '--body', 'the evidence',
+    '--label', 'ai-generated', '--label', 'verify',
+  ]);
+});
+
+test('host: issue-open exits 4 with the reason where the declared tracker cannot open an issue', () => {
+  const stubs = makeStubs();
+  const res = runAllowFail(['issue-open', 't', 'b'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'linear' },
+    stubs,
+  });
+  assert.equal(res.code, 4);
+  assert.match(res.stderr, /plot-host: issue-open answers for jira and github-issues only, not 'linear'/);
+  assert.equal(argvOf(stubs.ghArgv), null, 'gh is never called for a tracker it cannot answer as');
+});
+
+test('host: issue-open reports a failed create as exit 3 with no number', () => {
+  const stubs = makeStubs({ ghFail: 'HTTP 502' });
+  const res = runAllowFail(['issue-open', 't', 'b'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs,
+  });
+  assert.equal(res.code, 3);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: issue-open posts the Jira request verbatim and prints Jira\'s answer', () => {
+  const stub = makeJiraSequenceStub([{ body: '{"id":"1","key":"PROJ-9"}', status: 201 }]);
+  const request = JSON.stringify({ fields: { project: { key: 'PROJ' }, summary: 'T', labels: ['ai-generated'] } });
+  const res = runJira(['issue-open', request], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(JSON.parse(res.stdout).key, 'PROJ-9');
+  const call = readFileSync(stub.argvFile, 'utf8').split('\n');
+  assert.ok(call.includes('POST'));
+  assert.equal(call[call.indexOf('--data-raw') + 1], request);
+  assert.ok(call.some((line) => line.endsWith('/rest/api/2/issue')));
+});
+
+test('host: issue-open reports a Jira refusal as exit 3 with nothing on stdout', () => {
+  const stub = makeJiraSequenceStub([{ body: '{"errorMessages":["issuetype is invalid"]}', status: 400 }]);
+  const res = runJira(['issue-open', '{}'], stub);
+  assert.equal(res.status, 3);
+  assert.equal(res.stdout, '');
+  assert.match(res.stderr, /jira HTTP 400 — issuetype is invalid/);
+});

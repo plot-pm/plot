@@ -4,7 +4,7 @@ import type { SprintCard, SprintMember } from '../../contract/schema.js';
 export interface SprintModalProps {
   sprint: SprintCard;
   onClose: () => void;
-  /** Navigate to a plan in the Plans tab. */
+  /** Navigate to a plan in the Planning tab. */
   onOpenPlan?: (slug: string) => void;
 }
 

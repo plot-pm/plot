@@ -322,12 +322,12 @@ describe('the plans tab filters to my work', () => {
     const page = await cat.open('an-empty-estate', { tab: 'board', over: { fleet: fleet(), board: kanban() } });
     try {
       await page.locator('[data-mine-toggle]').check();
-      await page.getByRole('button', { name: 'Agents' }).click();
+      await page.getByRole('button', { name: 'Delivery' }).click();
       await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
       await expect.poll(() => page.locator('[data-mine-toggle]').isChecked()).toBe(true);
 
       await page.locator('[data-mine-toggle]').uncheck();
-      await page.getByRole('button', { name: 'Plans' }).click();
+      await page.getByRole('button', { name: 'Planning' }).click();
       await expect.poll(() => page.locator('[data-mine-toggle]').isChecked()).toBe(false);
       await expect.poll(async () => (await shownCards(page)).length).toBe(SLUGS.length);
     } finally {

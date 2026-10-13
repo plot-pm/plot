@@ -128,7 +128,7 @@ export function withSprintCounts(
  *
  * **It used to union in `card.sprint` as well**, so any sprint slug written on
  * any plan became an option. Measured 2026-08-26, hours after W35 closed: the
- * filter offered three sprints — all Closed — while the Agents tab header
+ * filter offered three sprints — all Closed — while the Delivery tab header
  * correctly read *No active sprint*. Two views of one fact, disagreeing, because
  * a plan's `Sprint:` field is HISTORY and does not clear when its sprint ends.
  * 133 plans carry one; three sprints have ever existed; none is active. The
@@ -265,11 +265,11 @@ export function passesSprintFilter(
  * sprint.
  *
  * This is the core logic shared by the Board tab's `passesSprintFilter` and
- * the Agents tab's sprint filter. A `Card` joins on `card.slug`; an `AgentRow`
+ * the Delivery tab's sprint filter. A `Card` joins on `card.slug`; an `AgentRow`
  * joins on `row.plan`. One predicate, one answer — so the three tabs cannot
  * drift into disagreeing about membership.
  *
- * The plan "the-sprint-filter-says-what-it-filters" measured: the Agents tab
+ * The plan "the-sprint-filter-says-what-it-filters" measured: the Delivery tab
  * filtered on `r.sprint === '' || sprintFilter.has(r.sprint)`, which admitted
  * 53 plan rows (slices/branches with empty sprint fields) alongside the 2
  * genuine plan-less rows. This function joins on the sprint file's membership
@@ -311,7 +311,7 @@ export function slugPassesSprintFilter(
 }
 
 /**
- * Does the Agents tab's sprint filter let this row through without asking about
+ * Does the Delivery tab's sprint filter let this row through without asking about
  * membership?
  *
  * Two kinds of row are exempt: the release row (`kind: 'release'`) and a PR row

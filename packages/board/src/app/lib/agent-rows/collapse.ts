@@ -22,13 +22,13 @@ export const COLLAPSED_BY_DEFAULT: WaitingGroup[] = ['quiet', 'done'];
  * Where the collapse state lives.
  *
  * `localStorage`, and that is a deliberate departure. The board's convention for
- * view state is the URL — `?tab=agents`, `?lanes=1`, `?plan=…`, written with
+ * view state is the URL — `?tab=delivery`, `?lanes=1`, `?plan=…`, written with
  * `history.replaceState` — and there is no other `localStorage` in the app, so
  * this introduces a second mechanism for what looks like the same kind of state.
  *
  * The distinction that justifies it: **a URL is shareable, and collapse state
  * should not be.** Everything in the query string today is worth sending to
- * someone — *look at this plan*, *look at the agents tab*. A link carrying
+ * someone — *look at this plan*, *look at the Delivery tab*. A link carrying
  * `?collapsed=quiet,done` would hand my personal tidying to whoever opened it,
  * rebuilding their view as a side effect of "have a look at this". Collapse is
  * convenience, not subject matter.

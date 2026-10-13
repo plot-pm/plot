@@ -582,7 +582,7 @@ export function PlanRow({
   // two tabs come to disagree about the same plan.
   //
   // MEASURED 2026-08-25 walking the v2.9.0 endgame, Stop 5.6: 40 of 120 cards
-  // carry `rounds` and the Board tab renders every one, while the Agents tab
+  // carry `rounds` and the Board tab renders every one, while the Delivery tab
   // rendered none. The field was never in the fleet payload's rows — it is a
   // fact about the PLAN, and the plan head is where a plan fact belongs. The
   // card was already in reach here through `cardForPlanFile`; nothing asked it.

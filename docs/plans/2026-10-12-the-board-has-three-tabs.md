@@ -124,7 +124,7 @@ The design spec is [DESIGN-phases.md](../stories/plot-works-in-five-phases/DESIG
 
 ### The Active sprint button
 
-- `feature/the-active-sprint-button-selects-every-active-sprint` — `activeSprintButton` beside `sanitizeSelection` in `lib/filters.ts`; the *Active sprint* button beside the sprint multiselect and its disabled state; cross-file: `DESIGN-phases.md` §5 *Active sprint* (`:259`) says a button that selects every Active sprint in the multiselect (D32), and §8 (`:320`) names `activeSprintButton(sprints)` in place of `activeSprintScope(rows, sprints)` <!-- builds: the Active sprint button -->
+- `feature/the-active-sprint-button-selects-every-active-sprint` → #1661 — `activeSprintButton` beside `sanitizeSelection` in `lib/filters.ts`; the *Active sprint* button beside the sprint multiselect and its disabled state; cross-file: `DESIGN-phases.md` §5 *Active sprint* (`:259`) says a button that selects every Active sprint in the multiselect (D32), and §8 (`:320`) names `activeSprintButton(sprints)` in place of `activeSprintScope(rows, sprints)` <!-- builds: the Active sprint button -->
 
 ### The plan-level row
 

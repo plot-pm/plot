@@ -5,14 +5,16 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { trackerFixture } from '../src/adapters/tracker/tracker-fixture.js';
-import { trackerGithub } from '../src/adapters/tracker/tracker-github.js';
-import { trackerJira } from '../src/adapters/tracker/tracker-jira.js';
+import { githubIssueNumberOf, trackerGithub } from '../src/adapters/tracker/tracker-github.js';
+import { jiraKeyOf, trackerJira } from '../src/adapters/tracker/tracker-jira.js';
 import { trackerNone } from '../src/adapters/tracker/tracker-none.js';
 import {
   trackerForIssues,
   trackerGitHost,
   trackerOfSource,
 } from '../src/adapters/tracker/tracker-resolve.js';
+import { ISSUE_MAY_EXIST, issueOpenOf } from '../src/adapters/tracker/tracker-shell.js';
+import type { IssueOpen } from '../src/ports/tracker.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
 
 // The issue reader a repository with no `Tracker` key gets, and the spender
@@ -20,8 +22,11 @@ import type { ShellContext } from '../src/adapters/scripts.js';
 
 const roots: string[] = [];
 
-/** A context whose `plot-host.sh` is the given body, recording its argv and PLOT_TRACKER. */
-const hostThat = (body: string): { context: ShellContext; argv: string } => {
+/**
+ * A context whose `plot-host.sh` is the given body, recording its argv and
+ * PLOT_TRACKER, and whose `plot-config.sh` is `config` where one is given.
+ */
+const hostThat = (body: string, config?: string): { context: ShellContext; argv: string } => {
   const root = mkdtempSync(join(tmpdir(), 'plot-tracker-issues-'));
   roots.push(root);
   const scriptDir = join(root, 'scripts');
@@ -33,6 +38,11 @@ const hostThat = (body: string): { context: ShellContext; argv: string } => {
     `#!/usr/bin/env bash\nprintf '%s|%s\\n' "\${PLOT_TRACKER:-}" "$*" >> ${JSON.stringify(argv)}\n${body}\n`,
   );
   chmodSync(file, 0o755);
+  if (config !== undefined) {
+    const configFile = join(scriptDir, 'plot-config.sh');
+    writeFileSync(configFile, `#!/usr/bin/env bash\n${config}\n`);
+    chmodSync(configFile, 0o755);
+  }
   return { context: { repoRoot: root, scriptDir }, argv };
 };
 
@@ -150,6 +160,212 @@ esac`);
       reason: "no Tracker declared; the git host's issues are read-only to Plot",
     });
     expect(calls(argv)).toEqual([]);
+  });
+});
+
+describe('issueOpen on a repository with no Tracker', () => {
+  const write = { title: 't', body: 'b', labels: ['ai-generated'] };
+
+  it('answers unaskable through trackerGitHost, with the statusWrite sentence, and calls nothing', async () => {
+    const { context, argv } = hostThat('exit 0');
+    expect(await trackerGitHost('github', context).issueOpen(write)).toEqual({
+      ok: false,
+      why: 'unaskable',
+      reason: "no Tracker declared; the git host's issues are read-only to Plot",
+    });
+    expect(calls(argv)).toEqual([]);
+  });
+
+  it('answers unaskable through trackerNone, with the reason it was built with', async () => {
+    expect(await trackerNone('plans are the tracker').issueOpen(write)).toEqual({
+      ok: false,
+      why: 'unaskable',
+      reason: 'plans are the tracker',
+    });
+  });
+
+  it('resolves every issueSource arm to a tracker that answers issueOpen', async () => {
+    const { context } = hostThat('exit 0');
+    const viaNobody = trackerOfSource({ ask: 'nobody', reason: 'none declared' }, '', '', context);
+    expect(await viaNobody.issueOpen(write)).toEqual({ ok: false, why: 'unaskable', reason: 'none declared' });
+    const viaGitHost = trackerOfSource({ ask: 'git-host' }, '', 'github', context);
+    expect(await viaGitHost.issueOpen(write)).toEqual({
+      ok: false,
+      why: 'unaskable',
+      reason: "no Tracker declared; the git host's issues are read-only to Plot",
+    });
+  });
+});
+
+const OPEN: IssueOpen = { title: 'A claim', body: 'the evidence', labels: ['ai-generated', 'verify'] };
+
+const NOT_HERE = `echo "plot-host: issue-open answers for jira and github-issues only, not 'linear'" >&2; exit 4`;
+
+describe('issueOpen through trackerGithub', () => {
+  it('passes the title, the body and one --label per label, and answers the number gh printed', async () => {
+    const { context, argv } = hostThat('echo https://github.com/o/r/issues/42');
+    const tracker = trackerGithub(context);
+    expect(await tracker.issueOpen(OPEN)).toEqual({ ok: true, value: { outcome: 'opened', id: '42' } });
+    expect(calls(argv)).toEqual(['github-issues|issue-open A claim the evidence --label ai-generated --label verify']);
+    expect(tracker.lastRefusal()).toBeNull();
+  });
+
+  it('answers unaskable with the stated reason on exit 4', async () => {
+    const { context } = hostThat(NOT_HERE);
+    const tracker = trackerGithub(context);
+    expect(await tracker.issueOpen(OPEN)).toEqual({
+      ok: false,
+      why: 'unaskable',
+      reason: "issue-open answers for jira and github-issues only, not 'linear'",
+    });
+    expect(tracker.lastRefusal()).toBeNull();
+  });
+
+  it('answers failed and records the refusal on any other non-zero exit', async () => {
+    const { context } = hostThat("echo 'plot-host: HTTP 502' >&2; exit 3");
+    const tracker = trackerGithub(context);
+    expect(await tracker.issueOpen(OPEN)).toEqual({ ok: false, why: 'failed' });
+    expect(tracker.lastRefusal()).toBe('plot-host: HTTP 502');
+  });
+
+  it('answers failed where exit 0 names no issue, and says the issue may exist', async () => {
+    const { context } = hostThat('exit 0');
+    const tracker = trackerGithub(context);
+    expect(await tracker.issueOpen(OPEN)).toEqual({ ok: false, why: 'failed' });
+    expect(tracker.lastRefusal()).toBe(`${ISSUE_MAY_EXIST}the tracker answered with no issue identifier: (nothing)`);
+  });
+
+  it('reads the number only from an issue address', () => {
+    expect(githubIssueNumberOf('https://github.com/o/r/issues/7\n')).toBe('7');
+    expect(githubIssueNumberOf('https://github.com/o/r/pull/7')).toBeNull();
+    expect(githubIssueNumberOf('')).toBeNull();
+  });
+});
+
+/** A `plot-config.sh` declaring two projects and, where given, an issue type. */
+const configWith = (issueType?: string): string => `case "$2" in
+  'Ticket prefixes') echo 'PROJ, OTHER' ;;
+  *) echo ${issueType === undefined ? '"$3"' : JSON.stringify(issueType)} ;;
+esac`;
+
+describe('issueOpen through trackerJira', () => {
+  /** A host that saves the request it was given and answers `answer`. */
+  const jiraHost = (
+    answer: string,
+    config = configWith(),
+  ): { context: ShellContext; argv: string; request: () => unknown } => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-tracker-request-'));
+    roots.push(root);
+    const saved = join(root, 'request.json');
+    const { context, argv } = hostThat(`printf '%s' "$2" > ${JSON.stringify(saved)}\n${answer}`, config);
+    return { context, argv, request: () => JSON.parse(readFileSync(saved, 'utf8')) };
+  };
+
+  it('builds the request in the first declared project as a Task, and answers the key', async () => {
+    const { context, argv, request } = jiraHost(`echo '{"id":"1","key":"PROJ-9"}'`);
+    const tracker = trackerJira(context);
+    expect(await tracker.issueOpen(OPEN)).toEqual({ ok: true, value: { outcome: 'opened', id: 'PROJ-9' } });
+    expect(request()).toEqual({
+      fields: {
+        project: { key: 'PROJ' },
+        issuetype: { name: 'Task' },
+        summary: 'A claim',
+        description: 'the evidence',
+        labels: ['ai-generated', 'verify'],
+      },
+    });
+    expect(calls(argv)).toHaveLength(1);
+    expect(calls(argv)[0]).toMatch(/^jira\|issue-open \{/);
+    expect(tracker.lastRefusal()).toBeNull();
+  });
+
+  it('opens the issue type the Tracker issue type key names', async () => {
+    const { context, request } = jiraHost(`echo '{"key":"PROJ-10"}'`, configWith('Bug'));
+    expect(await trackerJira(context).issueOpen(OPEN)).toEqual({ ok: true, value: { outcome: 'opened', id: 'PROJ-10' } });
+    expect(request()).toMatchObject({ fields: { issuetype: { name: 'Bug' } } });
+  });
+
+  it('answers unaskable with the stated reason on exit 4', async () => {
+    const { context } = jiraHost(NOT_HERE);
+    expect(await trackerJira(context).issueOpen(OPEN)).toEqual({
+      ok: false,
+      why: 'unaskable',
+      reason: "issue-open answers for jira and github-issues only, not 'linear'",
+    });
+  });
+
+  it('answers failed and records the refusal on any other non-zero exit', async () => {
+    const { context } = jiraHost("echo 'plot-host: jira HTTP 400 — issuetype is invalid' >&2; exit 3");
+    const tracker = trackerJira(context);
+    expect(await tracker.issueOpen(OPEN)).toEqual({ ok: false, why: 'failed' });
+    expect(tracker.lastRefusal()).toBe('plot-host: jira HTTP 400 — issuetype is invalid');
+  });
+
+  it('answers failed where Jira answered 2xx with no key, and says the issue may exist', async () => {
+    const { context } = jiraHost(`echo '{"id":"1"}'`);
+    const tracker = trackerJira(context);
+    expect(await tracker.issueOpen(OPEN)).toEqual({ ok: false, why: 'failed' });
+    expect(tracker.lastRefusal()).toBe(`${ISSUE_MAY_EXIST}the tracker answered with no issue identifier: {"id":"1"}`);
+  });
+
+  it('answers unaskable and calls no host where no Ticket prefixes are declared', async () => {
+    const { context, argv } = hostThat('exit 0', 'echo "${3:-}"');
+    expect(await trackerJira(context).issueOpen(OPEN)).toEqual({
+      ok: false,
+      why: 'unaskable',
+      reason: "opening a Jira issue needs 'Ticket prefixes' declared",
+    });
+    expect(calls(argv)).toEqual([]);
+  });
+
+  it('answers failed and calls no host where the config cannot be read', async () => {
+    const { context, argv } = hostThat('exit 0', "echo 'plot-config: no CLAUDE.md' >&2; exit 2");
+    const tracker = trackerJira(context);
+    expect(await tracker.issueOpen(OPEN)).toEqual({ ok: false, why: 'failed' });
+    expect(tracker.lastRefusal()).toBe('plot-config: no CLAUDE.md');
+    expect(calls(argv)).toEqual([]);
+  });
+
+  it('reads a key only from a JSON answer that names one', () => {
+    expect(jiraKeyOf('{"key":"PROJ-1"}')).toBe('PROJ-1');
+    expect(jiraKeyOf('{"key":""}')).toBeNull();
+    expect(jiraKeyOf('null')).toBeNull();
+    expect(jiraKeyOf('not json')).toBeNull();
+  });
+});
+
+describe('issueOpenOf', () => {
+  it('says the issue may exist where the run ended at its time bound', () => {
+    const refusals: (string | null)[] = [];
+    const said = { code: 1, stdout: '', stderr: '', interrupted: 'timeout' as const };
+    expect(issueOpenOf(said, () => '1', (r) => refusals.push(r))).toEqual({ ok: false, why: 'failed' });
+    expect(refusals).toEqual([
+      `${ISSUE_MAY_EXIST}plot-host.sh issue-open ended by timeout after the request may have been sent`,
+    ]);
+  });
+
+  it('names the exit code where a failed run printed nothing', () => {
+    const refusals: (string | null)[] = [];
+    expect(issueOpenOf({ code: 2, stdout: '', stderr: '' }, () => '1', (r) => refusals.push(r))).toEqual({
+      ok: false,
+      why: 'failed',
+    });
+    expect(refusals).toEqual(['plot-host.sh exited 2']);
+  });
+});
+
+describe('issueOpen through the fixture', () => {
+  it('records every write before it refuses, and numbers the ones it opens', async () => {
+    const opened: IssueOpen[] = [];
+    expect(await trackerFixture({ opened }).issueOpen(OPEN)).toEqual({
+      ok: true,
+      value: { outcome: 'opened', id: '1' },
+    });
+    expect(await trackerFixture({ opened, issueOpenFails: true }).issueOpen(OPEN)).toEqual({
+      ok: false,
+      why: 'failed',
+    });
+    expect(opened).toEqual([OPEN, OPEN]);
   });
 });
 

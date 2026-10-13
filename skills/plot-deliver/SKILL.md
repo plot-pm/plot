@@ -450,7 +450,7 @@ The `tracker=` field reports the issue status write:
 | `failed` | The write broke; the `tracker:` lines above the summary name why |
 | `skipped` | The push was rejected, so the delivery did not land and no status is owed |
 
-**A `failed` tracker write is reported to the operator and never re-runs the delivery.** The plan is delivered; the tracker holds a copy of one fact about it. The status word comes from the `Tracker delivered status` config key and is never a literal. The script closes no issue, creates none and comments on none.
+**A `failed` tracker write is reported to the operator and never re-runs the delivery.** The plan is delivered; the tracker holds a copy of one fact about it. The status word comes from the `Tracker delivered status` config key and is never a literal. The script closes no issue, creates none and comments on none; the tracker port's other write, `issueOpen`, belongs to the verify workflow and delivery never calls it.
 
 > **Why the index writes are best-effort.** A repo with no `active/` link (a plan
 > written directly), no `delivered/` directory (a fresh adopter), or a read-only

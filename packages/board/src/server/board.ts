@@ -174,7 +174,7 @@ export interface BuildBoardOptions {
  * seconds — the network call would make a poll loop depend on the git host
  * being reachable. The mirror is also already correct, because the fleet scan
  * fetches on its own timer, so `refs/remotes/origin/*` is as fresh as the pulse
- * the Agents tab renders from.
+ * the Delivery tab renders from.
  *
  * @param opts - where to read, and optionally what to read through.
  * @returns the injected reader, or one backed by git in `opts.repoRoot`.
@@ -2070,7 +2070,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
   // one.
   const prLinks = prsByNumber(opts);
   // Claims live in git refs, so the card's occupancy counts are read from the
-  // same cached pulse the Agents tab classifies from — one source, so a card
+  // same cached pulse the Delivery tab classifies from — one source, so a card
   // and a row can no longer disagree about whether work is in flight. null on a
   // cold cache, and the counts are then omitted rather than zeroed.
   const pulse = pulseFor(opts);

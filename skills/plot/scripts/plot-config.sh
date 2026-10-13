@@ -172,6 +172,10 @@
 #                       the same for Released. A team whose *Done* means
 #                       *shipped* sets only this one; a team watching progress
 #                       sets both.
+#   Tracker issue type  the Jira issue type `issueOpen` opens an issue as, in
+#                       the project's own vocabulary (`Bug`, `Task`). Absent or
+#                       empty = `Task`. The issue opens in the first project
+#                       `Ticket prefixes` names.
 #   Ticket prefixes     the tracker project keys this repository's work lives
 #                       in, comma-separated (`PROJ-A, PROJ-B`). NOT
 #                       `Branch prefixes`, which sits next to it and holds

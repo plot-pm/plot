@@ -11,7 +11,7 @@ import { draftRoundsText } from './working-agents.js';
  * NO MENU. The row says a decision is owed; approving it is `/plot-approve`,
  * and nothing here writes a phase.
  *
- * The rounds badge copies the Plans tab's two styles: a recorded count, 0
+ * The rounds badge copies the Planning tab's two styles: a recorded count, 0
  * included, takes the filled badge, and an absent one the dashed italic badge,
  * so `not interrogated` and `0 rounds` never read alike.
  */

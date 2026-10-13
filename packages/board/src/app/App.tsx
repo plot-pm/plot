@@ -5,6 +5,8 @@ import { BoardView } from './components/Board.js';
 import { Swimlanes } from './components/Swimlanes.js';
 import { PlanModal } from './components/PlanModal.js';
 import { SprintModal } from './components/SprintModal.js';
+import { boardTabOf, type BoardTab } from '@plot-pm/domain/rules/board-tab';
+import { revealsReleased } from '@plot-pm/domain/rules/workflow-phases';
 import { StoriesTab } from './components/StoriesTab.js';
 import { StoryModal } from './components/StoryModal.js';
 import { BLOCKED_REASON, UnreachableOverlay } from './components/UnreachableOverlay.js';
@@ -40,7 +42,7 @@ const FLEET_POLL_MS = 4_000;
  * constant rather than two. The two tabs run at very different rates — 30 s
  * for the board against 4 s for the fleet, a factor of 7.5 — so a single
  * seconds-threshold says two different things: thirty seconds is seven and a
- * half missed polls on the Agents tab and a single one on the Board tab. The
+ * half missed polls on the Delivery tab and a single one on the Board tab. The
  * same number would dim on the first hiccup in one place and only after a real
  * outage in the other. Counting failures keeps the STATEMENT identical on both
  * — the server has not answered eight times running — and it survives someone
@@ -109,30 +111,26 @@ const POLL_TIMEOUT_MS = 3_500;
 /**
  * The three tabs, in display order: strategy → artifacts → execution.
  *
- * - Stories: the strategic layer above plans — themes that span multiple plans
- * - Plans: the artifacts (renamed from "Board" for clarity)
- * - Agents: execution state
+ * - Discovery: the strategic layer above plans — themes that span multiple plans
+ * - Planning: the artifacts
+ * - Delivery: execution state
  *
- * `?tab=board` redirects to `?tab=plans` for backward compatibility.
+ * The legacy values `stories`, `plans`, `board` and `agents` redirect to the new ones.
  */
-type Tab = 'stories' | 'plans' | 'agents';
+type Tab = BoardTab;
 
 /**
- * Parse the tab from the URL, with backward compatibility for `?tab=board`.
+ * Parse the tab from the URL. The decision is the domain's (`boardTabOf`); a
+ * legacy value is replaced in the URL silently so existing bookmarks work.
  */
 function parseTab(): Tab {
-  const param = new URLSearchParams(location.search).get('tab');
-  if (param === 'agents') return 'agents';
-  if (param === 'stories') return 'stories';
-  // Redirect ?tab=board to ?tab=plans silently — existing bookmarks work
-  if (param === 'board') {
+  const { tab, redirect } = boardTabOf(new URLSearchParams(location.search).get('tab'));
+  if (redirect !== null) {
     const url = new URL(location.href);
-    url.searchParams.set('tab', 'plans');
+    url.searchParams.set('tab', redirect);
     history.replaceState(null, '', url);
-    return 'plans';
   }
-  // Default to plans (was 'board') when no tab specified
-  return 'plans';
+  return tab;
 }
 
 export function App() {
@@ -145,8 +143,28 @@ export function App() {
   const [lanes, setLanes] = useState(
     () => new URLSearchParams(location.search).get('lanes') === '1',
   );
-  // "ONLY MY WORK" ON THE PLANS TAB. One stored preference governs both tabs:
-  // the Agents tab's control writes the same key, and each tab renders alone,
+  // The Released column is hidden on Planning unless `?released=1`. Not `archived`:
+  // Discovery's own toggle uses that name, and the query string survives a tab switch.
+  const [showReleased, setShowReleased] = useState(
+    () => new URLSearchParams(location.search).get('released') === '1',
+  );
+  const writeShowReleased = useCallback((next: boolean) => {
+    setShowReleased(next);
+    const url = new URL(location.href);
+    if (next) url.searchParams.set('released', '1');
+    else url.searchParams.delete('released');
+    history.replaceState(null, '', url);
+  }, []);
+  // The reader's own toggle is the next interaction, so the arrival highlight
+  // goes with it — the same rule as the sprint and story filters. It also stops
+  // the arrival effect below from turning the box back on.
+  const onShowReleased = (next: boolean) => {
+    writeShowReleased(next);
+    setHighlight('');
+    writeList('plan', []);
+  };
+  // "ONLY MY WORK" ON THE PLANNING TAB. One stored preference governs both tabs:
+  // the Delivery tab's control writes the same key, and each tab renders alone,
   // so this re-reads the key whenever the tab changes.
   const [mineOnly, setMineOnly] = useState<boolean>(() => readMineOnly());
   useEffect(() => setMineOnly(readMineOnly()), [tab]);
@@ -178,7 +196,7 @@ export function App() {
   // SAME branch be revealed twice.
   //
   // Not URL-synced, unlike `?plan=`: a branch reveal is an in-page move on the
-  // Agents tab triggered by a panel click, not something worth sending to
+  // Delivery tab triggered by a panel click, not something worth sending to
   // someone — the board's convention is that the query string holds only what
   // is shareable. The nonce is the arrival's identity: scrolling is idempotent,
   // so re-clicking a branch whose name has not changed would otherwise fire an
@@ -346,7 +364,7 @@ export function App() {
   // The fleet only polls while its tab is open: a background 4 s poll would
   // cost the same as a foreground one and answer a question nobody is asking.
   useEffect(() => {
-    if (tab !== 'agents') return;
+    if (tab !== 'delivery') return;
     void loadFleet();
     const id = setInterval(() => void loadFleet(), FLEET_POLL_MS);
     return () => clearInterval(id);
@@ -356,7 +374,7 @@ export function App() {
    * Failed polls for the endpoint the tab in front actually depends on.
    *
    * Per tab rather than combined, because the answer has to be about the data
-   * the reader is looking at. The Agents tab is drawn from the fleet, and its
+   * the reader is looking at. The Delivery tab is drawn from the fleet, and its
    * board poll continues in the background — a board endpoint that recovered
    * would otherwise silently clear an overlay over rows that are still frozen.
    *
@@ -364,7 +382,7 @@ export function App() {
    * process is gone — the two counts fail together. They are separated for the
    * cases where they do not: a route that 500s while its neighbour is fine.
    */
-  const failures = tab === 'agents' ? fleetFailures : boardFailures;
+  const failures = tab === 'delivery' ? fleetFailures : boardFailures;
 
   /**
    * Dimmed: the server has not answered several times running.
@@ -375,7 +393,7 @@ export function App() {
    * different and true statement. Dimming an empty page would claim data it
    * never held, the same distinction the staleness banner already draws.
    */
-  const dimmed = failures >= DIM_AFTER_FAILURES && (tab === 'agents' ? fleet : board) !== null;
+  const dimmed = failures >= DIM_AFTER_FAILURES && (tab === 'delivery' ? fleet : board) !== null;
 
   /**
    * What the action controls are told while the page is dimmed.
@@ -417,11 +435,11 @@ export function App() {
     dispatchInfo ? { ...b, dispatch: dispatchInfo } : b;
 
   /**
-   * The SAME treatment for approving, and it travels to the Agents tab.
+   * The SAME treatment for approving, and it travels to the Delivery tab.
    *
    * `board.approve` has existed since `board-becomes-operable` and reached the
    * cards only: `Board.tsx` and `Swimlanes.tsx` pass it to `PlanCard`, and the
-   * Agents tab was never given it. So a plan PR sitting green and ready showed
+   * Delivery tab was never given it. So a plan PR sitting green and ready showed
    * a dimmed three-dot menu on its row while the same plan's CARD offered the
    * button — one board, two answers about the same act.
    *
@@ -581,7 +599,7 @@ export function App() {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
       void load();
-      if (tab === 'agents') void loadFleet();
+      if (tab === 'delivery') void loadFleet();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
@@ -610,7 +628,7 @@ export function App() {
   // healthy board never has to reason about a flag and a number agreeing.
   const [fleetStaleSeconds, setFleetStaleSeconds] = useState<number | null>(null);
   useEffect(() => {
-    if (tab !== 'agents' || !fleetUnreachable || fleetHeardAt === null) {
+    if (tab !== 'delivery' || !fleetUnreachable || fleetHeardAt === null) {
       setFleetStaleSeconds(null);
       return;
     }
@@ -633,15 +651,15 @@ export function App() {
   const onTab = (next: Tab) => {
     setTab(next);
     const url = new URL(location.href);
-    // Plans is the default, so no param needed; others are explicit
-    if (next === 'plans') url.searchParams.delete('tab');
+    // Planning is the default, so no param needed; others are explicit
+    if (next === 'planning') url.searchParams.delete('tab');
     else url.searchParams.set('tab', next);
     history.replaceState(null, '', url);
-    // Leaving the Agents tab is the reader moving on, so the branch arrival
+    // Leaving the Delivery tab is the reader moving on, so the branch arrival
     // marker goes — the same reason the plan highlight clears on the next
-    // filter change. Kept while staying on the tab: switching to agents is how
+    // filter change. Kept while staying on the tab: switching to Delivery is how
     // `revealBranch` itself gets here.
-    if (next !== 'agents') setHighlightBranch('');
+    if (next !== 'delivery') setHighlightBranch('');
   };
 
   /**
@@ -669,7 +687,7 @@ export function App() {
   /**
    * Reveal a branch's fleet row — the agent panel's BRANCH fact's destination.
    *
-   * The Agents tab is forced on first, for the same reason `scrollToStoryLane`
+   * The Delivery tab is forced on first, for the same reason `scrollToStoryLane`
    * forces lanes: the row only exists in that tab, and a scroll to an element
    * that is not in the document looks exactly like a broken link. The panel that
    * triggered this has already closed itself (the modal composes `onClose`
@@ -680,9 +698,9 @@ export function App() {
    * the document.
    */
   const revealBranch = useCallback((branch: string) => {
-    setTab('agents');
+    setTab('delivery');
     const url = new URL(location.href);
-    url.searchParams.set('tab', 'agents');
+    url.searchParams.set('tab', 'delivery');
     history.replaceState(null, '', url);
     setHighlightBranch(branch);
     setRevealNonce((n) => n + 1);
@@ -761,7 +779,7 @@ export function App() {
    */
   const onShowInBoard = useCallback((card: Card) => {
     setOpenPlan(null);
-    setTab('plans');
+    setTab('planning');
     const url = new URL(location.href);
     url.searchParams.delete('tab');
     // A plan with no story filters to nothing — so it does not filter at all.
@@ -806,12 +824,12 @@ export function App() {
    *
    * No `?plan=` highlight, because a story is not one card: the filter IS the
    * landing. Everything else matches the plan modal's version, including
-   * clearing the agents tab from the URL.
+   * clearing the Delivery tab from the URL.
    */
   const onShowStoryInBoard = useCallback(
     (story: StoryCard) => {
       setOpenStory(null);
-      setTab('plans');
+      setTab('planning');
       const url = new URL(location.href);
       url.searchParams.delete('tab');
       url.searchParams.delete('plan');
@@ -943,6 +961,13 @@ export function App() {
   // exactly as the sprint and story selections are.
   const validHighlight = allCards.some((c) => c.slug === highlight) ? highlight : '';
 
+  // An arrival at a Released plan — *Show in board* or a `?plan=` link — turns
+  // the released-only columns on first. Without it the card is in the payload
+  // but not in the document, and the scroll below aims at nothing.
+  useEffect(() => {
+    if (!showReleased && board && revealsReleased(board.columns, highlight)) writeShowReleased(true);
+  }, [highlight, board, showReleased, writeShowReleased]);
+
   // Scroll to the highlighted card once it exists. Deferred a frame for the same
   // reason the story jump is: the element is not in the document until the tab
   // and filter have rendered, and a scroll to nothing looks exactly like a
@@ -950,7 +975,7 @@ export function App() {
   // scroll — arriving at the card is the point; only the movement is the
   // accessibility concern.
   useEffect(() => {
-    if (!validHighlight || tab !== 'plans') return;
+    if (!validHighlight || tab !== 'planning') return;
     const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const id = requestAnimationFrame(() => {
       document.getElementById(`plan-${validHighlight}`)?.scrollIntoView({
@@ -959,19 +984,19 @@ export function App() {
       });
     });
     return () => cancelAnimationFrame(id);
-  }, [validHighlight, tab, lanes, board]);
+  }, [validHighlight, tab, lanes, board, showReleased]);
 
-  // Scroll to a revealed branch's row once it exists — the Agents-tab twin of
+  // Scroll to a revealed branch's row once it exists — the Delivery-tab twin of
   // the plan-card scroll above. Keyed on `revealNonce` so a repeated reveal of
   // the same branch fires again; `highlightBranch` is read for the target but
   // does not gate the re-run.
   //
-  // Deferred a frame for the same reason: `setTab('agents')` has to render the
+  // Deferred a frame for the same reason: `setTab('delivery')` has to render the
   // list before `#agent-row-<branch>` is in the document. The dependency on
   // `fleet` re-runs it when a not-yet-rendered branch arrives in a later pulse —
   // a reveal fired before its row was in the fleet lands the moment it is.
   useEffect(() => {
-    if (!highlightBranch || tab !== 'agents') return;
+    if (!highlightBranch || tab !== 'delivery') return;
     const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const id = requestAnimationFrame(() => {
       document.getElementById(`agent-row-${highlightBranch}`)?.scrollIntoView({
@@ -982,13 +1007,13 @@ export function App() {
     return () => cancelAnimationFrame(id);
   }, [highlightBranch, revealNonce, tab, fleet]);
 
-  // Empty-state redirect: if Stories tab is open but there are no stories,
-  // redirect to Plans automatically. The Stories tab remains accessible but
-  // lands on Plans by default when empty.
+  // Empty-state redirect: if Discovery tab is open but there are no stories,
+  // redirect to Planning automatically. The Discovery tab remains accessible but
+  // lands on Planning by default when empty.
   useEffect(() => {
-    if (tab !== 'stories' || !board) return;
+    if (tab !== 'discovery' || !board) return;
     if (board.stories.length === 0) {
-      setTab('plans');
+      setTab('planning');
       const url = new URL(location.href);
       url.searchParams.delete('tab');
       history.replaceState(null, '', url);
@@ -1033,18 +1058,18 @@ export function App() {
             asked why: the chip was answering *which worktree is the server in*
             while looking like it answered *where am I*. Two branch names in one
             header is worse than either alone, and the question *where is the
-            reader* now has an answer on the Agents tab (fleet.masterAgentBranch)
+            reader* now has an answer on the Delivery tab (fleet.masterAgentBranch)
             while the server's own checkout (`server.branch`) has ZERO render
             sites — the field stays in the payload and simply stops being drawn.
             UnreachableOverlay receives the whole ServerInfo but reads only
             `restartCommand` and `port`, so this deletion adds no new dead code.
         */}
-        {/* Tab order: Stories · Plans · Agents — strategy → artifacts → execution */}
+        {/* Tab order: Discovery · Planning · Delivery — strategy → artifacts → execution */}
         <nav className="mr-auto flex gap-1" aria-label="Views">
           {([
-            ['stories', 'Stories'],
-            ['plans', 'Plans'],
-            ['agents', 'Agents'],
+            ['discovery', 'Discovery'],
+            ['planning', 'Planning'],
+            ['delivery', 'Delivery'],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -1063,16 +1088,16 @@ export function App() {
         </nav>
         {/* Filters belong to the board; the agent list is grouped by waiting
             reason, which is not something a sprint or story narrows. */}
-        {tab === 'plans' && hasSprints && (
+        {tab === 'planning' && hasSprints && (
           <MultiSelect label="All sprints" options={sprintOptions} selected={validSprintSel} onChange={onSprint} />
         )}
-        {tab === 'plans' && hasStories && (
+        {tab === 'planning' && hasStories && (
           <MultiSelect label="All stories" options={storyOptions} selected={validStorySel} onChange={onStory} />
         )}
         {/* Only offered where it can show something: with no stories, lanes
             would render one "(no story)" row, which is just the board with a
             wasted column. */}
-        {tab === 'plans' && hasStories && (
+        {tab === 'planning' && hasStories && (
           <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
             <input
               type="checkbox"
@@ -1083,11 +1108,24 @@ export function App() {
             Story lanes
           </label>
         )}
+        {/* Only where a column is released-only: a map that mixes released
+            with another state has nothing for this box to show. */}
+        {tab === 'planning' && board?.columns.some((c) => c.releasedOnly) && (
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            <input
+              type="checkbox"
+              checked={showReleased}
+              onChange={(e) => onShowReleased(e.target.checked)}
+              className="h-3.5 w-3.5 accent-slate-500"
+            />
+            Show released
+          </label>
+        )}
         {/* A plan card is the reader's where its `Assignee:` resolves to the
             reader through the `People` directory, and somebody else's only
             where the directory declares its spelling for another person. A
             card naming nobody, or an undeclared spelling, stays. */}
-        {tab === 'plans' && board && (
+        {tab === 'planning' && board && (
           <label data-mine-filter className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
             <input
               type="checkbox"
@@ -1101,15 +1139,15 @@ export function App() {
         )}
       </header>
       <main>
-        {tab === 'stories' ? (
-          // Stories tab — the strategic layer above plans. Shows story cards
+        {tab === 'discovery' ? (
+          // Discovery tab — the strategic layer above plans. Shows story cards
           // grouped by status (Draft/Active/Done/Archived), with tag cloud.
           board ? (
             <StoriesTab stories={board.stories} topics={board.topics ?? []} onOpenStory={onOpenStory} onOpenSprint={onOpenSprint} />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>
           )
-        ) : tab === 'agents' ? (
+        ) : tab === 'delivery' ? (
           fleet ? (
             // The poll rate is the client's own, and it is passed rather than
             // re-declared so the countdown cannot drift from the interval it
@@ -1127,7 +1165,7 @@ export function App() {
               // BOARD refreshes, which is what moves a started row.
               cardForPlanFile={cardForPlanFile}
               dispatch={dispatchInfo}
-              // The other half of what a row can DO. Until now the Agents tab
+              // The other half of what a row can DO. Until now the Delivery tab
               // was given only dispatch, so its menu could offer only `Start
               // work` — and a Draft plan's row, whose one available act is
               // approving, got a dead menu.
@@ -1198,7 +1236,7 @@ export function App() {
           // This branch used to fire on any error and REPLACE the cards with a
           // red string, throwing away a payload the client still held. One
           // outage then produced two different stories depending on which tab
-          // was in front: the Agents tab kept its rows and said they were old,
+          // was in front: the Delivery tab kept its rows and said they were old,
           // the Board tab showed a red message where the board used to be, with
           // no indication whether it was stale or gone.
           //
@@ -1213,7 +1251,7 @@ export function App() {
           <>
             {/* The Board tab's half of the unified error model.
                 Two banners, never merged, because they name two faults with two
-                different remedies — the same split the Agents tab already draws
+                different remedies — the same split the Delivery tab already draws
                 between "not reaching the server" and "the last scan failed".
                 Both can be true at once: a route that started 500ing, then a
                 process that died. */}
@@ -1248,6 +1286,7 @@ export function App() {
               onOpenPlan={setOpenPlan}
               onOpenStory={onOpenStory}
               highlight={validHighlight}
+              showReleased={showReleased}
             />
           ) : (
             <BoardView
@@ -1260,6 +1299,7 @@ export function App() {
               onOpenPlan={setOpenPlan}
               onOpenStory={onOpenStory}
               highlight={validHighlight}
+              showReleased={showReleased}
             />
           )}
           </>

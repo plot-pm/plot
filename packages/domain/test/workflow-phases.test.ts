@@ -6,7 +6,9 @@ import {
   DEFAULT_PHASE_MAP,
   parsePhaseMap,
   phaseColumns,
+  planningColumns,
   phaseOfPlan,
+  revealsReleased,
   phaseOfStory,
   phaseWorkflows,
   planPhases,
@@ -210,9 +212,9 @@ describe('phaseColumns', () => {
   it('answers null leadership and the neutral accent for a name outside the five', () => {
     const custom = parsed('Idea = plan:draft, plan:design; Build = plan:approved; Done = plan:delivered, plan:released');
     expect(phaseColumns(custom)).toEqual([
-      { name: 'Idea', leadership: null, accent: 'neutral', checklist: false },
-      { name: 'Build', leadership: null, accent: 'neutral', checklist: false },
-      { name: 'Done', leadership: null, accent: 'neutral', checklist: true },
+      { name: 'Idea', leadership: null, accent: 'neutral', checklist: false, releasedOnly: false },
+      { name: 'Build', leadership: null, accent: 'neutral', checklist: false, releasedOnly: false },
+      { name: 'Done', leadership: null, accent: 'neutral', checklist: true, releasedOnly: false },
     ]);
   });
 
@@ -223,5 +225,48 @@ describe('phaseColumns', () => {
 
   it('answers no leadership for a name that is an Object.prototype key', () => {
     expect(phaseColumns(parsed('constructor = plan:draft'))[0]).toMatchObject({ leadership: null, accent: 'neutral' });
+  });
+});
+
+describe('planningColumns', () => {
+  it('flags releasedOnly on the Released phase of the default map alone', () => {
+    expect(phaseColumns(DEFAULT_PHASE_MAP).filter((column) => column.releasedOnly).map((column) => column.name))
+      .toEqual(['Released']);
+  });
+
+  it('hides Released by default and shows it with showReleased', () => {
+    const columns = phaseColumns(DEFAULT_PHASE_MAP);
+    expect(planningColumns(columns, false).map((column) => column.name)).toEqual(['Design', 'Development', 'Testing']);
+    expect(planningColumns(columns, true).map((column) => column.name))
+      .toEqual(['Design', 'Development', 'Testing', 'Released']);
+  });
+
+  it('keeps a custom map column that mixes released with another state', () => {
+    const custom = parsed('Idea = plan:draft, plan:design; Build = plan:approved; Done = plan:delivered, plan:released');
+    expect(planningColumns(phaseColumns(custom), false).map((column) => column.name)).toEqual(['Idea', 'Build', 'Done']);
+  });
+
+  it('keeps a column with no releasedOnly key', () => {
+    expect(planningColumns([{ phase: 'A' }, { phase: 'B', releasedOnly: true }], false)).toEqual([{ phase: 'A' }]);
+  });
+});
+
+describe('revealsReleased', () => {
+  const columns = [
+    { phase: 'Design', cards: [{ slug: 'a-draft' }] },
+    { phase: 'Released', releasedOnly: true, cards: [{ slug: 'an-old-one' }] },
+  ];
+
+  it('answers true for a plan whose card sits in a released-only column', () => {
+    expect(revealsReleased(columns, 'an-old-one')).toBe(true);
+  });
+
+  it('answers false for a plan in a shown column', () => {
+    expect(revealsReleased(columns, 'a-draft')).toBe(false);
+  });
+
+  it('answers false for an unknown slug and for no slug', () => {
+    expect(revealsReleased(columns, 'gone')).toBe(false);
+    expect(revealsReleased([{ phase: 'Released', releasedOnly: true, cards: [{ slug: '' }] }], '')).toBe(false);
   });
 });

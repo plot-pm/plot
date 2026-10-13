@@ -3,6 +3,8 @@ import type { LimitReading } from '../../entities/limit.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type {
   ClosedIssues,
+  IssueOpen,
+  IssueOpenOutcome,
   IssueRead,
   StatusOutcome,
   StatusWrite,
@@ -12,7 +14,7 @@ import type {
 } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
-import { trackerReads } from './tracker-shell.js';
+import { issueOpenOf, trackerReads } from './tracker-shell.js';
 
 /** The scheme `plot-host.sh` knows this connector's read arm by. */
 const SCHEME = 'github-issues';
@@ -41,6 +43,15 @@ export const boardOf = (value: string): { owner: string; number: string } | null
 };
 
 /**
+ * The number of the issue `gh issue create` printed the address of.
+ *
+ * @param stdout - the new issue's address, e.g. `https://github.com/o/r/issues/42`.
+ * @returns the number, or null where the output ends in no issue address.
+ */
+export const githubIssueNumberOf = (stdout: string): string | null =>
+  /\/issues\/(\d+)\s*$/.exec(stdout)?.[1] ?? null;
+
+/**
  * Reads and writes a tracker whose issues live with the git host's own vendor.
  *
  * A CONNECTOR, not an adapter with a branch. It holds this vendor's account,
@@ -49,9 +60,11 @@ export const boardOf = (value: string): { owner: string; number: string } | null
  * than one `switch`.
  *
  * The read arm is `plot-host.sh`, told which scheme to answer as rather than
- * left to resolve one. The write arm is `plot-update-board.sh`, which speaks
- * the projects API this vendor keeps apart from its issues API — a second
- * surface, and the reason the write has a script of its own.
+ * left to resolve one. There are two writes. The status write is
+ * `plot-update-board.sh`, which speaks the projects API this vendor keeps apart
+ * from its issues API — a second surface, and the reason that write has a
+ * script of its own. The issue-open write is `plot-host.sh issue-open`, which
+ * speaks the issues API through the same CLI as the reads.
  *
  * @param context - where the scripts and the repository are.
  * @returns a `Tracker` backed by this vendor's connector.
@@ -62,6 +75,8 @@ export const trackerGithub = (context: ShellContext): Tracker => {
     { PLOT_TRACKER: SCHEME },
   );
   const config = scriptPath(context, 'plot-config.sh');
+  const host = scriptPath(context, 'plot-host.sh');
+  const run = { cwd: context.repoRoot, env: { PLOT_TRACKER: SCHEME } };
   const updateBoard = scriptPath(context, 'plot-update-board.sh');
   const inRepo = { cwd: context.repoRoot };
 
@@ -122,6 +137,12 @@ export const trackerGithub = (context: ShellContext): Tracker => {
       }
       reads.refuse(null);
       return answered<StatusOutcome>('written');
+    },
+
+    issueOpen: async (write: IssueOpen): Promise<PortResult<IssueOpenOutcome>> => {
+      const labels = write.labels.flatMap((label) => ['--label', label]);
+      const said = await runProcess('bash', [host, 'issue-open', write.title, write.body, ...labels], run);
+      return issueOpenOf(said, githubIssueNumberOf, reads.refuse);
     },
 
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),

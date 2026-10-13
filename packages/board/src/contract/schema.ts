@@ -778,6 +778,8 @@ export const ColumnSchema = z.object({
   accent: z.string().default('neutral'),
   /** Whether the column shows the delivery checklist. */
   checklist: z.boolean().default(false),
+  /** Whether the phase holds `plan:released` alone; the Planning tab hides it unless `?released=1`. */
+  releasedOnly: z.boolean().default(false),
   cards: z.array(CardSchema),
 });
 export type Column = z.infer<typeof ColumnSchema>;
@@ -876,11 +878,11 @@ export const SprintCardSchema = z.object({
 });
 export type SprintCard = z.infer<typeof SprintCardSchema>;
 
-// ─── Stories tab: strategic layer above plans ─────────────────────────────────
+// ─── Discovery tab: strategic layer above plans ─────────────────────────────────
 
 /**
  * A plan referenced from a story card — the subset of plan metadata needed for
- * the Stories tab's expandable plan list.
+ * the Discovery tab's expandable plan list.
  */
 export const StoryPlanRefSchema = z.object({
   slug: z.string(),
@@ -902,7 +904,7 @@ export const SprintRefSchema = z.object({
 export type SprintRef = z.infer<typeof SprintRefSchema>;
 
 /**
- * A story card for the Stories tab — the strategic layer above plans.
+ * A story card for the Discovery tab — the strategic layer above plans.
  *
  * Stories are themes that span multiple plans and answer "why are we doing all
  * this?" Each story directory under `docs/stories/` contains a `STORY-*.md`
@@ -999,7 +1001,7 @@ export type StoryCard = z.infer<typeof StoryCardSchema>;
 export type StoryCardInput = z.input<typeof StoryCardSchema>;
 
 /**
- * Tag cloud entry for the Stories tab — story slugs with plan counts for
+ * Tag cloud entry for the Discovery tab — story slugs with plan counts for
  * topic navigation.
  */
 export const TagCountSchema = z.object({
@@ -1034,10 +1036,10 @@ export const TopicSchema = z.object({
 export type Topic = z.infer<typeof TopicSchema>;
 
 /**
- * Response shape for GET /api/stories — the Stories tab's data contract.
+ * Response shape for GET /api/stories — the Discovery tab's data contract.
  *
  * Stories grouped by status (columns) with a tag cloud for topic navigation.
- * Uses a 30-second server-side cache matching the Plans tab cadence.
+ * Uses a 30-second server-side cache matching the Planning tab cadence.
  */
 export const StoriesResponseSchema = z.object({
   stories: z.array(StoryCardSchema),
@@ -3837,7 +3839,7 @@ export type Supervisor = z.infer<typeof SupervisorSchema>;
  * schema's `.default()` runs where the payload is PARSED, which is the server;
  * `packages/board/src/app` casts the fleet it fetches and never parses it, so a
  * client reading `fleet.fleetControls.autoDispatch` on an older payload throws
- * and the whole Agents tab renders nothing.
+ * and the whole Delivery tab renders nothing.
  *
  * Measured 2026-08-22: every fixture predating this field — 40 selectors across
  * five browser suites — took a 10s timeout waiting for a section that a
@@ -3905,7 +3907,7 @@ export const SprintCountsSchema = z.object({
 export type SprintCounts = z.infer<typeof SprintCountsSchema>;
 
 /**
- * One Active sprint, as the Agents tab shows it: its name, its target release,
+ * One Active sprint, as the Delivery tab shows it: its name, its target release,
  * and its three exhaustive counts. Distinct from {@link SprintCardSchema} —
  * that carries the MEMBERSHIP the two sprint filters join on; this carries the
  * PROGRESS the fleet control renders, aggregated server-side so the client
@@ -3936,7 +3938,7 @@ export const FleetSprintSchema = z.object({
   /**
    * The sprint's plan array — the same structure `board.sprints` already carries
    * and `parseSprintMembers` produces. `AgentList.tsx` reads the fleet payload,
-   * not the board payload, so without this the Agents tab cannot join on sprint
+   * not the board payload, so without this the Delivery tab cannot join on sprint
    * membership (the bug that #386 did not fix).
    */
   members: z.array(SprintMemberSchema).default([]),
@@ -3952,7 +3954,7 @@ export type FleetSprint = z.infer<typeof FleetSprintSchema>;
  * is the only one that accepts the old `waves` spelling.
  */
 /**
- * A plan at `Draft`, as the Agents tab needs it — the source of the WAITING ON
+ * A plan at `Draft`, as the Delivery tab needs it — the source of the WAITING ON
  * YOU row that says a decision is owed on a plan with no branch.
  *
  * `rounds` is OPTIONAL and never defaulted, for the reason `PlanMetaSchema`

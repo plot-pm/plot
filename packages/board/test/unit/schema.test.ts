@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   FLEET_CONTROLS_DEFAULT,
   PlanMetaSchema, CardSchema, BranchSchema, AgentRowSchema, AgentEntrySchema,
-  FleetSchema, ServerInfoSchema,
+  FleetSchema, ServerInfoSchema, ColumnSchema,
   AgentStateSchema, WorkerActivitySchema, isLiveState, isBrokenState,
 } from '../../src/contract/schema';
 import { AgentStateSchema as DomainAgentStateSchema } from '@plot-pm/domain';
@@ -561,5 +561,12 @@ describe('AgentStateSchema — the registry reads the eight the shell answers', 
     // calling it broken would be a claim `isBrokenState` cannot verify.
     expect(isLiveState('queued')).toBe(true);
     expect(isBrokenState('queued')).toBe(false);
+  });
+});
+
+describe('ColumnSchema releasedOnly', () => {
+  it('carries releasedOnly through and defaults it to false', () => {
+    expect(ColumnSchema.parse({ phase: 'Released', releasedOnly: true, cards: [] }).releasedOnly).toBe(true);
+    expect(ColumnSchema.parse({ phase: 'Design', cards: [] }).releasedOnly).toBe(false);
   });
 });

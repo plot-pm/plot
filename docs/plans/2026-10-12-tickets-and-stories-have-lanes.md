@@ -268,11 +268,11 @@ The GitHub closed read reuses the open arm's `gh_state` (`:4730`) and adds no ar
 
 ### The issue index
 
-- `feature/the-index-holds-closed-issues` — the fold reads every open issue up to `ISSUE_INDEX_OPEN_LIMIT` and the closed issues of 14 days into `closed`; the board's no-fleet `refreshIssues` calls `trackerForIssues` in place of `hostSaid` on its own gate, with `issueNextAt`, `issueRequests` and `issueBackoffUntil` on `CacheEntry` and the no-fleet `PrWorld.issueGate`; `PR_REQUESTS_PER_REFRESH` with `github: 1` and `bitbucket: 3` and their comments; the jira row and `:57` of `DESIGN-index.md` <!-- builds: closed issues in the issue index and the board's no-fleet issue gate -->
+- `feature/the-index-holds-closed-issues` → #1657 — the fold reads every open issue up to `ISSUE_INDEX_OPEN_LIMIT` and the closed issues of 14 days into `closed`; the board's no-fleet `refreshIssues` calls `trackerForIssues` in place of `hostSaid` on its own gate, with `issueNextAt`, `issueRequests` and `issueBackoffUntil` on `CacheEntry` and the no-fleet `PrWorld.issueGate`; `PR_REQUESTS_PER_REFRESH` with `github: 1` and `bitbucket: 3` and their comments; the jira row and `:57` of `DESIGN-index.md` <!-- builds: closed issues in the issue index and the board's no-fleet issue gate -->
 
 ### The lanes
 
-- `feature/tickets-and-stories-have-lanes` <!-- waits: feature/the-tabs-are-discovery-planning-delivery --> — `ticketLane`, `doneTickets`, `storyLanes` and `storyLane`; the lanes on the board payload; `GET /api/issues/closed` with its retention read from the issue gate and its own backoff; the Discovery tab with the tag cloud, the tickets lane group, the stories lane group, the Done lane's *show all done* link and the `?archived=1` toggle <!-- builds: ticketLane, doneTickets, storyLanes, storyLane and the Discovery tab's lanes -->
+- `feature/tickets-and-stories-have-lanes` <!-- waits: feature/the-tabs-are-discovery-planning-delivery --> — `ticketLane`, `doneTickets`, `storyLanes` and `storyLane`; the lanes on the board payload; `GET /api/issues/closed` with its retention read from the issue gate and its own backoff; the Discovery tab with the tag cloud, the tickets lane group, the stories lane group, the Done lane's *show all done* link and the `?archived=1` toggle; the removal of the empty-Discovery send in `App.tsx` (the effect that opens Planning when Discovery holds no story, `:1010-1021` after `feature/the-tabs-are-discovery-planning-delivery`), because a Discovery tab with ticket lanes is not empty when it holds no story <!-- builds: ticketLane, doneTickets, storyLanes, storyLane and the Discovery tab's lanes -->
 
 ### The Jira project scope
 

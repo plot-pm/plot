@@ -1490,6 +1490,18 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  it('?tab=agents opens Delivery, rewrites the URL, and the tab bar carries the new labels', async () => {
+    const page = await cat.open('a-full-estate', { tab: 'agents' });
+    try {
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      expect(new URL(page.url()).searchParams.get('tab')).toBe('delivery');
+      const labels = await page.getByRole('navigation', { name: 'Views' }).getByRole('button').allTextContents();
+      expect(labels).toEqual(['Discovery', 'Planning', 'Delivery']);
+    } finally {
+      await page.close();
+    }
+  });
+
   // ── Working rows show motion ──────────────────────────────────────────────
   //
   // The board's FIRST animation. Every assertion here is about what the motion
@@ -2113,10 +2125,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // stops" is exactly the kind of claim prose makes and code forgets.
     const page = await openAgents();
     try {
-      await page.getByRole('button', { name: 'Plans' }).click();
+      await page.getByRole('button', { name: 'Planning' }).click();
       await expect.poll(() => footer(page).count()).toBe(0);
       // Returning brings it back live rather than frozen where it left off.
-      await page.getByRole('button', { name: 'Agents' }).click();
+      await page.getByRole('button', { name: 'Delivery' }).click();
       await footer(page).waitFor({ timeout: 5_000 });
       const read = async () => {
         const t = (await footer(page).textContent()) ?? '';

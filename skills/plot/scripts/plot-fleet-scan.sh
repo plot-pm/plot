@@ -1880,7 +1880,7 @@ worktree_locked() { # $1=worktree path → 0 when a lock is held there
 # ~10 s against GitHub's 461 ms, so a scan that cannot finish here cannot finish
 # there at all. The board serves no rows without a completed pulse — a fresh
 # process has no previous one to fall back on — so an over-budget scan is an
-# EMPTY Agents tab, not a stale one.
+# EMPTY Delivery tab, not a stale one.
 #
 # The tab-delimited-string-plus-`case` shape matches `WORKTREES` below and is
 # kept for the same reason: no associative arrays, so it must work in POSIX sh.
@@ -4149,7 +4149,7 @@ READ_REF=$(git rev-parse --short "origin/$MAIN" 2>/dev/null) || READ_REF=""
 [ -n "$READ_REF" ] || READ_REF="unknown"
 LOCAL_HEAD=$(git rev-parse --short HEAD 2>/dev/null) || LOCAL_HEAD=""
 [ -n "$LOCAL_HEAD" ] || LOCAL_HEAD="unknown"
-# Kept as an alias for one release: the board reads `head` today (Agents tab),
+# Kept as an alias for one release: the board reads `head` today (Delivery tab),
 # and renaming a field out from under a live consumer is a break nobody asked
 # for. Removed once the board reads `read_ref`.
 HEAD_SHORT="$LOCAL_HEAD"
