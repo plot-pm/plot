@@ -6846,3 +6846,136 @@ test('host: pr-list --rich-open bounds each call, so the union may exceed --limi
   // The terminal row carries the absent values.
   assert.equal(rows.find((r) => r.number === 6).checks, 'unknown');
 });
+
+// --- issue-list --state closed ---------------------------------------------
+//
+// The closed read is the same op with a state, a lower bound and a page token.
+// Three arms, three answers: GitHub searches, Jira needs `Ticket prefixes`
+// declared and exits 4 without one (running no curl), Bitbucket exits 4 and
+// runs no `bb`. The stubs record argv, so "ran nothing" is asserted.
+
+const runGh = (args, stub, extraEnv = {}) =>
+  spawnSync('bash', [adapter, ...args], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, PLOT_HOST: 'github', ...extraEnv },
+  });
+
+test('host: issue-list github --state closed searches by close date and carries closedAt', () => {
+  const stubs = makeStubs({
+    ghJson: JSON.stringify([
+      { number: 7, title: 'Done thing', url: 'u', createdAt: '2026-08-01T00:00:00Z', closedAt: '2026-09-02T10:00:00Z' },
+    ]),
+  });
+  const res = runGh(['issue-list', '--state', 'closed', '--since', '2026-09-01T00:00:00Z'], stubs);
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(JSON.parse(res.stdout.trim()), {
+    number: 7, title: 'Done thing', url: 'u', createdAt: '2026-08-01T00:00:00Z',
+    status: 'closed', statusCategory: 'Done', closedAt: '2026-09-02T10:00:00Z',
+  });
+  const argv = readFileSync(stubs.ghArgv, 'utf8').split('\n');
+  assert.equal(argv[argv.indexOf('--state') + 1], 'closed');
+  assert.equal(argv[argv.indexOf('--search') + 1], 'closed:>=2026-09-01T00:00:00Z sort:closed-desc');
+  assert.equal(argv[argv.indexOf('--json') + 1], 'number,title,url,createdAt,closedAt');
+});
+
+test('host: issue-list github open rows carry no closedAt and ask for none', () => {
+  const stubs = makeStubs({ ghJson: JSON.stringify([{ number: 1, title: 't', url: 'u', createdAt: 'c' }]) });
+  const res = runGh(['issue-list'], stubs);
+  assert.equal(res.status, 0, res.stderr);
+  assert.ok(!('closedAt' in JSON.parse(res.stdout.trim())));
+  assert.ok(!readFileSync(stubs.ghArgv, 'utf8').includes('--search'));
+});
+
+test('host: issue-list --state closed without --since, or with a bad one, is a usage error', () => {
+  const stubs = makeStubs({ ghJson: '[]' });
+  for (const args of [
+    ['issue-list', '--state', 'closed'],
+    ['issue-list', '--state', 'closed', '--since', '2026-09-01" OR 1=1'],
+    ['issue-list', '--state', 'merged'],
+  ]) {
+    const res = runGh(args, stubs);
+    assert.notEqual(res.status, 0, args.join(' '));
+    assert.notEqual(res.status, 3);
+    assert.notEqual(res.status, 4);
+    assert.equal(res.stdout, '');
+  }
+});
+
+test('host: issue-list bitbucket --state closed exits 4 with a reason and runs no bb', () => {
+  const stub = makeStubs();
+  const res = runBb(['issue-list', '--state', 'closed', '--since', '2026-09-01T00:00:00Z'], stub);
+  assert.equal(res.status, 4, res.stderr);
+  assert.equal(res.stdout, '');
+  assert.match(res.stderr, /\S/);
+  assert.ok(!existsSync(stub.bbArgv), 'bb must not run');
+});
+
+test('host: issue-list jira --state closed without Ticket prefixes exits 4 and runs no curl', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list', '--state', 'closed', '--since', '2026-09-01T00:00:00Z'], stub, {
+    PLOT_TICKET_PREFIXES: '',
+  });
+  assert.equal(res.status, 4, res.stderr);
+  assert.equal(res.stdout, '');
+  assert.match(res.stderr, /Ticket prefixes/);
+  assert.ok(!existsSync(stub.argvFile), 'curl must not run');
+});
+
+test('host: issue-list jira --state closed scopes by prefix, reads resolutiondate and prints the next token', () => {
+  const body = JSON.stringify({
+    issues: [{ key: 'PROJ-5', fields: {
+      summary: 'Shipped', created: '2026-08-01T09:00:00.000+0000',
+      resolutiondate: '2026-09-02T10:00:00.000+0000',
+      status: { name: 'Done', statusCategory: { name: 'Done' } },
+    } }],
+    nextPageToken: 'tok-2',
+  });
+  const stub = makeJiraCurlStub({ body });
+  const res = runJira(
+    ['issue-list', '--state', 'closed', '--since', '2026-09-01T08:30:00Z', '--page-token', 'tok-1'],
+    stub,
+    { PLOT_TICKET_PREFIXES: 'PROJ' },
+  );
+  assert.equal(res.status, 0, res.stderr);
+  const lines = res.stdout.trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(lines, [
+    {
+      number: 'PROJ-5', title: 'Shipped', url: 'https://acme.atlassian.net/browse/PROJ-5',
+      createdAt: '2026-08-01T09:00:00.000+0000', status: 'Done', statusCategory: 'Done',
+      closedAt: '2026-09-02T10:00:00.000+0000',
+    },
+    { nextPageToken: 'tok-2' },
+  ]);
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  assert.ok(argv.includes('jql=assignee = currentUser() AND resolved >= "2026-09-01 08:30" AND project IN (PROJ) ORDER BY resolved DESC'));
+  assert.ok(argv.includes('fields=summary,created,status,resolutiondate'));
+  assert.ok(argv.includes('maxResults=100'));
+  assert.ok(argv.includes('nextPageToken=tok-1'));
+});
+
+test('host: issue-list jira open read is unchanged: no resolutiondate, no token line', () => {
+  const stub = makeJiraCurlStub({ body: JSON.stringify({ issues: [], nextPageToken: 'ignored' }) });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  assert.ok(argv.includes('fields=summary,created,status'));
+  assert.ok(argv.includes('maxResults=50'));
+});
+
+test('host: issue-list github closed records one extra call per 100 rows past the first', () => {
+  const rows = (n) => JSON.stringify(Array.from({ length: n }, (_, i) => ({
+    number: i + 1, title: 't', url: 'u', createdAt: 'c', closedAt: 'd',
+  })));
+  const spent = (n) => {
+    const home = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-budget-')));
+    const res = runGh(['issue-list', '--state', 'closed', '--since', '2026-09-01'], makeStubs({ ghJson: rows(n) }), {
+      PLOT_BUDGET_HOME: home,
+    });
+    assert.equal(res.status, 0, res.stderr);
+    const file = path.join(home, 'budget.tsv');
+    return existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).length : 0;
+  };
+  const one = spent(100);
+  assert.equal(spent(101) - one, 1);
+  assert.equal(spent(250) - one, 2);
+});
