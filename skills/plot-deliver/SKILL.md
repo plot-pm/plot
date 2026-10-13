@@ -44,7 +44,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 1-4. Parse through Verify PRs | Small | Git/gh commands, helper script, state checks; discovery and existence read each plan's declared phase via `plot-plan-meta.sh` — the index is never asked |
 | 5. Verify Completeness | Frontier (orchestrator + jurors) + Small (the gate) | Orchestrator extracts deliverables and reads the panel's moderation; `/plot-panel` fans out one juror per lens, each running `gh pr diff` across the plan's PRs; the two commitment checks are one script call each |
 | 6. Release Note Check | Small | File existence checks |
-| 7-8. Deliver and Board Status | Small | The fleet delivers a proven tracer plan with its first dependent, after it; a proven tracer plan with no dependent is a person's `/plot-deliver <slug>`. File ops, git commands, board sync; the phase edit plus the `Delivered:` record are the transition, the index write is best-effort; the issue status write is one script call inside `plot-deliver.sh`, reported and never gating |
+| 7-8. Deliver and Board Status | Small | The fleet delivers a proven tracer plan on the pass after its first dependent reads delivered, never in the same pass; a proven tracer plan with no dependent is a person's `/plot-deliver <slug>`, and its dependent check reads `waits_on` from `plot-plan-meta.sh` for each plan. File ops, git commands, board sync; the phase edit plus the `Delivered:` record are the transition, the index write is best-effort; the issue status write is one script call inside `plot-deliver.sh`, reported and never gating |
 | 7b. Delivery-Landed Gate | Small | Run the reconcile scan, grep for the delivered plan; gate progression on the real grep result |
 | 9. Summary | Small | Template formatting |
 | Verify mode | Frontier (orchestrator + jurors) + Small (the preflight, the gate, the record) | Judging each numbered claim as supported or refuted is the same judgment as step 5's panel; the phase and tracer refusals, `plot-verify.mjs` and the per-label `check` calls are script calls an exit code decides |
@@ -553,9 +553,22 @@ Print:
 
 ## Delivering a tracer plan
 
-A plan with `Tracer: yes` whose every non-deferred slice merged reads `proven` on the board, not `deliverable`. The status only keeps the **automatic** path from delivering it alone: the fleet names a proven tracer plan only after the first plan that `waits:` on one of its branches, and retries it alone once that plan has delivered.
+A plan with `Tracer: yes` whose every non-deferred slice merged reads `proven` on the board, not `deliverable`. The status only keeps the **automatic** path from delivering it alone. The fleet does not name a proven tracer plan in the pass that delivers a plan that `waits:` on one of its branches. It names the tracer plan on a later pass, after that dependent reads delivered, and retries it from there.
 
-A proven tracer plan with no dependent plan is delivered by a person (decision D14). Run `/plot-deliver <slug>` directly. The steps are the same as for any approved plan with every slice merged, and the manual command ignores the `proven` status.
+A proven tracer plan with no undelivered dependent is delivered by a person (decision D14). After step 2 resolves `$PLAN_FILE` and before step 3, list the plans that wait on this plan, with their phases:
+
+```bash
+own=$(../plot/scripts/plot-plan-meta.sh "$PLAN_FILE" | python3 -c 'import json,sys; print("\n".join(b["branch"] for w in json.load(sys.stdin)["waves"] for b in w["branches"]))')
+for f in docs/plans/*.md; do
+  [ "$f" = "$PLAN_FILE" ] && continue
+  ../plot/scripts/plot-plan-meta.sh "$f" 2>/dev/null | OWN="$own" F="$f" python3 -c 'import json,os,sys
+own=set(os.environ["OWN"].split())
+d=json.load(sys.stdin)
+if any(set(b.get("waits_on",[])) & own for w in d.get("waves",[]) for b in w["branches"]): print(d.get("phase",""), os.environ["F"])' || true
+done
+```
+
+Each output line is one dependent plan: its phase, then its file. If a line shows a phase other than `delivered` or `released`, stop: the tracer plan ships with that dependent, and the fleet delivers it after the dependent. Print `Tracer plan <slug> waits for its dependent <file> (<phase>); deliver the dependent first.` With no line, or with every line `delivered` or `released`, run `/plot-deliver <slug>` as for any approved plan with every slice merged. The manual command ignores the `proven` status. The domain rule `hasUndeliveredDependent(plan, plans)` gives the same answer over the pulse's plans.
 
 ## Verify mode
 

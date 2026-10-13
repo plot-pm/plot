@@ -269,13 +269,12 @@ export const landedBranches = (plan: FleetReading['plans'][number]): number =>
  *
  * A tracer plan (`plan.tracer`) keeps phase `approved` on the pulse and reads
  * `proven` on the board, so the gates above alone would deliver it by itself.
- * It is named in two cases only, each through the same gates:
- *
- *  - **With its dependent.** A non-tracer plan that passes every gate also
- *    names each tracer plan that one of its branches lists in `waits_on`, after
- *    the dependent, so the caller delivers the dependent first.
- *  - **After its dependent.** A tracer plan whose delivery did not take, while a
- *    plan that waits on it has already delivered or released, is named alone.
+ * It is named only when it passes the same gates and a plan that waits on it
+ * ({@link dependentsOf}) reads `delivered` on the pulse. The pass that names a
+ * dependent never names its tracer plan: the caller starts every returned plan
+ * at once and waits for none, so a tracer plan named beside its dependent could
+ * deliver while the dependent's delivery fails. The tracer plan is named on the
+ * first pass after its dependent delivered, and on each retry after that.
  *
  * A tracer plan with no dependent is delivered by a person.
  *
@@ -286,43 +285,12 @@ export const landedBranches = (plan: FleetReading['plans'][number]): number =>
 export const planAutoDeliver = (input: PlanAutoDeliverInput): AutoDeliverPlan[] => {
   const { pulse, inFlight, complete = true, failures = {}, now = 0 } = input;
   if (!pulse) return [];
-  type Plan = FleetReading['plans'][number];
-  const ready = (plan: Plan): boolean =>
-    isDeliverable(plan, pulse, inFlight, complete, failures, now);
-  const owners = new Map<string, Plan>();
-  for (const plan of pulse.plans) {
-    for (const slice of plan.slices) for (const b of slice.branches) owners.set(b.branch, plan);
-  }
   const out: AutoDeliverPlan[] = [];
-  const named = new Set<string>();
-  const push = (plan: Plan): void => {
-    const slug = planSlug(plan.file);
-    if (named.has(slug)) return;
-    named.add(slug);
-    out.push({ slug, file: plan.file });
-  };
   for (const plan of pulse.plans) {
-    // A tracer plan never delivers alone while its dependent is unfinished: it
-    // is `proven`, which only a person or its dependent's delivery moves.
-    if (plan.tracer) {
-      // Retry: the dependent delivered on an earlier pass and this plan's own
-      // delivery did not take, so the dependent's gate no longer pulls it in.
-      if (ready(plan) && dependentsOf(plan, pulse.plans, owners).some(deliveredPlan)) push(plan);
-      continue;
-    }
-    if (!ready(plan)) continue;
-    push(plan);
-    // Dependent first, tracer plan after: the caller iterates in order and
-    // chains reap and release-refs per plan, so the dependent must be
-    // delivered before its tracer plan's own delivery starts.
-    for (const slice of plan.slices) {
-      for (const b of slice.branches) {
-        for (const waited of b.waits_on) {
-          const owner = owners.get(waited);
-          if (owner && owner !== plan && owner.tracer && ready(owner)) push(owner);
-        }
-      }
-    }
+    if (!isDeliverable(plan, pulse, inFlight, complete, failures, now)) continue;
+    // A tracer plan waits until a dependent has delivered, never beside it.
+    if (plan.tracer && !dependentsOf(plan, pulse.plans).some(deliveredPlan)) continue;
+    out.push({ slug: planSlug(plan.file), file: plan.file });
   }
   return out;
 };
@@ -331,19 +299,42 @@ export const planAutoDeliver = (input: PlanAutoDeliverInput): AutoDeliverPlan[] 
 const deliveredPlan = (plan: FleetReading['plans'][number]): boolean =>
   ['delivered', 'released'].includes(plan.phase.toLowerCase());
 
-/** The other plans with a branch that `waits:` on a branch of `tracer`. */
-const dependentsOf = (
-  tracer: FleetReading['plans'][number],
+/**
+ * The plans that wait on `plan`: every other plan with a branch whose
+ * `waits_on` names a branch of `plan`.
+ *
+ * @param plan - the plan waited on, usually a tracer plan.
+ * @param plans - the plans to search, usually `pulse.plans`.
+ * @returns the dependent plans in the order of `plans`; empty when none waits.
+ */
+export const dependentsOf = (
+  plan: FleetReading['plans'][number],
   plans: FleetReading['plans'],
-  owners: ReadonlyMap<string, FleetReading['plans'][number]>,
-): FleetReading['plans'] =>
-  plans.filter(
-    (plan) =>
-      plan !== tracer &&
-      plan.slices.some((slice) =>
-        slice.branches.some((b) => b.waits_on.some((w) => owners.get(w) === tracer)),
-      ),
+): FleetReading['plans'] => {
+  const own = new Set(plan.slices.flatMap((slice) => slice.branches.map((b) => b.branch)));
+  return plans.filter(
+    (other) =>
+      other !== plan &&
+      other.slices.some((slice) => slice.branches.some((b) => b.waits_on.some((w) => own.has(w)))),
   );
+};
+
+/**
+ * Whether a plan that waits on `plan` has not delivered yet (decision D14: a
+ * person delivers a tracer plan alone only when it has no such dependent).
+ *
+ * A dependent reads delivered at phase `delivered` or `released`. A plan absent
+ * from `plans` is not a dependent, so a pulse that drops released plans answers
+ * the same as one that keeps them.
+ *
+ * @param plan - the plan waited on, usually a tracer plan.
+ * @param plans - the plans to search, usually `pulse.plans`.
+ * @returns `true` when at least one dependent is not delivered.
+ */
+export const hasUndeliveredDependent = (
+  plan: FleetReading['plans'][number],
+  plans: FleetReading['plans'],
+): boolean => dependentsOf(plan, plans).some((dependent) => !deliveredPlan(dependent));
 
 /** Every gate `planAutoDeliver` documents, for one plan. */
 const isDeliverable = (

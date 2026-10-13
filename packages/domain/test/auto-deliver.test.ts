@@ -4,6 +4,8 @@ import {
   AUTO_DELIVER_RETRY_BASE_MS,
   FleetReadingSchema,
   deliveryReading,
+  dependentsOf,
+  hasUndeliveredDependent,
   deliveryReadings,
   landedBranches,
   pruneFailures,
@@ -116,16 +118,22 @@ describe('rules/auto-deliver', () => {
     it('does not name a tracer plan that nothing waits on', () => {
       expect(slugs([tracer()])).toEqual([]);
     });
-    it('names the dependent, then its proven tracer plan, whatever the pulse order', () => {
-      expect(slugs([tracer(), dependent()])).toEqual(['b-dependent', 'a-tracer']);
-      expect(slugs([dependent(), tracer()])).toEqual(['b-dependent', 'a-tracer']);
+    it('never names a tracer plan in the pass that names its approved dependent', () => {
+      expect(slugs([tracer(), dependent()])).toEqual(['b-dependent']);
+      expect(slugs([dependent(), tracer()])).toEqual(['b-dependent']);
+    });
+    it('names the tracer plan on the pass after its dependent reads delivered', () => {
+      const before = [tracer(), dependent()];
+      expect(slugs(before)).toEqual(['b-dependent']);
+      const after = [tracer(), dependent({ phase: 'delivered' })];
+      expect(slugs(after, { inFlight: new Set(['b-dependent']) })).toEqual(['a-tracer']);
     });
     it('names only the dependent while the tracer plan has an unmerged slice', () => {
       expect(slugs([tracer({ state: 'open' }), dependent()])).toEqual(['b-dependent']);
     });
     it('names a tracer plan alone once its dependent has delivered', () => {
       expect(slugs([tracer(), dependent({ phase: 'delivered' })])).toEqual(['a-tracer']);
-      expect(slugs([tracer(), dependent({ phase: 'released' })])).toEqual(['a-tracer']);
+      expect(slugs([dependent({ phase: 'Delivered' }), tracer()])).toEqual(['a-tracer']);
     });
     it('does not retry a tracer plan whose dependent is still unfinished', () => {
       expect(slugs([tracer(), dependent({ state: 'open' })])).toEqual([]);
@@ -133,7 +141,7 @@ describe('rules/auto-deliver', () => {
     it('does not retry a tracer plan already in flight', () => {
       expect(slugs([tracer(), dependent({ phase: 'delivered' })], { inFlight: new Set(['a-tracer']) })).toEqual([]);
     });
-    it('holds a tracer plan back by the retry bound on both paths', () => {
+    it('holds a tracer plan back by the retry bound after its dependent delivered', () => {
       const failures = (specs: Spec[]) => ({
         'a-tracer': {
           count: AUTO_DELIVER_MAX_FAILURES,
@@ -141,17 +149,44 @@ describe('rules/auto-deliver', () => {
           reading: deliveryReading(world(specs).plans[0]),
         },
       });
-      const together = [tracer(), dependent()];
-      expect(slugs(together, { failures: failures(together), now: 1_000 })).toEqual(['b-dependent']);
       const after = [tracer(), dependent({ phase: 'delivered' })];
       expect(slugs(after, { failures: failures(after), now: 1_000 })).toEqual([]);
     });
     it('names a tracer plan once when two dependents wait on it', () => {
       const second = dependent({ file: '2026-10-03-c-second.md', branch: 'feature/e' });
-      expect(slugs([tracer(), dependent(), second])).toEqual(['b-dependent', 'a-tracer', 'c-second']);
+      expect(slugs([tracer(), dependent(), second])).toEqual(['b-dependent', 'c-second']);
+      expect(slugs([tracer(), dependent({ phase: 'delivered' }), second])).toEqual(['a-tracer', 'c-second']);
     });
     it('leaves a plain plan alone', () => {
       expect(slugs([dependent({ waits: [] })])).toEqual(['b-dependent']);
+    });
+
+    describe('dependentsOf and hasUndeliveredDependent', () => {
+      const plans = (specs: Spec[]) => world(specs).plans;
+      it('finds the plans whose waits_on names a branch of the plan', () => {
+        const ps = plans([tracer(), dependent(), dependent({ file: '2026-10-04-d-other.md', branch: 'feature/o', waits: ['feature/x'] })]);
+        expect(dependentsOf(ps[0], ps).map((p) => p.file)).toEqual(['2026-10-02-b-dependent.md']);
+      });
+      it('does not count the plan itself', () => {
+        const ps = plans([tracer({ waits: ['feature/t'] })]);
+        expect(dependentsOf(ps[0], ps)).toEqual([]);
+      });
+      it('answers false for a plan with no dependent', () => {
+        const ps = plans([tracer()]);
+        expect(hasUndeliveredDependent(ps[0], ps)).toBe(false);
+      });
+      it('answers true while a dependent is approved', () => {
+        const ps = plans([tracer(), dependent()]);
+        expect(hasUndeliveredDependent(ps[0], ps)).toBe(true);
+      });
+      it('answers false once every dependent is delivered or released', () => {
+        const ps = plans([tracer(), dependent({ phase: 'delivered' }), dependent({ file: '2026-10-03-c-second.md', branch: 'feature/e', phase: 'released' })]);
+        expect(hasUndeliveredDependent(ps[0], ps)).toBe(false);
+      });
+      it('answers true when one of two dependents is not delivered', () => {
+        const ps = plans([tracer(), dependent({ phase: 'delivered' }), dependent({ file: '2026-10-03-c-second.md', branch: 'feature/e' })]);
+        expect(hasUndeliveredDependent(ps[0], ps)).toBe(true);
+      });
     });
   });
 
