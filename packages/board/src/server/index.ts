@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
 import { isAnswered, doneTickets, ticketLane, storyLanes, phaseOfStory, type StoryLaneMap } from '@plot-pm/domain';
 import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, readConfigAsync, declaredPhaseMap, deriveStoryStatus, type BuildBoardOptions } from './board.js';
-import { ticketLaneData } from './fleet.js';
+import { ticketLaneData, issuesClosedReading } from './fleet.js';
 import { boardState, fleetState } from './controllers/fleet-state.js';
 import { boardQueryFor, estateFromEnv } from './estate.js';
 // THE ONE ENTRY THAT REGISTERS THE SDK CONNECTOR: board roles on `Agent runner:
@@ -619,6 +619,24 @@ async function handleRequest(
       res.end(JSON.stringify(await fleetState({ opts, estate: estate.source })));
     } catch (err) {
       console.error('Error building fleet:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    }
+    return;
+  }
+
+  if (url.pathname === '/api/issues/closed') {
+    // REQUEST-DRIVEN, NEVER POLLED (plan line 141): the Discovery tab calls
+    // this once on toggle-on and once on a page load with `?archived=1`
+    // already set, never on the 30 s `/api/board` poll. `issuesClosedReading`
+    // owns the cache/backoff window and asks the tracker at most once per
+    // window — this handler only shapes the HTTP response.
+    try {
+      const reading = await issuesClosedReading(opts);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(reading));
+    } catch (err) {
+      console.error('Error reading closed issues:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
     }
