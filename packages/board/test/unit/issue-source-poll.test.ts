@@ -71,7 +71,7 @@ describe('the issue poll asks the source the domain names', () => {
 
     await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
 
-    expect(hostCalls(dir)).toEqual(['issue-list --limit 50']);
+    expect(hostCalls(dir)).toEqual(['issue-list --paged --limit 1000']);
     expect(entry.issueAnswer).toBe('unsupported');
     expect(entry.issueError).toBeNull();
     expect(entry.issueAbsence).toMatch(/^Open issues are not listed: bb 1\.9\.0 lists no issue command/);
@@ -86,7 +86,10 @@ describe('the issue poll asks the source the domain names', () => {
 
     await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
 
-    expect(hostCalls(dir)).toHaveLength(1);
+    expect(hostCalls(dir)).toEqual([
+      'issue-list --paged --limit 1000',
+      expect.stringMatching(/^issue-list --state closed --since \S+ --limit 1000$/),
+    ]);
     expect(entry.issueAnswer).toBe('answered');
     expect(entry.issueAbsence).toBeNull();
   });
@@ -101,10 +104,11 @@ describe('the no-fleet issue read keeps its own gate in memory', () => {
     await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
 
     expect(entry.issueConnector).toBe('github');
-    expect(entry.issueRequests).toBe(1);
+    // One open page and one closed page.
+    expect(entry.issueRequests).toBe(2);
     expect(entry.issueBackoffUntil).toBeNull();
     expect(entry.issueNextIsBackoff).toBe(false);
-    expect(entry.issueNextAt).toBeGreaterThanOrEqual(before + 120_000);
+    expect(entry.issueNextAt).toBeGreaterThanOrEqual(before + 240_000);
     expect(fs.existsSync(path.join(dir, '.plot'))).toBe(false);
   });
 
