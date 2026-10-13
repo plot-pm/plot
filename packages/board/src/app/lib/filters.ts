@@ -167,7 +167,7 @@ export function sanitizeSelection(selected: string[], options: FilterOption[]): 
   return selected.filter((v) => valid.has(v));
 }
 
-/** What the "select every Active sprint" button offers: a selection, and whether it can act. */
+/** What the *Active sprint* button offers: a selection, and whether it can act. */
 export interface ActiveSprintButton {
   /** Every slug of `sprints` — the full selection a click would set. */
   selection: string[];
@@ -184,16 +184,14 @@ export interface ActiveSprintButton {
  * existing multiselect with every option checked: it answers WHICH slugs to
  * select and whether it can, and does not filter rows itself.
  */
-export function activeSprintButton(sprints: FleetSprint[]): ActiveSprintButton {
-  if (sprints.length === 0) {
-    return { selection: [], disabled: true, sentence: 'No sprint is Active.' };
-  }
-  return {
-    selection: sprints.map((s) => s.slug),
-    disabled: false,
-    sentence: `Select all ${sprints.length} Active sprints.`,
-  };
-}
+export const activeSprintButton = (sprints: FleetSprint[]): ActiveSprintButton =>
+  sprints.length === 0
+    ? { selection: [], disabled: true, sentence: 'No sprint is Active.' }
+    : {
+        selection: sprints.map((s) => s.slug),
+        disabled: false,
+        sentence: `Select all ${sprints.length} Active sprints.`,
+      };
 
 /** Read a comma-separated multi-value filter from the URL query. */
 export function readList(param: string): string[] {

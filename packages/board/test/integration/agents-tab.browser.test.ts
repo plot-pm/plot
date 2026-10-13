@@ -5,7 +5,7 @@ import {
   openCatalogue, scenario, agent, row as buildRow, slice,
   fleet as buildFleet, board as buildBoard, type Catalogue,
 } from '../catalogue/index.js';
-import { ELIGIBLE_NOTE, type AgentEntry, type AgentRow, type Fleet, type Slice } from '../../src/contract/schema.js';
+import { ELIGIBLE_NOTE, type AgentEntry, type AgentRow, type Fleet, type FleetSprint, type Slice } from '../../src/contract/schema.js';
 import { agentPr, classify, type PrRecord } from '../../src/server/fleet.js';
 
 /**
@@ -4356,6 +4356,47 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const siblingRow = page.locator('[data-slice-list="brief-sole"] [data-slice-row="sibling-slice"]');
       await expect.poll(() => siblingRow.count()).toBe(1);
       expect(await siblingRow.locator('[data-brief-writing]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // THE ACTIVE SPRINT BUTTON SELECTS EVERY ACTIVE SPRINT — D32. Two sprints, so
+  // a click's effect on BOTH boxes is under test and not a one-sprint no-op.
+  const activeSprint = (slug: string, title: string): FleetSprint => ({
+    slug, title, release: '', timebox: 'none', timeboxLabel: '',
+    counts: { total: 0, open: 0, wip: 0, done: 0, withdrawn: 0 },
+    members: [],
+  });
+  const sprintToggle = (page: Page, slug: string) => page.locator(`[data-sprint-toggle="${slug}"]`);
+  const activeSprintButton = (page: Page) => page.getByRole('button', { name: 'Active sprint', exact: true });
+
+  it('the Active sprint button checks every Active sprint box in one click', async () => {
+    const page = await openAgents(fleet({
+      sprints: [activeSprint('sprint-a', 'Sprint A'), activeSprint('sprint-b', 'Sprint B')],
+    }));
+    try {
+      const button = activeSprintButton(page);
+      expect(await button.isDisabled()).toBe(false);
+      expect(await button.getAttribute('title')).toBe('Select all 2 Active sprints.');
+      expect(await sprintToggle(page, 'sprint-a').isChecked()).toBe(false);
+      expect(await sprintToggle(page, 'sprint-b').isChecked()).toBe(false);
+
+      await button.click();
+
+      await expect.poll(() => sprintToggle(page, 'sprint-a').isChecked()).toBe(true);
+      expect(await sprintToggle(page, 'sprint-b').isChecked()).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('the Active sprint button is disabled and names the reason when no sprint is Active', async () => {
+    const page = await openAgents(fleet({ sprints: [] }));
+    try {
+      const button = activeSprintButton(page);
+      expect(await button.isDisabled()).toBe(true);
+      expect(await button.getAttribute('title')).toBe('No sprint is Active.');
     } finally {
       await page.close();
     }

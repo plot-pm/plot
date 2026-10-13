@@ -161,9 +161,11 @@ describe('activeSprintButton', () => {
   });
 
   it('selects every Active sprint and is enabled', () => {
-    const result = activeSprintButton([sprintA, sprintB]);
-    expect(result.selection).toEqual(['a-slug', 'b-slug']);
-    expect(result.disabled).toBe(false);
+    expect(activeSprintButton([sprintA, sprintB])).toEqual({
+      selection: ['a-slug', 'b-slug'],
+      disabled: false,
+      sentence: 'Select all 2 Active sprints.',
+    });
   });
 });
 

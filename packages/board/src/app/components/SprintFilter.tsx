@@ -58,8 +58,8 @@ interface SprintFilterProps {
    */
   report?: { hidden: number; exempt: number } | null;
   /**
-   * `activeSprintButton`'s answer for this payload's sprints — which slugs a
-   * "select all" click sets, and whether there is anything to select.
+   * `activeSprintButton`'s answer for this payload's sprints — which slugs an
+   * *Active sprint* click sets, and whether there is anything to select.
    */
   selectAll: ActiveSprintButton;
   /** Set the selection to `selectAll.selection` in one step. */
@@ -96,6 +96,26 @@ function formatCounts(counts: SprintCounts, isEstate: boolean): string {
  * "Compared" slice of the-sprint-filter-says-what-it-filters plan.
  */
 export function SprintFilter({ sprints, selected, onToggle, estateTotals, report = null, selectAll, onSelectAll }: SprintFilterProps) {
+  // THE ACTIVE SPRINT BUTTON, defined once. `activeSprintButton` decides its
+  // disabled state, its title and its styling, so the rendered state is the
+  // property its unit test asserts.
+  const activeSprintButtonView = (
+    <button
+      type="button"
+      data-select-all-sprints
+      disabled={selectAll.disabled}
+      onClick={onSelectAll}
+      title={selectAll.sentence}
+      className={`ml-auto rounded border px-2 py-0.5 text-xs ${
+        selectAll.disabled
+          ? 'cursor-not-allowed border-slate-200 text-slate-400 opacity-50 dark:border-slate-700 dark:text-slate-500'
+          : 'font-medium border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800'
+      }`}
+    >
+      Active sprint
+    </button>
+  );
+
   // No active sprints: show disabled state with estate totals
   if (sprints.length === 0) {
     return (
@@ -112,15 +132,7 @@ export function SprintFilter({ sprints, selected, onToggle, estateTotals, report
             title="No active sprint"
           />
           <span className="italic">No active sprint</span>
-          <button
-            type="button"
-            data-select-all-sprints
-            disabled
-            title={selectAll.sentence}
-            className="ml-auto cursor-not-allowed rounded border border-slate-200 px-2 py-0.5 text-xs text-slate-400 opacity-50 dark:border-slate-700 dark:text-slate-500"
-          >
-            Select all
-          </button>
+          {activeSprintButtonView}
         </div>
         {estateTotals && (
           <div className="mt-1 text-xs text-slate-400 dark:text-slate-500">
@@ -135,15 +147,7 @@ export function SprintFilter({ sprints, selected, onToggle, estateTotals, report
   return (
     <div data-sprint-filter className="space-y-1">
       <div className="flex justify-end px-1">
-        <button
-          type="button"
-          data-select-all-sprints
-          onClick={onSelectAll}
-          title={selectAll.sentence}
-          className="rounded border border-slate-300 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
-        >
-          Select all
-        </button>
+        {activeSprintButtonView}
       </div>
       {sprints.map((sprint) => {
         const isSelected = selected.has(sprint.slug);
