@@ -1491,6 +1491,42 @@ async function referencedIssues(opts: BuildBoardOptions): Promise<Set<string> | 
   return referenced;
 }
 
+/** What `ticketLane` needs beyond the rows themselves, read from the cache without a new tracker call. */
+export interface TicketLaneData {
+  /** The open rows the last read left, unfiltered. */
+  readonly open: readonly IssueIndexRow[];
+  /** The closed rows of the last {@link ISSUE_INDEX_CLOSED_DAYS} days, unfiltered. */
+  readonly closed: readonly IssueIndexRow[];
+  /** The issue keys the plans name, or null where the plans directory could not be read. */
+  readonly referenced: Set<string> | null;
+  /** Whether the connector's `statusCategory` is stated rather than derived — true only for Jira. */
+  readonly categoryStated: boolean;
+}
+
+/**
+ * The open and closed issue rows the board's cache already holds, for the
+ * Discovery tab's ticket lanes — reads the SAME cache entry `buildFleet` and
+ * `refreshIssues` fill, and asks the tracker nothing itself.
+ *
+ * Null wherever `entry.issueSets` is null: before the first read, or where the
+ * read source is `nobody`. The caller renders no ticket lanes in that case,
+ * the same way a cold `/api/fleet` renders no inbox.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @returns the rows and readings `ticketLane`/`doneTickets` need, or null.
+ */
+export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLaneData | null> {
+  const entry = ensureCache(opts);
+  if (entry.issueSets === null) return null;
+  const referenced = await referencedIssues(opts);
+  return {
+    open: entry.issueSets.rows ?? [],
+    closed: entry.issueSets.closed?.rows ?? [],
+    referenced,
+    categoryStated: entry.issueConnector === 'jira',
+  };
+}
+
 /**
  * The inbox rows of a set of open issues: those no plan references, at most
  * {@link ISSUE_LIMIT}, in the order given.

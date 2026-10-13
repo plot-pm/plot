@@ -1733,7 +1733,7 @@ export function parseStoryContent(
  * A story whose declared status is unreadable is read as `draft`: the domain
  * takes a `StoryStatus`, and frontmatter is a file a person edits.
  */
-function deriveStoryStatus(
+export function deriveStoryStatus(
   declaredStatus: string,
   plans: Array<{ phase: string }>,
 ): StoryStanding {
