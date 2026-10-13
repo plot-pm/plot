@@ -4401,4 +4401,103 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.close();
     }
   });
+
+  // THE BOARD ROW (H7) — issue #1640. `/api/fleet`'s `verification` field has
+  // carried the auto-verify fleet's halt, running plans and failed-plan rows
+  // since PR #1635; this is the first render of any of it. One payload states
+  // a failed row, a running plan and `halted: true` at once, so the halted
+  // line's own suppression rule — a row whose `fleetHalted` is already true
+  // must not ALSO show the banner — has something to suppress against.
+  describe('the fleet\'s own verify runs (a plan, not a branch)', () => {
+    it('shows a failed row in Waiting on you with its restart command, a running row in Working, and both counts', async () => {
+      const page = await openAgents(fleet({
+        verification: {
+          halted: false,
+          running: ['beans'],
+          refusals: {},
+          rows: [{
+            slug: 'plant-tomatoes',
+            reason: 'verification failed 3 times; the fleet stopped retrying this plan',
+            log: '/r/.plot/logs/plot-verify-plant-tomatoes.log',
+            restart: '/plot-deliver --verify plant-tomatoes',
+            stopped: true,
+            fleetHalted: false,
+          }],
+        },
+      }));
+      try {
+        const waiting = group(page, 'Waiting on you');
+        const failedRow = waiting.locator('[data-plan-level-row="plant-tomatoes"]');
+        await expect.poll(() => failedRow.count()).toBe(1);
+        expect(await failedRow.locator('[data-plan-level-restart]').textContent())
+          .toBe('/plot-deliver --verify plant-tomatoes');
+        expect(await waiting.getByRole('heading', { level: 2 }).textContent())
+          .toMatch(/Waiting on you\(\d+\)/);
+
+        const working = group(page, 'Working');
+        const runningRow = working.locator('[data-plan-level-row="beans"]');
+        await expect.poll(() => runningRow.count()).toBe(1);
+        expect(await runningRow.locator('[data-plan-level-restart]').count()).toBe(0);
+      } finally {
+        await page.close();
+      }
+    });
+
+    it('shows the halted sentence once when halted and no row already names it, and never when one does', async () => {
+      const bothHalted = await openAgents(fleet({
+        verification: {
+          halted: true,
+          running: [],
+          refusals: {},
+          rows: [{
+            slug: 'plant-tomatoes',
+            reason: 'verification failed 3 times; the fleet is halted on verification failures',
+            log: '/r/.plot/logs/plot-verify-plant-tomatoes.log',
+            restart: '/plot-deliver --verify plant-tomatoes',
+            stopped: false,
+            fleetHalted: true,
+          }],
+        },
+      }));
+      try {
+        expect(await bothHalted.locator('[data-verification-halted-line]').count()).toBe(0);
+      } finally {
+        await bothHalted.close();
+      }
+
+      const halted = await openAgents(fleet({
+        verification: {
+          halted: true,
+          running: [],
+          refusals: {},
+          rows: [{
+            slug: 'plant-tomatoes',
+            reason: 'verification failed 3 times',
+            log: '/r/.plot/logs/plot-verify-plant-tomatoes.log',
+            restart: '/plot-deliver --verify plant-tomatoes',
+            stopped: false,
+            fleetHalted: false,
+          }],
+        },
+      }));
+      try {
+        const line = halted.locator('[data-verification-halted-line]');
+        await expect.poll(() => line.count()).toBe(1);
+        expect(await line.textContent())
+          .toBe('The fleet starts no verify run until a person restarts one.');
+      } finally {
+        await halted.close();
+      }
+    });
+
+    it('renders nothing for verification: null — no row, no halted line', async () => {
+      const page = await openAgents(fleet({ verification: null }));
+      try {
+        expect(await page.locator('[data-plan-level-row]').count()).toBe(0);
+        expect(await page.locator('[data-verification-halted-line]').count()).toBe(0);
+      } finally {
+        await page.close();
+      }
+    });
+  });
 });
