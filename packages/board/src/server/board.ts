@@ -2469,6 +2469,13 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
       planTitles: (s.plans || []).map((p) => p.title || p.slug.replace(/-/g, ' ')),
     }))),
     defaultBranch: defaultBranchReading,
+    // Unset until `discoveryLanes` fills them in: the Discovery lane cache
+    // lives in `fleet.ts`, which this walker has no dependency on. index.ts
+    // overwrites all three at response time, the same hand and the same
+    // socket-knowledge split the ten capability flags above follow.
+    tickets: null,
+    plansUnreadable: false,
+    storyLanes: [],
   };
 }
 

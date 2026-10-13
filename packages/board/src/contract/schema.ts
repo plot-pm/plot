@@ -1170,6 +1170,36 @@ export const ServerInfoSchema = z.object({
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 
+/** One ticket as the Discovery tab's lane groups carry it — raw dates, not a derived age. */
+export const TicketLaneRowSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  url: z.string(),
+  createdAt: z.string().nullable(),
+  body: z.null(),
+  status: z.string(),
+  statusCategory: z.string(),
+  closedAt: z.string().nullable(),
+});
+export type TicketLaneRow = z.infer<typeof TicketLaneRowSchema>;
+
+/** The Discovery tab's tickets, grouped into D7's three visible lanes. */
+export const TicketLaneGroupsSchema = z.object({
+  open: z.array(TicketLaneRowSchema),
+  'in-progress': z.array(TicketLaneRowSchema),
+  done: z.array(TicketLaneRowSchema),
+  /** How many further Done rows exist beyond the ones returned, per `doneTickets`. */
+  moreCount: z.number(),
+});
+export type TicketLaneGroups = z.infer<typeof TicketLaneGroupsSchema>;
+
+/** One of D7's four story lanes, and the stories placed in it. */
+export const StoryLaneGroupSchema = z.object({
+  lane: z.enum(['Draft', 'Active', 'Done', 'Archived']),
+  stories: z.array(StoryCardSchema),
+});
+export type StoryLaneGroup = z.infer<typeof StoryLaneGroupSchema>;
+
 export const BoardSchema = z.object({
   generatedAt: z.string(),
   columns: z.array(ColumnSchema),
@@ -1386,6 +1416,22 @@ export const BoardSchema = z.object({
    * that defaulted this would report a healthy branch it never checked.
    */
   defaultBranch: DefaultBranchReadingSchema.optional(),
+  /**
+   * The Discovery tab's ticket lanes (Open/In progress/Done), or null before
+   * the first issue read, or where the issue source is `nobody`. `.optional()`
+   * rather than `.default(null)`: absent means an older server that predates
+   * this field, drawn the same as a cold read — no tickets lane rendered.
+   */
+  tickets: TicketLaneGroupsSchema.nullable().optional(),
+  /**
+   * Whether the ticket lanes above are the LAST GOOD ones rather than freshly
+   * computed — true when the plans directory could not be read this pass. The
+   * group as a whole declines to answer rather than misclassifying a
+   * plan-named ticket as unnamed; see `ticketLane`'s own doc comment.
+   */
+  plansUnreadable: z.boolean().default(false),
+  /** The Discovery tab's story lanes (Draft/Active/Done/Archived). `.default([])` for an older server. */
+  storyLanes: z.array(StoryLaneGroupSchema).default([]),
 });
 export type Board = z.infer<typeof BoardSchema>;
 

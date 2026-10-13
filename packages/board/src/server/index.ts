@@ -213,6 +213,25 @@ interface TicketRow {
   readonly closedAt: string | null;
 }
 
+/** The Discovery tab's ticket lanes, plus a reason they could not be recomputed. */
+interface TicketLaneGroups {
+  readonly open: TicketRow[];
+  readonly 'in-progress': TicketRow[];
+  readonly done: readonly TicketRow[];
+  readonly moreCount: number;
+}
+
+/**
+ * The last ticket lanes `discoveryLanes` computed successfully, by repo root —
+ * read back when `referencedIssues` answers null (the plans directory could not
+ * be read), per the plan's "plans could not be read, keeps its last good
+ * lanes" (plan.md:138), mirroring `refreshIssues`'s own kept-rows-on-failure
+ * shape at `fleet.ts:1729-1732`. Never written from a `null`-`referenced` pass,
+ * so a second consecutive read failure still serves the last SUCCESSFUL one
+ * rather than null.
+ */
+const lastGoodTicketLanes = new Map<string, TicketLaneGroups>();
+
 /**
  * Builds the Discovery tab's lane groups for `/api/board`.
  *
@@ -221,6 +240,12 @@ interface TicketRow {
  * `storyLanes`. `archived` controls only whether archived-directory stories and
  * the open-ended Done tail are included; the cache read always happens, since
  * the first reading has to come from somewhere.
+ *
+ * `data.referenced === null` (the plans directory could not be read) is a
+ * GROUP-level failure, not a per-ticket one — `ticketLane`'s own doc comment
+ * forbids passing `namedByPlan: null` to it. So this function never does: it
+ * reports `plansUnreadable: true` and serves {@link lastGoodTicketLanes} instead
+ * of recomputing with a degraded reading.
  *
  * @param opts - the board's repo root and scripts directory.
  * @param board - the board payload already built by `boardState`.
@@ -245,10 +270,14 @@ async function discoveryLanes(
   };
 
   const now = Date.now();
-  let ticketsByLane: { open: TicketRow[]; 'in-progress': TicketRow[]; done: readonly TicketRow[]; moreCount: number } | null = null;
-  if (data !== null) {
+  let ticketsByLane: TicketLaneGroups | null = null;
+  let plansUnreadable = false;
+  const named = data?.referenced ?? null;
+  if (data !== null && named === null) {
+    plansUnreadable = true;
+    ticketsByLane = lastGoodTicketLanes.get(opts.repoRoot) ?? null;
+  } else if (data !== null && named !== null) {
     const reading = { categoryStated: data.categoryStated, namedByPlan: false };
-    const named = data.referenced;
     const laned = [...data.open, ...(archived ? data.closed : [])].map((row): { row: TicketRow; lane: ReturnType<typeof ticketLane> } => {
       const closedAt = row.closedAt ?? null;
       const issue = {
@@ -257,7 +286,7 @@ async function discoveryLanes(
         status: row.status ?? '', statusCategory: row.statusCategory ?? '',
         closedAt,
       };
-      const namedByPlan = named === null ? null : named.has(row.number);
+      const namedByPlan = named.has(row.number);
       const lane = ticketLane(issue, { ...reading, namedByPlan }, now);
       return { row: { ...issue, closedAt }, lane };
     });
@@ -268,6 +297,7 @@ async function discoveryLanes(
       ? { rows: doneRows, moreCount: 0 }
       : doneTickets(doneRows);
     ticketsByLane = { open, 'in-progress': inProgress, done, moreCount };
+    lastGoodTicketLanes.set(opts.repoRoot, ticketsByLane);
   }
 
   const liveStories = board.stories.map((s) => ({
@@ -287,7 +317,7 @@ async function discoveryLanes(
     stories: g.stories.map((s) => s.story),
   }));
 
-  return { tickets: ticketsByLane, storyLanes: storyLaneGroups };
+  return { tickets: ticketsByLane, plansUnreadable, storyLanes: storyLaneGroups };
 }
 
 async function handleRequest(
