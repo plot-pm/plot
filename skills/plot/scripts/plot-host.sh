@@ -296,11 +296,8 @@
 #                                 abandoned work beside finished work.
 #                                 READ-ONLY. Plot writes no label, no assignee
 #                                 and no close-on-merge, because a copy of
-#                                 tracker state ages into a lie. The writes
-#                                 that exist are `issue-status`, which records
-#                                 a status Plot itself just caused rather than
-#                                 mirroring one the tracker holds, and
-#                                 `issue-open`.
+#                                 tracker state ages into a lie. The two
+#                                 writes are `issue-status` and `issue-open`.
 #                                 `url` is "" when the host omits it, and a
 #                                 consumer renders the number as plain text
 #                                 rather than inventing an address — the rule
@@ -361,11 +358,15 @@
 #                                 as issue-list. Jira answers 404 for a missing
 #                                 key, which is exit 3 here (the tracker moved),
 #                                 never an empty body.
-#   issue-open <title> <body> [label...]
+#   issue-open <request-json>                       (jira)
+#   issue-open <title> <body> [--label <label>...]  (github-issues)
 #                                 THE SECOND OF TWO WRITES TO A TRACKER: open
-#                                 one issue and print its number or key. Jira
-#                                 and github-issues only; exit 4 elsewhere.
-#   issue-status <key> <status>   THE FIRST OF TWO WRITES TO A TRACKER: record one status
+#                                 one issue. Prints Jira's JSON answer or the
+#                                 new GitHub issue's address. The connector
+#                                 builds the Jira request, including the
+#                                 `Tracker issue type` key's word (default
+#                                 `Task`). Exit 4 with the reason elsewhere.
+#   issue-status <key> <status>   THE FIRST OF TWO WRITES: record one status
 #                                 against one issue, and nothing else. No
 #                                 create, no close, no comment, no label — a
 #                                 plan referencing an issue is Plot's record,
@@ -2562,8 +2563,6 @@ jira_curl() {
   # $1 = path (e.g. /rest/api/2/search/jql?...), remaining args appended to curl.
   # Config is assumed present — jira_require_config ran in the caller's shell.
   local path="$1"; shift
-  local base
-  base="$(tracker_base_url)"
   # -sS: quiet progress, but keep errors. -w writes the HTTP status on its own
   # line AFTER the body so the caller can split the two. --user does the Basic
   # base64 for us; the token never appears in argv of any child process here.
@@ -2571,7 +2570,7 @@ jira_curl() {
     --user "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
     -H 'Accept: application/json' \
     -w '\n%{http_code}' \
-    "$base$path" "$@"
+    "$(tracker_base_url)$path" "$@"
   local rc=$?
   # JIRA IS COUNTED HERE AND NOT BY A WRAPPER, because it is reached through
   # `curl` rather than a CLI of its own — and shadowing `curl` would count every
@@ -2654,6 +2653,10 @@ jira_check() {
   fi
   printf '%s' "$body"
 }
+
+# jira_curl, then jira_check: the response body on stdout, or exit 3 with the
+# reason on stderr. Every Jira op asks through this pair and through nothing else.
+jira_ask() { local raw rc; raw="$(jira_curl "$@")"; rc=$?; jira_check "$raw" "$rc"; }
 
 # --- pr-list truncation detection (#333) ------------------------------------
 #
@@ -4644,13 +4647,12 @@ case "$op" in
       # jq builds the query string so a JQL with spaces/quotes is encoded once,
       # not hand-escaped. --data-urlencode via curl -G keeps the token out of the
       # URL and the JQL correctly encoded.
-      raw="$(jira_curl "/rest/api/2/search/jql" \
+      body="$(jira_ask "/rest/api/2/search/jql" \
                -G \
                --data-urlencode "jql=$jql" \
                --data-urlencode "fields=$fields" \
                --data-urlencode "maxResults=$max" \
-               ${token_args[@]+"${token_args[@]}"})"; curl_rc=$?
-      body="$(jira_check "$raw" "$curl_rc")" || exit $?
+               ${token_args[@]+"${token_args[@]}"})" || exit $?
       # `number` is the Jira KEY (PROJ-123), a string — #447 taught the parser to
       # read that form. `url` is built from the base + /browse/<key>; Jira's
       # search payload carries no browse URL, and the base is ours to know
@@ -4807,9 +4809,8 @@ case "$op" in
       # adapter, so its absence (Jira answers 404) means the tracker moved under
       # the board. jira_check turns that 404 into exit 3 with empty stdout.
       jira_require_config
-      raw="$(jira_curl "/rest/api/2/issue/$num" \
-               -G --data-urlencode "fields=summary,description")"; curl_rc=$?
-      body_json="$(jira_check "$raw" "$curl_rc")" || exit $?
+      body_json="$(jira_ask "/rest/api/2/issue/$num" \
+               -G --data-urlencode "fields=summary,description")" || exit $?
       base="$(tracker_base_url)"
       printf '%s' "$body_json" | jq -c --arg base "$base" '{
           number: .key,
@@ -4904,16 +4905,14 @@ case "$op" in
     # and Jira answers a transition to the state an issue already holds by
     # naming no such transition — which this reports as `no-target` rather than
     # as a failure.
-    key="${1:?issue-status needs an issue key}"; shift
-    want="${1:?issue-status needs a status}"; shift
+    key="${1:?issue-status needs an issue key}"; want="${2:?issue-status needs a status}"
     [ "$(tracker_scheme)" = "jira" ] || exit 4
     jira_require_config
     # THE TRANSITION IS LOOKED UP, NEVER GUESSED. Jira transitions are per
     # workflow and per issue: the id for "In Progress" differs between projects
     # and the transition may not be available from the issue's current state at
     # all. A hardcoded id writes a status to the wrong column silently.
-    raw="$(jira_curl "/rest/api/2/issue/$key/transitions")"; curl_rc=$?
-    body_json="$(jira_check "$raw" "$curl_rc")" || exit $?
+    body_json="$(jira_ask "/rest/api/2/issue/$key/transitions")" || exit $?
     tid="$(printf '%s' "$body_json" | jq -r --arg want "$want" \
       '[.transitions[]? | select((.name // "" | ascii_downcase) == ($want | ascii_downcase)
                                  or ((.to.name // "" | ascii_downcase) == ($want | ascii_downcase)))]
@@ -4926,38 +4925,28 @@ case "$op" in
       printf '%s\n' 'no-target'
       exit 0
     fi
-    raw="$(jira_curl "/rest/api/2/issue/$key/transitions" \
-             -X POST -H 'Content-Type: application/json' \
-             --data "$(jq -cn --arg id "$tid" '{transition:{id:$id}}')")"; curl_rc=$?
-    jira_check "$raw" "$curl_rc" >/dev/null || exit $?
+    jira_ask "/rest/api/2/issue/$key/transitions" \
+      -X POST -H 'Content-Type: application/json' \
+      --data "$(jq -cn --arg id "$tid" '{transition:{id:$id}}')" >/dev/null || exit $?
     printf '%s\n' 'written'
     ;;
 
   issue-open)
-    # THE SECOND WRITE TO A TRACKER: open one issue, and nothing else. Not
-    # idempotent — the same call twice opens two issues — so the caller records
-    # what it opened; this op never looks for a duplicate. Takes
-    # `<title> <body> [label...]` and prints the new issue's number or key.
-    # Exit 4 where the declared tracker is neither jira nor github-issues: the
-    # host cannot be asked, which is not a failure.
-    title="${1:?issue-open needs a title}"; body="${2-}"; shift; shift
+    # THE SECOND WRITE TO A TRACKER: open one issue, and nothing else. NOT
+    # IDEMPOTENT: the same call twice opens two issues, and this op never looks
+    # for a duplicate, so the caller records what it opened. The connector
+    # builds the request and reads the identifier out of the answer; this op
+    # sends the one and prints the other.
+    #   jira           <request-json>   the POST /rest/api/2/issue body, sent
+    #                  verbatim; prints Jira's JSON answer.
+    #   github-issues  <title> <body> [--label <label>...]; prints the new
+    #                  issue's address.
+    # Exit 4, with the reason, for any other tracker.
     case "$(tracker_scheme)" in
-      jira)
-        jira_require_config
-        project="$(tracker_projects | head -1)"
-        [ -n "$project" ] || { echo "plot-host: opening a Jira issue needs 'Ticket prefixes' declared" >&2; exit 4; }
-        raw="$(jira_curl "/rest/api/2/issue" -X POST -H 'Content-Type: application/json' \
-          --data "$(jq -cn --arg p "$project" --arg t "$title" --arg b "$body" \
-            '{fields:{project:{key:$p},issuetype:{name:"Task"},summary:$t,description:$b,labels:$ARGS.positional}}' \
-            --args ${@+"$@"})")"; curl_rc=$?
-        jira_check "$raw" "$curl_rc" | jq -r '.key' ;;
-      github-issues)
-        for l in ${@+"$@"}; do set -- "$@" --label "$l"; shift; done
-        out="$(gh issue create --title "$title" --body "$body" ${@+"$@"} 2>"$HOST_ERR")" || gh_fail
-        printf '%s\n' "${out##*/}" ;;
-      *) exit 4 ;;
-    esac
-    ;;
+      jira) jira_require_config; jira_ask /rest/api/2/issue -X POST -H 'Content-Type: application/json' --data-raw "${1:?issue-open needs a request}" || exit $? ;;
+      github-issues) gh issue create --title "${1:?issue-open needs a title}" --body "${2-}" "${@:3}" 2>"$HOST_ERR" || gh_fail ;;
+      *) echo "plot-host: issue-open answers for jira and github-issues only, not '$(tracker_scheme)'" >&2; exit 4 ;;
+    esac ;;
 
   pr-body)
     num="${1:?pr-body needs a PR number}"; shift

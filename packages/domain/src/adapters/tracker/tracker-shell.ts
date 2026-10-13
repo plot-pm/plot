@@ -1,8 +1,8 @@
 import type { Issue } from '../../entities/issue.js';
 import type { TrackerSpender } from '../../ports/tracker.js';
 import { LimitBasisSchema, type LimitBasis, type LimitReading } from '../../entities/limit.js';
-import type { ClosedIssues } from '../../ports/tracker.js';
-import { answered, unaskable, type PortResult } from '../../port-result.js';
+import type { ClosedIssues, IssueOpenOutcome } from '../../ports/tracker.js';
+import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import { asJson, asJsonLines, resultOf, runProcess, type ScriptRun } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -87,6 +87,51 @@ const SCRIPT_PREFIX = /^plot-host: /;
  */
 export const unaskableReasonOf = (stderr: string): string | undefined =>
   stderr.trim().replace(SCRIPT_PREFIX, '') || undefined;
+
+/**
+ * The prefix of an issue-open refusal where the tracker may have opened the issue.
+ *
+ * A refusal that starts with it means the request may have reached the tracker:
+ * the run ended at its time bound or by a signal, or the tracker answered with
+ * no identifier this connector could read. A refusal without it means the
+ * tracker refused the request or was not reached.
+ */
+export const ISSUE_MAY_EXIST = 'the issue may exist: ';
+
+/**
+ * Reads an `issue-open` run into the port's answer, and records its refusal.
+ *
+ * @param said - the finished `plot-host.sh issue-open` run.
+ * @param idOf - reads the new issue's identifier from the run's stdout; null where it holds none.
+ * @param refuse - records the refusal the port's `lastRefusal` reports.
+ * @returns `opened` with the identifier; `unaskable` with the stated reason on
+ *   exit 4; `failed` otherwise, with the refusal recorded.
+ */
+export const issueOpenOf = (
+  said: ScriptRun,
+  idOf: (stdout: string) => string | null,
+  refuse: (said: string | null) => void,
+): PortResult<IssueOpenOutcome> => {
+  if (said.code === 4) {
+    refuse(null);
+    return unaskable(unaskableReasonOf(said.stderr));
+  }
+  if (said.interrupted !== undefined) {
+    refuse(`${ISSUE_MAY_EXIST}plot-host.sh issue-open ended by ${said.interrupted} after the request may have been sent`);
+    return failed();
+  }
+  if (said.code !== 0) {
+    refuse(said.stderr.trim() || said.stdout.trim() || `plot-host.sh exited ${said.code}`);
+    return failed();
+  }
+  const id = idOf(said.stdout);
+  if (id === null) {
+    refuse(`${ISSUE_MAY_EXIST}the tracker answered with no issue identifier: ${said.stdout.trim() || '(nothing)'}`);
+    return failed();
+  }
+  refuse(null);
+  return answered<IssueOpenOutcome>({ outcome: 'opened', id });
+};
 
 /**
  * Milliseconds since the epoch of an issue's `closedAt`, or -Infinity when it

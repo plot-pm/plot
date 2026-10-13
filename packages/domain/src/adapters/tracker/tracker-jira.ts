@@ -1,6 +1,6 @@
 import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
-import { answered, failed, type PortResult } from '../../port-result.js';
+import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type {
   ClosedIssues,
   IssueOpen,
@@ -13,13 +13,37 @@ import type {
 } from '../../ports/tracker.js';
 import { asText, runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
-import { trackerReads } from './tracker-shell.js';
+import { issueOpenOf, trackerReads } from './tracker-shell.js';
 
 /** The scheme `plot-host.sh` knows this connector by. */
 const SCHEME = 'jira';
 
 /** How this connector's limit readings are tagged. */
 const CONNECTOR = 'jira';
+
+/** The config key naming the projects; `issueOpen` opens in the first. */
+const PROJECTS_KEY = 'Ticket prefixes';
+
+/** The config key naming the issue type `issueOpen` opens. */
+const ISSUE_TYPE_KEY = 'Tracker issue type';
+
+/** The issue type where `Tracker issue type` is absent or empty. */
+const DEFAULT_ISSUE_TYPE = 'Task';
+
+/**
+ * The key of the issue Jira's create answer names.
+ *
+ * @param stdout - Jira's JSON answer to `POST /rest/api/2/issue`.
+ * @returns the key, or null where the answer is not JSON or names no key.
+ */
+export const jiraKeyOf = (stdout: string): string | null => {
+  try {
+    const key = (JSON.parse(stdout) as { key?: unknown } | null)?.key;
+    return typeof key === 'string' && key !== '' ? key : null;
+  } catch {
+    return null;
+  }
+};
 
 /**
  * The issue a pull request's status belongs to, read off its own address.
@@ -53,8 +77,11 @@ export const keyIn = (prUrl: string): string | null => {
  *
  * The read arm is `plot-host.sh`, told which scheme to answer as rather than
  * left to resolve one — so this connector answers with this tracker's issues
- * whatever a config key says. The write arm is the same script's one write op,
- * which shares this connector's credentials and therefore its budget.
+ * whatever a config key says. The two writes are the same script's
+ * `issue-status` and `issue-open` ops, which share this connector's
+ * credentials and therefore its budget. This connector builds the
+ * `issue-open` request: the first `Ticket prefixes` project, the
+ * `Tracker issue type` word (default `Task`), the title, body and labels.
  *
  * @param context - where the scripts and the repository are.
  * @param baseUrl - the tracker's address; `''` lets the script read its config.
@@ -70,6 +97,8 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
   const reads = trackerReads({ context, scheme: SCHEME, baseUrl, connector: CONNECTOR }, env);
   const host = scriptPath(context, 'plot-host.sh');
   const run = { cwd: context.repoRoot, env };
+  const config = scriptPath(context, 'plot-config.sh');
+  const inRepo = { cwd: context.repoRoot };
 
   return {
     config: (): TrackerConfig => ({ scheme: SCHEME, baseUrl }),
@@ -112,22 +141,29 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
     },
 
     issueOpen: async (write: IssueOpen): Promise<PortResult<IssueOpenOutcome>> => {
-      const said = await runProcess('bash', [host, 'issue-open', write.title, write.body, ...write.labels], run);
-      // EXIT 4 IS A CONFIGURATION FACT, as in `statusWrite`: this connector is
-      // not the declared tracker, or cannot open an issue there.
-      if (said.code === 4) {
-        reads.refuse(null);
-        return { ok: false, why: 'unaskable', reason: said.stderr.trim() || undefined };
-      }
-      const id = asText(said.stdout);
-      // AN EXIT 0 WITH NO IDENTIFIER IS NOT AN OPENED ISSUE. The caller records
-      // the id to avoid opening a second one; an empty one records nothing.
-      if (said.code !== 0 || id === '') {
-        reads.refuse(said.stderr.trim() || said.stdout.trim() || `plot-host.sh exited ${said.code}`);
+      const projects = await runProcess('bash', [config, 'get', PROJECTS_KEY, ''], inRepo);
+      const type = await runProcess('bash', [config, 'get', ISSUE_TYPE_KEY, DEFAULT_ISSUE_TYPE], inRepo);
+      const unread = [projects, type].find((said) => said.code !== 0);
+      if (unread !== undefined) {
+        reads.refuse(unread.stderr.trim() || `plot-config.sh exited ${unread.code}`);
         return failed();
       }
-      reads.refuse(null);
-      return answered<IssueOpenOutcome>({ outcome: 'opened', id });
+      const project = projects.stdout.split(',').map((key) => key.trim()).find((key) => key !== '');
+      if (project === undefined) {
+        reads.refuse(null);
+        return unaskable(`opening a Jira issue needs '${PROJECTS_KEY}' declared`);
+      }
+      const request = {
+        fields: {
+          project: { key: project },
+          issuetype: { name: asText(type.stdout) || DEFAULT_ISSUE_TYPE },
+          summary: write.title,
+          description: write.body,
+          labels: [...write.labels],
+        },
+      };
+      const said = await runProcess('bash', [host, 'issue-open', JSON.stringify(request)], run);
+      return issueOpenOf(said, jiraKeyOf, reads.refuse);
     },
 
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),

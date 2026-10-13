@@ -227,9 +227,16 @@ export interface Tracker {
    * A REPOSITORY WITH NO TRACKER ANSWERS `unaskable`, NEVER `opened`, for the
    * reason `statusWrite` does.
    *
+   * `failed` DOES NOT PROVE THAT NO ISSUE EXISTS. Where the request may have
+   * reached the tracker — the call ended at its time bound or by a signal, or
+   * the tracker answered with no identifier — `lastRefusal` starts with
+   * `the issue may exist: `. A refusal without that prefix means the tracker
+   * refused the request or was not reached.
+   *
    * @param write - the title, body and labels of the issue.
    * @returns `opened` with the new issue's identifier; `unaskable` where no
-   *   tracker was declared or the declared one cannot open issues.
+   *   tracker was declared or the declared one cannot open issues; `failed`
+   *   otherwise, with the reason in `lastRefusal`.
    */
   issueOpen(write: IssueOpen): Promise<PortResult<IssueOpenOutcome>>;
 
