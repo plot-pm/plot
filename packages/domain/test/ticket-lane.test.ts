@@ -76,6 +76,11 @@ describe('ticketLane', () => {
     const issue = issueWith({ statusCategory: 'To Do', closedAt: null });
     expect(ticketLane(issue, reading({ categoryStated: false, namedByPlan: true }), NOW)).toBe('in-progress');
   });
+
+  it('reads hidden for a closedAt the tracker could not parse as a date', () => {
+    const issue = issueWith({ statusCategory: 'Done', closedAt: 'not-a-date' });
+    expect(ticketLane(issue, reading(), NOW)).toBe('hidden');
+  });
 });
 
 describe('doneTickets', () => {
@@ -97,6 +102,23 @@ describe('doneTickets', () => {
     const result = doneTickets(rows);
     expect(result.rows[0]!.closedAt).not.toBeNull();
     expect(result.rows[1]!.closedAt).toBeNull();
+  });
+
+  it('sorts a null closedAt last when it appears after a dated row', () => {
+    const rows = [
+      { closedAt: new Date(NOW - DAY_MS).toISOString() },
+      { closedAt: null },
+    ];
+    const result = doneTickets(rows);
+    expect(result.rows[0]!.closedAt).not.toBeNull();
+    expect(result.rows[1]!.closedAt).toBeNull();
+  });
+
+  it('keeps two null closedAt rows together when both are null', () => {
+    const rows = [{ closedAt: null }, { closedAt: null }];
+    const result = doneTickets(rows);
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows.every((r) => r.closedAt === null)).toBe(true);
   });
 
   it('caps at DONE_LANE_LIMIT and counts the rest, 25 rows answering 20 + 5', () => {
