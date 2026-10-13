@@ -28,6 +28,22 @@ describe('planStatus — what a reader acts on', () => {
     expect(planStatus(readings({ landed: 'merged' }))).toBe('deliverable');
   });
 
+  it('calls a tracer plan whose branches have all landed proven, never deliverable', () => {
+    expect(planStatus(readings({ landed: 'merged', tracer: true }))).toBe('proven');
+    expect(planStatus(readings({ landed: 'merged', tracer: true, started: true, anyClaimed: true }))).toBe('proven');
+  });
+
+  it('reaches proven only through the fully-merged path', () => {
+    expect(planStatus(readings({ tracer: true }))).toBe('approved');
+    expect(planStatus(readings({ tracer: true, started: true }))).toBe('in-progress');
+    expect(planStatus(readings({ tracer: true, anyClaimed: true }))).toBe('in-progress');
+  });
+
+  it('reads a plan with tracer false or absent exactly as before', () => {
+    expect(planStatus(readings({ landed: 'merged', tracer: false }))).toBe('deliverable');
+    expect(planStatus(readings({ landed: 'merged' }))).toBe('deliverable');
+  });
+
   it('prefers deliverable over in-progress when both could hold', () => {
     // Landed outranks started: a plan whose work is done is deliverable even
     // though somebody started it — which is how it came to be done.

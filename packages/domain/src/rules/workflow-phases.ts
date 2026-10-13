@@ -128,12 +128,15 @@ export interface PlanPhaseReadings {
   state: string;
   /** Whether the plan is deliverable. */
   deliverable?: boolean;
+  /** Whether the plan file carries `Tracer: yes`. */
+  tracer?: boolean;
 }
 
 /**
  * The phase a plan reads in.
  *
- * A deliverable plan reads in the phase holding `plan:delivered`, and in its state's own phase
+ * A tracer plan reads in the phase holding `plan:design` in every state but `released`, and in
+ * its state's own phase when no phase holds that. A deliverable plan reads in the phase holding `plan:delivered`, and in its state's own phase
  * when no phase holds that.
  *
  * @param map - the declared phases.
@@ -143,6 +146,10 @@ export interface PlanPhaseReadings {
 export const phaseOfPlan = (map: PhaseMap, readings: PlanPhaseReadings): string | null => {
   const holding = (state: string): string | null =>
     map.find((entry) => (entry.plan as readonly string[]).includes(state))?.name ?? null;
+  if (readings.tracer && readings.state !== 'released') {
+    const design = holding('design');
+    if (design !== null) return design;
+  }
   if (readings.deliverable) {
     const delivered = holding('delivered');
     if (delivered !== null) return delivered;

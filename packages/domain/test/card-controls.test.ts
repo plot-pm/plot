@@ -5,7 +5,7 @@ import type { PlanStatus } from '../src/rules/phase.js';
 
 const STATES = ['draft', 'design', 'approved', 'delivered', 'released'];
 const STATUSES: PlanStatus[] = [
-  'draft', 'open', 'approved', 'in-progress', 'deliverable', 'delivered', 'released', 'withdrawn',
+  'draft', 'open', 'approved', 'in-progress', 'deliverable', 'proven', 'delivered', 'released', 'withdrawn',
 ];
 
 describe('cardControls', () => {

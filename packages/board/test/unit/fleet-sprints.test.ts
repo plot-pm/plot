@@ -179,6 +179,20 @@ describe('activeSprints — the three exhaustive counts, aggregated from plan.st
       .toEqual({ total: 1, open: 0, wip: 1, done: 0, withdrawn: 0 });
   });
 
+  it('counts a `proven` tracer plan as wip, not as an unknown member', async () => {
+    const opts = withEstate(
+      { 'plan-run': `${STARTED}\n- **Tracer:** yes` },
+      {
+        '2026-W40-alpha.md': sprintFile(
+          '- **Phase:** Active\n- **Release:** 3.1.0',
+          '- [ ] [plan-run] b\n',
+        ),
+      },
+    );
+    expect((await activeSprints(opts, mergedPulse('2026-08-24-plan-run.md')))[0].counts)
+      .toEqual({ total: 1, open: 0, wip: 1, done: 0, withdrawn: 0 });
+  });
+
   it('excludes a `### Deferred` member from counts — a deferral is not a commitment', async () => {
     const opts = withEstate(
       { 'plan-app': APPROVED, 'plan-shelf': APPROVED },

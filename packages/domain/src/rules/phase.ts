@@ -20,7 +20,7 @@ export type { Phase, PhaseLeadership } from '../entities/workflow.js';
 //                              the approve, deliver and release decisions and
 //                              the refusals that order them.
 export const PlanStatusSchema = z.enum([
-  'draft', 'open', 'approved', 'in-progress', 'deliverable', 'delivered', 'released', 'withdrawn',
+  'draft', 'open', 'approved', 'in-progress', 'deliverable', 'proven', 'delivered', 'released', 'withdrawn',
 ]);
 export type PlanStatus = z.infer<typeof PlanStatusSchema>;
 
@@ -42,13 +42,15 @@ export interface PlanReadings {
   landed: Landed;
   /** Whether any branch carries a claim nobody has built on yet. */
   anyClaimed: boolean;
+  /** Whether the plan file carries `Tracer: yes`. Absent reads as a plan that is not a tracer. */
+  tracer?: boolean;
 }
 
 /**
  * A plan's status, from readings and no I/O.
  *
  * Only `approved` is more than a rename: a plan whose branches have all landed
- * is `deliverable`, one somebody has started or claimed is `in-progress`, and
+ * is `deliverable` (`proven` for a tracer plan, which never reads `deliverable`), one somebody has started or claimed is `in-progress`, and
  * one nobody has touched is `approved`.
  *
  * A draft splits on the review channel rather than on the phase: `Review: pr`
@@ -75,7 +77,7 @@ export const planStatus = (readings: PlanReadings): PlanStatus => {
     case 'superseded':
       return 'withdrawn';
     case 'approved':
-      if (readings.landed === 'merged') return 'deliverable';
+      if (readings.landed === 'merged') return readings.tracer ? 'proven' : 'deliverable';
       if (readings.started || readings.anyClaimed) return 'in-progress';
       return 'approved';
     default:

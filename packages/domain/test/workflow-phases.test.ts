@@ -91,6 +91,25 @@ describe('parsePhaseMap', () => {
   });
 });
 
+describe('phaseOfPlan — a tracer plan', () => {
+  it.each(['draft', 'design', 'approved', 'delivered'])('holds a %s tracer plan in the phase holding plan:design', (state) => {
+    expect(phaseOfPlan(DEFAULT_PHASE_MAP, { state, tracer: true })).toBe('Design');
+  });
+
+  it('keeps a deliverable tracer plan in Design', () => {
+    expect(phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'approved', deliverable: true, tracer: true })).toBe('Design');
+  });
+
+  it('leaves a released tracer plan in Released', () => {
+    expect(phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'released', tracer: true })).toBe('Released');
+  });
+
+  it('reads a non-tracer plan as before', () => {
+    expect(phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'approved', deliverable: true, tracer: false })).toBe('Testing');
+    expect(phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'approved' })).toBe('Development');
+  });
+});
+
 describe('phaseOfPlan', () => {
   it('places each state in the phase holding it', () => {
     expect(phaseOfPlan(DEFAULT_PHASE_MAP, { state: 'draft' })).toBe('Design');

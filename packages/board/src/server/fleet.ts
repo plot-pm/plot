@@ -5443,7 +5443,7 @@ export function rowsFromPulse(
           // the row renders. "" everywhere the question does not arise.
           deferredReason: b.deferred_reason,
           // The row sits in its plan's column, whatever its branch state says.
-          phase: phaseOfPlan(phaseMap, { state: plan.phase }),
+          phase: phaseOfPlan(phaseMap, { state: plan.phase, tracer: plan.tracer }),
           group,
           ageMinutes: age,
           note: b.claimed ? `${rowNote} · ${b.claimed}` : rowNote,
@@ -6376,6 +6376,7 @@ export async function activeSprints(
         // WIP: started, not delivered
         case 'in-progress':
         case 'deliverable':
+        case 'proven':
           counts.wip += 1;
           break;
         // Done: delivered (or released, treated as done)
@@ -6452,6 +6453,7 @@ export async function estateTotals(
       // WIP: started, not delivered
       case 'in-progress':
       case 'deliverable':
+      case 'proven':
         counts.wip += 1;
         break;
       // Done: delivered (the Testing column)

@@ -406,7 +406,7 @@ export type CardPr = z.infer<typeof CardPrSchema>;
  * from becoming a commitment.
  */
 export const PlanStatusSchema = z.enum([
-  'draft', 'open', 'approved', 'in-progress', 'deliverable', 'delivered', 'released', 'withdrawn',
+  'draft', 'open', 'approved', 'in-progress', 'deliverable', 'proven', 'delivered', 'released', 'withdrawn',
 ]);
 export type PlanStatus = z.infer<typeof PlanStatusSchema>;
 
@@ -610,7 +610,7 @@ export const CardSchema = z.object({
    *
    * The GENERALISATION of `deliverable` above, not a replacement for it. That
    * boolean names one of these seven states (`deliverable`); this names which
-   * one the plan is IN, so `deliverable === (status === 'deliverable')` by
+   * one the plan is IN, so `deliverable === (status === 'deliverable' || status === 'proven')` by
    * construction — the Deliver control can read the one word the button's rule
    * needs (*offer Deliver where `status === 'deliverable'`*) instead of a fifth
    * place re-deriving *is this plan done?*.

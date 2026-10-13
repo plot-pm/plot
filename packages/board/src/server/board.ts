@@ -1131,6 +1131,7 @@ export function planStatus(
     started: meta.started_raw.length > 0,
     landed: allSlicesMerged(meta, pulse, complete),
     anyClaimed: anyBranchClaimed(meta, pulse),
+    tracer: meta.tracer,
   });
 }
 
@@ -2139,7 +2140,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     const canonical = canonicalPath.get(meta.file);
     const relPath = canonical ?? path.relative(repoRoot, meta.file);
     const started = meta.started_raw.length > 0;
-    const mapped = phaseOfPlan(phaseMap, { state: meta.phase });
+    const mapped = phaseOfPlan(phaseMap, { state: meta.phase, tracer: meta.tracer });
     if (!mapped) continue;
     // An approved plan whose every non-deferred branch has merged reaches the
     // phase after Development on its own — the code has landed and git can prove
@@ -2171,8 +2172,11 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // one plan and not its neighbour, which gained a slice after that scan.
     const judging = chooseDeliveryPulse(meta, pulse, pulseComplete, lastComplete);
     const status = planStatus(meta, judging, judging !== null);
-    const deliverable = status === 'deliverable';
-    const phase = phaseOfPlan(phaseMap, { state: meta.phase, deliverable });
+    // `proven` is a tracer plan whose slices all merged: it offers Deliver (a person may
+    // deliver a proven tracer with no dependent) but stays in Design, so only the
+    // `deliverable` status feeds the Testing bump.
+    const deliverable = status === 'deliverable' || status === 'proven';
+    const phase = phaseOfPlan(phaseMap, { state: meta.phase, deliverable: status === 'deliverable', tracer: meta.tracer });
     if (!phase) continue;
     const slug = planSlug(relPath);
     const card: Card = {
@@ -2311,7 +2315,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // The affordance the Deliver control reads. Attached only when true, like
     // the fields above: absent and false are the same statement (*this plan is
     // not deliverable*), and the client leaves the control off either way. It is
-    // `status === 'deliverable'`, so a card in Testing that is not marked here is
+    // `status === 'deliverable'` or `'proven'`, so a card in Testing that is not marked here is
     // a plan already delivered — its decision made — and must offer nothing.
     if (deliverable) card.deliverable = true;
     // A plan the REF DID NOT HAVE — written here but not yet pushed, so what

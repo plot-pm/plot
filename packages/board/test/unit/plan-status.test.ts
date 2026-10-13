@@ -56,6 +56,24 @@ const SLUG = '2026-08-23-a-plan-has-a-phase-and-a-status.md';
 const oneOpen = pulse(SLUG, [slice('Measured', 'eligible', [['feature/a', 'open']])]);
 const oneMerged = pulse(SLUG, [slice('Measured', 'complete', [['feature/a', 'merged']])]);
 
+describe('planStatus — a tracer plan', () => {
+  it('reads proven, not deliverable, once every slice has merged', () => {
+    expect(planStatus(meta({ tracer: true }), oneMerged, true)).toBe('proven');
+  });
+
+  it('reads approved while a slice is open', () => {
+    expect(planStatus(meta({ tracer: true }), oneOpen, true)).toBe('approved');
+  });
+
+  it('leaves a non-tracer plan deliverable', () => {
+    expect(planStatus(meta(), oneMerged, true)).toBe('deliverable');
+  });
+
+  it('parses proven in the board schema', () => {
+    expect(PlanStatusSchema.parse('proven')).toBe('proven');
+  });
+});
+
 describe('planStatus — the seven values, each reachable', () => {
   it('draft — created, discovery going on, no plan PR', () => {
     // A plan under review with an in-session channel never has a plan PR.
