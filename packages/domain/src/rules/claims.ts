@@ -66,6 +66,14 @@ export const claimsOf = (text: string): readonly string[] => [
 ];
 
 /**
+ * Reads a plan's `## Changelog` entries alone, with no `## Acceptance` items.
+ *
+ * @param text - the plan file's contents.
+ * @returns the entries in file order; empty where the section is absent.
+ */
+export const changelogOf = (text: string): readonly string[] => itemsOf(text, 'Changelog');
+
+/**
  * Renders the claims as the numbered list a juror reads.
  *
  * The format is `<n>. <claim>` and never `Claim-<n>: <claim>`. A juror that

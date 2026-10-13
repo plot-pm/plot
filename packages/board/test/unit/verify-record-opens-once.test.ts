@@ -62,8 +62,8 @@ describe('record opens one issue across a rejected push', () => {
       host: hostFixture({ backend: 'github' }),
       planStore: {
         readText: async (file: string) => answered(file.endsWith(PLAN) ? ON_MAIN : null),
-        writeText: async (_file: string, content: string) => {
-          written.push(content);
+        writeText: async (file: string, content: string) => {
+          if (file.endsWith(PLAN)) written.push(content);
           return answered(undefined);
         },
       } as unknown as PlanStore,
