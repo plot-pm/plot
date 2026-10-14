@@ -459,7 +459,11 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 61 → 62 on 2026-10-12: `refuted-badge.browser.test.ts`, for the refuted badge
 // on a Delivered card. A plain addition; it serves its state through the
 // catalogue and starts no board.
-const EXPECTED_FILES = 63;
+// 63 → 64 on 2026-10-14: `spec-run-rows.browser.test.ts`, for the fleet's spec
+// runs as plan-level rows in *Waiting on you* and *Working*, alongside the
+// verify-run rows. A plain addition; it serves its state through the
+// catalogue and starts no board.
+const EXPECTED_FILES = 64;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -676,7 +680,7 @@ const EXPECTED_FILES = 63;
 // page, so `EXPECTED_FILES` is unchanged.
 // 558 → 560 on 2026-10-12: the two `it(` of `refuted-badge.browser.test.ts`,
 // a new file counted in `EXPECTED_FILES` above.
-const EXPECTED_TESTS = 574;
+const EXPECTED_TESTS = 575;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
@@ -696,6 +700,9 @@ const EXPECTED_TESTS = 574;
 // its *at least* form, *show every ticket* with its *N of M* sentence, the
 // unmatched notice, and *Only my work* over every ticket. The file already
 // drove a page, so `EXPECTED_FILES` is unchanged.
+// 574 → 575 AND 63 → 64 FILES ON 2026-10-14: `spec-run-rows.browser.test.ts`,
+// the one `it(` showing a going spec run in *Working* and a failed one in
+// *Waiting on you* with its restart command. Added, not moved.
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
