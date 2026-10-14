@@ -3,9 +3,10 @@ import path from 'node:path';
 import { inspect } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
-import { isAnswered, doneTickets, ticketLane, storyLanes, phaseOfStory, type StoryLaneMap } from '@plot-pm/domain';
+import { isAnswered, storyLanes, phaseOfStory, type StoryLaneMap } from '@plot-pm/domain';
 import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, readConfigAsync, declaredPhaseMap, deriveStoryStatus, type BuildBoardOptions } from './board.js';
 import { ticketLaneData, issuesClosedReading } from './fleet.js';
+import { groupTicketLanes, type TicketLaneGroups } from './ticket-lanes.js';
 import { boardState, fleetState } from './controllers/fleet-state.js';
 import { boardQueryFor, estateFromEnv } from './estate.js';
 // THE ONE ENTRY THAT REGISTERS THE SDK CONNECTOR: board roles on `Agent runner:
@@ -201,26 +202,6 @@ const MARKDOWN_ROUTES = [
   { prefix: '/design/', label: 'Design Doc', render: renderDesignDocPage },
 ] as const;
 
-/** One ticket as the Discovery tab's lane groups carry it. */
-interface TicketRow {
-  readonly id: string;
-  readonly title: string;
-  readonly url: string;
-  readonly createdAt: string | null;
-  readonly body: null;
-  readonly status: string;
-  readonly statusCategory: string;
-  readonly closedAt: string | null;
-}
-
-/** The Discovery tab's ticket lanes, plus a reason they could not be recomputed. */
-interface TicketLaneGroups {
-  readonly open: TicketRow[];
-  readonly 'in-progress': TicketRow[];
-  readonly done: readonly TicketRow[];
-  readonly moreCount: number;
-}
-
 /**
  * The last ticket lanes `discoveryLanes` computed successfully, by repo root —
  * read back when `referencedIssues` answers null (the plans directory could not
@@ -277,26 +258,7 @@ async function discoveryLanes(
     plansUnreadable = true;
     ticketsByLane = lastGoodTicketLanes.get(opts.repoRoot) ?? null;
   } else if (data !== null && named !== null) {
-    const reading = { categoryStated: data.categoryStated, namedByPlan: false };
-    const laned = [...data.open, ...(archived ? data.closed : [])].map((row): { row: TicketRow; lane: ReturnType<typeof ticketLane> } => {
-      const closedAt = row.closedAt ?? null;
-      const issue = {
-        id: row.number, title: row.title, url: row.url,
-        createdAt: row.createdAt ?? null, body: null,
-        status: row.status ?? '', statusCategory: row.statusCategory ?? '',
-        closedAt,
-      };
-      const namedByPlan = named.has(row.number);
-      const lane = ticketLane(issue, { ...reading, namedByPlan }, now);
-      return { row: { ...issue, closedAt }, lane };
-    });
-    const open = laned.filter((t) => t.lane === 'open').map((t) => t.row);
-    const inProgress = laned.filter((t) => t.lane === 'in-progress').map((t) => t.row);
-    const doneRows = laned.filter((t) => t.lane === 'done').map((t) => t.row);
-    const { rows: done, moreCount } = archived
-      ? { rows: doneRows, moreCount: 0 }
-      : doneTickets(doneRows);
-    ticketsByLane = { open, 'in-progress': inProgress, done, moreCount };
+    ticketsByLane = groupTicketLanes(data.open, data.closed, named, data.categoryStated, archived, now);
     lastGoodTicketLanes.set(opts.repoRoot, ticketsByLane);
   }
 
