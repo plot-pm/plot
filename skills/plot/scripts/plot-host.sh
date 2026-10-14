@@ -3836,14 +3836,10 @@ case "$op" in
     ;;
 
   pr-review)
-    num="${1:?pr-review needs a PR number}"; shift
     [ "$be" = "github" ] || { echo "plot-host: pr-review: bitbucket is not supported yet" >&2; exit 4; }
-    out="$(gh pr view "$num" --json headRefOid,comments 2>"$HOST_ERR")" && sha="$(jq -r .headRefOid <<<"$out")" \
-      && st="$(gh api "repos/{owner}/{repo}/commits/$sha/statuses" 2>>"$HOST_ERR" | jq -r '[.[] | select(.context == "plot/review")][0].state // "absent"')" \
-      && [ -n "$st" ] && { rm -f "$HOST_ERR"; jq -c --arg st "$st" '{sha: .headRefOid, state: $st, bypass: any(.comments[]?; .body | startswith("review-bypass:"))}' <<<"$out"; exit 0; }
-    err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
-    echo "plot-host: pr-review: ${err:-the read failed}" >&2; exit 3
-    ;;
+    out="$(gh pr view "${1:?pr-review needs a PR number}" --json headRefOid,comments)" && st="$(gh api "repos/{owner}/{repo}/commits/$(jq -r .headRefOid <<<"$out")/statuses")" \
+      && jq -c --argjson st "$st" '{sha: .headRefOid, state: ([$st[] | select(.context == "plot/review")][0].state // "absent"), bypass: any(.comments[]?; .body | startswith("review-bypass:"))}' <<<"$out" \
+      || { echo "plot-host: pr-review: the read failed" >&2; exit 3; } ;;
 
   pr-create)
     title=""; body=""; base=""; head=""; draft=0
