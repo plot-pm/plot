@@ -567,4 +567,6 @@ export type * from './ports/reexec.js';
 export type * from './ports/fleet-state.js';
 export * from './rules/auto-dispatch.js';
 export * from './rules/auto-deliver.js';
+export * from './rules/fleet-run.js';
 export * from './rules/auto-verify.js';
+export * from './rules/design-work.js';

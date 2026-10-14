@@ -7,6 +7,7 @@ import type { Host, PlanStore, Refs, Scripts, Trees } from '@plot-pm/domain';
 import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
 import {
   planNeedsDesign,
+  specOf,
   type NeedsDesignDetail,
   type NeedsDesignReadings,
 } from '@plot-pm/domain/workflows/needs-design';
@@ -141,26 +142,6 @@ interface PlanReading {
   plan: PlanRecord;
   text: string;
 }
-
-/** The body of the plan's `## Spec` section outside fences, or `''` where there is none. */
-const specOf = (text: string): string => {
-  const lines = text.split('\n');
-  let fenced = false;
-  let start = -1;
-  const body: string[] = [];
-  for (const line of lines) {
-    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
-    if (fenced) {
-      if (start !== -1) body.push(line);
-      continue;
-    }
-    if (start === -1) {
-      if (line.trimEnd() === '## Spec') start = 1;
-    } else if (/^#{1,2} /.test(line)) break;
-    else body.push(line);
-  }
-  return body.join('\n').trim();
-};
 
 /** Parses a plan read from a revision, through a private scratch directory. */
 const readPlanAt = async (ctx: Context, ref: string, file: string): Promise<PlanReading | undefined> => {

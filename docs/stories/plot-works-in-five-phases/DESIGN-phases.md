@@ -320,7 +320,7 @@ Every view state in this story is a domain property, per CLAUDE.md's *Every rend
 | `waitingTickets(issues, inbox, reader, directory, source)`, `activeSprintButton(sprints)` | new; `waitingTickets` answers the tickets and, on GitHub and Bitbucket, an unmatched-reader notice | `the-board-has-three-tabs` |
 | `ticketLane(issue, reading, now)`, `storyLanes(map)`, `storyLane(map, standing, location)` | new | `tickets-and-stories-have-lanes` |
 | `trackerForIssues(declared, gitHost, context)` | new adapter resolver | `tickets-and-stories-have-lanes` |
-| `specIsEmpty(planText)`, `designWork(plan)` | new | `the-fleet-writes-the-design` |
+| `specIsEmpty(text)`, `designWork(readings)`, `specStart(input)`, `specDeclined(pr, answeredPr)`, `specRow(slug, designCommit, store, log, going, now)` | new | `the-fleet-writes-the-design` |
 | `claimsOf(plan)`, the refs operation `recordCommit(file, field)`, `verificationOf(plan, deliveryCommit)`, `refutedClaims(record)`, `foldVerification(claims, jurors)`, `verifyStart(readings)`, `verificationRow(plan, runState)` | new | `the-fleet-verifies-what-it-delivered` |
 
 ## 9. Out of scope

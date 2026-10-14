@@ -1,37 +1,37 @@
-import {
-  recordDeliveryFailure,
-  retryVerdict,
-  type DeliveryFailure,
-  type RetryVerdict,
-} from './auto-deliver.js';
+import type { RetryVerdict } from './auto-deliver.js';
 import { BOUND_CODE } from './board-run-end.js';
+import {
+  failuresSinceSuccess,
+  recordRunFailure,
+  runHalted,
+  runRetryVerdict,
+  slotRefusal,
+  RUN_HALT_AFTER,
+  type RunFailure,
+  type RunStore,
+} from './fleet-run.js';
 import type { HeldSlice } from './queue.js';
 import type { Headroom } from '../entities/machine.js';
+
+export { failuresSinceSuccess };
 
 /**
  * The consecutive failed verify runs of one plan under one delivery commit.
  *
- * The shape is {@link DeliveryFailure}'s, and `reading` holds the plan's
- * delivery commit. A record whose commit differs from the plan's current one no
- * longer applies: a re-delivery after `/plot-reject` starts the count again.
+ * The shape is {@link RunFailure}'s, and `reading` holds the plan's delivery
+ * commit. A record whose commit differs from the plan's current one no longer
+ * applies: a re-delivery after `/plot-reject` starts the count again.
  */
-export type VerifyFailure = DeliveryFailure;
+export type VerifyFailure = RunFailure;
 
 /** How many failed verify runs, across plans and since the last success, halt the fleet's verify runs. */
-export const VERIFY_HALT_AFTER = 3;
+export const VERIFY_HALT_AFTER = RUN_HALT_AFTER;
 
 /**
  * The failure state the daemon persists in `.plot/state/auto-verify-in-flight.json`,
  * beside and apart from the delivery failures.
  */
-export interface VerifyStore {
-  /** The failed runs per plan slug. */
-  readonly failures: Readonly<Record<string, VerifyFailure>>;
-  /** Epoch milliseconds of every failed run since the last success, across plans. */
-  readonly failedAt: readonly number[];
-  /** Epoch milliseconds of the last successful run, or `0` for none. */
-  readonly lastSuccessAt: number;
-}
+export type VerifyStore = RunStore;
 
 /**
  * Records one more failed verify run of a plan.
@@ -47,7 +47,7 @@ export const recordVerifyFailure = (
   previous: VerifyFailure | undefined,
   commit: string,
   at: number,
-): VerifyFailure => recordDeliveryFailure(previous, commit, at);
+): VerifyFailure => recordRunFailure(previous, commit, at);
 
 /**
  * What a plan's verify failures allow now: `ready`, `waiting` for the delay
@@ -62,16 +62,7 @@ export const verifyRetryVerdict = (
   failure: VerifyFailure | undefined,
   commit: string,
   now: number,
-): RetryVerdict => retryVerdict(failure, commit, now);
-
-/**
- * How many failed runs, across plans, are newer than the last success.
- *
- * @param store - the persisted failure state.
- * @returns the count.
- */
-export const failuresSinceSuccess = (store: Pick<VerifyStore, 'failedAt' | 'lastSuccessAt'>): number =>
-  store.failedAt.filter((at) => at > store.lastSuccessAt).length;
+): RetryVerdict => runRetryVerdict(failure, commit, now);
 
 /**
  * Whether the fleet starts no verify run of any plan: {@link VERIFY_HALT_AFTER}
@@ -81,8 +72,7 @@ export const failuresSinceSuccess = (store: Pick<VerifyStore, 'failedAt' | 'last
  * @param store - the persisted failure state.
  * @returns `true` when halted.
  */
-export const verifyHalted = (store: Pick<VerifyStore, 'failedAt' | 'lastSuccessAt'>): boolean =>
-  failuresSinceSuccess(store) >= VERIFY_HALT_AFTER;
+export const verifyHalted = (store: Pick<VerifyStore, 'failedAt' | 'lastSuccessAt'>): boolean => runHalted(store);
 
 /** The two `## Plot Config` readings the daemon path needs. */
 export interface AutoVerifyConfig {
@@ -171,9 +161,8 @@ export const verifyStart = (input: VerifyStartInput): VerifyStartAnswer => {
   const verdict = verifyRetryVerdict(input.store.failures[input.slug], input.deliveryCommit, input.now);
   if (verdict === 'stopped') return refuse('stopped');
   if (verdict === 'waiting') return refuse('waiting');
-  if (input.held === null) return refuse('queue-unread');
-  if (input.held.some((slice) => slice.hold === 'no-free-agent')) return refuse('no-free-agent');
-  if (input.headroom === 'starved' && !input.machineOverride) return refuse('starved');
+  const slot = slotRefusal(input);
+  if (slot !== null) return refuse(slot);
   return { start: true };
 };
 

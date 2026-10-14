@@ -4,6 +4,32 @@ import { isRefusal, needsDesign, type NeedsDesignInput, type PlanState } from '.
 /** The placeholder an empty `## Spec` section carries. */
 export const SPEC_PLACEHOLDER = '_To be filled in during Design._';
 
+/**
+ * The body of a plan's `## Spec` section outside fences, or `''` where it has
+ * none.
+ *
+ * @param text - the plan's full text.
+ * @returns the section body, trimmed.
+ */
+export const specOf = (text: string): string => {
+  const lines = text.split('\n');
+  let fenced = false;
+  let start = -1;
+  const body: string[] = [];
+  for (const line of lines) {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    if (fenced) {
+      if (start !== -1) body.push(line);
+      continue;
+    }
+    if (start === -1) {
+      if (line.trimEnd() === '## Spec') start = 1;
+    } else if (/^#{1,2} /.test(line)) break;
+    else body.push(line);
+  }
+  return body.join('\n').trim();
+};
+
 /** Why `planNeedsDesign` refused. */
 export type NeedsDesignRefusal =
   | 'plan-not-found'
