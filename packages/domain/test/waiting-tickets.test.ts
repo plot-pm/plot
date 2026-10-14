@@ -48,6 +48,14 @@ describe('waitingTickets, the default (a matched GitHub reader)', () => {
     expect(result.complete).toBe(false);
     expect(result.tickets.some((t) => t.number === 'inbox-1')).toBe(true);
   });
+
+  it('a matched Jira reader whose own ticket is in both inbox and rows counts it once', () => {
+    const jiraReader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const mineRow = row('both', { assignees: ['jan.wloka@quatico.com'] });
+    const rows = [mineRow, ...unassigned(4)];
+    const result = waitingTickets(rows, [mineRow], jiraReader, JIRA, true);
+    expect(result.shown).toBe(1);
+  });
 });
 
 describe('hiddenSentence and shownSentence', () => {
@@ -128,5 +136,70 @@ describe('waitingTickets, the unmatched reader', () => {
     const result = waitingTickets(rows, undefined, reader, JIRA, true);
     expect(result.shown).toBe(5);
     expect(result.notice).toContain('5b10ac8d82e05b22cc7d4ef5');
+  });
+
+  it('a GitHub reader whose login is shaped like an email answers every row and the no-login notice', () => {
+    const reader: Reader = { hostUser: 'jan.wloka@quatico.com' };
+    const rows = unassigned(3).map((_, i) => row(`${i}`, { assignees: ['jwloka'] }));
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true);
+    expect(result.shown).toBe(3);
+    expect(result.notice).toContain('no host login');
+  });
+
+  it('a Jira reader with no host login over an inbox with a blank assignee answers no notice', () => {
+    const reader: Reader = { directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const inbox = [row('i1', { assignees: ['  '] })];
+    const rows = unassigned(5);
+    const result = waitingTickets(rows, inbox, reader, JIRA, true);
+    expect(result.shown).toBe(1);
+    expect(result.notice).toBeNull();
+  });
+
+  it('a Jira reader matched through one of several assignees, the rest undeclared, answers the matched ticket', () => {
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const inbox = [row('i1', { assignees: ['somebody-undeclared', 'jan.wloka@quatico.com'] })];
+    const rows = unassigned(5);
+    const result = waitingTickets(rows, inbox, reader, JIRA, true);
+    expect(result.shown).toBe(1);
+    expect(result.notice).toBeNull();
+  });
+
+  it('a Jira reader whose own prefix-spelling resolves to somebody else leaves the candidate unmatched', () => {
+    const reader: Reader = {
+      hostUser: 'jwloka',
+      directory: { 'jira:jan.wloka@quatico.com': 'jwloka', 'jira:other@quatico.com': 'eins78' },
+    };
+    const inbox = [row('i1', { assignees: ['other@quatico.com'] })];
+    const rows = unassigned(5);
+    const result = waitingTickets(rows, inbox, reader, JIRA, true);
+    expect(result.shown).toBe(1);
+    expect(result.notice).toContain('other@quatico.com');
+  });
+
+  it('a candidate row with no assignees field at all is treated as unassigned', () => {
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const inbox = [row('i1', { assignees: undefined })];
+    const rows = unassigned(5);
+    const result = waitingTickets(rows, inbox, reader, JIRA, true);
+    expect(result.shown).toBe(1);
+    expect(result.notice).toBeNull();
+  });
+
+  it('a Jira reader with no host login over a candidate assigned to someone else leaves it unmatched with no declared spelling', () => {
+    const reader: Reader = { directory: { 'jira:other@quatico.com': 'eins78' } };
+    const inbox = [row('i1', { assignees: ['other@quatico.com'] })];
+    const rows = unassigned(5);
+    const result = waitingTickets(rows, inbox, reader, JIRA, true);
+    expect(result.shown).toBe(1);
+    expect(result.notice).toContain('declares no');
+  });
+
+  it('a matched Jira reader with no inbox answers the union of the open rows alone', () => {
+    const reader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const rows = [row('mine', { assignees: ['jan.wloka@quatico.com'] }), ...unassigned(4)];
+    const result = waitingTickets(rows, undefined, reader, JIRA, true);
+    expect(result.shown).toBe(1);
+    expect(result.tickets.some((t) => t.number === 'mine')).toBe(true);
+    expect(result.notice).toBeNull();
   });
 });

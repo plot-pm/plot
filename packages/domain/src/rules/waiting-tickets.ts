@@ -61,9 +61,13 @@ const ownedTicket = (row: IssueIndexRow, source: TicketSource | null): OwnedRow 
   source,
 });
 
-/** Whether any of `reader`'s declared handle's `prefix`-spellings name an assignee of `row`. */
-const accountMatches = (row: IssueIndexRow, prefix: string, reader: Reader): boolean => {
-  const directory = reader.directory ?? {};
+/**
+ * Whether any of `reader`'s declared handle's `prefix`-spellings name an
+ * assignee of `row`. Only called once `declaresAnyAccountSpelling` has
+ * confirmed `reader.directory` declares at least one `prefix`-spelling, so
+ * the directory here is never empty.
+ */
+const accountMatches = (row: IssueIndexRow, prefix: string, directory: PersonDirectory, reader: Reader): boolean => {
   const login = reader.hostUser?.trim() ?? '';
   if (login === '') return false;
   const self = resolvePerson(login, directory);
@@ -159,7 +163,7 @@ export const waitingTickets = (
   }
 
   const candidates = inbox !== undefined ? inbox : rows;
-  const matched = candidates.some((row) => accountMatches(row, prefix, reader));
+  const matched = candidates.some((row) => accountMatches(row, prefix, directory, reader));
   if (!matched && candidates.length > 0) {
     const raw = candidates
       .flatMap((row) => row.assignees ?? [])
