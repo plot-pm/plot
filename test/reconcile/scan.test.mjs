@@ -446,27 +446,11 @@ function makeGhStub(dir, mergedLines, { openLines = '' } = {}) {
       return { number: Number(number), title: head.join(' '), state, headRefName: head.join(' ') };
     }));
   const emit = (lines, state) => `printf '%s' ${JSON.stringify(asJson(lines, state))}`;
-  // Section 20a reads each merged PR's checks (`pr-state`) and, only when
-  // those are not green, its comments (`pr-comments`). Every merged number
-  // this stub was given answers `checks=green` here, by a rollup entry whose
-  // conclusion is SUCCESS — so a pre-existing fixture asserting "no NEW
-  // finding appears" keeps holding without each test having to know 20a
-  // exists. A test that wants a 20a finding builds its own stub instead
-  // (scan-review-bypass.test.mjs), the way scan-index.test.mjs's call-count
-  // assertions already build their own.
-  const numbers = mergedLines.split('\n').filter(Boolean).map((l) => l.split(' ')[0]);
-  const prViewCases = numbers.map((n) => `  "pr view ${n} --json number,state,isDraft,url,mergeCommit,headRefOid,statusCheckRollup")
-    printf '%s' '{"number":${n},"state":"MERGED","isDraft":false,"url":"","mergeCommit":{"oid":""},"headRefOid":"${'f'.repeat(40)}","statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"}]}'
-    ;;
-  "pr view ${n} --json comments")
-    printf '%s' '{"comments":[]}'
-    ;;`).join('\n');
   fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
 case "$*" in
   *"--state merged"*) ${emit(mergedLines, 'MERGED')} ;;
   *"--state open"*)   ${emit(openLines, 'OPEN')} ;;
-${prViewCases}
 esac
 exit 0
 `);

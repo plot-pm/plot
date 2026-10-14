@@ -18,7 +18,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * findings with `grep -c '^  PR #'`. A PR whose read failed is named on a
  * line starting `  unread PR #<n>`; it is never skipped and never counted as
  * a bypass. The line `(none` is printed only when no PR is reported and no
- * read failed.
+ * read failed. With an empty `--since` the command asks the host nothing and
+ * prints that the section was not evaluated.
  *
  * Exit 0 after an answer, 2 on bad arguments, 3 when the merged list itself
  * cannot be read.
@@ -98,12 +99,16 @@ export const run = async (
   limit: number,
   write: (line: string) => void,
 ): Promise<number> => {
+  if (since === '') {
+    for (const line of render(reviewBypasses([], null))) write(line);
+    return 0;
+  }
   const merged = await readMerged(host, limit);
   if (merged === null) {
     write('  (not evaluated — the merged-PR list could not be read from the host)');
     return 3;
   }
-  for (const line of render(reviewBypasses(merged.readings, since === '' ? null : since))) {
+  for (const line of render(reviewBypasses(merged.readings, since))) {
     write(line);
   }
   if (merged.truncated) {

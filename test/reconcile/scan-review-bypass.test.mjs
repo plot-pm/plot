@@ -1,8 +1,7 @@
-// Contract test for `plot-reconcile-scan.sh`'s "20a. Review bypass" section:
-// a merged PR with no passing `plot/review` and no `review-bypass:` comment is
-// evidence for a person to read. Two things must NOT be flagged — a PR that
-// carries the bypass comment, and a merge that was never a PR at all — and one
-// thing must clear once its status turns green.
+// Contract test for `plot-reconcile-scan.sh`'s "20a. Review bypass" section.
+// The section prints the answer of `board/plot-review-bypass.mjs`, which reads
+// each merged PR's `plot/review` status per context and decides through
+// `reviewBypasses`. Needs the built bundle: `pnpm build:board`.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -25,51 +24,40 @@ after(() => { for (const d of ctx) fs.rmSync(d, { recursive: true, force: true }
 const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd });
 
 /**
- * A `gh` stub answering the merged-PR list and each PR's `pr view` reads.
+ * A `gh` stub answering the merged-PR list, each PR's `pr view` read and the
+ * commit-status read `plot-host.sh pr-review` makes.
  *
- * `merged` lists the merged page as `{number, head}`, returned in the RAW
- * `gh pr list --json number,title,state,headRefName,isDraft,url,updatedAt,
- * author,headRefOid,mergedAt` shape the plain arm of `plot-host.sh pr-list`
- * asks for — `plot-host.sh` itself renames `headRefName` to `head` before
- * `load_merged_pr_heads` ever reads it, so the stub must answer at the `gh`
- * layer, one level below that renaming.
- *
- * `prs` maps a PR number to `{ checks: 'green' | 'failing' | ..., comments:
- * [bodies] }` for the per-PR `pr view --json ...,statusCheckRollup` (read via
- * `plot-host.sh pr-state`) and `pr view --json comments` (`pr-comments`)
- * calls the section makes once a PR's checks are not green.
+ * `prs` maps a PR number to `{ head, state, comments: [bodies], unreadable }`.
+ * `state` is the newest `plot/review` status on the PR's head, or absent for
+ * none. CI is never modelled: a PR whose CI is green and whose `plot/review`
+ * is missing must still be reported, which is the shape of #1687.
  */
-const stubGh = ({ merged = [], prs = {} } = {}) => {
+const stubGh = ({ prs = {} } = {}) => {
   const dir = tmp('bypass-gh');
   const log = path.join(dir, 'calls.log');
-  const mergedPage = JSON.stringify(merged.map((m) => ({
-    number: m.number, title: m.head, state: 'MERGED', headRefName: m.head,
+  const mergedPage = JSON.stringify(Object.entries(prs).map(([number, p]) => ({
+    number: Number(number), title: p.head, state: 'MERGED', headRefName: p.head,
     isDraft: false, url: '', updatedAt: '', author: { login: 'jwloka' },
-    headRefOid: 'f'.repeat(40), mergedAt: '2026-10-01T00:00:00Z',
+    headRefOid: `sha${number}`, mergedAt: '2026-10-01T00:00:00Z',
   })));
-  // One rollup entry whose conclusion maps through `CHECKS_OF`: SUCCESS→green,
-  // FAILURE→failing. No entries at all → "none", which also counts as
-  // "not green" for this section's purpose.
-  const rollupOf = (checks) => {
-    if (checks === 'green') return [{ __typename: 'CheckRun', status: 'COMPLETED', conclusion: 'SUCCESS' }];
-    if (checks === 'failing') return [{ __typename: 'CheckRun', status: 'COMPLETED', conclusion: 'FAILURE' }];
-    return [];
-  };
-  const prViewCases = Object.entries(prs).map(([num, info]) => `  "pr view ${num} --json number,state,isDraft,url,mergeCommit,headRefOid,statusCheckRollup")
-    printf '%s' ${JSON.stringify(JSON.stringify({
-      number: Number(num), state: 'MERGED', isDraft: false, url: '', mergeCommit: { oid: '' },
-      headRefOid: 'f'.repeat(40), statusCheckRollup: rollupOf(prs[num].checks),
-    }))}
+  const cases = Object.entries(prs).map(([num, p]) => `  "pr view ${num} --json headRefOid,comments")
+    ${p.unreadable ? 'echo "HTTP 502" >&2; exit 1' : `printf '%s' ${JSON.stringify(JSON.stringify({
+      headRefOid: `sha${num}`, comments: (p.comments ?? []).map((body) => ({ body })),
+    }))}`}
     ;;
-  "pr view ${num} --json comments")
-    printf '%s' ${JSON.stringify(JSON.stringify({ comments: (info.comments ?? []).map((body) => ({ body })) }))}
+  "api repos/{owner}/{repo}/commits/sha${num}/statuses")
+    printf '%s' ${JSON.stringify(JSON.stringify(p.state === undefined ? [
+      { context: 'ci/build', state: 'success' },
+    ] : [
+      { context: 'ci/build', state: 'success' }, { context: 'plot/review', state: p.state },
+    ]))}
     ;;`).join('\n');
   const script = `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(log)}
 case "$*" in
   *"--state merged"*"--json number,title,state,headRefName"*) printf '%s' ${JSON.stringify(mergedPage)} ;;
   *"--state open"*) printf '%s' '[]' ;;
-${prViewCases}
+${cases}
 esac
 exit 0
 `;
@@ -135,7 +123,11 @@ before(() => {
   git(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
 });
 
-const runScan = (stub) => {
+const runScan = (stub, since = '2026-09-01T00:00:00Z') => {
+  const claude = path.join(repo, 'CLAUDE.md');
+  const base = fs.readFileSync(claude, 'utf8').split('\n').filter((l) => !l.includes('Review required since'));
+  fs.writeFileSync(claude, [...base.filter((l, i, a) => i < a.length - 1 || l !== ''),
+    ...(since ? [`- **Review required since:** ${since}`] : []), ''].join('\n'));
   scanTmpdir ??= tmp('bypass-tmpdir');
   const env = {
     ...process.env,
@@ -154,47 +146,49 @@ const section = (out) => {
   return lines.slice(start, end === -1 ? undefined : end).join('\n');
 };
 
-test('a raw commit on main, never a PR, is not flagged — there is nothing to ask the host about', () => {
-  const stub = stubGh({ merged: [] });
-  const out = runScan(stub);
-  const sec = section(out);
-  assert.match(sec, /\(none — no merged PR to examine\)|\(none — every examined merge carries a green status or a bypass note\)/);
-  assert.equal(stub.calls().filter((l) => l.startsWith('pr view')).length, 0,
-    'no PR to ask about means no pr-state or pr-comments call');
+const reported = (sec) => sec.split('\n').filter((l) => l.startsWith('  PR #'));
+
+test('with no Review required since key the section says so and asks the host nothing', () => {
+  const stub = stubGh({ prs: { 100: { head: 'feature/unreviewed' } } });
+  const out = runScan(stub, '');
+  assert.match(section(out), /\(not evaluated — no `Review required since` key is set/);
+  assert.equal(stub.calls().filter((l) => l.startsWith('pr view')).length, 0);
+  assert.match(out.trim().split('\n').at(-1), / review_bypass=0 /);
 });
 
-test('a merge with failing checks and no review-bypass comment is flagged', () => {
-  const stub = stubGh({
-    merged: [{ number: 101, head: 'feature/unreviewed' }],
-    prs: { 101: { checks: 'failing', comments: ['looks fine to me'] } },
-  });
+test('green CI, no plot/review status and no comment, merged after the cutoff, is reported (the #1687 shape)', () => {
+  const stub = stubGh({ prs: { 101: { head: 'feature/unreviewed', comments: ['looks fine to me'] } } });
   const out = runScan(stub);
-  const sec = section(out);
-  assert.match(sec, /origin\/feature\/unreviewed — PR #101 merged with checks=failing, no review-bypass: comment/);
-  assert.equal(stub.calls().filter((l) => l === 'pr view 101 --json comments').length, 1,
-    'comments are read once checks are confirmed not green');
+  assert.deepEqual(reported(section(out)),
+    ['  PR #101 merged with no passing plot/review and no review-bypass: comment']);
+  assert.match(out.trim().split('\n').at(-1), / review_bypass=1 /);
 });
 
-test('a merge with no passing checks BUT a review-bypass: comment is not flagged', () => {
-  const stub = stubGh({
-    merged: [{ number: 102, head: 'feature/bypassed' }],
-    prs: { 102: { checks: 'failing', comments: ['review-bypass: ci was flaky, verified by hand — jwloka'] } },
-  });
-  const out = runScan(stub);
-  const sec = section(out);
-  assert.doesNotMatch(sec, /PR #102/);
-  assert.match(sec, /\(none — every examined merge carries a green status or a bypass note\)/);
+test('a failing plot/review with no bypass comment is reported', () => {
+  const out = runScan(stubGh({ prs: { 104: { head: 'feature/unreviewed', state: 'failure' } } }));
+  assert.equal(reported(section(out)).length, 1);
 });
 
-test('a merge whose plot/review passed (checks=green) is not flagged, and no comments are read', () => {
-  const stub = stubGh({
-    merged: [{ number: 103, head: 'feature/reviewed' }],
-    prs: { 103: { checks: 'green', comments: [] } },
-  });
-  const out = runScan(stub);
+test('a bypass comment clears a missing review', () => {
+  const out = runScan(stubGh({ prs: { 102: { head: 'feature/bypassed',
+    comments: ['review-bypass: reviewer stuck, verified by hand — jwloka'] } } }));
   const sec = section(out);
-  assert.doesNotMatch(sec, /PR #103/);
-  assert.match(sec, /\(none — every examined merge carries a green status or a bypass note\)/);
-  assert.equal(stub.calls().filter((l) => l === 'pr view 103 --json comments').length, 0,
-    'a green status never needs the comments call at all');
+  assert.equal(reported(sec).length, 0);
+  assert.match(sec, /\(none — every examined merge carries a passing plot\/review or a bypass note\)/);
+});
+
+test('a passing plot/review is not reported', () => {
+  const out = runScan(stubGh({ prs: { 103: { head: 'feature/reviewed', state: 'success' } } }));
+  assert.equal(reported(section(out)).length, 0);
+});
+
+test('a PR whose read failed is named as unread and the section never says none', () => {
+  const out = runScan(stubGh({ prs: {
+    105: { head: 'feature/unreviewed', unreadable: true },
+    106: { head: 'feature/reviewed', state: 'success' },
+  } }));
+  const sec = section(out);
+  assert.match(sec, /unread PR #105 — the host read failed/);
+  assert.doesNotMatch(sec, /\(none/);
+  assert.equal(reported(sec).length, 0, 'an unread PR is not counted as a bypass');
 });

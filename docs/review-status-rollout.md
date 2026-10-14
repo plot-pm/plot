@@ -90,30 +90,33 @@ writes a status for them and nothing needs to.
 ## `/plot-reconcile`'s bypass-detection report
 
 Section **"20a. Review bypass"** in `plot-reconcile-scan.sh` reports — and
-never gates — a PR merged into the default branch whose checks were not
-green and which carries no `review-bypass:` comment. It reads the same
-bundled merged-PR list sections 2/18/20 already fetch, so it costs nothing
-new to fetch; it asks `plot-host.sh pr-state` for each candidate's checks and
-`plot-host.sh pr-comments` only once a candidate's checks are not green.
+never gates — a PR merged after the `Review required since` date with no
+passing `plot/review` status and no `review-bypass:` comment. The section
+holds no rule: it prints the answer of `board/plot-review-bypass.mjs`, which
+lists the merged PRs, reads each one through the Host port, and asks the
+domain rule `reviewBypasses`.
 
-**The signal is approximate, by design and by name.** `pr-state`'s `checks`
-field folds a PR's whole CI rollup — GitHub Actions checks, `plot/review`,
-anything else — into one of `green`/`failing`/`pending`/`none`. It cannot
-distinguish "`plot/review` specifically failed or never ran" from "some
-unrelated check (`corpus`, `validate`) failed." A precise per-context read
-exists in GitHub's GraphQL schema (`Commit.status.context(name: "plot/review")`,
-confirmed to work against this repository) but was not built in this wave: it
-would need its own rate-limit budget accounting added to `plot-host.sh`'s
-REST-only `gh_api_harvest` wrapper, which is a larger, riskier change than
-this pass's proportionate scope. Until that lands, "not green" is the
-section's proxy for "no passing `plot/review`" — a merge failing on an
-unrelated check is flagged alongside a genuinely unreviewed one. The cost of
-a false positive is one person looking at one PR; the section's own code
-comments name the approximation rather than hide it.
+**The cutoff is a config key.** `Review required since: <ISO date>` in the
+`## Plot Config` section names the date from which a merge is held to the
+rule. With no key the report states `(not evaluated — no Review required
+since key is set …)`, asks the host nothing and counts nothing. Set the key to
+the date the ruleset rule goes live, never earlier: a PR merged before the
+rule existed was not required to carry a status.
 
-Direct pushes to the default branch or a `release/*` branch are excluded —
-they carry no PR to ask about, and the plan keeps direct pushes out of this
-gate's scope.
+**The read is per context.** `plot-host.sh pr-review <number>` returns the
+PR's head SHA, the newest `plot/review` commit status on that head (`absent`
+when none exists) and whether a comment starts with `review-bypass:`. CI is
+never read. A PR with green CI and no `plot/review` is reported, which is the
+shape of #1687.
+
+**A failed read is a finding.** A PR whose read fails is listed as
+`unread PR #<n>`, is not counted as a bypass, and the report never prints
+`(none` while any read failed. A merged-PR list that cannot be read at all
+prints that the section was not evaluated.
+
+Direct pushes to the default branch are not PRs and are not examined.
+`pr-review` is GitHub only; on Bitbucket it exits 4 and every PR reads as
+unread.
 
 ## For this repository
 
