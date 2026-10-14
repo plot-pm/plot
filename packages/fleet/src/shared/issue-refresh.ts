@@ -157,13 +157,25 @@ export const closedOutcomeOf = (
   };
 };
 
-/** What one inbox read leaves: its rows and its spend. */
+/** What one inbox read leaves: its rows, its error, its backoff and its spend. */
 export interface InboxOutcome {
   /** The inbox rows to hold; absent where no inbox read happened. */
   inbox: IssueIndexRow[] | undefined;
-  /** The requests the read spent: 1 where it answered, 0 where unsupported or failed. */
+  /** The read's failure sentence, or null where it answered, was unsupported or did not happen. */
+  error: string | null;
+  /** Milliseconds a rate limit in the refusal asks to wait, or null where there is none. */
+  wait: number | null;
+  /** The requests the read spent: its pages where it answered, 1 where it failed, 0 where unsupported or skipped. */
   spent: number;
 }
+
+/** The outcome of an inbox read that did not happen: the kept rows, no error, no wait, no spend. */
+export const inboxSkipped = (kept: IssueIndexRow[] | undefined): InboxOutcome => ({
+  inbox: kept,
+  error: null,
+  wait: null,
+  spent: 0,
+});
 
 /**
  * Folds one inbox read into the index's `inbox` field.
@@ -172,21 +184,28 @@ export interface InboxOutcome {
  * D30's whole point: an UNSUPPORTED read (no `Ticket prefixes` declared, or a
  * tracker with no person-scoped read apart from the open one) costs nothing,
  * the same way {@link closedOutcomeOf} costs nothing for an unsupported closed
- * read. A read that FAILED also costs nothing extra here — its one request is
- * not double-counted, because a tracker's `lastRefusal()` already drove the
- * pass's own backoff through the open or closed read in the same pass.
+ * read. A read that FAILED spends 1 request and keeps `kept`; its refusal
+ * feeds the pass's backoff through `wait`, as a failed closed read's does.
  *
  * @param read - the inbox read's answer.
  * @param kept - the inbox rows the previous pass left for the same source and connector.
- * @returns the rows to hold and the requests spent.
+ * @param refusal - the tracker's `lastRefusal()` right after the inbox read.
+ * @param finishedAt - epoch ms the read finished, the start of a named wait.
+ * @returns the rows to hold, the error, the wait and the requests spent.
  */
 export const inboxOutcomeOf = (
   read: PortResult<IssueRead>,
   kept: IssueIndexRow[] | undefined,
-): InboxOutcome =>
-  read.ok
-    ? { inbox: read.value.issues.map(issueIndexRowOf), spent: read.value.pages }
-    : { inbox: kept, spent: 0 };
+  refusal: string | null,
+  finishedAt: number,
+): InboxOutcome => {
+  if (read.ok) {
+    return { inbox: read.value.issues.map(issueIndexRowOf), error: null, wait: null, spent: read.value.pages };
+  }
+  if (read.why === 'unaskable') return inboxSkipped(kept);
+  const error = refusal ?? 'the inbox read failed and said nothing';
+  return { inbox: kept, error, wait: waitOf(hostReaction(error, null, finishedAt)), spent: 1 };
+};
 
 /** Whether a backoff is live and on the spender's own connector and account. */
 const holdsFor = (
@@ -224,7 +243,8 @@ const unaskableReason = (source: Exclude<IssueSource, { ask: 'nobody' }>, gitHos
  *   {@link ISSUE_INDEX_OPEN_LIMIT} rows read page by page, with the read's own
  *   `complete`. `requests` is the open read's pages plus the closed read's
  *   spend (its pages where it answered, 1 where it failed, 0 where it is
- *   unsupported) plus the inbox read's spend, counted the same way; see
+ *   unsupported) plus the inbox read's spend (its pages where it answered, 1
+ *   where it failed, 0 where it is unsupported or skipped); see
  *   {@link closedOutcomeOf} and {@link inboxOutcomeOf}. A page is
  *   {@link ISSUE_PAGE_ROWS} rows.
  * - An answered open read is followed by a closed read of the last
@@ -236,7 +256,11 @@ const unaskableReason = (source: Exclude<IssueSource, { ask: 'nobody' }>, gitHos
  *   previous `closed` `since`, `at`, rows and `complete`; an inbox read that
  *   fails or is unsupported keeps the previous `inbox` rows, or leaves it
  *   absent where none were ever read. Either leaves the open rows as the open
- *   read set them. Neither is asked where the open read did not answer.
+ *   read set them. Neither is asked where the open read did not answer. The
+ *   closed read's refusal is read right after the closed read, before the inbox
+ *   read can reset it, and a closed read that failed (not unsupported) skips the
+ *   inbox read. A refused inbox read feeds the same backoff; where both refuse,
+ *   `backoffUntil` is the later wait.
  * - A refused read writes `requests`, `nextAt`, `failedAt` and `reason`, keeps
  *   the previous `rows`, `complete` and `at` of the same source and connector,
  *   and writes `backoffUntil` where {@link hostReaction} reads a rate limit in
@@ -284,15 +308,26 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
   if (result.ok) {
     const since = closedSince(startedAt);
     const closedRead = await tracker.issueListClosed(since, ISSUE_INDEX_OPEN_LIMIT);
-    const inboxRead = await tracker.issueListInbox(ISSUE_INDEX_OPEN_LIMIT);
+    const closedRefusal = tracker.lastRefusal();
+    const closedFinishedAt = clock();
     const at = new Date(startedAt).toISOString();
-    const finishedAt = clock();
-    const outcome = closedOutcomeOf(closedRead, keptClosed.closed, since, at, tracker.lastRefusal(), finishedAt);
-    const inboxOutcome = inboxOutcomeOf(inboxRead, keptInbox);
+    const outcome = closedOutcomeOf(closedRead, keptClosed.closed, since, at, closedRefusal, closedFinishedAt);
+    const closedRefused = !closedRead.ok && closedRead.why !== 'unaskable';
+    let inboxOutcome = inboxSkipped(keptInbox);
+    let finishedAt = closedFinishedAt;
+    if (!closedRefused) {
+      const inboxRead = await tracker.issueListInbox(ISSUE_INDEX_OPEN_LIMIT);
+      finishedAt = clock();
+      inboxOutcome = inboxOutcomeOf(inboxRead, keptInbox, tracker.lastRefusal(), finishedAt);
+    }
     const requests = result.value.pages + outcome.spent + inboxOutcome.spent;
     const nextAt = startedAt + issueIntervalMs(requests);
-    const backoffUntil = outcome.wait === null ? null : finishedAt + outcome.wait;
-    state.issueError = outcome.error;
+    const ends = [
+      outcome.wait === null ? null : closedFinishedAt + outcome.wait,
+      inboxOutcome.wait === null ? null : finishedAt + inboxOutcome.wait,
+    ].filter((until): until is number => until !== null);
+    const backoffUntil = ends.length === 0 ? null : Math.max(...ends);
+    state.issueError = outcome.error ?? inboxOutcome.error;
     state.issueNextAt = backoffUntil ?? nextAt;
     state.issueNextIsBackoff = backoffUntil !== null;
     await world.issueStore.write({

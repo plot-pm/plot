@@ -3307,23 +3307,23 @@ test('host: issue-list jira with no Ticket prefixes runs no --state inbox read a
   assert.equal(jqlOf(stub), JQL_UNSCOPED);
 });
 
-test('host: issue-list jira --state inbox sends today\'s exact person-scoped query, unconditionally', () => {
-  // D23: the inbox read keeps sending the OLD query — the one every Jira lanes
-  // query used to be — no matter what `Ticket prefixes` says. Unlike the open
-  // and closed reads, this is the one read that stays person-scoped on purpose.
+test('host: issue-list jira --state inbox keeps the person clause and adds the project scope', () => {
+  // D23: the inbox is today's query `assignee = currentUser() AND resolution =
+  // EMPTY<scope> ORDER BY ...`. It stays person-scoped on purpose, and a
+  // declared `Ticket prefixes` scopes it to those projects like the open read.
   const repo = makeTicketPrefixRepo('- **Ticket prefixes:** PROJ-A, PROJ-B\n');
   const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
   const res = runJiraIn(repo, ['issue-list', '--state', 'inbox'], stub);
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(jqlOf(stub), JQL_UNSCOPED);
+  assert.equal(jqlOf(stub), 'assignee = currentUser() AND resolution = EMPTY AND project IN (PROJ-A, PROJ-B) ORDER BY created DESC');
 });
 
-test('host: issue-list jira --state inbox ignores Ticket prefixes even when absent', () => {
+test('host: issue-list jira --state inbox without Ticket prefixes sends today\'s unscoped query', () => {
   const repo = makeTicketPrefixRepo(null);
   const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
   const res = runJiraIn(repo, ['issue-list', '--state', 'inbox'], stub);
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(jqlOf(stub), JQL_UNSCOPED, 'the inbox query is the same whether or not the key is set');
+  assert.equal(jqlOf(stub), JQL_UNSCOPED, 'an undeclared key leaves the inbox query unscoped');
 });
 
 test('host: issue-list jira --state inbox is a single unpaged page of 50 by default', () => {

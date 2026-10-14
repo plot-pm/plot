@@ -4620,7 +4620,7 @@ case "$op" in
       fi
       # THE PERSON CLAUSE DROPS ONCE A PROJECT SCOPE EXISTS (D20): the open and
       # closed reads keep `assignee = currentUser()` only where `$scope` is
-      # empty. The inbox read below keeps it unconditionally on purpose.
+      # empty. The inbox read below keeps it unconditionally, and the scope too.
       person=""; [ -n "$scope" ] || person="assignee = currentUser() AND "
       # PLOT_JIRA_JQL STILL WINS OVER BOTH. Teams worked around this bug with
       # their own JQL; an override that stopped overriding would break exactly
@@ -4648,10 +4648,9 @@ case "$op" in
         [ -n "$scope" ] || { echo "plot-host: closed Jira issues need 'Ticket prefixes' declared; an unscoped resolved query reads the whole instance" >&2; exit 4; }
         when="${since:0:10} ${since:11:5}"; jql="resolved >= \"${when% }\"${scope} ORDER BY resolved DESC"
         fields="$fields,resolutiondate"; paged=1
-      # THE D23 INBOX READ: today's pre-D20 query, always person-scoped — kept
-      # alongside the now-project-wide open read so *Waiting on you* still
-      # shows the reader's own tickets. `max` is already `$limit:-50` above.
-      elif [ "$state" = inbox ]; then jql="${PLOT_JIRA_JQL:-assignee = currentUser() AND resolution = EMPTY ORDER BY created DESC}"
+      # THE D23 INBOX READ: always person-scoped, and project-scoped by `$scope`
+      # like the open read, so *Waiting on you* shows the reader's own tickets of this repository's projects.
+      elif [ "$state" = inbox ]; then jql="${PLOT_JIRA_JQL:-assignee = currentUser() AND resolution = EMPTY${scope} ORDER BY created DESC}"
       fi
       [ -z "$paged" ] || { max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; }
       token_args=(); [ -z "$page_token" ] || token_args=(--data-urlencode "nextPageToken=$page_token")

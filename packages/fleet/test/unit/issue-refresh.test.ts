@@ -41,7 +41,7 @@ const issueLine = (n: number): string =>
  * A scripts directory whose `plot-host.sh` answers `spend-rate` with the
  * connector's account and `issue-list` as told, recording every call. Where
  * `inbox` is given, a `plot-config.sh` declaring `Ticket prefixes` is written
- * alongside it, so `trackerJira`'s D23 gate (packages/domain/src/adapters/
+ * alongside it (empty otherwise), so `trackerJira`'s D23 gate (packages/domain/src/adapters/
  * tracker/tracker-jira.ts) lets the inbox read through.
  */
 type FakeList = { rows?: number; stderr?: string; code?: number; token?: string };
@@ -79,15 +79,13 @@ const fakeHost = (
     + 'fi\nexit 0\n',
   );
   fs.chmodSync(path.join(dir, 'plot-host.sh'), 0o755);
-  if (inbox !== undefined) {
-    fs.writeFileSync(
-      path.join(dir, 'plot-config.sh'),
-      '#!/usr/bin/env bash\n'
-      + 'if [ "$1" = get ] && [ "$2" = "Ticket prefixes" ]; then echo "PROJ"; exit 0; fi\n'
-      + 'exit 0\n',
-    );
-    fs.chmodSync(path.join(dir, 'plot-config.sh'), 0o755);
-  }
+  fs.writeFileSync(
+    path.join(dir, 'plot-config.sh'),
+    '#!/usr/bin/env bash\n'
+    + (inbox === undefined ? '' : 'if [ "$1" = get ] && [ "$2" = "Ticket prefixes" ]; then echo "PROJ"; exit 0; fi\n')
+    + 'exit 0\n',
+  );
+  fs.chmodSync(path.join(dir, 'plot-config.sh'), 0o755);
   const argv = (): string[] =>
     fs.existsSync(argvFile) ? fs.readFileSync(argvFile, 'utf8').split('\n').filter(Boolean) : [];
   return { dir, argv };
@@ -409,6 +407,35 @@ describe('the inbox set of the index (D23)', () => {
     await store.write(heldIndex({ source: 'tracker', connector: 'jira' }));
     await refreshIssueIndex(worldOf(dir, store, { declaredTracker: 'jira https://x.invalid' }), freshIssueState());
     expect(await onDisk(store)).not.toHaveProperty('inbox');
+  });
+});
+
+describe('the inbox read and the closed read refusal', () => {
+  const jira = { declaredTracker: 'jira https://x.invalid' };
+
+  it('sets the backoff from a closed 429 and does not ask the inbox', async () => {
+    const { dir, argv } = fakeHost({ rows: 1 }, { stderr: RATE_LIMIT, code: 1 }, { rows: 1 });
+    const store = issueIndexFile({ home: storeHome() });
+    const state = freshIssueState();
+    await refreshIssueIndex(worldOf(dir, store, jira), state);
+    const index = await onDisk(store);
+    expect(index?.backoffUntil).toBe(NOW + 300_000);
+    expect(state.issueNextAt).toBe(NOW + 300_000);
+    expect(state.issueNextIsBackoff).toBe(true);
+    expect(argv().some((call) => call.includes('--state inbox'))).toBe(false);
+  });
+
+  it('sets the backoff from an inbox 429 after an answered closed read and counts the request', async () => {
+    const { dir } = fakeHost({ rows: 1 }, { rows: 0 }, { stderr: RATE_LIMIT, code: 1 });
+    const store = issueIndexFile({ home: storeHome() });
+    const state = freshIssueState();
+    await refreshIssueIndex(worldOf(dir, store, jira), state);
+    const index = await onDisk(store);
+    expect(index?.backoffUntil).toBe(NOW + 300_000);
+    expect(index?.requests).toBe(3);
+    expect(state.issueNextAt).toBe(NOW + 300_000);
+    expect(state.issueNextIsBackoff).toBe(true);
+    expect(state.issueError).toBe(RATE_LIMIT);
   });
 });
 
