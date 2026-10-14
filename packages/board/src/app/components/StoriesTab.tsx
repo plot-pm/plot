@@ -1,5 +1,8 @@
 import { useMemo, useState } from 'react';
-import type { StoryCard, StoryLaneGroup, Topic, TicketLaneGroups, TicketLaneRow } from '../../contract/schema.js';
+import { ticketCardIssueRow, ticketCardView } from '@plot-pm/domain';
+import type { StoryCard, StoryLaneGroup, Topic, TicketLaneGroups, TicketLaneRow, DispatchInfo, IssueAnswer } from '../../contract/schema.js';
+import { CreatePlanButton } from './CreatePlanButton.js';
+import { CreateStoryButton } from './CreateStoryButton.js';
 
 /** Lane metadata for display, in D7's order. */
 const STORY_LANE_META: Record<StoryLaneGroup['lane'], { label: string; icon: string }> = {
@@ -39,6 +42,12 @@ export interface StoriesTabProps {
   onOpenStory: (story: StoryCard) => void;
   /** Open a sprint in the Delivery tab. */
   onOpenSprint?: (sprintSlug: string) => void;
+  /** Whether *Create plan* can act — the same binding `AgentList`'s issue rows read. */
+  idea: DispatchInfo;
+  /** Whether *Create story* can act — the same binding `AgentList`'s issue rows read. */
+  story: DispatchInfo;
+  /** Whether the tracker can be asked at all — read together with `idea`/`story` the same way `fleet.issueAnswer` is elsewhere. */
+  issueAnswer: IssueAnswer;
 }
 
 /**
@@ -110,6 +119,9 @@ export function StoriesTab({
   onShowArchived,
   onOpenStory,
   onOpenSprint,
+  idea,
+  story,
+  issueAnswer,
 }: StoriesTabProps) {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   // Per-view only — not kept in the URL. `?archived=1` is the one URL
@@ -235,7 +247,16 @@ export function StoriesTab({
                 </header>
                 <div className="flex flex-col gap-2">
                   {visibleRows.length > 0 ? (
-                    visibleRows.map((row) => <TicketRowView key={row.id} ticket={row} />)
+                    visibleRows.map((row) => (
+                      <TicketRowView
+                        key={row.id}
+                        ticket={row}
+                        lane={lane}
+                        idea={idea}
+                        story={story}
+                        issueAnswer={issueAnswer}
+                      />
+                    ))
                   ) : (
                     <p className="px-1 py-4 text-center text-xs text-slate-400 dark:text-slate-600">
                       No tickets in this lane.
@@ -315,21 +336,70 @@ export function StoriesTab({
   );
 }
 
-interface TicketRowViewProps {
-  ticket: TicketLaneRow;
+/**
+ * The open/closed state icons a ticket card wears on its first line.
+ *
+ * NEW — no open/closed pair exists in `KIND_ICON_PATH` (`tuple-row.ts`):
+ * `KindIcon` renders exactly one glyph per row `kind`, and a ticket row's
+ * `kind` is always `'ticket'`, so there is no variant to reuse here. These
+ * match `KindIcon`'s own 14px/`currentColor`/`aria-hidden` Octicon convention
+ * (`issue-opened` / `issue-closed`) rather than `KIND_ICON_PATH` itself,
+ * since that map has no slot for a second glyph under one kind.
+ */
+const TICKET_STATE_ICON_PATH: Record<'open' | 'closed', string> = {
+  open: 'M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z',
+  closed:
+    'M11.28 6.78a.75.75 0 0 0-1.06-1.06L7.25 8.69 5.78 7.22a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0l3.5-3.5Z' +
+    'M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z',
+};
+
+function TicketStateIcon({ state }: { state: 'open' | 'closed' }) {
+  return (
+    <svg
+      aria-hidden
+      data-ticket-card-icon={state}
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="currentColor"
+      className="mt-0.5 shrink-0 text-slate-400 dark:text-slate-500"
+    >
+      <path d={TICKET_STATE_ICON_PATH[state]} />
+    </svg>
+  );
 }
 
-/** A ticket row in the ticket lane group — title and link only, no full card chrome. */
-function TicketRowView({ ticket }: TicketRowViewProps) {
+interface TicketRowViewProps {
+  ticket: TicketLaneRow;
+  lane: 'open' | 'in-progress' | 'done';
+  idea: DispatchInfo;
+  story: DispatchInfo;
+  issueAnswer: IssueAnswer;
+}
+
+/** A ticket row in the ticket lane group — the card helper's view, rendered. */
+function TicketRowView({ ticket, lane, idea, story, issueAnswer }: TicketRowViewProps) {
+  const view = useMemo(() => ticketCardView(ticket, lane, Date.now()), [ticket, lane]);
+  const issue = useMemo(() => ticketCardIssueRow(ticket), [ticket]);
   return (
-    <a
-      href={ticket.url}
-      target="_blank"
-      rel="noreferrer"
+    <div
+      data-ticket-card={ticket.id}
       className="block w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm hover:border-cyan-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-cyan-600"
     >
-      <span className="line-clamp-2 text-slate-700 dark:text-slate-200">{ticket.title}</span>
-    </a>
+      <a href={view.url} target="_blank" rel="noreferrer" className="flex items-start gap-1.5">
+        <TicketStateIcon state={view.icon} />
+        <span className="line-clamp-2 text-slate-700 dark:text-slate-200">{view.heading}</span>
+      </a>
+      {view.subtitle ? (
+        <p className="mt-1 truncate pl-[20px] text-slate-400 dark:text-slate-500">{view.subtitle}</p>
+      ) : null}
+      {view.showsActions ? (
+        <div className="mt-2 flex items-center gap-2 pl-[20px]">
+          <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} />
+          <CreateStoryButton issue={issue} story={story} issueAnswer={issueAnswer} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 

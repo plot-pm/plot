@@ -1200,6 +1200,9 @@ export function App() {
               onShowArchived={onShowArchived}
               onOpenStory={onOpenStory}
               onOpenSprint={onOpenSprint}
+              idea={ideaInfo ?? { available: false, reason: 'this board has not said whether it can create plans' }}
+              story={storyInfo ?? { available: false, reason: 'this board has not said whether it can create stories' }}
+              issueAnswer={fleet?.issueAnswer ?? 'unsupported'}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>
