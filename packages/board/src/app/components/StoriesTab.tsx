@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ticketCardIssueRow, ticketCardView } from '@plot-pm/domain';
+import { lanesForTopic, ticketCardIssueRow, ticketCardView } from '@plot-pm/domain';
 import type { StoryCard, StoryLaneGroup, Topic, TicketLaneGroups, TicketLaneRow, DispatchInfo, IssueAnswer } from '../../contract/schema.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
 import { CreateStoryButton } from './CreateStoryButton.js';
@@ -130,26 +130,13 @@ export function StoriesTab({
   const [storiesDoneExpanded, setStoriesDoneExpanded] = useState(false);
   const [ticketsDoneExpanded, setTicketsDoneExpanded] = useState(false);
 
-  // Build a lookup: topic -> set of story slugs that contain it
-  const topicToSlugs = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    for (const t of topics) {
-      map.set(t.topic, new Set(t.storySlugs));
-    }
-    return map;
-  }, [topics]);
-
-  // Filter each lane by the selected topic — uses server's storySlugs to
-  // match stories (includes stories where the topic was found in a plan
-  // title).
-  const filteredLaneGroups = useMemo(() => {
-    if (!selectedTag) return storyLaneGroups;
-    const matchingSlugs = topicToSlugs.get(selectedTag) ?? new Set();
-    return storyLaneGroups.map((group) => ({
-      ...group,
-      stories: group.stories.filter((s) => matchingSlugs.has(s.slug)),
-    }));
-  }, [storyLaneGroups, selectedTag, topicToSlugs]);
+  // The domain decides which rows survive the selected topic, and which
+  // lanes the topic emptied.
+  const filtered = useMemo(
+    () => lanesForTopic(storyLaneGroups, tickets, topics.find((t) => t.topic === selectedTag) ?? null),
+    [storyLaneGroups, tickets, topics, selectedTag],
+  );
+  const filteredLaneGroups = filtered.storyLanes;
 
   // Max topic count for sizing
   const maxTopicCount = topics.length > 0 ? Math.max(...topics.map((t) => t.count)) : 1;
@@ -225,11 +212,11 @@ export function StoriesTab({
           {closedAbsence}
         </p>
       ) : null}
-      {tickets ? (
+      {filtered.tickets ? (
         <div className="grid gap-4 sm:grid-cols-3">
           {(['open', 'in-progress', 'done'] as const).map((lane) => {
             const meta = TICKET_LANE_META[lane];
-            const rows = tickets[lane];
+            const { rows, hiddenByTopic } = filtered.tickets![lane];
             const visibleRows = lane === 'done' && !ticketsDoneExpanded ? rows.slice(0, 5) : rows;
             return (
               <section
@@ -259,16 +246,16 @@ export function StoriesTab({
                     ))
                   ) : (
                     <p className="px-1 py-4 text-center text-xs text-slate-400 dark:text-slate-600">
-                      No tickets in this lane.
+                      {hiddenByTopic ? 'This topic hides every ticket in this lane.' : 'No tickets in this lane.'}
                     </p>
                   )}
-                  {lane === 'done' && !ticketsDoneExpanded && (rows.length > 5 || tickets.moreCount > 0) && (
+                  {lane === 'done' && !ticketsDoneExpanded && (rows.length > 5 || filtered.tickets!.moreCount > 0) && (
                     <button
                       type="button"
                       onClick={() => setTicketsDoneExpanded(true)}
                       className="px-1 text-left text-xs text-cyan-600 hover:underline dark:text-cyan-400"
                     >
-                      Show all done ({rows.length - 5 + tickets.moreCount} more)
+                      Show all done ({rows.length - 5 + filtered.tickets!.moreCount} more)
                     </button>
                   )}
                 </div>
@@ -288,7 +275,7 @@ export function StoriesTab({
         {filteredLaneGroups.map((group) => {
           const meta = STORY_LANE_META[group.lane];
           const isDone = group.lane === 'Done';
-          const visibleStories = isDone && !storiesDoneExpanded ? group.stories.slice(0, 5) : group.stories;
+          const visibleStories = isDone && !storiesDoneExpanded ? group.rows.slice(0, 5) : group.rows;
           return (
             <section
               key={group.lane}
@@ -300,7 +287,7 @@ export function StoriesTab({
                   <span>{meta.label}</span>
                 </h2>
                 <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                  {group.stories.length}
+                  {group.rows.length}
                 </span>
               </header>
               <div className="flex flex-col gap-3">
@@ -315,16 +302,16 @@ export function StoriesTab({
                   ))
                 ) : (
                   <p className="px-1 py-4 text-center text-xs text-slate-400 dark:text-slate-600">
-                    No stories in this lane.
+                    {group.hiddenByTopic ? 'This topic hides every story in this lane.' : 'No stories in this lane.'}
                   </p>
                 )}
-                {isDone && !storiesDoneExpanded && group.stories.length > 5 && (
+                {isDone && !storiesDoneExpanded && group.rows.length > 5 && (
                   <button
                     type="button"
                     onClick={() => setStoriesDoneExpanded(true)}
                     className="px-1 text-left text-xs text-cyan-600 hover:underline dark:text-cyan-400"
                   >
-                    Show all done ({group.stories.length - 5} more)
+                    Show all done ({group.rows.length - 5} more)
                   </button>
                 )}
               </div>
