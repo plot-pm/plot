@@ -3371,8 +3371,10 @@ export type PulseShrink = z.infer<typeof PulseShrinkSchema>;
  *
  * So it is its own small shape, carrying only what a human needs to answer the
  * one question the row exists for — *is this worth a plan?* — and nothing that
- * mirrors tracker state. No labels, no assignee, no priority: those age into
- * lies the moment the tracker moves, and Plot never writes them back.
+ * mirrors tracker state. No labels and no priority: those age into lies the
+ * moment the tracker moves, and Plot never writes them back. `assignees` is the
+ * second narrow exception, read-only like `status`: *Waiting on you* and *Only
+ * my work* decide by it, and `[]` means the tracker named nobody.
  *
  * `status` and `statusCategory` are the NARROW exception, and the refusal above
  * still holds for the rest — the entity's own sentence is amended the same way.

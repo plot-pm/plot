@@ -34,7 +34,7 @@ Decisions D1 to D12 in the Decisions table were taken in one brainstorming sessi
 
 ### Phase 3: The board has three tabs ⏸️
 
-- ⏸️ [`the-board-has-three-tabs`](../../plans/2026-10-12-the-board-has-three-tabs.md) — Discovery, Planning and Delivery, the redirects from the old tab names, the Planning tab's *Show released*, and the Delivery tab's ticket, sprint and owner filters. Waits on Phase 1. Runs in parallel with Phase 2.
+- ⏸️ [`the-board-has-three-tabs`](../../plans/2026-10-12-the-board-has-three-tabs.md) — Discovery, Planning and Delivery, the redirects from the old tab names, the Planning tab's *Show released*, and the Delivery tab's ticket, sprint and owner filters. Waits on Phase 1. Runs in parallel with Phase 2. Its *Waiting on you* slice also waits on Phase 4's `feature/the-fleet-indexes-issues` and `feature/the-index-holds-closed-issues`, because both board issue reads hold up to 1000 open rows only after them.
 
 ### Phase 4: Tickets and stories have lanes ⏸️
 
