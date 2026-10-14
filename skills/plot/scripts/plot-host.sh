@@ -5259,7 +5259,7 @@ case "$op" in
     # The JWT and the installation token never reach a child process's argv.
     [ "$be" = "github" ] || { echo "plot-host: commit-status — backend is '$be', not github; this op is GitHub-only" >&2; exit 4; }
     node "$here/plot-commit-status.mjs" --check "$@" || exit $?
-    exec node "$here/plot-commit-status.mjs" --repo "$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)" "$@"
+    node "$here/plot-commit-status.mjs" --repo "$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)" "$@" || exit $?
     ;;
 
   *)
