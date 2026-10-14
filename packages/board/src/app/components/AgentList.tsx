@@ -82,6 +82,7 @@ import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, SliceRow, RegistryRow,
 import { workingAgentRows, brokenAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
 import { PlanLevelRowView, sectionCount, verificationRows } from '../lib/agent-rows/plan-level-row.js';
+import { specRows } from '../lib/agent-rows/spec-row.js';
 import { hasExceptions } from '../lib/agent-rows/stuck.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
 // These moved out of this file when the row estate was split into three
@@ -482,8 +483,20 @@ export function AgentList({
   // `running` and `rows` come from `.plot/state/auto-verify-in-flight.json` as
   // the daemon last wrote it; `null` (the file unreadable) answers no rows and
   // no banner at all, by `verificationRows`'s own rule.
-  const { working: workingPlanRows, waiting: verificationWaitingRows, haltedLine } =
+  const { working: verifyWorkingRows, waiting: verifyWaitingRows, haltedLine } =
     verificationRows(fleet?.verification ?? null);
+  // THE FLEET'S OWN SPEC RUNS — the same shape as the verify runs above, read
+  // from `.plot/state/auto-design-in-flight.json` via `fleet.design`. A verify
+  // halt and a design halt are two independent facts, so `specHaltedLine`
+  // stays its own nullable string rather than folding into `haltedLine`.
+  const { working: specWorkingRows, waiting: specWaitingRows, haltedLine: specHaltedLine } =
+    specRows(fleet?.design ?? null);
+  // BOTH FLEETS' PLAN-LEVEL ROWS, COMBINED — `sectionCount`'s `planLevel`
+  // bucket is one number pair for every plan-level row regardless of kind, so
+  // the production step is concatenation, not a second bucket or a second
+  // render path. `PlanLevelRowView` already switches on `row.kind`.
+  const workingPlanRows = [...verifyWorkingRows, ...specWorkingRows];
+  const verificationWaitingRows = [...verifyWaitingRows, ...specWaitingRows];
   // THE PLAN FILE of a plan-level row: the payload names only the slug, so the
   // file is the `path` of the board card with that slug (`planFileForSlug`).
   // "" before the board loads or where no card holds the slug, which
@@ -1158,11 +1171,14 @@ export function AgentList({
         // the drafts and before the broken agents: a decision owed on a plan
         // (draft or failed verification) outranks a worker problem report.
         const verifications = key === 'waiting-on-you' ? verificationWaitingRows : [];
-        // THE FLEET-HALTED SENTENCE, for WAITING ON YOU only, and only when no
+        // THE FLEET-HALTED SENTENCES, for WAITING ON YOU only, and only when no
         // row above already says so in its own `reason` — `verificationRows`
-        // itself withholds `haltedLine` in that case, so this reads the one
-        // value it already decided rather than re-deciding here.
+        // and `specRows` each withhold their own `haltedLine` in that case, so
+        // this reads the values they already decided rather than re-deciding
+        // here. A verify halt and a design halt are independent facts, so both
+        // can be non-null at once — two short lines, not one merged sentence.
         const verificationHaltedLine = key === 'waiting-on-you' ? haltedLine : null;
+        const designHaltedLine = key === 'waiting-on-you' ? specHaltedLine : null;
         // Every waiting-group is grouped the same way, `done` included: it is
         // the group that grows fastest over a working day, so it is the first to
         // become a list one scrolls past. A rule with an exception for the group
@@ -1476,16 +1492,25 @@ export function AgentList({
                 literally true because the pids still exist. Hiding them would
                 lose real processes an operator may need to stop by hand. */}
             {key === 'working' && <FleetAlert supervisor={fleet?.supervisor} />}
-            {/* THE FLEET-HALTED SENTENCE — a sibling of the heading, same
-                reason as the alert above: one fact said once, outside
+            {/* THE FLEET-HALTED SENTENCES — siblings of the heading, same
+                reason as the alert above: each fact said once, outside
                 `tupleFromPlan` and outside any row, never counted in the
-                section's own count. */}
+                section's own count. Two independent facts, so both can show
+                at once — a verify halt does not imply a design halt. */}
             {verificationHaltedLine && (
               <p
                 data-verification-halted-line
                 className="border-t border-slate-200 px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400"
               >
                 {verificationHaltedLine}
+              </p>
+            )}
+            {designHaltedLine && (
+              <p
+                data-design-halted-line
+                className="border-t border-slate-200 px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400"
+              >
+                {designHaltedLine}
               </p>
             )}
             {/* The body goes, the header stays — including its count. Removed

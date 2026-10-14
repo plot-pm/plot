@@ -6,8 +6,7 @@ import { TupleRowView } from '../../components/TupleRow.js';
  * A run the fleet makes ON A PLAN rather than on a branch — a plan, a sentence,
  * no branch. `kind` discriminates the two fleets that render through this one
  * shape: `verify` is `plot-fleetd`'s auto-verify pass, populated here; `spec`
- * is `the-fleet-writes-the-design`'s design-run rows, a named consumer in an
- * adjacent plan and left unpopulated by this slice.
+ * is its design-run rows, populated by `specRows` in `./spec-row.js`.
  */
 export interface PlanLevelRow {
   kind: 'verify' | 'spec';
