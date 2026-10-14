@@ -335,3 +335,140 @@ describe('the plans tab filters to my work', () => {
     }
   });
 });
+
+/**
+ * WAITING ON YOU SAYS WHAT IT HIDES — `the-delivery-tab-filters-by-sprint-and-owner`.
+ *
+ * The server decides which tickets the section shows (`waiting`), and the page
+ * renders the domain's sentences for it. The fixture is the plan's own: 127
+ * unplanned tickets, none assigned to the reader but one that is older than
+ * the 50 newest, so `issues` holds 50 unassigned rows and `waiting.tickets`
+ * holds the one that is mine.
+ */
+describe('waiting on you says what it hides', () => {
+  let cat: Catalogue;
+
+  beforeAll(async () => {
+    cat = await openCatalogue();
+  }, 60_000);
+
+  afterAll(async () => {
+    await cat?.close();
+  });
+
+  const ticket = (number: number, title: string, assignees: string[] = []) => ({
+    kind: 'ticket' as const, number: String(number), title, url: '', ageMinutes: number,
+    status: 'open', statusCategory: 'To Do', assignees,
+  });
+
+  const OLD_MINE = ticket(127, 'Old ticket assigned to me', [ME]);
+  const newest = Array.from({ length: 50 }, (_, i) => ticket(i + 1, `Unassigned ticket ${i + 1}`));
+  const source = { service: 'github', match: 'host-login' as const };
+
+  const withWaiting = (waiting: Record<string, unknown>, issues: unknown[]): Fleet =>
+    ({ ...fleet(), issues, waiting } as unknown as Fleet);
+
+  const open = async (over: Fleet): Promise<Page> => {
+    const page = await cat.open('an-empty-estate', {
+      tab: 'delivery',
+      over: {
+        fleet: over,
+        board: buildBoard({
+          server: {
+            restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME,
+            people: { [ME]: ME, [THEM]: THEM },
+          },
+        }),
+      },
+    });
+    await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
+    const toggle = page.locator('[data-group-toggle="waiting-on-you"]');
+    if (await toggle.count() > 0 && (await toggle.getAttribute('aria-expanded')) === 'false') {
+      await toggle.click();
+    }
+    return page;
+  };
+
+  const everyTicketControl = (page: Page) => page.locator('[data-show-every-ticket]');
+
+  it('says how many tickets it hides and lists only the reader\'s own', async () => {
+    const page = await open(withWaiting(
+      { tickets: [OLD_MINE], shown: 1, hidden: 126, complete: true, notice: null, source },
+      newest,
+    ));
+    try {
+      await expect.poll(() => page.locator('[data-waiting-hidden-text]').textContent())
+        .toBe('126 open tickets are not assigned to you');
+      await expect.poll(() => page.getByText('Old ticket assigned to me').count()).toBe(1);
+      expect(await page.getByText('Unassigned ticket 1', { exact: true }).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('writes at least into the sentence when the read is not complete', async () => {
+    const page = await open(withWaiting(
+      { tickets: [OLD_MINE], shown: 1, hidden: 126, complete: false, notice: null, source },
+      newest,
+    ));
+    try {
+      await expect.poll(() => page.locator('[data-waiting-hidden-text]').textContent())
+        .toBe('at least 126 open tickets are not assigned to you');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('show every ticket lists the 50 newest and keeps the older assigned ticket, saying N of M', async () => {
+    const page = await open(withWaiting(
+      { tickets: [OLD_MINE], shown: 1, hidden: 126, complete: true, notice: null, source },
+      newest,
+    ));
+    try {
+      await everyTicketControl(page).check();
+      await expect.poll(() => page.locator('[data-waiting-showing-text]').textContent())
+        .toBe('Showing 51 of 127 open tickets.');
+      expect(await page.getByText('Old ticket assigned to me').count()).toBe(1);
+      expect(await page.getByText('Unassigned ticket 1', { exact: true }).count()).toBe(1);
+
+      await everyTicketControl(page).uncheck();
+      await expect.poll(() => page.locator('[data-waiting-showing-text]').count()).toBe(0);
+      await expect.poll(() => page.getByText('Unassigned ticket 1', { exact: true }).count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows the notice of an unmatched reader', async () => {
+    const notice = 'The board knows no host login for you — showing 50 of 127 open tickets.';
+    const page = await open(withWaiting(
+      { tickets: newest, shown: 127, hidden: 0, complete: true, notice, source },
+      newest,
+    ));
+    try {
+      await expect.poll(() => page.locator('[data-waiting-notice]').textContent()).toBe(notice);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('with show every ticket and Only my work on, drops another person\'s ticket and keeps an unassigned one', async () => {
+    const theirs = ticket(2, 'Ticket for the neighbour', [THEM]);
+    const unassigned = ticket(3, 'Ticket for nobody');
+    const page = await open(withWaiting(
+      { tickets: [OLD_MINE], shown: 1, hidden: 2, complete: true, notice: null, source },
+      [theirs, unassigned],
+    ));
+    try {
+      await everyTicketControl(page).check();
+      await expect.poll(() => page.getByText('Ticket for the neighbour').count()).toBe(1);
+
+      await page.locator('[data-mine-toggle]').check();
+      await expect.poll(() => page.getByText('Ticket for the neighbour').count()).toBe(0);
+      expect(await page.getByText('Ticket for nobody').count()).toBe(1);
+      expect(await page.getByText('Old ticket assigned to me').count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+});

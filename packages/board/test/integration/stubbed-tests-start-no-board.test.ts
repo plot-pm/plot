@@ -676,7 +676,7 @@ const EXPECTED_FILES = 63;
 // page, so `EXPECTED_FILES` is unchanged.
 // 558 → 560 on 2026-10-12: the two `it(` of `refuted-badge.browser.test.ts`,
 // a new file counted in `EXPECTED_FILES` above.
-const EXPECTED_TESTS = 569;
+const EXPECTED_TESTS = 574;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
@@ -691,6 +691,11 @@ const EXPECTED_TESTS = 569;
 // fleet's verify runs as plan-level rows in *Waiting on you* and *Working*,
 // each counted, and the halted line once (#1640). The file already drove a
 // page, so `EXPECTED_FILES` is unchanged.
+// 569 → 574 on 2026-10-14: five `it(` in `mine-filter.browser.test.ts`, for
+// *Waiting on you* saying what it hides (#1677 H2): the hidden-count sentence,
+// its *at least* form, *show every ticket* with its *N of M* sentence, the
+// unmatched notice, and *Only my work* over every ticket. The file already
+// drove a page, so `EXPECTED_FILES` is unchanged.
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
