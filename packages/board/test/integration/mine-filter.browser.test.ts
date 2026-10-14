@@ -364,6 +364,8 @@ describe('waiting on you says what it hides', () => {
   const OLD_MINE = ticket(127, 'Old ticket assigned to me', [ME]);
   const newest = Array.from({ length: 50 }, (_, i) => ticket(i + 1, `Unassigned ticket ${i + 1}`));
   const source = { service: 'github', match: 'host-login' as const };
+  // A ticket row's name is `<number>: <title>`, so an exact match needs the number.
+  const FIRST_NEWEST = '1: Unassigned ticket 1';
 
   const withWaiting = (waiting: Record<string, unknown>, issues: unknown[]): Fleet =>
     ({ ...fleet(), issues, waiting } as unknown as Fleet);
@@ -400,7 +402,7 @@ describe('waiting on you says what it hides', () => {
       await expect.poll(() => page.locator('[data-waiting-hidden-text]').textContent())
         .toBe('126 open tickets are not assigned to you');
       await expect.poll(() => page.getByText('Old ticket assigned to me').count()).toBe(1);
-      expect(await page.getByText('Unassigned ticket 1', { exact: true }).count()).toBe(0);
+      expect(await page.getByText(FIRST_NEWEST, { exact: true }).count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -429,11 +431,11 @@ describe('waiting on you says what it hides', () => {
       await expect.poll(() => page.locator('[data-waiting-showing-text]').textContent())
         .toBe('Showing 51 of 127 open tickets.');
       expect(await page.getByText('Old ticket assigned to me').count()).toBe(1);
-      expect(await page.getByText('Unassigned ticket 1', { exact: true }).count()).toBe(1);
+      expect(await page.getByText(FIRST_NEWEST, { exact: true }).count()).toBe(1);
 
       await everyTicketControl(page).uncheck();
       await expect.poll(() => page.locator('[data-waiting-showing-text]').count()).toBe(0);
-      await expect.poll(() => page.getByText('Unassigned ticket 1', { exact: true }).count()).toBe(0);
+      await expect.poll(() => page.getByText(FIRST_NEWEST, { exact: true }).count()).toBe(0);
     } finally {
       await page.close();
     }

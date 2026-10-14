@@ -50,7 +50,7 @@ const sprint: FleetSprint = {
 } as unknown as FleetSprint;
 
 const issue = (number: number): IssueRow => ({
-  number, title: 'An issue carries no sprint', url: '', ageMinutes: 60, status: 'open', statusCategory: 'To Do',
+  number, title: 'An issue carries no sprint', url: '', ageMinutes: 60, status: 'open', statusCategory: 'To Do', assignees: [],
 } as unknown as IssueRow);
 
 function fleet(keep: (r: AgentRow) => boolean = () => true): Fleet {

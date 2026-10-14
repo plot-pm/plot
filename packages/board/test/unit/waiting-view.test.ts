@@ -85,6 +85,15 @@ describe('waitingView', () => {
     expect(view.control).toBe(SHOW_EVERY_TICKET_LABEL);
   });
 
+  it('keeps the unassigned newest tickets beside the older assigned one with the control on and no narrowing', () => {
+    const mine = ticket('127', ['gardener']);
+    const newest = Array.from({ length: 50 }, (_, i) => ticket(String(i + 1)));
+    const view = waitingView(waitingOf({ tickets: [mine], shown: 1, hidden: 126 }), newest, true, keep);
+    expect(view.tickets.map((t) => t.number)).toEqual([...newest.map((t) => t.number), '127']);
+    expect(view.tickets.map((t) => t.number)).toContain('1');
+    expect(view.showing).toBe('Showing 51 of 127 open tickets.');
+  });
+
   it('keeps the control while it is on even when nothing is hidden', () => {
     const view = waitingView(waitingOf({ shown: 1 }), [ticket('1')], true, keep);
     expect(view.control).toBe(SHOW_EVERY_TICKET_LABEL);
