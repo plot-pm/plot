@@ -83,7 +83,11 @@ const call = async (credential, method, route, body) => {
   try {
     const res = await fetch(`${api}/${route}`, {
       method,
-      headers: { Authorization: `Bearer ${credential}`, Accept: 'application/vnd.github+json' },
+      headers: {
+        Authorization: `Bearer ${credential}`,
+        Accept: 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     return { status: res.status, body: await res.json().catch(() => ({})) };
