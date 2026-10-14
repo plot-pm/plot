@@ -427,6 +427,34 @@ const defaultWorld: DesignPassWorld = {
   host: (opts) => hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
 };
 
+/**
+ * The failure records with one more failure of `slug` under `commit` at `now`.
+ *
+ * @param store - the current failure records.
+ * @param slug - the plan's slug.
+ * @param commit - the `Design:` commit the failed run was started under.
+ * @param now - epoch milliseconds.
+ * @returns the new records; a failure under another commit restarts the count at 1.
+ */
+const withFailure = (
+  store: Pick<DesignStore, 'failures' | 'failedAt'>,
+  slug: string,
+  commit: string,
+  now: number,
+): { failures: DesignStore['failures']; failedAt: number[] } => {
+  const previous = store.failures[slug];
+  return {
+    failures: {
+      ...store.failures,
+      [slug]:
+        previous !== undefined && previous.reading === commit
+          ? { reading: commit, count: previous.count + 1, lastAt: now }
+          : { reading: commit, count: 1, lastAt: now },
+    },
+    failedAt: [...store.failedAt, now],
+  };
+};
+
 /** `Worker bound` in seconds, or {@link DEFAULT_DESIGN_BOUND_SECONDS}. */
 const boundSecondsOf = (opts: ActOptions): number => sharedBoundSecondsOf(opts, DEFAULT_DESIGN_BOUND_SECONDS);
 
@@ -516,15 +544,7 @@ export const runAutoDesignPass = async (
     const refusals: Record<string, SpecRefusal | 'ask-host'> = {};
 
     const recordFailure = (slug: string, commit: string): void => {
-      const previous = failures[slug];
-      failures = {
-        ...failures,
-        [slug]:
-          previous !== undefined && previous.reading === commit
-            ? { reading: commit, count: previous.count + 1, lastAt: now }
-            : { reading: commit, count: 1, lastAt: now },
-      };
-      failedAt = [...failedAt, now];
+      ({ failures, failedAt } = withFailure({ failures, failedAt }, slug, commit, now));
     };
     const recordSuccess = (): void => {
       lastSuccessAt = now;
@@ -642,7 +662,7 @@ export const runAutoDesignPass = async (
     if (deleteTip !== undefined) await trees.deleteRemoteBranch(branch, deleteTip);
   }
   if (pick.slug === null) return [];
-  await startDesignRun(opts, pick.slug, pick.planFile, pick.start, world);
+  await startDesignRun(opts, pick.slug, pick.planFile, pick.start, world, now);
   return [pick.slug];
 };
 
@@ -655,7 +675,15 @@ export const runAutoDesignPass = async (
  * @param planFile - the plan's repository-relative path.
  * @param start - the revision the spec branch starts from: `origin/<main>`
  *   for a new spec, `origin/idea/<slug>-spec` for an `open-pr` retry.
+ * A start that fails before its claim reaches origin drops its run record,
+ * so no later pass settles `idea/<slug>-spec` as this machine's run, and
+ * removes the local worktree and branch. A failed `addBranch` or `commit` is
+ * this machine's failure and is recorded under the run's `Design:` commit. A
+ * rejected push means another machine holds the run: nothing is recorded.
+ * The restart mark the start consumed stays consumed.
+ *
  * @param world - the ports.
+ * @param now - epoch milliseconds of the pass, recorded on a failure.
  */
 const startDesignRun = async (
   opts: ActOptions,
@@ -663,6 +691,7 @@ const startDesignRun = async (
   planFile: string,
   start: string,
   world: DesignPassWorld,
+  now: number,
 ): Promise<void> => {
   const patch = (fields: Partial<DesignRun>): void => {
     updateDesignState(opts.repoRoot, (current) => {
@@ -673,19 +702,31 @@ const startDesignRun = async (
   const branch = designBranch(slug);
   const dir = designRunDir(opts.repoRoot, slug);
   const trees = world.trees(opts);
+  const abandon = async (failed: boolean): Promise<void> => {
+    updateDesignState(opts.repoRoot, (current) => {
+      const run = current.running[slug];
+      if (run === undefined) return current;
+      const { [slug]: _dropped, ...running } = current.running;
+      return failed ? { ...current, ...withFailure(current, slug, run.commit, now), running } : { ...current, running };
+    });
+    await trees.removeWithBranch(dir, branch);
+  };
   const added = await trees.addBranch(dir, branch, start);
   if (!added.ok) {
     console.error(`auto-design: ${slug} could not create its worktree`);
+    await abandon(true);
     return;
   }
   const committed = await trees.commit(dir, `${CLAIM_SUBJECT_PREFIX}${branch}`);
   if (!committed.ok) {
     console.error(`auto-design: ${slug} could not commit its claim`);
+    await abandon(true);
     return;
   }
   const pushed = await trees.push(dir, branch);
   if (!pushed.ok) {
     console.error(`auto-design: ${slug} claim push was rejected; another run holds the branch`);
+    await abandon(false);
     return;
   }
   const promptPath = designPromptPath(opts.repoRoot, slug);

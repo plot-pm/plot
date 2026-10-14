@@ -626,6 +626,89 @@ describe('runAutoDesignPass: the start point of the spec branch', () => {
   });
 });
 
+describe('runAutoDesignPass: a start that fails before its claim reaches origin', () => {
+  const failingAt = (step: 'addBranch' | 'commit' | 'push', removeCalls: { dir: string; branch: string }[]): DesignPassWorld => {
+    const base = world([candidate], { specRef: 'absent', removeCalls });
+    return {
+      ...base,
+      trees: (o) => ({ ...base.trees(o), [step]: async () => ({ ok: false, why: 'failed' }) }),
+    };
+  };
+  const SIX_MINUTES = 6 * 60 * 1000;
+
+  it('a rejected claim push drops the run, records no failure, and a later pass deletes nothing of the other machine', async () => {
+    const f = fixture('true', 'true');
+    writeMark(f.repoRoot, 'alpha', { commit: 'abc1234' });
+    const removeCalls: { dir: string; branch: string }[] = [];
+    expect(await runAutoDesignPass(f, pulse, readings, 1000, failingAt('push', removeCalls))).toEqual(['alpha']);
+    await boardRunsSettled();
+    const after = readDesignState(f.repoRoot)!;
+    expect(after.running).toEqual({});
+    expect(after.failures).toEqual({});
+    expect(after.failedAt).toEqual([]);
+    expect(after.restart).toEqual({});
+    expect(removeCalls).toEqual([{ dir: designRunDir(f.repoRoot, 'alpha'), branch: designBranch('alpha') }]);
+
+    for (const specRef of ['claim-only', 'work'] as const) {
+      const deleteRemoteCalls: { branch: string; expectedTip: string }[] = [];
+      const prCreateCalls: { head: string; title: string; body: string; draft?: boolean }[] = [];
+      await runAutoDesignPass(
+        f,
+        pulse,
+        readings,
+        1000 + SIX_MINUTES,
+        world([candidate], {
+          alive: () => false,
+          specRef,
+          tip: 'other00',
+          branchText: SPEC_EMPTY,
+          prMerged: 'not-merged',
+          deleteRemoteCalls,
+          prCreateCalls,
+        }),
+      );
+      expect(deleteRemoteCalls).toEqual([]);
+      expect(prCreateCalls).toEqual([]);
+      expect(readDesignState(f.repoRoot)!.failures).toEqual({});
+      expect(readDesignState(f.repoRoot)!.failedAt).toEqual([]);
+    }
+  });
+
+  // A failed `addBranch` or `commit` never reached origin, so no other machine
+  // is involved: it is this machine's failure, and recording it puts the plan
+  // under the retry backoff instead of a new attempt on every pass.
+  for (const step of ['addBranch', 'commit'] as const) {
+    it(`a failed ${step} drops the run, records one failure, and a later pass deletes nothing`, async () => {
+      const f = fixture('true', 'true');
+      const removeCalls: { dir: string; branch: string }[] = [];
+      expect(await runAutoDesignPass(f, pulse, readings, 1000, failingAt(step, removeCalls))).toEqual(['alpha']);
+      await boardRunsSettled();
+      const after = readDesignState(f.repoRoot)!;
+      expect(after.running).toEqual({});
+      expect(after.failures).toEqual({ alpha: { reading: 'abc1234', count: 1, lastAt: 1000 } });
+      expect(after.failedAt).toEqual([1000]);
+      expect(removeCalls).toEqual([{ dir: designRunDir(f.repoRoot, 'alpha'), branch: designBranch('alpha') }]);
+
+      const deleteRemoteCalls: { branch: string; expectedTip: string }[] = [];
+      await runAutoDesignPass(
+        f,
+        pulse,
+        readings,
+        1000 + SIX_MINUTES,
+        world([candidate], {
+          alive: () => false,
+          specRef: 'claim-only',
+          tip: 'other00',
+          deleteRemoteCalls,
+        }),
+      );
+      expect(deleteRemoteCalls).toEqual([]);
+      expect(readDesignState(f.repoRoot)!.failures.alpha?.count).toBe(1);
+      expect(readDesignState(f.repoRoot)!.failedAt).toEqual([1000]);
+    });
+  }
+});
+
 describe('runAutoDesignPass: host reads', () => {
   it('N passes with Auto-design off and a work ref make no host call', async () => {
     const f = fixture('false', 'true');
