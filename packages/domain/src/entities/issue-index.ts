@@ -48,6 +48,8 @@ export const IssueIndexRowSchema = z
     statusCategory: z.string().optional(),
     /** When the tracker says it was closed, ISO-8601; absent on an open issue and where it gave none. */
     closedAt: z.string().optional(),
+    /** The tracker's own logins or Jira accounts assigned; absent where the row predates this field. */
+    assignees: z.array(z.string()).optional(),
   })
   .strict();
 

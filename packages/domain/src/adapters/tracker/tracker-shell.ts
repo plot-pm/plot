@@ -18,6 +18,7 @@ interface RawIssue {
   status?: string;
   statusCategory?: string;
   closedAt?: string;
+  assignees?: string[];
   nextPageToken?: string;
 }
 
@@ -58,6 +59,7 @@ export const issueOf = (raw: RawIssue): Issue => ({
   status: raw.status ?? '',
   statusCategory: raw.statusCategory ?? '',
   closedAt: raw.closedAt !== undefined && raw.closedAt !== '' ? raw.closedAt : null,
+  assignees: raw.assignees ?? [],
 });
 
 /**

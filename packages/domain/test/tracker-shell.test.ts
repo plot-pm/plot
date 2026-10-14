@@ -9,6 +9,7 @@ import { keyIn, trackerJira } from '../src/adapters/tracker/tracker-jira.js';
 import { trackerNone } from '../src/adapters/tracker/tracker-none.js';
 import { trackerFor } from '../src/adapters/tracker/tracker-resolve.js';
 import { trackerFixture } from '../src/adapters/tracker/tracker-fixture.js';
+import { issueOf } from '../src/adapters/tracker/tracker-shell.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
 import { isAnswered, type PortResult } from '../src/port-result.js';
 import type { StatusOutcome, StatusWrite, Tracker } from '../src/ports/tracker.js';
@@ -100,6 +101,7 @@ describe('a tracker is asked apart from the git host', () => {
       status: '',
       statusCategory: '',
       closedAt: null,
+      assignees: [],
     });
 
     const keyed = scriptsThat({
@@ -119,7 +121,7 @@ describe('a tracker is asked apart from the git host', () => {
     expect(answer<readonly Issue[]>(await trackerGithub(bare).issueList())).toEqual([
       {
         id: '', title: '', url: '', createdAt: null, body: null, status: '', statusCategory: '',
-        closedAt: null,
+        closedAt: null, assignees: [],
       },
     ]);
 
@@ -157,17 +159,20 @@ describe('a tracker is asked apart from the git host', () => {
 
   it('carries no tracker state the entity refuses', async () => {
     // The entity's refusal survives this slice narrowly: its subject is a
-    // write-back loop, and reading a status is not one. So `assignee`,
-    // `labels` and `priority` stay absent even when the script reports them —
-    // the easy over-reach is widening the projection to the whole Jira fields
-    // block, which every positive test above would still pass.
+    // write-back loop, and reading one of these is not one. So `status`,
+    // `statusCategory` and `assignees` are the exception; `labels` and
+    // `priority` stay absent even when the script reports them — the easy
+    // over-reach is widening the projection to the whole Jira fields block,
+    // which every positive test above would still pass. The singular
+    // `assignee` key here is not the script's `assignees` contract, so it
+    // stays unread too.
     const rich = scriptsThat({
       'plot-host.sh':
         'echo \'{"number":"PROJ-2","title":"t","status":"Done","statusCategory":"Done","assignee":"Alice","labels":["urgent"],"priority":"High"}\'',
     });
     const issue = answer<readonly Issue[]>(await trackerJira(rich).issueList())[0];
     expect(Object.keys(issue).sort()).toEqual([
-      'body', 'closedAt', 'createdAt', 'id', 'status', 'statusCategory', 'title', 'url',
+      'assignees', 'body', 'closedAt', 'createdAt', 'id', 'status', 'statusCategory', 'title', 'url',
     ]);
   });
 
@@ -505,6 +510,7 @@ describe('the fixture stands in for a tracker that is there', () => {
     status: 'open',
     statusCategory: 'To Do',
     closedAt: null,
+    assignees: [],
   };
 
   it('answers every read the port defines', async () => {
@@ -540,5 +546,18 @@ describe('the fixture stands in for a tracker that is there', () => {
     // the opposite of what it means to.
     expect(await trackerFixture().issueList()).toEqual({ ok: true, value: [] });
     expect(await trackerNone().issueList()).toEqual({ ok: false, why: 'unaskable' });
+  });
+});
+
+describe('issueOf reads what the script said', () => {
+  it('reads an absent assignees key as []', () => {
+    expect(issueOf({ number: 1, title: 't', url: 'u' }).assignees).toEqual([]);
+  });
+
+  it('carries the script-reported assignees through unchanged', () => {
+    expect(issueOf({ number: 1, title: 't', url: 'u', assignees: ['alice', 'bob'] }).assignees).toEqual([
+      'alice',
+      'bob',
+    ]);
   });
 });

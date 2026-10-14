@@ -14,6 +14,7 @@ const issueWith = (over: Partial<Issue> = {}): Issue => ({
   status: '',
   statusCategory: '',
   closedAt: null,
+  assignees: [],
   ...over,
 });
 

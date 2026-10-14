@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { issueIndexFile } from '@plot-pm/domain/adapters';
-import { cadenceRateOf, ISSUE_INDEX_VERSION, type IssueIndex } from '@plot-pm/domain';
+import { cadenceRateOf, ISSUE_INDEX_VERSION, type Issue, type IssueIndex } from '@plot-pm/domain';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 
 import {
@@ -11,6 +11,7 @@ import {
   freshIssueState,
   issueGateOf,
   issueGateOpen,
+  issueIndexRowOf,
   refreshIssueIndex,
   type IssueState,
   type IssueWorld,
@@ -123,6 +124,34 @@ const heldIndex = (over: Partial<IssueIndex> = {}): IssueIndex => ({
   ],
   complete: true,
   ...over,
+});
+
+describe('issueIndexRowOf', () => {
+  const issue = (over: Partial<Issue> = {}): Issue => ({
+    id: '1',
+    title: 'one',
+    url: 'u1',
+    createdAt: null,
+    body: null,
+    status: '',
+    statusCategory: '',
+    closedAt: null,
+    assignees: [],
+    ...over,
+  });
+
+  it('writes both assignees of a two-assignee issue into the row', () => {
+    expect(issueIndexRowOf(issue({ assignees: ['alice', 'bob'] }))).toEqual({
+      number: '1',
+      title: 'one',
+      url: 'u1',
+      assignees: ['alice', 'bob'],
+    });
+  });
+
+  it('omits assignees where the tracker named none', () => {
+    expect(issueIndexRowOf(issue())).toEqual({ number: '1', title: 'one', url: 'u1' });
+  });
 });
 
 describe('one issue pass (Acceptance 2)', () => {

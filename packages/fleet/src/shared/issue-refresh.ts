@@ -77,6 +77,7 @@ export const issueIndexRowOf = (issue: Issue): IssueIndexRow => ({
   ...(issue.status === '' ? {} : { status: issue.status }),
   ...(issue.statusCategory === '' ? {} : { statusCategory: issue.statusCategory }),
   ...(issue.closedAt === null ? {} : { closedAt: issue.closedAt }),
+  ...(issue.assignees.length === 0 ? {} : { assignees: issue.assignees }),
 });
 
 const DAY_MS = 86_400_000;

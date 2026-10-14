@@ -15,7 +15,7 @@ import {
 const issue: Issue = {
   id: '226', title: 'the board tells the truth', url: 'https://host/issues/226',
   createdAt: '2026-08-20T09:00:00Z', body: null,
-  status: 'open', statusCategory: 'To Do', closedAt: null,
+  status: 'open', statusCategory: 'To Do', closedAt: null, assignees: [],
 };
 
 describe('an issue id is opaque', () => {

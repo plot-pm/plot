@@ -1694,7 +1694,7 @@ test('host: pr-state branch gives "" for an open PR on bitbucket', () => {
 test('host: issue-list github derives status from the --state it asks for', () => {
   const stubs = makeStubs({
     ghJson: JSON.stringify([
-      { number: 226, title: 'The board tells the truth', url: 'https://example.test/issues/226', createdAt: '2026-08-20T09:00:00Z' },
+      { number: 226, title: 'The board tells the truth', url: 'https://example.test/issues/226', createdAt: '2026-08-20T09:00:00Z', assignees: [] },
     ]),
   });
   const res = spawnSync('bash', [adapter, 'issue-list'], {
@@ -1706,7 +1706,7 @@ test('host: issue-list github derives status from the --state it asks for', () =
   assert.deepEqual(row, {
     number: 226, title: 'The board tells the truth',
     url: 'https://example.test/issues/226', createdAt: '2026-08-20T09:00:00Z',
-    status: 'open', statusCategory: 'To Do',
+    status: 'open', statusCategory: 'To Do', assignees: [],
   });
   // The projected status is the SAME word the call passed to `gh`, which is
   // what makes it derived rather than assumed.
@@ -1717,7 +1717,8 @@ test('host: issue-list github derives status from the --state it asks for', () =
 
 test('host: issue-list github asks gh for no tracker state beyond what it projects', () => {
   // The same refusal the Jira arm asserts, on the backend that makes it
-  // cheapest to breach: `--json assignees,labels` is one word away.
+  // cheapest to breach: `--json labels,priority` is one word away.
+  // `assignees` IS requested and projected — the one field this slice adds.
   const stubs = makeStubs({ ghJson: '[]' });
   spawnSync('bash', [adapter, 'issue-list'], {
     encoding: 'utf8',
@@ -1725,10 +1726,27 @@ test('host: issue-list github asks gh for no tracker state beyond what it projec
   });
   const argv = readFileSync(stubs.ghArgv, 'utf8').split('\n');
   const json = argv[argv.indexOf('--json') + 1];
-  assert.equal(json, 'number,title,url,createdAt');
-  for (const refused of ['assignees', 'labels', 'priority', 'milestone']) {
+  assert.equal(json, 'number,title,url,createdAt,assignees');
+  for (const refused of ['labels', 'priority', 'milestone']) {
     assert.ok(!json.includes(refused), `issue-list must not request ${refused}`);
   }
+});
+
+test('host: issue-list github prints assignees with zero, one and two logins', () => {
+  const stubs = makeStubs({
+    ghJson: JSON.stringify([
+      { number: 1, title: 'none', url: 'u1', createdAt: 'c1', assignees: [] },
+      { number: 2, title: 'one', url: 'u2', createdAt: 'c2', assignees: [{ login: 'alice' }] },
+      { number: 3, title: 'two', url: 'u3', createdAt: 'c3', assignees: [{ login: 'alice' }, { login: 'bob' }] },
+    ]),
+  });
+  const res = spawnSync('bash', [adapter, 'issue-list'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').map((line) => JSON.parse(line));
+  assert.deepEqual(rows.map((r) => r.assignees), [[], ['alice'], ['alice', 'bob']]);
 });
 
 // --- issue-view: one issue, with its body, and never a write ---------------
@@ -2975,45 +2993,46 @@ const JIRA_SEARCH_OK = JSON.stringify({
   ],
 });
 
-test('host: issue-list jira emits the {number,title,url,createdAt,status,statusCategory} contract, key as number', () => {
+test('host: issue-list jira emits the {number,title,url,createdAt,status,statusCategory,assignees} contract, key as number', () => {
   const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
   const res = runJira(['issue-list'], stub);
   assert.equal(res.status, 0, res.stderr);
   const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.deepEqual(rows, [
-    { number: 'PROJ-123', title: 'Tickets reach the inbox', url: 'https://acme.atlassian.net/browse/PROJ-123', createdAt: '2026-08-20T09:00:00.000+0000', status: 'Internal Approving', statusCategory: 'In Progress' },
-    { number: 'PROJ-99', title: 'An older ticket', url: 'https://acme.atlassian.net/browse/PROJ-99', createdAt: '2026-08-10T09:00:00.000+0000', status: 'To Do', statusCategory: 'To Do' },
+    { number: 'PROJ-123', title: 'Tickets reach the inbox', url: 'https://acme.atlassian.net/browse/PROJ-123', createdAt: '2026-08-20T09:00:00.000+0000', status: 'Internal Approving', statusCategory: 'In Progress', assignees: [] },
+    { number: 'PROJ-99', title: 'An older ticket', url: 'https://acme.atlassian.net/browse/PROJ-99', createdAt: '2026-08-10T09:00:00.000+0000', status: 'To Do', statusCategory: 'To Do', assignees: [] },
   ]);
   // `number` is the Jira KEY, a string — #447 taught plot-plan-meta.sh to read it.
   assert.equal(typeof rows[0].number, 'string');
 });
 
-test('host: issue-list jira asks for status and NOT the whole fields block', () => {
+test('host: issue-list jira asks for status and assignee, and NOT the whole fields block', () => {
   // The easy over-reach: `fields=*all`, or the whole Jira fields block, which
-  // would carry assignee, labels and priority into a domain that refuses them.
+  // would carry labels and priority into a domain that refuses them.
   // The entity's refusal survives this slice narrowly — its subject is a
-  // write-back loop, and a read of the status is not one — so the request must
-  // name exactly the fields the contract publishes.
+  // write-back loop, and a read of the status or assignee is not one — so the
+  // request must name exactly the fields the contract publishes.
   const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
   runJira(['issue-list'], stub);
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
   const fields = argv.find((l) => l.startsWith('fields='));
-  assert.equal(fields, 'fields=summary,created,status');
-  for (const refused of ['assignee', 'labels', 'priority', '*all', '*navigable']) {
+  assert.equal(fields, 'fields=summary,created,status,assignee');
+  for (const refused of ['labels', 'priority', '*all', '*navigable']) {
     assert.ok(!fields.includes(refused), `issue-list must not request ${refused}`);
   }
 });
 
-test('host: issue-list jira projects no tracker state beyond the two status keys', () => {
+test('host: issue-list jira projects no tracker state beyond the status keys and assignees', () => {
   // The same refusal on the OUTPUT side. A request that named only the right
   // fields could still be widened later; this asserts the projection's key set
-  // itself, so adding `assignee` to the entity fails here rather than shipping.
+  // itself, so adding `labels`/`priority` to the entity fails here rather than shipping.
   const body = JSON.stringify({
     issues: [{ key: 'PROJ-1', fields: {
       summary: 's', created: '2026-09-01T00:00:00.000+0000',
       status: { name: 'In Progress', statusCategory: { name: 'In Progress' } },
+      assignee: { emailAddress: 'alice@acme.test', accountId: 'acc-1' },
       // Present in the payload and deliberately NOT projected.
-      assignee: { displayName: 'Alice' }, labels: ['urgent'], priority: { name: 'High' },
+      labels: ['urgent'], priority: { name: 'High' },
     } }],
   });
   const stub = makeJiraCurlStub({ body });
@@ -3022,8 +3041,36 @@ test('host: issue-list jira projects no tracker state beyond the two status keys
   const row = JSON.parse(res.stdout.trim());
   assert.deepEqual(
     Object.keys(row).sort(),
-    ['createdAt', 'number', 'status', 'statusCategory', 'title', 'url'],
+    ['assignees', 'createdAt', 'number', 'status', 'statusCategory', 'title', 'url'],
   );
+});
+
+test('host: issue-list jira prints assignees with zero, one and two assignees', () => {
+  const body = JSON.stringify({
+    issues: [
+      { key: 'PROJ-1', fields: { summary: 'none', created: 'c1', status: {} } },
+      { key: 'PROJ-2', fields: { summary: 'one', created: 'c2', status: {}, assignee: { emailAddress: 'alice@acme.test', accountId: 'acc-1' } } },
+    ],
+  });
+  const stub = makeJiraCurlStub({ body });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(rows.map((r) => r.assignees), [[], ['alice@acme.test']]);
+});
+
+test('host: issue-list jira prints the accountId when the assignee hides their email', () => {
+  const body = JSON.stringify({
+    issues: [{ key: 'PROJ-1', fields: {
+      summary: 's', created: 'c', status: {},
+      assignee: { emailAddress: null, accountId: 'acc-hidden' },
+    } }],
+  });
+  const stub = makeJiraCurlStub({ body });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const row = JSON.parse(res.stdout.trim());
+  assert.deepEqual(row.assignees, ['acc-hidden']);
 });
 
 test('host: issue-list jira reports an absent status as "", never a guessed one', () => {
@@ -6870,14 +6917,14 @@ test('host: issue-list github --state closed searches by close date, asks no sor
   assert.equal(res.status, 0, res.stderr);
   assert.deepEqual(JSON.parse(res.stdout.trim()), {
     number: 7, title: 'Done thing', url: 'u', createdAt: '2026-08-01T00:00:00Z',
-    status: 'closed', statusCategory: 'Done', closedAt: '2026-09-02T10:00:00Z',
+    status: 'closed', statusCategory: 'Done', assignees: [], closedAt: '2026-09-02T10:00:00Z',
   });
   const argv = readFileSync(stubs.ghArgv, 'utf8').split('\n');
   assert.equal(argv[argv.indexOf('--state') + 1], 'closed');
   // GitHub search ignores `sort:closed-desc` (measured 2026-10-13), so no sort
   // qualifier is sent and the adapter sorts by `closedAt`.
   assert.equal(argv[argv.indexOf('--search') + 1], 'closed:>=2026-09-01T00:00:00Z');
-  assert.equal(argv[argv.indexOf('--json') + 1], 'number,title,url,createdAt,closedAt');
+  assert.equal(argv[argv.indexOf('--json') + 1], 'number,title,url,createdAt,assignees,closedAt');
 });
 
 test('host: issue-list github open rows carry no closedAt and ask for none', () => {
@@ -6944,14 +6991,14 @@ test('host: issue-list jira --state closed scopes by prefix, reads resolutiondat
   assert.deepEqual(lines, [
     {
       number: 'PROJ-5', title: 'Shipped', url: 'https://acme.atlassian.net/browse/PROJ-5',
-      createdAt: '2026-08-01T09:00:00.000+0000', status: 'Done', statusCategory: 'Done',
+      createdAt: '2026-08-01T09:00:00.000+0000', status: 'Done', statusCategory: 'Done', assignees: [],
       closedAt: '2026-09-02T10:00:00.000+0000',
     },
     { nextPageToken: 'tok-2' },
   ]);
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
   assert.ok(argv.includes('jql=assignee = currentUser() AND resolved >= "2026-09-01 08:30" AND project IN (PROJ) ORDER BY resolved DESC'));
-  assert.ok(argv.includes('fields=summary,created,status,resolutiondate'));
+  assert.ok(argv.includes('fields=summary,created,status,assignee,resolutiondate'));
   assert.ok(argv.includes('maxResults=100'));
   assert.ok(argv.includes('nextPageToken=tok-1'));
 });
@@ -6983,7 +7030,7 @@ test('host: issue-list jira open read is unchanged: no resolutiondate, no token 
   assert.ok(!res.stdout.includes('nextPageToken'), res.stdout);
   assert.ok(!('closedAt' in lines[0]));
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
-  assert.ok(argv.includes('fields=summary,created,status'));
+  assert.ok(argv.includes('fields=summary,created,status,assignee'));
   assert.ok(argv.includes('maxResults=50'));
 });
 
@@ -6999,7 +7046,7 @@ test('host: issue-list jira --paged open read asks 100 a page and prints the nex
   assert.deepEqual(lines.map((l) => l.number ?? l.nextPageToken), ['PROJ-1', 'tok-2']);
   assert.ok(!('closedAt' in lines[0]));
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
-  assert.ok(argv.includes('fields=summary,created,status'));
+  assert.ok(argv.includes('fields=summary,created,status,assignee'));
   assert.ok(argv.includes('maxResults=100'));
   assert.ok(argv.includes('nextPageToken=tok-1'));
 });

@@ -76,6 +76,17 @@ describe('an unreadable store is nothing to start from', () => {
   });
 });
 
+describe('a row with assignees', () => {
+  it('decodes a row that carries assignees and one that does not, at the same version', () => {
+    const withAssignees = store({
+      rows: [{ number: '1', title: 'A title', url: 'https://example.test/1', assignees: ['alice', 'bob'] }],
+    });
+    const withoutAssignees = store();
+    expect(decodeIssueIndex(encodeIssueIndex(withAssignees))).toEqual(withAssignees);
+    expect(decodeIssueIndex(encodeIssueIndex(withoutAssignees))).toEqual(withoutAssignees);
+  });
+});
+
 describe('the closed set', () => {
   const closed = {
     since: '2026-09-29T00:00:00.000Z',

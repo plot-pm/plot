@@ -18,17 +18,17 @@ export type IssueAnswer = z.infer<typeof IssueAnswerSchema>;
  * Identity: a natural key — an opaque string, which fails by the source lying.
  * State: derived, so it goes stale and is re-run.
  *
- * Carries only facts the tracker stated. Tracker state — assignee, labels,
- * priority — is deliberately absent: Plot never writes to the tracker, so a
- * mirrored field is wrong between refreshes and wrong forever after an outage.
+ * Carries only facts the tracker stated. Tracker state — labels, priority —
+ * is deliberately absent: Plot never writes to the tracker, so a mirrored
+ * field is wrong between refreshes and wrong forever after an outage.
  *
- * `status` and `statusCategory` are the NARROW exception, and the refusal
- * above still holds for the rest. What that refusal guards against is a
- * write-back loop — a field Plot mirrors and then edits — and reading a
- * status is not one. `title` is already mirrored and equally mutable, so the
- * line the refusal draws is between reading and writing rather than between
- * stated facts and derived ones. The status is what the board renders in
- * place of the `open` it used to assume for every issue.
+ * `status`, `statusCategory` and `assignees` are the NARROW exception, and
+ * the refusal above still holds for the rest. What that refusal guards
+ * against is a write-back loop — a field Plot mirrors and then edits — and
+ * reading one of these is not one. `title` is already mirrored and equally
+ * mutable, so the line the refusal draws is between reading and writing
+ * rather than between stated facts and derived ones. The status is what the
+ * board renders in place of the `open` it used to assume for every issue.
  */
 export interface Issue {
   /** The tracker's own identifier — opaque; equality only, no ordering or arithmetic. */
@@ -62,6 +62,12 @@ export interface Issue {
    * (Bitbucket, always).
    */
   closedAt: string | null;
+  /**
+   * The tracker's own logins or Jira accounts assigned to the issue — a read,
+   * like `status`. `[]` where the tracker states none, never where it was not
+   * asked.
+   */
+  assignees: string[];
 }
 
 /**

@@ -4630,7 +4630,7 @@ case "$op" in
       # `search/jql` takes the same params as v3 but returns
       # `summary`/`description` as plain strings.
       max="${limit:-50}"
-      fields="summary,created,status"
+      fields="summary,created,status,assignee"
       if [ "$state" = closed ]; then
         # THE CLOSED READ REQUIRES `Ticket prefixes` AND READS NOT PLOT_JIRA_JQL.
         # An unscoped `resolved >=` query reads the whole instance — the hazard
@@ -4679,7 +4679,7 @@ case "$op" in
           url: ($base + "/browse/" + .key),
           createdAt: (.fields.created // ""),
           status: (.fields.status.name // ""),
-          statusCategory: (.fields.status.statusCategory.name // "")
+          statusCategory: (.fields.status.statusCategory.name // ""), assignees: ([.fields.assignee.emailAddress // .fields.assignee.accountId] | map(select(. != null)))
         } + (if $state == "closed" then {closedAt: (.fields.resolutiondate // "")} else {} end)),
         (select($paged == "1") | (.nextPageToken // empty) | {nextPageToken: .})'
     elif [ "$be" = "github" ]; then
@@ -4699,14 +4699,14 @@ case "$op" in
       # keeps what closed since `$since`. GitHub search has no close-date sort
       # (`sort:closed-desc` was measured ignored, 2026-10-13), so the adapter
       # sorts by `closedAt`.
-      gh_json="number,title,url,createdAt"; search_args=()
+      gh_json="number,title,url,createdAt,assignees"; search_args=()
       [ "$gh_state" = open ] || { gh_json+=",closedAt"; search_args=(--search "closed:>=$since"); }
       if out="$(gh issue list --state "$gh_state" ${limit_args[@]+"${limit_args[@]}"} \
                   ${search_args[@]+"${search_args[@]}"} --json "$gh_json" 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
         jq -c --arg status "$gh_state" \
           '.[] | {number:.number,title:.title,url:(.url // ""),createdAt:(.createdAt // ""),
-                  status:$status,statusCategory:(if $status == "open" then "To Do" else "Done" end)}
+                  status:$status,statusCategory:(if $status == "open" then "To Do" else "Done" end),assignees:[.assignees[]?.login]}
                  + (if $status == "closed" then {closedAt:(.closedAt // "")} else {} end)' <<<"$out"
         # `gh` pages by 100 inside ONE process and the wrapper records one call
         # per process, so each page past the first is recorded here.
