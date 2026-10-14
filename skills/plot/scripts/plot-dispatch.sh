@@ -565,7 +565,7 @@ brief_present() { # $1 = branch → 0 if a usable brief exists on origin/<main>
 #
 # ABSENT IS NOT AN ERROR. A project with no `Brief command` behaves exactly as
 # it does today: the gate refuses, and the refusal now names WHY nothing was
-# called — `no-brief-command`, the shape `commission.ts` gives `no-idea-command`.
+# called — `no-brief-command`, the shape `idea.ts` gives `no-idea-command`.
 # `none` reads the same way as it does for `Worker command`: asked, and answered
 # "we write them by hand".
 brief_command() { # → the usable `Brief command`, or empty
@@ -577,7 +577,7 @@ brief_command() { # → the usable `Brief command`, or empty
 
 # Run the brief command for one branch, detached, and say what was done.
 #
-# DETACHED AND NOT WAITED ON, for the reason `commission.ts` gives: this is a
+# DETACHED AND NOT WAITED ON, for the reason `idea.ts` gives: this is a
 # `claude -p` session of unknown length, and a fan-out that blocks on one would
 # hold every later branch behind it. The dispatch run reports that it asked; the
 # brief lands in a later commit, and the NEXT dispatch of the same branch starts

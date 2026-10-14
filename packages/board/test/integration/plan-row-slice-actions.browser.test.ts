@@ -18,10 +18,10 @@ import { type AgentRow, type Fleet, type Slice } from '../../src/contract/schema
  * plan's row does NOT — its wave rows still render and still carry their own,
  * and a plan-row control would have to guess which wave it meant.
  *
- * This is the ADDITIONAL half of the plan: the plan-level acts Approve and
- * Commission (`data-plan-actions`, from PR #313's boundary) are unaffected by
- * the wave count — they reach the plan row whatever it is. `Start work` is a
- * wave act that rides ALONGSIDE them where there is one wave to act on.
+ * This is the ADDITIONAL half of the plan: the plan-level act Approve
+ * (`data-plan-actions`, from PR #313's boundary) is unaffected by
+ * the wave count — it reaches the plan row whatever it is. `Start work` is a
+ * wave act that rides ALONGSIDE it where there is one wave to act on.
  *
  * `/api/fleet` and `/api/board` are stubbed at the network boundary, the sibling
  * suites' pattern. Route callbacks are SYNCHRONOUS: the board polls on a timer
@@ -79,14 +79,14 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
 /** An Approved card for a plan, matched to a fleet row by `path` basename. */
 function approvedCard(slug: string, file: string) {
   return {
-    slug, title: slug, type: 'feature', phase: 'Approved', path: file, prs: [], controls: { approve: false, interrogate: false, commission: false, roundsBadge: false, dispatch: true, readyToStart: true },
+    slug, title: slug, type: 'feature', phase: 'Approved', path: file, prs: [], controls: { approve: false, interrogate: false, roundsBadge: false, dispatch: true, readyToStart: true },
   };
 }
 
 /**
  * The board a stub answers with. `dispatch` is available so a *Start work*
  * control is enabled; the cards are Approved (not Draft), so the plan head does
- * NOT offer Approve/Commission — this suite is about the WAVE act, and keeping
+ * NOT offer Approve — this suite is about the WAVE act, and keeping
  * the draft acts off keeps the two questions apart.
  */
 function board(over: Record<string, unknown> = {}) {
@@ -98,7 +98,6 @@ function board(over: Record<string, unknown> = {}) {
     approve: { available: true, reason: '' },
     continue: { available: false, reason: '' },
     idea: { available: false, reason: '' },
-    commission: { available: true, reason: '' },
     server: { restartCommand: '', port: 0 },
     ...over,
   };

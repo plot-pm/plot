@@ -8,7 +8,6 @@ import {
   type IssueRow,
 } from '../../../contract/schema.js';
 import { ApproveButton } from '../../components/ApproveButton.js';
-import { CommissionDesignButton } from '../../components/CommissionDesignButton.js';
 import { NeedsDesignButton } from '../../components/NeedsDesignButton.js';
 import { CreatePlanButton } from '../../components/CreatePlanButton.js';
 import {
@@ -439,8 +438,8 @@ export function BranchMenu({
   /** Whether the server will act on Implement — same binding as `dispatch`, used
       by WriteBriefButton for rows that need a brief. */
   implement?: DispatchInfo;
-  // No `approve`/`commission`: the two plan-level acts left the branch menu for
-  // the plan head (`PlanActions`), so this wrapper no longer forwards them.
+  // No `approve`: the plan-level act left the branch menu for the plan head
+  // (`PlanActions`), so this wrapper no longer forwards it.
   pulse: number;
   onStarting?: (active: boolean) => void;
   /** The row's cue is extinguished by acting, and the flag lives on the ROW —
@@ -508,10 +507,10 @@ export function RowActions({
   /** Whether the server will act on Implement — used by WriteBriefButton for
       rows that need a brief written before they can be dispatched. */
   implement?: DispatchInfo;
-  // NO `approve` OR `commission` HERE. Both were the branch row's twins of
-  // plan-level acts, and both moved to the plan head (`PlanActions`). A branch
-  // row's menu now carries only branch-level acts, so it neither takes the two
-  // plan bindings nor names their refusals.
+  // NO `approve` HERE. It was the branch row's twin of a plan-level act, and it
+  // moved to the plan head (`PlanActions`). A branch row's menu now carries only
+  // branch-level acts, so it neither takes the plan binding nor names its
+  // refusal.
   pulse: number;
   onStarting?: (active: boolean) => void;
   /**
@@ -829,15 +828,14 @@ export function RowActions({
               />
             </div>
           )}
-          {/* APPROVE AND COMMISSION DESIGN ARE NOT RENDERED HERE — both are
-              PLAN decisions and live on the plan head (`PlanActions`), not on a
-              branch row. A branch BLOCKED by an earlier slice reads
-              `waiting-on-you` when its plan is Draft, so any gate that kept
-              either here would put a plan-level act on a row whose own available
-              act is not its own — the very defect the row-level gates chased and
-              never caught. The plan head is *one board, two answers*: the plan
-              row offers Approve and Commission design; the branch rows beneath
-              keep Start work, Open/Review, the conflict dispatch and the reads. */}
+          {/* APPROVE IS NOT RENDERED HERE — it is a PLAN decision and lives on
+              the plan head (`PlanActions`), not on a branch row. A branch
+              BLOCKED by an earlier slice reads `waiting-on-you` when its plan is
+              Draft, so a gate that kept it here would put a plan-level act on a
+              row whose own available act is not its own — the very defect the
+              row-level gate chased and never caught. The plan row offers
+              Approve; the branch rows beneath keep Start work, Open/Review, the
+              conflict dispatch and the reads. */}
           {/* THE CONFLICT DISPATCH, moved here on 2026-08-18 from the stuck
               cell. Same route, same button, same guard — only its home changed.
 
@@ -1340,15 +1338,13 @@ export function DispatchAllButton({
 /**
  * The plan row's `⋯` menu — the plan's own acts, and the reason it is a menu.
  *
- * **Two answers to one question, both plan-level.** A Draft plan awaits a
- * person's decision, and there are exactly two: Approve hands it to development,
- * Commission design says it needs a spec, a spike or a tracer bullet first and
- * creates a Design-phase plan to hold that work. Both belong to the PLAN, and
- * the plan row — the row that NAMES the plan — is the only honest place for
- * either. Neither was ever right on a branch row: a branch BLOCKED by an earlier
- * slice reads `waiting-on-you` when its plan is Draft, so any branch-row gate put
- * a plan act on a row whose own available act is not its own. That is why the
- * two row-level twins are deleted, not merely re-gated, and why they live here.
+ * **One answer to one question, plan-level.** A Draft plan awaits a person's
+ * decision: Approve hands it to development. It belongs to the PLAN, and the
+ * plan row — the row that NAMES the plan — is the only honest place for it.
+ * It was never right on a branch row: a branch BLOCKED by an earlier slice
+ * reads `waiting-on-you` when its plan is Draft, so a branch-row gate put a
+ * plan act on a row whose own available act is not its own. That is why the
+ * row-level twin is deleted, not merely re-gated, and why it lives here.
  *
  * **An approved plan with eligible work offers Implement and Dispatch.** Both
  * are plan-level: Implement prepares one slice, Dispatch fans out all eligible
@@ -1368,17 +1364,14 @@ export function DispatchAllButton({
  * from. Sharing it would mean making every one of those optional to serve one
  * caller that wants none of them.
  *
- * **Each act states its own refusal, and the button opens if EITHER can act.**
- * Approve and Commission design carry separate bindings (`approve`,
- * `commission`), so one may act while the other is refused — the menu shows both
- * and each names its own reason where declined, because a refusal is not an
- * absence. Where the plan is simply not Draft there is no button at all.
+ * **Each act states its own refusal.** Approve names its own reason where
+ * declined, because a refusal is not an absence. Where the plan is simply not
+ * Draft there is no button at all.
  */
 export function PlanActions({
   plan,
   card,
   approve,
-  commission,
   deliver,
   implement,
   dispatch,
@@ -1413,29 +1406,20 @@ export function PlanActions({
   onStarting?: (active: boolean) => void;
   approve?: DispatchInfo;
   /**
-   * Whether the server will act on Commission design, and why not — the OTHER
-   * answer to a Draft plan, gated here exactly as Approve is. The same binding
-   * as `idea` (spawning a plot agent to write a plan is one authority), passed
-   * under its own name so the item states its own refusal and a later split of
-   * the two authorities changes one prop.
-   */
-  commission?: DispatchInfo;
-  /**
-   * Whether the server will act on Deliver, and why not — a THIRD act, and the
-   * one that answers a plan on the OTHER end of the lifecycle. Approve and
-   * Commission gate on a Draft plan; Deliver gates on a `deliverable` card (every
-   * non-deferred branch merged, not yet delivered). The two gates are disjoint,
-   * so a plan offers at most one class of act — but the menu that carries them is
-   * one, because a plan head has one `⋯`.
+   * Whether the server will act on Deliver, and why not — a SECOND act, and the
+   * one that answers a plan on the OTHER end of the lifecycle. Approve gates on
+   * a Draft plan; Deliver gates on a `deliverable` card (every non-deferred
+   * branch merged, not yet delivered). The two gates are disjoint, so a plan
+   * offers at most one class of act — but the menu that carries them is one,
+   * because a plan head has one `⋯`.
    */
   deliver?: DispatchInfo;
   /**
-   * Whether the server will act on Implement, and why not — the FOURTH act, and
-   * the complement of Dispatch on an approved plan. Approve and Commission gate
-   * on a Draft plan and Deliver on a `deliverable` card; Implement (with
-   * Dispatch) gates on eligible work. Passed under its own name so the item
-   * states its own refusal and a later split of the spawn authorities changes
-   * one prop.
+   * Whether the server will act on Implement, and why not — the THIRD act, and
+   * the complement of Dispatch on an approved plan. Approve gates on a Draft
+   * plan and Deliver on a `deliverable` card; Implement (with Dispatch) gates on
+   * eligible work. Passed under its own name so the item states its own refusal
+   * and a later split of the spawn authorities changes one prop.
    */
   implement?: DispatchInfo;
   /**
@@ -1459,13 +1443,10 @@ export function PlanActions({
   // is the single spelling of that rule. Two spellings drift — which is how the
   // branch menu and the card came to disagree in the first place.
   //
-  // Approve reads `controls.approve` (a `draft` or `design` plan) and
-  // Commission design reads `controls.needsDesign` (a `draft` plan only, the one
-  // state `server/commission.ts` accepts). Each then asks its OWN binding
-  // whether the server will act, below.
+  // Approve reads `controls.approve` (a `draft` or `design` plan), then asks
+  // its OWN binding whether the server will act, below.
   const isDraftPlan = Boolean(card && isDraft(card));
   const canApprove = Boolean(isDraftPlan && approve);
-  const canCommission = Boolean(card?.controls.needsDesign && commission);
   // Needs design reads `controls.needsDesign` (a `draft` plan only) and asks the
   // Approve binding whether the server will act: both are a local, same-origin act.
   const canNeedsDesign = Boolean(card?.controls.needsDesign && approve);
@@ -1482,12 +1463,10 @@ export function PlanActions({
   // (Dispatch).
   const hasEligible = hasEligibleWork(card);
   const approveWillAct = approve?.available ?? false;
-  const commissionWillAct = commission?.available ?? false;
-  // The DRAFT acts open the `⋯` only when one WILL act — a Draft plan with both
-  // bindings refused has nothing to show but a tooltip, which is the behaviour
+  // The DRAFT acts open the `⋯` only when one WILL act — a Draft plan with its
+  // binding refused has nothing to show but a tooltip, which is the behaviour
   // #160 settled and this must not disturb.
-  const draftWillAct =
-    (canApprove && approveWillAct) || (canCommission && commissionWillAct) || (canNeedsDesign && approveWillAct);
+  const draftWillAct = (canApprove && approveWillAct) || (canNeedsDesign && approveWillAct);
   // The APPROVED acts follow `DeliverButton`'s shape: the menu opens on an
   // eligible approved plan EVEN WHEN the server refuses or the route is missing.
   // Implement states its own refusal (no route yet); Dispatch states the server's.
@@ -1505,7 +1484,6 @@ export function PlanActions({
   // leads, so the sentence points at a real binding rather than a generic one.
   const refusalReason =
     (canApprove ? approve?.reason : undefined) ||
-    (canCommission ? commission?.reason : undefined) ||
     (canDeliver ? deliver?.reason : undefined) ||
     (hasEligible ? dispatch?.reason : undefined) ||
     `Cannot act on ${plan} from here`;
@@ -1583,11 +1561,6 @@ export function PlanActions({
           {canNeedsDesign && approveWillAct && approve && (
             <div role="menuitem" className="px-2 py-1 text-left">
               <NeedsDesignButton card={card} availability={approve} onActing={onApproving} />
-            </div>
-          )}
-          {canCommission && commissionWillAct && commission && (
-            <div role="menuitem" className="px-2 py-1 text-left">
-              <CommissionDesignButton card={card} commission={commission} onActing={onApproving} />
             </div>
           )}
           {/* Rendered whenever the plan is deliverable, EVEN WHEN the server

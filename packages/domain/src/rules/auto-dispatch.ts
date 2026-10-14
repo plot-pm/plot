@@ -675,7 +675,7 @@ export const firstBrieflessBranch = (
 /**
  * Why auto-dispatch dropped a plan from this pulse's candidates.
  *
- * A NAME A READER CAN ACT ON, following `commission.ts`'s `no-idea-command` and
+ * A NAME A READER CAN ACT ON, following `idea.ts`'s `no-idea-command` and
  * `plot-dispatch.sh:419`'s `no-brief-command`: an absent capability is a named
  * refusal, never an error.
  *

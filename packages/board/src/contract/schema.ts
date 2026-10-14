@@ -1263,20 +1263,6 @@ export const BoardSchema = z.object({
    */
   idea: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
-   * Whether "Commission design" will act — the fifth capability, and the twin of
-   * `idea`: both spawn a plot agent that writes a plan to this disk, so both
-   * answer the same localhost binding today. It stays its own field for the
-   * reason `approve` records — one flag for two capabilities is how they diverge
-   * when a later change makes only one of them local.
-   *
-   * Commission design is a decision about a Draft plan (the row already names
-   * it), so unlike `idea` it needs no tracker; the server checks the plan's own
-   * phase before spawning. Same default as the four above, for the same reason:
-   * an older server sends nothing and a newer client hides the control rather
-   * than offering one that 403s.
-   */
-  commission: DispatchInfoSchema.default({ available: false, reason: '' }),
-  /**
    * Whether "Interrogate" will act: it spawns a plot agent (`/plot-panel`) on a
    * Draft plan. Unlike its siblings this flag answers the config key as well as
    * the localhost binding — an absent or `none` `Interrogate command` reads
@@ -1288,23 +1274,23 @@ export const BoardSchema = z.object({
    */
   interrogate: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
-   * Whether "Slice this plan" will act — the sixth capability, twin of `idea`
-   * and `commission`: it spawns a plot agent (`/plot-reslice`) that rewrites a
-   * plan's `## Branches` on this disk, so it answers the same localhost binding
-   * they do. It stays its own field for the reason `approve`/`commission`
-   * record — one flag for two capabilities is how they diverge when a later
-   * change makes only one of them local. Same default as the five above: an
-   * older server sends nothing and a newer client hides the control rather than
-   * offering one that 403s.
+   * Whether "Slice this plan" will act — the fifth capability, twin of `idea`:
+   * it spawns a plot agent (`/plot-reslice`) that rewrites a plan's
+   * `## Branches` on this disk, so it answers the same localhost binding it
+   * does. It stays its own field for the reason `approve` records — one flag
+   * for two capabilities is how they diverge when a later change makes only one
+   * of them local. Same default as the five above: an older server sends
+   * nothing and a newer client hides the control rather than offering one that
+   * 403s.
    */
   reslice: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
-   * Whether "Deliver" will act — the seventh capability, twin of `idea`,
-   * `commission` and `reslice`: it spawns a plot agent (`/plot-deliver`) that
-   * flips a plan's phase on this disk, so it answers the same localhost binding
-   * they do. It stays its own field for the reason `approve`/`commission`/
-   * `reslice` record — one flag for two capabilities is how they diverge when a
-   * later change makes only one of them local.
+   * Whether "Deliver" will act — the sixth capability, twin of `idea` and
+   * `reslice`: it spawns a plot agent (`/plot-deliver`) that flips a plan's
+   * phase on this disk, so it answers the same localhost binding they do. It
+   * stays its own field for the reason `approve`/`reslice` record — one flag
+   * for two capabilities is how they diverge when a later change makes only one
+   * of them local.
    *
    * **It answers only half the question the control needs.** This field says
    * whether THIS BOARD can act; whether a given plan is *deliverable* — every
@@ -1312,32 +1298,31 @@ export const BoardSchema = z.object({
    * the pulse. A control that consulted this flag alone would offer Deliver on a
    * plan with an open branch, which `/plot-deliver` (and this route) refuses.
    *
-   * Same default as the six above: an older server sends nothing and a newer
+   * Same default as the five above: an older server sends nothing and a newer
    * client hides the control rather than offering one that 403s.
    */
   deliver: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
-   * Whether "Implement" will act — the eighth capability, twin of `idea`,
-   * `commission`, `reslice` and `deliver`: it spawns a plot agent
-   * (`/plot-implement`) that prepares an approved plan on this disk, so it
-   * answers the same localhost binding they do. It stays its own field for the
-   * reason `approve`/`commission`/`reslice` record — one flag for two
-   * capabilities is how they diverge when a later change makes only one of them
-   * local.
+   * Whether "Implement" will act — the seventh capability, twin of `idea`,
+   * `reslice` and `deliver`: it spawns a plot agent (`/plot-implement`) that
+   * prepares an approved plan on this disk, so it answers the same localhost
+   * binding they do. It stays its own field for the reason `approve`/`reslice`
+   * record — one flag for two capabilities is how they diverge when a later
+   * change makes only one of them local.
    *
    * **It answers only half the question the control needs.** This field says
    * whether THIS BOARD can act; whether a given plan has work to start — approved
    * and `sliceSummary.eligible > 0` — is `hasEligibleWork`, computed per plan.
    * The control gates on the card first, and reads this flag for its refusal.
    *
-   * Same default as the seven above: an older server sends nothing and a newer
+   * Same default as the six above: an older server sends nothing and a newer
    * client hides the control rather than offering one that 403s.
    */
   implement: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
-   * Whether "Drop this agent" will act — the ninth capability, and the simplest
+   * Whether "Drop this agent" will act — the eighth capability, and the simplest
    * of the write routes: it removes a registry manifest from this disk, nothing
-   * more. It answers the same localhost binding the eight above do — dropping is
+   * more. It answers the same localhost binding the seven above do — dropping is
    * a write, and the same boundary applies. It stays its own field for the reason
    * every flag above it records: one flag for two capabilities is how they diverge
    * when a later change makes only one of them local.
@@ -1347,12 +1332,12 @@ export const BoardSchema = z.object({
    * `waiting` — is checked by the endpoint itself. A row renders no Drop action
    * for a live worker, but the server refuses anyway if the client somehow asks.
    *
-   * Same default as the eight above: an older server sends nothing and a newer
+   * Same default as the seven above: an older server sends nothing and a newer
    * client hides the control rather than offering one that 403s.
    */
   drop: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
-   * Whether "Create story" will act — the TENTH capability, and the twin of
+   * Whether "Create story" will act — the NINTH capability, and the twin of
    * `idea`: it spawns a plot agent (`/story-tracking`) that writes a story to
    * this disk, so it answers the same localhost binding. It stays its own field
    * for the reason every flag above it records: one flag for two capabilities is

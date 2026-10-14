@@ -223,7 +223,7 @@ export interface AgentListProps {
    */
   idea?: DispatchInfo;
   /**
-   * Whether this server will act on `Create story`, and why not — the TENTH
+   * Whether this server will act on `Create story`, and why not — the NINTH
    * capability, and the ticket row's second action. Same binding as `idea` today
    * (both spawn a plot agent that writes to this disk), kept its own prop for
    * the reason every flag above it is: one flag for two capabilities is how they
@@ -236,47 +236,39 @@ export interface AgentListProps {
    */
   story?: DispatchInfo;
   /**
-   * Whether this server will act on `Commission design`, and why not — the
-   * PLAN row's second decision, beside Approve. Same binding as `idea` today
-   * (both spawn a plot agent), kept its own prop for the reason every capability
-   * flag above it is: one flag for two capabilities is how they diverge.
-   */
-  commission?: DispatchInfo;
-  /**
-   * Whether this server will act on `Slice this plan`, and why not — the sixth
+   * Whether this server will act on `Slice this plan`, and why not — the fifth
    * capability, reaching the `unsliced-wave` slice rows. Same binding as `idea`
-   * and `commission` today (all spawn a plot agent that writes to this disk),
-   * kept its own prop for the reason those are: one flag for two capabilities is
-   * how they diverge.
+   * today (both spawn a plot agent that writes to this disk), kept its own prop
+   * for the reason those are: one flag for two capabilities is how they diverge.
    */
   reslice?: DispatchInfo;
   /**
-   * Whether this server will act on `Deliver`, and why not — the seventh
+   * Whether this server will act on `Deliver`, and why not — the sixth
    * capability, reaching the PLAN rows whose card is `deliverable`. Same binding
-   * as `idea`, `commission` and `reslice` today (all spawn a plot agent that
-   * writes to this disk), kept its own prop for the reason those are: one flag
-   * for two capabilities is how they diverge. Read together with the card's
+   * as `idea` and `reslice` today (all spawn a plot agent that writes to this
+   * disk), kept its own prop for the reason those are: one flag for two
+   * capabilities is how they diverge. Read together with the card's
    * `deliverable` bit — this says the board can act, that says the plan is
    * complete enough to.
    */
   deliver?: DispatchInfo;
   /**
-   * Whether this server will act on `Implement`, and why not — the eighth
+   * Whether this server will act on `Implement`, and why not — the seventh
    * capability, reaching the PLAN rows with eligible work. Same binding as
-   * `idea`, `commission`, `reslice` and `deliver` today (all spawn a plot agent
-   * that writes to this disk), kept its own prop for the reason those are: one
-   * flag for two capabilities is how they diverge. Read together with the card's
+   * `idea`, `reslice` and `deliver` today (all spawn a plot agent that writes to
+   * this disk), kept its own prop for the reason those are: one flag for two
+   * capabilities is how they diverge. Read together with the card's
    * `hasEligibleWork` — this says the board can act, that says the plan has work
    * to start.
    */
   implement?: DispatchInfo;
   /**
-   * Whether this server will act on `Drop this agent`, and why not — the ninth
-   * capability, reaching agent rows in WAITING ON YOU. Unlike the eight above,
+   * Whether this server will act on `Drop this agent`, and why not — the eighth
+   * capability, reaching agent rows in WAITING ON YOU. Unlike the seven above,
    * this removes a manifest rather than spawning an agent: it is the board's
    * manual reconciliation for entries the automatic resolver cannot clear.
    *
-   * Same binding as the eight above (a write to this disk), kept its own prop
+   * Same binding as the seven above (a write to this disk), kept its own prop
    * for the reason those are: one flag for two capabilities is how they diverge.
    * The endpoint refuses a live worker regardless of this flag; this says the
    * board CAN act, the endpoint says whether it SHOULD on a given entry.
@@ -466,7 +458,6 @@ export function PlanRow({
   marked = false,
   card = null,
   approve,
-  commission,
   deliver,
   implement,
   pulse = 0,
@@ -527,9 +518,6 @@ export function PlanRow({
   card?: Card | null;
   /** Whether this server will act on Approve, and why not. */
   approve?: DispatchInfo;
-  /** Whether this server will act on Commission design — the plan head's OTHER
-      act, threaded through to `PlanActions` beside Approve. */
-  commission?: DispatchInfo;
   /** Whether this server will act on Deliver — the plan head's act on the OTHER
       end of the lifecycle, threaded to `PlanActions`, gated on the card's
       `deliverable` bit rather than on a Draft phase. */
@@ -883,7 +871,6 @@ export function PlanRow({
           plan={group.plan}
           card={card}
           approve={approve}
-          commission={commission}
           deliver={deliver}
           implement={implement}
           dispatch={dispatch}
@@ -1720,9 +1707,9 @@ export function Row({
   /** Whether this server will act on Implement — used by WriteBriefButton for
       rows that need a brief written before they can be dispatched. */
   implement?: DispatchInfo;
-  // No `approve`/`commission`: those are plan-level acts on the plan head
-  // (`PlanActions`), not on a branch/PR/release row. This row's menu carries
-  // only branch-level acts, so it needs neither binding.
+  // No `approve`: that is a plan-level act on the plan head (`PlanActions`),
+  // not on a branch/PR/release row. This row's menu carries only branch-level
+  // acts, so it needs no such binding.
   /** Whether this server will act on Continue with an answer. */
   continueWith?: DispatchInfo;
   /** The pulse counter, so a started row can watch for its own change. */

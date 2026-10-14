@@ -14,8 +14,8 @@ const read = (
 describe('boardHandBackKind', () => {
   it('names outcome for approve, deliver and auto-deliver, and written for every other role', () => {
     expect(['approve', 'deliver', 'auto-deliver'].map(boardHandBackKind)).toEqual(['outcome', 'outcome', 'outcome']);
-    expect(['idea', 'commission', 'reslice', 'story', 'brief', 'implement', 'interrogate'].map(boardHandBackKind)).toEqual(
-      Array(7).fill('written'),
+    expect(['idea', 'reslice', 'story', 'brief', 'implement', 'interrogate'].map(boardHandBackKind)).toEqual(
+      Array(6).fill('written'),
     );
   });
 });

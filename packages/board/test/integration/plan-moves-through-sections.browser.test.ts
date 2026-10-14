@@ -88,7 +88,6 @@ function board(over: Record<string, unknown> = {}) {
     approve: { available: true, reason: '' },
     continue: { available: false, reason: '' },
     idea: { available: false, reason: '' },
-    commission: { available: true, reason: '' },
     server: { restartCommand: '', port: 0 },
     ...over,
   };

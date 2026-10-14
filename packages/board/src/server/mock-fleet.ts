@@ -451,8 +451,8 @@ export const MOCK_KINDS = RowKindSchema.options;
  * `mockFleet` replaces `/api/fleet`. `/api/board` was left reading the real
  * repo, so the mock's invented plan (`fleet-scan-asks-the-host`) had no card,
  * `cardForPlanFile` returned null, and every control gated on a card silently
- * vanished: `Start work`, `Approve`, `Commission design`, and the plan row's
- * whole `⋯` menu. Measured 2026-08-20 — `[data-plan-actions]` count **0** on a
+ * vanished: `Start work`, `Approve`, and the plan row's whole `⋯` menu.
+ * Measured 2026-08-20 — `[data-plan-actions]` count **0** on a
  * mock whose entire purpose is showing what a row renders.
  *
  * That is the same class of defect as the four `kind: 'plan'` rows this file

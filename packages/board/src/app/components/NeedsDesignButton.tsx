@@ -10,7 +10,7 @@ import type { Card, DispatchInfo } from '../../contract/schema.js';
  * `Design:` record and an empty `## Spec` section. The board reads the result from
  * git on its next refresh, so a 202 settles the button without asserting the move.
  *
- * The interaction is `CommissionDesignButton`'s: the first click arms, the second
+ * The interaction is `ResliceButton`'s: the first click arms, the second
  * acts, and a click elsewhere or Escape cancels. The armed label names the
  * consequence.
  */

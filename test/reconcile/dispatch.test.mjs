@@ -535,7 +535,7 @@ test('dispatch: with no Brief command it refuses by name and calls nothing', () 
   const out = f.dispatch(['--offline', 'b'], { timeout: 30_000 });
 
   assert.match(out, /no-brief-command/,
-    `the refusal must name itself, the way commission.ts names no-idea-command:\n${out}`);
+    `the refusal must name itself, the way idea.ts names no-idea-command:\n${out}`);
   assert.match(out, /Brief command/, `it must name the key that is the fix:\n${out}`);
   assert.equal(f.workerStarted(), false, 'no brief still means no worker');
   const footer = out.split('\n').find((l) => l.startsWith('summary: ')) ?? '';

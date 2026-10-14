@@ -12,10 +12,10 @@ import { ideaAvailability, lastLines, usableCommand, type IdeaState } from './id
  * Interrogating a Draft plan: `POST /api/interrogate` runs the configured
  * `Interrogate command` with a prompt asking for `/challenge-the-plan <plan path>`.
  *
- * The shape is `commission.ts`'s: slug-scoped, Draft-only, a plot agent
- * started through the `agentRun` port and answered 202, and a slug-keyed
- * status read-back. The guards are imported from `dispatch.ts` and `idea.ts`,
- * not copied.
+ * The shape is `reslice.ts`'s: slug-scoped, Draft-only, a plot agent started
+ * through the `agentRun` port and answered 202, and a slug-keyed status
+ * read-back. The guards are imported from `dispatch.ts` and `idea.ts`, not
+ * copied.
  *
  * The route decides nothing. The skill writes five artifacts: the verdict
  * files, `panel.md`, the plan's `Rounds:` increment, the Open Points section in

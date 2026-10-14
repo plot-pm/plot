@@ -14,17 +14,19 @@ import { type AgentRow, type Fleet, type Board } from '../../src/contract/schema
  * the fleet's PLAN HEAD (`PlanActions`), the row that names the plan in WAITING
  * ON YOU — a different render entirely, and the one the defect lived in.
  *
- *   - a Draft plan's head offers BOTH Approve and Commission design — the pair
- *     catches the missing `commission` prop, which no UI-by-eye check would.
+ *   - a Draft plan's head offers BOTH Approve and Needs design — the pair
+ *     catches a missing binding, which no UI-by-eye check would. (Needs design
+ *     is `NeedsDesignButton`, posting to `/api/needs-design`; it replaced the
+ *     deleted Commission design button once the fleet started writing a Design
+ *     plan's spec automatically, leaving the board only the state move to make.)
  *   - NO branch or wave row offers either — including a branch BLOCKED by an
  *     earlier wave, the row a "re-gate on the section" fix looks correct on.
  *   - a Draft branch row's menu still offers Start work and Open — the guard on
  *     an over-broad deletion that would empty the menu.
  *
- * Written against TODAY'S code first and watched to fail for the stated reason:
- * before the fix the plan head took no `commission` prop and its `⋯` gated on
- * `approve.available` alone, so "offers both" failed on the missing Commission
- * item. A test that passes before the fix is evidence of nothing.
+ * Originally written against a plan head that took no `commission` prop and
+ * gated its `⋯` on `approve.available` alone, so "offers both" failed on the
+ * missing item — a test that passes before its fix is evidence of nothing.
  *
  * `/api/fleet` and `/api/board` are stubbed at the network boundary, the way the
  * sibling suites do it, so every claim is about what the tab RENDERS from a
@@ -64,7 +66,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     // `peas` — a Draft plan with two startable branches in one wave, so each
     // renders as its own row with its own `⋯` menu (a sole-branch wave folds its
     // menu onto the wave row). Its OWN menu keeps Start work and Open; it must
-    // not gain Approve or Commission.
+    // not gain Approve or Needs design.
     row({
       branch: 'feature/peas-a', plan: 'peas', planFile: 'p-peas.md',
       wave: 'w1', state: 'open', phase: 'Draft', group: 'not-started',
@@ -95,15 +97,16 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
 function draftCard(slug: string, file: string) {
   return {
     slug, title: slug, type: 'feature', phase: 'Discovery', path: file, prs: [],
-    controls: { approve: true, needsDesign: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false },
+    controls: { approve: true, needsDesign: true, interrogate: true, roundsBadge: true, dispatch: false, readyToStart: false },
   };
 }
 
 /**
- * The board a stub answers with. `approve` and `commission` are BOTH available,
- * so the plan head can offer both; the cards are Draft (`phase: Discovery`), so
- * `isDraft` holds and the head renders its acts. `peas` is Draft too, and Start
- * work is available so its branch row's own menu is enabled.
+ * The board a stub answers with. `approve` is available and the card's own
+ * `controls.needsDesign` holds, so the plan head can offer both; the cards are
+ * Draft (`phase: Discovery`), so `isDraft` holds and the head renders its acts.
+ * `peas` is Draft too, and Start work is available so its branch row's own menu
+ * is enabled.
  */
 function board(over: Record<string, unknown> = {}) {
   return {
@@ -114,7 +117,6 @@ function board(over: Record<string, unknown> = {}) {
     approve: { available: true, reason: '' },
     continue: { available: false, reason: '' },
     idea: { available: false, reason: '' },
-    commission: { available: true, reason: '' },
     server: { restartCommand: '', port: 0 },
     ...over,
   };
@@ -161,9 +163,9 @@ describe('the plan head carries the plan decisions, and no row does', () => {
     await btn.click();
   }
 
-  it('offers BOTH Approve and Commission design on a Draft plan head', async () => {
-    // The pair is the assertion. A missing `commission` prop leaves Approve alone
-    // and passes any test that only asks for Approve — so both are demanded, and
+  it('offers BOTH Approve and Needs design on a Draft plan head', async () => {
+    // The pair is the assertion. A missing binding leaves Approve alone and
+    // passes any test that only asks for Approve — so both are demanded, and
     // the plan head is where a control that could not render is finally rendered.
     const page = await open();
     try {
@@ -172,7 +174,7 @@ describe('the plan head carries the plan decisions, and no row does', () => {
       const menu = planHead(page, 'beans').locator('[role="menu"]');
       await expect.poll(() => menu.getByRole('button', { name: 'Approve' }).count()).toBe(1);
       await expect
-        .poll(() => menu.getByRole('button', { name: 'Commission design' }).count())
+        .poll(() => menu.getByRole('button', { name: 'Needs design' }).count())
         .toBe(1);
     } finally {
       await page.close();
@@ -185,7 +187,7 @@ describe('the plan head carries the plan decisions, and no row does', () => {
     // Draft. No branch row and no wave row may carry the plan-actions control —
     // the acts belong to the plan, and its head is the only honest place. This is
     // structural rather than click-driven: `data-plan-actions` is the ONLY DOM
-    // home for Approve and Commission on this tab (`PlanActions` renders both
+    // home for Approve and Needs design on this tab (`PlanActions` renders both
     // behind it), so proving it appears only on plan heads proves no branch or
     // wave row can offer either.
     const page = await open();
@@ -211,7 +213,7 @@ describe('the plan head carries the plan decisions, and no row does', () => {
   it('keeps Start work on a startable Draft branch row — the menu is not emptied', async () => {
     // The over-broad-deletion guard: removing the two plan acts must not take the
     // branch-level ones with them. `feature/peas-a` is startable, so its own menu
-    // offers Start work, and it must not gain Approve or Commission.
+    // offers Start work, and it must not gain Approve or Needs design.
     const page = await open();
     try {
       const peas = page.locator('li[data-agent-row]')
@@ -224,7 +226,7 @@ describe('the plan head carries the plan decisions, and no row does', () => {
         .toBeGreaterThanOrEqual(1);
       // And it does NOT carry the plan acts.
       expect(await menu.getByRole('button', { name: 'Approve' }).count()).toBe(0);
-      expect(await menu.getByRole('button', { name: 'Commission design' }).count()).toBe(0);
+      expect(await menu.getByRole('button', { name: 'Needs design' }).count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -245,7 +247,7 @@ describe('the plan head carries the plan decisions, and no row does', () => {
       await expect.poll(() => menu.locator('a[data-open-link]').count())
         .toBeGreaterThanOrEqual(1);
       expect(await menu.getByRole('button', { name: 'Approve' }).count()).toBe(0);
-      expect(await menu.getByRole('button', { name: 'Commission design' }).count()).toBe(0);
+      expect(await menu.getByRole('button', { name: 'Needs design' }).count()).toBe(0);
     } finally {
       await page.close();
     }

@@ -4,14 +4,14 @@
 // handler writes synchronously before it answers — the 202 body, the log file
 // it opens before spawning — never against output a spawned command produces.
 // The command these tests configure is `true`, which needs no budget at all.
-// The measured failure this avoids (see commission-route.test.ts): a 1 ms
+// The measured failure this avoids (see reslice-route.test.ts): a 1 ms
 // timeout that passed on macOS and lost on CI, and a teardown racing a detached
 // child.
 //
-// **This route composes no prompt file.** Unlike `/api/idea` and
-// `/api/commission`, `/plot-implement` takes only a slug and reads the plan
-// itself — so there is no prompt to assert on, and the raceless observable is
-// the log file the handler opens before it spawns.
+// **This route composes no prompt file.** Unlike `/api/idea`, `/plot-implement`
+// takes only a slug and reads the plan itself — so there is no prompt to assert
+// on, and the raceless observable is the log file the handler opens before it
+// spawns.
 import { afterEach, describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -196,9 +196,9 @@ describe('an action that cannot work is not offered', () => {
   });
 
   it('is unavailable off localhost, where the repo is not', () => {
-    // The capability flag answers the same localhost binding idea/commission/
-    // deliver do, but is its own named export, so the day preparing a plan needs
-    // a different precondition there is a seam for it.
+    // The capability flag answers the same localhost binding idea/deliver do,
+    // but is its own named export, so the day preparing a plan needs a
+    // different precondition there is a seam for it.
     assert.equal(implementAvailability('0.0.0.0').available, false);
     assert.match(implementAvailability('0.0.0.0').reason, /not localhost/);
     assert.equal(implementAvailability('localhost').available, true);

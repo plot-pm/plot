@@ -17,7 +17,7 @@ import { type Board, type Card } from '../../src/contract/schema.js';
  */
 const controls = (spikeState: string | null, over: Record<string, unknown> = {}) => ({
   approve: spikeState === null || spikeState === 'spike-merged',
-  needsDesign: false, interrogate: true, commission: false, roundsBadge: false,
+  needsDesign: false, interrogate: true, roundsBadge: false,
   dispatch: false, readyToStart: false,
   approveSpike: spikeState === 'spike-not-approved',
   confirmSlices: spikeState === 'spike-merged',
@@ -38,7 +38,6 @@ const board = (c: Card) => ({
   approve: { available: true, reason: '' },
   continue: { available: false, reason: '' },
   idea: { available: false, reason: '' },
-  commission: { available: true, reason: '' },
   interrogate: { available: true, reason: '' },
   server: { restartCommand: '', port: 0 },
 });

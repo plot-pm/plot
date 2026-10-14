@@ -7,8 +7,8 @@ import { controlsFor } from '../fixtures/card-controls.js';
 // default map does not know reads as an approved plan rather than throwing.
 describe('controlsFor', () => {
   it('reads a stated plan state before the column name', () => {
-    expect(controlsFor({ phase: 'Design', state: 'draft' }).commission).toBe(true);
-    expect(controlsFor({ phase: 'Design' }).commission).toBe(false);
+    expect(controlsFor({ phase: 'Design', state: 'draft' }).needsDesign).toBe(true);
+    expect(controlsFor({ phase: 'Design' }).needsDesign).toBe(false);
   });
 
   it('reads a column name outside the default map as an approved plan', () => {

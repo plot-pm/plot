@@ -37,7 +37,7 @@ Measured on `main` at `75f093cb9`, 2026-10-12.
 - `rules/phase.ts:41` `toBoardPhase` maps `draft` to Discovery, `design` to Design, `approved` to Development, `delivered` to Testing and `released` to Released, and `rejected` and `superseded` to `null`. `rules/phase.ts:72` `storyPhase` maps story `draft` to Discovery, `ready` to Design, `active` and `paused` to Development, `in-review` to Testing and `done` to Released. `rules/phase.ts:99` `rowPhase` composes `toBoardPhase`.
 - `packages/board/src/server/board.ts:2082-2117` moves a plan whose `planStatus` (`rules/phase.ts:147`) is `deliverable` into the column of `toBoardPhase('delivered')`.
 - Seven plan states exist: `draft`, `design`, `approved`, `delivered`, `released`, `rejected`, `superseded` (`transitions/plan.ts:22`, `entities/plan.ts:100-118`, `rules/phase-gate.ts:4-20`). `skills/plot/scripts/plot-plan-meta.sh:94` documents `design` as a phase of its own, and `:246` reads a `Design:` record.
-- No command writes `State: Design`. The state gate admits a change of `State:` only when a receipt for that path and value exists (`packages/board/src/server/entry/gate.ts:248-253`), and no command writes a receipt for `Design`, so a commit that changes `Draft` to `Design` in an existing plan is refused. `owningCommand` (`rules/state-transition.ts:93-105`) only builds the refusal text, which names `/plot-approve` and `/plot-deliver`. The board's *Commission design* route (`packages/board/src/server/commission.ts:136-177`) asks an agent to make that edit and to add an empty `## Spec` section.
+- `needs-design` writes `State: Design`, under its own receipt, and adds an empty `## Spec` section (`packages/domain/src/workflows/needs-design.ts`, `SPEC_PLACEHOLDER`). The state gate admits that change of `State:` because a receipt for that path and value exists (`packages/board/src/server/entry/gate.ts:248-253`). `owningCommand` (`rules/state-transition.ts:93-105`) builds the refusal text for every OTHER attempt, naming `/plot-approve` and `/plot-deliver`.
 - The board has three tabs, `stories`, `plans` and `agents` (`packages/board/src/app/App.tsx:118`, `?tab=`; `?tab=board` redirects to `plans`).
 - The tracker port lists open issues only (`ports/tracker.ts:108`). `Issue` carries no assignee and no closing date by stated design (`entities/issue.ts:21-23`), and the status write refuses to widen to a label or an assignee (`ports/tracker.ts:31-41`).
 - The fleet dispatches `approved` plans only (`rules/eligible.ts:43`) and treats `delivered` and `released` as finished (`rules/eligible.ts:61`).
@@ -140,7 +140,7 @@ A plan enters `State: Design` in two ways, and the fleet decides neither (D3):
 - **At creation.** A `/plot-idea` step after the two ceremony questions asks *"Does this plan carry significant design decisions?"* The answer is a `State:`, not a ceremony answer, so the ceremony questions stay at two. On yes the step writes `State: Design` and an empty `## Spec` section instead of `State: Draft`. A new file passes the state gate, because the gate admits a creation.
 - **Later.** A person runs the *Needs design* controller action on a Draft plan (the board shows it as a *Needs design* button). The action moves `Draft` to `Design`, writes a `Design:` record (`<date>, <who>, <channel>`, the shape of `Approved:`, in the field `plot-plan-meta.sh:246` already reads), and adds the empty `## Spec` section. Its bundle and endpoint write a state receipt for `Design` through `recordStateReceipt` (`server/entry/ladder.ts:64`), and that receipt admits the commit at the state gate. `owningCommand` gains a `design` arm that names the action in the refusal text; it admits nothing.
 
-An empty spec is a `## Spec` section that is absent or holds only the placeholder `_To be filled in during Design._`, which is the shape *Commission design* writes today (`commission.ts:136-177`).
+An empty spec is a `## Spec` section that is absent or holds only the placeholder `_To be filled in during Design._`, which is the shape `needs-design` writes today (`packages/domain/src/workflows/needs-design.ts`, `SPEC_PLACEHOLDER`).
 
 ### The spike
 
@@ -265,7 +265,7 @@ The fleet reads plan states and markers. It never reads a phase name (D12).
 
 ### In Design
 
-- **The spec.** For a plan in `State: Design` whose spec is empty, the fleet commissions an agent to write the spec (D10). This is today's *Commission design* agent, started by the fleet instead of a button, with a prompt that writes the spec instead of an empty section.
+- **The spec.** For a plan in `State: Design` whose spec is empty, the fleet commissions an agent to write the spec (D10), started by the fleet rather than a person, with a prompt that writes the spec instead of an empty section.
 - **The spike.** After a person approves a spike, the fleet dispatches it (D10). Automatic dispatch reads the `Spike approved:` record and the `spike` marker as the eligibility of that one slice.
 - **The approval stays a person's act** (D10). The fleet approves no spike and no plan.
 

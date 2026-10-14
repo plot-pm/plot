@@ -38,11 +38,12 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, '..', '..');
 const serverDir = path.join(repoRoot, 'packages', 'board', 'src', 'server');
 
-// `brief-ask` and `auto-deliver` moved to the fleet package with the automatic writes; `implement` moved as `implement-run` with the command entries.
+// `brief-ask` and `auto-deliver` moved to the fleet package with the automatic writes; `implement` moved as `implement-run` with the command entries; `auto-design` writes a Design plan's spec automatically and has no board route at all.
 const FLEET_SITES = new Map([
   ['brief-ask', 'brief-ask'],
   ['auto-deliver', 'auto-deliver'],
   ['implement', 'implement-run'],
+  ['auto-design', 'auto-design'],
 ]);
 const source = (file) =>
   readFileSync(
@@ -55,7 +56,6 @@ const source = (file) =>
 /** The ten board-role sites; each starts its agent through `startBoardRun`. */
 const SITES = [
   'idea',
-  'commission',
   'reslice',
   'deliver',
   'story',
@@ -64,6 +64,7 @@ const SITES = [
   'interrogate',
   'approve',
   'auto-deliver',
+  'auto-design',
 ];
 
 for (const file of SITES) {

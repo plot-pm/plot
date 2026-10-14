@@ -26,8 +26,8 @@ import { readConfig, type ConfigReadOptions } from './config-reader.js';
  * The plan asked for this: Implement is "read the way `Idea command` and
  * `Worker command` already are". It is its own capability — a repo may want a
  * different runner for *prepare a plan* than for *create one* — and the repo's
- * standing rule is one capability, one key. `/api/commission` reuses
- * `Idea command` because commissioning IS the idea binding (the same agent that
+ * standing rule is one capability, one key. `/api/reslice` reuses
+ * `Idea command` because reslicing IS the idea binding (the same agent that
  * turns an issue into a Draft); preparing an approved plan is a different act,
  * so it gets a different key rather than borrowing one that would then answer
  * for two.

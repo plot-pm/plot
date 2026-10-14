@@ -19,7 +19,6 @@ import { implementLogPath } from '../../src/server/implement.js';
 import { approveLogPath } from '../../src/server/approve.js';
 import { ideaLogPath, ideaPromptPath } from '../../src/server/idea.js';
 import { storyLogPath, storyPromptPath } from '../../src/server/story.js';
-import { commissionLogPath, commissionPromptPath } from '../../src/server/commission.js';
 import { resliceLogPath } from '../../src/server/reslice.js';
 import { rmTree } from '../helpers.mjs';
 
@@ -116,8 +115,6 @@ describe('the nine modules ask the resolver', () => {
     ['implementLogPath', implementLogPath(repoRoot, 'my-slug'), 'plot-implement-my-slug.log'],
     ['approveLogPath', approveLogPath(repoRoot, 'my-slug'), 'plot-approve-my-slug.log'],
     ['resliceLogPath', resliceLogPath(repoRoot, 'my-slug'), 'plot-reslice-my-slug.log'],
-    ['commissionLogPath', commissionLogPath(repoRoot, 'my-slug'), 'plot-commission-my-slug.log'],
-    ['commissionPromptPath', commissionPromptPath(repoRoot, 'my-slug'), 'plot-commission-my-slug.prompt.md'],
     ['ideaLogPath', ideaLogPath(repoRoot, 333), 'plot-idea-issue-333.log'],
     ['ideaPromptPath', ideaPromptPath(repoRoot, 333), 'plot-idea-issue-333.prompt.md'],
     ['storyLogPath', storyLogPath(repoRoot, 333), 'plot-story-issue-333.log'],

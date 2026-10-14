@@ -113,7 +113,7 @@ const modelOf = (argv: string[]): string | undefined => {
 };
 
 describe('one run per role through the SDK path', () => {
-  const written = ['idea', 'commission', 'reslice', 'story', 'brief', 'implement', 'interrogate'];
+  const written = ['idea', 'reslice', 'story', 'brief', 'implement', 'interrogate'];
   const outcome = ['approve', 'deliver', 'auto-deliver'];
 
   for (const role of written) {

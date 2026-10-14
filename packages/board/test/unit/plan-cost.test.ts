@@ -257,7 +257,7 @@ describe('the badge a reader sees', () => {
   const card = (over: Partial<Card> = {}): Card => ({
     slug: 'x', title: 'X', type: 'feature', phase: 'Development',
     path: 'docs/plans/2026-09-16-x.md', prs: [], phaseDate: '',
-    controls: { approve: false, needsDesign: false, interrogate: false, commission: false, roundsBadge: false, dispatch: true, readyToStart: false }, ...over,
+    controls: { approve: false, needsDesign: false, interrogate: false, roundsBadge: false, dispatch: true, readyToStart: false }, ...over,
   });
   const cost = (over: Partial<NonNullable<Card['cost']>> = {}): Card['cost'] => ({
     tokens: {

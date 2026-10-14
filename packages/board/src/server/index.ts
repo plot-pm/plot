@@ -33,7 +33,6 @@ import { handleRelease, releaseStatus } from './release.js';
 import { handleNeedsDesign } from './needs-design.js';
 import { handleIdea, ideaAvailability, ideaStatus } from './idea.js';
 import { handleStory, storyAvailability, storyStatus } from './story.js';
-import { commissionAvailability, commissionStatus, handleCommission } from './commission.js';
 import { handleInterrogate, interrogateAvailability, interrogateStatus } from './interrogate.js';
 import { handleReslice, resliceAvailability, resliceStatus } from './reslice.js';
 import { handleDeliver, deliverAvailability, deliverStatus } from './deliver.js';
@@ -297,26 +296,16 @@ async function handleRequest(
     // day from the prompt. What is gone is the claim that no such route could
     // exist; the refusals that remain are CONDITIONAL and name their key.
     { path: '/api/story', verb: 'creating a story', handle: handleStory },
-    // POST /api/commission — a Draft plan is moved into phase Design.
-    //
-    // The same class of route as /api/idea, and the same binding: it spawns a
-    // plot agent that writes to this disk. It is SLUG-scoped rather than
-    // issue-scoped — it acts on the Draft plan the row already names — and it
-    // asks the plan's own phase (through `plot-plan-meta.sh`) whether it is a
-    // Draft before spawning, because commissioning design is a decision about a
-    // Draft exactly as Approve is. It ships the `Design` phase minimally rather
-    // than as a refusal: #259 landed the phase and nothing filled it.
-    { path: '/api/commission', verb: 'commissioning design', handle: handleCommission },
     // POST /api/interrogate — a Draft plan is sent to /plot-panel.
     //
-    // The same class of route as /api/commission and the same binding: it spawns
+    // The same class of route as /api/idea and the same binding: it spawns
     // a plot agent. SLUG-scoped and Draft-only, and it refuses while a panel for
     // the same plan is still running. It writes nothing to the plan: the skill
     // records the verdicts, `panel.md` and the `Rounds:` increment.
     { path: '/api/interrogate', verb: 'interrogating a plan', handle: handleInterrogate },
     // POST /api/reslice — a plan's tangled slice is sliced into one slice per branch.
     //
-    // The same class of route as /api/commission, and the same binding: it
+    // The same class of route as /api/interrogate, and the same binding: it
     // spawns a plot agent that writes to this disk. It is SLUG-scoped — it acts
     // on the plan the `unsliced-wave` row already names — and it asks the plan's
     // own slices (through `plot-plan-meta.sh`) whether one holds more than one
@@ -484,7 +473,6 @@ async function handleRequest(
         approve: approveAvailability(HOST),
         continue: continueAvailability(HOST),
         idea: ideaAvailability(HOST),
-        commission: commissionAvailability(HOST),
         interrogate: interrogateAvailability(HOST, opts),
         reslice: resliceAvailability(HOST),
         deliver: deliverAvailability(HOST),
@@ -792,24 +780,10 @@ async function handleRequest(
     return;
   }
 
-  // What happened to a commission somebody asked for — the same read-it-back
-  // shape `/api/idea/<number>` has, slug-keyed. A commission moves no row until
-  // its plan's phase changes, so the button watches this for the command's own
-  // words on a refusal.
-  if (url.pathname.startsWith('/api/commission/')) {
-    const slug = url.pathname.slice('/api/commission/'.length);
-    res.writeHead(SLUG_RE.test(slug) ? 200 : 400, { 'Content-Type': 'application/json' });
-    res.end(
-      SLUG_RE.test(slug)
-        ? JSON.stringify(commissionStatus(opts, slug))
-        : JSON.stringify({ error: 'slug must be a plan slug' }),
-    );
-    return;
-  }
-
-  // What happened to an interrogation somebody asked for — slug-keyed, like
-  // `/api/commission/<slug>`. The Interrogate button reads it to know whether a
-  // panel is already running for its plan, and to surface a failure.
+  // What happened to an interrogation somebody asked for — the same
+  // read-it-back shape `/api/idea/<number>` has, slug-keyed. The Interrogate
+  // button reads it to know whether a panel is already running for its plan,
+  // and to surface a failure.
   if (url.pathname.startsWith('/api/interrogate/')) {
     const slug = url.pathname.slice('/api/interrogate/'.length);
     res.writeHead(SLUG_RE.test(slug) ? 200 : 400, { 'Content-Type': 'application/json' });
@@ -822,7 +796,7 @@ async function handleRequest(
   }
 
   // What happened to a reslice somebody asked for — the same read-it-back shape
-  // `/api/commission/<slug>` has, slug-keyed. Because `/plot-reslice` asks
+  // `/api/interrogate/<slug>` has, slug-keyed. Because `/plot-reslice` asks
   // before it writes, a reslice may move no row at all, so the button watches
   // this for the command's own words on a refusal.
   if (url.pathname.startsWith('/api/reslice/')) {

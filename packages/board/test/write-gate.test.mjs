@@ -52,14 +52,11 @@ const WRITE_ROUTES = [
   // TABLE and this test reads that table back out of the artifact: a write route
   // absent from this list fails the coverage assertion below.
   { path: '/api/story', body: { number: 1 } },
-  // Commission design spawns a plot agent that writes a plan to this disk — the
-  // same class of write as /api/idea, and gated by the same loopback boundary.
-  { path: '/api/commission', body: { slug: 'ship-the-widget' } },
   // Interrogate spawns a plot agent (/plot-panel) on a Draft plan — the same
-  // class of write as /api/commission, and gated by the same loopback boundary.
+  // class of write as /api/idea, and gated by the same loopback boundary.
   { path: '/api/interrogate', body: { slug: 'ship-the-widget' } },
   // Reslice spawns a plot agent that slices a plan's tangled wave into one wave
-  // per branch — the same class of write as /api/commission, and gated by the
+  // per branch — the same class of write as /api/interrogate, and gated by the
   // same loopback boundary. Added here because the router dispatches from a
   // TABLE and this test reads that table back out of the artifact: a write route
   // absent from this list fails the coverage assertion below.

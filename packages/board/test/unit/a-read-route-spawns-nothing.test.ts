@@ -47,8 +47,8 @@ import {
  *
  * **The write routes are NOT in the population, and that is a decision rather
  * than an omission.** `idea.ts` (7 spawns), `deliver.ts` (3), `dispatch.ts` (3),
- * `reslice.ts` (3), `continue.ts` (3), `transition.ts` (2), `approve.ts` (2),
- * `commission.ts` (1) belong to `production-calls-the-domain-one-rule-at-a-time`.
+ * `reslice.ts` (3), `continue.ts` (3), `transition.ts` (2), `approve.ts` (2)
+ * belong to `production-calls-the-domain-one-rule-at-a-time`.
  * A write route blocking for two seconds is a button that feels slow to one
  * person; a read-path spawn blocked every request in flight.
  *

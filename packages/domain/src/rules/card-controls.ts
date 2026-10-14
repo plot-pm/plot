@@ -9,7 +9,6 @@ export const CardControlsSchema = z.object({
   approve: z.boolean(),
   needsDesign: z.boolean().default(false),
   interrogate: z.boolean(),
-  commission: z.boolean(),
   roundsBadge: z.boolean(),
   dispatch: z.boolean(),
   readyToStart: z.boolean(),
@@ -40,9 +39,8 @@ export interface CardControlsReadings {
  * The controls a plan card offers.
  *
  * `approve` and `interrogate` hold on the `draft` and `design` states.
- * `needsDesign`, `commission` and `roundsBadge` hold on the `draft` state only: the commission
- * command refuses every other state, and the interrogation-rounds badge shows
- * on a Draft card only. `dispatch` holds where `status` is `approved` or `in-progress`. `readyToStart` holds where
+ * `needsDesign` and `roundsBadge` hold on the `draft` state only: the
+ * interrogation-rounds badge shows on a Draft card only. `dispatch` holds where `status` is `approved` or `in-progress`. `readyToStart` holds where
  * `dispatch` holds and the plan records no `Started:` entry.
  *
  * A control answers whether the card renders the button. It does not answer
@@ -78,7 +76,6 @@ export const cardControls = (readings: CardControlsReadings): CardControls => {
     approve: underReview && !waits,
     needsDesign: draft,
     interrogate: underReview,
-    commission: draft,
     roundsBadge: draft,
     dispatch,
     readyToStart: dispatch && !readings.started,

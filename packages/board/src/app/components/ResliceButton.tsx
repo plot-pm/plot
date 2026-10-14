@@ -13,11 +13,10 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
  * a person before it rewrites the plan's `## Branches`. This control spawns that
  * command; it does not itself change the plan.
  *
- * The interaction is `CommissionDesignButton`'s, to the letter and deliberately:
- * arm on the first click, act on the second, cancel on a click elsewhere or
- * Escape. It spawns a plot agent — the same class of act as Commission design
- * and Create plan — and controls on one board that confirmed differently would
- * be things to learn twice. The armed label names the CONSEQUENCE
+ * The interaction: arm on the first click, act on the second, cancel on a click
+ * elsewhere or Escape. It spawns a plot agent — the same class of act as Create
+ * plan — and controls on one board that confirmed differently would be things
+ * to learn twice. The armed label names the CONSEQUENCE
  * (`spawns /plot-reslice for <slug>?`), because what the click starts is the
  * part a reader needs before committing to it.
  *
@@ -83,7 +82,7 @@ export function ResliceButton({ slug, reslice, onActing }: ResliceButtonProps) {
 
   // Announce the transition, and always announce the way back out — including on
   // unmount, or a menu that closes mid-reslice leaves the board polling fast
-  // forever. Same rule as CommissionDesignButton's `onActing`.
+  // forever. Same rule as DeliverButton's `onActing`.
   useEffect(() => {
     if (!running || !onActing) return;
     onActing(true);
@@ -158,7 +157,7 @@ export function ResliceButton({ slug, reslice, onActing }: ResliceButtonProps) {
         headers: { 'Content-Type': 'application/json' },
         // THE SLUG, AND NOTHING ELSE. The server reads the plan from disk and
         // checks its own slices, so no text this page holds becomes the plan an
-        // agent acts on — the same rule Commission design follows.
+        // agent acts on — the same rule Deliver follows.
         body: JSON.stringify({ slug }),
         signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });

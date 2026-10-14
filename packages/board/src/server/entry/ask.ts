@@ -150,7 +150,7 @@ export const askOnce = async (
  */
 export const askedWithoutTransport = (board: Board): boolean =>
   board.server.port === 0 &&
-  (['dispatch', 'approve', 'continue', 'idea', 'commission',
+  (['dispatch', 'approve', 'continue', 'idea',
     'reslice', 'deliver', 'implement', 'drop', 'story'] as const)
     .every((flag) => !board[flag].available && board[flag].reason === '');
 

@@ -17,9 +17,9 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
  *
  * The interaction is `ResliceButton`'s, to the letter and deliberately: arm on
  * the first click, act on the second, cancel on a click elsewhere or Escape. It
- * spawns a plot agent — the same class of act as Slice this plan and Commission
- * design — and controls on one board that confirmed differently would be things
- * to learn twice. The armed label names the CONSEQUENCE
+ * spawns a plot agent — the same class of act as Slice this plan — and controls
+ * on one board that confirmed differently would be things to learn twice. The
+ * armed label names the CONSEQUENCE
  * (`spawns /plot-deliver for <slug>?`), because what the click starts is the
  * part a reader needs before committing to it.
  *

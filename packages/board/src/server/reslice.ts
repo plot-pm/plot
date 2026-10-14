@@ -16,16 +16,15 @@ import {
 } from './idea.js';
 
 /**
- * Reslicing a plan whose slice holds several branches — the board's SIXTH
- * state-changing route, and the third that spawns a plot agent to make a
+ * Reslicing a plan whose slice holds several branches — the board's FIFTH
+ * state-changing route, and the second that spawns a plot agent to make a
  * judgement the board cannot make itself.
  *
- * **It is the sibling of `/api/commission`, not a new mechanism.** Commission
- * takes a Draft plan and moves it into Design; this takes a plan whose
- * `## Branches` holds a slice of several branches and asks `/plot-reslice` to cut
- * it into one slice per branch. Both are SLUG-scoped — the request names an
- * existing plan file, and the plan's text comes from disk, never from the
- * caller — and both refuse to act until a cheap, mechanical precondition holds.
+ * **It takes a plan whose `## Branches` holds a slice of several branches and
+ * asks `/plot-reslice` to cut it into one slice per branch.** It is SLUG-scoped
+ * — the request names an existing plan file, and the plan's text comes from
+ * disk, never from the caller — and refuses to act until a cheap, mechanical
+ * precondition holds.
  *
  * **What the agent produces is a sliced plan, and the board writes NONE of it.**
  * `/plot-reslice` reads the branches' diffs and PRs, proposes one named slice per
@@ -43,7 +42,7 @@ import {
  * `idea.ts` — for the reason every write route states: a second copy of a
  * security decision is a second place for it to be weakened. This spawns a
  * process on the machine the board runs on, so it is deliberately the same
- * shape as the five beside it and not a sixth one.
+ * shape as the four beside it and not a fifth one.
  */
 
 /**
@@ -66,9 +65,9 @@ export function resliceAvailability(host: string): { available: boolean; reason:
 /**
  * Where the reslice prompt is written inside the repo, and why it is a FILE.
  *
- * The same safety property `idea.ts` and `commission.ts` document: `Idea
- * command` is a shell FRAGMENT run through `sh -c`, so anything interpolated
- * into it is shell source. The prompt travels as a file and its PATH travels in
+ * The same safety property `idea.ts` documents: `Idea command` is a shell
+ * FRAGMENT run through `sh -c`, so anything interpolated into it is shell
+ * source. The prompt travels as a file and its PATH travels in
  * the environment, so no part of the plan text ever becomes a shell word. Keyed
  * by slug so two clicks on two rows cannot overwrite each other's prompt, and so
  * the file left behind says which plan it was for.
@@ -126,13 +125,13 @@ export interface ResliceOptions extends BuildBoardOptions {
 /**
  * The plan file a slug names, resolved the way `plot-approve.sh` resolves it.
  *
- * A PRIVATE copy of `transition.ts`'s `resolvePlanBySlug` rather than an import,
- * for the reason `commission.ts` states about its own copy: that module does not
- * export it, and this route needs the same two candidates in the same order (the
- * active index first, then the date-prefixed file in the plan directory) so that
- * the slices it reads back belong to the file the resliced agent will act on.
- * Reaching across to export it there would edit a module another worker owns; a
- * four-line copy that agrees by construction is the smaller change.
+ * A PRIVATE copy of `transition.ts`'s `resolvePlanBySlug` rather than an import:
+ * that module does not export it, and this route needs the same two candidates
+ * in the same order (the active index first, then the date-prefixed file in
+ * the plan directory) so that the slices it reads back belong to the file the
+ * resliced agent will act on. Reaching across to export it there would edit a
+ * module another worker owns; a four-line copy that agrees by construction is
+ * the smaller change.
  */
 function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null {
   const repoRoot = opts.repoRoot;
@@ -309,7 +308,7 @@ export interface ResliceDeps {
  * Handle `POST /api/reslice` — refuse, or write the prompt and spawn the agent
  * that slices a tangled slice into one slice per branch.
  *
- * Detached and answered 202 immediately, for the reason `/api/commission`
+ * Detached and answered 202 immediately, for the reason `/api/approve`
  * documents: this server is single-threaded, and awaiting an agent would freeze
  * every viewer's board. The outcome is read back from the status route; and
  * because `/plot-reslice` ASKS before it writes, a click here does not
@@ -441,7 +440,7 @@ export async function handleReslice(
   try {
     // Truncated, not appended — this log is read back AS the answer, and an
     // appended one would show a previous attempt's error after a later success.
-    // The same choice `commission.ts` makes, for the same reason.
+    // The same choice `idea.ts` makes, for the same reason.
     // The run appends to it; this write is also the 500-on-unwritable-log check.
     fs.rmSync(statePath, { force: true });
     fs.writeFileSync(log, '', 'utf8');
@@ -463,7 +462,7 @@ export async function handleReslice(
     tree: opts.repoRoot,
     prompt: `Read ${promptPath} and follow it.`,
     env: {
-      // THE DECLARATION, not a switch — the same one `commission.ts` sets.
+      // THE DECLARATION, not a switch — the same one `idea.ts` sets.
       // /plot-reslice unattended must STOP at the order it cannot choose
       // alone; setting this makes that skipped question name itself in the
       // log rather than the agent improvising a slice.

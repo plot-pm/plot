@@ -95,7 +95,7 @@ describe('the controller answers without a server', () => {
       // controller supplies no transport ANSWER": every flag refuses, and the
       // refusals carry no reason because the walker has nothing to say about a
       // socket it never saw.
-      for (const flag of ['dispatch', 'approve', 'continue', 'idea', 'commission',
+      for (const flag of ['dispatch', 'approve', 'continue', 'idea',
         'interrogate', 'reslice', 'deliver', 'implement', 'drop', 'story'] as const) {
         assert.deepEqual(
           answer[flag], { available: false, reason: '' },

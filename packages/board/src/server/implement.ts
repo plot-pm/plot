@@ -48,13 +48,13 @@ import { localCapability } from './controllers/caller.js';
  * and has no default a server can compute.
  *
  * **It composes no prompt file, and that is the one way it differs from its
- * siblings.** `/api/idea` and `/api/commission` write a file because their
- * input is untrusted free text — an issue body, a plan's prose — that must
- * never become a shell word. `/plot-implement` takes only a SLUG: it reads the
- * plan itself from disk, so there is no operator text to carry. The slug is
- * `SLUG_RE`-bounded and travels as ONE argument via `"$@"`, so nothing a page
- * supplies is interpolated into the command string either. A file would be
- * ceremony guarding against a value that is already a plan slug.
+ * siblings.** `/api/idea` writes a file because its input is untrusted free
+ * text — an issue body, a plan's prose — that must never become a shell word.
+ * `/plot-implement` takes only a SLUG: it reads the plan itself from disk, so
+ * there is no operator text to carry. The slug is `SLUG_RE`-bounded and
+ * travels as ONE argument via `"$@"`, so nothing a page supplies is
+ * interpolated into the command string either. A file would be ceremony
+ * guarding against a value that is already a plan slug.
  *
  * ## The shape is borrowed, not invented
  *
@@ -63,7 +63,7 @@ import { localCapability } from './controllers/caller.js';
  * `idea.ts` — for the reason every write route states: a second copy of a
  * security decision is a second place for it to be weakened. This spawns a
  * process on the machine the board runs on, so it is deliberately the same
- * shape as the seven beside it and not an eighth one.
+ * shape as the six beside it and not a seventh one.
  */
 
 /** Why implementing a plan was refused — each sends the reader somewhere different. */
@@ -81,13 +81,13 @@ export interface ImplementOptions extends BuildBoardOptions {
  * Whether the route will act, and why not — the answer the button needs BEFORE
  * it is clicked, and its OWN named export rather than a re-export.
  *
- * Implement shares the same "spawn a plot agent on this disk" binding as idea,
- * commission and reslice — unavailable off localhost for the same reason — so
- * the four answer the same question today. But the repo's rule is one
- * capability, one flag: a single flag answering several capabilities is
- * precisely how they diverge without anyone noticing. So this is its own name
- * with the same body, and the day preparing a plan needs a different
- * precondition than creating one, there is already a seam to put it in.
+ * Implement shares the same "spawn a plot agent on this disk" binding as idea
+ * and reslice — unavailable off localhost for the same reason — so the three
+ * answer the same question today. But the repo's rule is one capability, one
+ * flag: a single flag answering several capabilities is precisely how they
+ * diverge without anyone noticing. So this is its own name with the same body,
+ * and the day preparing a plan needs a different precondition than creating
+ * one, there is already a seam to put it in.
  */
 export function implementAvailability(host: string): { available: boolean; reason: string } {
   return localCapability(host, 'preparing a plan for implementation', 'the repo');
@@ -232,11 +232,11 @@ export async function handleImplement(
   }
 
   // ASKED BEFORE ANYTHING IS WRITTEN. A repo with no runner cannot act on this
-  // click at all. Unlike commission, there is no phase to check here: whether
-  // the plan is approved and has eligible work is the gate the BUTTON already
-  // applies (`hasEligibleWork`), and `/plot-implement` re-checks the phase and
-  // stops itself if it has moved — so the route does not duplicate a weaker copy
-  // of a decision the skill owns.
+  // click at all. There is no phase to check here: whether the plan is
+  // approved and has eligible work is the gate the BUTTON already applies
+  // (`hasEligibleWork`), and `/plot-implement` re-checks the phase and stops
+  // itself if it has moved — so the route does not duplicate a weaker copy of a
+  // decision the skill owns.
   const usable = usableCommand(readCfg(opts, IMPLEMENT_COMMAND_KEY, ''));
   if (!usable) {
     refuse(

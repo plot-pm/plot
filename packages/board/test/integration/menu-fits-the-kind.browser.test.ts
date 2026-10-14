@@ -102,7 +102,6 @@ describe('the menu fits the kind, and every row has one', () => {
           approve: { available: false, reason: '' },
           continue: { available: false, reason: '' },
           idea: { available: false, reason: '' },
-          commission: { available: false, reason: '' },
           server: { restartCommand: '', port: 0 },
         } as Board },
       tab: 'agents',

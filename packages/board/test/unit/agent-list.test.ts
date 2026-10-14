@@ -3474,10 +3474,10 @@ describe("a row's actions all live in its menu", () => {
  * and the board asked only the second until 2026-08-18.
  */
 describe('menuState — a refusal is not an absence', () => {
-  // NO `canApprove` / `canCommission` / `approveWillAct` / `commissionWillAct`.
-  // Both plan-level acts left the branch menu for the plan head (`PlanActions`),
-  // so a branch row's menu no longer computes them and this state no longer
-  // carries their flags. What remains is what a branch row can genuinely do.
+  // NO `canApprove` / `approveWillAct`. The plan-level act left the branch menu
+  // for the plan head (`PlanActions`), so a branch row's menu no longer computes
+  // it and this state no longer carries its flag. What remains is what a branch
+  // row can genuinely do.
   const none = {
     canStart: false, canResolve: false, hasRun: false,
     hasLog: false, hasStatus: false, hasOpen: false,
@@ -3593,11 +3593,11 @@ describe('menuState — a refusal is not an absence', () => {
     });
   });
 
-  // Approve and Commission design are NOT tested here any longer: both are
-  // plan-level acts that left the branch menu for the plan head (`PlanActions`),
-  // so `menuState` — which answers for a BRANCH row's menu — no longer carries
-  // their flags. The plan head's two-answer menu is covered by the browser test
-  // `plan-head-controls.browser.test.ts`, which exercises the real render.
+  // Approve is NOT tested here any longer: it is a plan-level act that left the
+  // branch menu for the plan head (`PlanActions`), so `menuState` — which
+  // answers for a BRANCH row's menu — no longer carries its flag. The plan
+  // head's menu is covered by the browser test `plan-head-controls.browser.test.ts`,
+  // which exercises the real render.
 });
 
 // A branch row names its wave BESIDE ITS BRANCH NAME, and the gate is now a
@@ -3967,14 +3967,13 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
 });
 
 // `canCommissionDesign` USED TO BE TESTED HERE, as a branch-row predicate on
-// `waitingOn === 'you'`. It is gone: Commission design is a PLAN-level act and
-// moved to the plan head (`PlanActions`), gated on the card's `isDraft` exactly
-// as Approve is — not on any row field. The old predicate was in fact
-// self-contradictory over board-producible inputs (`'you'` only ever arrives
-// with `state === 'deferred'`, while it required `state === 'open'`), which is
-// why it could never render and why it is deleted rather than repaired. The
-// plan head's Commission design item is covered by
-// `plan-head-controls.browser.test.ts`.
+// `waitingOn === 'you'`. It is gone, along with the *Commission design* route
+// and button it gated: the fleet now writes a Design plan's spec automatically,
+// so there is no agent left to commission and no plan-head item in its place.
+// The old predicate was in fact self-contradictory over board-producible inputs
+// (`'you'` only ever arrives with `state === 'deferred'`, while it required
+// `state === 'open'`), which is why it could never render and why it was
+// deleted rather than repaired.
 
 describe('tallyLabel — each kind under its own name', () => {
   const tally = (over: Partial<SectionTally> = {}): SectionTally =>

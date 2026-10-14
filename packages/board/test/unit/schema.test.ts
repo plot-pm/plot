@@ -175,7 +175,7 @@ describe('PlanMetaSchema — the ceremony fields the board carries', () => {
   });
 });
 
-const NO_CONTROLS = { approve: false, needsDesign: false, interrogate: false, commission: false, roundsBadge: false, dispatch: false, readyToStart: false } as const;
+const NO_CONTROLS = { approve: false, needsDesign: false, interrogate: false, roundsBadge: false, dispatch: false, readyToStart: false } as const;
 
 describe('SliceSummarySchema — plan shape and git occupancy, kept apart', () => {
   const base = {

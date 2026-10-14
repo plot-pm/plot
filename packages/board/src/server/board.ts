@@ -2418,39 +2418,35 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // cannot say*, never *the answer is no* — the distinction the other three
     // record, and the one that keeps a default from becoming a claim.
     idea: { available: false, reason: '' },
-    // And once more for commissioning design — the same socket question, the
-    // same hand overwriting it in index.ts. Unavailable here means *this walker
-    // cannot say*, never *the answer is no*, exactly as the four above.
-    commission: { available: false, reason: '' },
     // And for interrogating a Draft plan — the same placeholder, overwritten in
     // index.ts, where the binding and the `Interrogate command` key are read.
     interrogate: { available: false, reason: '' },
     // And once more for reslicing a tangled slice — the same socket question,
     // the same hand overwriting it in index.ts. Unavailable here means *this
-    // walker cannot say*, never *the answer is no*, exactly as the five above.
+    // walker cannot say*, never *the answer is no*, exactly as the four above.
     reslice: { available: false, reason: '' },
     // And once more for delivering a fully-merged plan — the same socket
     // question, the same hand overwriting it in index.ts. Unavailable here means
-    // *this walker cannot say*, never *the answer is no*, exactly as the six
+    // *this walker cannot say*, never *the answer is no*, exactly as the five
     // above. Whether a given plan is deliverable rides on each card's own
     // `deliverable` bit, which this walker DOES know and sets above.
     deliver: { available: false, reason: '' },
     // And once more for implementing an approved plan — the same socket question,
     // the same hand overwriting it in index.ts. Unavailable here means *this
-    // walker cannot say*, never *the answer is no*, exactly as the seven above.
+    // walker cannot say*, never *the answer is no*, exactly as the six above.
     // Whether a given plan has eligible work rides on each card's own
     // `sliceSummary`, which the fleet fills in, not this walker.
     implement: { available: false, reason: '' },
-    // And once more for dropping a broken agent's manifest — the ninth write
+    // And once more for dropping a broken agent's manifest — the eighth write
     // route, and the same socket question: who can reach localhost can remove a
     // file from this disk. Unavailable here means *this walker cannot say*,
-    // never *the answer is no*, exactly as the eight above. Whether a given
+    // never *the answer is no*, exactly as the seven above. Whether a given
     // agent can be dropped rides on its state, which the endpoint checks.
     drop: { available: false, reason: '' },
-    // And once more for turning a ticket into a story — the tenth write route,
-    // and the same socket question it has asked nine times. Unavailable here
+    // And once more for turning a ticket into a story — the ninth write route,
+    // and the same socket question it has asked eight times. Unavailable here
     // means *this walker cannot say*, never *the answer is no*, exactly as the
-    // nine above. Whether the repo configured `Story command`, and whether it
+    // eight above. Whether the repo configured `Story command`, and whether it
     // declares one story home or several, rides on the endpoint, which reads
     // both keys and refuses by naming the one that is missing or ambiguous.
     story: { available: false, reason: '' },

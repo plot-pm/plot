@@ -556,16 +556,6 @@ export function App() {
     : board?.story;
 
   /**
-   * The SAME treatment for Commission design — the Approve twin that spawns a
-   * plot agent to move a Draft plan into Design. Dimmed on a frozen page for the
-   * reason `ideaInfo` is: it writes a plan file, and a page that cannot re-read
-   * git cannot know the plan has already moved.
-   */
-  const commissionInfo = dimmed
-    ? { available: false, reason: BLOCKED_REASON }
-    : board?.commission;
-
-  /**
    * The SAME treatment for Slice this plan — the sixth spawn, which sends an
    * `unsliced-wave` to `/plot-reslice`. Dimmed on a frozen page for the reason
    * the two above are: it spawns an agent that rewrites a plan's `## Branches` on
@@ -1250,27 +1240,23 @@ export function App() {
               // action needs both.
               idea={ideaInfo}
               story={storyInfo}
-              // The fifth act, and the Approve twin: Commission design moves a
-              // Draft plan into Design. It reaches the same PLAN rows Approve
-              // does, in the row menu, and shares the idea binding today.
-              commission={commissionInfo}
-              // The sixth act, and the only one belonging to a SLICE rather than
+              // The fifth act, and the only one belonging to a SLICE rather than
               // a plan or a branch: Slice this plan sends an `unsliced-wave` to
               // `/plot-reslice`. It shares the idea binding today, and reaches
               // the slice rows in the review sections where a tangled slice lands.
               reslice={resliceInfo}
-              // The seventh act, and the only one belonging to a plan on the
+              // The sixth act, and the only one belonging to a plan on the
               // OTHER end of the lifecycle: Deliver sends a fully-merged plan to
-              // `/plot-deliver`. It reaches the same PLAN rows Approve and
-              // Commission do, in the row menu, gated on the card's `deliverable`
-              // bit rather than on a Draft phase.
+              // `/plot-deliver`. It reaches the same PLAN rows Approve does, in
+              // the row menu, gated on the card's `deliverable` bit rather than
+              // on a Draft phase.
               deliver={deliverInfo}
-              // The eighth act, and the complement of Dispatch on an approved
+              // The seventh act, and the complement of Dispatch on an approved
               // plan: Implement prepares one slice via `/plot-implement`. It
-              // reaches the same PLAN rows Approve, Commission and Deliver do,
-              // in the row menu, gated on the card having eligible work.
+              // reaches the same PLAN rows Approve and Deliver do, in the row
+              // menu, gated on the card having eligible work.
               implement={implementInfo}
-              // The ninth act, and the only one belonging to a BROKEN agent
+              // The eighth act, and the only one belonging to a BROKEN agent
               // rather than a plan or branch: Drop removes a registry manifest.
               // It reaches the agent rows in WAITING ON YOU.
               drop={dropInfo}

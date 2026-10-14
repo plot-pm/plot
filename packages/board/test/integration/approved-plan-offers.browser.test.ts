@@ -79,7 +79,7 @@ function blockedFleet(over: Partial<Fleet> = {}): Fleet {
 /** An approved card with eligible work, matching the fleet. */
 function approvedCard(slug: string, file: string, eligible = 1): Card {
   return {
-    slug, title: slug, type: 'feature', phase: 'Development', path: file, prs: [], controls: { approve: false, interrogate: false, commission: false, roundsBadge: false, dispatch: true, readyToStart: true },
+    slug, title: slug, type: 'feature', phase: 'Development', path: file, prs: [], controls: { approve: false, interrogate: false, roundsBadge: false, dispatch: true, readyToStart: true },
     sliceSummary: { waves: 2, branches: 2, eligible, deferred: 0 },
   } as Card;
 }
@@ -87,7 +87,7 @@ function approvedCard(slug: string, file: string, eligible = 1): Card {
 /** A Draft card — Implement/Dispatch must NOT appear. */
 function draftCard(slug: string, file: string): Card {
   return {
-    slug, title: slug, type: 'feature', phase: 'Discovery', path: file, prs: [], controls: { approve: true, needsDesign: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false },
+    slug, title: slug, type: 'feature', phase: 'Discovery', path: file, prs: [], controls: { approve: true, needsDesign: true, interrogate: true, roundsBadge: true, dispatch: false, readyToStart: false },
     sliceSummary: { waves: 2, branches: 2, eligible: 1, deferred: 0 },
   } as Card;
 }
@@ -95,7 +95,7 @@ function draftCard(slug: string, file: string): Card {
 /** A delivered card — Implement/Dispatch must NOT appear. */
 function deliveredCard(slug: string, file: string): Card {
   return {
-    slug, title: slug, type: 'feature', phase: 'Delivered', path: file, prs: [], controls: { approve: false, interrogate: false, commission: false, roundsBadge: false, dispatch: false, readyToStart: false },
+    slug, title: slug, type: 'feature', phase: 'Delivered', path: file, prs: [], controls: { approve: false, interrogate: false, roundsBadge: false, dispatch: false, readyToStart: false },
     sliceSummary: { waves: 2, branches: 2, eligible: 0, deferred: 0 },
   } as Card;
 }
@@ -113,7 +113,6 @@ function approvedBoard(cards: Card[], over: Record<string, unknown> = {}) {
     approve: { available: true, reason: '' },
     continue: { available: false, reason: '' },
     idea: { available: false, reason: '' },
-    commission: { available: true, reason: '' },
     implement: { available: true, reason: '' },
     server: { restartCommand: '', port: 0 },
     ...over,
@@ -185,8 +184,8 @@ describe('an approved plan offers Implement and Dispatch', () => {
       await expect.poll(() => planHead(page, 'beans').count(), { timeout: 10_000 }).toBe(1);
       await openPlanMenu(page, 'beans');
       const menu = planHead(page, 'beans').locator('[role="menu"]');
-      // Both must appear — the pair catches the missing prop, as the existing
-      // Approve/Commission test does for Draft plans.
+      // Both must appear — the pair catches a missing prop, the way Approve
+      // and needsDesign are checked together for Draft plans.
       await expect.poll(() => menu.getByRole('button', { name: 'Implement' }).count()).toBe(1);
       await expect.poll(() => menu.getByRole('button', { name: 'Dispatch' }).count()).toBe(1);
     } finally {
@@ -221,8 +220,8 @@ describe('an approved plan offers Implement and Dispatch', () => {
     }
   });
 
-  it('offers NEITHER on a Draft plan — only Approve and Commission appear there', async () => {
-    // A Draft plan with eligible work still gets Approve/Commission, not Implement/Dispatch.
+  it('offers NEITHER on a Draft plan — only Approve appears there', async () => {
+    // A Draft plan with eligible work still gets Approve, not Implement/Dispatch.
     const draftFleet: Fleet = {
       ...approvedFleet(),
       rows: approvedFleet().rows.map(r => ({ ...r, phase: 'Draft' as const, group: 'waiting-on-you' as const })),
@@ -238,7 +237,7 @@ describe('an approved plan offers Implement and Dispatch', () => {
       await expect.poll(() => planRow.count(), { timeout: 10_000 }).toBe(1);
       await openPlanMenu(page, 'beans');
       const menu = planRow.locator('[role="menu"]');
-      // Draft plans get Approve and Commission, not Implement and Dispatch.
+      // Draft plans get Approve, not Implement and Dispatch.
       expect(await menu.getByRole('button', { name: 'Implement' }).count()).toBe(0);
       expect(await menu.getByRole('button', { name: 'Dispatch' }).count()).toBe(0);
       await expect.poll(() => menu.getByRole('button', { name: 'Approve' }).count()).toBe(1);

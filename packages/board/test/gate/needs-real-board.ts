@@ -88,7 +88,7 @@ export const declaredReason = (rawSource: string): string | null =>
 /** The write endpoints — the routes that leave the browser and can reach a script. */
 export const WRITE_ENDPOINTS = [
   'approve', 'dispatch', 'dispatch-log', 'claim', 'transition', 'deliver',
-  'reslice', 'continue', 'commission', 'idea', 'implement', 'fleet-controls',
+  'reslice', 'continue', 'idea', 'implement', 'fleet-controls',
 ] as const;
 
 /** The write endpoints this source references at all. */

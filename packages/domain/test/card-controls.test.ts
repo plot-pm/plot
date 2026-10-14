@@ -28,12 +28,11 @@ describe('cardControls', () => {
     }
   });
 
-  it.each(STATES)('commission and roundsBadge hold on draft only: %s', (state) => {
+  it.each(STATES)('roundsBadge holds on draft only: %s', (state) => {
     const draft = state === 'draft';
     for (const status of STATUSES) {
       for (const started of [false, true]) {
         const actual = cardControls({ state, status, started });
-        expect(actual.commission).toBe(draft);
         expect(actual.roundsBadge).toBe(draft);
       }
     }
@@ -54,29 +53,34 @@ describe('cardControls', () => {
     expect(cardControls({ state: 'approved', status, started: true }).readyToStart).toBe(false);
   });
 
-  it('offers Approve and Interrogate on a Design plan, and not Commission or the rounds badge', () => {
+  it('offers Approve and Interrogate on a Design plan, and not the rounds badge', () => {
     expect(cardControls({ state: 'design', status: 'open', started: false })).toEqual({
-      approve: true, needsDesign: false, interrogate: true, commission: false, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null,
+      approve: true, needsDesign: false, interrogate: true, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null,
     });
   });
 
-  it('offers Commission and the rounds badge on a Draft plan', () => {
+  it('offers needsDesign and the rounds badge on a Draft plan', () => {
     expect(cardControls({ state: 'draft', status: 'draft', started: false })).toEqual({
-      approve: true, needsDesign: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null,
+      approve: true, needsDesign: true, interrogate: true, roundsBadge: true, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null,
     });
   });
 
   it('offers nothing on a state the workflow does not know', () => {
     expect(cardControls({ state: 'weird', status: 'draft', started: false })).toEqual({
-      approve: false, needsDesign: false, interrogate: false, commission: false, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null,
+      approve: false, needsDesign: false, interrogate: false, roundsBadge: false, dispatch: false, readyToStart: false, approveSpike: false, confirmSlices: false, spikeState: null,
     });
   });
 });
 
 describe('CardControlsSchema', () => {
   it('reads a payload written before needsDesign existed as needsDesign: false', () => {
-    const older = { approve: true, interrogate: true, commission: true, roundsBadge: true, dispatch: false, readyToStart: false };
+    const older = { approve: true, interrogate: true, roundsBadge: true, dispatch: false, readyToStart: false };
     expect(CardControlsSchema.parse(older).needsDesign).toBe(false);
+  });
+
+  it('has no commission field', () => {
+    const actual = cardControls({ state: 'draft', status: 'draft', started: false });
+    expect(actual).not.toHaveProperty('commission');
   });
 });
 

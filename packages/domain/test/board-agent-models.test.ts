@@ -24,7 +24,7 @@ describe('boardAgentModel', () => {
   });
 
   it("does not answer another role's Agent models entry", () => {
-    const out = boardAgentModel('idea', reading({ agentModels: 'worker = sonnet; commission = opus' }));
+    const out = boardAgentModel('idea', reading({ agentModels: 'worker = sonnet; reslice = opus' }));
     expect(out).toEqual({ model: '', modelSource: 'default' });
   });
 

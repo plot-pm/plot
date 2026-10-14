@@ -307,7 +307,6 @@ export function AgentList({
   planFileForSlug,
   dispatch,
   approve,
-  commission,
   reslice,
   deliver,
   implement,
@@ -1727,7 +1726,6 @@ export function AgentList({
                           // the plan's act and the card is the plan's record.
                           card={cardForPlanFile?.(group.planFile) ?? null}
                           approve={approve}
-                          commission={commission}
                           deliver={deliver}
                           implement={implement}
                           dispatch={dispatch}
@@ -2061,7 +2059,6 @@ export function AgentList({
                         marked={group.rows.some((r) => marked.has(rowKey(r)))}
                         card={cardForPlanFile?.(group.planFile) ?? null}
                         approve={approve}
-                        commission={commission}
                         deliver={deliver}
                         implement={implement}
                         dispatch={dispatch}
