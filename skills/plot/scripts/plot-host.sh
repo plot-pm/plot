@@ -439,6 +439,27 @@
 #                                 Actions, ekzweb is Bitbucket + Jenkins.
 #                                 Jenkins reports no limit, so it answers
 #                                 `predicted`.
+#   commit-status <sha> <state> <context> <description> <url>
+#                                 GITHUB ONLY. Writes a commit status via
+#                                 `POST /repos/{owner}/{repo}/statuses/{sha}`,
+#                                 authenticated as a GitHub App installation —
+#                                 NOT the signed-in `gh` user — so the review
+#                                 verdict carries its own identity rather than
+#                                 whoever's laptop ran this. The App ID and a
+#                                 path to its private key come from the
+#                                 `Review app` config key (`<app id> <key
+#                                 path>`, read via plot-config.sh); a relative
+#                                 key path resolves against the repository
+#                                 root. EXIT 4, naming the key, where `Review
+#                                 app` is absent or its key file cannot be
+#                                 read — a configuration gap, not a transient:
+#                                 this script mints no token against a default
+#                                 App and asks no `gh`-signed-in identity in
+#                                 its place. `state` is one of GitHub's own
+#                                 words (success|failure|error|pending);
+#                                 `context` groups repeat statuses on one sha
+#                                 (this estate's caller passes `plot/review`).
+#                                 A call that reaches the API and fails exits 3.
 #
 # TRANSPORT IS NOT A CALLER'S CONCERN. Where a host offers a question over more
 # than one transport — GitHub's REST against its GraphQL — the choice is made
@@ -2659,6 +2680,118 @@ jira_check() {
 # jira_curl, then jira_check: the response body on stdout, or exit 3 with the
 # reason on stderr. Every Jira op asks through this pair and through nothing else.
 jira_ask() { local raw rc; raw="$(jira_curl "$@")"; rc=$?; jira_check "$raw" "$rc"; }
+
+# --- GitHub App installation tokens (commit-status) -------------------------
+#
+# A SECOND APP, DELIBERATELY. The repo's only existing App (`plot-build[bot]`)
+# sits on `main`'s branch-protection bypass list and its key lives only in
+# Actions secrets. This op runs on a workstation or a fleet agent's shell, so
+# its key must belong to a DIFFERENT App — one with no bypass rights — because
+# a key able to bypass branch protection has no business living outside CI.
+# `## Plot Config`'s `Review app` key names that second App; nothing here
+# reads `PLOT_BUILD_APP_ID` or any build-App variable.
+#
+# NO EXISTING MINTING CODE TO CALL. `build-bundles.yml` mints its token through
+# the GitHub Action `actions/create-github-app-token`, which only runs inside a
+# workflow. This is the JWT-sign-then-exchange dance written out in bash:
+#   1. A JWT, RS256-signed with the App's private key, `iss` = the App ID.
+#   2. POST /app/installations/{id}/access_tokens with that JWT as a BEARER
+#      token, to buy a short-lived INSTALLATION token.
+#   3. The INSTALLATION token — never the bare App JWT — authenticates the
+#      statuses write: GitHub's statuses API rejects a bare App JWT outright,
+#      because a JWT authenticates "the App" with no repository permissions
+#      attached until exchanged for an installation's token.
+#
+# `Review app` NAMES THE APP ID, NOT THE INSTALLATION ID. The installation id
+# (which repositories the App is installed on) is looked up from the App's own
+# JWT via GET /app/installations — a second call, but one with no extra config
+# key, so a repository that reinstalls the App under a new installation id
+# needs no edit here.
+github_app_jwt() {
+  # $1 = app id, $2 = private key PATH (already resolved to an absolute path
+  # and confirmed readable by the caller — this function trusts both).
+  local app_id="$1" key_file="$2"
+  local now header payload header_b64 payload_b64 signing_input sig_b64
+  now=$(date +%s)
+  # iat 60s in the past: GitHub's own guidance, for clock drift between this
+  # machine and GitHub's — a JWT whose iat reads as "the future" to GitHub is
+  # rejected outright.
+  header='{"alg":"RS256","typ":"JWT"}'
+  payload=$(printf '{"iat":%s,"exp":%s,"iss":"%s"}' "$((now - 60))" "$((now + 540))" "$app_id")
+  header_b64=$(printf '%s' "$header" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+  payload_b64=$(printf '%s' "$payload" | openssl base64 -A | tr '+/' '-_' | tr -d '=')
+  signing_input="${header_b64}.${payload_b64}"
+  sig_b64=$(printf '%s' "$signing_input" \
+    | openssl dgst -sha256 -sign "$key_file" \
+    | openssl base64 -A | tr '+/' '-_' | tr -d '=') || return 3
+  printf '%s.%s\n' "$signing_input" "$sig_b64"
+}
+
+# The `Review app` key, split into its two tokens (app id, key path) exactly as
+# `tracker_raw`/`tracker_base_url` split `Tracker`. A relative key path
+# resolves against the repository root, the same idiom `jira_load_env_file`
+# uses for `.env` — so a dispatched agent in a worktree resolves the one key
+# file the operator configured, not a path relative to its own cwd.
+review_app_raw() { bash "$here/plot-config.sh" get "Review app" ""; }
+review_app_id() { review_app_raw | awk '{print $1}'; }
+review_app_key_path() {
+  local p root
+  p="$(review_app_raw | awk '{print $2}')"
+  [ -n "$p" ] || { printf ''; return; }
+  case "$p" in
+    /*) printf '%s\n' "$p" ;;
+    *)
+      root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."
+      printf '%s\n' "$root/$p"
+      ;;
+  esac
+}
+
+# Refuses by name (exit 4) where `Review app` is unconfigured or its key file
+# cannot be read — a configuration gap the op cannot mint a token past, never
+# a default App and never a silent success.
+#
+# CALLED BARE, NEVER INSIDE `$(...)`: an `exit` inside a command substitution
+# ends only that subshell, and the caller would read an empty string and carry
+# on past the refusal instead of stopping (plot-host.sh's own `jira_require_
+# config` is called the same bare way, for the same reason). So this function
+# prints nothing on success — the caller re-reads `review_app_id` /
+# `review_app_key_path` itself once this has confirmed both resolve.
+require_review_app() {
+  local app_id key_path
+  app_id="$(review_app_id)"
+  key_path="$(review_app_key_path)"
+  if [ -z "$app_id" ] || [ -z "$key_path" ]; then
+    echo "plot-host: commit-status needs a 'Review app' key in ## Plot Config (format: Review app: <app id> <key path>)" >&2
+    exit 4
+  fi
+  if [ ! -r "$key_path" ]; then
+    echo "plot-host: commit-status — 'Review app' names a key file that cannot be read: $key_path" >&2
+    exit 4
+  fi
+}
+
+# The installation id for this App on this repository — the JWT identifies the
+# App, not a specific install, and the statuses write needs an installation
+# token. `GET /app/installations` lists every repository the App is on; this
+# repo's checkout names which one via `gh repo view` (host-agnostic op calls
+# this only on the github backend, enforced by its caller).
+github_app_installation_id() {
+  local jwt="$1" owner_repo="$2"
+  curl -sS -H "Authorization: Bearer $jwt" -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/$owner_repo/installation" 2>/dev/null \
+    | jq -r '.id // empty'
+}
+
+# The short-lived installation ACCESS token the statuses write authenticates
+# with — never the bare JWT (see the header comment above this section).
+github_app_installation_token() {
+  local jwt="$1" installation_id="$2"
+  curl -sS -X POST \
+    -H "Authorization: Bearer $jwt" -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/app/installations/$installation_id/access_tokens" 2>/dev/null \
+    | jq -r '.token // empty'
+}
 
 # --- pr-list truncation detection (#333) ------------------------------------
 #
@@ -5230,7 +5363,59 @@ case "$op" in
       '{connector:$connector,account:$account,bucket:$bucket} + .' <<<"$_sr_rate"
     ;;
 
+  commit-status)
+    # GITHUB ONLY — this slice does not touch the Bitbucket arm (the plan's
+    # next wave does). A non-GitHub backend has no answer here, exit 4, the
+    # same "cannot be asked" code `account`'s Bitbucket arm uses.
+    if [ "$be" != "github" ]; then
+      echo "plot-host: commit-status — backend is '$be', not github; this op is GitHub-only" >&2
+      exit 4
+    fi
+    _cs_sha="${1:?commit-status needs a sha}"
+    _cs_state="${2:?commit-status needs a state}"
+    _cs_context="${3:?commit-status needs a context}"
+    _cs_desc="${4:?commit-status needs a description}"
+    _cs_url="${5:?commit-status needs a target url}"
+
+    # EXIT 4 BEFORE ANY TOKEN IS MINTED. `require_review_app` is the refusal
+    # the brief's proof names: a missing key, or a key file that does not
+    # resolve, is a configuration gap this op does not mint a default App's
+    # token past. CALLED BARE (not `$(...)`) so its `exit 4` actually stops
+    # this script rather than just the subshell it would otherwise run in.
+    require_review_app
+    _cs_app_id="$(review_app_id)"
+    _cs_key_path="$(review_app_key_path)"
+
+    _cs_owner_repo="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || true)"
+    [ -n "$_cs_owner_repo" ] || die3 "commit-status: could not resolve owner/repo from the current checkout"
+
+    _cs_jwt="$(github_app_jwt "$_cs_app_id" "$_cs_key_path")" || die3 "commit-status: could not sign a JWT for App $_cs_app_id"
+    _cs_install_id="$(github_app_installation_id "$_cs_jwt" "$_cs_owner_repo")"
+    [ -n "$_cs_install_id" ] || die3 "commit-status: App $_cs_app_id has no installation on $_cs_owner_repo"
+
+    # THE INSTALLATION TOKEN, NOT THE JWT, AUTHENTICATES THE WRITE — GitHub's
+    # statuses API rejects a bare App JWT (see the header comment above
+    # github_app_jwt). A caller tempted to pass $_cs_jwt straight to the
+    # statuses POST below would pass this slice's tests on a mock and fail
+    # the real API, which is exactly the minting bug the brief's proof names.
+    _cs_token="$(github_app_installation_token "$_cs_jwt" "$_cs_install_id")"
+    [ -n "$_cs_token" ] || die3 "commit-status: could not mint an installation token for App $_cs_app_id"
+
+    _cs_payload="$(jq -n --arg state "$_cs_state" --arg context "$_cs_context" \
+      --arg description "$_cs_desc" --arg target_url "$_cs_url" \
+      '{state:$state, context:$context, description:$description, target_url:$target_url}')"
+    _cs_raw="$(curl -sS -w '\n%{http_code}' -X POST \
+      -H "Authorization: Bearer $_cs_token" -H "Accept: application/vnd.github+json" \
+      -d "$_cs_payload" \
+      "https://api.github.com/repos/$_cs_owner_repo/statuses/$_cs_sha" 2>/dev/null)"
+    _cs_status="$(printf '%s' "$_cs_raw" | tail -n1)"
+    if [ "$_cs_status" -lt 200 ] || [ "$_cs_status" -ge 300 ]; then
+      echo "plot-host: commit-status — HTTP $_cs_status writing $_cs_context on $_cs_sha" >&2
+      exit 3
+    fi
+    ;;
+
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|pr-body|rate-limit|limit|ci-limit|spend-rate)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|pr-body|rate-limit|limit|ci-limit|spend-rate|commit-status)"
     ;;
 esac
