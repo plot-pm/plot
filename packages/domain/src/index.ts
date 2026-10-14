@@ -62,6 +62,7 @@ export * from './rules/ticket-lane.js';
 export * from './rules/ticket-lanes.js';
 export * from './rules/ticket-card.js';
 export * from './rules/lanes-for-topic.js';
+export * from './rules/discovery-groups.js';
 export * from './rules/story-lane.js';
 export * from './rules/card-controls.js';
 export * from './rules/pulse.js';

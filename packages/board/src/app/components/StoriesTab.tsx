@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { lanesForTopic, ticketCardIssueRow, ticketCardView } from '@plot-pm/domain';
+import { discoveryGroups, lanesForTopic, ticketCardIssueRow, ticketCardView, topicCountFor } from '@plot-pm/domain';
+import type { DiscoveryShow } from '@plot-pm/domain';
 import type { StoryCard, StoryLaneGroup, Topic, TicketLaneGroups, TicketLaneRow, DispatchInfo, IssueAnswer } from '../../contract/schema.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
 import { CreateStoryButton } from './CreateStoryButton.js';
@@ -18,6 +19,13 @@ const TICKET_LANE_META: Record<'open' | 'in-progress' | 'done', { label: string;
   'in-progress': { label: 'In progress', icon: '🟡' },
   done: { label: 'Done', icon: '✅' },
 };
+
+/** The `?show=` control's options, in the order the reader sees them. */
+const SHOW_OPTIONS: { value: DiscoveryShow; label: string }[] = [
+  { value: 'tickets', label: 'Tickets' },
+  { value: 'stories', label: 'Stories' },
+  { value: 'both', label: 'Both' },
+];
 
 export interface StoriesTabProps {
   /** D7's story lanes, server-computed by `storyLanes` — replaces the old client-side `COLUMN_OF` lookup. */
@@ -38,6 +46,10 @@ export interface StoriesTabProps {
   showArchived: boolean;
   /** Flips the `?archived=1` toggle — re-fetches the board with the wider scope. */
   onShowArchived: (next: boolean) => void;
+  /** Which lane groups the `?show=` control keeps on screen. */
+  show: DiscoveryShow;
+  /** Writes the `?show=` choice. */
+  onShow: (next: DiscoveryShow) => void;
   /** Open a story in the modal. */
   onOpenStory: (story: StoryCard) => void;
   /** Open a sprint in the Delivery tab. */
@@ -117,6 +129,8 @@ export function StoriesTab({
   topics,
   showArchived,
   onShowArchived,
+  show,
+  onShow,
   onOpenStory,
   onOpenSprint,
   idea,
@@ -137,18 +151,21 @@ export function StoriesTab({
     [storyLaneGroups, tickets, topics, selectedTag],
   );
   const filteredLaneGroups = filtered.storyLanes;
+  const groups = discoveryGroups(show, filtered.storyLanes, filtered.tickets);
 
-  // Max topic count for sizing
-  const maxTopicCount = topics.length > 0 ? Math.max(...topics.map((t) => t.count)) : 1;
+  // The cloud counts only the groups on screen; max topic count is for sizing.
+  const topicCounts = topics.map((t) => topicCountFor(t, groups));
+  const maxTopicCount = topicCounts.length > 0 ? Math.max(...topicCounts) : 1;
 
   return (
     <div className="space-y-4">
       {/* Tag cloud — server-computed topics with variable sizing */}
       {topics.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 py-2">
-          {topics.map((t) => {
+          {topics.map((t, i) => {
             const isSelected = selectedTag === t.topic;
-            const sizeClass = topicSizeClass(t.count, maxTopicCount);
+            const topicCount = topicCounts[i];
+            const sizeClass = topicSizeClass(topicCount, maxTopicCount);
             return (
               <button
                 key={t.topic}
@@ -161,7 +178,7 @@ export function StoriesTab({
                       ? 'border border-slate-200 bg-slate-100 text-slate-400 hover:border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500 dark:hover:border-slate-600 dark:hover:bg-slate-700'
                       : 'border border-slate-200 bg-slate-100 text-slate-600 hover:border-cyan-300 hover:bg-cyan-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-cyan-600 dark:hover:bg-cyan-900/30'
                 }`}
-                title={`Filter by "${t.topic}" (${t.count} stories)`}
+                title={`Filter by "${t.topic}" (${topicCount})`}
               >
                 <span>{t.topic}</span>
                 <span
@@ -171,7 +188,7 @@ export function StoriesTab({
                       : 'bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
                   }`}
                 >
-                  {t.count}
+                  {topicCount}
                 </span>
               </button>
             );
@@ -188,8 +205,25 @@ export function StoriesTab({
         </div>
       )}
 
-      {/* Archived toggle — adds the Archived story lane and the rest of Done */}
-      <div className="flex items-center justify-end gap-2">
+      {/* Group control and archived toggle — `?show=` and `?archived=1` are independent parameters */}
+      <div className="flex items-center justify-between gap-2">
+        <div role="group" aria-label="Show" className="inline-flex overflow-hidden rounded-md border border-slate-300 text-xs dark:border-slate-600">
+          {SHOW_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={show === option.value}
+              onClick={() => onShow(option.value)}
+              className={`px-3 py-1 font-medium ${
+                show === option.value
+                  ? 'bg-cyan-600 text-white dark:bg-cyan-500'
+                  : 'bg-white text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
         <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
           <input
             type="checkbox"
@@ -212,7 +246,15 @@ export function StoriesTab({
           {closedAbsence}
         </p>
       ) : null}
-      {filtered.tickets ? (
+      {groups.tickets.shows ? (
+        <h2
+          data-discovery-group="tickets"
+          className="text-base font-semibold text-slate-700 dark:text-slate-200"
+        >
+          {groups.tickets.heading}
+        </h2>
+      ) : null}
+      {groups.tickets.shows && filtered.tickets ? (
         <div className="grid gap-4 sm:grid-cols-3">
           {(['open', 'in-progress', 'done'] as const).map((lane) => {
             const meta = TICKET_LANE_META[lane];
@@ -266,6 +308,15 @@ export function StoriesTab({
       ) : null}
 
       {/* Story lane groups */}
+      {groups.stories.shows ? (
+        <h2
+          data-discovery-group="stories"
+          className="text-base font-semibold text-slate-700 dark:text-slate-200"
+        >
+          {groups.stories.heading}
+        </h2>
+      ) : null}
+      {groups.stories.shows ? (
       <div
         className="grid gap-4"
         style={{
@@ -319,6 +370,7 @@ export function StoriesTab({
           );
         })}
       </div>
+      ) : null}
     </div>
   );
 }

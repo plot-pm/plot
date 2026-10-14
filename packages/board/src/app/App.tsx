@@ -7,6 +7,7 @@ import { PlanModal } from './components/PlanModal.js';
 import { SprintModal } from './components/SprintModal.js';
 import { boardTabOf, type BoardTab } from '@plot-pm/domain/rules/board-tab';
 import { revealsReleased } from '@plot-pm/domain/rules/workflow-phases';
+import type { DiscoveryShow } from '@plot-pm/domain';
 import { StoriesTab } from './components/StoriesTab.js';
 import { StoryModal } from './components/StoryModal.js';
 import { BLOCKED_REASON, UnreachableOverlay } from './components/UnreachableOverlay.js';
@@ -16,6 +17,7 @@ import { synthesizedSprintMembers } from './lib/sprint.js';
 import { boardForReader, readMineOnly, readerFrom, writeMineOnly } from './lib/agent-rows/mine-filter.js';
 import { planFileForSlug } from './lib/agent-rows/plan-level-row.js';
 import { archivedOn, boardPath, withArchived } from './lib/archived-toggle.js';
+import { showOf, withShow } from './lib/show-toggle.js';
 import {
   NO_SPRINT,
   NO_STORY,
@@ -175,6 +177,13 @@ export function App() {
   const writeShowArchived = useCallback((next: boolean) => {
     setShowArchived(next);
     history.replaceState(null, '', withArchived(location.href, next));
+  }, []);
+  // Discovery's group control — `?show=tickets|stories`, `both` writes none.
+  // Its own parameter: it never rides the board fetch, which has no `show`.
+  const [show, setShow] = useState<DiscoveryShow>(() => showOf(location.search));
+  const onShow = useCallback((next: DiscoveryShow) => {
+    setShow(next);
+    history.replaceState(null, '', withShow(location.href, next));
   }, []);
   // The closed read's absence sentence, where `GET /api/issues/closed` answered
   // that no closed ticket can be listed. Null before the first read and while
@@ -1198,6 +1207,8 @@ export function App() {
               topics={board.topics ?? []}
               showArchived={showArchived}
               onShowArchived={onShowArchived}
+              show={show}
+              onShow={onShow}
               onOpenStory={onOpenStory}
               onOpenSprint={onOpenSprint}
               idea={ideaInfo ?? { available: false, reason: 'this board has not said whether it can create plans' }}
