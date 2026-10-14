@@ -62,7 +62,11 @@ export const groupTicketLanes = (
       status: row.status ?? '', statusCategory: row.statusCategory ?? '',
       closedAt,
     };
-    const lane = ticketLane(issue, { categoryStated, namedByPlan: named.has(row.number) }, now);
+    const lane = ticketLane(
+      { ...issue, assignees: [] },
+      { categoryStated, namedByPlan: named.has(row.number) },
+      now,
+    );
     return { row: { ...issue, closedAt }, lane };
   });
   const rowsOf = (lane: string) => laned.filter((t) => t.lane === lane).map((t) => t.row);
