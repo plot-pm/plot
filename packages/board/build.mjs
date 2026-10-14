@@ -427,6 +427,28 @@ await esbuild.build({
 fs.copyFileSync(verifyArtifact, shippedVerify);
 fs.chmodSync(shippedVerify, 0o755);
 
+// A pull request's review, for plot-review.sh.
+//
+// Its own artifact for the reason the verify one is: it spawns git and
+// plot-host.sh, and it runs an agent through the AgentRun port.
+const reviewArtifact = path.join(here, 'dist/plot-review.mjs');
+const shippedReview = path.join(here, '../../skills/plot/scripts/board/plot-review.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/review.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: reviewArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(reviewArtifact, shippedReview);
+fs.chmodSync(shippedReview, 0o755);
+
 // A person's spec-run control: restart, status.
 //
 // Its own artifact for the same reason verify's is: it spawns git and
