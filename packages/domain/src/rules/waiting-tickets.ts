@@ -61,23 +61,23 @@ const ownedTicket = (row: IssueIndexRow, source: TicketSource | null): OwnedRow 
   source,
 });
 
-/** Whether any of `reader`'s declared handle's `jira:` spellings name an assignee of `row`. */
-const jiraMatches = (row: IssueIndexRow, reader: Reader): boolean => {
+/** Whether any of `reader`'s declared handle's `prefix`-spellings name an assignee of `row`. */
+const accountMatches = (row: IssueIndexRow, prefix: string, reader: Reader): boolean => {
   const directory = reader.directory ?? {};
   const login = reader.hostUser?.trim() ?? '';
   if (login === '') return false;
   const self = resolvePerson(login, directory);
   for (const assignee of row.assignees ?? []) {
-    const spelling = `jira:${assignee.trim()}`;
+    const spelling = `${prefix}${assignee.trim()}`;
     if (!declaresSpelling(spelling, directory)) continue;
     if (resolvePerson(spelling, directory).handle === self.handle) return true;
   }
   return false;
 };
 
-/** Whether `reader` declares any `jira:` spelling at all. */
-const declaresAnyJiraSpelling = (directory: PersonDirectory): boolean =>
-  Object.keys(directory).some((key) => key.startsWith('jira:'));
+/** Whether `reader` declares any `prefix`-spelling at all. */
+const declaresAnyAccountSpelling = (directory: PersonDirectory, prefix: string): boolean =>
+  Object.keys(directory).some((key) => key.startsWith(prefix));
 
 const unionDedup = (inbox: readonly IssueIndexRow[], mine: readonly IssueIndexRow[]): IssueIndexRow[] => {
   const seen = new Set<string>();
@@ -96,21 +96,21 @@ const ISSUE_LIMIT = 50;
  * Decides which unplanned open tickets *Waiting on you* shows, how many it
  * hides, and the notice explaining an unmatched reader.
  *
- * A matched reader — a resolvable host login, or a declared Jira spelling
+ * A matched reader — a resolvable host login, or a declared `prefix`-spelling
  * that names at least one candidate row's assignee — sees the union of
  * `inbox` and the rows `ownership` over `{ kind: 'ticket', assignees, source
  * }` answers `mine` for, newest first, without duplicates. `mine` is required
  * rather than `isMine`'s looser "not theirs": an unassigned row is `unknown`,
  * and the default view hides it rather than showing it as if it matched. An
- * unmatched reader — no host login, a `null` source, or a declared Jira
- * reader whose spellings name no candidate's assignee — sees `inbox`, or
- * every row where `inbox` is absent, with a notice naming why.
+ * unmatched reader — no host login, a `null` source, or a declared
+ * `tracker-account` reader whose spellings name no candidate's assignee —
+ * sees `inbox`, or every row where `inbox` is absent, with a notice naming why.
  *
  * `rows` and `inbox` are read exactly as given; the caller holds the
  * `ISSUE_LIMIT` cap and the unplanned filter upstream of this rule.
  *
  * @param rows - every unplanned open row the read holds.
- * @param inbox - the unplanned rows of the reader's own Jira read, where one exists.
+ * @param inbox - the unplanned rows of the reader's own tracker-account read, where one exists.
  * @param reader - who is reading.
  * @param source - how this read's tickets name their assignees, or `null`.
  * @param complete - whether `rows` is every open row, or the read's cap stopped first.
@@ -150,15 +150,16 @@ export const waitingTickets = (
     return render(union, null);
   }
 
-  // tracker-account: Jira and anything else matched only through a declared spelling.
+  // tracker-account: matched only through a declared `prefix`-spelling.
   const directory = reader.directory ?? {};
-  if (!declaresAnyJiraSpelling(directory)) {
+  const prefix = source.prefix;
+  if (!declaresAnyAccountSpelling(directory, prefix)) {
     const fallback = inbox !== undefined ? [...inbox].sort(byNewestFirst) : [...rows].sort(byNewestFirst);
     return render(fallback, null);
   }
 
   const candidates = inbox !== undefined ? inbox : rows;
-  const matched = candidates.some((row) => jiraMatches(row, reader));
+  const matched = candidates.some((row) => accountMatches(row, prefix, reader));
   if (!matched && candidates.length > 0) {
     const raw = candidates
       .flatMap((row) => row.assignees ?? [])
@@ -167,15 +168,15 @@ export const waitingTickets = (
     const login = reader.hostUser?.trim() ?? '';
     const self = resolvePerson(login, directory);
     const declaredSpelling = Object.entries(directory).find(
-      ([key, handle]) => key.startsWith('jira:') && handle === self.handle,
+      ([key, handle]) => key.startsWith(prefix) && handle === self.handle,
     )?.[0];
     const fallback = [...candidates].sort(byNewestFirst);
     const notice =
       raw === undefined
         ? null
         : declaredSpelling !== undefined
-          ? `Jira names your tickets' assignee \`${raw}\`; \`People\` declares \`${declaredSpelling}\` for ${self.handle} — add \`jira:${raw}\` to match.`
-          : `Jira names your tickets' assignee \`${raw}\`, and \`People\` declares no \`jira:\` spelling for ${self.handle} — add \`jira:${raw}\` to match.`;
+          ? `The tracker names your tickets' assignee \`${raw}\`; \`People\` declares \`${declaredSpelling}\` for ${self.handle} — add \`${prefix}${raw}\` to match.`
+          : `The tracker names your tickets' assignee \`${raw}\`, and \`People\` declares no \`${prefix}\` spelling for ${self.handle} — add \`${prefix}${raw}\` to match.`;
     return render(fallback, notice);
   }
 
