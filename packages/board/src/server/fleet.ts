@@ -1540,44 +1540,91 @@ export interface IssuesClosedReading {
 /** This route's own last answer, keyed by repo — separate from `entry.issueSets.closed`, which an ordinary issue pass caps at {@link ISSUE_INDEX_OPEN_LIMIT} rather than this route's 1000. */
 const closedAnswers = new Map<string, { at: number; requests: number; rows: readonly IssueIndexRow[] }>();
 
+/** The wait this route's own last read met, keyed by repo; it lives in memory and no file records it. */
+const closedBackoffs = new Map<string, { until: number; reason: string }>();
+
 /**
- * The cadence a closed-issue pass last spent, read without asking the host:
- * `issues.json` where a fleet runs and keeps it current, the board's own
- * {@link CacheEntry} otherwise. Neither is authoritative over the other — the
- * store is read first because only a fleet keeps it fresh, and an entry whose
- * `issueConnector` was never set (no pass has run in this process) falls back
- * to it having spent nothing.
+ * The closed rows `GET /api/issues/closed` last kept for this repository.
+ *
+ * Asks nothing and reads no file: `/api/board?archived=1` lanes these rows
+ * with the toggle on, so the 30 s poll never reaches the host.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @returns the kept rows, or null where the route has not answered yet.
  */
-async function issueCadence(
+export const keptClosedRows = (opts: BuildBoardOptions): readonly IssueIndexRow[] | null =>
+  closedAnswers.get(cacheKey(opts))?.rows ?? null;
+
+/** What the issue gate says about the next closed read: its spend, and a wait it holds. */
+interface IssueGate {
+  readonly requests: number;
+  readonly backoffUntil: number | null;
+  /** The reason the gate's last read failed, where it recorded one. */
+  readonly reason: string | null;
+}
+
+/**
+ * The cadence the issue gate last spent, read without asking the host.
+ *
+ * Where the fleet owns the reads ({@link fleetOwnsPrs}), the gate is the one
+ * `issues.json` holds, and only a file whose `source` is this repository's own
+ * `issueSource` reading counts: a file written for another source says nothing
+ * about this one, and a missing file leaves the gate at no spend and no wait.
+ * With no fleet the gate is the board's own {@link CacheEntry}.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param entry - the board's cache entry.
+ * @param ask - the source this repository's issues are read from.
+ * @returns the gate's request count, live wait and last failure reason.
+ */
+const issueCadence = async (
   opts: BuildBoardOptions,
   entry: CacheEntry,
-): Promise<{ requests: number; backoffUntil: number | null }> {
-  const held = await issueStoreFor(opts.repoRoot).read();
-  if (held.ok && held.value !== null) {
-    return { requests: held.value.requests, backoffUntil: held.value.backoffUntil };
+  ask: 'tracker' | 'git-host',
+): Promise<IssueGate> => {
+  if (await fleetOwnsPrs(opts, entry)) {
+    const held = await issueStoreFor(opts.repoRoot).read();
+    if (held.ok && held.value !== null && held.value.source === ask) {
+      return {
+        requests: held.value.requests,
+        backoffUntil: held.value.backoffUntil,
+        reason: held.value.answer === 'failed' ? (held.value.reason ?? null) : null,
+      };
+    }
+    return { requests: 0, backoffUntil: null, reason: null };
   }
-  return { requests: entry.issueRequests, backoffUntil: entry.issueBackoffUntil };
-}
+  return {
+    requests: entry.issueRequests,
+    backoffUntil: entry.issueBackoffUntil,
+    reason: entry.issueSets?.answer === 'failed' ? (entry.issueSets.reason ?? null) : null,
+  };
+};
+
+/** The sentence a held wait gives where no closed row is kept. */
+const waitSentence = (reason: string | null, until: number): string =>
+  `Closed issues are not listed: ${reason ?? 'the tracker named a wait'}. The next read opens at ${new Date(until).toISOString()}.`;
 
 /**
  * Answers `GET /api/issues/closed`: up to 1000 closed issues, asked of the
  * tracker directly rather than through the issue gate's smaller cache.
  *
- * REQUEST-DRIVEN, NEVER POLLED (plan line 141) — this function is the one
- * place that may call `tracker.issueListClosed` for this route, and it is
- * reached only from the route handler, never from the board's own refresh
- * timer. A call inside the cadence window below answers from
- * {@link closedAnswers} and spends nothing; `asked: false` tells the caller so.
+ * Request-driven, never polled: this function is the one place that may call
+ * `tracker.issueListClosed` for this route, and the route handler is its only
+ * caller. A call inside the cadence window answers from {@link closedAnswers}
+ * and spends nothing; `asked: false` says so.
  *
- * The window is `max(issueIntervalMs(requests), issueIntervalMs(p))` — the
- * larger of what the issue gate's own last pass spent and what THIS route's
- * own last pass spent, so a heavy fleet pass and a heavy direct read each
- * extend the other's wait rather than racing the host on the shorter of the
- * two. A live `backoffUntil` holds regardless of the window: the gate named a
- * refusal, and this route honours it rather than asking anyway.
+ * The window is `max(issueIntervalMs(requests), issueIntervalMs(p))`: the larger
+ * of what the issue gate's last pass spent and what this route's last read
+ * spent. A live wait holds regardless of the window, whether the issue gate
+ * holds it (`backoffUntil`, read from `issues.json` under a fleet and from the
+ * cache entry otherwise) or this route's own last read met it
+ * ({@link closedBackoffs}). With nothing kept, a held wait answers `absence`
+ * with its reason and `rows: []`. A read that fails keeps the earlier rows,
+ * answers its reason as `absence` where nothing is kept, and holds its own wait:
+ * the one the host named, else one issue interval.
  *
  * @param opts - the board's repo root and scripts directory.
- * @returns the closed rows and whether this call spent a host request.
+ * @returns the closed rows, whether this call spent a host request, and the absence sentence.
  */
 export async function issuesClosedReading(opts: BuildBoardOptions): Promise<IssuesClosedReading> {
   const entry = ensureCache(opts);
@@ -1593,11 +1640,20 @@ export async function issuesClosedReading(opts: BuildBoardOptions): Promise<Issu
 
   const key = cacheKey(opts);
   const cached = closedAnswers.get(key) ?? null;
-  const gate = await issueCadence(opts, entry);
+  const gate = await issueCadence(opts, entry, source.ask);
   const now = Date.now();
-
-  if (gate.backoffUntil !== null && gate.backoffUntil > now) {
-    return { rows: cached?.rows ?? [], asked: false, absence: null };
+  const own = closedBackoffs.get(key) ?? null;
+  const holds = [
+    gate.backoffUntil !== null && gate.backoffUntil > now ? { until: gate.backoffUntil, reason: gate.reason } : null,
+    own !== null && own.until > now ? { until: own.until, reason: own.reason } : null,
+  ].filter((hold): hold is { until: number; reason: string | null } => hold !== null);
+  if (holds.length > 0) {
+    const last = holds.reduce((a, b) => (b.until > a.until ? b : a));
+    return {
+      rows: cached?.rows ?? [],
+      asked: false,
+      absence: cached === null ? waitSentence(last.reason, last.until) : null,
+    };
   }
   if (cached !== null) {
     const window = Math.max(issueIntervalMs(gate.requests), issueIntervalMs(cached.requests));
@@ -1611,11 +1667,16 @@ export async function issuesClosedReading(opts: BuildBoardOptions): Promise<Issu
   const tracker = trackerForIssues(declared.ok ? declared.value : '', gitHost, context);
   // No lower bound — the route answers every closed issue the tracker holds,
   // unlike the issue gate's own {@link ISSUE_INDEX_CLOSED_DAYS}-day window.
-  const said = await tracker.issueListClosed(new Date(0).toISOString(), 1000);
+  const since = new Date(0).toISOString();
+  const said = await tracker.issueListClosed(since, 1000);
   if (!said.ok) {
-    // The last good answer survives a failed re-ask, the same rule `refreshIssues` keeps for the gate's own cache.
-    return { rows: cached?.rows ?? [], asked: true, absence: null };
+    const failure = closedOutcomeOf(said, undefined, since, new Date(now).toISOString(), tracker.lastRefusal(), Date.now());
+    const reason = failure.error ?? 'the closed issue read failed and said nothing';
+    // A failed read holds its own wait: the one the host named, else one issue interval.
+    closedBackoffs.set(key, { until: Date.now() + (failure.wait ?? issueIntervalMs(1)), reason });
+    return { rows: cached?.rows ?? [], asked: true, absence: cached === null ? `Closed issues are not listed: ${reason}` : null };
   }
+  closedBackoffs.delete(key);
   const rows = said.value.issues.map(issueIndexRowOf);
   closedAnswers.set(key, { at: now, requests: said.value.pages, rows });
   return { rows, asked: true, absence: null };
@@ -2342,7 +2403,7 @@ export function freshCacheEntry(): CacheEntry {
   };
 }
 
-function ensureCache(opts: BuildBoardOptions): CacheEntry {
+export function ensureCache(opts: BuildBoardOptions): CacheEntry {
   const key = cacheKey(opts);
   let entry = caches.get(key);
   if (entry) return entry;

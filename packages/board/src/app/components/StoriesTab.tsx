@@ -23,6 +23,8 @@ export interface StoriesTabProps {
   tickets: TicketLaneGroups | null;
   /** True when the plans directory could not be read this pass — `tickets` is then the last good reading, not a fresh one. */
   plansUnreadable: boolean;
+  /** The closed-ticket route's absence sentence while the toggle is on, or null. */
+  closedAbsence?: string | null;
   /**
    * Semantic topics extracted by the server using TF-IDF.
    * Each topic includes storySlugs for filtering (including when a topic
@@ -102,6 +104,7 @@ export function StoriesTab({
   storyLaneGroups,
   tickets,
   plansUnreadable,
+  closedAbsence = null,
   topics,
   showArchived,
   onShowArchived,
@@ -203,6 +206,11 @@ export function StoriesTab({
       {plansUnreadable ? (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
           Plans could not be read — showing the last known ticket lanes.
+        </p>
+      ) : null}
+      {closedAbsence ? (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+          {closedAbsence}
         </p>
       ) : null}
       {tickets ? (

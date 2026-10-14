@@ -15,6 +15,7 @@ import { listenForEvents } from './lib/event-listener.js';
 import { synthesizedSprintMembers } from './lib/sprint.js';
 import { boardForReader, readMineOnly, readerFrom, writeMineOnly } from './lib/agent-rows/mine-filter.js';
 import { planFileForSlug } from './lib/agent-rows/plan-level-row.js';
+import { archivedOn, boardPath, withArchived } from './lib/archived-toggle.js';
 import {
   NO_SPRINT,
   NO_STORY,
@@ -108,6 +109,8 @@ const STARTING_POLL_MS = FLEET_POLL_MS;
  * What changes is that they are now counted at all.
  */
 const POLL_TIMEOUT_MS = 3_500;
+/** A closed read walks up to 10 pages of the tracker, so it gets a longer bound than a poll. */
+const CLOSED_TIMEOUT_MS = 60_000;
 
 /**
  * The three tabs, in display order: strategy → artifacts → execution.
@@ -168,24 +171,51 @@ export function App() {
   // Done. Never `?released=1`: that one is Planning's, and the query string
   // survives a tab switch, so sharing a name would turn both toggles on
   // together.
-  const [showArchived, setShowArchived] = useState(
-    () => new URLSearchParams(location.search).get('archived') === '1',
-  );
+  const [showArchived, setShowArchived] = useState(() => archivedOn(location.search));
   const writeShowArchived = useCallback((next: boolean) => {
     setShowArchived(next);
-    const url = new URL(location.href);
-    if (next) url.searchParams.set('archived', '1');
-    else url.searchParams.delete('archived');
-    history.replaceState(null, '', url);
+    history.replaceState(null, '', withArchived(location.href, next));
+  }, []);
+  // The closed read's absence sentence, where `GET /api/issues/closed` answered
+  // that no closed ticket can be listed. Null before the first read and while
+  // the toggle is off.
+  const [closedAbsence, setClosedAbsence] = useState<string | null>(null);
+  // Asks the closed-ticket route ONCE per call and never on a poll. Callers:
+  // the toggle turning on, and a page load with `?archived=1` already set. The
+  // route keeps its answer for one issue interval, and `/api/board?archived=1`
+  // lanes the kept rows into Done on the server.
+  const loadClosed = useCallback(async () => {
+    try {
+      const res = await fetch('/api/issues/closed', { signal: AbortSignal.timeout(CLOSED_TIMEOUT_MS) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { absence?: string | null };
+      setClosedAbsence(data.absence ?? null);
+    } catch (e) {
+      setClosedAbsence(`Closed issues could not be read: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }, []);
   // Flips the server-side `archived` scope immediately rather than waiting for
   // the next 30 s poll — `discoveryLanes` reads the query string per-request,
   // so toggling it is a fetch, not a client-side re-filter of already-fetched
   // data (the rest of Done and the Archived lane are never sent until asked).
+  // Turning it on reads the closed tickets first, so the board fetch that
+  // follows lanes them.
   const onShowArchived = (next: boolean) => {
     writeShowArchived(next);
-    void load();
+    if (!next) {
+      setClosedAbsence(null);
+      void load();
+      return;
+    }
+    void loadClosed().then(() => load());
   };
+  // A page load with `?archived=1` reads the closed tickets once, then
+  // refetches the board that lanes them.
+  useEffect(() => {
+    if (showArchived) void loadClosed().then(() => load());
+    // Mount only: a poll must never reach the closed-ticket route.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // "ONLY MY WORK" ON THE PLANNING TAB. One stored preference governs both tabs:
   // the Delivery tab's control writes the same key, and each tab renders alone,
   // so this re-reads the key whenever the tab changes.
@@ -285,8 +315,7 @@ export function App() {
         // off `/api/board`'s own query string, not a separate endpoint — so
         // the toggle's state has to be read fresh on every poll rather than
         // closed over at mount.
-        const archivedNow = new URLSearchParams(location.search).get('archived') === '1';
-        res = await fetch(`/api/board${archivedNow ? '?archived=1' : ''}`, { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) });
+        res = await fetch(boardPath(location.search), { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) });
       } catch (e) {
         // The one branch that means no contact. Re-thrown so the single exit
         // below still records the message, with `reached` carrying the reason.
@@ -1175,6 +1204,7 @@ export function App() {
               storyLaneGroups={board.storyLanes ?? []}
               tickets={board.tickets ?? null}
               plansUnreadable={board.plansUnreadable ?? false}
+              closedAbsence={showArchived ? closedAbsence : null}
               topics={board.topics ?? []}
               showArchived={showArchived}
               onShowArchived={onShowArchived}
