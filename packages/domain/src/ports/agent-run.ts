@@ -182,4 +182,10 @@ export interface AgentRunResult {
    * resolves a budget entry's account from.
    */
   readonly account: string | null;
+  /**
+   * The run's final answer as text: the SDK result's `result` on a successful
+   * SDK run; on the `command` runner, the output the command appended to its
+   * log during this run. Absent where the connector read none.
+   */
+  readonly finalText?: string;
 }

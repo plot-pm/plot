@@ -389,6 +389,20 @@ describe('agentRunSdk: how a run ends', () => {
   });
 });
 
+describe('agentRunSdk: the final text', () => {
+  it("carries a successful result's text as finalText", async () => {
+    captured.messages = [resultMessage({ result: 'Findings: HIGH 0, MEDIUM 0, LOW 0' })];
+    expect((await ended()).finalText).toBe('Findings: HIGH 0, MEDIUM 0, LOW 0');
+  });
+
+  it('carries no finalText for a result that is not a success', async () => {
+    captured.messages = [
+      resultMessage({ subtype: 'error_during_execution', is_error: true, result: 'partial', startup_failure_reason: undefined }),
+    ];
+    expect((await ended()).finalText).toBeUndefined();
+  });
+});
+
 describe('agentRunSdk: the process rules', () => {
   const pgidOf = (pid: number): string => execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).trim();
   const alive = (pid: number): boolean => {

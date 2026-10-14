@@ -6,7 +6,8 @@
  * adapter in this package — no account, no credentials, no rate limit, no
  * transport choice. It answers `unaskable` for usage, cost and hand-back: a
  * shell command's stdout is free-form text, not a structured result, so this
- * adapter has nothing to parse those from. The exit itself is read exactly as
+ * adapter has nothing to parse those from. The output this run appended to
+ * the log is its `finalText`. The exit itself is read exactly as
  * `promptExit` reads it today, so a project on `Agent runner: command` sees no
  * change in behaviour from before this port existed.
  *
@@ -72,12 +73,13 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
     if (!result.ok) return failed();
     if (result.value.timedOut) return answered(unasked(request, { answer: 'bound' }));
 
-    let output = '';
+    let appended: string | undefined;
     try {
-      output = (await appendedSince(request.logFile, startOffset)).split('\n').slice(-200).join('\n');
+      appended = await appendedSince(request.logFile, startOffset);
     } catch {
       /* an unreadable output is an exit with no limit line */
     }
+    const output = (appended ?? '').split('\n').slice(-200).join('\n');
 
     const signalled = result.value.status === null;
     const status = result.value.status ?? 124;
@@ -111,7 +113,7 @@ export const agentRunCommand = (deps: AgentRunCommandDeps): AgentRun => ({
       }
     })();
 
-    return answered(unasked(request, end));
+    return answered({ ...unasked(request, end), ...(appended === undefined ? {} : { finalText: appended }) });
   },
 });
 

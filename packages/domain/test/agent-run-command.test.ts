@@ -208,4 +208,30 @@ describe('agentRunCommand', () => {
     if (!result.ok) return;
     expect(result.value.sessionId).toBe('resumed-session-42');
   });
+
+  it('carries the output this run appended to the log as its final text, and nothing an earlier run left', async () => {
+    await writeFile(logFile, 'an earlier answer\n', 'utf8');
+    const boundedRun: BoundedRun = {
+      run: async (_command, _args, options) => {
+        await appendFile(options.outFile, 'Findings: HIGH 0, MEDIUM 0, LOW 0\n', 'utf8');
+        return answered<BoundedRunResult>({ status: 0, timedOut: false, ranSeconds: 1 });
+      },
+    };
+    const adapter = agentRunCommand({ boundedRun, fragment: 'claude -p', limitPatterns: undefined, now: () => 0 });
+
+    const result = await adapter.run(request({}, dir, logFile));
+    expect(result.ok && result.value.finalText).toBe('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
+  });
+
+  it('carries no final text where the log cannot be read', async () => {
+    const boundedRun: BoundedRun = {
+      run: async () => answered<BoundedRunResult>({ status: 0, timedOut: false, ranSeconds: 1 }),
+    };
+    const adapter = agentRunCommand({ boundedRun, fragment: 'claude -p', limitPatterns: undefined, now: () => 0 });
+
+    const result = await adapter.run(request({}, dir, join(dir, 'no-such-dir', 'out.log')));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.finalText).toBeUndefined();
+  });
 });

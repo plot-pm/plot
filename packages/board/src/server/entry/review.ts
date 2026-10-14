@@ -4,17 +4,21 @@ import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { runProcess } from '@plot-pm/domain/adapters/run-script';
+import { processesShell } from '@plot-pm/domain/adapters/processes/processes-shell';
+import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-run-process';
+import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
+import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { trackerForIssues } from '@plot-pm/domain/adapters/tracker/tracker-resolve';
 import type { Host, Tracker, Trees } from '@plot-pm/domain';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import { charterPath, readCharter } from '@plot-pm/domain/entities/charter';
 import {
   reviewIssueUrl,
+  reviewerCommand,
   reviewRequestBlock,
   reviewVerdict,
   type ReviewCounts,
 } from '@plot-pm/domain/rules/review-verdict';
-import { agentRunFor } from '@plot-pm/fleet/shared/agent-run-for';
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -30,8 +34,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * With no number, the current branch's PR. The head SHA is read from the host
  * at the start of the run, never from the caller. The reviewer agent runs in a
  * detached worktree at that SHA, and the worktree is removed whatever the
- * outcome. The agent writes a verdict file under the git common directory; the
- * file is read through `reviewVerdict`, never as free text.
+ * outcome. The agent runs read-only on the `command` runner with the fragment
+ * `reviewerCommand` builds: read and search tools only, no MCP server, no
+ * settings from the reviewed tree, and never the `Verify command` fragment.
+ * The agent's final answer is written to a verdict file under the git common
+ * directory and read through `reviewVerdict`, never as free text.
  *
  * Zero HIGH findings writes `success` with `no HIGH findings` and opens no
  * issue. One or more writes `failure` and opens one follow-up issue; the
@@ -59,16 +66,13 @@ export const REVIEW_CONTEXT = 'plot/review';
 /** How long one review may run before it is ended, in seconds. */
 export const REVIEW_BOUND_SECONDS = 3600;
 
-/** The `## Plot Config` key whose command runs the reviewer. */
-const REVIEWER_FRAGMENT_KEY = 'Verify command';
-
 /** What a review run touches, so a test can supply values instead of a machine. */
 export interface ReviewDeps {
   host: Host;
   tracker: Tracker;
   trees: Trees;
-  /** The agent connector for the role, or the reason none can run. */
-  agentRun: () => Promise<{ agentRun: AgentRun; model: string } | { refused: string }>;
+  /** The agent connector that runs `command`, the reviewer's shell fragment. */
+  agentRun: (command: string) => AgentRun;
   repoRoot: string;
   /** The git common directory, absolute. */
   commonDir: string;
@@ -102,7 +106,7 @@ const refuse = (why: string): ReviewOutcome => ({ code: EXIT.refused, lines: [`p
  * @param sha - the reviewed head.
  * @param prUrl - the PR's URL.
  * @param counts - the verdict's counts.
- * @param verdictText - the reviewer's verdict file.
+ * @param verdictText - the reviewer's final answer.
  * @returns the issue text.
  */
 const followUpIssue = (
@@ -150,8 +154,9 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   const issueFile = path.join(reviews, `${key}.issue`);
   const lines: string[] = [];
 
-  const runner = await deps.agentRun();
-  if ('refused' in runner) return refuse(`no agent can run the reviewer: ${runner.refused}`);
+  const command = reviewerCommand(charter.charter);
+  if (command.read === 'refused') return refuse(command.why);
+  const agentRun = deps.agentRun(command.command);
 
   deps.removeFile(verdictFile);
   const tree = path.join(deps.repoRoot, '.worktrees', `review-${pr.number}-${sha.slice(0, 7)}`);
@@ -162,19 +167,19 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   if (!added.ok) return refuse(`could not create the review worktree ${tree}`);
   let ran;
   try {
-    ran = await runner.agentRun.run({
+    ran = await agentRun.run({
       worktree: tree,
-      prompt: `${charter.charter.prompt}\n\n${reviewRequestBlock({ pr: pr.number, headSha: sha, base: deps.base, verdictFile })}`,
+      prompt: `${charter.charter.prompt}\n\n${reviewRequestBlock({ pr: pr.number, headSha: sha, base: deps.base })}`,
       resumeId: '',
       role: 'reviewer',
       harness: charter.charter.harness,
-      model: charter.charter.model || runner.model,
+      model: charter.charter.model,
       effort: charter.charter.effort,
       maxTurns: 0,
       maxSpendUsd: 0,
       boundSeconds: REVIEW_BOUND_SECONDS,
       contextWindow: 0,
-      capabilities: charter.charter.capabilities,
+      capabilities: [...new Set(['read-only', ...charter.charter.capabilities])],
       env: {},
       logFile,
       onStarted: () => {},
@@ -185,10 +190,11 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   if (!ran.ok) return refuse('the reviewer run could not be started');
   if (ran.value.end.answer !== 'ran') return refuse(`the reviewer run ended without finishing: ${ran.value.end.answer}`);
 
-  const verdictText = deps.readText(verdictFile);
-  if (verdictText === null) return refuse(`the reviewer wrote no verdict file at ${verdictFile}`);
+  const verdictText = ran.value.finalText ?? '';
+  if (verdictText.trim() === '') return refuse('the reviewer gave no final answer');
+  deps.writeText(verdictFile, verdictText);
   const verdict = reviewVerdict(verdictText);
-  if (verdict.read === 'refused') return refuse(`verdict file ${verdictFile} refused: ${verdict.why}`);
+  if (verdict.read === 'refused') return refuse(`verdict ${verdictFile} refused: ${verdict.why}`);
   const { counts } = verdict;
 
   const after = await deps.host.prState(String(pr.number));
@@ -266,15 +272,13 @@ const machineDeps = async (cwd: string, scriptDir: string): Promise<ReviewDeps |
   const backend = await host.backend();
   const branch = await git(cwd, ['branch', '--show-current']);
   const head = await git(repoRoot, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
-  const opts = { repoRoot, scriptsDir: scriptDir };
+  const boundedRun = boundedRunProcess(processesShell(context));
   return {
     host,
     tracker: trackerForIssues(declared.ok ? declared.value.trim() : '', backend.ok ? backend.value : '', context),
     trees: treesGit(context),
-    agentRun: async () => {
-      const choice = await agentRunFor(opts, 'reviewer', REVIEWER_FRAGMENT_KEY);
-      return choice.agentRun === undefined ? { refused: choice.reason } : { agentRun: choice.agentRun, model: choice.model };
-    },
+    agentRun: (command) =>
+      agentRunCommand({ boundedRun, fragment: command, limitPatterns: HARNESS_LIMIT_LINES.claude, now: Date.now }),
     repoRoot,
     commonDir,
     base: head.code === 0 ? head.stdout.trim().replace(/^origin\//, '') : 'main',
@@ -313,7 +317,7 @@ export const run = async (
   warn: (s: string) => void = (s) => process.stderr.write(s),
 ): Promise<number> => {
   if (argv.length > 1 || (argv[0] !== undefined && !/^\d+$/.test(argv[0]))) {
-    warn('plot-review: usage: plot-review [<pr-number>]\n');
+    warn('plot-review: usage: plot-review.mjs [<pr-number>]\n');
     return EXIT.usage;
   }
   const deps = await machineDeps(cwd, scriptDir);

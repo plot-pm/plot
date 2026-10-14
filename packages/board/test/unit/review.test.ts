@@ -24,6 +24,7 @@ interface Rig {
   statuses: CommitStatusWrite[];
   issues: IssueOpen[];
   requests: AgentRunRequest[];
+  commands: string[];
   files: Map<string, string>;
   removed: string[];
 }
@@ -32,6 +33,7 @@ const rig = (verdict: string | null, opts: { prs?: Pr[]; files?: Map<string, str
   const statuses: CommitStatusWrite[] = [];
   const issues: IssueOpen[] = [];
   const requests: AgentRunRequest[] = [];
+  const commands: string[] = [];
   const removed: string[] = [];
   const files = opts.files ?? new Map<string, string>();
   let asked = 0;
@@ -50,11 +52,10 @@ const rig = (verdict: string | null, opts: { prs?: Pr[]; files?: Map<string, str
   const agentRun: AgentRun = {
     run: async (request) => {
       requests.push(request);
-      const file = /Write your verdict to (\S+)\./.exec(request.prompt)![1]!;
-      if (verdict !== null) files.set(file, verdict);
       return answered({
         sessionId: 's', end: { answer: 'ran', handBack: null }, usageByModel: {}, costUsd: null,
         costUsdByModel: {}, turns: 1, limitReadings: [], account: null,
+        ...(verdict === null ? {} : { finalText: verdict }),
       });
     },
   };
@@ -67,7 +68,7 @@ const rig = (verdict: string | null, opts: { prs?: Pr[]; files?: Map<string, str
     host,
     tracker: trackerFixture({ scheme: 'github-issues', opened: issues }),
     trees,
-    agentRun: async () => ({ agentRun, model: '' }),
+    agentRun: (command) => { commands.push(command); return agentRun; },
     repoRoot: '/repo', commonDir: '/repo/.git', base: 'main', currentBranch: 'feature/x',
     fetchSha: async () => true,
     readCharterText: () => CHARTER,
@@ -75,7 +76,7 @@ const rig = (verdict: string | null, opts: { prs?: Pr[]; files?: Map<string, str
     writeText: (f, t) => { files.set(f, t); },
     removeFile: (f) => { files.delete(f); },
   };
-  return { deps, statuses, issues, requests, files, removed };
+  return { deps, statuses, issues, requests, commands, files, removed };
 };
 
 const FINDINGS = '- [HIGH] leaks a token\nFindings: HIGH 2, MEDIUM 1, LOW 0\n';
@@ -137,7 +138,7 @@ describe('reviewPr', () => {
 
   it('removes the tree when the run throws', async () => {
     const r = rig(null);
-    r.deps.agentRun = async () => ({ agentRun: { run: async () => { throw new Error('boom'); } }, model: '' });
+    r.deps.agentRun = () => ({ run: async () => { throw new Error('boom'); } });
     await expect(reviewPr(r.deps, '7')).rejects.toThrow('boom');
     expect(r.removed).toHaveLength(1);
   });
@@ -155,14 +156,55 @@ describe('reviewPr', () => {
     expect(r.issues).toHaveLength(0);
   });
 
-  it('refuses when the reviewer wrote no verdict file', async () => {
-    const r = rig(null);
+  it.each([
+    ['no final answer', null],
+    ['an empty final answer', '  \n'],
+  ])('refuses %s: no status, no issue', async (_name, text) => {
+    const r = rig(text);
     const out = await reviewPr(r.deps, '7');
     expect(out.code).toBe(EXIT.refused);
+    expect(out.lines[0]).toContain('no final answer');
+    expect(r.statuses).toHaveLength(0);
+    expect(r.issues).toHaveLength(0);
+  });
+
+  it('writes the final answer to the verdict file and reads the counts from it', async () => {
+    const r = rig('- [LOW] naming\nFindings: HIGH 0, MEDIUM 0, LOW 1\n');
+    await reviewPr(r.deps, '7');
+    expect(r.files.get(`/repo/.git/plot/state/reviews/7-${HEAD}.md`)).toBe('- [LOW] naming\nFindings: HIGH 0, MEDIUM 0, LOW 1\n');
+    expect(r.statuses.map((s) => s.state)).toEqual(['success']);
+  });
+
+  it('runs the reviewer read-only: read and search tools, no bypass, no write or shell tool', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
+    await reviewPr(r.deps, '7');
+    expect(r.commands).toHaveLength(1);
+    const command = r.commands[0]!;
+    expect(command).not.toContain('bypassPermissions');
+    expect(command).toContain('--tools Read,Grep,Glob ');
+    expect(command).toContain('--permission-mode dontAsk');
+    expect(command).toContain('--strict-mcp-config');
+    expect(command).toContain('--setting-sources user');
+    const denied = /--disallowedTools (\S+)/.exec(command)![1]!.split(',');
+    expect(denied).toEqual(expect.arrayContaining(['Write', 'Edit', 'Bash']));
+    expect(command).toContain("--model 'opus'");
+    expect(r.requests[0]!.role).toBe('reviewer');
+    expect(r.requests[0]!.capabilities).toContain('read-only');
+    expect(r.requests[0]!.prompt).not.toContain('Write your verdict to');
+  });
+
+  it('refuses a charter whose harness is not claude, and runs nothing', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
+    r.deps.readCharterText = () => JSON.stringify({ name: 'reviewer', prompt: 'p', harness: 'codex', capabilities: [] });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(out.lines[0]).toContain("harness 'codex'");
+    expect(r.commands).toHaveLength(0);
+    expect(r.requests).toHaveLength(0);
     expect(r.statuses).toHaveLength(0);
   });
 
-  it('refuses a stale verdict from an earlier run when the reviewer writes none', async () => {
+  it('refuses a stale verdict from an earlier run when the reviewer answers nothing', async () => {
     const files = new Map([['/repo/.git/plot/state/reviews/7-' + HEAD + '.md', 'Findings: HIGH 0, MEDIUM 0, LOW 0\n']]);
     const r = rig(null, { files });
     const out = await reviewPr(r.deps, '7');
@@ -185,12 +227,4 @@ describe('reviewPr', () => {
     expect(r.requests).toHaveLength(0);
   });
 
-  it('refuses when no agent can run the reviewer', async () => {
-    const r = rig(FINDINGS);
-    r.deps.agentRun = async () => ({ refused: 'Agent runner: sdk, and this process does not carry the SDK runner' });
-    const out = await reviewPr(r.deps, '7');
-    expect(out.code).toBe(EXIT.refused);
-    expect(out.lines[0]).toContain('SDK');
-    expect(r.statuses).toHaveLength(0);
-  });
 });

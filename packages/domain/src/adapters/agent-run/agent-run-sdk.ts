@@ -420,7 +420,7 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
       abortedOnBound: false,
       structuredOutput: undefined,
     };
-    const seen = { sessionId: request.resumeId, costUsd: null as number | null, turns: 0 };
+    const seen = { sessionId: request.resumeId, costUsd: null as number | null, turns: 0, finalText: undefined as string | undefined };
     let usageByModel: Record<string, AgentRunUsage> = {};
     let costUsdByModel: Record<string, number> = {};
     const limitReadings: AgentRunLimitReading[] = [];
@@ -471,8 +471,10 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
           costUsdByModel = Object.fromEntries(
             Object.entries(message.modelUsage ?? {}).map(([model, usage]) => [model, usage.costUSD]),
           );
-          if (message.subtype === 'success') reading.structuredOutput = message.structured_output;
-          else reading.startupFailureReason = message.startup_failure_reason ?? null;
+          if (message.subtype === 'success') {
+            reading.structuredOutput = message.structured_output;
+            seen.finalText = message.result;
+          } else reading.startupFailureReason = message.startup_failure_reason ?? null;
         }
       }
     } catch (error) {
@@ -526,6 +528,7 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
       turns: seen.turns,
       limitReadings,
       account,
+      ...(seen.finalText === undefined ? {} : { finalText: seen.finalText }),
     });
   },
 });

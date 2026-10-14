@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { reviewIssueUrl, reviewRequestBlock, reviewVerdict } from '../src/rules/review-verdict.js';
+import {
+  REVIEWER_DENY,
+  REVIEWER_TOOLS,
+  reviewerCommand,
+  reviewIssueUrl,
+  reviewRequestBlock,
+  reviewVerdict,
+} from '../src/rules/review-verdict.js';
 
 const refused = (text: string): string => {
   const verdict = reviewVerdict(text);
@@ -69,10 +76,56 @@ describe('reviewIssueUrl', () => {
 });
 
 describe('reviewRequestBlock', () => {
-  it('names the PR, the head, the base, the rubric, the read-only rule and the file', () => {
-    const block = reviewRequestBlock({ pr: 7, headSha: 'abc123', base: 'main', verdictFile: '/g/plot/state/reviews/7-abc123.md' });
-    for (const part of ['#7', 'abc123', 'main', 'HIGH:', 'MEDIUM:', 'LOW:', 'Read-only', '/g/plot/state/reviews/7-abc123.md', 'Findings: HIGH <n>']) {
+  it('names the PR, the head, the base, the rubric, the read-only rule and the final-answer line', () => {
+    const block = reviewRequestBlock({ pr: 7, headSha: 'abc123', base: 'main' });
+    for (const part of ['#7', 'abc123', 'main', 'HIGH:', 'MEDIUM:', 'LOW:', 'Read-only', 'final answer', 'Findings: HIGH <n>']) {
       expect(block).toContain(part);
     }
+  });
+});
+
+const command = (charter: { harness: string; model: string; effort: string }): string => {
+  const built = reviewerCommand(charter);
+  if (built.read !== 'command') throw new Error(`expected a command, got ${built.why}`);
+  return built.command;
+};
+
+describe('reviewerCommand', () => {
+  it('runs claude with read and search tools only, no MCP, user settings only, and no bypass', () => {
+    expect(command({ harness: '', model: '', effort: '' })).toBe(
+      'claude -p --tools Read,Grep,Glob --disallowedTools Write,Edit,NotebookEdit,Bash,Agent,Task,WebFetch,WebSearch'
+        + ' --setting-sources user --permission-mode dontAsk --strict-mcp-config',
+    );
+  });
+
+  it('names the charter model and effort, single-quoted', () => {
+    const built = command({ harness: 'claude', model: 'claude-opus-4[1m]', effort: 'high' });
+    expect(built).toContain("--model 'claude-opus-4[1m]' --effort 'high' ");
+    expect(built).not.toContain('bypassPermissions');
+  });
+
+  it('lists no write, shell or network tool in the tools it offers', () => {
+    for (const tool of ['Write', 'Edit', 'NotebookEdit', 'Bash', 'WebFetch', 'WebSearch']) {
+      expect(REVIEWER_TOOLS).not.toContain(tool);
+      expect(REVIEWER_DENY).toContain(tool);
+    }
+  });
+
+  it('refuses a harness other than claude', () => {
+    expect(reviewerCommand({ harness: 'codex', model: '', effort: '' })).toEqual({
+      read: 'refused',
+      why: "the reviewer runs read-only on claude only; the charter names harness 'codex'",
+    });
+  });
+
+  it('refuses a model or effort that is not one word', () => {
+    expect(reviewerCommand({ harness: '', model: "opus' --permission-mode bypassPermissions '", effort: '' })).toMatchObject({
+      read: 'refused',
+      why: expect.stringContaining("model"),
+    });
+    expect(reviewerCommand({ harness: '', model: 'opus', effort: 'high; rm -rf /' })).toMatchObject({
+      read: 'refused',
+      why: expect.stringContaining('effort'),
+    });
   });
 });

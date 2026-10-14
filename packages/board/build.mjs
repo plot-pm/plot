@@ -427,7 +427,7 @@ await esbuild.build({
 fs.copyFileSync(verifyArtifact, shippedVerify);
 fs.chmodSync(shippedVerify, 0o755);
 
-// A pull request's review, for plot-review.sh.
+// A pull request's review, run as `node board/plot-review.mjs`.
 //
 // Its own artifact for the reason the verify one is: it spawns git and
 // plot-host.sh, and it runs an agent through the AgentRun port.

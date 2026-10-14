@@ -45,16 +45,14 @@ export interface ReviewRequest {
   pr: number;
   headSha: string;
   base: string;
-  /** Absolute path of the file the reviewer writes its verdict to. */
-  verdictFile: string;
 }
 
 /**
  * The fixed review-request block appended to the reviewer charter's prompt.
  *
- * @param request - the pull request, its head, its base branch and the verdict file.
+ * @param request - the pull request, its head and its base branch.
  * @returns the block: the PR facts, the severity rubric, the read-only rule, and
- *   the verdict file's path and required `Findings:` line.
+ *   the instruction to end the final answer with the one `Findings:` line.
  */
 export const reviewRequestBlock = (request: ReviewRequest): string =>
   [
@@ -70,11 +68,67 @@ export const reviewRequestBlock = (request: ReviewRequest): string =>
     '- MEDIUM: a defect that does not meet the HIGH bar.',
     '- LOW: a style or maintainability point.',
     '',
-    'Read-only: change no file in the working tree, create no commit, and push nothing.',
+    'Read-only: your tools read and search files and do nothing else. Write no file.',
     '',
-    `Write your verdict to ${request.verdictFile}. List each finding with its severity, then end with exactly one line:`,
+    'Give your verdict as your final answer. List each finding with its severity, then end with exactly one line:',
     'Findings: HIGH <n>, MEDIUM <n>, LOW <n>',
   ].join('\n');
+
+/** The only tools the reviewer's harness offers it: read and search. */
+export const REVIEWER_TOOLS: readonly string[] = ['Read', 'Grep', 'Glob'];
+
+/** The tools the reviewer's harness removes by name as well, in case a harness build ignores the tool list. */
+export const REVIEWER_DENY: readonly string[] = [
+  'Write', 'Edit', 'NotebookEdit', 'Bash', 'Agent', 'Task', 'WebFetch', 'WebSearch',
+];
+
+/** A model or effort word the reviewer command accepts; it is single-quoted into the command. */
+const COMMAND_WORD = /^[A-Za-z0-9._:[\]-]+$/;
+
+/** What `reviewerCommand` answers: the shell fragment, or the reason none is built. */
+export type ReviewerCommand = { read: 'command'; command: string } | { read: 'refused'; why: string };
+
+/**
+ * The shell fragment that runs the reviewer read-only, for the `command`
+ * agent runner. The prompt follows it as an argument.
+ *
+ * The fragment runs `claude -p` with only {@link REVIEWER_TOOLS}, removes
+ * {@link REVIEWER_DENY} by name, loads user settings only (`--setting-sources
+ * user`, so no hook or permission rule from the reviewed tree applies),
+ * denies every permission the settings do not grant (`--permission-mode
+ * dontAsk`), and loads no MCP server (`--strict-mcp-config`). It never names
+ * `bypassPermissions`.
+ *
+ * @param charter - the reviewer charter's harness, model and effort.
+ * @returns the fragment, or a refusal for a harness other than `claude` or a
+ *   model or effort word outside `[A-Za-z0-9._:[\]-]`.
+ */
+export const reviewerCommand = (charter: { harness: string; model: string; effort: string }): ReviewerCommand => {
+  if (charter.harness !== '' && charter.harness !== 'claude') {
+    return { read: 'refused', why: `the reviewer runs read-only on claude only; the charter names harness '${charter.harness}'` };
+  }
+  for (const [key, value] of [['model', charter.model], ['effort', charter.effort]] as const) {
+    if (value !== '' && !COMMAND_WORD.test(value)) {
+      return { read: 'refused', why: `the charter's ${key} '${value}' is not a single word` };
+    }
+  }
+  const command = [
+    'claude',
+    '-p',
+    ...(charter.model === '' ? [] : ['--model', `'${charter.model}'`]),
+    ...(charter.effort === '' ? [] : ['--effort', `'${charter.effort}'`]),
+    '--tools',
+    REVIEWER_TOOLS.join(','),
+    '--disallowedTools',
+    REVIEWER_DENY.join(','),
+    '--setting-sources',
+    'user',
+    '--permission-mode',
+    'dontAsk',
+    '--strict-mcp-config',
+  ].join(' ');
+  return { read: 'command', command };
+};
 
 /**
  * The URL of a follow-up issue, composed from facts the tracker and the PR state.
