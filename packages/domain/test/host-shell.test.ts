@@ -315,6 +315,52 @@ describe('a host that answers', () => {
   });
 });
 
+describe('commitStatus', () => {
+  const write = {
+    sha: 'abc123',
+    state: 'success',
+    context: 'plot/review',
+    description: 'no HIGH findings',
+    targetUrl: 'https://example.invalid/pr/1',
+  };
+
+  it('passes the commit, state, context, description and url as positional args', async () => {
+    const echoArgs = hostThat(
+      '[ "$1" = "commit-status" ] && [ "$2" = "abc123" ] && [ "$3" = "success" ] '
+        + '&& [ "$4" = "plot/review" ] && [ "$5" = "no HIGH findings" ] '
+        + '&& [ "$6" = "https://example.invalid/pr/1" ] || exit 1; exit 0',
+    );
+    const answer = await hostShell(echoArgs).commitStatus(write);
+    expect(answer).toEqual({ ok: true, value: true });
+  });
+
+  it('reads exit 0 as answered true', async () => {
+    const answer = await hostShell(hostThat('exit 0')).commitStatus(write);
+    expect(answer).toEqual({ ok: true, value: true });
+  });
+
+  it('reads exit 1 and exit 3 as failed, not unaskable', async () => {
+    // Bad arguments (1) and a broken write — a failed JWT sign, no
+    // installation, a non-2xx response (3) — are both ordinary failures: a
+    // caller may retry, but nothing here says the capability is permanently
+    // absent.
+    expect(await hostShell(hostThat('exit 1')).commitStatus(write)).toEqual({
+      ok: false,
+      why: 'failed',
+    });
+    expect(await hostShell(hostThat('exit 3')).commitStatus(write)).toEqual({
+      ok: false,
+      why: 'failed',
+    });
+  });
+
+  it('reads exit 4 as unaskable — the backend cannot drive this write', async () => {
+    // `plot-host.sh` exits 4 for `commit-status` on any backend but GitHub.
+    const answer = await hostShell(hostThat('exit 4')).commitStatus(write);
+    expect(answer).toEqual({ ok: false, why: 'unaskable' });
+  });
+});
+
 describe('the host’s words are read against what the entity allows', () => {
   /** One PR row as the host prints it, with everything the mapper reads. */
   const fullPr = {

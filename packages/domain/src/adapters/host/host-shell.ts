@@ -7,6 +7,7 @@ import {
 import type { Checks, Mergeability, Pr, PrState, ReviewVerdict } from '../../entities/pr.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type {
+  CommitStatusWrite,
   Host,
   HostBackend,
   HostRefusal,
@@ -406,6 +407,26 @@ export const hostShell = (context: ShellContext): Host => {
           corrected.set(keyOf(reading), lowered.limit);
         }
       }
+    },
+
+    // `commit-status` IS BACKEND-GATED IN THE SCRIPT, NOT HERE. `plot-host.sh`
+    // exits 4 on anything but GitHub, naming the backend on stderr, so this
+    // adapter judges no vendor here either — it reads `resultOf`'s ordinary
+    // table (0 answered, 1/3 failed, 4 unaskable) exactly as `prMergeCommit`
+    // does, and the script's own exit-1 (bad args) and exit-3 (the App's JWT,
+    // installation or write failing) both collapse to `failed`, which is
+    // right: neither is a wait-and-retry condition.
+    commitStatus: async (write: CommitStatusWrite): Promise<PortResult<true>> => {
+      const args = [
+        'commit-status',
+        write.sha,
+        write.state,
+        write.context,
+        write.description,
+        write.targetUrl,
+      ];
+      const run = await runProcess('bash', [host, ...args], inRepo);
+      return record(run, () => true as const);
     },
 
     lastRefusal: (): HostRefusal | null => refusal,

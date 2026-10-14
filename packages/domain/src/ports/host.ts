@@ -101,6 +101,26 @@ export interface PrCreateRequest {
 }
 
 /**
+ * What a commit-status write is told: the whole of what a checker reports.
+ *
+ * `context` is the check's name, as GitHub groups statuses by it — one caller
+ * writing `plot/review` twice overwrites rather than appending, which is what
+ * makes the write safe to repeat on an unchanged sha.
+ */
+export interface CommitStatusWrite {
+  /** The commit to report against. */
+  sha: string;
+  /** The state to record, in the host's own vocabulary (e.g. `success`, `failure`). */
+  state: string;
+  /** The check's name, grouping repeat writes against the same sha. */
+  context: string;
+  /** A short human-readable summary. */
+  description: string;
+  /** Where the context's name links to; `''` for none. */
+  targetUrl: string;
+}
+
+/**
  * Reads the git host — the FOREIGN source of truth about pull requests.
  *
  * Foreign state carries its askability apart from its answer, which is why
@@ -270,6 +290,26 @@ export interface Host {
    * @param observed - what the call saw: `throttled` is the refusal.
    */
   observe(observed: LimitObservation): void;
+
+  /**
+   * Records one commit status, through the ONE writer that mints this host's
+   * App credentials — see `plot-commit-status.mjs`.
+   *
+   * GITHUB-ONLY TODAY. A host that cannot drive this write answers
+   * `unaskable`, the same word a structurally absent capability always
+   * answers with, and names why on {@link lastRefusal}.
+   *
+   * THIS PORT NAMES NO ISSUE, NO LABEL AND NO APP ID. Which App signs the
+   * write, where its key lives, and which account it bills are the adapter's
+   * business, read from `## Plot Config` only where the script already reads
+   * them — never a second time from here.
+   *
+   * @param write - the commit, the state, the check name and what it reports.
+   * @returns `true` once written; `unaskable` where this host cannot be asked
+   *   to write a commit status; `failed` otherwise, with the reason in
+   *   {@link lastRefusal}.
+   */
+  commitStatus(write: CommitStatusWrite): Promise<PortResult<true>>;
 
   /**
    * Why the most recent call did not answer, or null where it did.

@@ -1,6 +1,7 @@
 import { correctForRefusal, type LimitReading } from '../../entities/limit.js';
 import type { Pr } from '../../entities/pr.js';
 import type {
+  CommitStatusWrite,
   Host,
   HostBackend,
   HostRefusal,
@@ -51,6 +52,17 @@ export interface HostFixture {
    * which `account` answers as `failed`.
    */
   account?: string;
+  /**
+   * Where every `commitStatus` write is recorded, in call order.
+   *
+   * Same reasoning as {@link opened}: a test proving a write happened once,
+   * and not twice, needs the attempts rather than just the latest answer.
+   */
+  commitStatuses?: CommitStatusWrite[];
+  /**
+   * Whether writing a commit status fails. Default is to succeed.
+   */
+  commitStatusFails?: boolean;
 }
 
 /**
@@ -74,6 +86,7 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
   const merged = new Set(fixture.merged ?? []);
   const prs = fixture.prs ?? [];
   const opened = fixture.opened ?? [];
+  const commitStatuses = fixture.commitStatuses ?? [];
   // Mutable, because the correction rule is behaviour rather than a value and
   // the fixture must be able to show it. A fixture that always answered the
   // literal input could not stand in for an adapter that learns.
@@ -127,6 +140,14 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
 
     observe: (observed: LimitObservation): void => {
       limits = limits.map((reading) => correctForRefusal(reading, observed));
+    },
+
+    commitStatus: async (write: CommitStatusWrite): Promise<PortResult<true>> => {
+      // RECORDED BEFORE IT REFUSES, as `prCreate` records before failing: a
+      // test proving a second call wrote nothing must still see the attempt.
+      commitStatuses.push(write);
+      if (fixture.commitStatusFails === true) return failed();
+      return answered(true);
     },
 
     // ALWAYS NULL, and that is the fixture being honest rather than
