@@ -4,8 +4,24 @@
  * `/plot-release rc` shapes its own items.
  */
 
+import type { PlanState } from '../transitions/plan.js';
 import { changelogOf } from './claims.js';
 import { fencedLines } from './fences.js';
+
+/** The plan types the checklist lists. A docs or infra plan is live on merge. */
+const LISTED_TYPES: readonly string[] = ['feature', 'bug'];
+
+/**
+ * Whether a plan gets an item in the release checklist.
+ *
+ * @param type - the plan's `Type:` value, such as `feature` or `docs`.
+ * @param state - the plan's state.
+ * @returns true for a `delivered` plan of type `feature` or `bug`, compared
+ *   case-insensitively; false for every other type, an empty type, and every
+ *   other state, `released` included.
+ */
+export const listsOnChecklist = (type: string, state: PlanState): boolean =>
+  state === 'delivered' && LISTED_TYPES.includes(type.trim().toLowerCase());
 
 /** Matches the `RC:` line that marks an in-progress RC round. */
 const RC_LINE = /^RC:[ \t]+\S/m;

@@ -4,6 +4,7 @@ import {
   checklistSummary,
   freshChecklist,
   hasRcLine,
+  listsOnChecklist,
   renderChecklistEntry,
   withChecklistEntry,
   type ChecklistEntry,
@@ -23,6 +24,29 @@ const refuted = (slug: string, issue: string | null): ChecklistEntry => ({
   state: 'refuted',
   tally: '',
   issue,
+});
+
+describe('listsOnChecklist', () => {
+  it('lists a Delivered feature plan and a Delivered bug plan', () => {
+    expect(listsOnChecklist('feature', 'delivered')).toBe(true);
+    expect(listsOnChecklist('bug', 'delivered')).toBe(true);
+  });
+
+  it('reads the type case-insensitively and ignores surrounding space', () => {
+    expect(listsOnChecklist(' Feature ', 'delivered')).toBe(true);
+  });
+
+  it('leaves out a docs plan, an infra plan and a plan with no type', () => {
+    expect(listsOnChecklist('docs', 'delivered')).toBe(false);
+    expect(listsOnChecklist('infra', 'delivered')).toBe(false);
+    expect(listsOnChecklist('', 'delivered')).toBe(false);
+  });
+
+  it('leaves out a Released plan and every other state', () => {
+    expect(listsOnChecklist('feature', 'released')).toBe(false);
+    expect(listsOnChecklist('bug', 'approved')).toBe(false);
+    expect(listsOnChecklist('feature', 'none')).toBe(false);
+  });
 });
 
 describe('hasRcLine', () => {

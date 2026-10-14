@@ -42,12 +42,12 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
 | 0. Sprint Gate | Small | `plot-release-gate.sh` decides; this step reads its exit code and prints its sentence. The Should-Have question needs a person, not a bigger model |
-| 0b. Verification Findings | Small | Reads `## Refuted`/unchecked items off an existing checklist file and prints them; no judgment, no question asked |
+| 0b. Verification Findings | Small | Reads each Delivered feature/bug plan's `Verified:` record and `## Verification` claim lines, sorts them into refuted and unverified as `verificationOf` does, and prints both lists; no judgment, no question asked |
 | 1. Determine Version | Mid | Heuristic: plan types → bump suggestion; the open-RC-round check is a mechanical `RC:` line test |
-| 2A. RC Path | Small | Git tag; in-place edit of an existing checklist, or template generation where none exists |
+| 2A. RC Path | Small | Git tag; in-place edit of an existing checklist plus one plain item per delivered feature/bug plan it does not name, or template generation where none exists |
 | 2B. Release Notes | Mid | Discovery logic, changelog collection |
 | 3. Cross-check Notes | Frontier (orchestrator) + Small (subagents) | Orchestrator compares; small subagents can gather commit messages and plan changelogs in parallel. A merged spike's changeset pairs with its Design plan |
-| 4-5. Hand-off, RC cleanup | Small | Template list, no-ops; step 5's rename is a mechanical `RC:` line test |
+| 4-5. Hand-off, RC cleanup | Small | Template list, no-ops; step 5's rename is a mechanical `git mv` of any `vnext-checklist.md` |
 | 5b. Record the Release in the Plans | Small | One `plot-deliver.sh --release` call per plan (or `POST /api/release` where a board runs); the script resolves the version and writes the record. Gate on the sweep's real footer. The issue status write is one `plot-issue-status.sh` call per plan, reported and never gating |
 | 5c. Sprint Override Record | Small | One line into `## Notes`, from facts step 0 already collected |
 | 6. Summary | Small | Formatting |
@@ -168,11 +168,13 @@ approval, never a replacement for it.
 
 ### 0b. Report Verification Findings
 
-**Before determining a version, look at what verification found.** Read `docs/releases/vnext-checklist.md` where it exists. A `## Refuted` section names plans whose verification refuted a claim; any `- [ ]` item still unchecked under `## Verification` names a plan not yet verified. Print both lists to the person cutting the release, before step 1 runs — this is the only place either list surfaces, and a person deciding whether to proceed should see it before being asked for a version.
+**Before determining a version, look at what verification found.** The plans hold the answer, not the checklist: a checkbox in `vnext-checklist.md` records a person's test, and an unchecked box says nothing about verification. For each plan at `State: Delivered` whose `Type` is `feature` or `bug`, run `../plot/scripts/plot-plan-meta.sh <plan file>` and read `delivered_raw`, `verified_raw` and `tracer`, then read the plan's `## Verification` section. These are the readings the domain's `verificationOf` takes (`packages/domain/src/rules/verification-record.ts`), and it decides the two lists:
 
-- **Refuted plans:** name each, with its issue reference where the checklist carries one. **`/plot-reject` is the remedy** — it moves a prematurely delivered plan back to Approved. Point at it; do not run it.
-- **Unverified plans:** name each. These are informational — nothing here blocks the release on its own; the sprint gate in step 0 already decided what blocks.
-- **Neither list has entries, or the checklist file does not exist:** print nothing extra and continue straight to step 1.
+- **Refuted plans:** `verified_raw` names `delivery <date> at <sha>` with the date of `delivered_raw`, and `## Verification` holds a `Claim-<n> refuted` line. Name each plan with each refuted claim and the issue reference its line ends with. **`/plot-reject` is the remedy** — it moves a prematurely delivered plan back to Approved. Point at it; do not run it.
+- **Unverified plans:** `tracer` is true, `verified_raw` is empty, or the record is stale — its delivery date differs from `delivered_raw`, `delivered_raw` is empty, or `## Verification` holds no claim line. Name each. These are informational — nothing here blocks the release on its own; the sprint gate in step 0 already decided what blocks.
+- **Neither list has entries:** print nothing extra and continue straight to step 1.
+
+Print both lists to the person cutting the release, before step 1 runs — this is the only place either list surfaces, and a person deciding whether to proceed should see it before being asked for a version.
 
 This step names findings; it changes no files and asks no question of its own.
 
@@ -227,7 +229,9 @@ git push origin v<version>-rc.<n>
 
 **Generate or carry forward the verification checklist:**
 
-**Where `docs/releases/vnext-checklist.md` already exists** (the verify workflow writes it as plans deliver, one item per verified plan — see the fleet's verify docs), this RC round does not regenerate it from scratch. It edits the existing file **in place**: add the `RC:` tag line and the version heading, and change nothing else — every item the verify workflow already wrote, and the `## Refuted` section where one exists, stay exactly as recorded.
+**Where `docs/releases/vnext-checklist.md` already exists** (the verify workflow writes it as plans deliver, one item per verified plan — see the fleet's verify docs), this RC round does not regenerate it from scratch. It edits the existing file **in place**: add the `RC:` tag line and the version heading, and keep every item the verify workflow already wrote, and the `## Refuted` section where one exists, exactly as recorded.
+
+**Then complete the file from the delivered plans.** The verify workflow writes an item only for a plan whose verification run recorded, so a plan with no run — `Auto-verify` off, a tracer plan, a failed or halted run, a plan delivered after the file's `RC:` line — has no item. Collect the delivered plans since the last release tag as the fallback below does. For each delivered feature or bug plan whose slug no item in the file names, add `- [ ] <slug> — <changelog summary>` under `## Verification`, with no verification tail. Where the file has no `## Automated Tests` or `## Sign-off` section, add it as the template below shows, with the sign-off lines empty.
 
 ```markdown
 # Release Checklist — v<version>
@@ -384,7 +388,7 @@ Do **not** execute these on the user's behalf. Point them at their release tooli
 
 If RC tags exist for this version, they remain in git history (don't delete them — they're part of the release record).
 
-**Rename the checklist only where an RC round opened it.** Where `docs/releases/vnext-checklist.md` carries an `RC:` line, this release closes that round: rename the file to `docs/releases/v<version>-checklist.md` and commit, so it stays as documentation of what was verified. Where `vnext-checklist.md` carries no `RC:` line — no RC round ran for this release, and the verify workflow is still writing it as later plans deliver — **leave it exactly where it is.** Renaming an un-tagged file would stop the next verify run from finding it and start a second file in its place.
+**Rename the checklist at every final release.** Where `docs/releases/vnext-checklist.md` exists, its items name the plans this release ships, whether or not an RC round opened it. Rename it with `git mv` to `docs/releases/v<version>-checklist.md`, change a `# Release Checklist` title to `# Release Checklist — v<version>`, and commit, so it stays as documentation of what was verified. A bare file that stayed in place would carry this version's plans into the next RC. The next verify run starts a new `vnext-checklist.md`. A plan the renamed file names that this release does not ship — delivered after the tag, so step 5b leaves it at Delivered — gets its item again from the next `/plot-release rc` (step 2A completes the file from the delivered plans).
 
 ### 5b. Record the Release in the Plans
 

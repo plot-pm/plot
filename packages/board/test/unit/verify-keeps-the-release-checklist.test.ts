@@ -54,13 +54,19 @@ describe('record keeps the release checklist', () => {
    * checklist path reads and writes a real file under `checklistRoot` — so it
    * genuinely persists across two separate `record()` calls.
    */
-  const contextOf = (repo: string, checklistRoot: string, plans: Readonly<Record<string, string>>): Context => ({
+  const contextOf = (
+    repo: string,
+    checklistRoot: string,
+    plans: Readonly<Record<string, string>>,
+    meta: { type: string; phase: string } = { type: 'feature', phase: 'delivered' },
+  ): Context => ({
     repoRoot: repo,
     scriptDir: repo,
     scriptsRel: '',
     refs: refsFixture({ files: { [`${JUDGED}:${PLAN}`]: ON_MAIN } }),
     host: hostFixture({ backend: 'github' }),
     planStore: {
+      readPlan: async () => answered(meta),
       readText: async (file: string) => {
         const match = Object.keys(plans).find((plan) => file.endsWith(plan));
         if (match !== undefined) return answered(plans[match]);
@@ -97,6 +103,38 @@ describe('record keeps the release checklist', () => {
     const checklist = readFileSync(path.join(checklistRoot, CHECKLIST), 'utf8');
     expect(checklist).not.toMatch(/^RC:/m);
     expect(checklist).toContain('- [ ] p — one — verified 1/1');
+  });
+
+  it('starts a missing checklist with its Automated Tests and empty Sign-off sections', async () => {
+    const repo = repository();
+    const checklistRoot = mkdtempSync(path.join(tmpdir(), 'plot-verify-checklist-out-'));
+    roots.push(checklistRoot);
+    const args = { command: 'record' as const, slug: 'p', at: '', sha: '' };
+    const quiet = () => undefined;
+
+    expect(await record(contextOf(repo, checklistRoot, { [PLAN]: ON_MAIN }), args, quiet, quiet)).toBe(0);
+
+    const checklist = readFileSync(path.join(checklistRoot, CHECKLIST), 'utf8');
+    expect(checklist).toContain('## Automated Tests');
+    expect(checklist).toContain('## Sign-off');
+    expect(checklist).toContain('- [ ] All items verified by: ___');
+    expect(checklist).toContain('- [ ] Final release approved by: ___');
+  });
+
+  it.each([
+    ['a Released feature plan', { type: 'feature', phase: 'released' }],
+    ['a Delivered docs plan', { type: 'docs', phase: 'delivered' }],
+    ['a Delivered infra plan', { type: 'infra', phase: 'delivered' }],
+  ])('writes the record and no checklist for %s', async (_name, meta) => {
+    const repo = repository();
+    const checklistRoot = mkdtempSync(path.join(tmpdir(), 'plot-verify-checklist-out-'));
+    roots.push(checklistRoot);
+    const args = { command: 'record' as const, slug: 'p', at: '', sha: '' };
+    const quiet = () => undefined;
+
+    expect(await record(contextOf(repo, checklistRoot, { [PLAN]: ON_MAIN }, meta), args, quiet, quiet)).toBe(0);
+
+    expect(existsSync(path.join(checklistRoot, CHECKLIST))).toBe(false);
   });
 
   it('leaves a checklist carrying an RC: line untouched by the next verify run', async () => {
