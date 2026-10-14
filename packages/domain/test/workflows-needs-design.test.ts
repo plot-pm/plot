@@ -3,6 +3,7 @@ import { decided, refused, type Write } from '../src/workflows/decision.js';
 import {
   planNeedsDesign,
   SPEC_PLACEHOLDER,
+  specOf,
   type NeedsDesignReadings,
 } from '../src/workflows/needs-design.js';
 
@@ -102,5 +103,28 @@ describe('planNeedsDesign refusals', () => {
 
   it('refuses review-human without a who', () => {
     expect(planNeedsDesign(ready(), { ...on, who: '' })).toMatchObject({ reason: 'review-human' });
+  });
+});
+
+describe('specOf', () => {
+  const fence = '```';
+
+  it('returns the trimmed body of the Spec section up to the next heading', () => {
+    const text = ['# Plan', '', '## Spec', '', 'Body line.', '### Sub', 'More.', '', '## Slices', 'x'].join('\n');
+    expect(specOf(text)).toBe('Body line.\n### Sub\nMore.');
+  });
+
+  it('returns an empty string where the plan has no Spec section', () => {
+    expect(specOf('# Plan\n\n## Slices\nx')).toBe('');
+  });
+
+  it('ignores a Spec heading inside a fence that opens before the section', () => {
+    const text = ['# Plan', fence, '## Spec', 'not the spec', fence, '## Slices'].join('\n');
+    expect(specOf(text)).toBe('');
+  });
+
+  it('keeps fenced lines in the body and does not end the section on a heading inside a fence', () => {
+    const text = ['## Spec', 'Before.', fence, '## Not a heading', fence, 'After.', '## Slices', 'x'].join('\n');
+    expect(specOf(text)).toBe(['Before.', fence, '## Not a heading', fence, 'After.'].join('\n'));
   });
 });
