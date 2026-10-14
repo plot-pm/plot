@@ -121,6 +121,23 @@ export interface CommitStatusWrite {
 }
 
 /**
+ * What the host holds about one PR's review: the head it merged at, the
+ * newest `plot/review` status on that head, and whether a comment starts with
+ * `review-bypass:`.
+ *
+ * `state` is the host's own word for the status, or `absent` where the host
+ * holds none in that context.
+ */
+export interface PrReviewReading {
+  /** The PR's head commit. */
+  sha: string;
+  /** The newest `plot/review` state on `sha`, or `absent`. */
+  state: string;
+  /** Whether any PR comment starts with `review-bypass:`. */
+  bypass: boolean;
+}
+
+/**
  * Reads the git host — the FOREIGN source of truth about pull requests.
  *
  * Foreign state carries its askability apart from its answer, which is why
@@ -310,6 +327,17 @@ export interface Host {
    *   {@link lastRefusal}.
    */
   commitStatus(write: CommitStatusWrite): Promise<PortResult<true>>;
+
+  /**
+   * What the host holds about a PR's review, read per context and never from
+   * the folded checks. A PR whose CI is green and whose `plot/review` is
+   * missing answers `absent`, not a pass.
+   *
+   * @param number - the PR to read.
+   * @returns the reading; `unaskable` where this host cannot be asked;
+   *   `failed` otherwise, with the reason in {@link lastRefusal}.
+   */
+  prReview(number: number): Promise<PortResult<PrReviewReading>>;
 
   /**
    * Why the most recent call did not answer, or null where it did.

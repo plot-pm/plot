@@ -14,6 +14,7 @@ import type {
   LimitObservation,
   MergedAnswer,
   PrLookup,
+  PrReviewReading,
 } from '../../ports/host.js';
 import {
   EXIT_BROKE,
@@ -428,6 +429,9 @@ export const hostShell = (context: ShellContext): Host => {
       const run = await runProcess('bash', [host, ...args], inRepo);
       return record(run, () => true as const);
     },
+
+    prReview: (number) =>
+      ask(['pr-review', String(number)], (stdout) => asJson<PrReviewReading>(stdout)),
 
     lastRefusal: (): HostRefusal | null => refusal,
   };

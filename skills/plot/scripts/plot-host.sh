@@ -74,14 +74,12 @@
 #                                 empty answer sends the reaper to a weaker
 #                                 reading, so only a recognised lookup miss is
 #                                 empty.
-#   pr-comments <number>           every comment body on a PR, one per line with
-#                                 internal newlines escaped as literal `\n` —
-#                                 the caller matches against a line prefix
-#                                 (`review-bypass:`); this op reads bodies and
-#                                 interprets nothing. Bitbucket EXITS 4
-#                                 (unaskable): read-only detection for GitHub
-#                                 only, the Bitbucket arm is a sibling branch's
-#                                 scope. EXIT 3 is the question failing.
+#   pr-review <number>             one JSON line `{"sha","state","bypass"}`: the PR's
+#                                 head sha, the newest `plot/review` status on it
+#                                 (`success|failure|pending|error`, or `absent`),
+#                                 and whether a comment starts `review-bypass:`.
+#                                 Bitbucket EXITS 4 (unaskable). EXIT 3 is the
+#                                 question failing.
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL
 #   pr-merge <number> [--squash] [--delete-branch] [--match-head <sha>]
@@ -3841,26 +3839,14 @@ case "$op" in
     fi
     ;;
 
-  pr-comments)
-    # EVERY COMMENT BODY ON A PR, one per line, internal newlines escaped as
-    # literal `\n`. `/plot-reconcile`'s bypass-detection report matches a line
-    # prefix (`review-bypass:`) itself — this op reads bodies and interprets
-    # nothing, same split as `pr-merged-heads` reading a field the caller
-    # decides what to do with.
-    #
-    # BITBUCKET EXITS 4: this is read-only detection for GitHub only. The
-    # plan's Bitbucket work is a sibling branch's scope, and an unaskable
-    # exit here is the same contract `commit-status`'s Bitbucket arm already
-    # uses for work not yet built.
-    num="${1:?pr-comments needs a PR number}"; shift
-    [ "$be" = "github" ] || { echo "plot-host: pr-comments: bitbucket is not supported yet" >&2; exit 4; }
-    if out="$(gh pr view "$num" --json comments 2>"$HOST_ERR")"; then
-      rm -f "$HOST_ERR"
-      jq -r '.comments[]?.body // "" | gsub("\r\n|\r|\n"; "\\n")' <<<"$out" || exit 3
-    else
-      err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
-      miss_or_exit3 "$err"
-    fi
+  pr-review)
+    num="${1:?pr-review needs a PR number}"; shift
+    [ "$be" = "github" ] || { echo "plot-host: pr-review: bitbucket is not supported yet" >&2; exit 4; }
+    out="$(gh pr view "$num" --json headRefOid,comments 2>"$HOST_ERR")" && sha="$(jq -r .headRefOid <<<"$out")" \
+      && st="$(gh api "repos/{owner}/{repo}/commits/$sha/statuses" 2>>"$HOST_ERR" | jq -r '[.[] | select(.context == "plot/review")][0].state // "absent"')" \
+      && [ -n "$st" ] && { rm -f "$HOST_ERR"; jq -c --arg st "$st" '{sha: .headRefOid, state: $st, bypass: any(.comments[]?; .body | startswith("review-bypass:"))}' <<<"$out"; exit 0; }
+    err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+    echo "plot-host: pr-review: ${err:-the read failed}" >&2; exit 3
     ;;
 
   pr-create)
@@ -5314,6 +5300,6 @@ case "$op" in
     ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|pr-body|pr-comments|rate-limit|limit|ci-limit|spend-rate|commit-status)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
     ;;
 esac

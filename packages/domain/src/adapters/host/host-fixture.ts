@@ -9,6 +9,7 @@ import type {
   MergedAnswer,
   PrCreateRequest,
   PrLookup,
+  PrReviewReading,
 } from '../../ports/host.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 
@@ -63,6 +64,11 @@ export interface HostFixture {
    * Whether writing a commit status fails. Default is to succeed.
    */
   commitStatusFails?: boolean;
+  /**
+   * What `prReview` reports, keyed by PR number. A number not listed is a
+   * failed read, so a test can prove an unreadable PR is named.
+   */
+  reviews?: Readonly<Record<number, PrReviewReading>>;
 }
 
 /**
@@ -148,6 +154,11 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
       commitStatuses.push(write);
       if (fixture.commitStatusFails === true) return failed();
       return answered(true);
+    },
+
+    prReview: async (number: number): Promise<PortResult<PrReviewReading>> => {
+      const reading = fixture.reviews?.[number];
+      return reading === undefined ? failed() : answered(reading);
     },
 
     // ALWAYS NULL, and that is the fixture being honest rather than

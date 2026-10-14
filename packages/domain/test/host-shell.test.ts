@@ -361,6 +361,21 @@ describe('commitStatus', () => {
   });
 });
 
+describe('prReview', () => {
+  it('passes the PR number and reads one JSON line as the reading', async () => {
+    const reading = { sha: 'abc', state: 'absent', bypass: false };
+    const answer = await hostShell(
+      hostThat(`[ "$1 $2" = "pr-review 7" ] || exit 1; echo '${JSON.stringify(reading)}'`),
+    ).prReview(7);
+    expect(answer).toEqual({ ok: true, value: reading });
+  });
+
+  it('reads exit 3 as failed and exit 4 as unaskable', async () => {
+    expect(await hostShell(hostThat('exit 3')).prReview(7)).toEqual({ ok: false, why: 'failed' });
+    expect(await hostShell(hostThat('exit 4')).prReview(7)).toEqual({ ok: false, why: 'unaskable' });
+  });
+});
+
 describe('the host’s words are read against what the entity allows', () => {
   /** One PR row as the host prints it, with everything the mapper reads. */
   const fullPr = {
