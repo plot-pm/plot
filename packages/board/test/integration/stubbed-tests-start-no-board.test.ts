@@ -463,7 +463,12 @@ describe('a browser test that stubs its own state starts no board', () => {
 // runs as plan-level rows in *Waiting on you* and *Working*, alongside the
 // verify-run rows. A plain addition; it serves its state through the
 // catalogue and starts no board.
-const EXPECTED_FILES = 64;
+// 64 → 65 on 2026-10-14: `discovery-ticket-card.browser.test.ts`, for the
+// Discovery ticket card's state icon, shorthand-prefixed title, reference and
+// age, and its Create plan / Create story actions on Open and In progress
+// tickets. A plain addition; it serves its state through the catalogue and
+// starts no board.
+const EXPECTED_FILES = 65;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -680,7 +685,7 @@ const EXPECTED_FILES = 64;
 // page, so `EXPECTED_FILES` is unchanged.
 // 558 → 560 on 2026-10-12: the two `it(` of `refuted-badge.browser.test.ts`,
 // a new file counted in `EXPECTED_FILES` above.
-const EXPECTED_TESTS = 575;
+const EXPECTED_TESTS = 579;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
@@ -703,6 +708,10 @@ const EXPECTED_TESTS = 575;
 // 574 → 575 AND 63 → 64 FILES ON 2026-10-14: `spec-run-rows.browser.test.ts`,
 // the one `it(` showing a going spec run in *Working* and a failed one in
 // *Waiting on you* with its restart command. Added, not moved.
+// 575 → 579 AND 64 → 65 FILES ON 2026-10-14: `discovery-ticket-card.browser.test.ts`,
+// four `it(` for the Discovery ticket card's state icon, shorthand-prefixed
+// title, reference-and-age line, and Create plan / Create story on Open and
+// In progress tickets, with no action on a Done ticket. Added, not moved.
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
