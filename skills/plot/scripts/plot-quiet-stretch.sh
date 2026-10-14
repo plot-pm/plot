@@ -171,6 +171,5 @@ export PLOT_QS_JSON="$json"
 export PLOT_QS_TOP="$top"
 export PLOT_QS_INTERVAL="$interval"
 export PLOT_QS_LIVE="$live_rows"
-export PLOT_QS_SCRIPT_DIR="$script_dir"
 
 node "$script_dir/plot-quiet-stretch.mjs"

@@ -794,25 +794,6 @@ plot_worker_idle_now() { # $1..$7 as above → idle | silent
 # `origin/<default>` resolution are copied verbatim, including the comment
 # that explains why a dispatched branch's own claim commit must not count.
 
-# The reset epoch a desk is waiting out, or nothing.
-#
-# THE LOOP WRITES THE FILE AND THIS ONLY READS IT. `.plot-worker.limited`
-# carries the reset epoch, the same instant as ISO text, and the limit line;
-# only the first field is read here, because the caller compares integers and
-# never parses a date.
-#
-# NOTHING IS ANSWERED FOR AN ABSENT, EMPTY OR UNPARSEABLE FILE, and the caller
-# reads that as *this desk is not waiting*. A record whose first field is not a
-# number is the same answer as no record: a reading that cannot be made must
-# not widen into a reason to hold a verdict back.
-plot_worker_limited_reset() { # $1=worktree → epoch seconds | ""
-  local file="$1/.plot-worker.limited" reset
-  [ -n "$1" ] && [ -r "$file" ] || return 0
-  reset=$(cut -f1 < "$file" 2>/dev/null | head -n1)
-  case "$reset" in (''|*[!0-9]*) return 0 ;; esac
-  printf '%s' "$reset"
-}
-
 # Are there commits on this branch yet? → 0 yes | 1 no | 2 unanswerable
 #
 # THE THIRD CONDITION ON `idle`, and the one that separates a stall from an

@@ -4269,7 +4269,6 @@ for plan in "${plans[@]}"; do
   fi
 
   n_plans=$((n_plans + 1))
-  plan_target=$(readlink "$plan" 2>/dev/null && echo "" || true)
 
   # The plan's DISPLAY NAME: the dated filename, never an index alias.
   #

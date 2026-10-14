@@ -2221,7 +2221,6 @@ bb_lacks_issue_command() {
 
 # Cached capability state — empty until first call to bb_require_json.
 BB_CAP_CHECKED=""
-BB_CAP_HAS_JSON=""
 BB_CAP_IDENTITY=""    # "craftamap/0.6.0" or "quatico/1.2.3" or "unknown/<ver>"
 BB_CAP_PROBE_RC=""    # the exit code `bb pr list --help --json` returned
 BB_CAP_PROBE_MATCH="" # the line that matched a rejection pattern, if one did
@@ -2331,7 +2330,6 @@ bb_require_json() {
 
   # Allow tests to skip this (their stubs may not implement --help)
   if [ -n "${PLOT_BB_SKIP_CAP_CHECK:-}" ]; then
-    BB_CAP_HAS_JSON=1
     BB_CAP_IDENTITY="stub/test"
     return 0
   fi
@@ -2339,7 +2337,6 @@ bb_require_json() {
   BB_CAP_IDENTITY="$(bb_identify)"
 
   if ! bb_test_json_support; then
-    BB_CAP_HAS_JSON=0
     # THE OBSERVATION FIRST, THE IDENTITY WHERE ONE IS KNOWN.
     #
     # The plan asked for the observation and for dropping the provenance CLAIM
@@ -2355,7 +2352,6 @@ bb_require_json() {
     die3 "bb ($BB_CAP_IDENTITY): bb pr list --help --json exited ${BB_CAP_PROBE_RC:-?}${BB_CAP_PROBE_MATCH:+, matched: $BB_CAP_PROBE_MATCH} — this bb does not support --json for PR commands"
   fi
 
-  BB_CAP_HAS_JSON=1
   return 0
 }
 

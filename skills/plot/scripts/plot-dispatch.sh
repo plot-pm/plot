@@ -2671,8 +2671,6 @@ if [ "$mode" = "migrate" ]; then
   fi
 
   n_moved=0 n_skipped=0 n_would=0
-  dry_label="would move"
-  [ "$migrate_yes" = 1 ] && dry_label="moved"
 
   printf '%-8s %-52s %s\n' "verdict" "worktree" "reason"
 

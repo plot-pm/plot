@@ -318,7 +318,6 @@ NODE_EOF
   )
 
   refusal=${verdict%%$'\t'*}
-  detail=${verdict#*$'\t'}
 
   if [ "$refusal" != "delete" ]; then
     # The rule named the refusal; this renders it. A verdict the rule could not
