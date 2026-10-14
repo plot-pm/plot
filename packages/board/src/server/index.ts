@@ -4,9 +4,10 @@ import { inspect } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
-import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
-import { issuesClosedReading } from './fleet.js';
+import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, storyTopicInput, type BuildBoardOptions } from './board.js';
+import { issuesClosedReading, ticketLaneData } from './fleet.js';
 import { discoveryLanes } from './discovery-lanes.js';
+import { extractTopics } from './topics.js';
 import { boardState, fleetState } from './controllers/fleet-state.js';
 import { boardQueryFor, estateFromEnv } from './estate.js';
 // THE ONE ENTRY THAT REGISTERS THE SDK CONNECTOR: board roles on `Agent runner:
@@ -466,6 +467,13 @@ async function handleRequest(
       // the same answer; one flag serving several capabilities is precisely
       // how they diverge when a later change makes only one of them local.
       const built = await boardState(boardQueryFor(opts, estate));
+      // The SAME cache `discoveryLanes` reads from, asked once here and once
+      // there: a raw read, before `ticketLanes` groups it into Open/In
+      // progress/Done, because the topic cloud wants every tracker row's
+      // `number`/`title` and does not care which lane it fell in. Null where
+      // `discoveryLanes` would also find no cache — `boardState`'s topics
+      // (stories only, no tickets) stand in, same as its `tickets: null`.
+      const ticketData = await ticketLaneData(opts);
       const board = {
         ...built,
         dispatch: dispatchAvailability(HOST),
@@ -485,6 +493,16 @@ async function handleRequest(
         // `ticketLaneData` reads lives in `fleet.ts`, and `boardState` has no
         // dependency on it today.
         ...(await discoveryLanes(opts, built, url.searchParams.get('archived') === '1')),
+        // Recomputed with tickets folded in, for the same reason `tickets`
+        // itself is: `boardState`'s own `topics` (above, spread first) saw
+        // stories alone. A topic found only in ticket titles — no story, no
+        // plan — still needs a chip, which `boardState` cannot supply.
+        ...(ticketData && {
+          topics: extractTopics(
+            built.stories.map((s) => storyTopicInput(s)),
+            [...ticketData.open, ...ticketData.closed].map((t) => ({ number: t.number, title: t.title })),
+          ),
+        }),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));

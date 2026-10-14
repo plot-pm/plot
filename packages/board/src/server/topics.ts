@@ -115,19 +115,36 @@ const STOP_WORDS = new Set([
 export interface TopicEntry {
   topic: string;
   score: number;
-  /** Number of stories this topic appears in */
+  /** Number of matching stories plus matching tickets this topic appears in */
   count: number;
   /** Story slugs that contain this topic (for filtering) */
   storySlugs: string[];
+  /** Ticket numbers (the tracker's own key) that contain this topic (for filtering) */
+  ticketKeys: string[];
 }
 
 /**
- * Input for topic extraction: a story with its title and plan titles.
+ * Input for topic extraction: a story with its title, plan titles, and body text.
  */
 export interface StoryDocument {
   slug: string;
   title: string;
   planTitles: string[];
+  /** Story file body text (e.g. the `objective` and `design` sections) — read independently of title and plan titles. */
+  content?: string;
+}
+
+/**
+ * Input for topic extraction: a ticket with its tracker key and title.
+ *
+ * The issue index carries no body text (`IssueIndexRow` holds only `number`,
+ * `title`, `url`, and status/date fields), so a ticket contributes terms from
+ * its title alone.
+ */
+export interface TicketDocument {
+  /** The tracker's own key, e.g. `IssueIndexRow.number`. */
+  number: string;
+  title: string;
 }
 
 /**
@@ -229,48 +246,80 @@ function keywordsFromSlug(slug: string): string[] {
 }
 
 /**
- * Extract topics from stories for filtering.
+ * Terms a single story document contributes: slug keywords, compound terms
+ * and bigrams from its title, plan titles, and body text alike.
+ */
+function termsFromStory(story: StoryDocument): Set<string> {
+  const slugKeywords = keywordsFromSlug(story.slug);
+  const planCompounds = story.planTitles.flatMap((t) => extractCompounds(t));
+  const titleBigrams = extractBigrams(story.title);
+  const planBigrams = story.planTitles.flatMap((t) => extractBigrams(t));
+  const contentCompounds = story.content ? extractCompounds(story.content) : [];
+  const contentBigrams = story.content ? extractBigrams(story.content) : [];
+
+  return new Set([
+    ...slugKeywords,
+    ...planCompounds,
+    ...titleBigrams,
+    ...planBigrams,
+    ...contentCompounds,
+    ...contentBigrams,
+  ]);
+}
+
+/**
+ * Terms a single ticket contributes: compound terms and bigrams from its
+ * title — the only text the issue index carries.
+ */
+function termsFromTicket(ticket: TicketDocument): Set<string> {
+  return new Set([
+    ...extractCompounds(ticket.title),
+    ...extractBigrams(ticket.title),
+  ]);
+}
+
+/**
+ * Extract topics from stories and tickets for filtering.
  *
  * Uses a domain-focused approach:
  * 1. Extract keywords from story slugs (human-curated domain concepts)
- * 2. Extract meaningful compound terms from plan titles
- * 3. Rank by how many stories share each topic (for filter utility)
+ * 2. Extract meaningful compound terms from plan titles, story body text, and ticket titles
+ * 3. Rank by how many stories and tickets share each topic (for filter utility)
+ *
+ * A topic's `count` sums matching stories and matching tickets together, and
+ * the "every row" exclusion compares against the combined total — a topic in
+ * every story AND every ticket is noise; one in every story but only some
+ * tickets (or vice versa) still narrows the board.
  *
  * @param stories Array of story documents
+ * @param tickets Array of ticket documents
  * @param maxTopics Maximum number of topics to return (default 12)
  * @returns Topics sorted by count (most useful for filtering), then alphabetically
  */
-export function extractTopics(stories: StoryDocument[], maxTopics = 12): TopicEntry[] {
-  if (stories.length === 0) return [];
+export function extractTopics(
+  stories: StoryDocument[],
+  tickets: TicketDocument[] = [],
+  maxTopics = 12,
+): TopicEntry[] {
+  if (stories.length === 0 && tickets.length === 0) return [];
 
-  // Track which stories each topic appears in
+  // Track which stories and tickets each topic appears in
   const topicToStories = new Map<string, Set<string>>();
+  const topicToTickets = new Map<string, Set<string>>();
 
   for (const story of stories) {
-    // 1. Keywords from story slug (these are the primary domain concepts)
-    const slugKeywords = keywordsFromSlug(story.slug);
-
-    // 2. Compound terms from plan titles (domain-specific hyphenated terms)
-    const planCompounds = story.planTitles.flatMap((t) => extractCompounds(t));
-
-    // 3. Bigrams from story title (meaningful two-word phrases)
-    const titleBigrams = extractBigrams(story.title);
-
-    // 4. Bigrams from plan titles
-    const planBigrams = story.planTitles.flatMap((t) => extractBigrams(t));
-
-    // Combine all terms (prefer bigrams and compounds over single words)
-    const allTerms = new Set([
-      ...slugKeywords,
-      ...planCompounds,
-      ...titleBigrams,
-      ...planBigrams,
-    ]);
-
-    for (const term of allTerms) {
+    for (const term of termsFromStory(story)) {
       const storySet = topicToStories.get(term) ?? new Set();
       storySet.add(story.slug);
       topicToStories.set(term, storySet);
+    }
+  }
+
+  for (const ticket of tickets) {
+    for (const term of termsFromTicket(ticket)) {
+      const ticketSet = topicToTickets.get(term) ?? new Set();
+      ticketSet.add(ticket.number);
+      topicToTickets.set(term, ticketSet);
     }
   }
 
@@ -284,30 +333,33 @@ export function extractTopics(stories: StoryDocument[], maxTopics = 12): TopicEn
     'long-horizon', 'next-step', 'last-step',
   ]);
 
+  const allTerms = new Set([...topicToStories.keys(), ...topicToTickets.keys()]);
+  const totalRows = stories.length + tickets.length;
+
   // Convert to array and sort by count
-  const allTopics = Array.from(topicToStories.entries())
-    .map(([topic, slugs]) => ({
-      topic,
-      score: slugs.size,
-      count: slugs.size,
-      storySlugs: Array.from(slugs),
-    }))
-    // Exclude noise terms and topics in ALL stories
-    .filter((t) => !NOISE_TERMS.has(t.topic) && t.count < stories.length)
+  const allTopics = Array.from(allTerms)
+    .map((topic) => {
+      const storySlugs = Array.from(topicToStories.get(topic) ?? []);
+      const ticketKeys = Array.from(topicToTickets.get(topic) ?? []);
+      const count = storySlugs.length + ticketKeys.length;
+      return { topic, score: count, count, storySlugs, ticketKeys };
+    })
+    // Exclude noise terms and topics in EVERY story and EVERY ticket
+    .filter((t) => !NOISE_TERMS.has(t.topic) && t.count < totalRows)
     // Sort by count desc, then alphabetically
     .sort((a, b) => b.count - a.count || a.topic.localeCompare(b.topic));
 
-  // Prefer topics that appear in 2+ stories (better for filtering)
-  const multiStory = allTopics.filter((t) => t.count >= 2);
+  // Prefer topics that appear in 2+ rows (better for filtering)
+  const multiRow = allTopics.filter((t) => t.count >= 2);
 
-  // If we have enough multi-story topics, use those
-  // Otherwise, fill with single-story topics (compound slugs are still useful)
-  if (multiStory.length >= maxTopics / 2) {
-    return multiStory.slice(0, maxTopics);
+  // If we have enough multi-row topics, use those
+  // Otherwise, fill with single-row topics (compound slugs are still useful)
+  if (multiRow.length >= maxTopics / 2) {
+    return multiRow.slice(0, maxTopics);
   }
 
-  // Mix: all multi-story + some single-story to fill
-  const singleStory = allTopics
+  // Mix: all multi-row + some single-row to fill
+  const singleRow = allTopics
     .filter((t) => t.count === 1)
     // Prefer compound topics (hyphenated) over single words
     .sort((a, b) => {
@@ -316,5 +368,5 @@ export function extractTopics(stories: StoryDocument[], maxTopics = 12): TopicEn
       return bCompound - aCompound || a.topic.localeCompare(b.topic);
     });
 
-  return [...multiStory, ...singleStory].slice(0, maxTopics);
+  return [...multiRow, ...singleRow].slice(0, maxTopics);
 }

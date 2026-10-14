@@ -1028,10 +1028,12 @@ export const TopicSchema = z.object({
   topic: z.string(),
   /** TF-IDF score — higher means more distinctive across the corpus */
   score: z.number(),
-  /** Number of stories containing this topic */
+  /** Number of matching stories plus matching tickets containing this topic */
   count: z.number(),
   /** Story slugs that contain this topic (for filtering) */
   storySlugs: z.array(z.string()),
+  /** Ticket numbers (the tracker's own key) that contain this topic (for filtering) */
+  ticketKeys: z.array(z.string()).default([]),
 });
 export type Topic = z.infer<typeof TopicSchema>;
 

@@ -67,7 +67,7 @@ import {
 } from '@plot-pm/domain/adapters';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
-import { extractTopics } from './topics.js';
+import { extractTopics, type StoryDocument } from './topics.js';
 import {
   readConfig as readConfigReader,
   readConfigAsync as readConfigAsyncReader,
@@ -1932,6 +1932,25 @@ const resolveStoryFile = async (
 };
 
 /**
+ * One story card as {@link extractTopics}'s `StoryDocument` input: title and
+ * plan titles as before, plus the story's own body text (the `objective` and
+ * `design` sections `parseStoryContent` already extracted from the file) so a
+ * term that appears only in a story's prose — not its title, slug, or plan
+ * titles — still surfaces as a topic.
+ *
+ * Exported so `index.ts` can rebuild the full topic list with tickets folded
+ * in, from the same story shape this walker already used.
+ */
+export function storyTopicInput(s: StoryCard): StoryDocument {
+  return {
+    slug: s.slug,
+    title: s.title || s.slug.replace(/-/g, ' '),
+    planTitles: (s.plans || []).map((p) => p.title || p.slug.replace(/-/g, ' ')),
+    content: [s.objective, s.design].filter(Boolean).join('\n\n'),
+  };
+}
+
+/**
  * Build the board JSON: plans (via the plan-format helper) grouped into the
  * four phase columns, plus discovered sprints and stories for the filters.
  * Plans whose phase is not a board phase (rejected / superseded / legacy) are
@@ -2458,12 +2477,12 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     sprints,
     stories,
     archivedStories,
-    // Semantic topics extracted from story and plan titles using TF-IDF
-    topics: extractTopics(stories.map((s) => ({
-      slug: s.slug,
-      title: s.title || s.slug.replace(/-/g, ' '),
-      planTitles: (s.plans || []).map((p) => p.title || p.slug.replace(/-/g, ' ')),
-    }))),
+    // Computed from `stories` alone here, with no tickets: the issue-index
+    // cache this walker has no dependency on (see the comment below) holds the
+    // tracker rows a complete topic cloud also needs. index.ts recomputes this
+    // with tickets folded in once `ticketLaneData` has answered, the same
+    // split `tickets`/`plansUnreadable`/`storyLanes` already follow.
+    topics: extractTopics(stories.map((s) => storyTopicInput(s))),
     defaultBranch: defaultBranchReading,
     // Unset until `discoveryLanes` fills them in: the Discovery lane cache
     // lives in `fleet.ts`, which this walker has no dependency on. index.ts
