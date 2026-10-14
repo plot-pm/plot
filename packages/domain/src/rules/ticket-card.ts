@@ -41,7 +41,7 @@ export const ticketCardReference = (url: string): string => {
   const issuePath = /^https?:\/\/[^/]+\/([^/]+)\/([^/]+)\/issues\/(\d+)/.exec(url);
   if (issuePath) return `${issuePath[1]}/${issuePath[2]}#${issuePath[3]}`;
   const jiraPath = /\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)/.exec(url);
-  if (jiraPath) return jiraPath[1] ?? '';
+  if (jiraPath) return jiraPath[1];
   return '';
 };
 
