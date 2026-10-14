@@ -138,13 +138,6 @@ jobs:
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           echo "Release branch head: $HEAD_SHA"
 
-      - name: Assign release PR
-        if: steps.changesets.outputs.pullRequestNumber
-        env:
-          PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh pr edit "$PR_NUMBER" --add-assignee eins78
-
   # ── Start CI on the release PR, because nothing else does ─────────────────
   #
   # `validate` is a required check on `main` and had never once reported on the

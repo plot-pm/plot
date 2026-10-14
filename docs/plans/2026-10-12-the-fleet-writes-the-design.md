@@ -11,6 +11,8 @@
 - **Rounds:** 3
 - **Impl:** own branches
 - **Approved:** 2026-10-13, jwloka, plan-PR #1608 merged
+- **Started:** 2026-10-13, Jan Wloka, `feature/the-fleet-dispatches-an-approved-spike`
+- **Started:** 2026-10-14, Jan Wloka, `feature/the-fleet-reads-design-work`
 
 ## Changelog
 

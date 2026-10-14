@@ -3,8 +3,9 @@ import path from 'node:path';
 import { inspect } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
-import { isAnswered } from '@plot-pm/domain';
-import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
+import { isAnswered, doneTickets, ticketLane, storyLanes, phaseOfStory, type StoryLaneMap } from '@plot-pm/domain';
+import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, readConfigAsync, declaredPhaseMap, deriveStoryStatus, type BuildBoardOptions } from './board.js';
+import { ticketLaneData, issuesClosedReading } from './fleet.js';
 import { boardState, fleetState } from './controllers/fleet-state.js';
 import { boardQueryFor, estateFromEnv } from './estate.js';
 // THE ONE ENTRY THAT REGISTERS THE SDK CONNECTOR: board roles on `Agent runner:
@@ -199,6 +200,125 @@ const MARKDOWN_ROUTES = [
   { prefix: '/story/', label: 'Story', render: renderStoryPage },
   { prefix: '/design/', label: 'Design Doc', render: renderDesignDocPage },
 ] as const;
+
+/** One ticket as the Discovery tab's lane groups carry it. */
+interface TicketRow {
+  readonly id: string;
+  readonly title: string;
+  readonly url: string;
+  readonly createdAt: string | null;
+  readonly body: null;
+  readonly status: string;
+  readonly statusCategory: string;
+  readonly closedAt: string | null;
+}
+
+/** The Discovery tab's ticket lanes, plus a reason they could not be recomputed. */
+interface TicketLaneGroups {
+  readonly open: TicketRow[];
+  readonly 'in-progress': TicketRow[];
+  readonly done: readonly TicketRow[];
+  readonly moreCount: number;
+}
+
+/**
+ * The last ticket lanes `discoveryLanes` computed successfully, by repo root —
+ * read back when `referencedIssues` answers null (the plans directory could not
+ * be read), per the plan's "plans could not be read, keeps its last good
+ * lanes" (plan.md:138), mirroring `refreshIssues`'s own kept-rows-on-failure
+ * shape at `fleet.ts:1729-1732`. Never written from a `null`-`referenced` pass,
+ * so a second consecutive read failure still serves the last SUCCESSFUL one
+ * rather than null.
+ */
+const lastGoodTicketLanes = new Map<string, TicketLaneGroups>();
+
+/**
+ * Builds the Discovery tab's lane groups for `/api/board`.
+ *
+ * Reads `ticketLaneData` from the SAME cache `/api/fleet` reads — no tracker
+ * call of its own — and groups `board.stories`/`board.archivedStories` through
+ * `storyLanes`. `archived` controls only whether archived-directory stories and
+ * the open-ended Done tail are included; the cache read always happens, since
+ * the first reading has to come from somewhere.
+ *
+ * `data.referenced === null` (the plans directory could not be read) is a
+ * GROUP-level failure, not a per-ticket one — `ticketLane`'s own doc comment
+ * forbids passing `namedByPlan: null` to it. So this function never does: it
+ * reports `plansUnreadable: true` and serves {@link lastGoodTicketLanes} instead
+ * of recomputing with a degraded reading.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param board - the board payload already built by `boardState`.
+ * @param archived - whether the Discovery tab's `?archived=1` toggle is on.
+ * @returns tickets grouped by lane and stories grouped by lane.
+ */
+async function discoveryLanes(
+  opts: BuildBoardOptions,
+  board: { stories: Array<{ status: string; plans: Array<{ phase: string }> }>; archivedStories: Array<{ status: string; plans: Array<{ phase: string }> }> },
+  archived: boolean,
+) {
+  const [data, phasesValue] = await Promise.all([
+    ticketLaneData(opts),
+    readConfigAsync(opts, 'Workflow phases', ''),
+  ]);
+  const { map: phaseMap } = declaredPhaseMap(phasesValue);
+  // `archived` is a derived standing `phaseOfStory`'s six-value vocabulary has
+  // no word for — it answers false for it, the same as `storyLanes`'s own test
+  // adapter: the map is silent on it by construction, not by omission.
+  const laneMap: StoryLaneMap = {
+    holds: (status) => status !== 'archived' && phaseOfStory(phaseMap, status) !== null,
+  };
+
+  const now = Date.now();
+  let ticketsByLane: TicketLaneGroups | null = null;
+  let plansUnreadable = false;
+  const named = data?.referenced ?? null;
+  if (data !== null && named === null) {
+    plansUnreadable = true;
+    ticketsByLane = lastGoodTicketLanes.get(opts.repoRoot) ?? null;
+  } else if (data !== null && named !== null) {
+    const reading = { categoryStated: data.categoryStated, namedByPlan: false };
+    const laned = [...data.open, ...(archived ? data.closed : [])].map((row): { row: TicketRow; lane: ReturnType<typeof ticketLane> } => {
+      const closedAt = row.closedAt ?? null;
+      const issue = {
+        id: row.number, title: row.title, url: row.url,
+        createdAt: row.createdAt ?? null, body: null,
+        status: row.status ?? '', statusCategory: row.statusCategory ?? '',
+        closedAt,
+      };
+      const namedByPlan = named.has(row.number);
+      const lane = ticketLane(issue, { ...reading, namedByPlan }, now);
+      return { row: { ...issue, closedAt }, lane };
+    });
+    const open = laned.filter((t) => t.lane === 'open').map((t) => t.row);
+    const inProgress = laned.filter((t) => t.lane === 'in-progress').map((t) => t.row);
+    const doneRows = laned.filter((t) => t.lane === 'done').map((t) => t.row);
+    const { rows: done, moreCount } = archived
+      ? { rows: doneRows, moreCount: 0 }
+      : doneTickets(doneRows);
+    ticketsByLane = { open, 'in-progress': inProgress, done, moreCount };
+    lastGoodTicketLanes.set(opts.repoRoot, ticketsByLane);
+  }
+
+  const liveStories = board.stories.map((s) => ({
+    story: s,
+    standing: deriveStoryStatus(s.status, s.plans),
+    location: 'live' as const,
+  }));
+  const archivedStories = archived
+    ? board.archivedStories.map((s) => ({
+      story: s,
+      standing: deriveStoryStatus(s.status, s.plans),
+      location: 'archived' as const,
+    }))
+    : [];
+  const storyLaneGroups = storyLanes(laneMap, [...liveStories, ...archivedStories]).map((g) => ({
+    lane: g.lane,
+    stories: g.stories.map((s) => s.story),
+  }));
+
+  return { tickets: ticketsByLane, plansUnreadable, storyLanes: storyLaneGroups };
+}
 
 async function handleRequest(
   req: http.IncomingMessage,
@@ -474,8 +594,9 @@ async function handleRequest(
       // They stay TEN separate fields rather than one. Today every flag gives
       // the same answer; one flag serving several capabilities is precisely
       // how they diverge when a later change makes only one of them local.
+      const built = await boardState(boardQueryFor(opts, estate));
       const board = {
-        ...(await boardState(boardQueryFor(opts, estate))),
+        ...built,
         dispatch: dispatchAvailability(HOST),
         server: await serverInfo(opts, boundPort),
         approve: approveAvailability(HOST),
@@ -488,6 +609,12 @@ async function handleRequest(
         implement: implementAvailability(HOST),
         drop: dropAvailability(HOST),
         story: storyAvailability(HOST),
+        // D7's Discovery lanes. `archived` reflects the TAB'S own toggle, read
+        // off this request's query string — not `?released=1`, which Planning
+        // owns. Computed here rather than inside `boardState`: the cache
+        // `ticketLaneData` reads lives in `fleet.ts`, and `boardState` has no
+        // dependency on it today.
+        ...(await discoveryLanes(opts, built, url.searchParams.get('archived') === '1')),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));
@@ -522,6 +649,24 @@ async function handleRequest(
       res.end(JSON.stringify(await fleetState({ opts, estate: estate.source })));
     } catch (err) {
       console.error('Error building fleet:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+    }
+    return;
+  }
+
+  if (url.pathname === '/api/issues/closed') {
+    // REQUEST-DRIVEN, NEVER POLLED (plan line 141): the Discovery tab calls
+    // this once on toggle-on and once on a page load with `?archived=1`
+    // already set, never on the 30 s `/api/board` poll. `issuesClosedReading`
+    // owns the cache/backoff window and asks the tracker at most once per
+    // window — this handler only shapes the HTTP response.
+    try {
+      const reading = await issuesClosedReading(opts);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(reading));
+    } catch (err) {
+      console.error('Error reading closed issues:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
     }

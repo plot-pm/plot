@@ -273,7 +273,7 @@ The GitHub closed read reuses the open arm's `gh_state` (`:4730`) and adds no ar
 
 ### The lanes
 
-- `feature/tickets-and-stories-have-lanes` <!-- waits: feature/the-tabs-are-discovery-planning-delivery --> — `ticketLane`, `doneTickets`, `storyLanes` and `storyLane`; the lanes on the board payload; `GET /api/issues/closed` with its retention read from the issue gate and its own backoff; the Discovery tab with the tag cloud, the tickets lane group, the stories lane group, the Done lane's *show all done* link and the `?archived=1` toggle; the removal of the empty-Discovery send in `App.tsx` (the effect that opens Planning when Discovery holds no story, `:1010-1021` after `feature/the-tabs-are-discovery-planning-delivery`), because a Discovery tab with ticket lanes is not empty when it holds no story <!-- builds: ticketLane, doneTickets, storyLanes, storyLane and the Discovery tab's lanes -->
+- `feature/tickets-and-stories-have-lanes` <!-- waits: feature/the-tabs-are-discovery-planning-delivery --> → #1668 — `ticketLane`, `doneTickets`, `storyLanes` and `storyLane`; the lanes on the board payload; `GET /api/issues/closed` with its retention read from the issue gate and its own backoff; the Discovery tab with the tag cloud, the tickets lane group, the stories lane group, the Done lane's *show all done* link and the `?archived=1` toggle; the removal of the empty-Discovery send in `App.tsx` (the effect that opens Planning when Discovery holds no story, `:1010-1021` after `feature/the-tabs-are-discovery-planning-delivery`), because a Discovery tab with ticket lanes is not empty when it holds no story <!-- builds: ticketLane, doneTickets, storyLanes, storyLane and the Discovery tab's lanes -->
 
 ### The Jira project scope
 

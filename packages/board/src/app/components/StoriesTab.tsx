@@ -1,59 +1,38 @@
 import { useMemo, useState } from 'react';
-import type { StoryCard, StoryStanding, Topic } from '../../contract/schema.js';
+import type { StoryCard, StoryLaneGroup, Topic, TicketLaneGroups, TicketLaneRow } from '../../contract/schema.js';
 
-/**
- * Story status columns in display order.
- *
- * Follows the lifecycle: Draft → Active → Done → Archived.
- * Archived is hidden by default behind a toggle.
- *
- * **Four columns for seven standings, and the collapse is stated rather than
- * accidental.** This list declared its own four values until 2026-09-05, which
- * made it a sixth reading of a lifecycle already declared three times. It now
- * names a subset of `StoryStanding` — the domain's six plus the derived
- * `archived` — so a column for a standing the domain does not admit no longer
- * compiles, and {@link COLUMN_OF} says where each of the other three lands.
- */
-const STORY_COLUMNS = ['draft', 'active', 'done', 'archived'] as const satisfies readonly StoryStanding[];
-type StoryColumn = (typeof STORY_COLUMNS)[number];
-
-/**
- * Which column each standing renders in.
- *
- * `ready`, `in-review` and `paused` have no column of their own: measured
- * 2026-09-04, of nine stories 6 were `active` and 3 `draft`, and none of the
- * three has ever been used here. They were already collapsing into Draft
- * through an untyped `groups[status] ?? groups.draft` fallback; this map says
- * so, and it is exhaustive, so a seventh standing cannot land silently.
- *
- * Giving each its own column is a display decision with its own slice.
- */
-const COLUMN_OF: Record<StoryStanding, StoryColumn> = {
-  draft: 'draft',
-  ready: 'draft',
-  active: 'active',
-  'in-review': 'active',
-  paused: 'draft',
-  done: 'done',
-  archived: 'archived',
+/** Lane metadata for display, in D7's order. */
+const STORY_LANE_META: Record<StoryLaneGroup['lane'], { label: string; icon: string }> = {
+  Draft: { label: 'Draft', icon: '📝' },
+  Active: { label: 'Active', icon: '🚀' },
+  Done: { label: 'Done', icon: '✅' },
+  Archived: { label: 'Archived', icon: '📦' },
 };
 
-/** Column metadata for display. */
-const STATUS_META: Record<StoryColumn, { label: string; icon: string }> = {
-  draft: { label: 'Draft', icon: '📝' },
-  active: { label: 'Active', icon: '🚀' },
+/** Ticket lane metadata for display, in the same Open → In progress → Done order the server returns. */
+const TICKET_LANE_META: Record<'open' | 'in-progress' | 'done', { label: string; icon: string }> = {
+  open: { label: 'Open', icon: '🔵' },
+  'in-progress': { label: 'In progress', icon: '🟡' },
   done: { label: 'Done', icon: '✅' },
-  archived: { label: 'Archived', icon: '📦' },
 };
 
 export interface StoriesTabProps {
-  stories: StoryCard[];
+  /** D7's story lanes, server-computed by `storyLanes` — replaces the old client-side `COLUMN_OF` lookup. */
+  storyLaneGroups: StoryLaneGroup[];
+  /** The ticket lane groups, or null before the first issue read or where the issue source is `nobody`. */
+  tickets: TicketLaneGroups | null;
+  /** True when the plans directory could not be read this pass — `tickets` is then the last good reading, not a fresh one. */
+  plansUnreadable: boolean;
   /**
    * Semantic topics extracted by the server using TF-IDF.
    * Each topic includes storySlugs for filtering (including when a topic
    * was found in a plan title, not just the story title).
    */
   topics: Topic[];
+  /** Whether the `?archived=1` toggle is on. */
+  showArchived: boolean;
+  /** Flips the `?archived=1` toggle — re-fetches the board with the wider scope. */
+  onShowArchived: (next: boolean) => void;
   /** Open a story in the modal. */
   onOpenStory: (story: StoryCard) => void;
   /** Open a sprint in the Delivery tab. */
@@ -119,9 +98,22 @@ function renderInlineMarkdown(text: string): React.ReactNode {
  * Shows story cards grouped by status (Draft/Active/Done/Archived), with a tag
  * cloud for topic navigation. Clicking a story opens the StoryModal.
  */
-export function StoriesTab({ stories, topics, onOpenStory, onOpenSprint }: StoriesTabProps) {
-  const [showArchived, setShowArchived] = useState(false);
+export function StoriesTab({
+  storyLaneGroups,
+  tickets,
+  plansUnreadable,
+  topics,
+  showArchived,
+  onShowArchived,
+  onOpenStory,
+  onOpenSprint,
+}: StoriesTabProps) {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  // Per-view only — not kept in the URL. `?archived=1` is the one URL
+  // parameter; a second one for Done's expansion would let the two interact
+  // in ways neither toggle's name describes.
+  const [storiesDoneExpanded, setStoriesDoneExpanded] = useState(false);
+  const [ticketsDoneExpanded, setTicketsDoneExpanded] = useState(false);
 
   // Build a lookup: topic -> set of story slugs that contain it
   const topicToSlugs = useMemo(() => {
@@ -132,45 +124,17 @@ export function StoriesTab({ stories, topics, onOpenStory, onOpenSprint }: Stori
     return map;
   }, [topics]);
 
-  // Group stories by status
-  const byStatus = useMemo(() => {
-    const groups: Record<StoryColumn, StoryCard[]> = {
-      draft: [],
-      active: [],
-      done: [],
-      archived: [],
-    };
-    for (const story of stories) {
-      // The server sends a `StoryStanding`, but this is a wire value and a
-      // hand-edited frontmatter key reaches it — so an unrecognised word is
-      // read as `draft` rather than trusted into an index.
-      const standing = story.status?.toLowerCase() as StoryStanding | undefined;
-      groups[(standing && COLUMN_OF[standing]) ?? 'draft'].push(story);
-    }
-    return groups;
-  }, [stories]);
-
-  // Filter by selected topic — uses server's storySlugs to match stories
-  // (includes stories where the topic was found in a plan title)
-  const filteredByStatus = useMemo(() => {
-    if (!selectedTag) return byStatus;
+  // Filter each lane by the selected topic — uses server's storySlugs to
+  // match stories (includes stories where the topic was found in a plan
+  // title).
+  const filteredLaneGroups = useMemo(() => {
+    if (!selectedTag) return storyLaneGroups;
     const matchingSlugs = topicToSlugs.get(selectedTag) ?? new Set();
-    const result: Record<StoryColumn, StoryCard[]> = {
-      draft: [],
-      active: [],
-      done: [],
-      archived: [],
-    };
-    for (const status of STORY_COLUMNS) {
-      result[status] = byStatus[status].filter((s) => matchingSlugs.has(s.slug));
-    }
-    return result;
-  }, [byStatus, selectedTag, topicToSlugs]);
-
-  // Which columns to show
-  const visibleStatuses = showArchived
-    ? STORY_COLUMNS
-    : STORY_COLUMNS.filter((s) => s !== 'archived');
+    return storyLaneGroups.map((group) => ({
+      ...group,
+      stories: group.stories.filter((s) => matchingSlugs.has(s.slug)),
+    }));
+  }, [storyLaneGroups, selectedTag, topicToSlugs]);
 
   // Max topic count for sizing
   const maxTopicCount = topics.length > 0 ? Math.max(...topics.map((t) => t.count)) : 1;
@@ -222,32 +186,83 @@ export function StoriesTab({ stories, topics, onOpenStory, onOpenSprint }: Stori
         </div>
       )}
 
-      {/* Archived toggle */}
+      {/* Archived toggle — adds the Archived story lane and the rest of Done */}
       <div className="flex items-center justify-end gap-2">
         <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
           <input
             type="checkbox"
             checked={showArchived}
-            onChange={(e) => setShowArchived(e.target.checked)}
+            onChange={(e) => onShowArchived(e.target.checked)}
             className="h-3.5 w-3.5 accent-slate-500"
           />
           Show archived
         </label>
       </div>
 
-      {/* Columns */}
+      {/* Tickets lane group */}
+      {plansUnreadable ? (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+          Plans could not be read — showing the last known ticket lanes.
+        </p>
+      ) : null}
+      {tickets ? (
+        <div className="grid gap-4 sm:grid-cols-3">
+          {(['open', 'in-progress', 'done'] as const).map((lane) => {
+            const meta = TICKET_LANE_META[lane];
+            const rows = tickets[lane];
+            const visibleRows = lane === 'done' && !ticketsDoneExpanded ? rows.slice(0, 5) : rows;
+            return (
+              <section
+                key={lane}
+                className="flex flex-col rounded-lg bg-slate-100/70 p-3 dark:bg-slate-900/50"
+              >
+                <header className="mb-3 flex items-center justify-between gap-2">
+                  <h2 className="flex items-baseline gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+                    <span aria-hidden>{meta.icon}</span>
+                    <span>{meta.label}</span>
+                  </h2>
+                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    {rows.length}
+                  </span>
+                </header>
+                <div className="flex flex-col gap-2">
+                  {visibleRows.length > 0 ? (
+                    visibleRows.map((row) => <TicketRowView key={row.id} ticket={row} />)
+                  ) : (
+                    <p className="px-1 py-4 text-center text-xs text-slate-400 dark:text-slate-600">
+                      No tickets in this lane.
+                    </p>
+                  )}
+                  {lane === 'done' && !ticketsDoneExpanded && (rows.length > 5 || tickets.moreCount > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => setTicketsDoneExpanded(true)}
+                      className="px-1 text-left text-xs text-cyan-600 hover:underline dark:text-cyan-400"
+                    >
+                      Show all done ({rows.length - 5 + tickets.moreCount} more)
+                    </button>
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {/* Story lane groups */}
       <div
         className="grid gap-4"
         style={{
-          gridTemplateColumns: `repeat(${visibleStatuses.length}, minmax(0, 1fr))`,
+          gridTemplateColumns: `repeat(${filteredLaneGroups.length}, minmax(0, 1fr))`,
         }}
       >
-        {visibleStatuses.map((status) => {
-          const column = filteredByStatus[status];
-          const meta = STATUS_META[status];
+        {filteredLaneGroups.map((group) => {
+          const meta = STORY_LANE_META[group.lane];
+          const isDone = group.lane === 'Done';
+          const visibleStories = isDone && !storiesDoneExpanded ? group.stories.slice(0, 5) : group.stories;
           return (
             <section
-              key={status}
+              key={group.lane}
               className="flex flex-col rounded-lg bg-slate-100/70 p-3 dark:bg-slate-900/50"
             >
               <header className="mb-3 flex items-center justify-between gap-2">
@@ -256,12 +271,12 @@ export function StoriesTab({ stories, topics, onOpenStory, onOpenSprint }: Stori
                   <span>{meta.label}</span>
                 </h2>
                 <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                  {column.length}
+                  {group.stories.length}
                 </span>
               </header>
               <div className="flex flex-col gap-3">
-                {column.length > 0 ? (
-                  column.map((story) => (
+                {visibleStories.length > 0 ? (
+                  visibleStories.map((story) => (
                     <StoryCardView
                       key={story.slug}
                       story={story}
@@ -271,8 +286,17 @@ export function StoriesTab({ stories, topics, onOpenStory, onOpenSprint }: Stori
                   ))
                 ) : (
                   <p className="px-1 py-4 text-center text-xs text-slate-400 dark:text-slate-600">
-                    No stories in this status.
+                    No stories in this lane.
                   </p>
+                )}
+                {isDone && !storiesDoneExpanded && group.stories.length > 5 && (
+                  <button
+                    type="button"
+                    onClick={() => setStoriesDoneExpanded(true)}
+                    className="px-1 text-left text-xs text-cyan-600 hover:underline dark:text-cyan-400"
+                  >
+                    Show all done ({group.stories.length - 5} more)
+                  </button>
                 )}
               </div>
             </section>
@@ -280,6 +304,24 @@ export function StoriesTab({ stories, topics, onOpenStory, onOpenSprint }: Stori
         })}
       </div>
     </div>
+  );
+}
+
+interface TicketRowViewProps {
+  ticket: TicketLaneRow;
+}
+
+/** A ticket row in the ticket lane group — title and link only, no full card chrome. */
+function TicketRowView({ ticket }: TicketRowViewProps) {
+  return (
+    <a
+      href={ticket.url}
+      target="_blank"
+      rel="noreferrer"
+      className="block w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm hover:border-cyan-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-cyan-600"
+    >
+      <span className="line-clamp-2 text-slate-700 dark:text-slate-200">{ticket.title}</span>
+    </a>
   );
 }
 

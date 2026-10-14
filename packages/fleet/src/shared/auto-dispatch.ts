@@ -12,6 +12,7 @@ import {
   outstandingAsks,
   briefAskBudget,
   planAutoDispatch,
+  dispatchPhase,
   pruneInFlight,
   liveAgentCount,
   liveAgentBranches,
@@ -240,7 +241,7 @@ export function maybeAutoDispatch(
     const deferral = machineDefers(machine, controls);
     if (deferral) {
       const hasEligible = pulse.plans.some(
-        (p) => p.phase === 'approved' && p.slices.some((w) => w.verdict === 'eligible'),
+        (p) => dispatchPhase(p.phase) && p.slices.some((w) => w.verdict === 'eligible'),
       );
       // Same rule as the cap refusal: a deferral with nothing to dispatch is
       // routine, not a decision anybody needs to read every five seconds.
@@ -279,7 +280,7 @@ export function maybeAutoDispatch(
         // Only log when there IS something to dispatch — a cap hit with no
         // eligible work is routine, not a refusal.
         const hasEligible = pulse.plans.some(
-          (p) => p.phase === 'approved' && p.slices.some((w) => w.verdict === 'eligible'),
+          (p) => dispatchPhase(p.phase) && p.slices.some((w) => w.verdict === 'eligible'),
         );
         if (hasEligible) {
           // NAMES WHICH OF THE TWO IT IS. "At the cap" alone was ambiguous

@@ -1491,6 +1491,136 @@ async function referencedIssues(opts: BuildBoardOptions): Promise<Set<string> | 
   return referenced;
 }
 
+/** What `ticketLane` needs beyond the rows themselves, read from the cache without a new tracker call. */
+export interface TicketLaneData {
+  /** The open rows the last read left, unfiltered. */
+  readonly open: readonly IssueIndexRow[];
+  /** The closed rows of the last {@link ISSUE_INDEX_CLOSED_DAYS} days, unfiltered. */
+  readonly closed: readonly IssueIndexRow[];
+  /** The issue keys the plans name, or null where the plans directory could not be read. */
+  readonly referenced: Set<string> | null;
+  /** Whether the connector's `statusCategory` is stated rather than derived — true only for Jira. */
+  readonly categoryStated: boolean;
+}
+
+/**
+ * The open and closed issue rows the board's cache already holds, for the
+ * Discovery tab's ticket lanes — reads the SAME cache entry `buildFleet` and
+ * `refreshIssues` fill, and asks the tracker nothing itself.
+ *
+ * Null wherever `entry.issueSets` is null: before the first read, or where the
+ * read source is `nobody`. The caller renders no ticket lanes in that case,
+ * the same way a cold `/api/fleet` renders no inbox.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @returns the rows and readings `ticketLane`/`doneTickets` need, or null.
+ */
+export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLaneData | null> {
+  const entry = ensureCache(opts);
+  if (entry.issueSets === null) return null;
+  const referenced = await referencedIssues(opts);
+  return {
+    open: entry.issueSets.rows ?? [],
+    closed: entry.issueSets.closed?.rows ?? [],
+    referenced,
+    categoryStated: entry.issueConnector === 'jira',
+  };
+}
+
+/** What `GET /api/issues/closed` answers. */
+export interface IssuesClosedReading {
+  /** The closed rows the read returned, or the last cached answer. */
+  readonly rows: readonly IssueIndexRow[];
+  /** Whether a `plot-host.sh`/tracker call was spent answering this request. */
+  readonly asked: boolean;
+  /** Set only where nothing can be asked at all — `issueAbsence`'s text. */
+  readonly absence: string | null;
+}
+
+/** This route's own last answer, keyed by repo — separate from `entry.issueSets.closed`, which an ordinary issue pass caps at {@link ISSUE_INDEX_OPEN_LIMIT} rather than this route's 1000. */
+const closedAnswers = new Map<string, { at: number; requests: number; rows: readonly IssueIndexRow[] }>();
+
+/**
+ * The cadence a closed-issue pass last spent, read without asking the host:
+ * `issues.json` where a fleet runs and keeps it current, the board's own
+ * {@link CacheEntry} otherwise. Neither is authoritative over the other — the
+ * store is read first because only a fleet keeps it fresh, and an entry whose
+ * `issueConnector` was never set (no pass has run in this process) falls back
+ * to it having spent nothing.
+ */
+async function issueCadence(
+  opts: BuildBoardOptions,
+  entry: CacheEntry,
+): Promise<{ requests: number; backoffUntil: number | null }> {
+  const held = await issueStoreFor(opts.repoRoot).read();
+  if (held.ok && held.value !== null) {
+    return { requests: held.value.requests, backoffUntil: held.value.backoffUntil };
+  }
+  return { requests: entry.issueRequests, backoffUntil: entry.issueBackoffUntil };
+}
+
+/**
+ * Answers `GET /api/issues/closed`: up to 1000 closed issues, asked of the
+ * tracker directly rather than through the issue gate's smaller cache.
+ *
+ * REQUEST-DRIVEN, NEVER POLLED (plan line 141) — this function is the one
+ * place that may call `tracker.issueListClosed` for this route, and it is
+ * reached only from the route handler, never from the board's own refresh
+ * timer. A call inside the cadence window below answers from
+ * {@link closedAnswers} and spends nothing; `asked: false` tells the caller so.
+ *
+ * The window is `max(issueIntervalMs(requests), issueIntervalMs(p))` — the
+ * larger of what the issue gate's own last pass spent and what THIS route's
+ * own last pass spent, so a heavy fleet pass and a heavy direct read each
+ * extend the other's wait rather than racing the host on the shorter of the
+ * two. A live `backoffUntil` holds regardless of the window: the gate named a
+ * refusal, and this route honours it rather than asking anyway.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @returns the closed rows and whether this call spent a host request.
+ */
+export async function issuesClosedReading(opts: BuildBoardOptions): Promise<IssuesClosedReading> {
+  const entry = ensureCache(opts);
+  const declared = await scriptsFor(opts).config('Tracker', '');
+  const source = issueSource({
+    declared: declared.ok ? declared.value : '',
+    gitHost: entry.backend ?? 'github',
+    listers: TRACKER_LISTERS,
+  });
+  if (source.ask === 'nobody') {
+    return { rows: [], asked: false, absence: issueAbsence(source.reason) };
+  }
+
+  const key = cacheKey(opts);
+  const cached = closedAnswers.get(key) ?? null;
+  const gate = await issueCadence(opts, entry);
+  const now = Date.now();
+
+  if (gate.backoffUntil !== null && gate.backoffUntil > now) {
+    return { rows: cached?.rows ?? [], asked: false, absence: null };
+  }
+  if (cached !== null) {
+    const window = Math.max(issueIntervalMs(gate.requests), issueIntervalMs(cached.requests));
+    if (now - cached.at < window) {
+      return { rows: cached.rows, asked: false, absence: null };
+    }
+  }
+
+  const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
+  const gitHost = entry.backend ?? 'github';
+  const tracker = trackerForIssues(declared.ok ? declared.value : '', gitHost, context);
+  // No lower bound — the route answers every closed issue the tracker holds,
+  // unlike the issue gate's own {@link ISSUE_INDEX_CLOSED_DAYS}-day window.
+  const said = await tracker.issueListClosed(new Date(0).toISOString(), 1000);
+  if (!said.ok) {
+    // The last good answer survives a failed re-ask, the same rule `refreshIssues` keeps for the gate's own cache.
+    return { rows: cached?.rows ?? [], asked: true, absence: null };
+  }
+  const rows = said.value.issues.map(issueIndexRowOf);
+  closedAnswers.set(key, { at: now, requests: said.value.pages, rows });
+  return { rows, asked: true, absence: null };
+}
+
 /**
  * The inbox rows of a set of open issues: those no plan references, at most
  * {@link ISSUE_LIMIT}, in the order given.

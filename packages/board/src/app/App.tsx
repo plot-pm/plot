@@ -164,6 +164,28 @@ export function App() {
     setHighlight('');
     writeList('plan', []);
   };
+  // Discovery's own toggle — adds the Archived story lane and the rest of
+  // Done. Never `?released=1`: that one is Planning's, and the query string
+  // survives a tab switch, so sharing a name would turn both toggles on
+  // together.
+  const [showArchived, setShowArchived] = useState(
+    () => new URLSearchParams(location.search).get('archived') === '1',
+  );
+  const writeShowArchived = useCallback((next: boolean) => {
+    setShowArchived(next);
+    const url = new URL(location.href);
+    if (next) url.searchParams.set('archived', '1');
+    else url.searchParams.delete('archived');
+    history.replaceState(null, '', url);
+  }, []);
+  // Flips the server-side `archived` scope immediately rather than waiting for
+  // the next 30 s poll — `discoveryLanes` reads the query string per-request,
+  // so toggling it is a fetch, not a client-side re-filter of already-fetched
+  // data (the rest of Done and the Archived lane are never sent until asked).
+  const onShowArchived = (next: boolean) => {
+    writeShowArchived(next);
+    void load();
+  };
   // "ONLY MY WORK" ON THE PLANNING TAB. One stored preference governs both tabs:
   // the Delivery tab's control writes the same key, and each tab renders alone,
   // so this re-reads the key whenever the tab changes.
@@ -259,7 +281,12 @@ export function App() {
         // Bounded so a poll killed mid-response lands in the branch below
         // rather than hanging: a timeout IS "did not reach", and `reached`
         // must say so for the overlay to ever count it.
-        res = await fetch('/api/board', { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) });
+        // `archived` rides the request itself — `discoveryLanes` reads it
+        // off `/api/board`'s own query string, not a separate endpoint — so
+        // the toggle's state has to be read fresh on every poll rather than
+        // closed over at mount.
+        const archivedNow = new URLSearchParams(location.search).get('archived') === '1';
+        res = await fetch(`/api/board${archivedNow ? '?archived=1' : ''}`, { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) });
       } catch (e) {
         // The one branch that means no contact. Re-thrown so the single exit
         // below still records the message, with `reached` carrying the reason.
@@ -1021,19 +1048,6 @@ export function App() {
     return () => cancelAnimationFrame(id);
   }, [highlightBranch, revealNonce, tab, fleet]);
 
-  // Empty-state redirect: if Discovery tab is open but there are no stories,
-  // redirect to Planning automatically. The Discovery tab remains accessible but
-  // lands on Planning by default when empty.
-  useEffect(() => {
-    if (tab !== 'discovery' || !board) return;
-    if (board.stories.length === 0) {
-      setTab('planning');
-      const url = new URL(location.href);
-      url.searchParams.delete('tab');
-      history.replaceState(null, '', url);
-    }
-  }, [tab, board]);
-
   return (
     <div className="mx-auto min-h-screen max-w-[1600px] px-4 py-4">
       <header className="mb-4 flex flex-wrap items-center gap-3">
@@ -1157,7 +1171,16 @@ export function App() {
           // Discovery tab — the strategic layer above plans. Shows story cards
           // grouped by status (Draft/Active/Done/Archived), with tag cloud.
           board ? (
-            <StoriesTab stories={board.stories} topics={board.topics ?? []} onOpenStory={onOpenStory} onOpenSprint={onOpenSprint} />
+            <StoriesTab
+              storyLaneGroups={board.storyLanes ?? []}
+              tickets={board.tickets ?? null}
+              plansUnreadable={board.plansUnreadable ?? false}
+              topics={board.topics ?? []}
+              showArchived={showArchived}
+              onShowArchived={onShowArchived}
+              onOpenStory={onOpenStory}
+              onOpenSprint={onOpenSprint}
+            />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>
           )

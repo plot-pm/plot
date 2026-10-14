@@ -213,6 +213,13 @@ const freeAgents = (agents: AutoDispatchAgent[], pulse: FleetReading): AutoDispa
 };
 
 /**
+ * Whether a plan's phase admits it to dispatch. `approved` plans qualify; a
+ * `design` plan qualifies too, and `sliceVerdict` then lets through only its
+ * approved spike slice.
+ */
+export const dispatchPhase = (phase: string): boolean => phase === 'approved' || phase === 'design';
+
+/**
  * A branch the pulse shows as still startable — open or wip, not yet claimed,
  * merged or deferred. The claim ref is the one mechanism that makes a taken
  * branch safe, and the pulse reflects it as `state: 'claimed'`; a startable
@@ -528,7 +535,7 @@ export const planAutoDispatch = (input: PlanAutoDispatchInput): AutoDispatchPlan
     // Only approved plans. The script gates on this too (it refuses a Draft),
     // but naming a Draft here would spend budget on a spawn the script rejects,
     // so the phase is read from the pulse first.
-    if (plan.phase !== 'approved') continue;
+    if (!dispatchPhase(plan.phase)) continue;
 
     // Every startable branch across this plan's ELIGIBLE slices, minus the ones
     // already in flight or missing a brief. A blocked or complete slice
@@ -579,7 +586,7 @@ export const startableBranches = (
 ): string[] => {
   const out: string[] = [];
   for (const plan of pulse.plans) {
-    if (plan.phase !== 'approved') continue;
+    if (!dispatchPhase(plan.phase)) continue;
     if (planSlug(plan.file) !== slug) continue;
     for (const wave of plan.slices) {
       if (wave.verdict !== 'eligible') continue;
@@ -614,7 +621,7 @@ export const startableBranches = (
 export const skippedClaimedBranches = (pulse: FleetReading, inFlight: Set<string>): string[] => {
   const out: string[] = [];
   for (const plan of pulse.plans) {
-    if (plan.phase !== 'approved') continue;
+    if (!dispatchPhase(plan.phase)) continue;
     for (const wave of plan.slices) {
       if (wave.verdict !== 'eligible') continue;
       for (const b of wave.branches) {
@@ -653,7 +660,7 @@ export const firstBrieflessBranch = (
   missingBriefs: Set<string>,
 ): string | undefined => {
   for (const plan of pulse.plans) {
-    if (plan.phase !== 'approved') continue;
+    if (!dispatchPhase(plan.phase)) continue;
     if (planSlug(plan.file) !== slug) continue;
     for (const wave of plan.slices) {
       if (wave.verdict !== 'eligible') continue;
@@ -730,7 +737,10 @@ export const skippedPlans = (
 ): SkippedPlan[] => {
   const out: SkippedPlan[] = [];
   for (const plan of pulse.plans) {
-    if (plan.phase !== 'approved') continue;
+    if (!dispatchPhase(plan.phase)) continue;
+    // A Design plan is reported only once a slice is eligible: with no approved
+    // spike it is not a dispatch candidate gone stale.
+    if (plan.phase === 'design' && !plan.slices.some((w) => w.verdict === 'eligible')) continue;
 
     let startable = 0;
     let noBrief = 0;
@@ -795,7 +805,7 @@ export const skippedPlans = (
 export const dispatchCandidates = (pulse: FleetReading, inFlight: Set<string>): string[] => {
   const out: string[] = [];
   for (const plan of pulse.plans) {
-    if (plan.phase !== 'approved') continue;
+    if (!dispatchPhase(plan.phase)) continue;
     for (const wave of plan.slices) {
       if (wave.verdict !== 'eligible') continue;
       for (const b of wave.branches) {

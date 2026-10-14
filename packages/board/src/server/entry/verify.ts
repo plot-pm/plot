@@ -20,9 +20,11 @@ import {
   type IssueEntry,
   type IssueState,
 } from '@plot-pm/domain/rules/refuted-issues';
+import { checklistSummary, hasRcLine, withChecklistEntry, type ChecklistEntry } from '@plot-pm/domain/rules/release-checklist';
 import { refutedClaims, type RefutedClaim } from '@plot-pm/domain/rules/verification-record';
 import {
   foldVerification,
+  issueReference,
   refutedIssue,
   verificationBody,
   verifiedValue,
@@ -77,6 +79,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /** The verify directory below the repository root. */
 const VERIFY_DIR = path.join('.plot', 'state', 'verify');
+
+/** The running release checklist, relative to the repository root. */
+const CHECKLIST_PATH = path.join('docs', 'releases', 'vnext-checklist.md');
 
 /** The prefix of this run's juror and moderation files. */
 const PREFIX = 'verify-';
@@ -596,6 +601,64 @@ export const openRefutedIssues = async (
 };
 
 /**
+ * Builds this plan's checklist entry from its verdicts and issue notes.
+ *
+ * A plan with any refuted claim lists as `refuted`, carrying the first
+ * refuted claim's issue reference where one was opened or already known. A
+ * plan with none lists as `verified`, carrying its supported/total tally.
+ *
+ * @param slug - the plan's slug.
+ * @param planText - the plan file's contents, for its `## Changelog`.
+ * @param verdicts - what the fold answered.
+ * @param notes - the issue note per refuted claim text.
+ * @returns the entry {@link withChecklistEntry} places.
+ */
+const checklistEntryOf = (
+  slug: string,
+  planText: string,
+  verdicts: readonly ClaimVerdict[],
+  notes: ReadonlyMap<string, IssueNote>,
+): ChecklistEntry => {
+  const summary = checklistSummary(planText);
+  const refutedCount = verdicts.filter((v) => v.verdict === 'refuted').length;
+  if (refutedCount === 0) {
+    return { slug, summary, state: 'verified', tally: `${verdicts.length}/${verdicts.length}`, issue: null };
+  }
+  const first = verdicts.find((v) => v.verdict === 'refuted');
+  const note = first === undefined ? undefined : notes.get(first.claim);
+  return { slug, summary, state: 'refuted', tally: '', issue: note === undefined ? null : issueReference(note) };
+};
+
+/**
+ * Updates `docs/releases/vnext-checklist.md` with this plan's entry, for as
+ * long as the file carries no `RC:` line.
+ *
+ * An open RC round (a file with an `RC:` line) is left strictly alone: `rc`
+ * and the final release own that file from the point the line is written.
+ * A missing file is created fresh, carrying only this plan's entry.
+ *
+ * @param ctx - the ports and paths.
+ * @param tmpwt - the booking worktree.
+ * @param entry - this plan's entry.
+ * @returns the checklist's repository-relative path when it was written, or
+ *   `null` when an open RC round left it untouched.
+ */
+const writeChecklist = async (
+  ctx: Context,
+  tmpwt: string,
+  entry: ChecklistEntry,
+): Promise<string | null> => {
+  const target = path.join(tmpwt, CHECKLIST_PATH);
+  const present = await ctx.planStore.readText(target);
+  const current = present.ok && present.value !== null ? present.value : null;
+  if (current !== null && hasRcLine(current)) return null;
+  const base = current ?? '# Release Checklist\n\n## Verification\n';
+  const written = await ctx.planStore.writeText(target, withChecklistEntry(base, entry));
+  if (!written.ok) throw new Refused(`could not write ${CHECKLIST_PATH}.\n  Re-run this — it is idempotent.`);
+  return CHECKLIST_PATH;
+};
+
+/**
  * Books the record onto the default branch and removes every tree.
  *
  * @param ctx - the ports and paths.
@@ -662,7 +725,10 @@ export const record = async (ctx: Context, args: Args, write: Printer, warn: Pri
     const landed = withSection(recorded.text, 'Verification', verificationBody(verdicts, notes));
     const written = await ctx.planStore.writeText(target, landed);
     if (!written.ok) throw new Refused(`could not write ${facts.plan}.\n  Re-run this — it is idempotent.`);
-    await ctx.trees.stage(tmpwt, [facts.plan]);
+
+    const entry = checklistEntryOf(args.slug, present.value, verdicts, notes);
+    const checklistPath = await writeChecklist(ctx, tmpwt, entry);
+    await ctx.trees.stage(tmpwt, checklistPath === null ? [facts.plan] : [facts.plan, checklistPath]);
 
     const pushed = await commitAndPush(
       ctx,
