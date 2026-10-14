@@ -5272,27 +5272,15 @@ case "$op" in
     # which already refused anything else before this case ran. Each backend's
     # logic lives in its own Node helper, never inline here —
     # `plot-commit-status.mjs` holds the GitHub App JWT/installation-token
-    # exchange, `plot-bitbucket-commit-status.mjs` holds the Bitbucket state
-    # mapping and Basic-auth build-status write.
-    if [ "$be" = "github" ]; then
-      # `--check` refuses a missing argument (1) or a missing or unreadable
-      # `Review app` key (4) before `gh` or the network is asked. The JWT and
-      # the installation token never reach a child process's argv.
-      node "$here/plot-commit-status.mjs" --check "$@" || exit $?
-      node "$here/plot-commit-status.mjs" --repo "$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)" "$@" || exit $?
-    else
-      # The workspace/repo slug comes from `origin`, the same remote-parse
-      # idiom `budget_account`'s bitbucket arm uses above — never from `bb`,
-      # which would mean asking the CLI signed in as whichever identity is on
-      # this machine. An unparsed remote is passed through as an empty
-      # string; the helper reads that as `unsupported` rather than this
-      # shell guessing a reason. The trailing `.git` is stripped before
-      # capturing the repo slug, not inside an optional group after it — a
-      # greedy `[^/]+` otherwise absorbs `.git` into the slug itself, leaving
-      # the group matching nothing and `myrepo.git` in `$_bb_wr`.
-      _bb_wr="$(git config --get remote.origin.url 2>/dev/null | sed -E 's#\.git$##' | sed -nE 's#^.*bitbucket\.org[:/]([^/]+)/(.+)$#\1/\2#p')"
-      node "$here/plot-bitbucket-commit-status.mjs" "$_bb_wr" "$@" || exit $?
-    fi
+    # exchange; `plot-bitbucket-commit-status.mjs` holds the Bitbucket state
+    # mapping and Basic-auth build-status write, given a workspace/repo slug
+    # parsed here from `origin` (never from `bb`, which would mean asking
+    # whichever identity is signed in on this machine) — `.git` is stripped
+    # before capturing the slug, not inside a trailing optional group, or a
+    # greedy match absorbs it into the slug itself.
+    [ "$be" = "github" ] || { node "$here/plot-bitbucket-commit-status.mjs" "$(git config --get remote.origin.url 2>/dev/null | sed -E 's#\.git$##' | sed -nE 's#^.*bitbucket\.org[:/]([^/]+)/(.+)$#\1/\2#p')" "$@" || exit $?; exit 0; }
+    node "$here/plot-commit-status.mjs" --check "$@" || exit $?
+    node "$here/plot-commit-status.mjs" --repo "$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)" "$@" || exit $?
     ;;
 
   *)
