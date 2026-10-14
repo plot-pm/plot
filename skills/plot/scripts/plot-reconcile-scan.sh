@@ -2588,6 +2588,12 @@ if [ "$pr_reliable" != 1 ]; then
 elif [ -z "$merged_pr_heads" ]; then
   echo "  (none — no merged PR to examine)"
 else
+  # SORTED BY PR NUMBER, deliberately, rather than read in `merged_pr_heads`'s
+  # own order. That order is which SOURCE answered each branch — the host's
+  # page first, the index store's rows after — so the same set of merged PRs
+  # prints in a different sequence depending on which source filled in which
+  # row today versus tomorrow, even though nothing about the findings changed.
+  # A numeric sort makes the report's order a function of the PRs themselves.
   while read -r pr_num pr_head; do
     [ -n "$pr_num" ] || continue
     case "$pr_head" in "$MAIN"|release/*) continue ;; esac
@@ -2602,7 +2608,7 @@ else
     review_bypass_out+="  origin/$pr_head — PR #$pr_num merged with checks=$checks, no review-bypass: comment\n"
     review_bypass_out+="    inspect: gh pr view $pr_num --json statusCheckRollup,comments\n"
     n_review_bypass=$((n_review_bypass + 1))
-  done <<< "$merged_pr_heads"
+  done <<< "$(printf '%s\n' "$merged_pr_heads" | sort -n -k1,1)"
 
   if [ -n "$review_bypass_out" ]; then printf '%b' "$review_bypass_out"; else echo "  (none — every examined merge carries a green status or a bypass note)"; fi
   if [ "$MERGED_PR_TRUNCATED" = 1 ]; then

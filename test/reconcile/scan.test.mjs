@@ -294,7 +294,7 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // `desk-finding.test.mjs` guards from the other side.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 open_issues=0 unread_headings=0 unread_waits=0 temp_sweepable=0 legacy_tmp_caches=0 broken_locks=0 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 review_bypass=0 desks=0 no_changeset=0 open_issues=0 unread_headings=0 unread_waits=0 temp_sweepable=0 legacy_tmp_caches=0 broken_locks=0 pr_source=degraded main=main');
 });
 
 // A docs plan that also names a Sprint. Section 6 exempts docs/infra plans by
@@ -446,11 +446,27 @@ function makeGhStub(dir, mergedLines, { openLines = '' } = {}) {
       return { number: Number(number), title: head.join(' '), state, headRefName: head.join(' ') };
     }));
   const emit = (lines, state) => `printf '%s' ${JSON.stringify(asJson(lines, state))}`;
+  // Section 20a reads each merged PR's checks (`pr-state`) and, only when
+  // those are not green, its comments (`pr-comments`). Every merged number
+  // this stub was given answers `checks=green` here, by a rollup entry whose
+  // conclusion is SUCCESS — so a pre-existing fixture asserting "no NEW
+  // finding appears" keeps holding without each test having to know 20a
+  // exists. A test that wants a 20a finding builds its own stub instead
+  // (scan-review-bypass.test.mjs), the way scan-index.test.mjs's call-count
+  // assertions already build their own.
+  const numbers = mergedLines.split('\n').filter(Boolean).map((l) => l.split(' ')[0]);
+  const prViewCases = numbers.map((n) => `  "pr view ${n} --json number,state,isDraft,url,mergeCommit,headRefOid,statusCheckRollup")
+    printf '%s' '{"number":${n},"state":"MERGED","isDraft":false,"url":"","mergeCommit":{"oid":""},"headRefOid":"${'f'.repeat(40)}","statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"}]}'
+    ;;
+  "pr view ${n} --json comments")
+    printf '%s' '{"comments":[]}'
+    ;;`).join('\n');
   fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
 case "$*" in
   *"--state merged"*) ${emit(mergedLines, 'MERGED')} ;;
   *"--state open"*)   ${emit(openLines, 'OPEN')} ;;
+${prViewCases}
 esac
 exit 0
 `);

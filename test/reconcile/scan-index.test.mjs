@@ -183,7 +183,11 @@ test('a store answering every asked branch removes the merged-list call', () => 
     `one host call fewer than without a store:\n${stub.calls().join('\n')}`);
   assert.equal(out, before, 'the report is the one the host page produced');
   assert.equal(lineMatching(out, /merged PR head: #40 \(idea\/solo\)/).length, 1);
-  assert.equal(lineMatching(out, /origin\/feature\/landed — PR #50 merged/).length, 1);
+  // Anchored on section 20's own suffix: section 20a reports the same PR too
+  // (this stub answers no `pr view` call, so 20a treats every merged PR as
+  // unreviewed) and its line also contains "PR #50 merged", distinguished only
+  // by what follows — "with checks=" rather than "ref still here".
+  assert.equal(lineMatching(out, /origin\/feature\/landed — PR #50 merged, ref still here/).length, 1);
 });
 
 // ABSENCE IS NOT PROOF. `complete: false` and no row for `feature/landed`: the
@@ -193,7 +197,7 @@ test('an incomplete store lacking a branch\'s row gives the host\'s answer for i
   const out = runScan(stub, { storeHome: storeWith([row(40, 'idea/solo')], { complete: false }) });
 
   assert.equal(mergedCalls(stub).length, 1, 'a branch the store lacks sends the scan to the host');
-  assert.equal(lineMatching(out, /origin\/feature\/landed — PR #50 merged/).length, 1);
+  assert.equal(lineMatching(out, /origin\/feature\/landed — PR #50 merged, ref still here/).length, 1);
   // And the store's own MERGED row still counts: the host page here omits #40,
   // as a page cut at MERGED_PR_LIMIT would.
   assert.equal(lineMatching(out, /merged PR head: #40 \(idea\/solo\)/).length, 1,
@@ -209,7 +213,7 @@ test('an OPEN row for a PR the host reports MERGED gives the host\'s answer', ()
   });
 
   assert.equal(mergedCalls(stub).length, 1, 'an OPEN row answers nothing');
-  assert.equal(lineMatching(out, /origin\/feature\/landed — PR #50 merged/).length, 1);
+  assert.equal(lineMatching(out, /origin\/feature\/landed — PR #50 merged, ref still here/).length, 1);
 });
 
 // AN UNREACHABLE HOST WITH NO STORE is today's `failed` state: section 3 is
