@@ -51,6 +51,9 @@ describe('tiny-garden: the board shows the spec run (real browser renders the sh
         running: ['beans'],
         refusals: {},
         rows: [{
+          // The domain also writes an empty row for a going plan.
+          kind: 'spec', plan: 'beans', reason: '', log: '', restart: '', stopped: false, halted: false,
+        }, {
           kind: 'spec',
           plan: 'plant-tomatoes',
           reason: 'the spec run failed 3 times; the fleet stopped retrying this plan',
@@ -70,6 +73,7 @@ describe('tiny-garden: the board shows the spec run (real browser renders the sh
       expect(await runningRow.locator('[data-plan-level-restart]').count()).toBe(0);
 
       const waiting = group(page, 'Waiting on you');
+      expect(await waiting.locator('[data-plan-level-row="beans"]').count()).toBe(0);
       const failedRow = waiting.locator('[data-plan-level-row="plant-tomatoes"]');
       await expect.poll(() => failedRow.count()).toBe(1);
       expect(await failedRow.locator('[data-plan-level-restart]').textContent())

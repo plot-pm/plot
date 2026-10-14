@@ -64,6 +64,16 @@ describe('specRows', () => {
     ]);
   });
 
+  it('shows a going plan once, in working, when it is also in rows with empty fields', () => {
+    const payload = design({
+      running: ['beta'],
+      rows: [row({ plan: 'beta', reason: '', log: '', restart: '', stopped: false }), row()],
+    });
+    const { working, waiting } = specRows(payload);
+    expect(working.map((r) => r.plan)).toEqual(['beta']);
+    expect(waiting.map((r) => r.plan)).toEqual(['alpha']);
+  });
+
   describe('haltedLine', () => {
     it('is the fixed sentence when halted and no row already carries halted: true', () => {
       const payload = design({ halted: true, rows: [row({ halted: false })] });

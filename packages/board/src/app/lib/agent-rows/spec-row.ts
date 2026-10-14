@@ -12,6 +12,9 @@ const HALTED_LINE = 'The fleet starts no spec run until a person restarts one.';
  * on you*, `design.running` becomes *Working*, and `halted` becomes a line
  * shown once rather than repeated per row.
  *
+ * A going plan shows once, in *Working*: the domain's `specRow` also writes an
+ * empty row for it into `design.rows`, and that row is dropped here.
+ *
  * READS, NEVER DERIVES: `reason`, `log`, `restart` and `stopped` are copied
  * unchanged from the payload row, which the domain's `specRow` already
  * computed. `halted` on each row comes from that row's own `halted`.
@@ -27,15 +30,18 @@ export const specRows = (
 ): { working: PlanLevelRow[]; waiting: PlanLevelRow[]; haltedLine: string | null } => {
   if (design === null) return { working: [], waiting: [], haltedLine: null };
 
-  const waiting: PlanLevelRow[] = design.rows.map((row) => ({
-    kind: 'spec',
-    plan: row.plan,
-    reason: row.reason,
-    log: row.log,
-    restart: row.restart,
-    stopped: row.stopped,
-    halted: row.halted,
-  }));
+  const going = new Set(design.running);
+  const waiting: PlanLevelRow[] = design.rows
+    .filter((row) => !going.has(row.plan))
+    .map((row) => ({
+      kind: 'spec',
+      plan: row.plan,
+      reason: row.reason,
+      log: row.log,
+      restart: row.restart,
+      stopped: row.stopped,
+      halted: row.halted,
+    }));
 
   const working: PlanLevelRow[] = design.running.map((slug) => ({
     kind: 'spec',
