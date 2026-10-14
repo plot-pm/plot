@@ -203,6 +203,23 @@ export interface Tracker {
   issueListClosed(since: string, limit: number): Promise<PortResult<ClosedIssues>>;
 
   /**
+   * Lists the issues assigned to the reader themselves, without bodies —
+   * always person-scoped, even where {@link issueListOpen} is not.
+   *
+   * A Jira tracker with `Ticket prefixes` declared scopes its open read to the
+   * declared projects rather than the reader, so this is the one read that
+   * stays "my open tickets" on purpose: it is what `issueListOpen` sent before
+   * the project scope existed. A tracker whose open read is always
+   * person-scoped (no project-wide mode) answers `unaskable` — the caller
+   * falls back to the open rows it already has.
+   *
+   * @param limit - how many issues to read at most; one page, no pagination.
+   * @returns the reader's open issues; `unaskable` where this tracker has no
+   *   separate person-scoped read, or no tracker can be asked.
+   */
+  issueListInbox(limit: number): Promise<PortResult<IssueRead>>;
+
+  /**
    * Reads one issue, with its body.
    *
    * Fetched per click rather than per refresh: the body is what a person reads

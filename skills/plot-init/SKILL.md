@@ -205,8 +205,10 @@ proposal adds:
 **The same measured prefix seeds `Ticket prefixes`, and the seed is one
 element of a list a person completes.** `Ticket prefixes` is what
 `plot-host.sh issue-list` puts in the Jira query's `project IN (…)`, so a
-repository that declares it gets an inbox holding its own tickets and one that
-declares nothing keeps the instance-wide query. Ask for the whole list:
+repository that declares nothing keeps today's person-scoped inbox, unchanged,
+and one that declares it turns its lanes and closed read project-wide — every
+ticket of the named projects, not just the reader's own — with the reader's own
+open tickets kept alive as a separate inbox read. Ask for the whole list:
 
 > Found `QUACDS` in 38 of 80 commit subjects. Which Jira projects hold this
 > repository's tickets? (`QUACDS`, or `QUACDS, QUAWEB, QUAPI`)
@@ -216,7 +218,8 @@ counts every prefix and reports the most frequent, so the seed is complete only
 where the repository maps to a single project. Measured on the repository issue
 #850 reports: scoping to the measured prefix alone shows 3 of 12 issues and
 hides two other projects' work under a heading claiming nobody planned it —
-which is the same lie the instance-wide inbox tells with the projects reversed.
+which is the same lie an unscoped, instance-wide query tells with the projects
+reversed.
 `composeAdoption` names that gap on a one-element list; the question is what
 lets a person close it before it is written.
 

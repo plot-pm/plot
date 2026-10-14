@@ -1744,6 +1744,8 @@ const inboxOf = (rows: readonly IssueIndexRow[], referenced: ReadonlySet<string>
  * @param rows - every open row this read holds, unfiltered by `referenced`.
  * @param source - how this read's tickets name their assignees, or `null`.
  * @param complete - whether `rows` is every open row, or the read's own cap stopped first.
+ * @param inbox - the reader's own open tickets from a separate D23 inbox read,
+ *   or `undefined` where no inbox read happened.
  * @returns the wire shape for `FleetShape.waiting`.
  */
 const waitingOf = async (
@@ -1751,10 +1753,11 @@ const waitingOf = async (
   rows: readonly IssueIndexRow[],
   source: import('@plot-pm/domain').TicketSource | null,
   complete: boolean,
+  inbox: readonly IssueIndexRow[] | undefined = undefined,
 ): Promise<FleetWaiting> => {
   const [who, directory] = await Promise.all([identity(opts), people(opts)]);
   const reader: Reader = { hostUser: who.hostUser, gitEmail: who.gitEmail, directory };
-  const result = waitingTickets(rows, undefined, reader, source, complete);
+  const result = waitingTickets(rows, inbox, reader, source, complete);
   return {
     tickets: result.tickets.map((t) => ({
       kind: 'ticket' as const,
@@ -2025,7 +2028,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
   entry.issueError = null;
   const gitHostBackend = entry.backend ?? 'github';
   const ticketSource = ticketSourceOf(source, gitHostBackend, TICKET_SOURCES);
-  entry.waiting = await waitingOf(opts, rows, ticketSource, index.complete ?? true);
+  entry.waiting = await waitingOf(opts, rows, ticketSource, index.complete ?? true, index.inbox);
 };
 
 /**

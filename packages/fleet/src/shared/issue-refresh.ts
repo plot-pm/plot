@@ -15,7 +15,7 @@ import {
 } from '@plot-pm/domain';
 import { TRACKER_LISTERS, trackerOfSource, type ShellContext } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
-import type { ClosedIssues, TrackerSpender } from '@plot-pm/domain/ports/tracker';
+import type { ClosedIssues, IssueRead, TrackerSpender } from '@plot-pm/domain/ports/tracker';
 
 import { hostReaction, prGateOpen, waitOf, type IssueGateReading } from './pr-refresh.js';
 
@@ -157,6 +157,37 @@ export const closedOutcomeOf = (
   };
 };
 
+/** What one inbox read leaves: its rows and its spend. */
+export interface InboxOutcome {
+  /** The inbox rows to hold; absent where no inbox read happened. */
+  inbox: IssueIndexRow[] | undefined;
+  /** The requests the read spent: 1 where it answered, 0 where unsupported or failed. */
+  spent: number;
+}
+
+/**
+ * Folds one inbox read into the index's `inbox` field.
+ *
+ * `inbox` is absent, never `[]`, where the read did not happen — which is
+ * D30's whole point: an UNSUPPORTED read (no `Ticket prefixes` declared, or a
+ * tracker with no person-scoped read apart from the open one) costs nothing,
+ * the same way {@link closedOutcomeOf} costs nothing for an unsupported closed
+ * read. A read that FAILED also costs nothing extra here — its one request is
+ * not double-counted, because a tracker's `lastRefusal()` already drove the
+ * pass's own backoff through the open or closed read in the same pass.
+ *
+ * @param read - the inbox read's answer.
+ * @param kept - the inbox rows the previous pass left for the same source and connector.
+ * @returns the rows to hold and the requests spent.
+ */
+export const inboxOutcomeOf = (
+  read: PortResult<IssueRead>,
+  kept: IssueIndexRow[] | undefined,
+): InboxOutcome =>
+  read.ok
+    ? { inbox: read.value.issues.map(issueIndexRowOf), spent: read.value.pages }
+    : { inbox: kept, spent: 0 };
+
 /** Whether a backoff is live and on the spender's own connector and account. */
 const holdsFor = (
   until: number | null,
@@ -192,21 +223,26 @@ const unaskableReason = (source: Exclude<IssueSource, { ask: 'nobody' }>, gitHos
  *   pass started, `backoffUntil: null`, and at most
  *   {@link ISSUE_INDEX_OPEN_LIMIT} rows read page by page, with the read's own
  *   `complete`. `requests` is the open read's pages plus the closed read's
- *   spend: its pages where it answered, 1 where it failed, 0 where it is
- *   unsupported. A page is {@link ISSUE_PAGE_ROWS} rows.
+ *   spend (its pages where it answered, 1 where it failed, 0 where it is
+ *   unsupported) plus the inbox read's spend, counted the same way; see
+ *   {@link closedOutcomeOf} and {@link inboxOutcomeOf}. A page is
+ *   {@link ISSUE_PAGE_ROWS} rows.
  * - An answered open read is followed by a closed read of the last
  *   {@link ISSUE_INDEX_CLOSED_DAYS} days, written under `closed` with its own
- *   `answer`, `at`, `complete` and `rows`. Each pass replaces both sets whole.
- *   A closed read that fails or is unsupported keeps the previous `closed`
- *   `since`, `at`, rows and `complete` and leaves the open rows as the open
- *   read set them; see {@link closedOutcomeOf}. A closed read is not asked
- *   where the open read did not answer.
+ *   `answer`, `at`, `complete` and `rows`, and an inbox read written under
+ *   `inbox` — the reader's own open tickets, where the tracker has a
+ *   person-scoped read apart from the open one (D23). Each pass replaces all
+ *   three sets whole. A closed read that fails or is unsupported keeps the
+ *   previous `closed` `since`, `at`, rows and `complete`; an inbox read that
+ *   fails or is unsupported keeps the previous `inbox` rows, or leaves it
+ *   absent where none were ever read. Either leaves the open rows as the open
+ *   read set them. Neither is asked where the open read did not answer.
  * - A refused read writes `requests`, `nextAt`, `failedAt` and `reason`, keeps
  *   the previous `rows`, `complete` and `at` of the same source and connector,
  *   and writes `backoffUntil` where {@link hostReaction} reads a rate limit in
- *   the refusal, and keeps the previous `closed` of the same source and
- *   connector. The `reason` of an unaskable read is the sentence the port
- *   carried, or a sentence naming the source where it carried none.
+ *   the refusal, and keeps the previous `closed` and `inbox` of the same
+ *   source and connector. The `reason` of an unaskable read is the sentence
+ *   the port carried, or a sentence naming the source where it carried none.
  *
  * @param world - what the pass reaches.
  * @param state - the cadence carried between passes.
@@ -243,14 +279,17 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
   const result = await tracker.issueListOpen(ISSUE_INDEX_OPEN_LIMIT);
   const sameHeld = held !== null && held.source === source.ask && held.connector === spender.connector;
   const keptClosed: Pick<IssueIndex, 'closed'> = sameHeld && held.closed !== undefined ? { closed: held.closed } : {};
+  const keptInbox = sameHeld ? held.inbox : undefined;
 
   if (result.ok) {
     const since = closedSince(startedAt);
     const closedRead = await tracker.issueListClosed(since, ISSUE_INDEX_OPEN_LIMIT);
+    const inboxRead = await tracker.issueListInbox(ISSUE_INDEX_OPEN_LIMIT);
     const at = new Date(startedAt).toISOString();
     const finishedAt = clock();
     const outcome = closedOutcomeOf(closedRead, keptClosed.closed, since, at, tracker.lastRefusal(), finishedAt);
-    const requests = result.value.pages + outcome.spent;
+    const inboxOutcome = inboxOutcomeOf(inboxRead, keptInbox);
+    const requests = result.value.pages + outcome.spent + inboxOutcome.spent;
     const nextAt = startedAt + issueIntervalMs(requests);
     const backoffUntil = outcome.wait === null ? null : finishedAt + outcome.wait;
     state.issueError = outcome.error;
@@ -269,6 +308,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
       rows: result.value.issues.map(issueIndexRowOf),
       complete: result.value.complete,
       closed: outcome.closed,
+      ...(inboxOutcome.inbox === undefined ? {} : { inbox: inboxOutcome.inbox }),
     });
     return;
   }
@@ -307,6 +347,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
     ...(sameHeld && held.rows !== undefined ? { rows: held.rows } : {}),
     ...(sameHeld && held.complete !== undefined ? { complete: held.complete } : {}),
     ...keptClosed,
+    ...(keptInbox === undefined ? {} : { inbox: keptInbox }),
   });
 };
 

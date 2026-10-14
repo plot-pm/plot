@@ -30,6 +30,7 @@ export const trackerNone = (reason?: string): Tracker => ({
   issueList: async (): Promise<PortResult<readonly Issue[]>> => unaskable(reason),
   issueListClosed: async (): Promise<PortResult<ClosedIssues>> => unaskable(reason),
   issueListOpen: async (): Promise<PortResult<IssueRead>> => unaskable(reason),
+  issueListInbox: async (): Promise<PortResult<IssueRead>> => unaskable(reason),
   issueView: async (): Promise<PortResult<Issue>> => unaskable(reason),
   statusWrite: async (): Promise<PortResult<StatusOutcome>> => unaskable(reason),
   issueOpen: async (): Promise<PortResult<IssueOpenOutcome>> => unaskable(reason),

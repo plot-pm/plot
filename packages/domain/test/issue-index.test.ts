@@ -109,3 +109,26 @@ describe('the closed set', () => {
     expect(decodeIssueIndex(JSON.stringify({ ...store(), closed: { ...closed, answer: 'maybe' } }))).toBeNull();
   });
 });
+
+describe('the inbox set', () => {
+  const inboxRows = [{ number: '3', title: 'My ticket', url: 'https://example.test/3' }];
+
+  it('round-trips an inbox block', () => {
+    const original = store({ inbox: inboxRows });
+    expect(decodeIssueIndex(encodeIssueIndex(original))).toEqual(original);
+  });
+
+  it('decodes a file with no inbox block as "no inbox read happened", without inventing one', () => {
+    expect(decodeIssueIndex(encodeIssueIndex(store()))).not.toHaveProperty('inbox');
+  });
+
+  it('keeps inbox: [] distinct from inbox absent — an empty inbox is a read that found nothing', () => {
+    const empty = store({ inbox: [] });
+    const absent = store();
+    const decodedEmpty = decodeIssueIndex(encodeIssueIndex(empty));
+    const decodedAbsent = decodeIssueIndex(encodeIssueIndex(absent));
+    expect(decodedEmpty).toHaveProperty('inbox', []);
+    expect(decodedAbsent).not.toHaveProperty('inbox');
+    expect(decodedEmpty).not.toEqual(decodedAbsent);
+  });
+});

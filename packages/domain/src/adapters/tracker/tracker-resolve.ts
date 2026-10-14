@@ -99,6 +99,11 @@ export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker 
     issueList: (limit): Promise<PortResult<readonly Issue[]>> => reads.issueList(limit),
     issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
     issueListOpen: (limit): Promise<PortResult<IssueRead>> => reads.issueListOpen(limit),
+    // NO PERSON-SCOPED MODE DISTINCT FROM THE OPEN READ, for the same reason
+    // `trackerGithub` has none: this connector's open read is never
+    // project-scoped, so there is no second read to make.
+    issueListInbox: async (): Promise<PortResult<IssueRead>> =>
+      unaskable("the git host's issues have no person-scoped read apart from the open read"),
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
     statusWrite: async (): Promise<PortResult<StatusOutcome>> =>
       unaskable("no Tracker declared; the git host's issues are read-only to Plot"),

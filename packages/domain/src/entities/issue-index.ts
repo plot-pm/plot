@@ -146,6 +146,12 @@ export const IssueIndexSchema = z
     complete: z.boolean().optional(),
     /** The closed issues of the last 14 days, under their own answer; absent where never read. */
     closed: IssueIndexClosedSchema.optional(),
+    /**
+     * The reader's own open tickets, read as their own query — absent where no
+     * inbox read happened (no `Ticket prefixes` declared, or a tracker other
+     * than Jira), never an empty array for "the inbox has nothing in it".
+     */
+    inbox: z.array(IssueIndexRowSchema).optional(),
   })
   .strict();
 

@@ -1,7 +1,7 @@
 import type { Issue } from '../../entities/issue.js';
 import { ISSUE_PAGE_ROWS } from '../../entities/issue-index.js';
 import type { LimitReading } from '../../entities/limit.js';
-import { answered, failed, type PortResult } from '../../port-result.js';
+import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type {
   ClosedIssues,
   IssueOpen,
@@ -22,6 +22,11 @@ export interface TrackerFixture {
   baseUrl?: string;
   /** The issues `issueList` reports, and `issueView` looks up by id. */
   issues?: readonly Issue[];
+  /**
+   * The issues `issueListInbox` reports; `undefined` answers `unaskable`,
+   * matching a connector with no person-scoped read apart from the open one.
+   */
+  inbox?: readonly Issue[];
   /**
    * Where every `statusWrite` is recorded, in call order.
    *
@@ -95,6 +100,12 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
     issueListOpen: async (limit): Promise<PortResult<IssueRead>> => {
       const open = issues.filter((issue) => issue.closedAt === null);
       return answered({ issues: open.slice(0, limit), complete: open.length < limit, pages: pagesOf(Math.min(open.length, limit)) });
+    },
+
+    issueListInbox: async (limit): Promise<PortResult<IssueRead>> => {
+      if (fixture.inbox === undefined) return unaskable('this fixture has no inbox configured');
+      const inbox = fixture.inbox;
+      return answered({ issues: inbox.slice(0, limit), complete: inbox.length < limit, pages: pagesOf(Math.min(inbox.length, limit)) });
     },
 
     issueView: async (id): Promise<PortResult<Issue>> => {

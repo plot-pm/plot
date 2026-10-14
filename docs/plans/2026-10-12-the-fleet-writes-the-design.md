@@ -145,7 +145,7 @@ fleetd folds a `start` mark by clearing the plan's failure record and `declined`
 
 ### The spec rows
 
-- `feature/the-board-shows-the-spec-run` <!-- waits: feature/waiting-on-you-shows-a-failed-verification --> — `specRows(design)` in `packages/board/src/app/lib/agent-rows/spec-row.ts` maps the `design` rows of `/api/fleet` onto the plan-level row that `the-board-has-three-tabs` builds for both *Working* and *Waiting on you* with the shape `{ kind, plan, reason, log, restart, stopped, halted }`, `kind: 'spec'`; a going run in *Working*, a failed run and an orphan `work` ref in *Waiting on you*; each section count adds its rows <!-- builds: the spec-run rows in the Delivery tab -->
+- `feature/the-board-shows-the-spec-run` → #1697 <!-- waits: feature/waiting-on-you-shows-a-failed-verification --> — `specRows(design)` in `packages/board/src/app/lib/agent-rows/spec-row.ts` maps the `design` rows of `/api/fleet` onto the plan-level row that `the-board-has-three-tabs` builds for both *Working* and *Waiting on you* with the shape `{ kind, plan, reason, log, restart, stopped, halted }`, `kind: 'spec'`; a going run in *Working*, a failed run and an orphan `work` ref in *Waiting on you*; each section count adds its rows <!-- builds: the spec-run rows in the Delivery tab -->
 
 ## Acceptance
 

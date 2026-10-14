@@ -1,6 +1,6 @@
 import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
-import { answered, failed, type PortResult } from '../../port-result.js';
+import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type {
   ClosedIssues,
   IssueOpen,
@@ -87,6 +87,12 @@ export const trackerGithub = (context: ShellContext): Tracker => {
 
     issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
     issueListOpen: (limit): Promise<PortResult<IssueRead>> => reads.issueListOpen(limit),
+    // NO PERSON-SCOPED MODE DISTINCT FROM THE OPEN READ. GitHub's open read is
+    // never project-scoped the way Jira's becomes with `Ticket prefixes`, so
+    // there is no second read to make here — the caller falls back to the
+    // open rows it already has.
+    issueListInbox: async (): Promise<PortResult<IssueRead>> =>
+      unaskable('the GitHub tracker has no person-scoped read apart from its open read'),
 
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
 

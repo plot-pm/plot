@@ -109,6 +109,26 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
     issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
     issueListOpen: (limit): Promise<PortResult<IssueRead>> => reads.issueListOpen(limit),
 
+    // GATED HERE, NOT IN THE SHELL. `plot-host.sh`'s own `inbox` arm sends its
+    // query unconditionally — the person-scoped read is what every Jira lanes
+    // query used to be, so it never needed a precondition. The precondition
+    // belongs to this read's PURPOSE, not its query: the inbox exists to keep a
+    // reader's own tickets visible once `Ticket prefixes` turns the lanes
+    // project-wide, so with no `Ticket prefixes` declared there is nothing for
+    // it to add beyond the open read `waitingTickets` already has.
+    issueListInbox: async (limit): Promise<PortResult<IssueRead>> => {
+      const projects = await runProcess('bash', [config, 'get', PROJECTS_KEY, ''], inRepo);
+      if (projects.code !== 0) {
+        reads.refuse(projects.stderr.trim() || `plot-config.sh exited ${projects.code}`);
+        return failed();
+      }
+      if (projects.stdout.trim() === '') {
+        reads.refuse(null);
+        return unaskable(`the Jira inbox read needs '${PROJECTS_KEY}' declared; with none, the open read is already person-scoped`);
+      }
+      return reads.issueListInbox(limit);
+    },
+
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
 
     statusWrite: async (write: StatusWrite): Promise<PortResult<StatusOutcome>> => {

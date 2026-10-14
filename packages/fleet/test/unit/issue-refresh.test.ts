@@ -39,13 +39,17 @@ const issueLine = (n: number): string =>
 
 /**
  * A scripts directory whose `plot-host.sh` answers `spend-rate` with the
- * connector's account and `issue-list` as told, recording every call.
+ * connector's account and `issue-list` as told, recording every call. Where
+ * `inbox` is given, a `plot-config.sh` declaring `Ticket prefixes` is written
+ * alongside it, so `trackerJira`'s D23 gate (packages/domain/src/adapters/
+ * tracker/tracker-jira.ts) lets the inbox read through.
  */
 type FakeList = { rows?: number; stderr?: string; code?: number; token?: string };
 
 const fakeHost = (
   issueList: FakeList,
   closed: FakeList = {},
+  inbox?: FakeList,
 ): { dir: string; argv: () => string[] } => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-issue-refresh-'));
   dirs.push(dir);
@@ -68,11 +72,22 @@ const fakeHost = (
     + 'if [ "$1" = issue-list ]; then\n'
     + '  case " $* " in *" --state closed "*)\n'
     + answer(closed, closedLine)
+    + '  ;; *" --state inbox "*)\n'
+    + answer(inbox ?? { rows: 0 }, issueLine)
     + '  ;; esac\n'
     + answer(issueList, issueLine)
     + 'fi\nexit 0\n',
   );
   fs.chmodSync(path.join(dir, 'plot-host.sh'), 0o755);
+  if (inbox !== undefined) {
+    fs.writeFileSync(
+      path.join(dir, 'plot-config.sh'),
+      '#!/usr/bin/env bash\n'
+      + 'if [ "$1" = get ] && [ "$2" = "Ticket prefixes" ]; then echo "PROJ"; exit 0; fi\n'
+      + 'exit 0\n',
+    );
+    fs.chmodSync(path.join(dir, 'plot-config.sh'), 0o755);
+  }
   const argv = (): string[] =>
     fs.existsSync(argvFile) ? fs.readFileSync(argvFile, 'utf8').split('\n').filter(Boolean) : [];
   return { dir, argv };
@@ -347,6 +362,53 @@ describe('the closed set of the index', () => {
     expect(index?.closed?.answer).toBe('unsupported');
     expect(index?.closed?.rows).toBeUndefined();
     expect(index?.answer).toBe('answered');
+  });
+});
+
+describe('the inbox set of the index (D23)', () => {
+  it('writes no inbox for a git-host source, which has no Ticket prefixes gate to turn on', async () => {
+    const { dir } = fakeHost({ rows: 1 }, { rows: 0 });
+    const store = issueIndexFile({ home: storeHome() });
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    const index = await onDisk(store);
+    expect(index).not.toHaveProperty('inbox');
+  });
+
+  it('writes no inbox for a declared Jira tracker with no Ticket prefixes, and spends no extra request', async () => {
+    const { dir, argv } = fakeHost({ rows: 1 }, { rows: 0 });
+    const store = issueIndexFile({ home: storeHome() });
+    await refreshIssueIndex(worldOf(dir, store, { declaredTracker: 'jira https://x.invalid' }), freshIssueState());
+    const index = await onDisk(store);
+    expect(index).not.toHaveProperty('inbox');
+    expect(index?.requests).toBe(2);
+    expect(argv().some((call) => call.includes('--state inbox'))).toBe(false);
+  });
+
+  it('writes the inbox rows and counts the extra request for a declared Jira tracker with Ticket prefixes', async () => {
+    const { dir, argv } = fakeHost({ rows: 1 }, { rows: 0 }, { rows: 1 });
+    const store = issueIndexFile({ home: storeHome() });
+    await refreshIssueIndex(worldOf(dir, store, { declaredTracker: 'jira https://x.invalid' }), freshIssueState());
+    const index = await onDisk(store);
+    expect(index?.inbox).toEqual([{ number: '1', title: 'issue 1', url: 'https://example.invalid/1', createdAt: '2026-10-01T00:00:00Z' }]);
+    expect(index?.requests).toBe(3);
+    expect(argv().some((call) => call.includes('--state inbox'))).toBe(true);
+  });
+
+  it('keeps the previous inbox rows where the open read fails', async () => {
+    const { dir } = fakeHost({ stderr: 'boom', code: 1 }, {}, { rows: 1 });
+    const store = issueIndexFile({ home: storeHome() });
+    const kept = [{ number: '3', title: 'mine', url: 'u3' }];
+    await store.write(heldIndex({ source: 'tracker', connector: 'jira', inbox: kept }));
+    await refreshIssueIndex(worldOf(dir, store, { declaredTracker: 'jira https://x.invalid' }), freshIssueState());
+    expect((await onDisk(store))?.inbox).toEqual(kept);
+  });
+
+  it('writes no inbox where the previous pass held none and the open read fails', async () => {
+    const { dir } = fakeHost({ stderr: 'boom', code: 1 }, {}, { rows: 1 });
+    const store = issueIndexFile({ home: storeHome() });
+    await store.write(heldIndex({ source: 'tracker', connector: 'jira' }));
+    await refreshIssueIndex(worldOf(dir, store, { declaredTracker: 'jira https://x.invalid' }), freshIssueState());
+    expect(await onDisk(store)).not.toHaveProperty('inbox');
   });
 });
 

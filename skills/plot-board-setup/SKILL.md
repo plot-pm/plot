@@ -227,9 +227,11 @@ Turn the merged signals into proposals:
 
 - **Ticket prefixes** — the same `ticket.prefix` seeds the `Ticket prefixes`
   key, which is what `plot-host.sh issue-list` puts in the Jira query's
-  `project IN (…)`. A repository that declares it gets an inbox holding its own
-  tickets; one that declares nothing keeps the instance-wide query. **Ask for
-  the whole list, because the probe knows of one**:
+  `project IN (…)`. A repository that declares nothing keeps today's
+  person-scoped inbox, unchanged; one that declares it turns its lanes and
+  closed read project-wide — every ticket of the named projects, not just the
+  reader's own — with the reader's own open tickets kept alive as a separate
+  inbox read. **Ask for the whole list, because the probe knows of one**:
 
   > Found `QUACDS-*` in 6 of 80 commit subjects. Which Jira projects hold this
   > repository's tickets? (`QUACDS`, or `QUACDS, QUAWEB, QUAPI`)

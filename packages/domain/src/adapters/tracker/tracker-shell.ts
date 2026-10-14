@@ -320,6 +320,25 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
       return read.ok ? answered({ ...read.value, issues: newestCloseFirst(read.value.issues) }) : read;
     },
 
+    /**
+     * Lists the reader's own open issues: one unpaged page, `issue-list
+     * --state inbox`.
+     *
+     * ONLY `plot-host.sh`'s JIRA ARM UNDERSTANDS `--state inbox` — GitHub's and
+     * Bitbucket's would reject it. This is exported on `trackerReads` because
+     * it shares the same `ask` plumbing, but only {@link trackerJira} calls
+     * it; every other connector's `issueListInbox` answers `unaskable` without
+     * reaching this. See {@link Tracker.issueListInbox}.
+     *
+     * @param limit - how many issues to read at most.
+     * @returns the reader's own open issues.
+     */
+    issueListInbox: (limit: number): Promise<PortResult<IssueRead>> =>
+      ask(['issue-list', '--state', 'inbox', '--limit', String(limit)], (stdout) => {
+        const { issues } = pageOf(stdout);
+        return { issues, complete: issues.length < limit, pages: 1 };
+      }),
+
     issueView: (id: string): Promise<PortResult<Issue>> =>
       ask(['issue-view', id], (stdout) => issueOf(asJson<RawIssue>(stdout))),
 

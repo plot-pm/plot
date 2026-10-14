@@ -4575,8 +4575,8 @@ case "$op" in
     done
     # `--since` is spliced into a JQL string and a search qualifier, so its shape
     # is checked here: a value outside it is a usage error, never a query.
-    [[ "$state" =~ ^(open|closed)$ ]] || die "issue-list: --state is open or closed, not '$state'"
-    [ "$state" = open ] || [[ "$since" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}[0-9:.]*Z?)?$ ]] || die "issue-list: --state closed needs --since <iso>"
+    [[ "$state" =~ ^(open|closed|inbox)$ ]] || die "issue-list: --state is open, closed or inbox, not '$state'"
+    [ "$state" != closed ] || [[ "$since" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}[0-9:.]*Z?)?$ ]] || die "issue-list: --state closed needs --since <iso>"
     limit_args=()
     [ -n "$limit" ] && limit_args=(--limit "$limit")
     # WHO LISTS THESE ISSUES IS ASKED ONCE, HERE, BEFORE THE ARMS — after the
@@ -4612,17 +4612,20 @@ case "$op" in
       # AN UNDECLARED KEY LEAVES THE QUERY BYTE-IDENTICAL. `$scope` is empty,
       # the two halves rejoin exactly as they were written, and an upgrade
       # changes nothing for a repository that never set the key.
-      scope=""
-      if projects="$(tracker_projects)" && [ -n "$projects" ]; then
+      scope=""; if projects="$(tracker_projects)" && [ -n "$projects" ]; then
         # `IN (A, B)`, never a trailing comma: paste joins N-1 separators over N
         # elements, so a one-element list — what adoption's seed writes — yields
         # `IN (A)` rather than `IN (A,)`.
         scope=" AND project IN ($(printf '%s' "$projects" | paste -sd, - | sed 's/,/, /g'))"
       fi
+      # THE PERSON CLAUSE DROPS ONCE A PROJECT SCOPE EXISTS (D20): the open and
+      # closed reads keep `assignee = currentUser()` only where `$scope` is
+      # empty. The inbox read below keeps it unconditionally on purpose.
+      person=""; [ -n "$scope" ] || person="assignee = currentUser() AND "
       # PLOT_JIRA_JQL STILL WINS OVER BOTH. Teams worked around this bug with
       # their own JQL; an override that stopped overriding would break exactly
       # the people who noticed the problem first.
-      jql="${PLOT_JIRA_JQL:-assignee = currentUser() AND resolution = EMPTY${scope} ORDER BY created DESC}"
+      jql="${PLOT_JIRA_JQL:-${person}resolution = EMPTY${scope} ORDER BY created DESC}"
       # maxResults bounds ONE page. The inbox is small by construction (a
       # person's open tickets), so its default stays 50; the caller's --limit
       # caps it. A paged read (`--paged`, and every closed read) asks at most
@@ -4640,11 +4643,15 @@ case "$op" in
         # TypeScript adapter walks the pages, so this arm holds no loop. JQL dates take
         # `yyyy-MM-dd` or `yyyy-MM-dd HH:mm`, so the ISO `since` is cut to the
         # shape it has: a date-only `since` sends the date alone. JQL takes no
-        # offset, so Jira reads the time in the reader's profile zone.
+        # offset, so Jira reads the time in the reader's profile zone. Its
+        # person clause drops with the open read's (D20), same reason.
         [ -n "$scope" ] || { echo "plot-host: closed Jira issues need 'Ticket prefixes' declared; an unscoped resolved query reads the whole instance" >&2; exit 4; }
-        when="${since:0:10} ${since:11:5}"
-        jql="assignee = currentUser() AND resolved >= \"${when% }\"${scope} ORDER BY resolved DESC"
+        when="${since:0:10} ${since:11:5}"; jql="resolved >= \"${when% }\"${scope} ORDER BY resolved DESC"
         fields="$fields,resolutiondate"; paged=1
+      # THE D23 INBOX READ: today's pre-D20 query, always person-scoped — kept
+      # alongside the now-project-wide open read so *Waiting on you* still
+      # shows the reader's own tickets. `max` is already `$limit:-50` above.
+      elif [ "$state" = inbox ]; then jql="${PLOT_JIRA_JQL:-assignee = currentUser() AND resolution = EMPTY ORDER BY created DESC}"
       fi
       [ -z "$paged" ] || { max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; }
       token_args=(); [ -z "$page_token" ] || token_args=(--data-urlencode "nextPageToken=$page_token")

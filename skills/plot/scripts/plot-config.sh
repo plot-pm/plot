@@ -181,15 +181,21 @@
 #                       `Branch prefixes`, which sits next to it and holds
 #                       `idea/`, `feature/`, `bug/` — that key is structural and
 #                       names git branches; this one names tracker projects.
-#                       Read by plot-host.sh's `issue-list` to scope the inbox:
-#                       the default JQL scopes by person and state, so on a
-#                       shared instance it is instance-wide and returns other
-#                       customers' tickets. A LIST, because a repository mapping
-#                       to several projects is the normal case; adoption seeds
-#                       ONE prefix and a person adds the rest. Absent = today's
-#                       unscoped query, byte for byte — a default that filtered
-#                       on an undeclared key would empty every existing board's
-#                       inbox on upgrade. `PLOT_JIRA_JQL` overrides both.
+#                       Read by plot-host.sh's `issue-list`. ABSENT keeps
+#                       today's query, byte for byte: person- and state-scoped,
+#                       unchanged by this key's introduction. DECLARED turns the
+#                       open and closed reads project-wide — every ticket of
+#                       the named projects, not just the reader's own, which is
+#                       what a shared instance needs; the unscoped default
+#                       returned other customers' tickets. A LIST, because a
+#                       repository mapping to several projects is the normal
+#                       case; adoption seeds ONE prefix and a person adds the
+#                       rest. `PLOT_JIRA_JQL` overrides the open and closed
+#                       reads together. The reader's own open tickets are a
+#                       SEPARATE read once this key is declared — the `issue-list
+#                       --state inbox` call, today's exact old query, kept
+#                       alive under its own name so *Waiting on you* still
+#                       shows them once the lanes turn project-wide.
 #                       NEVER WRITTEN EMPTY: an empty list reads as *this
 #                       repository has no projects* and changes nothing about
 #                       the query, so adoption omits the key instead.

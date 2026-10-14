@@ -334,6 +334,38 @@ describe('issueOpen through trackerJira', () => {
   });
 });
 
+describe('issueListInbox through trackerJira (D23)', () => {
+  it('answers unaskable and calls no host where no Ticket prefixes are declared', async () => {
+    const { context, argv } = hostThat('exit 0', 'echo "${3:-}"');
+    expect(await trackerJira(context).issueListInbox(50)).toEqual({
+      ok: false,
+      why: 'unaskable',
+      reason: "the Jira inbox read needs 'Ticket prefixes' declared; with none, the open read is already person-scoped",
+    });
+    expect(calls(argv)).toEqual([]);
+  });
+
+  it('answers failed and calls no issue-list where the config cannot be read', async () => {
+    const { context, argv } = hostThat('exit 0', "echo 'plot-config: no CLAUDE.md' >&2; exit 2");
+    const tracker = trackerJira(context);
+    expect(await tracker.issueListInbox(50)).toEqual({ ok: false, why: 'failed' });
+    expect(tracker.lastRefusal()).toBe('plot-config: no CLAUDE.md');
+    expect(calls(argv)).toEqual([]);
+  });
+
+  it('delegates to the host once Ticket prefixes is declared', async () => {
+    const { context, argv } = hostThat(
+      `if [ "$1" = issue-list ]; then echo '{"number":"PROJ-1","title":"mine","url":"u1"}'; fi`,
+      configWith(),
+    );
+    expect(await trackerJira(context).issueListInbox(50)).toEqual({
+      ok: true,
+      value: { issues: [expect.objectContaining({ id: 'PROJ-1', title: 'mine' })], pages: 1, complete: true },
+    });
+    expect(calls(argv).some((call) => call.includes('issue-list --state inbox'))).toBe(true);
+  });
+});
+
 describe('issueOpenOf', () => {
   it('says the issue may exist where the run ended at its time bound', () => {
     const refusals: (string | null)[] = [];

@@ -1,0 +1,1 @@
+../2026-10-14-the-discovery-tab-names-its-ticket.md

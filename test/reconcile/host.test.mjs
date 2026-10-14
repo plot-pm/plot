@@ -3237,19 +3237,17 @@ function runJiraIn(repo, args, stub, extraEnv = {}) {
   });
 }
 
-test('host: issue-list jira scopes the JQL by project when Ticket prefixes is set', () => {
+test('host: issue-list jira scopes the lanes by project and drops the person clause when Ticket prefixes is set', () => {
+  // D20: a declared `Ticket prefixes` means the lanes show every ticket of the
+  // declared projects, not just the reader's own — so the person clause drops
+  // once a project scope exists.
   const repo = makeTicketPrefixRepo('- **Ticket prefixes:** PROJ-A, PROJ-B\n');
   const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
   const res = runJiraIn(repo, ['issue-list'], stub);
   assert.equal(res.status, 0, res.stderr);
   const jql = jqlOf(stub);
-  assert.match(jql, /AND project IN \(PROJ-A, PROJ-B\)/, 'the declared projects scope the inbox');
-  // The person and state scopes SURVIVE — this narrows the inbox, never replaces it.
-  assert.match(jql, /assignee = currentUser\(\)/);
-  assert.match(jql, /resolution = EMPTY/);
-  // ORDER BY stays LAST: JQL requires it after every clause, so an `IN` appended
-  // to the end of the default string would be a syntax error Jira rejects.
-  assert.match(jql, /ORDER BY created DESC$/, 'ORDER BY closes the query');
+  assert.equal(jql, 'resolution = EMPTY AND project IN (PROJ-A, PROJ-B) ORDER BY created DESC');
+  assert.ok(!jql.includes('assignee = currentUser()'), 'the person clause drops once the lanes are project-wide');
 });
 
 test('host: issue-list jira sends TODAY\'S query byte-for-byte when the key is absent', () => {
@@ -3297,6 +3295,54 @@ test('host: issue-list jira reads a comma-separated Ticket prefixes with or with
   runJiraIn(makeTicketPrefixRepo('- **Ticket prefixes:** PROJ-A,PROJ-B\n'), ['issue-list'], tight);
   assert.equal(jqlOf(spaced), jqlOf(tight), 'whitespace around the commas is not part of the value');
   assert.match(jqlOf(tight), /IN \(PROJ-A, PROJ-B\)/);
+});
+
+test('host: issue-list jira with no Ticket prefixes runs no --state inbox read and no extra curl call', () => {
+  // ZERO BEHAVIOUR CHANGE for a repository that never set the key: the open
+  // read is the only call, and it is today's exact query.
+  const repo = makeTicketPrefixRepo(null);
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJiraIn(repo, ['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(jqlOf(stub), JQL_UNSCOPED);
+});
+
+test('host: issue-list jira --state inbox sends today\'s exact person-scoped query, unconditionally', () => {
+  // D23: the inbox read keeps sending the OLD query — the one every Jira lanes
+  // query used to be — no matter what `Ticket prefixes` says. Unlike the open
+  // and closed reads, this is the one read that stays person-scoped on purpose.
+  const repo = makeTicketPrefixRepo('- **Ticket prefixes:** PROJ-A, PROJ-B\n');
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJiraIn(repo, ['issue-list', '--state', 'inbox'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(jqlOf(stub), JQL_UNSCOPED);
+});
+
+test('host: issue-list jira --state inbox ignores Ticket prefixes even when absent', () => {
+  const repo = makeTicketPrefixRepo(null);
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJiraIn(repo, ['issue-list', '--state', 'inbox'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(jqlOf(stub), JQL_UNSCOPED, 'the inbox query is the same whether or not the key is set');
+});
+
+test('host: issue-list jira --state inbox is a single unpaged page of 50 by default', () => {
+  const repo = makeTicketPrefixRepo('- **Ticket prefixes:** PROJ-A\n');
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJiraIn(repo, ['issue-list', '--state', 'inbox'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  assert.ok(argv.includes('maxResults=50'));
+  assert.ok(!argv.some((l) => l.startsWith('nextPageToken=')), 'the inbox read asks for no page token');
+  assert.equal(res.stdout.trim().split('\n').some((l) => { try { return 'nextPageToken' in JSON.parse(l); } catch { return false; } }), false);
+});
+
+test('host: issue-list jira --state inbox lets PLOT_JIRA_JQL override it, same as the open read', () => {
+  const repo = makeTicketPrefixRepo('- **Ticket prefixes:** PROJ-A\n');
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJiraIn(repo, ['issue-list', '--state', 'inbox'], stub, { PLOT_JIRA_JQL: 'project = MINE ORDER BY created DESC' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(jqlOf(stub), 'project = MINE ORDER BY created DESC');
 });
 
 test('host: issue-view jira returns {number,title,body,url} with a plain-string body', () => {
@@ -6997,7 +7043,10 @@ test('host: issue-list jira --state closed scopes by prefix, reads resolutiondat
     { nextPageToken: 'tok-2' },
   ]);
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
-  assert.ok(argv.includes('jql=assignee = currentUser() AND resolved >= "2026-09-01 08:30" AND project IN (PROJ) ORDER BY resolved DESC'));
+  // D20: the closed read drops the person clause with the open read's, once a
+  // project scope exists — the lanes show every ticket of the declared
+  // projects, not just the reader's own.
+  assert.ok(argv.includes('jql=resolved >= "2026-09-01 08:30" AND project IN (PROJ) ORDER BY resolved DESC'));
   assert.ok(argv.includes('fields=summary,created,status,assignee,resolutiondate'));
   assert.ok(argv.includes('maxResults=100'));
   assert.ok(argv.includes('nextPageToken=tok-1'));
@@ -7013,7 +7062,7 @@ test('host: issue-list jira --state closed with a date-only --since sends the da
   assert.equal(res.status, 0, res.stderr);
   assert.deepEqual(res.stdout.trim().split('\n').map((l) => JSON.parse(l).number), ['PROJ-6']);
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
-  assert.ok(argv.includes('jql=assignee = currentUser() AND resolved >= "2026-09-01" AND project IN (PROJ) ORDER BY resolved DESC'), argv.join('\n'));
+  assert.ok(argv.includes('jql=resolved >= "2026-09-01" AND project IN (PROJ) ORDER BY resolved DESC'), argv.join('\n'));
 });
 
 test('host: issue-list jira open read is unchanged: no resolutiondate, no token line', () => {
