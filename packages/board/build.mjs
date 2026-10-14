@@ -556,6 +556,27 @@ await esbuild.build({
 fs.copyFileSync(landedArtifact, shippedLanded);
 fs.chmodSync(shippedLanded, 0o755);
 
+// Section 20a of plot-reconcile-scan.sh asks this bundle which merged PRs
+// carry no passing plot/review. It reaches the host through the Host port and
+// decides through reviewBypasses.
+const reviewBypassArtifact = path.join(here, 'dist/plot-review-bypass.mjs');
+const shippedReviewBypass = path.join(here, '../../skills/plot/scripts/board/plot-review-bypass.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/review-bypass.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: reviewBypassArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(reviewBypassArtifact, shippedReviewBypass);
+fs.chmodSync(shippedReviewBypass, 0o755);
+
 // THE DELTA, RENDERED WHERE THE RULE IS NOT. `pulseDelta` is a domain rule with
 // its own tests; this artifact parses two readings, calls it, and composes
 // sentences. Bundled for the same reason the ones above are: `plot-ask.mjs`
