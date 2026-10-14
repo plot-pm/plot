@@ -3,7 +3,6 @@ import {
   REVIEWER_DENY,
   REVIEWER_TOOLS,
   reviewerCommand,
-  reviewIssueUrl,
   reviewRequestBlock,
   reviewVerdict,
 } from '../src/rules/review-verdict.js';
@@ -52,26 +51,6 @@ describe('reviewVerdict', () => {
 
   it('refuses a count beyond the safe integer range', () => {
     expect(refused('Findings: HIGH 99999999999999999999, MEDIUM 0, LOW 0')).toMatch(/out of range/);
-  });
-});
-
-describe('reviewIssueUrl', () => {
-  it('composes a Jira key against the tracker address', () => {
-    expect(reviewIssueUrl('jira', 'https://j.example/', 'PROJ-12', 'https://github.com/o/r/pull/3')).toBe(
-      'https://j.example/browse/PROJ-12',
-    );
-  });
-
-  it('composes a GitHub issue from the PR URL', () => {
-    expect(reviewIssueUrl('github-issues', '', '41', 'https://github.com/o/r/pull/3')).toBe(
-      'https://github.com/o/r/issues/41',
-    );
-  });
-
-  it('answers null where nothing composes', () => {
-    expect(reviewIssueUrl('jira', '', 'PROJ-12', 'https://github.com/o/r/pull/3')).toBeNull();
-    expect(reviewIssueUrl('github-issues', '', 'abc', 'https://github.com/o/r/pull/3')).toBeNull();
-    expect(reviewIssueUrl('github-issues', '', '41', '')).toBeNull();
   });
 });
 

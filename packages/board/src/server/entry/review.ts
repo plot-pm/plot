@@ -8,12 +8,12 @@ import { processesShell } from '@plot-pm/domain/adapters/processes/processes-she
 import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-run-process';
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
+import { reviewIssueUrl } from '@plot-pm/domain/adapters/tracker/tracker-issue-url';
 import { trackerForIssues } from '@plot-pm/domain/adapters/tracker/tracker-resolve';
 import type { Host, Tracker, Trees } from '@plot-pm/domain';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import { charterPath, readCharter } from '@plot-pm/domain/entities/charter';
 import {
-  reviewIssueUrl,
   reviewerCommand,
   reviewRequestBlock,
   reviewVerdict,
