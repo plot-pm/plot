@@ -27,7 +27,8 @@ const EMPTY_STORE: DesignStore = {
 const held = (hold: HeldSlice['hold']): HeldSlice => ({ branch: 'b', hold, waitsOn: [], waitHeld: '', assignedTo: '' });
 
 const startInput = (over: Partial<SpecStartInput> = {}): SpecStartInput => ({
-  on: true,
+  autoDesign: true,
+  command: true,
   slug: 'ship-it',
   designCommit: 'abc1234',
   going: new Set(),
@@ -83,8 +84,18 @@ describe('specStart', () => {
     expect(specStart(startInput())).toEqual({ start: false, reason: 'ask-host' });
   });
 
-  it('names off when Auto-design or Design command is missing', () => {
-    expect(specStart(startInput({ on: false }))).toEqual({ start: false, reason: 'off' });
+  it('names off when Auto-design is off or Design command is missing', () => {
+    expect(specStart(startInput({ autoDesign: false }))).toEqual({ start: false, reason: 'off' });
+    expect(specStart(startInput({ command: false }))).toEqual({ start: false, reason: 'off' });
+  });
+
+  it('a restart mark with no Design command answers off', () => {
+    const store: DesignStore = { ...EMPTY_STORE, restart: { 'ship-it': 'abc1234' } };
+    expect(specStart(startInput({ command: false, store }))).toEqual({ start: false, reason: 'off' });
+    expect(specStart(startInput({ autoDesign: false, command: false, store }))).toEqual({
+      start: false,
+      reason: 'off',
+    });
   });
 
   it('names running while a spec run or a verify run is going, for this plan or another', () => {
@@ -155,7 +166,7 @@ describe('specStart', () => {
       declined: { 'ship-it': { commit: 'abc1234', pr: 7 } },
       restart: { 'ship-it': 'abc1234' },
     };
-    expect(specStart(startInput({ on: false, store: declinedStore }))).toEqual({ start: false, reason: 'ask-host' });
+    expect(specStart(startInput({ autoDesign: false, store: declinedStore }))).toEqual({ start: false, reason: 'ask-host' });
 
     const haltedStore: DesignStore = {
       ...EMPTY_STORE,
@@ -208,7 +219,7 @@ describe('specStart', () => {
       declined: { 'ship-it': { commit: 'abc1234', pr: 7 } },
       restart: { 'ship-it': 'def5678' },
     };
-    expect(specStart(startInput({ on: false, store }))).toEqual({ start: false, reason: 'off' });
+    expect(specStart(startInput({ autoDesign: false, store }))).toEqual({ start: false, reason: 'off' });
   });
 });
 

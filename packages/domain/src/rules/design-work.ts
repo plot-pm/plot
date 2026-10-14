@@ -97,8 +97,10 @@ export interface DesignStore extends RunStore {
 
 /** What `specStart` reads. */
 export interface SpecStartInput extends SlotRefusalInput {
-  /** Whether `Auto-design` is on and `Design command` is declared. */
-  readonly on: boolean;
+  /** Whether `Auto-design` is on. */
+  readonly autoDesign: boolean;
+  /** Whether `Design command` is declared. */
+  readonly command: boolean;
   /** The plan's slug. */
   readonly slug: string;
   /** The plan's current `Design:` commit. */
@@ -114,15 +116,16 @@ export interface SpecStartInput extends SlotRefusalInput {
 /**
  * Decides whether a spec run of one Design plan may start, and names the
  * reason when it may not, from local readings only. The first refusal that
- * holds is the answer, in this order: `off`, `running` (a spec run or a verify
+ * holds is the answer, in this order: `off` (no `Design command`, or
+ * `Auto-design` off), `running` (a spec run or a verify
  * run is going), `declined`, `halted`, `stopped`, `waiting`, `queue-unread`,
  * `no-free-agent`, `starved` (without `Machine override`). `ask-host` when
  * none of these applies — the host read belongs to `specDeclined`.
  *
  * A plan with a pending restart mark under the current `Design:` commit passes
- * `off`, `declined`, `halted`, `stopped` and `waiting` once; it does not pass
- * `running` or the three slot refusals, so the restarted run still waits for a
- * free slot.
+ * `Auto-design` off, `declined`, `halted`, `stopped` and `waiting` once; it does
+ * not pass a missing `Design command`, `running` or the three slot refusals, so
+ * the restarted run still needs a command and a free slot.
  *
  * @param input - the readings.
  * @returns the answer.
@@ -130,7 +133,8 @@ export interface SpecStartInput extends SlotRefusalInput {
 export const specStart = (input: SpecStartInput): SpecStartAnswer => {
   const refuse = (reason: SpecRefusal): SpecStartAnswer => ({ start: false, reason });
   const restarting = input.store.restart[input.slug] === input.designCommit;
-  if (!restarting && !input.on) return refuse('off');
+  if (!input.command) return refuse('off');
+  if (!restarting && !input.autoDesign) return refuse('off');
   if (input.going.size > 0) return refuse('running');
   const declined = input.store.declined[input.slug];
   if (!restarting && declined !== undefined && declined.commit === input.designCommit) return refuse('declined');
