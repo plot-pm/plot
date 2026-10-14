@@ -1,5 +1,5 @@
 import { declaresSpelling, resolvePerson, samePerson, type PersonDirectory } from '../entities/person.js';
-import type { IssueSource } from './issue-source.js';
+import type { HostIssueLister, IssueLister, IssueSource } from './issue-source.js';
 
 /**
  * Whose a row is, as far as the board can tell.
@@ -29,10 +29,28 @@ export interface Reader {
 }
 
 /**
- * The service a ticket's assignee is compared against: the `IssueSource` the
- * board resolved, narrowed to the word {@link ticketOwnership} matches on.
+ * How a ticket's assignees are written, and so how {@link ticketOwnership}
+ * matches them to the reader. An adapter supplies every value; the rule
+ * compares only `match` and `prefix`.
+ *
+ * - `host-login` — an assignee is a git-host login, matched as a PR author is.
+ * - `tracker-account` — an assignee is a tracker account, matched only through
+ *   a declared `People` spelling `<prefix><account>`.
+ *
+ * `service` is the adapter's word for the service, carried as data so two
+ * sources that match alike stay distinguishable to a caller.
  */
-export type TicketSource = 'github' | 'bitbucket' | 'jira';
+export type TicketSource =
+  | { readonly service: string; readonly match: 'host-login' }
+  | { readonly service: string; readonly match: 'tracker-account'; readonly prefix: string };
+
+/** Where {@link ticketSourceOf} reads how each issue source names its assignees. */
+export interface TicketSourceReading {
+  /** The declared trackers' listers, as the adapters declare them. */
+  readonly listers: readonly IssueLister[];
+  /** The git hosts whose own issue list names assignees, as the adapters declare them. */
+  readonly hosts: readonly HostIssueLister[];
+}
 
 /**
  * What a row carries that says whose it is.
@@ -100,30 +118,22 @@ const planOwnership = (assignee: string | undefined, reader: Reader): Ownership 
 };
 
 /**
- * The tracker prefix a `jira:` spelling declares, lowercased.
+ * Whose a ticket's assignee is, where the source writes tracker accounts:
+ * never compared to the reader's host login directly, only through a declared
+ * `<prefix><account>` spelling.
  *
- * `jira` is the only tracker scheme {@link ticketOwnership} resolves through a
- * declared spelling today — a `git-host` ticket's assignee is a host login,
- * compared directly as {@link prOwnership} does.
- */
-const JIRA_PREFIX = 'jira:';
-
-/**
- * Whose a ticket's assignee is, where the source is `jira`: never compared to
- * the reader's host login directly, only through a declared `jira:` spelling.
- *
- * `mine` where a `jira:` spelling of the reader's handle names any assignee.
- * `theirs` where a `jira:` spelling of another handle names one. `unknown`
- * where no handle's `jira:` spelling names any assignee — including where the
+ * `mine` where a prefixed spelling of the reader's handle names any assignee.
+ * `theirs` where a prefixed spelling of another handle names one. `unknown`
+ * where no handle's prefixed spelling names any assignee — including where the
  * directory declares none at all.
  */
-const jiraTicketOwnership = (assignees: string[], reader: Reader): Ownership => {
+const accountTicketOwnership = (assignees: string[], prefix: string, reader: Reader): Ownership => {
   const login = comparableLogin(reader);
   if (login === '') return 'unknown';
   const directory = reader.directory ?? {};
   const self = resolvePerson(login, directory);
   for (const assignee of assignees) {
-    const spelling = `${JIRA_PREFIX}${assignee.trim()}`;
+    const spelling = `${prefix}${assignee.trim()}`;
     if (!declaresSpelling(spelling, directory)) continue;
     if (samePerson(resolvePerson(spelling, directory), self)) return 'mine';
     return 'theirs';
@@ -134,11 +144,11 @@ const jiraTicketOwnership = (assignees: string[], reader: Reader): Ownership => 
 /**
  * Whose a ticket is, by its assignees against the reader's host login.
  *
- * A `github`/`bitbucket` assignee is a host login, matched as {@link
- * prOwnership} matches a PR author: an exact match counts even with no
- * declared spelling. A `jira` assignee only resolves through a declared
- * `jira:` spelling, as {@link jiraTicketOwnership}. A `null` source, or an
- * empty assignee list, is `unknown` — unassigned is not `theirs`.
+ * A `host-login` assignee is matched as {@link prOwnership} matches a PR
+ * author: an exact match counts even with no declared spelling. A
+ * `tracker-account` assignee only resolves through a declared spelling with
+ * the source's prefix, as {@link accountTicketOwnership}. A `null` source, or
+ * an empty assignee list, is `unknown` — unassigned is not `theirs`.
  *
  * Every assignee is checked; any match is `mine`.
  */
@@ -147,7 +157,7 @@ const ticketOwnership = (
 ): Ownership => {
   const list = assignees ?? [];
   if (list.length === 0 || source === null || source === undefined) return 'unknown';
-  if (source === 'jira') return jiraTicketOwnership(list, reader);
+  if (source.match === 'tracker-account') return accountTicketOwnership(list, source.prefix, reader);
   const login = comparableLogin(reader);
   if (login === '') return 'unknown';
   const directory = reader.directory ?? {};
@@ -163,30 +173,29 @@ const ticketOwnership = (
 };
 
 /**
- * Maps a resolved `IssueSource` and git-host backend to the vocabulary a
- * ticket's assignees are written in.
+ * Maps a resolved `IssueSource` and git-host backend to how a ticket's
+ * assignees are written.
  *
- * A declared tracker names its own scheme: `jira` reads as `jira`,
- * `github-issues` as `github`. A repository with no declared tracker asks its
- * git host, so its assignees are host logins — `github` and `bitbucket`
- * resolve, and a backend this board has not resolved, or any other backend,
- * answers `null`.
+ * A declared tracker answers its lister's `assignees`. A repository with no
+ * declared tracker asks its git host, so it answers the host lister whose
+ * `backend` equals the resolved backend. A scheme or backend no lister
+ * describes, an unresolved backend, and `nobody` answer `null`.
  *
- * @param source - who answers the open-issue list, from {@link issueSource}.
+ * @param source - who answers the open-issue list, from `issueSource`.
  * @param backend - the git host's resolved backend word; ignored for `tracker`.
- * @returns the source a ticket's assignees are compared against, or `null`
+ * @param reading - the listers the adapters declare, with how each names its
+ *   assignees.
+ * @returns how a ticket's assignees are compared to the reader, or `null`
  *   where it cannot be determined.
  */
-export const ticketSourceOf = (source: IssueSource, backend: string): TicketSource | null => {
+export const ticketSourceOf = (
+  source: IssueSource, backend: string, reading: TicketSourceReading,
+): TicketSource | null => {
   if (source.ask === 'tracker') {
-    if (source.scheme === 'jira') return 'jira';
-    if (source.scheme === 'github-issues') return 'github';
-    return null;
+    return reading.listers.find((l) => l.scheme === source.scheme)?.assignees ?? null;
   }
   if (source.ask === 'git-host') {
-    if (backend === 'github') return 'github';
-    if (backend === 'bitbucket') return 'bitbucket';
-    return null;
+    return reading.hosts.find((h) => h.backend === backend)?.assignees ?? null;
   }
   return null;
 };

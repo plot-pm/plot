@@ -37,6 +37,8 @@ export { trackerGithub } from './tracker/tracker-github.js';
 export { trackerJira } from './tracker/tracker-jira.js';
 export { trackerNone } from './tracker/tracker-none.js';
 export {
+  HOST_ISSUE_LISTERS,
+  TICKET_SOURCES,
   TRACKER_LISTERS,
   trackerFor,
   trackerShell,

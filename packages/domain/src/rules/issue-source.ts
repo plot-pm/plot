@@ -1,9 +1,21 @@
+import type { TicketSource } from './ownership.js';
+
 /** A tracker scheme some connector can list open issues from. */
 export interface IssueLister {
   /** The scheme, lowercased, as the `Tracker` key's first word names it. */
   readonly scheme: string;
   /** The one git host this scheme lists from, where it lists from only one. */
   readonly onlyOnHost?: string;
+  /** How this scheme's issues name their assignees; absent where they cannot be matched to a reader. */
+  readonly assignees?: TicketSource;
+}
+
+/** A git host whose own issue list names assignees, and how it names them. */
+export interface HostIssueLister {
+  /** The git host's backend word, as `plot-host.sh backend` reports it. */
+  readonly backend: string;
+  /** How this host's issues name their assignees. */
+  readonly assignees: TicketSource;
 }
 
 /** What a repository says about where its issues live, and what can list them. */

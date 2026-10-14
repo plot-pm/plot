@@ -13,7 +13,7 @@ import { TRACKER_LISTERS } from './tracker-listers.js';
 
 // RE-EXPORTED FROM ITS OWN MODULE, so every importer of this file is unchanged
 // while a shell entry can import the list without the connectors below it.
-export { TRACKER_LISTERS } from './tracker-listers.js';
+export { HOST_ISSUE_LISTERS, TICKET_SOURCES, TRACKER_LISTERS } from './tracker-listers.js';
 
 /** Where a repository declares which tracker it uses. */
 const TRACKER_KEY = 'Tracker';
