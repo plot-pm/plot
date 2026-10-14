@@ -23,7 +23,7 @@ import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import type { Refs, CommitSubject } from '@plot-pm/domain/ports/refs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
-import type { Host } from '@plot-pm/domain/ports/host';
+import type { Host, PrLookup } from '@plot-pm/domain/ports/host';
 import type { BoardRunRecord } from '@plot-pm/domain/rules/board-run-end';
 import { readConfig } from './config-reader.js';
 import { usableCommand } from './usable-command.js';
@@ -135,8 +135,12 @@ export const readDesignCandidates = (opts: ActOptions, pulse: FleetReading): Pro
 export interface DesignPassWorld {
   readonly candidates: (opts: ActOptions, pulse: FleetReading) => Promise<DesignCandidates>;
   readonly alive: (pid: number) => boolean;
-  readonly refs: (opts: ActOptions) => Pick<Refs, 'defaultBranch' | 'remoteHead' | 'commitSubjects' | 'remoteSha'>;
-  readonly trees: (opts: ActOptions) => Pick<Trees, 'addBranch' | 'commit' | 'push' | 'deleteRemoteBranch'>;
+  readonly refs: (
+    opts: ActOptions,
+  ) => Pick<Refs, 'defaultBranch' | 'remoteHead' | 'commitSubjects' | 'fetchRemoteHead' | 'resolve' | 'showFile'>;
+  readonly trees: (
+    opts: ActOptions,
+  ) => Pick<Trees, 'addBranch' | 'commit' | 'push' | 'deleteRemoteBranch' | 'removeWithBranch'>;
   readonly host: (opts: ActOptions) => Pick<Host, 'prState' | 'prCreate' | 'prMerged'>;
 }
 
@@ -158,6 +162,8 @@ export interface DesignRun {
   readonly commit: string;
   /** Epoch milliseconds of the start. */
   readonly startedAt: number;
+  /** The plan's repository-relative path, read on the spec branch when the run settles. */
+  readonly planFile?: string;
   /** The exit code, once the run ended in this fleet process. */
   readonly code?: number;
   /** Epoch milliseconds of the end, once the run ended in this fleet process. */
@@ -250,12 +256,19 @@ export const specRunningCount = (
  *
  * A mark is written at `.plot/state/design/restart/<slug>.<epoch-ms>.json`,
  * temp-file-then-rename by its writer; this reads every file in that
- * directory, folds `commit` into `restart[slug]` and, where present,
- * `answeredPr` into `answeredPr[slug]`, then removes the files it read.
+ * directory and folds each mark by its `kind`:
+ *
+ * - `pr-opened`: a success — `lastSuccessAt` moves to `now`; nothing restarts.
+ * - `start` (also a mark with no `kind`): `commit` into `restart[slug]`,
+ *   `answeredPr` into `answeredPr[slug]` where present, and the plan's
+ *   `failures` and `declined` records cleared.
+ *
+ * It then removes the files it read.
  *
  * @param repoRoot - the repository the fleet serves.
+ * @param now - epoch milliseconds, the time a `pr-opened` success is recorded at.
  */
-const foldRestartMarks = (repoRoot: string): void => {
+const foldRestartMarks = (repoRoot: string, now: number): void => {
   const dir = path.join(repoRoot, '.plot', 'state', 'design', 'restart');
   let entries: string[];
   try {
@@ -263,15 +276,16 @@ const foldRestartMarks = (repoRoot: string): void => {
   } catch {
     return;
   }
-  const marks: { slug: string; commit: string; answeredPr?: number; file: string }[] = [];
+  const marks: { slug: string; kind: 'start' | 'pr-opened'; commit: string; answeredPr?: number; file: string }[] = [];
   for (const entry of entries) {
     const file = path.join(dir, entry);
     const slug = entry.split('.')[0];
     if (slug === undefined || slug === '') continue;
     try {
-      const mark = JSON.parse(fs.readFileSync(file, 'utf8')) as { commit?: string; answeredPr?: number };
+      const mark = JSON.parse(fs.readFileSync(file, 'utf8')) as { kind?: string; commit?: string; answeredPr?: number };
       if (typeof mark.commit !== 'string') continue;
-      marks.push({ slug, commit: mark.commit, answeredPr: mark.answeredPr, file });
+      const kind = mark.kind === 'pr-opened' ? 'pr-opened' : 'start';
+      marks.push({ slug, kind, commit: mark.commit, answeredPr: mark.answeredPr, file });
     } catch {
       continue;
     }
@@ -280,11 +294,20 @@ const foldRestartMarks = (repoRoot: string): void => {
   updateDesignState(repoRoot, (current) => {
     const restart = { ...current.restart };
     const answeredPr = { ...current.answeredPr };
+    const failures = { ...current.failures };
+    const declined = { ...current.declined };
+    let lastSuccessAt = current.lastSuccessAt;
     for (const mark of marks) {
+      if (mark.kind === 'pr-opened') {
+        lastSuccessAt = now;
+        continue;
+      }
       restart[mark.slug] = mark.commit;
       if (mark.answeredPr !== undefined) answeredPr[mark.slug] = mark.answeredPr;
+      delete failures[mark.slug];
+      delete declined[mark.slug];
     }
-    return { ...current, restart, answeredPr };
+    return { ...current, restart, answeredPr, failures, declined, lastSuccessAt };
   });
   for (const mark of marks) fs.rmSync(mark.file, { force: true });
 };
@@ -298,30 +321,107 @@ const foldRestartMarks = (repoRoot: string): void => {
  * @param refs - the refs port.
  * @param defaultBranchName - the default branch's own name, unprefixed.
  * @param branch - the spec branch to ask about.
- * @returns the claim answer.
+ * @returns the claim answer, and the commits ahead of the default branch
+ *   (empty where they were not read).
  */
 const specRefOf = async (
   refs: Pick<Refs, 'remoteHead' | 'commitSubjects'>,
   defaultBranchName: string,
   branch: string,
-): Promise<ClaimAnswer> => {
+): Promise<{ claim: ClaimAnswer; commits: readonly CommitSubject[] }> => {
   const ref = await refs.remoteHead(branch);
   const commits: PortResult<readonly CommitSubject[]> =
     ref.ok && ref.value === 'present'
       ? await refs.commitSubjects(`origin/${defaultBranchName}..origin/${branch}`)
       : { ok: false, why: 'unaskable' };
-  return claimTip(ref.ok ? ref.value : 'unknown', commits);
+  return { claim: claimTip(ref.ok ? ref.value : 'unknown', commits), commits: commits.ok ? commits.value : [] };
+};
+
+/** Why a settled spec run failed, by the settlement table's arms. */
+export type SpecFailure = 'pr-not-opened' | 'spec-empty' | 'no-commit' | 'no-branch';
+
+/** How one ended run settles. */
+export type DesignSettlement =
+  | { readonly outcome: 'unsettled' }
+  | { readonly outcome: 'success' }
+  | {
+      readonly outcome: 'failure';
+      readonly reason: SpecFailure;
+      /** The tip the arm judged, where the arm deletes the ref; absent where it keeps it. */
+      readonly deleteTip?: string;
+    };
+
+/**
+ * Settles one ended spec run from the spec branch on origin, never from the
+ * default branch: fetches `idea/<slug>-spec`, reads its tip once, and judges
+ * the claim, the plan's `## Spec` section and the PR at that tip.
+ *
+ * | ref | also read | outcome |
+ * |---|---|---|
+ * | `work` | spec written; `prState` finds an open or merged PR | success |
+ * | `work` | spec written; no open PR; `prCreate` answers | success |
+ * | `work` | spec written; `prState` or `prCreate` fails | failure `pr-not-opened`, ref kept |
+ * | `work` | spec empty; `prMerged` reads `not-merged` | failure `spec-empty`, ref deleted |
+ * | `work` | spec empty; `prMerged` reads otherwise | failure `spec-empty`, ref kept |
+ * | `claim-only` | — | failure `no-commit`, ref deleted |
+ * | `absent` | — | failure `no-branch` |
+ * | `unknown`, or the tip, commits or plan unreadable | — | unsettled |
+ *
+ * @param refs - the refs port; `fetchRemoteHead` fetches the branch.
+ * @param host - the host port.
+ * @param defaultBranchName - the default branch's own name, unprefixed.
+ * @param slug - the plan's slug.
+ * @param planFile - the plan's repository-relative path, or `''` where unknown.
+ * @returns the settlement; a `deleteTip` is the sha every read above was taken at.
+ */
+export const settleDesignRun = async (
+  refs: Pick<Refs, 'fetchRemoteHead' | 'resolve' | 'commitSubjects' | 'showFile'>,
+  host: Pick<Host, 'prState' | 'prCreate' | 'prMerged'>,
+  defaultBranchName: string,
+  slug: string,
+  planFile: string,
+): Promise<DesignSettlement> => {
+  const unsettled: DesignSettlement = { outcome: 'unsettled' };
+  const branch = designBranch(slug);
+  const fetched = await refs.fetchRemoteHead(branch);
+  if (!fetched.ok || fetched.value === 'unknown') return unsettled;
+  if (fetched.value === 'absent') return { outcome: 'failure', reason: 'no-branch' };
+  if (defaultBranchName === '') return unsettled;
+  const tip = await refs.resolve(`origin/${branch}`);
+  if (!tip.ok || tip.value === '') return unsettled;
+  const claim = claimTip('present', await refs.commitSubjects(`origin/${defaultBranchName}..${tip.value}`));
+  if (claim === 'unknown' || claim === 'absent') return unsettled;
+  if (claim === 'claim-only') return { outcome: 'failure', reason: 'no-commit', deleteTip: tip.value };
+  if (planFile === '') return unsettled;
+  const text = await refs.showFile(tip.value, planFile);
+  if (!text.ok) return unsettled;
+  if (specIsEmpty(text.value)) {
+    const merged = await host.prMerged(branch);
+    return merged.ok && merged.value === 'not-merged'
+      ? { outcome: 'failure', reason: 'spec-empty', deleteTip: tip.value }
+      : { outcome: 'failure', reason: 'spec-empty' };
+  }
+  const pr = await host.prState(branch);
+  if (!pr.ok) return { outcome: 'failure', reason: 'pr-not-opened' };
+  if (pr.value !== null && pr.value.state !== 'CLOSED') return { outcome: 'success' };
+  const created = await host.prCreate({
+    head: branch,
+    title: `${slug}: spec`,
+    body: `Spec for ${slug}, written by the fleet.`,
+    draft: true,
+  });
+  return created.ok ? { outcome: 'success' } : { outcome: 'failure', reason: 'pr-not-opened' };
 };
 
 const defaultWorld: DesignPassWorld = {
   candidates: readDesignCandidates,
   alive: pidAlive,
-  // `refsGit` answers `remoteSha` as `unaskable`; `refsRemoteGit` reads it over
-  // `git ls-remote`, as `worker-loop.ts` and `registryd-main.ts` compose it —
-  // the real tip is what `deleteRemoteBranch`'s force-with-lease pins against.
+  // `refsGit` answers `fetchRemoteHead` as `unaskable`; `refsRemoteGit` fetches
+  // the branch, as `worker-loop.ts` and `registryd-main.ts` compose it — so a
+  // settlement reads the tip origin holds now.
   refs: (opts) => ({
     ...refsGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
-    remoteSha: refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }).remoteSha,
+    fetchRemoteHead: refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }).fetchRemoteHead,
   }),
   trees: (opts) => treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
   host: (opts) => hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
@@ -335,13 +435,22 @@ const designCommitOf = (text: string): string => /^Design:\s*(\S+)/m.exec(text)?
 
 /**
  * One spec pass: fold restart marks, settle the runs this fleet started that
- * ended — opening the PR itself on a written spec, deleting the branch on an
- * empty one — then start at most one run that `specStart` allows.
+ * ended through {@link settleDesignRun}, read an orphaned `work` spec ref, then
+ * start at most one run that `specStart` allows.
  *
- * `specStart` refuses from local readings only; only a plan it leaves at
- * `ask-host` costs one `prState` call, through `specDeclined`. With
- * `Auto-design` off or no `Design command`, every candidate refuses `off` and
- * the pass asks the host nothing.
+ * Every host read about an unsettled plan comes after `specStart`'s local
+ * refusals: only a plan it leaves at `ask-host` reads `prState`, at most once
+ * per pass. That one reading answers `specDeclined`, and, for a `work` ref
+ * with no run record on this machine whose oldest commit is older than
+ * `Worker bound` and whose tip has no orphan reading yet, `orphans[slug]`.
+ * With `Auto-design` off and no restart mark, or no `Design command`, every
+ * plan refuses `off` and the pass asks the host nothing except to settle the
+ * runs this fleet started.
+ *
+ * A start drops the plan's restart mark in the same state write that records
+ * the run, so one restart starts one run. A settled run's worktree and local
+ * branch are removed; a deletion of the remote ref is pinned to the tip the
+ * settlement judged.
  *
  * @param opts - where the fleet acts.
  * @param pulse - the pulse the scan just wrote.
@@ -359,7 +468,7 @@ export const runAutoDesignPass = async (
 ): Promise<string[]> => {
   const command = usableCommand(readConfig(opts, DESIGN_COMMAND_KEY, ''));
   const autoDesign = readConfig(opts, AUTO_DESIGN_KEY, '') === 'true';
-  foldRestartMarks(opts.repoRoot);
+  foldRestartMarks(opts.repoRoot, now);
 
   const before = readDesignState(opts.repoRoot);
   if (before === null) {
@@ -374,10 +483,10 @@ export const runAutoDesignPass = async (
   const trees = world.trees(opts);
   const main = await refs.defaultBranch();
   const defaultBranchName = main.ok ? main.value : '';
+  const boundMs = boundSecondsOf(opts) * 1000;
 
-  const ended: string[] = [];
-  const toDeletePlans: string[] = [];
-  const pick: { slug: string | null; planFile: string } = { slug: null, planFile: '' };
+  const settled: { slug: string; deleteTip?: string }[] = [];
+  const pick: { slug: string | null; planFile: string; start: string } = { slug: null, planFile: '', start: '' };
 
   const written = await (async () => {
     const current = readDesignState(opts.repoRoot);
@@ -385,7 +494,7 @@ export const runAutoDesignPass = async (
 
     const going = new Set<string>();
     const stillRunning: Record<string, DesignRun> = {};
-    const endedRuns: { slug: string; commit: string }[] = [];
+    const endedRuns: { slug: string; run: DesignRun }[] = [];
     for (const [slug, run] of Object.entries(current.running)) {
       if (designRunGoing(run, world.alive, now)) {
         going.add(slug);
@@ -393,7 +502,7 @@ export const runAutoDesignPass = async (
       } else if (candidates.unread.has(slug)) {
         stillRunning[slug] = run;
       } else {
-        endedRuns.push({ slug, commit: run.commit });
+        endedRuns.push({ slug, run });
       }
     }
 
@@ -402,6 +511,7 @@ export const runAutoDesignPass = async (
     let lastSuccessAt = current.lastSuccessAt;
     const declined = { ...current.declined };
     const answeredPr = { ...current.answeredPr };
+    const restart = { ...current.restart };
     const orphans = { ...current.orphans };
     const refusals: Record<string, SpecRefusal | 'ask-host'> = {};
 
@@ -420,54 +530,41 @@ export const runAutoDesignPass = async (
       lastSuccessAt = now;
     };
 
-    for (const { slug, commit } of endedRuns) {
-      const plan = candidates.plans.get(slug);
-      const branch = designBranch(slug);
-      if (plan === undefined || specIsEmpty(plan.text)) {
-        const merged = await host.prMerged(branch);
-        if (merged.ok && merged.value === 'not-merged') toDeletePlans.push(slug);
-        recordFailure(slug, commit);
+    for (const { slug, run } of endedRuns) {
+      const planFile = candidates.plans.get(slug)?.planFile ?? run.planFile ?? '';
+      const settlement = await settleDesignRun(refs, host, defaultBranchName, slug, planFile);
+      if (settlement.outcome === 'unsettled') {
+        stillRunning[slug] = run;
         continue;
       }
-      const prState = await host.prState(branch);
-      if (!prState.ok) {
-        recordFailure(slug, commit);
-        continue;
-      }
-      if (prState.value !== null) {
-        recordSuccess();
-        continue;
-      }
-      const created = await host.prCreate({
-        head: branch,
-        title: `${slug}: spec`,
-        body: `Spec for ${slug}, written by the fleet.`,
-        draft: true,
-      });
-      if (created.ok) recordSuccess();
-      else recordFailure(slug, commit);
+      settled.push({ slug, deleteTip: settlement.outcome === 'failure' ? settlement.deleteTip : undefined });
+      if (settlement.outcome === 'success') recordSuccess();
+      else recordFailure(slug, run.commit);
     }
-    ended.push(...endedRuns.map((r) => r.slug));
-    const ours = new Set([...Object.keys(stillRunning), ...ended]);
+    const ours = new Set([...Object.keys(stillRunning), ...settled.map((s) => s.slug)]);
+    for (const slug of Object.keys(orphans)) {
+      if (ours.has(slug) || (!candidates.plans.has(slug) && !candidates.unread.has(slug))) delete orphans[slug];
+    }
+
+    const prReadings = new Map<string, PortResult<PrLookup>>();
+    const prOf = async (branch: string): Promise<PortResult<PrLookup>> => {
+      const known = prReadings.get(branch);
+      if (known !== undefined) return known;
+      const read = await host.prState(branch);
+      prReadings.set(branch, read);
+      return read;
+    };
 
     for (const plan of candidates.plans.values()) {
-      if (ours.has(plan.slug)) continue;
+      if (ours.has(plan.slug) || defaultBranchName === '') continue;
       const branch = designBranch(plan.slug);
       const specRef = await specRefOf(refs, defaultBranchName, branch);
+      if (specRef.claim === 'absent' || specRef.claim === 'claim-only') delete orphans[plan.slug];
 
       const designCommit = designCommitOf(plan.text);
-      if (specRef === 'work') {
-        const prState = await host.prState(branch);
-        if (prState.ok) {
-          orphans[plan.slug] = { tip: designCommit, hasPr: prState.value !== null && prState.value.state === 'OPEN' };
-        }
-      }
-
       const prRetry = failures[plan.slug]?.reading === designCommit;
-      const answer = designWork({ state: plan.state, text: plan.text, specRef, prRetry });
-      if (answer === 'none') continue;
-
-      const store: DesignStore = { failures, failedAt, lastSuccessAt, declined, answeredPr, restart: current.restart, orphans };
+      const answer = designWork({ state: plan.state, text: plan.text, specRef: specRef.claim, prRetry });
+      const store: DesignStore = { failures, failedAt, lastSuccessAt, declined, answeredPr, restart, orphans };
       const startAnswer = specStart({
         autoDesign,
         command: command !== '',
@@ -481,11 +578,25 @@ export const runAutoDesignPass = async (
         now,
       });
       if (startAnswer.start) continue; // unreachable per specStart's own contract; kept so the branch is exhaustive
+      const askHost = startAnswer.reason === 'ask-host';
+
+      if (specRef.claim === 'work' && askHost && specRef.commits.length > 0) {
+        const claimAt = Math.min(...specRef.commits.map((c) => c.at));
+        if (now - claimAt > boundMs) {
+          const tip = await refs.resolve(`origin/${branch}`);
+          if (tip.ok && orphans[plan.slug]?.tip !== tip.value) {
+            const pr = await prOf(branch);
+            if (pr.ok) orphans[plan.slug] = { tip: tip.value, hasPr: pr.value !== null };
+          }
+        }
+      }
+
+      if (answer === 'none') continue;
       if (startAnswer.reason !== 'ask-host') {
         refusals[plan.slug] = startAnswer.reason;
         continue;
       }
-      const pr = await host.prState(branch);
+      const pr = await prOf(branch);
       const declinedAnswer = specDeclined(pr.ok ? pr.value : 'unknown', answeredPr[plan.slug] ?? 0);
       if (declinedAnswer === 'host-unknown') {
         refusals[plan.slug] = 'ask-host';
@@ -497,12 +608,14 @@ export const runAutoDesignPass = async (
       } else if (pick.slug === null) {
         pick.slug = plan.slug;
         pick.planFile = plan.planFile;
+        pick.start = answer === 'open-pr' ? `origin/${branch}` : `origin/${defaultBranchName}`;
         going.add(plan.slug);
-        stillRunning[plan.slug] = { pid: 0, commit: designCommit, startedAt: now };
+        stillRunning[plan.slug] = { pid: 0, commit: designCommit, startedAt: now, planFile: plan.planFile };
+        delete restart[plan.slug];
       }
     }
 
-    const finalStore: DesignStore = { failures, failedAt, lastSuccessAt, declined, answeredPr, restart: current.restart, orphans };
+    const finalStore: DesignStore = { failures, failedAt, lastSuccessAt, declined, answeredPr, restart, orphans };
     const rows = [...candidates.plans.values()].flatMap((plan) => {
       const row = specRow(
         plan.slug,
@@ -523,24 +636,32 @@ export const runAutoDesignPass = async (
     return [];
   }
   updateDesignState(opts.repoRoot, () => written);
-  for (const slug of toDeletePlans) {
+  for (const { slug, deleteTip } of settled) {
     const branch = designBranch(slug);
-    const tip = await refs.remoteSha(branch);
-    await trees.deleteRemoteBranch(branch, tip.ok && tip.value !== 'unknown' ? tip.value.sha : '');
+    await trees.removeWithBranch(designRunDir(opts.repoRoot, slug), branch);
+    if (deleteTip !== undefined) await trees.deleteRemoteBranch(branch, deleteTip);
   }
   if (pick.slug === null) return [];
-  await startDesignRun(opts, pick.slug, pick.planFile, world);
+  await startDesignRun(opts, pick.slug, pick.planFile, pick.start, world);
   return [pick.slug];
 };
 
 /**
- * Starts the run of one plan, in its own worktree checked out on the spec
- * branch, and records its pid and its end in the state.
+ * Starts the run of one plan, in its own worktree on the spec branch created
+ * from `start`, and records its pid and its end in the state.
+ *
+ * @param opts - where the fleet acts.
+ * @param slug - the plan's slug.
+ * @param planFile - the plan's repository-relative path.
+ * @param start - the revision the spec branch starts from: `origin/<main>`
+ *   for a new spec, `origin/idea/<slug>-spec` for an `open-pr` retry.
+ * @param world - the ports.
  */
 const startDesignRun = async (
   opts: ActOptions,
   slug: string,
   planFile: string,
+  start: string,
   world: DesignPassWorld,
 ): Promise<void> => {
   const patch = (fields: Partial<DesignRun>): void => {
@@ -552,7 +673,7 @@ const startDesignRun = async (
   const branch = designBranch(slug);
   const dir = designRunDir(opts.repoRoot, slug);
   const trees = world.trees(opts);
-  const added = await trees.addBranch(dir, branch, `origin/${branch}`);
+  const added = await trees.addBranch(dir, branch, start);
   if (!added.ok) {
     console.error(`auto-design: ${slug} could not create its worktree`);
     return;

@@ -43,61 +43,96 @@ const candidate: DesignCandidate = { slug: 'alpha', state: 'design', text: SPEC_
 interface WorldOptions {
   alive?: (pid: number) => boolean;
   unread?: Record<string, string>;
+  /** What origin holds for `idea/alpha-spec`, both at the scan and after a settlement's fetch. */
   specRef?: 'absent' | 'claim-only' | 'work' | 'unknown';
+  /** The plan's text on the spec branch, at `tip`. */
+  branchText?: string;
+  /** The spec branch's tip sha. */
+  tip?: string;
+  /** The committer time of the spec branch's one work commit, epoch milliseconds. */
+  workAt?: number;
   prState?: { state: 'OPEN' | 'MERGED' | 'CLOSED'; number: number } | null | 'fail';
   prMerged?: 'merged' | 'not-merged' | 'fail';
   prCreateOk?: boolean;
   prCreateCalls?: { head: string; title: string; body: string; draft?: boolean }[];
   deleteRemoteCalls?: { branch: string; expectedTip: string }[];
-  remoteSha?: string;
+  addBranchCalls?: { dir: string; branch: string; start: string }[];
+  removeCalls?: { dir: string; branch: string }[];
+  /** Counts every host call by operation. */
+  hostCalls?: string[];
 }
 
-const world = (candidates: DesignCandidate[], options: WorldOptions = {}): DesignPassWorld => ({
-  candidates: async () => ({
-    plans: new Map(candidates.map((c) => [c.slug, c])),
-    unread: new Map(Object.entries(options.unread ?? {})),
-  }),
-  alive: options.alive ?? ((pid: number) => pid === process.pid),
-  refs: () => ({
-    defaultBranch: async () => ({ ok: true, value: 'main' }),
-    remoteHead: async () => ({
-      ok: true,
-      value: options.specRef === 'absent' || options.specRef === undefined ? 'absent' : options.specRef === 'unknown' ? 'unknown' : 'present',
+const world = (candidates: DesignCandidate[], options: WorldOptions = {}): DesignPassWorld => {
+  const specRef = options.specRef ?? 'absent';
+  const tip = options.tip ?? 'tip0000';
+  const present = specRef === 'claim-only' || specRef === 'work';
+  return {
+    candidates: async () => ({
+      plans: new Map(candidates.map((c) => [c.slug, c])),
+      unread: new Map(Object.entries(options.unread ?? {})),
     }),
-    commitSubjects: async () =>
-      options.specRef === 'work'
-        ? { ok: true, value: [{ at: 1, subject: 'real work', tree: 't1', parentTree: 't0' }] }
-        : { ok: true, value: [] },
-    remoteSha: async () => ({ ok: true, value: options.remoteSha !== undefined ? { sha: options.remoteSha } : 'unknown' }),
-  }),
-  trees: () => ({
-    addBranch: async (dir) => {
-      fs.mkdirSync(dir, { recursive: true });
-      return { ok: true, value: undefined };
-    },
-    commit: async () => ({ ok: true, value: undefined }),
-    push: async () => ({ ok: true, value: undefined }),
-    deleteRemoteBranch: async (branch, expectedTip) => {
-      options.deleteRemoteCalls?.push({ branch, expectedTip });
-      return { ok: true, value: undefined };
-    },
-  }),
-  host: () => ({
-    prState: async () => {
-      if (options.prState === 'fail') return { ok: false, why: 'unaskable' };
-      if (options.prState === undefined) return { ok: true, value: null };
-      return { ok: true, value: options.prState };
-    },
-    prCreate: async (request) => {
-      options.prCreateCalls?.push(request);
-      return options.prCreateOk === false ? { ok: false, why: 'unaskable' } : { ok: true, value: '' };
-    },
-    prMerged: async () => {
-      if (options.prMerged === 'fail' || options.prMerged === undefined) return { ok: false, why: 'unaskable' };
-      return { ok: true, value: options.prMerged };
-    },
-  }),
-});
+    alive: options.alive ?? ((pid: number) => pid === process.pid),
+    refs: () => ({
+      defaultBranch: async () => ({ ok: true, value: 'main' }),
+      remoteHead: async () => ({
+        ok: true,
+        value: specRef === 'unknown' ? 'unknown' : present ? 'present' : 'absent',
+      }),
+      fetchRemoteHead: async () => ({
+        ok: true,
+        value: specRef === 'unknown' ? 'unknown' : present ? 'present' : 'absent',
+      }),
+      resolve: async (ref) =>
+        ref === `origin/${designBranch('alpha')}` && present ? { ok: true, value: tip } : { ok: false, why: 'missing' },
+      commitSubjects: async () =>
+        specRef === 'work'
+          ? { ok: true, value: [{ at: options.workAt ?? 1, subject: 'real work', tree: 't1', parentTree: 't0' }] }
+          : { ok: true, value: [] },
+      showFile: async (ref) =>
+        ref === tip && options.branchText !== undefined ? { ok: true, value: options.branchText } : { ok: false, why: 'missing' },
+    }),
+    trees: () => ({
+      addBranch: async (dir, branch, start) => {
+        options.addBranchCalls?.push({ dir, branch, start });
+        // `git worktree add -B <branch> <dir> <start>` fails on a start point
+        // that does not exist: `origin/main` always does, the spec branch only
+        // where origin holds it.
+        const exists = start === 'origin/main' || (start === `origin/${branch}` && present);
+        if (!exists) return { ok: false, why: 'failed' };
+        fs.mkdirSync(dir, { recursive: true });
+        return { ok: true, value: undefined };
+      },
+      commit: async () => ({ ok: true, value: undefined }),
+      push: async () => ({ ok: true, value: undefined }),
+      deleteRemoteBranch: async (branch, expectedTip) => {
+        options.deleteRemoteCalls?.push({ branch, expectedTip });
+        return { ok: true, value: undefined };
+      },
+      removeWithBranch: async (dir, branch) => {
+        options.removeCalls?.push({ dir, branch });
+        return { ok: true, value: undefined };
+      },
+    }),
+    host: () => ({
+      prState: async () => {
+        options.hostCalls?.push('prState');
+        if (options.prState === 'fail') return { ok: false, why: 'unaskable' };
+        if (options.prState === undefined) return { ok: true, value: null };
+        return { ok: true, value: options.prState };
+      },
+      prCreate: async (request) => {
+        options.hostCalls?.push('prCreate');
+        options.prCreateCalls?.push(request);
+        return options.prCreateOk === false ? { ok: false, why: 'unaskable' } : { ok: true, value: '' };
+      },
+      prMerged: async () => {
+        options.hostCalls?.push('prMerged');
+        if (options.prMerged === 'fail' || options.prMerged === undefined) return { ok: false, why: 'unaskable' };
+        return { ok: true, value: options.prMerged };
+      },
+    }),
+  };
+};
 
 const configScript = (autoDesign: string, command: string, bound = ''): string =>
   `#!/usr/bin/env bash\ncase "$2" in\n"Auto-design") echo ${autoDesign};;\n"Worker bound") printf '%s\\n' "${bound}" ;;\n"Design command") cat <<'EOF_CMD'\n${command}\nEOF_CMD\n;;\n*) printf '%s\\n' "\${3:-}";;\nesac\n`;
@@ -133,7 +168,7 @@ const seed = (repoRoot: string, state: Partial<DesignStateFile>): void => {
   );
 };
 
-const writeMark = (repoRoot: string, slug: string, mark: { commit: string; answeredPr?: number }): void => {
+const writeMark = (repoRoot: string, slug: string, mark: { kind?: string; commit: string; answeredPr?: number }): void => {
   const dir = path.join(repoRoot, '.plot', 'state', 'design', 'restart');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, `${slug}.1.json`), JSON.stringify(mark));
@@ -274,7 +309,7 @@ describe('runAutoDesignPass', () => {
       pulse,
       readings,
       1000,
-      world([{ ...candidate, text: SPEC_WRITTEN }], { alive: () => false, prCreateCalls }),
+      world([candidate], { alive: () => false, specRef: 'work', branchText: SPEC_WRITTEN, prCreateCalls }),
     );
     const state = readDesignState(f.repoRoot)!;
     expect(prCreateCalls).toEqual([
@@ -293,8 +328,10 @@ describe('runAutoDesignPass', () => {
       pulse,
       readings,
       1000,
-      world([{ ...candidate, text: SPEC_WRITTEN }], {
+      world([candidate], {
         alive: () => false,
+        specRef: 'work',
+        branchText: SPEC_WRITTEN,
         prState: { state: 'OPEN', number: 3 },
         prCreateCalls,
       }),
@@ -311,7 +348,7 @@ describe('runAutoDesignPass', () => {
       pulse,
       readings,
       1000,
-      world([{ ...candidate, text: SPEC_WRITTEN }], { alive: () => false, prCreateOk: false }),
+      world([candidate], { alive: () => false, specRef: 'work', branchText: SPEC_WRITTEN, prCreateOk: false }),
     );
     const state = readDesignState(f.repoRoot)!;
     expect(state.failures.alpha?.count).toBe(1);
@@ -327,13 +364,20 @@ describe('runAutoDesignPass', () => {
       pulse,
       readings,
       1000,
-      world([{ ...candidate, text: SPEC_EMPTY }], { alive: () => false, prMerged: 'not-merged', remoteSha: 'deadbee', deleteRemoteCalls }),
+      world([{ ...candidate, text: SPEC_WRITTEN }], {
+        alive: () => false,
+        specRef: 'work',
+        branchText: SPEC_EMPTY,
+        tip: 'deadbee',
+        prMerged: 'not-merged',
+        deleteRemoteCalls,
+      }),
     );
     expect(deleteRemoteCalls).toEqual([{ branch: designBranch('alpha'), expectedTip: 'deadbee' }]);
     expect(readDesignState(f.repoRoot)!.failures.alpha?.count).toBe(1);
   });
 
-  it('settles nothing for an ended run whose branch merge state the host cannot answer', async () => {
+  it('keeps an empty-spec ref whose merge state the host cannot answer, and counts the failure', async () => {
     const f = fixture('true', 'true');
     seed(f.repoRoot, { running: { alpha: { pid: 99999999, commit: 'abc1234', startedAt: 1 } } });
     const deleteRemoteCalls: { branch: string; expectedTip: string }[] = [];
@@ -342,9 +386,10 @@ describe('runAutoDesignPass', () => {
       pulse,
       readings,
       1000,
-      world([{ ...candidate, text: SPEC_EMPTY }], { alive: () => false, prMerged: 'fail', deleteRemoteCalls }),
+      world([candidate], { alive: () => false, specRef: 'work', branchText: SPEC_EMPTY, prMerged: 'fail', deleteRemoteCalls }),
     );
     expect(deleteRemoteCalls).toEqual([]);
+    expect(readDesignState(f.repoRoot)!.failures.alpha?.count).toBe(1);
   });
 
   it('keeps a run whose plan cannot be read, to settle it on a later pass', async () => {
@@ -376,7 +421,7 @@ describe('runAutoDesignPass', () => {
       pulse,
       readings,
       1_000_000_000,
-      world([{ ...candidate, text: SPEC_EMPTY }], { alive: () => false, prMerged: 'not-merged', remoteSha: 'd' }),
+      world([candidate], { alive: () => false, specRef: 'work', branchText: SPEC_EMPTY, prMerged: 'not-merged', tip: 'd' }),
     );
     const state = readDesignState(f.repoRoot)!;
     expect(state.failures.alpha?.count).toBe(3);
@@ -385,13 +430,15 @@ describe('runAutoDesignPass', () => {
     ]);
   });
 
-  it('a restart mark bypasses declined and lets the plan start again', async () => {
+  it('a restart mark bypasses declined, starts one run and is consumed by that start', async () => {
     const f = fixture('false', 'true');
     seed(f.repoRoot, { declined: { alpha: { commit: 'abc1234', pr: 5 } } });
     writeMark(f.repoRoot, 'alpha', { commit: 'abc1234' });
     const started = await runAutoDesignPass(f, pulse, readings, 1000, world([candidate], { specRef: 'absent' }));
     expect(started).toEqual(['alpha']);
-    expect(readDesignState(f.repoRoot)!.restart).toEqual({ alpha: 'abc1234' });
+    const state = readDesignState(f.repoRoot)!;
+    expect(state.restart).toEqual({});
+    expect(state.declined).toEqual({});
   });
 
   it('folds a restart mark written mid-pass into the state, and removes only the file it read', async () => {
@@ -402,6 +449,247 @@ describe('runAutoDesignPass', () => {
     await runAutoDesignPass(f, pulse, readings, 1000, world([candidate], { specRef: 'absent' }));
     expect(fs.existsSync(markPath)).toBe(false);
     expect(readDesignState(f.repoRoot)!.answeredPr).toEqual({ alpha: 7 });
+  });
+});
+
+describe('runAutoDesignPass: a restart starts one run (D36)', () => {
+  it('with Auto-design off, a restart starts one run, the pass after starts none, nor after that run fails', async () => {
+    const f = fixture('false', 'true');
+    writeMark(f.repoRoot, 'alpha', { commit: 'abc1234' });
+    expect(await runAutoDesignPass(f, pulse, readings, 1000, world([candidate], { specRef: 'absent' }))).toEqual(['alpha']);
+    await boardRunsSettled();
+    expect(readDesignState(f.repoRoot)!.restart).toEqual({});
+
+    // The run ended with a claim and no commit: settled as `no-commit`, ref deleted.
+    const deleteRemoteCalls: { branch: string; expectedTip: string }[] = [];
+    expect(
+      await runAutoDesignPass(
+        f,
+        pulse,
+        readings,
+        2000,
+        world([candidate], { alive: () => false, specRef: 'claim-only', tip: 'c1aim00', deleteRemoteCalls }),
+      ),
+    ).toEqual([]);
+    expect(deleteRemoteCalls).toEqual([{ branch: designBranch('alpha'), expectedTip: 'c1aim00' }]);
+    expect(readDesignState(f.repoRoot)!.failures.alpha?.count).toBe(1);
+
+    for (const at of [3000, 100_000, 1_000_000]) {
+      expect(await runAutoDesignPass(f, pulse, readings, at, world([candidate], { specRef: 'absent' }))).toEqual([]);
+      expect(readDesignState(f.repoRoot)!.refusals).toEqual({ alpha: 'off' });
+    }
+  });
+
+  it('a start mark clears the plan\'s failure record and declined mark', async () => {
+    const f = fixture('false', 'true');
+    seed(f.repoRoot, {
+      failures: { alpha: { count: 3, lastAt: 1, reading: 'abc1234' } },
+      declined: { alpha: { commit: 'abc1234', pr: 4 } },
+    });
+    writeMark(f.repoRoot, 'alpha', { commit: 'abc1234', answeredPr: 4 });
+    await runAutoDesignPass(f, pulse, { ...readings, held: null }, 1000, world([candidate], { specRef: 'absent' }));
+    const state = readDesignState(f.repoRoot)!;
+    expect(state.failures).toEqual({});
+    expect(state.declined).toEqual({});
+    expect(state.restart).toEqual({ alpha: 'abc1234' });
+    expect(state.refusals).toEqual({ alpha: 'queue-unread' });
+  });
+
+  it('a pr-opened mark folds as a success and restarts nothing', async () => {
+    const f = fixture('false', 'true');
+    seed(f.repoRoot, { failedAt: [1, 2, 3] });
+    writeMark(f.repoRoot, 'alpha', { kind: 'pr-opened', commit: 'abc1234' });
+    const started = await runAutoDesignPass(f, pulse, readings, 5000, world([candidate], { specRef: 'absent' }));
+    expect(started).toEqual([]);
+    const state = readDesignState(f.repoRoot)!;
+    expect(state.lastSuccessAt).toBe(5000);
+    expect(state.restart).toEqual({});
+    expect(readDesignStatus(f.repoRoot)!.halted).toBe(false);
+  });
+});
+
+describe('runAutoDesignPass: settlement reads the spec branch', () => {
+  const ended = { running: { alpha: { pid: 99999999, commit: 'abc1234', startedAt: 1, planFile: 'docs/plans/x-alpha.md' } } };
+
+  it('opens the PR for a spec written on the branch while the default branch still reads it empty', async () => {
+    const f = fixture('true', 'true');
+    seed(f.repoRoot, ended);
+    const prCreateCalls: { head: string; title: string; body: string; draft?: boolean }[] = [];
+    const deleteRemoteCalls: { branch: string; expectedTip: string }[] = [];
+    await runAutoDesignPass(
+      f,
+      pulse,
+      readings,
+      1000,
+      world([candidate], { alive: () => false, specRef: 'work', branchText: SPEC_WRITTEN, prCreateCalls, deleteRemoteCalls }),
+    );
+    expect(prCreateCalls).toHaveLength(1);
+    expect(deleteRemoteCalls).toEqual([]);
+    const state = readDesignState(f.repoRoot)!;
+    expect(state.failures).toEqual({});
+    expect(state.lastSuccessAt).toBe(1000);
+  });
+
+  it('settles a run whose plan left Design from the plan file its record names', async () => {
+    const f = fixture('true', 'true');
+    seed(f.repoRoot, ended);
+    const prCreateCalls: { head: string; title: string; body: string; draft?: boolean }[] = [];
+    await runAutoDesignPass(f, pulse, readings, 1000, world([], { alive: () => false, specRef: 'work', branchText: SPEC_WRITTEN, prCreateCalls }));
+    expect(prCreateCalls).toHaveLength(1);
+  });
+
+  it('a merged PR found on settlement is a success with no prCreate; a closed one gets a new PR', async () => {
+    for (const [state, creates] of [['MERGED', 0], ['CLOSED', 1]] as const) {
+      const f = fixture('true', 'true');
+      seed(f.repoRoot, ended);
+      const prCreateCalls: { head: string; title: string; body: string; draft?: boolean }[] = [];
+      await runAutoDesignPass(
+        f,
+        pulse,
+        readings,
+        1000,
+        world([candidate], { alive: () => false, specRef: 'work', branchText: SPEC_WRITTEN, prState: { state, number: 2 }, prCreateCalls }),
+      );
+      expect(prCreateCalls).toHaveLength(creates);
+      expect(readDesignState(f.repoRoot)!.lastSuccessAt).toBe(1000);
+    }
+  });
+
+  it('claim-only fails no-commit and deletes the ref at the tip it read', async () => {
+    const f = fixture('true', 'true');
+    seed(f.repoRoot, ended);
+    const deleteRemoteCalls: { branch: string; expectedTip: string }[] = [];
+    const removeCalls: { dir: string; branch: string }[] = [];
+    const hostCalls: string[] = [];
+    await runAutoDesignPass(
+      f,
+      pulse,
+      readings,
+      1000,
+      world([candidate], { alive: () => false, specRef: 'claim-only', tip: 'abcdef1', deleteRemoteCalls, removeCalls, hostCalls }),
+    );
+    expect(deleteRemoteCalls).toEqual([{ branch: designBranch('alpha'), expectedTip: 'abcdef1' }]);
+    expect(removeCalls).toEqual([{ dir: designRunDir(f.repoRoot, 'alpha'), branch: designBranch('alpha') }]);
+    expect(hostCalls).toEqual([]);
+    const state = readDesignState(f.repoRoot)!;
+    expect(state.failures.alpha?.count).toBe(1);
+    expect(state.running).toEqual({});
+  });
+
+  it('absent fails no-branch and deletes nothing', async () => {
+    const f = fixture('true', 'true');
+    seed(f.repoRoot, ended);
+    const deleteRemoteCalls: { branch: string; expectedTip: string }[] = [];
+    const removeCalls: { dir: string; branch: string }[] = [];
+    await runAutoDesignPass(f, pulse, readings, 1000, world([candidate], { alive: () => false, specRef: 'absent', deleteRemoteCalls, removeCalls }));
+    expect(deleteRemoteCalls).toEqual([]);
+    expect(removeCalls).toHaveLength(1);
+    expect(readDesignState(f.repoRoot)!.failures.alpha?.count).toBe(1);
+  });
+
+  it('unknown settles nothing: no failure, the record kept, the worktree kept, the next pass reads again', async () => {
+    const f = fixture('true', 'true');
+    seed(f.repoRoot, ended);
+    const removeCalls: { dir: string; branch: string }[] = [];
+    const hostCalls: string[] = [];
+    await runAutoDesignPass(f, pulse, readings, 1000, world([candidate], { alive: () => false, specRef: 'unknown', removeCalls, hostCalls }));
+    const state = readDesignState(f.repoRoot)!;
+    expect(state.failures).toEqual({});
+    expect(state.failedAt).toEqual([]);
+    expect(Object.keys(state.running)).toEqual(['alpha']);
+    expect(removeCalls).toEqual([]);
+    expect(hostCalls).toEqual([]);
+    expect(specRunningCount(f.repoRoot, () => false, 1000)).toBe(0);
+  });
+});
+
+describe('runAutoDesignPass: the start point of the spec branch', () => {
+  it('a new spec branches from origin/main', async () => {
+    const f = fixture('true', 'true');
+    const addBranchCalls: { dir: string; branch: string; start: string }[] = [];
+    expect(await runAutoDesignPass(f, pulse, readings, 1000, world([candidate], { specRef: 'absent', addBranchCalls }))).toEqual([
+      'alpha',
+    ]);
+    expect(addBranchCalls).toEqual([{ dir: designRunDir(f.repoRoot, 'alpha'), branch: designBranch('alpha'), start: 'origin/main' }]);
+    await boardRunsSettled();
+    expect(readDesignState(f.repoRoot)!.running.alpha?.code).toBe(0);
+  });
+
+  it('an open-pr retry branches from the spec branch on origin', async () => {
+    const f = fixture('true', 'true');
+    seed(f.repoRoot, { failures: { alpha: { count: 1, lastAt: 1, reading: 'abc1234' } }, failedAt: [1] });
+    const addBranchCalls: { dir: string; branch: string; start: string }[] = [];
+    expect(
+      await runAutoDesignPass(f, pulse, readings, 1_000_000, world([candidate], { specRef: 'work', workAt: 999_000, addBranchCalls })),
+    ).toEqual(['alpha']);
+    expect(addBranchCalls.map((c) => c.start)).toEqual([`origin/${designBranch('alpha')}`]);
+  });
+});
+
+describe('runAutoDesignPass: host reads', () => {
+  it('N passes with Auto-design off and a work ref make no host call', async () => {
+    const f = fixture('false', 'true');
+    const hostCalls: string[] = [];
+    for (const at of [1000, 1_000_000_000, 2_000_000_000]) {
+      await runAutoDesignPass(f, pulse, readings, at, world([candidate], { specRef: 'work', workAt: 1, hostCalls }));
+    }
+    expect(hostCalls).toEqual([]);
+  });
+
+  it('a plan refused stopped, halted, waiting or no-free-agent with an absent ref causes no host call', async () => {
+    const cases: { state: Partial<DesignStateFile>; readings?: typeof readings; now: number }[] = [
+      { state: { failures: { alpha: { count: 3, lastAt: 1, reading: 'abc1234' } } }, now: 1_000_000_000 },
+      { state: { failedAt: [1, 2, 3] }, now: 1000 },
+      { state: { failures: { alpha: { count: 1, lastAt: 900, reading: 'abc1234' } } }, now: 1000 },
+      { state: {}, readings: { ...readings, headroom: 'starved' as never }, now: 1000 },
+      { state: {}, readings: { ...readings, held: [{ hold: 'no-free-agent' } as never] }, now: 1000 },
+    ];
+    for (const c of cases) {
+      const f = fixture('true', 'true');
+      seed(f.repoRoot, c.state);
+      const hostCalls: string[] = [];
+      expect(await runAutoDesignPass(f, pulse, c.readings ?? readings, c.now, world([candidate], { specRef: 'absent', hostCalls }))).toEqual([]);
+      expect(hostCalls).toEqual([]);
+    }
+  });
+
+  it('a young work ref with no record is not read as an orphan', async () => {
+    const f = fixture('true', 'true');
+    const hostCalls: string[] = [];
+    await runAutoDesignPass(f, pulse, readings, 1_000_000, world([candidate], { specRef: 'work', workAt: 999_000, hostCalls }));
+    expect(hostCalls).toEqual([]);
+    expect(readDesignState(f.repoRoot)!.orphans).toEqual({});
+  });
+
+  it('an orphan work ref older than Worker bound is read once per tip and shows a no-pr row', async () => {
+    const f = fixture('true', 'true');
+    const now = 100_000_000;
+    const hostCalls: string[] = [];
+    await runAutoDesignPass(f, pulse, readings, now, world([candidate], { specRef: 'work', workAt: 1, tip: 'aaa', hostCalls }));
+    expect(hostCalls).toEqual(['prState']);
+    let state = readDesignState(f.repoRoot)!;
+    expect(state.orphans).toEqual({ alpha: { tip: 'aaa', hasPr: false } });
+    expect(state.rows).toEqual([expect.objectContaining({ plan: 'alpha', reason: 'the spec branch has no pull request' })]);
+
+    await runAutoDesignPass(f, pulse, readings, now + 60_000, world([candidate], { specRef: 'work', workAt: 1, tip: 'aaa', hostCalls }));
+    expect(hostCalls).toEqual(['prState']);
+
+    await runAutoDesignPass(f, pulse, readings, now + 120_000, world([candidate], { specRef: 'work', workAt: 1, tip: 'bbb', hostCalls }));
+    expect(hostCalls).toEqual(['prState', 'prState']);
+
+    await runAutoDesignPass(f, pulse, readings, now + 180_000, world([candidate], { specRef: 'absent', hostCalls }));
+    state = readDesignState(f.repoRoot)!;
+    expect(state.orphans).toEqual({});
+  });
+
+  it('a closed or merged PR on an orphan ref is a pull request, not none', async () => {
+    for (const prState of [{ state: 'CLOSED' as const, number: 3 }, { state: 'MERGED' as const, number: 3 }]) {
+      const f = fixture('true', 'true');
+      await runAutoDesignPass(f, pulse, readings, 100_000_000, world([candidate], { specRef: 'work', workAt: 1, tip: 'aaa', prState }));
+      const state = readDesignState(f.repoRoot)!;
+      expect(state.orphans).toEqual({ alpha: { tip: 'aaa', hasPr: true } });
+      expect(state.rows).toEqual([]);
+    }
   });
 });
 

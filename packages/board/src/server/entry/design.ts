@@ -81,9 +81,14 @@ const restartDir = (repoRoot: string): string => path.join(repoRoot, '.plot', 's
  *
  * @param repoRoot - the repository root.
  * @param slug - the plan's slug.
- * @param mark - the mark's fields.
+ * @param mark - the mark's fields; fleetd folds `start` as a restart and
+ *   `pr-opened` as a success.
  */
-const writeMark = (repoRoot: string, slug: string, mark: { commit: string; answeredPr?: number }): void => {
+const writeMark = (
+  repoRoot: string,
+  slug: string,
+  mark: { kind: 'start' | 'pr-opened'; commit: string; answeredPr?: number },
+): void => {
   const dir = restartDir(repoRoot);
   mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${slug}.${Date.now()}.json`);
@@ -188,7 +193,7 @@ const restart = async (ctx: Context, slug: string, write: Printer, warn: Printer
     }
     const closed = await ctx.host.prState(branch);
     const answeredPr = closed.ok && closed.value !== null && closed.value.state !== 'OPEN' ? closed.value.number : undefined;
-    writeMark(ctx.repoRoot, slug, { commit: designCommit, answeredPr });
+    writeMark(ctx.repoRoot, slug, { kind: 'start', commit: designCommit, answeredPr });
     write(`restart: start — the next pass with a free slot starts one run of '${slug}'\n`);
     return 0;
   }
@@ -228,7 +233,7 @@ const restart = async (ctx: Context, slug: string, write: Printer, warn: Printer
       warn(`plot-design: could not open a pull request for '${branch}'\n`);
       return 1;
     }
-    writeMark(ctx.repoRoot, slug, { commit: designCommit });
+    writeMark(ctx.repoRoot, slug, { kind: 'pr-opened', commit: designCommit });
     write(`restart: pr-opened — ${created.value}\n`);
     return 0;
   }
@@ -246,7 +251,7 @@ const restart = async (ctx: Context, slug: string, write: Printer, warn: Printer
     return 1;
   }
   const answeredPr = pr.value !== null ? pr.value.number : undefined;
-  writeMark(ctx.repoRoot, slug, { commit: designCommit, answeredPr });
+  writeMark(ctx.repoRoot, slug, { kind: 'start', commit: designCommit, answeredPr });
   write(`restart: start — the next pass with a free slot starts one run of '${slug}'\n`);
   return 0;
 };

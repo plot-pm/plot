@@ -156,6 +156,7 @@ test('design restart: an absent spec branch writes a start mark and never touche
   const mark = readMark(repo, SLUG);
   assert.equal(mark.commit, 'abc1234');
   assert.equal(mark.answeredPr, undefined);
+  assert.equal(mark.kind, 'start');
   assert.equal(fs.existsSync(inFlightPath(repo)), false, 'the in-flight store is never written by restart');
 });
 
@@ -180,6 +181,7 @@ test('design restart: work with no PR and a written spec opens a draft PR', () =
   assert.match(r.stdout, /restart: pr-opened — https:\/\/example\.invalid\/pr\/99/);
   const mark = readMark(repo, SLUG);
   assert.equal(mark.commit, 'abc1234');
+  assert.equal(mark.kind, 'pr-opened', 'fleetd folds this mark as a success, not a restart');
 });
 
 test('design restart: a claim-only branch with no PR deletes the ref unconditionally', () => {
