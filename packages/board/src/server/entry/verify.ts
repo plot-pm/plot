@@ -20,7 +20,15 @@ import {
   type IssueEntry,
   type IssueState,
 } from '@plot-pm/domain/rules/refuted-issues';
-import { checklistSummary, hasRcLine, withChecklistEntry, type ChecklistEntry } from '@plot-pm/domain/rules/release-checklist';
+import { planStateOf } from '@plot-pm/domain/entities/plan';
+import {
+  checklistSummary,
+  freshChecklist,
+  hasRcLine,
+  listsOnChecklist,
+  withChecklistEntry,
+  type ChecklistEntry,
+} from '@plot-pm/domain/rules/release-checklist';
 import { refutedClaims, type RefutedClaim } from '@plot-pm/domain/rules/verification-record';
 import {
   foldVerification,
@@ -635,7 +643,8 @@ const checklistEntryOf = (
  *
  * An open RC round (a file with an `RC:` line) is left strictly alone: `rc`
  * and the final release own that file from the point the line is written.
- * A missing file is created fresh, carrying only this plan's entry.
+ * A missing file is created by {@link freshChecklist} with this plan's entry,
+ * so it carries the `## Automated Tests` and `## Sign-off` sections.
  *
  * @param ctx - the ports and paths.
  * @param tmpwt - the booking worktree.
@@ -652,14 +661,19 @@ const writeChecklist = async (
   const present = await ctx.planStore.readText(target);
   const current = present.ok && present.value !== null ? present.value : null;
   if (current !== null && hasRcLine(current)) return null;
-  const base = current ?? '# Release Checklist\n\n## Verification\n';
-  const written = await ctx.planStore.writeText(target, withChecklistEntry(base, entry));
+  const next = current === null ? freshChecklist([entry]) : withChecklistEntry(current, entry);
+  const written = await ctx.planStore.writeText(target, next);
   if (!written.ok) throw new Refused(`could not write ${CHECKLIST_PATH}.\n  Re-run this — it is idempotent.`);
   return CHECKLIST_PATH;
 };
 
 /**
  * Books the record onto the default branch and removes every tree.
+ *
+ * The record's commit also carries the release checklist, for a plan
+ * {@link listsOnChecklist} admits: a Delivered feature or bug plan. A Released
+ * plan, a docs or infra plan, and a plan the store cannot read keep their
+ * record and get no checklist item.
  *
  * @param ctx - the ports and paths.
  * @param args - the request.
@@ -693,6 +707,8 @@ export const record = async (ctx: Context, args: Args, write: Printer, warn: Pri
     const target = path.join(tmpwt, facts.plan);
     const present = await ctx.planStore.readText(target);
     if (!present.ok || present.value === null) throw new Refused(`${facts.plan} is not present on origin/${main}`);
+    const meta = await ctx.planStore.readPlan(target);
+    const listed = meta.ok && listsOnChecklist(meta.value.type, planStateOf(meta.value.phase));
 
     const declared = await ctx.scripts.config('Tracker', '');
     const backend = await ctx.host.backend();
@@ -726,8 +742,9 @@ export const record = async (ctx: Context, args: Args, write: Printer, warn: Pri
     const written = await ctx.planStore.writeText(target, landed);
     if (!written.ok) throw new Refused(`could not write ${facts.plan}.\n  Re-run this — it is idempotent.`);
 
-    const entry = checklistEntryOf(args.slug, present.value, verdicts, notes);
-    const checklistPath = await writeChecklist(ctx, tmpwt, entry);
+    const checklistPath = listed
+      ? await writeChecklist(ctx, tmpwt, checklistEntryOf(args.slug, present.value, verdicts, notes))
+      : null;
     await ctx.trees.stage(tmpwt, checklistPath === null ? [facts.plan] : [facts.plan, checklistPath]);
 
     const pushed = await commitAndPush(

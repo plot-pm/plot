@@ -83,14 +83,16 @@ export interface DoneTickets<T> {
  * a ticket with no close date did not just close.
  *
  * @param rows - the Done lane's rows, unordered.
+ * @param expanded - whether the cap is lifted: every row is returned, ordered, and `moreCount` is 0.
  * @returns the top {@link DONE_LANE_LIMIT} rows and the count of the rest.
  */
-export const doneTickets = <T extends DoneTicketRow>(rows: readonly T[]): DoneTickets<T> => {
+export const doneTickets = <T extends DoneTicketRow>(rows: readonly T[], expanded = false): DoneTickets<T> => {
   const sorted = [...rows].sort((a, b) => {
     if (a.closedAt === null && b.closedAt === null) return 0;
     if (a.closedAt === null) return 1;
     if (b.closedAt === null) return -1;
     return Date.parse(b.closedAt) - Date.parse(a.closedAt);
   });
+  if (expanded) return { rows: sorted, moreCount: 0 };
   return { rows: sorted.slice(0, DONE_LANE_LIMIT), moreCount: Math.max(0, sorted.length - DONE_LANE_LIMIT) };
 };
