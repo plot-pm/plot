@@ -3418,6 +3418,17 @@ export const sectionKey = (
   row: { repo: string; branch: string; plan?: string | null },
 ): string => `${row.repo}/${row.branch}/${row.plan ?? ''}`;
 
+/**
+ * How a ticket's assignees are written — the wire shape of the domain's
+ * `TicketSource`, carried so the client can resolve `ticketsForReader`
+ * without a second host call.
+ */
+export const TicketSourceSchema = z.union([
+  z.object({ service: z.string(), match: z.literal('host-login') }),
+  z.object({ service: z.string(), match: z.literal('tracker-account'), prefix: z.string() }),
+]);
+export type TicketSourceShape = z.infer<typeof TicketSourceSchema>;
+
 export const IssueRowSchema = z.object({
   /**
    * `ticket`, always — and stated rather than assumed, for the same reason
@@ -3480,8 +3491,33 @@ export const IssueRowSchema = z.object({
    * path already closed.
    */
   statusCategory: z.string().default(''),
+  /**
+   * The tracker's own logins or accounts assigned, `[]` where the tracker
+   * states none or the row predates this field — the same default-on-absence
+   * rule `status` and `ageMinutes` already follow.
+   */
+  assignees: z.array(z.string()).default([]),
 });
 export type IssueRow = z.infer<typeof IssueRowSchema>;
+
+/**
+ * What WAITING ON YOU shows of the unplanned open tickets, and why — the
+ * wire shape of the domain's `waitingTickets` answer.
+ *
+ * `tickets` holds at most `ISSUE_LIMIT` rows; `shown` and `hidden` count
+ * every unplanned open row the read held, which is why they do not sum to
+ * `tickets.length`. `complete` is `false` where the read's own cap stopped
+ * before every open row was read, which makes `hidden` an "at least".
+ */
+export const FleetWaitingSchema = z.object({
+  tickets: z.array(IssueRowSchema).default([]),
+  shown: z.number().default(0),
+  hidden: z.number().default(0),
+  complete: z.boolean().default(true),
+  notice: z.string().nullable().default(null),
+  source: TicketSourceSchema.nullable().default(null),
+});
+export type FleetWaiting = z.infer<typeof FleetWaitingSchema>;
 
 /**
  * Whether the tracker could be asked at all — THREE answers, kept apart.
@@ -4346,6 +4382,18 @@ export const FleetShape = z.object({
    * older server and a board that has not asked yet both send.
    */
   issueAbsence: z.string().nullable().default(null),
+  /**
+   * Which unplanned open tickets WAITING ON YOU shows, decided on the server
+   * by the domain's `waitingTickets` over every unplanned open row the read
+   * holds — not only the 50 `issues` sends.
+   *
+   * `null` only where the read failed or the source is `nobody`; the section
+   * then falls back to `issueError` or `issueAbsence`. Optional so a client
+   * talking to an older server still validates, and the ABSENT case renders
+   * as the pre-slice behaviour — `issues` cut to 50 with no count and no
+   * notice — rather than as a server that answered and found nothing.
+   */
+  waiting: FleetWaitingSchema.nullable().optional(),
   /**
    * The two fleet controls, SHARED across every board reading this repo.
    *

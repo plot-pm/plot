@@ -64,6 +64,7 @@ import {
   agentsForReader,
   readerFrom,
   rowsForReader,
+  ticketsForReader,
   writeMineOnly,
 } from '../lib/agent-rows/mine-filter.js';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
@@ -667,14 +668,23 @@ export function AgentList({
   const visibleRows = rowsForReader(filteredRows, reader, mineOnly);
 
   // THE FILTERED ISSUES. Like rows, issues stay visible when no filter applies.
-  // Issue rows have no sprint field, so they always pass.
+  // Issue rows have no sprint field, so they always pass the sprint filter.
   //
-  // UNTOUCHED BY THE OWNERSHIP FILTER, and that is the rule rather than an
-  // omission: an unplanned issue carries no owner at all — `OwnedRow`'s `other`
-  // arm — so every issue reads as unknown and hiding none of them is what the
-  // rule already decides. Filtering them would need a second rule this branch
-  // does not own.
-  const filteredIssues = fleet.issues;
+  // `fleet.waiting.tickets` IS *WAITING ON YOU*'S OWN ROW SET — the domain's
+  // `waitingTickets` already applied its stricter default (hide and count an
+  // unassigned ticket) server-side. `ticketsForReader` is the separate, looser
+  // *Only my work* toggle on top of that: it hides a ticket only where it is
+  // someone else's, same as `rowsForReader` does for branch rows, and keeps an
+  // unassigned ticket or one whose source is unresolved. `fleet.waiting.source`
+  // is the wire form of the domain's `TicketSource`, resolved once server-side
+  // so this call needs no second host read. `fleet.issues` stays the fallback
+  // for an older server with no `waiting` field.
+  const filteredIssues = ticketsForReader(
+    fleet.waiting?.tickets ?? fleet.issues,
+    reader,
+    fleet.waiting?.source ?? null,
+    mineOnly,
+  );
 
   // HOW MANY WORKERS THE FILTER HIDES — `the-filter-does-not-hide-a-worker`,
   // slice Named. The WORKING section deliberately shows ALL live workers (a

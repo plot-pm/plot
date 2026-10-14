@@ -1,11 +1,17 @@
 import {
   describe,
   it,
-  expect } from 'vitest';
+  expect,
+  afterEach } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { inferredPlanName,
 } from '../../src/app/components/AgentList.js';
 import { ageLabel } from '../../src/app/lib/agent-rows/row-identity.js';
 import { FleetSchema, IssueRowSchema, issueKey } from '../../src/contract/schema.js';
+import { refreshIssues, freshCacheEntry } from '../../src/server/fleet.js';
+import { rmTree } from '../helpers.mjs';
 
 /**
  * An issue is a signal the board can see — the decisions that reduce to
@@ -177,5 +183,95 @@ describe('the inbox drains — the assertion a type-only change would pass witho
 
   it('a plan referencing nothing drains nothing — absent is not false', () => {
     expect(unreferenced([849, 'PROJ-1'], [])).toEqual([849, 'PROJ-1']);
+  });
+});
+
+describe('entry.waiting — set beside entry.issues, not derived from its capped value', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmTree(dir);
+  });
+
+  /**
+   * A scripts directory whose `plot-host.sh` answers `account` with `login`,
+   * `issue-list --paged` with `n` unassigned open rows (closed answers
+   * empty), and every other op with nothing.
+   */
+  const fixture = (n: number, login = 'jwloka'): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-waiting-'));
+    dirs.push(dir);
+    fs.mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
+    const write = (name: string, body: string) => {
+      fs.writeFileSync(path.join(dir, name), `#!/usr/bin/env bash\n${body}`);
+      fs.chmodSync(path.join(dir, name), 0o755);
+    };
+    write('plot-config.sh', `if [ "$2" = Tracker ]; then echo ''; else printf '%s\\n' "$3"; fi\n`);
+    write('plot-plan-meta.sh', 'exit 0\n');
+    write('plot-host.sh', [
+      'case "$1" in',
+      `  account) echo '${login}' ;;`,
+      '  issue-list)',
+      '    case " $* " in',
+      '      *" --state closed "*) : ;;',
+      `      *) for i in $(seq 1 ${n}); do printf '{"number":%d,"title":"t%d","url":"u","createdAt":"2026-10-01T00:00:00Z","assignees":[]}\\n' "$i" "$i"; done ;;`,
+      '    esac ;;',
+      'esac',
+      'exit 0',
+      '',
+    ].join('\n'));
+    return dir;
+  };
+
+  it('answers shown 0 and hidden 60 over 60 unassigned rows, while entry.issues keeps the 50-row cap', async () => {
+    const dir = fixture(60);
+    const entry = freshCacheEntry();
+    entry.backend = 'github';
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(entry.issues).toHaveLength(50);
+    expect(entry.waiting).not.toBeNull();
+    expect(entry.waiting?.tickets).toHaveLength(0);
+    expect(entry.waiting?.shown).toBe(0);
+    expect(entry.waiting?.hidden).toBe(60);
+    expect(entry.waiting?.complete).toBe(true);
+  });
+
+  it('sets entry.waiting to null for a nobody source, beside entry.issues', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-waiting-nobody-'));
+    dirs.push(dir);
+    fs.mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'plot-config.sh'),
+      `#!/usr/bin/env bash\nif [ "$2" = Tracker ]; then printf '%s\\n' 'linear https://linear.app/acme'; else printf '%s\\n' "$3"; fi\n`,
+    );
+    fs.chmodSync(path.join(dir, 'plot-config.sh'), 0o755);
+    const entry = freshCacheEntry();
+    entry.backend = 'bitbucket';
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(entry.issueAnswer).toBe('unsupported');
+    expect(entry.waiting).toBeNull();
+  });
+
+  it('sets entry.waiting to null on a failed read, beside entry.issues keeping its last good value', async () => {
+    const dir = fixture(1);
+    const entry = freshCacheEntry();
+    entry.backend = 'github';
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+    expect(entry.waiting).not.toBeNull();
+
+    fs.writeFileSync(
+      path.join(dir, 'plot-host.sh'),
+      '#!/usr/bin/env bash\necho boom >&2\nexit 1\n',
+    );
+    fs.chmodSync(path.join(dir, 'plot-host.sh'), 0o755);
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(entry.issueAnswer).toBe('failed');
+    expect(entry.waiting).toBeNull();
+    // `entry.issues` keeps its last good value on the same failure.
+    expect(entry.issues).toHaveLength(1);
   });
 });

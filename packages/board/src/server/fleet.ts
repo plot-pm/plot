@@ -1,4 +1,4 @@
-import { RELEASE_BRANCH, issueKey, sectionKey } from '../contract/schema.js';
+import { RELEASE_BRANCH, issueKey, sectionKey, type FleetWaiting } from '../contract/schema.js';
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -57,6 +57,9 @@ import {
   draftPlacement,
   prRowPlacement,
   prChecksSuppressedByMerge,
+  waitingTickets,
+  ticketSourceOf,
+  type Reader,
 } from '@plot-pm/domain';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
 // rather than behind `BuildBoardOptions`: the cap is shared state on the
@@ -64,7 +67,7 @@ import {
 // one would bound only itself, which is the failure the port's own comment
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
-import { issueIndexFile, TRACKER_LISTERS, trackerForIssues } from '@plot-pm/domain/adapters';
+import { issueIndexFile, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
 import {
@@ -120,6 +123,7 @@ import { workerQuestions } from '@plot-pm/fleet/shared/worker-question';
 import { briefPath as briefPathOf } from '@plot-pm/fleet/shared/brief-path';
 import { briefReading } from './brief-ask-log.js';
 import { findingsFor } from './findings.js';
+import { identity, people } from './server-info.js';
 
 /**
  * How long a branch may sit without a commit before it reads as quiet rather
@@ -472,6 +476,13 @@ export interface CacheEntry {
   issueError: string | null;
   /** Why the issue list cannot be asked, as the board shows it; null where unknown. */
   issueAbsence: string | null;
+  /**
+   * Which of `issues`' full unplanned set WAITING ON YOU shows, decided by the
+   * domain's `waitingTickets` before the `ISSUE_LIMIT` cap. `null` where the
+   * read failed or the source is `nobody` — the same cases `issues` holds its
+   * last good value or `[]` for.
+   */
+  waiting: FleetWaiting | null;
   /**
    * The dispatcher's agent registry, re-read on every scan tick.
    *
@@ -1654,8 +1665,51 @@ const inboxOf = (rows: readonly IssueIndexRow[], referenced: ReadonlySet<string>
         // state its own vocabulary has no word for is a fact, not a gap to fill.
         status: row.status ?? '',
         statusCategory: row.statusCategory ?? '',
+        // The tracker's own logins or accounts assigned — [] where the tracker
+        // states none, which `ticketsForReader` reads as "nobody's."
+        assignees: row.assignees ?? [],
       };
     });
+
+/**
+ * What WAITING ON YOU shows for one read: the domain's `waitingTickets`,
+ * given the rows unfiltered by `referenced`, the reader this process is, and
+ * how this source names its assignees.
+ *
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param rows - every open row this read holds, unfiltered by `referenced`.
+ * @param source - how this read's tickets name their assignees, or `null`.
+ * @param complete - whether `rows` is every open row, or the read's own cap stopped first.
+ * @returns the wire shape for `FleetShape.waiting`.
+ */
+const waitingOf = async (
+  opts: BuildBoardOptions,
+  rows: readonly IssueIndexRow[],
+  source: import('@plot-pm/domain').TicketSource | null,
+  complete: boolean,
+): Promise<FleetWaiting> => {
+  const [who, directory] = await Promise.all([identity(opts), people(opts)]);
+  const reader: Reader = { hostUser: who.hostUser, gitEmail: who.gitEmail, directory };
+  const result = waitingTickets(rows, undefined, reader, source, complete);
+  return {
+    tickets: result.tickets.map((t) => ({
+      kind: 'ticket' as const,
+      number: t.number,
+      title: t.title,
+      url: t.url,
+      ageMinutes: t.ageMinutes,
+      status: t.status,
+      statusCategory: t.statusCategory,
+      assignees: [...t.assignees],
+    })),
+    shown: result.shown,
+    hidden: result.hidden,
+    complete: result.complete,
+    notice: result.notice,
+    source,
+  };
+};
 
 /**
  * Open tracker issues no plan references — the board's inbox — read with no
@@ -1691,6 +1745,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     entry.issueAnswer = 'unsupported';
     entry.issueError = null;
     entry.issueAbsence = issueAbsence(source.reason);
+    entry.waiting = null;
     return;
   }
   const startedAt = Date.now();
@@ -1721,6 +1776,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     entry.issueError = null;
     entry.issueAbsence = issueAbsence(reason);
     entry.issueSets = { answer: 'unsupported', at: stamp, failedAt: stamp, reason };
+    entry.waiting = null;
     return;
   }
   entry.issueAbsence = null;
@@ -1730,6 +1786,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     entry.issueError = message; // `entry.issues` keeps its last good value on purpose
     // The kept rows, `complete`, `at` and closed set stay; the failure is recorded beside them.
     entry.issueSets = { ...(kept ?? { at: stamp }), answer: 'failed', failedAt: stamp, reason: message };
+    entry.waiting = null;
     // The issue poll is the neighbour the PR refresh's backoff never reached.
     // A rate limit HERE must push the PR gate (`prNextAt`) out too — otherwise
     // the PR refresh re-fires on the ordinary cadence and spends the exhausted
@@ -1782,11 +1839,15 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     // planned; reporting none would claim the inbox is clear. Neither is known.
     entry.issueAnswer = 'failed';
     entry.issueError = 'plans could not be read, so no issue can be called unplanned';
+    entry.waiting = null;
     return;
   }
   entry.issues = inboxOf(rows, referenced, Date.now());
   entry.issueAnswer = 'answered';
   entry.issueError = null;
+  const gitHostBackend = entry.backend ?? 'github';
+  const ticketSource = ticketSourceOf(source, gitHostBackend, TICKET_SOURCES);
+  entry.waiting = await waitingOf(opts, rows, ticketSource, said.value.complete);
 }
 
 const overlays = new WeakMap<CacheEntry, PrIndexStore>();
@@ -1849,6 +1910,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
     entry.issueError = null;
     entry.issueAbsence = issueAbsence(source.reason);
     entry.issueSets = null;
+    entry.waiting = null;
     return;
   }
   const held = await issueStoreFor(opts.repoRoot).read();
@@ -1857,6 +1919,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
     entry.issueAnswer = 'unsupported';
     entry.issueError = null;
     entry.issueAbsence = 'Open issues are not listed: the fleet has left no issue index to read.';
+    entry.waiting = null;
     return;
   }
   const index = held.value;
@@ -1867,6 +1930,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
     entry.issueError =
       `the issue index holds issues from \`${index.source}\`, and this repository reads them from \`${source.ask}\``;
     entry.issueAbsence = null;
+    entry.waiting = null;
     return;
   }
   if (index.answer === 'unsupported') {
@@ -1874,6 +1938,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
     entry.issueAnswer = 'unsupported';
     entry.issueError = null;
     entry.issueAbsence = issueAbsence(index.reason ?? '');
+    entry.waiting = null;
     return;
   }
   const referenced = await referencedIssues(opts);
@@ -1881,17 +1946,23 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
     entry.issueAnswer = 'failed';
     entry.issueError = 'plans could not be read, so no issue can be called unplanned';
     entry.issueAbsence = null;
+    entry.waiting = null;
     return;
   }
-  entry.issues = inboxOf(index.rows ?? [], referenced, Date.now());
+  const rows = index.rows ?? [];
+  entry.issues = inboxOf(rows, referenced, Date.now());
   entry.issueAbsence = null;
   if (index.answer === 'failed') {
     entry.issueAnswer = 'failed';
     entry.issueError = index.reason ?? 'the issue gate failed to read open issues';
+    entry.waiting = null;
     return;
   }
   entry.issueAnswer = 'answered';
   entry.issueError = null;
+  const gitHostBackend = entry.backend ?? 'github';
+  const ticketSource = ticketSourceOf(source, gitHostBackend, TICKET_SOURCES);
+  entry.waiting = await waitingOf(opts, rows, ticketSource, index.complete ?? true);
 };
 
 /**
@@ -2310,7 +2381,7 @@ export function freshCacheEntry(): CacheEntry {
     questions: new Map(),
     // `unsupported` before the first lookup, never `answered`: a board that
     // has not asked must not render an empty inbox as a clear one.
-    issues: [], issueAnswer: 'unsupported', issueError: null, issueAbsence: null, agents: [], registry: undefined,
+    issues: [], issueAnswer: 'unsupported', issueError: null, issueAbsence: null, waiting: null, agents: [], registry: undefined,
     // Undefined until the first refresh asks, which is NOT `unknown`: nothing
     // has been asked yet, so the header renders nothing rather than reporting a
     // reading that was never attempted.
@@ -6989,6 +7060,9 @@ export async function buildFleet(
     // that was never reachable, and would render the second as the first.
     issues: entry.issues,
     issueAnswer: entry.issueAnswer,
+    // `null` only where the read failed or the source is `nobody` — the same
+    // cases `issues` holds its last good value or `[]` for.
+    waiting: entry.waiting,
     // Beside `rows`, never derived from them: a row is a branch that mentions an
     // agent, this is an agent that mentions a branch. A running worker appears
     // in both and is not duplicated — the entities differ.

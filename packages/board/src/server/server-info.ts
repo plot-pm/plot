@@ -175,7 +175,7 @@ let cachedPeople: PersonDirectory | null = null;
  * startup fact, like `CI`. `{}` where the key is absent or unreadable, which
  * the ownership rule reads as no spelling declared.
  */
-const people = async (opts: BuildBoardOptions): Promise<PersonDirectory> => {
+export const people = async (opts: BuildBoardOptions): Promise<PersonDirectory> => {
   if (cachedPeople === null) cachedPeople = parsePersonDirectory(await readConfig(opts, PEOPLE_KEY, ''));
   return cachedPeople;
 };
@@ -203,7 +203,7 @@ const IDENTITY_TTL_MS = 60_000;
  * rule that consumes it shows a row whose owner cannot be determined, and it
  * needs an honest empty value to test on.
  */
-const identity = async (opts: BuildBoardOptions): Promise<Identity> => {
+export const identity = async (opts: BuildBoardOptions): Promise<Identity> => {
   const now = Date.now();
   if (cachedIdentity === null || now - identityAt > IDENTITY_TTL_MS) {
     const [user, email] = await Promise.all([

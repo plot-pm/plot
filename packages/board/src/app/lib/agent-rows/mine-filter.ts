@@ -1,5 +1,5 @@
 import { isMine, type OwnedRow, type Reader } from '@plot-pm/domain';
-import { type AgentEntry, type AgentRow, type Board, type Card } from '../../../contract/schema.js';
+import { type AgentEntry, type AgentRow, type Board, type Card, type IssueRow, type TicketSourceShape } from '../../../contract/schema.js';
 
 /**
  * Where the "only my work" preference lives.
@@ -151,6 +151,39 @@ export const agentsForReader = <T extends Pick<AgentEntry, 'identity' | 'state'>
   reader: Reader,
   on: boolean,
 ): T[] => (on ? agents.filter((a) => isMine(ownedFromAgent(a), reader)) : agents);
+
+/**
+ * A ticket row as the ownership rule reads it.
+ *
+ * `source` is `null` where the board could not resolve how this read's
+ * tickets name their assignees — {@link isMine} then sees `{ source: null }`
+ * on the `ticket` arm, which `ticketOwnership` answers `unknown` for, same as
+ * an unassigned row. Either way the row stays visible with the filter on.
+ */
+export const ownedFromTicket = (row: Pick<IssueRow, 'assignees'>, source: TicketSourceShape | null): OwnedRow =>
+  ({ kind: 'ticket', assignees: [...row.assignees], source });
+
+/**
+ * The tickets that stay in view, given the reader, how this read's tickets
+ * name their assignees, and whether the filter is on.
+ *
+ * Off returns the array untouched, for the reason {@link rowsForReader}
+ * gives. On, a ticket is hidden only where {@link isMine} answers false for
+ * {@link ownedFromTicket} — an unassigned ticket, or one whose owner cannot be
+ * determined because `source` is `null`, stays visible.
+ *
+ * This is the looser *Only my work* toggle, and it is not *Waiting on you*'s
+ * own default: that section's stricter inbox logic (hide and count an
+ * unassigned ticket) lives in the domain's `waitingTickets`, applied upstream
+ * by the server. This filter narrows what `waitingTickets` already chose to
+ * show, the same way `rowsForReader` narrows the sprint-filtered rows.
+ */
+export const ticketsForReader = <T extends Pick<IssueRow, 'assignees'>>(
+  tickets: T[],
+  reader: Reader,
+  source: TicketSourceShape | null,
+  on: boolean,
+): T[] => (on ? tickets.filter((t) => isMine(ownedFromTicket(t, source), reader)) : tickets);
 
 /**
  * The board with only the plan cards that stay in view.
