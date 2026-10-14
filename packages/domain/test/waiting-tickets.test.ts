@@ -29,6 +29,20 @@ describe('waitingTickets, the default (a matched GitHub reader)', () => {
     expect(result.notice).toBeNull();
   });
 
+  it('a row with no createdAt gets a null ageMinutes and sorts as oldest', () => {
+    const rows = [row('undated', { assignees: ['jwloka'], createdAt: undefined }), row('dated', { assignees: ['jwloka'] })];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true);
+    expect(result.tickets.find((t) => t.number === 'undated')?.ageMinutes).toBeNull();
+    expect(result.tickets.map((t) => t.number)).toEqual(['dated', 'undated']);
+  });
+
+  it('a row with an unparseable createdAt gets a null ageMinutes and sorts as oldest', () => {
+    const rows = [row('bad-date', { assignees: ['jwloka'], createdAt: 'not-a-date' }), row('dated', { assignees: ['jwloka'] })];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true);
+    expect(result.tickets.find((t) => t.number === 'bad-date')?.ageMinutes).toBeNull();
+    expect(result.tickets.map((t) => t.number)).toEqual(['dated', 'bad-date']);
+  });
+
   it('keeps an assigned row older than the 50 newest in tickets', () => {
     const rows = [
       ...unassigned(60),
