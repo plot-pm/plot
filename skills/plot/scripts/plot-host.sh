@@ -3853,22 +3853,13 @@ case "$op" in
     # exit here is the same contract `commit-status`'s Bitbucket arm already
     # uses for work not yet built.
     num="${1:?pr-comments needs a PR number}"; shift
-    if [ "$be" = "github" ]; then
-      if out="$(gh pr view "$num" --json comments 2>"$HOST_ERR")"; then
-        rm -f "$HOST_ERR"
-        jq -r '.comments[]?.body // "" | gsub("\r\n|\r|\n"; "\\n")' <<<"$out" || exit 3
-      else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
-        if [ -n "$err" ] && is_lookup_miss "$err"; then
-          :
-        else
-          echo "plot-host: ${err:-gh pr view failed}" >&2
-          exit 3
-        fi
-      fi
+    [ "$be" = "github" ] || { echo "plot-host: pr-comments: bitbucket is not supported yet" >&2; exit 4; }
+    if out="$(gh pr view "$num" --json comments 2>"$HOST_ERR")"; then
+      rm -f "$HOST_ERR"
+      jq -r '.comments[]?.body // "" | gsub("\r\n|\r|\n"; "\\n")' <<<"$out" || exit 3
     else
-      echo "plot-host: pr-comments: bitbucket is not supported yet" >&2
-      exit 4
+      err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+      miss_or_exit3 "$err"
     fi
     ;;
 
