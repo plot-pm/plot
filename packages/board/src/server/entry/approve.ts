@@ -64,6 +64,34 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * on stderr.
  */
 
+/** The commit-status context `plot-review` writes; this entry writes the same context for the one PR kind it has no writer for. */
+export const REVIEW_CONTEXT = 'plot/review';
+
+/**
+ * Writes the `plot/review` status a plan-PR merge never otherwise gets: the
+ * approval itself is the one review this PR kind has, so the controller
+ * records it as `success` on the head the merge is about to pin to.
+ *
+ * MUST run before the merge call — a write issued after is on a head the
+ * merge has already made unreachable, and once the branch rule requires this
+ * status, a too-late write would pass "does it write a status" while being
+ * useless against the rule it exists for.
+ *
+ * Silently skips when the PR carries no head (the host named none): there is
+ * no sha to pin the status to, and the merge below already falls back to an
+ * unpinned merge in that case.
+ */
+export const writeApprovalStatus = async (host: Host, headSha: string | undefined, who: string): Promise<void> => {
+  if (!headSha) return;
+  await host.commitStatus({
+    sha: headSha,
+    state: 'success',
+    context: REVIEW_CONTEXT,
+    description: `approved by ${who}`,
+    targetUrl: '',
+  });
+};
+
 /** The usage block `-h` prints; lines 2 to 12 of the launcher this entry replaced. */
 const USAGE = [
   '# Plot helper: perform the MECHANICAL half of approving a plan.',
@@ -1020,6 +1048,7 @@ const perform = async (ctx: Context, args: Args, write: Printer, warn: Printer):
       }
       write(`step: marked PR #${pr.number} ready for review\n`);
     }
+    await writeApprovalStatus(ctx.host, pr.headSha, who);
     // The head the gate read is the head that merges: a push between the two
     // fails at the host. A host that named no head merges as it always did.
     const pin = pr.headSha ? ['--match-head', pr.headSha] : [];

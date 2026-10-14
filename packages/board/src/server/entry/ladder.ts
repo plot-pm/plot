@@ -22,6 +22,9 @@ export interface LadderContext {
 /** Prints to stdout, matching the scripts' unprefixed `step:`/`summary:` lines. */
 export type Printer = (s: string) => void;
 
+/** The commit-status context `plot-review` writes; the ladder's micro-PR fallback writes the same context, since a micro-PR gets no other review. */
+const REVIEW_CONTEXT = 'plot/review';
+
 /**
  * The local calendar date of `now`, as `date +%Y-%m-%d` prints it.
  *
@@ -156,6 +159,19 @@ export const commitAndPush = async (
   const created = await ctx.host.prCreate({ head: bookbr, title, body, base: main });
   if (!created.ok) return { rejected: true };
   const num = created.value.split('/').pop() ?? '';
+  // This micro-PR is the one review step it gets: write the status on the PR
+  // this call just created, before merging it — never a lookup that could
+  // resolve a different open PR, so the head comes from this PR's own state.
+  const state = await ctx.host.prState(num);
+  if (state.ok && state.value !== null && (state.value.headSha ?? '') !== '') {
+    await ctx.host.commitStatus({
+      sha: state.value.headSha ?? '',
+      state: 'success',
+      context: REVIEW_CONTEXT,
+      description: `bookkeeping: ${noun}`,
+      targetUrl: '',
+    });
+  }
   const merged = await ctx.scripts.host(['pr-merge', num, '--delete-branch']);
   if (!merged.ok) return { rejected: true };
   write(`step: ${noun} landed via micro-PR ${created.value}\n`);
