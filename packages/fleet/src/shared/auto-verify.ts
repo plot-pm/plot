@@ -27,6 +27,7 @@ import { readConfig } from './config-reader.js';
 import { usableCommand } from './usable-command.js';
 import { scriptsOf, verifyLogPath, type ActOptions } from './action-log.js';
 import { startBoardRun } from './board-run.js';
+import { boundSecondsOf as sharedBoundSecondsOf, pidAlive, readRunState, runGoing, updateRunState } from './fleet-run.js';
 
 /** The `## Plot Config` key naming the command that starts a verify run. */
 export const VERIFY_COMMAND_KEY = 'Verify command';
@@ -34,8 +35,7 @@ export const VERIFY_COMMAND_KEY = 'Verify command';
 /** The `## Plot Config` key that switches automatic verification on. */
 export const AUTO_VERIFY_KEY = 'Auto-verify';
 
-/** The `## Plot Config` key whose seconds bound one verify run. */
-export const WORKER_BOUND_KEY = 'Worker bound';
+export { WORKER_BOUND_KEY } from './fleet-run.js';
 
 /** `Worker bound` where the key is absent or not a positive whole number of seconds. */
 export const DEFAULT_VERIFY_BOUND_SECONDS = 28800;
@@ -159,26 +159,17 @@ export const verifyStatePath = (repoRoot: string): string =>
  * @returns the state; the empty state where no file exists; `null` where a file exists and cannot be read.
  */
 export const readVerifyState = (repoRoot: string): VerifyStateFile | null => {
-  let text: string;
-  try {
-    text = fs.readFileSync(verifyStatePath(repoRoot), 'utf8');
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? EMPTY : null;
-  }
-  try {
-    const raw = JSON.parse(text) as Partial<VerifyStateFile>;
-    return {
-      failures: raw.failures ?? {},
-      failedAt: Array.isArray(raw.failedAt) ? raw.failedAt : [],
-      lastSuccessAt: typeof raw.lastSuccessAt === 'number' ? raw.lastSuccessAt : 0,
-      running: raw.running ?? {},
-      refusals: raw.refusals ?? {},
-      rows: Array.isArray(raw.rows) ? raw.rows : [],
-      last: raw.last ?? {},
-    };
-  } catch {
-    return null;
-  }
+  const raw = readRunState<Partial<VerifyStateFile>>(verifyStatePath(repoRoot), EMPTY);
+  if (raw === null) return null;
+  return {
+    failures: raw.failures ?? {},
+    failedAt: Array.isArray(raw.failedAt) ? raw.failedAt : [],
+    lastSuccessAt: typeof raw.lastSuccessAt === 'number' ? raw.lastSuccessAt : 0,
+    running: raw.running ?? {},
+    refusals: raw.refusals ?? {},
+    rows: Array.isArray(raw.rows) ? raw.rows : [],
+    last: raw.last ?? {},
+  };
 };
 
 /**
@@ -192,26 +183,7 @@ export const readVerifyState = (repoRoot: string): VerifyStateFile | null => {
 export const updateVerifyState = (
   repoRoot: string,
   change: (current: VerifyStateFile) => VerifyStateFile,
-): VerifyStateFile | null => {
-  const current = readVerifyState(repoRoot);
-  if (current === null) return null;
-  const next = change(current);
-  const file = verifyStatePath(repoRoot);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(next), 'utf8');
-  fs.renameSync(tmp, file);
-  return next;
-};
-
-const pidAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-};
+): VerifyStateFile | null => updateRunState(verifyStatePath(repoRoot), EMPTY, change);
 
 /**
  * Whether a run this fleet started is still going: no end recorded, and its
@@ -222,10 +194,8 @@ const pidAlive = (pid: number): boolean => {
  * @param now - epoch milliseconds.
  * @returns `true` while the run is going.
  */
-export const verifyRunGoing = (run: VerifyRun, alive: (pid: number) => boolean, now: number): boolean => {
-  if (run.code !== undefined) return false;
-  return run.pid > 0 ? alive(run.pid) : now - run.startedAt < VERIFY_START_GRACE_MS;
-};
+export const verifyRunGoing = (run: VerifyRun, alive: (pid: number) => boolean, now: number): boolean =>
+  runGoing(run, alive, now, VERIFY_START_GRACE_MS);
 
 /** The verify runs going now: the ones this fleet started that have not ended. */
 export const verifyingCount = (
@@ -390,10 +360,7 @@ const defaultWorld: VerifyPassWorld = {
 };
 
 /** `Worker bound` in seconds, or {@link DEFAULT_VERIFY_BOUND_SECONDS}. */
-const boundSecondsOf = (opts: ActOptions): number => {
-  const value = Number(readConfig(opts, WORKER_BOUND_KEY, String(DEFAULT_VERIFY_BOUND_SECONDS)));
-  return Number.isInteger(value) && value > 0 ? value : DEFAULT_VERIFY_BOUND_SECONDS;
-};
+const boundSecondsOf = (opts: ActOptions): number => sharedBoundSecondsOf(opts, DEFAULT_VERIFY_BOUND_SECONDS);
 
 /**
  * One verification pass: settle the runs this fleet started that ended,

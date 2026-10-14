@@ -427,6 +427,28 @@ await esbuild.build({
 fs.copyFileSync(verifyArtifact, shippedVerify);
 fs.chmodSync(shippedVerify, 0o755);
 
+// A person's spec-run control: restart, status.
+//
+// Its own artifact for the same reason verify's is: it spawns git and
+// plot-host.sh.
+const designArtifact = path.join(here, 'dist/plot-design.mjs');
+const shippedDesign = path.join(here, '../../skills/plot/scripts/board/plot-design.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/design.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: designArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(designArtifact, shippedDesign);
+fs.chmodSync(shippedDesign, 0o755);
+
 // The agent state, for the callers already in node.
 //
 // The same reason the seventh gives, and it is NOT on the hot path the seventh

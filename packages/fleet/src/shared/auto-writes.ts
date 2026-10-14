@@ -1,7 +1,8 @@
 import type { FleetReading, HeldSlice } from '@plot-pm/domain';
 
 import { runAutoDeliverPass } from './auto-deliver.js';
-import { runAutoVerifyPass } from './auto-verify.js';
+import { runAutoVerifyPass, verifyingCount } from './auto-verify.js';
+import { runAutoDesignPass } from './auto-design.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
 import type { ActOptions } from './action-log.js';
 import { readMachine } from './machine-reading.js';
@@ -52,6 +53,16 @@ export const fleetAutoWrites = (
         headroom: machine.headroom,
         machineOverride: controls.machineOverride,
         held: queueHeld(),
+      });
+      // SPEC RUNS GO LAST, AFTER VERIFICATION: both read the same slot
+      // refusals and the fleet runs at most one of either kind at a time, so
+      // verification — the longer-standing pass — gets first claim on a free
+      // slot each tick.
+      await runAutoDesignPass(opts, pulse, {
+        headroom: machine.headroom,
+        machineOverride: controls.machineOverride,
+        held: queueHeld(),
+        verifying: verifyingCount(opts.repoRoot) > 0 ? new Set(['_verify']) : new Set<string>(),
       });
     } catch (e) {
       warn(`plot-fleetd: automatic writes failed: ${e instanceof Error ? e.message : String(e)}`);

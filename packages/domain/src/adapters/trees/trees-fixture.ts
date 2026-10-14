@@ -105,6 +105,8 @@ export interface TreesFixture {
   removeRefusedAt?: readonly string[];
   /** Branches where `deleteBranch` refuses. */
   deleteRefusedFor?: readonly string[];
+  /** Branches where `deleteRemoteBranch` refuses — a stale lease or a plain git refusal alike. */
+  deleteRemoteRefusedFor?: readonly string[];
   /**
    * What `unpushedCommits` answers, keyed by path. A path absent from the
    * table reads `failed`, the direction the git adapter fails in.
@@ -153,6 +155,8 @@ export interface TreesFixture {
     stages: { path: string; pathspecs: readonly string[] }[];
     /** Every line `excludePath` appended; a line already ignored is not recorded. */
     excludes?: { path: string; line: string }[];
+    /** Every `deleteRemoteBranch` call received. */
+    deletesRemote?: { branch: string; expectedTip: string }[];
   };
 }
 
@@ -253,6 +257,11 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
 
     deleteBranch: async (branch): Promise<PortResult<void>> =>
       (fixture.deleteRefusedFor ?? []).includes(branch) ? failed<void>() : answered(undefined),
+
+    deleteRemoteBranch: async (branch, expectedTip): Promise<PortResult<void>> => {
+      fixture.calls?.deletesRemote?.push({ branch, expectedTip });
+      return (fixture.deleteRemoteRefusedFor ?? []).includes(branch) ? failed<void>() : answered(undefined);
+    },
 
     unpushedCommits: async (path): Promise<PortResult<readonly string[]>> => {
       const shas = fixture.unpushed?.[path];

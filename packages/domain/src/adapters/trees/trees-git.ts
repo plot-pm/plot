@@ -423,6 +423,15 @@ export const treesGit = (context: ShellContext): Trees => {
     deleteBranch: async (branch) =>
       runScript('git', ['branch', '-D', branch], () => undefined, inRepo),
 
+    deleteRemoteBranch: async (branch, expectedTip): Promise<PortResult<void>> => {
+      const run = await runProcess(
+        'git',
+        ['push', `--force-with-lease=refs/heads/${branch}:${expectedTip}`, 'origin', '--delete', branch],
+        inRepo,
+      );
+      return run.code === 0 ? answered(undefined) : failed<void>();
+    },
+
     unpushedCommits: async (path, exclude) =>
       runScript(
         'git',

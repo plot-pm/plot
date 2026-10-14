@@ -365,6 +365,7 @@ export const hostShell = (context: ShellContext): Host => {
         request.head,
       ];
       if (request.base !== undefined && request.base !== '') args.push('--base', request.base);
+      if (request.draft) args.push('--draft');
       const run = await runProcess('bash', args, inRepo);
       // The URL is what `gh pr create` prints and the only thing it prints. A
       // host that opened one and said nothing about where answers `''` — the

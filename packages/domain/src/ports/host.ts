@@ -83,9 +83,9 @@ export interface HostRefusal {
  *
  * The base is optional because the host already knows its default branch, and a
  * caller that had to name it would be a caller holding a fact the connector
- * holds better. `draft` is likewise omitted rather than defaulted: a PR opened
- * on a finding is asking to be read, and a draft is the one shape a reviewer
- * will not be notified about.
+ * holds better. `draft` defaults to false: a caller sets `draft: true` for a
+ * proposal awaiting a person, and omits it for a finding, which is asking to be
+ * read and must notify a reviewer rather than wait silently for one.
  */
 export interface PrCreateRequest {
   /** The branch to open from; it must already exist on the host. */
@@ -96,6 +96,8 @@ export interface PrCreateRequest {
   body: string;
   /** The branch to merge into; the host's default when `''`. */
   base?: string;
+  /** Opens as a draft when true; a finding's default notifies a reviewer. */
+  draft?: boolean;
 }
 
 /**

@@ -301,6 +301,18 @@ describe('a host that answers', () => {
     ).prList('open');
     expect(withoutLimit).toEqual({ ok: true, value: [] });
   });
+
+  it('passes --draft only when the request asks for one', async () => {
+    const request = { title: 't', body: 'b', head: 'idea/a-spec' };
+    const withDraft = await hostShell(
+      hostThat('case " $* " in *" --draft "*) exit 0 ;; *) exit 1 ;; esac'),
+    ).prCreate({ ...request, draft: true });
+    expect(withDraft).toEqual({ ok: true, value: '' });
+    const withoutDraft = await hostShell(
+      hostThat('case " $* " in *" --draft "*) exit 1 ;; *) exit 0 ;; esac'),
+    ).prCreate(request);
+    expect(withoutDraft).toEqual({ ok: true, value: '' });
+  });
 });
 
 describe('the host’s words are read against what the entity allows', () => {

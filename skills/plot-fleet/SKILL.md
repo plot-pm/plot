@@ -109,6 +109,14 @@ node ../plot/scripts/board/plot-verify.mjs status
 
 It reads `.plot/state/auto-verify-in-flight.json`, which the supervisor's verify pass writes, and starts nothing. It prints whether verification is halted, the plan whose run is going, the reason the fleet gave per Delivered plan for starting no run (`off`, `starved`, `no-free-agent`, `queue-unread`, `running`, `hand-run`, `tracer`, `halted`, `stopped`, `waiting`), and each plan that waits on a person with its restart command `/plot-deliver --verify <slug>`. It prints nothing when the fleet recorded nothing. The same reading is the `verification` field of the board's `/api/fleet` payload.
 
+**Then print the design block, the same way.** Run this after the verification block and print its output below it:
+
+```bash
+node ../plot/scripts/board/plot-design.mjs status
+```
+
+It reads `.plot/state/auto-design-in-flight.json`, which the supervisor's spec pass writes, and starts nothing. It prints whether a Design plan's spec run is going, the reason the fleet gave per Design plan for starting no run (the same vocabulary as `specStart`'s refusals: `off`, `running`, `declined`, `halted`, `stopped`, `waiting`, plus the slot refusals `queue-unread`, `no-free-agent`, `starved`), and each plan that waits on a person with its restart command `node ../plot/scripts/board/plot-design.mjs restart <slug>`. It prints nothing when the fleet recorded nothing. The same reading is the `design` field of the board's `/api/fleet` payload, read beside `verification`.
+
 **A second block follows the `summary:` line when another checkout is involved.**
 It lists every Plot supervisor, board and top-level scan on this machine, found
 by process rather than by label, each with the checkout it serves (its cwd) and

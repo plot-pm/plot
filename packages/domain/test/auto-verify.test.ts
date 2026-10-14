@@ -259,3 +259,24 @@ describe('scaleUp counts a going verify run', () => {
     expect(one?.running).toBe(1);
   });
 });
+
+describe('scaleUp counts a going spec run', () => {
+  const fleet = { size: 3, headroom: 'clear' as const, spawnCostMs: 5, desks: ['d1', 'd2', 'd3'] };
+  const queued = (specRunning?: number) => ({
+    slices: [],
+    agents: [],
+    ...(specRunning === undefined ? {} : { specRunning }),
+  });
+
+  it('adds the run to running, the same way a verify run does', () => {
+    const none = assign(queued(), { fleet }).detail.scaling;
+    const one = assign(queued(1), { fleet }).detail.scaling;
+    expect(none?.running).toBe(0);
+    expect(one?.running).toBe(1);
+  });
+
+  it('adds a verify run and a spec run together', () => {
+    const both = assign({ slices: [], agents: [], verifying: 1, specRunning: 1 }, { fleet }).detail.scaling;
+    expect(both?.running).toBe(2);
+  });
+});

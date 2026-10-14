@@ -190,6 +190,14 @@ export interface QueueReadings {
    */
   verifying?: number;
   /**
+   * How many spec runs are going — the fleet's own design-writing runs,
+   * `auto-design.ts`'s `runAutoDesignPass`. Each holds a process slot beside
+   * the agents, exactly as {@link QueueReadings.verifying} does, so `scaleUp`
+   * counts it as running too; {@link matchQueue} never reads it. Absent means
+   * none.
+   */
+  specRunning?: number;
+  /**
    * How fully the host answered which branches merged, where it was asked.
    *
    * **OPTIONAL BECAUSE IT IS A REPORT AND NOT A MATCHING INPUT.**

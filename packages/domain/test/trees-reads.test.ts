@@ -379,6 +379,22 @@ describe('treesGit: the reaper\'s branch and unpushed readings', () => {
     }
   });
 
+  it('deletes a remote branch at the expected tip, and refuses a stale one', async () => {
+    const { root, clone } = cloned();
+    try {
+      git(clone, ['checkout', '--quiet', '-b', 'idea/a-spec']);
+      const firstTip = commit(clone, 'b.txt', 'two\n');
+      git(clone, ['push', '--quiet', 'origin', 'idea/a-spec']);
+      const port = treesGit({ repoRoot: clone, scriptDir });
+      expect((await port.deleteRemoteBranch('idea/a-spec', '0000000000000000000000000000000000000000')).ok).toBe(false);
+      expect(git(root, ['ls-remote', '--heads', path.join(root, 'origin.git'), 'idea/a-spec']).trim()).not.toBe('');
+      expect(await port.deleteRemoteBranch('idea/a-spec', firstTip)).toEqual({ ok: true, value: undefined });
+      expect(git(root, ['ls-remote', '--heads', path.join(root, 'origin.git'), 'idea/a-spec']).trim()).toBe('');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('lists commits no remote holds, minus the ancestors of an excluded commit', async () => {
     const { root, clone } = cloned();
     try {

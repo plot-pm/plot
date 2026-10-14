@@ -224,9 +224,9 @@ const scaleUp = (
   // is how many workers this machine is carrying, and a free agent is carrying
   // one — it holds a slot and is about to be handed a slice. Counting only the
   // busy ones would start a second agent beside every idle one every tick.
-  // A GOING VERIFY RUN HOLDS A SLOT TOO, and the daemon would otherwise start
-  // workers the machine cannot carry beside it.
-  const running = readings.agents.length + (readings.verifying ?? 0);
+  // A GOING VERIFY RUN OR SPEC RUN HOLDS A SLOT TOO, and the daemon would
+  // otherwise start workers the machine cannot carry beside them.
+  const running = readings.agents.length + (readings.verifying ?? 0) + (readings.specRunning ?? 0);
 
   const answer = fleetSize({
     requested: waiting === 0 ? running : fleet.size,

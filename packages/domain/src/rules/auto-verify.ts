@@ -126,7 +126,14 @@ export interface VerifyStartInput {
   readonly machineOverride: boolean;
   /** The slices the queue's last pass held, or `null` where no pass has been read. */
   readonly held: readonly HeldSlice[] | null;
-  /** The slugs with a verify run this fleet started that is still going. */
+  /**
+   * The slugs with a verify run this fleet started that is still going, plus
+   * a marker entry while any spec run is going — `specStart`'s own `going`
+   * reads the same two kinds the other way. Only the set's size is read here:
+   * the machine carries at most one verify process, and a going spec run
+   * holds that one process exactly as a going verify run of another plan
+   * would.
+   */
   readonly going: ReadonlySet<string>;
   /** Whether the plan has verification trees on this machine that this fleet did not start. */
   readonly handRun: boolean;
@@ -142,9 +149,10 @@ export interface VerifyStartInput {
  * order: `off`, `tracer`, `running`, `hand-run`, `halted`, `stopped`,
  * `waiting`, `queue-unread`, `no-free-agent`, `starved`.
  *
- * `running` refuses while any verify run is going, for any plan: the machine
- * carries at most one verify process. `hand-run` refuses a plan whose trees a
- * person's run holds. `queue-unread` refuses while no queue pass has been read,
+ * `running` refuses while any verify run OR any spec run is going, for any
+ * plan: the machine carries at most one verify process, and a going spec run
+ * holds that same slot. `hand-run` refuses a plan whose trees a person's run
+ * holds. `queue-unread` refuses while no queue pass has been read,
  * because an unread queue is not an empty one. `no-free-agent` refuses while
  * any slice is held on it. `starved` refuses only without `Machine override`.
  *

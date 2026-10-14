@@ -385,6 +385,31 @@ export const agentLogPath = (
 ): string => path.join(ensureAgentLogDir(repoRoot), `plot-${kind}-${id}${EXTENSIONS[file]}`);
 
 /**
+ * Where a spec-writing run's prompt is written, keyed by plan slug.
+ *
+ * Over the existing `commission` kind, not a new one: the board's now-removed
+ * *Commission design* route (`commission.ts`) kept its own prompt/log at this
+ * same name, so the spec run that replaces it keeps `plot-commission-<slug>.*`
+ * rather than orphaning that file naming or migrating anything.
+ *
+ * @param repoRoot absolute path to the repository this board serves
+ * @param slug the plan slug
+ * @returns an absolute path; the file need not exist
+ */
+export const designPromptPath = (repoRoot: string, slug: string): string =>
+  agentLogPath(repoRoot, 'commission', slug, 'prompt');
+
+/**
+ * Where a spec-writing run's own words go — the neighbourhood {@link designPromptPath} uses.
+ *
+ * @param repoRoot absolute path to the repository this board serves
+ * @param slug the plan slug
+ * @returns an absolute path; the file need not exist
+ */
+export const designLogPath = (repoRoot: string, slug: string): string =>
+  agentLogPath(repoRoot, 'commission', slug, 'log');
+
+/**
  * Whether a resolved path sits inside {@link agentLogDir} for this repository.
  *
  * THE INVARIANT THE RESOLVER OWNS, ASKED BY THE ROUTE THAT SERVES THESE FILES

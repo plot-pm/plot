@@ -17,6 +17,7 @@ import {
   type BriefState,
   type Fleet,
   type VerificationStatus,
+  type DesignStatus as DesignStatusPayload,
   type FleetReading,
   type FleetSprint,
   type IssueAnswer,
@@ -114,6 +115,7 @@ import {
 } from './supervision-report-reading.js';
 import { readAgentRegistryWithInfo, bashCleanliness } from '@plot-pm/fleet/shared/registry';
 import { readVerifyStatus, type VerifyStatus } from '@plot-pm/fleet/shared/auto-verify';
+import { readDesignStatus, type DesignStatus } from '@plot-pm/fleet/shared/auto-design';
 import type { RegistryInfo } from '@plot-pm/fleet/shared/registry';
 import type { AgentEntry } from '@plot-pm/fleet/shared/registry';
 import { workerQuestions } from '@plot-pm/fleet/shared/worker-question';
@@ -7063,6 +7065,8 @@ export async function buildFleet(
     // THE VERIFY PASS'S OWN WRITE, read on the render clock: one small file,
     // and the pass is its one writer.
     verification: verificationPayload(readVerifyStatus(opts.repoRoot)),
+    // THE SPEC PASS'S OWN WRITE, read the same way beside `verification`.
+    design: designPayload(readDesignStatus(opts.repoRoot)),
   };
 }
 
@@ -7073,6 +7077,17 @@ export async function buildFleet(
  * @returns the field.
  */
 export const verificationPayload = (status: VerifyStatus | null): VerificationStatus | null =>
+  status === null
+    ? null
+    : { halted: status.halted, running: [...status.running], refusals: { ...status.refusals }, rows: status.rows.map((row) => ({ ...row })) };
+
+/**
+ * The payload's design field from the status the spec pass wrote.
+ *
+ * @param status - the status, or `null` where the state file cannot be read.
+ * @returns the field.
+ */
+export const designPayload = (status: DesignStatus | null): DesignStatusPayload | null =>
   status === null
     ? null
     : { halted: status.halted, running: [...status.running], refusals: { ...status.refusals }, rows: status.rows.map((row) => ({ ...row })) };

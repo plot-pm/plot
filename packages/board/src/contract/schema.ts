@@ -4044,6 +4044,32 @@ export const VerificationStatusSchema = z.object({
 });
 export type VerificationStatus = z.infer<typeof VerificationStatusSchema>;
 
+/**
+ * The fleet's automatic spec runs, as `plot-fleetd` last wrote it to
+ * `.plot/state/auto-design-in-flight.json`.
+ */
+export const DesignStatusSchema = z.object({
+  /** Whether the fleet starts no spec run of any plan: three failed runs since the last success. */
+  halted: z.boolean(),
+  /** The plans with a run the fleet started that has not settled. */
+  running: z.array(z.string()),
+  /** The last reason the fleet gave per plan for starting no run, including `ask-host`. */
+  refusals: z.record(z.string(), z.string()),
+  /** The plans whose spec run waits on a person, with the restart command. */
+  rows: z.array(
+    z.object({
+      kind: z.literal('spec'),
+      plan: z.string(),
+      reason: z.string(),
+      log: z.string(),
+      restart: z.string(),
+      stopped: z.boolean(),
+      halted: z.boolean(),
+    }),
+  ),
+});
+export type DesignStatus = z.infer<typeof DesignStatusSchema>;
+
 export const FleetShape = z.object({
   generatedAt: z.string(),
   /** Seconds since the cached scan completed — the tab shows this. */
@@ -4478,6 +4504,12 @@ export const FleetShape = z.object({
    * read. The board renders no row from it yet.
    */
   verification: VerificationStatusSchema.nullable().default(null),
+  /**
+   * The fleet's automatic spec runs, the same shape as `verification` for the
+   * design pass. `null` where the state file cannot be read. The board
+   * renders no row from it yet.
+   */
+  design: DesignStatusSchema.nullable().default(null),
 });
 export const FleetSchema = z.preprocess(readEitherSpelling, FleetShape);
 export type Fleet = z.infer<typeof FleetSchema>;

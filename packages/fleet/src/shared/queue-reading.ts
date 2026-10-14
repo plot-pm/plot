@@ -40,6 +40,8 @@ import type { AgentEntry } from './registry.js';
 export interface QueueWorld {
   /** How many verify runs are going; absent for none. They hold an agent slot. */
   verifying?(): number;
+  /** How many spec runs are going; absent for none. They hold an agent slot, exactly as a verify run does. */
+  specRunning?(): number;
   /** Every plan on the estate, as the plan store parses them. */
   plans(): Promise<readonly PlanRecord[]>;
   /** The remote branches that exist — a ref IS a claim. */
@@ -391,6 +393,7 @@ export const readQueue = async (
     orphanedClaims: orphaned,
     defaultBranchRed: world.defaultBranchRed ? await world.defaultBranchRed() : false,
     verifying: world.verifying ? world.verifying() : 0,
+    specRunning: world.specRunning ? world.specRunning() : 0,
   };
 };
 

@@ -331,6 +331,21 @@ export interface Trees {
   deleteBranch(branch: string): Promise<PortResult<void>>;
 
   /**
+   * Deletes a branch on `origin`, pinned to the tip the caller read.
+   *
+   * `git push --force-with-lease=refs/heads/<branch>:<expectedTip> origin
+   * --delete <branch>` — the lease is what makes this a PINNED delete rather
+   * than a plain `git push origin --delete`: a commit that landed on the
+   * remote between the caller's read and this call aborts the push instead of
+   * deleting a branch the caller never saw.
+   *
+   * @param branch - the branch name, without a remote prefix.
+   * @param expectedTip - the branch's tip as the caller last read it.
+   * @returns nothing; a failure means the lease was stale or git refused.
+   */
+  deleteRemoteBranch(branch: string, expectedTip: string): Promise<PortResult<void>>;
+
+  /**
    * The commits on a checkout's `HEAD` that no remote-tracking ref holds,
    * as abbreviated shas, newest first.
    *

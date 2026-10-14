@@ -63,6 +63,7 @@ import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEn
 import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.js';
 import { fleetAutoWrites } from '../../shared/auto-writes.js';
 import { verifyingCount } from '../../shared/auto-verify.js';
+import { specRunningCount } from '../../shared/auto-design.js';
 import { runDeskRelay } from '../../shared/desk-relay.js';
 import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js';
 import { fleetIssues, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
@@ -811,6 +812,8 @@ export const queueWorldForRepo = (
     },
     // A GOING VERIFY RUN HOLDS AN AGENT SLOT, so `scaleUp` counts it.
     verifying: () => verifyingCount(repoRoot),
+    // A GOING SPEC RUN HOLDS AN AGENT SLOT TOO.
+    specRunning: () => specRunningCount(repoRoot),
     // READS THE FILE FLEETD WRITES AND NEVER THE HOST. A missing, unparseable
     // or other-version file is no reading, and no reading holds nothing.
     defaultBranchRed: async () => {

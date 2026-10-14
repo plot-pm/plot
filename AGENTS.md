@@ -101,6 +101,8 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Interrogate command:** PLOT_UNATTENDED=1 CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 claude -p --model sonnet ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
 - **Verify command:** PLOT_UNATTENDED=1 CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 claude -p --model opus ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
 - **Auto-verify:** false
+- **Design command:** PLOT_UNATTENDED=1 CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000 claude -p --model sonnet ${PLOT_AGENT_SETTINGS:+--settings "$PLOT_AGENT_SETTINGS"} --permission-mode bypassPermissions
+- **Auto-design:** false
 
 <!-- `Implement command` runs `/plot-implement <slug>` for the board's
      `Implement` control and for `WriteBriefButton`, which is the same route
