@@ -898,6 +898,7 @@ n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
 n_unsliced=0; n_prose=0; n_unplanned_members=0; n_sprint_unset=0; n_sprint_mismatch=0
 n_stale_tally=0; n_idx=0; n_double=0
 n_rounds_drift=0; n_sprint_idx=0; n_sprint_ship=0; n_stated=0; n_unclaimed=0; n_merged_refs=0
+n_review_bypass=0
 n_no_changeset=0
 
 # ---------------------------------------------------------------------------
@@ -2542,6 +2543,75 @@ else
 fi
 echo
 
+# ---------------------------------------------------------------------------
+# 20a. Review bypass
+#
+# A PR merged into main with no passing `plot/review` and no `review-bypass:`
+# comment recording why. Evidence for a person to read, never a gate —
+# `/plot-reconcile` gates nothing, and this section is no exception.
+#
+# THE COMMENT IS THE ESCAPE HATCH, ALREADY DECIDED ELSEWHERE. A maintainer may
+# merge past a stuck or wrong review as a repo admin, and records the reason
+# on the PR as a comment starting `review-bypass:`. This section detects a
+# merge with no passing status AND no such comment; it builds no bypass
+# mechanism of its own; `plot-host.sh pr-comments` reads bodies and this
+# section matches the prefix, same split the architecture holds throughout:
+# the adapter reads, the script decides.
+#
+# THE SIGNAL IS APPROXIMATE, NAMED HERE RATHER THAN HIDDEN. `pr-state`'s
+# `checks` field is the ONE FOLD of a PR's whole rollup — it cannot
+# distinguish "plot/review failed" from "some unrelated check failed" from
+# "plot/review never ran". A precise per-context read exists in GitHub's
+# GraphQL schema (`Commit.status.context(name:)`) but needs its own rate-
+# budget accounting to add safely to this adapter — reported as a finding
+# rather than built under this pass. Until that lands, "not green" is this
+# section's proxy for "no passing plot/review", so a merge failing on an
+# unrelated check (`corpus`, `validate`) is flagged alongside a genuinely
+# unreviewed one. A false positive here costs a person one look at the PR;
+# naming the approximation is cheaper than a silent precise-sounding wrong
+# answer.
+#
+# ONLY A MERGED PR IS A CANDIDATE, from `merged_pr_heads` — the same bundled
+# list sections 2 and 18 already read, so this costs nothing new to fetch.
+# `main` and `release/*` are excluded: a direct push carries no PR to ask
+# about, and the plan explicitly keeps direct pushes out of scope (requiring
+# a status there would need a commit status on a commit no review reads).
+#
+# REPORTS AND NEVER GATES, carries its own footer counter
+# (`review_bypass=`), and sits below the `== blocking sections end ==`
+# marker like every advisory section before it.
+echo "== 20a. Review bypass (a merge with no passing plot/review and no bypass note — a person decides) =="
+review_bypass_out=""
+if [ "$pr_reliable" != 1 ]; then
+  echo "  (not evaluated — merged-PR list unavailable: pr_source=$PR_SOURCE${PR_ERROR:+ — $PR_ERROR})"
+  echo "  Whether a PR's plot/review passed is the host's answer; re-run once it answers."
+elif [ -z "$merged_pr_heads" ]; then
+  echo "  (none — no merged PR to examine)"
+else
+  while read -r pr_num pr_head; do
+    [ -n "$pr_num" ] || continue
+    case "$pr_head" in "$MAIN"|release/*) continue ;; esac
+
+    state_json=$(bash "$script_dir/plot-host.sh" pr-state "$pr_num" 2>/dev/null) || continue
+    checks=$(printf '%s' "$state_json" | jq -r '.checks // "unknown"' 2>/dev/null)
+    [ "$checks" = "green" ] && continue
+
+    comments=$(bash "$script_dir/plot-host.sh" pr-comments "$pr_num" 2>/dev/null)
+    printf '%s\n' "$comments" | grep -q '^review-bypass:' && continue
+
+    review_bypass_out+="  origin/$pr_head — PR #$pr_num merged with checks=$checks, no review-bypass: comment\n"
+    review_bypass_out+="    inspect: gh pr view $pr_num --json statusCheckRollup,comments\n"
+    n_review_bypass=$((n_review_bypass + 1))
+  done <<< "$merged_pr_heads"
+
+  if [ -n "$review_bypass_out" ]; then printf '%b' "$review_bypass_out"; else echo "  (none — every examined merge carries a green status or a bypass note)"; fi
+  if [ "$MERGED_PR_TRUNCATED" = 1 ]; then
+    echo "  note: merged-PR list hit its limit of $MERGED_PR_LIMIT — older merged PRs were"
+    echo "        not examined; a bypass further back may still be missed here."
+  fi
+fi
+echo
+
 echo "== 21. Desks (a worktree the fleet left behind — a person decides) =="
 # THE READINGS ARE TAKEN HERE AND THE VERDICT IS THE RULE'S. This section
 # collects what is measurable about every worktree and asks
@@ -3381,5 +3451,5 @@ fi
 echo
 
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues unread_headings=$n_unread unread_waits=$n_unread_waits temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs review_bypass=$n_review_bypass desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues unread_headings=$n_unread unread_waits=$n_unread_waits temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
 exit 0
