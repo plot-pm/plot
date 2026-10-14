@@ -1,5 +1,7 @@
 // `plot-host.sh commit-status` — write a GitHub commit status as a GitHub App
-// installation, never as the signed-in `gh` user.
+// installation, never as the signed-in `gh` user; write a Bitbucket build
+// status as a dedicated account's App password, never as the signed-in `bb`
+// identity.
 //
 // Tracer slice of docs/plans/2026-10-14-a-pr-cannot-merge-until-its.md. Each
 // test names the implementation it catches.
@@ -199,12 +201,12 @@ test('commit-status: neither the JWT nor the installation token appears in any c
   assert.ok(!got.out.includes(jwt) && !got.out.includes(INSTALLATION_TOKEN), 'a credential reached stdout');
 });
 
-test('commit-status: GitHub only — a non-GitHub backend exits 4', async () => {
+test('commit-status: a backend with no arm (neither github nor bitbucket) exits 4', async () => {
   const box = sandbox();
   const api = await fakeGitHub();
-  const got = await commitStatus(box, ARGS, api.url, { PLOT_HOST: 'bitbucket' });
+  const got = await commitStatus(box, ARGS, api.url, { PLOT_HOST: 'gitlab' });
   assert.equal(got.code, 4);
-  assert.equal(callLog(box), '', 'no gh or node call on an unaskable backend');
+  assert.equal(callLog(box), '', 'no gh, bb or node call on an unaskable backend');
   assert.equal(api.requests.length, 0);
 });
 
@@ -237,5 +239,206 @@ test('commit-status: a missing argument exits 1 before gh or the API is asked', 
   const got = await commitStatus(box, ARGS.slice(0, 4), api.url);
   assert.equal(got.code, 1);
   assert.doesNotMatch(callLog(box), /^gh /m);
+  assert.equal(api.requests.length, 0);
+});
+
+// --- Bitbucket -------------------------------------------------------------
+//
+// Same op, a different host: a build status via Basic auth as a dedicated
+// account (BITBUCKET_REVIEW_USER / BITBUCKET_REVIEW_APP_PASSWORD), never as
+// whichever identity `bb` is signed in as on this machine. No `bb` call is
+// made at all — the write goes through `fetch` inside the Node helper.
+
+/**
+ * A stand-in for the Bitbucket API. Records every request and answers the
+ * build-status route; `statusCode` sets its answer.
+ */
+const fakeBitbucket = async ({ statusCode = 201 } = {}) => {
+  const requests = [];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      requests.push({ method: req.method, url: req.url, auth: req.headers.authorization || '', body });
+      const reply = (code, json) => {
+        res.writeHead(code, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(json));
+      };
+      if (req.method === 'POST' && req.url === '/repositories/myws/myrepo/commit/deadbeef/statuses/build') {
+        return reply(statusCode, {});
+      }
+      return reply(404, { type: 'error', error: { message: 'unexpected route' } });
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  servers.push(server);
+  return { url: `http://127.0.0.1:${server.address().port}`, requests };
+};
+
+/**
+ * A scratch repo with a bitbucket.org origin remote and a PATH stub dir.
+ * `bb` logs its argv and exits 1 (never called on the happy path); `node` logs
+ * argv then runs the real interpreter. No `curl` stub: the write goes through
+ * `fetch` inside the Node process, not a child.
+ */
+const bbSandbox = ({ withEnv = {} } = {}) => {
+  const root = scratch('plot-host-commit-status-bb-');
+  execFileSync('git', ['init', '-q', root]);
+  execFileSync('git', ['-C', root, 'remote', 'add', 'origin', 'git@bitbucket.org:myws/myrepo.git']);
+  fs.writeFileSync(path.join(root, 'CLAUDE.md'), '## Plot Config\n\n');
+  if (withEnv.dotenv) fs.writeFileSync(path.join(root, '.env'), withEnv.dotenv);
+
+  const bin = path.join(root, 'bin');
+  fs.mkdirSync(bin);
+  const calls = path.join(root, 'calls');
+  const stub = (name, tail) => {
+    fs.writeFileSync(path.join(bin, name), `#!/bin/sh\necho "${name} $*" >> "${calls}"\n${tail}\n`);
+    fs.chmodSync(path.join(bin, name), 0o755);
+  };
+  stub('bb', 'exit 1');
+  stub('node', `exec "${process.execPath}" "$@"`);
+
+  return { root, bin, calls };
+};
+
+const bbCommitStatus = (box, args, api, extra = {}) =>
+  new Promise((resolve) => {
+    const child = spawn('bash', [adapter, 'commit-status', ...args], {
+      cwd: box.root,
+      env: {
+        ...process.env,
+        PATH: `${box.bin}:${process.env.PATH}`,
+        PLOT_HOST: 'bitbucket',
+        BITBUCKET_API_BASE: api,
+        ...extra,
+      },
+    });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (d) => {
+      out += d;
+    });
+    child.stderr.on('data', (d) => {
+      err += d;
+    });
+    child.on('close', (code) => resolve({ code, out: out.trim(), err }));
+  });
+
+const BB_CRED = { BITBUCKET_REVIEW_USER: 'review-bot', BITBUCKET_REVIEW_APP_PASSWORD: 'app-pw-secret' };
+
+test('commit-status (bitbucket): no credential exits 4 naming both variables, before any API call', async () => {
+  // CATCHES a default/no-op success where the credential is absent — the
+  // brief's refusal requirement, mirrored from the GitHub arm's "no Review
+  // app key" test.
+  const box = bbSandbox();
+  const api = await fakeBitbucket();
+  const got = await bbCommitStatus(box, ARGS, api.url, {
+    BITBUCKET_REVIEW_USER: '',
+    BITBUCKET_REVIEW_APP_PASSWORD: '',
+  });
+  assert.equal(got.code, 4);
+  assert.match(got.err, /BITBUCKET_REVIEW_USER/);
+  assert.match(got.err, /BITBUCKET_REVIEW_APP_PASSWORD/);
+  assert.doesNotMatch(callLog(box), /^bb /m, 'no bb call before the refusal');
+  assert.equal(api.requests.length, 0, 'no API call before the refusal');
+});
+
+test('commit-status (bitbucket): reads the credential from this repository\'s .env when the environment is unset', async () => {
+  const box = bbSandbox({ withEnv: { dotenv: `BITBUCKET_REVIEW_USER=${BB_CRED.BITBUCKET_REVIEW_USER}\nBITBUCKET_REVIEW_APP_PASSWORD=${BB_CRED.BITBUCKET_REVIEW_APP_PASSWORD}\n` } });
+  const api = await fakeBitbucket();
+  const got = await bbCommitStatus(box, ARGS, api.url, {
+    BITBUCKET_REVIEW_USER: '',
+    BITBUCKET_REVIEW_APP_PASSWORD: '',
+  });
+  assert.equal(got.code, 0, got.err);
+  const write = api.requests[0];
+  const expected = `Basic ${Buffer.from(`${BB_CRED.BITBUCKET_REVIEW_USER}:${BB_CRED.BITBUCKET_REVIEW_APP_PASSWORD}`).toString('base64')}`;
+  assert.equal(write.auth, expected);
+});
+
+test('commit-status (bitbucket): never shells out through bb — the write is a direct API call under a dedicated account', async () => {
+  // CATCHES routing the write through the already-authenticated `bb` CLI,
+  // which the brief explicitly forbids: that would write as whoever is
+  // signed into `bb` on this machine, the exact indistinguishable-from-a-human
+  // credential this op exists to avoid.
+  const box = bbSandbox();
+  const api = await fakeBitbucket();
+  const got = await bbCommitStatus(box, ARGS, api.url, BB_CRED);
+  assert.equal(got.code, 0, got.err);
+  assert.doesNotMatch(callLog(box), /^bb /m, 'bb was called for the write');
+  assert.equal(api.requests.length, 1);
+  assert.equal(api.requests[0].auth, `Basic ${Buffer.from('review-bot:app-pw-secret').toString('base64')}`);
+});
+
+test('commit-status (bitbucket): the credential never appears in stdout, stderr, or any child process argv', async () => {
+  const box = bbSandbox();
+  const api = await fakeBitbucket();
+  const got = await bbCommitStatus(box, ARGS, api.url, BB_CRED);
+  assert.equal(got.code, 0, got.err);
+  const log = callLog(box);
+  assert.ok(!log.includes(BB_CRED.BITBUCKET_REVIEW_APP_PASSWORD), 'the app password appeared in a child argv');
+  assert.ok(!got.err.includes(BB_CRED.BITBUCKET_REVIEW_APP_PASSWORD), 'the app password reached stderr');
+  assert.ok(!got.out.includes(BB_CRED.BITBUCKET_REVIEW_APP_PASSWORD), 'the app password reached stdout');
+});
+
+test('commit-status (bitbucket): maps success/failure to SUCCESSFUL/FAILED and matches key to context', async () => {
+  const box = bbSandbox();
+  const api = await fakeBitbucket();
+  const got = await bbCommitStatus(box, ARGS, api.url, BB_CRED);
+  assert.equal(got.code, 0, got.err);
+  assert.deepEqual(JSON.parse(api.requests[0].body), {
+    state: 'SUCCESSFUL',
+    key: 'plot/review',
+    name: 'plot/review',
+    description: 'build is green',
+    url: 'https://example.com/run/1',
+  });
+
+  const failArgs = ['deadbeef', 'failure', 'plot/review', 'build is red', 'https://example.com/run/1'];
+  const failed = await bbCommitStatus(box, failArgs, api.url, BB_CRED);
+  assert.equal(failed.code, 0, failed.err);
+  assert.equal(JSON.parse(api.requests[1].body).state, 'FAILED');
+});
+
+test('commit-status (bitbucket): a state this op does not expect exits naming unsupported, not a guess', async () => {
+  // CATCHES guessing a mapping for pending/error, which GitHub's vocabulary
+  // has and Bitbucket's INPROGRESS/STOPPED do not line up with 1:1, and which
+  // no caller here invokes.
+  const box = bbSandbox();
+  const api = await fakeBitbucket();
+  const pendingArgs = ['deadbeef', 'pending', 'plot/review', 'build is running', 'https://example.com/run/1'];
+  const got = await bbCommitStatus(box, pendingArgs, api.url, BB_CRED);
+  assert.equal(got.code, 4);
+  assert.match(got.err, /unsupported/);
+  assert.equal(api.requests.length, 0, 'no API call for a state this op cannot map');
+});
+
+test('commit-status (bitbucket): an unresolvable workspace/repo exits naming unsupported, not a 404', async () => {
+  // CATCHES falling through to the API with an empty/garbage path and reading
+  // its 404 as the generic write-failure path.
+  const box = bbSandbox();
+  execFileSync('git', ['-C', box.root, 'remote', 'set-url', 'origin', 'git@example.com:not-bitbucket.git']);
+  const api = await fakeBitbucket();
+  const got = await bbCommitStatus(box, ARGS, api.url, BB_CRED);
+  assert.equal(got.code, 4);
+  assert.match(got.err, /unsupported/);
+  assert.equal(api.requests.length, 0);
+});
+
+test('commit-status (bitbucket): a failed build-status write exits 3 and names the context', async () => {
+  const box = bbSandbox();
+  const api = await fakeBitbucket({ statusCode: 422 });
+  const got = await bbCommitStatus(box, ARGS, api.url, BB_CRED);
+  assert.equal(got.code, 3);
+  assert.match(got.err, /HTTP 422 writing plot\/review on deadbeef/);
+});
+
+test('commit-status (bitbucket): a missing argument exits 1 before the credential or the API is asked', async () => {
+  const box = bbSandbox();
+  const api = await fakeBitbucket();
+  const got = await bbCommitStatus(box, ARGS.slice(0, 4), api.url, BB_CRED);
+  assert.equal(got.code, 1);
   assert.equal(api.requests.length, 0);
 });

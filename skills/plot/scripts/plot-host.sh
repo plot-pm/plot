@@ -440,8 +440,9 @@
 #                                 Jenkins reports no limit, so it answers
 #                                 `predicted`.
 #   commit-status <sha> <state> <context> <description> <url>
-#                                 GITHUB ONLY. Writes a commit status via
-#                                 `POST /repos/{owner}/{repo}/statuses/{sha}`,
+#                                 GITHUB AND BITBUCKET. On GitHub, writes a
+#                                 commit status via `POST
+#                                 /repos/{owner}/{repo}/statuses/{sha}`,
 #                                 authenticated as a GitHub App installation —
 #                                 NOT the signed-in `gh` user — so the review
 #                                 verdict carries its own identity rather than
@@ -455,11 +456,26 @@
 #                                 read — a configuration gap, not a transient:
 #                                 this script mints no token against a default
 #                                 App and asks no `gh`-signed-in identity in
-#                                 its place. `state` is one of GitHub's own
-#                                 words (success|failure|error|pending);
-#                                 `context` groups repeat statuses on one sha
-#                                 (this estate's caller passes `plot/review`).
-#                                 A call that reaches the API and fails exits 3.
+#                                 its place. On Bitbucket, writes a build status
+#                                 via `POST /2.0/repositories/{workspace}
+#                                 /{repo_slug}/commit/{sha}/statuses/build`,
+#                                 authenticated with a dedicated account's App
+#                                 password — BITBUCKET_REVIEW_USER and
+#                                 BITBUCKET_REVIEW_APP_PASSWORD, read from the
+#                                 environment or this repository's `.env`, NOT
+#                                 from `bb`'s own signed-in identity — mapping
+#                                 GitHub's state word to Bitbucket's
+#                                 (success→SUCCESSFUL, failure→FAILED). EXIT 4,
+#                                 naming both variables, where neither is
+#                                 configured; EXIT 4 naming `unsupported` where
+#                                 the workspace/repo cannot be resolved from
+#                                 `origin` or `state` has no mapping. A backend
+#                                 with no arm at all exits 4 too. `state` is one
+#                                 of GitHub's own words
+#                                 (success|failure|error|pending); `context`
+#                                 groups repeat statuses on one sha (this
+#                                 estate's caller passes `plot/review`). A call
+#                                 that reaches the API and fails exits 3.
 #
 # TRANSPORT IS NOT A CALLER'S CONCERN. Where a host offers a question over more
 # than one transport — GitHub's REST against its GraphQL — the choice is made
@@ -5252,14 +5268,31 @@ case "$op" in
     ;;
 
   commit-status)
-    # GITHUB ONLY: a non-GitHub backend exits 4, the "cannot be asked" code
-    # `account`'s Bitbucket arm uses. plot-commit-status.mjs holds the App
-    # logic; `--check` refuses a missing argument (1) or a missing or
-    # unreadable `Review app` key (4) before `gh` or the network is asked.
-    # The JWT and the installation token never reach a child process's argv.
-    [ "$be" = "github" ] || { echo "plot-host: commit-status — backend is '$be', not github; this op is GitHub-only" >&2; exit 4; }
-    node "$here/plot-commit-status.mjs" --check "$@" || exit $?
-    node "$here/plot-commit-status.mjs" --repo "$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)" "$@" || exit $?
+    # GITHUB AND BITBUCKET — the only two words `backend` above ever returns,
+    # which already refused anything else before this case ran. Each backend's
+    # logic lives in its own Node helper, never inline here —
+    # `plot-commit-status.mjs` holds the GitHub App JWT/installation-token
+    # exchange, `plot-bitbucket-commit-status.mjs` holds the Bitbucket state
+    # mapping and Basic-auth build-status write.
+    if [ "$be" = "github" ]; then
+      # `--check` refuses a missing argument (1) or a missing or unreadable
+      # `Review app` key (4) before `gh` or the network is asked. The JWT and
+      # the installation token never reach a child process's argv.
+      node "$here/plot-commit-status.mjs" --check "$@" || exit $?
+      node "$here/plot-commit-status.mjs" --repo "$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)" "$@" || exit $?
+    else
+      # The workspace/repo slug comes from `origin`, the same remote-parse
+      # idiom `budget_account`'s bitbucket arm uses above — never from `bb`,
+      # which would mean asking the CLI signed in as whichever identity is on
+      # this machine. An unparsed remote is passed through as an empty
+      # string; the helper reads that as `unsupported` rather than this
+      # shell guessing a reason. The trailing `.git` is stripped before
+      # capturing the repo slug, not inside an optional group after it — a
+      # greedy `[^/]+` otherwise absorbs `.git` into the slug itself, leaving
+      # the group matching nothing and `myrepo.git` in `$_bb_wr`.
+      _bb_wr="$(git config --get remote.origin.url 2>/dev/null | sed -E 's#\.git$##' | sed -nE 's#^.*bitbucket\.org[:/]([^/]+)/(.+)$#\1/\2#p')"
+      node "$here/plot-bitbucket-commit-status.mjs" "$_bb_wr" "$@" || exit $?
+    fi
     ;;
 
   *)
