@@ -462,8 +462,11 @@ const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer)
   }
   let keepBranch = false;
   try {
-    await writePlan(ctx, tmpwt, rel, verdict.writes);
-    await ctx.trees.stage(tmpwt, [rel]);
+    const reapply = async (wt: string): Promise<void> => {
+      await writePlan(ctx, wt, rel, verdict.writes);
+      await ctx.trees.stage(wt, [rel]);
+    };
+    await reapply(tmpwt);
     const landed = await commitAndPush(
       ctx,
       tmpwt,
@@ -471,10 +474,9 @@ const perform = async (ctx: Context, args: Args, write: Printer, _warn: Printer)
       main,
       who,
       message,
-      message,
-      `Moves \`${slug}\` to Design, recorded by ${who}.`,
       'design move',
       `nothing to commit — ${slug} is already in Design on ${main}`,
+      reapply,
       write,
     );
     if ('rejected' in landed) {

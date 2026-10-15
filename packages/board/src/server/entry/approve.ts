@@ -1189,17 +1189,16 @@ const bookApproval = async (
   let keepBranch = false;
 
   try {
-    const request = flow.request(tmpwt);
-    const report = await applyLocalWrites(ctx, request);
-    await stageApproval(ctx, tmpwt, request.rel, report);
+    let report!: WriteReport;
+    const reapply = async (wt: string): Promise<void> => {
+      const request = flow.request(wt);
+      report = await applyLocalWrites(ctx, request);
+      await stageApproval(ctx, wt, request.rel, report);
+    };
+    await reapply(tmpwt);
 
     const spike = flow.args.spike;
     const subject = spike ? `plot: approve spike of ${slug}` : `plot: approve ${slug}`;
-    const body = spike
-      ? `Records the spike approval of \`${slug}\` by ${who}.`
-      : inSession
-        ? `Records the in-session approval of \`${slug}\` by ${who}.`
-        : `Records the approval of \`${slug}\` (plan-PR #${prNumber} merged).`;
     const landed = await commitAndPush(
       ctx,
       tmpwt,
@@ -1207,10 +1206,9 @@ const bookApproval = async (
       main,
       who,
       subject,
-      subject,
-      body,
       'approval',
       `nothing to commit — the approval is already recorded on ${main}`,
+      reapply,
       write,
     );
 

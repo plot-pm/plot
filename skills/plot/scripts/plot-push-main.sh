@@ -25,12 +25,12 @@
 # THE EXIT CODE ANSWERS ONE QUESTION: did the commit land? `clean`, `bypassed`
 # and `unknown` all exit 0, because in every one of them the work is on the
 # default branch and the caller should carry on. Only `rejected` exits 1, where
-# the caller must open a micro-PR instead. Making `bypassed` non-zero would turn
-# a SUCCESSFUL approval into an apparent failure at three call sites.
+# the caller must retry: re-fetch the default branch, re-cut the disposable
+# branch from it, and push again. Making `bypassed` non-zero would turn a
+# SUCCESSFUL approval into an apparent failure at three call sites.
 #
-# This script pushes and classifies. It does not open the micro-PR: that needs
-# the host adapter, a PR title and a merge strategy, and would make this a
-# second place that knows what approving means. Skills interpret; scripts
+# This script pushes and classifies once; retrying and re-applying the write
+# onto a freshly re-cut branch is the caller's loop. Skills interpret; scripts
 # collect and report (Principle 3).
 set -uo pipefail
 

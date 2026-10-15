@@ -1,20 +1,19 @@
 // THE COMMIT+PUSH LADDER, SHARED. `plot-deliver.sh`'s mechanical half
 // (`deliver.ts`) and `plot-approve.sh`'s (`approve.ts`) both stage a plan
 // edit in a booking worktree, commit it attributed to a human, and push to
-// the default branch with a micro-PR fallback on rejection. The steps, the
-// receipt formats and the fallback are one implementation; a second copy
-// would be an undeclared duplicate of the pair `state-receipt.corpus.test.ts`
-// already keeps in sync against the shell.
+// the default branch, retrying on rejection. The steps and the receipt
+// formats are one implementation; a second copy would be an undeclared
+// duplicate of the pair `state-receipt.corpus.test.ts` already keeps in sync
+// against the shell.
 import { createHash } from 'node:crypto';
 import { mkdirSync, readlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import type { Host, Scripts, Trees } from '@plot-pm/domain';
+import type { Scripts, Trees } from '@plot-pm/domain';
 
 /** The ports `commitAndPush` and the receipt writers need from a caller's `Context`. */
 export interface LadderContext {
   repoRoot: string;
-  host: Host;
   scripts: Scripts;
   trees: Trees;
 }
@@ -22,8 +21,14 @@ export interface LadderContext {
 /** Prints to stdout, matching the scripts' unprefixed `step:`/`summary:` lines. */
 export type Printer = (s: string) => void;
 
-/** The commit-status context `plot-review` writes; the ladder's micro-PR fallback writes the same context, since a micro-PR gets no other review. */
-const REVIEW_CONTEXT = 'plot/review';
+/** The maintainer's number (issue #1737): five attempts in total before `commitAndPush` gives up. */
+const DEFAULT_ATTEMPTS = 5;
+
+/** A jittered 2 to 10 second wait between attempts — the real clock `commitAndPush` sleeps by default. */
+const defaultWait = async (): Promise<void> => {
+  const ms = 2000 + Math.random() * 8000;
+  await new Promise((resolve) => setTimeout(resolve, ms));
+};
 
 /**
  * The local calendar date of `now`, as `date +%Y-%m-%d` prints it.
@@ -109,19 +114,32 @@ export class Refused extends Error {}
 
 /**
  * Runs a booking commit+push: commit whatever the caller already staged
- * (attributed to `who`), push to the default branch, and fall back to a
- * micro-PR on rejection — the ladder every lifecycle write in `deliver.ts`
- * and `approve.ts` climbs, once the caller has staged its own paths.
+ * (attributed to `who`), push to the default branch, and retry on rejection
+ * — the ladder every lifecycle write in `deliver.ts` and `approve.ts` climbs.
  *
  * The staged-change check, the commit and the direct push onto `bookbr` all
  * go through the `trees` port rather than a raw `git` call —
  * {@link LadderContext.trees}'s `hasStagedChanges`/`commitAs`/`push`, so this
- * module adds no new process-reach site. Staging itself is the caller's
- * step, through the same port's `stage`, because what a caller stages
- * (a plan edit, a moved symlink, a ticked sprint item) is its own concern.
+ * module adds no new process-reach site.
  *
- * @returns the push outcome word, or `rejected` where neither the primary
- *   push nor the micro-PR fallback landed.
+ * A REJECTED PUSH IS RETRIED, NEVER REPUSHED. The commit that lost the race
+ * was cut from a stale base, so retrying it verbatim would still conflict —
+ * each retry fetches the default branch, re-cuts `bookbr` from the fresh tip
+ * with {@link Trees.addBranch}'s `-B`, and calls `reapply(tmpwt)` to redo the
+ * caller's own write and staging against that tree, before committing and
+ * pushing again. A re-applied write that lands on `main` without this run's
+ * help (`hasStagedChanges` false) reports `nothing-to-commit` rather than a
+ * failure — that is what makes a re-run idempotent.
+ *
+ * @param reapply - redoes the caller's write and staging against a freshly
+ *   re-cut `tmpwt`; called before every attempt after the first.
+ * @param attempts - the number of pushes to try in total; five is the
+ *   maintainer's number (issue #1737), lowered in a test so it runs in
+ *   milliseconds.
+ * @param wait - sleeps between attempts; a jittered 2 to 10 s wait in
+ *   production, stubbed to resolve immediately in a test.
+ * @returns the push outcome word, or `rejected` where every attempt was
+ *   refused.
  */
 export const commitAndPush = async (
   ctx: LadderContext,
@@ -130,52 +148,42 @@ export const commitAndPush = async (
   main: string,
   who: string,
   message: string,
-  title: string,
-  body: string,
   noun: 'approval' | 'delivery' | 'release' | 'verification' | 'design move',
   nothingMessage: string,
+  reapply: (tmpwt: string) => Promise<void>,
   write: Printer,
+  attempts: number = DEFAULT_ATTEMPTS,
+  wait: () => Promise<void> = defaultWait,
 ): Promise<{ pushed: string } | { rejected: true }> => {
-  const diff = await ctx.trees.hasStagedChanges(tmpwt);
-  if (diff.ok && !diff.value) {
-    write(`step: ${nothingMessage}\n`);
-    return { pushed: 'nothing-to-commit' };
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const diff = await ctx.trees.hasStagedChanges(tmpwt);
+    if (diff.ok && !diff.value) {
+      write(`step: ${nothingMessage}\n`);
+      return { pushed: 'nothing-to-commit' };
+    }
+
+    const commit = await ctx.trees.commitAs(tmpwt, who, message);
+    if (!commit.ok) throw new Refused(`could not commit the ${noun}.\n  See what git refused: git -C ${tmpwt} status\n  Nothing was pushed; re-run this — it is idempotent.`);
+
+    const pushOut = await ctx.scripts.awaited('plot-push-main.sh', [bookbr, main]);
+    for (const line of `${pushOut.stdout}${pushOut.stderr}`.split('\n')) {
+      if (line.length > 0) write(`  ${line}\n`);
+    }
+    if (pushOut.code === 0) {
+      return { pushed: pushReportOf(pushOut.stdout) };
+    }
+
+    if (attempt === attempts) break;
+    write(`step: push rejected — retrying (attempt ${attempt} of ${attempts})\n`);
+    await wait();
+    await ctx.trees.fetch(ctx.repoRoot, main);
+    const added = await ctx.trees.addBranch(tmpwt, bookbr, `origin/${main}`);
+    if (!added.ok) return { rejected: true };
+    await reapply(tmpwt);
   }
 
-  const commit = await ctx.trees.commitAs(tmpwt, who, message);
-  if (!commit.ok) throw new Refused(`could not commit the ${noun}.\n  See what git refused: git -C ${tmpwt} status\n  Nothing was pushed; re-run this — it is idempotent.`);
-
-  const pushOut = await ctx.scripts.awaited('plot-push-main.sh', [bookbr, main]);
-  for (const line of `${pushOut.stdout}${pushOut.stderr}`.split('\n')) {
-    if (line.length > 0) write(`  ${line}\n`);
-  }
-  if (pushOut.code === 0) {
-    return { pushed: pushReportOf(pushOut.stdout) };
-  }
-
-  write('step: push rejected — opening a micro-PR instead\n');
-  const pushed = await ctx.trees.push(tmpwt, bookbr);
-  if (!pushed.ok) return { rejected: true };
-  const created = await ctx.host.prCreate({ head: bookbr, title, body, base: main });
-  if (!created.ok) return { rejected: true };
-  const num = created.value.split('/').pop() ?? '';
-  // This micro-PR is the one review step it gets: write the status on the PR
-  // this call just created, before merging it — never a lookup that could
-  // resolve a different open PR, so the head comes from this PR's own state.
-  const state = await ctx.host.prState(num);
-  if (state.ok && state.value !== null && (state.value.headSha ?? '') !== '') {
-    await ctx.host.commitStatus({
-      sha: state.value.headSha ?? '',
-      state: 'success',
-      context: REVIEW_CONTEXT,
-      description: `bookkeeping: ${noun}`,
-      targetUrl: '',
-    });
-  }
-  const merged = await ctx.scripts.host(['pr-merge', num, '--delete-branch']);
-  if (!merged.ok) return { rejected: true };
-  write(`step: ${noun} landed via micro-PR ${created.value}\n`);
-  return { pushed: 'micro-pr' };
+  write(`step: push rejected after ${attempts} attempts\n`);
+  return { rejected: true };
 };
 
 /** Resolves a plan path's symlink to the canonical file it names, repository-relative. */

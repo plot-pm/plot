@@ -429,7 +429,7 @@ The script:
 - Flips `State: Approved` → `Delivered` and fills the `Delivered:` record
 - Moves the `active/` → `delivered/` symlink (best effort, cannot fail the delivery)
 - Checks the sprint item's box
-- Pushes via `plot-push-main.sh`, with micro-PR fallback for branch protection
+- Pushes via `plot-push-main.sh`, retrying a rejected push up to five times
 - After the push lands, writes the status of each issue the plan's `Issue:` line names, through `plot-issue-status.sh` and the tracker port
 
 Output is one `step:` line per operation, then a `summary:` line:
@@ -441,8 +441,10 @@ summary: phase=flipped record=written index=moved sprint=updated push=clean trac
 ```
 
 The push status (`clean`, `bypassed`, `unknown`, `rejected`) comes from
-`plot-push-main.sh`. Only `rejected` needs action — the script opens a micro-PR
-automatically if branch protection refuses the push.
+`plot-push-main.sh`, read after the delivery's own retry loop: up to five
+attempts, re-fetching the default branch and re-applying the write each time.
+`rejected` means every attempt was refused — land the booking branch by hand,
+or re-run the delivery once the push works.
 
 The `tracker=` field reports the issue status write:
 

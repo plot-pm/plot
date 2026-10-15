@@ -265,7 +265,7 @@ summary: merged=yes phase=flipped record=written holds=2 sprint=updated push=cle
 | `record` | `written` \| `already` |
 | `holds` | how many `.plot/hold` entries were cleared (`0` is normal) |
 | `sprint` | `updated` \| `already` \| `none` \| `missing` |
-| `push` | `clean` \| `bypassed` \| `unknown` \| `micro-pr` \| `local` \| `nothing-to-commit` |
+| `push` | `clean` \| `bypassed` \| `unknown` \| `local` \| `nothing-to-commit` |
 | `carried` | present only where this run merged a PR that carried other plans: their slugs, comma-separated |
 
 **The plan PR is the PR that adds or changes the plan file.** "Changes" is measured against the PR's merge base with the default branch: what merging the PR would bring, not how its head differs from the default branch's tip. The script asks the host for the PR of `idea/<slug>` first. Where that branch has no PR and the default branch does not hold the plan file, it lists the open PRs (one host call, at most 100) and asks git which heads change the file, so a batch PR on `idea/batch-<first-slug>` is found by the plan file it adds. Where the default branch holds the plan file, no open PR is the plan PR: the script reads the merge commit on the default branch that added the file, takes the merged PR whose head is that merge's second parent (one host call, at most 100 merged PRs), and the host confirms that PR merged at that commit. A plan that reached the default branch by squash or by a direct push has no such merge, and the script refuses it as having no PR. Two open PRs that both change the plan file are refused, before any merge.

@@ -400,15 +400,29 @@ const runDeliver = async (
       await ctx.trees.stage(tmpwt, [p]);
     }
 
-    // THE BOOKED PLAN, KEPT FOR THE TRACKER. The booking worktree is removed
-    // on every exit below, and the caller's working tree may still read
-    // 'Approved'; the issue status is decided from the file that reached the
-    // default branch.
-    const booked = await ctx.planStore.readText(target);
-    const bookedPlanFile = path.join(os.tmpdir(), `plot-deliver-plan-${process.pid}.md`);
-    if (!booked.ok || booked.value === null || !(await ctx.planStore.writeText(bookedPlanFile, booked.value)).ok) {
-      throw new Refused(`could not keep a copy of the booked plan at ${bookedPlanFile} for the tracker.\n  Re-run this — it is idempotent.`);
-    }
+    // Re-cuts `bookbr` from the freshly fetched default branch and redoes this
+    // same write-then-stage sequence against it — called by `commitAndPush`
+    // before every retry after the first.
+    const reapply = async (wt: string): Promise<void> => {
+      const retarget = path.join(wt, rel);
+      const landed = await ctx.planStore.readText(target);
+      if (landed.ok && landed.value !== null) await ctx.planStore.writeText(retarget, landed.value);
+      const retryPlacement = indexSymlinkPlacement({ activeDir, deliveredDir, slug: args.slug, planBasename });
+      const retryLinkAbs = path.join(wt, retryPlacement.deliveredLink);
+      mkdirSync(path.dirname(retryLinkAbs), { recursive: true });
+      if (!existsSync(retryLinkAbs) && !isSymlinkTo(retryLinkAbs)) {
+        try {
+          symlinkSync(retryPlacement.target, retryLinkAbs);
+          await runGit(['-C', wt, 'rm', '-q', '--ignore-unmatch', retryPlacement.activeLink]);
+        } catch {
+          // Already reported via `indexReport` on the first attempt.
+        }
+      }
+      const retrySprintReport = await tickSprint(ctx.planStore, wt, sprintDir, args.slug, sprint);
+      for (const p of [rel, activeDir, deliveredDir, ...(retrySprintReport === 'updated' ? [sprintDir] : [])]) {
+        await ctx.trees.stage(wt, [p]);
+      }
+    };
 
     const pushResult = await commitAndPush(
       ctx,
@@ -417,10 +431,9 @@ const runDeliver = async (
       main,
       who,
       `plot: deliver ${args.slug}`,
-      `plot: deliver ${args.slug}`,
-      `Records the delivery of \`${args.slug}\`.`,
       'delivery',
       `nothing to commit — the delivery is already recorded on ${main}`,
+      reapply,
       write,
     );
 
@@ -429,9 +442,18 @@ const runDeliver = async (
       // The branch STAYS — only the worktree is removed, matching the shell's
       // `git worktree remove --force "$tmpwt"` with no `branch -D` beside it.
       await runGit(['-C', ctx.repoRoot, 'worktree', 'remove', '--force', tmpwt]);
-      unlinkSyncSafe(bookedPlanFile);
       write(`summary: phase=${phaseReport} record=${recordReport} index=${indexReport} sprint=${sprintReport} push=rejected tracker=skipped\n`);
       return 1;
+    }
+
+    // THE BOOKED PLAN, KEPT FOR THE TRACKER. Read before `cleanup()` removes
+    // `tmpwt`, now that the push has landed, so it reflects whichever
+    // attempt's write actually reached `main` — every retry's `reapply`
+    // rewrites `target` before that attempt's commit.
+    const booked = await ctx.planStore.readText(target);
+    const bookedPlanFile = path.join(os.tmpdir(), `plot-deliver-plan-${process.pid}.md`);
+    if (!booked.ok || booked.value === null || !(await ctx.planStore.writeText(bookedPlanFile, booked.value)).ok) {
+      throw new Refused(`could not keep a copy of the booked plan at ${bookedPlanFile} for the tracker.\n  Re-run this — it is idempotent.`);
     }
     await cleanup();
 
@@ -712,6 +734,17 @@ const runRelease = async (
 
   await ctx.trees.stage(tmpwt, [rel]);
 
+  // Re-cuts `bookbr` from the freshly fetched default branch and redoes this
+  // same write-then-stage sequence against it — called by `commitAndPush`
+  // before every retry after the first. `target` names a path inside
+  // `tmpwt`, which `addBranch` resets in place rather than relocating.
+  const reapply = async (wt: string): Promise<void> => {
+    const retarget = path.join(wt, rel);
+    const relanded = await ctx.planStore.readText(target);
+    if (relanded.ok && relanded.value !== null) await ctx.planStore.writeText(retarget, relanded.value);
+    await ctx.trees.stage(wt, [rel]);
+  };
+
   const pushResult = await commitAndPush(
     ctx,
     tmpwt,
@@ -719,10 +752,9 @@ const runRelease = async (
     main,
     who,
     `plot: release ${args.slug} (${resolved.tag})`,
-    `plot: release ${args.slug} (${resolved.tag})`,
-    `Records the release of \`${args.slug}\` in ${resolved.tag}.`,
     'release',
     `nothing to commit — the release is already recorded on ${main}`,
+    reapply,
     write,
   );
   if ('rejected' in pushResult) {

@@ -97,5 +97,8 @@ describe('record opens one issue across a rejected push', () => {
       ['jira', 'github'],
     ]);
     expect(JSON.parse(readFileSync(stateFile, 'utf8')).issues).toEqual({ one: { issue: '1' } });
-  });
+    // `record` retries a rejected push five times with a real 2-10s jittered
+    // wait between attempts (`commitAndPush`'s production default) — the
+    // first `record` call above can take up to ~40s before it reports rejected.
+  }, 60_000);
 });

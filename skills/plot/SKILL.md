@@ -366,9 +366,10 @@ git commit -m "plot: fix phase for <slug>"
 scripts/plot-push-main.sh plot/fix-phase-<slug> main
 ```
 
-If the helper reports `rejected` (exit 1), open a micro-PR from
-`plot/fix-phase-<slug>` and merge it. A `bypassed` or `unknown` report
-means the fix landed — pass it on, don't retry.
+If the helper reports `rejected` (exit 1), fetch `main` again, rebase
+`plot/fix-phase-<slug>` onto `origin/main`, and re-run the push — same as the
+retry `commitAndPush` runs internally. A `bypassed` or `unknown` report means
+the fix landed — pass it on, don't retry.
 
 ### Orphan implementation branch
 

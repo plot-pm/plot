@@ -707,6 +707,7 @@ export const record = async (ctx: Context, args: Args, write: Printer, warn: Pri
     const target = path.join(tmpwt, facts.plan);
     const present = await ctx.planStore.readText(target);
     if (!present.ok || present.value === null) throw new Refused(`${facts.plan} is not present on origin/${main}`);
+    const presentText = present.value;
     const meta = await ctx.planStore.readPlan(target);
     const listed = meta.ok && listsOnChecklist(meta.value.type, planStateOf(meta.value.phase));
 
@@ -743,9 +744,24 @@ export const record = async (ctx: Context, args: Args, write: Printer, warn: Pri
     if (!written.ok) throw new Refused(`could not write ${facts.plan}.\n  Re-run this — it is idempotent.`);
 
     const checklistPath = listed
-      ? await writeChecklist(ctx, tmpwt, checklistEntryOf(args.slug, present.value, verdicts, notes))
+      ? await writeChecklist(ctx, tmpwt, checklistEntryOf(args.slug, presentText, verdicts, notes))
       : null;
     await ctx.trees.stage(tmpwt, checklistPath === null ? [facts.plan] : [facts.plan, checklistPath]);
+
+    // Re-cuts `bookbr` from the freshly fetched default branch and redoes
+    // this same write-then-stage sequence against it — called by
+    // `commitAndPush` before every retry after the first. Reapplies `landed`
+    // and the already-computed checklist entry rather than re-deriving them:
+    // `openRefutedIssues` above has side effects on issue state and must run
+    // at most once per invocation.
+    const reapply = async (wt: string): Promise<void> => {
+      const retarget = path.join(wt, facts.plan);
+      await ctx.planStore.writeText(retarget, landed);
+      const retryChecklistPath = listed
+        ? await writeChecklist(ctx, wt, checklistEntryOf(args.slug, presentText, verdicts, notes))
+        : null;
+      await ctx.trees.stage(wt, retryChecklistPath === null ? [facts.plan] : [facts.plan, retryChecklistPath]);
+    };
 
     const pushed = await commitAndPush(
       ctx,
@@ -754,10 +770,9 @@ export const record = async (ctx: Context, args: Args, write: Printer, warn: Pri
       main,
       who,
       `plot: verify ${args.slug}`,
-      `plot: verify ${args.slug}`,
-      `Records the verification of \`${args.slug}\`.`,
       'verification',
       `nothing to commit — the verification is already recorded on ${main}`,
+      reapply,
       write,
     );
     if ('rejected' in pushed) {
