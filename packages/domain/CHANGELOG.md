@@ -1,5 +1,11 @@
 # @plot-pm/domain
 
+## 0.3.2
+
+### Patch Changes
+
+- [#1712](https://github.com/plot-pm/plot/pull/1712) [`ed42e43`](https://github.com/plot-pm/plot/commit/ed42e43593dcf93976b6826e1154f0b7d5085f42) Thanks [@jwloka](https://github.com/jwloka)! - Selecting a topic chip on the Discovery tab narrows the ticket lanes by the topic's `ticketKeys` as well as the story lanes by its `storySlugs`, and a lane the topic emptied says that the topic hides its rows. The domain's new `lanesForTopic` decides which rows survive.
+
 ## 0.3.1
 
 ### Patch Changes

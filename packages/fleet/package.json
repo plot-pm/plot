@@ -1,7 +1,7 @@
 {
   "name": "@plot-pm/fleet",
-  "version": "0.1.0",
-  "description": "The fleet's clocks \u2014 the supervisor tick and the agent loop that spawn processes the domain only reads",
+  "version": "0.1.1",
+  "description": "The fleet's clocks — the supervisor tick and the agent loop that spawn processes the domain only reads",
   "type": "module",
   "private": true,
   "license": "MIT",
