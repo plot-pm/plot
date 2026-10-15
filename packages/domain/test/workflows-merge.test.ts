@@ -14,6 +14,7 @@ const pr = (over: Partial<Pr> = {}): Pr => ({
   number: 42,
   repo: '',
   head: 'feature/x',
+  base: 'main',
   state: 'OPEN',
   mergedAt: null,
   mergeCommit: '',

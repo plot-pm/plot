@@ -20,7 +20,7 @@ const MOVED = 'b'.repeat(40);
 const CHARTER = JSON.stringify({ name: 'reviewer', prompt: '.plot/worker-prompt.sh', model: 'opus', effort: 'high', capabilities: ['read-only'] });
 
 const pr = (over: Partial<Pr> = {}): Pr => ({
-  number: 7, repo: '', head: 'feature/x', state: 'OPEN', mergedAt: null, mergeCommit: '', draft: false,
+  number: 7, repo: '', head: 'feature/x', base: 'main', state: 'OPEN', mergedAt: null, mergeCommit: '', draft: false,
   mergeable: 'mergeable', review: 'none', checks: 'passing', failingChecks: [], url: 'https://github.com/o/r/pull/7',
   author: '', headSha: HEAD, ...over,
 } as Pr);
@@ -34,6 +34,7 @@ interface Rig {
   files: Map<string, string>;
   removed: string[];
   written: string[];
+  changeBases: string[];
 }
 
 const MERGE_BASE = 'c'.repeat(40);
@@ -53,6 +54,7 @@ const rig = (
   const commands: string[] = [];
   const removed: string[] = [];
   const written: string[] = [];
+  const changeBases: string[] = [];
   const files = opts.files ?? new Map<string, string>();
   let asked = 0;
   const prs = opts.prs ?? [pr()];
@@ -89,18 +91,35 @@ const rig = (
     agentRun: (command) => { commands.push(command); return agentRun; },
     repoRoot: '/repo', commonDir: '/repo/.git', base: 'main', currentBranch: 'feature/x',
     fetchSha: async () => true,
-    readChange: async () => opts.change ?? CHANGE,
+    readChange: async (_tree, base) => { changeBases.push(base); return opts.change ?? CHANGE; },
     readCharterText: () => CHARTER,
     readText: (f) => files.get(f) ?? null,
     writeText: (f, t) => { written.push(f); files.set(f, t); },
     removeFile: (f) => { files.delete(f); },
   };
-  return { deps, statuses, issues, requests, commands, files, removed, written };
+  return { deps, statuses, issues, requests, commands, files, removed, written, changeBases };
 };
 
 const FINDINGS = '- [HIGH] leaks a token\nFindings: HIGH 2, MEDIUM 1, LOW 0\n';
 
 describe('reviewPr', () => {
+  it('diffs against the PR base, not the process-wide base', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n', { prs: [pr({ base: 'release/1.0' })] });
+    expect(r.deps.base).toBe('main');
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.ok);
+    expect(r.changeBases).toEqual(['release/1.0']);
+    expect(r.requests[0]!.prompt).toContain('Base branch: release/1.0');
+  });
+
+  it('refuses a PR whose base the host did not name', async () => {
+    const r = rig(FINDINGS, { prs: [pr({ base: '' })] });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(out.lines.join('\n')).toContain('PR #7');
+    expect(r.changeBases).toEqual([]);
+  });
+
   it('writes failure with the issue URL, not the PR URL, on HIGH findings', async () => {
     const r = rig(FINDINGS);
     const out = await reviewPr(r.deps, '7');

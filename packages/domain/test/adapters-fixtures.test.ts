@@ -272,6 +272,7 @@ describe('hostFixture: a connector the domain has never heard of', () => {
           number: 7,
           repo: 'quokka/plot',
           head: 'feature/open',
+          base: 'main',
           state: 'OPEN',
           mergedAt: null,
           mergeCommit: '',

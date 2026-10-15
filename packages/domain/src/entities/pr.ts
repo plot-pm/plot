@@ -51,6 +51,11 @@ export interface Pr {
   repo: string;
   /** The branch this PR belongs to. */
   head: string;
+  /**
+   * The branch this PR targets, as the host names it, or `''` where the host
+   * did not say. Empty is not the default branch: a caller must refuse, not guess.
+   */
+  base: string;
   /** What the host says; see `prHasLanded` for why this is not enough. */
   state: PrState;
   /** When it merged, ISO-8601, or null — the truth about landing. */

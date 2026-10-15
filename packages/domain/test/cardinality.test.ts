@@ -26,7 +26,7 @@ const PLAN: Plan = {
 };
 
 const pr = (number: number, mergedAt: string | null): Pr => ({
-  number, repo: '', head: 'feature/x', state: mergedAt === null ? 'OPEN' : 'CLOSED',
+  number, repo: '', head: 'feature/x', base: 'main', state: mergedAt === null ? 'OPEN' : 'CLOSED',
   mergedAt, mergeCommit: mergedAt === null ? '' : 'abc', draft: false,
   mergeable: 'mergeable', review: '', checks: 'green', failingChecks: [], url: '', author: '',
 });

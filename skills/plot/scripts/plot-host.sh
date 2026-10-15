@@ -2062,7 +2062,7 @@ rest_pr_to_state() {
         state: $state,
         draft: (.draft // false),
         url: (.html_url // ""),
-        mergeCommit: (.merge_commit_sha // ""), headSha: (.head.sha // ""), checks: "unknown" }
+        mergeCommit: (.merge_commit_sha // ""), headSha: (.head.sha // ""), base: (.base.ref // ""), checks: "unknown" }
   '
 }
 
@@ -3557,9 +3557,9 @@ case "$op" in
       # mergeCommit is what lets a caller ask "which release contains this?" —
       # `git tag --contains <sha>` answers exactly, where dates cannot. It is ""
       # for anything unmerged, which is the honest answer rather than a guess.
-      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit,headRefOid,statusCheckRollup 2>"$HOST_ERR")"; then
+      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        jq -c "$CHECKS_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),headSha:(.headRefOid // ""),checks:checks_of,checksSha:(.headRefOid // "")}' <<<"$out"
+        jq -c "$CHECKS_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,checksSha:(.headRefOid // "")}' <<<"$out"
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # REFUSED FOR RATE IS NOT ANSWERED. The budget gate above could not see
@@ -3596,7 +3596,7 @@ case "$op" in
       if [[ "$ref" =~ ^[0-9]+$ ]]; then
         if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json 2>"$HOST_ERR")"; then
           rm -f "$HOST_ERR"
-          jq -c '{number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href,mergeCommit:(.merge_commit.hash // "")}' <<<"$out"
+          jq -c '{number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href,mergeCommit:(.merge_commit.hash // ""),base:(.destination.branch.name // "")}' <<<"$out"
         else
           err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
@@ -3647,7 +3647,7 @@ case "$op" in
           # costs no extra call.
           jq -c --arg b "$ref" '[.[] | select(.source.branch.name==$b)][0] // null
                | if .==null then {number:0,state:"NONE",draft:false,url:"",mergeCommit:""}
-                 else {number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href,mergeCommit:(.merge_commit.hash // "")} end' <<<"$out"
+                 else {number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href,mergeCommit:(.merge_commit.hash // ""),base:(.destination.branch.name // "")} end' <<<"$out"
         else
           err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?

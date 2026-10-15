@@ -228,6 +228,7 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   const sha = pr.headSha ?? '';
   if (sha === '') return refuse(`the host named no head commit for PR #${pr.number}`);
   if (pr.url === '') return refuse(`the host named no URL for PR #${pr.number}`);
+  if (pr.base === '') return refuse(`the host named no base branch for PR #${pr.number}`);
 
   const charter = readCharter('reviewer', deps.readCharterText());
   if (charter.read !== 'declared') {
@@ -255,13 +256,13 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   if (!added.ok) return refuse(`could not create the review worktree ${tree}`);
   let ran;
   try {
-    const change = await deps.readChange(tree, deps.base, sha);
+    const change = await deps.readChange(tree, pr.base, sha);
     if (!change.ok) return refuse(`the change of PR #${pr.number} could not be read: ${change.why}`);
     deps.writeText(diffFile, change.diff);
     const request = reviewRequestBlock({
       pr: pr.number,
       headSha: sha,
-      base: deps.base,
+      base: pr.base,
       mergeBase: change.mergeBase,
       files: change.files,
       diffPath: diffFile,

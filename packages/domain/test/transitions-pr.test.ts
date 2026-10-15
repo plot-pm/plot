@@ -13,6 +13,7 @@ const prWith = (over: Partial<Pr> = {}): Pr => ({
   number: 736,
   repo: '',
   head: 'feature/six-lifecycles-declare-their-rules',
+  base: 'main',
   state: 'OPEN',
   mergedAt: null,
   mergeCommit: '',

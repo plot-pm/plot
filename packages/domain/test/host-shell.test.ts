@@ -382,6 +382,7 @@ describe('the host’s words are read against what the entity allows', () => {
     number: 42,
     repo: 'plot-pm/plot',
     head: 'infra/a-branch',
+    base: 'main',
     state: 'MERGED',
     mergedAt: '2026-08-30T10:00:00Z',
     mergeCommit: 'abc123',
@@ -405,6 +406,7 @@ describe('the host’s words are read against what the entity allows', () => {
           number: 42,
           repo: 'plot-pm/plot',
           head: 'infra/a-branch',
+          base: 'main',
           state: 'MERGED',
           mergedAt: '2026-08-30T10:00:00Z',
           mergeCommit: 'abc123',
@@ -453,6 +455,7 @@ describe('the host’s words are read against what the entity allows', () => {
         number: 0,
         repo: '',
         head: '',
+        base: '',
         state: 'OPEN',
         mergedAt: null,
         mergeCommit: '',
@@ -465,6 +468,11 @@ describe('the host’s words are read against what the entity allows', () => {
         author: '',
       },
     });
+  });
+
+  it('carries the base branch the host names', async () => {
+    const answer = await hostShell(hostThat('echo \'{"number":3,"base":"release/1.0"}\'')).prState('3');
+    expect(answer).toMatchObject({ ok: true, value: { number: 3, base: 'release/1.0' } });
   });
 
   it('reads a null mergedAt as null and keeps it apart from absent', async () => {

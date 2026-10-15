@@ -32,6 +32,7 @@ interface RawPr {
   number?: number;
   repo?: string;
   head?: string;
+  base?: string;
   state?: string;
   mergedAt?: string | null;
   mergeCommit?: string;
@@ -83,6 +84,7 @@ const prOf = (raw: RawPr): Pr => ({
   number: raw.number ?? 0,
   repo: raw.repo ?? '',
   head: raw.head ?? '',
+  base: raw.base ?? '',
   state: oneOf<PrState>(raw.state, PR_STATES, 'OPEN'),
   mergedAt: raw.mergedAt ?? null,
   mergeCommit: raw.mergeCommit ?? '',

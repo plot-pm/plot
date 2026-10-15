@@ -18,7 +18,7 @@ import {
  */
 
 const pr: Pr = {
-  number: 421, repo: '', head: 'feature/x', state: 'OPEN', mergedAt: null, mergeCommit: '',
+  number: 421, repo: '', head: 'feature/x', base: 'main', state: 'OPEN', mergedAt: null, mergeCommit: '',
   draft: false, mergeable: 'mergeable', review: '', checks: 'green', failingChecks: [], url: '', author: '',
 };
 
