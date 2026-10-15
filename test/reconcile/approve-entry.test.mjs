@@ -122,7 +122,8 @@ const makeRepo = (planBody, host = { number: 42, state: 'OPEN', draft: false }) 
   git(repo, 'commit', '-qm', 'plan');
   git(repo, 'push', '-q', 'origin', 'main');
   git(repo, 'remote', 'set-head', 'origin', 'main');
-  setHost(host);
+  // A PR on GitHub always names its head; pr-merge pins the merge to it.
+  setHost({ headRefOid: '0123456789abcdef0123456789abcdef01234567', ...host });
   return { repo, origin };
 };
 
