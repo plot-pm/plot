@@ -58,6 +58,24 @@ describe('lanesForReader', () => {
     expect(actual.tickets?.open.rows.map((r) => r.id)).toEqual(['9']);
   });
 
+  it('keeps a ticket whose owner is an undeclared tracker-account spelling, as unknown', () => {
+    // `jira-acct-99` names nobody in `directory` — `ownerOf` falls back to this
+    // raw, unresolved spelling rather than a handle. Reading it as a host-login
+    // mismatch would wrongly call it `theirs` and hide it.
+    const tickets: TicketLaneGroups = { open: [ticket('9', 'jira-acct-99')], 'in-progress': [], done: [], moreCount: 0 };
+    const actual = lanesForReader(STORIES, tickets, reader, true);
+    expect(actual.tickets?.open.rows.map((r) => r.id)).toEqual(['9']);
+  });
+
+  it('keeps the reader\'s own ticket even where their tracker spelling is undeclared', () => {
+    // Nothing in `directory` declares a spelling for `jwloka` as a tracker
+    // account, so an undeclared-but-actually-mine spelling must not hide the
+    // reader's own ticket either.
+    const tickets: TicketLaneGroups = { open: [ticket('9', 'jira-acct-mine')], 'in-progress': [], done: [], moreCount: 0 };
+    const actual = lanesForReader(STORIES, tickets, reader, true);
+    expect(actual.tickets?.open.rows.map((r) => r.id)).toEqual(['9']);
+  });
+
   it('keeps a story with no author, as unknown', () => {
     const stories = [{ lane: 'Draft', stories: [story('z')] }];
     const actual = lanesForReader(stories, null, reader, true);

@@ -294,6 +294,7 @@ const story = (author?: string): OwnedRow => ({ kind: 'story', author });
 const planOf = (fields: { assignee?: string; author?: string; approver?: string }): OwnedRow => ({
   kind: 'plan', ...fields,
 });
+const resolvedOwner = (owner?: string | null): OwnedRow => ({ kind: 'resolvedOwner', owner });
 
 describe('a story is owned by its author, resolved through the directory', () => {
   it('reads both of the reader\'s spellings as mine', () => {
@@ -320,6 +321,34 @@ describe('a story is owned by its author, resolved through the directory', () =>
 
   it('reads every author as unknown where the login is an email', () => {
     expect(ownership(story('jwloka'), { hostUser: 'jan.wloka@quatico.com', directory })).toBe('unknown');
+  });
+});
+
+describe('a resolved-owner row is owned by free-text matching, not host-login matching', () => {
+  it('reads both of the reader\'s spellings as mine', () => {
+    expect(ownership(resolvedOwner('jwloka'), declared)).toBe('mine');
+    expect(ownership(resolvedOwner('Jan Wloka'), declared)).toBe('mine');
+  });
+
+  it('reads a spelling the directory declares for another person as theirs', () => {
+    expect(ownership(resolvedOwner('Max Albrecht'), declared)).toBe('theirs');
+    expect(isMine(resolvedOwner('eins78'), declared)).toBe(false);
+  });
+
+  it('reads an absent, null or empty owner as unknown, not theirs', () => {
+    expect(ownership(resolvedOwner(undefined), declared)).toBe('unknown');
+    expect(ownership(resolvedOwner(null), declared)).toBe('unknown');
+    expect(ownership(resolvedOwner(''), declared)).toBe('unknown');
+    expect(isMine(resolvedOwner(), declared)).toBe(true);
+  });
+
+  it('reads an undeclared tracker-account spelling as unknown rather than theirs', () => {
+    // The scenario the HIGH review finding names: a Jira account spelling the
+    // directory never declared must not be assumed to belong to somebody
+    // else, because it could just as well be the reader under an undeclared
+    // spelling.
+    expect(ownership(resolvedOwner('jira-acct-99'), declared)).toBe('unknown');
+    expect(isMine(resolvedOwner('jira-acct-99'), declared)).toBe(true);
   });
 });
 

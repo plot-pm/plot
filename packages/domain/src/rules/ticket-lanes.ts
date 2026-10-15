@@ -14,7 +14,13 @@ export interface TicketLaneRow {
   readonly closedAt: string | null;
   /** The tracker's own word for the kind of work, lowercased; `null` where it stated none. */
   readonly type: string | null;
-  /** The first assignee, resolved through the `People` directory; `null` where nobody is assigned. */
+  /**
+   * The first assignee, resolved to a handle where the `People` directory
+   * declares its spelling; the raw, unresolved spelling otherwise verbatim.
+   * `null` where nobody is assigned. Nothing on the row says which case
+   * applies — a reader comparing this field must treat it as free text, not
+   * as an already-resolved identity.
+   */
   readonly owner: string | null;
 }
 
