@@ -1,4 +1,5 @@
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
+import { canPinMerge } from './host-pin.js';
 import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
@@ -1057,12 +1058,17 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
     }
     await writeApprovalStatus(ctx.host, pr.headSha, who);
     // The head the gate read is the head that merges: a push between the two
-    // fails at the host. A host that named no head refuses rather than merging
-    // unpinned — `plot-host.sh pr-merge` requires `--match-head` on GitHub.
-    if (!pr.headSha) {
-      throw new Refused(`PR #${pr.number} named no head SHA to pin the merge to. Nothing was merged; re-run once the host reports one.`);
+    // fails at the host. A host that can pin and named no head refuses rather
+    // than merging unpinned. A host that cannot pin merges as before.
+    const mergeArgs = ['pr-merge', String(pr.number)];
+    if (await canPinMerge(ctx.host)) {
+      if (!pr.headSha) {
+        throw new Refused(`PR #${pr.number} named no head SHA to pin the merge to. Nothing was merged; re-run once the host reports one.`);
+      }
+      mergeArgs.push('--match-head', pr.headSha);
     }
-    const landed = await ctx.scripts.host(['pr-merge', String(pr.number), '--match-head', pr.headSha, '--delete-branch']);
+    mergeArgs.push('--delete-branch');
+    const landed = await ctx.scripts.host(mergeArgs);
     if (!landed.ok) {
       throw new Refused(`could not merge PR #${pr.number}. Nothing else was written; re-run once the merge works.`);
     }

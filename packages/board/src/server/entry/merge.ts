@@ -1,5 +1,6 @@
 import type { Host, Scripts } from '@plot-pm/domain';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
+import { canPinMerge } from './host-pin.js';
 import { merge, type MergeRefusal } from '@plot-pm/domain/workflows/merge';
 
 /** The ports one merge needs. */
@@ -24,8 +25,8 @@ export type MergeResult =
  * Re-asks the host through `pr-state` and never the PR index: the index decides
  * only whether to try, and a merge cannot be undone. On a pass the merge goes
  * through `plot-host.sh pr-merge --match-head <sha>`, so a push between the
- * reading and the merge fails at the host. A refusal ends the action; nothing
- * retries without the pin. A default-branch read that fails refuses as
+ * reading and the merge fails at the host; a host that cannot pin merges with no
+ * pin flag. A refusal ends the action; nothing retries without the pin. A default-branch read that fails refuses as
  * `unaskable`; an absent reading holds nothing.
  *
  * @param ports - the host, the script port, the default-branch store, the
@@ -52,7 +53,8 @@ export const mergeAt = async (ports: MergePorts, pr: number, sha: string): Promi
   if (write?.kind !== 'pr-merge' || write.sha === undefined) {
     return { merged: false, reason: 'host-refused', detail: 'the merge decision carried no pinned write' };
   }
-  const args = ['pr-merge', String(write.pr), '--match-head', write.sha];
+  const args = ['pr-merge', String(write.pr)];
+  if (await canPinMerge(ports.host)) args.push('--match-head', write.sha);
   if (write.deleteBranch) args.push('--delete-branch');
   const landed = await ports.scripts.hostSaid(args);
   if (landed.answer !== 'answered') {

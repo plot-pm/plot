@@ -2,6 +2,7 @@ import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlink
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { hostPinsMerges } from './host-pin.js';
 import { MANAGED_PROCESS_MARKERS, controllerInvocation } from '@plot-pm/domain/rules/ci-suite';
 import {
   carriesSpikeFlag,
@@ -456,9 +457,6 @@ const gitWhere = async (cwd: string, scriptDir: string): Promise<Where> => {
   const linked = await refs.linkedWorktree();
   return { root, linked: linked.ok && linked.value };
 };
-
-/** Whether the backend `plot-host.sh` resolved pins a merge: Bitbucket's `pr-merge --match-head` exits 4. */
-const hostPinsMerges = (backend: string): boolean => backend !== 'bitbucket';
 
 /** The backend `plot-host.sh` resolves, or `''` where it does not answer. */
 const hostBackend = async (cwd: string, scriptDir: string): Promise<string> => {

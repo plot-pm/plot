@@ -131,4 +131,42 @@ describe('approve perform — plan-PR merge ordering', () => {
 
     expect(calls.some((args) => args[0] === 'pr-merge')).toBe(false);
   });
+
+  const withHead = (ctx: Context, statuses: CommitStatusWrite[], headSha: string, backend: string): void => {
+    ctx.host = hostFixture({
+      backend,
+      prs: [{
+        number: 42, repo: '', head: `idea/${SLUG}`, state: 'OPEN', mergedAt: null, mergeCommit: '',
+        draft: false, mergeable: 'mergeable', review: 'none', checks: 'passing', failingChecks: [],
+        url: '', author: '', headSha,
+      }],
+      commitStatuses: statuses,
+    });
+  };
+
+  it('merges a plan-PR with no head SHA on a host that cannot pin, and sends no pin', async () => {
+    const statuses: CommitStatusWrite[] = [];
+    const calls: string[][] = [];
+    const ctx = ctxFor(statuses, calls);
+    withHead(ctx, statuses, '', 'bitbucket');
+
+    await expect(
+      perform(ctx, { dryRun: false, spike: false, who: 'jwloka', slug: SLUG }, () => {}, () => {}),
+    ).rejects.toThrow(Refused);
+
+    expect(calls.filter((args) => args[0] === 'pr-merge')).toEqual([['pr-merge', '42', '--delete-branch']]);
+  });
+
+  it('pins the merge to the head SHA on a host that can pin', async () => {
+    const statuses: CommitStatusWrite[] = [];
+    const calls: string[][] = [];
+    const ctx = ctxFor(statuses, calls);
+    withHead(ctx, statuses, HEAD, 'github');
+
+    await expect(
+      perform(ctx, { dryRun: false, spike: false, who: 'jwloka', slug: SLUG }, () => {}, () => {}),
+    ).rejects.toThrow(Refused);
+
+    expect(calls.filter((args) => args[0] === 'pr-merge')).toEqual([['pr-merge', '42', '--match-head', HEAD, '--delete-branch']]);
+  });
 });

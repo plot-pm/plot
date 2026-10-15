@@ -23,10 +23,11 @@ const pr = (over: Partial<Pr> = {}): Pr => ({
 });
 
 /** Ports that answer as given and record every script call. */
-const ports = (lookup: Pr | 'unaskable', answer: 'answered' | 'failed' = 'answered', read: Read = { ok: true, value: null }) => {
+const ports = (lookup: Pr | 'unaskable', answer: 'answered' | 'failed' = 'answered', read: Read = { ok: true, value: null }, backend = 'github') => {
   const calls: string[][] = [];
   const p = {
     host: {
+      backend: async () => ({ ok: true, value: backend }),
       prState: async () => (lookup === 'unaskable'
         ? { ok: false, refusal: 'unaskable', said: 'down' }
         : { ok: true, value: lookup }),
@@ -49,6 +50,19 @@ describe('mergeAt', () => {
     const { p, calls } = ports(pr());
     const out = await mergeAt(p, 7, HEAD);
     expect(out).toMatchObject({ merged: true, pr: 7, sha: HEAD, defaultBranchRead: false });
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD]]);
+  });
+
+  it('sends no pin on a host that cannot pin a merge', async () => {
+    const { p, calls } = ports(pr(), 'answered', { ok: true, value: null }, 'bitbucket');
+    expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: true, pr: 7, sha: HEAD });
+    expect(calls).toEqual([['pr-merge', '7']]);
+  });
+
+  it('keeps the pin where the backend does not answer', async () => {
+    const { p, calls } = ports(pr());
+    p.host.backend = async () => ({ ok: false, refusal: 'failed', said: 'down' });
+    expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: true });
     expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD]]);
   });
 
