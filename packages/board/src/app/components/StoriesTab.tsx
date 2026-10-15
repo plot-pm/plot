@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { discoveryGroups, lanesForTopic, ticketCardIssueRow, ticketCardView, topicCountFor } from '@plot-pm/domain';
+import { discoveryGroups, lanesForTopic, storyDateText, ticketCardIssueRow, ticketCardView, topicCountFor } from '@plot-pm/domain';
 import type { DiscoveryShow } from '@plot-pm/domain';
 import type { StoryCard, StoryLaneGroup, Topic, TicketLaneGroups, TicketLaneRow, DispatchInfo, IssueAnswer } from '../../contract/schema.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
@@ -452,6 +452,10 @@ interface StoryCardViewProps {
  * A story card in the column view.
  */
 function StoryCardView({ story, onOpen, onOpenSprint }: StoryCardViewProps) {
+  const now = new Date();
+  const createdText = storyDateText(story.created, now);
+  const updatedText = storyDateText(story.updated, now);
+
   return (
     <div className="w-full rounded-md border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       {/* Clickable header area */}
@@ -481,11 +485,11 @@ function StoryCardView({ story, onOpen, onOpenSprint }: StoryCardViewProps) {
         </p>
 
         {/* Age */}
-        {(story.created || story.updated) && (
+        {(createdText || updatedText) && (
           <p className="mb-2 text-xs text-slate-400 dark:text-slate-500">
-            {story.created && `Created: ${formatDate(story.created)}`}
-            {story.created && story.updated && ' · '}
-            {story.updated && `Updated: ${formatDate(story.updated)}`}
+            {createdText && `Created: ${createdText}`}
+            {createdText && updatedText && ' · '}
+            {updatedText && `Updated: ${updatedText}`}
           </p>
         )}
 
@@ -526,25 +530,4 @@ function StoryCardView({ story, onOpen, onOpenSprint }: StoryCardViewProps) {
       )}
     </div>
   );
-}
-
-/**
- * Format an ISO date string for display.
- */
-function formatDate(iso: string): string {
-  if (!iso) return '';
-  try {
-    const date = new Date(iso);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) return 'today';
-    if (diffDays === 1) return 'yesterday';
-    if (diffDays < 7) return `${diffDays} days ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-    return date.toLocaleDateString();
-  } catch {
-    return iso;
-  }
 }

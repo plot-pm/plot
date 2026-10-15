@@ -88,3 +88,25 @@ describe('neither parser declares its own list', () => {
     expect(new Set(STORY_LIFECYCLE)).toEqual(new Set(StoryStatusSchema.options));
   });
 });
+
+describe('a story title read from frontmatter', () => {
+  const read = (titleLine: string) =>
+    parseStoryContent(`---\n${titleLine}\n---\n\n# H1\n`, 'slug', 'docs/stories/slug/story.md', '')?.title;
+
+  it('drops one pair of double quotes', () => {
+    expect(read('title: "EWZKUS-1 — Einladungen löschen"')).toBe('EWZKUS-1 — Einladungen löschen');
+  });
+
+  it('drops one pair of single quotes', () => {
+    expect(read("title: 'A story'")).toBe('A story');
+  });
+
+  it('keeps an unquoted title whole', () => {
+    expect(read('title: A story')).toBe('A story');
+  });
+
+  it('keeps a quote inside the value and an unmatched edge quote', () => {
+    expect(read('title: Say "hi" now')).toBe('Say "hi" now');
+    expect(read('title: "half open')).toBe('"half open');
+  });
+});

@@ -1634,6 +1634,18 @@ function parseStoryFile(absPath: string, slug: string, relPath: string, storyDir
 }
 
 /**
+ * Strips one pair of matching surrounding quotes from a YAML scalar, the way a
+ * YAML parser does. A quote inside the value, or an unmatched one, stays.
+ */
+export const unquoteScalar = (value: string): string => {
+  if (value.length >= 2) {
+    const q = value[0];
+    if ((q === '"' || q === "'") && value[value.length - 1] === q) return value.slice(1, -1);
+  }
+  return value;
+};
+
+/**
  * The same parse, from content a caller already holds.
  *
  * THE SPLIT SPRINTS ALREADY HAVE, and stories needed it for the same reason: a
@@ -1672,7 +1684,7 @@ export function parseStoryContent(
   if (fm) {
     const frontmatter = fm[1];
     const titleMatch = frontmatter.match(/^title:\s*(.+)$/m);
-    if (titleMatch) title = titleMatch[1].trim();
+    if (titleMatch) title = unquoteScalar(titleMatch[1].trim());
     const statusMatch = frontmatter.match(/^status:\s*(.+)$/m);
     // The DECLARED status, refused where the domain does not admit it. A story
     // with no `status:` line keeps `''` — an absence the drift check already
