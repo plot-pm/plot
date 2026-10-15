@@ -51,6 +51,9 @@ writes a status for them and nothing needs to.
    - **Review app:** <app id> <key path>
    ```
 
+   Write the key path as an absolute path. The resolver does not expand `~`,
+   so `~/.config/plot/…` is refused with exit 4 (#1706).
+
    `plot-host.sh commit-status` and `plot-commit-status.mjs` read this key to
    mint a short-lived installation token per write; neither credential reaches
    a child process's argv or a log line.
@@ -121,8 +124,8 @@ unread.
 ## For this repository
 
 The App exists (`plot-review` on `plot-pm`, installed on `plot-pm/plot` only)
-and the `Review app` key is recorded in this file's own `## Plot Config`
-section. Steps 1–3 above are done. Step 6 — the ruleset rule requiring
+and the `Review app` key is recorded in the `## Plot Config` section of
+`CLAUDE.md`. Steps 1–3 above are done. Step 6 — the ruleset rule requiring
 `plot/review` — is deliberately **not yet added**: this plan's own sequencing
 requires it last, after the writers above (this wave) are merged and proven
 in production, not merely written. Flipping it earlier would hold every PR
