@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { readChange, REVIEW_DIFF_MAX_BYTES } from '../../src/server/entry/review.js';
+import { removeTree } from '../rm-tree.mjs';
 
 /**
  * `readChange` against a REAL repository with its own divergent base branch,
@@ -24,6 +25,7 @@ beforeAll(() => {
   git(repo, ['init', '--quiet', '--initial-branch=release/1.0']);
   git(repo, ['config', 'user.email', 'test@example.com']);
   git(repo, ['config', 'user.name', 'Test']);
+  git(repo, ['config', 'maintenance.auto', 'false']);
   fs.writeFileSync(path.join(repo, 'a.txt'), 'one\n');
   git(repo, ['add', '-A']);
   git(repo, ['commit', '--quiet', '-m', 'first']);
@@ -51,7 +53,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  if (repo) fs.rmSync(repo, { recursive: true, force: true });
+  if (repo) removeTree(repo);
 });
 
 describe('readChange', () => {
