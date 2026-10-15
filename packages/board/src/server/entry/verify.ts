@@ -789,6 +789,21 @@ export const record = async (ctx: Context, args: Args, write: Printer, warn: Pri
 };
 
 /**
+ * Reads the `PLOT_PUSH_RETRY_WAIT_MS` override of the wait between push attempts.
+ * Only this entry reads it; the ladder itself reads no environment.
+ *
+ * @param raw - the variable's value.
+ * @returns a wait of that many milliseconds, or `undefined` (the ladder's jittered
+ *   2 to 10 s wait) when the value is unset, empty, negative or not a number.
+ */
+const retryWaitFromEnv = (raw: string | undefined): (() => Promise<void>) | undefined => {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const ms = Number(raw);
+  if (!Number.isFinite(ms) || ms < 0) return undefined;
+  return () => new Promise<void>((resolve) => setTimeout(resolve, ms));
+};
+
+/**
  * Resolves the repository root from the git common directory, so a linked
  * tree such as `pin/` or `tools/` answers the main checkout.
  *
@@ -862,6 +877,7 @@ export const run = async (
     scripts: scriptsShell(context),
     trees: treesGit(context),
     issueTracker: (declared, backend) => trackerForIssues(declared, backend, context),
+    retryWait: retryWaitFromEnv(process.env.PLOT_PUSH_RETRY_WAIT_MS),
   };
   try {
     if (parsed.command !== 'prepare' && handsOver(ctx, parsed.slug)) {

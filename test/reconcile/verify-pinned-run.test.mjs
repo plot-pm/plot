@@ -60,7 +60,14 @@ case "$1" in
   *) exit 3 ;;
 esac
 `;
-const STUB_PUSH_REJECTS = '#!/usr/bin/env bash\necho "push: rejected"\nexit 1\n';
+// Rejects the first `$PLOT_STUB_PUSH_REJECTS` calls, counted in the file
+// `$PLOT_STUB_PUSH_COUNT`, then hands every later call to the real script.
+const STUB_PUSH_REJECTS = `#!/usr/bin/env bash
+n=$(cat "$PLOT_STUB_PUSH_COUNT" 2>/dev/null || echo 0)
+echo $((n + 1)) > "$PLOT_STUB_PUSH_COUNT"
+if [ "$n" -lt "\${PLOT_STUB_PUSH_REJECTS:-0}" ]; then echo "push: rejected"; exit 1; fi
+exec "$(dirname "$0")/plot-push-main.real.sh" "$@"
+`;
 const STUB_PNPM = '#!/usr/bin/env bash\nexit "${STUB_PNPM_EXIT:-0}"\n';
 
 const planText = (delivered) => `# The plan
@@ -96,7 +103,7 @@ const planText = (delivered) => `# The plan
  *
  * @param options.delivered whether the plan's `Delivered:` is ever filled.
  * @param options.toolsCommitted whether `origin/main` carries the real bundles.
- * @param options.pushRejects whether `plot-push-main.sh` on `origin/main` rejects every push.
+ * @param options.pushRejects whether `plot-push-main.sh` on `origin/main` is the counting stub; how many pushes it rejects is `PLOT_STUB_PUSH_REJECTS` at run time.
  * @returns the paths and commits a test asserts on, and `cleanup`.
  */
 const sandbox = ({ delivered = true, toolsCommitted = true, pushRejects = false } = {}) => {
@@ -119,7 +126,11 @@ const sandbox = ({ delivered = true, toolsCommitted = true, pushRejects = false 
     fs.chmodSync(path.join(dir, SCRIPTS_REL, name), 0o755);
   }
   write(dir, `${SCRIPTS_REL}/plot-host.sh`, STUB_HOST);
-  if (pushRejects) write(dir, `${SCRIPTS_REL}/plot-push-main.sh`, STUB_PUSH_REJECTS);
+  if (pushRejects) {
+    write(dir, `${SCRIPTS_REL}/plot-push-main.real.sh`, fs.readFileSync(path.join(scripts, 'plot-push-main.sh'), 'utf8'));
+    fs.chmodSync(path.join(dir, SCRIPTS_REL, 'plot-push-main.real.sh'), 0o755);
+    write(dir, `${SCRIPTS_REL}/plot-push-main.sh`, STUB_PUSH_REJECTS);
+  }
   write(dir, `${SCRIPTS_REL}/board/plot-local-checks.mjs`, STUB_LOCAL_CHECKS);
   write(dir, PLAN, planText(''));
   commit(dir, 'base');
@@ -380,17 +391,27 @@ test('record leaves no tree, no booking branch and no worktree', () => {
   }
 });
 
-test('a rejected push lands the record through a micro-PR and leaves nothing behind', () => {
+/** The environment that makes the stubbed push script reject `rejects` calls, with no wait between attempts. */
+const pushEnv = (box, rejects) => ({
+  PLOT_STUB_PUSH_REJECTS: String(rejects),
+  PLOT_STUB_PUSH_COUNT: path.join(box.bin, 'push-count'),
+  PLOT_PUSH_RETRY_WAIT_MS: '0',
+});
+
+const pushCalls = (box) => Number(fs.readFileSync(path.join(box.bin, 'push-count'), 'utf8'));
+
+test('a push rejected once is retried and lands the record with no micro-PR', () => {
   const box = sandbox({ pushRejects: true });
   try {
     assert.equal(verify(box, ['prepare', SLUG]).code, 0);
     jurors(box, { a: SUPPORTED, b: SUPPORTED, c: SUPPORTED });
     const before = g(box.dir, 'rev-parse', 'origin/main');
-    const recorded = verify(box, ['record', SLUG], { PLOT_STUB_REMOTE: box.remote });
+    const recorded = verify(box, ['record', SLUG], pushEnv(box, 1));
     assert.equal(recorded.code, 0, recorded.err + recorded.out);
-    assert.match(recorded.out, /push rejected — opening a micro-PR instead/);
-    assert.match(recorded.out, /verification landed via micro-PR https:\/\/example\.test\/pull\/7/);
-    assert.match(recorded.out, /summary: push=micro-pr /);
+    assert.match(recorded.out, /step: push rejected — retrying \(attempt 1 of 5\)/);
+    assert.doesNotMatch(recorded.out, /micro-PR/);
+    assert.match(recorded.out, /summary: push=clean /);
+    assert.equal(pushCalls(box), 2);
     g(box.dir, 'fetch', '-q', '--prune', 'origin');
     assert.equal(g(box.dir, 'rev-list', '--count', `${before}..origin/main`), '1');
     assert.equal(g(box.dir, 'log', '-1', '--format=%s', 'origin/main'), 'plot: verify the-plan');
@@ -401,6 +422,28 @@ test('a rejected push lands the record through a micro-PR and leaves nothing beh
     assert.equal(g(box.dir, 'branch', '--list', 'plot/verify-*'), '');
     assert.equal(g(box.dir, 'ls-remote', '--heads', 'origin', 'plot/verify-*'), '');
     assert.equal(verifyTrees(box), 0);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('a push rejected on every attempt is refused by name and lands nothing', () => {
+  const box = sandbox({ pushRejects: true });
+  try {
+    assert.equal(verify(box, ['prepare', SLUG]).code, 0);
+    jurors(box, { a: SUPPORTED, b: SUPPORTED, c: SUPPORTED });
+    const before = g(box.dir, 'rev-parse', 'origin/main');
+    const recorded = verify(box, ['record', SLUG], pushEnv(box, 99));
+    assert.notEqual(recorded.code, 0);
+    assert.match(recorded.out, /step: push rejected — retrying \(attempt 4 of 5\)/);
+    assert.match(recorded.out, /step: push rejected after 5 attempts/);
+    assert.match(recorded.out, /summary: push=rejected/);
+    assert.match(recorded.err, /the verification is committed on 'plot\/verify-[^']*' but could not reach main/);
+    assert.doesNotMatch(recorded.out + recorded.err, /micro-PR/);
+    assert.equal(pushCalls(box), 5);
+    g(box.dir, 'fetch', '-q', '--prune', 'origin');
+    assert.equal(g(box.dir, 'rev-parse', 'origin/main'), before);
+    assert.equal(g(box.dir, 'ls-remote', '--heads', 'origin', 'plot/verify-*'), '');
   } finally {
     box.cleanup();
   }
