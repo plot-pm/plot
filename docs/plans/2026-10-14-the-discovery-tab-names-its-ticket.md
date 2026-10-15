@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Issue:** #1693
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-14, Jan Wloka, plan-PR #1694 merged
 - **Started:** 2026-10-14, Jan Wloka, `feature/the-discovery-groups-have-a-toggle`
 - **Delivered:** 2026-10-14
+- **Released:** 2026-10-15, v2.27.0
 
 ## Changelog
 
