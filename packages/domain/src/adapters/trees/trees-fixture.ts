@@ -101,6 +101,8 @@ export interface TreesFixture {
   claimCommits?: Readonly<Record<string, CommitReading>>;
   /** Paths where `resetOnto` refuses — the checkout-failure case. */
   resetRefusedAt?: readonly string[];
+  /** Paths where `resetBranch` refuses — the checkout-failure case. */
+  resetBranchRefusedAt?: readonly string[];
   /** Paths where `removeOnly` refuses — the git-level removal failure case. */
   removeRefusedAt?: readonly string[];
   /** Branches where `deleteBranch` refuses. */
@@ -249,6 +251,9 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
     add: async () => answered(undefined),
 
     addBranch: async () => answered(undefined),
+
+    resetBranch: async (path): Promise<PortResult<void>> =>
+      (fixture.resetBranchRefusedAt ?? []).includes(path) ? failed<void>() : answered(undefined),
 
     removeWithBranch: async () => answered(undefined),
 

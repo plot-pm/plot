@@ -9,18 +9,17 @@ import { commitAndPush, type LadderContext } from '../../src/server/entry/ladder
 
 const answered = <T>(value: T): PortResult<T> => ({ ok: true, value });
 
-/** A `Trees` stub whose push rejects `rejections` times before landing — and
- * records every `addBranch` base and every `reapply` call, so a test can
+/** A `Trees` stub that records every `resetBranch` base, so a test can
  * assert the retry re-cut from a fresh base rather than re-pushing the stale
- * commit. */
-const treesStub = (bases: string[]) => ({
+ * commit. `fetchOk` and `resetOk` answer the fetch and the reset. */
+const treesStub = (bases: string[], fetchOk = true, resetOk = true) => ({
   hasStagedChanges: async () => answered(true),
   commitAs: async () => answered(undefined),
   push: async () => answered(undefined),
-  fetch: async () => answered(undefined),
-  addBranch: async (_tmpwt: string, _branch: string, start: string) => {
+  fetch: async () => (fetchOk ? answered(undefined) : { ok: false, why: 'failed' }),
+  resetBranch: async (_tmpwt: string, _branch: string, start: string) => {
     bases.push(start);
-    return answered(undefined);
+    return resetOk ? answered(undefined) : { ok: false, why: 'failed' };
   },
 } as unknown as Trees);
 
@@ -72,7 +71,7 @@ describe('commitAndPush — retry on rejection', () => {
     expect(result).toEqual({ pushed: 'clean' });
     // Two rejections means two retries, each re-cutting from the fetched
     // default branch — a loop that only re-pushed the same stale commit would
-    // never call `addBranch` again and would still pass a naive "pushed 3
+    // never call `resetBranch` and would still pass a naive "pushed 3
     // times" assertion.
     expect(bases).toEqual(['origin/main', 'origin/main']);
     expect(reapplied).toEqual(['/repo/.worktrees/tmp', '/repo/.worktrees/tmp']);
@@ -120,5 +119,36 @@ describe('ladder.ts — no micro-PR vocabulary left', () => {
     expect(source).not.toMatch(/\bprCreate\b/);
     expect(source).not.toMatch(/\bcommitStatus\b/);
     expect(source).not.toMatch(/\bpr-merge\b/);
+  });
+});
+
+describe('commitAndPush — a retry step that fails is named', () => {
+  const attempt = async (trees: Trees, reapply: () => Promise<void> = async () => {}) => {
+    const lines: string[] = [];
+    const ctx: LadderContext = { repoRoot: '/repo', scripts: scriptsStub(5, []), trees, retryWait: noWait };
+    const run = commitAndPush(ctx, '/wt', 'plot/deliver-p', 'main', 'jw', 'm', 'delivery', 'nothing', reapply, (s) => lines.push(s));
+    return { run, lines };
+  };
+
+  it('stops with a step line where the fetch fails', async () => {
+    const bases: string[] = [];
+    const { run, lines } = await attempt(treesStub(bases, false));
+    expect(await run).toEqual({ rejected: true });
+    expect(lines.join('')).toContain('step: retry stopped — git fetch origin main failed in /repo\n');
+    expect(bases).toEqual([]);
+  });
+
+  it('stops with a step line where the reset fails', async () => {
+    const { run, lines } = await attempt(treesStub([], true, false));
+    expect(await run).toEqual({ rejected: true });
+    expect(lines.join('')).toContain("step: retry stopped — could not reset 'plot/deliver-p' to origin/main in /wt\n");
+  });
+
+  it('names the step and rethrows where reapply throws', async () => {
+    const { run, lines } = await attempt(treesStub([]), async () => {
+      throw new Error('boom');
+    });
+    await expect(run).rejects.toThrow('boom');
+    expect(lines.join('')).toContain('step: retry stopped — re-applying the delivery to origin/main failed\n');
   });
 });

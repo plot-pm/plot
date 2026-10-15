@@ -49,8 +49,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * **IT PERFORMS WHAT THE SCRIPT USED TO PERFORM**, not a reading for a script
  * to act on — the first entry under this directory to do so. Every prior
  * bundle took readings on stdin and printed a decision; this one creates a
- * booking worktree, writes the plan, commits, pushes, and falls back to a
- * micro-PR, because the layering rule's target is a command an agent runs
+ * booking worktree, writes the plan, commits, pushes, and retries a rejected
+ * push, because the layering rule's target is a command an agent runs
  * directly, with shell reduced to a launcher.
  *
  * **ONE IMPLEMENTATION, TWO ENTRANCES**, exactly as the script's own header
@@ -196,6 +196,136 @@ const resolveMain = async (repoRoot: string, scripts: Scripts): Promise<string> 
   return hostedTrimmed !== '' ? hostedTrimmed : 'main';
 };
 
+/** The ports one booking write needs. */
+export interface BookingPorts {
+  repoRoot: string;
+  planStore: PlanStore;
+  trees: Trees;
+}
+
+/** Where a delivery is written and what it records. */
+export interface DeliveryBooking {
+  /** The plan file, repository-relative. */
+  rel: string;
+  slug: string;
+  /** The date the `Delivered:` record carries, `YYYY-MM-DD`. */
+  today: string;
+  activeDir: string;
+  deliveredDir: string;
+  sprintDir: string;
+  /** The sprint the plan names; empty where it names none. */
+  sprint: string;
+}
+
+/** What one delivery write did, in the words the summary line prints. */
+export interface DeliveryReport {
+  phase: string;
+  record: string;
+  index: string;
+  sprint: string;
+}
+
+/**
+ * Decides and writes a delivery inside the booking worktree `wt`, from the
+ * plan text `wt` holds now, and stages it.
+ *
+ * Reads the plan, asks the domain's `deliver` transition, flips `State:` to
+ * Delivered and inserts the `Delivered:` record, moves the index symlink from
+ * the active to the delivered index, and ticks the sprint item. A plan that
+ * already holds the delivery writes nothing to the plan. The caller runs this
+ * once per push attempt, so a retry decides again from the text of the
+ * re-fetched default branch rather than from an earlier read.
+ *
+ * @param ports - the plan store, the trees port, and the main repository
+ *   that receives the state receipt.
+ * @param wt - the booking worktree, absolute.
+ * @param booking - the plan, the date, and the configured directories.
+ * @returns the report; or `refused` with the sentence to print where the plan
+ *   cannot be delivered from this text, in which case the plan is unchanged.
+ * @throws Refused where a file write fails.
+ */
+export const bookDelivery = async (
+  ports: BookingPorts,
+  wt: string,
+  booking: DeliveryBooking,
+): Promise<DeliveryReport | { refused: string }> => {
+  const { rel, slug, activeDir, deliveredDir, sprintDir } = booking;
+  const target = path.join(wt, rel);
+  const present = await ports.planStore.readText(target);
+  if (!present.ok || present.value === null) return { refused: `${rel} is not present in ${wt}` };
+
+  const fileContent = present.value;
+  const scratchPlan = await transitionPlanOf(ports.planStore, slug, target);
+  if (scratchPlan === null) return { refused: `cannot parse ${target} — refusing rather than guessing.` };
+  const decision = deliver(scratchPlan, { on: booking.today });
+  if (isRefusal(decision)) return { refused: decision.detail };
+
+  let phase: string;
+  let record: string;
+  if (decision.alreadyRecorded) {
+    phase = 'already';
+    record = 'already';
+  } else {
+    const recorded = scratchPlan.deliveredRecord.trim() !== '';
+    const flip = flipStatusValue(fileContent, 'approved', 'Delivered');
+    let landed: string;
+    if (recorded) {
+      landed = flip.content;
+      record = 'already';
+    } else {
+      const inserted = insertStatusRecord(flip.content, 'Delivered', decision.record);
+      if (!inserted.changed) {
+        return { refused: `${rel} has no '## Status' section — nowhere to record the delivery.\n  Nothing was written: the phase is not flipped either, because a phase\n  with no record is invisible to the scan. Fix the section and re-run.` };
+      }
+      landed = inserted.content;
+      record = 'written';
+    }
+    // Would the parser read this phase out of the file we are about to land?
+    // Written to a scratch path ALONGSIDE the real one and parsed there,
+    // never at `target` itself — landing it first and re-reading would be
+    // too late: a refusal here must leave the plan byte-identical.
+    const scratchPath = `${target}.plot-reread`;
+    const scratched = await ports.planStore.writeText(scratchPath, landed);
+    if (!scratched.ok) throw new Refused(`could not write ${scratchPath} to check the parser's reading.\n  Nothing was written to the plan.`);
+    const reread = await transitionPlanOf(ports.planStore, slug, scratchPath);
+    unlinkSyncSafe(scratchPath);
+    if (reread === null || reread.phase !== 'delivered') {
+      const got = reread === null ? 'none' : reread.phase;
+      return { refused: `${rel} — wrote phase 'delivered', but the parser still reads '${got}'.\n  The write landed and the parser reads something else, so the delivery\n  would have reported a success it did not achieve.\n  Nothing was written — the plan is unchanged. Check what the plan says\n  its phase is, and where: a plan stating it in two places reports the\n  '## Status' block, which is the field every lifecycle script writes.` };
+    }
+    const written = await ports.planStore.writeText(target, landed);
+    if (!written.ok) throw new Refused(`could not write ${rel}.\n  The plan is unchanged. Re-run this — it is idempotent.`);
+    phase = flip.changed ? 'flipped' : 'already';
+    recordStateReceipt(ports.repoRoot, rel, 'Delivered');
+  }
+
+  // Move the index symlink.
+  const placement = indexSymlinkPlacement({ activeDir, deliveredDir, slug, planBasename: path.basename(rel) });
+  const deliveredLinkAbs = path.join(wt, placement.deliveredLink);
+  mkdirSync(path.dirname(deliveredLinkAbs), { recursive: true });
+  let index: string;
+  if (existsSync(deliveredLinkAbs) || isSymlinkTo(deliveredLinkAbs)) {
+    index = 'already';
+    await runGit(['-C', wt, 'rm', '-q', '--ignore-unmatch', placement.activeLink]);
+  } else {
+    try {
+      symlinkSync(placement.target, deliveredLinkAbs);
+      await runGit(['-C', wt, 'rm', '-q', '--ignore-unmatch', placement.activeLink]);
+      index = 'moved';
+    } catch {
+      index = 'skipped';
+    }
+  }
+
+  // Tick the sprint item.
+  const sprint = await tickSprint(ports.planStore, wt, sprintDir, slug, booking.sprint);
+
+  for (const p of [rel, activeDir, deliveredDir, ...(sprint === 'updated' ? [sprintDir] : [])]) {
+    await ports.trees.stage(wt, [p]);
+  }
+  return { phase, record, index, sprint };
+};
+
 /**
  * Runs the deliver arm.
  *
@@ -284,7 +414,6 @@ const runDeliver = async (
   if (rel === null) {
     throw new Refused(`${planFile} is outside the repository root (${ctx.repoRoot}).\n  Move the plan under the plan directory inside this checkout and re-run.`);
   }
-  const planBasename = path.basename(rel);
 
   const [activeDirCfg, deliveredDirCfg, sprintDirCfg] = await Promise.all([
     ctx.scripts.config('Active index', 'docs/plans/active/'),
@@ -311,117 +440,22 @@ const runDeliver = async (
 
   try {
     const target = path.join(tmpwt, rel);
-    const present = await ctx.planStore.readText(target);
-    if (!present.ok || present.value === null) {
-      warn(`plot-deliver: ${rel} is not present in ${tmpwt}\n`);
+    const booking: DeliveryBooking = { rel, slug: args.slug, today, activeDir, deliveredDir, sprintDir, sprint };
+    const first = await bookDelivery(ctx, tmpwt, booking);
+    if ('refused' in first) {
+      warn(`plot-deliver: ${first.refused}\n`);
       await cleanup();
       return 1;
     }
+    let report: DeliveryReport = first;
 
-    const fileContent = present.value;
-    const scratchPlan = await transitionPlanOf(ctx.planStore, args.slug, target);
-    if (scratchPlan === null) {
-      warn(`plot-deliver: cannot parse ${target} — refusing rather than guessing.\n`);
-      await cleanup();
-      return 1;
-    }
-    const decision = deliver(scratchPlan, { on: today });
-    if (isRefusal(decision)) {
-      warn(`plot-deliver: ${decision.detail}\n`);
-      await cleanup();
-      return 1;
-    }
-
-    let phaseReport: string;
-    let recordReport: string;
-    if (decision.alreadyRecorded) {
-      phaseReport = 'already';
-      recordReport = 'already';
-    } else {
-      const recorded = scratchPlan.deliveredRecord.trim() !== '';
-      const flip = flipStatusValue(fileContent, 'approved', 'Delivered');
-      let landed: string;
-      if (recorded) {
-        landed = flip.content;
-        recordReport = 'already';
-      } else {
-        const inserted = insertStatusRecord(flip.content, 'Delivered', decision.record);
-        if (!inserted.changed) {
-          warn(`plot-deliver: ${rel} has no '## Status' section — nowhere to record the delivery.\n  Nothing was written: the phase is not flipped either, because a phase\n  with no record is invisible to the scan. Fix the section and re-run.\n`);
-          await cleanup();
-          return 1;
-        }
-        landed = inserted.content;
-        recordReport = 'written';
-      }
-      // Would the parser read this phase out of the file we are about to land?
-      // Written to a scratch path ALONGSIDE the real one and parsed there,
-      // never at `target` itself — landing it first and re-reading would be
-      // too late: a refusal here must leave the plan byte-identical.
-      const scratchPath = `${target}.plot-reread`;
-      const scratched = await ctx.planStore.writeText(scratchPath, landed);
-      if (!scratched.ok) throw new Refused(`could not write ${scratchPath} to check the parser's reading.\n  Nothing was written to the plan.`);
-      const reread = await transitionPlanOf(ctx.planStore, args.slug, scratchPath);
-      unlinkSyncSafe(scratchPath);
-      if (reread === null || reread.phase !== 'delivered') {
-        const got = reread === null ? 'none' : reread.phase;
-        warn(`plot-deliver: ${rel} — wrote phase 'delivered', but the parser still reads '${got}'.\n  The write landed and the parser reads something else, so the delivery\n  would have reported a success it did not achieve.\n  Nothing was written — the plan is unchanged. Check what the plan says\n  its phase is, and where: a plan stating it in two places reports the\n  '## Status' block, which is the field every lifecycle script writes.\n`);
-        await cleanup();
-        return 1;
-      }
-      const written = await ctx.planStore.writeText(target, landed);
-      if (!written.ok) throw new Refused(`could not write ${rel}.\n  The plan is unchanged. Re-run this — it is idempotent.`);
-      phaseReport = flip.changed ? 'flipped' : 'already';
-      recordStateReceipt(ctx.repoRoot, rel, 'Delivered');
-    }
-
-    // Move the index symlink.
-    const placement = indexSymlinkPlacement({ activeDir, deliveredDir, slug: args.slug, planBasename });
-    const deliveredLinkAbs = path.join(tmpwt, placement.deliveredLink);
-    mkdirSync(path.dirname(deliveredLinkAbs), { recursive: true });
-    let indexReport: string;
-    if (existsSync(deliveredLinkAbs) || isSymlinkTo(deliveredLinkAbs)) {
-      indexReport = 'already';
-      await runGit(['-C', tmpwt, 'rm', '-q', '--ignore-unmatch', placement.activeLink]);
-    } else {
-      try {
-        symlinkSync(placement.target, deliveredLinkAbs);
-        await runGit(['-C', tmpwt, 'rm', '-q', '--ignore-unmatch', placement.activeLink]);
-        indexReport = 'moved';
-      } catch {
-        indexReport = 'skipped';
-      }
-    }
-
-    // Tick the sprint item.
-    const sprintReport = await tickSprint(ctx.planStore, tmpwt, sprintDir, args.slug, sprint);
-
-    for (const p of [rel, activeDir, deliveredDir, ...(sprintReport === 'updated' ? [sprintDir] : [])]) {
-      await ctx.trees.stage(tmpwt, [p]);
-    }
-
-    // Re-cuts `bookbr` from the freshly fetched default branch and redoes this
-    // same write-then-stage sequence against it — called by `commitAndPush`
-    // before every retry after the first.
+    // A retry after a rejected push: `commitAndPush` has reset `wt` to the
+    // re-fetched default branch, so the delivery is decided and written again
+    // from the plan text `main` holds now.
     const reapply = async (wt: string): Promise<void> => {
-      const retarget = path.join(wt, rel);
-      const landed = await ctx.planStore.readText(target);
-      if (landed.ok && landed.value !== null) await ctx.planStore.writeText(retarget, landed.value);
-      const retryPlacement = indexSymlinkPlacement({ activeDir, deliveredDir, slug: args.slug, planBasename });
-      const retryLinkAbs = path.join(wt, retryPlacement.deliveredLink);
-      mkdirSync(path.dirname(retryLinkAbs), { recursive: true });
-      if (!existsSync(retryLinkAbs) && !isSymlinkTo(retryLinkAbs)) {
-        try {
-          symlinkSync(retryPlacement.target, retryLinkAbs);
-          await runGit(['-C', wt, 'rm', '-q', '--ignore-unmatch', retryPlacement.activeLink]);
-        } catch {
-          // Already reported via `indexReport` on the first attempt.
-        }
-      }
-      const retrySprintReport = await tickSprint(ctx.planStore, wt, sprintDir, args.slug, sprint);
-      for (const p of [rel, activeDir, deliveredDir, ...(retrySprintReport === 'updated' ? [sprintDir] : [])]) {
-        await ctx.trees.stage(wt, [p]);
-      }
+      const again = await bookDelivery(ctx, wt, booking);
+      if ('refused' in again) throw new Refused(again.refused);
+      report = again;
     };
 
     const pushResult = await commitAndPush(
@@ -442,14 +476,13 @@ const runDeliver = async (
       // The branch STAYS — only the worktree is removed, matching the shell's
       // `git worktree remove --force "$tmpwt"` with no `branch -D` beside it.
       await runGit(['-C', ctx.repoRoot, 'worktree', 'remove', '--force', tmpwt]);
-      write(`summary: phase=${phaseReport} record=${recordReport} index=${indexReport} sprint=${sprintReport} push=rejected tracker=skipped\n`);
+      write(`summary: phase=${report.phase} record=${report.record} index=${report.index} sprint=${report.sprint} push=rejected tracker=skipped\n`);
       return 1;
     }
 
     // THE BOOKED PLAN, KEPT FOR THE TRACKER. Read before `cleanup()` removes
-    // `tmpwt`, now that the push has landed, so it reflects whichever
-    // attempt's write actually reached `main` — every retry's `reapply`
-    // rewrites `target` before that attempt's commit.
+    // `tmpwt`, after the push landed, so it holds the text of the attempt that
+    // reached `main`.
     const booked = await ctx.planStore.readText(target);
     const bookedPlanFile = path.join(os.tmpdir(), `plot-deliver-plan-${process.pid}.md`);
     if (!booked.ok || booked.value === null || !(await ctx.planStore.writeText(bookedPlanFile, booked.value)).ok) {
@@ -468,7 +501,7 @@ const runDeliver = async (
     }
     unlinkSyncSafe(bookedPlanFile);
 
-    write(`summary: phase=${phaseReport} record=${recordReport} index=${indexReport} sprint=${sprintReport} push=${pushResult.pushed} tracker=${trackerReport}\n`);
+    write(`summary: phase=${report.phase} record=${report.record} index=${report.index} sprint=${report.sprint} push=${pushResult.pushed} tracker=${trackerReport}\n`);
     spendActionReceipt(ctx.repoRoot, 'deliver');
     return 0;
   } catch (err) {
@@ -596,6 +629,83 @@ export const run = async (
   }
 };
 
+/** Where a release is written and what it records. */
+export interface ReleaseBooking {
+  /** The plan file, repository-relative. */
+  rel: string;
+  slug: string;
+  /** The tag's date, which the `Released:` record carries. */
+  tagDate: string;
+  /** The release tag, which the `Released:` record names. */
+  tag: string;
+}
+
+/** What one release write did, in the words the summary line prints. */
+export interface ReleaseReport {
+  phase: string;
+  record: string;
+}
+
+/**
+ * Decides and writes a release inside the booking worktree `wt`, from the
+ * plan text `wt` holds now, and stages it.
+ *
+ * Reads the plan, asks the domain's `release` transition, flips `State:` to
+ * Released and inserts the `Released:` record. A plan that already holds the
+ * release writes nothing. The caller runs this once per push attempt, so a
+ * retry decides again from the text of the re-fetched default branch.
+ *
+ * @param ports - the plan store, the trees port, and the main repository
+ *   that receives the state receipt.
+ * @param wt - the booking worktree, absolute.
+ * @param booking - the plan, the tag and the tag's date.
+ * @returns the report; or `refused` with the sentence to print where the plan
+ *   cannot be released from this text, in which case the plan is unchanged.
+ * @throws Refused where the plan write fails.
+ */
+export const bookRelease = async (
+  ports: BookingPorts,
+  wt: string,
+  booking: ReleaseBooking,
+): Promise<ReleaseReport | { refused: string }> => {
+  const { rel, slug } = booking;
+  const target = path.join(wt, rel);
+  const present = await ports.planStore.readText(target);
+  if (!present.ok || present.value === null) return { refused: `${rel} is not present in ${wt}` };
+  const scratchPlan = await transitionPlanOf(ports.planStore, slug, target);
+  if (scratchPlan === null) return { refused: `cannot parse ${target} — refusing rather than guessing.` };
+  const decision = release(scratchPlan, { on: booking.tagDate, version: booking.tag });
+  if (isRefusal(decision)) return { refused: decision.detail };
+
+  let phase: string;
+  let record: string;
+  if (decision.alreadyRecorded) {
+    phase = 'already';
+    record = 'already';
+  } else {
+    const flip = flipStatusValue(present.value, 'delivered', 'Released');
+    let landed: string;
+    if (scratchPlan.releasedRecord.trim() !== '') {
+      landed = flip.content;
+      record = 'already';
+    } else {
+      const inserted = insertStatusRecord(flip.content, 'Released', decision.record);
+      if (!inserted.changed) {
+        return { refused: `${rel} has no '## Status' section — nowhere to record the release.\n  Nothing was written: the phase is not flipped either, because a phase\n  with no record is invisible to the scan. Fix the section and re-run.` };
+      }
+      landed = inserted.content;
+      record = 'written';
+    }
+    const written = await ports.planStore.writeText(target, landed);
+    if (!written.ok) throw new Refused(`could not write ${rel}.\n  The plan is unchanged. Re-run this — it is idempotent.`);
+    phase = flip.changed ? 'flipped' : 'already';
+    recordStateReceipt(ports.repoRoot, rel, 'Released');
+  }
+
+  await ports.trees.stage(wt, [rel]);
+  return { phase, record };
+};
+
 /** Runs the release arm. */
 const runRelease = async (
   ctx: Context,
@@ -684,89 +794,52 @@ const runRelease = async (
   }
   const cleanup = () => ctx.trees.removeWithBranch(tmpwt, bookbr);
 
-  const target = path.join(tmpwt, rel);
-  const present = await ctx.planStore.readText(target);
-  if (!present.ok || present.value === null) {
-    await cleanup();
-    throw new Refused(`${rel} is not present in ${tmpwt}`);
-  }
-  const fileContent = present.value;
-  const scratchPlan = await transitionPlanOf(ctx.planStore, args.slug, target);
-  if (scratchPlan === null) {
-    warn(`plot-deliver: cannot parse ${target} — refusing rather than guessing.\n`);
+  const booking: ReleaseBooking = { rel, slug: args.slug, tagDate, tag: resolved.tag };
+  const first = await bookRelease(ctx, tmpwt, booking);
+  if ('refused' in first) {
+    warn(`plot-deliver: ${first.refused}\n`);
     await cleanup();
     return 1;
   }
-  const decision = release(scratchPlan, { on: tagDate, version: resolved.tag });
-  if (isRefusal(decision)) {
-    warn(`plot-deliver: ${decision.detail}\n`);
-    await cleanup();
-    return 1;
-  }
+  let report: ReleaseReport = first;
 
-  let phaseReport: string;
-  let recordReport: string;
-  if (decision.alreadyRecorded) {
-    phaseReport = 'already';
-    recordReport = 'already';
-  } else {
-    const recorded = scratchPlan.releasedRecord.trim() !== '';
-    const flip = flipStatusValue(fileContent, 'delivered', 'Released');
-    let landed: string;
-    if (recorded) {
-      landed = flip.content;
-      recordReport = 'already';
-    } else {
-      const inserted = insertStatusRecord(flip.content, 'Released', decision.record);
-      if (!inserted.changed) {
-        warn(`plot-deliver: ${rel} has no '## Status' section — nowhere to record the release.\n  Nothing was written: the phase is not flipped either, because a phase\n  with no record is invisible to the scan. Fix the section and re-run.\n`);
-        await cleanup();
-        return 1;
-      }
-      landed = inserted.content;
-      recordReport = 'written';
-    }
-    const written = await ctx.planStore.writeText(target, landed);
-    if (!written.ok) throw new Refused(`could not write ${rel}.\n  The plan is unchanged. Re-run this — it is idempotent.`);
-    phaseReport = flip.changed ? 'flipped' : 'already';
-    recordStateReceipt(ctx.repoRoot, rel, 'Released');
-  }
-
-  await ctx.trees.stage(tmpwt, [rel]);
-
-  // Re-cuts `bookbr` from the freshly fetched default branch and redoes this
-  // same write-then-stage sequence against it — called by `commitAndPush`
-  // before every retry after the first. `target` names a path inside
-  // `tmpwt`, which `addBranch` resets in place rather than relocating.
+  // A retry after a rejected push: `commitAndPush` has reset `wt` to the
+  // re-fetched default branch, so the release is decided and written again
+  // from the plan text `main` holds now.
   const reapply = async (wt: string): Promise<void> => {
-    const retarget = path.join(wt, rel);
-    const relanded = await ctx.planStore.readText(target);
-    if (relanded.ok && relanded.value !== null) await ctx.planStore.writeText(retarget, relanded.value);
-    await ctx.trees.stage(wt, [rel]);
+    const again = await bookRelease(ctx, wt, booking);
+    if ('refused' in again) throw new Refused(again.refused);
+    report = again;
   };
 
-  const pushResult = await commitAndPush(
-    ctx,
-    tmpwt,
-    bookbr,
-    main,
-    who,
-    `plot: release ${args.slug} (${resolved.tag})`,
-    'release',
-    `nothing to commit — the release is already recorded on ${main}`,
-    reapply,
-    write,
-  );
+  let pushResult: Awaited<ReturnType<typeof commitAndPush>>;
+  try {
+    pushResult = await commitAndPush(
+      ctx,
+      tmpwt,
+      bookbr,
+      main,
+      who,
+      `plot: release ${args.slug} (${resolved.tag})`,
+      'release',
+      `nothing to commit — the release is already recorded on ${main}`,
+      reapply,
+      write,
+    );
+  } catch (err) {
+    await cleanup();
+    throw err;
+  }
   if ('rejected' in pushResult) {
     warn(`plot-deliver: the release is committed on '${bookbr}' but could not reach ${main}.\n  Land '${bookbr}' by hand, or re-run this command once the push works.\n`);
     // The branch STAYS — only the worktree is removed, matching the deliver arm.
     await runGit(['-C', ctx.repoRoot, 'worktree', 'remove', '--force', tmpwt]);
-    write(`summary: phase=${phaseReport} record=${recordReport} index=skipped sprint=none push=rejected tracker=skipped\n`);
+    write(`summary: phase=${report.phase} record=${report.record} index=skipped sprint=none push=rejected tracker=skipped\n`);
     return 1;
   }
   await cleanup();
 
-  write(`summary: phase=${phaseReport} record=${recordReport} index=skipped sprint=none push=${pushResult.pushed} tracker=skipped\n`);
+  write(`summary: phase=${report.phase} record=${report.record} index=skipped sprint=none push=${pushResult.pushed} tracker=skipped\n`);
   spendActionReceipt(ctx.repoRoot, 'release');
   return 0;
 };

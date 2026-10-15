@@ -280,6 +280,23 @@ export interface Trees {
   addBranch(path: string, branch: string, start: string): Promise<PortResult<void>>;
 
   /**
+   * Resets an existing worktree's branch to `start`, in place.
+   *
+   * `git -C <path> checkout -q -f -B <branch> <start>`. A booking run whose
+   * push was rejected re-cuts its branch from the re-fetched default branch
+   * with this. {@link Trees.addBranch} cannot do it: the path already exists,
+   * and `worktree add -B` refuses a branch that a worktree has checked out.
+   * `-f` discards the staged and unstaged changes of the earlier attempt, and
+   * overwrites an untracked file in the way. Other untracked files stay.
+   *
+   * @param path - the worktree to reset, absolute.
+   * @param branch - the branch to create or reset, without a remote prefix.
+   * @param start - the revision to reset to.
+   * @returns nothing; a failure means git refused the checkout.
+   */
+  resetBranch(path: string, branch: string, start: string): Promise<PortResult<void>>;
+
+  /**
    * Removes a worktree and the branch it was checked out on.
    *
    * ONE OPERATION, not two calls a caller could partially apply. A booking

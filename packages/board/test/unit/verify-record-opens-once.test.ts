@@ -78,6 +78,7 @@ describe('record opens one issue across a rejected push', () => {
         resolved.push([declared, backend]);
         return trackerFixture({ scheme: 'jira', opened });
       },
+      retryWait: async () => undefined,
     });
     const args = { command: 'record' as const, slug: 'p', at: '', sha: '' };
     const quiet = () => undefined;
@@ -97,8 +98,58 @@ describe('record opens one issue across a rejected push', () => {
       ['jira', 'github'],
     ]);
     expect(JSON.parse(readFileSync(stateFile, 'utf8')).issues).toEqual({ one: { issue: '1' } });
-    // `record` retries a rejected push five times with a real 2-10s jittered
-    // wait between attempts (`commitAndPush`'s production default) — the
-    // first `record` call above can take up to ~40s before it reports rejected.
-  }, 60_000);
+  });
+  it('re-derives the record from the plan text main holds after a rejected push', async () => {
+    const repo = repository();
+    const tmpwt = path.join(deskRoot({ configured: '', repoRoot: repo }), `.plot-verify-p.${process.pid}`);
+    const opened: IssueOpen[] = [];
+    const written: string[] = [];
+    const moved = `${ON_MAIN}- moved on main\n`;
+    let reset = false;
+    let pushes = 0;
+    const base = treesFixture({ staged: [tmpwt] });
+    const ctx: Context = {
+      repoRoot: repo,
+      scriptDir: repo,
+      scriptsRel: '',
+      refs: refsFixture({ files: { [`${JUDGED}:${PLAN}`]: ON_MAIN } }),
+      host: hostFixture({ backend: 'github' }),
+      planStore: {
+        readPlan: async () => answered({ type: 'feature', phase: 'delivered' }),
+        readText: async (file: string) => answered(file.endsWith(PLAN) ? (reset ? moved : ON_MAIN) : null),
+        writeText: async (file: string, content: string) => {
+          if (file.endsWith(PLAN)) written.push(content);
+          return answered(undefined);
+        },
+      } as unknown as PlanStore,
+      scripts: {
+        config: async (key: string, fallback: string) => answered(key === 'Tracker' ? 'jira' : fallback),
+        host: async () => answered(''),
+        awaited: async () => {
+          pushes += 1;
+          return { stdout: '', stderr: '', code: pushes === 1 ? 1 : 0 };
+        },
+      } as unknown as Scripts,
+      trees: {
+        ...base,
+        resetBranch: async (...args: Parameters<typeof base.resetBranch>) => {
+          reset = true;
+          return base.resetBranch(...args);
+        },
+      },
+      issueTracker: () => trackerFixture({ scheme: 'jira', opened }),
+      retryWait: async () => undefined,
+    };
+    const quiet = () => undefined;
+
+    expect(await record(ctx, { command: 'record', slug: 'p', at: '', sha: '' }, quiet, quiet)).toBe(0);
+
+    expect(pushes).toBe(2);
+    expect(opened).toHaveLength(1);
+    expect(written).toHaveLength(2);
+    expect(written[0]).not.toContain('- moved on main');
+    expect(written[1]).toContain('- moved on main\n');
+    expect(written[1]).toMatch(/- \*\*Verified:\*\* /);
+    expect(written[1]).toContain('- Claim-1 refuted — one — a refuted — #1\n');
+  });
 });

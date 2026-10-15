@@ -1152,8 +1152,9 @@ type Booked = { report: WriteReport; push: string; exit?: undefined } | { report
 
 /**
  * Records the approval on the default branch through a disposable worktree
- * cut from `origin/<main>`, commits it attributed to `who`, and pushes with a
- * micro-PR fallback.
+ * cut from `origin/<main>`, commits it attributed to `who`, and pushes. A
+ * rejected push is retried: each retry re-runs the approval on the plan text
+ * of the re-fetched default branch.
  */
 const bookApproval = async (
   ctx: Context,

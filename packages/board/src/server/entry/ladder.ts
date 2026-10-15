@@ -16,6 +16,8 @@ export interface LadderContext {
   repoRoot: string;
   scripts: Scripts;
   trees: Trees;
+  /** Sleeps between push attempts; the jittered 2 to 10 s wait where absent. */
+  retryWait?: () => Promise<void>;
 }
 
 /** Prints to stdout, matching the scripts' unprefixed `step:`/`summary:` lines. */
@@ -123,23 +125,29 @@ export class Refused extends Error {}
  * module adds no new process-reach site.
  *
  * A REJECTED PUSH IS RETRIED, NEVER REPUSHED. The commit that lost the race
- * was cut from a stale base, so retrying it verbatim would still conflict —
- * each retry fetches the default branch, re-cuts `bookbr` from the fresh tip
- * with {@link Trees.addBranch}'s `-B`, and calls `reapply(tmpwt)` to redo the
- * caller's own write and staging against that tree, before committing and
- * pushing again. A re-applied write that lands on `main` without this run's
- * help (`hasStagedChanges` false) reports `nothing-to-commit` rather than a
- * failure — that is what makes a re-run idempotent.
+ * was cut from a stale base, so retrying it verbatim would still conflict.
+ * Each retry fetches the default branch, resets `bookbr` in `tmpwt` to the
+ * fresh tip with {@link Trees.resetBranch}, and calls `reapply(tmpwt)`. The
+ * caller's `reapply` reads the reset files and runs its transition again on
+ * that text, then stages the result. The loop then commits and pushes again.
+ * A re-applied write that `main` already holds (`hasStagedChanges` false)
+ * reports `nothing-to-commit` rather than a failure, so a re-run is
+ * idempotent.
  *
- * @param reapply - redoes the caller's write and staging against a freshly
- *   re-cut `tmpwt`; called before every attempt after the first.
+ * Every step that stops a retry prints a `step:` line naming it: a failed
+ * fetch, a failed reset, and a `reapply` that throws. A `reapply` error
+ * propagates to the caller after its line is printed.
+ *
+ * @param reapply - redoes the caller's write and staging against the reset
+ *   `tmpwt`, from the files it now holds; called before every attempt after
+ *   the first.
  * @param attempts - the number of pushes to try in total; five is the
  *   maintainer's number (issue #1737), lowered in a test so it runs in
  *   milliseconds.
- * @param wait - sleeps between attempts; a jittered 2 to 10 s wait in
- *   production, stubbed to resolve immediately in a test.
+ * @param wait - sleeps between attempts; `ctx.retryWait` where given, else a
+ *   jittered 2 to 10 s wait.
  * @returns the push outcome word, or `rejected` where every attempt was
- *   refused.
+ *   refused or a retry step failed.
  */
 export const commitAndPush = async (
   ctx: LadderContext,
@@ -153,7 +161,7 @@ export const commitAndPush = async (
   reapply: (tmpwt: string) => Promise<void>,
   write: Printer,
   attempts: number = DEFAULT_ATTEMPTS,
-  wait: () => Promise<void> = defaultWait,
+  wait: () => Promise<void> = ctx.retryWait ?? defaultWait,
 ): Promise<{ pushed: string } | { rejected: true }> => {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const diff = await ctx.trees.hasStagedChanges(tmpwt);
@@ -176,10 +184,22 @@ export const commitAndPush = async (
     if (attempt === attempts) break;
     write(`step: push rejected — retrying (attempt ${attempt} of ${attempts})\n`);
     await wait();
-    await ctx.trees.fetch(ctx.repoRoot, main);
-    const added = await ctx.trees.addBranch(tmpwt, bookbr, `origin/${main}`);
-    if (!added.ok) return { rejected: true };
-    await reapply(tmpwt);
+    const fetched = await ctx.trees.fetch(ctx.repoRoot, main);
+    if (!fetched.ok) {
+      write(`step: retry stopped — git fetch origin ${main} failed in ${ctx.repoRoot}\n`);
+      return { rejected: true };
+    }
+    const reset = await ctx.trees.resetBranch(tmpwt, bookbr, `origin/${main}`);
+    if (!reset.ok) {
+      write(`step: retry stopped — could not reset '${bookbr}' to origin/${main} in ${tmpwt}\n`);
+      return { rejected: true };
+    }
+    try {
+      await reapply(tmpwt);
+    } catch (err) {
+      write(`step: retry stopped — re-applying the ${noun} to origin/${main} failed\n`);
+      throw err;
+    }
   }
 
   write(`step: push rejected after ${attempts} attempts\n`);

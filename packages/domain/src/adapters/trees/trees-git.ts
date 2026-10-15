@@ -413,6 +413,11 @@ export const treesGit = (context: ShellContext): Trees => {
       return run.code === 0 ? answered(undefined) : failed<void>();
     },
 
+    resetBranch: async (path, branch, start) => {
+      const run = await runProcess('git', ['-C', path, 'checkout', '-q', '-f', '-B', branch, start], inRepo);
+      return run.code === 0 ? answered(undefined) : failed<void>();
+    },
+
     // BEST-EFFORT, MATCHING THE SHELL'S `cleanup()`. Both commands run
     // regardless of the other's result, and the operation always answers —
     // never `failed` — because a caller cleaning up a booking worktree has no
