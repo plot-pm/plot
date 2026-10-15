@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { trackerFixture } from '@plot-pm/domain/adapters/tracker/tracker-fixture';
 import { trackerNone } from '@plot-pm/domain/adapters/tracker/tracker-none';
-import { trackerGitHost } from '@plot-pm/domain/adapters/tracker/tracker-resolve';
+import { trackerForIssues, trackerGitHost } from '@plot-pm/domain/adapters/tracker/tracker-resolve';
 import { PENDING_REASON } from '@plot-pm/domain/rules/refuted-issues';
 import { refutedClaims } from '@plot-pm/domain/rules/verification-record';
 import { foldVerification, verificationBody } from '@plot-pm/domain/rules/verification';
@@ -54,9 +54,9 @@ describe('a refuted claim opens an issue', () => {
 
   it('renders the unaskable reason verbatim and records no number', async () => {
     const file = stateFile();
-    const notes = await openRefutedIssues(trackerGitHost('bitbucket', { repoRoot: '/', scriptDir: '/' }), file, 'p', 'abc1234', verdictsOf(['one']));
+    const notes = await openRefutedIssues(trackerGitHost('github', { repoRoot: '/', scriptDir: '/' }), file, 'p', 'abc1234', verdictsOf(['one']));
     expect(verificationBody(verdictsOf(['one']), notes)).toBe(
-      "- Claim-1 refuted — one — a refuted — no issue: no Tracker declared; Plot opens no issue on the git host 'bitbucket'\n",
+      "- Claim-1 refuted — one — a refuted — no issue: no Tracker declared; the git host's issues are read-only to Plot\n",
     );
     expect(JSON.parse(readFileSync(file, 'utf8')).issues).toEqual({});
     const none = await openRefutedIssues(trackerNone('nobody lists issues'), file, 'p', 'abc1234', verdictsOf(['one']));
@@ -133,5 +133,18 @@ describe('a refuted claim opens an issue', () => {
     );
     expect(opened).toHaveLength(0);
     expect(readFileSync(file, 'utf8')).toBe('{ not json');
+  });
+
+  it('opens no issue with no Tracker key on a github host, as plot-verify resolves it, and calls no host script', async () => {
+    const file = stateFile();
+    const scriptDir = path.dirname(path.dirname(file));
+    const argv = path.join(scriptDir, 'argv');
+    const host = path.join(scriptDir, 'plot-host.sh');
+    writeFileSync(host, `#!/usr/bin/env bash\necho "$*" >> ${JSON.stringify(argv)}\necho https://github.com/o/r/issues/9\n`);
+    chmodSync(host, 0o755);
+    const tracker = trackerForIssues('', 'github', { repoRoot: scriptDir, scriptDir });
+    const notes = await openRefutedIssues(tracker, file, 'p', 'abc1234', verdictsOf(['one']));
+    expect(notes.get('one')).toEqual({ noIssue: "no Tracker declared; the git host's issues are read-only to Plot" });
+    expect(existsSync(argv)).toBe(false);
   });
 });

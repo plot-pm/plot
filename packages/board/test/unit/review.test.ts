@@ -368,7 +368,18 @@ describe('reviewPr', () => {
 });
 
 describe('reviewTracker', () => {
-  it('with no Tracker key on a github host is the git-host tracker, which opens the issue', async () => {
+  it('returns the declared tracker when a Tracker key is set', () => {
+    const context = { repoRoot: '/nowhere', scriptDir: '/nowhere' };
+    expect(reviewTracker(answered('jira https://x.invalid'), answered('github'), context).config().scheme).toBe('jira');
+  });
+
+  it('answers unaskable with no Tracker key on a non-github host, and calls nothing', async () => {
+    const context = { repoRoot: '/nowhere', scriptDir: '/nowhere' };
+    const opened = await reviewTracker(answered(''), answered('bitbucket'), context).issueOpen({ title: 't', body: 'b', labels: [] });
+    expect(opened).toEqual({ ok: false, why: 'unaskable', reason: "no Tracker declared; the git host's issues are read-only to Plot" });
+  });
+
+  it('with no Tracker key on a github host opens the issue through githubIssueOpen', async () => {
     const root = mkdtempSync(join(tmpdir(), 'plot-review-tracker-'));
     try {
       const scriptDir = join(root, 'scripts');
@@ -382,6 +393,21 @@ describe('reviewTracker', () => {
       expect(opened).toEqual({ ok: true, value: { outcome: 'opened', id: '9' } });
       expect(readFileSync(argv, 'utf8')).toBe('github-issues|issue-open t b --label ai-generated\n');
       expect(tracker.config()).toEqual({ scheme: '', baseUrl: '' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('reports the issue-open refusal through lastRefusal when githubIssueOpen fails', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-review-tracker-'));
+    try {
+      const scriptDir = join(root, 'scripts');
+      mkdirSync(scriptDir);
+      const host = join(scriptDir, 'plot-host.sh');
+      writeFileSync(host, "#!/usr/bin/env bash\necho 'plot-host: HTTP 502' >&2\nexit 3\n");
+      chmodSync(host, 0o755);
+      const tracker = reviewTracker(answered(''), answered('github'), { repoRoot: root, scriptDir });
+      expect(await tracker.issueOpen({ title: 't', body: 'b', labels: [] })).toEqual({ ok: false, why: 'failed' });
+      expect(tracker.lastRefusal()).toBe('plot-host: HTTP 502');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

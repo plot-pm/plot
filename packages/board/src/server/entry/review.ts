@@ -11,6 +11,7 @@ import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-line
 import { reviewIssueUrl } from '@plot-pm/domain/adapters/tracker/tracker-issue-url';
 import { ISSUE_MAY_EXIST } from '@plot-pm/domain/rules/refuted-issues';
 import { trackerForIssues } from '@plot-pm/domain/adapters/tracker/tracker-resolve';
+import { githubIssueOpen } from '@plot-pm/domain/adapters/tracker/tracker-github';
 import type { Host, PortResult, Tracker, Trees } from '@plot-pm/domain';
 import type { ShellContext } from '@plot-pm/domain/adapters/scripts';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
@@ -49,8 +50,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * directory and read through `reviewVerdict`, never as free text.
  *
  * Any finding opens one follow-up issue, labelled `ai-generated`, through the
- * tracker `trackerForIssues` resolves: the declared `Tracker`, or the git
- * host's own issues where none is declared. Zero HIGH findings writes `success`
+ * tracker `reviewTracker` resolves: the declared `Tracker`, or a GitHub issue
+ * where none is declared and the git host is `github`. Zero HIGH findings writes `success`
  * with `no HIGH findings`; one or more writes `failure` with the HIGH count.
  * The status's `target_url` is the issue, or the PR where no issue was opened.
  * A verdict with no finding at all opens no issue. The issue id is recorded
@@ -356,21 +357,36 @@ const readChange = async (tree: string, base: string, sha: string): Promise<Revi
 /**
  * The tracker a review opens its follow-up issue through.
  *
- * Resolved by `trackerForIssues`, as the board and `plot-verify` resolve
- * theirs: the declared `Tracker`, the git host's own issues where none is
- * declared, or `trackerNone` where neither can be asked. A config or backend
- * read that failed counts as an empty word.
+ * A declared `Tracker` resolves through `trackerForIssues`, as the board and
+ * `plot-verify` resolve theirs. With no `Tracker` declared and a `github` git
+ * host, it is `trackerForIssues`'s git-host tracker with `issueOpen` replaced by
+ * `githubIssueOpen`, so the follow-up issue opens as a GitHub issue; `plot-verify`
+ * keeps the git-host tracker, whose `issueOpen` answers `unaskable`. On any
+ * other git host the git-host tracker is returned unchanged. A config or
+ * backend read that failed counts as an empty word.
  *
  * @param declared - the `Tracker` config key's read.
  * @param backend - the git host backend's read.
  * @param context - where the scripts and the repository are.
- * @returns the tracker.
+ * @returns the tracker; its `lastRefusal` reports the issue-open refusal where
+ *   the last `issueOpen` left one, and the git-host tracker's otherwise.
  */
 export const reviewTracker = (
   declared: PortResult<string>,
   backend: PortResult<string>,
   context: ShellContext,
-): Tracker => trackerForIssues(declared.ok ? declared.value.trim() : '', backend.ok ? backend.value : '', context);
+): Tracker => {
+  const word = declared.ok ? declared.value.trim() : '';
+  const gitHost = backend.ok ? backend.value : '';
+  const tracker = trackerForIssues(word, gitHost, context);
+  if (word !== '' || gitHost !== 'github') return tracker;
+  let refusal: string | null = null;
+  return {
+    ...tracker,
+    issueOpen: githubIssueOpen(context, (said) => { refusal = said; }),
+    lastRefusal: () => refusal ?? tracker.lastRefusal(),
+  };
+};
 
 /**
  * Builds the dependencies from the machine this process runs on.
