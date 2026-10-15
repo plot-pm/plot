@@ -3888,8 +3888,7 @@ case "$op" in
       args=(pr merge "$num")
       [ "$squash" = 1 ] && args+=(--squash) || args+=(--merge)
       [ "$delbranch" = 1 ] && args+=(--delete-branch)
-      args+=(--match-head-commit "$pin")
-      gh "${args[@]}"
+      gh "${args[@]}" --match-head-commit "$pin"
     elif [ -n "$pin" ]; then echo "plot-host: pr-merge --match-head: bitbucket cannot pin a merge to a commit; nothing was merged" >&2; exit 4
     else
       args=(pr merge "$num")

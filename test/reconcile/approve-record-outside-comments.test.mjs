@@ -65,6 +65,8 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
   process.stdout.write(JSON.stringify({
     number: state.number, state: state.state, isDraft: state.draft,
     url: 'https://example.invalid/pr/' + state.number, mergeCommit: null,
+    // A GitHub PR names its head; pr-merge pins the merge to it.
+    headRefOid: '0123456789abcdef0123456789abcdef01234567',
   }));
 } else if (argv[0] === 'pr' && argv[1] === 'merge') {
   state.state = 'MERGED';
