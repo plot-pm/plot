@@ -1212,6 +1212,75 @@ describe('the ending record routes an answer when no manifest names the desk', (
   });
 });
 
+// #1773 — a free desk whose prompt never started. Open question 2 of
+// `a-desk-started-by-plot-dispatch`: the ending record reads `unstarted`, and
+// the fallback in `continueTarget` accepts only `blocked` and `holding-work`.
+//
+// The loop wrote exactly this for `free-7f744c29` (agent-loop.ts row 7, after
+// `maxStartRetries` failed `claude -p` starts): `PLOT-BLOCKED.md` in the tree,
+// the manifest removed at loop end, and an ending `{ reason: 'unstarted',
+// branch: <the assigned slice> }`. The reading reaches the rule correctly —
+// `unnamed`, branch matched, marker present — and the rule refuses it, so the
+// cause is the rule's reason list and not an adapter's reading.
+//
+// `it.fails` holds the reproduction without a red CI: it passes while the
+// refusal stands, and fails the moment the Repair slice
+// (`bug/a-free-agent-desk-is-continuable`) makes the continue start, which is
+// when that slice removes `.fails`.
+describe('a free desk whose prompt never started — #1773', () => {
+  const writeEnding = (wt: string, reason: string): void => {
+    fs.writeFileSync(
+      path.join(wt, ENDING_FILENAME),
+      JSON.stringify({
+        reason,
+        actor: 'agent',
+        branch: BRANCH,
+        detail: 'the prompt never started, retries spent',
+      }),
+    );
+  };
+
+  const input = (wt: string, dir: string) => ({
+    opts: { ...opts, manifestDir: dir },
+    readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'true' : fallback),
+    branch: BRANCH,
+    worktree: wt,
+    main: 'main',
+    previousPid: '',
+    answer: 'the composed answer',
+  });
+
+  const settleAfter = (wt: string) => spawned.add(wt);
+
+  it('control: the same desk with a blocked ending is continued by writing a manifest', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    writeEnding(wt, 'blocked');
+    const emptyManifestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-unstarted-control-'));
+    manifestDirs.push(emptyManifestDir);
+
+    const result = await continueOnDesk(input(wt, emptyManifestDir));
+    assert.equal(result.kind, 'started');
+    settleAfter(wt);
+  });
+
+  it.fails('continues an unstarted ending for the asked branch instead of refusing no-manifest', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    writeEnding(wt, 'unstarted');
+    const emptyManifestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-unstarted-'));
+    manifestDirs.push(emptyManifestDir);
+
+    // The preconditions hold: a marker waits in the tree, no manifest names
+    // the desk, and the ending names the asked branch.
+    assert.equal(deskManifestFor('/tmp', wt, { manifestDir: emptyManifestDir }).kind, 'unnamed');
+
+    const result = await continueOnDesk(input(wt, emptyManifestDir));
+    if (result.kind === 'started') settleAfter(wt);
+    assert.equal(result.kind === 'refused' ? result.reason : result.kind, 'started');
+  });
+});
+
 describe('refusing a live loop — #1294, a second loop on one desk', () => {
   /** A real, short-lived process this test controls — never an invented pid. */
   const liveProcesses: number[] = [];
