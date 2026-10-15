@@ -180,6 +180,17 @@ export const deskFs = (trees: Trees): Desk => {
       } catch {
         return failed<void>();
       }
+      // A SLICE THAT FINISHED OK SUPERSEDES AN EARLIER ENDING. `loop-end` is never
+      // written for it, so a `blocked` ending from before a person's answer would
+      // otherwise stay as the desk's account until the free loop ends and the
+      // fresh-agent step reads it as current.
+      if (envelope.status === 'ok') {
+        try {
+          rmSync(join(worktree, ENDING_FILE), { force: true });
+        } catch {
+          /* best effort */
+        }
+      }
       return answered(undefined);
     },
 

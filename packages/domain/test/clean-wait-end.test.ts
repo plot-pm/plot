@@ -79,8 +79,10 @@ describe('a free loop that ends at the wait bound — the full path', () => {
 });
 
 describe('the marker the 2026-10-15 desks received', () => {
-  // `.plot-worker.ending.json` is never cleared: ROW 2 writes nothing, and an
-  // answered `blocked` ending stays on the desk after its slice merges. A free
+  // Before the fix `.plot-worker.ending.json` was never cleared: ROW 2 writes
+  // nothing, and an answered `blocked` ending stayed on the desk after its slice
+  // finished or the desk was reset onto another slice
+  // (`loop-ports.test.ts` pins both removals). A free
   // loop that later ends at the bound leaves that record as the desk's only
   // ending, and `endingAction` reads it as current whenever the host does not
   // confirm the merge.

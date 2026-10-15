@@ -16,6 +16,12 @@ const STATUS_MAX_BUFFER = 32 * 1024 * 1024;
 /** The previous slice's bookkeeping, removed before a desk is reused — matches `reset_desk` step 0. */
 const DECLARATION_FILE_NAME = '.plot-worker.envelope.json';
 
+/**
+ * The previous cycle's ending record, removed with the declaration: the fresh-agent step reads whatever
+ * `.plot-worker.ending.json` survives as the desk's current ending.
+ */
+const ENDING_FILE_NAME = '.plot-worker.ending.json';
+
 /** The build gate's own account, removed with the declaration — matches `reset_desk` step 0. */
 const CORRECTION_FILE_NAME = 'PLOT-CORRECTION.md';
 
@@ -480,7 +486,7 @@ export const treesGit = (context: ShellContext): Trees => {
       // Best effort, matching the shell's `rm -f ... 2>/dev/null || true`: both
       // files are untracked (`.plot-worker.` and root-level), so a plain
       // filesystem removal is all `reset_desk` itself performs here.
-      for (const name of [DECLARATION_FILE_NAME, CORRECTION_FILE_NAME]) removeQuietly(join(path, name));
+      for (const name of [DECLARATION_FILE_NAME, CORRECTION_FILE_NAME, ENDING_FILE_NAME]) removeQuietly(join(path, name));
 
       // STEP 0b — the generated bundles are restored from HEAD path by path,
       // never `git clean` or `git reset --hard` over the whole tree.

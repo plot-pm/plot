@@ -2,7 +2,7 @@
 'plot': patch
 ---
 
-Tests pin that a free loop ending at the `Worker bound` writes no `PLOT-BLOCKED.md` and leaves a reapable desk, and record the one downstream path that composes the blocked-marker text for such a desk.
+A desk whose free loop ends at the `Worker bound` no longer gets a `PLOT-BLOCKED.md` from an ending left by an earlier cycle: `resetOnto` and an `ok` declaration now remove `.plot-worker.ending.json`, so the desk reads markerless and reapable.
 
 <!--
 bumps:

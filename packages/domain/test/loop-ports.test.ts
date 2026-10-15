@@ -12,6 +12,7 @@ import { treesGit } from '../src/adapters/trees/trees-git.js';
 import { processesShell } from '../src/adapters/processes/processes-shell.js';
 import { agentsFs } from '../src/adapters/agents/agents-fs.js';
 import { deskFs } from '../src/adapters/desk/desk-fs.js';
+import { readEnding } from '../src/entities/ending.js';
 import { FindingSchema } from '../src/entities/finding.js';
 import type { Trees } from '../src/ports/trees.js';
 
@@ -254,6 +255,7 @@ describe('treesGit: resetOnto clears bookkeeping and repairs the generated bundl
   it('removes the declaration and correction, restores a tracked bundle, and removes an untracked one', async () => {
     fs.writeFileSync(path.join(desk, '.plot-worker.envelope.json'), '{}\n');
     fs.writeFileSync(path.join(desk, 'PLOT-CORRECTION.md'), 'correction\n');
+    fs.writeFileSync(path.join(desk, '.plot-worker.ending.json'), '{"reason":"blocked","actor":"agent","branch":"infra/old"}\n');
     fs.writeFileSync(path.join(desk, 'skills/plot/server.mjs'), 'rebuilt locally\n');
     fs.writeFileSync(path.join(desk, 'skills/plot/ask.mjs'), 'built, never committed\n');
 
@@ -262,6 +264,7 @@ describe('treesGit: resetOnto clears bookkeeping and repairs the generated bundl
     expect(result).toEqual({ ok: true, value: undefined });
     expect(fs.existsSync(path.join(desk, '.plot-worker.envelope.json'))).toBe(false);
     expect(fs.existsSync(path.join(desk, 'PLOT-CORRECTION.md'))).toBe(false);
+    expect(fs.existsSync(path.join(desk, '.plot-worker.ending.json'))).toBe(false);
     expect(fs.readFileSync(path.join(desk, 'skills/plot/server.mjs'), 'utf8')).toBe('built on main\n');
     expect(fs.existsSync(path.join(desk, 'skills/plot/ask.mjs'))).toBe(false);
     expect(git(desk, ['branch', '--show-current']).trim()).toBe('infra/reset');
@@ -483,6 +486,45 @@ describe('deskFs: ending, marker, declaration, correction, limited record, moved
     expect(result).toEqual({ ok: true, value: undefined });
     const declared = JSON.parse(fs.readFileSync(path.join(desk, '.plot-worker.envelope.json'), 'utf8'));
     expect(declared).toEqual({ branch: 'infra/x', status: 'blocked', summary: 'the agent\'s own account' });
+    fs.rmSync(path.join(desk, '.plot-worker.envelope.json'));
+  });
+
+  it('sealDeclaration with status ok removes an earlier ending, so the desk ends a later free loop markerless', async () => {
+    const endingFile = path.join(desk, '.plot-worker.ending.json');
+    await deskPort().writeEnding(desk, {
+      reason: 'blocked',
+      actor: 'agent',
+      branch: 'infra/x',
+      detail: 'the agent declared itself blocked',
+    });
+    expect(readEnding(fs.readFileSync(endingFile, 'utf8')).read).toBe('ended');
+
+    const result = await deskPort().sealDeclaration(desk, 'infra/x');
+
+    expect(result).toEqual({ ok: true, value: undefined });
+    expect(fs.existsSync(endingFile)).toBe(false);
+    // The tick's reading of the desk after the free loop ends at the bound.
+    const reading = readEnding(fs.existsSync(endingFile) ? fs.readFileSync(endingFile, 'utf8') : null);
+    expect(reading.read).toBe('absent');
+    fs.rmSync(path.join(desk, '.plot-worker.envelope.json'));
+  });
+
+  it('sealDeclaration keeps an ending when the declaration stays blocked', async () => {
+    const endingFile = path.join(desk, '.plot-worker.ending.json');
+    await deskPort().writeEnding(desk, { reason: 'blocked', actor: 'agent', branch: 'infra/x', detail: 'd' });
+    fs.writeFileSync(path.join(desk, '.plot-worker.envelope.json'), JSON.stringify({ status: 'blocked' }));
+    await deskPort().sealDeclaration(desk, 'infra/x');
+    expect(fs.existsSync(endingFile)).toBe(true);
+    fs.rmSync(endingFile);
+    fs.rmSync(path.join(desk, '.plot-worker.envelope.json'));
+  });
+
+  it('sealDeclaration with status blocked keeps an earlier ending', async () => {
+    const endingFile = path.join(desk, '.plot-worker.ending.json');
+    await deskPort().writeEnding(desk, { reason: 'blocked', actor: 'agent', branch: 'infra/x', detail: 'd' });
+    await deskPort().sealDeclaration(desk, 'infra/x', 'blocked');
+    expect(fs.existsSync(endingFile)).toBe(true);
+    fs.rmSync(endingFile);
     fs.rmSync(path.join(desk, '.plot-worker.envelope.json'));
   });
 
