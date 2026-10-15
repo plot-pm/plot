@@ -9,8 +9,10 @@ import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { reviewIssueUrl } from '@plot-pm/domain/adapters/tracker/tracker-issue-url';
+import { ISSUE_MAY_EXIST } from '@plot-pm/domain/rules/refuted-issues';
 import { trackerForIssues } from '@plot-pm/domain/adapters/tracker/tracker-resolve';
-import type { Host, Tracker, Trees } from '@plot-pm/domain';
+import type { Host, PortResult, Tracker, Trees } from '@plot-pm/domain';
+import type { ShellContext } from '@plot-pm/domain/adapters/scripts';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import { charterPath, readCharter } from '@plot-pm/domain/entities/charter';
 import {
@@ -46,12 +48,20 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * The agent's final answer is written to a verdict file under the git common
  * directory and read through `reviewVerdict`, never as free text.
  *
- * Zero HIGH findings writes `success` with `no HIGH findings` and opens no
- * issue. One or more writes `failure` and opens one follow-up issue; the
- * status's `target_url` is that issue. The issue id is recorded per PR and head
- * SHA, so a second run against the same head reuses the recorded issue and
- * opens none. A run whose recorded entry is `pending` — an earlier run asked
- * the tracker and recorded no answer — refuses, as `plot-verify` does.
+ * Any finding opens one follow-up issue, labelled `ai-generated`, through the
+ * tracker `trackerForIssues` resolves: the declared `Tracker`, or the git
+ * host's own issues where none is declared. Zero HIGH findings writes `success`
+ * with `no HIGH findings`; one or more writes `failure` with the HIGH count.
+ * The status's `target_url` is the issue, or the PR where no issue was opened.
+ * A verdict with no finding at all opens no issue. The issue id is recorded
+ * per PR and head SHA, so a second run against the same head reuses the
+ * recorded issue and opens none. A recorded `pending` entry — an earlier run
+ * asked the tracker and recorded no answer — opens nothing, as `plot-verify`
+ * does.
+ *
+ * AN ISSUE THAT WAS NOT OPENED NEVER SKIPS THE STATUS. The status is written
+ * on the reviewed SHA as above, the output names why no issue was opened, and
+ * the run exits {@link EXIT.issueNotOpened}.
  *
  * Every refusal writes no status and exits non-zero with the reason.
  */
@@ -64,6 +74,8 @@ export const EXIT = {
   usage: 2,
   /** The run refused; no status was written. */
   refused: 3,
+  /** A status was written, and the follow-up issue was not opened. */
+  issueNotOpened: 4,
 } as const;
 
 /** The commit-status context this command writes. */
@@ -132,13 +144,70 @@ const followUpIssue = (
   counts: ReviewCounts,
   verdictText: string,
 ): { title: string; body: string } => ({
-  title: `plot-review: ${counts.high} HIGH finding${counts.high === 1 ? '' : 's'} on PR #${pr}`,
+  title: counts.high > 0
+    ? `plot-review: ${counts.high} HIGH finding${counts.high === 1 ? '' : 's'} on PR #${pr}`
+    : `plot-review: MEDIUM ${counts.medium}, LOW ${counts.low} on PR #${pr}`,
   body: [
     `The reviewer found HIGH ${counts.high}, MEDIUM ${counts.medium}, LOW ${counts.low} on ${prUrl} at ${sha}.`,
     '',
     verdictText.trim(),
   ].join('\n'),
 });
+
+/** The follow-up issue's URL, or why no issue was opened. */
+type FollowUp = { ok: true; url: string } | { ok: false; why: string };
+
+/**
+ * Opens the follow-up issue for one reviewed head, or reuses the recorded one.
+ *
+ * The issue file holds `pending` while the tracker is asked, then the issue id.
+ * A refusal that starts with {@link ISSUE_MAY_EXIST} keeps `pending`, so no
+ * later run opens a second issue; any other refusal removes the file.
+ *
+ * @param deps - the tracker and file operations.
+ * @param issueFile - the issue file for this PR and head.
+ * @param pr - the PR's number and URL.
+ * @param sha - the reviewed head.
+ * @param counts - the verdict's counts.
+ * @param verdictText - the reviewer's final answer.
+ * @returns the issue URL, or why no issue was opened.
+ */
+const openFollowUp = async (
+  deps: ReviewDeps,
+  issueFile: string,
+  pr: { number: number; url: string },
+  sha: string,
+  counts: ReviewCounts,
+  verdictText: string,
+): Promise<FollowUp> => {
+  const recorded = deps.readText(issueFile)?.trim() ?? '';
+  if (recorded === 'pending') {
+    return { ok: false, why: `${ISSUE_MAY_EXIST}an earlier run asked the tracker for PR #${pr.number} at ${sha} and recorded no answer; remove ${issueFile} once checked` };
+  }
+  let issueId = recorded;
+  if (issueId === '') {
+    deps.writeText(issueFile, 'pending');
+    const opened = await deps.tracker.issueOpen({
+      ...followUpIssue(pr.number, sha, pr.url, counts, verdictText),
+      labels: ['ai-generated'],
+    });
+    if (!opened.ok) {
+      const why = (opened.why === 'unaskable' ? opened.reason : undefined)
+        ?? deps.tracker.lastRefusal()
+        ?? `the tracker answered ${opened.why} with no reason`;
+      if (!why.startsWith(ISSUE_MAY_EXIST)) deps.removeFile(issueFile);
+      return { ok: false, why };
+    }
+    issueId = opened.value.id;
+    deps.writeText(issueFile, issueId);
+  }
+  const { scheme, baseUrl } = deps.tracker.config();
+  const url = reviewIssueUrl(scheme, baseUrl, issueId, pr.url);
+  if (url === null) {
+    return { ok: false, why: `issue ${issueId} was opened, but its URL cannot be composed for tracker '${scheme}'` };
+  }
+  return { ok: true, url };
+};
 
 /**
  * Runs one review.
@@ -232,52 +301,27 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
     lines.push(`plot-review: the head of PR #${pr.number} moved to ${after.value.headSha} during review; the status is written on the reviewed ${sha}`);
   }
 
-  if (counts.high === 0) {
-    const written = await deps.host.commitStatus({
-      sha,
-      state: 'success',
-      context: REVIEW_CONTEXT,
-      description: 'no HIGH findings',
-      targetUrl: pr.url,
-    });
-    if (!written.ok) return refuse(`the host did not accept the status on ${sha}`);
-    lines.push(`plot-review: PR #${pr.number} ${sha} success, no HIGH findings`);
-    return { code: EXIT.ok, lines };
-  }
-
-  const recorded = deps.readText(issueFile);
-  if (recorded?.trim() === 'pending') {
-    return refuse(`the issue may exist: an earlier run asked the tracker for PR #${pr.number} at ${sha} and recorded no answer; remove ${issueFile} once checked`);
-  }
-  let issueId = recorded?.trim() ?? '';
-  if (issueId === '') {
-    deps.writeText(issueFile, 'pending');
-    const opened = await deps.tracker.issueOpen({
-      ...followUpIssue(pr.number, sha, pr.url, counts, verdictText),
-      labels: ['ai-generated'],
-    });
-    if (!opened.ok) {
-      deps.removeFile(issueFile);
-      return refuse(`the tracker did not open the follow-up issue: ${deps.tracker.lastRefusal() ?? opened.why}`);
-    }
-    issueId = opened.value.id;
-    deps.writeText(issueFile, issueId);
-  }
-  const { scheme, baseUrl } = deps.tracker.config();
-  const issueUrl = reviewIssueUrl(scheme, baseUrl, issueId, pr.url);
-  if (issueUrl === null) {
-    return refuse(`issue ${issueId} was opened for PR #${pr.number}, but its URL cannot be composed for tracker '${scheme}'; no status written`);
-  }
+  const findings = counts.high + counts.medium + counts.low;
+  const followUp: FollowUp | null = findings === 0
+    ? null
+    : await openFollowUp(deps, issueFile, pr, sha, counts, verdictText);
+  const state = counts.high === 0 ? 'success' : 'failure';
+  const description = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH finding${counts.high === 1 ? '' : 's'}`;
+  const issueUrl = followUp?.ok === true ? followUp.url : null;
+  if (followUp?.ok === false) lines.push(`plot-review: the follow-up issue was not opened: ${followUp.why}`);
   const written = await deps.host.commitStatus({
     sha,
-    state: 'failure',
+    state,
     context: REVIEW_CONTEXT,
-    description: `${counts.high} HIGH finding${counts.high === 1 ? '' : 's'}`,
-    targetUrl: issueUrl,
+    description: followUp?.ok === false ? `${description}; follow-up issue not opened` : description,
+    targetUrl: issueUrl ?? pr.url,
   });
-  if (!written.ok) return refuse(`the host did not accept the status on ${sha}`);
-  lines.push(`plot-review: PR #${pr.number} ${sha} failure, ${counts.high} HIGH, issue ${issueUrl}`);
-  return { code: EXIT.ok, lines };
+  if (!written.ok) {
+    return { code: EXIT.refused, lines: [...lines, `plot-review: the host did not accept the status on ${sha}`] };
+  }
+  const summary = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH`;
+  lines.push(`plot-review: PR #${pr.number} ${sha} ${state}, ${summary}${issueUrl === null ? '' : `, issue ${issueUrl}`}`);
+  return { code: followUp?.ok === false ? EXIT.issueNotOpened : EXIT.ok, lines };
 };
 
 /** `git`, run in `cwd`. */
@@ -310,6 +354,25 @@ const readChange = async (tree: string, base: string, sha: string): Promise<Revi
 };
 
 /**
+ * The tracker a review opens its follow-up issue through.
+ *
+ * Resolved by `trackerForIssues`, as the board and `plot-verify` resolve
+ * theirs: the declared `Tracker`, the git host's own issues where none is
+ * declared, or `trackerNone` where neither can be asked. A config or backend
+ * read that failed counts as an empty word.
+ *
+ * @param declared - the `Tracker` config key's read.
+ * @param backend - the git host backend's read.
+ * @param context - where the scripts and the repository are.
+ * @returns the tracker.
+ */
+export const reviewTracker = (
+  declared: PortResult<string>,
+  backend: PortResult<string>,
+  context: ShellContext,
+): Tracker => trackerForIssues(declared.ok ? declared.value.trim() : '', backend.ok ? backend.value : '', context);
+
+/**
  * Builds the dependencies from the machine this process runs on.
  *
  * @param cwd - a directory inside the repository or one of its linked trees.
@@ -331,7 +394,7 @@ const machineDeps = async (cwd: string, scriptDir: string): Promise<ReviewDeps |
   const boundedRun = boundedRunProcess(processesShell(context));
   return {
     host,
-    tracker: trackerForIssues(declared.ok ? declared.value.trim() : '', backend.ok ? backend.value : '', context),
+    tracker: reviewTracker(declared, backend, context),
     trees: treesGit(context),
     agentRun: (command) =>
       agentRunCommand({ boundedRun, fragment: command, limitPatterns: HARNESS_LIMIT_LINES.claude, now: Date.now }),

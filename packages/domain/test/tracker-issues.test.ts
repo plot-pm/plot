@@ -166,12 +166,27 @@ esac`);
 describe('issueOpen on a repository with no Tracker', () => {
   const write = { title: 't', body: 'b', labels: ['ai-generated'] };
 
-  it('answers unaskable through trackerGitHost, with the statusWrite sentence, and calls nothing', async () => {
+  it('opens a GitHub issue through trackerGitHost on a github git host, as github-issues', async () => {
+    const { context, argv } = hostThat('echo https://github.com/o/r/issues/1724');
+    const tracker = trackerGitHost('github', context);
+    expect(await tracker.issueOpen(write)).toEqual({ ok: true, value: { outcome: 'opened', id: '1724' } });
+    expect(calls(argv)).toEqual(['github-issues|issue-open t b --label ai-generated']);
+    expect(tracker.lastRefusal()).toBeNull();
+  });
+
+  it('records the host refusal in trackerGitHost.lastRefusal when the open fails', async () => {
+    const { context } = hostThat("echo 'plot-host: HTTP 502' >&2; exit 3");
+    const tracker = trackerGitHost('github', context);
+    expect(await tracker.issueOpen(write)).toEqual({ ok: false, why: 'failed' });
+    expect(tracker.lastRefusal()).toBe('plot-host: HTTP 502');
+  });
+
+  it('answers unaskable through trackerGitHost on a non-github git host, naming it, and calls nothing', async () => {
     const { context, argv } = hostThat('exit 0');
-    expect(await trackerGitHost('github', context).issueOpen(write)).toEqual({
+    expect(await trackerGitHost('bitbucket', context).issueOpen(write)).toEqual({
       ok: false,
       why: 'unaskable',
-      reason: "no Tracker declared; the git host's issues are read-only to Plot",
+      reason: "no Tracker declared; Plot opens no issue on the git host 'bitbucket'",
     });
     expect(calls(argv)).toEqual([]);
   });
@@ -188,12 +203,20 @@ describe('issueOpen on a repository with no Tracker', () => {
     const { context } = hostThat('exit 0');
     const viaNobody = trackerOfSource({ ask: 'nobody', reason: 'none declared' }, '', '', context);
     expect(await viaNobody.issueOpen(write)).toEqual({ ok: false, why: 'unaskable', reason: 'none declared' });
-    const viaGitHost = trackerOfSource({ ask: 'git-host' }, '', 'github', context);
+    const viaGitHost = trackerOfSource({ ask: 'git-host' }, '', 'bitbucket', context);
     expect(await viaGitHost.issueOpen(write)).toEqual({
       ok: false,
       why: 'unaskable',
-      reason: "no Tracker declared; the git host's issues are read-only to Plot",
+      reason: "no Tracker declared; Plot opens no issue on the git host 'bitbucket'",
     });
+  });
+
+  it('resolves no Tracker key on a github git host to a tracker that opens the issue', async () => {
+    const { context, argv } = hostThat('echo https://github.com/o/r/issues/5');
+    const tracker = trackerForIssues('', 'github', context);
+    expect(await tracker.issueOpen(write)).toEqual({ ok: true, value: { outcome: 'opened', id: '5' } });
+    expect(calls(argv)).toEqual(['github-issues|issue-open t b --label ai-generated']);
+    expect(tracker.config()).toEqual({ scheme: '', baseUrl: '' });
   });
 });
 

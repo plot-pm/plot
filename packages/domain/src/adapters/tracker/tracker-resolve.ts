@@ -6,7 +6,7 @@ import type { ClosedIssues, IssueOpenOutcome, IssueRead, StatusOutcome, Tracker,
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { trackerReads } from './tracker-shell.js';
-import { trackerGithub } from './tracker-github.js';
+import { githubIssueOpen, trackerGithub } from './tracker-github.js';
 import { trackerJira } from './tracker-jira.js';
 import { trackerNone } from './tracker-none.js';
 import { TRACKER_LISTERS } from './tracker-listers.js';
@@ -14,6 +14,9 @@ import { TRACKER_LISTERS } from './tracker-listers.js';
 // RE-EXPORTED FROM ITS OWN MODULE, so every importer of this file is unchanged
 // while a shell entry can import the list without the connectors below it.
 export { HOST_ISSUE_LISTERS, TICKET_SOURCES, TRACKER_LISTERS } from './tracker-listers.js';
+
+/** The git host backend word whose native issues `trackerGitHost` can open. */
+const GITHUB = 'github';
 
 /** Where a repository declares which tracker it uses. */
 const TRACKER_KEY = 'Tracker';
@@ -81,11 +84,15 @@ export const trackerShell = async (context: ShellContext): Promise<Tracker> => {
  * caller reading this `Tracker`'s `limit()` is reading the git host's budget,
  * not a second one nothing would charge against.
  *
- * THE WRITE ANSWERS `unaskable`, always, and says why. A status write has
- * nowhere native to land on a git host's own issue — there is no second surface
- * the way `trackerGithub`'s Projects write is one — and `unaskable` is the
- * honest answer the port-doc correction states: no tracker was declared, so no
- * status write was asked for either.
+ * THE STATUS WRITE ANSWERS `unaskable`, always, and says why. A status write
+ * has nowhere native to land on a git host's own issue — there is no second
+ * surface the way `trackerGithub`'s Projects write is one — and no tracker was
+ * declared, so no status write was asked for either.
+ *
+ * THE ISSUE-OPEN WRITE opens a native issue where the git host is `github`,
+ * through {@link githubIssueOpen} — the same `plot-host.sh issue-open` request
+ * `trackerGithub` sends. On any other git host it answers `unaskable` and names
+ * the host.
  *
  * @param gitHost - the repository's git host backend word, as `plot-host.sh
  *   backend` reports it.
@@ -107,8 +114,10 @@ export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker 
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
     statusWrite: async (): Promise<PortResult<StatusOutcome>> =>
       unaskable("no Tracker declared; the git host's issues are read-only to Plot"),
-    issueOpen: async (): Promise<PortResult<IssueOpenOutcome>> =>
-      unaskable("no Tracker declared; the git host's issues are read-only to Plot"),
+    issueOpen: gitHost === GITHUB
+      ? githubIssueOpen(context, reads.refuse)
+      : async (): Promise<PortResult<IssueOpenOutcome>> =>
+        unaskable(`no Tracker declared; Plot opens no issue on the git host '${gitHost}'`),
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
     lastRefusal: (): string | null => reads.lastRefusal(),
     spender: (): Promise<PortResult<TrackerSpender>> => reads.spender(),

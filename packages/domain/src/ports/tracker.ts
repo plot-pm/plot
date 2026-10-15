@@ -265,7 +265,9 @@ export interface Tracker {
    * caller records what it opened.
    *
    * A REPOSITORY WITH NO TRACKER ANSWERS `unaskable`, NEVER `opened`, for the
-   * reason `statusWrite` does.
+   * reason `statusWrite` does. A repository that declared no tracker and reads
+   * its issues from a `github` git host is the exception: `trackerGitHost`
+   * opens the issue there.
    *
    * `failed` DOES NOT PROVE THAT NO ISSUE EXISTS. Where the request may have
    * reached the tracker — the call ended at its time bound or by a signal, or

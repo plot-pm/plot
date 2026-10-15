@@ -52,6 +52,31 @@ export const githubIssueNumberOf = (stdout: string): string | null =>
   /\/issues\/(\d+)\s*$/.exec(stdout)?.[1] ?? null;
 
 /**
+ * Opens one GitHub issue through `plot-host.sh issue-open`, as the
+ * `github-issues` scheme.
+ *
+ * `trackerGithub` and `trackerGitHost` on a `github` git host both open issues
+ * this way: the request is `gh issue create` in the repository, with one
+ * `--label` per label.
+ *
+ * @param context - where the scripts and the repository are.
+ * @param refuse - records the refusal the calling connector's `lastRefusal` reports.
+ * @returns the connector's `issueOpen`: `opened` with the issue number;
+ *   `unaskable` on exit 4; `failed` otherwise, with the refusal recorded.
+ */
+export const githubIssueOpen =
+  (context: ShellContext, refuse: (said: string | null) => void) =>
+  async (write: IssueOpen): Promise<PortResult<IssueOpenOutcome>> => {
+    const labels = write.labels.flatMap((label) => ['--label', label]);
+    const said = await runProcess(
+      'bash',
+      [scriptPath(context, 'plot-host.sh'), 'issue-open', write.title, write.body, ...labels],
+      { cwd: context.repoRoot, env: { PLOT_TRACKER: SCHEME } },
+    );
+    return issueOpenOf(said, githubIssueNumberOf, refuse);
+  };
+
+/**
  * Reads and writes a tracker whose issues live with the git host's own vendor.
  *
  * A CONNECTOR, not an adapter with a branch. It holds this vendor's account,
@@ -75,8 +100,6 @@ export const trackerGithub = (context: ShellContext): Tracker => {
     { PLOT_TRACKER: SCHEME },
   );
   const config = scriptPath(context, 'plot-config.sh');
-  const host = scriptPath(context, 'plot-host.sh');
-  const run = { cwd: context.repoRoot, env: { PLOT_TRACKER: SCHEME } };
   const updateBoard = scriptPath(context, 'plot-update-board.sh');
   const inRepo = { cwd: context.repoRoot };
 
@@ -145,11 +168,7 @@ export const trackerGithub = (context: ShellContext): Tracker => {
       return answered<StatusOutcome>('written');
     },
 
-    issueOpen: async (write: IssueOpen): Promise<PortResult<IssueOpenOutcome>> => {
-      const labels = write.labels.flatMap((label) => ['--label', label]);
-      const said = await runProcess('bash', [host, 'issue-open', write.title, write.body, ...labels], run);
-      return issueOpenOf(said, githubIssueNumberOf, reads.refuse);
-    },
+    issueOpen: githubIssueOpen(context, reads.refuse),
 
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
 

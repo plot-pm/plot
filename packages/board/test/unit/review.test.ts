@@ -1,12 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { hostFixture } from '@plot-pm/domain/adapters/host/host-fixture';
 import { trackerFixture } from '@plot-pm/domain/adapters/tracker/tracker-fixture';
+import { trackerNone } from '@plot-pm/domain/adapters/tracker/tracker-none';
+import { ISSUE_MAY_EXIST } from '@plot-pm/domain/rules/refuted-issues';
 import type { Pr } from '@plot-pm/domain/entities/pr';
 import type { CommitStatusWrite } from '@plot-pm/domain/ports/host';
 import type { IssueOpen } from '@plot-pm/domain/ports/tracker';
 import type { AgentRun, AgentRunRequest } from '@plot-pm/domain/ports/agent-run';
 import type { Trees } from '@plot-pm/domain';
-import { EXIT, reviewPr, type ReviewChange, type ReviewDeps } from '../../src/server/entry/review.js';
+import { EXIT, reviewPr, reviewTracker, type ReviewChange, type ReviewDeps } from '../../src/server/entry/review.js';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { REVIEW_INLINE_DIFF_LIMIT } from '@plot-pm/domain/rules/review-verdict';
 
 const answered = <T>(value: T) => ({ ok: true as const, value });
@@ -118,8 +123,8 @@ describe('reviewPr', () => {
     expect(r.statuses[1]!.targetUrl).toBe(r.statuses[0]!.targetUrl);
   });
 
-  it('writes success and never opens an issue on zero HIGH findings', async () => {
-    const r = rig('- [LOW] naming\nFindings: HIGH 0, MEDIUM 0, LOW 1\n');
+  it('writes success with the PR URL and opens no issue on no findings at all', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
     const out = await reviewPr(r.deps, '7');
     expect(out.code).toBe(EXIT.ok);
     expect(r.issues).toHaveLength(0);
@@ -127,6 +132,54 @@ describe('reviewPr', () => {
       sha: HEAD, state: 'success', context: 'plot/review', description: 'no HIGH findings',
       targetUrl: 'https://github.com/o/r/pull/7',
     }]);
+  });
+
+  it('opens the follow-up issue and writes success with its URL on HIGH 0 with MEDIUM and LOW findings', async () => {
+    const r = rig('- [MEDIUM] a gap\n- [LOW] naming\nFindings: HIGH 0, MEDIUM 1, LOW 1\n');
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.ok);
+    expect(r.issues).toHaveLength(1);
+    expect(r.issues[0]!.title).toBe('plot-review: MEDIUM 1, LOW 1 on PR #7');
+    expect(r.issues[0]!.labels).toEqual(['ai-generated']);
+    expect(r.issues[0]!.body).toContain('a gap');
+    expect(r.statuses).toEqual([{
+      sha: HEAD, state: 'success', context: 'plot/review', description: 'no HIGH findings',
+      targetUrl: 'https://github.com/o/r/issues/1',
+    }]);
+    expect(out.lines.at(-1)).toBe(`plot-review: PR #7 ${HEAD} success, no HIGH findings, issue https://github.com/o/r/issues/1`);
+  });
+
+  it('still writes failure with the HIGH count when the issue cannot be opened, and names the failure', async () => {
+    const r = rig(FINDINGS);
+    r.deps.tracker = { ...trackerFixture({ scheme: 'github-issues', opened: r.issues, issueOpenFails: true }), lastRefusal: () => 'plot-host: HTTP 502' };
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.issueNotOpened);
+    expect(r.issues).toHaveLength(1);
+    expect(r.statuses).toEqual([{
+      sha: HEAD, state: 'failure', context: 'plot/review', description: '2 HIGH findings; follow-up issue not opened',
+      targetUrl: 'https://github.com/o/r/pull/7',
+    }]);
+    expect(out.lines).toContain('plot-review: the follow-up issue was not opened: plot-host: HTTP 502');
+    expect(r.files.has(`${REVIEWS}/7-${HEAD}.issue`)).toBe(false);
+  });
+
+  it('still writes success when a tracker answering unaskable opens no issue for MEDIUM findings', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 2, LOW 0\n');
+    r.deps.tracker = trackerNone('no Tracker declared');
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.issueNotOpened);
+    expect(r.statuses.map((s) => [s.state, s.targetUrl])).toEqual([['success', 'https://github.com/o/r/pull/7']]);
+    expect(out.lines).toContain('plot-review: the follow-up issue was not opened: no Tracker declared');
+  });
+
+  it('keeps the pending entry when the issue may exist, so a second run opens none', async () => {
+    const r = rig(FINDINGS);
+    r.deps.tracker = { ...trackerFixture({ opened: r.issues, issueOpenFails: true }), lastRefusal: () => `${ISSUE_MAY_EXIST}timed out` };
+    expect((await reviewPr(r.deps, '7')).code).toBe(EXIT.issueNotOpened);
+    expect(r.files.get(`${REVIEWS}/7-${HEAD}.issue`)).toBe('pending');
+    expect((await reviewPr(r.deps, '7')).code).toBe(EXIT.issueNotOpened);
+    expect(r.issues).toHaveLength(1);
+    expect(r.statuses.map((s) => s.state)).toEqual(['failure', 'failure']);
   });
 
   it('writes on the host-resolved head and says so when the head moved', async () => {
@@ -227,13 +280,14 @@ describe('reviewPr', () => {
     expect(r.statuses).toHaveLength(0);
   });
 
-  it('refuses on a pending issue entry and opens nothing', async () => {
+  it('opens nothing on a pending issue entry, still writes the status, and names the entry', async () => {
     const files = new Map([['/repo/.git/plot/state/reviews/7-' + HEAD + '.issue', 'pending']]);
     const r = rig(FINDINGS, { files });
     const out = await reviewPr(r.deps, '7');
-    expect(out.code).toBe(EXIT.refused);
+    expect(out.code).toBe(EXIT.issueNotOpened);
     expect(r.issues).toHaveLength(0);
-    expect(r.statuses).toHaveLength(0);
+    expect(r.statuses.map((s) => [s.state, s.description])).toEqual([['failure', '2 HIGH findings; follow-up issue not opened']]);
+    expect(out.lines.join('\n')).toContain(`remove ${REVIEWS}/7-${HEAD}.issue once checked`);
   });
 
   it('gives the reviewer the changed files, the diff file and the scope rule', async () => {
@@ -311,4 +365,25 @@ describe('reviewPr', () => {
     expect(r.requests).toHaveLength(0);
   });
 
+});
+
+describe('reviewTracker', () => {
+  it('with no Tracker key on a github host is the git-host tracker, which opens the issue', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-review-tracker-'));
+    try {
+      const scriptDir = join(root, 'scripts');
+      mkdirSync(scriptDir);
+      const argv = join(root, 'argv');
+      const host = join(scriptDir, 'plot-host.sh');
+      writeFileSync(host, `#!/usr/bin/env bash\nprintf '%s|%s\\n' "\${PLOT_TRACKER:-}" "$*" >> ${JSON.stringify(argv)}\necho https://github.com/o/r/issues/9\n`);
+      chmodSync(host, 0o755);
+      const tracker = reviewTracker(answered(''), answered('github'), { repoRoot: root, scriptDir });
+      const opened = await tracker.issueOpen({ title: 't', body: 'b', labels: ['ai-generated'] });
+      expect(opened).toEqual({ ok: true, value: { outcome: 'opened', id: '9' } });
+      expect(readFileSync(argv, 'utf8')).toBe('github-issues|issue-open t b --label ai-generated\n');
+      expect(tracker.config()).toEqual({ scheme: '', baseUrl: '' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

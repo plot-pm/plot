@@ -54,9 +54,9 @@ describe('a refuted claim opens an issue', () => {
 
   it('renders the unaskable reason verbatim and records no number', async () => {
     const file = stateFile();
-    const notes = await openRefutedIssues(trackerGitHost('github', { repoRoot: '/', scriptDir: '/' }), file, 'p', 'abc1234', verdictsOf(['one']));
+    const notes = await openRefutedIssues(trackerGitHost('bitbucket', { repoRoot: '/', scriptDir: '/' }), file, 'p', 'abc1234', verdictsOf(['one']));
     expect(verificationBody(verdictsOf(['one']), notes)).toBe(
-      "- Claim-1 refuted — one — a refuted — no issue: no Tracker declared; the git host's issues are read-only to Plot\n",
+      "- Claim-1 refuted — one — a refuted — no issue: no Tracker declared; Plot opens no issue on the git host 'bitbucket'\n",
     );
     expect(JSON.parse(readFileSync(file, 'utf8')).issues).toEqual({});
     const none = await openRefutedIssues(trackerNone('nobody lists issues'), file, 'p', 'abc1234', verdictsOf(['one']));
