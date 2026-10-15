@@ -343,15 +343,15 @@ test('host: backend says so when nothing names a host', () => {
 
 test('host: pr-state github maps gh --json and normalizes', () => {
   const stubs = makeStubs({
-    ghJson: '{"number":7,"state":"OPEN","isDraft":true,"url":"https://example.test/pr/7"}',
+    ghJson: '{"number":7,"state":"OPEN","isDraft":true,"url":"https://example.test/pr/7","baseRefName":"main"}',
   });
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
     number: 7, state: 'OPEN', draft: true, url: 'https://example.test/pr/7', mergeCommit: '',
-    headSha: '', checks: 'none', checksSha: '',
+    headSha: '', base: 'main', checks: 'none', checksSha: '',
   });
   assert.deepEqual(argvOf(stubs.ghArgv),
-    ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit,headRefOid,statusCheckRollup']);
+    ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup']);
 });
 
 test('host: pr-state github names the head and the checks read for it', () => {
@@ -557,11 +557,12 @@ test('host: a failure with no message at all still reads as a miss', () => {
 
 test('host: pr-state bitbucket normalizes DECLINED to CLOSED', () => {
   const stubs = makeStubs({
-    bbJson: '{"id":9,"state":"DECLINED","links":{"html":{"href":"https://example.test/pr/9"}}}',
+    bbJson: '{"id":9,"state":"DECLINED","links":{"html":{"href":"https://example.test/pr/9"}},'
+      + '"destination":{"branch":{"name":"develop"}}}',
   });
   const out = JSON.parse(run(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(out, {
-    number: 9, state: 'CLOSED', draft: false, url: 'https://example.test/pr/9', mergeCommit: '',
+    number: 9, state: 'CLOSED', draft: false, url: 'https://example.test/pr/9', mergeCommit: '', base: 'develop',
   });
 });
 
@@ -695,11 +696,11 @@ test('host: Git host config key resolves the backend (bb alias too)', () => {
 
 test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', () => {
   const stubs = makeStubs({
-    bbJson: '[{"id":4,"state":"OPEN","source":{"branch":{"name":"feature/a"}},"links":{"html":{"href":"https://example.test/pr/4"}}}]',
+    bbJson: '[{"id":4,"state":"OPEN","source":{"branch":{"name":"feature/a"}},"destination":{"branch":{"name":"main"}},"links":{"html":{"href":"https://example.test/pr/4"}}}]',
   });
   const hit = JSON.parse(run(['pr-state', 'feature/a'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(hit, {
-    number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4', mergeCommit: '',
+    number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4', mergeCommit: '', base: 'main',
   });
   // NOT `--state all`: bb has no such state. See the strict-stub tests below.
   assert.ok(
@@ -4064,11 +4065,12 @@ test('host: pr-state falls back to REST when the GraphQL budget is spent', () =>
     restJson: JSON.stringify({
       number: 7, state: 'open', draft: false,
       html_url: 'https://example.test/pr/7', merged: false, merge_commit_sha: null,
+      base: { ref: 'main' },
     }),
   });
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
-    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', checks: 'unknown',
+    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', base: 'main', checks: 'unknown',
   });
   const calls = callsOf(stubs.callsFile);
   assert.ok(
@@ -4231,7 +4233,7 @@ test('host: pr-state bitbucket is unaffected — no budget query, no REST', () =
   // button has. The key is present because the arm always emits it; the value
   // is empty because there is nothing honest to put in it.
   assert.deepEqual(out, {
-    number: 7, state: 'MERGED', draft: false, url: 'https://bb.test/pr/7', mergeCommit: '',
+    number: 7, state: 'MERGED', draft: false, url: 'https://bb.test/pr/7', mergeCommit: '', base: '',
   });
   assert.equal(argvOf(stubs.ghArgv), null, 'the GitHub CLI is not touched on a Bitbucket repo');
 });
@@ -4962,6 +4964,7 @@ const REST_PR = JSON.stringify({
   draft: false,
   html_url: 'https://example.test/pr/7',
   merged: false,
+  base: { ref: 'main' },
   merge_commit_sha: null,
 });
 
@@ -5015,7 +5018,7 @@ test('host: the harvested body reaches the caller unchanged', () => {
     stubs,
   });
   assert.deepEqual(JSON.parse(out), {
-    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', checks: 'unknown',
+    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', base: 'main', checks: 'unknown',
   });
   assert.doesNotMatch(out, /X-Ratelimit|HTTP\//i, 'no header may reach a caller’s parse');
 });
