@@ -128,6 +128,17 @@ export interface ReviewOutcome {
 
 const refuse = (why: string): ReviewOutcome => ({ code: EXIT.refused, lines: [`plot-review: ${why}`] });
 
+/** `deps.writeText(file, text)` fails with a message naming `file`, instead of throwing. */
+const writeTextOutcome = (deps: ReviewDeps, file: string, text: string): ReviewOutcome | null => {
+  try {
+    deps.writeText(file, text);
+    return null;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return refuse(`could not write ${file}: ${reason}`);
+  }
+};
+
 /**
  * The follow-up issue's title and body.
  *
@@ -258,7 +269,8 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   try {
     const change = await deps.readChange(tree, pr.base, sha);
     if (!change.ok) return refuse(`the change of PR #${pr.number} could not be read: ${change.why}`);
-    deps.writeText(diffFile, change.diff);
+    const diffWrite = writeTextOutcome(deps, diffFile, change.diff);
+    if (diffWrite !== null) return diffWrite;
     const request = reviewRequestBlock({
       pr: pr.number,
       headSha: sha,
@@ -293,7 +305,8 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
 
   const verdictText = ran.value.finalText ?? '';
   if (verdictText.trim() === '') return refuse('the reviewer gave no final answer');
-  deps.writeText(verdictFile, verdictText);
+  const verdictWrite = writeTextOutcome(deps, verdictFile, verdictText);
+  if (verdictWrite !== null) return verdictWrite;
   const verdict = reviewVerdict(verdictText);
   if (verdict.read === 'refused') return refuse(`verdict ${verdictFile} refused: ${verdict.why}`);
   const { counts } = verdict;
@@ -304,9 +317,15 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   }
 
   const findings = counts.high + counts.medium + counts.low;
-  const followUp: FollowUp | null = findings === 0
-    ? null
-    : await openFollowUp(deps, issueFile, pr, sha, counts, verdictText);
+  let followUp: FollowUp | null = null;
+  if (findings !== 0) {
+    try {
+      followUp = await openFollowUp(deps, issueFile, pr, sha, counts, verdictText);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return refuse(`could not write ${issueFile}: ${reason}`);
+    }
+  }
   const state = counts.high === 0 ? 'success' : 'failure';
   const description = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH finding${counts.high === 1 ? '' : 's'}`;
   const issueUrl = followUp?.ok === true ? followUp.url : null;
@@ -341,7 +360,7 @@ export const REVIEW_DIFF_MAX_BYTES = 64 * 1024 * 1024;
  * @param sha - the head commit.
  * @returns the merge base, the changed files and the diff, or the step that failed.
  */
-const readChange = async (tree: string, base: string, sha: string): Promise<ReviewChange> => {
+export const readChange = async (tree: string, base: string, sha: string): Promise<ReviewChange> => {
   const fetched = await git(tree, ['fetch', '--quiet', 'origin', `+refs/heads/${base}:refs/remotes/origin/${base}`]);
   if (fetched.code !== 0) return { ok: false, why: `git fetch of origin/${base} failed` };
   const merged = await git(tree, ['merge-base', `origin/${base}`, sha]);

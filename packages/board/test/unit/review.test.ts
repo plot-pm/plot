@@ -182,6 +182,20 @@ describe('reviewPr', () => {
     expect(r.files.has(`${REVIEWS}/7-${HEAD}.issue`)).toBe(false);
   });
 
+  it('refuses by name, writing no status, when a tracked file blocks the issue file write', async () => {
+    const r = rig(FINDINGS);
+    r.deps.writeText = (file, text) => {
+      if (file.endsWith('.issue')) throw new Error(`ENOTDIR: not a directory, mkdir '${REVIEWS}'`);
+      r.files.set(file, text);
+      r.written.push(file);
+    };
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(out.lines[0]).toContain(`could not write ${REVIEWS}/7-${HEAD}.issue`);
+    expect(r.statuses).toHaveLength(0);
+    expect(r.issues).toHaveLength(0);
+  });
+
   it('still writes success when a tracker answering unaskable opens no issue for MEDIUM findings', async () => {
     const r = rig('Findings: HIGH 0, MEDIUM 2, LOW 0\n');
     r.deps.tracker = trackerNone('no Tracker declared');
@@ -357,6 +371,19 @@ describe('reviewPr', () => {
     expect(r.files.get(planted)).toBe(text);
     expect(r.written.filter((f) => f.startsWith(`${TREE}/`))).toEqual([]);
     expect(r.statuses.map((s) => s.state)).toEqual(['success']);
+  });
+
+  it('refuses by name when a tracked regular file blocks the reviews directory, instead of throwing', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
+    r.deps.writeText = (file) => {
+      throw new Error(`ENOTDIR: not a directory, mkdir '${REVIEWS}'`);
+    };
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(out.lines[0]).toContain(`could not write ${DIFF_FILE}`);
+    expect(out.lines[0]).toContain('ENOTDIR');
+    expect(r.statuses).toHaveLength(0);
+    expect(r.issues).toHaveLength(0);
   });
 
   it('removes a stale diff from an earlier run before the change is read', async () => {
