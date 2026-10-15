@@ -57,6 +57,19 @@ describe('ticketLanes type and owner', () => {
     expect(lane(row('1', { assignees: ['JWloka'] }), { source: github, directory: { jwloka: 'jan' } })?.owner).toBe('jan');
   });
 
+  it('carries no type where the row states null', () => {
+    expect(lane(row('1', { type: null }))?.type).toBeNull();
+  });
+
+  it('reads an assignee as written where the reading names no source and no directory', () => {
+    expect(lane(row('1', { assignees: ['Alice'] }))?.owner).toBe('Alice');
+  });
+
+  it('carries no owner for a null or blank assignee list', () => {
+    expect(lane(row('1', { assignees: null }))?.owner).toBeNull();
+    expect(lane(row('1', { assignees: ['  '] }))?.owner).toBeNull();
+  });
+
   it('carries no owner where nobody is assigned', () => {
     expect(lane(row('1', { assignees: [] }))?.owner).toBeNull();
     expect(lane(row('1'))?.owner).toBeNull();
