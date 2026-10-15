@@ -6,7 +6,8 @@ import type { CommitStatusWrite } from '@plot-pm/domain/ports/host';
 import type { IssueOpen } from '@plot-pm/domain/ports/tracker';
 import type { AgentRun, AgentRunRequest } from '@plot-pm/domain/ports/agent-run';
 import type { Trees } from '@plot-pm/domain';
-import { EXIT, reviewPr, type ReviewDeps } from '../../src/server/entry/review.js';
+import { EXIT, REVIEW_DIFF_FILE, reviewPr, type ReviewChange, type ReviewDeps } from '../../src/server/entry/review.js';
+import { REVIEW_INLINE_DIFF_LIMIT } from '@plot-pm/domain/rules/review-verdict';
 
 const answered = <T>(value: T) => ({ ok: true as const, value });
 const HEAD = 'a'.repeat(40);
@@ -29,7 +30,15 @@ interface Rig {
   removed: string[];
 }
 
-const rig = (verdict: string | null, opts: { prs?: Pr[]; files?: Map<string, string>; headAfter?: string } = {}): Rig => {
+const MERGE_BASE = 'c'.repeat(40);
+const DIFF = 'diff --git a/docs/review-status-rollout.md b/docs/review-status-rollout.md\n+one line\n';
+const CHANGE: ReviewChange = { ok: true, mergeBase: MERGE_BASE, files: ['docs/review-status-rollout.md'], diff: DIFF };
+const TREE = '/repo/.worktrees/review-7-aaaaaaa';
+
+const rig = (
+  verdict: string | null,
+  opts: { prs?: Pr[]; files?: Map<string, string>; headAfter?: string; change?: ReviewChange } = {},
+): Rig => {
   const statuses: CommitStatusWrite[] = [];
   const issues: IssueOpen[] = [];
   const requests: AgentRunRequest[] = [];
@@ -71,6 +80,7 @@ const rig = (verdict: string | null, opts: { prs?: Pr[]; files?: Map<string, str
     agentRun: (command) => { commands.push(command); return agentRun; },
     repoRoot: '/repo', commonDir: '/repo/.git', base: 'main', currentBranch: 'feature/x',
     fetchSha: async () => true,
+    readChange: async () => opts.change ?? CHANGE,
     readCharterText: () => CHARTER,
     readText: (f) => files.get(f) ?? null,
     writeText: (f, t) => { files.set(f, t); },
@@ -219,6 +229,47 @@ describe('reviewPr', () => {
     expect(out.code).toBe(EXIT.refused);
     expect(r.issues).toHaveLength(0);
     expect(r.statuses).toHaveLength(0);
+  });
+
+  it('gives the reviewer the changed files, the diff file and the scope rule', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
+    await reviewPr(r.deps, '7');
+    const prompt = r.requests[0]!.prompt;
+    const diffPath = `${TREE}/${REVIEW_DIFF_FILE}`;
+    expect(r.files.get(diffPath)).toBe(DIFF);
+    expect(prompt).toContain(`Merge base: ${MERGE_BASE}`);
+    expect(prompt).toContain(`git diff ${MERGE_BASE}..${HEAD}`);
+    expect(prompt).toContain('Changed files (1):\n- docs/review-status-rollout.md');
+    expect(prompt).toContain(`Full diff: ${diffPath}`);
+    expect(prompt).toContain('Scope: judge only this change.');
+    expect(prompt).toContain('It never counts in the Findings: line.');
+  });
+
+  it('carries the diff inline under the limit', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
+    await reviewPr(r.deps, '7');
+    expect(r.requests[0]!.prompt).toContain('+one line');
+  });
+
+  it('leaves the diff out over the limit, and still writes it to the diff file', async () => {
+    const big = `${DIFF}+${'x'.repeat(REVIEW_INLINE_DIFF_LIMIT)}\n`;
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n', { change: { ...CHANGE, diff: big } });
+    await reviewPr(r.deps, '7');
+    const prompt = r.requests[0]!.prompt;
+    expect(prompt).not.toContain('+one line');
+    expect(prompt).toContain('it is not inline');
+    expect(r.files.get(`${TREE}/${REVIEW_DIFF_FILE}`)).toBe(big);
+  });
+
+  it('refuses when the change cannot be read: no run, no status, no issue, tree removed', async () => {
+    const r = rig(FINDINGS, { change: { ok: false, why: 'git diff failed' } });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(out.lines[0]).toContain('the change of PR #7 could not be read: git diff failed');
+    expect(r.requests).toHaveLength(0);
+    expect(r.statuses).toHaveLength(0);
+    expect(r.issues).toHaveLength(0);
+    expect(r.removed).toEqual([TREE]);
   });
 
   it('refuses a PR that is not open', async () => {
