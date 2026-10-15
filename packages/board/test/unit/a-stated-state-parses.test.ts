@@ -110,3 +110,26 @@ describe('a story title read from frontmatter', () => {
     expect(read('title: "half open')).toBe('"half open');
   });
 });
+
+describe('a story date and objective read from a story file', () => {
+  const read = (frontmatter: string, body = '') =>
+    parseStoryContent(`---\n${frontmatter}\n---\n\n# H1\n${body}`, 'slug', 'docs/stories/slug/story.md', '');
+
+  it('drops quotes around created and updated', () => {
+    const story = read('created: "2026-10-15"\nupdated: \'2026-10-14\'');
+    expect(story?.created).toBe('2026-10-15');
+    expect(story?.updated).toBe('2026-10-14');
+  });
+
+  it('keeps an unquoted date whole', () => {
+    expect(read('created: 2026-10-15')?.created).toBe('2026-10-15');
+  });
+
+  it('drops one pair of quotes around the objective', () => {
+    expect(read('title: T', '\n## Objective\n\n"Ship the card."\n')?.objective).toBe('Ship the card.');
+  });
+
+  it('keeps an unquoted objective whole', () => {
+    expect(read('title: T', '\n## Objective\n\nShip the card.\n')?.objective).toBe('Ship the card.');
+  });
+});

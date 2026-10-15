@@ -496,7 +496,7 @@ function StoryCardView({ story, onOpen, onOpenSprint }: StoryCardViewProps) {
         {/* Objective preview - more lines, with markdown rendering */}
         {story.objective && (
           <p className="line-clamp-4 text-xs italic text-slate-600 dark:text-slate-300">
-            "{renderInlineMarkdown(story.objective)}"
+            {renderInlineMarkdown(story.objective)}
           </p>
         )}
       </button>
