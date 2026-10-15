@@ -1351,3 +1351,60 @@ describe('bashCleanliness — PLOT-CORRECTION.md reads as the shell readers read
     });
   }
 });
+
+describe('a desk whose loop ended at the free-wait bound — listed only while it holds something', () => {
+  // The loop exits 124 with no slice offered. `plot-worker-state.sh` reads that
+  // exit with no PR fact as `failed`, and `isBrokenState` files `failed` in
+  // Waiting on you. Whether the desk stays listed is therefore decided here,
+  // by `dropSettledWorkers`, from the tree alone.
+  let repo = '';
+  afterEach(() => {
+    if (repo) rmTree(repo);
+    repo = '';
+  });
+
+  const endedDesk = (arrange: (wt: string) => void = () => {}): string => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bound-desk-'));
+    const g = (...a: string[]) =>
+      execFileSync('git', ['-C', repo, ...a], { stdio: ['ignore', 'pipe', 'ignore'] });
+    execFileSync('git', ['init', '-q', '-b', 'main', repo], { stdio: 'ignore' });
+    g('config', 'user.email', 't@e.x');
+    g('config', 'user.name', 'T');
+    fs.writeFileSync(path.join(repo, 'README.md'), 'r\n');
+    g('add', '-A');
+    g('commit', '-q', '-m', 'init');
+    fs.writeFileSync(path.join(repo, '.plot-worker.pid'), '99999');
+    fs.writeFileSync(path.join(repo, '.plot-worker.exit'), '124');
+    fs.writeFileSync(
+      path.join(repo, '.plot-worker.ending.json'),
+      JSON.stringify({ reason: 'bound', actor: 'bound' }),
+    );
+    arrange(repo);
+    return repo;
+  };
+
+  const list = (wt: string) =>
+    readAgentRegistry(root, home, {
+      scriptsDir: SCRIPTS_DIR,
+      worktrees: () => [{ path: wt, branch: 'main', isMain: false }],
+      cleanliness: bashCleanliness,
+    });
+
+  it('drops a clean desk: no marker, no uncommitted work, nothing owed', async () => {
+    assert.deepEqual(await list(endedDesk()), []);
+  });
+
+  it('keeps the desk, as `failed`, while it carries a PLOT-BLOCKED marker', async () => {
+    const wt = endedDesk((d) => fs.writeFileSync(path.join(d, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which retry?\n'));
+    const got = await list(wt);
+    assert.equal(got.length, 1);
+    assert.equal(got[0].state, 'failed');
+  });
+
+  it('keeps the desk while it holds uncommitted work', async () => {
+    const wt = endedDesk((d) => fs.writeFileSync(path.join(d, 'half-done.ts'), 'x\n'));
+    const got = await list(wt);
+    assert.equal(got.length, 1);
+    assert.equal(got[0].state, 'failed');
+  });
+});
