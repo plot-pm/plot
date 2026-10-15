@@ -36,11 +36,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * detached worktree at that SHA, and the worktree is removed whatever the
  * outcome. Before the run, the change is read in that worktree: the merge base
  * of `origin/<base>` and the head, the changed files, and the full diff. The
- * diff is written to a file inside the worktree, and the request names the
+ * diff is written to `<pr>-<sha>.diff` in the reviews directory under the git
+ * common directory, never inside the reviewed tree, and the request names the
  * files and that file and tells the reviewer to judge only this change. A diff
  * that cannot be read refuses. The agent runs read-only on the `command` runner with the fragment
  * `reviewerCommand` builds: read and search tools only, no MCP server, no
- * settings from the reviewed tree, and never the `Verify command` fragment.
+ * settings from the reviewed tree, the reviews directory as its one added
+ * read directory, and never the `Verify command` fragment.
  * The agent's final answer is written to a verdict file under the git common
  * directory and read through `reviewVerdict`, never as free text.
  *
@@ -74,9 +76,6 @@ export const REVIEW_BOUND_SECONDS = 3600;
 export type ReviewChange =
   | { ok: true; mergeBase: string; files: string[]; diff: string }
   | { ok: false; why: string };
-
-/** The file inside the review worktree that holds the full diff for the reviewer. */
-export const REVIEW_DIFF_FILE = path.join('.plot-review', 'change.diff');
 
 /** What a review run touches, so a test can supply values instead of a machine. */
 export interface ReviewDeps {
@@ -169,13 +168,15 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   const reviews = path.join(deps.commonDir, 'plot', 'state', 'reviews');
   const verdictFile = path.join(reviews, `${key}.md`);
   const issueFile = path.join(reviews, `${key}.issue`);
+  const diffFile = path.join(reviews, `${key}.diff`);
   const lines: string[] = [];
 
-  const command = reviewerCommand(charter.charter);
+  const command = reviewerCommand(charter.charter, [reviews]);
   if (command.read === 'refused') return refuse(command.why);
   const agentRun = deps.agentRun(command.command);
 
   deps.removeFile(verdictFile);
+  deps.removeFile(diffFile);
   const tree = path.join(deps.repoRoot, '.worktrees', `review-${pr.number}-${sha.slice(0, 7)}`);
   const logFile = path.join(deps.repoRoot, '.plot', 'logs', `review-${pr.number}-${sha.slice(0, 7)}.log`);
   if (!(await deps.fetchSha(sha))) return refuse(`commit ${sha} is not available locally and could not be fetched`);
@@ -186,15 +187,14 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   try {
     const change = await deps.readChange(tree, deps.base, sha);
     if (!change.ok) return refuse(`the change of PR #${pr.number} could not be read: ${change.why}`);
-    const diffPath = path.join(tree, REVIEW_DIFF_FILE);
-    deps.writeText(diffPath, change.diff);
+    deps.writeText(diffFile, change.diff);
     const request = reviewRequestBlock({
       pr: pr.number,
       headSha: sha,
       base: deps.base,
       mergeBase: change.mergeBase,
       files: change.files,
-      diffPath,
+      diffPath: diffFile,
       diff: change.diff,
     });
     ran = await agentRun.run({

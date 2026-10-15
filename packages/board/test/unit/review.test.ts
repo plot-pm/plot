@@ -6,7 +6,7 @@ import type { CommitStatusWrite } from '@plot-pm/domain/ports/host';
 import type { IssueOpen } from '@plot-pm/domain/ports/tracker';
 import type { AgentRun, AgentRunRequest } from '@plot-pm/domain/ports/agent-run';
 import type { Trees } from '@plot-pm/domain';
-import { EXIT, REVIEW_DIFF_FILE, reviewPr, type ReviewChange, type ReviewDeps } from '../../src/server/entry/review.js';
+import { EXIT, reviewPr, type ReviewChange, type ReviewDeps } from '../../src/server/entry/review.js';
 import { REVIEW_INLINE_DIFF_LIMIT } from '@plot-pm/domain/rules/review-verdict';
 
 const answered = <T>(value: T) => ({ ok: true as const, value });
@@ -28,12 +28,15 @@ interface Rig {
   commands: string[];
   files: Map<string, string>;
   removed: string[];
+  written: string[];
 }
 
 const MERGE_BASE = 'c'.repeat(40);
 const DIFF = 'diff --git a/docs/review-status-rollout.md b/docs/review-status-rollout.md\n+one line\n';
 const CHANGE: ReviewChange = { ok: true, mergeBase: MERGE_BASE, files: ['docs/review-status-rollout.md'], diff: DIFF };
 const TREE = '/repo/.worktrees/review-7-aaaaaaa';
+const REVIEWS = '/repo/.git/plot/state/reviews';
+const DIFF_FILE = `${REVIEWS}/7-${HEAD}.diff`;
 
 const rig = (
   verdict: string | null,
@@ -44,6 +47,7 @@ const rig = (
   const requests: AgentRunRequest[] = [];
   const commands: string[] = [];
   const removed: string[] = [];
+  const written: string[] = [];
   const files = opts.files ?? new Map<string, string>();
   let asked = 0;
   const prs = opts.prs ?? [pr()];
@@ -83,10 +87,10 @@ const rig = (
     readChange: async () => opts.change ?? CHANGE,
     readCharterText: () => CHARTER,
     readText: (f) => files.get(f) ?? null,
-    writeText: (f, t) => { files.set(f, t); },
+    writeText: (f, t) => { written.push(f); files.set(f, t); },
     removeFile: (f) => { files.delete(f); },
   };
-  return { deps, statuses, issues, requests, commands, files, removed };
+  return { deps, statuses, issues, requests, commands, files, removed, written };
 };
 
 const FINDINGS = '- [HIGH] leaks a token\nFindings: HIGH 2, MEDIUM 1, LOW 0\n';
@@ -198,6 +202,7 @@ describe('reviewPr', () => {
     const denied = /--disallowedTools (\S+)/.exec(command)![1]!.split(',');
     expect(denied).toEqual(expect.arrayContaining(['Write', 'Edit', 'Bash']));
     expect(command).toContain("--model 'opus'");
+    expect(command).toContain(`--add-dir '${REVIEWS}' --tools `);
     expect(r.requests[0]!.role).toBe('reviewer');
     expect(r.requests[0]!.capabilities).toContain('read-only');
     expect(r.requests[0]!.prompt).not.toContain('Write your verdict to');
@@ -235,12 +240,11 @@ describe('reviewPr', () => {
     const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
     await reviewPr(r.deps, '7');
     const prompt = r.requests[0]!.prompt;
-    const diffPath = `${TREE}/${REVIEW_DIFF_FILE}`;
-    expect(r.files.get(diffPath)).toBe(DIFF);
+    expect(r.files.get(DIFF_FILE)).toBe(DIFF);
     expect(prompt).toContain(`Merge base: ${MERGE_BASE}`);
     expect(prompt).toContain(`git diff ${MERGE_BASE}..${HEAD}`);
     expect(prompt).toContain('Changed files (1):\n- docs/review-status-rollout.md');
-    expect(prompt).toContain(`Full diff: ${diffPath}`);
+    expect(prompt).toContain(`Full diff: ${DIFF_FILE}`);
     expect(prompt).toContain('Scope: judge only this change.');
     expect(prompt).toContain('It never counts in the Findings: line.');
   });
@@ -258,7 +262,36 @@ describe('reviewPr', () => {
     const prompt = r.requests[0]!.prompt;
     expect(prompt).not.toContain('+one line');
     expect(prompt).toContain('it is not inline');
-    expect(r.files.get(`${TREE}/${REVIEW_DIFF_FILE}`)).toBe(big);
+    expect(r.files.get(DIFF_FILE)).toBe(big);
+  });
+
+  it('writes the diff next to the verdict, never inside the reviewed tree', async () => {
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n');
+    await reviewPr(r.deps, '7');
+    expect(r.written).toContain(DIFF_FILE);
+    expect(r.written.filter((f) => f.startsWith(`${TREE}/`))).toEqual([]);
+    expect(r.written.every((f) => f.startsWith(`${REVIEWS}/`))).toBe(true);
+  });
+
+  it.each([
+    ['a .plot-review symlink', `${TREE}/.plot-review`, '-> /home/operator'],
+    ['a .plot-review/change.diff.tmp symlink', `${TREE}/.plot-review/change.diff.tmp`, '-> /home/operator/.zshrc'],
+  ])('leaves %s the PR committed untouched, and the run is unaffected', async (_name, planted, text) => {
+    const files = new Map([[planted, text]]);
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n', { files });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.ok);
+    expect(r.files.get(planted)).toBe(text);
+    expect(r.written.filter((f) => f.startsWith(`${TREE}/`))).toEqual([]);
+    expect(r.statuses.map((s) => s.state)).toEqual(['success']);
+  });
+
+  it('removes a stale diff from an earlier run before the change is read', async () => {
+    const files = new Map([[DIFF_FILE, 'stale diff\n']]);
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 0\n', { files, change: { ok: false, why: 'git diff failed' } });
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.refused);
+    expect(r.files.has(DIFF_FILE)).toBe(false);
   });
 
   it('refuses when the change cannot be read: no run, no status, no issue, tree removed', async () => {

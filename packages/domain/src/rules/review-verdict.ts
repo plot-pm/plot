@@ -119,6 +119,9 @@ export const REVIEWER_DENY: readonly string[] = [
 /** A model or effort word the reviewer command accepts; it is single-quoted into the command. */
 const COMMAND_WORD = /^[A-Za-z0-9._:[\]-]+$/;
 
+/** `value` single-quoted for a POSIX shell, with each `'` written as `'\''`. */
+const singleQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
+
 /** What `reviewerCommand` answers: the shell fragment, or the reason none is built. */
 export type ReviewerCommand = { read: 'command'; command: string } | { read: 'refused'; why: string };
 
@@ -131,13 +134,18 @@ export type ReviewerCommand = { read: 'command'; command: string } | { read: 're
  * user`, so no hook or permission rule from the reviewed tree applies),
  * denies every permission the settings do not grant (`--permission-mode
  * dontAsk`), and loads no MCP server (`--strict-mcp-config`). It never names
- * `bypassPermissions`.
+ * `bypassPermissions`. Each of `readDirs` is passed as `--add-dir`, single-quoted,
+ * so the reviewer may read files there outside its working tree.
  *
  * @param charter - the reviewer charter's harness, model and effort.
+ * @param readDirs - absolute directories outside the working tree the reviewer reads.
  * @returns the fragment, or a refusal for a harness other than `claude` or a
  *   model or effort word outside `[A-Za-z0-9._:[\]-]`.
  */
-export const reviewerCommand = (charter: { harness: string; model: string; effort: string }): ReviewerCommand => {
+export const reviewerCommand = (
+  charter: { harness: string; model: string; effort: string },
+  readDirs: readonly string[],
+): ReviewerCommand => {
   if (charter.harness !== '' && charter.harness !== 'claude') {
     return { read: 'refused', why: `the reviewer runs read-only on claude only; the charter names harness '${charter.harness}'` };
   }
@@ -151,6 +159,7 @@ export const reviewerCommand = (charter: { harness: string; model: string; effor
     '-p',
     ...(charter.model === '' ? [] : ['--model', `'${charter.model}'`]),
     ...(charter.effort === '' ? [] : ['--effort', `'${charter.effort}'`]),
+    ...readDirs.flatMap((dir) => ['--add-dir', singleQuote(dir)]),
     '--tools',
     REVIEWER_TOOLS.join(','),
     '--disallowedTools',
