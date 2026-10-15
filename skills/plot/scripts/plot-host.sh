@@ -4730,8 +4730,8 @@ case "$op" in
           url: ($base + "/browse/" + .key),
           createdAt: (.fields.created // ""),
           status: (.fields.status.name // ""),
-          statusCategory: (.fields.status.statusCategory.name // ""), assignees: ([.fields.assignee.emailAddress // .fields.assignee.accountId] | map(select(. != null))), type: (.fields.issuetype.name // "")
-        } + (if $state == "closed" then {closedAt: (.fields.resolutiondate // "")} else {} end)),
+          statusCategory: (.fields.status.statusCategory.name // ""), assignees: ([.fields.assignee.emailAddress // .fields.assignee.accountId] | map(select(. != null)))
+        } + (if .fields.issuetype.name then {type: .fields.issuetype.name} else {} end) + (if $state == "closed" then {closedAt: (.fields.resolutiondate // "")} else {} end)),
         (select($paged == "1") | (.nextPageToken // empty) | {nextPageToken: .})'
     elif [ "$be" = "github" ]; then
       # `gh issue list` — not `gh api /issues`. On GitHub every PR IS an issue,
@@ -4757,7 +4757,7 @@ case "$op" in
         rm -f "$HOST_ERR"
         jq -c --arg status "$gh_state" \
           '.[] | {number:.number,title:.title,url:(.url // ""),createdAt:(.createdAt // ""),
-                  status:$status,statusCategory:(if $status == "open" then "To Do" else "Done" end),assignees:[.assignees[]?.login],type:(.issueType.name? // "")}
+                  status:$status,statusCategory:(if $status == "open" then "To Do" else "Done" end),assignees:[.assignees[]?.login]} + (if .issueType.name? then {type:.issueType.name} else {} end)
                  + (if $status == "closed" then {closedAt:(.closedAt // "")} else {} end)' <<<"$out"
         # `gh` pages by 100 inside ONE process and the wrapper records one call
         # per process, so each page past the first is recorded here.

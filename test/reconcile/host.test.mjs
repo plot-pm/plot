@@ -1726,7 +1726,7 @@ test('host: issue-list github asks gh for no tracker state beyond what it projec
   });
   const argv = readFileSync(stubs.ghArgv, 'utf8').split('\n');
   const json = argv[argv.indexOf('--json') + 1];
-  assert.equal(json, 'number,title,url,createdAt,assignees');
+  assert.equal(json, 'number,title,url,createdAt,assignees,issueType');
   for (const refused of ['labels', 'priority', 'milestone']) {
     assert.ok(!json.includes(refused), `issue-list must not request ${refused}`);
   }
@@ -1747,6 +1747,23 @@ test('host: issue-list github prints assignees with zero, one and two logins', (
   assert.equal(res.status, 0, res.stderr);
   const rows = res.stdout.trim().split('\n').map((line) => JSON.parse(line));
   assert.deepEqual(rows.map((r) => r.assignees), [[], ['alice'], ['alice', 'bob']]);
+});
+
+test('host: issue-list github prints the issue type where there is one and no type key where there is none', () => {
+  const stubs = makeStubs({
+    ghJson: JSON.stringify([
+      { number: 1, title: 'typed', url: 'u1', createdAt: 'c1', assignees: [], issueType: { name: 'Bug' } },
+      { number: 2, title: 'untyped', url: 'u2', createdAt: 'c2', assignees: [], issueType: null },
+    ]),
+  });
+  const res = spawnSync('bash', [adapter, 'issue-list'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').map((line) => JSON.parse(line));
+  assert.equal(rows[0].type, 'Bug');
+  assert.equal('type' in rows[1], false);
 });
 
 // --- issue-view: one issue, with its body, and never a write ---------------
@@ -3016,7 +3033,7 @@ test('host: issue-list jira asks for status and assignee, and NOT the whole fiel
   runJira(['issue-list'], stub);
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
   const fields = argv.find((l) => l.startsWith('fields='));
-  assert.equal(fields, 'fields=summary,created,status,assignee');
+  assert.equal(fields, 'fields=summary,created,status,assignee,issuetype');
   for (const refused of ['labels', 'priority', '*all', '*navigable']) {
     assert.ok(!fields.includes(refused), `issue-list must not request ${refused}`);
   }
@@ -3057,6 +3074,20 @@ test('host: issue-list jira prints assignees with zero, one and two assignees', 
   assert.equal(res.status, 0, res.stderr);
   const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.deepEqual(rows.map((r) => r.assignees), [[], ['alice@acme.test']]);
+});
+
+test('host: issue-list jira prints the issue type where there is one and no type key where there is none', () => {
+  const body = JSON.stringify({
+    issues: [
+      { key: 'PROJ-1', fields: { summary: 'typed', created: 'c1', status: {}, issuetype: { name: 'Story' } } },
+      { key: 'PROJ-2', fields: { summary: 'untyped', created: 'c2', status: {} } },
+    ],
+  });
+  const res = runJira(['issue-list'], makeJiraCurlStub({ body }));
+  assert.equal(res.status, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(rows[0].type, 'Story');
+  assert.equal('type' in rows[1], false);
 });
 
 test('host: issue-list jira prints the accountId when the assignee hides their email', () => {
@@ -6970,7 +7001,7 @@ test('host: issue-list github --state closed searches by close date, asks no sor
   // GitHub search ignores `sort:closed-desc` (measured 2026-10-13), so no sort
   // qualifier is sent and the adapter sorts by `closedAt`.
   assert.equal(argv[argv.indexOf('--search') + 1], 'closed:>=2026-09-01T00:00:00Z');
-  assert.equal(argv[argv.indexOf('--json') + 1], 'number,title,url,createdAt,assignees,closedAt');
+  assert.equal(argv[argv.indexOf('--json') + 1], 'number,title,url,createdAt,assignees,issueType,closedAt');
 });
 
 test('host: issue-list github open rows carry no closedAt and ask for none', () => {
@@ -7047,7 +7078,7 @@ test('host: issue-list jira --state closed scopes by prefix, reads resolutiondat
   // project scope exists — the lanes show every ticket of the declared
   // projects, not just the reader's own.
   assert.ok(argv.includes('jql=resolved >= "2026-09-01 08:30" AND project IN (PROJ) ORDER BY resolved DESC'));
-  assert.ok(argv.includes('fields=summary,created,status,assignee,resolutiondate'));
+  assert.ok(argv.includes('fields=summary,created,status,assignee,issuetype,resolutiondate'));
   assert.ok(argv.includes('maxResults=100'));
   assert.ok(argv.includes('nextPageToken=tok-1'));
 });
@@ -7079,7 +7110,7 @@ test('host: issue-list jira open read is unchanged: no resolutiondate, no token 
   assert.ok(!res.stdout.includes('nextPageToken'), res.stdout);
   assert.ok(!('closedAt' in lines[0]));
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
-  assert.ok(argv.includes('fields=summary,created,status,assignee'));
+  assert.ok(argv.includes('fields=summary,created,status,assignee,issuetype'));
   assert.ok(argv.includes('maxResults=50'));
 });
 
@@ -7095,7 +7126,7 @@ test('host: issue-list jira --paged open read asks 100 a page and prints the nex
   assert.deepEqual(lines.map((l) => l.number ?? l.nextPageToken), ['PROJ-1', 'tok-2']);
   assert.ok(!('closedAt' in lines[0]));
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
-  assert.ok(argv.includes('fields=summary,created,status,assignee'));
+  assert.ok(argv.includes('fields=summary,created,status,assignee,issuetype'));
   assert.ok(argv.includes('maxResults=100'));
   assert.ok(argv.includes('nextPageToken=tok-1'));
 });
