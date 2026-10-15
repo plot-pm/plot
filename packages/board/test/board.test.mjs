@@ -226,6 +226,8 @@ describe('board: contract fields + frontmatter visibility', () => {
       // parsing and plan matching.
       statusDrift: null,
       author: '',
+      // The fixture's story names no author, so it has no owner.
+      owner: null,
       created: '',
       updated: '',
       objective: '',
