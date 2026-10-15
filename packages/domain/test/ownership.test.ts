@@ -289,3 +289,65 @@ describe('a ticket is owned by its assignees, resolved by source', () => {
     expect(ownership(ticket(['jan.wloka@quatico.com'], jira), { hostUser: 'jwloka' })).toBe('unknown');
   });
 });
+
+const story = (author?: string): OwnedRow => ({ kind: 'story', author });
+const planOf = (fields: { assignee?: string; author?: string; approver?: string }): OwnedRow => ({
+  kind: 'plan', ...fields,
+});
+
+describe('a story is owned by its author, resolved through the directory', () => {
+  it('reads both of the reader\'s spellings as mine', () => {
+    expect(ownership(story('jwloka'), declared)).toBe('mine');
+    expect(ownership(story('Jan Wloka'), declared)).toBe('mine');
+  });
+
+  it('reads a spelling the directory declares for another person as theirs', () => {
+    expect(ownership(story('Max Albrecht'), declared)).toBe('theirs');
+    expect(isMine(story('eins78'), declared)).toBe(false);
+  });
+
+  it('reads an absent or empty author as unknown, not theirs', () => {
+    expect(ownership(story(undefined), declared)).toBe('unknown');
+    expect(ownership(story(''), declared)).toBe('unknown');
+    expect(ownership(story('  '), declared)).toBe('unknown');
+    expect(isMine(story(), declared)).toBe(true);
+  });
+
+  it('reads an undeclared spelling that differs from the login as unknown', () => {
+    expect(ownership(story('Someone Else'), declared)).toBe('unknown');
+    expect(ownership(story('eins78'), { hostUser: 'jwloka' })).toBe('unknown');
+  });
+
+  it('reads every author as unknown where the login is an email', () => {
+    expect(ownership(story('jwloka'), { hostUser: 'jan.wloka@quatico.com', directory })).toBe('unknown');
+  });
+});
+
+describe('a plan is owned by any of its assignee, author and approver', () => {
+  it('reads a plan as mine where only the approver names the reader', () => {
+    expect(ownership(planOf({ approver: 'Jan Wloka' }), declared)).toBe('mine');
+  });
+
+  it('reads a plan as mine where only the author names the reader', () => {
+    expect(ownership(planOf({ author: 'jwloka' }), declared)).toBe('mine');
+  });
+
+  it('gives mine priority over another person\'s declared spelling', () => {
+    expect(ownership(planOf({ assignee: 'eins78', author: 'jwloka' }), declared)).toBe('mine');
+    expect(ownership(planOf({ assignee: 'jwloka', approver: 'Max Albrecht' }), declared)).toBe('mine');
+  });
+
+  it('reads a plan as theirs where a field names another person and none names the reader', () => {
+    expect(ownership(planOf({ author: 'eins78' }), declared)).toBe('theirs');
+    expect(ownership(planOf({ assignee: 'Someone Else', approver: 'Max Albrecht' }), declared)).toBe('theirs');
+  });
+
+  it('reads a plan whose three fields are empty or absent as unknown', () => {
+    expect(ownership(planOf({}), declared)).toBe('unknown');
+    expect(ownership(planOf({ assignee: '', author: ' ', approver: undefined }), declared)).toBe('unknown');
+  });
+
+  it('reads undeclared spellings alone as unknown', () => {
+    expect(ownership(planOf({ author: 'Someone Else', approver: 'Another' }), declared)).toBe('unknown');
+  });
+});

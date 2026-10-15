@@ -59,8 +59,11 @@ export interface TicketSourceReading {
  *   where the host did not answer.
  * - `agent` — a registry agent row; `identity` is `manifest` or `synthesized`,
  *   `state` is the agent's state word. Either is absent on an older server.
- * - `plan` — a plan card; `assignee` is the plan's `Assignee:` line, free
- *   text, `''` or absent where the plan names nobody.
+ * - `plan` — a plan card; `assignee` is the plan's `Assignee:` line, `author`
+ *   and `approver` are the people who wrote and approved it. Each is free text,
+ *   `''` or absent where the plan names nobody.
+ * - `story` — a story card; `author` is the story's author, free text, `''` or
+ *   absent where it names nobody.
  * - `ticket` — an issue row; `assignees` is the tracker's assignee list, `[]`
  *   where nobody is assigned; `source` is whose vocabulary the assignees are
  *   written in, `null` where the board could not resolve it.
@@ -69,7 +72,8 @@ export interface TicketSourceReading {
 export type OwnedRow =
   | { kind: 'pr'; author?: string }
   | { kind: 'agent'; identity?: string; state?: string }
-  | { kind: 'plan'; assignee?: string }
+  | { kind: 'plan'; assignee?: string; author?: string; approver?: string }
+  | { kind: 'story'; author?: string }
   | { kind: 'ticket'; assignees?: string[]; source?: TicketSource | null }
   | { kind: 'other' };
 
@@ -101,20 +105,35 @@ const prOwnership = (author: string | undefined, reader: Reader): Ownership => {
 };
 
 /**
- * Whose a plan is, by its `Assignee:` line against the reader's host login.
+ * Whose a free-text person field is, against the reader's host login.
  *
- * `mine` where the assignee resolves to the reader. `theirs` only where the
- * directory declares the assignee's spelling for another person: an assignee
- * is free text, so an undeclared spelling that differs from the login may
- * still be the reader, and is unknown. Unknown where either side is empty.
+ * `mine` where the field resolves to the reader. `theirs` only where the
+ * directory declares the field's spelling for another person: the field is free
+ * text, so an undeclared spelling that differs from the login may still be the
+ * reader, and is unknown. Unknown where either side is empty.
  */
-const planOwnership = (assignee: string | undefined, reader: Reader): Ownership => {
+const personFieldOwnership = (field: string | undefined, reader: Reader): Ownership => {
   const login = comparableLogin(reader);
-  const by = assignee?.trim() ?? '';
+  const by = field?.trim() ?? '';
   if (login === '' || by === '') return 'unknown';
   const directory = reader.directory ?? {};
   if (samePerson(resolvePerson(login, directory), resolvePerson(by, directory))) return 'mine';
   return declaresSpelling(by, directory) ? 'theirs' : 'unknown';
+};
+
+/**
+ * Whose a plan is, by its assignee, author and approver.
+ *
+ * `mine` where any of the three resolves to the reader. `theirs` only where
+ * none does and at least one is a declared spelling of another person, as
+ * {@link personFieldOwnership} reads each. Otherwise unknown.
+ */
+const planOwnership = (
+  fields: ReadonlyArray<string | undefined>, reader: Reader,
+): Ownership => {
+  const readings = fields.map((field) => personFieldOwnership(field, reader));
+  if (readings.includes('mine')) return 'mine';
+  return readings.includes('theirs') ? 'theirs' : 'unknown';
 };
 
 /**
@@ -227,7 +246,9 @@ export const ownership = (row: OwnedRow, reader: Reader): Ownership => {
     case 'agent':
       return agentOwnership(row.identity, row.state);
     case 'plan':
-      return planOwnership(row.assignee, reader);
+      return planOwnership([row.assignee, row.author, row.approver], reader);
+    case 'story':
+      return personFieldOwnership(row.author, reader);
     case 'ticket':
       return ticketOwnership(row.assignees, row.source, reader);
     default:
