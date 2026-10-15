@@ -1,5 +1,5 @@
 import { isMine, type OwnedRow, type Reader } from '@plot-pm/domain';
-import { type AgentEntry, type AgentRow, type Board, type Card, type IssueRow, type TicketSourceShape } from '../../../contract/schema.js';
+import { type AgentEntry, type AgentRow, type Board, type Card, type IssueRow, type StoryCard, type TicketSourceShape } from '../../../contract/schema.js';
 
 /**
  * Where the "only my work" preference lives.
@@ -106,6 +106,14 @@ export const ownedFromAgent = (agent: Pick<AgentEntry, 'identity' | 'state'>): O
  */
 export const ownedFromCard = (card: Pick<Card, 'assignee' | 'author' | 'approver'>): OwnedRow =>
   ({ kind: 'plan', assignee: card.assignee, author: card.author, approver: card.approver });
+
+/**
+ * A story card as the ownership rule reads it — its author.
+ *
+ * `''` or absent where the story names nobody; the rule resolves it through
+ * the reader's directory, same as a plan's `author` field.
+ */
+export const ownedFromStory = (story: Pick<StoryCard, 'author'>): OwnedRow => ({ kind: 'story', author: story.author });
 
 /**
  * Who is reading, as the ownership rule wants it — the identity fields

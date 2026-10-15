@@ -1181,7 +1181,7 @@ export function App() {
             reader through the `People` directory, and somebody else's only
             where the directory declares its spelling for another person. A
             card naming nobody, or an undeclared spelling, stays. */}
-        {tab === 'planning' && board && (
+        {(tab === 'planning' || tab === 'discovery') && board && (
           <label data-mine-filter className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
             <input
               type="checkbox"
@@ -1215,6 +1215,8 @@ export function App() {
               idea={ideaInfo ?? { available: false, reason: 'this board has not said whether it can create plans' }}
               story={storyInfo ?? { available: false, reason: 'this board has not said whether it can create stories' }}
               issueAnswer={fleet?.issueAnswer ?? 'unsupported'}
+              reader={readerFrom(board.server)}
+              mineOnly={mineOnly}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>

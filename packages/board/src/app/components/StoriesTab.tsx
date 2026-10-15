@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { discoveryGroups, lanesForTopic, storyDateText, ticketCardIssueRow, ticketCardView, topicCountFor } from '@plot-pm/domain';
-import type { DiscoveryShow } from '@plot-pm/domain';
+import { discoveryGroups, lanesForReader, lanesForTopic, storyDateText, ticketCardIssueRow, ticketCardView, topicCountFor } from '@plot-pm/domain';
+import type { DiscoveryShow, Reader } from '@plot-pm/domain';
 import type { StoryCard, StoryLaneGroup, Topic, TicketLaneGroups, TicketLaneRow, DispatchInfo, IssueAnswer } from '../../contract/schema.js';
 import { CreatePlanButton } from './CreatePlanButton.js';
 import { CreateStoryButton } from './CreateStoryButton.js';
@@ -62,6 +62,10 @@ export interface StoriesTabProps {
   story: DispatchInfo;
   /** Whether the tracker can be asked at all — read together with `idea`/`story` the same way `fleet.issueAnswer` is elsewhere. */
   issueAnswer: IssueAnswer;
+  /** Who is reading — read together with `mineOnly` to narrow lanes to the reader's own work. */
+  reader: Reader;
+  /** Whether the "Only my work" filter is on. */
+  mineOnly: boolean;
 }
 
 /**
@@ -139,6 +143,8 @@ export function StoriesTab({
   idea,
   story,
   issueAnswer,
+  reader,
+  mineOnly,
 }: StoriesTabProps) {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   // Per-view only — not kept in the URL. `?archived=1` is the one URL
@@ -147,14 +153,39 @@ export function StoriesTab({
   const [storiesDoneExpanded, setStoriesDoneExpanded] = useState(false);
   const [ticketsDoneExpanded, setTicketsDoneExpanded] = useState(false);
 
+  // Narrow to the reader's own work FIRST, so the topic cloud's counts below
+  // reflect only post-ownership-filter rows — same reason `lanesForTopic` runs
+  // on the already-narrowed result rather than the other way round.
+  const owned = useMemo(
+    () => lanesForReader(storyLaneGroups, tickets, reader, mineOnly),
+    [storyLaneGroups, tickets, reader, mineOnly],
+  );
+
   // The domain decides which rows survive the selected topic, and which
-  // lanes the topic emptied.
+  // lanes the topic emptied. `lanesForTopic` wants the same `{ lane, stories }`
+  // / `TicketLaneGroups` input shape `lanesForReader` itself took — its output
+  // carries `rows`/`hiddenByTopic` instead, so the ownership pass's result is
+  // reshaped back before being handed onward.
   const filtered = useMemo(
-    () => lanesForTopic(storyLaneGroups, tickets, topics.find((t) => t.topic === selectedTag) ?? null),
-    [storyLaneGroups, tickets, topics, selectedTag],
+    () => lanesForTopic(
+      owned.storyLanes.map((l) => ({ lane: l.lane, stories: l.rows })),
+      owned.tickets
+        ? { open: owned.tickets.open.rows, 'in-progress': owned.tickets['in-progress'].rows, done: owned.tickets.done.rows, moreCount: owned.tickets.moreCount }
+        : null,
+      topics.find((t) => t.topic === selectedTag) ?? null,
+    ),
+    [owned, topics, selectedTag],
   );
   const filteredLaneGroups = filtered.storyLanes;
   const groups = discoveryGroups(show, filtered.storyLanes, filtered.tickets, issueAbsence);
+
+  // A lane's `hiddenByTopic` only says the TOPIC selection hid it — the reader
+  // filter above already dropped its own rows before `lanesForTopic` ever saw
+  // the lane, so a lane the OWNER filter alone emptied reads here as "already
+  // empty" unless the topic also would have emptied it. Reading the ownership
+  // pass's own lane finds the specific reason: topic-hid-it, filter-hid-it, or
+  // nothing-was-here regardless.
+  const ownedStoryByLane = new Map(owned.storyLanes.map((l) => [l.lane, l]));
 
   // The cloud counts only the groups on screen; max topic count is for sizing.
   const topicCounts = topics.map((t) => topicCountFor(t, groups));
@@ -299,7 +330,11 @@ export function StoriesTab({
                     ))
                   ) : (
                     <p className="px-1 py-4 text-center text-xs text-slate-400 dark:text-slate-600">
-                      {hiddenByTopic ? 'This topic hides every ticket in this lane.' : 'No tickets in this lane.'}
+                      {hiddenByTopic
+                        ? 'This topic hides every ticket in this lane.'
+                        : owned.tickets![lane].hiddenByTopic
+                          ? 'Only my work hides every ticket in this lane.'
+                          : 'No tickets in this lane.'}
                     </p>
                   )}
                   {lane === 'done' && !ticketsDoneExpanded && (rows.length > 5 || filtered.tickets!.moreCount > 0) && (
@@ -364,7 +399,11 @@ export function StoriesTab({
                   ))
                 ) : (
                   <p className="px-1 py-4 text-center text-xs text-slate-400 dark:text-slate-600">
-                    {group.hiddenByTopic ? 'This topic hides every story in this lane.' : 'No stories in this lane.'}
+                    {group.hiddenByTopic
+                      ? 'This topic hides every story in this lane.'
+                      : ownedStoryByLane.get(group.lane)?.hiddenByTopic
+                        ? 'Only my work hides every story in this lane.'
+                        : 'No stories in this lane.'}
                   </p>
                 )}
                 {isDone && !storiesDoneExpanded && group.rows.length > 5 && (
