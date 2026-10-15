@@ -10,6 +10,8 @@ export interface DiscoveryGroup {
   readonly heading: string;
   /** Every row the group holds after the topic selection, or null where the group was not read. */
   readonly count: number | null;
+  /** Why a group the reader asked for has no lanes, or null where nothing needs saying. */
+  readonly reason: string | null;
 }
 
 /** Both Discovery lane groups. */
@@ -28,35 +30,46 @@ export interface DiscoveryGroups {
 export const parseDiscoveryShow = (value: string | null): DiscoveryShow =>
   value === 'tickets' || value === 'stories' ? value : 'both';
 
-const group = (shows: boolean, label: string, count: number | null): DiscoveryGroup => ({
+const group = (shows: boolean, label: string, count: number | null, reason: string | null = null): DiscoveryGroup => ({
   shows,
   heading: count === null ? label : `${label} (${count})`,
   count,
+  reason,
 });
+
+/** The reason shown for an unread ticket group where the board names no absence. */
+export const TICKETS_NOT_READ_REASON = 'Tickets have not been read yet.';
 
 /**
  * Decides what the Discovery tab shows: which groups, under which heading, with which count.
  *
  * A count covers every row of its group after the topic selection, including
  * the Done rows behind *Show all done*. A group that was not read
- * (`tickets: null`) has a null count and a heading without one.
+ * (`tickets: null`) has a null count, does not show, and carries a reason in
+ * place of its lanes — unless the reader chose `stories` alone, where nothing
+ * hidden needs explaining.
  *
  * @param show - the raw `?show=` value, or null.
  * @param storyLanes - the story lanes as `lanesForTopic` returns them.
  * @param tickets - the ticket lanes as `lanesForTopic` returns them, or null where none were read.
- * @returns visibility, heading text and count for each group.
+ * @param issueAbsence - the board's sentence for an issue source that cannot be listed, or null.
+ * @returns visibility, heading text, count and reason for each group.
  */
 export const discoveryGroups = (
   show: string | null,
   storyLanes: readonly { readonly rows: readonly unknown[] }[],
   tickets: FilteredTicketLanes | null,
+  issueAbsence: string | null = null,
 ): DiscoveryGroups => {
   const chosen = parseDiscoveryShow(show);
   const ticketCount = tickets ? tickets.open.rows.length + tickets['in-progress'].rows.length + tickets.done.rows.length : null;
   const storyCount = storyLanes.reduce((sum, lane) => sum + lane.rows.length, 0);
   return {
     show: chosen,
-    tickets: group(chosen !== 'stories', 'Tickets', ticketCount),
+    tickets:
+      tickets === null
+        ? group(false, 'Tickets', null, chosen === 'stories' ? null : (issueAbsence ?? TICKETS_NOT_READ_REASON))
+        : group(chosen !== 'stories', 'Tickets', ticketCount),
     stories: group(chosen !== 'tickets', 'Stories', storyCount),
   };
 };

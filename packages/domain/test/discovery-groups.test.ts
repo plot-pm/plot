@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { discoveryGroups, parseDiscoveryShow, topicCountFor } from '../src/rules/discovery-groups.js';
+import { discoveryGroups, parseDiscoveryShow, TICKETS_NOT_READ_REASON, topicCountFor } from '../src/rules/discovery-groups.js';
 import { lanesForTopic } from '../src/rules/lanes-for-topic.js';
 import type { TicketLaneGroups, TicketLaneRow } from '../src/rules/ticket-lanes.js';
 
@@ -66,15 +66,41 @@ describe('discoveryGroups', () => {
     expect(g.stories.heading).toBe('Stories (2)');
   });
 
-  it('gives an unread ticket group a heading with no count, not a zero', () => {
+  it('hides an unread ticket group and gives the generic reason, for every show value', () => {
     const f = lanesForTopic(STORIES, null, null);
-    const g = discoveryGroups(null, f.storyLanes, f.tickets);
-    expect(g.tickets).toEqual({ shows: true, heading: 'Tickets', count: null });
+    for (const v of [null, 'both', 'tickets']) {
+      const g = discoveryGroups(v, f.storyLanes, f.tickets);
+      expect(g.tickets).toEqual({ shows: false, heading: 'Tickets', count: null, reason: TICKETS_NOT_READ_REASON });
+    }
+  });
+
+  it('passes the board absence sentence through unchanged as the reason', () => {
+    const f = lanesForTopic(STORIES, null, null);
+    const sentence = 'Open issues are not listed: the tracker has no connector.';
+    for (const v of [null, 'both', 'tickets']) {
+      expect(discoveryGroups(v, f.storyLanes, f.tickets, sentence).tickets).toMatchObject({ shows: false, reason: sentence });
+    }
+  });
+
+  it('gives an unread ticket group no reason where the reader chose stories alone', () => {
+    const g = discoveryGroups('stories', [], null, 'Open issues are not listed: x.');
+    expect(g.tickets).toMatchObject({ shows: false, reason: null });
+  });
+
+  it('never gives the stories group a reason', () => {
+    for (const v of [null, 'both', 'tickets', 'stories']) {
+      expect(discoveryGroups(v, [], null, 'x').stories.reason).toBeNull();
+      expect(groups(v).stories.reason).toBeNull();
+    }
+  });
+
+  it('gives a read ticket group no reason', () => {
+    expect(groups(null).tickets.reason).toBeNull();
   });
 
   it('keeps a group that holds no rows shown, with a zero count', () => {
     const g = discoveryGroups(null, [{ rows: [] }], null);
-    expect(g.stories).toEqual({ shows: true, heading: 'Stories (0)', count: 0 });
+    expect(g.stories).toEqual({ shows: true, heading: 'Stories (0)', count: 0, reason: null });
   });
 });
 

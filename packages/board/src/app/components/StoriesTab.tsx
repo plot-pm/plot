@@ -36,6 +36,8 @@ export interface StoriesTabProps {
   plansUnreadable: boolean;
   /** The closed-ticket route's absence sentence while the toggle is on, or null. */
   closedAbsence?: string | null;
+  /** The board's sentence for an issue source that cannot be listed, or null while a read is merely pending. */
+  issueAbsence?: string | null;
   /**
    * Semantic topics extracted by the server using TF-IDF.
    * Each topic includes storySlugs for filtering (including when a topic
@@ -126,6 +128,7 @@ export function StoriesTab({
   tickets,
   plansUnreadable,
   closedAbsence = null,
+  issueAbsence = null,
   topics,
   showArchived,
   onShowArchived,
@@ -151,7 +154,7 @@ export function StoriesTab({
     [storyLaneGroups, tickets, topics, selectedTag],
   );
   const filteredLaneGroups = filtered.storyLanes;
-  const groups = discoveryGroups(show, filtered.storyLanes, filtered.tickets);
+  const groups = discoveryGroups(show, filtered.storyLanes, filtered.tickets, issueAbsence);
 
   // The cloud counts only the groups on screen; max topic count is for sizing.
   const topicCounts = topics.map((t) => topicCountFor(t, groups));
@@ -244,6 +247,14 @@ export function StoriesTab({
       {closedAbsence ? (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
           {closedAbsence}
+        </p>
+      ) : null}
+      {groups.tickets.reason ? (
+        <p
+          data-discovery-reason="tickets"
+          className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:bg-slate-800/50 dark:text-slate-300"
+        >
+          {groups.tickets.reason}
         </p>
       ) : null}
       {groups.tickets.shows ? (

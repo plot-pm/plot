@@ -1204,6 +1204,7 @@ export function App() {
               tickets={board.tickets ?? null}
               plansUnreadable={board.plansUnreadable ?? false}
               closedAbsence={showArchived ? closedAbsence : null}
+              issueAbsence={fleet?.issueAbsence ?? null}
               topics={board.topics ?? []}
               showArchived={showArchived}
               onShowArchived={onShowArchived}
