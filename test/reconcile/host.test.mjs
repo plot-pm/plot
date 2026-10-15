@@ -643,13 +643,33 @@ test('host: pr-create bitbucket uses bb with same surface', () => {
   assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'create', '--title', 'T', '--body', '', '--draft']);
 });
 
-test('host: pr-merge github defaults to --merge, maps --squash/--delete-branch', () => {
+test('host: pr-merge github defaults to --merge, maps --squash/--delete-branch, both pinned', () => {
+  const sha = 'a'.repeat(40);
   const stubs = makeStubs();
-  run(['pr-merge', '5', '--squash', '--delete-branch'], { env: { PLOT_HOST: 'github' }, stubs });
-  assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'merge', '5', '--squash', '--delete-branch']);
+  run(['pr-merge', '5', '--squash', '--delete-branch', '--match-head', sha], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'merge', '5', '--squash', '--delete-branch', '--match-head-commit', sha]);
   const stubs2 = makeStubs();
-  run(['pr-merge', '5'], { env: { PLOT_HOST: 'github' }, stubs: stubs2 });
-  assert.deepEqual(argvOf(stubs2.ghArgv), ['pr', 'merge', '5', '--merge']);
+  run(['pr-merge', '5', '--match-head', sha], { env: { PLOT_HOST: 'github' }, stubs: stubs2 });
+  assert.deepEqual(argvOf(stubs2.ghArgv), ['pr', 'merge', '5', '--merge', '--match-head-commit', sha]);
+});
+
+// THE NAIVE FIX ONLY CHECKS THE EXIT CODE. A implementation that calls `gh pr
+// merge` first and fails afterwards would also exit 1 here — the merge already
+// happened by the time the failure is reported. Asserting `argvOf` is null
+// proves `gh` was never invoked, which is the actual bug (#1730: merged four
+// seconds after opening because no pin was sent).
+test('host: pr-merge github refuses with no --match-head, and calls no gh', () => {
+  const stubs = makeStubs();
+  const res = runAllowFail(['pr-merge', '5'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 1);
+  assert.match(res.stderr, /--match-head/);
+  assert.equal(argvOf(stubs.ghArgv), null, 'nothing reached gh');
+});
+
+test('host: pr-merge bitbucket merges with no pin', () => {
+  const stubs = makeStubs();
+  run(['pr-merge', '5', '--squash', '--delete-branch'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'merge', '5', '--squash', '--delete-branch']);
 });
 
 test('host: pr-list bitbucket flattens to number/title/state/head', () => {

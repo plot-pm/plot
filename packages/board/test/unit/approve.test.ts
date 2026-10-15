@@ -111,4 +111,24 @@ describe('approve perform — plan-PR merge ordering', () => {
 
     expect(sequence).toEqual(['commitStatus', 'pr-merge']);
   });
+
+  it('refuses a plan-PR with no head SHA, and calls no pr-merge', async () => {
+    const statuses: CommitStatusWrite[] = [];
+    const calls: string[][] = [];
+    const ctx = ctxFor(statuses, calls);
+    ctx.host = hostFixture({
+      prs: [{
+        number: 42, repo: '', head: `idea/${SLUG}`, state: 'OPEN', mergedAt: null, mergeCommit: '',
+        draft: false, mergeable: 'mergeable', review: 'none', checks: 'passing', failingChecks: [],
+        url: '', author: '', headSha: '',
+      }],
+      commitStatuses: statuses,
+    });
+
+    await expect(
+      perform(ctx, { dryRun: false, spike: false, who: 'jwloka', slug: SLUG }, () => {}, () => {}),
+    ).rejects.toThrow(Refused);
+
+    expect(calls.some((args) => args[0] === 'pr-merge')).toBe(false);
+  });
 });

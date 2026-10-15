@@ -82,7 +82,10 @@
 #                                 question failing.
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL
-#   pr-merge <number> [--squash] [--delete-branch] [--match-head <sha>]
+#   pr-merge <number> [--squash] [--delete-branch] --match-head <sha>
+#                                 github: --match-head is mandatory, refused
+#                                 with no pin. bitbucket: cannot pin, refused
+#                                 (exit 4) when one is given.
 #   pr-ready <number>              take a PR out of draft
 #                                 merge the PR
 #   pr-list [--state open|merged|closed|all] [--limit N] [--rich|--rich-open]
@@ -3880,11 +3883,12 @@ case "$op" in
         *) die "pr-merge: unknown arg $1" ;;
       esac
     done
-    if [ "$be" = "github" ]; then
+    if [ "$be" = "github" ] && [ -z "$pin" ]; then echo "plot-host: pr-merge: github needs --match-head <sha>; nothing was merged" >&2; exit 1
+    elif [ "$be" = "github" ]; then
       args=(pr merge "$num")
       [ "$squash" = 1 ] && args+=(--squash) || args+=(--merge)
       [ "$delbranch" = 1 ] && args+=(--delete-branch)
-      [ -n "$pin" ] && args+=(--match-head-commit "$pin")
+      args+=(--match-head-commit "$pin")
       gh "${args[@]}"
     elif [ -n "$pin" ]; then echo "plot-host: pr-merge --match-head: bitbucket cannot pin a merge to a commit; nothing was merged" >&2; exit 4
     else

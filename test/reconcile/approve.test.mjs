@@ -25,6 +25,10 @@ const approve = path.join(SCRIPTS, 'plot-approve.sh');
 
 let tmp, origin, repo, stubDir, statePath;
 
+// A real PR always names a head; the suite's own default state must too, now
+// that `plot-host.sh pr-merge` refuses to merge an unpinned GitHub PR.
+const DEFAULT_HEAD = 'd0d0'.padEnd(40, '0');
+
 function git(cwd, ...args) {
   return execFileSync('git', args, { encoding: 'utf8', cwd });
 }
@@ -158,7 +162,7 @@ function makeRepo(planBody = PLAN(), files = {}) {
   git(repo, 'commit', '-qm', 'plan');
   git(repo, 'push', '-q', 'origin', 'main');
   git(repo, 'remote', 'set-head', 'origin', 'main');
-  setHostState({ number: 42, state: 'OPEN', draft: false });
+  setHostState({ number: 42, state: 'OPEN', draft: false, headSha: DEFAULT_HEAD });
   return repo;
 }
 
@@ -471,7 +475,7 @@ test('approve: takes a DRAFT out of draft and then merges it', () => {
   // does: `pr merge` on a draft exits non-zero. A ready step that ran after
   // the merge, or not at all, fails here rather than passing quietly.
   makeRepo();
-  setHostState({ number: 42, state: 'OPEN', draft: true });
+  setHostState({ number: 42, state: 'OPEN', draft: true, headSha: DEFAULT_HEAD });
   const out = run(['approve-me']);
   assert.match(out.out, /marked PR #42 ready for review/i);
   assert.match(out.out, /merged PR #42/i);
@@ -479,7 +483,7 @@ test('approve: takes a DRAFT out of draft and then merges it', () => {
 
   // AND A PR THAT IS ALREADY READY IS NOT TOUCHED — no ready call, one merge.
   makeRepo();
-  setHostState({ number: 42, state: 'OPEN', draft: false });
+  setHostState({ number: 42, state: 'OPEN', draft: false, headSha: DEFAULT_HEAD });
   const plain = run(['approve-me']);
   assert.doesNotMatch(plain.out, /ready for review/i);
   assert.match(plain.out, /merged PR #42/i);
@@ -742,7 +746,7 @@ test('approve: nothing is written when the merge fails', () => {
   // The merge is the irreversible step; if it does not happen, neither does
   // anything else, and the plan is left exactly as it was.
   makeRepo();
-  setHostState({ number: 42, state: 'OPEN', draft: false, mergeFails: true });
+  setHostState({ number: 42, state: 'OPEN', draft: false, mergeFails: true, headSha: DEFAULT_HEAD });
   const shaBefore = git(repo, 'rev-parse', 'origin/main').trim();
   const { code, err } = run(['approve-me'], { expectFail: true });
   assert.equal(code, 1);
