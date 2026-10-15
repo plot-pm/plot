@@ -4,6 +4,7 @@ import {
   REVIEWER_TOOLS,
   reviewerCommand,
   OUTSIDE_THE_CHANGE_HEADING,
+  REVIEW_ARGUMENT_LIMIT,
   REVIEW_INLINE_DIFF_LIMIT,
   reviewRequestBlock,
   reviewVerdict,
@@ -91,12 +92,35 @@ describe('reviewRequestBlock', () => {
     expect(block).not.toContain('not inline');
   });
 
-  it('leaves the diff out over the limit and names the file instead', () => {
+  it('leaves the diff out one byte over the limit and names the byte count', () => {
     const diff = `+${'x'.repeat(REVIEW_INLINE_DIFF_LIMIT)}`;
     const block = reviewRequestBlock({ ...request, diff });
     expect(block).not.toContain('```diff');
-    expect(block).toContain(`The diff holds ${REVIEW_INLINE_DIFF_LIMIT + 1} characters, more than ${REVIEW_INLINE_DIFF_LIMIT}, so it is not inline.`);
+    expect(Buffer.byteLength(diff)).toBe(REVIEW_INLINE_DIFF_LIMIT + 1);
+    expect(block).toContain(`The diff holds ${Buffer.byteLength(diff)} bytes, more than ${REVIEW_INLINE_DIFF_LIMIT} bytes, so it is not inline.`);
     expect(block).toContain('Full diff: /repo/.git/plot/state/reviews/7-head.diff');
+  });
+
+  it('carries a diff of exactly the limit in bytes inline', () => {
+    const diff = 'x'.repeat(REVIEW_INLINE_DIFF_LIMIT);
+    expect(Buffer.byteLength(diff)).toBe(REVIEW_INLINE_DIFF_LIMIT);
+    expect(reviewRequestBlock({ ...request, diff })).toContain('```diff');
+  });
+
+  it('counts bytes, not characters: multi-byte text under the character limit stays out', () => {
+    const diff = 'é'.repeat(REVIEW_INLINE_DIFF_LIMIT / 2 + 1);
+    expect(diff.length).toBeLessThanOrEqual(REVIEW_INLINE_DIFF_LIMIT);
+    expect(Buffer.byteLength(diff)).toBeGreaterThan(REVIEW_INLINE_DIFF_LIMIT);
+    const block = reviewRequestBlock({ ...request, diff });
+    expect(block).not.toContain('```diff');
+    expect(block).toContain(`The diff holds ${Buffer.byteLength(diff)} bytes`);
+  });
+
+  it('keeps charter prompt and request with a diff at the limit under the exec argument cap', () => {
+    const charterPrompt = 'p'.repeat(13_563);
+    const files = Array.from({ length: 200 }, (_, i) => `packages/board/src/some/deep/path/file-${i}.ts`);
+    const block = reviewRequestBlock({ ...request, files, diff: 'x'.repeat(REVIEW_INLINE_DIFF_LIMIT) });
+    expect(Buffer.byteLength(`${charterPrompt}\n\n${block}`)).toBeLessThan(REVIEW_ARGUMENT_LIMIT);
   });
 
   it('says so when the change touches no file', () => {

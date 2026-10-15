@@ -40,8 +40,19 @@ export const reviewVerdict = (text: string): ReviewVerdict => {
   return { read: 'counted', counts: { high, medium, low } };
 };
 
-/** The largest diff, in characters, that a review request carries inline. */
-export const REVIEW_INLINE_DIFF_LIMIT = 200_000;
+/** The largest argument, in bytes, that Linux passes to `exec` (`MAX_ARG_STRLEN`). The review prompt is one argument. */
+export const REVIEW_ARGUMENT_LIMIT = 131_072;
+
+/**
+ * The bytes of the review prompt reserved for everything but the diff: the
+ * charter's prompt, the fixed request block and the changed-file list. The
+ * largest charter prompt file in this repository is 13,563 bytes, the fixed
+ * block is under 2,000, and the remaining 17,000 bytes hold about 200 paths.
+ */
+export const REVIEW_PROMPT_RESERVE = 32_768;
+
+/** The largest diff, in UTF-8 bytes, that a review request carries inline. */
+export const REVIEW_INLINE_DIFF_LIMIT = REVIEW_ARGUMENT_LIMIT - REVIEW_PROMPT_RESERVE;
 
 /** The heading under which a reviewer may name content outside the change. */
 export const OUTSIDE_THE_CHANGE_HEADING = 'Outside this change';
@@ -66,7 +77,7 @@ export interface ReviewRequest {
  *
  * The block names the change exactly: the merge base, the changed files and
  * the path of the full diff. The diff itself is inline when it holds at most
- * {@link REVIEW_INLINE_DIFF_LIMIT} characters, and is left out otherwise.
+ * {@link REVIEW_INLINE_DIFF_LIMIT} UTF-8 bytes, and is left out otherwise.
  *
  * @param request - the pull request, its head, its base branch and its change.
  * @returns the block: the PR facts, the change, the scope rule, the severity
@@ -75,7 +86,8 @@ export interface ReviewRequest {
  */
 export const reviewRequestBlock = (request: ReviewRequest): string => {
   const range = `${request.mergeBase}..${request.headSha}`;
-  const inline = request.diff.length <= REVIEW_INLINE_DIFF_LIMIT;
+  const diffBytes = Buffer.byteLength(request.diff, 'utf8');
+  const inline = diffBytes <= REVIEW_INLINE_DIFF_LIMIT;
   return [
     'Review request',
     `Pull request: #${request.pr}`,
@@ -91,7 +103,7 @@ export const reviewRequestBlock = (request: ReviewRequest): string => {
     `Full diff: ${request.diffPath}`,
     ...(inline
       ? ['', '```diff', request.diff.replace(/\n$/, ''), '```']
-      : [`The diff holds ${request.diff.length} characters, more than ${REVIEW_INLINE_DIFF_LIMIT}, so it is not inline. Read it from the file above.`]),
+      : [`The diff holds ${diffBytes} bytes, more than ${REVIEW_INLINE_DIFF_LIMIT} bytes, so it is not inline. Read it from the file above.`]),
     '',
     'Scope: judge only this change. Content the change does not add, remove or modify is not a finding of this pull request, even where it is wrong.',
     `You may name such content only under a separate heading "${OUTSIDE_THE_CHANGE_HEADING}". It never counts in the Findings: line.`,
