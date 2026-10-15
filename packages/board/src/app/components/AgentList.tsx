@@ -68,7 +68,7 @@ import {
   writeMineOnly,
 } from '../lib/agent-rows/mine-filter.js';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
-import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, tallyLabel, unfilteredNote, showPlanHeading, showsSliceFold, sortByWaiting, ungroupedRows, sliceGroupsFor, slicesElsewhere, sliceKeyOf, headSliceNames } from '../lib/agent-rows/sections.js';
+import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, tallyLabel, unfilteredNote, showPlanHeading, showsSliceFold, sortByWaiting, planGroupShape, sliceGroupsFor, slicesElsewhere, sliceKeyOf, headSliceNames } from '../lib/agent-rows/sections.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, prNote, scanHostNote } from '../lib/agent-rows/host-notes.js';
 import { isUnbegun, rowKey } from '../lib/agent-rows/row-identity.js';
@@ -1646,9 +1646,8 @@ export function AgentList({
                   // mixture does occur, the group falls back to the text heading
                   // and every row renders as itself. Nothing is hidden, and the
                   // plan row appears only where it describes the whole set.
-                  const planHeads = !countsPlans && Boolean(group.plan)
-                    && ungroupedRows(group.rows, key, slices).length === 0
-                    && sliceGroupsFor(group.rows, key, slices).length > 0;
+                  const planShape = planGroupShape(group.rows, key, slices);
+                  const planHeads = !countsPlans && Boolean(group.plan) && planShape.heads;
                   // ARE THIS GROUP'S SLICE ROWS ON THE PAGE? Read by THREE things
                   // that must agree: the plan row's caret (`expanded`), the list
                   // that draws the rows, and the plan row's decision whether to
@@ -2303,7 +2302,7 @@ export function AgentList({
                         );
                       });
                       })()}
-                      {ungroupedRows(group.rows, key, slices).map((r) =>
+                      {planShape.loose.map((r) =>
                         // THE SECTION DECIDED GROUPING; THE ROW DECIDES ITS KIND.
                         //
                         // `sliceGroupsFor` returns nothing for WORKING and WAITING

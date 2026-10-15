@@ -20,7 +20,7 @@ import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writ
 import { MINE_ONLY_BY_DEFAULT, readMineOnly, rowsForReader, writeMineOnly } from '../../src/app/lib/agent-rows/mine-filter.js';
 import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
-import { GROUPS, elsewhereNote, groupByPlan, rowsBySection, sectionTally, showPlanHeading, tallyLabel, unfilteredNote, type PlanGroup, type SectionTally, sliceKeyOf, sliceSection, slicesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
+import { GROUPS, elsewhereNote, groupByPlan, planGroupShape, rowsBySection, sectionTally, showPlanHeading, tallyLabel, unfilteredNote, type PlanGroup, type SectionTally, sliceKeyOf, sliceSection, slicesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
 import { countdown } from '../../src/app/lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord, scanHostNote } from '../../src/app/lib/agent-rows/host-notes.js';
 import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
@@ -3867,6 +3867,47 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
     expect(tally.plans).toBe(2);
     expect(tally.slices).toBe(3);
     expect(tallyLabel(tally)).toBe('(2 plans · 3 slices)');
+  });
+
+  it('nests a Draft plan\'s slices under its plan row and tallies one plan, three slices', () => {
+    const rows = [
+      row({ plan: 'p', wave: 'Retry', branch: 'idea/p', kind: 'wave', group: 'waiting-on-you', state: 'wip' }),
+      row({ plan: 'p', wave: 'Pin', branch: 'feature/pin', kind: 'wave', group: 'waiting-on-you', state: 'wip' }),
+      row({ plan: 'p', wave: 'Identities', branch: 'feature/ids', kind: 'wave', group: 'waiting-on-you', state: 'wip' }),
+      row({ plan: 'p', wave: '', branch: 'idea/p-plan', kind: 'plan', group: 'waiting-on-you', state: 'wip' }),
+    ];
+    const slices: Slice[] = ['Retry', 'Pin', 'Identities'].map((name) =>
+      slice({ plan: 'p', name, branches: [name], section: 'waiting-on-you', complete: false }));
+    const shape = planGroupShape(rows, 'waiting-on-you', slices);
+    expect(shape.head?.kind).toBe('plan');
+    expect(shape.slices).toHaveLength(3);
+    expect(shape.loose).toEqual([]);
+    expect(shape.heads).toBe(true);
+    const tally = sectionTally(rows, 'waiting-on-you', slices, NONE);
+    expect(tally.plans).toBe(1);
+    expect(tally.slices).toBe(3);
+  });
+
+  it('keeps the plan row loose where another loose row stops the group heading', () => {
+    const rows = [
+      row({ plan: 'p', wave: 'One', branch: 'a', kind: 'wave', group: 'waiting-on-you' }),
+      row({ plan: 'p', wave: '', branch: 'idea/p', kind: 'plan', group: 'waiting-on-you' }),
+      row({ plan: 'p', wave: '', branch: 'b', kind: 'branch', group: 'waiting-on-you' }),
+    ];
+    const slices: Slice[] = [
+      slice({ plan: 'p', name: 'One', section: 'waiting-on-you', complete: false }),
+    ];
+    const shape = planGroupShape(rows, 'waiting-on-you', slices);
+    expect(shape.heads).toBe(false);
+    expect(shape.head).toBeNull();
+    expect(shape.loose.map((r) => r.kind).sort()).toEqual(['branch', 'plan']);
+  });
+
+  it('heads an all-slice group with no plan row as before', () => {
+    const rows = [row({ plan: 'p', wave: 'One', branch: 'a', kind: 'wave', group: 'waiting-on-you' })];
+    const slices: Slice[] = [slice({ plan: 'p', name: 'One', section: 'waiting-on-you', complete: false })];
+    const shape = planGroupShape(rows, 'waiting-on-you', slices);
+    expect(shape).toMatchObject({ head: null, heads: true, loose: [] });
   });
 
   it('renders one number for QUIET at 0/0 — agreement grows no redundant clause', () => {

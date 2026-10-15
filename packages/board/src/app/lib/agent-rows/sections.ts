@@ -349,6 +349,45 @@ export function ungroupedRows(rows: AgentRow[], section: WaitingGroup, slices?: 
   return rows.filter((r) => !claimed.has(r));
 }
 
+/** How a plan group's rows divide in one section. */
+export interface PlanGroupShape {
+  /** The plan-kind row the group's plan head stands for; `null` where none exists or the group does not head. */
+  head: AgentRow | null;
+  /** The slice groups the section claims. */
+  slices: SliceGroup[];
+  /** The rows rendered on their own, never including `head`. */
+  loose: AgentRow[];
+  /** True when the group renders as one plan head over its slices. */
+  heads: boolean;
+}
+
+/**
+ * Classifies one plan group's rows into head, slices and loose rows.
+ *
+ * A `plan`-kind row of the group carries no slice, so `ungroupedRows` returns it
+ * as loose. It is the plan the head already states, so it leaves `loose` when
+ * the remaining rows are all slice-grouped. The group heads when no loose row
+ * remains and at least one slice group exists; otherwise `head` is `null` and
+ * the plan row stays in `loose`.
+ *
+ * Only `!countsPlans` sections read `heads`; NOT STARTED folds through
+ * `showsSliceFold`.
+ */
+export const planGroupShape = (
+  rows: AgentRow[],
+  section: WaitingGroup,
+  slices?: Slice[],
+): PlanGroupShape => {
+  const grouped = sliceGroupsFor(rows, section, slices);
+  const ungrouped = ungroupedRows(rows, section, slices);
+  const planRow = ungrouped.find((r) => r.kind === 'plan') ?? null;
+  const rest = planRow ? ungrouped.filter((r) => r !== planRow) : ungrouped;
+  const heads = rest.length === 0 && grouped.length > 0;
+  return heads
+    ? { head: planRow, slices: grouped, loose: rest, heads }
+    : { head: null, slices: grouped, loose: ungrouped, heads };
+};
+
 /**
  * Does a plan sub-heading earn its place ON THIS GROUP?
  *
@@ -453,8 +492,9 @@ export const sectionTally = (
   let sliceLines = 0;
   let branchLines = 0;
   for (const group of groupByPlan(rows)) {
-    const grouped = sliceGroupsFor(group.rows, section, slices);
-    const loose = ungroupedRows(group.rows, section, slices);
+    const shape = planGroupShape(group.rows, section, slices);
+    const grouped = shape.slices;
+    const loose = shape.loose;
     // The top-level rows a reader reaches by expanding this group's head: one
     // per grouped slice, plus every row no slice claimed.
     const groupSlices = grouped.length + loose.length;
@@ -468,7 +508,7 @@ export const sectionTally = (
     // Does this group RENDER AS ONE HEAD, or as its own lines? The three
     // predicates the component decides with, read here so the count cannot
     // disagree with the render.
-    const planHeads = !countsPlans && loose.length === 0 && grouped.length > 0;
+    const planHeads = !countsPlans && shape.heads;
     const headed = !countsPlans && section !== 'waiting-on-you'
       && showPlanHeading(group);
     planLines += countsPlans || planHeads || headed ? 1 : groupSlices;
