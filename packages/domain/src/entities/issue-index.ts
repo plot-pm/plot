@@ -50,6 +50,8 @@ export const IssueIndexRowSchema = z
     closedAt: z.string().optional(),
     /** The tracker's own logins or Jira accounts assigned; absent where the row predates this field. */
     assignees: z.array(z.string()).optional(),
+    /** The tracker's own word for the kind of work, as written; absent where it gave none or the row predates this field. */
+    type: z.string().optional(),
   })
   .strict();
 

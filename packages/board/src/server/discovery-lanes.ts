@@ -61,7 +61,13 @@ export const discoveryLanes = async (
       data.open,
       data.closed,
       archived ? keptClosedRows(opts) : null,
-      { categoryStated: data.categoryStated, named: data.referenced, kept: lastGoodTicketLanes.get(keptKey) ?? null },
+      {
+        categoryStated: data.categoryStated,
+        named: data.referenced,
+        kept: lastGoodTicketLanes.get(keptKey) ?? null,
+        source: data.ticketSource,
+        directory: data.directory,
+      },
       archived,
       Date.now(),
     );

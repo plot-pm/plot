@@ -61,6 +61,8 @@ import {
   waitingTickets,
   ticketSourceOf,
   type Reader,
+  type TicketSource,
+  type PersonDirectory,
 } from '@plot-pm/domain';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
 // rather than behind `BuildBoardOptions`: the cap is shared state on the
@@ -1514,6 +1516,10 @@ export interface TicketLaneData {
   readonly referenced: Set<string> | null;
   /** Whether the connector's `statusCategory` is stated rather than derived — true only for Jira. */
   readonly categoryStated: boolean;
+  /** How this repository's issue source writes assignees, or null where it cannot be determined. */
+  readonly ticketSource: TicketSource | null;
+  /** The declared `People` spellings. */
+  readonly directory: PersonDirectory;
 }
 
 /**
@@ -1532,7 +1538,15 @@ export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLan
   const entry = ensureCache(opts);
   if (entry.issueSets === null) return null;
   const referenced = await referencedIssues(opts);
+  const declared = await scriptsFor(opts).config('Tracker', '');
+  const source = issueSource({
+    declared: declared.ok ? declared.value : '',
+    gitHost: entry.backend ?? 'github',
+    listers: TRACKER_LISTERS,
+  });
   return {
+    ticketSource: ticketSourceOf(source, entry.backend ?? 'github', TICKET_SOURCES),
+    directory: await people(opts),
     open: entry.issueSets.rows ?? [],
     closed: entry.issueSets.closed?.rows ?? [],
     referenced,

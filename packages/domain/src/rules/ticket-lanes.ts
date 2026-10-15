@@ -1,3 +1,5 @@
+import { resolvePerson, type PersonDirectory } from '../entities/person.js';
+import type { TicketSource } from './ownership.js';
 import { doneTickets, ticketLane, type TicketLane } from './ticket-lane.js';
 
 /** One ticket as the Discovery tab's lane groups carry it. */
@@ -10,6 +12,10 @@ export interface TicketLaneRow {
   readonly status: string;
   readonly statusCategory: string;
   readonly closedAt: string | null;
+  /** The tracker's own word for the kind of work, lowercased; `null` where it stated none. */
+  readonly type: string | null;
+  /** The first assignee, resolved through the `People` directory; `null` where nobody is assigned. */
+  readonly owner: string | null;
 }
 
 /** The Discovery tab's ticket lanes. */
@@ -30,6 +36,8 @@ export interface TicketSourceRow {
   readonly status?: string | null;
   readonly statusCategory?: string | null;
   readonly closedAt?: string | null;
+  readonly type?: string | null;
+  readonly assignees?: readonly string[] | null;
 }
 
 /** What `ticketLanes` needs beside the rows. */
@@ -40,6 +48,10 @@ export interface TicketLanesReading {
   readonly named: ReadonlySet<string> | null;
   /** The lanes the last successful pass produced, or `null` where none exists. */
   readonly kept: TicketLaneGroups | null;
+  /** How the source writes assignees; absent or `null` where unknown, which reads an assignee as written. */
+  readonly source?: TicketSource | null;
+  /** The declared `People` spellings; absent where none is declared. */
+  readonly directory?: PersonDirectory;
 }
 
 /** The Discovery tab's ticket lanes and whether they are the kept ones. */
@@ -50,7 +62,28 @@ export interface TicketLanesResult {
   readonly plansUnreadable: boolean;
 }
 
-const rowOf = (row: TicketSourceRow): TicketLaneRow => ({
+/**
+ * The owner a ticket card names: the first assignee, resolved through the
+ * directory. A Jira account resolves through its `jira:<account>` spelling and
+ * shows as written where that spelling is undeclared.
+ *
+ * @param assignees - the row's assignees, as the tracker spells them.
+ * @param reading - the source and directory the lanes were read with.
+ * @returns the handle, or `null` where nobody is assigned.
+ */
+const ownerOf = (
+  assignees: readonly string[] | null | undefined,
+  reading: Pick<TicketLanesReading, 'source' | 'directory'>,
+): string | null => {
+  const first = (assignees ?? []).map((a) => a.trim()).find((a) => a !== '');
+  if (first === undefined) return null;
+  const directory = reading.directory ?? {};
+  const spelling = reading.source?.match === 'tracker-account' ? `${reading.source.prefix}${first}` : first;
+  const person = resolvePerson(spelling, directory);
+  return directory[spelling.toLowerCase()] === undefined ? first : person.handle;
+};
+
+const rowOf = (reading: Pick<TicketLanesReading, 'source' | 'directory'>) => (row: TicketSourceRow): TicketLaneRow => ({
   id: row.number,
   title: row.title,
   url: row.url,
@@ -59,6 +92,8 @@ const rowOf = (row: TicketSourceRow): TicketLaneRow => ({
   status: row.status ?? '',
   statusCategory: row.statusCategory ?? '',
   closedAt: row.closedAt ?? null,
+  type: row.type === undefined || row.type === null || row.type.trim() === '' ? null : row.type.trim().toLowerCase(),
+  owner: ownerOf(row.assignees, reading),
 });
 
 const laneOf = (
@@ -68,7 +103,7 @@ const laneOf = (
   now: number,
 ): TicketLane => {
   const lane = ticketLane(
-    { ...row, assignees: [] },
+    { ...row, type: row.type ?? undefined, assignees: [] },
     { categoryStated: reading.categoryStated, namedByPlan: reading.named.has(row.id) },
     now,
   );
@@ -110,7 +145,7 @@ export const ticketLanes = (
   const seen = new Set<string>();
   const laned = [...rows, ...closed]
     .filter((row) => !seen.has(row.number) && seen.add(row.number))
-    .map(rowOf)
+    .map(rowOf(reading))
     .map((row) => ({ row, lane: laneOf(row, { categoryStated: reading.categoryStated, named }, toggle, now) }));
   const inLane = (lane: TicketLane): TicketLaneRow[] => laned.filter((t) => t.lane === lane).map((t) => t.row);
   const done = doneTickets(inLane('done'), toggle);

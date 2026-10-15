@@ -429,6 +429,23 @@ function TicketRowView({ ticket, lane, idea, story, issueAnswer }: TicketRowView
         <TicketStateIcon state={view.icon} />
         <span className="line-clamp-2 text-slate-700 dark:text-slate-200">{view.heading}</span>
       </a>
+      {view.type || view.owner ? (
+        <p className="mt-1 flex items-center gap-1.5 pl-[20px]">
+          {view.type ? (
+            <span
+              data-ticket-type
+              className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+            >
+              {view.type}
+            </span>
+          ) : null}
+          {view.owner ? (
+            <span data-ticket-owner className="text-slate-500 dark:text-slate-400">
+              {view.owner}
+            </span>
+          ) : null}
+        </p>
+      ) : null}
       {view.subtitle ? (
         <p className="mt-1 truncate pl-[20px] text-slate-400 dark:text-slate-500">{view.subtitle}</p>
       ) : null}

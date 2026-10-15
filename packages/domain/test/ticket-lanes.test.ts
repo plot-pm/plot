@@ -28,6 +28,41 @@ const reading = (over: Partial<TicketLanesReading> = {}): TicketLanesReading => 
 });
 const ids = (rows: readonly { id: string }[] | undefined): string[] => (rows ?? []).map((r) => r.id);
 
+describe('ticketLanes type and owner', () => {
+  const lane = (r: TicketSourceRow, over: Partial<TicketLanesReading> = {}) =>
+    ticketLanes([r], [], null, reading(over), false, NOW).lanes?.open[0];
+  const jira = { service: 'jira', match: 'tracker-account', prefix: 'jira:' } as const;
+  const github = { service: 'github', match: 'host-login' } as const;
+
+  it('carries the tracker type lowercased', () => {
+    expect(lane(row('1', { type: 'Story' }))?.type).toBe('story');
+  });
+
+  it('carries no type where the row has none, or an empty one', () => {
+    expect(lane(row('1'))?.type).toBeNull();
+    expect(lane(row('1', { type: '' }))?.type).toBeNull();
+  });
+
+  it('resolves a Jira account through its jira: spelling', () => {
+    const r = row('P-1', { assignees: ['a@x.io'] });
+    expect(lane(r, { source: jira, directory: { 'jira:a@x.io': 'jwloka' } })?.owner).toBe('jwloka');
+  });
+
+  it('shows an undeclared assignee as written', () => {
+    expect(lane(row('1', { assignees: ['Someone-Else'] }), { source: github, directory: {} })?.owner).toBe('Someone-Else');
+    expect(lane(row('P-1', { assignees: ['a@x.io'] }), { source: jira, directory: {} })?.owner).toBe('a@x.io');
+  });
+
+  it('resolves a host login through the directory', () => {
+    expect(lane(row('1', { assignees: ['JWloka'] }), { source: github, directory: { jwloka: 'jan' } })?.owner).toBe('jan');
+  });
+
+  it('carries no owner where nobody is assigned', () => {
+    expect(lane(row('1', { assignees: [] }))?.owner).toBeNull();
+    expect(lane(row('1'))?.owner).toBeNull();
+  });
+});
+
 describe('ticketLanes', () => {
   it('lanes open rows by plan naming and a recent closed row as Done', () => {
     const result = ticketLanes(
@@ -43,6 +78,7 @@ describe('ticketLanes', () => {
     const result = ticketLanes([row('1', { createdAt: null, status: null, statusCategory: null, closedAt: null })], [], null, reading(), false, NOW);
     expect(result.lanes?.open[0]).toEqual({
       id: '1', title: 't1', url: 'https://x/1', createdAt: null, body: null, status: '', statusCategory: '', closedAt: null,
+      type: null, owner: null,
     });
     const bare = ticketLanes([row('2')], [], null, reading(), false, NOW);
     expect(bare.lanes?.open[0]).toMatchObject({ createdAt: null, status: '', statusCategory: '', closedAt: null });

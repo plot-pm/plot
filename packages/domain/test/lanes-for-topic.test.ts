@@ -11,6 +11,8 @@ const ticket = (id: string): TicketLaneRow => ({
   status: 'Open',
   statusCategory: 'To Do',
   closedAt: null,
+  type: null,
+  owner: null,
 });
 
 const story = (slug: string) => ({ slug });

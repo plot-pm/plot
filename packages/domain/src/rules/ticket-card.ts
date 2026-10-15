@@ -98,6 +98,10 @@ export interface TicketCardView {
   readonly url: string;
   /** Whether *Create plan* / *Create story* show for this row. */
   readonly showsActions: boolean;
+  /** The tracker's own type word, lowercased; `null` where the tracker stated none. */
+  readonly type: string | null;
+  /** The owner's handle, resolved through `People`; `null` where nobody is assigned. */
+  readonly owner: string | null;
 }
 
 /**
@@ -122,6 +126,8 @@ export const ticketCardView = (
     subtitle: ticketCardSubtitle(reference, age),
     url: row.url,
     showsActions: ticketCardShowsActions(lane),
+    type: row.type,
+    owner: row.owner,
   };
 };
 

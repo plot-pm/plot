@@ -1188,6 +1188,8 @@ export const TicketLaneRowSchema = z.object({
   status: z.string(),
   statusCategory: z.string(),
   closedAt: z.string().nullable(),
+  type: z.string().nullable().default(null),
+  owner: z.string().nullable().default(null),
 });
 export type TicketLaneRow = z.infer<typeof TicketLaneRowSchema>;
 

@@ -68,6 +68,12 @@ export interface Issue {
    * asked.
    */
   assignees: string[];
+  /**
+   * The tracker's own word for the kind of work — a Jira issue type, a GitHub
+   * issue type — as written. Absent where the tracker states none or the op
+   * was not asked, never `''` and never a guess from a label.
+   */
+  type?: string;
 }
 
 /**

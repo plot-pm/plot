@@ -23,6 +23,8 @@ const row = (over: Partial<TicketLaneRow> = {}): TicketLaneRow => ({
   status: 'Open',
   statusCategory: 'To Do',
   closedAt: null,
+  type: null,
+  owner: null,
   ...over,
 });
 
@@ -149,6 +151,32 @@ describe('ticketCardView', () => {
     const view = ticketCardView(row({ url: 'not-a-url' }), 'open', NOW);
     expect(view.subtitle).toBe('opened 10m ago');
     expect(view.url).toBe('not-a-url');
+  });
+});
+
+describe('ticketCardView type and owner', () => {
+  it('carries a stated type and owner', () => {
+    const view = ticketCardView(row({ type: 'story', owner: 'jwloka' }), 'open', NOW);
+    expect(view.type).toBe('story');
+    expect(view.owner).toBe('jwloka');
+  });
+
+  it('carries neither where the row has neither', () => {
+    const view = ticketCardView(row(), 'open', NOW);
+    expect(view.type).toBeNull();
+    expect(view.owner).toBeNull();
+  });
+
+  it('leaves the rest of a card with no type and no owner unchanged', () => {
+    const { type, owner, ...rest } = ticketCardView(row(), 'open', NOW);
+    expect([type, owner]).toEqual([null, null]);
+    expect(rest).toEqual({
+      icon: 'open',
+      heading: '1688: The Jira project scope: ship the connector',
+      subtitle: 'plot-pm/plot#1688 · opened 10m ago',
+      url: 'https://github.com/plot-pm/plot/issues/1688',
+      showsActions: true,
+    });
   });
 });
 

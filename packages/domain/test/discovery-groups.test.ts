@@ -12,6 +12,8 @@ const ticket = (id: string): TicketLaneRow => ({
   status: 'Open',
   statusCategory: 'To Do',
   closedAt: null,
+  type: null,
+  owner: null,
 });
 const many = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
 
