@@ -480,7 +480,11 @@ describe('a browser test that stubs its own state starts no board', () => {
 // for a Draft plan's slices nesting under its plan row in Waiting on you. A
 // plain addition; it serves its state through the catalogue and starts no
 // board.
-const EXPECTED_FILES = 68;
+// 68 → 69 on 2026-10-15: `discovery-mine-filter.browser.test.ts`, for the
+// Only-my-work checkbox widened from the Planning tab onto Discovery's story
+// and ticket lanes. A plain addition; it serves its state through the
+// catalogue and starts no board.
+const EXPECTED_FILES = 69;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -706,7 +710,12 @@ const EXPECTED_FILES = 68;
 // 587 → 588 on 2026-10-15: the one `it(` of
 // `a-draft-plans-slices-nest-under-its-plan-row.browser.test.ts`, a new file
 // counted in `EXPECTED_FILES` above.
-const EXPECTED_TESTS = 588;
+// 588 → 590 on 2026-10-15: the two `it(` of
+// `discovery-mine-filter.browser.test.ts`, a new file counted in
+// `EXPECTED_FILES` above — the Only-my-work checkbox widened onto Discovery's
+// story and ticket lanes, hiding a colleague's row of each while keeping the
+// unowned ones.
+const EXPECTED_TESTS = 590;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
