@@ -448,6 +448,18 @@ export const CardSchema = z.object({
   story: z.string().optional(),
   assignee: z.string().optional(),
   /**
+   * The type badge's text, from the domain's `planCardView`: the plan's own
+   * `Type:` word, lowercased. `null` where the plan states none, and the card
+   * then renders no badge. `type` stays as the colour key.
+   */
+  typeLabel: z.string().nullable().default(null),
+  /**
+   * The owner's handle, from the domain's `planCardView` and resolved through
+   * `People`: the plan's `Assignee:` before approval, the `Approved:` record's
+   * approver after. `null` where the plan names nobody.
+   */
+  owner: z.string().nullable().default(null),
+  /**
    * Approved cards only: true once the plan has a `Started:` record —
    * the board's Ready (approved, idle) vs In-progress split.
    */
@@ -947,6 +959,12 @@ export const StoryCardSchema = z.object({
   statusDrift: z.string().nullable().optional().default(null),
   /** Story author from frontmatter. */
   author: z.string().optional().default(''),
+  /**
+   * The author's handle, from the domain's `storyCardView` and resolved
+   * through `People`. `null` where the story names no author; a story has no
+   * type, so no type field accompanies it.
+   */
+  owner: z.string().nullable().default(null),
   /** ISO date when the story was created. */
   created: z.string().optional().default(''),
   /** ISO date when the story was last updated. */

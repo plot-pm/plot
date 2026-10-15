@@ -46,10 +46,10 @@ export interface PlanCardView {
  * record's approver once the plan has one — the Design section's own rule,
  * not a user choice. Read from `approvedRaw` being non-empty rather than from
  * the plan's phase, since the record persists verbatim through every later
- * phase (`delivered`, `released`) and a phase check would have to re-name each
- * one. A plan carries no field recording who drafted it (no git-history
- * reader exists for this in-scope today), so the pre-Approved owner is the
- * declared assignee, not an author.
+ * phase (`delivered`, `released`) and a phase check would have to name each
+ * one. The plan file records no author, so the pre-approval owner is its
+ * `Assignee:` field; a plan with no assignee and no readable approver has no
+ * owner.
  *
  * @param reading - the plan's type, assignee and `Approved:` record.
  * @param directory - the declared `People` spellings; `{}` where none is declared.

@@ -371,7 +371,11 @@ export function PlanCard({
         {card.title}
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
-        <Badge variant={typeVariant(card.type)}>{card.type}</Badge>
+        {card.typeLabel ? (
+          <Badge variant={typeVariant(card.type)}>
+            {card.typeLabel}
+          </Badge>
+        ) : null}
         {/* Ready/In-progress used to be a badge because Approved was one
             column. The distinction is now the column itself — a card in
             Development IS started — so only the waiting half still needs
@@ -568,11 +572,11 @@ export function PlanCard({
         {interrogate && card.controls.interrogate && (
           <InterrogateButton card={card} interrogate={interrogate} pulse={pulse} onActing={onStarting} />
         )}
-        {card.assignee && (
-          <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">
-            @{card.assignee}
+        {card.owner ? (
+          <span data-plan-owner className="ml-auto text-xs text-slate-500 dark:text-slate-400">
+            @{card.owner}
           </span>
-        )}
+        ) : null}
       </div>
     </article>
   );

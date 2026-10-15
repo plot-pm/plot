@@ -496,6 +496,12 @@ function StoryCardView({ story, onOpen, onOpenSprint }: StoryCardViewProps) {
           )}
         </div>
 
+        {story.owner ? (
+          <p data-story-owner className="mb-1 text-xs text-slate-500 dark:text-slate-400">
+            {story.owner}
+          </p>
+        ) : null}
+
         {/* Counts */}
         <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
           {story.planCount} {story.planCount === 1 ? 'plan' : 'plans'} · {story.deliveredCount} delivered
