@@ -136,6 +136,8 @@ export interface RefsFixture {
   commitSubjects?: Readonly<Record<string, readonly CommitSubject[]>>;
   /** Each file's repository-relative path to the commit that first added it. */
   additions?: Readonly<Record<string, string>>;
+  /** Each file's repository-relative path to its adding commit's author name. */
+  authors?: Readonly<Record<string, string>>;
   /** The merge commits on the default branch, newest first. */
   merges?: readonly MergeCommit[];
   /**
@@ -144,7 +146,7 @@ export interface RefsFixture {
    */
   ancestry?: Readonly<Record<string, Containment>>;
   /** The operations that fail on this estate, by port member name. */
-  failing?: readonly ('planAdditions' | 'mergeSubjects' | 'contains' | 'commitSubjects')[];
+  failing?: readonly ('planAdditions' | 'planAuthors' | 'mergeSubjects' | 'contains' | 'commitSubjects')[];
   /**
    * The branches whose `remoteHead` call fails, answering `unknown`.
    *
@@ -235,6 +237,7 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
   const commits = fixture.commits ?? {};
   const commitSubjects = fixture.commitSubjects ?? {};
   const additions = fixture.additions ?? {};
+  const authors = fixture.authors ?? {};
   const merges = fixture.merges ?? [];
   const ancestry = fixture.ancestry ?? {};
   const failing = new Set(fixture.failing ?? []);
@@ -418,6 +421,14 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       const prefix = dir.endsWith('/') ? dir : `${dir}/`;
       return answered<ReadonlyMap<string, string>>(
         new Map(Object.entries(additions).filter(([path]) => path.startsWith(prefix))),
+      );
+    },
+
+    planAuthors: async (_ref, dir) => {
+      if (failing.has('planAuthors')) return failed<ReadonlyMap<string, string>>();
+      const prefix = dir.endsWith('/') ? dir : `${dir}/`;
+      return answered<ReadonlyMap<string, string>>(
+        new Map(Object.entries(authors).filter(([path]) => path.startsWith(prefix))),
       );
     },
 

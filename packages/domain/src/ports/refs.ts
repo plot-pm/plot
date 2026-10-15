@@ -619,6 +619,23 @@ export interface Refs {
   planAdditions(ref: string, dir: string): Promise<PortResult<ReadonlyMap<string, string>>>;
 
   /**
+   * The author of the commit that first added each file under a directory, on
+   * one ref — the same walk {@link planAdditions} reads, carrying the
+   * author's name through instead of the commit's sha.
+   *
+   * A renamed file maps to the author who added its ORIGINAL path, so a plan
+   * edited or retitled by somebody else after it was added keeps its first
+   * author. A file whose rename chain ends in no add inside the walk is
+   * absent from the answer.
+   *
+   * @param ref - the revision to walk, such as `origin/main`.
+   * @param dir - the directory, relative to the repository root.
+   * @returns each file's repository-relative path to its adding commit's
+   *   author name, as git's `%an` reports it.
+   */
+  planAuthors(ref: string, dir: string): Promise<PortResult<ReadonlyMap<string, string>>>;
+
+  /**
    * The newest commit on a ref's first-parent line that added a file.
    *
    * A merge commit is diffed against its first parent, so a file a merged

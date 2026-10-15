@@ -447,6 +447,10 @@ export const CardSchema = z.object({
   sprint: z.string().optional(),
   story: z.string().optional(),
   assignee: z.string().optional(),
+  /** The git author of the commit that first added the plan file. */
+  author: z.string().optional(),
+  /** The name from the plan's `approved_raw` record's second field. */
+  approver: z.string().optional(),
   /**
    * Approved cards only: true once the plan has a `Started:` record —
    * the board's Ready (approved, idle) vs In-progress split.

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { additionsOf, commitSubjectsOf, mergesOf, refsGit, stagedEntriesOf, stagedPathsOf } from '../src/adapters/refs/refs-git.js';
+import { additionsOf, authorsOf, commitSubjectsOf, mergesOf, refsGit, stagedEntriesOf, stagedPathsOf } from '../src/adapters/refs/refs-git.js';
 import { runBytes, runProcess, asText } from '../src/adapters/run-script.js';
 
 /**
@@ -663,6 +663,27 @@ describe('additionsOf', () => {
   it('leaves out a chain that ends in no add, and survives a cycle', () => {
     const walk = '@c2\n\nR100\ta.md\tb.md\n@c1\n\nR100\tb.md\ta.md\n';
     expect(additionsOf(walk)).toEqual(new Map());
+  });
+});
+
+describe('authorsOf', () => {
+  it('reads the FIRST commit that added the file, not a later touch', () => {
+    // A plan edited by a second person after approval must not change who
+    // "authored" it — the walk is newest first, so the LAST `A` line seen for a
+    // path is its oldest add, same as additionsOf.
+    const walk = '@m2\tSecond Person\n\nA\tp.md\n@m1\tFirst Person\n\nA\tp.md\n';
+    expect(authorsOf(walk)).toEqual(new Map([['p.md', 'First Person']]));
+  });
+
+  it('follows a rename chain back to the author who added the original path', () => {
+    const walk =
+      '@c3\tThird Person\n\nR100\tb.md\tc.md\n@c2\tSecond Person\n\nR090\ta.md\tb.md\n@c1\tFirst Person\n\nA\ta.md\n';
+    expect(authorsOf(walk).get('c.md')).toBe('First Person');
+  });
+
+  it('leaves out a chain that ends in no add, and survives a cycle', () => {
+    const walk = '@c2\tA\n\nR100\ta.md\tb.md\n@c1\tB\n\nR100\tb.md\ta.md\n';
+    expect(authorsOf(walk)).toEqual(new Map());
   });
 });
 

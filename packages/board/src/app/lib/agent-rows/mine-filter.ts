@@ -98,13 +98,14 @@ export const ownedFromAgent = (agent: Pick<AgentEntry, 'identity' | 'state'>): O
   ({ kind: 'agent', identity: agent.identity, state: agent.state });
 
 /**
- * A plan card as the ownership rule reads it — its `Assignee:` line.
+ * A plan card as the ownership rule reads it — its assignee, author and
+ * approver.
  *
- * `assignee` is `''` where the plan names nobody. The rule resolves it through
- * the reader's directory; nothing is resolved here.
+ * Each is `''` or absent where the plan names nobody. The rule resolves all
+ * three through the reader's directory; nothing is resolved here.
  */
-export const ownedFromCard = (card: Pick<Card, 'assignee'>): OwnedRow =>
-  ({ kind: 'plan', assignee: card.assignee });
+export const ownedFromCard = (card: Pick<Card, 'assignee' | 'author' | 'approver'>): OwnedRow =>
+  ({ kind: 'plan', assignee: card.assignee, author: card.author, approver: card.approver });
 
 /**
  * Who is reading, as the ownership rule wants it — the identity fields

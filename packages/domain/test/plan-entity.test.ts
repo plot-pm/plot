@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   planIdOf, planStateOf, planStateIsReadable, branchesWanted, slicesDeferred,
-  planSlugOf, sliceId,
+  planSlugOf, sliceId, approverOf,
   type Plan, type Slice, type SliceIntent, type PlanState,
 } from '../src/index.js';
 
@@ -201,5 +201,20 @@ describe('a Plan has at most one story and at most one sprint', () => {
     // none, never to two.
     expect(plan().story).toBe('the-domain-knows-what-plot-knows');
     expect(plan({ story: '', sprint: '' }).story).toBe('');
+  });
+});
+
+describe('approverOf — the second field of an approved_raw record', () => {
+  it('reads the name out of a well-formed record', () => {
+    expect(approverOf('2026-10-15, Jan Wloka, plan-PR #1755 merged')).toBe('Jan Wloka');
+  });
+
+  it('does not let extra commas in the trailing detail leak into the name', () => {
+    expect(approverOf('2026-10-15, Jan Wloka, plan-PR #1755 merged, re-approved, again')).toBe('Jan Wloka');
+  });
+
+  it('answers empty for a record with no second field', () => {
+    expect(approverOf('')).toBe('');
+    expect(approverOf('2026-10-15')).toBe('');
   });
 });

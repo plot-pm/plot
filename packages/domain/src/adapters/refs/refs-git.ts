@@ -182,6 +182,45 @@ export const additionsOf = (stdout: string): ReadonlyMap<string, string> => {
 };
 
 /**
+ * Each file's first adding commit's author, from a newest-first
+ * `git log --diff-filter=AR --name-status --format=@%H\t%an` walk.
+ *
+ * The SAME rename-chain-following as {@link additionsOf}, because the two
+ * answer the same walk read two ways: this one carries the header's author
+ * name through instead of its commit sha. A retitled file keeps the author who
+ * first added it, not whoever last touched its latest name.
+ *
+ * @param stdout - the walk's output.
+ * @returns each resolved path to its adding commit's author name.
+ */
+export const authorsOf = (stdout: string): ReadonlyMap<string, string> => {
+  const added = new Map<string, string>();
+  const renamedFrom = new Map<string, string>();
+  let author = '';
+  for (const line of stdout.split('\n')) {
+    if (line.startsWith('@')) {
+      author = line.slice(line.indexOf('\t') + 1);
+      continue;
+    }
+    const fields = line.split('\t');
+    if (fields[0] === 'A' && fields.length === 2) added.set(fields[1], author);
+    else if (fields[0].startsWith('R') && fields.length === 3) renamedFrom.set(fields[2], fields[1]);
+  }
+  const resolved = new Map(added);
+  for (const path of renamedFrom.keys()) {
+    let current = path;
+    const seen = new Set<string>();
+    while (renamedFrom.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = renamedFrom.get(current) as string;
+    }
+    const authorOf = added.get(current);
+    if (authorOf !== undefined) resolved.set(path, authorOf);
+  }
+  return resolved;
+};
+
+/**
  * The merges a `git log --merges --format='%H %s'` walk printed.
  *
  * @param stdout - the walk's output.
@@ -683,6 +722,14 @@ export const refsGit = (context: ShellContext): Refs => {
         'git',
         ['log', ref, '--diff-filter=AR', '--name-status', '--format=@%H', '--', dir],
         additionsOf,
+        { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
+      ),
+
+    planAuthors: (ref, dir) =>
+      runScript(
+        'git',
+        ['log', ref, '--diff-filter=AR', '--name-status', '--format=@%H\t%an', '--', dir],
+        authorsOf,
         { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
       ),
 

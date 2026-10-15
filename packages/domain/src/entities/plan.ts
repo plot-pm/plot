@@ -248,3 +248,19 @@ export const branchesWanted = (plan: Plan): string[] => [
  */
 export const slicesDeferred = (plan: Plan): Slice[] =>
   plan.slices.filter((slice) => slice.intent === 'deferred');
+
+/**
+ * The approver's name, from a plan's `approved_raw` record.
+ *
+ * The record is `<date>, <name>, <detail>`, comma-separated; `<detail>` may
+ * itself carry commas. Mirrors `leadingDate` in `server/board.ts`, which reads
+ * the same record's first field.
+ *
+ * @param approvedRaw - the plan's `approved_raw` field, as the parser reports it.
+ * @returns the second comma-separated field, trimmed; `''` where the record
+ *   has fewer than two fields.
+ */
+export const approverOf = (approvedRaw: string): string => {
+  const fields = approvedRaw.split(',');
+  return fields.length < 2 ? '' : fields[1].trim();
+};

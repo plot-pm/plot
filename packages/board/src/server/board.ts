@@ -52,6 +52,7 @@ import {
   phaseColumns,
   phaseOfPlan,
   type PhaseMap,
+  approverOf,
 } from '@plot-pm/domain';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import {
@@ -2191,6 +2192,20 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     return read.ok ? read.value ?? undefined : undefined;
   })();
 
+  // EACH PLAN'S AUTHOR — ONE BATCHED GIT-LOG WALK, READ ONCE ABOVE THE LOOP.
+  // Same hoist as `spendLines` above: a per-plan call here would be one `git
+  // log` spawn per plan per refresh, on the same ~290-plan estate.
+  //
+  // The author is the git author of the commit that FIRST added the plan
+  // file, read off `origin/${defaultBranch}` — the same ref `collectPlanSources`
+  // already walks. A plan not yet on that ref (freshly created, still local)
+  // is simply absent from the map, and gets no `card.author` below, the same
+  // way `card.assignee` is left off a field the parser could not read.
+  const planAuthors = await (async () => {
+    const read = await refs.planAuthors(`origin/${defaultBranch}`, planDir);
+    return read.ok ? read.value : new Map<string, string>();
+  })();
+
   for (const meta of metas) {
     // A plan's identity is its canonical path, never wherever it was staged for
     // parsing. Restored here, BEFORE anything is derived from it, so the slug
@@ -2298,6 +2313,10 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     if (meta.sprint) card.sprint = meta.sprint;
     if (meta.story) card.story = meta.story;
     if (meta.assignee) card.assignee = meta.assignee;
+    const author = planAuthors.get(relPath);
+    if (author) card.author = author;
+    const approver = approverOf(meta.approved_raw);
+    if (approver) card.approver = approver;
     // `!== undefined` rather than a truthiness test, deliberately: a recorded
     // `round: 0` is a real answer (the block exists, no round has completed) and
     // must survive to the client as 0. Only the parser's OWN silence — no block,

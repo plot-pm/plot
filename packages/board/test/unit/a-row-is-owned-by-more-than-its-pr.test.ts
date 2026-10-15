@@ -114,6 +114,15 @@ describe('plan cards reach the rule by their assignee', () => {
     expect(ownedFromCard({ assignee: 'Jan Wloka' })).toEqual({ kind: 'plan', assignee: 'Jan Wloka' });
   });
 
+  it('carries a card author and approver through to the plan row', () => {
+    expect(ownedFromCard({ assignee: '', author: 'Jan Wloka', approver: 'Max Albrecht' })).toEqual({
+      kind: 'plan',
+      assignee: '',
+      author: 'Jan Wloka',
+      approver: 'Max Albrecht',
+    });
+  });
+
   it('returns the board untouched when off', () => {
     expect(boardForReader(kanban, reader, false)).toBe(kanban);
   });
