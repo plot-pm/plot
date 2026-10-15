@@ -119,8 +119,8 @@ export interface ContinueTargetReading {
  * 3. **The manifest answers.** `named` continues by stamping it. `several`
  *    refuses — two manifests on one desk is an estate defect the ending record
  *    does not resolve. `unnamed` falls to the ending record.
- * 4. **The fallback.** Only for `unnamed`: an ending that read `blocked` OR
- *    `holding-work` for THIS branch continues by writing a manifest. Anything
+ * 4. **The fallback.** Only for `unnamed`: an ending that read `blocked`,
+ *    `holding-work` OR `unstarted` for THIS branch continues by writing a manifest. Anything
  *    else — a different branch, a different reason, or no ending at all — is
  *    `no-manifest`, the same refusal `unnamed` always gave.
  *
@@ -150,7 +150,9 @@ export const continueTarget = (reading: ContinueTargetReading): ContinueTarget =
   const { ending } = reading;
   if (
     ending.read === 'ended' &&
-    (ending.ending.reason === 'blocked' || ending.ending.reason === 'holding-work') &&
+    (ending.ending.reason === 'blocked' ||
+      ending.ending.reason === 'holding-work' ||
+      ending.ending.reason === 'unstarted') &&
     ending.ending.branch === reading.branch
   ) {
     return { kind: 'continue', manifest: 'write', ...(stop ? { stop } : {}) };

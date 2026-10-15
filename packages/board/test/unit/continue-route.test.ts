@@ -1223,10 +1223,8 @@ describe('the ending record routes an answer when no manifest names the desk', (
 // `unnamed`, branch matched, marker present — and the rule refuses it, so the
 // cause is the rule's reason list and not an adapter's reading.
 //
-// `it.fails` holds the reproduction without a red CI: it passes while the
-// refusal stands, and fails the moment the Repair slice
-// (`bug/a-free-agent-desk-is-continuable`) makes the continue start, which is
-// when that slice removes `.fails`.
+// `continueTarget` accepts `unstarted` beside `blocked` and `holding-work`, so
+// the continue starts.
 describe('a free desk whose prompt never started — #1773', () => {
   const writeEnding = (wt: string, reason: string): void => {
     fs.writeFileSync(
@@ -1264,7 +1262,7 @@ describe('a free desk whose prompt never started — #1773', () => {
     settleAfter(wt);
   });
 
-  it.fails('continues an unstarted ending for the asked branch instead of refusing no-manifest', async () => {
+  it('continues an unstarted ending for the asked branch instead of refusing no-manifest', async () => {
     const wt = worktree();
     dirs.push(wt);
     writeEnding(wt, 'unstarted');
