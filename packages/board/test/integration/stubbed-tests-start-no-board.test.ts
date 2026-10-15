@@ -476,7 +476,11 @@ describe('a browser test that stubs its own state starts no board', () => {
 // Discovery tab's group headings, `?show=` control and its survival beside
 // `?archived=1`. A plain addition; it serves its state through the catalogue
 // and starts no board.
-const EXPECTED_FILES = 67;
+// 67 → 68 on 2026-10-15: `a-draft-plans-slices-nest-under-its-plan-row.browser.test.ts`,
+// for a Draft plan's slices nesting under its plan row in Waiting on you. A
+// plain addition; it serves its state through the catalogue and starts no
+// board.
+const EXPECTED_FILES = 68;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -699,7 +703,10 @@ const EXPECTED_FILES = 67;
 // 581 → 587 on 2026-10-14: the six `it(` of
 // `discovery-groups-toggle.browser.test.ts`, a new file counted in
 // `EXPECTED_FILES` above.
-const EXPECTED_TESTS = 587;
+// 587 → 588 on 2026-10-15: the one `it(` of
+// `a-draft-plans-slices-nest-under-its-plan-row.browser.test.ts`, a new file
+// counted in `EXPECTED_FILES` above.
+const EXPECTED_TESTS = 588;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
