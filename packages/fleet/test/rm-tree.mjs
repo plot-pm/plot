@@ -117,18 +117,61 @@ const endDesks = (target) => {
   waitGone(5_000);
 };
 
+/** Whether `target` is still on disk, read without following a final symlink. */
+const present = (target) => {
+  try {
+    fs.lstatSync(target);
+    return true;
+  } catch (err) {
+    if (err?.code === 'ENOENT') return false;
+    throw err;
+  }
+};
+
+/** The entries left under `target`, for the failure message; empty when unreadable. */
+const leftUnder = (target) => {
+  try {
+    return fs.readdirSync(target).join(', ');
+  } catch {
+    return '';
+  }
+};
+
+/**
+ * Delete `target`, and do not return until it is gone.
+ *
+ * THE TREE IS CHECKED AFTER `rmSync` RETURNS. On Linux, Node 24's recursive
+ * `fs.rmSync` with `force: true` returns WITHOUT an error and leaves the tree in
+ * place when another process creates and removes an entry inside it during the
+ * walk. Measured 2026-10-15 in `node:24` (Linux): 71 of 200 trees survived a
+ * returned `rmSync` while a loop created and removed one lock file inside them,
+ * and none threw. The same probe on macOS threw in 129 of 200 and left none. A
+ * detached `git maintenance run --auto --detach`, which git 2.55 starts after
+ * every `git commit`, is such a writer. CI left `plot-continue-`,
+ * `plot-signals-` and `plot-home-` trees this way on 2026-10-15 with every test
+ * passing, because the old loop returned on the first call that did not throw.
+ *
+ * A tree still present after the last attempt fails the caller by name.
+ */
 export const removeTree = (target, { retries = 10, delayMs = 25 } = {}) => {
   endDesks(target);
   for (let attempt = 0; ; attempt++) {
+    let failure = null;
     try {
       fs.rmSync(target, { recursive: true, force: true });
-      return;
     } catch (err) {
-      if (attempt >= retries || !STILL_BEING_WRITTEN.has(err?.code)) throw err;
-      // Synchronous, to stay a drop-in for the `fs.rmSync` calls it replaces:
-      // `after()` hooks are not all async, and making them so to accommodate a
-      // cleanup helper would spread this detail across every suite.
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+      if (!STILL_BEING_WRITTEN.has(err?.code)) throw err;
+      failure = err;
     }
+    if (failure === null && !present(target)) return;
+    if (attempt >= retries) {
+      throw failure ?? new Error(
+        `removeTree: ${target} is still present after ${retries + 1} removals; it holds: ${leftUnder(target)}`,
+      );
+    }
+    // Synchronous, to stay a drop-in for the `fs.rmSync` calls it replaces:
+    // `after()` hooks are not all async, and making them so to accommodate a
+    // cleanup helper would spread this detail across every suite.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
   }
 };

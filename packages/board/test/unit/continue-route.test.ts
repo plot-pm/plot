@@ -85,6 +85,9 @@ function worktree(opts: { marker?: boolean; pid?: string; wrapperPid?: string } 
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 'test@example.com');
   git('config', 'user.name', 'Test');
+  // No detached `git maintenance run --auto` after each commit: git 2.55 starts
+  // one, it outlives the test, and it writes into `.git` while `rmTree` walks it.
+  git('config', 'maintenance.auto', 'false');
   // A TRUNK COMMIT FIRST, then the branch on top of it. `landedCommits` asks
   // `main..HEAD`, so a fixture whose only commit is main's own would correctly
   // report that nothing landed — modelling a branch that was never dispatched

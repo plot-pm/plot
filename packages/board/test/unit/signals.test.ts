@@ -29,6 +29,9 @@ function repo(): string {
   git('config', 'user.email', 't@t');
   git('config', 'user.name', 'T');
   git('config', 'commit.gpgsign', 'false');
+  // No detached `git maintenance run --auto` after each commit: git 2.55 starts
+  // one, it outlives the test, and it writes into `.git` while `rmTree` walks it.
+  git('config', 'maintenance.auto', 'false');
   fs.mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'docs', 'plans', '2026-01-01-a.md'), '# A\n');
   git('add', '-A');

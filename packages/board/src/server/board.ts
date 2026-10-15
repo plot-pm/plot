@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import type { FleetState } from '@plot-pm/domain/ports/fleet-state';
 import { marked } from 'marked';
@@ -73,6 +72,7 @@ import {
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
+import { makeStageDir, removeStageDir } from './stage-dirs.js';
 import {
   readConfig as readConfigReader,
   readConfigAsync as readConfigAsyncReader,
@@ -2039,7 +2039,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
       continue;
     }
     if (stageDir === null) {
-      stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-plans-'));
+      stageDir = makeStageDir('plot-board-plans-');
     }
     // Written under a numbered subdirectory rather than as a renamed file, so
     // the BASENAME survives intact — `planSlug` cuts the slug out of it, and a
@@ -2065,7 +2065,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
       );
       if (branchPlans.length > 0) {
         if (stageDir === null) {
-          stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-plans-'));
+          stageDir = makeStageDir('plot-board-plans-');
         }
         for (const plan of branchPlans) {
           // THE JOIN, AND IT IS A JOIN RATHER THAN A PRECEDENCE RULE. Both
@@ -2149,7 +2149,8 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
   } finally {
     // The staged copies exist only for the duration of that one parse. Removed
     // in a `finally` so a parser failure cannot leave temp directories behind
-    // on a path the server walks every few seconds.
+    // on a path the server walks every few seconds. A signal skips this
+    // `finally`; `stage-dirs.ts` removes the directory at exit instead.
     //
     // READ 2026-09-01, by `a-teardown-does-not-fail-a-suite`, which fixed the
     // same shape of call in the test tree and deliberately left this one. It is
@@ -2169,7 +2170,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // a request the board serves every few seconds. If that is judged worth
     // closing, `rmTree`'s bounded retry is the shape; it lives in the test tree
     // today and would have to move to be used from `src/`.
-    if (stageDir) fs.rmSync(stageDir, { recursive: true, force: true });
+    if (stageDir) removeStageDir(stageDir);
   }
   // WHAT EACH PLAN'S SLICES COST — READ ONCE, ABOVE THE LOOP.
   //
@@ -2631,7 +2632,7 @@ export async function planEstate(
         continue;
       }
       if (stageDir === null) {
-        stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-status-'));
+        stageDir = makeStageDir('plot-board-status-');
       }
       const dir = path.join(stageDir, String(canonicalPath.size));
       const file = path.join(dir, path.basename(src.path));
@@ -2653,7 +2654,7 @@ export async function planEstate(
     // Same removal, same reading — see the longer note on the other stage-dir
     // `finally` above. This function is also the only writer into `stageDir`,
     // and it also awaits the parser before reaching this line.
-    if (stageDir) fs.rmSync(stageDir, { recursive: true, force: true });
+    if (stageDir) removeStageDir(stageDir);
   }
   return { statusBySlug: bySlug, draftPlans, approvedSpikes };
 }

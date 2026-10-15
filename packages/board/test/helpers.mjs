@@ -207,8 +207,9 @@ export function startServer(cwd, env = {}) {
       };
       resolve({
         port: Number(match[1]),
-        // THE TREE, NOT ONLY THE SERVER. The server has no SIGTERM handler, so
-        // the scripts it is running — a `plot-host.sh pr-list` waiting on `gh`,
+        // THE TREE, NOT ONLY THE SERVER. The server's SIGTERM handler removes
+        // only its own stage directories (`stage-dirs.ts`), so the scripts it
+        // is running — a `plot-host.sh pr-list` waiting on `gh`,
         // a scan — are orphaned and keep their temp files until they finish,
         // which can be after the run's TMPDIR is gone. `kill` sends each of the
         // server's descendants SIGTERM, which their `plot-tmp.sh` traps clean
