@@ -102,13 +102,11 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-push-main: not a git rep
 # name (exit 4) where the `Writer app` key is absent, with no push attempted
 # first. Any other origin (no remote, a non-GitHub host, a local test
 # fixture) keeps the plain push: the Writer App is a GitHub concern only.
-origin_url=$(git config --get remote.origin.url 2>/dev/null || true)
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ "$origin_url" == *github.com* ]]; then
-  err=$(node "$here/plot-push-writer-app.mjs" "$branch" "$default" 2>&1 >/dev/null); code=$?
-else
-  err=$(git push origin "$branch:$default" 2>&1 >/dev/null); code=$?
-fi
+origin_url=$(git config --get remote.origin.url 2>/dev/null || true); here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+case "$origin_url" in
+  *github.com*) err=$(node "$here/plot-push-writer-app.mjs" "$branch" "$default" 2>&1 >/dev/null); code=$? ;;
+  *) err=$(git push origin "$branch:$default" 2>&1 >/dev/null); code=$? ;;
+esac
 
 status=$(classify "$code" "$err")
 
