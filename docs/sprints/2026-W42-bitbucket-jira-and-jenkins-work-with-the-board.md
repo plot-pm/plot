@@ -29,7 +29,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 ### Could Have
 
 - [ ] [row-placement-and-wording-1677-1791] Waiting on you: row placement and wording (#1830)
-- [ ] [fleetd-scan-cost-and-read-cadence] fleetd scan cost and read cadence (#1845)
+- [x] [fleetd-scan-cost-and-read-cadence] fleetd scan cost and read cadence (#1845)
 
 ### Deferred
 
