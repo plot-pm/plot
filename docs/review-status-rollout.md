@@ -177,7 +177,7 @@ branch protection, because a lifecycle push IS the bypass case Plot relies on.
 
    Absolute path; `~` is not expanded.
 
-4. Prove the write before relying on it: run a lifecycle action that pushes to the default branch (`/plot-approve` is the simplest) and confirm the commit is authored by the App's bot identity, and that stderr carries no `Writer app not configured` line. A declared key that is malformed or unreadable refuses with exit 4 naming `Writer app`, and `plot-push-main.sh` attempts no push.
+4. Prove the write before relying on it: run a lifecycle action that pushes to the default branch (`/plot-approve` is the simplest), then run `git log -1 --format='%an <%ae>'` on the new commit and confirm it names the App's bot identity (for example `plot-writer[bot] <...>`), not your own `git config user.name` — and that stderr carries no `Writer app not configured` line. A declared key that is malformed or unreadable refuses with exit 4 naming `Writer app`, and `plot-push-main.sh` attempts no push.
 
 **Merger App** — authenticates every `plot-host.sh pr-merge` call on GitHub.
 It is NOT on the bypass list, anywhere, ever: a merge by it passes only when
