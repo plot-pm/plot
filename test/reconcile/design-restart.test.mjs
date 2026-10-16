@@ -32,18 +32,20 @@ after(() => {
 
 const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd });
 
-const PLAN = (designLine = 'Design:abc1234') => `${designLine}
-
-# Alpha
+// `recordCommit('Design')` matches the bulleted-bold `## Status` shape a real
+// plan writes — never a bare `Design:` line — and resolves to the sha of the
+// commit that ADDED the record, not to any text captured from it.
+const PLAN = (designLine = '- **Design:** 2026-10-12, jwloka, needs-design') => `# Alpha
 
 ## Spec
 
 ## Status
 
+${designLine}
 - **State:** Design
 `;
 
-/** A sandbox clone of a bare origin with the plan on main and `origin/HEAD` set. */
+/** A sandbox clone of a bare origin with the plan on main and `origin/HEAD` set; `planCommit` is the sha `recordCommit('Design')` must resolve to. */
 const makeRepo = (planBody) => {
   const tmp = track(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-design-restart-')));
   const origin = path.join(tmp, 'origin.git');
@@ -58,9 +60,10 @@ const makeRepo = (planBody) => {
   fs.writeFileSync(path.join(repo, PLAN_REL), planBody);
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'plan');
+  const planCommit = git(repo, 'rev-parse', 'HEAD').trim();
   git(repo, 'push', '-q', 'origin', 'main');
   git(repo, 'remote', 'set-head', 'origin', 'main');
-  return { repo, origin };
+  return { repo, origin, planCommit };
 };
 
 /** Pushes `idea/<slug>-spec` to origin, with commits beyond the claim marker when `written`. */
@@ -148,13 +151,13 @@ const readMark = (repo, slug) => {
 const inFlightPath = (repo) => path.join(repo, '.plot', 'state', 'auto-design-in-flight.json');
 
 test('design restart: an absent spec branch writes a start mark and never touches the in-flight store', () => {
-  const { repo } = makeRepo(PLAN());
+  const { repo, planCommit } = makeRepo(PLAN());
   const stubDir = makeGhStub();
   const r = design(repo, stubDir, ['restart', SLUG]);
   assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
   assert.match(r.stdout, /restart: start/);
   const mark = readMark(repo, SLUG);
-  assert.equal(mark.commit, 'abc1234');
+  assert.equal(mark.commit, planCommit);
   assert.equal(mark.answeredPr, undefined);
   assert.equal(mark.kind, 'start');
   assert.equal(fs.existsSync(inFlightPath(repo)), false, 'the in-flight store is never written by restart');
@@ -173,14 +176,14 @@ test('design restart: a claim-only branch deletes the ref first, then writes a s
 });
 
 test('design restart: work with no PR and a written spec opens a draft PR', () => {
-  const { repo } = makeRepo(PLAN());
+  const { repo, planCommit } = makeRepo(PLAN());
   pushSpecBranch(repo, { written: true });
   const stubDir = makeGhStub({ prView: null });
   const r = design(repo, stubDir, ['restart', SLUG]);
   assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
   assert.match(r.stdout, /restart: pr-opened — https:\/\/example\.invalid\/pr\/99/);
   const mark = readMark(repo, SLUG);
-  assert.equal(mark.commit, 'abc1234');
+  assert.equal(mark.commit, planCommit);
   assert.equal(mark.kind, 'pr-opened', 'fleetd folds this mark as a success, not a restart');
 });
 
