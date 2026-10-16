@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-16, Jan Wloka, plan-PR #1861 merged
+- **Started:** 2026-10-16, Jan Wloka, `bug/merge-names-what-it-did`
 
 ## Changelog
 
