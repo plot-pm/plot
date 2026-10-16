@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Approved
 - **Type:** bug
 - **Issue:** #1737
 - **Review:** pr
@@ -13,7 +13,7 @@
 - **Started:** 2026-10-15, Jan Wloka, `bug/a-lifecycle-micro-pr-merged-past-retry`
 - **Started:** 2026-10-15, Jan Wloka, `bug/a-lifecycle-micro-pr-merged-past-pin`
 - **Started:** 2026-10-16, Jan Wloka, `infra/a-lifecycle-micro-pr-merged-past-identities`
-- **Delivered:** 2026-10-16
+- **Rejected:** 2026-10-16 (PR #1816 for `infra/a-lifecycle-micro-pr-merged-past-identities` merged carrying only its claim commit; the writer and merger identities were never built)
 
 ## Changelog
 
@@ -75,6 +75,10 @@ A credential holding both jobs would be on the bypass list and could merge past 
 ### Identities
 
 - `infra/a-lifecycle-micro-pr-merged-past-identities` — lifecycle pushes use the writer App's token and pull-request merges use the merger credential, each read from a Plot Config key; the docs give the person's setup steps for both and keep the merger off the bypass list <!-- waits: bug/a-lifecycle-micro-pr-merged-past-retry, bug/a-lifecycle-micro-pr-merged-past-pin --> → #1816
+
+### Identities (build)
+
+- `infra/a-lifecycle-micro-pr-merged-past-identities-build` — builds what `### Identities` promised: lifecycle pushes use the writer App's token and pull-request merges use the merger credential, each read from a Plot Config key; the docs give the person's setup steps for both and keep the merger off the bypass list. #1816 merged carrying only its claim commit, so nothing of the Identities slice exists on main.
 
 ## Notes
 
