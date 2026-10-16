@@ -49,13 +49,13 @@ describe('mergeAt', () => {
   it('passes the caller’s sha to the host as --match-head', async () => {
     const { p, calls } = ports(pr());
     const out = await mergeAt(p, 7, HEAD);
-    expect(out).toMatchObject({ merged: true, pr: 7, sha: HEAD, defaultBranchRead: false });
+    expect(out).toMatchObject({ merged: true, pr: 7, sha: HEAD, defaultBranchRead: false, unpinned: false });
     expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD]]);
   });
 
-  it('sends no pin on a host that cannot pin a merge', async () => {
+  it('sends no pin on a host that cannot pin a merge, and reports unpinned', async () => {
     const { p, calls } = ports(pr(), 'answered', { ok: true, value: null }, 'bitbucket');
-    expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: true, pr: 7, sha: HEAD });
+    expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: true, pr: 7, sha: HEAD, unpinned: true });
     expect(calls).toEqual([['pr-merge', '7']]);
   });
 

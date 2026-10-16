@@ -170,6 +170,11 @@ export const controllerRefusal = (action: ControllerAction, scriptDir: string, s
  * The refusal for a merge with no head pin. It names the controller command
  * first and then the pin flag of the program refused.
  *
+ * For `gh`, it also names the reach of that command: `gh` speaks to one git
+ * host, so a repository on a different host has no `--match-head-commit` to
+ * add — there, the merge runs through `plot-host.sh pr-merge` instead, which
+ * pins where its host can and runs unpinned where it cannot.
+ *
  * @param scriptDir - the absolute directory holding the plot scripts.
  * @param program - the merge program the command runs.
  * @returns the text for stderr.
@@ -181,6 +186,9 @@ export const unpinnedMergeRefusal = (scriptDir: string, program: MergeProgram): 
     '  Merge through the controller, which re-asks the host and merges pinned to <sha> or refuses by name:',
     `      node ${shellQuote(`${scriptDir}/board/plot-ask.mjs`)} merge <pr> <sha>`,
     `  Or add ${PIN_FLAG[program]} <sha> to the merge you meant.`,
+    ...(program === 'gh'
+      ? ['  gh speaks to one git host: a repository on another host has no --match-head-commit to add —', '    there, the merge runs through plot-host.sh pr-merge instead, pinned where its host allows it.']
+      : []),
     '',
   ].join('\n');
 
