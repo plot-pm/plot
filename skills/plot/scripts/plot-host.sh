@@ -3894,8 +3894,7 @@ case "$op" in
       # this script's own argv, a file, or a log line.
       merger_repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
       merger_token=$(node "$here/plot-merger-token.mjs" "$merger_repo") || exit $?
-      args=(pr merge "$num")
-      [ "$squash" = 1 ] && args+=(--squash) || args+=(--merge)
+      args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash) || args+=(--merge)
       [ "$delbranch" = 1 ] && args+=(--delete-branch)
       GH_TOKEN="$merger_token" gh "${args[@]}" --match-head-commit "$pin"
     elif [ -n "$pin" ]; then echo "plot-host: pr-merge --match-head: bitbucket cannot pin a merge to a commit; nothing was merged" >&2; exit 4
