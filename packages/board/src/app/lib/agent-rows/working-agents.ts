@@ -82,7 +82,7 @@ export function brokenAgentRows(
   rowByBranch: Map<string, AgentRow>,
 ): { agent: AgentEntry; row: AgentRow | null }[] {
   return agents
-    .filter((agent) => isBrokenState(agent.state))
+    .filter((agent) => isBrokenState(agent.state) && agent.ended?.owesPerson !== false)
     .map((agent) => ({
       agent,
       row: agent.branch ? rowByBranch.get(agent.branch) ?? null : null,

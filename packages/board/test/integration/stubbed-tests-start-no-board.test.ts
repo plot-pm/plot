@@ -484,7 +484,11 @@ describe('a browser test that stubs its own state starts no board', () => {
 // Only-my-work checkbox widened from the Planning tab onto Discovery's story
 // and ticket lanes. A plain addition; it serves its state through the
 // catalogue and starts no board.
-const EXPECTED_FILES = 69;
+// 69 → 70 on 2026-10-16: `row-placement-quiet-and-ended-desk.browser.test.ts`,
+// for a quiet-kind row landing in Quiet and a clean ended desk leaving
+// Waiting on you. A plain addition; it serves its state through the
+// catalogue and starts no board.
+const EXPECTED_FILES = 70;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -720,7 +724,10 @@ const EXPECTED_FILES = 69;
 // badge rendering together, and for a ticket with neither field showing no
 // badge at all. The file already drove a page, so `EXPECTED_FILES` is
 // unchanged.
-const EXPECTED_TESTS = 592;
+// 592 → 595 on 2026-10-16: the three `it(` of
+// `row-placement-quiet-and-ended-desk.browser.test.ts`, a new file counted in
+// `EXPECTED_FILES` above.
+const EXPECTED_TESTS = 595;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

@@ -1,3 +1,4 @@
+import { withEndedDesks } from './ended-desks.js';
 import { RELEASE_BRANCH, issueKey, sectionKey, type FleetWaiting } from '../contract/schema.js';
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -2906,7 +2907,7 @@ import {
   doubleClaimedBranches,
   fetchPredatesTip,
   quietKind,
-  quietNeedsPerson,
+  quietPlacement,
   reportedCause,
   quietNote,
   readingLoss,
@@ -4148,7 +4149,7 @@ function classifyGroup(
   // on it*, the six rows measured on this estate 2026-09-03.
   //
   // WAITING ON YOU, because it is the one kind that genuinely needs a person:
-  // revive it, or drop it. The plan says so and `quietNeedsPerson` says so, and
+  // revive it, or drop it. The plan says so and `quietPlacement` says so, and
   // QUIET's own hint — *still thinking, or dead?* — is a question this row has
   // already answered.
   //
@@ -4167,12 +4168,11 @@ function classifyGroup(
   // so the sentence is asked of the same fact the kind is.
   const readings = wipReadings(pr, hasMergedPr, hostUnasked, tipAt, fetchAt);
   const abandoned = quietNote(readings);
-  // MERGED IS DONE, AND THIS ARM IS WHERE IT HAS TO BE SAID. `quietNeedsPerson`
-  // releases only `closed-pr`, and `quiet.test.ts` states why: a merged branch
-  // "answers `quiet` here and `classifyGroup` places it as done, above this
-  // rule." That premise holds for a branch the scan marks `merged` — and this
-  // arm is reached by one that squash-merged with its head ref deleted, which
-  // arrives `wip` with no open PR and never meets the arm above.
+  // MERGED IS DONE, AND THIS ARM IS WHERE IT HAS TO BE SAID. `quietPlacement`
+  // places `merged` as done, `closed-pr` and `quiet` as quiet, and `abandoned`
+  // and `orphaned-claim` as waiting on you. This arm is reached by a branch that
+  // squash-merged with its head ref deleted, which arrives `wip` with no open PR
+  // and never meets the `state === 'merged'` arm above.
   // A MERGED PR IS DONE, NOT QUIET — the same answer the `state === 'merged'`
   // arm above already gives, and this arm exists for the branch that reaches
   // the same truth by a different road: squash-merged with its head ref gone,
@@ -4180,11 +4180,7 @@ function classifyGroup(
   // *nobody is on this and nobody need be*; done means *this shipped*. Reading
   // one as the other is what put six landed branches under a heading that asks
   // the reader to go and look at them.
-  const group: WaitingGroup = hasMergedPr
-    ? 'done'
-    : !quietNeedsPerson(readings)
-      ? 'quiet'
-      : 'waiting-on-you';
+  const group: WaitingGroup = quietPlacement(readings);
   if (ageMinutes === null) {
     return { group, note: `${abandoned}, age unknown` };
   }
@@ -4358,7 +4354,7 @@ const rowQuietKind = (
   fetchAt: number | null = null,
 ): QuietKind | null => {
   if (closed) return quietKind(closedReadings());
-  if (group !== 'waiting-on-you') return null;
+  if (group !== 'waiting-on-you' && group !== 'quiet') return null;
   // ABSENT IS THE ONLY ANSWER THAT REACHES THE FALLTHROUGH. Every other worker
   // state is handled by an arm above it, and each of those means something ran.
   if (worker !== 'none' && worker !== 'elsewhere') return null;
@@ -7154,7 +7150,7 @@ export async function buildFleet(
     // Beside `rows`, never derived from them: a row is a branch that mentions an
     // agent, this is an agent that mentions a branch. A running worker appears
     // in both and is not duplicated — the entities differ.
-    agents: entry.agents,
+    agents: withEndedDesks(entry.agents, placedRows),
     // Metadata about the registry read — directory, manifest count, synthesized
     // count. Makes a synthesized fleet legible: a reader seeing `0 manifests,
     // 12 synthesized` knows the drop menu is absent because the board is reading

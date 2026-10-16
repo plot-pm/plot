@@ -3,6 +3,7 @@ import {
   quietKind,
   quietNote,
   quietNeedsPerson,
+  quietPlacement,
   fetchPredatesTip,
   type QuietBranchReadings,
   type QuietKind,
@@ -135,11 +136,10 @@ describe('quietKind — a host that was not asked', () => {
     expect(quietKind(reading({ prState: 'unknown', isEmptyClaim: true }))).toBe('orphaned-claim');
   });
 
-  it('keeps an unasked branch a person\u2019s to answer', () => {
-    // `quiet` is the honest existing answer — nobody is on it, and we cannot
-    // say why — and it keeps `quietNeedsPerson`'s fallthrough truthful without
-    // a new case.
-    expect(quietNeedsPerson(reading({ prState: 'unknown' }))).toBe(true);
+  it('files an unasked branch under quiet', () => {
+    // `quiet` is the honest existing answer: nobody is on it, and we cannot
+    // say why. It lands in Quiet (#1758), not in Waiting on you.
+    expect(quietNeedsPerson(reading({ prState: 'unknown' }))).toBe(false);
     expect(quietNote(reading({ prState: 'unknown' }))).toBe('nobody is on it');
   });
 });
@@ -179,10 +179,13 @@ describe('quietNeedsPerson — which of them is still somebody’s to answer', (
     expect(quietNeedsPerson(reading({ prState: 'closed' }))).toBe(false);
   });
 
-  it('keeps an orphaned claim, abandoned work and plain quiet', () => {
+  it('keeps an orphaned claim and abandoned work', () => {
     expect(quietNeedsPerson(reading({ isEmptyClaim: true }))).toBe(true);
     expect(quietNeedsPerson(reading())).toBe(true);
-    expect(quietNeedsPerson(reading({ prState: 'open' }))).toBe(true);
+  });
+
+  it('releases a plain quiet branch (#1758)', () => {
+    expect(quietNeedsPerson(reading({ prState: 'open' }))).toBe(false);
   });
 
   it('releases a merged branch — shipped work is nobody\'s to answer', () => {
@@ -195,8 +198,22 @@ describe('quietNeedsPerson — which of them is still somebody’s to answer', (
   it('agrees with quietKind on every case', () => {
     for (const r of everyCase()) {
       const kind = quietKind(r);
-      expect(quietNeedsPerson(r)).toBe(kind !== 'closed-pr' && kind !== 'merged');
+      expect(quietNeedsPerson(r)).toBe(kind === 'abandoned' || kind === 'orphaned-claim');
     }
+  });
+});
+
+describe('quietPlacement — the section each kind lands in', () => {
+  it('places quiet and closed-pr in quiet, merged in done', () => {
+    expect(quietPlacement(reading({ prState: 'open' }))).toBe('quiet');
+    expect(quietPlacement(reading({ prState: 'unknown' }))).toBe('quiet');
+    expect(quietPlacement(reading({ prState: 'closed' }))).toBe('quiet');
+    expect(quietPlacement(reading({ hasMergedPr: true }))).toBe('done');
+  });
+
+  it('keeps abandoned and orphaned-claim in waiting-on-you', () => {
+    expect(quietPlacement(reading())).toBe('waiting-on-you');
+    expect(quietPlacement(reading({ isEmptyClaim: true }))).toBe('waiting-on-you');
   });
 });
 

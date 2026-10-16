@@ -182,27 +182,42 @@ export const quietNote = (readings: QuietBranchReadings): string => {
 };
 
 /**
+ * The board section a branch nobody is on belongs in.
+ *
+ * - `done` — the host merged a PR for the branch.
+ * - `quiet` — `closed-pr` (somebody decided) and `quiet` (nothing is wrong that
+ *   a person could act on, and the label says so).
+ * - `waiting-on-you` — `abandoned` (revive or drop) and `orphaned-claim`
+ *   (a branch nobody started, holding a worktree slot).
+ *
+ * @param readings - what was measured of the branch.
+ * @returns the section.
+ */
+export const quietPlacement = (readings: QuietBranchReadings): 'done' | 'quiet' | 'waiting-on-you' => {
+  switch (quietKind(readings)) {
+    case 'merged':
+      return 'done';
+    case 'closed-pr':
+    case 'quiet':
+      return 'quiet';
+    case 'abandoned':
+    case 'orphaned-claim':
+      return 'waiting-on-you';
+  }
+};
+
+/**
  * Whether this quiet branch still needs somebody to look at it.
  *
- * NAMED FOR ITS SUBJECT. `attention.ts` owns the estate-wide attention
- * question over findings; this one answers only about a branch nobody is on,
- * and a bare `needsAttention` here would read as the other.
- *
- * `closed-pr` DOES NOT: somebody already decided, and a decision is not a thing
- * to look at. It is the answer that empties 17 of this estate's 26 quiet rows,
- * and the reason the other kinds are readable at all.
- *
- * Every other kind does, for its own reason — an orphaned claim is a branch
- * nobody started, abandoned work is a revive-or-drop call, and a plain quiet
- * branch is the one the classifier could not name.
+ * True exactly where {@link quietPlacement} answers `waiting-on-you`: an
+ * orphaned claim and abandoned work. A closed PR, a merged branch and a plain
+ * `quiet` branch need nobody.
  *
  * @param readings - what was measured of the branch.
  * @returns true when the branch is still a person's to answer.
  */
-export const quietNeedsPerson = (readings: QuietBranchReadings): boolean => {
-  const kind = quietKind(readings);
-  return kind !== 'closed-pr' && kind !== 'merged';
-};
+export const quietNeedsPerson = (readings: QuietBranchReadings): boolean =>
+  quietPlacement(readings) === 'waiting-on-you';
 
 /**
  * Whether the last PR fetch is too old to say anything about this branch.
