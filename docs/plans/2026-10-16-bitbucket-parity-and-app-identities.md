@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-16, Jan Wloka, plan-PR #1861 merged
 - **Started:** 2026-10-16, Jan Wloka, `bug/merge-names-what-it-did`
 - **Started:** 2026-10-16, Jan Wloka, `bug/app-identities-refuse-by-name`
+- **Started:** 2026-10-16, Jan Wloka, `feature/bitbucket-commit-status-parity`
 
 ## Changelog
 
