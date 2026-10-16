@@ -3885,10 +3885,17 @@ case "$op" in
     done
     if [ "$be" = "github" ] && [ -z "$pin" ]; then echo "plot-host: pr-merge: github needs --match-head <sha>; nothing was merged" >&2; exit 1
     elif [ "$be" = "github" ]; then
-      args=(pr merge "$num")
-      [ "$squash" = 1 ] && args+=(--squash) || args+=(--merge)
-      [ "$delbranch" = 1 ] && args+=(--delete-branch)
-      gh "${args[@]}" --match-head-commit "$pin"
+      # The Merger App merges, never the signed-in `gh` identity: that
+      # identity may hold `bypass_mode: always` on the ruleset, which is the
+      # bug this closes (#1730). `plot-merger-token.mjs` refuses by name
+      # (exit 4) before any merge is attempted where the key is absent,
+      # unreadable, or names the same App id as `Writer app`. The token is
+      # read straight into GH_TOKEN, which `gh` reads for auth — never into
+      # this script's own argv, a file, or a log line.
+      merger_repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
+      merger_token=$(node "$here/plot-merger-token.mjs" "$merger_repo") || exit $?
+      args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash) || args+=(--merge); [ "$delbranch" = 1 ] && args+=(--delete-branch)
+      GH_TOKEN="$merger_token" gh "${args[@]}" --match-head-commit "$pin"
     elif [ -n "$pin" ]; then echo "plot-host: pr-merge --match-head: bitbucket cannot pin a merge to a commit; nothing was merged" >&2; exit 4
     else
       args=(pr merge "$num")

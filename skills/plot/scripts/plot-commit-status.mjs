@@ -28,72 +28,26 @@
 //
 // `GITHUB_API_URL` sets the API base, as it does on Actions and for GitHub
 // Enterprise Server; it defaults to https://api.github.com.
-import { execFileSync } from 'node:child_process';
-import { createSign } from 'node:crypto';
-import fs from 'node:fs';
+//
+// The JWT → installation-token exchange itself lives in `plot-github-app.mjs`,
+// shared with the Writer App (`plot-push-main.sh`) and the Merger App
+// (`plot-host.sh pr-merge`) rather than copied for each.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { appJwt, call, installationToken, resolveApp } from './plot-github-app.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const api = (process.env.GITHUB_API_URL || 'https://api.github.com').replace(/\/+$/, '');
 
 const refuse = (code, message) => {
   process.stderr.write(`plot-host: commit-status — ${message}\n`);
   process.exit(code);
 };
 
-const run = (cmd, args) => {
-  try {
-    return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  } catch {
-    return '';
-  }
-};
-
 /** The `Review app` key as `{ appId, keyPath }`, or exit 4 naming what is missing. */
 const reviewApp = () => {
-  const [appId, key] = run('bash', [path.join(here, 'plot-config.sh'), 'get', 'Review app', '']).split(/\s+/);
-  if (!appId || !key) {
-    refuse(4, "needs a 'Review app' key in ## Plot Config (format: Review app: <app id> <key path>)");
-  }
-  const keyPath = path.isAbsolute(key) ? key : path.join(run('git', ['rev-parse', '--show-toplevel']) || '.', key);
-  try {
-    fs.accessSync(keyPath, fs.constants.R_OK);
-  } catch {
-    refuse(4, `'Review app' names a key file that cannot be read: ${keyPath}`);
-  }
-  return { appId, keyPath };
-};
-
-const b64url = (text) => Buffer.from(text).toString('base64url');
-
-/** An App JWT: `iat` 60 s back for clock drift, `exp` under GitHub's 10-minute ceiling. */
-const appJwt = ({ appId, keyPath }) => {
-  const now = Math.floor(Date.now() / 1000);
-  const input = `${b64url('{"alg":"RS256","typ":"JWT"}')}.${b64url(JSON.stringify({ iat: now - 60, exp: now + 540, iss: appId }))}`;
-  try {
-    return `${input}.${createSign('RSA-SHA256').update(input).sign(fs.readFileSync(keyPath)).toString('base64url')}`;
-  } catch {
-    return refuse(3, `could not sign a JWT for App ${appId}`);
-  }
-};
-
-/** One GitHub API call; resolves to `{ status, body }`, status 0 where the request never completed. */
-const call = async (credential, method, route, body) => {
-  try {
-    const res = await fetch(`${api}/${route}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${credential}`,
-        Accept: 'application/vnd.github+json',
-        'Content-Type': 'application/json',
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    return { status: res.status, body: await res.json().catch(() => ({})) };
-  } catch {
-    return { status: 0, body: {} };
-  }
+  const { app, reason } = resolveApp('Review app', here);
+  if (!app) refuse(4, reason);
+  return app;
 };
 
 const [mode, ...rest] = process.argv.slice(2);
@@ -106,14 +60,17 @@ const app = reviewApp();
 if (mode === '--check') process.exit(0);
 if (!repo) refuse(3, 'could not resolve owner/repo from the current checkout');
 
-const jwt = appJwt(app);
-const installation = await call(jwt, 'GET', `repos/${repo}/installation`);
-if (!installation.body.id) refuse(3, `App ${app.appId} has no installation on ${repo} (HTTP ${installation.status})`);
+let jwt;
+try {
+  jwt = appJwt(app);
+} catch {
+  refuse(3, `could not sign a JWT for App ${app.appId}`);
+}
 
-const minted = await call(jwt, 'POST', `app/installations/${installation.body.id}/access_tokens`);
-if (!minted.body.token) refuse(3, `could not mint an installation token for App ${app.appId} (HTTP ${minted.status})`);
+const { token, error } = await installationToken(app, repo);
+if (!token) refuse(3, error);
 
-const write = await call(minted.body.token, 'POST', `repos/${repo}/statuses/${sha}`, {
+const write = await call(token, 'POST', `repos/${repo}/statuses/${sha}`, {
   state,
   context,
   description,

@@ -131,3 +131,90 @@ requires it last, after the writers above (this wave) are merged and proven
 in production, not merely written. Flipping it earlier would hold every PR
 merge the moment any one PR kind's writer has a bug this wave's tests did not
 catch.
+
+## Setting up the Writer App and the Merger App
+
+Two more GitHub Apps close #1730 — a PR merged four seconds after it opened
+with no `validate` run and no `plot/review` status, because the merge ran as
+the maintainer's account, which holds `bypass_mode: always` on the ruleset. A
+pinned merge by a bypass-capable identity still bypasses every required
+check; only changing WHO merges closes it. `skills/plot/scripts/plot-github-app.mjs`
+holds the JWT-to-installation-token exchange both Apps share with the
+`Review app` above — three identities, one exchange, extracted once.
+
+**Writer App** — authenticates `plot-push-main.sh`'s lifecycle pushes to the
+default branch (called from `/plot-approve`, `/plot-deliver`, and the ladder's
+bookkeeping push). It is the one App of the three that legitimately bypasses
+branch protection, because a lifecycle push IS the bypass case Plot relies on.
+
+1. Create a GitHub App (for example `plot-writer`) with exactly:
+   - *Contents:* write
+   - No webhook, no event subscriptions.
+
+   Install it on the repository only.
+
+2. **Add it to the branch-protection bypass list for the default branch.**
+   This is the one App in this section that belongs there — it never merges
+   a PR, only pushes bookkeeping commits directly.
+
+3. Generate a private key, save it outside the repository (mode `600`), and
+   record it in `## Plot Config`:
+
+   ```
+   - **Writer app:** <app id> <key path>
+   ```
+
+   Absolute path; `~` is not expanded.
+
+4. Prove the write before relying on it: run a lifecycle action that pushes
+   to the default branch (`/plot-approve` is the simplest) and confirm the
+   commit is authored by the App's bot identity. A missing or unreadable key
+   refuses with exit 4 naming `Writer app` — `plot-push-main.sh` attempts no
+   push first, so the refusal itself proves no silent fallback to the ambient
+   `git` identity exists.
+
+**Merger App** — authenticates every `plot-host.sh pr-merge` call on GitHub.
+It is NOT on the bypass list, anywhere, ever: a merge by it passes only when
+`validate` and `plot/review` are green on the pinned head, which is the whole
+point.
+
+1. Create a third GitHub App (for example `plot-merger`) with exactly:
+   - *Contents:* write
+   - *Pull requests:* write
+   - No webhook, no event subscriptions.
+
+   Install it on the repository only.
+
+2. **Do not add it to the branch-protection bypass list.** A bypass-listed
+   merger recreates #1730 under a different name. If a later change proposes
+   adding it, that change is the regression this section exists to prevent.
+
+3. Generate a private key — a different key from the Writer App's, naming a
+   different App id — save it outside the repository (mode `600`), and record
+   it in `## Plot Config`:
+
+   ```
+   - **Merger app:** <app id> <key path>
+   ```
+
+   `plot-merger-token.mjs` refuses with exit 4, naming both keys, if `Merger
+   app` and `Writer app` ever name the same App id: one credential holding
+   both jobs would carry the writer's bypass-list membership into a merge.
+
+4. Prove the write before relying on it: merge a scratch PR through
+   `/plot-approve`'s or `/plot-dispatch`'s normal path and confirm the merge
+   commit (or the PR's merged-by field) shows the App's bot identity
+   (`<app-slug>[bot]`), not the maintainer's account. A missing or unreadable
+   key refuses with exit 4 naming `Merger app` before any `gh pr merge` call —
+   `plot-host.sh` asks `gh repo view` first (unauthenticated, just to learn
+   the repo name) and attempts no merge if the token mint fails.
+
+Both new keys follow the same refusal discipline as `Review app`: absent is
+never false, and neither installation token leaves its minting process
+except through a request header, `GH_TOKEN`, or (for the Writer App's push)
+a `GIT_ASKPASS` helper reading a mode-600 temp file — never a child's argv, a
+file committed anywhere, or a log line.
+
+Bitbucket is untouched by either App: `pr-merge` there keeps its own `bb`
+path and its existing exit-4 refusal on an unpinned merge, and a `Merger app`
+or `Writer app` key is a GitHub-only concern.

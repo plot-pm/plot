@@ -161,3 +161,39 @@ test('push-main: pushing branch:default creates no remote branch', () => {
   }).trim();
   assert.equal(refs, 'refs/heads/main');
 });
+
+// THE REFUSAL THE WRITER APP EXISTS FOR. A `github.com` origin routes through
+// `plot-push-writer-app.mjs`, which refuses by name (exit 4) before any push
+// is attempted where `Writer app` is absent from `## Plot Config` — never
+// falling back to the ambient `git` identity, which would re-open the bypass
+// this slice closes. The checkout's own CLAUDE.md (if any) is irrelevant:
+// `PLOT_REPO_ROOT` points `plot-config.sh` at this sandbox instead, so the
+// absence is real rather than borrowed from whatever repo runs the suite.
+test('push-main: a github.com origin with no Writer app key refuses and pushes nothing', () => {
+  const { work, bare } = makeRepo();
+  git(work, 'checkout', '-q', '-b', 'plot/tmp');
+  git(work, 'commit', '-q', '--allow-empty', '-m', 'bookkeeping');
+  git(work, 'remote', 'set-url', 'origin', 'https://github.com/example/repo.git');
+
+  const before = execFileSync('git', ['log', '--oneline', 'main'], { cwd: bare, encoding: 'utf8' });
+
+  let res;
+  try {
+    res = {
+      code: 0,
+      out: execFileSync('bash', [helper, 'plot/tmp', 'main'], {
+        cwd: work,
+        encoding: 'utf8',
+        env: { ...process.env, PLOT_REPO_ROOT: work },
+      }),
+    };
+  } catch (err) {
+    res = { code: err.status, out: `${err.stdout ?? ''}${err.stderr ?? ''}` };
+  }
+
+  assert.notEqual(res.code, 0, 'an absent Writer app key must not push');
+  assert.match(res.out, /Writer app/);
+
+  const after = execFileSync('git', ['log', '--oneline', 'main'], { cwd: bare, encoding: 'utf8' });
+  assert.equal(after, before, 'the bare remote must be unchanged — no push attempted first');
+});
