@@ -1180,11 +1180,9 @@ bb_state_listing() { # global bb args… --state <s> --json → one JSON array
   done
   [ -n "$_st" ] || die "bb_state_listing: no --state"
   _out="$(bb ${_args[@]+"${_args[@]}"} api "/repositories/{ws}/{repo}/pullrequests?state=$(bb_query_state "$_st")&pagelen=$BB_LIST_PAGELEN")" || return $?
-  if [ -n "${BB_LIST_NEXT_FILE:-}" ]; then
-    printf '%s' "$_out" \
-      | jq -r 'if (type == "object") and has("values") then (if has("next") then "1" else "0" end) else "" end' \
-      > "$BB_LIST_NEXT_FILE"
-  fi
+  [ -n "${BB_LIST_NEXT_FILE:-}" ] && printf '%s' "$_out" \
+    | jq -r 'if (type == "object") and has("values") then (if has("next") then "1" else "0" end) else "" end' \
+    > "$BB_LIST_NEXT_FILE"
   printf '%s' "$_out" | jq -c '.values // []'
 }
 
