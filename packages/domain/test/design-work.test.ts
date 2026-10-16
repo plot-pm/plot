@@ -213,6 +213,14 @@ describe('specStart', () => {
     expect(specStart(startInput({ store, headroom: 'starved' }))).toEqual({ start: false, reason: 'starved' });
   });
 
+  it('a failure recorded under one real Design commit does not stop a run under a newer one', () => {
+    let f = recordFailure(undefined, 'abc1234', 1);
+    f = recordFailure(recordFailure(f, 'abc1234', 2), 'abc1234', 3);
+    const store: DesignStore = { ...EMPTY_STORE, failures: { 'ship-it': f }, failedAt: [1] };
+    expect(specStart(startInput({ store, designCommit: 'abc1234' }))).toEqual({ start: false, reason: 'stopped' });
+    expect(specStart(startInput({ store, designCommit: 'def5678' }))).toEqual({ start: false, reason: 'ask-host' });
+  });
+
   it('a restart mark under another commit does not apply', () => {
     const store: DesignStore = {
       ...EMPTY_STORE,

@@ -60,6 +60,8 @@ interface WorldOptions {
   removeCalls?: { dir: string; branch: string }[];
   /** Counts every host call by operation. */
   hostCalls?: string[];
+  /** The plan's `Design:` commit, read through `recordCommit`. */
+  designCommit?: string;
 }
 
 const world = (candidates: DesignCandidate[], options: WorldOptions = {}): DesignPassWorld => {
@@ -90,6 +92,7 @@ const world = (candidates: DesignCandidate[], options: WorldOptions = {}): Desig
           : { ok: true, value: [] },
       showFile: async (ref) =>
         ref === tip && options.branchText !== undefined ? { ok: true, value: options.branchText } : { ok: false, why: 'missing' },
+      recordCommit: async () => ({ ok: true, value: options.designCommit ?? 'abc1234' }),
     }),
     trees: () => ({
       addBranch: async (dir, branch, start) => {
