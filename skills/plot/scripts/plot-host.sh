@@ -1631,28 +1631,34 @@ jenkins_no_instance() {
 # estimate for. This draws it one step earlier, for a connector that does not
 # exist at all — and `resultOf` (`adapters/run-script.ts:211`) maps exit 4 onto
 # `unaskable`, which is the word the build port already answers with.
-# The Jenkins REST credential, read from where `jen` already stores it.
+# The Jenkins REST credential: JENKINS_USER + JENKINS_API_TOKEN from the
+# environment, then the repository's `.env`, then the macOS keychain where
+# `jen` already stores it.
 #
 # NOT THE KEYCLOAK BEARER. `jen auth token` prints one and Jenkins answers it
-# with an HTML login redirect — measured 2026-09-10, and it is the trap that
-# made an earlier reading conclude the sha was unreachable. Jenkins' own API
-# takes BASIC auth with a user and an API token, which `jen` keeps in the login
-# keychain under service `jen`, accounts `jenkins-user:<host>` and
-# `jenkins-token:<host>`.
+# with an HTML login redirect — measured 2026-09-10. Jenkins' own API takes
+# BASIC auth with a user and an API token.
 #
-# IT PRINTS `user:token` AND NOTHING ELSE, or nothing at all. The caller passes
-# it straight to `curl -u`; no branch echoes it, and no failure path names it.
+# THE ORDER IS WHAT EACH SOURCE COSTS. A deliberate export is never
+# second-guessed, so the environment wins outright. `.env` is one local read,
+# same shape as `jira_load_env_file`. The keychain is macOS-only, so it is
+# tried last — still the honest last resort where neither export exists.
 #
-# EMPTY IS THE HONEST ANSWER on a machine with no `security` (Linux, CI), with
-# no keychain entry, or with either half missing — a half credential is not a
-# credential. The caller turns that into exit 4, which is *cannot be asked*.
+# IT PRINTS `user:token` AND NOTHING ELSE, or nothing at all. The caller
+# passes it straight to `curl -u`; no branch echoes it, and no failure path
+# names the value — a source note may name the variable names, never their
+# contents.
+#
+# EMPTY IS THE HONEST ANSWER when no source holds a full pair. A half
+# credential is not a credential; the caller turns an empty answer into
+# exit 4, which is *cannot be asked*.
 jenkins_rest_credential() { # $1 = the bare host
-  command -v security >/dev/null 2>&1 || return 1
-  local u t
-  u=$(security find-generic-password -s jen -a "jenkins-user:$1" -w 2>/dev/null) || return 1
+  local u="${JENKINS_USER:-}" t="${JENKINS_API_TOKEN:-}" env_file src="the environment"
+  [ -n "$u" ] || [ -n "$t" ] || { src=.env; env_file="$(git rev-parse --show-toplevel 2>/dev/null || echo .)/.env"; [ -r "$env_file" ] && u="$(read_env_var JENKINS_USER "$env_file")" && t="$(read_env_var JENKINS_API_TOKEN "$env_file")"; }
+  [ -n "$u" ] && [ -n "$t" ] && { echo "plot-host: JENKINS_USER and JENKINS_API_TOKEN read from $src" >&2; printf '%s:%s' "$u" "$t"; return 0; }
+  command -v security >/dev/null 2>&1 || return 1; u=$(security find-generic-password -s jen -a "jenkins-user:$1" -w 2>/dev/null) || return 1
   t=$(security find-generic-password -s jen -a "jenkins-token:$1" -w 2>/dev/null) || return 1
-  [ -n "$u" ] && [ -n "$t" ] || return 1
-  printf '%s:%s' "$u" "$t"
+  [ -n "$u" ] && [ -n "$t" ] || return 1; printf '%s:%s' "$u" "$t"
 }
 
 # A job path as Jenkins' REST API spells it: every segment under `job/`.
