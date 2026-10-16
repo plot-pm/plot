@@ -241,6 +241,18 @@ test('a carried listing with no arrival marker is refused', () => {
   assert.ok(prListCalls(calls) > 0, 'a listing without its arrival marker is not carried');
 });
 
+test('the arrival marker is the last listing line, so a cut listing carries none', () => {
+  const fx = makeRepo();
+  const { listing } = runScan(fx);
+  const lines = listing.split('\n').filter(Boolean);
+
+  // A scan killed while it prints the rows has printed no `.list-arrived`, and
+  // `scanOnce` adopts a killed scan's listing only where that line came last.
+  assert.match(lines.at(-1), /^\.list-arrived\t1\t-\t-$/, 'the arrival marker ends the listing');
+  const { calls } = runScan(fx, { PLOT_PR_LISTING: lines.slice(0, -1).join('\n') });
+  assert.ok(prListCalls(calls) > 0, 'a listing cut before its last line is not carried');
+});
+
 test('a throttled listing reports nothing, so the board keeps the one it had', () => {
   const fx = makeRepo();
   // A host that refuses the listing writes no `.list-arrived`, so there is

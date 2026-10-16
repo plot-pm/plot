@@ -32,13 +32,13 @@ export const FLEET_SCAN_BUDGET_MS = 90_000;
  */
 export interface ScanState {
   /**
-   * The terminal-branch map the last scan reported, whether it completed or
-   * was killed partway through. Empty on a cold start.
+   * The terminal-branch map: what the last completed scan reported, plus the
+   * rows a killed scan streamed since. Empty on a cold start.
    */
   terminal: string;
   /**
-   * The PR listing the last scan that fetched one reported, carried forward
-   * even from a kill. Empty until one is fetched.
+   * The PR listing the last scan that fetched one reported in full. Empty
+   * until one is fetched.
    */
   listing: string;
   /** Epoch ms the listing was fetched, or null before the first one. */
@@ -129,6 +129,34 @@ export const listedBranchCount = (listed: string): number | null => {
     return Number.isInteger(n) && n >= 0 ? n : null;
   }
   return null;
+};
+
+/**
+ * Whether a reported listing ends with its `.list-arrived` line.
+ *
+ * `plot-fleet-scan.sh` prints `.list-arrived` after every other listing line,
+ * so a listing cut short by a kill does not end with it.
+ *
+ * @param listed - the scan's reported listing, one note or branch per line.
+ * @returns true where the last non-empty line is the `.list-arrived` note.
+ */
+export const listingEnded = (listed: string): boolean =>
+  listed.split('\n').filter((line) => line !== '').at(-1)?.split('\t')[0] === '.list-arrived';
+
+/**
+ * Merges terminal-map rows into a prior map, keyed by branch name.
+ *
+ * @param prior - the map held before the scan, one `branch<TAB>…` row per line.
+ * @param learned - the rows the scan streamed, in the same shape.
+ * @returns every row of `learned`, plus each row of `prior` whose branch
+ *   `learned` does not name; one row per line, each ending in a newline.
+ */
+export const mergeTerminal = (prior: string, learned: string): string => {
+  const rows = new Map<string, string>();
+  for (const line of `${prior}\n${learned}`.split('\n')) {
+    if (line !== '') rows.set(line.split('\t')[0], line);
+  }
+  return [...rows.values()].map((line) => `${line}\n`).join('');
 };
 
 /** The host's spend, as `plot-host.sh spend-rate` reports it. */
@@ -323,18 +351,16 @@ export const readBranchUrlBase = async (refs: Refs): Promise<string> => {
  * Runs the fleet scan once and reads the facts that travel with its pulse.
  *
  * Spends the PR listing only where `listingSpend` permits, hands the scan the
- * two cost caches in `state`, and carries whatever `terminal:`/`listing:`
- * lines it streamed back into `state` whether the scan completes or is
- * killed at its budget — a kill has reported some entries before it died,
- * and dropping that would force the next scan to start cold on both caches.
- * `state.pulse` is a different matter: it is read by the caller only after
- * this function returns, so a throw here never touches it.
+ * two cost caches in `state`, and writes the `terminal:`/`listing:` lines the
+ * scan streamed back into `state`. A completed scan replaces `terminal` and,
+ * where it fetched, `listing`. A scan that throws (budget timeout or failure)
+ * or ends without its reading merges its streamed terminal rows into `terminal` by branch name, and
+ * replaces `listing` only where the streamed listing ends with `.list-arrived`.
  *
  * @param world - what the scan reads through.
- * @param state - the caches carried between scans; `terminal`/`listing`/
- *   `listingAt`/`listingBranches` are mutated whenever the scan streamed
- *   something worth keeping, win or throw; `listingIntervalMs` and
- *   `listingReusedAgeMs` always record the verdict.
+ * @param state - the caches carried between scans; `terminal`, `listing`,
+ *   `listingAt` and `listingBranches` are mutated as above, on success or
+ *   throw; `listingIntervalMs` and `listingReusedAgeMs` record the verdict.
  * @param options - whether the script records, and a hook on every raw line.
  * @returns the pulse and the facts read beside it.
  * @throws where the scan fails, times out, or ends without its terminal line.
@@ -370,7 +396,7 @@ export const scanOnce = async (
   }
   const reusing = !spend && state.listing !== '';
   state.listingReusedAgeMs = reusing ? reusedAgeMs : null;
-  let killed = false;
+  let ended = false;
   try {
     await world.scripts.stream(FLEET_SCAN, ['--stream'],
       (line) => {
@@ -397,21 +423,14 @@ export const scanOnce = async (
           if (line.startsWith('listing:')) listed += `${line.slice('listing:'.length).trim()}\n`;
         },
       });
-  } catch (err) {
-    killed = true;
-    throw err;
+    ended = true;
   } finally {
-    // A kill (budget timeout or otherwise) still streamed real, host-charged
-    // terminal:/listing: lines before it died; carrying them into state here —
-    // win or throw — is what lets the next scan start warm instead of cold.
-    // On a clean run `learned` is always the WHOLE map the script re-reports
-    // (plot-fleet-scan.sh's own contract), so an empty string there is a real
-    // answer and still replaces `state.terminal` as it always has. Only a
-    // kill may leave `learned` partial-but-truthful or entirely empty before
-    // any branch resolved — and only then does an empty `learned` mean
-    // "nothing new," not "the map is now empty," so the prior cache survives.
-    if (!killed || learned !== '') state.terminal = learned;
-    if (!reusing && listed !== '') {
+    // A scan that ended with its reading replaces the terminal map; any other
+    // merges what it streamed. Any other adopts its listing only where the
+    // listing ends with `.list-arrived`.
+    const whole = ended && parsed !== null;
+    state.terminal = whole ? learned : mergeTerminal(state.terminal, learned);
+    if (!reusing && listed !== '' && (whole || listingEnded(listed))) {
       state.listing = listed;
       state.listingAt = Date.now();
       state.listingBranches = listedBranchCount(listed) ?? state.listingBranches;
