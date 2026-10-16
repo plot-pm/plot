@@ -95,7 +95,12 @@ export const call = async (credential, method, route, body) => {
  * prefix, since each of the three identities refuses differently.
  */
 export const installationToken = async (app, repo) => {
-  const jwt = appJwt(app);
+  let jwt;
+  try {
+    jwt = appJwt(app);
+  } catch {
+    return { token: undefined, error: `App ${app.appId}'s key failed to sign a JWT` };
+  }
   const installation = await call(jwt, 'GET', `repos/${repo}/installation`);
   if (!installation.body.id) {
     return { token: undefined, error: `App ${app.appId} has no installation on ${repo} (HTTP ${installation.status})` };

@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync as fsExistsSync, mkdtempSync, readdirSync as fsReaddirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -105,6 +105,17 @@ test('push-main: classify calls unrecognised remote output unknown, never clean'
 
 test('push-main: classify calls a non-zero exit rejected', () => {
   assert.equal(classify(1, 'remote: anything at all'), 'rejected');
+});
+
+// Exit 3 (repo unresolvable or the App token exchange failed) and exit 4 (a
+// malformed or unreadable key) are refusals a retry cannot clear — distinct
+// from `rejected`, which a retry against a fresh base can.
+test('push-main: classify calls exit 3 refused', () => {
+  assert.equal(classify(3, 'anything'), 'refused');
+});
+
+test('push-main: classify calls exit 4 refused', () => {
+  assert.equal(classify(4, 'anything'), 'refused');
 });
 
 // A loose pattern would file ordinary remote chatter as a protection bypass,
@@ -232,8 +243,12 @@ test('push-main: a declared, readable Writer app key takes the App path, never t
   writeFileSync(path.join(work, 'CLAUDE.md'), `## Plot Config\n\n- **Writer app:** 999001 ${keyPath}\n`);
   const before = mainLog(bare);
   const r = pushGithub(work);
-  assert.notEqual(r.code, 0);
+  // Tightened from notEqual(r.code, 0): a bare non-zero check would still pass
+  // if a future regression silently shifted this exit code, which is exactly
+  // the App-exchange failure plot-push-writer-app.mjs:60 names as exit 3.
+  assert.equal(r.code, 3);
   assert.match(r.stderr, /App 999001 has no installation on example\/repo/, 'the token exchange ran');
+  assert.match(r.stderr, /^push: refused/m);
   assert.doesNotMatch(r.stderr, /not configured/);
   assert.equal(mainLog(bare), before, 'no ambient push happened after the App path failed');
 });
@@ -267,5 +282,64 @@ test('push-main: a malformed Writer app key refuses with exit 4 and pushes nothi
   assert.equal(helperRes.status, 4);
   assert.match(helperRes.stderr, /needs a 'Writer app' key/);
   assert.notEqual(pushGithub(work).code, 0);
+  assert.equal(mainLog(bare), before);
+});
+
+// A CONFIGURED CREDENTIAL HELPER MUST NOT BE A SECOND SOURCE. A helper that
+// answers before GIT_ASKPASS is ever consulted would let an ambient
+// credential push instead of (or alongside) the App's installation token.
+// `git -c credential.helper=` on the push call overrides any helper for that
+// one invocation — proved here by a helper that, if consulted, would record
+// the fact and supply a bogus credential of its own.
+test('push-main: a configured credential helper is not consulted during the App push', () => {
+  const { dir, work, bare } = githubRepo(null);
+  const keyPath = throwawayKey(dir);
+  writeFileSync(path.join(work, 'CLAUDE.md'), `## Plot Config\n\n- **Writer app:** 999001 ${keyPath}\n`);
+
+  const sentinel = path.join(dir, 'helper-was-called');
+  const helperScript = path.join(dir, 'nosy-credential-helper.sh');
+  writeFileSync(
+    helperScript,
+    `#!/bin/sh\ntouch "${sentinel}"\necho "username=bogus"\necho "password=bogus-token"\n`,
+    { mode: 0o755 },
+  );
+  git(work, 'config', 'credential.helper', helperScript);
+
+  pushGithub(work);
+  assert.equal(fsExistsSync(sentinel), false, 'the configured credential helper must not run during the App push');
+});
+
+// FINDING #2: the token directory is removed on every exit path, including a
+// refuse() after it was created. The App-path refusal here (exit 3, no
+// installation) happens AFTER `dir` is created at plot-push-writer-app.mjs:62
+// — this proves the `finally` still fires via the process's own exit, by
+// checking no stray `plot-writer-app-*` directory from this run survives.
+test('push-main: the token directory does not survive an App-path refusal', () => {
+  const { work } = githubRepo(null);
+  const before = new Set(fsReaddirSync(tmpdir()).filter((n) => n.startsWith('plot-writer-app-')));
+  const keyPath = throwawayKey(path.dirname(work));
+  writeFileSync(path.join(work, 'CLAUDE.md'), `## Plot Config\n\n- **Writer app:** 999001 ${keyPath}\n`);
+  pushGithub(work);
+  const after = fsReaddirSync(tmpdir()).filter((n) => n.startsWith('plot-writer-app-') && !before.has(n));
+  assert.deepEqual(after, [], 'no plot-writer-app- directory survives the refusal');
+});
+
+// FINDING #4: a key file that reads fine but whose contents fail to sign
+// (the POST-exchange case — resolveApp only checks the file is readable)
+// resolves through installationToken to a named error, not an unhandled
+// rejection. The pre-exchange case (resolveApp's own read check) is covered
+// above by the unreadable-key and malformed-CLAUDE.md tests.
+test('push-main: a readable but non-PEM Writer app key is caught and named, not thrown', () => {
+  const { dir, work, bare } = githubRepo(null);
+  const before = mainLog(bare);
+  const notAPem = path.join(dir, 'not-a-pem.pem');
+  writeFileSync(notAPem, 'this is not a PEM-encoded key\n');
+  writeFileSync(path.join(work, 'CLAUDE.md'), `## Plot Config\n\n- **Writer app:** 999001 ${notAPem}\n`);
+
+  const r = pushGithub(work);
+  assert.equal(r.code, 3);
+  assert.match(r.stderr, /App 999001/);
+  assert.match(r.stderr, /key failed to sign/);
+  assert.match(r.stderr, /^push: refused/m);
   assert.equal(mainLog(bare), before);
 });

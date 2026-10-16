@@ -73,7 +73,10 @@ try {
     { mode: 0o700 },
   );
 
-  const result = spawnSync('git', ['push', 'origin', `${branch}:${defaultBranch}`], {
+  // `-c credential.helper=` clears any helper the host machine has configured
+  // for this one invocation only — so an ambient credential cannot supply a
+  // second, uncontrolled source alongside (or instead of) the askpass token.
+  const result = spawnSync('git', ['-c', 'credential.helper=', 'push', 'origin', `${branch}:${defaultBranch}`], {
     env: { ...process.env, GIT_ASKPASS: askpass, GIT_TERMINAL_PROMPT: '0' },
     encoding: 'utf8',
   });
