@@ -104,8 +104,13 @@ export const buildJenkins = (context: ShellContext): BuildPort => {
 
     runs: (branch, limit): Promise<PortResult<readonly BuildRun[]>> => reads.runs(branch, limit),
 
-    runForSha: (branch, sha, limit): Promise<PortResult<ShaRun | null>> =>
-      reads.runForSha(branch, sha, limit),
+    runForSha: async (branch, sha, limit): Promise<PortResult<ShaRun | null>> => {
+      const run = await reads.runForSha(branch, sha, limit);
+      if (!run.ok) return run;
+      return answered(
+        run.value === null ? null : { ...run.value, conclusion: jenkinsConclusion(run.value.conclusion) },
+      );
+    },
 
     runsForSha: async (branch, sha): Promise<PortResult<readonly WorkflowShaRun[]>> => {
       const listing = await reads.runsForSha(branch, sha);
