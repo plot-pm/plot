@@ -1005,10 +1005,10 @@ export const prNextDueAt = (
  * answer is configuration: it changes when a human edits `CLAUDE.md`, and a
  * board that outlives that edit is a board that has been restarted.
  *
- * A failure resolves to `github`, the cost-1 default. The consequence of
- * guessing wrong in that direction is the cadence this file had yesterday, and
- * the consequence of guessing wrong in the other is a board that refreshes
- * three times slower than it needs to on the host where freshness is cheap.
+ * A failure resolves to `''`, unresolved — distinct from a confirmed `github`
+ * or `bitbucket` answer. Every reader of `entry.backend` falls back to `''`
+ * on the same unresolved case, which readers already treat as "ask nothing"
+ * or "cost one," never as a crash.
  * The error is not surfaced because there is nothing for a reader to do about
  * it: unlike a PR fetch, this failing produces no wrong CLAIM on the page.
  */
@@ -1018,13 +1018,13 @@ export const resolveBackend = async (
   if (entry.backend !== null) return entry.backend;
   try {
     const answer = await host.backend();
-    entry.backend = answer.ok ? answer.value : 'github';
+    entry.backend = answer.ok ? answer.value : '';
   } catch {
-    entry.backend = 'github';
+    entry.backend = '';
   }
   // Both arms above assign a string, so this is non-null; the narrowing is lost
   // across the try/catch rather than the value being genuinely unknown.
-  return entry.backend ?? 'github';
+  return entry.backend ?? '';
 };
 
 /**

@@ -103,7 +103,9 @@ describe('the no-fleet issue read keeps its own gate in memory', () => {
 
     await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
 
-    expect(entry.issueConnector).toBe('github');
+    // `entry.backend` was never resolved (null), so the connector this read
+    // names is '' — unresolved, not a guessed 'github'.
+    expect(entry.issueConnector).toBe('');
     // One open page and one closed page.
     expect(entry.issueRequests).toBe(2);
     expect(entry.issueBackoffUntil).toBeNull();

@@ -237,6 +237,24 @@ describe('entry.waiting — set beside entry.issues, not derived from its capped
     expect(entry.waiting?.complete).toBe(true);
   });
 
+  it('accounts for every row under an unresolved backend, with entry.issues still holding the 50-row cap', async () => {
+    const dir = fixture(60);
+    const entry = freshCacheEntry();
+    entry.backend = '';
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    // An unresolved backend matches no host lister, so `ticketSourceOf`
+    // answers null and the reader is unmatched — `waitingTickets` falls back
+    // to showing every row rather than silently matching GitHub logins.
+    expect(entry.issues).toHaveLength(50);
+    expect(entry.waiting).not.toBeNull();
+    expect(entry.waiting?.tickets).toHaveLength(50);
+    expect(entry.waiting?.shown).toBe(60);
+    expect(entry.waiting?.hidden).toBe(0);
+    expect(entry.waiting?.complete).toBe(true);
+  });
+
   it('sets entry.waiting to null for a nobody source, beside entry.issues', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-waiting-nobody-'));
     dirs.push(dir);
