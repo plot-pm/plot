@@ -129,6 +129,37 @@ describe('Jenkins word mapping', () => {
   });
 });
 
+describe('buildJenkins.runForSha', () => {
+  it.each([
+    ['SUCCESS', 'success'],
+    ['FAILURE', 'failure'],
+  ] as const)('maps a raw %s run to %s', async (word, mapped) => {
+    const run = JSON.stringify({ sha: SHA, status: 'completed', conclusion: word, url: 'u', startedAt: 't' });
+    const result = await buildJenkins(hostThat(`printf '%s' '${run}'`)).runForSha('main', SHA);
+    expect(result).toEqual({
+      ok: true,
+      value: { sha: SHA, status: 'completed', conclusion: mapped, url: 'u', startedAt: 't' },
+    });
+  });
+
+  it('reads a NOT_BUILT run as unknown, not as passed', async () => {
+    const run = JSON.stringify({ sha: SHA, status: 'completed', conclusion: 'NOT_BUILT', url: 'u', startedAt: 't' });
+    const result = await buildJenkins(hostThat(`printf '%s' '${run}'`)).runForSha('main', SHA);
+    expect(result.ok && result.value?.conclusion).toBe('unknown');
+  });
+
+  it('keeps a null conclusion null: a build still running must not settle', async () => {
+    const run = JSON.stringify({ sha: SHA, status: 'in_progress', conclusion: null, url: 'u', startedAt: 't' });
+    const result = await buildJenkins(hostThat(`printf '%s' '${run}'`)).runForSha('main', SHA);
+    expect(result.ok && result.value?.conclusion).toBeNull();
+  });
+
+  it('reads no runs at all (empty stdout) as null, not as a run', async () => {
+    const result = await buildJenkins(hostThat(`true`)).runForSha('main', SHA);
+    expect(result).toEqual({ ok: true, value: null });
+  });
+});
+
 describe('the other builds', () => {
   it('buildNone cannot be asked', async () => {
     expect(await buildNone().runsForSha('main', SHA)).toEqual({ ok: false, why: 'unaskable' });

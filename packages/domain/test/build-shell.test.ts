@@ -444,6 +444,11 @@ describe('the jenkins connector answers through plot-host.sh', () => {
     // THIS TEST ASSERTED `unaskable` UNTIL 2026-09-11, when `plot-host.sh`
     // learned Jenkins' REST route. The refusal was honest for the transport it
     // had — `jen` carries no commit — and what changed is the transport.
+    //
+    // It asserted the raw `SUCCESS` word verbatim until 2026-10-16, when
+    // `runForSha` started mapping through `jenkinsConclusion`, the same
+    // mapping `runsForSha` already applied — the raw word is what left a
+    // Jenkins fleet agent's CI wait never settling.
     const answer = await buildJenkins(
       hostThat(
         `printf '%s\\n' '{"sha":"b0a2517","status":"completed","conclusion":"SUCCESS",` +
@@ -456,7 +461,7 @@ describe('the jenkins connector answers through plot-host.sh', () => {
       value: {
         sha: 'b0a2517',
         status: 'completed',
-        conclusion: 'SUCCESS',
+        conclusion: 'success',
         url: 'https://jenkins.invalid/job/x/187/',
         startedAt: '2026-09-10T07:16:52Z',
       },

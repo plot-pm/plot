@@ -1,18 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 
 import { agentLoop, type AgentLoopReadings } from '../src/workflows/agent-loop.js';
 import { backgroundDropCorrection } from '../src/rules/background-drop.js';
 import type { Write } from '../src/workflows/decision.js';
 import { supervise } from '../src/workflows/supervise.js';
-import { checksFromRuns } from '../src/rules/checks-verdict.js';
+import { buildFindingFor, checksFromRuns } from '../src/rules/checks-verdict.js';
+import { buildJenkins } from '../src/adapters/build/build-jenkins.js';
 import type { SupervisionReadings } from '../src/rules/supervision.js';
 import { deskLifecycle, type DeskReadings as LifecycleDeskReadings } from '../src/rules/desk-lifecycle.js';
 import { endingIsAttributable, isDecision, isRefusal } from '../src/transitions/agent.js';
 import { readDeclaration } from '../src/entities/declaration.js';
 import { performDecision } from '../src/adapters/performer/perform-fs.js';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ShellContext } from '../src/adapters/scripts.js';
 
 const BRANCH = 'infra/the-loop-has-a-workflow';
 const WORKTREE = '/estate/.worktrees/infra-the-loop-has-a-workflow';
@@ -60,6 +62,24 @@ const freeLoop: AgentLoopReadings = {
   worktree: WORKTREE,
   session: SESSION,
 };
+
+const jenkinsHostRoots: string[] = [];
+
+/** A context whose `plot-host.sh` is the given body, as `build-runs-for-sha.test.ts` builds one. */
+const jenkinsHostThat = (body: string): ShellContext => {
+  const root = mkdtempSync(join(tmpdir(), 'plot-agent-loop-jenkins-'));
+  jenkinsHostRoots.push(root);
+  const scriptDir = join(root, 'scripts');
+  mkdirSync(scriptDir);
+  const file = join(scriptDir, 'plot-host.sh');
+  writeFileSync(file, `#!/usr/bin/env bash\n${body}\n`);
+  chmodSync(file, 0o755);
+  return { repoRoot: root, scriptDir };
+};
+
+afterAll(() => {
+  for (const dir of jenkinsHostRoots) rmSync(dir, { recursive: true, force: true });
+});
 
 const kindsOf = (writes: readonly Write[]) => writes.map((w) => w.kind);
 
@@ -1176,6 +1196,102 @@ describe('agentLoop — row 18: the remote tip cannot be read', () => {
       tip: 'unknown',
     });
     expect(endWrite(result.writes)?.detail).toBe('no-answer');
+  });
+});
+
+describe('agentLoop — Jenkins run-for-sha conclusion settles the CI wait', () => {
+  const PUSHED_SHA = 'f743e5730000000000000000000000000000000';
+
+  it('a raw SUCCESS run from the Jenkins connector settles to build passed', async () => {
+    const raw = JSON.stringify({
+      sha: PUSHED_SHA,
+      status: 'completed',
+      conclusion: 'SUCCESS',
+      url: 'https://jenkins.invalid/job/1',
+      startedAt: '2026-10-16T10:00:00.000Z',
+    });
+    const run = await buildJenkins(jenkinsHostThat(`printf '%s' '${raw}'`)).runForSha('main', PUSHED_SHA);
+    expect(run.ok && run.value?.conclusion).toBe('success');
+
+    const checks = checksFromRuns({
+      pushedSha: PUSHED_SHA,
+      run: run.ok ? run.value : null,
+      tip: 'pushed',
+      waitedSeconds: 0,
+      boundSeconds: 3600,
+    });
+    expect(checks).toBe('settled');
+    expect(run.ok && run.value !== null && buildFindingFor(run.value)?.finding).toBe('build passed');
+
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks,
+      checksPassed: true,
+    });
+    expect(declarationWrite(result.writes)?.status).toBe('ok');
+    expect(endWrite(result.writes)).toBeUndefined();
+  });
+
+  it('a raw FAILURE run from the Jenkins connector settles to build failed', async () => {
+    const raw = JSON.stringify({
+      sha: PUSHED_SHA,
+      status: 'completed',
+      conclusion: 'FAILURE',
+      url: 'https://jenkins.invalid/job/2',
+      startedAt: '2026-10-16T10:00:00.000Z',
+    });
+    const run = await buildJenkins(jenkinsHostThat(`printf '%s' '${raw}'`)).runForSha('main', PUSHED_SHA);
+    expect(run.ok && run.value?.conclusion).toBe('failure');
+
+    const checks = checksFromRuns({
+      pushedSha: PUSHED_SHA,
+      run: run.ok ? run.value : null,
+      tip: 'pushed',
+      waitedSeconds: 0,
+      boundSeconds: 3600,
+    });
+    expect(checks).toBe('settled');
+    expect(run.ok && run.value !== null && buildFindingFor(run.value)?.finding).toBe('build failed');
+
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks,
+      checksPassed: false,
+      correctionAttempts: 0,
+      correctionBudget: 2,
+      correctionText: 'the build failed',
+      resumeId: 'resume-abc',
+    });
+    expect(result.writes.some((w) => w.kind === 'agent-resume')).toBe(true);
+  });
+
+  it('a null conclusion (still building) never settles the wait', async () => {
+    const raw = JSON.stringify({
+      sha: PUSHED_SHA,
+      status: 'in_progress',
+      conclusion: null,
+      url: 'https://jenkins.invalid/job/3',
+      startedAt: '2026-10-16T10:00:00.000Z',
+    });
+    const run = await buildJenkins(jenkinsHostThat(`printf '%s' '${raw}'`)).runForSha('main', PUSHED_SHA);
+    expect(run.ok && run.value?.conclusion).toBeNull();
+
+    const checks = checksFromRuns({
+      pushedSha: PUSHED_SHA,
+      run: run.ok ? run.value : null,
+      tip: 'pushed',
+      waitedSeconds: 0,
+      boundSeconds: 3600,
+    });
+    expect(checks).toBe('wait');
   });
 });
 
