@@ -1278,8 +1278,7 @@ pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host 
     # already composed its report and its repair line; that text is spooled
     # here only so the state's name can be added to it before it is passed on.
     _raw="$(pr_list_call "$@" --state "$_s" --json 2>"$_tmp")"; _rc=$?
-    BB_LIST_NEXT="$(cat "$BB_LIST_NEXT_FILE" 2>/dev/null)"; _err="$(cat "$_tmp" 2>/dev/null)"
-    rm -f "$BB_LIST_NEXT_FILE" "$_tmp"
+    BB_LIST_NEXT="$(cat "$BB_LIST_NEXT_FILE" 2>/dev/null)"; _err="$(cat "$_tmp" 2>/dev/null)"; rm -f "$BB_LIST_NEXT_FILE" "$_tmp"
     if [ "$_rc" -ne 0 ]; then
       # THE HOST'S OWN REPORT GOES FIRST AND IS NEVER PREFIXED. `pr_list_failed`
       # already composed the sentence that says WHY — a spent quota, a burst
