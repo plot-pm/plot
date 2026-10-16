@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Issue:** #1724
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-15, Jan Wloka, `feature/review-judges-the-pr-base`
 - **Started:** 2026-10-15, Jan Wloka, `feature/review-refuses-a-tracked-dir`
 - **Delivered:** 2026-10-16
+- **Released:** 2026-10-16, v2.27.1
 
 ## Changelog
 
