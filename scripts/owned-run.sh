@@ -213,6 +213,20 @@ report_leaks() {
   printf '%s\n' "$listing" | while IFS= read -r entry; do
     [ -n "$entry" ] || continue
     printf '  %s\n' "${entry##*/}" >&2
+    # WHAT IS INSIDE, AND WHO MADE IT. A box from `boxedDir` holds a
+    # `.plot-test-box` naming its test file and caller. A box that lost the
+    # marker was removed and then written again, and its paths and their
+    # modification times name what wrote it.
+    [ -d "$entry" ] || continue
+    if [ -f "$entry/.plot-test-box" ]; then
+      sed 's/^/    made by: /' "$entry/.plot-test-box" >&2
+    else
+      echo "    made by: no .plot-test-box in it (not a boxedDir box, or written again after removal)" >&2
+    fi
+    # GNU `ls` takes `--full-time` and BSD `ls` takes `-T`; both print seconds.
+    { find "$entry" -mindepth 1 -maxdepth 4 -exec ls -ld --full-time {} + 2>/dev/null \
+      || find "$entry" -mindepth 1 -maxdepth 4 -exec ls -ldT {} + 2>/dev/null; } \
+      | head -40 | sed 's/^/    holds: /' >&2
   done
   echo "=== worker logs left behind ===" >&2
   find "$root" -name '.plot-worker*.log' 2>/dev/null | head -20 | while IFS= read -r log; do
