@@ -69,7 +69,7 @@ Each fix follows the layering rule: the decision lives in the domain, `plot-host
 
 ### Closed set
 
-- `feature/the-closed-set-answers-for-itself` — move the closed read's `unsupported` reason off `state.issueError`
+- `feature/the-closed-set-answers-for-itself` — move the closed read's `unsupported` reason off `state.issueError` → #1935
 
 ### Coverage
 
