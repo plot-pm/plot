@@ -375,6 +375,7 @@ describe('the closed set of the index', () => {
     expect(index?.closed?.answer).toBe('unsupported');
     expect(index?.closed?.rows).toBeUndefined();
     expect(index?.answer).toBe('answered');
+    expect(state.issueError).toBeNull();
   });
 });
 
@@ -658,14 +659,16 @@ describe('a source that cannot be asked (M3)', () => {
   it('keeps a reason sentence, never the word unsupported, where the git host cannot list issues', async () => {
     const { dir } = fakeHost({ code: 4 });
     const store = issueIndexFile({ home: storeHome() });
-    await refreshIssueIndex(worldOf(dir, store, { gitHost: 'bitbucket' }), freshIssueState());
+    const state = freshIssueState();
+    await refreshIssueIndex(worldOf(dir, store, { gitHost: 'bitbucket' }), state);
     const index = await onDisk(store);
     expect(index?.answer).toBe('unsupported');
     expect(index?.reason).toBe('the git host `bitbucket` lists no issues');
     expect(index?.backoffUntil).toBeNull();
+    expect(state.issueError).toBeNull();
   });
 
-  it('keeps the sentence the exit 4 stated over its own substitute', async () => {
+  it('keeps the sentence the exit 4 stated over its own substitute, and leaves issueError null — unsupported is not a failure', async () => {
     const { dir } = fakeHost({ stderr: 'plot-host: bitbucket has no issue listing', code: 4 });
     const store = issueIndexFile({ home: storeHome() });
     const state = freshIssueState();
@@ -673,7 +676,7 @@ describe('a source that cannot be asked (M3)', () => {
     const index = await onDisk(store);
     expect(index?.answer).toBe('unsupported');
     expect(index?.reason).toBe('bitbucket has no issue listing');
-    expect(state.issueError).toBe('bitbucket has no issue listing');
+    expect(state.issueError).toBeNull();
     expect(index?.backoffUntil).toBeNull();
   });
 
