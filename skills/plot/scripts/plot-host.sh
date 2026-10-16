@@ -1161,7 +1161,10 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
 #
 # ONE PAGE, AS BEFORE. 50 is the endpoint's `pagelen` ceiling and the limit
 # `bb_paginate` applied, so a state holding more than 50 rows answers with its
-# 50 most recent here too, and `pr_list_report_truncation` still says so.
+# 50 most recent here too, and `pr_list_report_truncation` still says so —
+# unless the envelope itself has no `next`, which it reads back from
+# `BB_LIST_NEXT_FILE` (`pr_list_states` sets the path; this runs in that call's
+# own subshell, so a global here would never reach the caller).
 #
 # THE HOST'S FAILURE TEXT AND EXIT CODE LEAVE UNTOUCHED, as in
 # `bb_branch_query`: `pr_list_call` classifies once, so a `429` still reads as
@@ -1177,6 +1180,11 @@ bb_state_listing() { # global bb args… --state <s> --json → one JSON array
   done
   [ -n "$_st" ] || die "bb_state_listing: no --state"
   _out="$(bb ${_args[@]+"${_args[@]}"} api "/repositories/{ws}/{repo}/pullrequests?state=$(bb_query_state "$_st")&pagelen=$BB_LIST_PAGELEN")" || return $?
+  if [ -n "${BB_LIST_NEXT_FILE:-}" ]; then
+    printf '%s' "$_out" \
+      | jq -r 'if (type == "object") and has("values") then (if has("next") then "1" else "0" end) else "" end' \
+      > "$BB_LIST_NEXT_FILE"
+  fi
   printf '%s' "$_out" | jq -c '.values // []'
 }
 
@@ -1206,6 +1214,15 @@ PR_LIST_BRANCHES=""
 # is a sweep would put a backend's shape inside the one piece of this file that
 # has none."
 PR_LIST_SINCE=""
+
+# Whether the last state's `bb_state_listing` page carried a `next` key: "1"
+# present, "0" absent-from-an-envelope, "" no envelope shape at all (so
+# `pr_list_report_truncation` reads nothing from it and the version-table
+# fallback decides). `pr_list_states` reads this back from a per-state temp
+# file after each call returns — `bb_state_listing` runs inside that call's own
+# subshell and cannot set a global its caller would see, the same trap
+# `pr_list_call`'s header names for `die`.
+BB_LIST_NEXT=""
 
 # How many branches the last sweep asked about, and how many answered.
 #
@@ -1265,11 +1282,19 @@ pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host 
   local _s _raw _rc _err _tmp _ok=0 _failed=0 _first_rc=0 _failed_states=""
   for _s in $states; do
     plot_tmpfile _tmp "host-prlist-state-err-$_s" || return 3
+    # `bb_state_listing` RUNS INSIDE THE SUBSTITUTION BELOW, its own subshell,
+    # so a variable it sets cannot reach this one — the same trap `pr_list_call`
+    # warns about for `die`. `BB_LIST_NEXT_FILE` is the channel out: a fresh
+    # temp path per state, emptied before the call, read back once the
+    # substitution has returned.
+    plot_tmpfile BB_LIST_NEXT_FILE "host-prlist-next-$_s" || return 3
+    : > "$BB_LIST_NEXT_FILE"
     # THE SUBSHELL'S CODE IS THE ONLY CHANNEL OUT, so it is captured rather
     # than propagated. `pr_list_failed` runs INSIDE the substitution and has
     # already composed its report and its repair line; that text is spooled
     # here only so the state's name can be added to it before it is passed on.
     _raw="$(pr_list_call "$@" --state "$_s" --json 2>"$_tmp")"; _rc=$?
+    BB_LIST_NEXT="$(cat "$BB_LIST_NEXT_FILE" 2>/dev/null)"; rm -f "$BB_LIST_NEXT_FILE"
     _err="$(cat "$_tmp" 2>/dev/null)"; rm -f "$_tmp"
     if [ "$_rc" -ne 0 ]; then
       # THE HOST'S OWN REPORT GOES FIRST AND IS NEVER PREFIXED. `pr_list_failed`
@@ -1307,7 +1332,7 @@ pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host 
     # `PR_LIST_SINCE`; the GitHub arm carries its window as `--search`.
     [ -n "$PR_LIST_BRANCHES" ] || [ -n "$PR_LIST_SINCE" ] \
       || pr_list_report_truncation "$backend" "$limit" "$_s" \
-      "$(jq 'length' <<<"$_raw" 2>/dev/null || echo 0)"
+      "$(jq 'length' <<<"$_raw" 2>/dev/null || echo 0)" "$BB_LIST_NEXT"
     printf '%s' "$_raw" | jq -c ${PR_LIST_JQ_ARGS[@]+"${PR_LIST_JQ_ARGS[@]}"} "$jq_prog"
   done
   pr_sweep_report "$_ok" "$((_ok + _failed))"
@@ -2801,11 +2826,28 @@ bb_list_page_length() {
 # never see both for one state, and silence now means only that no claim was
 # owed — no `--limit`, or an empty page.
 #
+# THE ENVELOPE'S OWN `next` SUPERSEDES THE PAGE-LENGTH TEST, for any `bb`
+# version. #1757: `BB_LIST_PAGE_VERSIONS` names only versions this estate has
+# measured, so a page from any other version (1.11.1 included) could never be
+# proven complete by row count alone — 9 rows with no `next` read as "possibly
+# truncated" even though the envelope already answered. A page WITH `next`
+# proves nothing either way (Bitbucket could in principle set it with zero rows
+# left), so it falls through to the length test exactly as before. Absence,
+# never presence, is the signal — `$5` is "0" only when `bb_state_listing` read
+# an envelope with no `next` key; "1" means `next` was present; "" means no
+# envelope shape was read at all, and the version table alone decides, as
+# before this slice.
+#
 # $1 backend  $2 requested limit (may be "")  $3 state word  $4 row count
+# $5 envelope's own completeness reading: "0" no next, "1" next present, ""
+#    unknown (`BB_LIST_NEXT`, bitbucket only — github's listing carries none)
 pr_list_report_truncation() {
-  local be="$1" limit="$2" state="$3" count="$4" len=""
+  local be="$1" limit="$2" state="$3" count="$4" next="${5:-}" len=""
   [ -n "$limit" ] || return 0            # no --limit → no completeness claim owed
   [ "$count" -gt 0 ] 2>/dev/null || return 0   # an empty page had nothing to hide
+  if [ "$be" = "bitbucket" ] && [ "$next" = "0" ]; then
+    pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0
+  fi
   if [ "$be" = "github" ]; then
     # github honours the limit: complete unless the page came back AT the limit.
     # Measured 2026-10-02 on this repository (1064 PRs): `--limit 1100`
