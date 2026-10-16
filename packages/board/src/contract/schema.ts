@@ -3848,6 +3848,12 @@ export const AgentEntrySchema = z.object({
    */
   contextSpend: z.number().optional(),
   lastActivity: z.string().optional(),
+  /**
+   * Where the desk belongs once its loop has ended, from `endedDeskPlacement`.
+   * Absent where no ending record was read, which keeps the entry's placement
+   * unchanged; `owesPerson: false` removes the entry from Waiting on you.
+   */
+  ended: z.object({ owesPerson: z.boolean(), note: z.string() }).optional(),
 });
 export type AgentEntry = z.infer<typeof AgentEntrySchema>;
 

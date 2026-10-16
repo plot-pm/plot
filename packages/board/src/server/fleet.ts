@@ -1,3 +1,4 @@
+import { withEndedDesks } from './ended-desks.js';
 import { RELEASE_BRANCH, issueKey, sectionKey, type FleetWaiting } from '../contract/schema.js';
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -4354,7 +4355,7 @@ const rowQuietKind = (
   fetchAt: number | null = null,
 ): QuietKind | null => {
   if (closed) return quietKind(closedReadings());
-  if (group !== 'waiting-on-you') return null;
+  if (group !== 'waiting-on-you' && group !== 'quiet') return null;
   // ABSENT IS THE ONLY ANSWER THAT REACHES THE FALLTHROUGH. Every other worker
   // state is handled by an arm above it, and each of those means something ran.
   if (worker !== 'none' && worker !== 'elsewhere') return null;
@@ -7150,7 +7151,7 @@ export async function buildFleet(
     // Beside `rows`, never derived from them: a row is a branch that mentions an
     // agent, this is an agent that mentions a branch. A running worker appears
     // in both and is not duplicated — the entities differ.
-    agents: entry.agents,
+    agents: withEndedDesks(entry.agents, placedRows),
     // Metadata about the registry read — directory, manifest count, synthesized
     // count. Makes a synthesized fleet legible: a reader seeing `0 manifests,
     // 12 synthesized` knows the drop menu is absent because the board is reading

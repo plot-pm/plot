@@ -2493,7 +2493,9 @@ export function RegistryRow({
   // `/api/fleet` rather than parsing it (`App.tsx`), so a pulse from before
   // this field existed — or a stubbed route built as a plain object literal —
   // hands this component `undefined` where the declared type says `string`.
-  const note = row
+  const note = agent.ended?.note
+    ? agent.ended.note
+    : row
     ? noteWithoutPr(row.note, row.pr)
     : !identityWasDeclared(agent)
       ? unnamedDeskLabel({ checkout: agent.checkout ?? '', live: isLiveState(agent.state) })
