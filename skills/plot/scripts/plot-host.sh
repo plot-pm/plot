@@ -2826,8 +2826,8 @@ bb_list_page_length() {
 #    unknown (`BB_LIST_NEXT`, bitbucket only — github's listing carries none)
 pr_list_report_truncation() {
   local be="$1" limit="$2" state="$3" count="$4" next="${5:-}" len=""
-  [ -n "$limit" ] || return 0            # no --limit → no completeness claim owed
-  [ "$count" -gt 0 ] 2>/dev/null || return 0   # an empty page had nothing to hide
+  # no --limit → no completeness claim owed; an empty page had nothing to hide
+  [ -n "$limit" ] || return 0; [ "$count" -gt 0 ] 2>/dev/null || return 0
   if [ "$be" = "github" ]; then
     # github honours the limit: complete unless the page came back AT the limit.
     # Measured 2026-10-02 on this repository (1064 PRs): `--limit 1100`
