@@ -2846,12 +2846,11 @@ pr_list_report_truncation() {
     # its limit is the whole list and asking generously costs the rows that
     # exist rather than the rows requested.
     if [ "$count" -lt "$limit" ] 2>/dev/null; then pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0; fi
-  elif [ "$next" = "0" ]; then
-    pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0
   else
-    # A fixed page: complete below a measured page length, unprovable otherwise.
-    len="$(bb_list_page_length)"
-    if [ -n "$len" ] && [ "$count" -lt "$len" ] 2>/dev/null; then pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0; fi
+    # A fixed page: complete below a measured length, or whose own envelope
+    # named no further page — unprovable otherwise.
+    [ "$next" = "0" ] || len="$(bb_list_page_length)"
+    if [ "$next" = "0" ] || { [ -n "$len" ] && [ "$count" -lt "$len" ] 2>/dev/null; }; then pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0; fi
   fi
   # Named per state so a caller can resolve exactly the states that were
   # capped, not a whole-call flag that over-reports.
