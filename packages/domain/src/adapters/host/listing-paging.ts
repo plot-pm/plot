@@ -1,4 +1,4 @@
-import type { ListingPaging } from '../../rules/listing-page.js';
+import type { EnvelopeNext, ListingPaging } from '../../rules/listing-page.js';
 
 /**
  * The page length of Bitbucket's plain listing, per `bb` version measured.
@@ -28,4 +28,31 @@ export const listingPagingFor = (backend: string, cliVersion: string): ListingPa
   if (backend === 'github') return { kind: 'honours-limit' };
   const pageLength = backend === 'bitbucket' ? BITBUCKET_PAGE_LENGTHS[cliVersion] : undefined;
   return { kind: 'fixed-page', pageLength: pageLength ?? null };
+};
+
+/**
+ * Reads whether a Bitbucket listing page's own envelope named a further page.
+ *
+ * Mirrors `plot-host.sh`'s `bb_state_listing`: a page carrying both a `values`
+ * key and Bitbucket's own `page` marker is a real paginated envelope, and its
+ * `next` key's presence answers directly, for any `bb` version — `'absent'`
+ * proves the page complete regardless of row count. `page` is required
+ * because a `values`-only shape with no pagination metadata at all never
+ * carries `next` regardless of whether more rows exist, so its absence there
+ * proves nothing; `listingPagingFor`'s version-table fallback decides instead.
+ *
+ * @param page - the raw response `bb api` returned for one state's listing.
+ * @returns `'absent'`, `'present'`, or `'unknown'` where the shape is not a paginated envelope.
+ */
+export const envelopeNextFor = (page: unknown): EnvelopeNext => {
+  if (
+    typeof page !== 'object' ||
+    page === null ||
+    Array.isArray(page) ||
+    !Object.hasOwn(page, 'values') ||
+    !Object.hasOwn(page, 'page')
+  ) {
+    return 'unknown';
+  }
+  return Object.hasOwn(page, 'next') ? 'present' : 'absent';
 };

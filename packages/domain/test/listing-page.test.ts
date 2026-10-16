@@ -36,6 +36,16 @@ describe('a listing page is possibly truncated', () => {
   it('never calls a page complete under an unmeasured length', () => {
     expect(pagePossiblyTruncated({ limit: 1000, rows: 1, paging: unmeasured })).toBe(true);
   });
+
+  it('is complete on an envelope with no further page, under any paging and row count', () => {
+    expect(pagePossiblyTruncated({ limit: 1000, rows: 100, paging: unmeasured, envelopeNext: 'absent' })).toBe(false);
+    expect(pagePossiblyTruncated({ limit: 1000, rows: 50, paging: fifty, envelopeNext: 'absent' })).toBe(false);
+  });
+
+  it('falls through to paging where the envelope named a further page, or was unread', () => {
+    expect(pagePossiblyTruncated({ limit: 1000, rows: 1, paging: unmeasured, envelopeNext: 'present' })).toBe(true);
+    expect(pagePossiblyTruncated({ limit: 1000, rows: 20, paging: fifty, envelopeNext: 'unknown' })).toBe(false);
+  });
 });
 
 describe('how a listing pages, as the adapter reads it', () => {
