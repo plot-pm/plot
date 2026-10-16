@@ -2906,7 +2906,7 @@ import {
   doubleClaimedBranches,
   fetchPredatesTip,
   quietKind,
-  quietNeedsPerson,
+  quietPlacement,
   reportedCause,
   quietNote,
   readingLoss,
@@ -4180,11 +4180,7 @@ function classifyGroup(
   // *nobody is on this and nobody need be*; done means *this shipped*. Reading
   // one as the other is what put six landed branches under a heading that asks
   // the reader to go and look at them.
-  const group: WaitingGroup = hasMergedPr
-    ? 'done'
-    : !quietNeedsPerson(readings)
-      ? 'quiet'
-      : 'waiting-on-you';
+  const group: WaitingGroup = quietPlacement(readings);
   if (ageMinutes === null) {
     return { group, note: `${abandoned}, age unknown` };
   }
