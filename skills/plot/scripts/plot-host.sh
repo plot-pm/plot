@@ -1162,9 +1162,12 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
 # ONE PAGE, AS BEFORE. 50 is the endpoint's `pagelen` ceiling and the limit
 # `bb_paginate` applied, so a state holding more than 50 rows answers with its
 # 50 most recent here too, and `pr_list_report_truncation` still says so —
-# unless the envelope itself has no `next`, which it reads back from
-# `BB_LIST_NEXT_FILE` (`pr_list_states` sets the path; this runs in that call's
-# own subshell, so a global here would never reach the caller).
+# unless the envelope carries Bitbucket's own `page` marker and no `next`,
+# which it reads back from `BB_LIST_NEXT_FILE` (`pr_list_states` sets the
+# path; this runs in that call's own subshell, so a global here would never
+# reach the caller). `page` is what tells a real paginated envelope from a
+# `values`-only shape that never carries `next` at all regardless of total —
+# the latter proves nothing and must fall through to the version table.
 #
 # THE HOST'S FAILURE TEXT AND EXIT CODE LEAVE UNTOUCHED, as in
 # `bb_branch_query`: `pr_list_call` classifies once, so a `429` still reads as
@@ -1180,7 +1183,7 @@ bb_state_listing() { # global bb args… --state <s> --json → one JSON array
   done
   [ -n "$_st" ] || die "bb_state_listing: no --state"
   _out="$(bb ${_args[@]+"${_args[@]}"} api "/repositories/{ws}/{repo}/pullrequests?state=$(bb_query_state "$_st")&pagelen=$BB_LIST_PAGELEN")" || return $?
-  [ -n "${BB_LIST_NEXT_FILE:-}" ] && printf '%s' "$_out" | jq -r 'if (type=="object") and has("values") then (if has("next") then "1" else "0" end) else "" end' > "$BB_LIST_NEXT_FILE"
+  [ -n "${BB_LIST_NEXT_FILE:-}" ] && printf '%s' "$_out" | jq -r 'if (type=="object") and has("values") and has("page") then (if has("next") then "1" else "0" end) else "" end' > "$BB_LIST_NEXT_FILE"
   printf '%s' "$_out" | jq -c '.values // []'
 }
 

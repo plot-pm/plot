@@ -86,11 +86,21 @@ const page = (backend: Case['backend'], rows: number): string =>
     ? { number: i + 1, title: `PR ${i + 1}`, state: 'OPEN', headRefName: `feature/pr-${i + 1}` }
     : { id: i + 1, title: `PR ${i + 1}`, state: 'OPEN', source: { branch: { name: `feature/pr-${i + 1}` } } }));
 
-/** The raw `bb api` response shape for one case, `next` present or not. */
+/**
+ * The raw `bb api` response shape for one case, `next` present or not.
+ *
+ * Carries `page` alongside `values`, as Bitbucket Cloud's real pagination
+ * envelope always does (`packages/domain/src/adapters/host/listing-paging.ts`'s
+ * `envelopeNextFor`): a `values`-only response with no `page` is a different,
+ * narrower shape that never carries `next` regardless of total, so its
+ * absence there must prove nothing.
+ */
 const bbResponse = (one: Case): string => {
   const rows = page(one.backend, one.rows);
-  if (one.envelope === 'present') return `{"values":${rows},"next":"https://api.bitbucket.org/2.0/next-page"}`;
-  return `{"values":${rows}}`;
+  if (one.envelope === 'present') {
+    return `{"values":${rows},"page":1,"next":"https://api.bitbucket.org/2.0/next-page"}`;
+  }
+  return `{"values":${rows},"page":1}`;
 };
 
 /** Whether the shell reported this case's page as possibly truncated. */
