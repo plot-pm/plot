@@ -58,7 +58,7 @@ Wave order follows the dependency: gap 1 and gap 7 are independent and run first
 
 ### Tracer
 
-- `bug/jenkins-run-for-sha-conclusion` — map the Jenkins result word in `buildJenkins.runForSha` and cover the wait with a worker-loop test (gap 1) <!-- builds: jenkinsConclusion mapping in buildJenkins.runForSha -->
+- `bug/jenkins-run-for-sha-conclusion` → #1895 — map the Jenkins result word in `buildJenkins.runForSha` and cover the wait with a worker-loop test (gap 1) <!-- builds: jenkinsConclusion mapping in buildJenkins.runForSha -->
 
 ### Credentials and default branch
 
