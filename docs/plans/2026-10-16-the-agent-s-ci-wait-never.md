@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-16, Jan Wloka, plan-PR #1868 merged
 - **Started:** 2026-10-16, Jan Wloka, `bug/jenkins-run-for-sha-conclusion`
+- **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-credential-from-env`
 
 ## Changelog
 
