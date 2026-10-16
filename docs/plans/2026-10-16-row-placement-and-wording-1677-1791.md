@@ -54,7 +54,7 @@ Group the work by the component that decides it, not by the issue that reported 
 
 ### Host and wording
 
-- `bug/row-host-unresolved-and-checks-wording` — unresolved git host passes `entry.backend ?? ''`, with cap test (#1679); one shared wording for a missing checks commit (#1546)
+- `bug/row-host-unresolved-and-checks-wording` — unresolved git host passes `entry.backend ?? ''`, with cap test (#1679); one shared wording for a missing checks commit (#1546) → #1933
 
 ### Review follow-ups
 
