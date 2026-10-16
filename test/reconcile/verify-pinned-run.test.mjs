@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { removeTree } from '../../packages/board/test/rm-tree.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.resolve(here, '../../skills/plot/scripts');
@@ -113,6 +114,14 @@ const sandbox = ({ delivered = true, toolsCommitted = true, pushRejects = false 
   const bin = path.join(root, 'bin');
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote]);
   execFileSync('git', ['init', '-q', '-b', 'main', dir]);
+  // No background maintenance: git 2.55 detaches `git maintenance run --auto`
+  // after a commit, fetch or push, and that process writes into the tree while
+  // `cleanup` removes it (#1872). The work repo's config also covers the
+  // worktrees `plot-verify.mjs` adds under it.
+  for (const repo of [remote, dir]) {
+    g(repo, 'config', 'maintenance.auto', 'false');
+    g(repo, 'config', 'gc.auto', '0');
+  }
   g(dir, 'config', 'user.email', 't@example.com');
   g(dir, 'config', 'user.name', 'T');
   g(dir, 'remote', 'add', 'origin', remote);
@@ -171,7 +180,7 @@ const sandbox = ({ delivered = true, toolsCommitted = true, pushRejects = false 
     mergeSha,
     deliverySha,
     driftSha,
-    cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
+    cleanup: () => removeTree(root),
   };
 };
 
