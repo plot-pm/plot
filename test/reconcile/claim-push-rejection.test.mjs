@@ -35,6 +35,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { record, signalOwn } from './own-process.mjs';
 
+// Ends a watcher and its children, then waits for the exit. `runOnce` blocks
+// the event loop, so `exit` can only be observed by awaiting here. The watcher
+// is its own process group (`detached: true`), so a `cp`, `mv`, `node` or
+// `sleep` it started dies with it and cannot touch a path after this returns.
+const stopWatcher = async (watcher) => {
+  if (watcher.exitCode === null && watcher.signalCode === null) {
+    const exited = new Promise((resolve) => watcher.once('exit', resolve));
+    try { process.kill(-watcher.pid, 'SIGKILL'); } catch { watcher.kill('SIGKILL'); }
+    await exited;
+  }
+};
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
 const loop = path.join(scripts, 'plot-worker-loop.sh');
@@ -274,7 +286,7 @@ test('claim push: a stale empty claim with no live holder names the release comm
   }
 });
 
-test('claim push: the manifest naming the rejected branch is cleared, and PLOT_BRANCH no longer runs the previous prompt', () => {
+test('claim push: the manifest naming the rejected branch is cleared, and PLOT_BRANCH no longer runs the previous prompt', async () => {
   // THE `8111e3ec` REPLAY. A loop whose `PLOT_BRANCH` names a FINISHED
   // previous slice is handed a branch whose claim push is rejected. Before
   // this slice, `continue` left `PLOT_BRANCH` naming the previous slice, so
@@ -317,38 +329,44 @@ test('claim push: the manifest naming the rejected branch is cleared, and PLOT_B
     // copies the manifest's content on every change, so the state right after
     // the rejection — cleared, but not yet deleted by the final exit — is
     // still readable once the loop is done.
+    // The copy goes to a temp file in the same directory and is renamed over
+    // the snapshot, so a read never sees a half-written file.
     const snapshotDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-claimrej-snap-'));
-    const snapshot = path.join(snapshotDir, 'manifest.json');
-    const watcher = spawn('bash', ['-c',
-      `while true; do [ -f "$1" ] && cp "$1" "$2" 2>/dev/null; sleep 0.2; done`,
-      'watcher', manifest, snapshot,
-    ], { stdio: 'ignore' });
     try {
-      // `PLOT_BRANCH` NAMES THE FINISHED PREVIOUS SLICE, exactly as a real loop
-      // holds it going into a hop: only a SUCCESSFUL push sets it to the new
-      // branch, so on entry it still carries whatever the agent worked last.
-      runOnce(wt, manifest, { PLOT_BRANCH: 'feature/previous' });
-    } finally {
-      watcher.kill();
-    }
+      const snapshot = path.join(snapshotDir, 'manifest.json');
+      const watcher = spawn('bash', ['-c',
+        `while true; do [ -f "$1" ] && cp "$1" "$2.tmp" 2>/dev/null && mv "$2.tmp" "$2"; sleep 0.2; done`,
+        'watcher', manifest, snapshot,
+      ], { stdio: 'ignore', detached: true });
+      try {
+        // `PLOT_BRANCH` NAMES THE FINISHED PREVIOUS SLICE, exactly as a real loop
+        // holds it going into a hop: only a SUCCESSFUL push sets it to the new
+        // branch, so on entry it still carries whatever the agent worked last.
+        runOnce(wt, manifest, { PLOT_BRANCH: 'feature/previous' });
+      } finally {
+        await stopWatcher(watcher);
+      }
 
-    const runsLog = path.join(wt, 'prompt-runs.log');
-    const runs = fs.existsSync(runsLog) ? fs.readFileSync(runsLog, 'utf8').trim().split('\n').filter(Boolean) : [];
-    assert.deepEqual(runs, [], 'the previous slice\'s prompt must not run again after a rejected hop');
-    // THE PREVIOUS SLICE'S BRANCH, NOT `HEAD`: the JS loop resets the desk onto
-    // the handed branch before its claim push, so `HEAD` moves off it.
-    assert.equal(git(wt, 'log', '-1', '--format=%s', 'feature/previous').trim(), 'finished work',
-      'no declaration is sealed for the previous slice — its last commit is still its last');
-    assert.ok(fs.existsSync(snapshot), 'the manifest existed at some point for the watcher to copy');
-    assert.equal(JSON.parse(fs.readFileSync(snapshot, 'utf8')).branch, '',
-      "the agent's own manifest no longer names the rejected branch");
+      const runsLog = path.join(wt, 'prompt-runs.log');
+      const runs = fs.existsSync(runsLog) ? fs.readFileSync(runsLog, 'utf8').trim().split('\n').filter(Boolean) : [];
+      assert.deepEqual(runs, [], 'the previous slice\'s prompt must not run again after a rejected hop');
+      // THE PREVIOUS SLICE'S BRANCH, NOT `HEAD`: the JS loop resets the desk onto
+      // the handed branch before its claim push, so `HEAD` moves off it.
+      assert.equal(git(wt, 'log', '-1', '--format=%s', 'feature/previous').trim(), 'finished work',
+        'no declaration is sealed for the previous slice — its last commit is still its last');
+      assert.ok(fs.existsSync(snapshot), 'the manifest existed at some point for the watcher to copy');
+      assert.equal(JSON.parse(fs.readFileSync(snapshot, 'utf8')).branch, '',
+        "the agent's own manifest no longer names the rejected branch");
     fs.rmSync(snapshotDir, { recursive: true, force: true });
+    } finally {
+      fs.rmSync(snapshotDir, { recursive: true, force: true });
+    }
   } finally {
     fs.rmSync(sb.root, { recursive: true, force: true });
   }
 });
 
-test('claim push: the next assignment after a rejected claim push is taken up', () => {
+test('claim push: the next assignment after a rejected claim push is taken up', async () => {
   // A REJECTED `push -u` SETS NO UPSTREAM, and the rejection's own fetch
   // creates `refs/remotes/origin/feature/taken3` while the desk's local branch
   // keeps its unpushed claim commit. The next reset counts unpushed commits
@@ -379,16 +397,17 @@ test('claim push: the next assignment after a rejected claim push is taken up', 
     const handOver = `const fs = require('node:fs');
 const m = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
 if (m.branch !== '') process.exit(1);
-fs.writeFileSync(process.argv[1], JSON.stringify({ ...m, branch: 'feature/second' }, null, 2) + '\\n');`;
+fs.writeFileSync(process.argv[1] + '.tmp', JSON.stringify({ ...m, branch: 'feature/second' }, null, 2) + '\\n');
+fs.renameSync(process.argv[1] + '.tmp', process.argv[1]);`;
     const watcher = spawn('bash', ['-c',
       `while true; do [ -f "$1" ] && node -e "$2" "$1" 2>/dev/null && exit 0; sleep 0.2; done`,
       'watcher', manifest, handOver,
-    ], { stdio: 'ignore' });
+    ], { stdio: 'ignore', detached: true });
     let out;
     try {
       out = runOnce(wt, manifest);
     } finally {
-      watcher.kill();
+      await stopWatcher(watcher);
     }
 
     const runs = fs.existsSync(runsLog) ? fs.readFileSync(runsLog, 'utf8').trim().split('\n').filter(Boolean) : [];
