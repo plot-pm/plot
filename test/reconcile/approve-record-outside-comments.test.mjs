@@ -37,6 +37,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { git, makeApproveSandbox } from './approve-sandbox.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS = path.resolve(here, '../../skills/plot/scripts');
@@ -45,8 +46,6 @@ const meta = path.join(SCRIPTS, 'plot-plan-meta.sh');
 const TEMPLATE = path.resolve(here, '../../skills/plot/templates/plan.md');
 
 let stubDir, statePath, tmp;
-
-const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd });
 
 // The host CLI is PATH-stubbed the way approve.test.mjs stubs it: `plot-host.sh`
 // is the one place that talks to `gh`, so one stub intercepts every host call.
@@ -96,24 +95,16 @@ after(() => {
  */
 const approveAndRead = (planBody) => {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-approve-comment-'));
-  const origin = path.join(tmp, 'origin.git');
-  const repo = path.join(tmp, 'repo');
-  git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
-  git(tmp, 'clone', '-q', origin, repo);
-  git(repo, 'config', 'user.email', 'test@example.invalid');
-  git(repo, 'config', 'user.name', 'Plot Test');
-  git(repo, 'config', 'commit.gpgsign', 'false');
-
-  fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
-    '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n');
   const rel = 'docs/plans/2026-09-25-approve-me.md';
-  fs.mkdirSync(path.join(repo, 'docs', 'plans'), { recursive: true });
-  fs.writeFileSync(path.join(repo, rel), planBody);
-  git(repo, 'add', '-A');
-  git(repo, 'commit', '-qm', 'plan');
-  git(repo, 'push', '-q', 'origin', 'main');
-  git(repo, 'remote', 'set-head', 'origin', 'main');
+  const sandbox = makeApproveSandbox({
+    prefix: 'plot-approve-comment-',
+    claudeMd: '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n',
+    planRel: rel,
+    planBody,
+    activeLinkName: null,
+  });
+  tmp = sandbox.tmp;
+  const repo = sandbox.repo;
 
   fs.writeFileSync(statePath, JSON.stringify({ number: 42, state: 'OPEN', draft: false }));
   // PLOT_REPO_ROOT IS SCRUBBED, and the sandbox is the point. Since

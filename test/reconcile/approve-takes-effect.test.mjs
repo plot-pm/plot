@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { git, makeApproveSandbox } from './approve-sandbox.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -35,8 +36,6 @@ const approve = path.join(SCRIPTS, 'plot-approve.sh');
 const scan = path.join(SCRIPTS, 'plot-fleet-scan.sh');
 
 let stubDir, statePath;
-
-const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd });
 
 /**
  * A plan carrying TWO phase records, which is the reporter's exact shape.
@@ -136,29 +135,16 @@ after(() => fs.rmSync(stubDir, { recursive: true, force: true }));
  * @returns the approval output and the scan's JSON before and after it.
  */
 const approveThenScan = (planBody) => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-approve-effect-'));
-  const origin = path.join(tmp, 'origin.git');
-  const repo = path.join(tmp, 'repo');
+  const rel = 'docs/plans/2026-09-17-two-records.md';
+  const { tmp, repo } = makeApproveSandbox({
+    prefix: 'plot-approve-effect-',
+    claudeMd: '## Plot Config\n\n- **Plan directory:** docs/plans/\n'
+      + '- **Active index:** docs/plans/active/\n',
+    planRel: rel,
+    planBody,
+    activeLinkName: 'two-records.md',
+  });
   try {
-    git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
-    git(tmp, 'clone', '-q', origin, repo);
-    git(repo, 'config', 'user.email', 'test@example.invalid');
-    git(repo, 'config', 'user.name', 'Plot Test');
-    git(repo, 'config', 'commit.gpgsign', 'false');
-
-    fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
-      '## Plot Config\n\n- **Plan directory:** docs/plans/\n'
-      + '- **Active index:** docs/plans/active/\n');
-    fs.mkdirSync(path.join(repo, 'docs', 'plans', 'active'), { recursive: true });
-    const rel = 'docs/plans/2026-09-17-two-records.md';
-    fs.writeFileSync(path.join(repo, rel), planBody);
-    fs.symlinkSync('../2026-09-17-two-records.md',
-      path.join(repo, 'docs', 'plans', 'active', 'two-records.md'));
-    git(repo, 'add', '-A');
-    git(repo, 'commit', '-qm', 'plan');
-    git(repo, 'push', '-q', 'origin', 'main');
-    git(repo, 'remote', 'set-head', 'origin', 'main');
-
     const env = { ...process.env, PATH: `${stubDir}:${process.env.PATH}`, PLOT_HOST: 'github' };
     const runScan = () => JSON.parse(execFileSync('bash', [scan, '--json', '--offline'],
       { cwd: repo, encoding: 'utf8', env }));
