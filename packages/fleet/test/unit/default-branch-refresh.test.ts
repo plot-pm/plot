@@ -500,6 +500,51 @@ describe('refreshDefaultBranch — the walk past a pending head', () => {
     expect(r.stored()?.settled).toEqual({ sha: 's', state: 'red' });
   });
 
+  it('settles on a green commit deeper in a burst than one walk reaches, over the next refresh', async () => {
+    const r = rig(settledRed());
+    const pending = Array.from({ length: 2 * ANCESTOR_ASKS_MAX }, (_, i) => `p${i}`);
+    r.line(['h', ...pending, 'g', 's']);
+    r.tip('h');
+    for (const sha of ['h', ...pending]) r.runs(sha, [run('ci', null, 'in_progress')]);
+    r.runs('g', [run('ci', 'success')]);
+    r.runs(pending[ANCESTOR_ASKS_MAX + 1]!, [run('ci', 'success')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.stored()?.settled).toEqual({ sha: 's', state: 'red' });
+    expect(r.stored()?.walked).toBe(pending[ANCESTOR_ASKS_MAX - 1]);
+    r.clock(REASK_MS + 1);
+    await refreshDefaultBranch(r.world);
+    expect(r.asked().slice(1 + ANCESTOR_ASKS_MAX)).toEqual([
+      'h',
+      ...pending.slice(ANCESTOR_ASKS_MAX, ANCESTOR_ASKS_MAX + 2),
+    ]);
+    expect(r.stored()?.settled).toEqual({ sha: pending[ANCESTOR_ASKS_MAX + 1], state: 'green' });
+    expect(r.stored()?.walked).toBeUndefined();
+  });
+
+  it('starts the walk again from the newest once it has covered every commit down to the settled one', async () => {
+    const r = rig(settledRed());
+    r.line(['h', 'p0', 'p1', 's']);
+    r.tip('h');
+    for (const sha of ['h', 'p0', 'p1']) r.runs(sha, [run('ci', null, 'in_progress')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.stored()?.walked).toBe('p1');
+    r.clock(REASK_MS + 1);
+    r.runs('p0', [run('ci', 'success')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.stored()?.settled).toEqual({ sha: 'p0', state: 'green' });
+  });
+
+  it('settles red at a red head over an older green settled commit', async () => {
+    const r = rig({ ...settledRed(), settled: { sha: 's', state: 'green' }, failingRuns: [] });
+    r.line(['h', 'g1', 's']);
+    r.tip('h');
+    r.runs('h', [run('ci', 'failure')]);
+    await refreshDefaultBranch(r.world);
+    expect(r.asked()).toEqual(['h']);
+    expect(r.stored()?.settled).toEqual({ sha: 'h', state: 'red' });
+    expect(defaultBranchRed(r.stored(), r.world.now(), WAIT)).toBe(true);
+  });
+
   it('never moves the settled part to a commit older than the one it holds', async () => {
     const r = rig({ ...settledRed(), settled: { sha: 'g1', state: 'green' }, failingRuns: [] });
     r.line(['h', 'g1', 'r0', 's']);

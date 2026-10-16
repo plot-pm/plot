@@ -52,6 +52,12 @@ export const DefaultBranchReadingSchema = z
     head: RunsStateSchema,
     /** The newest settled commit; absent until one has settled. */
     settled: SettledReadingSchema.optional(),
+    /**
+     * The oldest ancestor of the head the last walk asked without finding a
+     * concluded commit; the next walk resumes past it. Absent once the settled
+     * part moves or the walk has covered every commit down to it.
+     */
+    walked: z.string().optional(),
     /** The failing runs of the settled commit; empty unless it is red. */
     failingRuns: z.array(FailingRunSchema),
     /** When fleetd first saw `headSha`, ISO-8601, this machine's clock. */

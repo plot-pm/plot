@@ -93,7 +93,7 @@ export const advanceSettled = (
 ): SettledReading | undefined =>
   head === 'red' || head === 'green' ? { sha: headSha, state: head } : settled;
 
-/** How many first-parent ancestors of the head one refresh asks CI about, at most. */
+/** How many first-parent ancestors of the head one refresh asks CI about, at most. The walk resumes past the last one asked ({@link ancestorsToAsk}), so a longer burst takes more refreshes rather than more asks. */
 export const ANCESTOR_ASKS_MAX = 5;
 
 /** How many commits the local first-parent walk from the head reads, the head included. */
@@ -108,11 +108,18 @@ export const ANCESTOR_WALK_DEPTH = 50;
  * settled commit must be on the line itself: equality over the walk, not an
  * ancestry test.
  *
+ * A walk resumes past `after`, the oldest commit an earlier refresh found not
+ * yet concluded, so a burst of more than `max` commits is covered across
+ * refreshes instead of re-asking the same newest `max`. Where `after` is not
+ * between the head and the settled commit, or nothing older remains, the walk
+ * starts again from the newest.
+ *
  * @param line - the head and its first-parent ancestors, newest first.
  * @param headSha - the head the walk must start at.
  * @param settled - the settled reading the walk must reach, if any.
  * @param max - how many commits to return at most.
- * @returns the newest `max` commits between the head and the settled commit;
+ * @param after - the commit the previous walk ended on without a concluded answer, if any.
+ * @returns the newest `max` commits between the head and the settled commit, past `after`;
  *   empty where there is no settled reading, the line does not start at the
  *   head, or the settled commit is not on the line (rewritten history, or
  *   deeper than the walk).
@@ -122,10 +129,14 @@ export const ancestorsToAsk = (
   headSha: string,
   settled: SettledReading | undefined,
   max: number,
+  after?: string,
 ): string[] => {
   if (settled === undefined || line[0] !== headSha) return [];
   const at = line.indexOf(settled.sha);
-  return at < 1 ? [] : line.slice(1, at).slice(0, max);
+  if (at < 1) return [];
+  const resumed = after === undefined ? -1 : line.indexOf(after);
+  const from = resumed > 0 && resumed + 1 < at ? resumed + 1 : 1;
+  return line.slice(from, at).slice(0, max);
 };
 
 /**

@@ -68,6 +68,8 @@ export interface DefaultBranchWorld {
 interface Settlement {
   settled: SettledReading | undefined;
   failingRuns: readonly FailingRun[];
+  /** Where the last walk ended without a concluded commit; the next one resumes past it. */
+  walked?: string;
 }
 
 /**
@@ -79,7 +81,10 @@ interface Settlement {
  * `ANCESTOR_ASKS_MAX` of them (`ancestorsToAsk`). The first commit whose runs
  * have concluded becomes the settled commit (`ancestorStep`). A host that does
  * not answer stops the walk and keeps the previous settlement. A walk that
- * does not reach the settled commit asks nothing.
+ * does not reach the settled commit asks nothing. A walk whose asks all came
+ * back unconcluded records its last commit in `walked`, and the next refresh
+ * resumes past it, so a burst longer than `ANCESTOR_ASKS_MAX` is covered
+ * across refreshes at `ANCESTOR_ASKS_MAX` asks each.
  *
  * @param world - the reads.
  * @param branch - the default branch.
@@ -95,7 +100,8 @@ const settleBehindHead = async (
 ): Promise<Settlement> => {
   const walked = await world.refs.firstParentLine(headSha, ANCESTOR_WALK_DEPTH);
   const line = walked.ok ? walked.value : [];
-  for (const sha of ancestorsToAsk(line, headSha, kept.settled, ANCESTOR_ASKS_MAX)) {
+  const asking = ancestorsToAsk(line, headSha, kept.settled, ANCESTOR_ASKS_MAX, kept.walked);
+  for (const sha of asking) {
     const asked = await world.slot(() => world.build.runsForSha(branch, sha));
     const runs = asked.ok ? declaredRuns(asked.value, world.checks) : [];
     const state = asked.ok ? foldRuns(runs) : null;
@@ -103,7 +109,8 @@ const settleBehindHead = async (
     if (step === 'stop') return kept;
     if (step !== 'older') return { settled: step, failingRuns: step.state === 'red' ? failingRunsOf(runs) : [] };
   }
-  return kept;
+  const last = asking[asking.length - 1];
+  return last === undefined ? { settled: kept.settled, failingRuns: kept.failingRuns } : { ...kept, walked: last };
 };
 
 /** What one refresh did, for the log and the tests. */
@@ -186,16 +193,21 @@ export const refreshDefaultBranch = async (
     const advanced = advanceSettled(carried, sha, head);
     // The failing runs belong to the settled commit: new ones when it moved
     // to this head or to an ancestor, otherwise those already held.
-    const { settled, failingRuns } =
+    const { settled, failingRuns, walked } =
       advanced !== carried
         ? { settled: advanced, failingRuns: head === 'red' ? failingRunsOf(runs) : [] }
-        : await settleBehindHead(world, branch, sha, { settled: carried, failingRuns: previous?.failingRuns ?? [] });
+        : await settleBehindHead(world, branch, sha, {
+            settled: carried,
+            failingRuns: previous?.failingRuns ?? [],
+            ...(previous?.walked ? { walked: previous.walked } : {}),
+          });
     reading = {
       v: DEFAULT_BRANCH_VERSION,
       branch,
       headSha: sha,
       head,
       ...(settled ? { settled } : {}),
+      ...(walked ? { walked } : {}),
       failingRuns: [...failingRuns],
       headSince,
       askedAt: stamp,
