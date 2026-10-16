@@ -14,6 +14,7 @@
 - **Started:** 2026-10-16, Jan Wloka, `bug/merge-names-what-it-did`
 - **Started:** 2026-10-16, Jan Wloka, `bug/app-identities-refuse-by-name`
 - **Started:** 2026-10-16, Jan Wloka, `feature/bitbucket-commit-status-parity`
+- **Started:** 2026-10-16, Jan Wloka, `bug/writer-app-push-uses-only-the-app`
 
 ## Changelog
 
