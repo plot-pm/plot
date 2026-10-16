@@ -134,8 +134,8 @@ export const IssueIndexSchema = z
     nextAt: z.number(),
     /** Epoch ms the tracker's named backoff ends, or `null` where there is none. */
     backoffUntil: z.number().nullable(),
-    /** When this machine wrote the file, ISO-8601 — moves only on an answered read. */
-    at: z.string(),
+    /** When this machine wrote the file, ISO-8601; absent where no read has ever answered — moves only on an answered read. */
+    at: z.string().optional(),
     /** The last pass's own outcome. */
     answer: IssueIndexAnswerSchema,
     /** When the last pass answered anything but `answered`; absent otherwise. */
