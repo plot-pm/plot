@@ -90,10 +90,7 @@ fi
 branch="${1:?plot-push-main: need a branch to push}"
 default="${2:?plot-push-main: need the default branch}"
 
-git rev-parse --git-dir >/dev/null 2>&1 || {
-  echo "plot-push-main: not a git repository" >&2
-  exit 1
-}
+git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-push-main: not a git repository" >&2; exit 1; }
 
 # stderr is captured rather than passed through, because it carries the ONLY
 # signal that separates a bypass from a clean push. A call site ending in
