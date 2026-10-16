@@ -2511,11 +2511,7 @@ tracker_base_url() {
 # the absent case is tested with a repository that declares nothing.
 tracker_projects() {
   local raw
-  if [ -n "${PLOT_TICKET_PREFIXES:-}" ]; then
-    raw="$PLOT_TICKET_PREFIXES"
-  else
-    raw="$(bash "$here/plot-config.sh" get "Ticket prefixes" "")"
-  fi
+  raw="${PLOT_TICKET_PREFIXES:-$(bash "$here/plot-config.sh" get "Ticket prefixes" "")}"
   # One per line, trimmed, empties dropped. `plot-config.sh` already normalises
   # `A,B` to `A, B`, but an override arrives unnormalised and a hand-edited
   # value can carry a stray comma — so the split is done here regardless.
