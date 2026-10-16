@@ -142,6 +142,17 @@ check; only changing WHO merges closes it. `skills/plot/scripts/plot-github-app.
 holds the JWT-to-installation-token exchange both Apps share with the
 `Review app` above — three identities, one exchange, extracted once.
 
+**Each key switches its identity on.** Each App is opt-in, and each `## Plot Config` key works independently of the other:
+
+| `## Plot Config` | Lifecycle push (`plot-push-main.sh`) | `pr-merge` on GitHub (`plot-host.sh`) |
+|---|---|---|
+| Key absent | Plain `git push origin <branch>:<default>` as the ambient git identity, plus one stderr line: `plot-push-main: Writer app not configured — pushing as the ambient git identity` | Plain `gh pr merge … --match-head-commit <sha>` as the signed-in `gh` identity, plus one stderr line: `plot-host: pr-merge — Merger app not configured — merging as the signed-in gh identity` |
+| Key declared and readable | Push as the Writer App installation | Merge as the Merger App installation |
+| Key malformed or key file unreadable | Refused by name with exit 4 from `plot-push-writer-app.mjs`, no push attempted | Refused by name with exit 4, no merge attempted |
+| `Writer app` and `Merger app` name the same App id | — | Refused by name with exit 4, no merge attempted |
+
+Without the keys, the ruleset does not apply to an identity that holds `bypass_mode: always` — the #1730 behaviour. Declare `Merger app` to close it. A repository that is not on GitHub never reads either key.
+
 **Writer App** — authenticates `plot-push-main.sh`'s lifecycle pushes to the
 default branch (called from `/plot-approve`, `/plot-deliver`, and the ladder's
 bookkeeping push). It is the one App of the three that legitimately bypasses
@@ -166,12 +177,7 @@ branch protection, because a lifecycle push IS the bypass case Plot relies on.
 
    Absolute path; `~` is not expanded.
 
-4. Prove the write before relying on it: run a lifecycle action that pushes
-   to the default branch (`/plot-approve` is the simplest) and confirm the
-   commit is authored by the App's bot identity. A missing or unreadable key
-   refuses with exit 4 naming `Writer app` — `plot-push-main.sh` attempts no
-   push first, so the refusal itself proves no silent fallback to the ambient
-   `git` identity exists.
+4. Prove the write before relying on it: run a lifecycle action that pushes to the default branch (`/plot-approve` is the simplest) and confirm the commit is authored by the App's bot identity, and that stderr carries no `Writer app not configured` line. A declared key that is malformed or unreadable refuses with exit 4 naming `Writer app`, and `plot-push-main.sh` attempts no push.
 
 **Merger App** — authenticates every `plot-host.sh pr-merge` call on GitHub.
 It is NOT on the bypass list, anywhere, ever: a merge by it passes only when
@@ -204,16 +210,9 @@ point.
 4. Prove the write before relying on it: merge a scratch PR through
    `/plot-approve`'s or `/plot-dispatch`'s normal path and confirm the merge
    commit (or the PR's merged-by field) shows the App's bot identity
-   (`<app-slug>[bot]`), not the maintainer's account. A missing or unreadable
-   key refuses with exit 4 naming `Merger app` before any `gh pr merge` call —
-   `plot-host.sh` asks `gh repo view` first (unauthenticated, just to learn
-   the repo name) and attempts no merge if the token mint fails.
+   (`<app-slug>[bot]`), not the maintainer's account. A declared key that is malformed or unreadable refuses with exit 4 naming `Merger app` before any `gh pr merge` call. `plot-host.sh` asks `gh repo view` first to learn the repo name, and attempts no merge if the token mint fails.
 
-Both new keys follow the same refusal discipline as `Review app`: absent is
-never false, and neither installation token leaves its minting process
-except through a request header, `GH_TOKEN`, or (for the Writer App's push)
-a `GIT_ASKPASS` helper reading a mode-600 temp file — never a child's argv, a
-file committed anywhere, or a log line.
+A declared key follows the same refusal discipline as `Review app`: a key that cannot be used refuses by name and never falls back. An absent key falls back to the ambient identity and says so on stderr. Neither installation token leaves its minting process except through a request header, `GH_TOKEN`, or (for the Writer App's push) a `GIT_ASKPASS` helper reading a mode-600 temp file — never a child's argv, a file committed anywhere, or a log line.
 
 Bitbucket is untouched by either App: `pr-merge` there keeps its own `bb`
 path and its existing exit-4 refusal on an unpinned merge, and a `Merger app`

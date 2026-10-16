@@ -99,13 +99,12 @@ printf '%s' '${json.replace(/'/g, `'\\''`)}'
   return { dir, ghArgv: ghStub(ghJson, ghFail), bbArgv: bbStub(bbJson, bbFail) };
 }
 
-// `pr-merge` on GitHub now mints a Merger App token before calling `gh`, so a
-// stub dir with no `## Plot Config` Merger app key — every `makeStubs()`
-// sandbox, since none of them is a git repo with a CLAUDE.md — refuses with
-// exit 4 before `gh` is ever invoked. This layers that config onto a fresh
-// `makeStubs()` sandbox: a repo-root CLAUDE.md naming a real RSA key, and
-// `PLOT_REPO_ROOT` pointed at it so `plot-config.sh` reads it instead of this
-// repository's own (which rightly has no Merger app key configured).
+// `pr-merge` on GitHub mints a Merger App token before calling `gh` where
+// `## Plot Config` declares a `Merger app` key; with none, it merges as the
+// signed-in `gh` identity. This layers a declared key onto a fresh
+// `makeStubs()` sandbox, so the App path runs: a repo-root CLAUDE.md naming a
+// throwaway RSA key, and `PLOT_REPO_ROOT` pointed at it so `plot-config.sh`
+// reads it instead of this repository's own.
 //
 // The token mint itself is faked by PATH-stubbing `node`, not by a real HTTP
 // server: `run`/`runAllowFail` block the event loop synchronously
@@ -475,19 +474,51 @@ test('host: pr-merge github surfaces a host that rejects a moved head, and merge
   assert.equal(ok.code, 0, 'the same stub merges when the pin names its head');
 });
 
-// THE REFUSAL THE MERGER APP EXISTS FOR. A naive wiring calls `gh pr merge`
-// whenever the token mint fails to produce one, which merges under the
-// signed-in identity — exactly the #1730 bypass this slice closes. `makeStubs`
-// seeds no CLAUDE.md, so `plot-config.sh` finds no `Merger app` key here. The
-// unauthenticated `repo view` lookup (ahead of the mint, to learn the repo
-// name) legitimately reaches `gh` and is recorded — what must NOT appear is a
-// `merge` subcommand.
-test('host: pr-merge github with no Merger app key refuses and merges nothing', () => {
+// THE MERGER APP IS OPT-IN THROUGH ITS KEY. With no `Merger app` key in
+// `## Plot Config`, `pr-merge` merges as the signed-in `gh` identity, pinned
+// as before, and says so in one stderr line. `gh` here records the GH_TOKEN it
+// received: the caller's own value must arrive untouched, because an empty
+// override would sign the merge out.
+test('host: pr-merge github with no Merger app key merges as the signed-in gh identity and says so once', () => {
   const stubs = makeStubs();
+  writeFileSync(path.join(stubs.dir, 'gh'),
+    `#!/usr/bin/env bash\n` +
+    `if [ "$1" = "repo" ] && [ "$2" = "view" ]; then printf 'example/repo'; exit 0; fi\n` +
+    `printf '%s\\n' "$@" > "${stubs.ghArgv}"\n` +
+    `printf '%s' "\${GH_TOKEN-unset}" > "${stubs.dir}/gh.env-token"\n`);
+  chmodSync(path.join(stubs.dir, 'gh'), 0o755);
+  const sha = 'a'.repeat(40);
+  const res = runAllowFail(['pr-merge', '5', '--match-head', sha],
+    { env: { PLOT_HOST: 'github', PLOT_REPO_ROOT: stubs.dir, GH_TOKEN: 'ambient-token' }, stubs });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'merge', '5', '--merge', '--match-head-commit', sha]);
+  assert.equal(readFileSync(path.join(stubs.dir, 'gh.env-token'), 'utf8'), 'ambient-token');
+  const notices = res.stderr.split('\n').filter((line) => line.includes('Merger app'));
+  assert.deepEqual(notices, ['plot-host: pr-merge — Merger app not configured — merging as the signed-in gh identity']);
+});
+
+// A DECLARED KEY THAT CANNOT BE USED IS NOT AN ABSENT ONE. Falling back to the
+// signed-in identity here would merge past the ruleset under a key somebody
+// configured (#1730), so the refusal names the key and no merge reaches `gh`.
+test('host: pr-merge github with a declared but unreadable Merger app key refuses with exit 4 and merges nothing', () => {
+  const stubs = makeStubs();
+  writeFileSync(path.join(stubs.dir, 'CLAUDE.md'),
+    `## Plot Config\n\n- **Merger app:** 999000 ${path.join(stubs.dir, 'no-such-key.pem')}\n`);
   const res = runAllowFail(['pr-merge', '5', '--match-head', 'a'.repeat(40)],
-    { env: { PLOT_HOST: 'github' }, stubs });
-  assert.notEqual(res.code, 0, 'an absent Merger app key must not merge');
-  assert.match(res.stderr, /Merger app/);
+    { env: { PLOT_HOST: 'github', PLOT_REPO_ROOT: stubs.dir }, stubs });
+  assert.equal(res.code, 4);
+  assert.match(res.stderr, /'Merger app' names a key file that cannot be read/);
+  const argv = argvOf(stubs.ghArgv) ?? [];
+  assert.ok(!argv.includes('merge'), 'no pr merge call reached gh');
+});
+
+test('host: pr-merge github with a malformed Merger app key refuses with exit 4 and merges nothing', () => {
+  const stubs = makeStubs();
+  writeFileSync(path.join(stubs.dir, 'CLAUDE.md'), '## Plot Config\n\n- **Merger app:** 999000\n');
+  const res = runAllowFail(['pr-merge', '5', '--match-head', 'a'.repeat(40)],
+    { env: { PLOT_HOST: 'github', PLOT_REPO_ROOT: stubs.dir }, stubs });
+  assert.equal(res.code, 4);
+  assert.match(res.stderr, /needs a 'Merger app' key/);
   const argv = argvOf(stubs.ghArgv) ?? [];
   assert.ok(!argv.includes('merge'), 'no pr merge call reached gh');
 });
@@ -511,7 +542,7 @@ test('host: pr-merge github refuses where Writer app and Merger app name the sam
     `## Plot Config\n\n- **Merger app:** 999000 ${keyPath}\n- **Writer app:** 999000 ${keyPath}\n`);
   const res = runAllowFail(['pr-merge', '5', '--match-head', 'a'.repeat(40)],
     { env: { PLOT_HOST: 'github', PLOT_REPO_ROOT: stubs.dir }, stubs });
-  assert.notEqual(res.code, 0, 'one App id behind both keys must be refused');
+  assert.equal(res.code, 4, 'one App id behind both keys must be refused');
   assert.match(res.stderr, /name the same App id/);
   const argv = argvOf(stubs.ghArgv) ?? [];
   assert.ok(!argv.includes('merge'), 'no pr merge call reached gh');

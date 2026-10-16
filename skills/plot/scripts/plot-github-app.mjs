@@ -34,23 +34,30 @@ const run = (cmd, args) => {
  * The App named by a `## Plot Config` key, as `{ appId, keyPath }`.
  * `here` is the directory `plot-config.sh` lives in (callers pass their own
  * `import.meta.url` dirname, since this module ships beside `plot-config.sh`
- * only by convention, not by import). Returns `null` where the key is absent,
- * malformed, or names a file that cannot be read, with `reason` set to why —
- * the caller decides the exit code, since `commit-status` and a future caller
- * may want different ones.
+ * only by convention, not by import). Returns `app: null` where the key is
+ * absent, malformed, or names a file that cannot be read, with `reason` set to
+ * why and `absent: true` only where `## Plot Config` declares no value for the
+ * key at all — the caller decides the exit code, since `commit-status` refuses
+ * an absent key while the Writer and Merger identities fall back to the
+ * ambient one.
  */
 export const resolveApp = (configKey, here) => {
-  const [appId, key] = run('bash', [path.join(here, 'plot-config.sh'), 'get', configKey, '']).split(/\s+/);
+  const declared = run('bash', [path.join(here, 'plot-config.sh'), 'get', configKey, '']);
+  const [appId, key] = declared.split(/\s+/);
   if (!appId || !key) {
-    return { app: null, reason: `needs a '${configKey}' key in ## Plot Config (format: ${configKey}: <app id> <key path>)` };
+    return {
+      app: null,
+      absent: !declared,
+      reason: `needs a '${configKey}' key in ## Plot Config (format: ${configKey}: <app id> <key path>)`,
+    };
   }
   const keyPath = path.isAbsolute(key) ? key : path.join(run('git', ['rev-parse', '--show-toplevel']) || '.', key);
   try {
     fs.accessSync(keyPath, fs.constants.R_OK);
   } catch {
-    return { app: null, reason: `'${configKey}' names a key file that cannot be read: ${keyPath}` };
+    return { app: null, absent: false, reason: `'${configKey}' names a key file that cannot be read: ${keyPath}` };
   }
-  return { app: { appId, keyPath }, reason: null };
+  return { app: { appId, keyPath }, absent: false, reason: null };
 };
 
 const b64url = (text) => Buffer.from(text).toString('base64url');

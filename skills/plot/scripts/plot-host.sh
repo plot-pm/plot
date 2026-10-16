@@ -3885,17 +3885,17 @@ case "$op" in
     done
     if [ "$be" = "github" ] && [ -z "$pin" ]; then echo "plot-host: pr-merge: github needs --match-head <sha>; nothing was merged" >&2; exit 1
     elif [ "$be" = "github" ]; then
-      # The Merger App merges, never the signed-in `gh` identity: that
-      # identity may hold `bypass_mode: always` on the ruleset, which is the
-      # bug this closes (#1730). `plot-merger-token.mjs` refuses by name
-      # (exit 4) before any merge is attempted where the key is absent,
-      # unreadable, or names the same App id as `Writer app`. The token is
-      # read straight into GH_TOKEN, which `gh` reads for auth — never into
-      # this script's own argv, a file, or a log line.
+      # A declared `Merger app` merges, so a signed-in identity with
+      # `bypass_mode: always` on the ruleset does not (#1730).
+      # `plot-merger-token.mjs` refuses by name (exit 4) where the key is
+      # malformed, unreadable, or names the same App id as `Writer app`, and
+      # answers 5 with its one-line notice where no key is declared: the merge
+      # then runs as the signed-in `gh` identity. The token goes straight into
+      # GH_TOKEN — never into argv, a file, or a log line.
       merger_repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
-      merger_token=$(node "$here/plot-merger-token.mjs" "$merger_repo") || exit $?
+      merger_token=$(node "$here/plot-merger-token.mjs" "$merger_repo") || { mc=$?; [ "$mc" = 5 ] || exit "$mc"; }
       args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash) || args+=(--merge); [ "$delbranch" = 1 ] && args+=(--delete-branch)
-      GH_TOKEN="$merger_token" gh "${args[@]}" --match-head-commit "$pin"
+      if [ -n "$merger_token" ]; then GH_TOKEN="$merger_token" gh "${args[@]}" --match-head-commit "$pin"; else gh "${args[@]}" --match-head-commit "$pin"; fi
     elif [ -n "$pin" ]; then echo "plot-host: pr-merge --match-head: bitbucket cannot pin a merge to a commit; nothing was merged" >&2; exit 4
     else
       args=(pr merge "$num")

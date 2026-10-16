@@ -97,16 +97,13 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-push-main: not a git rep
 # `2>/dev/null` — as several of Plot's pushes do — discards exactly the line
 # that answers the question.
 #
-# A GitHub origin pushes through the Writer App's installation token, never
-# the ambient identity — `plot-push-writer-app.mjs` mints it and refuses by
-# name (exit 4) where the `Writer app` key is absent, with no push attempted
-# first. Any other origin (no remote, a non-GitHub host, a local test
-# fixture) keeps the plain push: the Writer App is a GitHub concern only.
-origin_url=$(git config --get remote.origin.url 2>/dev/null || true); here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-case "$origin_url" in
-  *github.com*) err=$(node "$here/plot-push-writer-app.mjs" "$branch" "$default" 2>&1 >/dev/null); code=$? ;;
-  *) err=$(git push origin "$branch:$default" 2>&1 >/dev/null); code=$? ;;
-esac
+# A GitHub origin asks `plot-push-writer-app.mjs`, which pushes as the Writer
+# App, refuses by name (exit 4) where the key is malformed or unreadable, and
+# answers 5 with its one-line notice where no `Writer app` key is declared.
+# Exit 5 and every other origin take the plain push as the ambient identity.
+origin_url=$(git config --get remote.origin.url 2>/dev/null || true); here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; code=5
+case "$origin_url" in *github.com*) err=$(node "$here/plot-push-writer-app.mjs" "$branch" "$default" 2>&1 >/dev/null); code=$?; [ "$code" = 5 ] && printf '%s\n' "$err" >&2 ;; esac
+[ "$code" = 5 ] && { err=$(git push origin "$branch:$default" 2>&1 >/dev/null); code=$?; }
 
 status=$(classify "$code" "$err")
 
