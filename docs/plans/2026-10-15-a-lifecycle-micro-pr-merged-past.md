@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #1737
 - **Review:** pr
@@ -13,6 +13,7 @@
 - **Started:** 2026-10-15, Jan Wloka, `bug/a-lifecycle-micro-pr-merged-past-retry`
 - **Started:** 2026-10-15, Jan Wloka, `bug/a-lifecycle-micro-pr-merged-past-pin`
 - **Started:** 2026-10-16, Jan Wloka, `infra/a-lifecycle-micro-pr-merged-past-identities`
+- **Delivered:** 2026-10-16
 
 ## Changelog
 
