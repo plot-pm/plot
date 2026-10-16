@@ -50,14 +50,17 @@ function runServer(cwd, env = {}) {
     let stderr = '';
     proc.stdout.on('data', (c) => (stdout += c.toString()));
     proc.stderr.on('data', (c) => (stderr += c.toString()));
+    // A board still running at the bound is ended and AWAITED: it writes
+    // `board.log` while it shuts down, which would recreate a removed box.
+    let timedOut = false;
     const timer = setTimeout(() => {
+      timedOut = true;
       proc.kill('SIGTERM');
-      resolve({ stdout, stderr, code: null, timedOut: true });
     }, 5000);
     proc.on('error', reject);
     proc.on('exit', (code) => {
       clearTimeout(timer);
-      resolve({ stdout, stderr, code, timedOut: false });
+      resolve({ stdout, stderr, code: timedOut ? null : code, timedOut });
     });
   });
 }
@@ -168,17 +171,23 @@ describe('the default port is unchanged', () => {
       t.skip('port 7777 is already in use on this machine');
       return;
     }
-    // PORT is DELETED, not set to '': the default is what is under test, and
+    // PORT is UNSET, not set to '': the default is what is under test, and
     // an empty string is a value that Number() would turn into 0 — the one
     // case that would make this test pass while binding something else.
-    const env = { ...process.env, PLOT_SCRIPTS_DIR: SCRIPTS_DIR, PLOT_REPO_ROOT: tmp };
-    delete env.PORT;
-    const proc = spawn('node', [ARTIFACT], { cwd: tmp, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    // `spawn` leaves out an env key whose value is `undefined`, so this
+    // overrides the `PORT: '0'` that `startServer` sets.
+    //
+    // THROUGH `startServer`, SO THE TEARDOWN WAITS. A server sent SIGTERM and
+    // not awaited still writes `board.log` while it shuts down, and
+    // `processLog` creates `<repo>/.plot/logs` with `recursive: true`, which
+    // recreates the box `rmTree` has just removed. Measured 2026-10-16 in
+    // `node:24` (Linux): 7 of 7 `plot-board-test-` boxes left in a run's
+    // TMPDIR held only `<repo>/.plot/logs/board.log`, and each was this test's.
+    const server = await startServer(tmp, { PORT: undefined });
     try {
-      const line = await firstLine(proc);
-      assert.match(line, /http:\/\/localhost:7777/);
+      assert.equal(server.port, 7777);
     } finally {
-      proc.kill('SIGTERM');
+      await server.stop();
     }
   });
 });
@@ -398,25 +407,5 @@ function portInUse(port) {
       resolve(true);
     });
     sock.on('error', () => resolve(false));
-  });
-}
-
-/** Resolve the first stdout line carrying the readiness URL. */
-function firstLine(proc) {
-  return new Promise((resolve, reject) => {
-    let out = '';
-    const timer = setTimeout(() => reject(new Error(`no readiness line in 5s: ${out}`)), 5000);
-    proc.stdout.on('data', (c) => {
-      out += c.toString();
-      const match = /http:\/\/localhost:\d+/.exec(out);
-      if (match) {
-        clearTimeout(timer);
-        resolve(match[0]);
-      }
-    });
-    proc.on('exit', (code) => {
-      clearTimeout(timer);
-      reject(new Error(`server exited (${code}) before ready: ${out}`));
-    });
   });
 }

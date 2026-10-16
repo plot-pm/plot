@@ -604,6 +604,30 @@ export function fetchBoard(port) {
 const repoBoxes = new Map();
 
 /**
+ * The file in each box that names who made it. `scripts/owned-run.sh` prints it
+ * when the box is left in the run's TMPDIR, so the leak report names the test
+ * file and the call site rather than only a random directory name.
+ */
+export const BOX_MARKER = '.plot-test-box';
+
+/** The marker's text: the test file, its pid, the time, and the caller's frames. */
+const boxOrigin = () => {
+  const frames = (new Error().stack ?? '')
+    .split('\n')
+    .slice(1)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('at ') && !line.includes('node:') && !line.includes('/helpers.mjs:'))
+    .slice(0, 3);
+  return [
+    `file: ${process.argv[1] ?? '?'}`,
+    `pid: ${process.pid}`,
+    `created: ${new Date().toISOString()}`,
+    ...frames.map((frame) => `caller: ${frame}`),
+    '',
+  ].join('\n');
+};
+
+/**
  * A path for a scratch repo, inside a temp box of its own.
  *
  * The board writes a repo's agent logs into the repo's PARENT (`agentLogDir`),
@@ -614,6 +638,7 @@ export const boxedDir = (prefix) => {
   const box = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const dir = path.join(box, path.basename(box));
   repoBoxes.set(dir, box);
+  fs.writeFileSync(path.join(box, BOX_MARKER), boxOrigin(), 'utf8');
   return dir;
 };
 
