@@ -59,6 +59,7 @@ import {
   prRowPlacement,
   prChecksSuppressedByMerge,
   waitingTickets,
+  typeOf,
   ticketSourceOf,
   type Reader,
   type TicketSource,
@@ -1748,7 +1749,7 @@ const inboxOf = (rows: readonly IssueIndexRow[], referenced: ReadonlySet<string>
         // The tracker's own word, lowercased — `null` where it stated none.
         // Owner is NOT resolved here: this inbox read carries no `source`/
         // `directory`, and `null` says so honestly rather than guessing.
-        type: row.type === undefined || row.type.trim() === '' ? null : row.type.trim().toLowerCase(),
+        type: typeOf(row.type),
         owner: null,
       };
     });

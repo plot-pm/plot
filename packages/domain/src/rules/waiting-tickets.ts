@@ -1,7 +1,7 @@
 import type { IssueIndexRow } from '../entities/issue-index.js';
 import { declaresSpelling, resolvePerson, type PersonDirectory } from '../entities/person.js';
 import { ownership, type OwnedRow, type Reader, type TicketSource } from './ownership.js';
-import { ownerOf } from './ticket-lanes.js';
+import { ownerOf, typeOf } from './ticket-lanes.js';
 
 /** One open ticket, shaped for the client — the fields `IssueRow` carries. */
 export interface WaitingTicket {
@@ -54,7 +54,7 @@ const toWaitingTicket = (
   status: row.status ?? '',
   statusCategory: row.statusCategory ?? '',
   assignees: row.assignees ?? [],
-  type: row.type === undefined || row.type.trim() === '' ? null : row.type.trim().toLowerCase(),
+  type: typeOf(row.type),
   owner: ownerOf(row.assignees, { source: reading.source, directory: reading.directory }),
 });
 

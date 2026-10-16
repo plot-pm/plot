@@ -69,6 +69,15 @@ export interface TicketLanesResult {
 }
 
 /**
+ * The type a ticket row names: the tracker's own word, trimmed and lowercased.
+ *
+ * @param type - the row's type, as the tracker spells it.
+ * @returns the lowercased word, or `null` where the tracker stated none or only whitespace.
+ */
+export const typeOf = (type: string | null | undefined): string | null =>
+  type === undefined || type === null || type.trim() === '' ? null : type.trim().toLowerCase();
+
+/**
  * The owner a ticket card names: the first assignee, resolved through the
  * directory. A Jira account resolves through its `jira:<account>` spelling and
  * shows as written where that spelling is undeclared.
@@ -98,7 +107,7 @@ const rowOf = (reading: Pick<TicketLanesReading, 'source' | 'directory'>) => (ro
   status: row.status ?? '',
   statusCategory: row.statusCategory ?? '',
   closedAt: row.closedAt ?? null,
-  type: row.type === undefined || row.type === null || row.type.trim() === '' ? null : row.type.trim().toLowerCase(),
+  type: typeOf(row.type),
   owner: ownerOf(row.assignees, reading),
 });
 
