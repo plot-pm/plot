@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-16, Jan Wloka, plan-PR #1862 merged
 - **Started:** 2026-10-16, Jan Wloka, `bug/the-cold-scan-converges`
 - **Started:** 2026-10-16, Jan Wloka, `bug/the-tick-asks-nothing-for-an-ended-desk`
+- **Started:** 2026-10-16, Jan Wloka, `bug/the-settled-walk-survives-a-burst`
 
 ## Changelog
 
