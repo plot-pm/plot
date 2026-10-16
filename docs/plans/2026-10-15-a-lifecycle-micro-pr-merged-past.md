@@ -79,7 +79,7 @@ A credential holding both jobs would be on the bypass list and could merge past 
 
 ### Identities (build)
 
-- `infra/a-lifecycle-micro-pr-merged-past-identities-build` — builds what `### Identities` promised: lifecycle pushes use the writer App's token and pull-request merges use the merger credential, each read from a Plot Config key; the docs give the person's setup steps for both and keep the merger off the bypass list. #1816 merged carrying only its claim commit, so nothing of the Identities slice exists on main.
+- `infra/a-lifecycle-micro-pr-merged-past-identities-build` — builds what `### Identities` promised: lifecycle pushes use the writer App's token and pull-request merges use the merger credential, each read from a Plot Config key; the docs give the person's setup steps for both and keep the merger off the bypass list. #1816 merged carrying only its claim commit, so nothing of the Identities slice exists on main. → #1823
 
 ## Notes
 
