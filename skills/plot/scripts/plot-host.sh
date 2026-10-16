@@ -1736,8 +1736,7 @@ jenkins_sha_runs() {
           status: (if .building then "in_progress" else "completed" end),
           conclusion: (if .building then null else (.result // null) end),
           url: (.url // ""),
-          startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end),
-          workflow: $job } ]
+          startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ]
     | map(select(.sha == $sha))' || exit 4
 }
 
