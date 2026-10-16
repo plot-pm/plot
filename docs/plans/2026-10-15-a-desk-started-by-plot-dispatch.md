@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #1773
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-15, Jan Wloka, plan-PR #1776 merged
 - **Started:** 2026-10-15, Jan Wloka, `bug/a-free-desk-block-reproduces`
 - **Delivered:** 2026-10-15
+- **Released:** 2026-10-16, v2.27.1
 
 ## Changelog
 
