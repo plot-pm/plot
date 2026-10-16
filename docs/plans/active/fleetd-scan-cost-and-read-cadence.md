@@ -1,0 +1,1 @@
+../2026-10-16-fleetd-scan-cost-and-read-cadence.md
