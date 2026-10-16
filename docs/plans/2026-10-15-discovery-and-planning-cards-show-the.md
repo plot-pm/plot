@@ -60,11 +60,11 @@ The badge text is the source's own word, lowercased, with no mapping table: a Ji
 
 ### Ticket type and owner
 
-- `feature/ticket-cards-show-type-and-owner` — carry type and assignee onto the ticket rows and render them on the Discovery ticket card <!-- builds: a ticket card's type and owner domain property -->
+- `feature/ticket-cards-show-type-and-owner` → #1766 — carry type and assignee onto the ticket rows and render them on the Discovery ticket card <!-- builds: a ticket card's type and owner domain property -->
 
 ### Plan and story type and owner
 
-- `feature/plan-and-story-cards-show-type-and-owner` — read type, author and approver for plan and story cards and render them <!-- builds: a plan card's type and owner domain property -->
+- `feature/plan-and-story-cards-show-type-and-owner` → #1782 — read type, author and approver for plan and story cards and render them <!-- builds: a plan card's type and owner domain property -->
 
 ## Notes
 

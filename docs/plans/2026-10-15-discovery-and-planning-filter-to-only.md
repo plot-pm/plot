@@ -76,7 +76,7 @@ The change has three parts, in the order the layering rule gives.
 
 ### The rule
 
-- `feature/ownership-reads-story-authors` — `OwnedRow` gains the `story` arm; the `plan` arm gains `author` and `approver`; unit tests in `packages/domain/test/ownership.test.ts` for each `mine`, `theirs` and `unknown` case. <!-- builds: storyOwnership, a story arm in the ownership rule -->
+- `feature/ownership-reads-story-authors` → #1771 — `OwnedRow` gains the `story` arm; the `plan` arm gains `author` and `approver`; unit tests in `packages/domain/test/ownership.test.ts` for each `mine`, `theirs` and `unknown` case. <!-- builds: storyOwnership, a story arm in the ownership rule -->
 
 ### The data
 

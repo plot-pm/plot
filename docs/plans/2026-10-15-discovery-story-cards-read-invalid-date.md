@@ -47,11 +47,11 @@ Each of the three points gets one domain property and one test, and the componen
 
 ### Story card text and dates
 
-- `bug/discovery-story-card-text` — Show no date line for an absent or invalid date, and strip stored quote marks from story titles and summaries <!-- builds: formatStoryDate, a story-card date helper -->
+- `bug/discovery-story-card-text` → #1764 — Show no date line for an absent or invalid date, and strip stored quote marks from story titles and summaries <!-- builds: formatStoryDate, a story-card date helper -->
 
 ### Tickets group
 
-- `bug/discovery-tickets-heading-reason` — Hide the Tickets heading for an unread group and show why <!-- builds: discoveryGroups unread reason -->
+- `bug/discovery-tickets-heading-reason` → #1774 — Hide the Tickets heading for an unread group and show why <!-- builds: discoveryGroups unread reason -->
 
 ## Notes
 

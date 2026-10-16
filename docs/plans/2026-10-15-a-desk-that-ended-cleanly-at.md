@@ -54,11 +54,11 @@ The side effect (fleetd at `agents=0` after every loop ends) gets one line in th
 
 ### Clean end
 
-- `bug/a-clean-wait-end-writes-no-marker` — a loop ended at the free-wait bound leaves no `PLOT-BLOCKED.md`; a test shows the desk reapable
+- `bug/a-clean-wait-end-writes-no-marker` → #1748 — a loop ended at the free-wait bound leaves no `PLOT-BLOCKED.md`; a test shows the desk reapable
 
 ### Waiting on you
 
-- `bug/an-ended-desk-is-not-waiting-on-you` — domain rule and row text read the ending record; a clean ended desk with no unlanded work leaves *Waiting on you*
+- `bug/an-ended-desk-is-not-waiting-on-you` → #1791 — domain rule and row text read the ending record; a clean ended desk with no unlanded work leaves *Waiting on you*
 
 ## Notes
 
