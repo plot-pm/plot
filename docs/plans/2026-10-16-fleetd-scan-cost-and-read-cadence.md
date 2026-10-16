@@ -47,7 +47,7 @@ Each slice is one branch and fixes findings that share a file or a rule. Per the
 
 ### Open Questions
 
-- [ ] #1756: which of the three options, or which combination: keep streamed lines on timeout, a longer first-scan budget, or a parallel per-branch sweep within the host's rate budget? The third needs the connector rate-limit contract, so it is the largest.
+- [x] #1756: keep streamed lines on timeout. `scanOnce` (`packages/fleet/src/shared/fleet-scan.ts`) now carries `terminal:`/`listing:` lines into `state` in a `finally` around the stream call, so a kill leaves the caches as warm as whatever it streamed before dying — resolved on `bug/the-cold-scan-converges`. A longer first-scan budget was not added: any fixed budget can still be exceeded, while this converges the second scan toward completion regardless. The parallel per-branch sweep remains out of scope, as the plan already said, pending the connector rate-limit contract.
 - [ ] #1582: does the burst fix walk by completed-run listing (one host call) or by remembered pending answers (no new call, extra state)? Measure calls per refresh for each before choosing.
 - [ ] Does each member keep its own review detail in its own closed thread, or does the slice copy the finding list into the slice description? Recommend the thread, so the plan stays a pointer.
 - [ ] #1652 exit-4 sentence: it waits on `feature/the-tracker-lists-closed-issues`, which this plan does not verify exists. Drop that line from scope if the branch is gone.
@@ -56,7 +56,7 @@ Each slice is one branch and fixes findings that share a file or a rule. Per the
 
 ### Implementation
 
-- `bug/the-cold-scan-converges` — keep what a timed-out scan streamed, or budget the first scan longer (#1756) <!-- builds: a timed-out scan's retained listing and terminal cache -->
+- `bug/the-cold-scan-converges` — keep what a timed-out scan streamed, or budget the first scan longer (#1756) → #1892 <!-- builds: a timed-out scan's retained listing and terminal cache -->
 - `bug/the-tick-asks-nothing-for-an-ended-desk` — read the ending before the host, count the spend, test the `run()` wiring (#1374) <!-- builds: a port factory for the registryd tick's agent start -->
 - `bug/the-settled-walk-survives-a-burst` — settle past a burst of pending commits, with the red-head test and the flake fix (#1582)
 - `bug/the-design-commit-key-matches-a-real-plan` — `designCommitOf`, the `open-pr` slot rule, `specRow` section, spec-written judgement (#1685, #1673)
