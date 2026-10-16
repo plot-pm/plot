@@ -63,7 +63,7 @@ Each slice is one branch and fixes findings that share a file or a rule. Per the
 - `bug/the-tick-asks-nothing-for-an-ended-desk` — read the ending before the host, count the spend, test the `run()` wiring (#1374) → #1905 <!-- builds: a port factory for the registryd tick's agent start -->
 - `bug/the-settled-walk-survives-a-burst` — settle past a burst of pending commits, with the red-head test and the flake fix (#1582)
 - `bug/the-design-commit-key-matches-a-real-plan` — `designCommitOf`, the `open-pr` slot rule, `specRow` section, spec-written judgement (#1685, #1673)
-- `bug/the-issue-index-writes-at-on-an-answer` — nullable `at`, warn on a failed backend (#1652)
+- `bug/the-issue-index-writes-at-on-an-answer` — nullable `at`, warn on a failed backend (#1652) → #1924
 
 ## Notes
 
