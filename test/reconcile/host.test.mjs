@@ -5,6 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync, rmSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -96,6 +97,40 @@ printf '%s' '${json.replace(/'/g, `'\\''`)}'
     return argvFile;
   };
   return { dir, ghArgv: ghStub(ghJson, ghFail), bbArgv: bbStub(bbJson, bbFail) };
+}
+
+// `pr-merge` on GitHub now mints a Merger App token before calling `gh`, so a
+// stub dir with no `## Plot Config` Merger app key — every `makeStubs()`
+// sandbox, since none of them is a git repo with a CLAUDE.md — refuses with
+// exit 4 before `gh` is ever invoked. This layers that config onto a fresh
+// `makeStubs()` sandbox: a repo-root CLAUDE.md naming a real RSA key, and
+// `PLOT_REPO_ROOT` pointed at it so `plot-config.sh` reads it instead of this
+// repository's own (which rightly has no Merger app key configured).
+//
+// The token mint itself is faked by PATH-stubbing `node`, not by a real HTTP
+// server: `run`/`runAllowFail` block the event loop synchronously
+// (`execFileSync`/`spawnSync`), so a server living in THIS process can never
+// accept the connection a nested `fetch()` makes back into it — measured
+// directly as a hang with the child already exited and node itself still
+// stuck. A call naming `plot-merger-token.mjs` is answered with a canned
+// token and no network; any other `node "$here/..."` call (there are several
+// elsewhere in plot-host.sh) `exec`s the real interpreter untouched.
+function makeMergerStubs(opts) {
+  const stubs = makeStubs(opts);
+  const { privateKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+  });
+  const keyPath = path.join(stubs.dir, 'merger-app-key.pem');
+  writeFileSync(keyPath, privateKey, { mode: 0o600 });
+  writeFileSync(path.join(stubs.dir, 'CLAUDE.md'), `## Plot Config\n\n- **Merger app:** 999000 ${keyPath}\n`);
+  writeFileSync(
+    path.join(stubs.dir, 'node'),
+    `#!/usr/bin/env bash\ncase "$1" in\n  */plot-merger-token.mjs) echo -n "merger-installation-token" ;;\n  *) exec "${process.execPath}" "$@" ;;\nesac\n`,
+    { mode: 0o755 },
+  );
+  return { ...stubs, env: { PLOT_REPO_ROOT: stubs.dir } };
 }
 
 // A `bb` stub that REFUSES what the real `bb` refuses. The permissive stub above
@@ -410,8 +445,8 @@ for (const [rollup, word] of CHECK_FOLD_CASES) {
 
 test('host: pr-merge github pins the merge with --match-head-commit', () => {
   const sha = 'a'.repeat(40);
-  const stubs = makeStubs();
-  run(['pr-merge', '5', '--match-head', sha], { env: { PLOT_HOST: 'github' }, stubs });
+  const stubs = makeMergerStubs();
+  run(['pr-merge', '5', '--match-head', sha], { env: { PLOT_HOST: 'github', ...stubs.env }, stubs });
   assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'merge', '5', '--merge', '--match-head-commit', sha]);
 });
 
@@ -420,18 +455,23 @@ test('host: pr-merge github pins the merge with --match-head-commit', () => {
 // altered in `plot-host.sh` left this test green for the wrong reason.
 test('host: pr-merge github surfaces a host that rejects a moved head, and merges nothing', () => {
   const head = 'a'.repeat(40);
-  const stubs = makeStubs();
+  const stubs = makeMergerStubs();
+  // `repo view` (the Merger App's repo lookup) always succeeds here — only a
+  // `pr merge` call is judged against the pin, so the token mint ahead of it
+  // does not change what this test is about.
   writeFileSync(path.join(stubs.dir, 'gh'),
-    `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > "${stubs.ghArgv}"\n` +
+    `#!/usr/bin/env bash\n` +
+    `if [ "$1" = "repo" ] && [ "$2" = "view" ]; then printf '{}'; exit 0; fi\n` +
+    `printf '%s\\n' "$@" > "${stubs.ghArgv}"\n` +
     `pinned=""\nwhile [ $# -gt 0 ]; do [ "$1" = "--match-head-commit" ] && pinned="$2"; shift; done\n` +
     `if [ "$pinned" != "${head}" ]; then echo 'Head branch was modified. Review and try the merge again.' >&2; exit 1; fi\n`);
   chmodSync(path.join(stubs.dir, 'gh'), 0o755);
   const res = runAllowFail(['pr-merge', '5', '--match-head', 'b'.repeat(40)],
-    { env: { PLOT_HOST: 'github' }, stubs });
+    { env: { PLOT_HOST: 'github', ...stubs.env }, stubs });
   assert.notEqual(res.code, 0);
   assert.match(res.stderr, /Head branch was modified/);
   assert.equal(argvOf(stubs.ghArgv).at(-1), 'b'.repeat(40), 'the pin reached gh');
-  const ok = runAllowFail(['pr-merge', '5', '--match-head', head], { env: { PLOT_HOST: 'github' }, stubs });
+  const ok = runAllowFail(['pr-merge', '5', '--match-head', head], { env: { PLOT_HOST: 'github', ...stubs.env }, stubs });
   assert.equal(ok.code, 0, 'the same stub merges when the pin names its head');
 });
 
@@ -645,11 +685,11 @@ test('host: pr-create bitbucket uses bb with same surface', () => {
 
 test('host: pr-merge github defaults to --merge, maps --squash/--delete-branch, both pinned', () => {
   const sha = 'a'.repeat(40);
-  const stubs = makeStubs();
-  run(['pr-merge', '5', '--squash', '--delete-branch', '--match-head', sha], { env: { PLOT_HOST: 'github' }, stubs });
+  const stubs = makeMergerStubs();
+  run(['pr-merge', '5', '--squash', '--delete-branch', '--match-head', sha], { env: { PLOT_HOST: 'github', ...stubs.env }, stubs });
   assert.deepEqual(argvOf(stubs.ghArgv), ['pr', 'merge', '5', '--squash', '--delete-branch', '--match-head-commit', sha]);
-  const stubs2 = makeStubs();
-  run(['pr-merge', '5', '--match-head', sha], { env: { PLOT_HOST: 'github' }, stubs: stubs2 });
+  const stubs2 = makeMergerStubs();
+  run(['pr-merge', '5', '--match-head', sha], { env: { PLOT_HOST: 'github', ...stubs2.env }, stubs: stubs2 });
   assert.deepEqual(argvOf(stubs2.ghArgv), ['pr', 'merge', '5', '--merge', '--match-head-commit', sha]);
 });
 
