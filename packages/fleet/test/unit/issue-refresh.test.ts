@@ -165,6 +165,20 @@ describe('issueIndexRowOf', () => {
   it('omits assignees where the tracker named none', () => {
     expect(issueIndexRowOf(issue())).toEqual({ number: '1', title: 'one', url: 'u1' });
   });
+
+  it('writes updatedAt where the tracker gave one', () => {
+    expect(issueIndexRowOf(issue({ updatedAt: '2026-10-16T00:00:00Z' }))).toEqual({
+      number: '1',
+      title: 'one',
+      url: 'u1',
+      updatedAt: '2026-10-16T00:00:00Z',
+    });
+  });
+
+  it('omits updatedAt where the tracker gave none, rather than writing undefined', () => {
+    const row = issueIndexRowOf(issue());
+    expect(row).not.toHaveProperty('updatedAt');
+  });
 });
 
 describe('one issue pass (Acceptance 2)', () => {

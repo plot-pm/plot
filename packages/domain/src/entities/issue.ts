@@ -74,6 +74,12 @@ export interface Issue {
    * was not asked, never `''` and never a guess from a label.
    */
   type?: string;
+  /**
+   * When the tracker last recorded a change to the issue, ISO-8601. Absent
+   * where the tracker states none or the op was not asked, never a guess from
+   * `createdAt` or `closedAt`.
+   */
+  updatedAt?: string;
 }
 
 /**

@@ -60,7 +60,7 @@ The pass folds the returned rows into the held rows by key. A row whose state is
 - [ ] Which value of N, and is the once-a-day bound measured on `at` of the last full read or on the wall clock?
 - [ ] Does the inbox read (`issueListInbox`) go incremental too, or stay whole because it is person-scoped and small?
 - [ ] Where does a write-through caller live, given that the tracker port is reached from the board's `review.ts` and `verify.ts` entries and the fleet runs in another process? The board process and fleetd both write today only through fleetd's writer; a board-side write needs a path to that writer that adds no second writer.
-- [ ] Does `ISSUE_INDEX_VERSION` move from 1 to 2, so a reader of the old shape reads "ask again" rather than a row without `updatedAt`?
+- [x] Does `ISSUE_INDEX_VERSION` move from 1 to 2, so a reader of the old shape reads "ask again" rather than a row without `updatedAt`? **No, `v` stays 1** (`feature/the-ticket-index-rows-carry-updated-at`). `IssueIndexRowSchema` is `.strict()` with no `.default()`, so a pre-change reader meeting a row that carries `updatedAt` already fails closed to `null` — the store's documented "every failure is null" contract — and re-asks, at the cost of one extra tracker read. A version bump buys no extra safety over that scoped fallback and additionally invalidates every already-compatible reader until its next pass.
 
 ## Slices
 

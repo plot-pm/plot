@@ -87,6 +87,22 @@ describe('a row with assignees', () => {
   });
 });
 
+describe('a row with updatedAt', () => {
+  it('decodes a row that carries updatedAt and one that does not, at the same version', () => {
+    const withUpdatedAt = store({
+      rows: [{ number: '1', title: 'A title', url: 'https://example.test/1', updatedAt: '2026-10-16T00:00:00Z' }],
+    });
+    const withoutUpdatedAt = store();
+    expect(decodeIssueIndex(encodeIssueIndex(withUpdatedAt))).toEqual(withUpdatedAt);
+    expect(decodeIssueIndex(encodeIssueIndex(withoutUpdatedAt))).toEqual(withoutUpdatedAt);
+  });
+
+  it('keeps a cold store byte-identical to no store — no .default() invents a value', () => {
+    expect(decodeIssueIndex(encodeIssueIndex(store()))).not.toHaveProperty('rows.0.updatedAt');
+    expect(encodeIssueIndex(store())).not.toContain('updatedAt');
+  });
+});
+
 describe('the closed set', () => {
   const closed = {
     since: '2026-09-29T00:00:00.000Z',
