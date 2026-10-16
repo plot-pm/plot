@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { doneTickets, DONE_LANE_LIMIT } from '../src/rules/ticket-lane.js';
 import {
   ticketLanes,
+  typeOf,
   type TicketLaneGroups,
   type TicketLanesReading,
   type TicketSourceRow,
@@ -163,5 +164,15 @@ describe('doneTickets expanded', () => {
     const result = doneTickets(rows, true);
     expect(result.rows).toHaveLength(DONE_LANE_LIMIT + 2);
     expect(result.moreCount).toBe(0);
+  });
+});
+
+describe('typeOf', () => {
+  it('trims and lowercases the tracker\'s word', () => {
+    expect(typeOf('  Bug ')).toBe('bug');
+  });
+
+  it('answers null where the tracker stated no word', () => {
+    for (const type of [undefined, null, '', '   ']) expect(typeOf(type)).toBeNull();
   });
 });

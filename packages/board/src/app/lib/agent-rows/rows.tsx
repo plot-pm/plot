@@ -2736,13 +2736,37 @@ export function inferredPlanName(title: string): string {
  * than borrowing a word from another object's vocabulary.
  */
 export function IssueRowView(
-  { issue, idea, story, issueAnswer }:
-  { issue: IssueRow; idea: DispatchInfo; story: DispatchInfo; issueAnswer: IssueAnswer },
+  { issue, idea, story, issueAnswer, showKindLabel = true }:
+  { issue: IssueRow; idea: DispatchInfo; story: DispatchInfo; issueAnswer: IssueAnswer; showKindLabel?: boolean },
 ) {
   return (
     <TupleRowView
-      tuple={tupleFromIssue(issue)}
+      tuple={tupleFromIssue(issue, { showKindLabel })}
       rowAttr={{ 'data-issue-row': `${issue.number}` }}
+      // THE TICKET'S TYPE AND OWNER, beside its name — a fact about the
+      // ticket, the same slot a branch row's slice badge uses for a fact
+      // about the branch. Both are optional and render nothing where the
+      // tracker answered neither, matching the Discovery card's own rule for
+      // `view.type`/`view.owner` (`StoriesTab.tsx`'s `TicketRowView`).
+      beside={
+        issue.type || issue.owner ? (
+          <span className="flex items-center gap-1.5">
+            {issue.type ? (
+              <span
+                data-issue-type
+                className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+              >
+                {issue.type}
+              </span>
+            ) : null}
+            {issue.owner ? (
+              <span data-issue-owner className="shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
+                {issue.owner}
+              </span>
+            ) : null}
+          </span>
+        ) : null
+      }
       // THE TRACKER'S TWO HOOKS, and which one fires says whether the tracker
       // gave an address. They were on the anchor and the span inside this
       // component and they move with the NAME rather than with the component —

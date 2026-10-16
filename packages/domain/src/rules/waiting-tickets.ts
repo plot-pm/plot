@@ -1,6 +1,7 @@
 import type { IssueIndexRow } from '../entities/issue-index.js';
 import { declaresSpelling, resolvePerson, type PersonDirectory } from '../entities/person.js';
 import { ownership, type OwnedRow, type Reader, type TicketSource } from './ownership.js';
+import { ownerOf, typeOf } from './ticket-lanes.js';
 
 /** One open ticket, shaped for the client — the fields `IssueRow` carries. */
 export interface WaitingTicket {
@@ -13,6 +14,10 @@ export interface WaitingTicket {
   readonly statusCategory: string;
   /** The tracker's own logins or accounts assigned — [] where the tracker states none. */
   readonly assignees: readonly string[];
+  /** The tracker's own word for the kind of work, lowercased; `null` where it stated none. */
+  readonly type: string | null;
+  /** The first assignee, resolved through `People` the same way the Discovery card resolves it; `null` where nobody is assigned. */
+  readonly owner: string | null;
 }
 
 /** What *Waiting on you* shows, and why. */
@@ -36,7 +41,11 @@ const ageMinutesOf = (createdAt: string | undefined, now: number): number | null
   return Math.max(0, Math.round((now - at) / 60_000));
 };
 
-const toWaitingTicket = (row: IssueIndexRow, now: number): WaitingTicket => ({
+const toWaitingTicket = (
+  row: IssueIndexRow,
+  now: number,
+  reading: Pick<Reader, 'directory'> & { source: TicketSource | null },
+): WaitingTicket => ({
   kind: 'ticket',
   number: row.number,
   title: row.title,
@@ -45,6 +54,8 @@ const toWaitingTicket = (row: IssueIndexRow, now: number): WaitingTicket => ({
   status: row.status ?? '',
   statusCategory: row.statusCategory ?? '',
   assignees: row.assignees ?? [],
+  type: typeOf(row.type),
+  owner: ownerOf(row.assignees, { source: reading.source, directory: reading.directory }),
 });
 
 const byNewestFirst = (a: IssueIndexRow, b: IssueIndexRow): number => {
@@ -131,7 +142,7 @@ export const waitingTickets = (
   const total = rows.length;
 
   const render = (selected: readonly IssueIndexRow[], notice: string | null): WaitingTickets => ({
-    tickets: selected.slice(0, ISSUE_LIMIT).map((row) => toWaitingTicket(row, now)),
+    tickets: selected.slice(0, ISSUE_LIMIT).map((row) => toWaitingTicket(row, now, { source, directory: reader.directory })),
     shown: selected.length,
     hidden: total - selected.length,
     complete,

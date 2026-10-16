@@ -2456,15 +2456,31 @@ export function AgentList({
               {/* The unplanned issues, AFTER the branches. Work already under
                   way outranks work nobody has committed to — the same
                   actionable-first ordering `GROUPS` applies one level up. */}
+              {/* THE SUB-HEADER, one line replacing the per-row `Ticket`
+                  label every row used to repeat. Gated on `issues.length`
+                  the same way the `none` fallback above is — an empty block
+                  already says so there, and a `· 0` heading here would say
+                  it twice. */}
+              {key === 'waiting-on-you' && fleet.issueAnswer === 'answered' && issues.length > 0 && (
+                <li
+                  role="row"
+                  data-waiting-heading
+                  className="border-t border-slate-100 px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200"
+                >
+                  <span role="gridcell">{waitingBlock.heading}</span>
+                </li>
+              )}
               {/* WHAT THE SECTION HIDES, in the domain's sentences: the
                   notice for an unmatched reader, the hidden count, and the
                   control that lists every ticket. Every text comes from
-                  `waitingView`; nothing here decides. */}
+                  `waitingView`; nothing here decides. Below the sub-header,
+                  in a smaller type style — the sub-header is the heading now,
+                  this is the detail under it. */}
               {key === 'waiting-on-you' && fleet.issueAnswer === 'answered' && waitingBlock.notice !== null && (
                 <li
                   role="row"
                   data-waiting-notice
-                  className="border-t border-slate-100 px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400"
+                  className="border-t border-slate-100 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400"
                 >
                   <span role="gridcell">{waitingBlock.notice}</span>
                 </li>
@@ -2473,7 +2489,7 @@ export function AgentList({
                 <li
                   role="row"
                   data-waiting-hidden
-                  className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400"
+                  className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400"
                 >
                   <span role="gridcell" className="flex flex-wrap items-center gap-2">
                     {waitingBlock.hidden !== null && <span data-waiting-hidden-text>{waitingBlock.hidden}</span>}
@@ -2498,6 +2514,7 @@ export function AgentList({
                   idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
                   story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
                   issueAnswer={fleet.issueAnswer}
+                  showKindLabel={false}
                 />
               ))}
               {drafts.map((draft) => (

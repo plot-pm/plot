@@ -183,7 +183,7 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
     }
   });
 
-  it('is labelled Ticket, and is NOT given a plan phase it does not have', async () => {
+  it('is named by the sub-header, and is NOT given a plan phase it does not have', async () => {
     // Slot 2 read `Discovery` on this row — a PLAN PHASE on a thing that is not
     // a plan and has never entered the lifecycle that word comes from. It was
     // defended as *not a fifth phase; the first one, worn by something that is
@@ -196,17 +196,61 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
     const page = await open();
     try {
       const kind = issueRow(page, 228).locator('[data-kind]');
-      // `Ticket`, and it said `Story` until 2026-08-20. A story is a Plot
-      // artefact — an umbrella over several plans, tracked in `docs/stories` —
-      // and this row is an ISSUE on the git host that no plan references yet.
-      // Two different things, and the row was labelled with the other one's
-      // name; `KIND_LABEL` was corrected and this assertion was not.
-      await expect.poll(() => kind.textContent()).toBe('Ticket');
+      // The per-row word is gone — `ticket-rows-show-type-and-owner` replaced
+      // it with ONE sub-header above the block (`Assigned to you · N`), since
+      // every row in this list is already a ticket and saying so per row was
+      // the repetition that plan named. Slot 2 is empty rather than blank-but-
+      // present: `tupleFromIssue`'s `showKindLabel: false` clears the label
+      // text, it does not remove the slot.
+      await expect.poll(() => kind.textContent()).toBe('');
+      await expect.poll(() => section(page).locator('[data-waiting-heading]').count()).toBe(1);
       // The phase word is gone, and so is the tooltip that stood in for a label.
       await expect.poll(() => issueRow(page, 228).locator('[data-phase]').count()).toBe(0);
       expect(await issueRow(page, 228).textContent()).not.toContain('Discovery');
       const cell = issueRow(page, 228).locator('[role="gridcell"]').nth(1);
       expect(await cell.getAttribute('title')).toBeNull();
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders the sub-header and a row\'s type and owner together', async () => {
+    // THE ONE BROWSER TEST the brief caps this change to: the sub-header
+    // and a ticket row's type/owner badge, proved on the same page at once.
+    // The payload has the production shape: `issues` carries no owner, and
+    // `waiting.tickets` carries the owner the server resolved for a matched
+    // reader. The heading wording and the owner precedence are unit-tested in
+    // `waiting-view.test.ts`; this is only the proof that both reach the screen.
+    const mine = issue({
+      number: 228, title: 'Fleet scan asks the host once per branch',
+      url: 'https://github.com/tiny/garden/issues/228', ageMinutes: 120,
+      type: 'bug', owner: 'jwloka',
+    });
+    const page = await open(fleet({
+      issues: [
+        { ...mine, owner: null },
+        issue({ number: 227, title: 'A blocked wave is not eligible', url: '', ageMinutes: 180 }),
+      ],
+      waiting: { tickets: [mine], shown: 1, hidden: 1, complete: true, notice: null, source: null },
+    }));
+    try {
+      await expect.poll(() => section(page).locator('[data-waiting-heading]').innerText())
+        .toMatch(/^Assigned to you · 1$/);
+      await expect.poll(() => issueRow(page, 228).locator('[data-issue-type]').innerText()).toBe('bug');
+      await expect.poll(() => issueRow(page, 228).locator('[data-issue-owner]').innerText()).toBe('jwloka');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders no badge at all for a ticket with no type and no owner', async () => {
+    // THE REGRESSION TO PIN: absent is not false. A ticket the tracker gave
+    // neither field for renders exactly as it did before this branch — no
+    // empty badge standing in for the missing fact.
+    const page = await open();
+    try {
+      await expect.poll(() => issueRow(page, 228).locator('[data-issue-type]').count()).toBe(0);
+      await expect.poll(() => issueRow(page, 228).locator('[data-issue-owner]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -342,8 +386,13 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
       // `sectionTally`'s own figures to compare with and would be comparing the
       // function with itself.
       const heading = page.getByRole('button', { name: /Waiting on you/ }).first();
-      // One plan group and two ticket rows — the `sr-only` legend is not a row.
-      const rendered = await section(page).locator('> li:not(.sr-only)').count();
+      // One plan group and two ticket rows — the `sr-only` legend is not a row,
+      // and neither is the `Assigned to you · N` sub-header `ticket-rows-
+      // show-type-and-owner` added above the ticket block: it names the
+      // block, it is not one of the rows the tally counts.
+      const rendered = await section(page)
+        .locator('> li:not(.sr-only):not([data-waiting-heading])')
+        .count();
       const label = (await heading.textContent()) ?? '';
       const figures = [...label.matchAll(/(\d+) (?:plan|branch|branche|ticket|stopped agent)/g)]
         .map((m) => Number(m[1]));

@@ -203,18 +203,14 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // now holds the KIND, in a word, which is the fact that cell was always
       // failing to state.
       expect(await ticket.locator('[data-phase]').count()).toBe(0);
-      // CASE-INSENSITIVE, because slot 2 wears Tailwind's `uppercase` on the
-      // board and the authored word is `Ticket`. Asserting the styled form would
-      // make this a claim about a CSS utility rather than about the kind being
-      // stated — the same reason the harness suite lowercases, arrived at from
-      // the other direction: there no stylesheet loads, so it reads `Ticket`.
-      //
-      // `Ticket`, not `Story` — the word this asserted until 2026-08-20, when
-      // `KIND_LABEL` was corrected. A story is a Plot artefact, an umbrella over
-      // several plans in `docs/stories`; this row is an ISSUE on the git host
-      // that no plan references yet. The test went on asserting the name of the
-      // other thing.
-      expect((await ticket.locator('[data-kind]').innerText()).toLowerCase()).toBe('ticket');
+      // EMPTY, not `Ticket` — `ticket-rows-show-type-and-owner` dropped the
+      // per-row word from the Waiting-on-you ticket block in favour of one
+      // sub-header above it (`Open tickets · N` here, the payload carrying no `waiting`), since every row in that
+      // block is already a ticket and the repeated word said nothing a reader
+      // didn't already know. `tupleFromIssue`'s `showKindLabel: false` clears
+      // the slot's text; it does not remove the slot, so slot 2 stays empty
+      // rather than absent.
+      expect(await ticket.locator('[data-kind]').innerText()).toBe('');
     } finally {
       await page.close();
     }
@@ -320,10 +316,19 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // box, so a kind moved back into a `title` fails here. That is the
       // tooltip-as-label defect, and it is the reason the board renders a word
       // at all rather than only an icon.
-      const words = await page.locator('li[data-tuple-kind] [data-kind]')
+      //
+      // TICKET IS THE NAMED EXCEPTION. `ticket-rows-show-type-and-owner`
+      // replaced the per-row word on every ticket in the Waiting-on-you block
+      // with one sub-header above the block — the row still says what it is,
+      // the sub-header just says it once rather than once per row. Checked
+      // below, against the heading rather than the row.
+      const words = await page.locator('li[data-tuple-kind]:not([data-tuple-kind="ticket"]) [data-kind]')
         .evaluateAll((els) => els.map((e) => (e as HTMLElement).innerText.trim()));
-      expect(words.length).toBeGreaterThanOrEqual(4);
+      expect(words.length).toBeGreaterThanOrEqual(3);
       expect(words.every(Boolean), `blank kind among: ${JSON.stringify(words)}`).toBe(true);
+      // The sub-header replacing the per-row word, present and non-blank.
+      await expect.poll(() =>
+        page.locator('[data-waiting-heading]').innerText()).toMatch(/Open tickets · \d+/);
       // And they are the SAME SORT OF WORD on every row — the property the
       // four-meanings column failed at, where the cell read a wave name, a plan
       // phase, nothing, or a plan phase on a ticket depending on a wave count
