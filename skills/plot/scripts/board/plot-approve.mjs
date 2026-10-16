@@ -104,7 +104,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
   See what git refused: git -C ${r} status
   Nothing was pushed; re-run this \u2014 it is idempotent.`);let x=await e.scripts.awaited("plot-push-main.sh",[i,o]);for(let Z of`${x.stdout}${x.stderr}`.split(`
 `))Z.length>0&&c(`  ${Z}
-`);if(x.code===0)return{pushed:r$(x.stdout)};if(m===l)break;if(c(`step: push rejected \u2014 retrying (attempt ${m} of ${l})
+`);if(x.code===0)return{pushed:r$(x.stdout)};if(x.code===3||x.code===4)return c(`step: push refused (exit ${x.code}) \u2014 not retrying
+`),{rejected:!0};if(m===l)break;if(c(`step: push rejected \u2014 retrying (attempt ${m} of ${l})
 `),await d(),!(await e.trees.fetch(e.repoRoot,o)).ok)return c(`step: retry stopped \u2014 git fetch origin ${o} failed in ${e.repoRoot}
 `),{rejected:!0};if(!(await e.trees.resetBranch(r,i,`origin/${o}`)).ok)return c(`step: retry stopped \u2014 could not reset '${i}' to origin/${o} in ${r}
 `),{rejected:!0};try{await u(r)}catch(Z){throw c(`step: retry stopped \u2014 re-applying the ${a} to origin/${o} failed

@@ -161,7 +161,8 @@ This is the build gate's verdict on the work you have already pushed. Your brief
   See what git refused: git -C ${r} status
   Nothing was pushed; re-run this \u2014 it is idempotent.`);let I=await e.scripts.awaited("plot-push-main.sh",[n,o]);for(let C of`${I.stdout}${I.stderr}`.split(`
 `))C.length>0&&u(`  ${C}
-`);if(I.code===0)return{pushed:Fx(I.stdout)};if(p===l)break;if(u(`step: push rejected \u2014 retrying (attempt ${p} of ${l})
+`);if(I.code===0)return{pushed:Fx(I.stdout)};if(I.code===3||I.code===4)return u(`step: push refused (exit ${I.code}) \u2014 not retrying
+`),{rejected:!0};if(p===l)break;if(u(`step: push rejected \u2014 retrying (attempt ${p} of ${l})
 `),await m(),!(await e.trees.fetch(e.repoRoot,o)).ok)return u(`step: retry stopped \u2014 git fetch origin ${o} failed in ${e.repoRoot}
 `),{rejected:!0};if(!(await e.trees.resetBranch(r,n,`origin/${o}`)).ok)return u(`step: retry stopped \u2014 could not reset '${n}' to origin/${o} in ${r}
 `),{rejected:!0};try{await c(r)}catch(C){throw u(`step: retry stopped \u2014 re-applying the ${s} to origin/${o} failed
