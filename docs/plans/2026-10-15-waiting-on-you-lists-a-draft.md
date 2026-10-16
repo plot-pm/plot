@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #1740
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-15, Jan Wloka, plan-PR #1741 merged
 - **Started:** 2026-10-15, Jan Wloka, `bug/waiting-on-you-lists-a-draft`
 - **Delivered:** 2026-10-15
+- **Released:** 2026-10-16, v2.27.1
 
 ## Changelog
 
