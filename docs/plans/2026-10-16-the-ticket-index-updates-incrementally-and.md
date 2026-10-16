@@ -6,7 +6,7 @@
 
 - **State:** Approved
 - **Type:** feature
-- **Sprint:**
+- **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #1856
 - **Story:**
 - **Review:** pr
