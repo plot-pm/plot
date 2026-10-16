@@ -29,6 +29,28 @@ describe('branchUrlBase', () => {
       .toBe('https://bitbucket.org/team/repo/branch/');
   });
 
+  it('keeps the bitbucket.org web host for Bitbucket\'s SSH hosts', () => {
+    // From 2026-11-12 Git over SSH connects to ssh.bitbucket.org, and
+    // `git remote get-url` reports that host after an `insteadOf` rewrite. The
+    // link is a web page, so it stays on bitbucket.org.
+    const want = 'https://bitbucket.org/team/repo/branch/';
+    expect(branchUrlBase('git@ssh.bitbucket.org:team/repo.git')).toBe(want);
+    expect(branchUrlBase('ssh://git@ssh.bitbucket.org/team/repo.git')).toBe(want);
+    expect(branchUrlBase('ssh://git@bitbucket.org/team/repo.git')).toBe(want);
+  });
+
+  it('reads Bitbucket\'s port-443 SSH form without taking the port for the owner', () => {
+    expect(branchUrlBase('ssh://git@altssh.bitbucket.org:443/team/repo.git'))
+      .toBe('https://bitbucket.org/team/repo/branch/');
+    expect(branchUrlBase('ssh://git@ssh.bitbucket.org:22/team/repo'))
+      .toBe('https://bitbucket.org/team/repo/branch/');
+  });
+
+  it('does not take a lookalike of the SSH hosts for Bitbucket', () => {
+    expect(branchUrlBase('git@ssh.bitbucket.org.evil.example.com:team/repo.git')).toBe('');
+    expect(branchUrlBase('git@notssh.bitbucket.org:team/repo.git')).toBe('');
+  });
+
   it('keeps a GitHub Enterprise host rather than rewriting it to github.com', () => {
     expect(branchUrlBase('https://github.example.com/team/repo.git'))
       .toBe('https://github.example.com/team/repo/tree/');

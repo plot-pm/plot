@@ -283,10 +283,10 @@ const fakeBitbucket = async ({ statusCode = 201 } = {}) => {
  * argv then runs the real interpreter. No `curl` stub: the write goes through
  * `fetch` inside the Node process, not a child.
  */
-const bbSandbox = ({ withEnv = {} } = {}) => {
+const bbSandbox = ({ withEnv = {}, remote = 'git@bitbucket.org:myws/myrepo.git' } = {}) => {
   const root = scratch('plot-host-commit-status-bb-');
   execFileSync('git', ['init', '-q', root]);
-  execFileSync('git', ['-C', root, 'remote', 'add', 'origin', 'git@bitbucket.org:myws/myrepo.git']);
+  execFileSync('git', ['-C', root, 'remote', 'add', 'origin', remote]);
   fs.writeFileSync(path.join(root, 'CLAUDE.md'), '## Plot Config\n\n');
   if (withEnv.dotenv) fs.writeFileSync(path.join(root, '.env'), withEnv.dotenv);
 
@@ -370,6 +370,23 @@ test('commit-status (bitbucket): never shells out through bb — the write is a 
   assert.doesNotMatch(callLog(box), /^bb /m, 'bb was called for the write');
   assert.equal(api.requests.length, 1);
   assert.equal(api.requests[0].auth, `Basic ${Buffer.from('review-bot:app-pw-secret').toString('base64')}`);
+});
+
+test('commit-status (bitbucket): resolves the workspace/repo from every SSH form of origin, ports included', async () => {
+  // Bitbucket Cloud moves Git over SSH to ssh.bitbucket.org on 2026-11-12;
+  // altssh.bitbucket.org:443 is the fallback where port 22 is blocked. A port
+  // left in the URL would read `443` as the workspace.
+  for (const remote of [
+    'git@ssh.bitbucket.org:myws/myrepo.git',
+    'ssh://git@ssh.bitbucket.org/myws/myrepo.git',
+    'ssh://git@altssh.bitbucket.org:443/myws/myrepo.git',
+  ]) {
+    const box = bbSandbox({ remote });
+    const api = await fakeBitbucket();
+    const got = await bbCommitStatus(box, ARGS, api.url, BB_CRED);
+    assert.equal(got.code, 0, `${remote}: ${got.err}`);
+    assert.equal(api.requests.length, 1, remote);
+  }
 });
 
 test('commit-status (bitbucket): the credential never appears in stdout, stderr, or any child process argv', async () => {
