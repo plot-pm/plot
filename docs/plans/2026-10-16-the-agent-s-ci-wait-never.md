@@ -64,7 +64,7 @@ Wave order follows the dependency: gap 1 and gap 7 are independent and run first
 ### Credentials and default branch
 
 - `bug/jenkins-credential-from-env` → #1936 — read the Jenkins REST credential from the environment or `.env` (gap 7)
-- `bug/jenkins-default-branch-workflow` — emit `workflow` as the job path and report an unmatched declared name (gap 5)
+- `bug/jenkins-default-branch-workflow` → #1937 — emit `workflow` as the job path and report an unmatched declared name (gap 5)
 
 ### Commit binding
 
