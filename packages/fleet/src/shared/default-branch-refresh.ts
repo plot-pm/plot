@@ -10,6 +10,7 @@ import {
   advanceSettled,
   ancestorStep,
   ancestorsToAsk,
+  newerAncestors,
   declaredRuns,
   failingRunsOf,
   foldRuns,
@@ -83,8 +84,14 @@ interface Settlement {
  * not answer stops the walk and keeps the previous settlement. A walk that
  * does not reach the settled commit asks nothing. A walk whose asks all came
  * back unconcluded records its last commit in `walked`, and the next refresh
- * resumes past it, so a burst longer than `ANCESTOR_ASKS_MAX` is covered
- * across refreshes at `ANCESTOR_ASKS_MAX` asks each.
+ * of the same head resumes past it, so a burst longer than
+ * `ANCESTOR_ASKS_MAX` is covered across refreshes at `ANCESTOR_ASKS_MAX` asks
+ * each. A resumed walk that finds a concluded commit re-asks the newer commits
+ * it skipped, newest first (`newerAncestors`), and settles on the first of
+ * them that has concluded, or on the commit it found where none has. The
+ * settled commit is therefore the newest concluded commit between the head and
+ * the previous settled commit as the host answered in this refresh: never
+ * green while a newer commit on that line answered red.
  *
  * @param world - the reads.
  * @param branch - the default branch.
@@ -101,13 +108,22 @@ const settleBehindHead = async (
   const walked = await world.refs.firstParentLine(headSha, ANCESTOR_WALK_DEPTH);
   const line = walked.ok ? walked.value : [];
   const asking = ancestorsToAsk(line, headSha, kept.settled, ANCESTOR_ASKS_MAX, kept.walked);
-  for (const sha of asking) {
+  const ask = async (sha: string): Promise<{ step: ReturnType<typeof ancestorStep>; failingRuns: FailingRun[] }> => {
     const asked = await world.slot(() => world.build.runsForSha(branch, sha));
     const runs = asked.ok ? declaredRuns(asked.value, world.checks) : [];
-    const state = asked.ok ? foldRuns(runs) : null;
-    const step = ancestorStep(sha, state);
-    if (step === 'stop') return kept;
-    if (step !== 'older') return { settled: step, failingRuns: step.state === 'red' ? failingRunsOf(runs) : [] };
+    const step = ancestorStep(sha, asked.ok ? foldRuns(runs) : null);
+    return { step, failingRuns: typeof step === 'object' && step.state === 'red' ? failingRunsOf(runs) : [] };
+  };
+  for (const sha of asking) {
+    const found = await ask(sha);
+    if (found.step === 'stop') return kept;
+    if (found.step === 'older') continue;
+    for (const newer of newerAncestors(line, asking[0]!)) {
+      const reasked = await ask(newer);
+      if (reasked.step === 'stop') return kept;
+      if (reasked.step !== 'older') return { settled: reasked.step, failingRuns: reasked.failingRuns };
+    }
+    return { settled: found.step, failingRuns: found.failingRuns };
   }
   const last = asking[asking.length - 1];
   return last === undefined ? { settled: kept.settled, failingRuns: kept.failingRuns } : { ...kept, walked: last };
@@ -137,7 +153,10 @@ export type DefaultBranchOutcome = 'skipped' | 'asked' | 'unreadable';
  * (`advanceSettled`). A head that is `pending` or `unknown` moves it to the
  * newest concluded commit between the head and the settled commit, read by
  * {@link settleBehindHead}. One refresh therefore makes at most
- * `1 + ANCESTOR_ASKS_MAX` CI asks. A host that fails writes `head: 'unknown'`, keeps the
+ * `1 + ANCESTOR_ASKS_MAX` CI asks, plus the re-asks of the commits a resumed
+ * walk skipped when it finds a concluded commit, fewer than
+ * `ANCESTOR_WALK_DEPTH`. The resume point `walked` is kept only while the head
+ * is unchanged. A host that fails writes `head: 'unknown'`, keeps the
  * settled part, and keeps the previous `askedAt`: `askedAt` is when a host last
  * answered, so a red reading the host stopped confirming ages out after
  * `Checks wait`. `at` records every ask, answered or not. An unaskable CI
@@ -199,7 +218,7 @@ export const refreshDefaultBranch = async (
         : await settleBehindHead(world, branch, sha, {
             settled: carried,
             failingRuns: previous?.failingRuns ?? [],
-            ...(previous?.walked ? { walked: previous.walked } : {}),
+            ...(unchanged && previous.walked ? { walked: previous.walked } : {}),
           });
     reading = {
       v: DEFAULT_BRANCH_VERSION,

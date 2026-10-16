@@ -70,11 +70,13 @@ const alive = (pid) => {
 };
 
 // Waits, at most 10 s, until every pid the desk recorded at launch has exited.
+// Without a desk there are no pids to read: the test failed before it made one.
 const workersGone = async (desk) => {
+  if (desk === undefined) return;
   const pids = ['.plot-worker.pid', '.plot-worker.wrapper.pid']
     .map((name) => {
       try {
-        return Number.parseInt(fs.readFileSync(path.join(desk ?? '', name), 'utf8'), 10);
+        return Number.parseInt(fs.readFileSync(path.join(desk, name), 'utf8'), 10);
       } catch {
         return NaN;
       }

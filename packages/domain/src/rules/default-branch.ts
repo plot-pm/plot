@@ -108,11 +108,14 @@ export const ANCESTOR_WALK_DEPTH = 50;
  * settled commit must be on the line itself: equality over the walk, not an
  * ancestry test.
  *
- * A walk resumes past `after`, the oldest commit an earlier refresh found not
- * yet concluded, so a burst of more than `max` commits is covered across
- * refreshes instead of re-asking the same newest `max`. Where `after` is not
- * between the head and the settled commit, or nothing older remains, the walk
- * starts again from the newest.
+ * A walk resumes past `after`, the oldest commit an earlier refresh of the
+ * same head found not yet concluded, so a burst of more than `max` commits is
+ * covered across refreshes instead of re-asking the same newest `max`. Where
+ * `after` is not between the head and the settled commit, or nothing older
+ * remains, the walk starts again from the newest. A resumed walk skips the
+ * commits newer than `after`, which may have concluded since; the caller
+ * re-asks them ({@link newerAncestors}) before it accepts an answer from past
+ * `after`.
  *
  * @param line - the head and its first-parent ancestors, newest first.
  * @param headSha - the head the walk must start at.
@@ -140,13 +143,33 @@ export const ancestorsToAsk = (
 };
 
 /**
+ * The first-parent ancestors of the head that are newer than `sha`, newest first.
+ *
+ * These are the commits a walk resumed at `sha` skipped. Their runs may have
+ * concluded since an earlier refresh found them pending, so a concluded answer
+ * from `sha` or older is the newest concluded commit only once each of them is
+ * asked again and none has concluded.
+ *
+ * @param line - the head and its first-parent ancestors, newest first.
+ * @param sha - the first commit the resumed walk asked.
+ * @returns the commits strictly between the head and `sha`; empty where `sha`
+ *   is the head, the head's parent, or not on the line.
+ */
+export const newerAncestors = (line: readonly string[], sha: string): string[] => {
+  const at = line.indexOf(sha);
+  return at > 1 ? line.slice(1, at) : [];
+};
+
+/**
  * What one ancestor's answer means for the walk past a pending head.
  *
- * A concluded commit (`red` or `green`) is the newest one, because the walk
- * asks newest first, so the settled part moves to it. A `pending` or
- * `unknown` commit says nothing yet, so the walk asks the next older one. No
- * answer stops the walk and keeps the previous settled reading: the commit
- * the host did not answer for may be red.
+ * A concluded commit (`red` or `green`) moves the settled part to it. It is the
+ * newest concluded commit only when every newer commit between it and the head
+ * was asked in the same refresh and none had concluded: a walk from the newest
+ * asks them first, and a resumed walk re-asks the commits it skipped
+ * ({@link newerAncestors}). A `pending` or `unknown` commit says nothing yet,
+ * so the walk asks the next older one. No answer stops the walk and keeps the
+ * previous settled reading: the commit the host did not answer for may be red.
  *
  * @param sha - the ancestor the runs belong to.
  * @param state - what the ancestor's runs add up to; null where the host did not answer.
