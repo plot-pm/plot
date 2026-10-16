@@ -1543,11 +1543,11 @@ export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLan
   const declared = await scriptsFor(opts).config('Tracker', '');
   const source = issueSource({
     declared: declared.ok ? declared.value : '',
-    gitHost: entry.backend ?? 'github',
+    gitHost: entry.backend ?? '',
     listers: TRACKER_LISTERS,
   });
   return {
-    ticketSource: ticketSourceOf(source, entry.backend ?? 'github', TICKET_SOURCES),
+    ticketSource: ticketSourceOf(source, entry.backend ?? '', TICKET_SOURCES),
     directory: await people(opts),
     open: entry.issueSets.rows ?? [],
     closed: entry.issueSets.closed?.rows ?? [],
@@ -1660,7 +1660,7 @@ export async function issuesClosedReading(opts: BuildBoardOptions): Promise<Issu
   const declared = await scriptsFor(opts).config('Tracker', '');
   const source = issueSource({
     declared: declared.ok ? declared.value : '',
-    gitHost: entry.backend ?? 'github',
+    gitHost: entry.backend ?? '',
     listers: TRACKER_LISTERS,
   });
   if (source.ask === 'nobody') {
@@ -1692,7 +1692,7 @@ export async function issuesClosedReading(opts: BuildBoardOptions): Promise<Issu
   }
 
   const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
-  const gitHost = entry.backend ?? 'github';
+  const gitHost = entry.backend ?? '';
   const tracker = trackerForIssues(declared.ok ? declared.value : '', gitHost, context);
   // No lower bound — the route answers every closed issue the tracker holds,
   // unlike the issue gate's own {@link ISSUE_INDEX_CLOSED_DAYS}-day window.
@@ -1826,7 +1826,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
   const declared = await scriptsFor(opts).config('Tracker', '');
   const source = issueSource({
     declared: declared.ok ? declared.value : '',
-    gitHost: entry.backend ?? 'github',
+    gitHost: entry.backend ?? '',
     listers: TRACKER_LISTERS,
   });
   if (source.ask === 'nobody') {
@@ -1840,7 +1840,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
   const startedAt = Date.now();
   const stamp = new Date(startedAt).toISOString();
   const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
-  const gitHost = entry.backend ?? 'github';
+  const gitHost = entry.backend ?? '';
   const tracker = trackerForIssues(declared.ok ? declared.value : '', gitHost, context);
   const spent = await tracker.spender();
   const connector = spent.ok ? spent.value.connector : gitHost;
@@ -1897,7 +1897,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
       // tick earlier is a floor the host named, and this poll's own ceiling has
       // no business shortening it — the same "more conservative only" rule
       // `prNextDueAt` follows.
-      const due = prNextDueAt(Date.now(), backoff, Date.now(), entry.backend ?? 'github');
+      const due = prNextDueAt(Date.now(), backoff, Date.now(), entry.backend ?? '');
       if (due.at > entry.prNextAt) {
         entry.prNextAt = due.at;
         entry.prNextIsBackoff = due.hard;
@@ -1934,7 +1934,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
   entry.issues = inboxOf(rows, referenced, Date.now());
   entry.issueAnswer = 'answered';
   entry.issueError = null;
-  const gitHostBackend = entry.backend ?? 'github';
+  const gitHostBackend = entry.backend ?? '';
   const ticketSource = ticketSourceOf(source, gitHostBackend, TICKET_SOURCES);
   entry.waiting = await waitingOf(opts, rows, ticketSource, said.value.complete);
 }
@@ -1990,7 +1990,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
   const declared = await scriptsFor(opts).config('Tracker', '');
   const source = issueSource({
     declared: declared.ok ? declared.value : '',
-    gitHost: entry.backend ?? 'github',
+    gitHost: entry.backend ?? '',
     listers: TRACKER_LISTERS,
   });
   if (source.ask === 'nobody') {
@@ -2049,7 +2049,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
   }
   entry.issueAnswer = 'answered';
   entry.issueError = null;
-  const gitHostBackend = entry.backend ?? 'github';
+  const gitHostBackend = entry.backend ?? '';
   const ticketSource = ticketSourceOf(source, gitHostBackend, TICKET_SOURCES);
   entry.waiting = await waitingOf(opts, rows, ticketSource, index.complete ?? true, index.inbox);
 };
@@ -7132,7 +7132,7 @@ export async function buildFleet(
     prSpenders: localSpenders(
       entry.prSpendPerHour === null ? null : { perHour: entry.prSpendPerHour },
       PR_REFRESH_MS,
-      prRequestsPerRefresh(entry.backend ?? 'github'),
+      prRequestsPerRefresh(entry.backend ?? ''),
     ),
     // THE CAP AND WHAT IS AGAINST IT, so the bound is visible rather than
     // merely quiet. Both null before the first refresh has read a limit, which

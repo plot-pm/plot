@@ -2,6 +2,7 @@ import { findingKey, type Finding } from '../entities/finding.js';
 import type { DefaultBranchReading } from '../entities/default-branch.js';
 import type { PrIndex, PrIndexRow } from '../entities/pr-index.js';
 import { settledRed } from './default-branch.js';
+import { CHECKS_SHA_MISSING } from './checks-reading.js';
 
 /** How long after the host merged a PR its `pr merged` finding holds. */
 export const MERGED_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -66,10 +67,10 @@ const mergedInWindow = (rows: readonly PrIndexRow[], nowMs: number): MergedRow[]
 
 /** The commit the checks name, in words. */
 const checksBinding = (row: PrIndexRow): string => {
-  if (row.checksSha === undefined) {
+  if (row.checksSha === undefined || row.checksSha === '') {
     return row.headSha === undefined
-      ? 'the checks are not bound to a commit'
-      : `the checks are not bound to a commit; head ${row.headSha}`;
+      ? CHECKS_SHA_MISSING
+      : `${CHECKS_SHA_MISSING} head ${row.headSha}`;
   }
   return row.checksSha === row.headSha
     ? `on ${row.checksSha}`

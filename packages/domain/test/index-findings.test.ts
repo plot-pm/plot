@@ -89,7 +89,7 @@ describe('indexFindings — what the index says holds now', () => {
     const [f] = indexFindings(readings({ index: indexOf([row({ checksSha: 'old', headSha: 'new' })]) })).findings;
     expect(f!.evidence).toBe('pull request #1, for old, head new');
     const [g] = indexFindings(readings({ index: indexOf([row({ checksSha: undefined })]) })).findings;
-    expect(g!.evidence).toBe('pull request #1, the checks are not bound to a commit; head aaa');
+    expect(g!.evidence).toBe('pull request #1, No commit is recorded for these checks. head aaa');
   });
 
   it('ignores a PR whose branch no plan names', () => {
@@ -297,9 +297,16 @@ describe('indexFindings — rows with absent fields', () => {
 
   it('says the checks name no commit, with or without a head', () => {
     const bare = only([row({ checksSha: undefined, headSha: undefined })])[0]!;
-    expect(bare.evidence).toBe('pull request #1, the checks are not bound to a commit');
+    expect(bare.evidence).toBe('pull request #1, No commit is recorded for these checks.');
     const headed = only([row({ checksSha: undefined, headSha: 'hhh' })])[0]!;
-    expect(headed.evidence).toBe('pull request #1, the checks are not bound to a commit; head hhh');
+    expect(headed.evidence).toBe('pull request #1, No commit is recorded for these checks. head hhh');
+  });
+
+  it('renders empty checksSha the same as undefined', () => {
+    const bare = only([row({ checksSha: '', headSha: undefined })])[0]!;
+    expect(bare.evidence).toBe('pull request #1, No commit is recorded for these checks.');
+    const headed = only([row({ checksSha: '', headSha: 'hhh' })])[0]!;
+    expect(headed.evidence).toBe('pull request #1, No commit is recorded for these checks. head hhh');
   });
 
   it('says the head is unknown when the checks name a commit and the row has no head', () => {

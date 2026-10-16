@@ -121,6 +121,13 @@ export const checksProminence = (readings: ChecksReadings): ChecksProminence => 
 export const checksShown = (readings: ChecksReadings): boolean => readings.checks !== 'green';
 
 /**
+ * The one sentence for "no commit is recorded for these checks," shared by
+ * every reader that must say this fact — the channel's evidence strings and
+ * the board's badge `detail` text alike.
+ */
+export const CHECKS_SHA_MISSING = 'No commit is recorded for these checks.';
+
+/**
  * The words a `failing`/`pending` `detail` ends with, naming the commit.
  *
  * `checksSha`, NEVER `headSha`: on GitHub the two agree, but on a host that
@@ -133,7 +140,7 @@ export const checksShown = (readings: ChecksReadings): boolean => readings.check
  */
 const checksShaSuffix = (checksSha: string | undefined): string =>
   checksSha === undefined || checksSha === ''
-    ? ' No commit is recorded for these checks.'
+    ? ` ${CHECKS_SHA_MISSING}`
     : ` @${checksSha.slice(0, 7)}`;
 
 /**
