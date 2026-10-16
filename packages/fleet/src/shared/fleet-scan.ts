@@ -31,9 +31,15 @@ export const FLEET_SCAN_BUDGET_MS = 90_000;
  * scan down; a fresh one re-derives everything, which is correct and slow.
  */
 export interface ScanState {
-  /** The terminal-branch map the last successful scan reported. Empty on a cold start. */
+  /**
+   * The terminal-branch map the last scan reported, whether it completed or
+   * was killed partway through. Empty on a cold start.
+   */
   terminal: string;
-  /** The PR listing the last fetching scan reported. Empty until one is fetched. */
+  /**
+   * The PR listing the last scan that fetched one reported, carried forward
+   * even from a kill. Empty until one is fetched.
+   */
   listing: string;
   /** Epoch ms the listing was fetched, or null before the first one. */
   listingAt: number | null;
@@ -317,14 +323,18 @@ export const readBranchUrlBase = async (refs: Refs): Promise<string> => {
  * Runs the fleet scan once and reads the facts that travel with its pulse.
  *
  * Spends the PR listing only where `listingSpend` permits, hands the scan the
- * two cost caches in `state`, and adopts the caches the scan reports back only
- * after its terminal line arrived: a scan killed at its budget has reported
- * some entries and re-derived others, and adopting that would drop the branches
- * it never reached.
+ * two cost caches in `state`, and carries whatever `terminal:`/`listing:`
+ * lines it streamed back into `state` whether the scan completes or is
+ * killed at its budget — a kill has reported some entries before it died,
+ * and dropping that would force the next scan to start cold on both caches.
+ * `state.pulse` is a different matter: it is read by the caller only after
+ * this function returns, so a throw here never touches it.
  *
  * @param world - what the scan reads through.
- * @param state - the caches carried between scans; mutated on success only,
- *   except `listingIntervalMs` and `listingReusedAgeMs`, which record the verdict.
+ * @param state - the caches carried between scans; `terminal`/`listing`/
+ *   `listingAt`/`listingBranches` are mutated whenever the scan streamed
+ *   something worth keeping, win or throw; `listingIntervalMs` and
+ *   `listingReusedAgeMs` always record the verdict.
  * @param options - whether the script records, and a hook on every raw line.
  * @returns the pulse and the facts read beside it.
  * @throws where the scan fails, times out, or ends without its terminal line.
@@ -360,39 +370,55 @@ export const scanOnce = async (
   }
   const reusing = !spend && state.listing !== '';
   state.listingReusedAgeMs = reusing ? reusedAgeMs : null;
-  await world.scripts.stream(FLEET_SCAN, ['--stream'],
-    (line) => {
-      options.onLine?.(line);
-      let msg: { kind?: unknown; reading?: unknown };
-      try {
-        msg = JSON.parse(line) as typeof msg;
-      } catch {
-        return;
-      }
-      if (msg.kind !== 'reading') return;
-      const reading = FleetReadingSchema.safeParse(msg.reading);
-      if (reading.success) parsed = reading.data;
-    },
-    {
-      timeoutMs: FLEET_SCAN_BUDGET_MS,
-      env: {
-        PLOT_TERMINAL_CACHE: state.terminal,
-        PLOT_PR_LISTING: reusing ? state.listing : '',
-        ...(options.record ? {} : { PLOT_SCAN_RECORD: '0' }),
+  let killed = false;
+  try {
+    await world.scripts.stream(FLEET_SCAN, ['--stream'],
+      (line) => {
+        options.onLine?.(line);
+        let msg: { kind?: unknown; reading?: unknown };
+        try {
+          msg = JSON.parse(line) as typeof msg;
+        } catch {
+          return;
+        }
+        if (msg.kind !== 'reading') return;
+        const reading = FleetReadingSchema.safeParse(msg.reading);
+        if (reading.success) parsed = reading.data;
       },
-      onErrorLine: (line) => {
-        if (line.startsWith('terminal:')) learned += `${line.slice('terminal:'.length).trim()}\n`;
-        if (line.startsWith('listing:')) listed += `${line.slice('listing:'.length).trim()}\n`;
-      },
-    });
+      {
+        timeoutMs: FLEET_SCAN_BUDGET_MS,
+        env: {
+          PLOT_TERMINAL_CACHE: state.terminal,
+          PLOT_PR_LISTING: reusing ? state.listing : '',
+          ...(options.record ? {} : { PLOT_SCAN_RECORD: '0' }),
+        },
+        onErrorLine: (line) => {
+          if (line.startsWith('terminal:')) learned += `${line.slice('terminal:'.length).trim()}\n`;
+          if (line.startsWith('listing:')) listed += `${line.slice('listing:'.length).trim()}\n`;
+        },
+      });
+  } catch (err) {
+    killed = true;
+    throw err;
+  } finally {
+    // A kill (budget timeout or otherwise) still streamed real, host-charged
+    // terminal:/listing: lines before it died; carrying them into state here —
+    // win or throw — is what lets the next scan start warm instead of cold.
+    // On a clean run `learned` is always the WHOLE map the script re-reports
+    // (plot-fleet-scan.sh's own contract), so an empty string there is a real
+    // answer and still replaces `state.terminal` as it always has. Only a
+    // kill may leave `learned` partial-but-truthful or entirely empty before
+    // any branch resolved — and only then does an empty `learned` mean
+    // "nothing new," not "the map is now empty," so the prior cache survives.
+    if (!killed || learned !== '') state.terminal = learned;
+    if (!reusing && listed !== '') {
+      state.listing = listed;
+      state.listingAt = Date.now();
+      state.listingBranches = listedBranchCount(listed) ?? state.listingBranches;
+    }
+  }
   if (parsed === null) throw new Error('fleet scan ended without a terminal pulse line');
   const reading: FleetReading = parsed;
-  state.terminal = learned;
-  if (!reusing && listed !== '') {
-    state.listing = listed;
-    state.listingAt = Date.now();
-    state.listingBranches = listedBranchCount(listed) ?? state.listingBranches;
-  }
   const { ages, tipAt } = await branchAges(world.refs);
   return {
     reading,
