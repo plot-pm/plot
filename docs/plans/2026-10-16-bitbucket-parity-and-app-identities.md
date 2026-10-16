@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Type:** feature
 - **Issue:** #1848
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-16, Jan Wloka, `bug/app-identities-refuse-by-name`
 - **Started:** 2026-10-16, Jan Wloka, `feature/bitbucket-commit-status-parity`
 - **Started:** 2026-10-16, Jan Wloka, `bug/writer-app-push-uses-only-the-app`
+- **Delivered:** 2026-10-16
 
 ## Changelog
 
