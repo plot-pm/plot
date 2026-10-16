@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Issue:** #1751
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-15, Jan Wloka, `feature/a-plan-card-names-its-owners`
 - **Started:** 2026-10-15, Jan Wloka, `feature/discovery-filters-to-only-my-work`
 - **Delivered:** 2026-10-15
+- **Released:** 2026-10-16, v2.27.1
 
 ## Changelog
 
