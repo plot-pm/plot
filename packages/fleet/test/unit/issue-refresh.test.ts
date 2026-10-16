@@ -41,7 +41,7 @@ const issueLine = (n: number): string =>
  * A scripts directory whose `plot-host.sh` answers `spend-rate` with the
  * connector's account and `issue-list` as told, recording every call. Where
  * `inbox` is given, a `plot-config.sh` declaring `Ticket prefixes` is written
- * alongside it (empty otherwise), so `trackerJira`'s D23 gate (packages/domain/src/adapters/
+ * alongside it, and `plot-host.sh ticket-projects` answers the same key (empty otherwise), so `trackerJira`'s D23 gate (packages/domain/src/adapters/
  * tracker/tracker-jira.ts) lets the inbox read through.
  */
 type FakeList = { rows?: number; stderr?: string; code?: number; token?: string };
@@ -69,6 +69,7 @@ const fakeHost = (
     + 'if [ "$1" = spend-rate ]; then\n'
     + `  if [ "$3" = jira ]; then echo '{"account":"${JIRA_ACCOUNT}"}'; else echo '{"account":"${ACCOUNT}"}'; fi\n`
     + '  exit 0\nfi\n'
+    + (inbox === undefined ? '' : 'if [ "$1" = ticket-projects ]; then echo PROJ; exit 0; fi\n')
     + 'if [ "$1" = issue-list ]; then\n'
     + '  case " $* " in *" --state closed "*)\n'
     + answer(closed, closedLine)
