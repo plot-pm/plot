@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #1737
 - **Review:** pr
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-16, Jan Wloka, `infra/a-lifecycle-micro-pr-merged-past-identities`
 - **Started:** 2026-10-16, Jan Wloka, `infra/a-lifecycle-micro-pr-merged-past-identities-build`
 - **Rejected:** 2026-10-16 (PR #1816 for `infra/a-lifecycle-micro-pr-merged-past-identities` merged carrying only its claim commit; the writer and merger identities were never built)
+- **Delivered:** 2026-10-16
 
 ## Changelog
 
