@@ -141,7 +141,12 @@ export function DocModal({
             {children}
           </div>
         )}
-        <div className="min-h-[30vh] shrink-0 bg-white dark:bg-slate-950">
+        {/* One fixed height for all three arms. The panel is centred
+            vertically, so a body that grew when the document arrived moved the
+            header up by half the growth, and a click on *Open in new tab*
+            during that commit pressed on the link and released on the iframe:
+            no click event on the link, so no tab (#1686). */}
+        <div className="h-[70vh] shrink-0 bg-white dark:bg-slate-950">
           {error ? (
             <p className="p-6 text-sm text-red-600 dark:text-red-400">
               Failed to load {label.toLowerCase()}: {error}
@@ -155,7 +160,7 @@ export function DocModal({
               // Static rendered markdown needs no scripts; sandbox disables them
               // (defense in depth) while keeping same-origin so the page styles.
               sandbox="allow-same-origin allow-popups"
-              className="h-[70vh] w-full border-0"
+              className="h-full w-full border-0"
             />
           )}
         </div>
