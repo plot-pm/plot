@@ -9,9 +9,10 @@
 //       4, naming both variable names, where BITBUCKET_REVIEW_USER /
 //       BITBUCKET_REVIEW_APP_PASSWORD are absent from the environment and this
 //       repository's `.env`. Exits 4 naming `unsupported` where the
-//       workspace/repo slug is empty, or where `state` is not one of the two
-//       this op maps. Exits 3 where the write reaches the API and the API
-//       refuses it. Exits 0 on a 2xx write.
+//       workspace/repo slug is empty, or where `state` is not one of the three
+//       this op maps (success/failure/pending — `error` included). Exits 3
+//       where the write reaches the API and the API refuses it, or where the
+//       request times out. Exits 0 on a 2xx write.
 //
 // BITBUCKET_REVIEW_USER / BITBUCKET_REVIEW_APP_PASSWORD name a dedicated
 // account's Bitbucket App password (bitbucket.org/account/settings/app-passwords/),
@@ -27,24 +28,33 @@
 //   POST /2.0/repositories/{workspace}/{repo_slug}/commit/{revision}/statuses/build
 //   body { state, key, name, description, url }
 // GitHub's state vocabulary (success|failure|error|pending) does not match
-// Bitbucket's (SUCCESSFUL|FAILED|INPROGRESS|STOPPED); this maps the two this
-// op is called with (success→SUCCESSFUL, failure→FAILED) and refuses any
-// other value by name rather than guessing a mapping nobody asked for.
+// Bitbucket's (SUCCESSFUL|FAILED|INPROGRESS|STOPPED) one for one. This maps
+// three of the four: success→SUCCESSFUL, failure→FAILED, pending→INPROGRESS.
+// `error` is decided OUT, not merely unmapped: Bitbucket's nearest words both
+// mean something else — FAILED is a build that ran and failed, STOPPED is one
+// a person cancelled — and no caller in this repository has ever written
+// `error` (checked 2026-10-16: every write here is `success` or `failure`).
+// Guessing a state nothing calls with would be inventing a contract no test
+// could ever exercise honestly, so `error` stays refused by name alongside
+// any other word this op does not expect.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
 const API_BASE = (process.env.BITBUCKET_API_BASE || 'https://api.bitbucket.org/2.0').replace(/\/+$/, '');
 
+// 10s: long enough for a normal write, short enough that a hung API does not
+// hold a caller (a PR merge gate, a desk loop) indefinitely.
+const FETCH_TIMEOUT_MS = 10_000;
+
 const refuse = (code, message) => {
   process.stderr.write(`plot-host: commit-status — ${message}\n`);
   process.exit(code);
 };
 
-// GitHub's vocabulary in, Bitbucket's out. Only the two states this op is
-// ever called with are mapped; anything else is refused rather than guessed —
-// the brief is explicit that INPROGRESS/STOPPED have no caller to map from.
-const STATE_MAP = { success: 'SUCCESSFUL', failure: 'FAILED' };
+// GitHub's vocabulary in, Bitbucket's out. `error` is deliberately absent —
+// see the header comment — and refused the same way an unrecognised word is.
+const STATE_MAP = { success: 'SUCCESSFUL', failure: 'FAILED', pending: 'INPROGRESS' };
 
 const repoRoot = () => {
   try {
@@ -109,7 +119,7 @@ const cred = credential();
 
 const mapped = STATE_MAP[state];
 if (!mapped) {
-  refuse(4, `unsupported — state '${state}' has no Bitbucket mapping (only success/failure are called here)`);
+  refuse(4, `unsupported — state '${state}' has no Bitbucket mapping (only success/failure/pending are called here)`);
 }
 
 if (!workspaceRepo || !workspaceRepo.includes('/')) {
@@ -118,26 +128,30 @@ if (!workspaceRepo || !workspaceRepo.includes('/')) {
 const [workspace, repoSlug] = workspaceRepo.split('/');
 
 const auth = Buffer.from(`${cred.user}:${cred.password}`).toString('base64');
+const url =
+  `${API_BASE}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repoSlug)}` +
+  `/commit/${encodeURIComponent(sha)}/statuses/build`;
 let response;
 try {
-  response = await fetch(
-    `${API_BASE}/repositories/${workspace}/${repoSlug}/commit/${sha}/statuses/build`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${auth}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        state: mapped,
-        key: context,
-        name: context,
-        description,
-        url: targetUrl,
-      }),
+  response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/json',
     },
-  );
-} catch {
+    body: JSON.stringify({
+      state: mapped,
+      key: context,
+      name: context,
+      description,
+      url: targetUrl,
+    }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+} catch (err) {
+  if (err?.name === 'TimeoutError') {
+    refuse(3, `timed out after ${FETCH_TIMEOUT_MS}ms writing ${context} on ${sha}`);
+  }
   refuse(3, `could not reach ${API_BASE} to write the build status`);
 }
 if (response.status < 200 || response.status >= 300) {
