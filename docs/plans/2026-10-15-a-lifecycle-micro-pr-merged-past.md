@@ -73,7 +73,7 @@ A credential holding both jobs would be on the bypass list and could merge past 
 
 ### Identities
 
-- `infra/a-lifecycle-micro-pr-merged-past-identities` — lifecycle pushes use the writer App's token and pull-request merges use the merger credential, each read from a Plot Config key; the docs give the person's setup steps for both and keep the merger off the bypass list <!-- waits: bug/a-lifecycle-micro-pr-merged-past-retry, bug/a-lifecycle-micro-pr-merged-past-pin -->
+- `infra/a-lifecycle-micro-pr-merged-past-identities` — lifecycle pushes use the writer App's token and pull-request merges use the merger credential, each read from a Plot Config key; the docs give the person's setup steps for both and keep the merger off the bypass list <!-- waits: bug/a-lifecycle-micro-pr-merged-past-retry, bug/a-lifecycle-micro-pr-merged-past-pin --> → #1816
 
 ## Notes
 
