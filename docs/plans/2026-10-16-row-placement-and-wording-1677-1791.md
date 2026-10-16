@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-16, Jan Wloka, plan-PR #1859 merged
+- **Started:** 2026-10-16, Jan Wloka, `bug/row-placement-quiet-and-wait-bound`
 
 ## Changelog
 
