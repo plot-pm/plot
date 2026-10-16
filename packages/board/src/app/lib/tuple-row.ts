@@ -1185,11 +1185,17 @@ export function stateStatus(row: AgentRow): string {
  * **The age is carried.** A ticket open for three weeks is exactly what WAITING
  * ON YOU orders by, so dropping it would make the section's own sort key
  * invisible on one of its four kinds.
+ *
+ * `kindLabel` defaults to `Ticket` — the label every other call site wants —
+ * and is suppressed with `showKindLabel: false`, the one call site being the
+ * *Waiting on you* block, which says it once in its own sub-header instead of
+ * on every row underneath it.
  */
-export function tupleFromIssue(issue: IssueRow): TupleRow {
+export function tupleFromIssue(issue: IssueRow, opts: { showKindLabel?: boolean } = {}): TupleRow {
+  const { showKindLabel = true } = opts;
   return {
     kind: 'ticket',
-    kindLabel: KIND_LABEL.ticket,
+    kindLabel: showKindLabel ? KIND_LABEL.ticket : '',
     name: { what: 'ticket', label: `${issue.number}: ${issue.title}`, href: issue.url },
     links: [],
     // THE TRACKER'S OWN WORD, and the read path is what changed rather than

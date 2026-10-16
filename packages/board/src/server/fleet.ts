@@ -1745,6 +1745,11 @@ const inboxOf = (rows: readonly IssueIndexRow[], referenced: ReadonlySet<string>
         // The tracker's own logins or accounts assigned — [] where the tracker
         // states none, which `ticketsForReader` reads as "nobody's."
         assignees: row.assignees ?? [],
+        // The tracker's own word, lowercased — `null` where it stated none.
+        // Owner is NOT resolved here: this inbox read carries no `source`/
+        // `directory`, and `null` says so honestly rather than guessing.
+        type: row.type === undefined || row.type.trim() === '' ? null : row.type.trim().toLowerCase(),
+        owner: null,
       };
     });
 
@@ -1782,6 +1787,8 @@ const waitingOf = async (
       status: t.status,
       statusCategory: t.statusCategory,
       assignees: [...t.assignees],
+      type: t.type,
+      owner: t.owner,
     })),
     shown: result.shown,
     hidden: result.hidden,

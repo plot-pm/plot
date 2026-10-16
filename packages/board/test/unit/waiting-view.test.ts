@@ -31,12 +31,26 @@ describe('waitingView', () => {
     for (const waiting of [undefined, null]) {
       expect(waitingView(waiting, issues, false, keep)).toEqual({
         tickets: issues,
+        heading: 'Assigned to you · 2',
         hidden: null,
         notice: null,
         control: null,
         showing: null,
       });
     }
+  });
+
+  it('counts the rendered tickets into the heading with the control off', () => {
+    const mine = ticket('9', ['gardener']);
+    const view = waitingView(waitingOf({ tickets: [mine], shown: 1, hidden: 126 }), [ticket('1'), mine], false, keep);
+    expect(view.heading).toBe('Assigned to you · 1');
+  });
+
+  it('counts the rendered tickets into the heading with the control on', () => {
+    const old = ticket('99', ['gardener']);
+    const issues = [ticket('1'), ticket('2')];
+    const view = waitingView(waitingOf({ tickets: [old, ticket('1')], shown: 2, hidden: 125 }), issues, true, keep);
+    expect(view.heading).toBe('Assigned to you · 3');
   });
 
   it('renders waiting.tickets, the hidden-count sentence and the control by default', () => {
@@ -111,5 +125,20 @@ describe('waitingView', () => {
     const view = waitingView(waitingOf({ shown: 0, hidden: 2 }), [ticket('1'), theirs], true, narrow);
     expect(view.tickets.map((t) => t.number)).toEqual(['1']);
     expect(view.showing).toBe('Showing 1 of 2 open tickets.');
+  });
+
+  it('reads issues as empty where the caller passes null or undefined, never throwing on .length', () => {
+    for (const issues of [null, undefined] as const) {
+      expect(waitingView(undefined, issues, false, keep)).toEqual({
+        tickets: [],
+        heading: 'Assigned to you · 0',
+        hidden: null,
+        notice: null,
+        control: null,
+        showing: null,
+      });
+      const view = waitingView(waitingOf({ tickets: [ticket('1')], shown: 1 }), issues, true, keep);
+      expect(view.tickets.map((t) => t.number)).toEqual(['1']);
+    }
   });
 });

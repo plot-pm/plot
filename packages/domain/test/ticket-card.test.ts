@@ -192,6 +192,8 @@ describe('ticketCardIssueRow', () => {
       status: 'Open',
       statusCategory: 'To Do',
       assignees: [],
+      type: null,
+      owner: null,
     });
   });
 });

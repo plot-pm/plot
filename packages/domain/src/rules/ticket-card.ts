@@ -141,6 +141,8 @@ export interface TicketCardIssueRow {
   readonly status: string;
   readonly statusCategory: string;
   readonly assignees: string[];
+  readonly type: string | null;
+  readonly owner: string | null;
 }
 
 /**
@@ -160,4 +162,6 @@ export const ticketCardIssueRow = (row: TicketLaneRow): TicketCardIssueRow => ({
   status: row.status,
   statusCategory: row.statusCategory,
   assignees: [],
+  type: row.type,
+  owner: row.owner,
 });

@@ -77,7 +77,7 @@ export interface TicketLanesResult {
  * @param reading - the source and directory the lanes were read with.
  * @returns the handle, or `null` where nobody is assigned.
  */
-const ownerOf = (
+export const ownerOf = (
   assignees: readonly string[] | null | undefined,
   reading: Pick<TicketLanesReading, 'source' | 'directory'>,
 ): string | null => {

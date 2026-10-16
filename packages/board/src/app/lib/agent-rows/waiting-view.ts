@@ -8,6 +8,8 @@ export const SHOW_EVERY_TICKET_LABEL = 'show every ticket';
 export interface WaitingView {
   /** The tickets to render, after the reader's narrowing. */
   readonly tickets: IssueRow[];
+  /** The sub-header above the tickets — `Assigned to you · N`, N being `tickets.length`. */
+  readonly heading: string;
   /** The hidden-count sentence, or `null` where nothing is hidden or the view lists every ticket. */
   readonly hidden: string | null;
   /** The sentence naming why the reader is unmatched, or `null`. */
@@ -40,28 +42,36 @@ const unionByNumber = (issues: readonly IssueRow[], extra: readonly IssueRow[]):
  * @param narrow - the reader's *Only my work* narrowing, applied last.
  * @returns the tickets and every text and control state the block shows.
  */
+/** The `Assigned to you · N` sub-header, N being how many tickets this view renders. */
+const headingOf = (n: number): string => `Assigned to you · ${n}`;
+
 export const waitingView = (
   waiting: FleetWaiting | null | undefined,
-  issues: IssueRow[],
+  issues: IssueRow[] | null | undefined,
   showEvery: boolean,
   narrow: (tickets: IssueRow[]) => IssueRow[],
 ): WaitingView => {
+  const safeIssues = issues ?? [];
   if (waiting === null || waiting === undefined) {
-    return { tickets: narrow(issues), hidden: null, notice: null, control: null, showing: null };
+    const tickets = narrow(safeIssues);
+    return { tickets, heading: headingOf(tickets.length), hidden: null, notice: null, control: null, showing: null };
   }
   const control = waiting.hidden > 0 || showEvery ? SHOW_EVERY_TICKET_LABEL : null;
   if (!showEvery) {
+    const tickets = narrow(waiting.tickets);
     return {
-      tickets: narrow(waiting.tickets),
+      tickets,
+      heading: headingOf(tickets.length),
       hidden: waiting.hidden > 0 ? hiddenSentence(waiting.hidden, waiting.complete) : null,
       notice: waiting.notice,
       control,
       showing: null,
     };
   }
-  const tickets = narrow(unionByNumber(issues, waiting.tickets));
+  const tickets = narrow(unionByNumber(safeIssues, waiting.tickets));
   return {
     tickets,
+    heading: headingOf(tickets.length),
     hidden: null,
     notice: waiting.notice,
     control,

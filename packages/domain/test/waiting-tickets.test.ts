@@ -72,6 +72,31 @@ describe('waitingTickets, the default (a matched GitHub reader)', () => {
   });
 });
 
+describe('waitingTickets, type and owner', () => {
+  it('resolves an assignee through the directory to a handle', () => {
+    const reader: Reader = { hostUser: 'jwloka', directory: { jwloka: 'jan' } };
+    const rows = [row('1', { assignees: ['jwloka'], type: 'Bug' })];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true);
+    expect(result.tickets[0].owner).toBe('jan');
+    expect(result.tickets[0].type).toBe('bug');
+  });
+
+  it('shows an undeclared assignee as written', () => {
+    const reader: Reader = {};
+    const rows = [row('1', { assignees: ['someone-undeclared'] })];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true);
+    expect(result.tickets[0].owner).toBe('someone-undeclared');
+  });
+
+  it('carries no owner and no type for an unassigned, typeless ticket', () => {
+    const reader: Reader = {};
+    const rows = [row('1', { assignees: [] })];
+    const result = waitingTickets(rows, undefined, reader, null, true);
+    expect(result.tickets[0].owner).toBeNull();
+    expect(result.tickets[0].type).toBeNull();
+  });
+});
+
 describe('hiddenSentence and shownSentence', () => {
   it('127 open tickets are not assigned to you, for complete true', () => {
     expect(hiddenSentence(127, true)).toBe('127 open tickets are not assigned to you');

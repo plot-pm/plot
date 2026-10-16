@@ -3516,6 +3516,19 @@ export const IssueRowSchema = z.object({
    * rule `status` and `ageMinutes` already follow.
    */
   assignees: z.array(z.string()).default([]),
+  /**
+   * The tracker's own word for the kind of work, lowercased — `null` where it
+   * stated none or the row predates this field. NULLABLE rather than
+   * defaulted to `''`: a ticket genuinely stating no type and a server that
+   * never answered are different facts, the same distinction `owner` draws.
+   */
+  type: z.string().nullable().default(null),
+  /**
+   * The first assignee, resolved through `People` the same way the Discovery
+   * card's `owner` resolves it — a handle where declared, the raw spelling
+   * otherwise, `null` where nobody is assigned.
+   */
+  owner: z.string().nullable().default(null),
 });
 export type IssueRow = z.infer<typeof IssueRowSchema>;
 
