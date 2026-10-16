@@ -1282,9 +1282,8 @@ pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host 
     plot_tmpfile _tmp "host-prlist-state-err-$_s" || return 3
     # `bb_state_listing` RUNS INSIDE THE SUBSTITUTION BELOW, its own subshell,
     # so a variable it sets cannot reach this one — the same trap `pr_list_call`
-    # warns about for `die`. `BB_LIST_NEXT_FILE` is the channel out: a fresh
-    # temp path per state, emptied before the call, read back once the
-    # substitution has returned.
+    # warns about for `die`. `BB_LIST_NEXT_FILE` is the channel out: a fresh,
+    # already-empty temp path per state, read back once the substitution returns.
     plot_tmpfile BB_LIST_NEXT_FILE "host-prlist-next-$_s" || return 3
     : > "$BB_LIST_NEXT_FILE"
     # THE SUBSHELL'S CODE IS THE ONLY CHANNEL OUT, so it is captured rather
@@ -2843,9 +2842,7 @@ pr_list_report_truncation() {
   local be="$1" limit="$2" state="$3" count="$4" next="${5:-}" len=""
   [ -n "$limit" ] || return 0            # no --limit → no completeness claim owed
   [ "$count" -gt 0 ] 2>/dev/null || return 0   # an empty page had nothing to hide
-  if [ "$be" = "bitbucket" ] && [ "$next" = "0" ]; then
-    pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0
-  fi
+  if [ "$be" = "bitbucket" ] && [ "$next" = "0" ]; then pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0; fi
   if [ "$be" = "github" ]; then
     # github honours the limit: complete unless the page came back AT the limit.
     # Measured 2026-10-02 on this repository (1064 PRs): `--limit 1100`
