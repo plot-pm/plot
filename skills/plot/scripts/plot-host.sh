@@ -5323,8 +5323,10 @@ case "$op" in
     # before capturing the slug, not inside a trailing optional group, or a
     # greedy match absorbs it into the slug itself. A port after the host
     # (`ssh://git@altssh.bitbucket.org:443/ws/repo`) is dropped first, or the
-    # `:` before it reads `443` as the workspace.
-    [ "$be" = "github" ] || { node "$here/plot-bitbucket-commit-status.mjs" "$(git config --get remote.origin.url 2>/dev/null | sed -E 's#\.git$##; s#(bitbucket\.org):[0-9]+/#\1/#' | sed -nE 's#^.*bitbucket\.org[:/]([^/]+)/(.+)$#\1/\2#p')" "$@" || exit $?; exit 0; }
+    # `:` before it reads `443` as the workspace. A trailing slash on the
+    # origin URL is stripped the same pass — tolerated, not refused, since it
+    # names the same repo.
+    [ "$be" = "github" ] || { node "$here/plot-bitbucket-commit-status.mjs" "$(git config --get remote.origin.url 2>/dev/null | sed -E 's#\.git$##; s#(bitbucket\.org):[0-9]+/#\1/#; s#/$##' | sed -nE 's#^.*bitbucket\.org[:/]([^/]+)/(.+)$#\1/\2#p')" "$@" || exit $?; exit 0; }
     node "$here/plot-commit-status.mjs" --check "$@" || exit $?
     node "$here/plot-commit-status.mjs" --repo "$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || echo GH_REPO_VIEW_FAILED)" "$@" || exit $?
     ;;

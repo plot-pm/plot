@@ -433,14 +433,38 @@ test('commit-status (bitbucket): maps success/failure to SUCCESSFUL/FAILED and m
   assert.equal(JSON.parse(api.requests[1].body).state, 'FAILED');
 });
 
-test('commit-status (bitbucket): a state this op does not expect exits naming unsupported, not a guess', async () => {
-  // CATCHES guessing a mapping for pending/error, which GitHub's vocabulary
-  // has and Bitbucket's INPROGRESS/STOPPED do not line up with 1:1, and which
-  // no caller here invokes.
+test('commit-status (bitbucket): maps pending to INPROGRESS and posts state: "INPROGRESS"', async () => {
+  // CATCHES the gap #1713 names: a caller passing `pending` used to exit 4 as
+  // `unsupported`. A green suite with this test absent (and the old "pending
+  // exits 4" test still present) means the mapping was never added.
   const box = bbSandbox();
   const api = await fakeBitbucket();
   const pendingArgs = ['deadbeef', 'pending', 'plot/review', 'build is running', 'https://example.com/run/1'];
   const got = await bbCommitStatus(box, pendingArgs, api.url, BB_CRED);
+  assert.equal(got.code, 0, got.err);
+  assert.equal(JSON.parse(api.requests[0].body).state, 'INPROGRESS');
+});
+
+test('commit-status (bitbucket): error has no Bitbucket mapping and is refused by name, like any other unexpected state', async () => {
+  // THE DECISION #1713 LEAVES OPEN, closed here: Bitbucket's nearest words to
+  // GitHub's `error` (FAILED, STOPPED) both mean something else, and no
+  // caller in this repository ever writes `error`, so it stays refused
+  // rather than guessed. See plot-bitbucket-commit-status.mjs's header
+  // comment for the reasoning.
+  const box = bbSandbox();
+  const api = await fakeBitbucket();
+  const errorArgs = ['deadbeef', 'error', 'plot/review', 'build errored', 'https://example.com/run/1'];
+  const got = await bbCommitStatus(box, errorArgs, api.url, BB_CRED);
+  assert.equal(got.code, 4);
+  assert.match(got.err, /unsupported/);
+  assert.equal(api.requests.length, 0, 'no API call for a state this op cannot map');
+});
+
+test('commit-status (bitbucket): a state this op does not expect exits naming unsupported, not a guess', async () => {
+  const box = bbSandbox();
+  const api = await fakeBitbucket();
+  const madeUpArgs = ['deadbeef', 'queued', 'plot/review', 'build is queued', 'https://example.com/run/1'];
+  const got = await bbCommitStatus(box, madeUpArgs, api.url, BB_CRED);
   assert.equal(got.code, 4);
   assert.match(got.err, /unsupported/);
   assert.equal(api.requests.length, 0, 'no API call for a state this op cannot map');
@@ -464,6 +488,49 @@ test('commit-status (bitbucket): a failed build-status write exits 3 and names t
   const got = await bbCommitStatus(box, ARGS, api.url, BB_CRED);
   assert.equal(got.code, 3);
   assert.match(got.err, /HTTP 422 writing plot\/review on deadbeef/);
+});
+
+test('commit-status (bitbucket): an API that never answers exits 3 naming the timeout, inside the timeout', async () => {
+  // CATCHES a timeout constant declared but never passed to `fetch` — without
+  // this test, that half-wiring still passes every other case.
+  const server = createServer(() => {}); // never responds, never closes the socket
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  servers.push(server);
+  const box = bbSandbox();
+  const start = Date.now();
+  const got = await bbCommitStatus(box, ARGS, `http://127.0.0.1:${server.address().port}`, BB_CRED);
+  const elapsed = Date.now() - start;
+  assert.equal(got.code, 3);
+  assert.match(got.err, /timed out/);
+  assert.ok(elapsed < 20_000, `expected the helper to exit well inside its own timeout, took ${elapsed}ms`);
+});
+
+test('commit-status (bitbucket): a workspace, repo or sha containing "/" or "?" reaches the API as an encoded path segment', async () => {
+  // Asserts the recorded REQUEST PATH, not the helper's return — the brief's
+  // own warning that a naive patch passes without this.
+  const requests = [];
+  const server = createServer((req, res) => {
+    requests.push({ method: req.method, url: req.url });
+    res.writeHead(201, { 'content-type': 'application/json' });
+    res.end('{}');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  servers.push(server);
+  const box = bbSandbox({ remote: 'git@bitbucket.org:my-ws/odd%20repo.git' });
+  const oddShaArgs = ['sha/with?odd', 'success', 'plot/review', 'build is green', 'https://example.com/run/1'];
+  const got = await bbCommitStatus(box, oddShaArgs, `http://127.0.0.1:${server.address().port}`, BB_CRED);
+  assert.equal(got.code, 0, got.err);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, '/repositories/my-ws/odd%2520repo/commit/sha%2Fwith%3Fodd/statuses/build');
+});
+
+test('commit-status (bitbucket): a trailing slash on the origin URL still resolves the workspace/repo slug', async () => {
+  const box = bbSandbox({ remote: 'git@bitbucket.org:myws/myrepo/' });
+  const api = await fakeBitbucket();
+  const got = await bbCommitStatus(box, ARGS, api.url, BB_CRED);
+  assert.equal(got.code, 0, got.err);
+  assert.equal(api.requests.length, 1);
+  assert.equal(api.requests[0].url, '/repositories/myws/myrepo/commit/deadbeef/statuses/build');
 });
 
 test('commit-status (bitbucket): a missing argument exits 1 before the credential or the API is asked', async () => {
