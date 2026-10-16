@@ -118,4 +118,14 @@ describe('the refusal texts', () => {
     expect(unpinnedMergeRefusal(dir, 'gh')).toContain('add --match-head-commit <sha>');
     expect(unpinnedMergeRefusal(dir, 'plot-host')).toContain('add --match-head <sha>');
   });
+
+  it('names why gh has no path on a host it cannot reach, without naming the host', () => {
+    const text = unpinnedMergeRefusal(dir, 'gh');
+    expect(text).toContain('gh speaks to one git host');
+    expect(text.toLowerCase()).not.toContain('bitbucket');
+  });
+
+  it('names no other-host reach for plot-host, which already reaches every configured host', () => {
+    expect(unpinnedMergeRefusal(dir, 'plot-host')).not.toContain('speaks to one git host');
+  });
 });
