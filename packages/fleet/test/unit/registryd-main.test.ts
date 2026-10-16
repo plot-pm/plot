@@ -13,6 +13,7 @@ import {
   sweepTempIfDue,
   startFreshAgents,
   startNothingDoneReleases,
+  freshAgentDeskReads,
   mergeMemoOver,
   escalationWorldForRepo,
   notifierFor,
@@ -1152,6 +1153,38 @@ describe('run — a failed tick must not end the daemon', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  // THE `args.startAgents` HALF OF THE GATE, at the level `run()` can prove it:
+  // `sandbox()` is a registry with no manifests, so `report.trees` names no
+  // candidate and `startFreshAgents` is a guaranteed no-op by its own contract
+  // (`candidates.length === 0` returns before touching `deps.ports` at all —
+  // pinned directly in the `startFreshAgents` tests below). What THIS proves
+  // is narrower and still real: `run()` reaches the call with `--start-agents`
+  // set and the daemon does not throw or hang reaching it, on the one fixture
+  // this file can build cheaply. `report.trees` populated with a genuine
+  // candidate is a git-backed fixture out of proportion to this slice — the
+  // factory's ports being skipped FOR A NAMED CANDIDATE is covered where
+  // `freshAgentDeskReads`'s own gating is pinned (`fresh-agent-tick.test.ts`).
+  it('reaches the fresh-agent step with --start-agents and a registry with no candidates', async () => {
+    const dir = sandbox();
+    try {
+      const out: string[] = [];
+      const warnings: string[] = [];
+      const code = await run(
+        ['--once', '--start-agents'],
+        dir,
+        (s) => out.push(s),
+        async () => {},
+        () => false,
+        (s) => warnings.push(s),
+      );
+      expect(code).toBe(0);
+      expect(out.join('')).not.toContain('fresh-agent');
+      expect(warnings.join('')).not.toContain('fresh-agent');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 /**
@@ -1516,6 +1549,37 @@ describe('a tick asks the host about a branch once', () => {
       };
       const { slices } = await readQueue([], stub);
       expect(slices.map((slice) => whyNotReady(slice))).toEqual(['merge-unknown']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // #1374: `run()` routes `freshAgentDeskReads`'s `prMerged` through the
+  // SAME per-tick memo the queue and supervisor worlds share
+  // (`(branch) => merges.ask(branch)`), so a branch the queue already asked
+  // about this tick answers the fresh-agent step from cache rather than the
+  // host. The tally still counts it: a memo hit is still a question THIS
+  // CALLER asked, which is the "count per question asked" rule
+  // `freshAgentDeskReads`'s own tally wrapper follows. One host call, two
+  // tally increments.
+  it('counts a repeat branch once per asker within a tick, even though the memo answers the second from cache', async () => {
+    const host = countingHost(() => answered('not-merged'));
+    const { root, world } = worlds(host);
+    try {
+      const tally = { calls: 0 };
+      const merges = mergeMemoOver(host);
+      const queue = queueWorldForRepo(root, root, tally, merges);
+      const freshReads = freshAgentDeskReads(
+        { repoRoot: root, scriptDir: root },
+        { asked: async () => ({ ok: true, value: false }) },
+        (branch) => merges.ask(branch),
+        tally,
+      );
+      world.beginTick?.();
+      await queue.sliceHasMerged('feature/busy');
+      expect(await freshReads.asks.prMerged('feature/busy')).toBe('not-merged');
+      expect(host.asked).toEqual(['feature/busy']);
+      expect(tally.calls).toBe(2);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
