@@ -66,7 +66,7 @@ The pass folds the returned rows into the held rows by key. A row whose state is
 
 ### Rows
 
-- `feature/the-ticket-index-rows-carry-updated-at` — `IssueIndexRow` gains `updatedAt`, `issueIndexRowOf` fills it, and a fold-by-key rule in the domain applies the newer-`updatedAt` rule <!-- builds: foldIssueRows, a domain rule folding issue rows by key -->
+- `feature/the-ticket-index-rows-carry-updated-at` — `IssueIndexRow` gains `updatedAt`, `issueIndexRowOf` fills it, and a fold-by-key rule in the domain applies the newer-`updatedAt` rule → #1915 <!-- builds: foldIssueRows, a domain rule folding issue rows by key -->
 
 ### Incremental
 
