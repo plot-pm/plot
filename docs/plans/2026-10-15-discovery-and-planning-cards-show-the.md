@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Issue:** #1750
 - **Review:** pr
@@ -13,6 +13,7 @@
 - **Started:** 2026-10-15, Jan Wloka, `feature/ticket-cards-show-type-and-owner`
 - **Started:** 2026-10-15, Jan Wloka, `feature/plan-and-story-cards-show-type-and-owner`
 - **Delivered:** 2026-10-15
+- **Released:** 2026-10-16, v2.27.1
 
 ## Changelog
 
