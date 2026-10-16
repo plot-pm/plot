@@ -1288,8 +1288,8 @@ pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host 
     # already composed its report and its repair line; that text is spooled
     # here only so the state's name can be added to it before it is passed on.
     _raw="$(pr_list_call "$@" --state "$_s" --json 2>"$_tmp")"; _rc=$?
-    BB_LIST_NEXT="$(cat "$BB_LIST_NEXT_FILE" 2>/dev/null)"; rm -f "$BB_LIST_NEXT_FILE"
-    _err="$(cat "$_tmp" 2>/dev/null)"; rm -f "$_tmp"
+    BB_LIST_NEXT="$(cat "$BB_LIST_NEXT_FILE" 2>/dev/null)"; _err="$(cat "$_tmp" 2>/dev/null)"
+    rm -f "$BB_LIST_NEXT_FILE" "$_tmp"
     if [ "$_rc" -ne 0 ]; then
       # THE HOST'S OWN REPORT GOES FIRST AND IS NEVER PREFIXED. `pr_list_failed`
       # already composed the sentence that says WHY — a spent quota, a burst
@@ -2839,7 +2839,6 @@ pr_list_report_truncation() {
   local be="$1" limit="$2" state="$3" count="$4" next="${5:-}" len=""
   [ -n "$limit" ] || return 0            # no --limit → no completeness claim owed
   [ "$count" -gt 0 ] 2>/dev/null || return 0   # an empty page had nothing to hide
-  if [ "$be" = "bitbucket" ] && [ "$next" = "0" ]; then pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0; fi
   if [ "$be" = "github" ]; then
     # github honours the limit: complete unless the page came back AT the limit.
     # Measured 2026-10-02 on this repository (1064 PRs): `--limit 1100`
@@ -2847,9 +2846,11 @@ pr_list_report_truncation() {
     # its limit is the whole list and asking generously costs the rows that
     # exist rather than the rows requested.
     if [ "$count" -lt "$limit" ] 2>/dev/null; then pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0; fi
+  elif [ "$next" = "0" ]; then
+    pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0
   else
     # A fixed page: complete below a measured page length, unprovable otherwise.
-    [ "$be" = "bitbucket" ] && len="$(bb_list_page_length)"
+    len="$(bb_list_page_length)"
     if [ -n "$len" ] && [ "$count" -lt "$len" ] 2>/dev/null; then pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0; fi
   fi
   # Named per state so a caller can resolve exactly the states that were
