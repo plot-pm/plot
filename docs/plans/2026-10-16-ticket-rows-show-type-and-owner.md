@@ -49,7 +49,7 @@ Out of scope, per the issue: the plan-slug column and the `open` status word sta
 
 ### Ticket rows
 
-- `feature/ticket-rows-show-type-and-owner` — Add `type` and resolved `owner` to the Waiting on you ticket rows through `ticketCardView`/`ownerOf`, add the `Assigned to you · N` sub-header text to `waitingView`, render the tickets under it with the hidden-count line in a smaller style, drop the per-row `TICKET` label, and cover it with domain and `waitingView` unit tests plus one browser test. <!-- builds: waitingView sub-header, the Assigned to you count text -->
+- `feature/ticket-rows-show-type-and-owner` — Add `type` and resolved `owner` to the Waiting on you ticket rows through `ticketCardView`/`ownerOf`, add the `Assigned to you · N` sub-header text to `waitingView`, render the tickets under it with the hidden-count line in a smaller style, drop the per-row `TICKET` label, and cover it with domain and `waitingView` unit tests plus one browser test. <!-- builds: waitingView sub-header, the Assigned to you count text --> → #1879
 
 ## Notes
 
