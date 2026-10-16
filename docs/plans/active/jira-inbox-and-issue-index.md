@@ -1,0 +1,1 @@
+../2026-10-16-jira-inbox-and-issue-index.md
