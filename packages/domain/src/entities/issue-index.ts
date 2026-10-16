@@ -42,6 +42,8 @@ export const IssueIndexRowSchema = z
     url: z.string(),
     /** When the tracker says it was created, ISO-8601; absent where it gave none. */
     createdAt: z.string().optional(),
+    /** When the tracker last recorded a change, ISO-8601; absent where it gave none. */
+    updatedAt: z.string().optional(),
     /** The tracker's own word for the stage; absent where it gave none. */
     status: z.string().optional(),
     /** The stable three-value vocabulary; absent where the tracker's word has no mapping. */

@@ -74,6 +74,7 @@ export const issueIndexRowOf = (issue: Issue): IssueIndexRow => ({
   title: issue.title,
   url: issue.url,
   ...(issue.createdAt === null ? {} : { createdAt: issue.createdAt }),
+  ...(issue.updatedAt === undefined ? {} : { updatedAt: issue.updatedAt }),
   ...(issue.status === '' ? {} : { status: issue.status }),
   ...(issue.statusCategory === '' ? {} : { statusCategory: issue.statusCategory }),
   ...(issue.closedAt === null ? {} : { closedAt: issue.closedAt }),
