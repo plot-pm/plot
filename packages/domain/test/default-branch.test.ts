@@ -21,6 +21,7 @@ import {
   settledRed,
   failingRunsOf,
   foldRuns,
+  unmatchedChecks,
   ageInWords,
 } from '../src/rules/default-branch.js';
 
@@ -173,6 +174,40 @@ describe('declaredRuns — only the declared workflows reach the fold', () => {
 
   it('reads unknown where no declared workflow ran', () => {
     expect(foldRuns(declaredRuns(runs, ['Lint']))).toBe('unknown');
+  });
+
+  it('settles red/green on a Jenkins run once workflow carries the job path', () => {
+    const jenkinsRuns = [run('failure', { workflow: 'webbloqs/continuous-build-multi' })];
+    expect(foldRuns(declaredRuns(jenkinsRuns, ['webbloqs/continuous-build-multi']))).toBe('red');
+    expect(foldRuns(declaredRuns(
+      [run('success', { workflow: 'webbloqs/continuous-build-multi' })],
+      ['webbloqs/continuous-build-multi'],
+    ))).toBe('green');
+  });
+
+  it('leaves an empty checks list unaffected', () => {
+    expect(declaredRuns(runs, [])).toEqual(runs);
+  });
+});
+
+describe('unmatchedChecks — a declared name that matches no run', () => {
+  const runs = [run('success', { workflow: 'CI' }), run('failure', { workflow: 'Release' })];
+
+  it('names a declared check no run reports, apart from an empty checks list', () => {
+    expect(unmatchedChecks(runs, ['Lint'])).toEqual(['Lint']);
+  });
+
+  it('answers empty where every declared name matches a run', () => {
+    expect(unmatchedChecks(runs, ['CI', 'Release'])).toEqual([]);
+  });
+
+  it('answers empty for an empty checks list, same as declaredRuns', () => {
+    expect(unmatchedChecks(runs, [])).toEqual([]);
+  });
+
+  it('answers empty for no runs and no declared checks, and names the declared ones against no runs', () => {
+    expect(unmatchedChecks([], ['CI'])).toEqual(['CI']);
+    expect(unmatchedChecks([], [])).toEqual([]);
   });
 });
 

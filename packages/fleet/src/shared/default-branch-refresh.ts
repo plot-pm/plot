@@ -14,6 +14,7 @@ import {
   declaredRuns,
   failingRunsOf,
   foldRuns,
+  unmatchedChecks,
 } from '@plot-pm/domain/rules/default-branch';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
@@ -147,7 +148,10 @@ export type DefaultBranchOutcome = 'skipped' | 'asked' | 'unreadable';
  * green branch would otherwise refuse every merge.
  *
  * Only the runs of the workflows in `world.checks` are folded
- * (`declaredRuns`); an empty list folds every run.
+ * (`declaredRuns`); an empty list folds every run. A declared name matching
+ * none of the head's runs is reported to `warn` ({@link unmatchedChecks}), so
+ * a config typo reads differently from a quiet repository instead of folding
+ * into the same `unknown`.
  *
  * The settled part moves to the head when the head is `red` or `green`
  * (`advanceSettled`). A head that is `pending` or `unknown` moves it to the
@@ -163,10 +167,13 @@ export type DefaultBranchOutcome = 'skipped' | 'asked' | 'unreadable';
  * writes nothing.
  *
  * @param world - the reads and the file.
+ * @param warn - receives a one-line reason for each declared check name that
+ *   matched none of the head's runs; defaults to doing nothing.
  * @returns what the refresh did.
  */
 export const refreshDefaultBranch = async (
   world: DefaultBranchWorld,
+  warn: (line: string) => void = () => undefined,
 ): Promise<DefaultBranchOutcome> => {
   const branch = await world.branch();
   if (branch === null) return 'unreadable';
@@ -207,6 +214,9 @@ export const refreshDefaultBranch = async (
       at: stamp,
     };
   } else {
+    for (const name of unmatchedChecks(asked.value, world.checks)) {
+      warn(`plot-fleetd: default-branch check '${name}' matched no run for ${sha}`);
+    }
     const runs = declaredRuns(asked.value, world.checks);
     const head = foldRuns(runs);
     const advanced = advanceSettled(carried, sha, head);

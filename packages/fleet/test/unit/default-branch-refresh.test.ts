@@ -129,6 +129,37 @@ describe('refreshDefaultBranch', () => {
     expect(r.stored()?.failingRuns).toEqual([{ workflow: 'CI', conclusion: 'failure', url: 'https://ci/CI' }]);
   });
 
+  it('warns when a declared check matches no run, apart from a quiet repository', async () => {
+    const mismatched = rig(null, ['Lint']);
+    mismatched.runs('a1', [run('CI', 'success')]);
+    const warnMismatch: string[] = [];
+    await refreshDefaultBranch(mismatched.world, (line) => warnMismatch.push(line));
+    expect(mismatched.stored()).toMatchObject({ head: 'unknown' });
+    expect(warnMismatch).toEqual(["plot-fleetd: default-branch check 'Lint' matched no run for a1"]);
+
+    const quiet = rig(null, ['Lint']);
+    quiet.runs('a1', []);
+    const warnQuiet: string[] = [];
+    await refreshDefaultBranch(quiet.world, (line) => warnQuiet.push(line));
+    expect(quiet.stored()).toMatchObject({ head: 'unknown' });
+    expect(warnQuiet).toEqual(["plot-fleetd: default-branch check 'Lint' matched no run for a1"],
+      'a repository with no runs at all still names the configured check it could not match');
+  });
+
+  it('warns about nothing when Default branch checks is absent or every name matches', async () => {
+    const noChecks = rig();
+    noChecks.runs('a1', [run('CI', 'success')]);
+    const warnNoChecks: string[] = [];
+    await refreshDefaultBranch(noChecks.world, (line) => warnNoChecks.push(line));
+    expect(warnNoChecks).toEqual([]);
+
+    const matched = rig(null, ['CI']);
+    matched.runs('a1', [run('CI', 'success')]);
+    const warnMatched: string[] = [];
+    await refreshDefaultBranch(matched.world, (line) => warnMatched.push(line));
+    expect(warnMatched).toEqual([]);
+  });
+
   it('folds every workflow where Default branch checks is absent', async () => {
     const r = rig();
     r.runs('a1', [run('CI', 'success'), run('Release', 'failure')]);

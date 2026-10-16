@@ -1730,13 +1730,14 @@ jenkins_sha_runs() {
     echo "plot-host: $op — Jenkins did not answer for '$host'" >&2
     exit 4
   fi
-  printf '%s' "$body" | jq -c --arg sha "$sha" '
+  printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" '
     [ .builds[]
       | { sha: ([ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision.SHA1 ] | first // ""),
           status: (if .building then "in_progress" else "completed" end),
           conclusion: (if .building then null else (.result // null) end),
           url: (.url // ""),
-          startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end) } ]
+          startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end),
+          workflow: $job } ]
     | map(select(.sha == $sha))' || exit 4
 }
 
