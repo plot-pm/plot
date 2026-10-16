@@ -15,6 +15,7 @@
 - **Started:** 2026-10-16, Jan Wloka, `bug/the-cold-scan-converges`
 - **Started:** 2026-10-16, Jan Wloka, `bug/the-tick-asks-nothing-for-an-ended-desk`
 - **Started:** 2026-10-16, Jan Wloka, `bug/the-settled-walk-survives-a-burst`
+- **Started:** 2026-10-16, Jan Wloka, `bug/the-design-commit-key-matches-a-real-plan`
 
 ## Changelog
 
