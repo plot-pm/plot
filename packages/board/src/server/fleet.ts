@@ -4149,7 +4149,7 @@ function classifyGroup(
   // on it*, the six rows measured on this estate 2026-09-03.
   //
   // WAITING ON YOU, because it is the one kind that genuinely needs a person:
-  // revive it, or drop it. The plan says so and `quietNeedsPerson` says so, and
+  // revive it, or drop it. The plan says so and `quietPlacement` says so, and
   // QUIET's own hint — *still thinking, or dead?* — is a question this row has
   // already answered.
   //
@@ -4168,12 +4168,11 @@ function classifyGroup(
   // so the sentence is asked of the same fact the kind is.
   const readings = wipReadings(pr, hasMergedPr, hostUnasked, tipAt, fetchAt);
   const abandoned = quietNote(readings);
-  // MERGED IS DONE, AND THIS ARM IS WHERE IT HAS TO BE SAID. `quietNeedsPerson`
-  // releases only `closed-pr`, and `quiet.test.ts` states why: a merged branch
-  // "answers `quiet` here and `classifyGroup` places it as done, above this
-  // rule." That premise holds for a branch the scan marks `merged` — and this
-  // arm is reached by one that squash-merged with its head ref deleted, which
-  // arrives `wip` with no open PR and never meets the arm above.
+  // MERGED IS DONE, AND THIS ARM IS WHERE IT HAS TO BE SAID. `quietPlacement`
+  // places `merged` as done, `closed-pr` and `quiet` as quiet, and `abandoned`
+  // and `orphaned-claim` as waiting on you. This arm is reached by a branch that
+  // squash-merged with its head ref deleted, which arrives `wip` with no open PR
+  // and never meets the `state === 'merged'` arm above.
   // A MERGED PR IS DONE, NOT QUIET — the same answer the `state === 'merged'`
   // arm above already gives, and this arm exists for the branch that reaches
   // the same truth by a different road: squash-merged with its head ref gone,
