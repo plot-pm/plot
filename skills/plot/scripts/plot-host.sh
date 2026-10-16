@@ -2510,12 +2510,10 @@ tracker_base_url() {
 # cannot express ABSENCE — an empty override falls through to the config — so
 # the absent case is tested with a repository that declares nothing.
 tracker_projects() {
-  local raw
-  raw="${PLOT_TICKET_PREFIXES:-$(bash "$here/plot-config.sh" get "Ticket prefixes" "")}"
   # One per line, trimmed, empties dropped. `plot-config.sh` already normalises
   # `A,B` to `A, B`, but an override arrives unnormalised and a hand-edited
   # value can carry a stray comma — so the split is done here regardless.
-  printf '%s' "$raw" | tr ',' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$' || true
+  printf '%s' "${PLOT_TICKET_PREFIXES:-$(bash "$here/plot-config.sh" get "Ticket prefixes" "")}" | tr ',' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$' || true
 }
 
 # Reads ONE variable from a `.env`-shaped file. Evaluates nothing.
@@ -5038,10 +5036,9 @@ case "$op" in
       *) echo "plot-host: issue-open: ${source_said#*$'\t'}" >&2; exit 4 ;;
     esac ;;
 
-  ticket-projects)
-    # The projects `Ticket prefixes` scopes to, one per line, honoring
-    # PLOT_TICKET_PREFIXES — the one answer the TypeScript connector asks.
-    tracker_projects ;;
+  # The projects `Ticket prefixes` scopes to, one per line, honoring
+  # PLOT_TICKET_PREFIXES — the one answer the TypeScript connector asks.
+  ticket-projects) tracker_projects ;;
 
   pr-body)
     num="${1:?pr-body needs a PR number}"; shift
