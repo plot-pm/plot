@@ -60,7 +60,7 @@ Each fix follows the layering rule: the decision lives in the domain, `plot-host
 
 ### Inbox read
 
-- `feature/the-jira-inbox-read-reports-truncation` — page or cap the inbox read, record truncation and read time, drop the kept inbox on `unaskable`
+- `feature/the-jira-inbox-read-reports-truncation` — page or cap the inbox read, record truncation and read time, drop the kept inbox on `unaskable` → #1893
 
 ### Scope gate
 
