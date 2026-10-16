@@ -10,6 +10,7 @@ import {
   advanceSettled,
   ancestorStep,
   ancestorsToAsk,
+  newerAncestors,
   declaredRuns,
   failingRunsOf,
   foldRuns,
@@ -68,6 +69,8 @@ export interface DefaultBranchWorld {
 interface Settlement {
   settled: SettledReading | undefined;
   failingRuns: readonly FailingRun[];
+  /** Where the last walk ended without a concluded commit; the next one resumes past it. */
+  walked?: string;
 }
 
 /**
@@ -79,7 +82,16 @@ interface Settlement {
  * `ANCESTOR_ASKS_MAX` of them (`ancestorsToAsk`). The first commit whose runs
  * have concluded becomes the settled commit (`ancestorStep`). A host that does
  * not answer stops the walk and keeps the previous settlement. A walk that
- * does not reach the settled commit asks nothing.
+ * does not reach the settled commit asks nothing. A walk whose asks all came
+ * back unconcluded records its last commit in `walked`, and the next refresh
+ * of the same head resumes past it, so a burst longer than
+ * `ANCESTOR_ASKS_MAX` is covered across refreshes at `ANCESTOR_ASKS_MAX` asks
+ * each. A resumed walk that finds a concluded commit re-asks the newer commits
+ * it skipped, newest first (`newerAncestors`), and settles on the first of
+ * them that has concluded, or on the commit it found where none has. The
+ * settled commit is therefore the newest concluded commit between the head and
+ * the previous settled commit as the host answered in this refresh: never
+ * green while a newer commit on that line answered red.
  *
  * @param world - the reads.
  * @param branch - the default branch.
@@ -95,15 +107,26 @@ const settleBehindHead = async (
 ): Promise<Settlement> => {
   const walked = await world.refs.firstParentLine(headSha, ANCESTOR_WALK_DEPTH);
   const line = walked.ok ? walked.value : [];
-  for (const sha of ancestorsToAsk(line, headSha, kept.settled, ANCESTOR_ASKS_MAX)) {
+  const asking = ancestorsToAsk(line, headSha, kept.settled, ANCESTOR_ASKS_MAX, kept.walked);
+  const ask = async (sha: string): Promise<{ step: ReturnType<typeof ancestorStep>; failingRuns: FailingRun[] }> => {
     const asked = await world.slot(() => world.build.runsForSha(branch, sha));
     const runs = asked.ok ? declaredRuns(asked.value, world.checks) : [];
-    const state = asked.ok ? foldRuns(runs) : null;
-    const step = ancestorStep(sha, state);
-    if (step === 'stop') return kept;
-    if (step !== 'older') return { settled: step, failingRuns: step.state === 'red' ? failingRunsOf(runs) : [] };
+    const step = ancestorStep(sha, asked.ok ? foldRuns(runs) : null);
+    return { step, failingRuns: typeof step === 'object' && step.state === 'red' ? failingRunsOf(runs) : [] };
+  };
+  for (const sha of asking) {
+    const found = await ask(sha);
+    if (found.step === 'stop') return kept;
+    if (found.step === 'older') continue;
+    for (const newer of newerAncestors(line, asking[0]!)) {
+      const reasked = await ask(newer);
+      if (reasked.step === 'stop') return kept;
+      if (reasked.step !== 'older') return { settled: reasked.step, failingRuns: reasked.failingRuns };
+    }
+    return { settled: found.step, failingRuns: found.failingRuns };
   }
-  return kept;
+  const last = asking[asking.length - 1];
+  return last === undefined ? { settled: kept.settled, failingRuns: kept.failingRuns } : { ...kept, walked: last };
 };
 
 /** What one refresh did, for the log and the tests. */
@@ -130,7 +153,10 @@ export type DefaultBranchOutcome = 'skipped' | 'asked' | 'unreadable';
  * (`advanceSettled`). A head that is `pending` or `unknown` moves it to the
  * newest concluded commit between the head and the settled commit, read by
  * {@link settleBehindHead}. One refresh therefore makes at most
- * `1 + ANCESTOR_ASKS_MAX` CI asks. A host that fails writes `head: 'unknown'`, keeps the
+ * `1 + ANCESTOR_ASKS_MAX` CI asks, plus the re-asks of the commits a resumed
+ * walk skipped when it finds a concluded commit, fewer than
+ * `ANCESTOR_WALK_DEPTH`. The resume point `walked` is kept only while the head
+ * is unchanged. A host that fails writes `head: 'unknown'`, keeps the
  * settled part, and keeps the previous `askedAt`: `askedAt` is when a host last
  * answered, so a red reading the host stopped confirming ages out after
  * `Checks wait`. `at` records every ask, answered or not. An unaskable CI
@@ -186,16 +212,21 @@ export const refreshDefaultBranch = async (
     const advanced = advanceSettled(carried, sha, head);
     // The failing runs belong to the settled commit: new ones when it moved
     // to this head or to an ancestor, otherwise those already held.
-    const { settled, failingRuns } =
+    const { settled, failingRuns, walked } =
       advanced !== carried
         ? { settled: advanced, failingRuns: head === 'red' ? failingRunsOf(runs) : [] }
-        : await settleBehindHead(world, branch, sha, { settled: carried, failingRuns: previous?.failingRuns ?? [] });
+        : await settleBehindHead(world, branch, sha, {
+            settled: carried,
+            failingRuns: previous?.failingRuns ?? [],
+            ...(unchanged && previous.walked ? { walked: previous.walked } : {}),
+          });
     reading = {
       v: DEFAULT_BRANCH_VERSION,
       branch,
       headSha: sha,
       head,
       ...(settled ? { settled } : {}),
+      ...(walked ? { walked } : {}),
       failingRuns: [...failingRuns],
       headSince,
       askedAt: stamp,
