@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #1752
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-15, Jan Wloka, plan-PR #1754 merged
 - **Started:** 2026-10-15, Jan Wloka, `bug/discovery-tickets-heading-reason`
 - **Delivered:** 2026-10-15
+- **Released:** 2026-10-16, v2.27.1
 
 ## Changelog
 
