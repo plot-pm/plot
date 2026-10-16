@@ -64,9 +64,15 @@ url=$(git remote get-url origin 2>/dev/null || true)
 # git.mybitbucket.internal.example.com, and `*github.com*` matched
 # https://evil.com/notgithub.com.evil/x.git. A detector that calls itself
 # conservative must not guess from a substring.
+#
+# Bitbucket Cloud serves Git over SSH from `ssh.bitbucket.org` from
+# 2026-11-12 (`bitbucket.org` before), and from `altssh.bitbucket.org` on
+# port 443 where port 22 is blocked. Both are listed by exact name. `git remote
+# get-url` also reports the new host for a user whose global `insteadOf` rule
+# rewrites the old one.
 case "$url" in
   git@github.com:*|https://github.com/*|ssh://git@github.com/*)       host=github ;;
-  git@bitbucket.org:*|https://bitbucket.org/*|ssh://git@bitbucket.org/*) host=bitbucket ;;
+  git@bitbucket.org:*|https://bitbucket.org/*|ssh://git@bitbucket.org/*|git@ssh.bitbucket.org:*|ssh://git@ssh.bitbucket.org/*|ssh://git@ssh.bitbucket.org:*/*|ssh://git@altssh.bitbucket.org/*|ssh://git@altssh.bitbucket.org:*/*) host=bitbucket ;;
 esac
 
 # --- default branch -----------------------------------------------------

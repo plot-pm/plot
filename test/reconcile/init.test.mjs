@@ -197,6 +197,29 @@ test('detect: a hostname merely containing "github" is not GitHub', () => {
   assert.equal(probe(repoWith({ 'a.txt': 'x' }, { remote: 'https://bitbucket.org/a/b.git' })).git_host, 'bitbucket');
 });
 
+test('detect: Bitbucket\'s SSH hostnames (ssh. from 2026-11-12, altssh. on port 443) are Bitbucket', () => {
+  // `git remote get-url` expands `insteadOf`, so a user with a global rewrite
+  // sees the new host before touching their remotes.
+  for (const remote of [
+    'git@ssh.bitbucket.org:a/b.git',
+    'ssh://git@ssh.bitbucket.org/a/b.git',
+    'ssh://git@ssh.bitbucket.org:22/a/b.git',
+    'ssh://git@altssh.bitbucket.org:443/a/b.git',
+    'ssh://git@bitbucket.org/a/b.git',
+  ]) {
+    assert.equal(probe(repoWith({ 'a.txt': 'x' }, { remote })).git_host, 'bitbucket', remote);
+  }
+  // The anchoring holds for the new names too.
+  for (const remote of [
+    'git@ssh.bitbucket.org.evil.example.com:a/b.git',
+    'git@notssh.bitbucket.org:a/b.git',
+    'ssh://git@altssh.bitbucket.org.evil.example.com:443/a/b.git',
+    'https://evil.example.com/ssh.bitbucket.org/b.git',
+  ]) {
+    assert.equal(probe(repoWith({ 'a.txt': 'x' }, { remote })).git_host, '', remote);
+  }
+});
+
 test('detect: finds quality gates in workspace packages, not only the root', () => {
   // A monorepo root often carries no gates of its own. Reading only the root
   // reports "no quality gates" — and the Definition of Done is the single

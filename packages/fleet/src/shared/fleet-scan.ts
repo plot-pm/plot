@@ -162,6 +162,13 @@ export const spendRateFor = async (scripts: Scripts): Promise<SpendRate | null> 
   }
 };
 
+/** The hosts an origin URL names for Bitbucket Cloud: the web host and both SSH hosts. */
+const BITBUCKET_CLOUD_HOSTS: ReadonlySet<string> = new Set([
+  'bitbucket.org',
+  'ssh.bitbucket.org',
+  'altssh.bitbucket.org',
+]);
+
 /**
  * The branch-URL prefix for an origin URL.
  *
@@ -172,17 +179,23 @@ export const spendRateFor = async (scripts: Scripts): Promise<SpendRate | null> 
 export const branchUrlBase = (origin: string): string => {
   const trimmed = origin.trim();
   if (!trimmed) return '';
-  const m = /^(?:https?:\/\/(?:[^@/]*@)?([^/]+)\/|(?:ssh:\/\/)?(?:[^@/]+@)([^:/]+)[:/])(.+?)(?:\.git)?\/?$/
+  // Three shapes: `https://[user@]host[:port]/path`, `ssh://user@host[:port]/path`
+  // (the port is dropped, so `altssh.bitbucket.org:443` reads as a host and not
+  // as a path segment), and scp-style `user@host:path`.
+  const m = /^(?:https?:\/\/(?:[^@/]*@)?([^/]+)\/|ssh:\/\/(?:[^@/]+@)([^:/]+)(?::\d+)?\/|(?:[^@/:]+@)([^:/]+):)(.+?)(?:\.git)?\/?$/
     .exec(trimmed);
   if (!m) return '';
-  const host = (m[1] ?? m[2]).replace(/:\d+$/, '');
-  const repoPath = m[3];
+  const host = (m[1] ?? m[2] ?? m[3]).replace(/:\d+$/, '');
+  const repoPath = m[4];
   if (!repoPath || repoPath.includes('..')) return '';
   if (host === 'github.com' || /(^|\.)github\./.test(host)) {
     return `https://${host}/${repoPath}/tree/`;
   }
-  if (host === 'bitbucket.org') {
-    return `https://${host}/${repoPath}/branch/`;
+  // The web link keeps `bitbucket.org` whichever host the remote names: the SSH
+  // hosts (`ssh.bitbucket.org` from 2026-11-12, `altssh.bitbucket.org` on port
+  // 443) change where Git connects, not where the web pages live.
+  if (BITBUCKET_CLOUD_HOSTS.has(host)) {
+    return `https://bitbucket.org/${repoPath}/branch/`;
   }
   return '';
 };

@@ -355,6 +355,21 @@ test('host: backend infers the host from the remote when nothing declares one', 
   rmSync(dir, { recursive: true, force: true });
 });
 
+test('host: backend infers Bitbucket from the SSH hostnames Bitbucket Cloud uses from 2026-11-12', () => {
+  for (const remote of [
+    'git@ssh.bitbucket.org:x/y.git',
+    'ssh://git@ssh.bitbucket.org/x/y.git',
+    'ssh://git@altssh.bitbucket.org:443/x/y.git',
+  ]) {
+    const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-sshhost-')));
+    execFileSync('git', ['init', '-q', '.'], { cwd: dir });
+    execFileSync('git', ['remote', 'add', 'origin', remote], { cwd: dir });
+    const out = execFileSync('bash', [adapter, 'backend'], { cwd: dir, encoding: 'utf8' });
+    assert.equal(out.trim(), 'bitbucket', remote);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('host: backend says so when nothing names a host', () => {
   // IT REPORTS AND DOES NOT REFUSE, and that is a measurement rather than a
   // preference. An earlier version exited 4 here and five contract tests went

@@ -15,6 +15,14 @@ describe('ownerOfRemote', () => {
       expect(ownerOfRemote('https://example.com/ACME/plot.git')).toBe('acme');
     });
 
+    it('answers through the port of an ssh:// URL', () => {
+      expect(ownerOfRemote('ssh://git@altssh.bitbucket.org:443/acme/plot.git')).toBe('acme');
+    });
+
+    it('answers a scp-style URL on Bitbucket\'s SSH host', () => {
+      expect(ownerOfRemote('git@ssh.bitbucket.org:acme/plot.git')).toBe('acme');
+    });
+
     it('answers through a port', () => {
       expect(ownerOfRemote('https://example.com:8443/acme/plot.git')).toBe('acme');
     });
