@@ -2085,7 +2085,10 @@ export const run = async (
       declaredTracker: await readConfigAsync({ repoRoot, scriptsDir }, 'Tracker', ''),
       gitHost: await (async () => {
         const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
-        return answer.ok ? answer.value : 'github';
+        if (answer.ok) return answer.value;
+        const reason = answer.why === 'unaskable' && answer.reason !== undefined ? answer.reason : answer.why;
+        warn(`plot-fleetd: the git host probe did not answer (${reason}) — assuming github\n`);
+        return 'github';
       })(),
       issueStore,
       prBackoff: () => ({

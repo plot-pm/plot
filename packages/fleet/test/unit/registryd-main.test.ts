@@ -1185,6 +1185,26 @@ describe('run — a failed tick must not end the daemon', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('warns and assumes github where the git host probe cannot answer, rather than misreporting the connector silently', async () => {
+    const dir = sandbox();
+    try {
+      const warnings: string[] = [];
+      const code = await run(
+        ['--once'],
+        dir,
+        () => {},
+        async () => {},
+        () => true,
+        (s) => warnings.push(s),
+        dir,
+      );
+      expect(code).toBe(0);
+      expect(warnings.some((w) => w.includes('git host probe') && w.includes('assuming github'))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 /**

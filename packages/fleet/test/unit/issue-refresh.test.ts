@@ -610,17 +610,17 @@ describe('a refused issue read (Acceptance 6)', () => {
     expect(state.issueNextIsBackoff).toBe(false);
   });
 
-  it('keeps no rows of another source', async () => {
+  it('keeps no rows of another source, and writes no at — this pass never answered', async () => {
     const { dir } = fakeHost({ stderr: 'boom', code: 1 });
     const store = issueIndexFile({ home: storeHome() });
     await store.write(heldIndex({ source: 'tracker', connector: 'jira' }));
     await refreshIssueIndex(worldOf(dir, store), freshIssueState());
     const index = await onDisk(store);
     expect(index?.rows).toBeUndefined();
-    expect(index?.at).toBe(new Date(NOW).toISOString());
+    expect(index?.at).toBeUndefined();
   });
 
-  it('writes a first failed pass with no rows', async () => {
+  it('writes a first failed pass with no rows and no at, never inventing a timestamp for a read that did not answer', async () => {
     const { dir } = fakeHost({ code: 3 });
     const store = issueIndexFile({ home: storeHome() });
     await refreshIssueIndex(worldOf(dir, store), freshIssueState());
@@ -628,6 +628,17 @@ describe('a refused issue read (Acceptance 6)', () => {
     expect(index?.answer).toBe('failed');
     expect(index?.reason).toBe('plot-host.sh exited 3');
     expect(index?.rows).toBeUndefined();
+    expect(index?.at).toBeUndefined();
+  });
+
+  it('carries the held at forward unchanged on a failed pass with a held index of the same source and connector', async () => {
+    const { dir } = fakeHost({ stderr: 'boom', code: 1 });
+    const store = issueIndexFile({ home: storeHome() });
+    const held = heldIndex();
+    await store.write(held);
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    const index = await onDisk(store);
+    expect(index?.at).toBe(held.at);
   });
 });
 

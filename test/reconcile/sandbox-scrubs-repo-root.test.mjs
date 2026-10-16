@@ -60,8 +60,36 @@ const dispatch = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-
 
 const git = (cwd, ...args) => execFileSync('git', args, { encoding: 'utf8', cwd });
 
-test('a sandboxed dispatch writes no manifest into the root PLOT_REPO_ROOT names', () => {
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === 'EPERM';
+  }
+};
+
+// Waits, at most 10 s, until every pid the desk recorded at launch has exited.
+// Without a desk there are no pids to read: the test failed before it made one.
+const workersGone = async (desk) => {
+  if (desk === undefined) return;
+  const pids = ['.plot-worker.pid', '.plot-worker.wrapper.pid']
+    .map((name) => {
+      try {
+        return Number.parseInt(fs.readFileSync(path.join(desk, name), 'utf8'), 10);
+      } catch {
+        return NaN;
+      }
+    })
+    .filter((pid) => Number.isInteger(pid) && pid > 1);
+  for (let i = 0; i < 100 && pids.some(alive); i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+};
+
+test('a sandboxed dispatch writes no manifest into the root PLOT_REPO_ROOT names', async () => {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scrub-'));
+  let wt;
   try {
     // THE DECOY: a directory that looks exactly like this estate does to
     // `plot-config.sh` — a `## Plot Config` with an absolute `Agent registry`.
@@ -108,7 +136,7 @@ test('a sandboxed dispatch writes no manifest into the root PLOT_REPO_ROOT names
     git(r, 'commit', '-qm', 'plan');
     git(r, 'push', '-q', 'origin', 'main');
 
-    const wt = path.join(t, 'desk-feature-scrub');
+    wt = path.join(t, 'desk-feature-scrub');
     git(r, 'worktree', 'add', '-q', '-b', 'feature/scrub', wt, 'origin/main');
     git(wt, 'commit', '-q', '--allow-empty', '-m', 'plot: claim feature/scrub');
     git(wt, 'push', '-qu', 'origin', 'feature/scrub');
@@ -139,8 +167,10 @@ test('a sandboxed dispatch writes no manifest into the root PLOT_REPO_ROOT names
     assert.equal(own.length, 1,
       `the sandbox's own registry holds the manifest, got ${own.join(', ') || 'none'}`);
   } finally {
-    // The worker command is `true`, so nothing outlives the run for long; the
-    // retries cover a worker still exiting inside the tree.
+    // The worker command is `true`, but the detached worker may still be
+    // exiting inside the tree. Wait on the pids it recorded at launch, not on
+    // a process-name scan, before the tree goes.
+    await workersGone(wt);
     fs.rmSync(t, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

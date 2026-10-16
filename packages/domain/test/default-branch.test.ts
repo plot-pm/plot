@@ -11,6 +11,7 @@ import {
   advanceSettled,
   ancestorStep,
   ancestorsToAsk,
+  newerAncestors,
   checkNamesOf,
   checksWaitMsOf,
   declaredRuns,
@@ -234,6 +235,22 @@ describe('advanceSettled — the settled part moves only when a commit settles',
 describe('ancestorsToAsk — the commits between the head and the settled commit', () => {
   const line = ['h', 'c3', 'c2', 'c1', 's', 'old'];
   const settled = { sha: 's', state: 'red' } as const;
+
+  it('resumes past the commit the previous walk ended on, and starts again once nothing older remains', () => {
+    const line = ['h', 'c4', 'c3', 'c2', 'c1', 's'];
+    const settled = { sha: 's', state: 'red' as const };
+    expect(ancestorsToAsk(line, 'h', settled, 2, 'c3')).toEqual(['c2', 'c1']);
+    expect(ancestorsToAsk(line, 'h', settled, 2, 'c1')).toEqual(['c4', 'c3']);
+    expect(ancestorsToAsk(line, 'h', settled, 2, 'gone')).toEqual(['c4', 'c3']);
+  });
+
+  it('names the commits a resumed walk skipped, newest first, and none for a walk from the newest', () => {
+    const line = ['h', 'c4', 'c3', 'c2', 'c1', 's'];
+    expect(newerAncestors(line, 'c2')).toEqual(['c4', 'c3']);
+    expect(newerAncestors(line, 'c4')).toEqual([]);
+    expect(newerAncestors(line, 'h')).toEqual([]);
+    expect(newerAncestors(line, 'gone')).toEqual([]);
+  });
 
   it('lists the commits strictly between the head and the settled commit, newest first', () => {
     expect(ancestorsToAsk(line, 'h', settled, 5)).toEqual(['c3', 'c2', 'c1']);

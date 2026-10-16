@@ -424,7 +424,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
   await world.issueStore.write({
     ...base,
     backoffUntil,
-    at: sameHeld ? held.at : failedAt,
+    ...(sameHeld && held.at !== undefined ? { at: held.at } : {}),
     answer,
     failedAt,
     reason,
