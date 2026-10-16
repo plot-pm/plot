@@ -1283,7 +1283,6 @@ pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host 
     # warns about for `die`. `BB_LIST_NEXT_FILE` is the channel out: a fresh,
     # already-empty temp path per state, read back once the substitution returns.
     plot_tmpfile BB_LIST_NEXT_FILE "host-prlist-next-$_s" || return 3
-    : > "$BB_LIST_NEXT_FILE"
     # THE SUBSHELL'S CODE IS THE ONLY CHANNEL OUT, so it is captured rather
     # than propagated. `pr_list_failed` runs INSIDE the substitution and has
     # already composed its report and its repair line; that text is spooled
