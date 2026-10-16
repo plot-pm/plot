@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #1743
 - **Review:** pr
@@ -13,6 +13,7 @@
 - **Started:** 2026-10-15, Jan Wloka, `bug/a-clean-wait-end-writes-no-marker`
 - **Started:** 2026-10-15, Jan Wloka, `bug/an-ended-desk-is-not-waiting-on-you`
 - **Delivered:** 2026-10-15
+- **Released:** 2026-10-16, v2.27.1
 
 ## Changelog
 
