@@ -42,7 +42,7 @@ Group the work by the component that decides it, not by the issue that reported 
 
 ### Open Questions
 
-- [ ] #1743 asks for fleetd to start a fresh agent at `agents=0`. Is that in this plan, or a follow-up issue?
+- [ ] #1743 asks for fleetd to start a fresh agent at `agents=0`. Follow-up issue, not decided here: #1903.
 - [ ] #1679 M3 (restart note): is the changeset consumed in 2.27.0, so the note is moot?
 - [ ] Which of the LOW findings in #1790, #1792 and #1793 are still present on main? Re-check each before changing code.
 
@@ -50,7 +50,7 @@ Group the work by the component that decides it, not by the issue that reported 
 
 ### Placement and row text
 
-- `bug/row-placement-quiet-and-wait-bound` — `quiet` rows land in *Quiet* (#1758); a clean wait-bound end reads from the ending record, not as blocked (#1743, #1792 MEDIUM) <!-- builds: a domain placement rule for quiet rows -->
+- `bug/row-placement-quiet-and-wait-bound` — `quiet` rows land in *Quiet* (#1758); a clean wait-bound end reads from the ending record, not as blocked (#1743, #1792 MEDIUM) <!-- builds: a domain placement rule for quiet rows --> → #1902
 
 ### Host and wording
 
