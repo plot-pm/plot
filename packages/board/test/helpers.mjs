@@ -115,6 +115,70 @@ const untilGoneSync = (pids, groups, ms = 5_000) => {
   return !alive;
 };
 
+/** The variable `startServer` gives each server, and every process it starts inherits. */
+const SERVER_ID_VAR = 'PLOT_TEST_SERVER_ID';
+
+let serversStarted = 0;
+
+/**
+ * Every live process whose environment carries `PLOT_TEST_SERVER_ID=<id>`, as
+ * `{ pid, pgid }`, read from one `ps eww` listing. `ps e` prints a process's
+ * environment after its command, on macOS and on Linux procps alike, for the
+ * processes this user owns. A zombie is left out, and so is `except`.
+ */
+const carryingServerId = (id, except) => {
+  const mark = `${SERVER_ID_VAR}=${id}`;
+  let listing = '';
+  try {
+    listing = execFileSync('ps', ['eww', '-A', '-o', 'pid=,pgid=,stat=,command='], {
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch {
+    return [];
+  }
+  return listing
+    .split('\n')
+    .map((line) => line.trim().split(/\s+/))
+    .filter((fields) => fields.length >= 4 && fields.slice(3).includes(mark) && !fields[2].startsWith('Z'))
+    .map(([pid, pgid]) => ({ pid: Number(pid), pgid: Number(pgid) }))
+    .filter(({ pid }) => pid > 0 && pid !== except);
+};
+
+/**
+ * End every process a server started that outlived the server, and return once
+ * they are gone.
+ *
+ * `kill()` reads the server's tree while the server is stopped, but a process
+ * the server starts after that read is in no list it signals. The server runs
+ * again after the SIGCONT, before its SIGTERM handler ends it, and in that time
+ * it can start the next script. The script is `detached`, so it leads a group
+ * nobody named, and the server's exit hands it to pid 1. Measured 2026-10-16 in
+ * `node:24` (Linux): a `plot-host.sh spend-rate` or `plot-fleetctl.sh --status`
+ * with ppid 1 still ran after `kill()` returned in 10 of 450 rounds, and the
+ * `spend-rate` ones held `plot-host-err.*` and `plot-reg.*`, the two entries
+ * `kill-tree.test.mjs` round 4 found in CI run 38828591520. Such a script can
+ * write `PLOT_BUDGET_HOME` after the box is removed, which recreates the
+ * `plot-board-test-` box `owned-run.sh` reports.
+ *
+ * The environment names them where the process table cannot: every process the
+ * server starts inherits `PLOT_TEST_SERVER_ID`. Each one gets ONE SIGTERM, as in
+ * `kill()`, so its `plot-tmp.sh` trap removes its temp entries; SIGKILL follows
+ * only for one still running after the wait.
+ */
+const endStragglers = (id, serverPid) => {
+  const strays = carryingServerId(id, serverPid);
+  if (strays.length === 0) return;
+  const groups = strays.filter(({ pid, pgid }) => pid === pgid).map(({ pid }) => pid);
+  const loose = strays.filter(({ pgid }) => !groups.includes(pgid)).map(({ pid }) => pid);
+  for (const pgid of groups) signalPid(-pgid, 'SIGTERM');
+  for (const pid of loose) signalPid(pid, 'SIGTERM');
+  if (untilGoneSync(loose, groups)) return;
+  for (const pgid of groups) signalPid(-pgid, 'SIGKILL');
+  for (const pid of loose) signalPid(pid, 'SIGKILL');
+  untilGoneSync(loose, groups, 2_000);
+};
+
 /**
  * Start the built artifact with cwd = the scratch repo. PLOT_SCRIPTS_DIR points
  * the server at this repo's real helper scripts (the artifact ships next to
@@ -139,6 +203,7 @@ const untilGoneSync = (pids, groups, ms = 5_000) => {
  * Cleanup-by-convention is a rule; this is the gate behind it.
  */
 export function startServer(cwd, env = {}) {
+  const serverId = `${process.pid}.${++serversStarted}`;
   return new Promise((resolve, reject) => {
     const proc = spawn('node', [ARTIFACT], {
       cwd,
@@ -149,6 +214,7 @@ export function startServer(cwd, env = {}) {
         PLOT_REPO_ROOT: cwd,
         PLOT_EXIT_WITH_PARENT: '1',
         ...env,
+        [SERVER_ID_VAR]: serverId,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -200,10 +266,14 @@ export function startServer(cwd, env = {}) {
         for (const pgid of groups) signalPid(-pgid, 'SIGCONT');
         signalPid(proc.pid, 'SIGTERM');
         signalPid(proc.pid, 'SIGCONT');
-        if (untilGoneSync([proc.pid, ...tree], groups)) return;
-        for (const pgid of groups) signalPid(-pgid, 'SIGKILL');
-        for (const pid of tree) signalPid(pid, 'SIGKILL');
-        untilGoneSync(tree, groups, 2_000);
+        if (!untilGoneSync([proc.pid, ...tree], groups)) {
+          for (const pgid of groups) signalPid(-pgid, 'SIGKILL');
+          for (const pid of tree) signalPid(pid, 'SIGKILL');
+          signalPid(proc.pid, 'SIGKILL');
+          untilGoneSync([proc.pid, ...tree], groups, 2_000);
+        }
+        // THEN WHAT THE SERVER STARTED AFTER THE READ — see `endStragglers`.
+        endStragglers(serverId, proc.pid);
       };
       resolve({
         port: Number(match[1]),
