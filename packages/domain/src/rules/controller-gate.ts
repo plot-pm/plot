@@ -170,6 +170,11 @@ export const controllerRefusal = (action: ControllerAction, scriptDir: string, s
  * The refusal for a merge with no head pin. It names the controller command
  * first and then the pin flag of the program refused.
  *
+ * For `gh`, it also names the one host that command cannot reach: `gh` is a
+ * GitHub CLI, so a Bitbucket repository has no `--match-head-commit` to add —
+ * on that host the merge goes through `plot-host.sh pr-merge`, unpinned,
+ * because Bitbucket's API gives no way to pin.
+ *
  * @param scriptDir - the absolute directory holding the plot scripts.
  * @param program - the merge program the command runs.
  * @returns the text for stderr.
@@ -181,6 +186,9 @@ export const unpinnedMergeRefusal = (scriptDir: string, program: MergeProgram): 
     '  Merge through the controller, which re-asks the host and merges pinned to <sha> or refuses by name:',
     `      node ${shellQuote(`${scriptDir}/board/plot-ask.mjs`)} merge <pr> <sha>`,
     `  Or add ${PIN_FLAG[program]} <sha> to the merge you meant.`,
+    ...(program === 'gh'
+      ? ['  On a Bitbucket repository, gh is not the tool: the merge goes through plot-host.sh pr-merge, unpinned,', "    because Bitbucket's API gives no way to pin."]
+      : []),
     '',
   ].join('\n');
 

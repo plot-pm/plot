@@ -67,6 +67,14 @@ describe('merge — the controller for a PR merge', () => {
     expect(refusalOf(readings({ pr: pr({ headSha: OTHER, checksSha: OTHER }) }))).toBe('head-moved');
   });
 
+  it('merges a sha typed in a different case than the host’s lowercase head', () => {
+    // Same commit, different case: not a moved head, so this must not refuse.
+    const out = merge(readings(), { pr: 42, sha: HEAD.toUpperCase(), ...CLOCK });
+    expect(out.outcome).not.toBe('refused');
+    if (out.outcome === 'refused') return;
+    expect(out.writes).toEqual([{ kind: 'pr-merge', pr: 42, deleteBranch: false, sha: HEAD.toUpperCase() }]);
+  });
+
   it('refuses unaskable when the host did not answer', () => {
     expect(refusalOf(readings({ pr: 'unaskable' }))).toBe('unaskable');
   });

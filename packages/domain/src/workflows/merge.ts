@@ -61,19 +61,20 @@ const short = (sha: string | undefined): string =>
  * Decides whether a PR may merge at the commit the caller read.
  *
  * Refuses unless all four hold at the host's answer now: the head equals the
- * caller's sha, the check rollup is green for that head, the PR is not a draft,
- * and the default branch is not red. A host that did not answer, or that names
- * no head commit, refuses as `unaskable`, and so does a default-branch read
- * that failed. A missing default-branch reading holds nothing and the decision
- * says so in its detail. A reading whose `askedAt` is older than
- * `input.checksWaitMs`, or does not parse, refuses as `default-branch-stale`:
- * a merge cannot be undone, so a reading no host confirmed within the bound
- * permits nothing, whether it reads red or green.
+ * caller's sha (compared case-insensitively — a sha differs only in case names
+ * the same commit), the check rollup is green for that head, the PR is not a
+ * draft, and the default branch is not red. A host that did not answer, or
+ * that names no head commit, refuses as `unaskable`, and so does a
+ * default-branch read that failed. A missing default-branch reading holds
+ * nothing and the decision says so in its detail. A reading whose `askedAt`
+ * is older than `input.checksWaitMs`, or does not parse, refuses as
+ * `default-branch-stale`: a merge cannot be undone, so a reading no host
+ * confirmed within the bound permits nothing, whether it reads red or green.
  *
  * `checks-unbound` guards a rollup that names a commit other than the head.
- * `plot-host.sh` sets `checksSha` to `headRefOid` today, so no adapter produces
- * that mismatch; the refusal stays for an adapter that reports checks against
- * another commit.
+ * A PR's `checksSha` and `headSha` both name commits on the same ref; when an
+ * adapter reports checks against a commit other than the head, the refusal
+ * fires.
  *
  * @param readings - the host's PR answer and the default-branch reading.
  * @param input - the PR, the head commit the caller read, the clock and the `Checks wait` bound.
@@ -84,7 +85,7 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   const no = (reason: MergeRefusal, detail: string) => refuse('merge', reason, detail);
   const { pr } = readings;
   if (pr === 'unaskable') {
-    return no('unaskable', `the host did not answer for PR #${input.pr}. Absent is not green; nothing was merged.`);
+    return no('unaskable', `the host did not answer for PR #${input.pr}. A failed read is not an absent reading; nothing was merged.`);
   }
   if (pr === null || pr.state !== 'OPEN') {
     return no('pr-not-open', `PR #${input.pr} is ${pr === null ? 'unknown to the host' : pr.state}. Only an open PR merges.`);
@@ -92,7 +93,7 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   if (pr.headSha === undefined || pr.headSha === '') {
     return no('unaskable', `the host named no head commit for PR #${input.pr}, so the merge cannot be pinned to ${short(input.sha)}. Nothing was merged.`);
   }
-  if (pr.headSha !== input.sha) {
+  if (pr.headSha.toLowerCase() !== input.sha.toLowerCase()) {
     return no('head-moved', `the head of PR #${input.pr} is ${short(pr.headSha)}; the caller read ${short(input.sha)}. Re-read the checks for the new head.`);
   }
   if (pr.draft) return no('draft', `PR #${input.pr} is a draft. Mark it ready, then ask again.`);
@@ -104,7 +105,7 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
   }
   const defaultBranch = readings.defaultBranch;
   if (defaultBranch === 'unaskable') {
-    return no('unaskable', `the default branch's reading could not be read for PR #${input.pr}. Absent is not green; nothing was merged.`);
+    return no('unaskable', `the default branch's reading could not be read for PR #${input.pr}. A failed read is not an absent reading; nothing was merged.`);
   }
   if (defaultBranch !== null) {
     const age = defaultBranchAgeMs(defaultBranch, input.now);

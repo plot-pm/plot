@@ -16,7 +16,7 @@ export interface MergePorts {
 
 /** What `plot-ask.mjs merge` prints, as one JSON line. */
 export type MergeResult =
-  | { merged: true; pr: number; sha: string; defaultBranchRead: boolean }
+  | { merged: true; pr: number; sha: string; defaultBranchRead: boolean; unpinned: boolean }
   | { merged: false; reason: MergeRefusal | 'host-refused'; detail: string };
 
 /**
@@ -54,11 +54,12 @@ export const mergeAt = async (ports: MergePorts, pr: number, sha: string): Promi
     return { merged: false, reason: 'host-refused', detail: 'the merge decision carried no pinned write' };
   }
   const args = ['pr-merge', String(write.pr)];
-  if (await canPinMerge(ports.host)) args.push('--match-head', write.sha);
+  const pinned = await canPinMerge(ports.host);
+  if (pinned) args.push('--match-head', write.sha);
   if (write.deleteBranch) args.push('--delete-branch');
   const landed = await ports.scripts.hostSaid(args);
   if (landed.answer !== 'answered') {
     return { merged: false, reason: 'host-refused', detail: landed.said };
   }
-  return { merged: true, pr, sha, defaultBranchRead: outcome.detail.defaultBranchRead };
+  return { merged: true, pr, sha, defaultBranchRead: outcome.detail.defaultBranchRead, unpinned: !pinned };
 };
