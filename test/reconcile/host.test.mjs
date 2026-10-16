@@ -7347,8 +7347,15 @@ test('host: issue-open exits 4 with the reason where the declared tracker cannot
     stubs,
   });
   assert.equal(res.code, 4);
-  assert.match(res.stderr, /plot-host: issue-open answers for jira and github-issues only, not 'linear'/);
+  assert.match(res.stderr, /^plot-host: issue-open: .*linear/m, 'the reason is issueSource\'s, naming the scheme');
+  assert.doesNotMatch(res.stderr, /answers for jira and github-issues only/, 'no second hand-rolled copy of the rule');
   assert.equal(argvOf(stubs.ghArgv), null, 'gh is never called for a tracker it cannot answer as');
+});
+
+test('host: ticket-projects prints the override trimmed, one per line, and honors it over the config', () => {
+  const stubs = makeStubs();
+  const out = run(['ticket-projects'], { env: { PLOT_HOST: 'github', PLOT_TICKET_PREFIXES: ' AAA , BBB,,' }, stubs });
+  assert.equal(out, 'AAA\nBBB\n');
 });
 
 test('host: issue-open reports a failed create as exit 3 with no number', () => {

@@ -5033,12 +5033,19 @@ case "$op" in
     #                  verbatim; prints Jira's JSON answer.
     #   github-issues  <title> <body> [--label <label>...]; prints the new
     #                  issue's address.
-    # Exit 4, with the reason, for any other tracker.
-    case "$(tracker_scheme)" in
-      jira) jira_require_config; jira_ask /rest/api/2/issue -X POST -H 'Content-Type: application/json' --data-raw "${1:?issue-open needs a request}" || exit $? ;;
-      github-issues) gh issue create --title "${1:?issue-open needs a title}" --body "${2-}" "${@:3}" 2>"$HOST_ERR" || gh_fail ;;
-      *) echo "plot-host: issue-open answers for jira and github-issues only, not '$(tracker_scheme)'" >&2; exit 4 ;;
+    # Exit 4, with the reason, for any other source — dispatched on the domain's
+    # `issueSource` answer like issue-list, never on `tracker_scheme`.
+    source_said="$(issue_source)" || exit 1
+    case "$source_said" in
+      $'tracker\tjira') jira_require_config; jira_ask /rest/api/2/issue -X POST -H 'Content-Type: application/json' --data-raw "${1:?issue-open needs a request}" || exit $? ;;
+      $'tracker\tgithub-issues') gh issue create --title "${1:?issue-open needs a title}" --body "${2-}" "${@:3}" 2>"$HOST_ERR" || gh_fail ;;
+      *) echo "plot-host: issue-open: ${source_said#*$'\t'}" >&2; exit 4 ;;
     esac ;;
+
+  ticket-projects)
+    # The projects `Ticket prefixes` scopes to, one per line, honoring
+    # PLOT_TICKET_PREFIXES — the one answer the TypeScript connector asks.
+    tracker_projects ;;
 
   pr-body)
     num="${1:?pr-body needs a PR number}"; shift

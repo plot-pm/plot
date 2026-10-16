@@ -22,7 +22,7 @@ const SCHEME = 'jira';
 /** How this connector's limit readings are tagged. */
 const CONNECTOR = 'jira';
 
-/** The config key naming the projects; `issueOpen` opens in the first. */
+/** The config key naming the projects, for messages; `issueOpen` opens in the first. */
 const PROJECTS_KEY = 'Ticket prefixes';
 
 /** The config key naming the issue type `issueOpen` opens. */
@@ -101,6 +101,16 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
   const config = scriptPath(context, 'plot-config.sh');
   const inRepo = { cwd: context.repoRoot };
 
+  // THE ONE READ OF `Ticket prefixes`. `plot-host.sh ticket-projects` is the
+  // shell's own answer, so `PLOT_TICKET_PREFIXES` reaches this connector the
+  // way it reaches `issue-list`, and the gate, the project pick and the JQL
+  // scope cannot disagree inside one pass.
+  const projectsRead = async (): Promise<{ ok: true; projects: string[] } | { ok: false; why: string }> => {
+    const said = await runProcess('bash', [host, 'ticket-projects'], run);
+    if (said.code !== 0) return { ok: false, why: said.stderr.trim() || `plot-host.sh exited ${said.code}` };
+    return { ok: true, projects: said.stdout.split('\n').map((key) => key.trim()).filter((key) => key !== '') };
+  };
+
   return {
     config: (): TrackerConfig => ({ scheme: SCHEME, baseUrl }),
 
@@ -117,12 +127,12 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
     // project-wide, so with no `Ticket prefixes` declared there is nothing for
     // it to add beyond the open read `waitingTickets` already has.
     issueListInbox: async (limit): Promise<PortResult<IssueRead>> => {
-      const projects = await runProcess('bash', [config, 'get', PROJECTS_KEY, ''], inRepo);
-      if (projects.code !== 0) {
-        reads.refuse(projects.stderr.trim() || `plot-config.sh exited ${projects.code}`);
+      const projects = await projectsRead();
+      if (!projects.ok) {
+        reads.refuse(projects.why);
         return failed();
       }
-      if (projects.stdout.trim() === '') {
+      if (projects.projects.length === 0) {
         reads.refuse(null);
         return unaskable(`the Jira inbox read needs '${PROJECTS_KEY}' declared; with none, the open read is already person-scoped`);
       }
@@ -163,14 +173,17 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
     },
 
     issueOpen: async (write: IssueOpen): Promise<PortResult<IssueOpenOutcome>> => {
-      const projects = await runProcess('bash', [config, 'get', PROJECTS_KEY, ''], inRepo);
-      const type = await runProcess('bash', [config, 'get', ISSUE_TYPE_KEY, DEFAULT_ISSUE_TYPE], inRepo);
-      const unread = [projects, type].find((said) => said.code !== 0);
-      if (unread !== undefined) {
-        reads.refuse(unread.stderr.trim() || `plot-config.sh exited ${unread.code}`);
+      const projects = await projectsRead();
+      if (!projects.ok) {
+        reads.refuse(projects.why);
         return failed();
       }
-      const project = projects.stdout.split(',').map((key) => key.trim()).find((key) => key !== '');
+      const type = await runProcess('bash', [config, 'get', ISSUE_TYPE_KEY, DEFAULT_ISSUE_TYPE], inRepo);
+      if (type.code !== 0) {
+        reads.refuse(type.stderr.trim() || `plot-config.sh exited ${type.code}`);
+        return failed();
+      }
+      const project = projects.projects[0];
       if (project === undefined) {
         reads.refuse(null);
         return unaskable(`opening a Jira issue needs '${PROJECTS_KEY}' declared`);

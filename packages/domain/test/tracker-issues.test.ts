@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
 import { trackerFixture } from '../src/adapters/tracker/tracker-fixture.js';
 import { githubIssueNumberOf, trackerGithub } from '../src/adapters/tracker/tracker-github.js';
@@ -33,9 +33,17 @@ const hostThat = (body: string, config?: string): { context: ShellContext; argv:
   mkdirSync(scriptDir);
   const argv = join(root, 'argv');
   const file = join(scriptDir, 'plot-host.sh');
+  // `ticket-projects` is answered as the real op does — the override, else the
+  // config key, split on commas — and is not recorded: it asks no tracker.
+  const projects = `if [ "$1" = ticket-projects ]; then
+  raw="\${PLOT_TICKET_PREFIXES:-}"
+  if [ -z "$raw" ]; then raw="$(bash "$(dirname "$0")/plot-config.sh" get 'Ticket prefixes' '')" || exit $?; fi
+  printf '%s' "$raw" | tr ',' '\\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$' || true
+  exit 0
+fi`;
   writeFileSync(
     file,
-    `#!/usr/bin/env bash\nprintf '%s|%s\\n' "\${PLOT_TRACKER:-}" "$*" >> ${JSON.stringify(argv)}\n${body}\n`,
+    `#!/usr/bin/env bash\n${config === undefined ? '' : projects}\nprintf '%s|%s\\n' "\${PLOT_TRACKER:-}" "$*" >> ${JSON.stringify(argv)}\n${body}\n`,
   );
   chmodSync(file, 0o755);
   if (config !== undefined) {
@@ -331,6 +339,27 @@ describe('issueOpen through trackerJira', () => {
     expect(jiraKeyOf('{"key":""}')).toBeNull();
     expect(jiraKeyOf('null')).toBeNull();
     expect(jiraKeyOf('not json')).toBeNull();
+  });
+});
+
+describe('PLOT_TICKET_PREFIXES through trackerJira', () => {
+  const saved = process.env.PLOT_TICKET_PREFIXES;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.PLOT_TICKET_PREFIXES;
+    else process.env.PLOT_TICKET_PREFIXES = saved;
+  });
+
+  it('reaches the inbox gate and the project issueOpen picks, over a config that declares none', async () => {
+    process.env.PLOT_TICKET_PREFIXES = ' OVR , OTHER';
+    const inbox = hostThat(`if [ "$1" = issue-list ]; then echo '{"number":"OVR-1","title":"t","url":"u"}'; fi`, 'echo "${3:-}"');
+    expect((await trackerJira(inbox.context).issueListInbox(50)).ok).toBe(true);
+
+    const root = mkdtempSync(join(tmpdir(), 'plot-tracker-request-'));
+    roots.push(root);
+    const saved = join(root, 'request.json');
+    const open = hostThat(`printf '%s' "$2" > ${JSON.stringify(saved)}\necho '{"key":"OVR-9"}'`, 'echo "${3:-}"');
+    expect(await trackerJira(open.context).issueOpen(OPEN)).toEqual({ ok: true, value: { outcome: 'opened', id: 'OVR-9' } });
+    expect(JSON.parse(readFileSync(saved, 'utf8'))).toMatchObject({ fields: { project: { key: 'OVR' } } });
   });
 });
 
