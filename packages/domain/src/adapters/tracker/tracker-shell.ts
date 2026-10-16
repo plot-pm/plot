@@ -323,8 +323,8 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
     },
 
     /**
-     * Lists the reader's own open issues: one unpaged page, `issue-list
-     * --state inbox`.
+     * Lists the reader's own open issues, walking the script's pages:
+     * `issue-list --state inbox --paged`. See {@link walk}.
      *
      * ONLY `plot-host.sh`'s JIRA ARM UNDERSTANDS `--state inbox` — GitHub's and
      * Bitbucket's would reject it. This is exported on `trackerReads` because
@@ -333,13 +333,11 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
      * reaching this. See {@link Tracker.issueListInbox}.
      *
      * @param limit - how many issues to read at most.
-     * @returns the reader's own open issues.
+     * @returns the reader's own open issues, whether the read reached its end,
+     *   and the requests it spent.
      */
     issueListInbox: (limit: number): Promise<PortResult<IssueRead>> =>
-      ask(['issue-list', '--state', 'inbox', '--limit', String(limit)], (stdout) => {
-        const { issues } = pageOf(stdout);
-        return { issues, complete: issues.length < limit, pages: 1 };
-      }),
+      walk(['issue-list', '--state', 'inbox', '--paged'], limit),
 
     issueView: (id: string): Promise<PortResult<Issue>> =>
       ask(['issue-view', id], (stdout) => issueOf(asJson<RawIssue>(stdout))),

@@ -131,4 +131,20 @@ describe('the inbox set', () => {
     expect(decodedAbsent).not.toHaveProperty('inbox');
     expect(decodedEmpty).not.toEqual(decodedAbsent);
   });
+
+  it('round-trips inboxAt alongside inbox', () => {
+    const original = store({ inbox: inboxRows, inboxAt: '2026-10-16T00:00:00.000Z' });
+    expect(decodeIssueIndex(encodeIssueIndex(original))).toEqual(original);
+  });
+
+  it('decodes a store written before inboxAt existed with the field absent, not invented', () => {
+    const preChange = JSON.stringify(store({ inbox: inboxRows }));
+    const decoded = decodeIssueIndex(preChange);
+    expect(decoded).not.toHaveProperty('inboxAt');
+    expect(decoded).toHaveProperty('inbox', inboxRows);
+  });
+
+  it('decodes a cold store (no file at all) as null, never a shape with inboxAt invented', () => {
+    expect(decodeIssueIndex('')).toBeNull();
+  });
 });

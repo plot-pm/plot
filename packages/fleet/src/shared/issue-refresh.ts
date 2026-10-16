@@ -158,10 +158,12 @@ export const closedOutcomeOf = (
   };
 };
 
-/** What one inbox read leaves: its rows, its error, its backoff and its spend. */
+/** What one inbox read leaves: its rows, their age, its error, its backoff and its spend. */
 export interface InboxOutcome {
   /** The inbox rows to hold; absent where no inbox read happened. */
   inbox: IssueIndexRow[] | undefined;
+  /** When `inbox` was last answered, ISO-8601; absent where it never has been. */
+  inboxAt: string | undefined;
   /** The read's failure sentence, or null where it answered, was unsupported or did not happen. */
   error: string | null;
   /** Milliseconds a rate limit in the refusal asks to wait, or null where there is none. */
@@ -170,42 +172,79 @@ export interface InboxOutcome {
   spent: number;
 }
 
-/** The outcome of an inbox read that did not happen: the kept rows, no error, no wait, no spend. */
-export const inboxSkipped = (kept: IssueIndexRow[] | undefined): InboxOutcome => ({
+/**
+ * The outcome of an inbox read that did not happen this pass: the kept rows
+ * and their age, no error, no wait, no spend.
+ *
+ * Used both where the pass skips the inbox read because the closed read
+ * failed — `kept` and `keptAt` carry over untouched, the same as any other
+ * field this pass did not ask about — and, with both undefined, for an
+ * `unaskable` read inside {@link inboxOutcomeOf}, which DROPS THE KEPT INBOX
+ * AND ITS AGE instead of keeping them: the read no longer applies (no
+ * `Ticket prefixes` declared, or a tracker other than Jira), so rows from
+ * when it did would be answering a question nobody is asking any more.
+ *
+ * @param kept - the inbox rows to carry over; undefined to drop them.
+ * @param keptAt - their age to carry over; undefined to drop it.
+ */
+export const inboxSkipped = (
+  kept?: IssueIndexRow[] | undefined,
+  keptAt?: string | undefined,
+): InboxOutcome => ({
   inbox: kept,
+  inboxAt: keptAt,
   error: null,
   wait: null,
   spent: 0,
 });
 
 /**
- * Folds one inbox read into the index's `inbox` field.
+ * Folds one inbox read into the index's `inbox` and `inboxAt` fields.
  *
  * `inbox` is absent, never `[]`, where the read did not happen — which is
  * D30's whole point: an UNSUPPORTED read (no `Ticket prefixes` declared, or a
  * tracker with no person-scoped read apart from the open one) costs nothing,
  * the same way {@link closedOutcomeOf} costs nothing for an unsupported closed
- * read. A read that FAILED spends 1 request and keeps `kept`; its refusal
- * feeds the pass's backoff through `wait`, as a failed closed read's does.
+ * read, and drops any rows and age kept from a since-retracted declaration
+ * (see {@link inboxSkipped}). A read that FAILED spends 1 request, keeps
+ * `kept` and its `keptAt` unmoved — so a reader derives the rows' staleness by
+ * comparing `keptAt` against now — and its refusal feeds the pass's backoff
+ * through `wait`, as a failed closed read's does.
  *
  * @param read - the inbox read's answer.
  * @param kept - the inbox rows the previous pass left for the same source and connector.
+ * @param keptAt - when `kept` was last answered, ISO-8601; absent where it never has been.
+ * @param at - when this pass started, ISO-8601.
  * @param refusal - the tracker's `lastRefusal()` right after the inbox read.
  * @param finishedAt - epoch ms the read finished, the start of a named wait.
- * @returns the rows to hold, the error, the wait and the requests spent.
+ * @returns the rows to hold, their age, the error, the wait and the requests spent.
  */
 export const inboxOutcomeOf = (
   read: PortResult<IssueRead>,
   kept: IssueIndexRow[] | undefined,
+  keptAt: string | undefined,
+  at: string,
   refusal: string | null,
   finishedAt: number,
 ): InboxOutcome => {
   if (read.ok) {
-    return { inbox: read.value.issues.map(issueIndexRowOf), error: null, wait: null, spent: read.value.pages };
+    return {
+      inbox: read.value.issues.map(issueIndexRowOf),
+      inboxAt: at,
+      error: null,
+      wait: null,
+      spent: read.value.pages,
+    };
   }
-  if (read.why === 'unaskable') return inboxSkipped(kept);
+  if (read.why === 'unaskable') return inboxSkipped();
   const error = refusal ?? 'the inbox read failed and said nothing';
-  return { inbox: kept, error, wait: waitOf(hostReaction(error, null, finishedAt)), spent: 1 };
+  return {
+    inbox: kept,
+    inboxAt: keptAt,
+    error,
+    wait: waitOf(hostReaction(error, null, finishedAt)),
+    spent: 1,
+  };
 };
 
 /** Whether a backoff is live and on the spender's own connector and account. */
@@ -251,16 +290,22 @@ const unaskableReason = (source: Exclude<IssueSource, { ask: 'nobody' }>, gitHos
  * - An answered open read is followed by a closed read of the last
  *   {@link ISSUE_INDEX_CLOSED_DAYS} days, written under `closed` with its own
  *   `answer`, `at`, `complete` and `rows`, and an inbox read written under
- *   `inbox` — the reader's own open tickets, where the tracker has a
- *   person-scoped read apart from the open one (D23). Each pass replaces all
- *   three sets whole. A closed read that fails or is unsupported keeps the
- *   previous `closed` `since`, `at`, rows and `complete`; an inbox read that
- *   fails or is unsupported keeps the previous `inbox` rows, or leaves it
- *   absent where none were ever read. Either leaves the open rows as the open
- *   read set them. Neither is asked where the open read did not answer. The
- *   closed read's refusal is read right after the closed read, before the inbox
- *   read can reset it, and a closed read that failed (not unsupported) skips the
- *   inbox read. A refused inbox read feeds the same backoff; where both refuse,
+ *   `inbox` and `inboxAt` — the reader's own open tickets and when they were
+ *   last answered, where the tracker has a person-scoped read apart from the
+ *   open one (D23). Each pass replaces all three sets whole. A closed read
+ *   that fails or is unsupported keeps the previous `closed` `since`, `at`,
+ *   rows and `complete`. An inbox read that FAILS keeps the previous `inbox`
+ *   rows and `inboxAt` unmoved, so a reader derives their staleness by
+ *   comparing `inboxAt` against now; one that is UNSUPPORTED — no
+ *   `Ticket prefixes` declared, or a tracker other than Jira — drops both
+ *   instead, because the read no longer applies and the previous rows would
+ *   answer a question nobody is asking any more; see {@link inboxSkipped}.
+ *   Either leaves the open rows as the open read set them. Neither is asked
+ *   where the open read did not answer. The closed read's refusal is read
+ *   right after the closed read, before the inbox read can reset it, and a
+ *   closed read that failed (not unsupported) skips the inbox read, keeping
+ *   its previous `inbox` and `inboxAt` as D23 did before this field existed.
+ *   A refused inbox read feeds the same backoff; where both refuse,
  *   `backoffUntil` is the later wait.
  * - A refused read writes `requests`, `nextAt`, `failedAt` and `reason`, keeps
  *   the previous `rows`, `complete` and `at` of the same source and connector,
@@ -305,6 +350,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
   const sameHeld = held !== null && held.source === source.ask && held.connector === spender.connector;
   const keptClosed: Pick<IssueIndex, 'closed'> = sameHeld && held.closed !== undefined ? { closed: held.closed } : {};
   const keptInbox = sameHeld ? held.inbox : undefined;
+  const keptInboxAt = sameHeld ? held.inboxAt : undefined;
 
   if (result.ok) {
     const since = closedSince(startedAt);
@@ -314,12 +360,12 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
     const at = new Date(startedAt).toISOString();
     const outcome = closedOutcomeOf(closedRead, keptClosed.closed, since, at, closedRefusal, closedFinishedAt);
     const closedRefused = !closedRead.ok && closedRead.why !== 'unaskable';
-    let inboxOutcome = inboxSkipped(keptInbox);
+    let inboxOutcome = inboxSkipped(keptInbox, keptInboxAt);
     let finishedAt = closedFinishedAt;
     if (!closedRefused) {
       const inboxRead = await tracker.issueListInbox(ISSUE_INDEX_OPEN_LIMIT);
       finishedAt = clock();
-      inboxOutcome = inboxOutcomeOf(inboxRead, keptInbox, tracker.lastRefusal(), finishedAt);
+      inboxOutcome = inboxOutcomeOf(inboxRead, keptInbox, keptInboxAt, at, tracker.lastRefusal(), finishedAt);
     }
     const requests = result.value.pages + outcome.spent + inboxOutcome.spent;
     const nextAt = startedAt + issueIntervalMs(requests);
@@ -345,6 +391,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
       complete: result.value.complete,
       closed: outcome.closed,
       ...(inboxOutcome.inbox === undefined ? {} : { inbox: inboxOutcome.inbox }),
+      ...(inboxOutcome.inboxAt === undefined ? {} : { inboxAt: inboxOutcome.inboxAt }),
     });
     return;
   }
@@ -384,6 +431,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
     ...(sameHeld && held.complete !== undefined ? { complete: held.complete } : {}),
     ...keptClosed,
     ...(keptInbox === undefined ? {} : { inbox: keptInbox }),
+    ...(keptInboxAt === undefined ? {} : { inboxAt: keptInboxAt }),
   });
 };
 
