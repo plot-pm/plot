@@ -1,0 +1,1 @@
+../2026-10-16-ticket-rows-show-type-and-owner.md
