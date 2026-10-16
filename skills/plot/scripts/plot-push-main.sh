@@ -95,8 +95,6 @@ git rev-parse --git-dir >/dev/null 2>&1 || {
   exit 1
 }
 
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 # stderr is captured rather than passed through, because it carries the ONLY
 # signal that separates a bypass from a clean push. A call site ending in
 # `2>/dev/null` — as several of Plot's pushes do — discards exactly the line
@@ -108,16 +106,12 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # first. Any other origin (no remote, a non-GitHub host, a local test
 # fixture) keeps the plain push: the Writer App is a GitHub concern only.
 origin_url=$(git config --get remote.origin.url 2>/dev/null || true)
-case "$origin_url" in
-  *github.com*)
-    err=$(node "$here/plot-push-writer-app.mjs" "$branch" "$default" 2>&1 >/dev/null)
-    code=$?
-    ;;
-  *)
-    err=$(git push origin "$branch:$default" 2>&1 >/dev/null)
-    code=$?
-    ;;
-esac
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "$origin_url" == *github.com* ]]; then
+  err=$(node "$here/plot-push-writer-app.mjs" "$branch" "$default" 2>&1 >/dev/null); code=$?
+else
+  err=$(git push origin "$branch:$default" 2>&1 >/dev/null); code=$?
+fi
 
 status=$(classify "$code" "$err")
 
