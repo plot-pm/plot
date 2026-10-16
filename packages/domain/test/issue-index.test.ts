@@ -50,6 +50,20 @@ describe('the encoding round-trips', () => {
     });
     expect(decodeIssueIndex(encodeIssueIndex(original))).toEqual(original);
   });
+
+  it('round-trips a first-ever failed pass with at absent, never inventing a timestamp for a read that did not answer', () => {
+    const original = store({
+      at: undefined,
+      answer: 'failed',
+      failedAt: '2026-10-13T00:01:00.000Z',
+      reason: 'host unreachable',
+      rows: undefined,
+      complete: undefined,
+    });
+    const decoded = decodeIssueIndex(encodeIssueIndex(original));
+    expect(decoded).toEqual(original);
+    expect(decoded).not.toHaveProperty('at');
+  });
 });
 
 describe('an unreadable store is nothing to start from', () => {
