@@ -120,6 +120,9 @@ const SERVER_ID_VAR = 'PLOT_TEST_SERVER_ID';
 
 let serversStarted = 0;
 
+/** How many listings {@link endStragglers} takes before it returns. */
+const STRAGGLER_ROUNDS = 5;
+
 /**
  * Every live process whose environment carries `PLOT_TEST_SERVER_ID=<id>`, as
  * `{ pid, pgid }`, read from one `ps eww` listing. `ps e` prints a process's
@@ -165,18 +168,26 @@ const carryingServerId = (id, except) => {
  * server starts inherits `PLOT_TEST_SERVER_ID`. Each one gets ONE SIGTERM, as in
  * `kill()`, so its `plot-tmp.sh` trap removes its temp entries; SIGKILL follows
  * only for one still running after the wait.
+ *
+ * The listing repeats until it finds no process, at most
+ * {@link STRAGGLER_ROUNDS} times. A process forked after a listing is in no list
+ * that round signals: a child of a straggler whose group leader has exited, or
+ * a `git maintenance run --detach` that starts its own session. It still
+ * carries the variable, so the next listing names it.
  */
 const endStragglers = (id, serverPid) => {
-  const strays = carryingServerId(id, serverPid);
-  if (strays.length === 0) return;
-  const groups = strays.filter(({ pid, pgid }) => pid === pgid).map(({ pid }) => pid);
-  const loose = strays.filter(({ pgid }) => !groups.includes(pgid)).map(({ pid }) => pid);
-  for (const pgid of groups) signalPid(-pgid, 'SIGTERM');
-  for (const pid of loose) signalPid(pid, 'SIGTERM');
-  if (untilGoneSync(loose, groups)) return;
-  for (const pgid of groups) signalPid(-pgid, 'SIGKILL');
-  for (const pid of loose) signalPid(pid, 'SIGKILL');
-  untilGoneSync(loose, groups, 2_000);
+  for (let round = 0; round < STRAGGLER_ROUNDS; round++) {
+    const strays = carryingServerId(id, serverPid);
+    if (strays.length === 0) return;
+    const groups = strays.filter(({ pid, pgid }) => pid === pgid).map(({ pid }) => pid);
+    const loose = strays.filter(({ pgid }) => !groups.includes(pgid)).map(({ pid }) => pid);
+    for (const pgid of groups) signalPid(-pgid, 'SIGTERM');
+    for (const pid of loose) signalPid(pid, 'SIGTERM');
+    if (untilGoneSync(loose, groups)) continue;
+    for (const pgid of groups) signalPid(-pgid, 'SIGKILL');
+    for (const pid of loose) signalPid(pid, 'SIGKILL');
+    untilGoneSync(loose, groups, 2_000);
+  }
 };
 
 /**
@@ -304,9 +315,15 @@ export function startServer(cwd, env = {}) {
          *
          * Resolves on `exit` rather than on a timer, so a fast machine pays
          * nothing and a slow one pays exactly what it needs.
+         *
+         * A server that already exited skips `kill()`, but the scripts it
+         * started can still run, so `endStragglers` ends them first.
          */
         stop: () => new Promise((done) => {
-          if (proc.exitCode !== null || proc.signalCode !== null) return done();
+          if (proc.exitCode !== null || proc.signalCode !== null) {
+            endStragglers(serverId, proc.pid);
+            return done();
+          }
           proc.once('exit', () => done());
           kill();
         }),
