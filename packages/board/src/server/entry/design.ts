@@ -6,6 +6,7 @@ import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { runProcess } from '@plot-pm/domain/adapters/run-script';
 import { claimTip, type ClaimAnswer } from '@plot-pm/domain/rules/claim';
+import { specIsEmpty } from '@plot-pm/domain/rules/design-work';
 import type { Host, PortResult, Refs, Trees } from '@plot-pm/domain';
 import type { CommitSubject } from '@plot-pm/domain/ports/refs';
 import {
@@ -67,7 +68,7 @@ const parseArgs = (argv: readonly string[]): Args | string => {
 export interface Context {
   repoRoot: string;
   scriptDir: string;
-  refs: Pick<Refs, 'defaultBranch' | 'remoteHead' | 'commitSubjects' | 'remoteSha' | 'showFile'>;
+  refs: Pick<Refs, 'defaultBranch' | 'remoteHead' | 'commitSubjects' | 'remoteSha' | 'showFile' | 'recordCommit'>;
   host: Pick<Host, 'prState' | 'prCreate' | 'prMerged'>;
   trees: Pick<Trees, 'deleteRemoteBranch'>;
 }
@@ -134,28 +135,39 @@ const runningHere = (repoRoot: string, slug: string): boolean => {
 };
 
 /**
- * Finds the plan's `Design:` commit, read from its file on the default
- * branch, for the mark's `commit` field — the field `auto-design.ts`'s
- * `specStart` compares against `store.restart[slug]` to tell a pending
- * restart from a stale one.
+ * Finds the plan's repository-relative path in a ref's tree, by slug.
  *
  * @param ctx - the ports and paths.
+ * @param ref - the ref to list.
  * @param slug - the plan's slug.
- * @returns the commit, or `''` where the plan or the field cannot be read.
+ * @returns the path, or `''` where the ref cannot be listed or names no such plan.
  */
-const designCommitOf = async (ctx: Context, slug: string): Promise<string> => {
-  const main = await ctx.refs.defaultBranch();
-  if (!main.ok) return '';
-  const ref = `origin/${main.value}`;
+const planFileAt = async (ctx: Context, ref: string, slug: string): Promise<string> => {
   const listed = await runProcess('git', ['-C', ctx.repoRoot, 'ls-tree', '-r', '--name-only', ref]);
   if (listed.code !== 0) return '';
   const planFile = listed.stdout
     .split('\n')
     .find((name) => name.startsWith('docs/plans/') && name.endsWith(`${slug}.md`));
-  if (planFile === undefined) return '';
-  const text = await ctx.refs.showFile(ref, planFile);
-  if (!text.ok) return '';
-  return /^Design:\s*(\S+)/m.exec(text.value)?.[1] ?? '';
+  return planFile ?? '';
+};
+
+/**
+ * Finds the plan's `Design:` commit — the commit that added the current
+ * record, read through {@link Refs.recordCommit}, for the mark's `commit`
+ * field — the field `auto-design.ts`'s `specStart` compares against
+ * `store.restart[slug]` to tell a pending restart from a stale one.
+ *
+ * @param ctx - the ports and paths.
+ * @param slug - the plan's slug.
+ * @returns the commit, or `''` where the plan or the record cannot be read.
+ */
+const designCommitOf = async (ctx: Context, slug: string): Promise<string> => {
+  const main = await ctx.refs.defaultBranch();
+  if (!main.ok) return '';
+  const planFile = await planFileAt(ctx, `origin/${main.value}`, slug);
+  if (planFile === '') return '';
+  const found = await ctx.refs.recordCommit(planFile, 'Design');
+  return found.ok && found.value !== null ? found.value : '';
 };
 
 /**
@@ -168,7 +180,7 @@ const designCommitOf = async (ctx: Context, slug: string): Promise<string> => {
  * @param warn - where a refusal goes.
  * @returns the exit code.
  */
-const restart = async (ctx: Context, slug: string, write: Printer, warn: Printer): Promise<number> => {
+export const restart = async (ctx: Context, slug: string, write: Printer, warn: Printer): Promise<number> => {
   const branch = designBranch(slug);
   const specRef = await specRefOf(ctx, branch);
   const designCommit = await designCommitOf(ctx, slug);
@@ -217,10 +229,10 @@ const restart = async (ctx: Context, slug: string, write: Printer, warn: Printer
     return 1;
   }
 
-  const main = await ctx.refs.defaultBranch();
-  const defaultBranchName = main.ok ? main.value : '';
-  const text = await ctx.refs.commitSubjects(`origin/${defaultBranchName}..origin/${branch}`);
-  const written = text.ok && text.value.length > 0;
+  const branchRef = `origin/${branch}`;
+  const planFile = await planFileAt(ctx, branchRef, slug);
+  const text = planFile === '' ? undefined : await ctx.refs.showFile(branchRef, planFile);
+  const written = text !== undefined && text.ok && !specIsEmpty(text.value);
 
   if (pr.value === null && written) {
     const created = await ctx.host.prCreate({

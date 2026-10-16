@@ -137,7 +137,10 @@ export interface DesignPassWorld {
   readonly alive: (pid: number) => boolean;
   readonly refs: (
     opts: ActOptions,
-  ) => Pick<Refs, 'defaultBranch' | 'remoteHead' | 'commitSubjects' | 'fetchRemoteHead' | 'resolve' | 'showFile'>;
+  ) => Pick<
+    Refs,
+    'defaultBranch' | 'remoteHead' | 'commitSubjects' | 'fetchRemoteHead' | 'resolve' | 'showFile' | 'recordCommit'
+  >;
   readonly trees: (
     opts: ActOptions,
   ) => Pick<Trees, 'addBranch' | 'commit' | 'push' | 'deleteRemoteBranch' | 'removeWithBranch'>;
@@ -458,8 +461,18 @@ const withFailure = (
 /** `Worker bound` in seconds, or {@link DEFAULT_DESIGN_BOUND_SECONDS}. */
 const boundSecondsOf = (opts: ActOptions): number => sharedBoundSecondsOf(opts, DEFAULT_DESIGN_BOUND_SECONDS);
 
-/** The plan's `Design:` commit field, read from its own text. */
-const designCommitOf = (text: string): string => /^Design:\s*(\S+)/m.exec(text)?.[1] ?? '';
+/**
+ * The commit that added the plan's current `Design:` record, read through
+ * {@link Refs.recordCommit} — never the text of the field itself.
+ *
+ * @param refs - the refs port.
+ * @param planFile - the plan's repository-relative path.
+ * @returns the commit sha, or `''` where the record or the file cannot be read.
+ */
+const designCommitOf = async (refs: Pick<Refs, 'recordCommit'>, planFile: string): Promise<string> => {
+  const found = await refs.recordCommit(planFile, 'Design');
+  return found.ok && found.value !== null ? found.value : '';
+};
 
 /**
  * One spec pass: fold restart marks, settle the runs this fleet started that
@@ -581,7 +594,7 @@ export const runAutoDesignPass = async (
       const specRef = await specRefOf(refs, defaultBranchName, branch);
       if (specRef.claim === 'absent' || specRef.claim === 'claim-only') delete orphans[plan.slug];
 
-      const designCommit = designCommitOf(plan.text);
+      const designCommit = await designCommitOf(refs, plan.planFile);
       const prRetry = failures[plan.slug]?.reading === designCommit;
       const answer = designWork({ state: plan.state, text: plan.text, specRef: specRef.claim, prRetry });
       const store: DesignStore = { failures, failedAt, lastSuccessAt, declined, answeredPr, restart, orphans };
@@ -636,17 +649,18 @@ export const runAutoDesignPass = async (
     }
 
     const finalStore: DesignStore = { failures, failedAt, lastSuccessAt, declined, answeredPr, restart, orphans };
-    const rows = [...candidates.plans.values()].flatMap((plan) => {
+    const rows: SpecRow[] = [];
+    for (const plan of candidates.plans.values()) {
       const row = specRow(
         plan.slug,
-        designCommitOf(plan.text),
+        await designCommitOf(refs, plan.planFile),
         finalStore,
         designLogPath(opts.repoRoot, plan.slug),
         going.has(plan.slug),
         now,
       );
-      return row === null ? [] : [row];
-    });
+      if (row !== null) rows.push(row);
+    }
 
     return { ...finalStore, running: stillRunning, refusals, rows } satisfies DesignStateFile;
   })();

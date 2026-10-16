@@ -246,6 +246,11 @@ describe('recordCommitOf', () => {
     expect(recordCommitOf('@@abcdef1\n+- **Delivered:** <!-- when -->', 'Delivered')).toBeNull();
     expect(recordCommitOf('', 'Delivered')).toBeNull();
   });
+
+  it('reads a plan\'s real `- **Design:** ...` status line, the shape a bare `/^Design:/m` regex never matches', () => {
+    const designLog = ['@@def12340', '+- **Design:** 2026-10-16, Jan Wloka, plan-PR #1862 merged'].join('\n');
+    expect(recordCommitOf(designLog, 'Design')).toBe('def12340');
+  });
 });
 
 describe('the plan-section write', () => {
