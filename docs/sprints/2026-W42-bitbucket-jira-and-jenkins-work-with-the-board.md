@@ -11,6 +11,8 @@
 
 ## Sprint Goal
 
+**A project hosted on Bitbucket, tracked in Jira and built on Jenkins works with the board as well as a GitHub project does.**
+
 The board and the fleet were built against GitHub, GitHub issues and GitHub Actions. The three connector plans close the gaps that stop a Bitbucket, Jira and Jenkins project from using the same lifecycle: the host connector (#1848), the tracker connector (#1849) and the CI connector (#1867). The ticket index and the ticket rows make the assigned tickets of such a project visible and current on the board.
 
 ### Must Have
