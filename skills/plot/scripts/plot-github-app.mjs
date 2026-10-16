@@ -24,9 +24,9 @@ const api = (process.env.GITHUB_API_URL || 'https://api.github.com').replace(/\/
 
 const run = (cmd, args) => {
   try {
-    return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return { out: execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(), ok: true };
   } catch {
-    return '';
+    return { out: '', ok: false };
   }
 };
 
@@ -36,22 +36,23 @@ const run = (cmd, args) => {
  * `import.meta.url` dirname, since this module ships beside `plot-config.sh`
  * only by convention, not by import). Returns `app: null` where the key is
  * absent, malformed, or names a file that cannot be read, with `reason` set to
- * why and `absent: true` only where `## Plot Config` declares no value for the
- * key at all — the caller decides the exit code, since `commit-status` refuses
- * an absent key while the Writer and Merger identities fall back to the
- * ambient one.
+ * why and `absent: true` only where `plot-config.sh` exited 0 and printed
+ * nothing — a crashed config read must refuse by name rather than fall back,
+ * so it reports `absent: false` like a malformed key does. The caller decides
+ * the exit code, since `commit-status` refuses an absent key while the Writer
+ * and Merger identities fall back to the ambient one.
  */
 export const resolveApp = (configKey, here) => {
   const declared = run('bash', [path.join(here, 'plot-config.sh'), 'get', configKey, '']);
-  const [appId, key] = declared.split(/\s+/);
+  const [appId, key] = declared.out.split(/\s+/);
   if (!appId || !key) {
     return {
       app: null,
-      absent: !declared,
+      absent: declared.ok && !declared.out,
       reason: `needs a '${configKey}' key in ## Plot Config (format: ${configKey}: <app id> <key path>)`,
     };
   }
-  const keyPath = path.isAbsolute(key) ? key : path.join(run('git', ['rev-parse', '--show-toplevel']) || '.', key);
+  const keyPath = path.isAbsolute(key) ? key : path.join(run('git', ['rev-parse', '--show-toplevel']).out || '.', key);
   try {
     fs.accessSync(keyPath, fs.constants.R_OK);
   } catch {

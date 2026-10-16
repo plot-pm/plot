@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { makeApproveSandbox } from './approve-sandbox.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -75,26 +76,15 @@ after(() => {
 /** A fresh sandbox with a real bare origin — the script pushes for real. `People` declares `jwloka`. */
 function makeRepo(planBody = PLAN()) {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-approve-is-'));
-  origin = path.join(tmp, 'origin.git');
-  repo = path.join(tmp, 'repo');
-  git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
-  git(tmp, 'clone', '-q', origin, repo);
-  git(repo, 'config', 'user.email', 'test@example.invalid');
-  git(repo, 'config', 'user.name', 'git-identity-should-never-be-used');
-  git(repo, 'config', 'commit.gpgsign', 'false');
-
-  fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
-    '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n'
-    + '- **People:** jwloka = Jan Wloka; eins78 = Max Albrecht\n');
-  fs.mkdirSync(path.join(repo, 'docs', 'plans', 'active'), { recursive: true });
-  fs.writeFileSync(path.join(repo, 'docs', 'plans', '2026-10-02-approve-me-is.md'), planBody);
-  fs.symlinkSync('../2026-10-02-approve-me-is.md',
-    path.join(repo, 'docs', 'plans', 'active', 'approve-me-is.md'));
-  git(repo, 'add', '-A');
-  git(repo, 'commit', '-qm', 'plan');
-  git(repo, 'push', '-q', 'origin', 'main');
-  git(repo, 'remote', 'set-head', 'origin', 'main');
+  ({ tmp, origin, repo } = makeApproveSandbox({
+    prefix: 'plot-approve-is-',
+    claudeMd: '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n'
+      + '- **People:** jwloka = Jan Wloka; eins78 = Max Albrecht\n',
+    planRel: 'docs/plans/2026-10-02-approve-me-is.md',
+    planBody,
+    activeLinkName: 'approve-me-is.md',
+    gitUserName: 'git-identity-should-never-be-used',
+  }));
   return repo;
 }
 

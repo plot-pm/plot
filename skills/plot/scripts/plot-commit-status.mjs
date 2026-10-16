@@ -34,7 +34,7 @@
 // (`plot-host.sh pr-merge`) rather than copied for each.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { appJwt, call, installationToken, resolveApp } from './plot-github-app.mjs';
+import { call, installationToken, resolveApp } from './plot-github-app.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,14 +58,8 @@ if ((mode !== '--check' && mode !== '--repo') || rest.length !== 5 || rest.some(
 }
 const app = reviewApp();
 if (mode === '--check') process.exit(0);
+if (repo === 'GH_REPO_VIEW_FAILED') refuse(3, 'gh repo view could not resolve owner/repo from the current checkout');
 if (!repo) refuse(3, 'could not resolve owner/repo from the current checkout');
-
-let jwt;
-try {
-  jwt = appJwt(app);
-} catch {
-  refuse(3, `could not sign a JWT for App ${app.appId}`);
-}
 
 const { token, error } = await installationToken(app, repo);
 if (!token) refuse(3, error);

@@ -3892,7 +3892,7 @@ case "$op" in
       # answers 5 with its one-line notice where no key is declared: the merge
       # then runs as the signed-in `gh` identity. The token goes straight into
       # GH_TOKEN — never into argv, a file, or a log line.
-      merger_repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
+      merger_repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null) || { echo "plot-host: pr-merge: gh repo view could not resolve owner/repo from the current checkout" >&2; exit 3; }
       merger_token=$(node "$here/plot-merger-token.mjs" "$merger_repo") || { mc=$?; [ "$mc" = 5 ] || exit "$mc"; }
       args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash) || args+=(--merge); [ "$delbranch" = 1 ] && args+=(--delete-branch)
       if [ -n "$merger_token" ]; then GH_TOKEN="$merger_token" gh "${args[@]}" --match-head-commit "$pin"; else gh "${args[@]}" --match-head-commit "$pin"; fi
@@ -5300,7 +5300,7 @@ case "$op" in
     # `:` before it reads `443` as the workspace.
     [ "$be" = "github" ] || { node "$here/plot-bitbucket-commit-status.mjs" "$(git config --get remote.origin.url 2>/dev/null | sed -E 's#\.git$##; s#(bitbucket\.org):[0-9]+/#\1/#' | sed -nE 's#^.*bitbucket\.org[:/]([^/]+)/(.+)$#\1/\2#p')" "$@" || exit $?; exit 0; }
     node "$here/plot-commit-status.mjs" --check "$@" || exit $?
-    node "$here/plot-commit-status.mjs" --repo "$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)" "$@" || exit $?
+    node "$here/plot-commit-status.mjs" --repo "$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || echo GH_REPO_VIEW_FAILED)" "$@" || exit $?
     ;;
 
   *)

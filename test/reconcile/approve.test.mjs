@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { git, makeApproveSandbox } from './approve-sandbox.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -28,10 +29,6 @@ let tmp, origin, repo, stubDir, statePath;
 // A real PR always names a head; the suite's own default state must too, now
 // that `plot-host.sh pr-merge` refuses to merge an unpinned GitHub PR.
 const DEFAULT_HEAD = 'd0d0'.padEnd(40, '0');
-
-function git(cwd, ...args) {
-  return execFileSync('git', args, { encoding: 'utf8', cwd });
-}
 
 function run(args, { cwd = repo, expectFail = false, env = {} } = {}) {
   try {
@@ -139,29 +136,14 @@ after(() => {
 /** A fresh sandbox with a real bare origin — the script pushes for real. */
 function makeRepo(planBody = PLAN(), files = {}) {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-approve-'));
-  origin = path.join(tmp, 'origin.git');
-  repo = path.join(tmp, 'repo');
-  git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
-  git(tmp, 'clone', '-q', origin, repo);
-  git(repo, 'config', 'user.email', 'test@example.invalid');
-  git(repo, 'config', 'user.name', 'Plot Test');
-  git(repo, 'config', 'commit.gpgsign', 'false');
-
-  fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
-    '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n- **Sprint directory:** docs/sprints/\n- **People:** jwloka = Jan Wloka; eins78 = Max Albrecht\n');
-  fs.mkdirSync(path.join(repo, 'docs', 'plans', 'active'), { recursive: true });
-  fs.writeFileSync(path.join(repo, 'docs', 'plans', '2026-08-17-approve-me.md'), planBody);
-  fs.symlinkSync('../2026-08-17-approve-me.md',
-    path.join(repo, 'docs', 'plans', 'active', 'approve-me.md'));
-  for (const [rel, body] of Object.entries(files)) {
-    fs.mkdirSync(path.join(repo, path.dirname(rel)), { recursive: true });
-    fs.writeFileSync(path.join(repo, rel), body);
-  }
-  git(repo, 'add', '-A');
-  git(repo, 'commit', '-qm', 'plan');
-  git(repo, 'push', '-q', 'origin', 'main');
-  git(repo, 'remote', 'set-head', 'origin', 'main');
+  ({ tmp, origin, repo } = makeApproveSandbox({
+    prefix: 'plot-approve-',
+    claudeMd: '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n- **Sprint directory:** docs/sprints/\n- **People:** jwloka = Jan Wloka; eins78 = Max Albrecht\n',
+    planRel: 'docs/plans/2026-08-17-approve-me.md',
+    planBody,
+    activeLinkName: 'approve-me.md',
+    extraFiles: files,
+  }));
   setHostState({ number: 42, state: 'OPEN', draft: false, headSha: DEFAULT_HEAD });
   return repo;
 }

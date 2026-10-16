@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { makeApproveSandbox } from './approve-sandbox.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
@@ -105,23 +106,14 @@ const hostCalls = () => (fs.existsSync(callsPath) ? fs.readFileSync(callsPath, '
 
 /** A sandbox with a real bare origin, the plan on main, and the host stub at an open PR. */
 const makeRepo = (planBody, host = { number: 42, state: 'OPEN', draft: false }) => {
-  const tmp = track(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-approve-entry-')));
-  const origin = path.join(tmp, 'origin.git');
-  const repo = path.join(tmp, 'repo');
-  git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
-  git(tmp, 'clone', '-q', origin, repo);
-  git(repo, 'config', 'user.email', 'test@example.invalid');
-  git(repo, 'config', 'user.name', 'Plot Test');
-  git(repo, 'config', 'commit.gpgsign', 'false');
-  fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
-    '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n- **Sprint directory:** docs/sprints/\n- **People:** jwloka = Jan Wloka\n');
-  fs.mkdirSync(path.join(repo, 'docs', 'plans', 'active'), { recursive: true });
-  fs.writeFileSync(path.join(repo, PLAN_REL), planBody);
-  fs.symlinkSync('../2026-08-17-approve-me.md', path.join(repo, 'docs', 'plans', 'active', 'approve-me.md'));
-  git(repo, 'add', '-A');
-  git(repo, 'commit', '-qm', 'plan');
-  git(repo, 'push', '-q', 'origin', 'main');
-  git(repo, 'remote', 'set-head', 'origin', 'main');
+  const { repo, origin } = makeApproveSandbox({
+    prefix: 'plot-approve-entry-',
+    claudeMd: '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n- **Sprint directory:** docs/sprints/\n- **People:** jwloka = Jan Wloka\n',
+    planRel: PLAN_REL,
+    planBody,
+    activeLinkName: 'approve-me.md',
+  });
+  track(path.dirname(origin));
   // A PR on GitHub always names its head; pr-merge pins the merge to it.
   setHost({ headRefOid: '0123456789abcdef0123456789abcdef01234567', ...host });
   return { repo, origin };
