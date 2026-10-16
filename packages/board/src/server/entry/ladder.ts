@@ -181,6 +181,15 @@ export const commitAndPush = async (
       return { pushed: pushReportOf(pushOut.stdout) };
     }
 
+    // Exit 3 or 4: the Writer App refused before it ever attempted a push
+    // (repo unresolvable, token exchange failed, or a malformed/unreadable
+    // key). Retrying the identical push cannot succeed, unlike a rejection —
+    // so this stops the ladder rather than spending the remaining attempts.
+    if (pushOut.code === 3 || pushOut.code === 4) {
+      write(`step: push refused (exit ${pushOut.code}) — not retrying\n`);
+      return { rejected: true };
+    }
+
     if (attempt === attempts) break;
     write(`step: push rejected — retrying (attempt ${attempt} of ${attempts})\n`);
     await wait();

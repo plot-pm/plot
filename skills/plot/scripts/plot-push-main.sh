@@ -5,7 +5,9 @@
 #        plot-push-main.sh --classify <exit-code> <<<"<stderr text>"
 # Output: one status line on stdout, prefixed `push:`, plus any remote message
 #         lines indented beneath it. Exit 0 if the commit landed on the default
-#         branch (clean, bypassed, or unknown), 1 if the push was refused.
+#         branch (clean, bypassed, or unknown), 1 if the push was rejected and a
+#         retry may clear it, 3 or 4 if the Writer App refused before pushing
+#         (no retry will clear it — see `plot-push-writer-app.mjs`).
 # Designed for small-model consumption: one status word, no interpretation.
 #
 # WHY THIS EXISTS. Three commands push straight at the default branch to record
@@ -24,9 +26,10 @@
 #
 # THE EXIT CODE ANSWERS ONE QUESTION: did the commit land? `clean`, `bypassed`
 # and `unknown` all exit 0, because in every one of them the work is on the
-# default branch and the caller should carry on. Only `rejected` exits 1, where
-# the caller must retry: re-fetch the default branch, re-cut the disposable
-# branch from it, and push again. Making `bypassed` non-zero would turn a
+# default branch and the caller should carry on. `rejected` exits 1, where the
+# caller must retry: re-fetch the default branch, re-cut the disposable branch
+# from it, and push again. `refused` exits 3 or 4, where no retry can help —
+# the caller should stop, not loop. Making `bypassed` non-zero would turn a
 # SUCCESSFUL approval into an apparent failure at three call sites.
 #
 # This script pushes and classifies once; retrying and re-applying the write
@@ -34,10 +37,15 @@
 # collect and report (Principle 3).
 set -uo pipefail
 
-# The four outcomes. Read from a captured stderr rather than from the exit code
+# The five outcomes. Read from a captured stderr rather than from the exit code
 # alone, because the exit code cannot distinguish the middle two:
 #
-#   rejected  — exit != 0. Protection refused the push, or the ref moved.
+#   refused   — exit 3 or 4. The Writer App push refused before it ever
+#               attempted a push (repo unresolvable, token exchange failed, or
+#               a malformed/unreadable key) — retrying the identical push
+#               cannot succeed, unlike `rejected` below.
+#   rejected  — any other non-zero exit. Protection refused the push, or the
+#               ref moved — a condition a retry against a fresh base can clear.
 #   bypassed  — exit 0, and the remote said it waived its own rules.
 #   unknown   — exit 0, and the remote said something we do not recognise.
 #   clean     — exit 0, and the remote said nothing.
@@ -51,7 +59,7 @@ set -uo pipefail
 classify() {
   local code="$1" err="$2"
 
-  [ "$code" -ne 0 ] && { printf 'rejected'; return; }
+  case "$code" in 3 | 4) printf 'refused'; return ;; 0) ;; *) printf 'rejected'; return ;; esac
 
   # Match GitHub's bypass notice. Case-insensitive on the leading word only —
   # deliberately narrow, because a loose pattern would file ordinary remote
@@ -129,10 +137,14 @@ case "$status" in
     echo "push: unknown — $branch → $default landed; the remote said something unrecognised:"
     printf '%s\n' "$remote_lines" | sed 's/^/    /'
     ;;
-  rejected)
-    echo "push: rejected — $branch → $default was refused:" >&2
+  rejected | refused)
+    # `refused` exits with the Writer App's own code (3 or 4), not a flat 1: a
+    # caller reading this script's exit code — `ladder.ts`'s `commitAndPush` —
+    # tells a refusal, which no retry can clear, apart from a retryable
+    # rejection.
+    echo "push: $status — $branch → $default was refused:" >&2
     printf '%s\n' "$err" | sed 's/^/    /' >&2
-    exit 1
+    [ "$status" = rejected ] && exit 1 || exit "$code"
     ;;
 esac
 

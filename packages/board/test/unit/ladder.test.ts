@@ -112,6 +112,76 @@ describe('commitAndPush — retry on rejection', () => {
   });
 });
 
+describe('commitAndPush — a Writer App refusal stops the ladder', () => {
+  it('does not retry on exit 3 and spends only one push attempt', async () => {
+    const bases: string[] = [];
+    const calls: string[][] = [];
+    const lines: string[] = [];
+    const ctx: LadderContext = {
+      repoRoot: '/repo',
+      scripts: {
+        awaited: async (name: string, args: string[]) => {
+          calls.push([name, ...args]);
+          return { stdout: '', stderr: 'push: refused — plot/approve-a-plan was refused:\n', code: 3 };
+        },
+      } as unknown as Scripts,
+      trees: treesStub(bases),
+    };
+
+    const result = await commitAndPush(
+      ctx,
+      '/repo/.worktrees/tmp',
+      'plot/approve-a-plan',
+      'main',
+      'jwloka',
+      'plot: approve a-plan',
+      'approval',
+      'nothing to commit',
+      async () => {},
+      (s) => lines.push(s),
+      5,
+      noWait,
+    );
+
+    expect(result).toEqual({ rejected: true });
+    expect(lines.join('')).toContain('refused (exit 3) — not retrying');
+    expect(calls.filter((c) => c[0] === 'plot-push-main.sh')).toHaveLength(1);
+    expect(bases).toEqual([]);
+  });
+
+  it('does not retry on exit 4', async () => {
+    const calls: string[][] = [];
+    const ctx: LadderContext = {
+      repoRoot: '/repo',
+      scripts: {
+        awaited: async (name: string, args: string[]) => {
+          calls.push([name, ...args]);
+          return { stdout: '', stderr: '', code: 4 };
+        },
+      } as unknown as Scripts,
+      trees: treesStub([]),
+    };
+
+    const result = await commitAndPush(
+      ctx,
+      '/repo/.worktrees/tmp',
+      'plot/approve-a-plan',
+      'main',
+      'jwloka',
+      'plot: approve a-plan',
+      'approval',
+      'nothing to commit',
+      async () => {},
+      () => {},
+      5,
+      noWait,
+    );
+
+    expect(result).toEqual({ rejected: true });
+    expect(calls.filter((c) => c[0] === 'plot-push-main.sh')).toHaveLength(1);
+  });
+});
+
 describe('ladder.ts — no micro-PR vocabulary left', () => {
   it('names none of prCreate, commitStatus or pr-merge', () => {
     const here = path.dirname(fileURLToPath(import.meta.url));
