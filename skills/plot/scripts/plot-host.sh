@@ -1211,15 +1211,6 @@ PR_LIST_BRANCHES=""
 # has none."
 PR_LIST_SINCE=""
 
-# Whether the last state's `bb_state_listing` page carried a `next` key: "1"
-# present, "0" absent-from-an-envelope, "" no envelope shape at all (so
-# `pr_list_report_truncation` reads nothing from it and the version-table
-# fallback decides). `pr_list_states` reads this back from a per-state temp
-# file after each call returns — `bb_state_listing` runs inside that call's own
-# subshell and cannot set a global its caller would see, the same trap
-# `pr_list_call`'s header names for `die`.
-BB_LIST_NEXT=""
-
 # How many branches the last sweep asked about, and how many answered.
 #
 # THE COMPLETENESS SIGNAL, AND WHY THE ARM STATES IT RATHER THAN THE SCAN
@@ -1275,7 +1266,7 @@ pr_sweep_report() { # $1=states answered $2=states asked
 
 pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host command
   local backend="$1" limit="$2" states="$3" jq_prog="$4"; shift 4
-  local _s _raw _rc _err _tmp _ok=0 _failed=0 _first_rc=0 _failed_states=""
+  local _s _raw _rc _err _tmp _ok=0 _failed=0 _first_rc=0 _failed_states="" BB_LIST_NEXT=""
   for _s in $states; do
     plot_tmpfile _tmp "host-prlist-state-err-$_s" || return 3
     # `bb_state_listing` RUNS INSIDE THE SUBSTITUTION BELOW, its own subshell,
