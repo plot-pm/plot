@@ -954,12 +954,14 @@ EOF
 # REPORTED ONLY WHERE THE LISTING ARRIVED. A failed or throttled call writes no
 # `.list-arrived`, and carrying its empty cache forward would turn one refusal
 # into a listing the next pulse trusts.
+#
+# `.list-arrived` IS THE LAST LINE. A scan killed while it prints the rows has
+# printed no `.list-arrived`, so `carried_listing` refuses the partial listing,
+# and `scanOnce` adopts a killed scan's listing only where `.list-arrived` is
+# its last line.
 report_listing() {
   [ -n "$HOST_STATE_CACHE" ] || return 0
   [ -f "$HOST_STATE_CACHE/.list-arrived" ] || return 0
-  printf 'listing: %s\t%s\t%s\t%s\n' .list-arrived 1 - - >&2
-  [ -f "$HOST_STATE_CACHE/.list-complete" ] \
-    && printf 'listing: %s\t%s\t%s\t%s\n' .list-complete 1 - - >&2
   # WHAT THE LISTING COST, MEASURED RATHER THAN MODELLED. The Bitbucket arm sweeps
   # one request per tracked branch per state, and this scan is the only thing that
   # knows how many branches it tracked. A board predicting the number from the
@@ -986,6 +988,9 @@ EOF
     # sentinel the host payload's plain rows already use.
     printf 'listing: %s\t%s\t%s\t%s\n' "$key" "$_st" "${_chk:--}" "${_dft:--}" >&2
   done
+  [ -f "$HOST_STATE_CACHE/.list-complete" ] \
+    && printf 'listing: %s\t%s\t%s\t%s\n' .list-complete 1 - - >&2
+  printf 'listing: %s\t%s\t%s\t%s\n' .list-arrived 1 - - >&2
 }
 
 prefill_pr_states() {
