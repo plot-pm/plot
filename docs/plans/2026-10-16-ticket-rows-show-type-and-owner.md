@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Type:** feature
 - **Issue:** #1837
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-16, Jan Wloka, plan-PR #1842 merged
 - **Started:** 2026-10-16, Jan Wloka, `feature/ticket-rows-show-type-and-owner`
+- **Delivered:** 2026-10-16
 
 ## Changelog
 
