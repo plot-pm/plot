@@ -408,6 +408,45 @@ describe('the inbox set of the index (D23)', () => {
     await refreshIssueIndex(worldOf(dir, store, { declaredTracker: 'jira https://x.invalid' }), freshIssueState());
     expect(await onDisk(store)).not.toHaveProperty('inbox');
   });
+
+  it('walks a paged inbox read and reports a repeated token as incomplete rather than true at one page (M2)', async () => {
+    const { dir, argv } = fakeHost({ rows: 1 }, { rows: 0 }, { rows: 1, token: 'same' });
+    const store = issueIndexFile({ home: storeHome() });
+    await refreshIssueIndex(worldOf(dir, store, { declaredTracker: 'jira https://x.invalid' }), freshIssueState());
+    const index = await onDisk(store);
+    expect(argv().filter((call) => call.includes('--state inbox'))).toEqual([
+      'issue-list --state inbox --paged --limit 1000',
+      'issue-list --state inbox --paged --limit 999 --page-token same',
+    ]);
+    expect(index?.complete).toBe(true);
+  });
+
+  it('drops a non-empty kept inbox and its age where the tracker is no longer askable (M3)', async () => {
+    const { dir } = fakeHost({ rows: 1 }, { rows: 0 });
+    const store = issueIndexFile({ home: storeHome() });
+    const kept = [{ number: '3', title: 'mine', url: 'u3' }];
+    await store.write(heldIndex({ source: 'tracker', connector: 'jira', inbox: kept, inboxAt: '2026-10-10T00:00:00.000Z' }));
+    await refreshIssueIndex(worldOf(dir, store, { declaredTracker: 'jira https://x.invalid' }), freshIssueState());
+    const index = await onDisk(store);
+    expect(index).not.toHaveProperty('inbox');
+    expect(index).not.toHaveProperty('inboxAt');
+  });
+
+  it('records when the inbox was answered, and keeps a failed read\'s rows marked with the old time (M3)', async () => {
+    const { dir: dirOk } = fakeHost({ rows: 1 }, { rows: 0 }, { rows: 1 });
+    const storeOk = issueIndexFile({ home: storeHome() });
+    await refreshIssueIndex(worldOf(dirOk, storeOk, { declaredTracker: 'jira https://x.invalid' }), freshIssueState());
+    expect((await onDisk(storeOk))?.inboxAt).toBe(new Date(NOW).toISOString());
+
+    const { dir: dirFail } = fakeHost({ rows: 1 }, { rows: 0 }, { stderr: 'boom', code: 1 });
+    const storeFail = issueIndexFile({ home: storeHome() });
+    const kept = [{ number: '3', title: 'mine', url: 'u3' }];
+    await storeFail.write(heldIndex({ source: 'tracker', connector: 'jira', inbox: kept, inboxAt: '2026-10-10T00:00:00.000Z' }));
+    await refreshIssueIndex(worldOf(dirFail, storeFail, { declaredTracker: 'jira https://x.invalid' }), freshIssueState());
+    const index = await onDisk(storeFail);
+    expect(index?.inbox).toEqual(kept);
+    expect(index?.inboxAt).toBe('2026-10-10T00:00:00.000Z');
+  });
 });
 
 describe('the inbox read and the closed read refusal', () => {

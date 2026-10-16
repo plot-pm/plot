@@ -154,6 +154,13 @@ export const IssueIndexSchema = z
      * than Jira), never an empty array for "the inbox has nothing in it".
      */
     inbox: z.array(IssueIndexRowSchema).optional(),
+    /**
+     * When the inbox was last answered, ISO-8601; absent where it never has
+     * been. Moves only on an answered inbox read — a failed read keeps `inbox`
+     * and this unchanged, so a reader derives the rows' staleness by comparing
+     * this against now rather than a stored verdict.
+     */
+    inboxAt: z.string().optional(),
   })
   .strict();
 

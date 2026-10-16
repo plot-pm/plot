@@ -364,6 +364,34 @@ describe('issueListInbox through trackerJira (D23)', () => {
     });
     expect(calls(argv).some((call) => call.includes('issue-list --state inbox'))).toBe(true);
   });
+
+  it('walks a second page rather than reporting complete at one page that matched the limit (M2)', async () => {
+    const { context, argv } = hostThat(
+      `if [ "$1" = issue-list ]; then
+        if [[ " $* " == *"--page-token"* ]]; then
+          echo '{"number":"PROJ-2","title":"second","url":"u2"}'
+        else
+          echo '{"number":"PROJ-1","title":"first","url":"u1"}'
+          echo '{"nextPageToken":"p2"}'
+        fi
+      fi`,
+      configWith(),
+    );
+    const result = await trackerJira(context).issueListInbox(50);
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        issues: [
+          expect.objectContaining({ id: 'PROJ-1', title: 'first' }),
+          expect.objectContaining({ id: 'PROJ-2', title: 'second' }),
+        ],
+        pages: 2,
+        complete: true,
+      },
+    });
+    expect(calls(argv).filter((call) => call.includes('issue-list --state inbox'))).toHaveLength(2);
+    expect(calls(argv).some((call) => call.includes('--page-token p2'))).toBe(true);
+  });
 });
 
 describe('issueOpenOf', () => {
