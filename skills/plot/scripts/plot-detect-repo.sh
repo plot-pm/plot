@@ -72,9 +72,7 @@ url=$(git remote get-url origin 2>/dev/null || true)
 # rewrites the old one.
 case "$url" in
   git@github.com:*|https://github.com/*|ssh://git@github.com/*)       host=github ;;
-  git@bitbucket.org:*|https://bitbucket.org/*|ssh://git@bitbucket.org/*) host=bitbucket ;;
-  git@ssh.bitbucket.org:*|ssh://git@ssh.bitbucket.org/*|ssh://git@ssh.bitbucket.org:*/*) host=bitbucket ;;
-  ssh://git@altssh.bitbucket.org/*|ssh://git@altssh.bitbucket.org:*/*)  host=bitbucket ;;
+  git@bitbucket.org:*|https://bitbucket.org/*|ssh://git@bitbucket.org/*|git@ssh.bitbucket.org:*|ssh://git@ssh.bitbucket.org/*|ssh://git@ssh.bitbucket.org:*/*|ssh://git@altssh.bitbucket.org/*|ssh://git@altssh.bitbucket.org:*/*) host=bitbucket ;;
 esac
 
 # --- default branch -----------------------------------------------------
