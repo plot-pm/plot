@@ -10,6 +10,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-16, Jan Wloka, plan-PR #1842 merged
+- **Started:** 2026-10-16, Jan Wloka, `feature/ticket-rows-show-type-and-owner`
 
 ## Changelog
 
