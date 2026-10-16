@@ -1106,6 +1106,86 @@ describe('freshAgentDeskReads', () => {
   it('maps the host\'s merge answer to a reading', async () => {
     expect(await reads().asks.prMerged('feature/x')).toBe('merged');
   });
+
+  // THE TALLY: `freshAgentDeskReads` is where #1374's bug lived — `prMerged`
+  // and `prOpen` each asked the host without adding to the tick's
+  // `HostTally`, so `report.spend` under-reported real usage. The convention
+  // this codebase already follows (`worldForRepo`'s `prMerged`,
+  // `queuedHasLandedOf`) is to count per QUESTION ASKED, not per network
+  // round-trip — a memo hit still counts, because the question was still put
+  // to the caller the tally represents. These pin that `freshAgentDeskReads`
+  // follows the same rule for both reads a fix could forget one of.
+  it('counts one call for prMerged and one for prOpen, whether a memo answers or the host does', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-fresh-tally-'));
+    homes.push(dir);
+    writeFileSync(join(dir, 'plot-host.sh'), '#!/usr/bin/env bash\necho \'{"state":"OPEN"}\'; exit 0\n');
+    const tally = { calls: 0 };
+    const withTally = freshAgentDeskReads(
+      { repoRoot: dir, scriptDir: dir },
+      { asked: async () => ({ ok: true, value: false }) },
+      async () => ({ ok: true, value: 'merged' }),
+      tally,
+    );
+    expect(await withTally.asks.prMerged('feature/x')).toBe('merged');
+    expect(tally.calls).toBe(1);
+    expect(await withTally.asks.prOpen('feature/x')).toBe(true);
+    expect(tally.calls).toBe(2);
+  });
+
+  it('reads a failed prState as unanswerable, never as no', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-fresh-tally-'));
+    homes.push(dir);
+    writeFileSync(join(dir, 'plot-host.sh'), '#!/usr/bin/env bash\nexit 1\n');
+    const tally = { calls: 0 };
+    const withTally = freshAgentDeskReads(
+      { repoRoot: dir, scriptDir: dir },
+      { asked: async () => ({ ok: true, value: false }) },
+      async () => ({ ok: true, value: 'merged' }),
+      tally,
+    );
+    expect(await withTally.asks.prOpen('feature/x')).toBe('unanswerable');
+    expect(tally.calls).toBe(1);
+  });
+
+  // THE GATING `readFreshAgentCandidates` ALREADY HAD, AND THIS PINS RATHER
+  // THAN CHANGES: a bound ending a person was already asked about reads no
+  // branch work (`FreshAgentAskReads`'s own `!endingAsked` guards). Wired
+  // through the REAL `freshAgentDeskReads` and a real `tally` — not the
+  // rig's hand-rolled counters elsewhere in this file — this is the one test
+  // that would catch a fix moving the tally increment ahead of the gate: a
+  // host-side counter can stay honest while a tally placed before the
+  // `!endingAsked` check still grows on an ending the gate was meant to skip.
+  it('asks the host nothing, and adds nothing to the tally, for an already-asked ending', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-fresh-tally-'));
+    homes.push(dir);
+    // A SCRIPT THAT WOULD BE CAUGHT: if the gate failed to skip the host, this
+    // answers so the test does not instead fail on the scaffolding.
+    writeFileSync(join(dir, 'plot-host.sh'), '#!/usr/bin/env bash\necho \'{"state":"OPEN"}\'; exit 0\n');
+    const desk = mkdtempSync(join(tmpdir(), 'plot-fresh-tally-desk-'));
+    homes.push(desk);
+    writeFileSync(join(desk, ENDING_FILENAME), endingFile('run-limit'));
+    const tally = { calls: 0 };
+    const record = freshAgentRecordFile({ home: dir });
+    const withTally = freshAgentDeskReads(
+      { repoRoot: dir, scriptDir: dir },
+      { asked: async () => ({ ok: true, value: true }) },
+      async () => ({ ok: true, value: 'merged' }),
+      tally,
+    );
+    const deskFile = (worktree: string, name: string) =>
+      name === ENDING_FILENAME ? endingFile('run-limit') : null;
+    const readings = await readFreshAgentCandidates(
+      freshAgentCandidateTrees([tree({ path: desk })]),
+      deskFile,
+      record,
+      async () => [],
+      async () => false,
+      withTally.asks,
+    );
+    expect(readings[0]?.prMerged).toBe('unanswerable');
+    expect(readings[0]?.prOpen).toBe('unanswerable');
+    expect(tally.calls).toBe(0);
+  });
 });
 
 describe('prMergedReading', () => {

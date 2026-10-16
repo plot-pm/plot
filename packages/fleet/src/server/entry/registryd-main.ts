@@ -1478,13 +1478,18 @@ export const startFreshSession = async (
  *
  * @param context - the repository and its scripts directory.
  * @param asks - the `.plot/state/ending-asks.tsv` store.
- * @param askMerged - asks the host whether a PR for a branch merged.
+ * @param askMerged - asks the host (or a tick's memo) whether a PR for a
+ *   branch merged.
+ * @param tally - the host-call counter this step adds to, one per question
+ *   actually asked — a memo hit still counts, as {@link worldForRepo}'s own
+ *   `prMerged` counts a shared `merges` answer.
  * @returns the desk-file, held-files, marker and ask reads.
  */
 export const freshAgentDeskReads = (
   context: { repoRoot: string; scriptDir: string },
   asks: Pick<EndingAskRecordStore, 'asked'>,
   askMerged: (branch: string) => ReturnType<Host['prMerged']>,
+  tally: HostTally = { calls: 0 },
 ): {
   deskFile: (worktree: string, name: string) => string | null;
   loopAlive: (worktree: string) => boolean;
@@ -1516,7 +1521,10 @@ export const freshAgentDeskReads = (
       }
     },
     record: asks,
-    prMerged: async (branch) => prMergedReading(await askMerged(branch)),
+    prMerged: async (branch) => {
+      tally.calls += 1;
+      return prMergedReading(await askMerged(branch));
+    },
     // THE SAME READ `startNothingDoneReleases` MAKES OF THE SAME PORT — one
     // implementation of `Trees.commitBeyondClaim`/`hostShell(...).prState`
     // asked from two pipelines, matching `nothingDoneDecisions`'s own doc
@@ -1525,7 +1533,10 @@ export const freshAgentDeskReads = (
       const commits = await treesGit(context).commitBeyondClaim(worktree);
       return commits.ok ? commits.value : 'unanswerable';
     },
-    prOpen: async (branch) => prOpenReading(await hostShell(context).prState(branch)),
+    prOpen: async (branch) => {
+      tally.calls += 1;
+      return prOpenReading(await hostShell(context).prState(branch));
+    },
   },
 });
 
@@ -1600,6 +1611,57 @@ export const startFreshAgents = async (
     return [];
   }
 };
+
+/**
+ * Builds the {@link FreshAgentPorts} {@link startFreshAgents} acts through in
+ * production.
+ *
+ * Extracted from `run()` so the `args.startAgents && report.incomplete === ''`
+ * gate can be tested by asserting this factory is never called, rather than
+ * by asserting on the daemon's whole process wiring.
+ *
+ * @param deps.repoRoot - the repository root.
+ * @param deps.scriptsDir - where the helper scripts are.
+ * @param deps.registryDir - where agent manifests live.
+ * @param deps.boardOpts - `{ repoRoot, scriptsDir }`, read for `Worker command`.
+ * @param deps.record - the `.plot/state/fresh-agents.tsv` store.
+ * @param deps.asks - the `.plot/state/ending-asks.tsv` store.
+ * @param deps.desk - writes the `PLOT-BLOCKED.md` marker.
+ * @param deps.release - decides and, where releasable, releases a branch's claim.
+ * @returns the ports {@link applyFreshAgentDecisions} acts through.
+ */
+export const freshAgentPortsFor = (deps: {
+  repoRoot: string;
+  scriptsDir: string;
+  registryDir: string;
+  boardOpts: { repoRoot: string; scriptsDir: string };
+  record: Pick<FreshAgentRecordStore, 'append'>;
+  asks: Pick<EndingAskRecordStore, 'append'>;
+  desk: Pick<Desk, 'writeBlockedMarker'>;
+  release: (branch: string) => Promise<{ released: boolean; detail: string }>;
+}): FreshAgentPorts => ({
+  record: deps.record,
+  asks: deps.asks,
+  desk: deps.desk,
+  now: () => new Date(),
+  start: async ({ branch, worktree, answer, beforeStart }) => {
+    const base = await refsGit({ repoRoot: deps.repoRoot, scriptDir: deps.scriptsDir }).defaultBranch();
+    return startFreshSession(
+      { branch, worktree, answer, main: base.ok ? base.value : '', beforeStart },
+      {
+        agents: agentsFs(
+          { repoRoot: deps.repoRoot, scriptDir: deps.scriptsDir },
+          { manifestDir: deps.registryDir },
+        ),
+        command: readConfig(deps.boardOpts, 'Worker command', ''),
+        newSession: () => randomUUID(),
+        continueDesk: continueOnDesk,
+        opts: deps.boardOpts,
+      },
+    );
+  },
+  release: deps.release,
+});
 
 /** The reads and the one write {@link startNothingDoneReleases} performs, injected so a test needs no git or host. */
 export interface NothingDoneReleasePorts {
@@ -1996,26 +2058,16 @@ export const run = async (
     return { released: result.released, detail: result.detail };
   };
   const freshAgentDesk = deskFs(treesGit({ repoRoot, scriptDir: scriptsDir }));
-  const freshAgentPorts: FreshAgentPorts = {
+  const freshAgentPorts: FreshAgentPorts = freshAgentPortsFor({
+    repoRoot,
+    scriptsDir,
+    registryDir,
+    boardOpts,
     record: freshAgentRecord,
     asks: endingAsks,
     desk: freshAgentDesk,
-    now: () => new Date(),
-    start: async ({ branch, worktree, answer, beforeStart }) => {
-      const base = await refsGit({ repoRoot, scriptDir: scriptsDir }).defaultBranch();
-      return startFreshSession(
-        { branch, worktree, answer, main: base.ok ? base.value : '', beforeStart },
-        {
-          agents: agentsFs({ repoRoot, scriptDir: scriptsDir }, { manifestDir: registryDir }),
-          command: readConfig(boardOpts, 'Worker command', ''),
-          newSession: () => randomUUID(),
-          continueDesk: continueOnDesk,
-          opts: boardOpts,
-        },
-      );
-    },
     release: releaseClaimOf,
-  };
+  });
 
   // THE SCAN HAS ITS OWN CLOCK, apart from `tick`: a scan runs up to 90 s and
   // must neither delay a supervision tick nor start a second scan. `--once`
@@ -2265,7 +2317,7 @@ export const run = async (
       await startFreshAgents(
         report,
         {
-          ...freshAgentDeskReads({ repoRoot, scriptDir: scriptsDir }, endingAsks, (branch) => merges.ask(branch)),
+          ...freshAgentDeskReads({ repoRoot, scriptDir: scriptsDir }, endingAsks, (branch) => merges.ask(branch), tally),
           writeEnding: freshAgentDesk.writeEnding,
           record: freshAgentRecord,
           ports: freshAgentPorts,
