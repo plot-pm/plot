@@ -216,23 +216,26 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
 
   it('renders the sub-header and a row\'s type and owner together', async () => {
     // THE ONE BROWSER TEST the brief caps this change to: the sub-header
-    // (`Assigned to you · N`) and a ticket row's type/owner badge, proved on
-    // the same page at once. Everything else about type/owner is a domain
-    // property, unit-tested in `waiting-tickets.test.ts`; this is only the
-    // proof that both reach the screen together.
+    // and a ticket row's type/owner badge, proved on the same page at once.
+    // The payload has the production shape: `issues` carries no owner, and
+    // `waiting.tickets` carries the owner the server resolved for a matched
+    // reader. The heading wording and the owner precedence are unit-tested in
+    // `waiting-view.test.ts`; this is only the proof that both reach the screen.
+    const mine = issue({
+      number: 228, title: 'Fleet scan asks the host once per branch',
+      url: 'https://github.com/tiny/garden/issues/228', ageMinutes: 120,
+      type: 'bug', owner: 'jwloka',
+    });
     const page = await open(fleet({
       issues: [
-        issue({
-          number: 228, title: 'Fleet scan asks the host once per branch',
-          url: 'https://github.com/tiny/garden/issues/228', ageMinutes: 120,
-          type: 'bug', owner: 'jwloka',
-        }),
+        { ...mine, owner: null },
         issue({ number: 227, title: 'A blocked wave is not eligible', url: '', ageMinutes: 180 }),
       ],
+      waiting: { tickets: [mine], shown: 1, hidden: 1, complete: true, notice: null, source: null },
     }));
     try {
       await expect.poll(() => section(page).locator('[data-waiting-heading]').innerText())
-        .toMatch(/Assigned to you/);
+        .toMatch(/^Assigned to you · 1$/);
       await expect.poll(() => issueRow(page, 228).locator('[data-issue-type]').innerText()).toBe('bug');
       await expect.poll(() => issueRow(page, 228).locator('[data-issue-owner]').innerText()).toBe('jwloka');
     } finally {

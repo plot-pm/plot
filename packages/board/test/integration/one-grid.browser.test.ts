@@ -205,7 +205,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       expect(await ticket.locator('[data-phase]').count()).toBe(0);
       // EMPTY, not `Ticket` — `ticket-rows-show-type-and-owner` dropped the
       // per-row word from the Waiting-on-you ticket block in favour of one
-      // sub-header above it (`Assigned to you · N`), since every row in that
+      // sub-header above it (`Open tickets · N` here, the payload carrying no `waiting`), since every row in that
       // block is already a ticket and the repeated word said nothing a reader
       // didn't already know. `tupleFromIssue`'s `showKindLabel: false` clears
       // the slot's text; it does not remove the slot, so slot 2 stays empty
@@ -328,7 +328,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       expect(words.every(Boolean), `blank kind among: ${JSON.stringify(words)}`).toBe(true);
       // The sub-header replacing the per-row word, present and non-blank.
       await expect.poll(() =>
-        page.locator('[data-waiting-heading]').innerText()).toMatch(/Assigned to you/);
+        page.locator('[data-waiting-heading]').innerText()).toMatch(/Open tickets · \d+/);
       // And they are the SAME SORT OF WORD on every row — the property the
       // four-meanings column failed at, where the cell read a wave name, a plan
       // phase, nothing, or a plan phase on a ticket depending on a wave count

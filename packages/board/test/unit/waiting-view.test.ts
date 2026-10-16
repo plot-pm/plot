@@ -31,7 +31,7 @@ describe('waitingView', () => {
     for (const waiting of [undefined, null]) {
       expect(waitingView(waiting, issues, false, keep)).toEqual({
         tickets: issues,
-        heading: 'Assigned to you · 2',
+        heading: 'Open tickets · 2',
         hidden: null,
         notice: null,
         control: null,
@@ -40,17 +40,42 @@ describe('waitingView', () => {
     }
   });
 
-  it('counts the rendered tickets into the heading with the control off', () => {
+  it('says Assigned to you for a matched reader with the control off', () => {
     const mine = ticket('9', ['gardener']);
     const view = waitingView(waitingOf({ tickets: [mine], shown: 1, hidden: 126 }), [ticket('1'), mine], false, keep);
     expect(view.heading).toBe('Assigned to you · 1');
   });
 
-  it('counts the rendered tickets into the heading with the control on', () => {
+  it('says Open tickets for an unmatched reader, whose list is every open ticket', () => {
+    const every = [ticket('1'), ticket('2', ['neighbour']), ticket('3')];
+    const view = waitingView(
+      waitingOf({ tickets: every, shown: 3, notice: 'The board knows no host login for you — showing 3 of 3 open tickets.' }),
+      [],
+      false,
+      keep,
+    );
+    expect(view.heading).toBe('Open tickets · 3');
+  });
+
+  it('says Open tickets with the control on, whose list holds tickets assigned to nobody', () => {
     const old = ticket('99', ['gardener']);
     const issues = [ticket('1'), ticket('2')];
     const view = waitingView(waitingOf({ tickets: [old, ticket('1')], shown: 2, hidden: 125 }), issues, true, keep);
-    expect(view.heading).toBe('Assigned to you · 3');
+    expect(view.heading).toBe('Open tickets · 3');
+  });
+
+  it('says Open tickets where the payload carries no waiting', () => {
+    const view = waitingView(undefined, [ticket('1', ['gardener'])], false, keep);
+    expect(view.heading).toBe('Open tickets · 1');
+  });
+
+  it('keeps the owner the server resolved with the control on, where issues carries none', () => {
+    // The production shape: `fleet.ts` writes `owner: null` on every `issues`
+    // row, and `waiting.tickets` carries the owner `waitingTickets` resolved.
+    const inbox = { ...ticket('9', ['gardener']), type: 'bug', owner: null };
+    const resolved = { ...ticket('9', ['gardener']), type: 'bug', owner: 'gardener' };
+    const view = waitingView(waitingOf({ tickets: [resolved], shown: 1, hidden: 1 }), [ticket('1'), inbox], true, keep);
+    expect(view.tickets.map((t) => [t.number, t.owner ?? null])).toEqual([['1', null], ['9', 'gardener']]);
   });
 
   it('renders waiting.tickets, the hidden-count sentence and the control by default', () => {
@@ -131,7 +156,7 @@ describe('waitingView', () => {
     for (const issues of [null, undefined] as const) {
       expect(waitingView(undefined, issues, false, keep)).toEqual({
         tickets: [],
-        heading: 'Assigned to you · 0',
+        heading: 'Open tickets · 0',
         hidden: null,
         notice: null,
         control: null,
