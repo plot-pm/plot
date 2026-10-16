@@ -33,7 +33,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -58,18 +57,6 @@ before(() => {
   fs.writeFileSync(statePath, JSON.stringify({ number: 42, state: 'OPEN', draft: false }));
   fs.writeFileSync(path.join(stubDir, 'gh'), `#!/usr/bin/env bash\nexec node ${JSON.stringify(path.join(stubDir, 'gh.mjs'))} "$@"\n`);
   fs.chmodSync(path.join(stubDir, 'gh'), 0o755);
-  // `pr-merge` on GitHub mints a Merger App token before calling `gh`. This
-  // repo's own `plot-merger-token.mjs` is a real network exchange; stubbing
-  // `node` on PATH (ahead of the real interpreter) answers its one call site
-  // with a canned token and `exec`s the real interpreter for everything
-  // else — including this file's own `node ... gh.mjs` line above.
-  fs.writeFileSync(path.join(stubDir, 'node'), `#!/usr/bin/env bash
-case "$1" in
-  */plot-merger-token.mjs) echo -n "merger-installation-token" ;;
-  *) exec "${process.execPath}" "$@" ;;
-esac
-`);
-  fs.chmodSync(path.join(stubDir, 'node'), 0o755);
   fs.writeFileSync(path.join(stubDir, 'gh.mjs'), `
 import fs from 'node:fs';
 const argv = process.argv.slice(2);
@@ -118,16 +105,8 @@ const approveAndRead = (planBody) => {
   git(repo, 'config', 'user.name', 'Plot Test');
   git(repo, 'config', 'commit.gpgsign', 'false');
 
-  const mergerKeyPath = path.join(stubDir, 'merger-app-key.pem');
-  if (!fs.existsSync(mergerKeyPath)) {
-    fs.writeFileSync(mergerKeyPath, crypto.generateKeyPairSync('rsa', {
-      modulusLength: 2048,
-      privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
-      publicKeyEncoding: { type: 'spki', format: 'pem' },
-    }).privateKey, { mode: 0o600 });
-  }
   fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
-    `## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n- **Merger app:** 999000 ${mergerKeyPath}\n`);
+    '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n');
   const rel = 'docs/plans/2026-09-25-approve-me.md';
   fs.mkdirSync(path.join(repo, 'docs', 'plans'), { recursive: true });
   fs.writeFileSync(path.join(repo, rel), planBody);

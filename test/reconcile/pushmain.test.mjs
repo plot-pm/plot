@@ -17,9 +17,10 @@
 // its own author's recollection.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -37,6 +38,7 @@ after(() => {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const helper = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-push-main.sh');
+const writerHelper = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-push-writer-app.mjs');
 
 /** Verbatim: GitHub's reply to a protected-but-not-enforced push (2026-08-16). */
 const REAL_BYPASS_STDERR = [
@@ -162,38 +164,108 @@ test('push-main: pushing branch:default creates no remote branch', () => {
   assert.equal(refs, 'refs/heads/main');
 });
 
-// THE REFUSAL THE WRITER APP EXISTS FOR. A `github.com` origin routes through
-// `plot-push-writer-app.mjs`, which refuses by name (exit 4) before any push
-// is attempted where `Writer app` is absent from `## Plot Config` — never
-// falling back to the ambient `git` identity, which would re-open the bypass
-// this slice closes. The checkout's own CLAUDE.md (if any) is irrelevant:
-// `PLOT_REPO_ROOT` points `plot-config.sh` at this sandbox instead, so the
-// absence is real rather than borrowed from whatever repo runs the suite.
-test('push-main: a github.com origin with no Writer app key refuses and pushes nothing', () => {
-  const { work, bare } = makeRepo();
+// THE WRITER APP IS OPT-IN THROUGH ITS KEY. A `github.com` origin asks
+// `plot-push-writer-app.mjs` first; what it answers depends on `## Plot
+// Config`. `PLOT_REPO_ROOT` points `plot-config.sh` at the sandbox, so the
+// config each case reads is the one it writes. `pushInsteadOf` sends the
+// ambient push to the local bare remote while `remote.origin.url` still names
+// GitHub, so no case reaches the network through git.
+const githubRepo = (claudeMd) => {
+  const { dir, work, bare } = makeRepo();
   git(work, 'checkout', '-q', '-b', 'plot/tmp');
   git(work, 'commit', '-q', '--allow-empty', '-m', 'bookkeeping');
   git(work, 'remote', 'set-url', 'origin', 'https://github.com/example/repo.git');
+  git(work, 'config', `url.${bare}.pushInsteadOf`, 'https://github.com/example/repo.git');
+  if (claudeMd != null) writeFileSync(path.join(work, 'CLAUDE.md'), claudeMd);
+  return { dir, work, bare };
+};
 
-  const before = execFileSync('git', ['log', '--oneline', 'main'], { cwd: bare, encoding: 'utf8' });
+const pushGithub = (work, env = {}) => {
+  const res = spawnSync('bash', [helper, 'plot/tmp', 'main'], {
+    cwd: work,
+    encoding: 'utf8',
+    // An unreachable API base: a case that reaches the token exchange fails
+    // at once instead of calling api.github.com.
+    env: { ...process.env, PLOT_REPO_ROOT: work, GITHUB_API_URL: 'http://127.0.0.1:9', ...env },
+  });
+  return { code: res.status, stdout: res.stdout, stderr: res.stderr };
+};
 
-  let res;
-  try {
-    res = {
-      code: 0,
-      out: execFileSync('bash', [helper, 'plot/tmp', 'main'], {
-        cwd: work,
-        encoding: 'utf8',
-        env: { ...process.env, PLOT_REPO_ROOT: work },
-      }),
-    };
-  } catch (err) {
-    res = { code: err.status, out: `${err.stdout ?? ''}${err.stderr ?? ''}` };
-  }
+const mainLog = (bare) => execFileSync('git', ['log', '--oneline', 'main'], { cwd: bare, encoding: 'utf8' });
 
-  assert.notEqual(res.code, 0, 'an absent Writer app key must not push');
-  assert.match(res.out, /Writer app/);
+const throwawayKey = (dir) => {
+  const keyPath = path.join(dir, 'writer-app-key.pem');
+  writeFileSync(keyPath, generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+  }).privateKey, { mode: 0o600 });
+  return keyPath;
+};
 
-  const after = execFileSync('git', ['log', '--oneline', 'main'], { cwd: bare, encoding: 'utf8' });
-  assert.equal(after, before, 'the bare remote must be unchanged — no push attempted first');
+test('push-main: a github.com origin with no Writer app key pushes as the ambient identity and says so once', () => {
+  const { work, bare } = githubRepo('## Plot Config\n\n- **Plan directory:** docs/plans/\n');
+  const r = pushGithub(work);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /^push: clean — plot\/tmp → main/);
+  assert.match(mainLog(bare), /bookkeeping/, 'the ambient push landed on the bare remote');
+  const notices = r.stderr.split('\n').filter((line) => line.includes('Writer app'));
+  assert.deepEqual(notices, ['plot-push-main: Writer app not configured — pushing as the ambient git identity']);
+});
+
+test('push-main: the ambient fallback still classifies a rejected push', () => {
+  const { work, bare } = githubRepo(null);
+  const other = path.join(path.dirname(bare), 'other');
+  execFileSync('git', ['clone', '-q', bare, other]);
+  git(other, 'checkout', '-q', '-B', 'main', 'origin/main');
+  git(other, 'commit', '-q', '--allow-empty', '-m', 'remote moved on');
+  git(other, 'push', '-q', 'origin', 'main');
+  const r = pushGithub(work);
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /^push: rejected/m);
+  assert.match(r.stderr, /Writer app not configured/);
+});
+
+test('push-main: a declared, readable Writer app key takes the App path, never the ambient push', () => {
+  const { dir, work, bare } = githubRepo(null);
+  const keyPath = throwawayKey(dir);
+  writeFileSync(path.join(work, 'CLAUDE.md'), `## Plot Config\n\n- **Writer app:** 999001 ${keyPath}\n`);
+  const before = mainLog(bare);
+  const r = pushGithub(work);
+  assert.notEqual(r.code, 0);
+  assert.match(r.stderr, /App 999001 has no installation on example\/repo/, 'the token exchange ran');
+  assert.doesNotMatch(r.stderr, /not configured/);
+  assert.equal(mainLog(bare), before, 'no ambient push happened after the App path failed');
+});
+
+test('push-main: a declared but unreadable Writer app key refuses by name and pushes nothing', () => {
+  const { dir, work, bare } = githubRepo(null);
+  const missing = path.join(dir, 'no-such-key.pem');
+  writeFileSync(path.join(work, 'CLAUDE.md'), `## Plot Config\n\n- **Writer app:** 999001 ${missing}\n`);
+  const before = mainLog(bare);
+  const r = pushGithub(work);
+  assert.notEqual(r.code, 0);
+  assert.match(r.stderr, /'Writer app' names a key file that cannot be read/);
+  assert.equal(mainLog(bare), before);
+
+  const helperRes = spawnSync('node', [writerHelper, 'plot/tmp', 'main'], {
+    cwd: work,
+    encoding: 'utf8',
+    env: { ...process.env, PLOT_REPO_ROOT: work },
+  });
+  assert.equal(helperRes.status, 4, 'the helper itself refuses with exit 4');
+});
+
+test('push-main: a malformed Writer app key refuses with exit 4 and pushes nothing', () => {
+  const { work, bare } = githubRepo('## Plot Config\n\n- **Writer app:** 999001\n');
+  const before = mainLog(bare);
+  const helperRes = spawnSync('node', [writerHelper, 'plot/tmp', 'main'], {
+    cwd: work,
+    encoding: 'utf8',
+    env: { ...process.env, PLOT_REPO_ROOT: work },
+  });
+  assert.equal(helperRes.status, 4);
+  assert.match(helperRes.stderr, /needs a 'Writer app' key/);
+  assert.notEqual(pushGithub(work).code, 0);
+  assert.equal(mainLog(bare), before);
 });

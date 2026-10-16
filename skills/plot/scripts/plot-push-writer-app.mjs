@@ -7,10 +7,11 @@
 //
 // Usage: plot-push-writer-app.mjs <branch> <default-branch>
 // Output: git's own stderr on this process's stderr, nothing on stdout.
-// Exit: git's own exit code on a push attempt; 4, naming the key, where
-//       `Writer app` is absent from ## Plot Config or its key file cannot be
-//       read — refuses before any push is attempted, so no credential-less
-//       push happens first.
+// Exit: git's own exit code on a push attempt; 5 with one notice line on
+//       stderr where ## Plot Config declares no `Writer app` key, so the
+//       caller pushes as the ambient git identity; 4, naming the key, where
+//       `Writer app` is declared but malformed or its key file cannot be read
+//       — refuses before any push is attempted.
 //
 // NO CREDENTIAL LEAVES THIS PROCESS except in a request header or, for git
 // itself, through GIT_ASKPASS: git invokes that program and reads the
@@ -37,7 +38,8 @@ const refuse = (code, message) => {
 const [branch, defaultBranch] = process.argv.slice(2);
 if (!branch || !defaultBranch) refuse(1, 'usage: plot-push-writer-app.mjs <branch> <default-branch>');
 
-const { app, reason } = resolveApp('Writer app', here);
+const { app, absent, reason } = resolveApp('Writer app', here);
+if (absent) refuse(5, 'Writer app not configured — pushing as the ambient git identity');
 if (!app) refuse(4, reason);
 
 const originUrl = (() => {

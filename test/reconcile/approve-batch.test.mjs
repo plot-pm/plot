@@ -9,7 +9,6 @@
 import { after, before, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -62,18 +61,6 @@ printf '%s\\n' "gh $*" >> "${callsPath}"
 exec node "${stubDir}/gh.mjs" "$@"
 `);
   fs.chmodSync(path.join(stubDir, 'gh'), 0o755);
-  // `pr-merge` on GitHub mints a Merger App token before calling `gh`. This
-  // repo's own `plot-merger-token.mjs` is a real network exchange; stubbing
-  // `node` on PATH (ahead of the real interpreter) answers its one call site
-  // with a canned token and `exec`s the real interpreter for everything
-  // else — including this file's own `node "${stubDir}/gh.mjs"` line above.
-  fs.writeFileSync(path.join(stubDir, 'node'), `#!/usr/bin/env bash
-case "$1" in
-  */plot-merger-token.mjs) echo -n "merger-installation-token" ;;
-  *) exec "${process.execPath}" "$@" ;;
-esac
-`);
-  fs.chmodSync(path.join(stubDir, 'node'), 0o755);
   fs.writeFileSync(path.join(stubDir, 'gh.mjs'), `
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -144,16 +131,8 @@ const makeBatch = ({ first = PLAN('First plan'), extraPrs = [], old = false } = 
   for (const [k, v] of [['user.email', 'test@example.invalid'], ['user.name', 'Plot Test'], ['commit.gpgsign', 'false']]) {
     git(repo, 'config', k, v);
   }
-  const mergerKeyPath = path.join(stubDir, 'merger-app-key.pem');
-  if (!fs.existsSync(mergerKeyPath)) {
-    fs.writeFileSync(mergerKeyPath, crypto.generateKeyPairSync('rsa', {
-      modulusLength: 2048,
-      privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
-      publicKeyEncoding: { type: 'spki', format: 'pem' },
-    }).privateKey, { mode: 0o600 });
-  }
   fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
-    `## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n- **Sprint directory:** docs/sprints/\n- **Merger app:** 999000 ${mergerKeyPath}\n`);
+    '## Plot Config\n\n- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n- **Sprint directory:** docs/sprints/\n');
   fs.mkdirSync(path.join(repo, 'docs', 'plans', 'active'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'docs', 'plans', '.keep'), '');
   if (old) fs.writeFileSync(path.join(repo, OLD), PLAN('Old plan'));

@@ -6,11 +6,14 @@
 //
 // Usage: plot-merger-token.mjs <owner/repo>
 // Output: the installation token, and nothing else, on stdout.
-// Exit: 4, naming the key, where `Merger app` is absent from ## Plot Config,
-//       its key file cannot be read, or it names the SAME App id as
-//       `Writer app` (one credential doing both jobs is forbidden — a merge
-//       by it would carry the writer's branch-protection bypass). 3 where the
-//       exchange itself fails. 0 with the token on stdout otherwise.
+// Exit: 5 with one notice line on stderr and nothing on stdout where
+//       ## Plot Config declares no `Merger app` key, so the caller merges as
+//       the signed-in `gh` identity. 4, naming the key, where `Merger app` is
+//       declared but malformed, its key file cannot be read, or it names the
+//       SAME App id as `Writer app` (one credential doing both jobs is
+//       forbidden — a merge by it would carry the writer's branch-protection
+//       bypass). 3 where the exchange itself fails. 0 with the token on
+//       stdout otherwise.
 //
 // NO CREDENTIAL LEAVES THIS PROCESS except in a request header. The JWT and
 // the installation token travel through `fetch`; the token this script
@@ -30,7 +33,8 @@ const refuse = (code, message) => {
 const [repo] = process.argv.slice(2);
 if (!repo) refuse(1, 'usage: plot-merger-token.mjs <owner/repo>');
 
-const { app, reason } = resolveApp('Merger app', here);
+const { app, absent, reason } = resolveApp('Merger app', here);
+if (absent) refuse(5, 'Merger app not configured — merging as the signed-in gh identity');
 if (!app) refuse(4, reason);
 
 // Two jobs on one credential is explicitly forbidden: a merger sharing the
