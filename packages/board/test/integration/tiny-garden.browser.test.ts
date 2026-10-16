@@ -370,21 +370,33 @@ describe('tiny-garden: the standalone plan page (the server assembles it)', () =
     const page = await openBoard();
     try {
       await tomatoCard(page).getByRole('link', { name: 'Open' }).click();
-      await page.getByRole('dialog').waitFor({ state: 'visible', timeout: 5_000 });
+      const dialog = page.getByRole('dialog');
+      await dialog.waitFor({ state: 'visible', timeout: 5_000 });
+
+      // THE LINK MUST NOT MOVE WHEN THE DOCUMENT ARRIVES. The panel is centred
+      // vertically, and its body grew from 30vh to 70vh when the fetched
+      // document replaced `Loading…`, so the header rose by half the growth.
+      // Playwright checks the hit target on the FIRST pointer event only: a
+      // commit between mouse-down and mouse-up released the button over the
+      // iframe, no click reached the link, the click call resolved, and the
+      // `page` wait ran out (#1686, four CI failures on 2026-10-14/16 on
+      // commits with no board code). `DocModal` now gives every arm one
+      // height; this compares the link's box before and after the document.
+      const openInNewTab = dialog.getByRole('link', { name: 'Open in new tab' });
+      await openInNewTab.waitFor({ state: 'visible', timeout: 5_000 });
+      const before = await openInNewTab.boundingBox();
+      await dialog.locator('iframe').waitFor({ state: 'attached', timeout: 15_000 });
+      expect(await openInNewTab.boundingBox()).toEqual(before);
 
       const [popup] = await Promise.all([
-        // 60s, for the reason the test timeout below is 60s: this wait carries
-        // its own Playwright default of 30s, which the test timeout does not
-        // cover. Measured 2026-09-23 — it timed out twice in 25 CI runs, both
-        // times on unrelated commits, reporting `{ log: [] }`: an EMPTY
-        // actionability log, so the click had already fired and no `page`
-        // event followed. The link is not occluded (probed at this viewport:
-        // right edge 297 of 390, `elementFromPoint` returns the <a> itself),
-        // so what is slow is Chromium creating the target on a loaded runner.
+        // Registered before the click, in the same `Promise.all`, so the event
+        // cannot fire ahead of its listener. The explicit bound is needed
+        // because this wait carries its own Playwright default of 30s, which
+        // the test timeout below does not cover.
         page.context().waitForEvent('page', { timeout: 60_000 }),
-        page.getByRole('link', { name: 'Open in new tab' }).click(),
+        openInNewTab.click(),
       ]);
-      await popup.waitForLoadState('domcontentloaded');
+      await popup.waitForLoadState('domcontentloaded', { timeout: 15_000 });
       // Plain URL (no ?embed) — so the full page, with titlebar.
       expect(popup.url().endsWith(PLAN_PATH)).toBe(true);
       expect(await popup.locator('h1').textContent()).toBe('Plant heirloom tomatoes');
