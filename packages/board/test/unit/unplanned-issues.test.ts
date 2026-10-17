@@ -3,6 +3,7 @@ import {
   it,
   expect,
   afterEach } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -291,5 +292,153 @@ describe('entry.waiting — set beside entry.issues, not derived from its capped
     expect(entry.waiting).toBeNull();
     // `entry.issues` keeps its last good value on the same failure.
     expect(entry.issues).toHaveLength(1);
+  });
+});
+
+describe('a Draft plan PR answers its issue — the inbox reads idea/ branches as well as the plan directory', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmTree(dir);
+  });
+
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+
+  /**
+   * A git repo whose `plot-host.sh` lists issues 1–3 open, whose plan parser
+   * reports the numbers on each file's `Issue:` line, and which carries the
+   * given plans on `origin/idea/<slug>` refs (not in the working tree).
+   */
+  const fixture = (opts: {
+    onDisk?: Record<string, number>;
+    onBranch?: Record<string, number>;
+    login?: string;
+  }): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-draft-plan-'));
+    dirs.push(dir);
+    git(dir, 'init', '-q', '-b', 'main');
+    git(dir, 'config', 'user.email', 't@example.com');
+    git(dir, 'config', 'user.name', 't');
+    fs.mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
+    const write = (name: string, body: string) => {
+      fs.writeFileSync(path.join(dir, name), `#!/usr/bin/env bash\n${body}`);
+      fs.chmodSync(path.join(dir, name), 0o755);
+    };
+    write('plot-config.sh', `if [ "$2" = Tracker ]; then echo ''; else printf '%s\\n' "$3"; fi\n`);
+    write('plot-plan-meta.sh', [
+      'for f in "$@"; do',
+      '  n=$(sed -n \'s/^Issue: *#\\{0,1\\}\\([0-9]*\\).*/\\1/p\' "$f" | head -1)',
+      '  if [ -n "$n" ]; then printf \'{"issues":[%s]}\\n\' "$n"; else echo \'{"issues":[]}\'; fi',
+      'done',
+      '',
+    ].join('\n'));
+    write('plot-host.sh', [
+      'case "$1" in',
+      `  account) echo '${opts.login ?? 'jwloka'}' ;;`,
+      '  issue-list)',
+      '    case " $* " in',
+      '      *" --state closed "*) : ;;',
+      '      *) for i in 1 2 3; do printf \'{"number":%d,"title":"t%d","url":"u","createdAt":"2026-10-01T00:00:00Z","assignees":["jwloka"]}\\n\' $i $i; done ;;',
+      '    esac ;;',
+      'esac',
+      'exit 0',
+      '',
+    ].join('\n'));
+    for (const [file, n] of Object.entries(opts.onDisk ?? {})) {
+      fs.writeFileSync(path.join(dir, 'docs', 'plans', file), `# plan\n\nIssue: #${n}\n`);
+    }
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'base');
+    for (const [slug, n] of Object.entries(opts.onBranch ?? {})) {
+      git(dir, 'checkout', '-q', '-b', `idea/${slug}`);
+      fs.writeFileSync(path.join(dir, 'docs', 'plans', `2026-10-17-${slug}.md`), `# plan\n\nIssue: #${n}\n`);
+      git(dir, 'add', '-A');
+      git(dir, 'commit', '-q', '-m', slug);
+      git(dir, 'update-ref', `refs/remotes/origin/idea/${slug}`, 'HEAD');
+      git(dir, 'checkout', '-q', 'main');
+      git(dir, 'branch', '-q', '-D', `idea/${slug}`);
+    }
+    // Checking out main removes a plan directory the branch alone filled.
+    fs.mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
+    return dir;
+  };
+
+  /** A cache entry that already knows the idea branches and their open PRs. */
+  const entryFor = (slugs: string[], withPr: string[] = slugs) => {
+    const entry = freshCacheEntry();
+    entry.backend = 'github';
+    entry.ideaPlans = new Map(slugs.map((s) => [`idea/${s}`, `2026-10-17-${s}.md`]));
+    entry.prs = new Map(withPr.map((s) => [`idea/${s}`, { number: 1, head: `idea/${s}` } as never]));
+    return entry;
+  };
+
+  const numbers = (rows: readonly { number: string }[]) => rows.map((r) => r.number);
+
+  it('an issue named only by a Draft plan PR leaves the inbox and Waiting on you', async () => {
+    const dir = fixture({ onBranch: { alpha: 2 } });
+    const entry = entryFor(['alpha']);
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(numbers(entry.issues)).toEqual(['1', '3']);
+    expect(numbers(entry.waiting?.tickets ?? [])).toEqual(['1', '3']);
+  });
+
+  it('the same issue stays out once the plan has landed in the directory', async () => {
+    const dir = fixture({ onDisk: { '2026-10-17-alpha.md': 2 } });
+    const entry = entryFor([]);
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(numbers(entry.issues)).toEqual(['1', '3']);
+    expect(numbers(entry.waiting?.tickets ?? [])).toEqual(['1', '3']);
+  });
+
+  it('Waiting on you never lists an issue an on-disk plan references', async () => {
+    const dir = fixture({ onDisk: { '2026-10-17-a.md': 1 } });
+    const entry = entryFor([]);
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(numbers(entry.waiting?.tickets ?? [])).toEqual(['2', '3']);
+    expect(entry.waiting?.shown).toBe(2);
+  });
+
+  it('an unmatched reader still sees only the unplanned set, from the inbox argument as well', async () => {
+    const dir = fixture({ onDisk: { '2026-10-17-a.md': 1 }, login: 'somebody-else' });
+    const entry = entryFor([]);
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(numbers(entry.issues)).toEqual(['2', '3']);
+    for (const t of entry.waiting?.tickets ?? []) expect(t.number).not.toBe('1');
+  });
+
+  it('no idea branches changes nothing from the directory read', async () => {
+    const dir = fixture({ onDisk: { '2026-10-17-a.md': 3 } });
+    const entry = entryFor([]);
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(numbers(entry.issues)).toEqual(['1', '2']);
+  });
+
+  it('an idea branch without an open PR is not read', async () => {
+    const dir = fixture({ onBranch: { alpha: 2 } });
+    const entry = entryFor(['alpha'], []);
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(numbers(entry.issues)).toEqual(['1', '2', '3']);
+  });
+
+  it('one unreadable branch plan does not blank the directory read', async () => {
+    const dir = fixture({ onDisk: { '2026-10-17-a.md': 1 }, onBranch: { alpha: 2 } });
+    const entry = entryFor(['alpha', 'ghost']);
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(entry.issueAnswer).toBe('answered');
+    expect(numbers(entry.issues)).toEqual(['3']);
   });
 });
