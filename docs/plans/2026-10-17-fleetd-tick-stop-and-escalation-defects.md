@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1965 merged
 - **Started:** 2026-10-17, Jan Wloka, `bug/fleetd-tick-guard-and-escalations`
 - **Started:** 2026-10-17, Jan Wloka, `bug/fleetd-once-and-channel-output`
+- **Started:** 2026-10-17, Jan Wloka, `bug/fleetd-stop-starts-no-agent`
 
 ## Changelog
 
