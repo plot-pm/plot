@@ -74,7 +74,7 @@ Each fix follows the layering rule: the decision lives in the domain, `plot-host
 
 ### Coverage
 
-- `feature/the-tracker-connector-paths-are-tested` — `tracker-fixture.ts` coverage, the issue-open budget record, a Jira 4xx on create
+- `feature/the-tracker-connector-paths-are-tested` — `tracker-fixture.ts` coverage, the issue-open budget record, a Jira 4xx on create → #1945
 
 ## Notes
 
