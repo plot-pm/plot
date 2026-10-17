@@ -3,6 +3,7 @@ import type { LimitReading } from '../../entities/limit.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type {
   ClosedIssues,
+  IssueCommentOutcome,
   IssueOpen,
   IssueOpenOutcome,
   IssueRead,
@@ -77,6 +78,34 @@ export const githubIssueOpen =
   };
 
 /**
+ * Adds one comment to a GitHub issue through `plot-host.sh issue-comment`.
+ *
+ * @param context - where the scripts and the repository are.
+ * @param refuse - records the refusal the calling connector's `lastRefusal` reports.
+ * @returns the connector's `issueComment`: `commented`; `unaskable` on exit 4;
+ *   `failed` otherwise, with the refusal recorded.
+ */
+export const githubIssueComment =
+  (context: ShellContext, refuse: (said: string | null) => void) =>
+  async (id: string, body: string): Promise<PortResult<IssueCommentOutcome>> => {
+    const said = await runProcess(
+      'bash',
+      [scriptPath(context, 'plot-host.sh'), 'issue-comment', id, body],
+      { cwd: context.repoRoot, env: { PLOT_TRACKER: SCHEME } },
+    );
+    if (said.code === 4) {
+      refuse(null);
+      return unaskable(said.stderr.trim().replace(/^plot-host: /, '') || undefined);
+    }
+    if (said.code !== 0) {
+      refuse(said.stderr.trim() || said.stdout.trim() || `plot-host.sh exited ${said.code}`);
+      return failed();
+    }
+    refuse(null);
+    return answered<IssueCommentOutcome>({ outcome: 'commented' });
+  };
+
+/**
  * Reads and writes a tracker whose issues live with the git host's own vendor.
  *
  * A CONNECTOR, not an adapter with a branch. It holds this vendor's account,
@@ -110,6 +139,7 @@ export const trackerGithub = (context: ShellContext): Tracker => {
 
     issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
     issueListOpen: (limit): Promise<PortResult<IssueRead>> => reads.issueListOpen(limit),
+    issueListLabelled: (label, limit): Promise<PortResult<IssueRead>> => reads.issueListLabelled(label, limit),
     issueListChanged: (since, limit): Promise<PortResult<IssueRead>> => reads.issueListChanged(since, limit),
     // NO PERSON-SCOPED MODE DISTINCT FROM THE OPEN READ. GitHub's open read is
     // never project-scoped the way Jira's becomes with `Ticket prefixes`, so
@@ -170,6 +200,8 @@ export const trackerGithub = (context: ShellContext): Tracker => {
     },
 
     issueOpen: githubIssueOpen(context, reads.refuse),
+
+    issueComment: githubIssueComment(context, reads.refuse),
 
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
 

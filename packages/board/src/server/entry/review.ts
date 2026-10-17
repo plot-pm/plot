@@ -12,9 +12,10 @@ import { reviewIssueUrl } from '@plot-pm/domain/adapters/tracker/tracker-issue-u
 import { handOffIssueWrite } from '@plot-pm/domain/adapters/issue-write-spool/hand-off-issue-write';
 import { issueWriteSpoolFile } from '@plot-pm/domain/adapters/issue-write-spool/issue-write-spool-file';
 import { ISSUE_MAY_EXIST } from '@plot-pm/domain/rules/refuted-issues';
+import { findOpenReviewIssue, REVIEW_ISSUE_LABEL, reviewIssueTitle } from '@plot-pm/domain/rules/review-issue';
 import { trackerForIssues } from '@plot-pm/domain/adapters/tracker/tracker-resolve';
-import { githubIssueOpen } from '@plot-pm/domain/adapters/tracker/tracker-github';
-import type { Host, PortResult, Tracker, Trees } from '@plot-pm/domain';
+import { githubIssueComment, githubIssueOpen } from '@plot-pm/domain/adapters/tracker/tracker-github';
+import type { Host, Issue, PortResult, Tracker, Trees } from '@plot-pm/domain';
 import type { ShellContext } from '@plot-pm/domain/adapters/scripts';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
 import type { IssueWriteSpool } from '@plot-pm/domain/ports/issue-write-spool';
@@ -161,9 +162,7 @@ const followUpIssue = (
   counts: ReviewCounts,
   verdictText: string,
 ): { title: string; body: string } => ({
-  title: counts.high > 0
-    ? `plot-review: ${counts.high} HIGH finding${counts.high === 1 ? '' : 's'} on PR #${pr}`
-    : `plot-review: MEDIUM ${counts.medium}, LOW ${counts.low} on PR #${pr}`,
+  title: reviewIssueTitle(pr, counts),
   body: [
     `The reviewer found HIGH ${counts.high}, MEDIUM ${counts.medium}, LOW ${counts.low} on ${prUrl} at ${sha}.`,
     '',
@@ -174,8 +173,40 @@ const followUpIssue = (
 /** The follow-up issue's URL, or why no issue was opened. */
 type FollowUp = { ok: true; url: string } | { ok: false; why: string };
 
+/** How many labelled open issues the lookup reads; a read that stops here is not conclusive. */
+const LOOKUP_LIMIT = 200;
+
 /**
- * Opens the follow-up issue for one reviewed head, or reuses the recorded one.
+ * The open follow-up issue of a PR, asked of the tracker.
+ *
+ * A failed or inconclusive read is `ok: false`: not knowing is not the same as
+ * no issue existing, and opening on it would recreate the duplicates.
+ *
+ * @param deps - the tracker.
+ * @param pr - the PR number.
+ * @returns the issue or null where the complete read found none; else why it is not known.
+ */
+const openIssueOfPr = async (
+  deps: ReviewDeps,
+  pr: number,
+): Promise<{ ok: true; issue: Issue | null } | { ok: false; why: string }> => {
+  const listed = await deps.tracker.issueListLabelled(REVIEW_ISSUE_LABEL, LOOKUP_LIMIT);
+  if (!listed.ok) {
+    const why = (listed.why === 'unaskable' ? listed.reason : undefined)
+      ?? deps.tracker.lastRefusal()
+      ?? `the tracker answered ${listed.why} with no reason`;
+    return { ok: false, why: `could not look for an open follow-up issue of PR #${pr}: ${why}` };
+  }
+  const issue = findOpenReviewIssue(listed.value.issues, pr);
+  if (issue === null && !listed.value.complete) {
+    return { ok: false, why: `could not look for an open follow-up issue of PR #${pr}: the read stopped at ${LOOKUP_LIMIT} issues` };
+  }
+  return { ok: true, issue };
+};
+
+/**
+ * Reports one reviewed head on the follow-up issue: reuses the recorded issue,
+ * else comments on the PR's open follow-up issue, else opens one.
  *
  * The issue file holds `pending` while the tracker is asked, then the issue id.
  * A refusal that starts with {@link ISSUE_MAY_EXIST} keeps `pending`, so no
@@ -205,24 +236,41 @@ const openFollowUp = async (
   if (issueId === '') {
     deps.writeText(issueFile, 'pending');
     const followUp = followUpIssue(pr.number, sha, pr.url, counts, verdictText);
-    const followUpTitle = followUp.title;
-    const opened = await deps.tracker.issueOpen({ ...followUp, labels: ['ai-generated'] });
-    if (!opened.ok) {
-      const why = (opened.why === 'unaskable' ? opened.reason : undefined)
-        ?? deps.tracker.lastRefusal()
-        ?? `the tracker answered ${opened.why} with no reason`;
-      if (!why.startsWith(ISSUE_MAY_EXIST)) deps.removeFile(issueFile);
-      return { ok: false, why };
+    const existing = await openIssueOfPr(deps, pr.number);
+    if (!existing.ok) {
+      deps.removeFile(issueFile);
+      return { ok: false, why: existing.why };
     }
-    issueId = opened.value.id;
-    deps.writeText(issueFile, issueId);
-    if (deps.issueWrites !== undefined) {
-      const { scheme, baseUrl } = deps.tracker.config();
-      await handOffIssueWrite(deps.tracker, deps.issueWrites, {
-        number: issueId,
-        title: followUpTitle,
-        url: reviewIssueUrl(scheme, baseUrl, issueId, pr.url) ?? '',
-      });
+    if (existing.issue !== null) {
+      const commented = await deps.tracker.issueComment(existing.issue.id, followUp.body);
+      if (!commented.ok) {
+        deps.removeFile(issueFile);
+        const why = (commented.why === 'unaskable' ? commented.reason : undefined)
+          ?? deps.tracker.lastRefusal()
+          ?? `the tracker answered ${commented.why} with no reason`;
+        return { ok: false, why: `could not comment on issue ${existing.issue.id}: ${why}` };
+      }
+      issueId = existing.issue.id;
+      deps.writeText(issueFile, issueId);
+    } else {
+      const opened = await deps.tracker.issueOpen({ ...followUp, labels: [REVIEW_ISSUE_LABEL] });
+      if (!opened.ok) {
+        const why = (opened.why === 'unaskable' ? opened.reason : undefined)
+          ?? deps.tracker.lastRefusal()
+          ?? `the tracker answered ${opened.why} with no reason`;
+        if (!why.startsWith(ISSUE_MAY_EXIST)) deps.removeFile(issueFile);
+        return { ok: false, why };
+      }
+      issueId = opened.value.id;
+      deps.writeText(issueFile, issueId);
+      if (deps.issueWrites !== undefined) {
+        const { scheme, baseUrl } = deps.tracker.config();
+        await handOffIssueWrite(deps.tracker, deps.issueWrites, {
+          number: issueId,
+          title: followUp.title,
+          url: reviewIssueUrl(scheme, baseUrl, issueId, pr.url) ?? '',
+        });
+      }
     }
   }
   const { scheme, baseUrl } = deps.tracker.config();
@@ -416,6 +464,7 @@ export const reviewTracker = (
   return {
     ...tracker,
     issueOpen: githubIssueOpen(context, (said) => { refusal = said; }),
+    issueComment: githubIssueComment(context, (said) => { refusal = said; }),
     lastRefusal: () => refusal ?? tracker.lastRefusal(),
   };
 };
