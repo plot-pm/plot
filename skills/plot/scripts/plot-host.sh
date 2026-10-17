@@ -1676,12 +1676,14 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
   printf '%s' "$out"
 }
 
-# Every Jenkins build of one job that built ONE sha, as a JSON array (newest
-# first), or exit 3 (no instance) / exit 4 (cannot be asked). Shared by
-# `run-for-sha` and `runs-for-sha`, so the instance, the credential and the
+# Every Jenkins build of one job, as a JSON array (newest first), or exit 3
+# (no instance) / exit 4 (cannot be asked). Shared by `run-for-sha`,
+# `runs-for-sha` and `runs`, so the instance, the credential and the
 # multibranch-then-plain URL fallback are written once.
 #
-# $1 = the op's name, $2 = branch, $3 = how many builds to list, $4 = the sha.
+# $1 = the op's name, $2 = branch, $3 = how many builds to list, $4 = the sha
+# to filter for, or "" for every build of the branch unfiltered (the shape
+# `runs` wants — branch-scoped history, not one sha's).
 # Run it in `$(...)` and read the exit code with `|| exit $?`: it exits rather
 # than returns, and a subshell's exit is the code the caller sees.
 #
@@ -1741,7 +1743,7 @@ jenkins_sha_runs() {
           conclusion: (if .building then null else (.result // null) end),
           url: (.url // ""),
           startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ]
-    | map(select(.sha == $sha))' || exit 4
+    | if $sha == "" then . else map(select(.sha == $sha)) end' || exit 4
 }
 
 ci_unaskable() { # $1 = the op's name, $2 = the CI word (may be empty)
@@ -4456,35 +4458,18 @@ case "$op" in
                           startedAt:.startedAt, url:.url}' 2>/dev/null || true
         ;;
       jenkins)
-        # ONE STATE PER BRANCH, REPORTED AS A HISTORY OF ONE — and the PR says
-        # so, because it is the honest limit of the transport this arm has.
-        # `jenkins_build_map` answers `{color, checks, job}` for every branch in
-        # one call: a CURRENT state, with no timestamps, no URL and no earlier
-        # runs. A history is what Jenkins holds and what its REST API answers;
-        # reading it is `the-ci-connector-is-jenkins`'s own slice, and inventing
-        # entries here to fill the shape would be the collector reaching a
-        # verdict (Principle 3).
+        # A REAL HISTORY, newest first, read through `jenkins_sha_runs` with no
+        # sha filter — the same REST call `run-for-sha`/`runs-for-sha` already
+        # make, unfiltered rather than duplicated. `startedAt` and `url` come
+        # from Jenkins' own answer because this arm is no longer limited to
+        # `jenkins_build_map`'s current-state-only shape (gap 9).
         #
-        # SO THE FIELDS THIS CANNOT MEASURE ARE EMPTY, never guessed. `workflow`
-        # names the Jenkins job, which is the one thing the map does carry and
-        # the detail a reader opens; `conclusion` is the `checks` word the
-        # colour table already settled; `startedAt` and `url` are empty,
-        # because a timestamp this arm invented would read as measurement.
-        _jen_instance="$(jenkins_instance)"
-        [ -n "$_jen_instance" ] || jenkins_no_instance
-        _jen_payload=$(jenkins_build_map "$_jen_instance")
-        _jen_status=$(printf '%s' "$_jen_payload" | jq -r '.status // "failed"' 2>/dev/null || echo "failed")
-        if [ "$_jen_status" != "ok" ]; then
-          # UNREACHABLE IS NOT EMPTY EITHER. `pr-list --rich` can mark its rows
-          # `unknown` and keep them; this op has no row to carry the word, so
-          # the only way to say *cannot verify* is the exit code. Printing
-          # nothing at exit 0 would read as *this branch has never run*.
-          echo "plot-host: runs — jenkins unreachable ($_jen_status)" >&2
-          exit 4
-        fi
-        printf '%s' "$_jen_payload" | jq -c --arg branch "$branch" \
-          '.map[$branch] // empty
-           | {workflow:(.job // ""), conclusion:(.checks // ""), startedAt:"", url:""}' 2>/dev/null || true
+        # CONCLUSION STAYS HOST-NEUTRAL, matching the GitHub arm above: Jenkins'
+        # raw `.result` (`SUCCESS`/`FAILURE`/... or `null` while building),
+        # uninterpreted — not the `checks` word the colour table settles for
+        # `pr-list --rich`. Two different callers, two different vocabularies.
+        _jen_all=$(jenkins_sha_runs runs "$branch" "$limit" "") || exit $?
+        printf '%s' "$_jen_all" | jq -c '.[] | {workflow:.workflow, conclusion:.conclusion, startedAt:.startedAt, url:.url}' 2>/dev/null || true
         ;;
       *)
         ci_unaskable runs "$_ci"
