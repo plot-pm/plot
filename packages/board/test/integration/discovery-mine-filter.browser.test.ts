@@ -15,6 +15,7 @@ import type { TicketLaneGroups, TicketLaneRow } from '../../src/contract/schema.
  */
 const ME = 'gardener';
 const THEM = 'neighbour';
+const GITHUB = { service: 'github', match: 'host-login' } as const;
 
 const ticketRow = (over: Partial<TicketLaneRow> = {}): TicketLaneRow => ({
   id: '1',
@@ -30,9 +31,9 @@ const ticketRow = (over: Partial<TicketLaneRow> = {}): TicketLaneRow => ({
 
 const TICKETS: TicketLaneGroups = {
   open: [
-    ticketRow({ id: '1', title: 'My ticket', owner: ME }),
-    ticketRow({ id: '2', title: 'Their ticket', owner: THEM }),
-    ticketRow({ id: '3', title: 'Nobodys ticket', owner: null }),
+    ticketRow({ id: '1', title: 'My ticket', owner: ME, assignees: [ME], source: GITHUB }),
+    ticketRow({ id: '2', title: 'Their ticket', owner: THEM, assignees: [THEM], source: GITHUB }),
+    ticketRow({ id: '3', title: 'Nobodys ticket', owner: null, assignees: [], source: GITHUB }),
   ],
   'in-progress': [],
   done: [],

@@ -15,20 +15,16 @@ export interface TicketLaneRow {
   /** The tracker's own word for the kind of work, lowercased; `null` where it stated none. */
   readonly type: string | null;
   /**
-   * An assignee, resolved to a handle where the `People` directory declares
-   * its spelling; the first assignee's raw spelling, unresolved, otherwise.
-   * `null` where nobody is assigned. Nothing on the row says which case
-   * applies — a reader comparing this field must treat it as free text, not
-   * as an already-resolved identity.
+   * The name the card shows: an assignee resolved to a handle where the
+   * `People` directory declares its spelling, the first assignee's raw
+   * spelling otherwise. `null` where nobody is assigned. Display only —
+   * ownership reads `assignees` and `source`.
    */
   readonly owner: string | null;
-  /**
-   * How `owner` was written, carried through from {@link TicketSource.match}
-   * so a reader can match it the way {@link ticketOwnership} does — strictly
-   * for `host-login`, leniently for `tracker-account`. `null` where the
-   * source could not be determined, which reads the same as `tracker-account`.
-   */
-  readonly sourceKind: TicketSource['match'] | null;
+  /** Every assignee, as the tracker spells them; `[]` where nobody is assigned. */
+  readonly assignees: string[];
+  /** How the source writes `assignees`; `null` where it could not be determined. */
+  readonly source: TicketSource | null;
 }
 
 /** The Discovery tab's ticket lanes. */
@@ -123,7 +119,8 @@ const rowOf = (reading: Pick<TicketLanesReading, 'source' | 'directory'>) => (ro
   closedAt: row.closedAt ?? null,
   type: typeOf(row.type),
   owner: ownerOf(row.assignees, reading),
-  sourceKind: reading.source?.match ?? null,
+  assignees: [...(row.assignees ?? [])],
+  source: reading.source ?? null,
 });
 
 const laneOf = (

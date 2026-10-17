@@ -295,6 +295,7 @@ describe('discovery says Only my work hides a lane it emptied', () => {
             open: [{
               id: '1', title: 'Their ticket', url: '', createdAt: null, body: null,
               status: 'Open', statusCategory: 'To Do', closedAt: null, type: null, owner: THEM,
+              assignees: [THEM], source: { service: 'github', match: 'host-login' },
             }],
             'in-progress': [],
             done: [],

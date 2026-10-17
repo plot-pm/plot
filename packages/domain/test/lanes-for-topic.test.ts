@@ -13,7 +13,8 @@ const ticket = (id: string): TicketLaneRow => ({
   closedAt: null,
   type: null,
   owner: null,
-  sourceKind: null,
+  assignees: [],
+  source: null,
 });
 
 const story = (slug: string) => ({ slug });

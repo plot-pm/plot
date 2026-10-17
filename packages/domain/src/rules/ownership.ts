@@ -67,12 +67,6 @@ export interface TicketSourceReading {
  * - `ticket` — an issue row; `assignees` is the tracker's assignee list, `[]`
  *   where nobody is assigned; `source` is whose vocabulary the assignees are
  *   written in, `null` where the board could not resolve it.
- * - `resolvedOwner` — a single owner field that is a git-host login where the
- *   directory resolved it, and the tracker's raw, unresolved spelling
- *   otherwise, with nothing on the row saying which. Matched as free text, the
- *   way {@link personFieldOwnership} matches a plan or story author: an
- *   undeclared spelling is `unknown` rather than `theirs`, because it might
- *   still be the reader under a spelling the directory never declared.
  * - `other` — a build, or a branch with no PR. None carries an owner.
  */
 export type OwnedRow =
@@ -81,7 +75,6 @@ export type OwnedRow =
   | { kind: 'plan'; assignee?: string; author?: string; approver?: string }
   | { kind: 'story'; author?: string }
   | { kind: 'ticket'; assignees?: string[]; source?: TicketSource | null }
-  | { kind: 'resolvedOwner'; owner?: string | null }
   | { kind: 'other' };
 
 /** Agent states that say nothing about a desk on this machine. */
@@ -199,6 +192,21 @@ const ticketOwnership = (
 };
 
 /**
+ * A ticket, as the ownership rule reads it: every assignee, and how the
+ * source writes them.
+ *
+ * The Discovery lanes and the Delivery tickets both build their `OwnedRow`
+ * here, so both answer through {@link ticketOwnership} over the full
+ * assignee list.
+ *
+ * @param assignees - the ticket's assignees, as the tracker spells them; `[]` where nobody is assigned.
+ * @param source - how the source writes assignees; `null` where it could not be determined.
+ * @returns the `ticket` arm of {@link OwnedRow}.
+ */
+export const ownedTicket = (assignees: readonly string[], source: TicketSource | null): OwnedRow =>
+  ({ kind: 'ticket', assignees: [...assignees], source });
+
+/**
  * Maps a resolved `IssueSource` and git-host backend to how a ticket's
  * assignees are written.
  *
@@ -258,8 +266,6 @@ export const ownership = (row: OwnedRow, reader: Reader): Ownership => {
       return personFieldOwnership(row.author, reader);
     case 'ticket':
       return ticketOwnership(row.assignees, row.source, reader);
-    case 'resolvedOwner':
-      return personFieldOwnership(row.owner ?? undefined, reader);
     default:
       return 'unknown';
   }
