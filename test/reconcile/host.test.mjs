@@ -3041,6 +3041,270 @@ test('host: run-for-sha on Jenkins answers nothing when no build carries the ask
   assert.equal(JSON.parse(hit.stdout).sha, 'other-sha');
 });
 
+// --- jenkins_rest_credential: environment and .env, beside the keychain -----
+//
+// The keychain is macOS-only — `command -v security` fails outright on every
+// Linux agent and every CI machine, so the credential tests above (which rely
+// on `security` being ABSENT) prove exit 4 there, never a run. These tests
+// pin the two sources that now resolve on such a machine: `JENKINS_USER` /
+// `JENKINS_API_TOKEN` from the environment, and the same pair from the
+// repository's `.env` where `jira_load_env_file` already set the precedent.
+//
+// NO `security` ON PATH in any of these: the bin directory built below holds
+// only `curl`, so a credential that still reached `security` first would fail
+// here exactly as it does on a real Linux box, rather than silently passing
+// because the sandbox's real PATH carries a `security` these tests forgot to
+// hide.
+
+const JENKINS_DOTENV_USER = 'dotenv-jenkins-user';
+const JENKINS_DOTENV_TOKEN = 'dotenv-jenkins-tok-s3cr3t';
+
+// A `curl` stub with no `security` beside it: records argv (one line per
+// invocation) and answers a one-build `builds` body carrying the asked sha,
+// so a case only needs to assert how the credential reached `-u`.
+function makeJenkinsRestStub({ sha = 'abc123' } = {}) {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest2-')));
+  const argvFile = path.join(dir, 'curl.argv');
+  const builds = JSON.stringify({ builds: [
+    { number: 1, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/1/',
+      actions: [{ lastBuiltRevision: { SHA1: sha } }] },
+  ] });
+  writeFileSync(path.join(dir, 'curl'), `#!/usr/bin/env bash
+printf '%s\\n' "$@" >> "${argvFile}"
+printf '%s' '${builds}'
+`);
+  chmodSync(path.join(dir, 'curl'), 0o755);
+  return { dir, argvFile };
+}
+
+function runJenkinsRest(args, { repo, hostStubs, jen, rest, extraEnv = {} }) {
+  const res = spawnSync('bash', [adapter, ...args], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
+      PLOT_HOST: '',
+      ...extraEnv,
+    },
+  });
+  return { code: res.status, stdout: res.stdout, stderr: res.stderr };
+}
+
+test('host: run-for-sha with no security on PATH reaches curl with the env pair', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub({ sha: 'abc123' });
+  const res = runJenkinsRest(['run-for-sha', 'feature/red', 'abc123'], {
+    repo, hostStubs, jen, rest,
+    extraEnv: { JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' },
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(JSON.parse(res.stdout).sha, 'abc123');
+  const argv = readFileSync(rest.argvFile, 'utf8');
+  assert.ok(argv.includes('env-user:env-tok'), `the env pair must reach curl -u:\n${argv}`);
+});
+
+test('host: run-for-sha with no security on PATH reads the pair from .env', () => {
+  const repo = makeJenkinsRepo();
+  writeFileSync(path.join(repo, '.env'),
+    `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`);
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub({ sha: 'abc123' });
+  const env = { ...process.env };
+  delete env.JENKINS_USER;
+  delete env.JENKINS_API_TOKEN;
+  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(JSON.parse(res.stdout).sha, 'abc123');
+  const argv = readFileSync(rest.argvFile, 'utf8');
+  assert.ok(argv.includes(`${JENKINS_DOTENV_USER}:${JENKINS_DOTENV_TOKEN}`),
+    `the .env pair must reach curl -u, stripped of quotes/whitespace:\n${argv}`);
+  assert.match(res.stderr, /JENKINS_USER and JENKINS_API_TOKEN read from \.env/);
+});
+
+test('host: a quoted-and-trailed .env value still parses', () => {
+  // The same shape that broke two drafts of the Jira reader: stripping quotes
+  // before whitespace leaves ["tok"] intact on a trailed value, and a quoted
+  // token reaching curl -u is the 401 this read exists to avoid.
+  const repo = makeJenkinsRepo();
+  writeFileSync(path.join(repo, '.env'),
+    `JENKINS_USER="${JENKINS_DOTENV_USER}"   \nJENKINS_API_TOKEN="${JENKINS_DOTENV_TOKEN}"   \n`);
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub({ sha: 'abc123' });
+  const env = { ...process.env };
+  delete env.JENKINS_USER;
+  delete env.JENKINS_API_TOKEN;
+  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const argv = readFileSync(rest.argvFile, 'utf8');
+  assert.ok(argv.includes(`${JENKINS_DOTENV_USER}:${JENKINS_DOTENV_TOKEN}`), `stderr: ${res.stderr}\nargv: ${argv}`);
+});
+
+test('host: only one of JENKINS_USER/JENKINS_API_TOKEN set, in the environment, exits 4', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub();
+  const env = { ...process.env };
+  delete env.JENKINS_API_TOKEN;
+  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '', JENKINS_USER: 'only-user' },
+  });
+  assert.equal(res.status, 4, 'a half credential must not reach curl');
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /no Jenkins API credential/);
+  assert.ok(!existsSync(rest.argvFile), 'curl must never be called with a half credential');
+});
+
+test('host: only one of JENKINS_USER/JENKINS_API_TOKEN set, in .env, exits 4', () => {
+  const repo = makeJenkinsRepo();
+  writeFileSync(path.join(repo, '.env'), `JENKINS_USER=${JENKINS_DOTENV_USER}\n`);
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub();
+  const env = { ...process.env };
+  delete env.JENKINS_USER;
+  delete env.JENKINS_API_TOKEN;
+  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
+  });
+  assert.equal(res.status, 4);
+  assert.doesNotMatch(res.stderr, /read from \.env/, 'a half pair is never adopted');
+  assert.ok(!existsSync(rest.argvFile), 'curl must never be called with a half credential');
+});
+
+test('host: the environment wins over a different .env pair', () => {
+  const repo = makeJenkinsRepo();
+  writeFileSync(path.join(repo, '.env'),
+    `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`);
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub({ sha: 'abc123' });
+  const res = runJenkinsRest(['run-for-sha', 'feature/red', 'abc123'], {
+    repo, hostStubs, jen, rest,
+    extraEnv: { JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' },
+  });
+  assert.equal(res.code, 0, res.stderr);
+  const argv = readFileSync(rest.argvFile, 'utf8');
+  assert.ok(argv.includes('env-user:env-tok'), 'the exported pair is what is used');
+  assert.ok(!argv.includes(JENKINS_DOTENV_TOKEN), 'the .env file was not read');
+  assert.doesNotMatch(res.stderr, /read from \.env/, 'and nothing claims it was');
+});
+
+test('host: no .env and no security leaves the "cannot be asked" refusal unchanged', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub();
+  const env = { ...process.env };
+  delete env.JENKINS_USER;
+  delete env.JENKINS_API_TOKEN;
+  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
+  });
+  assert.equal(res.status, 4);
+  assert.match(res.stderr, /no Jenkins API credential/);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: no .env, no security — nothing names the would-be credential', () => {
+  // No test above prints the token either, but this pins the no-source
+  // refusal path specifically: the stderr naming "no Jenkins API credential"
+  // must never widen into echoing what was tried.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub();
+  const env = { ...process.env };
+  delete env.JENKINS_USER;
+  delete env.JENKINS_API_TOKEN;
+  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
+  });
+  assert.ok(!res.stdout.includes(JENKINS_DOTENV_TOKEN));
+  assert.ok(!res.stderr.includes(JENKINS_DOTENV_TOKEN));
+});
+
+test('host: the env pair never prints to stdout or stderr', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub({ sha: 'abc123' });
+  const res = runJenkinsRest(['run-for-sha', 'feature/red', 'abc123'], {
+    repo, hostStubs, jen, rest,
+    extraEnv: { JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'super-secret-tok' },
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.ok(!res.stdout.includes('super-secret-tok'));
+  assert.ok(!res.stderr.includes('super-secret-tok'));
+});
+
+test('host: the .env pair never prints to stdout or stderr', () => {
+  const repo = makeJenkinsRepo();
+  writeFileSync(path.join(repo, '.env'),
+    `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`);
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub({ sha: 'abc123' });
+  const env = { ...process.env };
+  delete env.JENKINS_USER;
+  delete env.JENKINS_API_TOKEN;
+  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.ok(!res.stdout.includes(JENKINS_DOTENV_TOKEN));
+  assert.ok(!res.stderr.includes(JENKINS_DOTENV_TOKEN));
+  assert.ok(!res.stdout.includes(JENKINS_DOTENV_USER));
+  assert.ok(!res.stderr.includes(JENKINS_DOTENV_USER));
+});
+
+test('host: a source note prints once per call, not once per retry loop', () => {
+  // `jenkins_rest_credential` runs inside `$(...)` at the call site, so a
+  // stderr note must print once per `run-for-sha` call. The REST arm tries the
+  // multibranch path and then the plain path on a miss, which is the loop this
+  // pins against: a note inside that loop would print twice for one call.
+  const repo = makeJenkinsRepo();
+  writeFileSync(path.join(repo, '.env'),
+    `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`);
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub({ sha: 'abc123' });
+  const env = { ...process.env };
+  delete env.JENKINS_USER;
+  delete env.JENKINS_API_TOKEN;
+  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const notes = res.stderr.split('\n').filter((l) => l.includes('read from .env'));
+  assert.equal(notes.length, 1, `expected exactly one source note, got:\n${res.stderr}`);
+});
+
 // --- runs-for-sha: every run for one sha --------------------------------------
 
 const THREE_WORKFLOWS = JSON.stringify([
