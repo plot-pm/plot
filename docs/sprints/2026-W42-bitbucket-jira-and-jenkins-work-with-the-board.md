@@ -25,6 +25,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 
 - [x] [the-ticket-index-updates-incrementally-and] The ticket index updates incrementally and takes Plot's own issue writes at once (#1856)
 - [x] [ticket-rows-show-type-and-owner] Ticket rows show type and owner under one "Assigned to you" sub-header (#1837)
+- [ ] [one-review-issue-per-pr-a] Tooling: one review issue per PR, a sprint goal the board reads, and a pid read that waits (#1952: #1881, #1883, #1909)
 
 ### Could Have
 
@@ -47,3 +48,4 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
 
 - 2026-10-16: Tiers set by Jan Wloka: Must are the three connector plans; Should are the ticket index and the ticket rows; Could are #1830 and #1845.
+- 2026-10-17: Added [one-review-issue-per-pr-a] as a Should: it stops plot-review opening one follow-up issue per PR head (#1881), the flood measured during this sprint.
