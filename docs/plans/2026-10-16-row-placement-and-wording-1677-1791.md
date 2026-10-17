@@ -58,7 +58,7 @@ Group the work by the component that decides it, not by the issue that reported 
 
 ### Review follow-ups
 
-- `bug/row-review-followups` — plan PR link on the plan head, tally and slice-group fixes (#1742, #1760); first-assignee ownership and dead code (#1790); Discovery/Planning host-login agreement, memoisation, comments and empty-lane tests (#1793); test hygiene from #1792
+- `bug/row-review-followups` — plan PR link on the plan head, tally and slice-group fixes (#1742, #1760); first-assignee ownership and dead code (#1790); Discovery/Planning host-login agreement, memoisation, comments and empty-lane tests (#1793); test hygiene from #1792 → #1939
 
 ## Notes
 
