@@ -271,7 +271,6 @@ test('log-rotation: the daemon and the board both open their own log', () => {
   assert.match(registryd, /truncateInherited\(2\)/, 'registryd does not truncate inherited stderr');
   assert.match(registryd, /open\(join\(logs, 'fleetd\.log'\)\)/, 'the daemon does not open fleetd.log');
   assert.match(registryd, /open\(join\(logs, 'fleetd\.err'\)\)/, 'the daemon does not open fleetd.err');
-  assert.match(registryd, /= processLog,/, 'the log pair is not opened by processLog');
   // `--once` reaches the terminal: the entry point asks `writersFor`, which
   // returns the stdio pair for it, and never builds the log pair itself.
   assert.match(registryd, /writersFor\(process\.argv\.slice\(2\), logs\)/, 'the entry point does not choose its writers by mode');

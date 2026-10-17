@@ -1768,20 +1768,35 @@ export interface ChannelSlot {
 /**
  * Binds the slot to a channel and builds the runs over it.
  *
+ * Where `stopped` reads true once `open` resolves, the bind is discarded
+ * rather than written: the slot's own stop path has already run by then and
+ * will never see this channel, so writing it would leave it running past the
+ * point the daemon meant to have stopped everything. The channel this call
+ * opened is stopped immediately instead.
+ *
  * @param slot - the slot to fill; left untouched where it already holds a channel.
  * @param open - one attempt to open the channel.
  * @param over - builds the monitor and the relay over an opened channel.
+ * @param onBound - called once the slot newly holds a channel; not called where it already did or where discarded.
+ * @param stopped - reads true where a stop was read while `open` was in flight; discards the bind. Defaults to never.
  * @returns true where the slot holds a channel after the call.
  */
 export const bindChannelSlot = async (
   slot: ChannelSlot,
   open: () => Promise<RunningChannel | null>,
   over: (channel: RunningChannel) => Pick<ChannelSlot, 'indexMonitor' | 'deskRelay'>,
+  onBound?: () => void,
+  stopped: () => boolean = () => false,
 ): Promise<boolean> => {
   if (slot.channel !== null) return true;
   const channel = await open();
   if (channel === null) return false;
+  if (stopped()) {
+    await channel.stop();
+    return false;
+  }
   Object.assign(slot, { channel }, over(channel));
+  onBound?.();
   return true;
 };
 
@@ -2171,7 +2186,14 @@ export const run = async (
   const queueHolds: { held: readonly HeldSlice[] | null } = { held: null };
   const retryBind = args.once
     ? undefined
-    : () => bindChannelSlot(slot, () => startFleetChannel(repoRoot, () => undefined, openChannel), overChannel);
+    : () =>
+        bindChannelSlot(
+          slot,
+          () => startFleetChannel(repoRoot, () => undefined, openChannel),
+          overChannel,
+          () => warn('plot-fleetd: channel bound\n'),
+          stop,
+        );
   const scanClock = args.once
     ? null
     : startFleetClock(seams.clock ?? clockSystem(), {
@@ -2604,6 +2626,39 @@ export const writersFor = (
   return { out: (text) => void out.write(text), err: (text) => void err.write(text) };
 };
 
+/**
+ * Settles the process after the daemon's own run, without cutting off a
+ * write still in flight.
+ *
+ * SETS `exitCode`, NEVER CALLS `exit`, on the success path: `--once` on a
+ * macOS pipe can still have a write in flight when this resolves, and
+ * `process.exit` would cut it off before the OS buffer drains. Setting
+ * `exitCode` lets the event loop empty naturally, which waits for a
+ * backed-up stdout/stderr write to finish before the process ends.
+ *
+ * The failure path still calls `exit(1)` directly: it covers what throws
+ * before the loop is reached — an unreadable argument, a missing registry
+ * directory — and is itself the second half of error reporting, not a
+ * substitute for the loop's own `catch`. Without it such a failure is an
+ * unhandled rejection, which ends the process with an empty error log.
+ *
+ * @param daemon - the daemon's own run, resolving to its exit code.
+ * @param proc - the process whose `exitCode` is set or `exit` is called.
+ * @param err - where a start failure is reported.
+ */
+export const settleOnce = async (
+  daemon: Promise<number>,
+  proc: Pick<NodeJS.Process, 'exit' | 'exitCode'>,
+  err: (s: string) => void,
+): Promise<void> => {
+  try {
+    proc.exitCode = await daemon;
+  } catch (e: unknown) {
+    err(`plot-fleetd failed to start: ${e instanceof Error ? e.message : String(e)}\n`);
+    proc.exit(1);
+  }
+};
+
 // Only when RUN, never when imported — a test importing `run` must not have the
 // process loop under it.
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
@@ -2620,17 +2675,9 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   truncateInherited(2);
   const logs = logDir(process.env.PLOT_REPO_ROOT ?? process.cwd());
   const writers = writersFor(process.argv.slice(2), logs);
-  void startDaemon(process, dirname(fileURLToPath(import.meta.url)), writers.out, writers.err)
-    .then((code) => process.exit(code))
-    // THE SECOND HALF, AND NOT A SUBSTITUTE FOR THE FIRST. The loop's `catch`
-    // covers a failing tick; this covers what throws before the loop is
-    // reached — an unreadable argument, a missing registry directory. Without
-    // it such a failure is an unhandled rejection, which ends the process with
-    // an empty error log, which made the tick deaths invisible.
-    .catch((err: unknown) => {
-      process.stderr.write(
-        `plot-fleetd failed to start: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
-      process.exit(1);
-    });
+  void settleOnce(
+    startDaemon(process, dirname(fileURLToPath(import.meta.url)), writers.out, writers.err),
+    process,
+    (s) => process.stderr.write(s),
+  );
 }

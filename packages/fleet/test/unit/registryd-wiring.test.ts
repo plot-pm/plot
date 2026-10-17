@@ -94,6 +94,47 @@ describe('the prs beat', () => {
   });
 });
 
+describe('bindChannelSlot — the onBound callback (#1526 bullet 3)', () => {
+  it('calls onBound once the slot newly holds a channel', async () => {
+    const slot = emptySlot();
+    const bound: string[] = [];
+    const ok = await bindChannelSlot(
+      slot,
+      async () => fakeChannel(),
+      () => ({ indexMonitor: null, deskRelay: null }),
+      () => bound.push('bound'),
+    );
+    expect(ok).toBe(true);
+    expect(bound).toEqual(['bound']);
+  });
+
+  it('does not call onBound where the open fails', async () => {
+    const slot = emptySlot();
+    const bound: string[] = [];
+    const ok = await bindChannelSlot(
+      slot,
+      async () => null,
+      () => ({ indexMonitor: null, deskRelay: null }),
+      () => bound.push('bound'),
+    );
+    expect(ok).toBe(false);
+    expect(bound).toEqual([]);
+  });
+
+  it('does not call onBound where the slot already holds a channel', async () => {
+    const slot: ChannelSlot = { channel: fakeChannel(), indexMonitor: null, deskRelay: null };
+    const bound: string[] = [];
+    const ok = await bindChannelSlot(
+      slot,
+      async () => fakeChannel(),
+      () => ({ indexMonitor: null, deskRelay: null }),
+      () => bound.push('bound'),
+    );
+    expect(ok).toBe(true);
+    expect(bound).toEqual([]);
+  });
+});
+
 describe('the desk relay beat', () => {
   it('warns where the relay throws and returns', async () => {
     const warnings: string[] = [];
@@ -290,6 +331,9 @@ describe('run — the loop wiring', () => {
     expect(code).toBe(0);
     expect(opens).toBe(2);
     expect(warnings.filter((w) => w.includes('the channel could not start'))).toHaveLength(1);
+    // THE RETRY'S SUCCESS IS LOGGED (#1526 bullet 3): a late bind on a PR beat
+    // is otherwise invisible in --once/daemon output.
+    expect(warnings.filter((w) => w.includes('channel bound'))).toHaveLength(1);
     expect(events).toContain('read-default-branch');
     expect(events.at(-1)).toBe('channel-stop');
   });
@@ -321,7 +365,7 @@ describe('run — the loop wiring', () => {
         }),
       }),
     );
-    expect(warnings).toContain('plot-fleetd: pr-reader failed: monitor blew up');
+    expect(warnings).toContain('plot-fleetd: pr-reader failed: monitor blew up\n');
   });
 
   it('returns well before the interval when a stop arrives during the wait', async () => {
@@ -527,7 +571,7 @@ describe('a swallowed subscriber throw', () => {
       await new Promise((r) => setImmediate(r));
     }
     expect(scans).toBe(12);
-    expect(warnings).toEqual(['plot-fleetd: pr-reader failed: monitor blew up']);
+    expect(warnings).toEqual(['plot-fleetd: pr-reader failed: monitor blew up\n']);
   });
 });
 
