@@ -1401,15 +1401,6 @@ ci_scheme() {
   ci_raw | awk '{print tolower($1)}'
 }
 
-# A Jenkins colour as a PR row's `checks` word, shared by both shapes of job.
-JEN_COLOUR_JQ='def color_to_checks:
-  if . == null or . == "" then "none"
-  elif endswith("_anime") then "pending"
-  elif . == "blue" then "green"
-  elif . == "red" or . == "yellow" then "failing"
-  else "none"
-  end; '
-
 # Fetch Jenkins build statuses for every branch in a multibranch job, in ONE
 # call, and return them as a JSON object keyed by DECODED branch name.
 #
@@ -1467,6 +1458,15 @@ JEN_COLOUR_JQ='def color_to_checks:
 # deliberately NOT `failed`, which claims the host did not answer.
 jenkins_build_map() {
   local instance="$1"
+  # A Jenkins colour as a PR row's `checks` word, shared by both shapes of job.
+  # Local, so the function lifts out of this file alone.
+  local JEN_COLOUR_JQ='def color_to_checks:
+    if . == null or . == "" then "none"
+    elif endswith("_anime") then "pending"
+    elif . == "blue" then "green"
+    elif . == "red" or . == "yellow" then "failing"
+    else "none"
+    end; '
   local slug job
   slug="${instance%%/*}"
   if [ -n "${PLOT_JENKINS_JOB:-}" ]; then
