@@ -76,7 +76,7 @@ Wave order follows the dependency: gap 1 and gap 7 are independent and run first
 ### Bitbucket and GitHub readings
 
 - `feature/bitbucket-pr-state-binds-checks` — Bitbucket `pr-state` and `pr-review` return a head-bound check word; `pr-state` follows `pr-list`'s source under `CI: jenkins` (gaps 2, 6, 8) <!-- waits: bug/jenkins-pr-checks-bind-to-head -->
-- `bug/jenkins-runs-history` — the `runs` op returns builds with timestamps and URLs (gap 9)
+- `bug/jenkins-runs-history` → #1972 — the `runs` op returns builds with timestamps and URLs (gap 9)
 
 ## Notes
 
