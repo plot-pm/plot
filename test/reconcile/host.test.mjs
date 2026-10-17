@@ -2518,6 +2518,120 @@ test('host: a slashed branch name joins after decoding the percent-encoding', ()
     'the slashed branch must join its red build, not fall through to none');
 });
 
+// A `curl` stub for the pr-list sha-bound path: records argv and answers one
+// build matching `sha` with the given Jenkins `result` word (`null` for
+// still-building). No `security` beside it — paired with JENKINS_USER/
+// JENKINS_API_TOKEN env so the credential resolves without the keychain.
+function makeJenkinsPrRestStub({ sha, result }) {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenprrest-')));
+  const argvFile = path.join(dir, 'curl.argv');
+  const resultJson = result === null ? 'null' : `"${result}"`;
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: JSON.parse(resultJson), building: result === null, timestamp: 1790000000000,
+      url: 'https://ci.test/9/', actions: [{ lastBuiltRevision: { SHA1: sha } }] },
+  ] });
+  writeFileSync(path.join(dir, 'curl'), `#!/usr/bin/env bash
+printf '%s\\n' "$@" >> "${argvFile}"
+printf '%s' '${builds}'
+`);
+  chmodSync(path.join(dir, 'curl'), 0o755);
+  return { dir, argvFile };
+}
+
+const ghRowWithSha = (head, sha) => JSON.stringify([
+  { number: 100, title: head, state: 'OPEN', headRefName: head, isDraft: false,
+    statusCheckRollup: [], mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN',
+    reviewDecision: null, url: 'https://example.test/pr/100', headRefOid: sha,
+    author: { login: 'x' }, updatedAt: '', mergedAt: null },
+]);
+
+test('host: a Jenkins build that was aborted reads unknown on the PR row, bound to its head sha', () => {
+  // Done-when 3 (gap 10): the sha-run path already maps ABORTED to `cancelled`
+  // (jenkinsConclusion); the PR-row `checks` enum has no such word, so ABORTED
+  // lands on `unknown` here — the same honest "no verdict" NOT_BUILT gets,
+  // never carried over as the branch-colour map's stale `green`/`failing`.
+  const repo = makeJenkinsRepo();
+  const sha = 'sha-aborted';
+  const hostStubs = makeStubs({ ghJson: ghRowWithSha('feature/green', sha) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsPrRestStub({ sha, result: 'ABORTED' });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
+      PLOT_HOST: '',
+      JENKINS_USER: 'env-user',
+      JENKINS_API_TOKEN: 'env-tok',
+    },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const rows = rowsByHead(res.stdout);
+  assert.equal(rows.get('feature/green').checks, 'unknown');
+  assert.equal(rows.get('feature/green').checksSha, sha,
+    'an aborted build still binds the row to the head it was measured against');
+  assert.deepEqual(rows.get('feature/green').failing_checks, []);
+});
+
+test('host: a Jenkins build that was never built reads unknown on the PR row, bound to its head sha', () => {
+  // Done-when 3 (gap 10), the other result word the sha-run path already maps
+  // (NOT_BUILT -> unknown). A naive implementation mapping only the happy path
+  // would fall through the colour table's else branch and leave this at the
+  // branch-colour map's stale answer instead.
+  const repo = makeJenkinsRepo();
+  const sha = 'sha-notbuilt';
+  const hostStubs = makeStubs({ ghJson: ghRowWithSha('feature/red', sha) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsPrRestStub({ sha, result: 'NOT_BUILT' });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
+      PLOT_HOST: '',
+      JENKINS_USER: 'env-user',
+      JENKINS_API_TOKEN: 'env-tok',
+    },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const rows = rowsByHead(res.stdout);
+  assert.equal(rows.get('feature/red').checks, 'unknown');
+  assert.equal(rows.get('feature/red').checksSha, sha);
+  assert.deepEqual(rows.get('feature/red').failing_checks, []);
+});
+
+test('host: a push that supersedes a build in flight reads pending on the new head, not the old colour', () => {
+  // Done-when: a push between builds must not carry over the OLD head's
+  // colour. `feature/green`'s branch-colour map still says `blue` (measured
+  // against a PREVIOUS head), but the new head has no matching Jenkins build
+  // yet — `pending`, since a build is expected and none has concluded for it.
+  const repo = makeJenkinsRepo();
+  const newSha = 'sha-superseding-push';
+  const hostStubs = makeStubs({ ghJson: ghRowWithSha('feature/green', newSha) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  // The REST history carries a build for a DIFFERENT (older) sha only.
+  const rest = makeJenkinsPrRestStub({ sha: 'sha-old-head', result: 'SUCCESS' });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
+      PLOT_HOST: '',
+      JENKINS_USER: 'env-user',
+      JENKINS_API_TOKEN: 'env-tok',
+    },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const rows = rowsByHead(res.stdout);
+  assert.equal(rows.get('feature/green').checks, 'pending',
+    'the new head has no Jenkins build yet, so it must not read the old head\'s green');
+  assert.equal(rows.get('feature/green').checksSha, '',
+    'no sha-bound match exists for the new head, so checksSha stays unbound');
+});
+
 test('host: a Jenkins refresh costs a fixed number of calls, whatever the branch count', () => {
   // Done-when 5, free by the spike: a multibranch job returns every branch in
   // one `job list`. Joining locally means the scan pays for Jenkins once per

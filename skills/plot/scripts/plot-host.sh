@@ -4193,10 +4193,12 @@ case "$op" in
         # a GitHub repo without Jenkins still reads its own rollup exactly as
         # before.
         # COMMIT FIELDS PER ARM. `headSha` is `headRefOid` on all three GitHub
-        # arms. `checksSha` is emitted ONLY by the rollup arm: `statusCheckRollup`
-        # belongs to the head commit, so it equals `headSha`. The Jenkins colours
-        # are per branch and carry no commit, and the plain arm reads no checks,
-        # so neither emits `checksSha`. `mergedAt` is the host's, `""` on an open PR.
+        # arms. `checksSha` is emitted by the rollup arm (`statusCheckRollup`
+        # belongs to the head commit, so it equals `headSha`) and by the
+        # Jenkins arm wherever a sha-bound Jenkins read (`board/plot-jenkins-pr-checks.mjs`)
+        # found a build for that exact head — never from the branch-colour map,
+        # which carries no commit. The plain arm reads no checks and emits none.
+        # `mergedAt` is the host's, `""` on an open PR.
         if [ "$ci" = "jenkins" ]; then
           # GitHub PR list, but `checks` comes from Jenkins, joined on branch
           # name. `statusCheckRollup` is NOT even requested — the GitHub rollup
@@ -4209,17 +4211,24 @@ case "$op" in
             --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
+          # GAPS 3/4/10: `jmap` names no commit, so a push between builds would
+          # carry the OLD head's colour onto the new one. The bundle names the
+          # rows `jmap` cannot settle (green/failing with a head sha); this reads
+          # each one's builds by sha, and the bundle binds the newest. One call
+          # per such row, never per open PR, so Jenkins cost stays bounded.
+          _sha_map=$({ jq -c . <<<"$jen_map"; jq -c . <<<"$_gh_raw"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null \
+            | while IFS=$'\t' read -r _b _s _j; do
+                printf '%s\t%s\t%s\n' "$_b" "$_j" "$(jenkins_sha_runs pr-list "$_b" 5 "$_s" 2>/dev/null </dev/null)"
+              done | node "$here/board/plot-jenkins-pr-checks.mjs" bind 2>/dev/null)
           printf '%s' "$_gh_raw" \
-            | jq -c --argjson jmap "$jen_map" --arg jstatus "$jen_status" '.[] |
-              ($jmap[.headRefName] // null) as $jentry |
+            | jq -c --argjson jmap "$jen_map" --argjson shamap "${_sha_map:-null}" --arg jstatus "$jen_status" '.[] |
+              ($shamap[.headRefName] // null) as $shit |
+              ($jmap[.headRefName] // null) as $c |
+              ($shit // (if $c == null or (.headRefOid // "") == "" or ($c.checks != "green" and $c.checks != "failing") then $c else $c + {checks:"pending"} end)) as $eff |
               {
                 number:.number, title:.title, state:.state, head:.headRefName,
                 draft:.isDraft,
-                checks:(
-                  if $jstatus != "ok" then "unknown"
-                  elif $jentry == null then "none"
-                  else $jentry.checks
-                end),
+                checks:(if $jstatus != "ok" then "unknown" elif $eff == null then "none" else $eff.checks end),
                 mergeable:(
                   if .mergeable=="CONFLICTING" or .mergeStateStatus=="DIRTY" then "conflicting"
                   elif .mergeable=="MERGEABLE" then "mergeable"
@@ -4227,12 +4236,9 @@ case "$op" in
                 review:(.reviewDecision // ""),
                 url:.url,
                 updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),
+                checksSha:(if $shit != null then (.headRefOid // "") else "" end),
                 author:(.author.login // ""),
-                failing_checks:(
-                  if $jentry != null and $jentry.checks == "failing"
-                  then [$jentry.job]
-                  else []
-                end)
+                failing_checks:(if $eff.checks == "failing" then [$eff.job] else [] end)
               }'
         else
           # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
