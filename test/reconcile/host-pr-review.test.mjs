@@ -82,7 +82,55 @@ test('pr-review exits 3 and prints no JSON when a read fails', () => {
   }
 });
 
-test('pr-review exits 4 on a backend it cannot ask', () => {
-  const r = prReview(ghStub({ view: view(), statuses: [] }), { backend: 'bitbucket' });
-  assert.equal(r.status, 4);
+/** A `bb` answering the three Bitbucket reads; `failOn` makes the call whose argv contains it exit 1. */
+const bbStub = ({ pr = { source: { commit: { hash: 'abc123' } } }, statuses = { values: [] }, comments = { values: [] }, failOn = null }) => {
+  const dir = tmp('pr-review-bb');
+  const body = `#!/usr/bin/env bash
+case "$*" in
+  *--version*) echo "bb version 1.9.0" ;;
+  *${failOn ?? 'NEVER-MATCHES'}*) echo "HTTP 502" >&2; exit 1 ;;
+  *"/commit/abc123/statuses"*) printf '%s' ${JSON.stringify(JSON.stringify(statuses))} ;;
+  *"/pullrequests/7/comments"*) printf '%s' ${JSON.stringify(JSON.stringify(comments))} ;;
+  *"/pullrequests/7") printf '%s' ${JSON.stringify(JSON.stringify(pr))} ;;
+  *) exit 9 ;;
+esac
+`;
+  fs.writeFileSync(path.join(dir, 'bb'), body);
+  fs.chmodSync(path.join(dir, 'bb'), 0o755);
+  return dir;
+};
+
+const bbPrReview = (dir) => prReview(dir, { backend: 'bitbucket' });
+const status = (key, state) => ({ key, state });
+
+test('pr-review on Bitbucket reads the newest plot/review commit status and maps its word', () => {
+  const cases = [['SUCCESSFUL', 'success'], ['FAILED', 'failure'], ['INPROGRESS', 'pending'], ['STOPPED', 'error']];
+  for (const [word, state] of cases) {
+    const out = bbPrReview(bbStub({ statuses: { values: [status('ci/build', 'SUCCESSFUL'), status('plot/review', word)] } }));
+    assert.equal(out.status, 0, out.stderr);
+    assert.deepEqual(JSON.parse(out.stdout), { sha: 'abc123', state, bypass: false }, word);
+  }
+});
+
+test('pr-review on Bitbucket answers absent with green CI and no plot/review status', () => {
+  const r = bbPrReview(bbStub({ statuses: { values: [status('ci/build', 'SUCCESSFUL')] } }));
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), { sha: 'abc123', state: 'absent', bypass: false });
+});
+
+test('pr-review on Bitbucket reports a comment starting review-bypass:', () => {
+  const r = bbPrReview(bbStub({
+    comments: { values: [{ content: { raw: 'looks fine' } }, { content: { raw: 'review-bypass: reviewer stuck — jwloka' } }] },
+  }));
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).bypass, true);
+});
+
+test('pr-review on Bitbucket exits 3 and prints no JSON when a read fails', () => {
+  for (const failOn of ['/statuses', '/comments', 'pullrequests/7']) {
+    const r = bbPrReview(bbStub({ failOn }));
+    assert.equal(r.status, 3, `${failOn}: ${r.stderr}`);
+    assert.equal(r.stdout, '');
+    assert.match(r.stderr, /pr-review: the read failed/);
+  }
 });
