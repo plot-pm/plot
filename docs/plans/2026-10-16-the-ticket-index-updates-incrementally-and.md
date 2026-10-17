@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-16, Jan Wloka, plan-PR #1857 merged
 - **Started:** 2026-10-16, Jan Wloka, `feature/the-ticket-index-rows-carry-updated-at`
 - **Started:** 2026-10-17, Jan Wloka, `feature/the-issue-pass-reads-since-its-last-answer`
+- **Started:** 2026-10-17, Jan Wloka, `feature/the-index-takes-plots-own-issue-writes`
 
 ## Changelog
 
