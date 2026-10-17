@@ -561,6 +561,44 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  it('shows the plan head its own PR link, and tallies only what it heads', async () => {
+    // `tupleFromPlan` used to build a branch-only link and never a PR one, so a
+    // plan reviewed through its own idea-branch PR rendered no way to reach that
+    // PR from its head row — only from the branch underneath, if any. And the
+    // tally counted the plan's OWN row among the rows it heads, reading one
+    // higher than the branches actually grouped beneath it.
+    //
+    // A `kind: 'plan'` row carries the idea-branch PR and branch; mixing it into
+    // a plan's `group.rows` beside two ordinary branch rows is the only fixture
+    // shape that exercises `planOwnRow` in `rows.tsx` — every other fixture in
+    // this file omits that row entirely.
+    const rows = [
+      row({
+        kind: 'plan', branch: 'idea/beans', plan: 'beans', group: 'quiet',
+        branchUrl: `${GH}idea/beans`,
+        pr: { number: 77, url: 'https://github.com/tiny/garden/pull/77', draft: false, state: 'green' },
+      }),
+      row({ branch: 'feature/beans-1', plan: 'beans', group: 'quiet', ageMinutes: 500 }),
+      row({ branch: 'feature/beans-2', plan: 'beans', group: 'quiet', ageMinutes: 400 }),
+    ];
+    const page = await openAgents(fleet({ rows }));
+    try {
+      await expand(page, 'quiet');
+      await expandPlans(page);
+      const planRow = group(page, 'Quiet').locator('[data-plan-row="beans"]');
+
+      // THE PR LINK, reachable from the head — not only from a branch beneath it.
+      expect(await planRow.getByRole('link', { name: '77' }).getAttribute('href'))
+        .toBe('https://github.com/tiny/garden/pull/77');
+
+      // THE TALLY COUNTS TWO, the branches `beans` heads — not three, which is
+      // what counting the plan's own row alongside them would read.
+      expect(await planRow.textContent()).toContain('(2)');
+    } finally {
+      await page.close();
+    }
+  });
+
   it('groups DONE like every other group', async () => {
     // The group that grows fastest over a working day is the first to become a
     // list one scrolls past — a rule with an exception for it is a rule someone

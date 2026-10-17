@@ -1643,17 +1643,26 @@ export function AgentList({
                   // design for.
                   //
                   // So the `=== 0` is a GATE rather than a limitation: where a
-                  // mixture does occur, the group falls back to the text heading
-                  // and every row renders as itself. Nothing is hidden, and the
-                  // plan row appears only where it describes the whole set.
+                  // mixture does occur in a section that draws plan heads at all,
+                  // the group falls back to the text heading and every row
+                  // renders as itself. Nothing is hidden, and the plan row
+                  // appears only where it describes the whole set.
+                  //
+                  // WAITING ON YOU draws no plan head regardless of this gate —
+                  // `headed` above is forced `false` for `key === 'waiting-on-you'`
+                  // before `showPlanHeading` is even asked, so a mixed group
+                  // there falls back to the text heading for a different reason
+                  // than the one this comment names, not because of `=== 0`.
                   const planShape = planGroupShape(group.rows, key, slices);
                   const planHeads = !countsPlans && Boolean(group.plan) && planShape.heads;
                   // ARE THIS GROUP'S SLICE ROWS ON THE PAGE? Read by THREE things
                   // that must agree: the plan row's caret (`expanded`), the list
                   // that draws the rows, and the plan row's decision whether to
                   // state its sole slice's verdict. Computed once here, where
-                  // `planHeads` and the slice groups are already in hand.
-                  const planSliceGroups = sliceGroupsFor(group.rows, key, slices);
+                  // `planHeads` and the slice groups are already in hand — read
+                  // from `planShape.slices` rather than recomputed, so the two
+                  // cannot drift apart.
+                  const planSliceGroups = planShape.slices;
                   const planSliceRowsShown = sliceRowsShown(
                     planHeads, group.rows, planSliceGroups.length, group.plan, openPlans,
                   );

@@ -616,6 +616,11 @@ export function PlanRow({
   // `expanded`-dependent behaviour — the rule the change mark's own docstring
   // calls the shape it should have had.
   const prFold = planPrAggregate(group.rows.map((r) => r.pr?.state));
+  // THE PLAN'S OWN ROW, where one exists — an idea-branch row of `kind: 'plan'`
+  // carrying the plan's own branch and PR, exactly as `planGroupShape` finds it.
+  // Its fields feed the head's links; it is not counted in the tally below,
+  // because it IS the head rather than one of the things the head heads.
+  const planOwnRow = group.rows.find((r) => r.kind === 'plan');
   return (
     <TupleRowView
       tuple={(() => {
@@ -627,10 +632,14 @@ export function PlanRow({
           issues: card?.issues ?? [],
           phase,
           waitingDays: waiting,
+          branch: planOwnRow?.branch,
+          branchUrl: planOwnRow?.branchUrl,
+          pr: planOwnRow?.pr,
           // HOW MANY IT HEADS. The `h3` this row replaced carried `(3)` beside
           // the plan name, and the count went missing with it — leaving a folded
-          // group that does not say how much it hides.
-          rowCount: group.rows.length,
+          // group that does not say how much it hides. The plan's OWN row is
+          // not one of the things it heads, so it is excluded from the count.
+          rowCount: group.rows.filter((r) => r.kind !== 'plan').length,
         });
         // The BRANCH clock overrides the approval one where the caller has it and
         // the approval clock is absent — see `ageMinutes`. Unlabelled, because
