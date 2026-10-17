@@ -48,7 +48,7 @@ Three independent fixes, one slice each. Each is a bug fix with a reproducing te
 
 ### Ref path
 
-- `bug/deliver-ref-read-canonical-path` — #1355: canonical path for the ref read, combined test, arrow helpers, unwrapped changeset
+- `bug/deliver-ref-read-canonical-path` — #1355: canonical path for the ref read, combined test, arrow helpers, unwrapped changeset → #1989
 
 ### Scan source
 
