@@ -16,12 +16,19 @@ export interface TicketLaneRow {
   readonly type: string | null;
   /**
    * An assignee, resolved to a handle where the `People` directory declares
-   * its spelling; the first assignee's raw, unresolved spelling otherwise
-   * verbatim. `null` where nobody is assigned. Nothing on the row says which
-   * case applies — a reader comparing this field must treat it as free text,
-   * not as an already-resolved identity.
+   * its spelling; the first assignee's raw spelling, unresolved, otherwise.
+   * `null` where nobody is assigned. Nothing on the row says which case
+   * applies — a reader comparing this field must treat it as free text, not
+   * as an already-resolved identity.
    */
   readonly owner: string | null;
+  /**
+   * How `owner` was written, carried through from {@link TicketSource.match}
+   * so a reader can match it the way {@link ticketOwnership} does — strictly
+   * for `host-login`, leniently for `tracker-account`. `null` where the
+   * source could not be determined, which reads the same as `tracker-account`.
+   */
+  readonly sourceKind: TicketSource['match'] | null;
 }
 
 /** The Discovery tab's ticket lanes. */
@@ -116,6 +123,7 @@ const rowOf = (reading: Pick<TicketLanesReading, 'source' | 'directory'>) => (ro
   closedAt: row.closedAt ?? null,
   type: typeOf(row.type),
   owner: ownerOf(row.assignees, reading),
+  sourceKind: reading.source?.match ?? null,
 });
 
 const laneOf = (

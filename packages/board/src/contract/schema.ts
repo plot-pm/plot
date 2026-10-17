@@ -1212,6 +1212,8 @@ export const TicketLaneRowSchema = z.object({
   closedAt: z.string().nullable(),
   type: z.string().nullable().default(null),
   owner: z.string().nullable().default(null),
+  /** How `owner` was written — `host-login` matches it exactly, anything else reads it as free text. */
+  sourceKind: z.enum(['host-login', 'tracker-account']).nullable().default(null),
 });
 export type TicketLaneRow = z.infer<typeof TicketLaneRowSchema>;
 

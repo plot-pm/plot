@@ -69,23 +69,29 @@ const filterByReader = <T>(
 };
 
 /**
- * A ticket lane row, mapped to the ownership rule's `resolvedOwner` arm.
+ * A ticket lane row, mapped to the ownership rule's `ticket` or
+ * `resolvedOwner` arm, by `sourceKind`.
  *
- * `TicketLaneRow.owner` is resolved to a handle ONLY where the directory
- * declares its spelling — `ticketLanes`'s `ownerOf` falls back to the raw,
- * unresolved assignee spelling otherwise, and the row carries nothing that
- * says which case applies. Reading it as a `ticket` row with a fabricated
- * `host-login` source (the prior shape here) would compare that raw spelling
- * directly against the reader's login and call any mismatch `theirs` — hiding
- * a ticket whose tracker-account spelling the directory never declared, which
- * can be the reader's own. `resolvedOwner` instead matches it as free text,
- * the way a plan or story author is matched: `theirs` only where the
- * directory declares the spelling for somebody else, `unknown` otherwise.
+ * `host-login` matches `owner` the way {@link import('./ownership.js').ticketOwnership}
+ * matches a PR author — exact, no declared spelling required — because a
+ * row's one `owner` carries the same assignee `ticketsForReader` elsewhere
+ * reads from a full list; a single-element list reproduces that rule's
+ * per-assignee loop for the one name a Discovery row keeps.
+ *
+ * `tracker-account` and `null` keep the `resolvedOwner` arm: `owner` is
+ * resolved to a handle ONLY where the directory declares its spelling —
+ * `ticketLanes`'s `ownerOf` falls back to the raw, unresolved assignee
+ * spelling otherwise. Comparing that raw spelling directly against the
+ * reader's login would call any mismatch `theirs` — hiding a ticket whose
+ * tracker-account spelling the directory never declared, which can be the
+ * reader's own. `resolvedOwner` instead matches it as free text, the way a
+ * plan or story author is matched: `theirs` only where the directory
+ * declares the spelling for somebody else, `unknown` otherwise.
  */
-const ownedFromTicketLaneRow = (row: Pick<TicketLaneRow, 'owner'>): OwnedRow => ({
-  kind: 'resolvedOwner',
-  owner: row.owner,
-});
+const ownedFromTicketLaneRow = (row: Pick<TicketLaneRow, 'owner' | 'sourceKind'>): OwnedRow =>
+  row.sourceKind === 'host-login'
+    ? { kind: 'ticket', assignees: row.owner === null ? [] : [row.owner], source: { service: '', match: 'host-login' } }
+    : { kind: 'resolvedOwner', owner: row.owner };
 
 /**
  * A story row, as the ownership rule reads it.
@@ -105,11 +111,12 @@ const ownedFromStory = (story: Pick<ReaderStory, 'author'>): OwnedRow => ({ kind
  * when the filter is on.
  *
  * There is no ticket-source parameter here, unlike `ticketsForReader`
- * elsewhere: the raw assignee list and source a `TicketSourceShape` would
- * disambiguate never reach this row shape at all, only the single `owner`
- * string `ticketLanes` derives from them. {@link ownedFromTicketLaneRow} reads
- * that string as free text rather than assuming it is always a resolved
- * handle.
+ * elsewhere: the raw assignee list a `TicketSourceShape` would disambiguate
+ * never reaches this row shape, only the single `owner` string `ticketLanes`
+ * derives from it and the `sourceKind` it was derived under.
+ * {@link ownedFromTicketLaneRow} reads `sourceKind` to tell a host-login
+ * `owner` — matched exactly, the way `ticketsForReader` matches it — from a
+ * tracker-account or undetermined one, read as free text instead.
  *
  * @param storyLaneGroups - the story lane groups.
  * @param tickets - the ticket lane groups, or `null` where none were read.

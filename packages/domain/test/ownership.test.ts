@@ -343,10 +343,9 @@ describe('a resolved-owner row is owned by free-text matching, not host-login ma
   });
 
   it('reads an undeclared tracker-account spelling as unknown rather than theirs', () => {
-    // The scenario the HIGH review finding names: a Jira account spelling the
-    // directory never declared must not be assumed to belong to somebody
-    // else, because it could just as well be the reader under an undeclared
-    // spelling.
+    // A Jira account spelling the directory never declared must not be
+    // assumed to belong to somebody else, because it could just as well be
+    // the reader under an undeclared spelling.
     expect(ownership(resolvedOwner('jira-acct-99'), declared)).toBe('unknown');
     expect(isMine(resolvedOwner('jira-acct-99'), declared)).toBe(true);
   });
