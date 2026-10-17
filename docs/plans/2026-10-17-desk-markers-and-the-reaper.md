@@ -45,9 +45,9 @@ Each slice first reproduces its issues' findings on main with a failing test. A 
 
 ### Open Questions
 
-- [ ] Which of the ten findings still reproduce on main? The verdicts in the issue threads date from `c40ac9e96`.
-- [ ] Does #1784's "full path" test assert anything the surrounding tests do not? The issue says it was not re-checked.
-- [ ] #1386's endings from before #1371: does a one-time sweep justify its code, or do those desks age out first?
+- [ ] Which of the ten findings still reproduce on main? The verdicts in the issue threads date from `c40ac9e96`. The slice measures this and records the answer here before changing code.
+- [ ] Does #1784's "full path" test assert anything the surrounding tests do not? The issue says it was not re-checked. The slice measures this and records the answer here before changing code.
+- [x] #1386's endings from before #1371: does a one-time sweep justify its code, or do those desks age out first? Decided 2026-10-17 by Jan Wloka: no one-time sweep; endings from before #1371 age out under the reaper's normal rules, and the slice counts how many exist today and records the number.
 
 ## Slices
 
@@ -57,7 +57,7 @@ Each slice first reproduces its issues' findings on main with a failing test. A 
 
 ### Fresh agent
 
-- `bug/a-fresh-agent-prompt-describes-no-question` — #1389, #1386: the start path passes the ending reason or a marker flag; the prompt without a marker names no question; the empty `PLOT-BLOCKED` case; `dirtyPaths` read once per tick; the duplicate test and TSDoc history.
+- `bug/a-fresh-agent-prompt-describes-no-question` — #1389, #1386: the start path passes the ending reason or a marker flag; no one-time sweep for endings from before #1371, whose count today the slice records; the prompt without a marker names no question; the empty `PLOT-BLOCKED` case; `dirtyPaths` read once per tick; the duplicate test and TSDoc history.
 
 ### Needs a person
 
@@ -71,3 +71,4 @@ Each slice first reproduces its issues' findings on main with a failing test. A 
 
 - Source: https://github.com/plot-pm/plot/issues/1843. The plan writes nothing to the tracker.
 - The four slices touch separate call sites and have no declared order. The Reaper slice goes first, because it is the only one that can delete work.
+- 2026-10-17: open questions decided by Jan Wloka: #1386 gets no one-time sweep; endings from before #1371 age out.

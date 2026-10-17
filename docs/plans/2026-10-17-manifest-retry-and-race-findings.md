@@ -46,7 +46,7 @@ Each slice re-verifies its findings on main first, then fixes the ones that hold
 
 **Manifest cleanup.** Write the manifest last, just before the spawn, so no `failed` return leaves one behind. Where order cannot change, remove it on each `failed` return after a `write` verdict.
 
-**Continuation.** A continuation checks the run and spend limits before it returns. The one open decision is whether a person's answer overrides a limit (see Open Questions). A retry after `unstarted` reads the continuation again, and the `PLOT-CORRECTION.md` append is keyed so a second attempt writes nothing. The continuation entry gets its own heading. `readContinuation` separates a missing file from an unreadable or empty one. `CONTINUATION_NAME` moves to a leaf module, so the loop bundle stops importing the route module (measured in #1383: 1,399,113 B on main against 1,456,545 B on the head).
+**Continuation.** A continuation checks the run and spend limits before it returns. The limit wins over a person's answer: the continue refuses and names the limit (`Slice max runs` or `Slice max spend`). A retry after `unstarted` reads the continuation again, and the `PLOT-CORRECTION.md` append is keyed so a second attempt writes nothing. The continuation entry gets its own heading. `readContinuation` separates a missing file from an unreadable or empty one. Take-up keeps a continuation file written for another branch and records that branch, and only that branch reads it. `CONTINUATION_NAME` moves to a leaf module, so the loop bundle stops importing the route module (measured in #1383: 1,399,113 B on main against 1,456,545 B on the head).
 
 **Resume id.** An `unstarted` continuation does not take its `resumeId` from `resumeIdFromTranscript`. The route test sets `PLOT_TRANSCRIPT_HOME` and asserts the written manifest's `resumeId`, which also covers the untested recovery in #1373.
 
@@ -56,11 +56,11 @@ Each slice re-verifies its findings on main first, then fixes the ones that hold
 
 ### Open Questions
 
-- [ ] Does a person's answer override `Slice max runs` and `Slice max spend`, or does the limit win? The code and the plan `2026-10-08-a-blocked-agent-s-question-has` do not settle it. Recommendation: the limit wins and the refusal names the limit, because a person can raise the limit and a silent overrun cannot be undone.
-- [ ] Does a retry after `unstarted` carry the continuation? Recommendation: yes, the answer was never delivered.
-- [ ] Does take-up remove a continuation file written for another branch, or keep it for its slice? Recommendation: keep it, and record the branch it was written for, so a later take-up of that branch reads it and any other branch ignores it.
+- [x] Does a person's answer override `Slice max runs` and `Slice max spend`, or does the limit win? The code and the plan `2026-10-08-a-blocked-agent-s-question-has` do not settle it. Recommendation: the limit wins and the refusal names the limit, because a person can raise the limit and a silent overrun cannot be undone. Decided 2026-10-17 by Jan Wloka: the limit wins, and the continue refuses and names the limit (`Slice max runs` or `Slice max spend`).
+- [x] Does a retry after `unstarted` carry the continuation? Recommendation: yes, the answer was never delivered. Decided 2026-10-17 by Jan Wloka: yes, a retry after `unstarted` carries the continuation.
+- [x] Does take-up remove a continuation file written for another branch, or keep it for its slice? Recommendation: keep it, and record the branch it was written for, so a later take-up of that branch reads it and any other branch ignores it. Decided 2026-10-17 by Jan Wloka: take-up keeps a continuation file written for another branch and records that branch, and only that branch reads it.
 - [ ] Does a `blocked` desk's registry entry survive `leave()`? #1373 reopened the question from #1372: `main()` also calls `leave()` on a normal return, and `deregister` and `reap` remove entries. Measure it from the desk log and the registryd log around a restart before any code changes.
-- [ ] Does #1788's `unstarted` case need a second change beyond the `resumeId` source, for example a domain unit test only? Settle it when the slice re-reads `continue-target.ts`.
+- [ ] Does #1788's `unstarted` case need a second change beyond the `resumeId` source, for example a domain unit test only? Settle it when the slice re-reads `continue-target.ts`. The slice measures this and records the answer here before changing code.
 
 ## Slices
 
@@ -83,3 +83,4 @@ Each slice re-verifies its findings on main first, then fixes the ones that hold
 - Source: issue #1841 and its nine members; their threads hold the full evidence.
 - The two start-and-stop slices wait on each other because both edit `continue.ts` and `continue-route.test.ts`; the implement-lock slice leads because it settles the lock shape the continue start reuses.
 - A finding that main no longer reproduces closes in the PR that discovers it, with the command that showed it.
+- 2026-10-17: open questions decided by Jan Wloka: the limit wins over an answer; a retry after `unstarted` carries the continuation; take-up keeps another branch's continuation file for that branch.

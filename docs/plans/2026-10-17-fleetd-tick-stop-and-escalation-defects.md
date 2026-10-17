@@ -48,35 +48,36 @@ The members share one component and are mostly small. Fixed one issue per PR the
 
 Group the members by the code they touch. Each slice closes its members completely, so no member is left half-done across two slices.
 
-1. **Tick guard and escalations** — #1306, #1580, #1508, #1456. The guard, the memory bound and the tick-freshness reading change together.
+1. **Tick guard and escalations** — #1306, #1580, #1508, #1456. The guard, the memory bound and the tick-freshness reading change together. A fresh empty `fleetd.log` is not a tick, and the board shows starting until the first tick line.
 2. **Stop path** — #1577, #1586, #1526 (stop race). Everything that decides what happens after a stop begins.
 3. **Output and channel** — #1526 (newline, channel bound line, `over()` tests), #1539.
 4. **Unit harness** — #1590.
 5. **Usage-limit retry** — #1716.
-6. **Refused hold names its reason** — #1642. It crosses domain, fleetd and board, so it takes its own slice.
+6. **Refused hold names its reason** — #1642. It crosses domain, fleetd and board, so it takes its own slice. The refusal record derives from the tick each time and is never persisted.
 
 Each fix follows the layering rule in `CLAUDE.md`: a decision goes in the domain, and fleetd calls it. Each fix lands with a test that fails before it.
 
 ### Open Questions
 
-- [ ] #1580: does an empty fresh `fleetd.log` count as a tick? The issue asks for a decision; the plan records it before slice 1 starts.
-- [ ] #1456 and #1508 are partial: which of their bullets still hold on `main`? Slice 1 re-measures each before changing it, and drops a bullet `main` has already fixed.
-- [ ] #1642: does the refusal record (who, why, when) persist in the index or derive from the tick? The answer decides whether slice 6 touches a stored file.
-- [ ] Do slices 1 and 2 collide on the tick file? If they do, slice 2 waits for slice 1.
+- [x] #1580: does an empty fresh `fleetd.log` count as a tick? The issue asks for a decision; the plan records it before slice 1 starts. Decided 2026-10-17 by Jan Wloka: a fresh empty `fleetd.log` is not a tick, and the board shows starting until the first tick line.
+- [ ] #1456 and #1508 are partial: which of their bullets still hold on `main`? Slice 1 re-measures each before changing it, and drops a bullet `main` has already fixed. The slice measures this and records the answer here before changing code.
+- [x] #1642: does the refusal record (who, why, when) persist in the index or derive from the tick? The answer decides whether slice 6 touches a stored file. Decided 2026-10-17 by Jan Wloka: the refusal record derives from the tick each time and is never persisted, so slice 6 touches no stored file.
+- [ ] Do slices 1 and 2 collide on the tick file? If they do, slice 2 waits for slice 1. The slice measures this and records the answer here before changing code.
 
 ## Slices
 
 ### Implementation
 
-- `bug/fleetd-tick-guard-and-escalations` — guard `notifyEscalations`, bound `EscalationMemory`, settle the empty-log tick, and the #1456 and #1508 bullets that still hold
+- `bug/fleetd-tick-guard-and-escalations` — guard `notifyEscalations`, bound `EscalationMemory`, read a fresh empty log as no tick (the board shows starting), and the #1456 and #1508 bullets that still hold
 - `bug/fleetd-stop-starts-no-agent` — skip the scan's after-step once stopping, resolve `wt_root` with `pwd -P`, and the stop-race tests
 - `bug/fleetd-once-and-channel-output` — `--once` output on a macOS pipe, channel retry newline and bound line, `over()` tests
 - `bug/fleetd-unit-harness-findings` — the #1589 review findings
 - `bug/fleetd-retries-usage-limit-brief` — re-ask a brief that ended at the usage limit after its reset time
-- `bug/refused-hold-names-its-reason` — the Tick, `/plot-fleet --status` and the board show who refused, why and when
+- `bug/refused-hold-names-its-reason` — the Tick, `/plot-fleet --status` and the board show who refused, why and when, derived from the tick and never persisted
 
 ## Notes
 
 - Created unattended from issue #1846 on 2026-10-17. The Review and Impl answers follow the repo's `Plan PRs: required` setting and the multi-slice shape. No design answer was given, so the plan starts in Draft.
 - The member verdicts live in each member's thread. This draft was written from the tracking issue's summary lines and not from the threads, so slice 1 re-checks each bullet against `main` before changing code.
 - Nothing was written to the tracker.
+- 2026-10-17: open questions decided by Jan Wloka: #1580 a fresh empty `fleetd.log` is not a tick; #1642 the refusal record derives from the tick and is never persisted.

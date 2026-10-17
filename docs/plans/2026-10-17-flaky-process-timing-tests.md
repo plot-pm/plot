@@ -44,9 +44,9 @@ No domain or board source changes are planned. If #1544 shows the grace period i
 
 ### Open Questions
 
-- [ ] Does #1704 still fail on `main` after #1802, or is it already fixed?
-- [ ] Does the temp-path kill test (#1544) need a different grace value, or a wait on the kill?
-- [ ] Do the five fixes ship as one branch or as one branch per mechanism?
+- [ ] Does #1704 still fail on `main` after #1802, or is it already fixed? The slice measures this and records the answer here before changing code.
+- [ ] Does the temp-path kill test (#1544) need a different grace value, or a wait on the kill? The slice measures this and records the answer here before changing code.
+- [x] Do the five fixes ship as one branch or as one branch per mechanism? Decided 2026-10-17 by Jan Wloka: the five fixes ship as one branch, `infra/flaky-process-timing-tests`.
 
 ## Slices
 
@@ -58,3 +58,4 @@ No domain or board source changes are planned. If #1544 shows the grace period i
 
 - Draft created from issue #1850 by `/plot-idea`. Tracker untouched; the `Issue:` field is the only link.
 - Definition of Done: docs/definition-of-done.md
+- 2026-10-17: open questions decided by Jan Wloka: the five fixes ship as one branch.

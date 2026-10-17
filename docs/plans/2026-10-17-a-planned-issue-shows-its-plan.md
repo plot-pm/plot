@@ -36,11 +36,11 @@ Each lifecycle command writes the issue's plan state through the tracker connect
 | `plot-idea` (plan PR opened) | label `plan:draft`; one comment with the plan PR link | none (no `Tracker draft status` key) |
 | `plot-approve` | label `plan:approved`; the comment changes its link to the plan file on the default branch | `Tracker approved status` (new key) |
 | `plot-deliver` | label `plan:delivered` | `Tracker delivered status` |
-| `plot-release` | label `plan:released`; close the issue with a comment that names the release version | `Tracker released status` |
+| `plot-release` | label `plan:released`; the comment names the release version; close the issue | `Tracker released status` |
 
-Domain: extend `issueStatusWrites` (`packages/domain/src/rules/issue-status.ts`) with the draft and approved phases. The `Tracker` port grows one method, `planStateWrite`, beside `statusWrite` and `issueOpen`. It takes the issue, the phase, the plan link and, for `released`, the release version. `trackerGitHost` implements it over three new `plot-host.sh` operations (`issue-label`, `issue-comment`, `issue-close`), because `plot-host.sh` has no issue write beside `issue-open` and `issue-status` today. `trackerNone` answers `unaskable`. A Jira tracker keeps `statusWrite` and answers `no-target` to `planStateWrite`. A label write replaces the previous `plan:*` label, so an issue carries one. `StatusWrite` stays unchanged, and the `Issue` entity (`packages/domain/src/entities/issue.ts`) and `IssueIndexRow` keep no labels. `plot-issue-status.sh` stays the shell entry and gains the `Tracker approved status` read.
+Domain: extend `issueStatusWrites` (`packages/domain/src/rules/issue-status.ts`) with the draft and approved phases. The `Tracker` port grows one method, `planStateWrite`, beside `statusWrite` and `issueOpen`. It takes the issue, the phase, the plan link and, for `released`, the release version. `trackerGitHost` implements it over three new `plot-host.sh` operations (`issue-label`, `issue-comment`, `issue-close`), because `plot-host.sh` has no issue write beside `issue-open` and `issue-status` today. `trackerNone` answers `unaskable`. A Jira tracker keeps `statusWrite` and answers `no-target` to `planStateWrite`. A label write replaces the previous `plan:*` label, so an issue carries one. The link comment carries a hidden `<!-- plot:plan-link -->` marker; each phase finds that comment and edits it in place, so an issue carries one Plot comment. A failed write is reported and never raised, in every phase, and a missing label never blocks a lifecycle step. `StatusWrite` stays unchanged, and the `Issue` entity (`packages/domain/src/entities/issue.ts`) and `IssueIndexRow` keep no labels. `plot-issue-status.sh` stays the shell entry and gains the `Tracker approved status` read.
 
-Release: Plot closes no issue today, and this plan adds that as a new write. `plot-release` calls `planStateWrite` with `released` for each issue the plan's `Issue:` line names. On GitHub the write sets `plan:released`, posts one comment that names the release version, and closes the issue. On Jira the existing `Tracker released status` write stays the only write. The `plot-release/SKILL.md:455` sentence and the hand-close advice at `plot-reconcile-scan.sh:3114` change to match.
+Release: Plot closes no issue today, and this plan adds that as a new write. `plot-release` calls `planStateWrite` with `released` for each issue the plan's `Issue:` line names. On GitHub the write sets `plan:released`, edits the plan-link comment to name the release version, and closes the issue. On Jira the existing `Tracker released status` write stays the only write. The `plot-release/SKILL.md:455` sentence and the hand-close advice at `plot-reconcile-scan.sh:3114` change to match.
 
 Rules: three documented rules forbid this write as they read today. `packages/domain/src/ports/tracker.ts:51-53` calls a label on a status write "the mirror this port exists to refuse", and `:149-152` says Plot writes "no comment, no label on an existing issue". `packages/domain/src/entities/issue.ts:21-29` leaves labels out of the entity, because a field Plot writes and reads back is a write-back loop. `skills/plot/MANIFESTO.md:17` makes a tracker a read-only reflection, never the source of truth. A one-way write keeps all three intact in substance: Plot writes the label and the comment, and no Plot code reads them back. Git stays the source of truth for the plan's phase, and the board derives "planned" from git. The label is a reflection a person reads in the tracker, as the status write already is. The connector slice amends the doc comments at `tracker.ts:51-53,149-152` and `issue.ts:21-29` to name `planStateWrite` as the third write and to state that no rule reads a `plan:*` label.
 
@@ -49,8 +49,8 @@ Board: the inbox derives "planned" from git and never from a label. Today `refer
 ### Open Questions
 
 - [x] Does the issue index (`issues.json`) carry labels today? No: `IssueIndexRow` and the `Issue` entity carry no labels, and the board needs none, because it derives "planned" from git. `issues.json` keeps its version.
-- [ ] A write that fails is reported and never raised, as for the delivered and released writes. Does `plot-idea` follow the same rule when the plan PR is already open?
-- [ ] Idempotence: a re-run of `plot-approve` must not post a second comment. The comment needs a marker the connector can find.
+- [x] A write that fails is reported and never raised, as for the delivered and released writes. Does `plot-idea` follow the same rule when the plan PR is already open? Decided 2026-10-17 by Jan Wloka: yes, `plot-idea` reports a failed write and continues, as the delivered and released writes do, and a missing label never blocks a lifecycle step.
+- [x] Idempotence: a re-run of `plot-approve` must not post a second comment. The comment needs a marker the connector can find. Decided 2026-10-17 by Jan Wloka: the link comment carries a hidden `<!-- plot:plan-link -->` marker, and each phase finds that one comment and edits it in place, so an issue has one Plot comment ever.
 
 ## Slices
 
@@ -61,9 +61,10 @@ Board: the inbox derives "planned" from git and never from a label. Today `refer
 
 ### Lifecycle commands
 
-- `feature/issue-plan-state-commands` — `plot-idea`, `plot-approve`, `plot-deliver` and `plot-release` call the write, and the release closes the issue with a comment naming the version; `Tracker approved status` is documented in the config reference; `plot-release/SKILL.md` and `plot-reconcile-scan.sh` stop saying a person closes the issue by hand <!-- waits: feature/issue-plan-state-write -->
+- `feature/issue-plan-state-commands` — `plot-idea`, `plot-approve`, `plot-deliver` and `plot-release` call the write, and the release closes the issue with the plan-link comment naming the version; `Tracker approved status` is documented in the config reference; `plot-release/SKILL.md` and `plot-reconcile-scan.sh` stop saying a person closes the issue by hand <!-- waits: feature/issue-plan-state-write -->
 
 ## Notes
 
 - Source: https://github.com/plot-pm/plot/issues/1979. The plan writes nothing to the tracker until it is approved and implemented.
 - 2026-10-17: amended after review #1986 by Jan Wloka's decision: inbox reads git, labels are a one-way reflection, release closes the issue.
+- 2026-10-17: open questions decided by Jan Wloka: a failed write in `plot-idea` is reported and never raised; one marked plan-link comment is edited in place.

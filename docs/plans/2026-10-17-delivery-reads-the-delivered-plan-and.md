@@ -36,13 +36,13 @@ Three independent fixes, one slice each. Each is a bug fix with a reproducing te
 
 1. **#1355, the ref path.** Build the path as `path.join(planDir, path.basename(file))`, or take `path.relative` against `realpathSync(repoRoot)` as `board.ts:446` does. Add the combined test (active symlink + `read_ref`, repo under a symlinked temp root). Convert `pulseNaming` and `planBody` to arrows and unwrap the changeset description.
 2. **#1340, the scan source.** Pick one of the three fixes the issue names: the scan reads plan files from `origin/<default>` with `git show` (same source as its merged-PR checks); `plot-deliver.sh` fast-forwards the local default branch after a clean push; or step 7b runs `git pull --ff-only` first. The first is the only one that does not depend on the checkout being on the default branch. Correct `SKILL.md:487` whichever is chosen. Test: deliver on a checkout on the default branch, run the scan without pulling, and assert the plan is absent above the blocking-sections marker.
-3. **#1349, the write queue.** Serialise default-branch writes: one queue per repository shared by the release, approve and deliver routes, or a lock the push step (`plot-push-main.sh`) takes. A second write waits. The lock placement decides whether CLI callers outside the board are covered; the push-step lock covers them, the route queue does not.
+3. **#1349, the write queue.** Serialise default-branch writes with a lock the push step (`plot-push-main.sh`) takes, so every caller is covered, including a no-board `plot-deliver.mjs` call. A second write waits up to 120 s. A waiter past the bound refuses and names the holder's pid and action.
 
 ### Open Questions
 
-- [ ] #1340: which of the three fixes? Reading from `origin/<default>` changes what every scan section sees, so its cost against the scan's CPU budget needs measuring first.
-- [ ] #1349: queue in the board routes or lock in `plot-push-main.sh`? What is the wait bound, and what does a waiter report when the bound passes?
-- [ ] Do slices 1 and 2 share the ref-read code, so that #1340 reuses the path fix from #1355?
+- [ ] #1340: which of the three fixes? Reading from `origin/<default>` changes what every scan section sees, so its cost against the scan's CPU budget needs measuring first. The slice measures this and records the answer here before changing code.
+- [x] #1349: queue in the board routes or lock in `plot-push-main.sh`? What is the wait bound, and what does a waiter report when the bound passes? Decided 2026-10-17 by Jan Wloka: a lock inside `plot-push-main.sh` covers every caller, the wait bound is 120 s, and a waiter past the bound refuses and names the holder's pid and action, because a queue in the board routes leaves a no-board `plot-deliver.mjs` call racing.
+- [ ] Do slices 1 and 2 share the ref-read code, so that #1340 reuses the path fix from #1355? The slice measures this and records the answer here before changing code.
 
 ## Slices
 
@@ -56,9 +56,10 @@ Three independent fixes, one slice each. Each is a bug fix with a reproducing te
 
 ### Write queue
 
-- `bug/default-branch-writes-take-turns` — #1349: serialise default-branch lifecycle writes
+- `bug/default-branch-writes-take-turns` — #1349: serialise default-branch lifecycle writes with a lock in `plot-push-main.sh`, a 120 s wait bound and a refusal that names the holder
 
 ## Notes
 
 - Created unattended from #1838. The overlap with `2026-10-01-delivery-reads-the-last-finished-scan` and `2026-10-07-delivery-reads-one-source` (both delivered) is deliberate: #1340 and #1355 are residue of that work.
 - Deliverable search found nothing by these names.
+- 2026-10-17: open questions decided by Jan Wloka: #1349 takes a lock in `plot-push-main.sh` with a 120 s wait bound and a refusal that names the holder.
