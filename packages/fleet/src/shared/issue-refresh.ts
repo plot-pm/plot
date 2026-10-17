@@ -9,6 +9,7 @@ import {
   ISSUE_REFRESH_MS,
   issueIntervalMs,
   issueSource,
+  issueWriteThrough,
   type Issue,
   type IssueIndex,
   type IssueIndexClosed,
@@ -18,6 +19,7 @@ import {
 } from '@plot-pm/domain';
 import { TRACKER_LISTERS, trackerOfSource, type ShellContext } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
+import type { IssueWriteSpool } from '@plot-pm/domain/ports/issue-write-spool';
 import type { ClosedIssues, IssueRead, TrackerSpender } from '@plot-pm/domain/ports/tracker';
 
 import { hostReaction, prGateOpen, waitOf, type IssueGateReading } from './pr-refresh.js';
@@ -39,6 +41,17 @@ export const freshIssueState = (): IssueState => ({
   issueError: null,
 });
 
+/** The states whose pass or drain is writing the index now; the other waits for the next beat. */
+const writing = new WeakSet<IssueState>();
+
+/**
+ * Whether a pass or a drain is writing the index for `state` now.
+ *
+ * @param state - the cadence carried between passes.
+ * @returns true while one is.
+ */
+export const issueIndexBusy = (state: IssueState): boolean => writing.has(state);
+
 /** The PR pass's own backoff, as the issue pass reads it. */
 export interface PrBackoffReading {
   /** The PR pass's connector, or null before its first pass. */
@@ -59,6 +72,8 @@ export interface IssueWorld {
   gitHost: string;
   /** The issue index; the pass is its one writer. */
   issueStore: IssueIndexStore;
+  /** The writes Plot made to the tracker, waiting for the next drain; absent where none are taken. */
+  issueWrites?: IssueWriteSpool;
   /** Reads the PR pass's backoff. The issue pass never writes the PR state. */
   prBackoff: () => PrBackoffReading;
   /** The clock in epoch ms; defaults to `Date.now`. */
@@ -588,10 +603,65 @@ export const fleetIssues = (
   warn: (line: string) => void,
 ): (() => Promise<void>) => async () => {
   if (!issueGateOpen(state.issueNextAt, state.issueNextIsBackoff, world.now ?? Date.now)) return;
+  if (writing.has(state)) return;
+  writing.add(state);
   try {
     await refreshIssueIndex(world, state);
   } catch (e) {
     warn(`plot-fleetd: issue read failed: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    writing.delete(state);
+  }
+};
+
+/**
+ * Folds the writes in the spool into the issue index.
+ *
+ * The write-through: the spool holds the rows Plot's own successful
+ * `issueOpen` and `statusWrite` calls changed, and this is the one place they
+ * reach `issues.json`, through the one writer. It asks the tracker nothing.
+ * Where the index is missing, no write names its connector and account, or
+ * the store cannot be read, the spool is still emptied: the next full read
+ * answers every row.
+ *
+ * @param world - what the pass reaches; the spool and the store.
+ * @returns the number of writes taken from the spool.
+ */
+export const drainIssueWrites = async (world: IssueWorld): Promise<number> => {
+  if (world.issueWrites === undefined) return 0;
+  const taken = await world.issueWrites.drain();
+  if (!taken.ok || taken.value.length === 0) return 0;
+  const previous = await world.issueStore.read();
+  const next = issueWriteThrough(previous.ok ? previous.value : null, taken.value);
+  if (next !== null) await world.issueStore.write(next);
+  return taken.value.length;
+};
+
+/**
+ * Builds the beat that drains the spool of tracker writes.
+ *
+ * It rides every base beat, so a row reaches the index within one beat of the
+ * write. It waits while an issue pass writes the index, so the pass's whole-file
+ * write cannot drop a folded row; the spool keeps the writes for the next beat.
+ *
+ * @param world - what the pass reaches.
+ * @param state - the cadence carried between passes.
+ * @param warn - receives a one-line reason when a drain throws.
+ * @returns the function to hand to `startFleetClock` as `issueWrites`.
+ */
+export const fleetIssueWrites = (
+  world: IssueWorld,
+  state: IssueState,
+  warn: (line: string) => void,
+): (() => Promise<void>) => async () => {
+  if (world.issueWrites === undefined || writing.has(state)) return;
+  writing.add(state);
+  try {
+    await drainIssueWrites(world);
+  } catch (e) {
+    warn(`plot-fleetd: issue write-through failed: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    writing.delete(state);
   }
 };
 

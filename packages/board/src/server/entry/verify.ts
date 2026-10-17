@@ -6,8 +6,12 @@ import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-s
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { runProcess } from '@plot-pm/domain/adapters/run-script';
+import { handOffIssueWrite } from '@plot-pm/domain/adapters/issue-write-spool/hand-off-issue-write';
+import { issueWriteSpoolFile } from '@plot-pm/domain/adapters/issue-write-spool/issue-write-spool-file';
+import { reviewIssueUrl } from '@plot-pm/domain/adapters/tracker/tracker-issue-url';
 import { trackerForIssues } from '@plot-pm/domain/adapters/tracker/tracker-resolve';
 import type { Host, PlanStore, Refs, Scripts, Tracker, Trees } from '@plot-pm/domain';
+import type { IssueWriteSpool } from '@plot-pm/domain/ports/issue-write-spool';
 import { claimsOf, renderClaims } from '@plot-pm/domain/rules/claims';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { archiveRound, isArchivedRound, jurorPath, moderationPath, panelDir } from '@plot-pm/domain/rules/panel';
@@ -136,6 +140,8 @@ export interface Context {
   trees: Trees;
   /** Resolves the tracker that opens issues from the declared `Tracker` key and the git host's backend. */
   issueTracker: (declared: string, backend: string) => Tracker;
+  /** Where an issue Plot opened is handed to the issue index; absent hands nothing. */
+  issueWrites?: IssueWriteSpool;
   /** Sleeps between push attempts; the ladder's jittered 2 to 10 s wait where absent. */
   retryWait?: () => Promise<void>;
 }
@@ -577,6 +583,7 @@ const writeIssueState = (file: string, state: IssueState): void => {
  * @param judged - the commit the claims were judged at.
  * @param verdicts - what the fold answered.
  * @param recorded - the refuted lines of the plan on the default branch.
+ * @param issueWrites - where each issue the tracker opened is handed to the issue index; absent hands nothing.
  * @returns the issue note per refuted claim text.
  * @throws {Refused} when the state file exists and does not parse; nothing opens.
  */
@@ -587,6 +594,7 @@ export const openRefutedIssues = async (
   judged: string,
   verdicts: readonly ClaimVerdict[],
   recorded: readonly RefutedClaim[] = [],
+  issueWrites?: IssueWriteSpool,
 ): Promise<Map<string, IssueNote>> => {
   const entries: Record<string, IssueEntry> = { ...readIssueState(stateFile) };
   const notes = new Map<string, IssueNote>();
@@ -597,7 +605,16 @@ export const openRefutedIssues = async (
     }
     entries[step.claim] = { pending: true };
     writeIssueState(stateFile, entries);
-    const opened = await tracker.issueOpen({ ...refutedIssue(slug, step.verdict, judged), labels: ['ai-generated'] });
+    const issue = refutedIssue(slug, step.verdict, judged);
+    const opened = await tracker.issueOpen({ ...issue, labels: ['ai-generated'] });
+    if (opened.ok && issueWrites !== undefined) {
+      const { scheme, baseUrl } = tracker.config();
+      await handOffIssueWrite(tracker, issueWrites, {
+        number: opened.value.id,
+        title: issue.title,
+        url: reviewIssueUrl(scheme, baseUrl, opened.value.id, '') ?? '',
+      });
+    }
     const answer = opened.ok
       ? { opened: opened.value.id }
       : { refused: (opened.why === 'unaskable' ? opened.reason : undefined) ?? tracker.lastRefusal() };
@@ -720,6 +737,7 @@ export const record = async (ctx: Context, args: Args, write: Printer, warn: Pri
       facts.judged,
       verdicts,
       refutedClaims(present.value),
+      ctx.issueWrites,
     );
     for (const [claim, note] of notes) {
       if ('noIssue' in note && note.noIssue.startsWith(ISSUE_MAY_EXIST)) {
@@ -877,6 +895,7 @@ export const run = async (
     scripts: scriptsShell(context),
     trees: treesGit(context),
     issueTracker: (declared, backend) => trackerForIssues(declared, backend, context),
+    issueWrites: issueWriteSpoolFile({ cwd: repoRoot }),
     retryWait: retryWaitFromEnv(process.env.PLOT_PUSH_RETRY_WAIT_MS),
   };
   try {

@@ -1,4 +1,5 @@
-import { trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
+import { handOffIssueWrite, issueWriteSpoolFile, trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
+import type { IssueWriteSpool } from '@plot-pm/domain/ports/issue-write-spool';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import {
   issueStatusWrites,
@@ -88,13 +89,21 @@ export const wordsFrom = (argv: readonly string[]): IssueStatusWords => {
  *
  * @param reading - the plan and the configured words.
  * @param tracker - the connector the repository declared.
+ * @param issueWrites - where each status the tracker took is handed to the issue index; absent hands nothing.
  * @returns one `<issue>\t<outcome>\t<reason>` line per owed write.
  */
-export const writeStatuses = async (reading: IssueStatusReading, tracker: Tracker): Promise<string[]> => {
+export const writeStatuses = async (
+  reading: IssueStatusReading,
+  tracker: Tracker,
+  issueWrites?: IssueWriteSpool,
+): Promise<string[]> => {
   const lines: string[] = [];
   for (const { issue, status } of issueStatusWrites(reading)) {
     const result = await tracker.statusWrite({ prUrl: '', issue, status });
     const outcome: WriteOutcome = result.ok ? result.value : result.why;
+    if (outcome === 'written' && issueWrites !== undefined) {
+      await handOffIssueWrite(tracker, issueWrites, { number: issue, status });
+    }
     const reason = (outcome === 'written' ? status : (tracker.lastRefusal() ?? FALLBACK[outcome]))
       .replace(/\s+/g, ' ')
       .trim();
@@ -132,7 +141,7 @@ export const run = async (
   // and the 90% of plans naming no issue have no reason to pay for it.
   if (issueStatusWrites(reading).length === 0) return EXIT.ok;
   const tracker = await trackerShell(context);
-  for (const line of await writeStatuses(reading, tracker)) write(line);
+  for (const line of await writeStatuses(reading, tracker, issueWriteSpoolFile({ cwd: context.repoRoot }))) write(line);
   return EXIT.ok;
 };
 

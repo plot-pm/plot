@@ -16,6 +16,7 @@ import {
   planStoreShell,
   prIndexFile,
   issueIndexFile,
+  issueWriteSpoolOver,
   supervisionReportFile,
   tempSweepShell,
   notifierCommand,
@@ -66,7 +67,7 @@ import { verifyingCount } from '../../shared/auto-verify.js';
 import { specRunningCount } from '../../shared/auto-design.js';
 import { runDeskRelay } from '../../shared/desk-relay.js';
 import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js';
-import { fleetIssues, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
+import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
 import { refreshDefaultBranch } from '../../shared/default-branch-refresh.js';
 import { freshScanState } from '../../shared/fleet-scan.js';
@@ -1883,6 +1884,8 @@ export interface RunSeams {
   readDefaultBranch?: () => Promise<void>;
   /** The issue read on the issue beat. */
   readIssues?: () => Promise<void>;
+  /** Replaces the drain of the tracker writes Plot made; tests only. */
+  readIssueWrites?: () => Promise<void>;
 }
 
 /**
@@ -2079,24 +2082,26 @@ export const run = async (
   // through `issueGateOf` and never writes that file.
   const issueState = freshIssueState();
   const issueStore = issueIndexFile({ cwd: repoRoot });
+  const issueWorld = {
+    context: { repoRoot, scriptDir: scriptsDir },
+    declaredTracker: await readConfigAsync({ repoRoot, scriptsDir }, 'Tracker', ''),
+    gitHost: await (async () => {
+      const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
+      if (answer.ok) return answer.value;
+      const reason = answer.why === 'unaskable' && answer.reason !== undefined ? answer.reason : answer.why;
+      warn(`plot-fleetd: the git host probe did not answer (${reason}) — assuming github\n`);
+      return 'github';
+    })(),
+    issueStore,
+    issueWrites: issueWriteSpoolOver(issueStore),
+    prBackoff: () => ({
+      connector: prState.backend,
+      account: prState.prAccount,
+      until: prState.prNextIsBackoff ? prState.prNextAt : null,
+    }),
+  };
   const readIssues = fleetIssues(
-    {
-      context: { repoRoot, scriptDir: scriptsDir },
-      declaredTracker: await readConfigAsync({ repoRoot, scriptsDir }, 'Tracker', ''),
-      gitHost: await (async () => {
-        const answer = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
-        if (answer.ok) return answer.value;
-        const reason = answer.why === 'unaskable' && answer.reason !== undefined ? answer.reason : answer.why;
-        warn(`plot-fleetd: the git host probe did not answer (${reason}) — assuming github\n`);
-        return 'github';
-      })(),
-      issueStore,
-      prBackoff: () => ({
-        connector: prState.backend,
-        account: prState.prAccount,
-        until: prState.prNextIsBackoff ? prState.prNextAt : null,
-      }),
-    },
+    issueWorld,
     issueState,
     warn,
   );
@@ -2193,6 +2198,7 @@ export const run = async (
         ),
         prs: prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind),
         issues: seams.readIssues ?? readIssues,
+        issueWrites: seams.readIssueWrites ?? fleetIssueWrites(issueWorld, issueState, warn),
       }, warn);
   const runTick = seams.tick ?? tick;
   // THE WAIT BETWEEN TICKS ENDS ON A STOP. A stop read before the wait skips
