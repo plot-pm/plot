@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1954 merged
+- **Started:** 2026-10-17, Jan Wloka, `bug/the-registry-reads-branch-line-waits`
 
 ## Changelog
 
