@@ -88,6 +88,23 @@ export const TUPLE_TRACKS =
   'grid-cols-[1.5rem_4.5rem_minmax(12rem,auto)_1fr_8rem_4.5rem_1.25rem]';
 
 /**
+ * A TICKET ROW's tracks: the title gives way, the plan name keeps a floor.
+ *
+ * Slot 3 of `TUPLE_TRACKS` grows to the name's full width, so a long ticket
+ * title took every pixel and left the inferred plan name in slot 4 with none —
+ * six rows of nine showed only the plan icon (#1960, 2026-10-17). Here slot 3 is
+ * `minmax(8rem, 1fr)` and truncates, and slot 4 is `minmax(6rem, auto)`: 6rem
+ * holds about 14 characters of a slug, and the track grows to the full name
+ * where the title leaves room.
+ *
+ * The floors are sized for 640 px, the `sm` breakpoint where rows become grids:
+ * 640 − 24 padding − 72 gaps − 316 fixed tracks (24 + 72 + 128 + 72 + 20) leaves
+ * 228 px, and 8rem + 6rem is 224 px.
+ */
+export const TICKET_TRACKS =
+  'grid-cols-[1.5rem_4.5rem_minmax(8rem,1fr)_minmax(6rem,auto)_8rem_4.5rem_1.25rem]';
+
+/**
  * SLOT 1's CELL — the marks track, and it is declared HERE because the tuple is
  * what renders it.
  *
@@ -549,6 +566,7 @@ export function TupleRowView({
   rowAttr,
   highlighted = false,
   bordered = true,
+  tracks = TUPLE_TRACKS,
 }: {
   tuple: TupleRowData;
   onOpenPlan?: (planFile: string) => boolean;
@@ -649,6 +667,8 @@ export function TupleRowView({
    * `inPlanGroup`, kept because the defect it prevents is still reachable.
    */
   bordered?: boolean;
+  /** The grid's tracks. Defaults to `TUPLE_TRACKS`; a ticket row passes `TICKET_TRACKS`. */
+  tracks?: string;
 }) {
   return (
     <li
@@ -660,7 +680,7 @@ export function TupleRowView({
       // The ring is `-inset` so it hugs the row without a track of its own, and
       // it is the same blue the board's highlighted card wears — one arrival
       // colour across both tabs.
-      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm sm:grid ${TUPLE_TRACKS} sm:items-baseline sm:gap-x-3 ${
+      className={`relative flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm sm:grid ${tracks} sm:items-baseline sm:gap-x-3 ${
         bordered ? 'border-t border-slate-100 dark:border-slate-800' : ''
       } ${highlighted ? 'rounded-sm ring-2 ring-inset ring-blue-500' : ''}`}
     >
