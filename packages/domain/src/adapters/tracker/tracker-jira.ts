@@ -119,6 +119,22 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
     issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
     issueListOpen: (limit): Promise<PortResult<IssueRead>> => reads.issueListOpen(limit),
 
+    // GATED THE SAME WAY `issueListInbox` IS: a changed-since read scoped by
+    // project needs a project to scope by, and with none declared there is no
+    // JQL this read could narrow to.
+    issueListChanged: async (since: string, limit: number): Promise<PortResult<IssueRead>> => {
+      const projects = await projectsRead();
+      if (!projects.ok) {
+        reads.refuse(projects.why);
+        return failed();
+      }
+      if (projects.projects.length === 0) {
+        reads.refuse(null);
+        return unaskable(`a Jira changed-issue read needs '${PROJECTS_KEY}' declared`);
+      }
+      return reads.issueListChanged(since, limit);
+    },
+
     // GATED HERE, NOT IN THE SHELL. `plot-host.sh`'s own `inbox` arm sends its
     // query unconditionally — the person-scoped read is what every Jira lanes
     // query used to be, so it never needed a precondition. The precondition

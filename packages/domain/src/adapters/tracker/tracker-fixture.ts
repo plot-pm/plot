@@ -102,6 +102,14 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
       return answered({ issues: open.slice(0, limit), complete: open.length < limit, pages: pagesOf(Math.min(open.length, limit)) });
     },
 
+    // Every fixture issue with an `updatedAt` at or after `since`, in fixture
+    // order; an issue with no `updatedAt` never matches, the same way a row
+    // with none never wins a fold (`foldIssueRows`).
+    issueListChanged: async (since, limit): Promise<PortResult<IssueRead>> => {
+      const changed = issues.filter((issue) => issue.updatedAt !== undefined && issue.updatedAt >= since);
+      return answered({ issues: changed.slice(0, limit), complete: changed.length < limit, pages: pagesOf(Math.min(changed.length, limit)) });
+    },
+
     issueListInbox: async (limit): Promise<PortResult<IssueRead>> => {
       if (fixture.inbox === undefined) return unaskable('this fixture has no inbox configured');
       const inbox = fixture.inbox;

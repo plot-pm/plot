@@ -20,6 +20,7 @@ interface RawIssue {
   closedAt?: string;
   assignees?: string[];
   type?: string;
+  updatedAt?: string;
   nextPageToken?: string;
 }
 
@@ -62,6 +63,7 @@ export const issueOf = (raw: RawIssue): Issue => ({
   closedAt: raw.closedAt !== undefined && raw.closedAt !== '' ? raw.closedAt : null,
   assignees: raw.assignees ?? [],
   ...(raw.type === undefined || raw.type === '' ? {} : { type: raw.type }),
+  ...(raw.updatedAt === undefined || raw.updatedAt === '' ? {} : { updatedAt: raw.updatedAt }),
 });
 
 /**
@@ -321,6 +323,19 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
       const read = await walk(['issue-list', '--state', 'closed', '--since', since], limit);
       return read.ok ? answered({ ...read.value, issues: newestCloseFirst(read.value.issues) }) : read;
     },
+
+    /**
+     * Lists the issues, open or closed, changed at or after `since`, walking
+     * the script's pages: `issue-list --state changed --since <since>`. See
+     * {@link walk}.
+     *
+     * @param since - the earliest change to include, ISO-8601.
+     * @param limit - how many issues to read at most.
+     * @returns the changed issues, whether the read reached its end, and the
+     *   requests it spent.
+     */
+    issueListChanged: (since: string, limit: number): Promise<PortResult<IssueRead>> =>
+      walk(['issue-list', '--state', 'changed', '--since', since], limit),
 
     /**
      * Lists the reader's own open issues, walking the script's pages:
