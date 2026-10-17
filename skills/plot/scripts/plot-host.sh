@@ -78,7 +78,9 @@
 #                                 head sha, the newest `plot/review` status on it
 #                                 (`success|failure|pending|error`, or `absent`),
 #                                 and whether a comment starts `review-bypass:`.
-#                                 Bitbucket EXITS 4 (unaskable). EXIT 3 is the
+#                                 Bitbucket reads the same words from the
+#                                 `plot/review` commit status (SUCCESSFUL,
+#                                 FAILED, INPROGRESS, STOPPED). EXIT 3 is the
 #                                 question failing.
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL
@@ -1399,6 +1401,15 @@ ci_scheme() {
   ci_raw | awk '{print tolower($1)}'
 }
 
+# A Jenkins colour as a PR row's `checks` word, shared by both shapes of job.
+JEN_COLOUR_JQ='def color_to_checks:
+  if . == null or . == "" then "none"
+  elif endswith("_anime") then "pending"
+  elif . == "blue" then "green"
+  elif . == "red" or . == "yellow" then "failing"
+  else "none"
+  end; '
+
 # Fetch Jenkins build statuses for every branch in a multibranch job, in ONE
 # call, and return them as a JSON object keyed by DECODED branch name.
 #
@@ -1514,14 +1525,7 @@ jenkins_build_map() {
     # find it — `runs` reads that key, and the op's caller asks by the name the
     # instance declares.
     *'.WorkflowJob')
-      printf '%s' "$view_out" | jq -c --arg job "$job" '
-        def color_to_checks:
-          if . == null or . == "" then "none"
-          elif endswith("_anime") then "pending"
-          elif . == "blue" then "green"
-          elif . == "red" or . == "yellow" then "failing"
-          else "none"
-          end;
+      printf '%s' "$view_out" | jq -c --arg job "$job" "$JEN_COLOUR_JQ"'
         ($job | split("/") | last) as $name
         | { status: "ok",
             map: { ($name): { color: .color,
@@ -1568,17 +1572,10 @@ jenkins_build_map() {
   #   red | yellow         → failing  (yellow is UNSTABLE — tests failed; NOT green)
   #   *_anime              → pending  (a build is running)
   #   disabled | absent    → none     (no build to report — absent is not failed)
-  printf '%s' "$out" | jq -c --arg job "$job" '
+  printf '%s' "$out" | jq -c --arg job "$job" "$JEN_COLOUR_JQ"'
     def urldecode:
       gsub("%(?<h>[0-9A-Fa-f]{2})";
         "\(.h | explode | reduce .[] as $c (0; . * 16 + (if $c >= 97 then $c - 87 elif $c >= 65 then $c - 55 else $c - 48 end)) | [.] | implode)");
-    def color_to_checks:
-      if . == null or . == "" then "none"
-      elif endswith("_anime") then "pending"
-      elif . == "blue" then "green"
-      elif . == "red" or . == "yellow" then "failing"
-      else "none"
-      end;
     # `job` NAMES the specific failing build for `failing_checks` — the whole
     # point of naming it is so a reader knows which Jenkins job to open. That is
     # the branch job, qualified by its container: `<container>/<branch>` (or the
@@ -1742,6 +1739,37 @@ jenkins_sha_runs() {
           url: (.url // ""),
           startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ]
     | map(select(.sha == $sha))' || exit 4
+}
+
+# The sha-bound readings of the PR rows $3 whose branch colour in $2 cannot
+# settle the head: a JSON object keyed by branch, or nothing where no lookup
+# was needed. $1 = the op's name. The bundle names the rows (at most
+# `SHA_LOOKUPS_PER_PASS`), `jenkins_sha_runs` reads each by sha, the bundle binds
+# them. A lookup that cannot ask Jenkins ends the pass, and the colour stands.
+jenkins_bind_rows() {
+  { jq -c . <<<"$2"; jq -c . <<<"$3"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null \
+    | while IFS=$'\t' read -r _b _s _j; do
+        _r=$(jenkins_sha_runs "$1" "$_b" 20 "$_s" 2>/dev/null </dev/null) || break
+        printf '%s\t%s\t%s\t%s\n' "$_b" "$_s" "$_j" "$_r"
+      done | node "$here/board/plot-jenkins-pr-checks.mjs" bind 2>/dev/null
+}
+
+# Prints the `pr-state` row of the Bitbucket PR payload $1 (`null` for no PR).
+#
+# Without `CI: jenkins` the check is `unknown`, absent and not false, as in
+# `pr-list`'s plain Bitbucket arm. Under it the branch colour from
+# `jenkins_build_map` settles `none` and `pending`, and a head whose colour is
+# `green` or `failing` is read by sha through `jenkins_bind_rows`, because a
+# colour carries no commit. Jenkins unreachable reads `unknown`, as in `pr-list`.
+# `headSha` is `source.commit.hash` from the payload already fetched.
+bb_state_row() {
+  local colours=null bound=null inst
+  if jq -e '.id' >/dev/null 2>&1 <<<"$1" && [ "$(ci_scheme)" = "jenkins" ]; then
+    inst="$(jenkins_instance)"; [ -n "$inst" ] || jenkins_no_instance
+    colours="$(jenkins_build_map "$inst" | jq -c 'if .status == "ok" then (.map // {}) else null end' 2>/dev/null)" || colours=null
+    [ "$colours" = null ] || bound="$(jenkins_bind_rows pr-state "$colours" "$(jq -c '[{headRefName:.source.branch.name,headRefOid:.source.commit.hash}]' <<<"$1")")"
+  fi
+  printf '%s\n%s\n%s\n' "$1" "$colours" "${bound:-null}" | node "$here/board/plot-jenkins-pr-checks.mjs" state
 }
 
 ci_unaskable() { # $1 = the op's name, $2 = the CI word (may be empty)
@@ -3619,7 +3647,7 @@ case "$op" in
       if [[ "$ref" =~ ^[0-9]+$ ]]; then
         if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json 2>"$HOST_ERR")"; then
           rm -f "$HOST_ERR"
-          jq -c '{number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href,mergeCommit:(.merge_commit.hash // ""),base:(.destination.branch.name // "")}' <<<"$out"
+          bb_state_row "$out"
         else
           err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
@@ -3668,9 +3696,7 @@ case "$op" in
           #
           # The hash rides on the page the state walk already fetched, so this
           # costs no extra call.
-          jq -c --arg b "$ref" '[.[] | select(.source.branch.name==$b)][0] // null
-               | if .==null then {number:0,state:"NONE",draft:false,url:"",mergeCommit:""}
-                 else {number:.id,state:(if .state=="DECLINED" then "CLOSED" else .state end),draft:(.draft // false),url:.links.html.href,mergeCommit:(.merge_commit.hash // ""),base:(.destination.branch.name // "")} end' <<<"$out"
+          bb_state_row "$(jq -c --arg b "$ref" '[.[] | select(.source.branch.name==$b)][0] // null' <<<"$out")"
         else
           err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
@@ -3701,13 +3727,26 @@ case "$op" in
       esac
     done
     # NO REMOTE, NO PR: no repository holds one, so nothing merged, whatever gh's auth says.
-    if [ ${#repo_args[@]} -eq 0 ] && [ -z "$(git remote 2>/dev/null)" ]; then echo "not-merged"; elif [ "$be" = "github" ]; then
-      # --state all, because a merged PR reports CLOSED and the default `open`
-      # would hide every one of them. --limit 100 rather than 1: the newest PR
-      # is not the merge, exactly as the state is not the merge.
-      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt 2>"$HOST_ERR")"; then
+    if [ ${#repo_args[@]} -eq 0 ] && [ -z "$(git remote 2>/dev/null)" ]; then echo "not-merged"; else
+      if [ "$be" = "github" ]; then
+        # --state all, because a merged PR reports CLOSED and the default `open`
+        # would hide every one of them. --limit 100 rather than 1: the newest PR
+        # is not the merge, exactly as the state is not the merge.
+        pm_cmd=(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt)
+        pm_jq='any(.[]; .mergedAt != null)'
+      else
+        bb_require_json
+        # Bitbucket has no `--head` filter, so the branch is matched locally.
+        # MERGED is bb's own state word here rather than a timestamp: the API
+        # exposes no `mergedAt`, so this is the closest fact the backend holds,
+        # and it is a positive statement about the merge rather than an inference
+        # from CLOSED — `DECLINED` is bb's closed-unmerged word and is distinct.
+        pm_cmd=(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state merged --json)
+        pm_jq='any(.[]; .source.branch.name==$b)'
+      fi
+      if out="$("${pm_cmd[@]}" 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        if jq -e 'any(.[]; .mergedAt != null)' >/dev/null 2>&1 <<<"$out"; then
+        if jq -e --arg b "$ref" "$pm_jq" >/dev/null 2>&1 <<<"$out"; then
           echo "merged"
         else
           echo "not-merged"
@@ -3718,29 +3757,6 @@ case "$op" in
         # Anything else is the host failing to be asked, and that is `unknown`
         # rather than exit 3: the caller asked a question with a third value
         # for exactly this case, and the answer fails safe toward keeping.
-        if [ -z "$err" ] || is_lookup_miss "$err"; then
-          echo "not-merged"
-        else
-          echo "plot-host: $err" >&2
-          echo "unknown"
-        fi
-      fi
-    else
-      bb_require_json
-      # Bitbucket has no `--head` filter, so the branch is matched locally.
-      # MERGED is bb's own state word here rather than a timestamp: the API
-      # exposes no `mergedAt`, so this is the closest fact the backend holds,
-      # and it is a positive statement about the merge rather than an inference
-      # from CLOSED — `DECLINED` is bb's closed-unmerged word and is distinct.
-      if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state merged --json 2>"$HOST_ERR")"; then
-        rm -f "$HOST_ERR"
-        if jq -e --arg b "$ref" 'any(.[]; .source.branch.name==$b)' >/dev/null 2>&1 <<<"$out"; then
-          echo "merged"
-        else
-          echo "not-merged"
-        fi
-      else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         if [ -z "$err" ] || is_lookup_miss "$err"; then
           echo "not-merged"
         else
@@ -3859,7 +3875,14 @@ case "$op" in
     ;;
 
   pr-review)
-    [ "$be" = "github" ] || { echo "plot-host: pr-review: bitbucket is not supported yet" >&2; exit 4; }
+    if [ "$be" != "github" ]; then
+      pr="/repositories/{ws}/{repo}/pullrequests/${1:?pr-review needs a PR number}"
+      out="$(bb api "$pr")" && sha="$(jq -re '.source.commit.hash' <<<"$out")" \
+        && st="$(bb api "/repositories/{ws}/{repo}/commit/$sha/statuses?sort=-created_on&pagelen=50")" && cm="$(bb api "$pr/comments?pagelen=100")" \
+        && printf '%s\n%s\n%s\n' "$sha" "$st" "$cm" | node "$here/board/plot-jenkins-pr-checks.mjs" review \
+        || { echo "plot-host: pr-review: the read failed" >&2; exit 3; }
+      exit 0
+    fi
     out="$(gh pr view "${1:?pr-review needs a PR number}" --json headRefOid,comments)" && st="$(gh api "repos/{owner}/{repo}/commits/$(jq -r .headRefOid <<<"$out")/statuses")" \
       && jq -c --argjson st "$st" '{sha: .headRefOid, state: ([$st[] | select(.context == "plot/review")][0].state // "absent"), bypass: any(.comments[]?; .body | startswith("review-bypass:"))}' <<<"$out" \
       || { echo "plot-host: pr-review: the read failed" >&2; exit 3; } ;;
@@ -4213,11 +4236,7 @@ case "$op" in
           # gets a reading from it, the pass asks no further row, and `jmap`'s
           # colour stands, unbound — the contract above `jenkins_sha_runs`.
           # 20 builds per lookup: one round trip at any window, and a plain job lists every branch's builds.
-          _sha_map=$({ jq -c . <<<"$jen_map"; jq -c . <<<"$_gh_raw"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null \
-            | while IFS=$'\t' read -r _b _s _j; do
-                _r=$(jenkins_sha_runs pr-list "$_b" 20 "$_s" 2>/dev/null </dev/null) || break
-                printf '%s\t%s\t%s\t%s\n' "$_b" "$_s" "$_j" "$_r"
-              done | node "$here/board/plot-jenkins-pr-checks.mjs" bind 2>/dev/null)
+          _sha_map=$(jenkins_bind_rows pr-list "$jen_map" "$_gh_raw")
           printf '%s' "$_gh_raw" \
             | jq -c --argjson jmap "$jen_map" --argjson shamap "${_sha_map:-null}" --arg jstatus "$jen_status" '.[] |
               ($shamap[.headRefName] // $jmap[.headRefName] // null) as $eff |

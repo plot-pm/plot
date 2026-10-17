@@ -715,7 +715,8 @@ test('host: pr-state bitbucket normalizes DECLINED to CLOSED', () => {
   });
   const out = JSON.parse(run(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(out, {
-    number: 9, state: 'CLOSED', draft: false, url: 'https://example.test/pr/9', mergeCommit: '', base: 'develop',
+    number: 9, state: 'CLOSED', draft: false, url: 'https://example.test/pr/9', mergeCommit: '', headSha: '', base: 'develop',
+    checks: 'unknown', checksSha: '',
   });
 });
 
@@ -873,7 +874,8 @@ test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', (
   });
   const hit = JSON.parse(run(['pr-state', 'feature/a'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(hit, {
-    number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4', mergeCommit: '', base: 'main',
+    number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4', mergeCommit: '', headSha: '', base: 'main',
+    checks: 'unknown', checksSha: '',
   });
   // NOT `--state all`: bb has no such state. See the strict-stub tests below.
   assert.ok(
@@ -2719,6 +2721,66 @@ test('host: a sha lookup answered with a build of the head reads that build, bou
     'the branch colour says red, and the build of this head says SUCCESS');
   assert.equal(rows.get('feature/red').checksSha, 'sha-head');
   assert.deepEqual(rows.get('feature/red').failing_checks, []);
+});
+
+// --- Bitbucket pr-state binds its checks to the head ------------------------
+
+test('host: pr-state bitbucket names the head and reads checks unknown without CI jenkins', () => {
+  const stubs = makeStubs({
+    bbJson: '{"id":5,"state":"OPEN","source":{"branch":{"name":"feature/red"},"commit":{"hash":"sha-head"}},'
+      + '"links":{"html":{"href":"https://example.test/pr/5"}},"destination":{"branch":{"name":"main"}}}',
+  });
+  const out = JSON.parse(run(['pr-state', '5'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  assert.equal(out.headSha, 'sha-head', 'read from the payload already fetched');
+  assert.equal(out.checks, 'unknown');
+  assert.equal(out.checksSha, '');
+});
+
+// An AMBIGUOUS colour (red) and a head that no build carries: a naive join of
+// the branch colour would read `failing`, a build of an older head. The head
+// has not been built, so the honest word is `pending`.
+const bbJenkinsPrState = (args, { build, bbJson }) => {
+  const rest = makeCurlAnswering(build);
+  const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
+  const hostStubs = makeStubs({ bbJson });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const res = spawnSync('bash', [adapter, 'pr-state', ...args], { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  return JSON.parse(res.stdout);
+};
+
+const BB_RED_PR = {
+  id: 5, state: 'OPEN', source: { branch: { name: 'feature/red' }, commit: { hash: 'sha-new-head' } },
+  links: { html: { href: 'https://example.test/pr/5' } }, destination: { branch: { name: 'main' } },
+};
+
+test('host: pr-state bitbucket under jenkins reads pending for a head no build carries, by number', () => {
+  const out = bbJenkinsPrState(['5'], {
+    build: jenkinsBuildsFor('sha-older-head', 'FAILURE'),
+    bbJson: JSON.stringify(BB_RED_PR),
+  });
+  assert.equal(out.headSha, 'sha-new-head');
+  assert.equal(out.checks, 'pending', 'the branch colour is red, and the colour is not about this head');
+  assert.equal(out.checksSha, '');
+});
+
+test('host: pr-state bitbucket under jenkins reads pending for a head no build carries, by branch', () => {
+  const out = bbJenkinsPrState(['feature/red'], {
+    build: jenkinsBuildsFor('sha-older-head', 'FAILURE'),
+    bbJson: JSON.stringify([BB_RED_PR]),
+  });
+  assert.equal(out.number, 5);
+  assert.equal(out.checks, 'pending');
+});
+
+test('host: pr-state bitbucket under jenkins reads the build of the head, bound to it', () => {
+  const out = bbJenkinsPrState(['5'], {
+    build: jenkinsBuildsFor('sha-new-head', 'SUCCESS'),
+    bbJson: JSON.stringify(BB_RED_PR),
+  });
+  assert.equal(out.checks, 'green', 'the colour says red, and the build of this head says SUCCESS');
+  assert.equal(out.checksSha, 'sha-new-head');
 });
 
 test('host: a refresh reads at most five rows by sha, the most recently updated first', () => {
@@ -4921,7 +4983,8 @@ test('host: pr-state bitbucket is unaffected — no budget query, no REST', () =
   // button has. The key is present because the arm always emits it; the value
   // is empty because there is nothing honest to put in it.
   assert.deepEqual(out, {
-    number: 7, state: 'MERGED', draft: false, url: 'https://bb.test/pr/7', mergeCommit: '', base: '',
+    number: 7, state: 'MERGED', draft: false, url: 'https://bb.test/pr/7', mergeCommit: '', headSha: '', base: '',
+    checks: 'unknown', checksSha: '',
   });
   assert.equal(argvOf(stubs.ghArgv), null, 'the GitHub CLI is not touched on a Bitbucket repo');
 });

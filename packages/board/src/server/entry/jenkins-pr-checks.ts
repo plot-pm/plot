@@ -5,6 +5,7 @@ import {
   type JenkinsShaRun,
   type PrRowHead,
 } from '@plot-pm/domain/rules/jenkins-pr-checks';
+import { bitbucketPrState, bitbucketReview } from '@plot-pm/domain/rules/bitbucket-pr-reading';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -17,6 +18,13 @@ import { pathToFileURL } from 'node:url';
  * <branch>\t<sha>\t<job>                      # one row to read by sha
  * printf '<branch>\t<sha>\t<job>\t<runs json>\n' | plot-jenkins-pr-checks.mjs bind
  * {"<branch>":{"checks":"green","job":"<job>","checksSha":"<sha>"}}
+ * ```
+ *
+ * Two more verbs fold what the shell read for Bitbucket (`pr-state`, `pr-review`):
+ *
+ * ```
+ * printf '<pr json|null>\n<colours json|null>\n<bound json|null>\n' | plot-jenkins-pr-checks.mjs state
+ * printf '<sha>\n<statuses json>\n<comments json>\n' | plot-jenkins-pr-checks.mjs review
  * ```
  *
  * The shell keeps the transport: it makes the Jenkins call per listed row and
@@ -59,11 +67,21 @@ export const run = (
   warn: (s: string) => void = (s) => process.stderr.write(s),
 ): number => {
   const verb = argv[0];
-  if (verb !== 'rows' && verb !== 'bind') {
-    warn('plot-jenkins-pr-checks: usage: plot-jenkins-pr-checks.mjs <rows|bind> < readings\n');
+  if (verb !== 'rows' && verb !== 'bind' && verb !== 'state' && verb !== 'review') {
+    warn('plot-jenkins-pr-checks: usage: plot-jenkins-pr-checks.mjs <rows|bind|state|review> < readings\n');
     return EXIT.usage;
   }
   const lines = stdin.split('\n').filter((l) => l !== '');
+  if (verb === 'state') {
+    const [pr, colours, bound] = [0, 1, 2].map((i) => parseLine(lines[i] ?? ''));
+    write(`${JSON.stringify(bitbucketPrState(pr as never, colours as never, bound as never))}\n`);
+    return EXIT.ok;
+  }
+  if (verb === 'review') {
+    const [statuses, comments] = [1, 2].map((i) => (parseLine(lines[i] ?? '') as { values?: never[] } | null)?.values ?? []);
+    write(`${JSON.stringify(bitbucketReview(lines[0] ?? '', statuses, comments))}\n`);
+    return EXIT.ok;
+  }
   if (verb === 'rows') {
     const colours = parseLine(lines[0] ?? '');
     const rows = parseLine(lines[1] ?? '');
