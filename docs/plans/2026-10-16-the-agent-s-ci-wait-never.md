@@ -69,7 +69,7 @@ Wave order follows the dependency: gap 1 and gap 7 are independent and run first
 
 ### Commit binding
 
-- `bug/jenkins-pr-checks-bind-to-head` — bind PR row checks to `headSha`, read plain pipelines by sha, map `aborted` and `notbuilt` (gaps 3, 4, 10) <!-- waits: bug/jenkins-default-branch-workflow -->
+- `bug/jenkins-pr-checks-bind-to-head` → #1959 — bind PR row checks to `headSha`, read plain pipelines by sha, map `aborted` and `notbuilt` (gaps 3, 4, 10) <!-- waits: bug/jenkins-default-branch-workflow -->
 
 ### Bitbucket and GitHub readings
 
