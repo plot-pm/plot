@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1975 merged
+- **Started:** 2026-10-17, Jan Wloka, `bug/a-long-ticket-title-hides-the`
 
 ## Changelog
 
