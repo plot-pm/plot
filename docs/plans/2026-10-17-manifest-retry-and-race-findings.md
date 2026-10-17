@@ -66,7 +66,7 @@ Each slice re-verifies its findings on main first, then fixes the ones that hold
 
 ### Implement lock
 
-- `bug/the-implement-lock-covers-its-start` — the six gaps in #1528, ending with a real detached-start test and the 409 mapped to running <!-- builds: a real-path test for the detached implement start -->
+- `bug/the-implement-lock-covers-its-start` — the six gaps in #1528, ending with a real detached-start test and the 409 mapped to running → #1999 <!-- builds: a real-path test for the detached implement start -->
 
 ### Start and stop
 
