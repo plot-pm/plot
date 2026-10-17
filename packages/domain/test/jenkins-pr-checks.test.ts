@@ -62,4 +62,11 @@ describe('rowsToBind', () => {
   it('skips a row with no head sha', () => {
     expect(rowsToBind([{ headRefName: 'a', headRefOid: '' }, { headRefName: 'b' }], colours)).toEqual([]);
   });
+
+  it('falls back to the branch name when the colour entry carries no job', () => {
+    const noJob = { a: { checks: 'green' } };
+    expect(rowsToBind([{ headRefName: 'a', headRefOid: 'sa' }], noJob)).toEqual([
+      { branch: 'a', sha: 'sa', job: 'a' },
+    ]);
+  });
 });
