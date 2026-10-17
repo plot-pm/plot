@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   queueOfPlan,
@@ -5,12 +8,14 @@ import {
   type MergedListing,
   type QueueWorld,
 } from '../../src/shared/queue-reading.js';
-import type { PlanRecord } from '@plot-pm/domain';
+import { isAnswered, type PlanRecord } from '@plot-pm/domain';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { LandedAnswer } from '@plot-pm/domain/rules/landed';
 import { whyNotReady } from '@plot-pm/domain/rules/queue';
 import { VIEWS_PER_PASS } from '@plot-pm/domain/rules/known-pr';
 import type { AgentEntry } from '../../src/shared/registry.js';
+import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
+import { shellContext } from '@plot-pm/domain/adapters/scripts';
 
 /** One registry manifest, in the shape `plot-dispatch.sh` writes it. */
 const manifest = (over: Partial<AgentEntry> = {}): AgentEntry =>
@@ -1109,5 +1114,86 @@ describe('a merged index row settles a branch the listing does not name', () => 
       remoteHead: async (b) => (asked.push(`ref:${b}`), 'absent'),
     }));
     expect(asked).toEqual(['feature/two', 'ref:feature/two']);
+  });
+});
+
+/**
+ * A BRANCH-LINE `waits:` REACHES THE QUEUE THROUGH THE PARSER.
+ *
+ * The block above builds a `PlanRecord` by hand, so it never exercised
+ * `plot-plan-meta.sh`. This one writes a markdown plan whose bullet carries a
+ * `builds:` marker followed by a `waits:` marker — the shape issue #1273
+ * measured — and reads it through the parser, the plan-store adapter,
+ * `readQueue` and `whyNotReady`.
+ */
+describe('a branch-line `waits:` holds the slice through the parser', () => {
+  const REPO_ROOT = new URL('../../../..', import.meta.url).pathname;
+
+  const markdownPlan = (): string =>
+    [
+      '# A plan',
+      '',
+      '## Status',
+      '',
+      '- **State:** Approved',
+      '',
+      '## Slices',
+      '',
+      '### The waiter',
+      '',
+      '- `infra/the-waiter` — needs the helper <!-- builds: the loop --> <!-- waits: infra/the-prerequisite -->',
+      '',
+      '### The follower',
+      '',
+      '- `infra/the-follower` — comes after the waiter',
+      '',
+    ].join('\n');
+
+  const parsed = async (): Promise<PlanRecord> => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-branch-line-waits-'));
+    try {
+      const file = join(dir, '2026-10-04-a-plan.md');
+      writeFileSync(file, markdownPlan());
+      const read = await planStoreShell(shellContext(REPO_ROOT)).readPlan(file);
+      if (!isAnswered(read)) throw new Error('the adapter could not read the plan');
+      return { ...read.value, phase: 'approved' } as PlanRecord;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  const world = (record: PlanRecord, over: Partial<QueueWorld> = {}): QueueWorld => ({
+    plans: async () => [record],
+    claimedBranches: async () => new Set<string>(),
+    mergedBranches: async () => wholeListing([]),
+    prIndexRows: async () => [],
+    viewLanded: async () => 'unknown',
+    briefPresent: async () => true,
+    sliceHasMerged: async () => false,
+    subjectProven: async () => null,
+    queuedHasLanded: async () => 'not-landed',
+    workerAlive: async () => true,
+    blocked: async () => false,
+    refused: async () => false,
+    remoteHead: async () => 'absent',
+    commitSubjects: async () => ({ ok: true, value: [] }),
+    now: () => 0,
+    defaultBranch: async () => 'main',
+    ...over,
+  });
+
+  it('holds the waiting slice as `waits` while its prerequisite is unmerged', async () => {
+    const record = await parsed();
+    const readings = await readQueue([], world(record));
+    const slice = readings.slices.find((s) => s.branch === 'infra/the-waiter')!;
+    expect(slice.waitsOn).toEqual(['infra/the-prerequisite']);
+    expect(whyNotReady(slice)).toBe('waits');
+  });
+
+  it('holds slice 2 as `not-claimable` while slice 1 is unmerged and unclaimed', async () => {
+    const record = await parsed();
+    const readings = await readQueue([], world(record));
+    const slice = readings.slices.find((s) => s.branch === 'infra/the-follower')!;
+    expect(whyNotReady(slice)).toBe('not-claimable');
   });
 });
