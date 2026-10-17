@@ -1666,9 +1666,7 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
   local IFS=/
   for seg in $1; do [ -n "$seg" ] && out="$out/job/$seg"; done
   unset IFS
-  if [ -n "${2:-}" ]; then
-    out="$out/job/$(printf '%s' "$2" | sed 's|/|%2F|g')"
-  fi
+  [ -n "${2:-}" ] && out="$out/job/$(printf '%s' "$2" | sed 's|/|%2F|g')"
   printf '%s' "$out"
 }
 
@@ -2595,9 +2593,7 @@ jira_load_env_file() {
 }
 
 jira_require_config() {
-  if [ -z "$(tracker_base_url)" ]; then
-    die3 "Tracker is jira but no base URL is configured (write 'Tracker: jira https://your.atlassian.net' or set PLOT_JIRA_BASE_URL)"
-  fi
+  [ -n "$(tracker_base_url)" ] || die3 "Tracker is jira but no base URL is configured (write 'Tracker: jira https://your.atlassian.net' or set PLOT_JIRA_BASE_URL)"
   jira_load_env_file
   if [ -z "${JIRA_EMAIL:-}" ] || [ -z "${JIRA_API_TOKEN:-}" ]; then
     echo "plot-host: Jira needs JIRA_EMAIL and JIRA_API_TOKEN in the environment — an unauthenticated Jira must not read as an empty inbox" >&2
@@ -3440,9 +3436,7 @@ be="$(backend)" || exit $?
 # `gh_route`, never reads a budget, and `$route` stays empty for it. That
 # emptiness is the honest value — there is no route where there is no fork.
 route=""
-if [ "$be" = "github" ]; then
-  route="$(gh_route "$op")"
-fi
+[ "$be" = "github" ] && route="$(gh_route "$op")"
 
 case "$op" in
   backend)
