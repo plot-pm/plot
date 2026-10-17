@@ -4732,8 +4732,7 @@ case "$op" in
       # carries `updatedAt` so the adapter's fold can compare it.
       elif [ "$state" = changed ]; then
         [ -n "$scope" ] || { echo "plot-host: changed Jira issues need 'Ticket prefixes' declared; an unscoped updated query reads the whole instance" >&2; exit 4; }
-        when="${since:0:10} ${since:11:5}"; jql="updated >= \"${when% }\"${scope} ORDER BY updated DESC"
-        fields="$fields,updated,resolutiondate"; paged=1
+        when="${since:0:10} ${since:11:5}"; jql="updated >= \"${when% }\"${scope} ORDER BY updated DESC"; fields="$fields,updated,resolutiondate"; paged=1
       fi
       [ -z "$paged" ] || { max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; }
       token_args=(); [ -z "$page_token" ] || token_args=(--data-urlencode "nextPageToken=$page_token")
@@ -4796,11 +4795,8 @@ case "$op" in
       # itself, not the call, says what it is. `updatedAt` rides along so the
       # adapter's fold can compare it the way `foldIssueRows` already does.
       gh_json="number,title,url,createdAt,assignees,issueType"; search_args=(); ask_state="$gh_state"
-      if [ "$gh_state" = changed ]; then
-        gh_json+=",updatedAt,state,closedAt"; ask_state=all; search_args=(--search "updated:>=$since")
-      elif [ "$gh_state" != open ]; then
-        gh_json+=",closedAt"; search_args=(--search "closed:>=$since")
-      fi
+      if [ "$gh_state" = changed ]; then gh_json+=",updatedAt,state,closedAt"; ask_state=all; search_args=(--search "updated:>=$since")
+      elif [ "$gh_state" != open ]; then gh_json+=",closedAt"; search_args=(--search "closed:>=$since"); fi
       if out="$(gh issue list --state "$ask_state" ${limit_args[@]+"${limit_args[@]}"} \
                   ${search_args[@]+"${search_args[@]}"} --json "$gh_json" 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
