@@ -35,7 +35,9 @@ export interface EndedDeskReadings {
 
 /** Where an ended desk belongs, and the words its row prints. */
 export interface EndedDeskPlacement {
-  /** True when a person must look at the desk; false when it only waits to be reaped. */
+  /** The board section the desk's row belongs in. */
+  readonly section: 'waiting-on-you' | 'quiet';
+  /** True when a person must look at the desk; false when it only waits to be reaped. Derived from `section`. */
   readonly owesPerson: boolean;
   /** The row text; `''` when the desk owes a person and has no ending to word. */
   readonly note: string;
@@ -79,7 +81,7 @@ export const freeWaitEnded = (ending: EndingReading, exit: string | null): boole
  * @returns whether a person is owed, and the row text.
  */
 export const endedDeskPlacement = (readings: EndedDeskReadings): EndedDeskPlacement => {
-  const owed: EndedDeskPlacement = { owesPerson: true, note: '' };
+  const owed: EndedDeskPlacement = { section: 'waiting-on-you', owesPerson: true, note: '' };
   if (!freeWaitEnded(readings.ending, readings.exit)) return owed;
   if (
     readings.merged !== true ||
@@ -90,5 +92,9 @@ export const endedDeskPlacement = (readings: EndedDeskReadings): EndedDeskPlacem
     return owed;
   }
   const after = readings.boundSeconds === null ? 'at the wait bound' : `after ${hours(readings.boundSeconds)} h`;
-  return { owesPerson: false, note: `ended ${after} with no slice offered — reaped on the next pass` };
+  return {
+    section: 'quiet',
+    owesPerson: false,
+    note: `ended ${after} with no slice offered — reaped on the next pass`,
+  };
 };

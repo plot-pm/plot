@@ -10,6 +10,7 @@ import {
   ELIGIBLE_NOTE,
   FINISHED_PLAN_NOTE,
   FleetScanLineSchema,
+  isBrokenState,
   isLiveState,
   PR_UNKNOWN_NOTE,
   unknownPhaseNote,
@@ -65,6 +66,8 @@ import {
   type Reader,
   type TicketSource,
   type PersonDirectory,
+  freeWaitEnded,
+  readEnding,
 } from '@plot-pm/domain';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
 // rather than behind `BuildBoardOptions`: the cap is shared state on the
@@ -6924,6 +6927,51 @@ export async function estateTotals(
   return counts;
 }
 
+/** One desk file's text, or `null` where absent — the same read `withEndedDesks` defaults to. */
+const readDeskFileSafe = (worktree: string, name: string): string | null => {
+  try {
+    return fs.readFileSync(path.join(worktree, name), 'utf8');
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Whether any entry's ending reads {@link freeWaitEnded} — the one case
+ * `endedDeskPlacement` can answer `quiet` for, and so the only case the
+ * `Worker bound` is worth paying a config read for.
+ *
+ * `read` is seamed exactly like `withEndedDesks`'s, so a test can prove the
+ * answer with no filesystem.
+ *
+ * @param agents - the registry's entries.
+ * @param read - returns one desk file's text, or `null` where absent.
+ * @returns true where at least one entry's desk would need `boundSeconds`.
+ */
+export const anyFreeWaitEnded = (
+  agents: readonly AgentEntry[],
+  read: (worktree: string, name: string) => string | null = readDeskFileSafe,
+): boolean =>
+  agents.some((agent) => {
+    if (agent.worktree === '' || !isBrokenState(agent.state)) return false;
+    const ending = readEnding(read(agent.worktree, '.plot-worker.ending.json'));
+    return freeWaitEnded(ending, read(agent.worktree, '.plot-worker.exit'));
+  });
+
+/**
+ * `Worker bound` in seconds, or `null` where the key is absent or not a
+ * positive whole number of seconds.
+ *
+ * `boundSecondsOf` (`@plot-pm/fleet/shared/fleet-run`) is deliberately not
+ * used: it substitutes a default for an absent or `0` key, and
+ * `endedDeskPlacement` must tell `0`, absent and unknown apart from a real
+ * bound — each of the first three words the note "at the wait bound".
+ */
+const workerBoundSeconds = async (opts: BuildBoardOptions): Promise<number | null> => {
+  const value = Number(await readConfigAsync(opts, 'Worker bound', ''));
+  return Number.isInteger(value) && value > 0 ? value : null;
+};
+
 /**
  * Read the cached pulse. Never runs the scan — that is the whole point.
  * `repoRoot` stays a parameter even while the UI shows one repo, so the second
@@ -7060,6 +7108,14 @@ export async function buildFleet(
   // state is added. A registry entry whose session has ended (`stalled`,
   // `finished`, `unknown`) is not a worker and is not counted.
   const liveAgents = entry.agents.filter((a) => isLiveState(a.state)).length;
+  // `Worker bound` is read ONLY where at least one entry's ending reads
+  // `freeWaitEnded` — the config read is an uncached subprocess (0.12-0.94 s
+  // measured) and `/api/fleet` is polled every 4 s per viewer, so paying for
+  // it on every refresh for a fleet with no ended free desk would be a cost
+  // with no reader. `boundSecondsOf` is deliberately not used here: it
+  // substitutes 28800 for an absent or `0` key, and a desk's note must read
+  // "at the wait bound" rather than "after 0 h" for either.
+  const boundSeconds = anyFreeWaitEnded(entry.agents) ? await workerBoundSeconds(opts) : null;
   return {
     generatedAt: new Date().toISOString(),
     ageSeconds,
@@ -7150,7 +7206,7 @@ export async function buildFleet(
     // Beside `rows`, never derived from them: a row is a branch that mentions an
     // agent, this is an agent that mentions a branch. A running worker appears
     // in both and is not duplicated — the entities differ.
-    agents: withEndedDesks(entry.agents, placedRows),
+    agents: withEndedDesks(entry.agents, placedRows, boundSeconds),
     // Metadata about the registry read — directory, manifest count, synthesized
     // count. Makes a synthesized fleet legible: a reader seeing `0 manifests,
     // 12 synthesized` knows the drop menu is absent because the board is reading

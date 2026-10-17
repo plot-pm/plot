@@ -3855,9 +3855,12 @@ export const AgentEntrySchema = z.object({
   /**
    * Where the desk belongs once its loop has ended, from `endedDeskPlacement`.
    * Absent where no ending record was read, which keeps the entry's placement
-   * unchanged; `owesPerson: false` removes the entry from Waiting on you.
+   * unchanged; `section: 'quiet'` (and `owesPerson: false`) moves the entry
+   * from Waiting on you to Quiet.
    */
-  ended: z.object({ owesPerson: z.boolean(), note: z.string() }).optional(),
+  ended: z
+    .object({ section: z.enum(['waiting-on-you', 'quiet']), owesPerson: z.boolean(), note: z.string() })
+    .optional(),
 });
 export type AgentEntry = z.infer<typeof AgentEntrySchema>;
 

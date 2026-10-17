@@ -79,7 +79,7 @@ import { SLICE_LINKING_KINDS, groupBySlice, sliceLabel } from '../lib/agent-rows
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { waitingView } from '../lib/agent-rows/waiting-view.js';
 import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, SliceRow, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
-import { workingAgentRows, brokenAgentRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
+import { workingAgentRows, brokenAgentRows, quietEndedDeskRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
 import { PlanLevelRowView, sectionCount, verificationRows } from '../lib/agent-rows/plan-level-row.js';
 import { specRows } from '../lib/agent-rows/spec-row.js';
@@ -474,6 +474,10 @@ export function AgentList({
   // branch rows by the same rule as `workingRows`, so the row's plan and PR
   // travel with it where one exists.
   const brokenRows = brokenAgentRows(ownAgents, rowByBranch);
+  // A RELEASED FREE DESK'S NOTE — for QUIET. `endedDeskPlacement` answers
+  // `section: 'quiet'` for a desk whose free wait ran out clean, which
+  // `brokenRows` above filters out of Waiting on you; this is its landing.
+  const quietRows = quietEndedDeskRows(ownAgents, rowByBranch);
   // THE DRAFT PLANS NO BRANCH ROW CARRIES — for WAITING ON YOU. Tested against
   // the unfiltered `fleet.rows`, like the joins above: a row the sprint filter
   // hides still means the plan has one. `?? []` because the client casts the
@@ -1132,6 +1136,7 @@ export function AgentList({
           registry: workingRows.length,
           broken: brokenRows.length,
           drafts: draftRows.length,
+          quiet: quietRows.length,
           planLevel: { working: workingPlanRows.length, waiting: verificationWaitingRows.length },
         });
         // The plan scope the blocked-by jump needs ABOVE the row. WORKING orders
@@ -1162,6 +1167,10 @@ export function AgentList({
         // work outranks problem reports — a PR a person can merge is more urgent
         // than a worker a person can go check.
         const broken = key === 'waiting-on-you' ? brokenRows : [];
+        // A RELEASED FREE DESK'S NOTE, for QUIET only — `brokenRows` above is
+        // what this entry would have been had its desk owed a person; here it
+        // owes nothing and only waits to be reaped.
+        const quiet = key === 'quiet' ? quietRows : [];
         // THE DRAFT PLANS, for WAITING ON YOU only: a decision owed on a plan
         // with no branch. Rendered after the issues and before the broken
         // agents — a decision outranks a problem report.
@@ -2540,6 +2549,30 @@ export function AgentList({
                   `agentRowKey`, the same identity WORKING uses for its registry
                   rows. */}
               {broken.map(({ agent, row }) => (
+                <RegistryRow
+                  key={agentRowKey(agent)}
+                  agent={agent}
+                  row={row}
+                  slices={slices}
+                  onOpenPlan={onOpenPlan}
+                  card={row ? cardForPlanFile?.(row.planFile) ?? null : null}
+                  dispatch={dispatch}
+                  implement={implement}
+                  continueWith={continueWith}
+                  drop={drop}
+                  pulse={pulse}
+                  onStarting={onStarting}
+                  marked={row ? marked.has(rowKey(row)) : false}
+                  active={row ? active.has(rowKey(row)) : false}
+                  onRevealBranch={onRevealBranch}
+                  highlighted={agent.branch !== '' && agent.branch === highlightBranch}
+                />
+              ))}
+              {/* A RELEASED FREE DESK'S NOTE — the entry `broken` above would
+                  have carried had its desk owed a person. Its loop ended clean
+                  instead, so it lands here rather than Waiting on you. Same
+                  join, same key scheme. */}
+              {quiet.map(({ agent, row }) => (
                 <RegistryRow
                   key={agentRowKey(agent)}
                   agent={agent}
