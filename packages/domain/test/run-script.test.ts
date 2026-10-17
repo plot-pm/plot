@@ -189,6 +189,19 @@ describe('a timeout sends TERM before KILL', () => {
     new Promise((done) => child.once('exit', (_code, signal) => done(signal)));
 
   /**
+   * Rejects with `message` when `pending` has not settled after `ms`, so a
+   * signal that never arrives fails the test inside its `finally` block
+   * instead of at vitest's own timeout, which skips it (#1594).
+   */
+  const withinMs = <T>(pending: Promise<T>, ms: number, message: string): Promise<T> => {
+    let timer: NodeJS.Timeout;
+    const bound = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${message} within ${ms}ms`)), ms);
+    });
+    return Promise.race([pending, bound]).finally(() => clearTimeout(timer));
+  };
+
+  /**
    * Reads whole lines from a stream. A line resolves only once its newline has
    * arrived, so a `data` chunk that ends mid-line never yields a partial pid.
    */
@@ -274,7 +287,7 @@ describe('a timeout sends TERM before KILL', () => {
       // 2s: the straggler's `sleep` must die and its trap run before the KILL.
       killGroup(leader, 2_000);
       expect(await ended).toBe('SIGTERM');
-      expect(await survived).toBe('survived TERM');
+      expect(await withinMs(survived, 8_000, 'the straggler never reported surviving TERM')).toBe('survived TERM');
       await gone(straggler);
       expect(alive(straggler)).toBe(false);
     } finally {
