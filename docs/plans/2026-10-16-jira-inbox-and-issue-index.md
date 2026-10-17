@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Type:** feature
 - **Issue:** #1849
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-16, Jan Wloka, `feature/the-jira-inbox-read-reports-truncation`
 - **Started:** 2026-10-16, Jan Wloka, `feature/the-ticket-prefix-scope-has-one-source`
 - **Started:** 2026-10-17, Jan Wloka, `feature/the-tracker-connector-paths-are-tested`
+- **Delivered:** 2026-10-17
 
 ## Changelog
 
