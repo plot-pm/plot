@@ -4,8 +4,9 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
+- **Approved:** 2026-10-17, Jan Wloka, plan-PR #1955 merged
 - **Story:** <!-- optional, story slug (docs/stories/<slug>/) — the durable intent this plan serves -->
 - **Sprint:** <!-- optional, filled when plan is added to a sprint — a time-boxed selection of planned work -->
 - **Issue:** #1952, #1881, #1883, #1909
