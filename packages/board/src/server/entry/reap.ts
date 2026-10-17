@@ -13,7 +13,8 @@ import { firstReapRefusal } from '@plot-pm/domain/rules/reapable';
 import { firstBranchRefusal, firstClaimRefusal, dirtyTreeOwner } from '@plot-pm/domain/rules/sweepable';
 import { realCommits, isEmptyClaim, type CommitReading } from '@plot-pm/domain/rules/empty-claim';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, unlinkSync } from 'node:fs';
+import { readDeskLoop } from '@plot-pm/fleet/shared/desk-loop';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -273,7 +274,7 @@ const row = (verdict: string, label: string, why: string): string =>
  * does not know keeps the desk: it reports the recorded pid, or `'unknown'`.
  * A reading that failed keeps the desk the same way and answers `'unknown'`.
  */
-const deskWorkerPid = async (processes: Processes, worktree: string): Promise<string> => {
+const processWorkerPid = async (processes: Processes, worktree: string): Promise<string> => {
   const reading = await processes.workerState(worktree, false);
   if (!reading.ok) return 'unknown';
   const { state, pid } = reading.value;
@@ -291,6 +292,27 @@ const deskWorkerPid = async (processes: Processes, worktree: string): Promise<st
     default:
       return pid !== '' ? pid : 'unknown';
   }
+};
+
+/** The only file that marks a desk as waiting on a person: `PLOT-BLOCKED.md` at the worktree root. */
+const ROOT_MARKER = 'PLOT-BLOCKED.md';
+
+/** Whether a `desk_dirt` porcelain line (status column, space, path) is the desk-root marker alone. */
+const isRootMarkerLine = (line: string): boolean => line.slice(3) === ROOT_MARKER;
+
+/**
+ * The pid of a live worker or loop at a desk, or `''`.
+ *
+ * Falls through from {@link processWorkerPid} to `deskLoopAlive` over
+ * `.plot-worker.pid` and the manifest's `pid` and `wrapperPid`, so a loop
+ * sleeping between two agents keeps its desk.
+ */
+const deskWorkerPid = async (processes: Processes, worktree: string, manifestDir: string): Promise<string> => {
+  const pid = await processWorkerPid(processes, worktree);
+  if (pid !== '') return pid;
+  const manifest = manifestFor(manifestDir, worktree);
+  const { loop } = readDeskLoop(worktree, manifest === null ? { kind: 'unnamed' } : { kind: 'named', path: manifest });
+  return loop.kind === 'alive' ? loop.pid : '';
 };
 
 /** Commits beyond `range`, counted as `realCommits` does, or `null` where git could not read the range. */
@@ -410,7 +432,7 @@ const runSweepTemp = async (
 
   const olderThan = (entryPath: string): boolean => {
     try {
-      return statSync(entryPath).mtimeMs < cutoffMs;
+      return lstatSync(entryPath).mtimeMs < cutoffMs;
     } catch {
       return false;
     }
@@ -419,7 +441,7 @@ const runSweepTemp = async (
   const ownedByMe = (entryPath: string): boolean => {
     if (process.getuid === undefined) return true;
     try {
-      return statSync(entryPath).uid === process.getuid();
+      return lstatSync(entryPath).uid === process.getuid();
     } catch {
       return false;
     }
@@ -447,7 +469,7 @@ const runSweepTemp = async (
     if (outcome.removed) removed += 1;
   }
 
-  const budgetHome = process.env.PLOT_BUDGET_HOME ?? path.join(process.env.HOME ?? '', '.plot/state');
+  const budgetHome = process.env.PLOT_BUDGET_HOME || path.join(process.env.HOME ?? '', '.plot/state');
   const memoDir = path.join(budgetHome, 'memo');
   if (existsSync(memoDir)) {
     let memoEntries: string[] = [];
@@ -556,7 +578,7 @@ interface ReapCounters {
   cleared: number;
 }
 
-const runWorktreeKind = async (
+export const runWorktreeKind = async (
   ctx: Context,
   args: Args,
   defaultBranch: string,
@@ -612,7 +634,7 @@ const runWorktreeKind = async (
     // THE READINGS. Everything from here to the rule call measures; nothing
     // decides. A reading that fails keeps the desk: removal forces, so a
     // failure read as clean, unmarked or empty would delete work.
-    const pid = await deskWorkerPid(ctx.processes, tree.path);
+    const pid = await deskWorkerPid(ctx.processes, tree.path, manifestDir);
 
     const markers = await ctx.trees.markers(tree.path, 'PLOT-BLOCKED');
     const dirtyPaths = await ctx.trees.dirtyPathsWithStatus(tree.path);
@@ -621,9 +643,9 @@ const runWorktreeKind = async (
       counters.kept += 1;
       continue;
     }
-    const markerFile = markers.value.length > 0 ? path.join(tree.path, markers.value[0]) : '';
-    const marker = markerFile !== '';
-    const dirty = dirtyPaths.value.find((p) => !p.includes('PLOT-BLOCKED')) ?? '';
+    const marker = markers.value.includes(ROOT_MARKER);
+    const markerFile = marker ? path.join(tree.path, ROOT_MARKER) : '';
+    const dirty = dirtyPaths.value.find((p) => !isRootMarkerLine(p)) ?? '';
 
     let markerRecordsWork = false;
     if (marker) {
@@ -1011,11 +1033,11 @@ export const runDirtyKind = async (ctx: Context, manifestDir: string, write: Pri
 
     const dirtyPaths = await ctx.trees.dirtyPathsWithStatus(tree.path);
     const dirtyCount = dirtyPaths.ok
-      ? dirtyPaths.value.map((p) => p.slice(3)).filter((p) => !p.includes('PLOT-BLOCKED')).length
+      ? dirtyPaths.value.filter((p) => !isRootMarkerLine(p)).length
       : 0;
     if (dirtyCount <= 0) continue;
 
-    const pid = await deskWorkerPid(ctx.processes, tree.path);
+    const pid = await deskWorkerPid(ctx.processes, tree.path, manifestDir);
     const m = manifestFor(manifestDir, canonical(tree.path));
     const manifest = m !== null ? path.basename(m) : '';
 
