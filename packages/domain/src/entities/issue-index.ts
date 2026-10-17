@@ -148,6 +148,19 @@ export const IssueIndexSchema = z
     rows: z.array(IssueIndexRowSchema).optional(),
     /** Whether `rows` holds every open issue or stopped at the read's own limit. */
     complete: z.boolean().optional(),
+    /**
+     * When the last FULL read (not an incremental one) answered, ISO-8601;
+     * absent where this file predates the incremental read or has never had
+     * one. Absent reads as "due" — the floor that keeps a pass with no
+     * memory of a full read from skipping one.
+     */
+    fullReadAt: z.string().optional(),
+    /**
+     * How many passes have answered since `fullReadAt`, incremental or full;
+     * a full read resets this to 0. Absent reads the same as absent
+     * `fullReadAt`: due for a full read.
+     */
+    passesSinceFull: z.number().optional(),
     /** The closed issues of the last 14 days, under their own answer; absent where never read. */
     closed: IssueIndexClosedSchema.optional(),
     /**

@@ -110,6 +110,7 @@ export const trackerGithub = (context: ShellContext): Tracker => {
 
     issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
     issueListOpen: (limit): Promise<PortResult<IssueRead>> => reads.issueListOpen(limit),
+    issueListChanged: (since, limit): Promise<PortResult<IssueRead>> => reads.issueListChanged(since, limit),
     // NO PERSON-SCOPED MODE DISTINCT FROM THE OPEN READ. GitHub's open read is
     // never project-scoped the way Jira's becomes with `Ticket prefixes`, so
     // there is no second read to make here — the caller falls back to the

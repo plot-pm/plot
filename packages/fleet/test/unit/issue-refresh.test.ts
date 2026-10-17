@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { issueIndexFile } from '@plot-pm/domain/adapters';
-import { cadenceRateOf, ISSUE_INDEX_VERSION, type Issue, type IssueIndex } from '@plot-pm/domain';
+import { cadenceRateOf, ISSUE_FULL_READ_MS, ISSUE_FULL_READ_PASSES, ISSUE_INDEX_VERSION, type Issue, type IssueIndex } from '@plot-pm/domain';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 
 import {
@@ -37,6 +37,18 @@ afterEach(() => {
 const issueLine = (n: number): string =>
   JSON.stringify({ number: n, title: `issue ${n}`, url: `https://example.invalid/${n}`, createdAt: '2026-10-01T00:00:00Z' });
 
+/** One `issue-list --state changed` JSON line, carrying the fields a changed read's fold needs. */
+const changedRow = (n: number, over: Partial<Record<string, unknown>> = {}): string =>
+  JSON.stringify({
+    number: n,
+    title: `issue ${n}`,
+    url: `https://example.invalid/${n}`,
+    createdAt: '2026-10-01T00:00:00Z',
+    updatedAt: new Date(NOW).toISOString(),
+    statusCategory: 'To Do',
+    ...over,
+  });
+
 /**
  * A scripts directory whose `plot-host.sh` answers `spend-rate` with the
  * connector's account and `issue-list` as told, recording every call. Where
@@ -44,18 +56,21 @@ const issueLine = (n: number): string =>
  * alongside it, and `plot-host.sh ticket-projects` answers the same key (empty otherwise), so `trackerJira`'s D23 gate (packages/domain/src/adapters/
  * tracker/tracker-jira.ts) lets the inbox read through.
  */
-type FakeList = { rows?: number; stderr?: string; code?: number; token?: string };
+type FakeList = { rows?: number; stderr?: string; code?: number; token?: string; lines?: string[] };
 
 const fakeHost = (
   issueList: FakeList,
   closed: FakeList = {},
   inbox?: FakeList,
+  changed?: FakeList,
 ): { dir: string; argv: () => string[] } => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-issue-refresh-'));
   dirs.push(dir);
   const argvFile = path.join(dir, 'argv');
   const linesOf = (list: FakeList, line: (n: number) => string): string =>
-    Array.from({ length: list.rows ?? 0 }, (_, i) => `printf '%s\\n' ${JSON.stringify(line(i + 1))}`).join('\n');
+    list.lines !== undefined
+      ? list.lines.map((text) => `printf '%s\\n' ${JSON.stringify(text)}`).join('\n')
+      : Array.from({ length: list.rows ?? 0 }, (_, i) => `printf '%s\\n' ${JSON.stringify(line(i + 1))}`).join('\n');
   const closedLine = (n: number): string => JSON.stringify({ ...JSON.parse(issueLine(n)), closedAt: '2026-10-12T00:00:00Z' });
   const answer = (list: FakeList, line: (n: number) => string): string =>
     `${linesOf(list, line)}\n`
@@ -73,6 +88,8 @@ const fakeHost = (
     + 'if [ "$1" = issue-list ]; then\n'
     + '  case " $* " in *" --state closed "*)\n'
     + answer(closed, closedLine)
+    + '  ;; *" --state changed "*)\n'
+    + answer(changed ?? { rows: 0 }, issueLine)
     + '  ;; *" --state inbox "*)\n'
     + answer(inbox ?? { rows: 0 }, issueLine)
     + '  ;; esac\n'
@@ -140,6 +157,10 @@ const heldIndex = (over: Partial<IssueIndex> = {}): IssueIndex => ({
   ...over,
 });
 
+/** A held index whose full read is recent enough that the next pass reads incrementally. */
+const heldIncremental = (over: Partial<IssueIndex> = {}): IssueIndex =>
+  heldIndex({ fullReadAt: new Date(NOW - 1_000).toISOString(), passesSinceFull: 1, ...over });
+
 describe('issueIndexRowOf', () => {
   const issue = (over: Partial<Issue> = {}): Issue => ({
     id: '1',
@@ -202,6 +223,8 @@ describe('one issue pass (Acceptance 2)', () => {
       answer: 'answered',
       rows: [{ number: '1', title: 'issue 1', url: 'https://example.invalid/1', createdAt: '2026-10-01T00:00:00Z' }],
       complete: true,
+      fullReadAt: new Date(NOW).toISOString(),
+      passesSinceFull: 0,
       closed: {
         since: SINCE,
         at: new Date(NOW).toISOString(),
@@ -375,6 +398,106 @@ describe('the closed set of the index', () => {
     expect(index?.closed?.answer).toBe('unsupported');
     expect(index?.closed?.rows).toBeUndefined();
     expect(index?.answer).toBe('answered');
+  });
+});
+
+describe('the incremental issue read', () => {
+  it('asks issueListChanged rather than a full read, and keeps every held row where nothing changed', async () => {
+    const { dir, argv } = fakeHost({ rows: 99 }, { rows: 99 }, undefined, { lines: [] });
+    const store = issueIndexFile({ home: storeHome() });
+    await store.write(heldIncremental());
+    const state = freshIssueState();
+    await refreshIssueIndex(worldOf(dir, store), state);
+    const index = await onDisk(store);
+    expect(index?.rows).toEqual(heldIncremental().rows);
+    expect(index?.at).toBe(new Date(NOW).toISOString());
+    expect(index?.nextAt).toBeDefined();
+    expect(argv().some((call) => call.startsWith('issue-list --paged'))).toBe(false);
+    expect(argv().some((call) => call.includes('--state changed'))).toBe(true);
+    expect(index?.passesSinceFull).toBe(2);
+  });
+
+  it('moves a changed row that is now closed out of rows and into closed.rows', async () => {
+    const { dir } = fakeHost({}, {}, undefined, { lines: [changedRow(1, { statusCategory: 'Done' })] });
+    const store = issueIndexFile({ home: storeHome() });
+    await store.write(heldIncremental({
+      closed: { since: SINCE, at: '2026-10-13T09:58:00.000Z', answer: 'answered', rows: [], complete: true },
+    }));
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    const index = await onDisk(store);
+    expect(index?.rows?.map((row) => row.number)).toEqual(['2']);
+    expect(index?.closed?.rows?.map((row) => row.number)).toEqual(['1']);
+  });
+
+  it('updates a changed row still open in place, by number', async () => {
+    const { dir } = fakeHost({}, {}, undefined, { lines: [changedRow(1, { title: 'renamed' })] });
+    const store = issueIndexFile({ home: storeHome() });
+    await store.write(heldIncremental());
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    const index = await onDisk(store);
+    expect(index?.rows?.find((row) => row.number === '1')?.title).toBe('renamed');
+    expect(index?.rows).toHaveLength(2);
+  });
+
+  it('leaves rows, closed and at as held, and sets failedAt, where the changed read fails', async () => {
+    const { dir } = fakeHost({}, {}, undefined, { stderr: 'boom', code: 1 });
+    const store = issueIndexFile({ home: storeHome() });
+    const closed = { since: SINCE, at: '2026-10-13T09:58:00.000Z', answer: 'answered' as const, rows: [{ number: '9', title: 'nine', url: 'u9' }], complete: true };
+    const held = heldIncremental({ closed });
+    await store.write(held);
+    const state = freshIssueState();
+    await refreshIssueIndex(worldOf(dir, store), state);
+    const index = await onDisk(store);
+    expect(index?.rows).toEqual(held.rows);
+    expect(index?.closed).toEqual(closed);
+    expect(index?.at).toBe(held.at);
+    expect(index?.failedAt).toBe(new Date(NOW).toISOString());
+    expect(index?.reason).toBe('boom');
+    expect(state.issueError).toBe('boom');
+  });
+
+  it('reads whole rather than incrementally where the held index is of another connector', async () => {
+    const { dir, argv } = fakeHost({ rows: 1 }, { rows: 0 });
+    const store = issueIndexFile({ home: storeHome() });
+    await store.write(heldIncremental({ connector: 'jira' }));
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    expect(argv()).toContain('issue-list --paged --limit 1000');
+  });
+
+  it('reads whole on the Nth pass since the last full read, and drops a row the tracker no longer lists', async () => {
+    const { dir, argv } = fakeHost({ rows: 1 }, { rows: 0 });
+    const store = issueIndexFile({ home: storeHome() });
+    await store.write(heldIncremental({ passesSinceFull: ISSUE_FULL_READ_PASSES }));
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    const index = await onDisk(store);
+    expect(argv()).toContain('issue-list --paged --limit 1000');
+    expect(index?.rows?.map((row) => row.number)).toEqual(['1']);
+    expect(index?.passesSinceFull).toBe(0);
+  });
+
+  it('reads whole once the day bound since fullReadAt has passed, measured from fullReadAt not wall clock', async () => {
+    const { dir, argv } = fakeHost({ rows: 1 }, { rows: 0 });
+    const store = issueIndexFile({ home: storeHome() });
+    await store.write(heldIncremental({ fullReadAt: new Date(NOW - ISSUE_FULL_READ_MS).toISOString(), passesSinceFull: 1 }));
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    expect(argv()).toContain('issue-list --paged --limit 1000');
+  });
+
+  it('reads whole where the held index has no fullReadAt, even if its connector and source match', async () => {
+    const { dir, argv } = fakeHost({ rows: 1 }, { rows: 0 });
+    const store = issueIndexFile({ home: storeHome() });
+    await store.write(heldIndex());
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    expect(argv()).toContain('issue-list --paged --limit 1000');
+  });
+
+  it('counts requests as the changed read\'s own pages', async () => {
+    const { dir } = fakeHost({}, {}, undefined, { lines: [changedRow(1)], token: 'p2' });
+    const store = issueIndexFile({ home: storeHome() });
+    await store.write(heldIncremental());
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    const index = await onDisk(store);
+    expect(index?.requests).toBe(2);
   });
 });
 

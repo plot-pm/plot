@@ -279,6 +279,20 @@ export const issueIntervalMs = (requests: number): number =>
   Math.max(ISSUE_REFRESH_MS, requests * ISSUE_PAGE_MS);
 
 /**
+ * How many passes an incremental issue read may run before the next one must
+ * be a full read, even against a healthy held index.
+ *
+ * THE FLOOR, NOT THE COMMON CASE. `since` cannot report an issue the tracker
+ * deleted or transferred away, so a chain of incremental reads drifts further
+ * from the tracker's own list every pass; this bounds how long that drift can
+ * run.
+ */
+export const ISSUE_FULL_READ_PASSES = 20;
+
+/** How long an incremental issue read may run before the next one must be a full read, in milliseconds. */
+export const ISSUE_FULL_READ_MS = 24 * 60 * 60 * 1000;
+
+/**
  * What the issue gate spends, in requests an hour, for a pass of the given cost.
  *
  * DERIVED FROM THE INTERVAL, NEVER WRITTEN DOWN TWICE. A pass spending

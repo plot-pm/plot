@@ -203,6 +203,24 @@ export interface Tracker {
   issueListClosed(since: string, limit: number): Promise<PortResult<ClosedIssues>>;
 
   /**
+   * Lists the issues, open or closed, changed at or after `since`, without
+   * bodies.
+   *
+   * THE ONE READ A "NOTHING CHANGED" PASS CAN AFFORD. `issueListOpen` and
+   * `issueListClosed` each read their whole set regardless of what moved
+   * since the last pass; this reads only what moved, so a quiet repository
+   * costs one request instead of the pages of both.
+   *
+   * @param since - the earliest change to include, ISO-8601.
+   * @param limit - how many issues to read at most.
+   * @returns the changed issues; `unaskable` with its reason where the
+   *   tracker has no update filter (Bitbucket, unless its issue API gains
+   *   one), a Jira tracker declares no `Ticket prefixes`, or no tracker can
+   *   be asked.
+   */
+  issueListChanged(since: string, limit: number): Promise<PortResult<IssueRead>>;
+
+  /**
    * Lists the issues assigned to the reader themselves, without bodies —
    * always person-scoped, even where {@link issueListOpen} is not.
    *

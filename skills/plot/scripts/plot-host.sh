@@ -4650,8 +4650,8 @@ case "$op" in
     done
     # `--since` is spliced into a JQL string and a search qualifier, so its shape
     # is checked here: a value outside it is a usage error, never a query.
-    [[ "$state" =~ ^(open|closed|inbox)$ ]] || die "issue-list: --state is open, closed or inbox, not '$state'"
-    [ "$state" != closed ] || [[ "$since" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}[0-9:.]*Z?)?$ ]] || die "issue-list: --state closed needs --since <iso>"
+    [[ "$state" =~ ^(open|closed|inbox|changed)$ ]] || die "issue-list: --state is open, closed, inbox or changed, not '$state'"
+    [[ "$state" =~ ^(closed|changed)$ ]] && ! [[ "$since" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}[0-9:.]*Z?)?$ ]] && die "issue-list: --state $state needs --since <iso>"
     limit_args=()
     [ -n "$limit" ] && limit_args=(--limit "$limit")
     # WHO LISTS THESE ISSUES IS ASKED ONCE, HERE, BEFORE THE ARMS — after the
@@ -4726,6 +4726,14 @@ case "$op" in
       # THE D23 INBOX READ: always person-scoped, and project-scoped by `$scope`
       # like the open read, so *Waiting on you* shows the reader's own tickets of this repository's projects.
       elif [ "$state" = inbox ]; then jql="${PLOT_JIRA_JQL:-assignee = currentUser() AND resolution = EMPTY${scope} ORDER BY created DESC}"
+      # THE CHANGED READ IS GATED LIKE THE CLOSED READ, for the same reason: an
+      # unscoped `updated >=` query reads the whole instance. It asks `updated`
+      # rather than `resolved`, since a changed row may still be open, and
+      # carries `updatedAt` so the adapter's fold can compare it.
+      elif [ "$state" = changed ]; then
+        [ -n "$scope" ] || { echo "plot-host: changed Jira issues need 'Ticket prefixes' declared; an unscoped updated query reads the whole instance" >&2; exit 4; }
+        when="${since:0:10} ${since:11:5}"; jql="updated >= \"${when% }\"${scope} ORDER BY updated DESC"
+        fields="$fields,updated,resolutiondate"; paged=1
       fi
       [ -z "$paged" ] || { max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; }
       token_args=(); [ -z "$page_token" ] || token_args=(--data-urlencode "nextPageToken=$page_token")
@@ -4761,7 +4769,8 @@ case "$op" in
           createdAt: (.fields.created // ""),
           status: (.fields.status.name // ""),
           statusCategory: (.fields.status.statusCategory.name // ""), assignees: ([.fields.assignee.emailAddress // .fields.assignee.accountId] | map(select(. != null)))
-        } + (if .fields.issuetype.name then {type: .fields.issuetype.name} else {} end) + (if $state == "closed" then {closedAt: (.fields.resolutiondate // "")} else {} end)),
+        } + (if .fields.issuetype.name then {type: .fields.issuetype.name} else {} end) + (if .fields.updated then {updatedAt: .fields.updated} else {} end)
+          + (if ($state == "closed") or ($state == "changed" and .fields.status.statusCategory.name == "Done") then {closedAt: (.fields.resolutiondate // "")} else {} end)),
         (select($paged == "1") | (.nextPageToken // empty) | {nextPageToken: .})'
     elif [ "$be" = "github" ]; then
       # `gh issue list` — not `gh api /issues`. On GitHub every PR IS an issue,
@@ -4780,15 +4789,28 @@ case "$op" in
       # keeps what closed since `$since`. GitHub search has no close-date sort
       # (`sort:closed-desc` was measured ignored, 2026-10-13), so the adapter
       # sorts by `closedAt`.
-      gh_json="number,title,url,createdAt,assignees,issueType"; search_args=()
-      [ "$gh_state" = open ] || { gh_json+=",closedAt"; search_args=(--search "closed:>=$since"); }
-      if out="$(gh issue list --state "$gh_state" ${limit_args[@]+"${limit_args[@]}"} \
+      #
+      # A CHANGED READ ASKS `--state all`, SINCE IT CAN RETURN EITHER STATE, so
+      # `status`/`statusCategory` are projected from EACH ROW'S OWN `.state`
+      # rather than from `$gh_state` — the one read here where the issue
+      # itself, not the call, says what it is. `updatedAt` rides along so the
+      # adapter's fold can compare it the way `foldIssueRows` already does.
+      gh_json="number,title,url,createdAt,assignees,issueType"; search_args=(); ask_state="$gh_state"
+      if [ "$gh_state" = changed ]; then
+        gh_json+=",updatedAt,state,closedAt"; ask_state=all; search_args=(--search "updated:>=$since")
+      elif [ "$gh_state" != open ]; then
+        gh_json+=",closedAt"; search_args=(--search "closed:>=$since")
+      fi
+      if out="$(gh issue list --state "$ask_state" ${limit_args[@]+"${limit_args[@]}"} \
                   ${search_args[@]+"${search_args[@]}"} --json "$gh_json" 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
         jq -c --arg status "$gh_state" \
-          '.[] | {number:.number,title:.title,url:(.url // ""),createdAt:(.createdAt // ""),
-                  status:$status,statusCategory:(if $status == "open" then "To Do" else "Done" end),assignees:[.assignees[]?.login]} + (if .issueType.name? then {type:.issueType.name} else {} end)
-                 + (if $status == "closed" then {closedAt:(.closedAt // "")} else {} end)' <<<"$out"
+          '.[] | ((.state // $status) | ascii_downcase) as $actual |
+                  {number:.number,title:.title,url:(.url // ""),createdAt:(.createdAt // ""),
+                  status:$actual,statusCategory:(if $actual == "open" then "To Do" else "Done" end),assignees:[.assignees[]?.login]}
+                 + (if .updatedAt then {updatedAt:.updatedAt} else {} end)
+                 + (if .issueType.name? then {type:.issueType.name} else {} end)
+                 + (if $actual == "closed" then {closedAt:(.closedAt // "")} else {} end)' <<<"$out"
         # `gh` pages by 100 inside ONE process and the wrapper records one call
         # per process, so each page past the first is recorded here.
         jq -r "[range(1; length / $ISSUE_PAGE_ROWS | ceil)] | .[]" <<<"$out" | while read -r _; do budget_record_call github github graphql; done
@@ -4807,9 +4829,10 @@ case "$op" in
       # after parsing; (3) the list carries no per-issue URL, so `url` is "" —
       # the same answer the header documents for a host that omits it.
       #
-      # A CLOSED READ IS EXIT 4: `bb issue list` prints no closing date, so there
-      # is nothing honest to return. It runs before any `bb` command.
-      [ "$state" = open ] || { echo "plot-host: bitbucket cannot list closed issues; bb prints no closing date" >&2; exit 4; }
+      # A CLOSED OR CHANGED READ IS EXIT 4: `bb issue list` prints no closing or
+      # update date, so there is nothing honest to return for either. It runs
+      # before any `bb` command.
+      [ "$state" = open ] || { echo "plot-host: bitbucket cannot list closed or changed issues; bb prints neither date" >&2; exit 4; }
       bb_assert_issue_version || exit $?
       # `--state new,open` is bb's own default for `issue list` and is what
       # "open tracker issues" means; stated explicitly so a bb default change

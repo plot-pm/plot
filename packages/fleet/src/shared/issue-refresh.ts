@@ -1,4 +1,7 @@
 import {
+  foldIssueRows,
+  ISSUE_FULL_READ_MS,
+  ISSUE_FULL_READ_PASSES,
   ISSUE_INDEX_CLOSED_DAYS,
   ISSUE_INDEX_OPEN_LIMIT,
   ISSUE_INDEX_VERSION,
@@ -248,6 +251,31 @@ export const inboxOutcomeOf = (
   };
 };
 
+/**
+ * Whether a pass must run the full open+closed+inbox read rather than ask
+ * {@link Tracker.issueListChanged} alone.
+ *
+ * TRUE IS THE SAFE DEFAULT. An absent `fullReadAt` or `passesSinceFull` reads
+ * as due — a file written before the incremental read existed, or a `held`
+ * this pass cannot reuse (another source or connector, or anything but an
+ * answered read), has no floor to compare against and must read whole.
+ *
+ * @param held - the index the previous pass left, or null.
+ * @param sameHeld - whether `held` is of this pass's own source and connector.
+ * @param startedAt - epoch ms this pass started.
+ * @returns whether this pass must read whole.
+ */
+export const dueForFullRead = (
+  held: IssueIndex | null,
+  sameHeld: boolean,
+  startedAt: number,
+): boolean => {
+  if (held === null || !sameHeld || held.answer !== 'answered') return true;
+  if (held.fullReadAt === undefined || held.passesSinceFull === undefined) return true;
+  if (held.passesSinceFull >= ISSUE_FULL_READ_PASSES) return true;
+  return startedAt - new Date(held.fullReadAt).getTime() >= ISSUE_FULL_READ_MS;
+};
+
 /** Whether a backoff is live and on the spender's own connector and account. */
 const holdsFor = (
   until: number | null,
@@ -279,6 +307,17 @@ const unaskableReason = (source: Exclude<IssueSource, { ask: 'nobody' }>, gitHos
  * - The pass asks nothing while a live backoff is held on its own connector and
  *   account: the PR pass's, or the one the index recorded. It sets
  *   `issueNextAt` to the backoff's end, as a hard floor.
+ * - WHERE {@link dueForFullRead} ANSWERS FALSE, the pass asks
+ *   {@link Tracker.issueListChanged} alone, since `held.at`, instead of the
+ *   full open+closed+inbox read below. An answered changed read folds its
+ *   rows into `held.rows` and `held.closed.rows` through {@link foldIssueRows},
+ *   keyed by `statusCategory`: a row now `Done` leaves the open set and joins
+ *   the closed one, any other row updates or joins the open set in place.
+ *   `requests` is the changed read's own pages, `fullReadAt` carries over
+ *   unchanged and `passesSinceFull` increments by one. A FAILED changed read
+ *   keeps every held field — `rows`, `closed`, `at`, `fullReadAt` and
+ *   `passesSinceFull` — and records `failedAt`/`reason`, feeding `backoffUntil`
+ *   through {@link hostReaction} the same way a failed closed read does.
  * - An answered open read writes `nextAt` one {@link issueIntervalMs} after the
  *   pass started, `backoffUntil: null`, and at most
  *   {@link ISSUE_INDEX_OPEN_LIMIT} rows read page by page, with the read's own
@@ -287,7 +326,11 @@ const unaskableReason = (source: Exclude<IssueSource, { ask: 'nobody' }>, gitHos
  *   unsupported) plus the inbox read's spend (its pages where it answered, 1
  *   where it failed, 0 where it is unsupported or skipped); see
  *   {@link closedOutcomeOf} and {@link inboxOutcomeOf}. A page is
- *   {@link ISSUE_PAGE_ROWS} rows.
+ *   {@link ISSUE_PAGE_ROWS} rows. This is the FULL READ: it also writes
+ *   `fullReadAt` to the pass's own `at` and resets `passesSinceFull` to 0, the
+ *   floor {@link dueForFullRead} compares against. A full read that FAILS
+ *   outright (the open read itself did not answer) keeps the previous
+ *   `fullReadAt` and `passesSinceFull` unmoved, same as `rows` and `complete`.
  * - An answered open read is followed by a closed read of the last
  *   {@link ISSUE_INDEX_CLOSED_DAYS} days, written under `closed` with its own
  *   `answer`, `at`, `complete` and `rows`, and an inbox read written under
@@ -347,11 +390,83 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
     return;
   }
 
-  const result = await tracker.issueListOpen(ISSUE_INDEX_OPEN_LIMIT);
   const sameHeld = held !== null && held.source === source.ask && held.connector === spender.connector;
   const keptClosed: Pick<IssueIndex, 'closed'> = sameHeld && held.closed !== undefined ? { closed: held.closed } : {};
   const keptInbox = sameHeld ? held.inbox : undefined;
   const keptInboxAt = sameHeld ? held.inboxAt : undefined;
+
+  if (!dueForFullRead(held, sameHeld, startedAt) && held !== null && held.at !== undefined) {
+    const changedRead = await tracker.issueListChanged(held.at, ISSUE_INDEX_OPEN_LIMIT);
+    if (changedRead.ok) {
+      const at = new Date(startedAt).toISOString();
+      const closedChanged = changedRead.value.issues
+        .map(issueIndexRowOf)
+        .filter((row) => row.statusCategory === 'Done');
+      const openChanged = changedRead.value.issues
+        .map(issueIndexRowOf)
+        .filter((row) => row.statusCategory !== 'Done');
+      const closedKeys = new Set(closedChanged.map((row) => row.number));
+      const foldedOpen = foldIssueRows(held.rows ?? [], openChanged).filter((row) => !closedKeys.has(row.number));
+      const foldedClosed = foldIssueRows(held.closed?.rows ?? [], closedChanged);
+      const requests = changedRead.value.pages;
+      const nextAt = startedAt + issueIntervalMs(requests);
+      state.issueError = null;
+      state.issueNextAt = nextAt;
+      state.issueNextIsBackoff = false;
+      await world.issueStore.write({
+        v: ISSUE_INDEX_VERSION,
+        source: source.ask,
+        connector: spender.connector,
+        ...(spender.account === null ? {} : { account: spender.account }),
+        requests,
+        nextAt,
+        backoffUntil: null,
+        at,
+        answer: 'answered',
+        rows: foldedOpen,
+        ...(held.complete === undefined ? {} : { complete: held.complete }),
+        fullReadAt: held.fullReadAt,
+        passesSinceFull: (held.passesSinceFull ?? 0) + 1,
+        ...(held.closed === undefined ? {} : { closed: { ...held.closed, rows: foldedClosed } }),
+        ...(keptInbox === undefined ? {} : { inbox: keptInbox }),
+        ...(keptInboxAt === undefined ? {} : { inboxAt: keptInboxAt }),
+      });
+      return;
+    }
+    const finishedAt = clock();
+    const refusal = tracker.lastRefusal();
+    const reason = refusal ?? 'the changed issue read failed and said nothing';
+    const wait = waitOf(hostReaction(reason, null, finishedAt));
+    const backoffUntil = wait === null ? null : finishedAt + wait;
+    const requests = 1;
+    const nextAt = startedAt + issueIntervalMs(requests);
+    state.issueError = reason;
+    state.issueNextAt = backoffUntil ?? nextAt;
+    state.issueNextIsBackoff = backoffUntil !== null;
+    await world.issueStore.write({
+      v: ISSUE_INDEX_VERSION,
+      source: source.ask,
+      connector: spender.connector,
+      ...(spender.account === null ? {} : { account: spender.account }),
+      requests,
+      nextAt: backoffUntil ?? nextAt,
+      backoffUntil,
+      at: held.at,
+      answer: 'answered',
+      failedAt: new Date(startedAt).toISOString(),
+      reason,
+      rows: held.rows,
+      ...(held.complete === undefined ? {} : { complete: held.complete }),
+      fullReadAt: held.fullReadAt,
+      passesSinceFull: held.passesSinceFull,
+      ...keptClosed,
+      ...(keptInbox === undefined ? {} : { inbox: keptInbox }),
+      ...(keptInboxAt === undefined ? {} : { inboxAt: keptInboxAt }),
+    });
+    return;
+  }
+
+  const result = await tracker.issueListOpen(ISSUE_INDEX_OPEN_LIMIT);
 
   if (result.ok) {
     const since = closedSince(startedAt);
@@ -390,6 +505,8 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
       answer: 'answered',
       rows: result.value.issues.map(issueIndexRowOf),
       complete: result.value.complete,
+      fullReadAt: at,
+      passesSinceFull: 0,
       closed: outcome.closed,
       ...(inboxOutcome.inbox === undefined ? {} : { inbox: inboxOutcome.inbox }),
       ...(inboxOutcome.inboxAt === undefined ? {} : { inboxAt: inboxOutcome.inboxAt }),
@@ -430,6 +547,8 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
     reason,
     ...(sameHeld && held.rows !== undefined ? { rows: held.rows } : {}),
     ...(sameHeld && held.complete !== undefined ? { complete: held.complete } : {}),
+    ...(sameHeld && held.fullReadAt !== undefined ? { fullReadAt: held.fullReadAt } : {}),
+    ...(sameHeld && held.passesSinceFull !== undefined ? { passesSinceFull: held.passesSinceFull } : {}),
     ...keptClosed,
     ...(keptInbox === undefined ? {} : { inbox: keptInbox }),
     ...(keptInboxAt === undefined ? {} : { inboxAt: keptInboxAt }),
