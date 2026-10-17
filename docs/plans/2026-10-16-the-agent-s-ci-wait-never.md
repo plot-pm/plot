@@ -14,6 +14,7 @@
 - **Started:** 2026-10-16, Jan Wloka, `bug/jenkins-run-for-sha-conclusion`
 - **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-credential-from-env`
 - **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-pr-checks-bind-to-head`
+- **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-runs-history`
 
 ## Changelog
 
