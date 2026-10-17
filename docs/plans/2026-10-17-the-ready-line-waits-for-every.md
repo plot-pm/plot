@@ -59,7 +59,7 @@ The bind chain is extracted into a function that takes the listen call as a para
 
 ### Ready line
 
-- `bug/ready-line-after-every-bind` — print the ready line after every address binds or fails to bind. Done when: a unit test drives the extracted bind chain with an injected listen, releases the callbacks by hand, and asserts the ready line prints only after the last bind settles, and the test goes red when the print is moved back to the first callback; `port.test.mjs` keeps its contract that every loopback family the board did not warn about answers a request issued on the ready line, reusing the describe's existing server; under `HOST` the `tailscale:` line still follows the ready line. No new board-server test. <!-- builds: extracted bind chain with injected listen, a unit test of ready-line order -->
+- `bug/ready-line-after-every-bind` — print the ready line after every address binds or fails to bind. Done when: a unit test drives the extracted bind chain with an injected listen, releases the callbacks by hand, and asserts the ready line prints only after the last bind settles, and the test goes red when the print is moved back to the first callback; `port.test.mjs` keeps its contract that every loopback family the board did not warn about answers a request issued on the ready line, reusing the describe's existing server; under `HOST` the `tailscale:` line still follows the ready line. No new board-server test. <!-- builds: extracted bind chain with injected listen, a unit test of ready-line order --> → #1964
 
 ### Released desk
 
