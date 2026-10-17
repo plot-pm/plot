@@ -10,6 +10,7 @@ import { discoveryLanes } from './discovery-lanes.js';
 import { extractTopics } from './topics.js';
 import { boardState, fleetState } from './controllers/fleet-state.js';
 import { boardQueryFor, estateFromEnv } from './estate.js';
+import { bindNext, type BindListen } from './bind-chain.js';
 // THE ONE ENTRY THAT REGISTERS THE SDK CONNECTOR: board roles on `Agent runner:
 // sdk` start from this process, so only `board-server.mjs` carries the SDK.
 import './sdk-runner.js';
@@ -1042,8 +1043,7 @@ removeStageDirsOnExit();
 exitWhenIdle({ lastRequestAt: () => lastRequestAt });
 
 /**
- * Bind the remaining families, one after another, on the port the FIRST bind
- * was given.
+ * Binds one extra address and reports it, degrading rather than dying.
  *
  * ALWAYS `boundPort`, NEVER `REQUESTED_PORT`. Under `PORT=0` the request is the
  * literal 0, and asking for it again would have the OS assign a SECOND,
@@ -1060,17 +1060,19 @@ exitWhenIdle({ lastRequestAt: () => lastRequestAt });
  *
  * No `net` probe, deliberately: the failed bind is the check here too, and
  * `port.test.mjs` greps this source to hold that shut.
+ *
+ * Passed into {@link bindNext} as its `listen`, which stays in `bind-chain.ts`
+ * so a unit test can drive the chain with a fake one — no real sockets, no
+ * real server.
  */
-const bindNext = (rest: string[]): void => {
-  const [address, ...remaining] = rest;
-  if (address === undefined) return;
+const listenExtra: BindListen = (address, port, cb) => {
   const extra = http.createServer(serve);
   extra.on('error', (err: NodeJS.ErrnoException) => {
     console.warn(
-      `Plot board: could not also bind ${address}:${boundPort} (${err.code ?? err.message}) — ` +
+      `Plot board: could not also bind ${address}:${port} (${err.code ?? err.message}) — ` +
         `serving on ${BIND_ADDRESSES[0]} only, so a browser resolving to ${address} will not reach it`,
     );
-    bindNext(remaining);
+    cb();
   });
   // `exitWithParent`/`exitWhenIdle` act via `process.exit`, so a server in this
   // process dies with it and needs no second registration. `unref` keeps that
@@ -1078,7 +1080,7 @@ const bindNext = (rest: string[]): void => {
   // holding the process open after the first one closes, which is precisely the
   // orphaned-board defect those two gates exist to prevent.
   extra.unref();
-  extra.listen(boundPort, address, () => bindNext(remaining));
+  extra.listen(port, address, cb);
 };
 
 server.listen(REQUESTED_PORT, BIND_ADDRESSES[0], () => {
@@ -1086,26 +1088,16 @@ server.listen(REQUESTED_PORT, BIND_ADDRESSES[0], () => {
   // the OS assigned it during this very listen, and nothing else knows it.
   const addr = server.address();
   if (addr && typeof addr === 'object') boundPort = addr.port;
-  console.log(`Plot board: http://localhost:${boundPort}`);
-  // Only now is `boundPort` known, which is why the remaining families are
-  // bound from inside this callback rather than beside the call.
-  bindNext(BIND_ADDRESSES.slice(1));
-  if (HOST === '0.0.0.0') {
-    // Through `Machine`, which is the component that names this machine and so
-    // the one that says where it can be reached. Awaited inside the callback
-    // rather than blocking it: the loopback URL above is what an operator needs
-    // and it prints first either way, so a mesh that answers slowly delays a
-    // second line and never the server coming up.
-    //
-    // An absent mesh answers `''` rather than failing — the binary not being
-    // installed is the common case, not a fault to report — so there is nothing
-    // to catch here and no error path to write.
-    void machineSystem(shellContext(opts.repoRoot))
-      .privateAddress()
-      .then((address) => {
-        if (isAnswered(address) && address.value) {
-          console.log(`  tailscale:  http://${address.value}:${boundPort}`);
-        }
-      });
-  }
+  // The ready line itself prints from `announceReady`, reached through
+  // `bindNext`'s terminal case in `bind-chain.ts` — not here, even though
+  // `boundPort` is first known here. See that module's comment for why: a
+  // client reading the line here and connecting over IPv4 before the rest of
+  // `BIND_ADDRESSES` finished binding got `ECONNREFUSED`.
+  bindNext(BIND_ADDRESSES.slice(1), boundPort, listenExtra, {
+    host: HOST,
+    privateAddress: async () => {
+      const address = await machineSystem(shellContext(opts.repoRoot)).privateAddress();
+      return isAnswered(address) && address.value ? address.value : undefined;
+    },
+  });
 });
