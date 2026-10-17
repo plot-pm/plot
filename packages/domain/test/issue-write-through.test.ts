@@ -99,6 +99,43 @@ describe('issueWriteThrough', () => {
     expect(after.rows!.map((r) => r.number)).toEqual(['A-1', 'A-2']);
   });
 
+  it('adds a new row carrying every field the write states', () => {
+    const after = issueWriteThrough(held(), [
+      write({ number: 'A-3', title: 'new', url: 'u', status: 'To Do', statusCategory: 'To Do', updatedAt: '2026-10-13T11:00:00Z' }),
+    ])!;
+    expect(after.rows!.at(-1)).toEqual(
+      row('A-3', { title: 'new', url: 'u', status: 'To Do', statusCategory: 'To Do', updatedAt: '2026-10-13T11:00:00Z' }),
+    );
+  });
+
+  it('gives a new row with no stated url an empty one', () => {
+    const after = issueWriteThrough(held(), [write({ number: 'A-4', title: 'bare', status: undefined })])!;
+    expect(after.rows!.at(-1)).toEqual({ number: 'A-4', title: 'bare', url: '' });
+  });
+
+  it('keeps the held status and category for a write that states neither', () => {
+    const after = issueWriteThrough(held(), [write({ status: undefined, title: 'renamed', url: 'https://example.test/new' })])!;
+    expect(after.rows![0]).toMatchObject({ title: 'renamed', url: 'https://example.test/new', status: 'To Do', statusCategory: 'To Do' });
+  });
+
+  it('matches a write with no account to an index with no account', () => {
+    const after = issueWriteThrough(held({ account: undefined }), [write({ account: undefined })])!;
+    expect(after.requests).toBe(4);
+  });
+
+  it('counts the request and folds no row where the index holds no rows', () => {
+    const after = issueWriteThrough(held({ rows: undefined }), [write()])!;
+    expect(after.requests).toBe(4);
+    expect(after.rows).toBeUndefined();
+  });
+
+  it('folds into a closed set that holds no rows', () => {
+    const closed = { since: '2026-09-29T00:00:00.000Z', at: '2026-10-13T10:00:00.000Z', answer: 'answered' as const };
+    const after = issueWriteThrough(held({ closed }), [write({ statusCategory: 'Done' }), write({ number: 'A-2', status: 'Open' })])!;
+    expect(after.rows!.map((r) => r.number)).toEqual(['A-2']);
+    expect(after.closed!.rows).toBeUndefined();
+  });
+
   it('removes a closed row from rows only where no closed set was read', () => {
     const after = issueWriteThrough(held({ closed: undefined }), [write({ statusCategory: 'Done' })])!;
     expect(after.rows!.map((r) => r.number)).toEqual(['A-2']);
