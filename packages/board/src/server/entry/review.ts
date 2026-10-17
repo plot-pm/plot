@@ -9,12 +9,15 @@ import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { reviewIssueUrl } from '@plot-pm/domain/adapters/tracker/tracker-issue-url';
+import { handOffIssueWrite } from '@plot-pm/domain/adapters/issue-index/hand-off-issue-write';
+import { issueWriteSpoolFile } from '@plot-pm/domain/adapters/issue-index/issue-write-spool-file';
 import { ISSUE_MAY_EXIST } from '@plot-pm/domain/rules/refuted-issues';
 import { trackerForIssues } from '@plot-pm/domain/adapters/tracker/tracker-resolve';
 import { githubIssueOpen } from '@plot-pm/domain/adapters/tracker/tracker-github';
 import type { Host, PortResult, Tracker, Trees } from '@plot-pm/domain';
 import type { ShellContext } from '@plot-pm/domain/adapters/scripts';
 import type { AgentRun } from '@plot-pm/domain/ports/agent-run';
+import type { IssueWriteSpool } from '@plot-pm/domain/ports/issue-write-spool';
 import { charterPath, readCharter } from '@plot-pm/domain/entities/charter';
 import {
   reviewerCommand,
@@ -94,6 +97,8 @@ export type ReviewChange =
 export interface ReviewDeps {
   host: Host;
   tracker: Tracker;
+  /** Where a follow-up issue Plot opened is handed to the issue index; absent hands nothing. */
+  issueWrites?: IssueWriteSpool;
   trees: Trees;
   /** The agent connector that runs `command`, the reviewer's shell fragment. */
   agentRun: (command: string) => AgentRun;
@@ -199,10 +204,9 @@ const openFollowUp = async (
   let issueId = recorded;
   if (issueId === '') {
     deps.writeText(issueFile, 'pending');
-    const opened = await deps.tracker.issueOpen({
-      ...followUpIssue(pr.number, sha, pr.url, counts, verdictText),
-      labels: ['ai-generated'],
-    });
+    const followUp = followUpIssue(pr.number, sha, pr.url, counts, verdictText);
+    const followUpTitle = followUp.title;
+    const opened = await deps.tracker.issueOpen({ ...followUp, labels: ['ai-generated'] });
     if (!opened.ok) {
       const why = (opened.why === 'unaskable' ? opened.reason : undefined)
         ?? deps.tracker.lastRefusal()
@@ -212,6 +216,14 @@ const openFollowUp = async (
     }
     issueId = opened.value.id;
     deps.writeText(issueFile, issueId);
+    if (deps.issueWrites !== undefined) {
+      const { scheme, baseUrl } = deps.tracker.config();
+      await handOffIssueWrite(deps.tracker, deps.issueWrites, {
+        number: issueId,
+        title: followUpTitle,
+        url: reviewIssueUrl(scheme, baseUrl, issueId, pr.url) ?? '',
+      });
+    }
   }
   const { scheme, baseUrl } = deps.tracker.config();
   const url = reviewIssueUrl(scheme, baseUrl, issueId, pr.url);
@@ -431,6 +443,7 @@ const machineDeps = async (cwd: string, scriptDir: string): Promise<ReviewDeps |
   return {
     host,
     tracker: reviewTracker(declared, backend, context),
+    issueWrites: issueWriteSpoolFile({ cwd: repoRoot }),
     trees: treesGit(context),
     agentRun: (command) =>
       agentRunCommand({ boundedRun, fragment: command, limitPatterns: HARNESS_LIMIT_LINES.claude, now: Date.now }),

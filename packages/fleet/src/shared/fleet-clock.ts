@@ -20,8 +20,8 @@ import { PR_REFRESH_MS, REFRESH_MS, scanOnce, writeScan, type ScanState, type Sc
  * base is 5 s, and `divisorFor` reads it off `REFRESH_MS`, `PR_REFRESH_MS` and
  * `ISSUE_REFRESH_MS`.
  *
- * @returns the scan at every beat, the PR reader at every twelfth, and the
- *   issue reader at every twenty-fourth.
+ * @returns the scan at every beat, the PR reader at every twelfth, the
+ *   issue reader at every twenty-fourth, and the issue-write drain at every beat.
  */
 export const fleetDivisors = (): { name: string; everyNthBeat: number }[] => {
   const base = createPulse(REFRESH_MS, 0);
@@ -29,6 +29,7 @@ export const fleetDivisors = (): { name: string; everyNthBeat: number }[] => {
     { name: 'fleet-scan', everyNthBeat: divisorFor(base, REFRESH_MS) },
     { name: 'pr-reader', everyNthBeat: divisorFor(base, PR_REFRESH_MS) },
     { name: 'issue-reader', everyNthBeat: divisorFor(base, ISSUE_REFRESH_MS) },
+    { name: 'issue-writes', everyNthBeat: divisorFor(base, REFRESH_MS) },
   ];
 };
 
@@ -40,6 +41,8 @@ export interface FleetClockWork {
   prs?: () => Promise<void>;
   /** One issue refresh behind its own cadence gate. Never called while one is in flight. */
   issues?: () => Promise<void>;
+  /** One drain of the tracker writes Plot made into the issue index. Never called while one is in flight. */
+  issueWrites?: () => Promise<void>;
 }
 
 /** The fleet's running clock: the pulse, plus a wait for the runs it started. */
@@ -98,6 +101,7 @@ export const startFleetClock = (
     'fleet-scan': guarded('fleet-scan', work.scan),
     'pr-reader': guarded('pr-reader', work.prs ?? (async () => undefined)),
     'issue-reader': guarded('issue-reader', work.issues ?? (async () => undefined)),
+    'issue-writes': guarded('issue-writes', work.issueWrites ?? (async () => undefined)),
   };
   for (const { name, everyNthBeat } of fleetDivisors()) {
     pulse.add({ name, everyNthBeat, tick: ticks[name] });
