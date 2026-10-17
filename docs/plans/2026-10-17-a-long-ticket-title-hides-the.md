@@ -45,7 +45,7 @@ Issue #1960, seen on the operator's board on 2026-10-17 (built from `cd44b52a9`)
 
 ### Fix
 
-- `bug/a-long-ticket-title-hides-the` — trace and fix the missing sub-header, truncate the title before the plan name, add the browser test with the production payload
+- `bug/a-long-ticket-title-hides-the` — trace and fix the missing sub-header, truncate the title before the plan name, add the browser test with the production payload → #1990
 
 ## Notes
 
