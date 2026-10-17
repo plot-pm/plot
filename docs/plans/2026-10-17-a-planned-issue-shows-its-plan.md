@@ -56,7 +56,7 @@ Board: the inbox derives "planned" from git and never from a label. Today `refer
 
 ### Connector and inbox
 
-- `feature/issue-plan-state-write` — issue status rule gains draft and approved; the tracker port gains `planStateWrite` (label, one comment, close at release); `trackerGitHost` implements it over new `plot-host.sh` issue operations; the port and entity doc comments name the one-way write <!-- builds: the issue plan-state label write on the tracker port -->
+- `feature/issue-plan-state-write` — issue status rule gains draft and approved; the tracker port gains `planStateWrite` (label, one comment, close at release); `trackerGitHost` implements it over new `plot-host.sh` issue operations; the port and entity doc comments name the one-way write → #1991 <!-- builds: the issue plan-state label write on the tracker port -->
 - `feature/issue-plan-state-inbox` — `referencedIssues` in `packages/board/src/server/fleet.ts` adds the issues a Draft plan PR's plan names, and `waitingOf` receives the rows filtered by `referenced`; no label is read
 
 ### Lifecycle commands
