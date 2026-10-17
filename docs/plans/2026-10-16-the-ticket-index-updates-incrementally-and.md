@@ -76,7 +76,7 @@ The pass folds the returned rows into the held rows by key. A row whose state is
 
 ### Write-through
 
-- `feature/the-index-takes-plots-own-issue-writes` — `issueOpen` and the status write hand their changed row to the one writer, which folds it without moving the read cadence <!-- builds: issueWriteThrough, the path a Plot issue write takes into the index -->
+- `feature/the-index-takes-plots-own-issue-writes` — `issueOpen` and the status write hand their changed row to the one writer, which folds it without moving the read cadence → #1949 <!-- builds: issueWriteThrough, the path a Plot issue write takes into the index -->
 
 ## Notes
 
