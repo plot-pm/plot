@@ -25,7 +25,7 @@ export interface IssueState {
   issueNextAt: number;
   /** Whether `issueNextAt` is a backoff a refusal named, compared with no slack. */
   issueNextIsBackoff: boolean;
-  /** The last pass's failure or absence sentence, or null. */
+  /** The last pass's failure sentence, the source's absence reason, or null — never a read's `unsupported` answer, which is a standing fact rather than a failure. */
   issueError: string | null;
 }
 
@@ -375,7 +375,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
       inboxOutcome.wait === null ? null : finishedAt + inboxOutcome.wait,
     ].filter((until): until is number => until !== null);
     const backoffUntil = ends.length === 0 ? null : Math.max(...ends);
-    state.issueError = outcome.error ?? inboxOutcome.error;
+    state.issueError = (outcome.closed.answer === 'failed' ? outcome.error : null) ?? inboxOutcome.error;
     state.issueNextAt = backoffUntil ?? nextAt;
     state.issueNextIsBackoff = backoffUntil !== null;
     await world.issueStore.write({
@@ -416,7 +416,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
     : 'the issue read failed and said nothing');
   const wait = answer === 'failed' ? waitOf(hostReaction(reason, null, finishedAt)) : null;
   const backoffUntil = wait === null ? null : finishedAt + wait;
-  state.issueError = reason;
+  state.issueError = answer === 'failed' ? reason : null;
   state.issueNextAt = backoffUntil ?? nextAt;
   state.issueNextIsBackoff = backoffUntil !== null;
 
