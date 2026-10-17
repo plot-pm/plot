@@ -14,6 +14,8 @@
 - **Started:** 2026-10-16, Jan Wloka, `bug/jenkins-run-for-sha-conclusion`
 - **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-credential-from-env`
 - **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-pr-checks-bind-to-head`
+- **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-runs-history`
+- **Started:** 2026-10-17, Jan Wloka, `feature/bitbucket-pr-state-binds-checks`
 
 ## Changelog
 
@@ -73,8 +75,8 @@ Wave order follows the dependency: gap 1 and gap 7 are independent and run first
 
 ### Bitbucket and GitHub readings
 
-- `feature/bitbucket-pr-state-binds-checks` — Bitbucket `pr-state` and `pr-review` return a head-bound check word; `pr-state` follows `pr-list`'s source under `CI: jenkins` (gaps 2, 6, 8) <!-- waits: bug/jenkins-pr-checks-bind-to-head -->
-- `bug/jenkins-runs-history` — the `runs` op returns builds with timestamps and URLs (gap 9)
+- `feature/bitbucket-pr-state-binds-checks` — Bitbucket `pr-state` and `pr-review` return a head-bound check word; `pr-state` follows `pr-list`'s source under `CI: jenkins` (gaps 2, 6, 8) → #1974 <!-- waits: bug/jenkins-pr-checks-bind-to-head -->
+- `bug/jenkins-runs-history` → #1972 — the `runs` op returns builds with timestamps and URLs (gap 9)
 
 ## Notes
 
