@@ -16,7 +16,7 @@ export interface WaitingTicket {
   readonly assignees: readonly string[];
   /** The tracker's own word for the kind of work, lowercased; `null` where it stated none. */
   readonly type: string | null;
-  /** The first assignee, resolved through `People` the same way the Discovery card resolves it; `null` where nobody is assigned. */
+  /** An assignee, resolved through `People` the same way the Discovery card resolves it; `null` where nobody is assigned. */
   readonly owner: string | null;
 }
 

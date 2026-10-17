@@ -1,4 +1,4 @@
-import { resolvePerson, type PersonDirectory } from '../entities/person.js';
+import { declaresSpelling, resolvePerson, type PersonDirectory } from '../entities/person.js';
 import type { TicketSource } from './ownership.js';
 import { doneTickets, ticketLane, type TicketLane } from './ticket-lane.js';
 
@@ -15,11 +15,11 @@ export interface TicketLaneRow {
   /** The tracker's own word for the kind of work, lowercased; `null` where it stated none. */
   readonly type: string | null;
   /**
-   * The first assignee, resolved to a handle where the `People` directory
-   * declares its spelling; the raw, unresolved spelling otherwise verbatim.
-   * `null` where nobody is assigned. Nothing on the row says which case
-   * applies — a reader comparing this field must treat it as free text, not
-   * as an already-resolved identity.
+   * An assignee, resolved to a handle where the `People` directory declares
+   * its spelling; the first assignee's raw, unresolved spelling otherwise
+   * verbatim. `null` where nobody is assigned. Nothing on the row says which
+   * case applies — a reader comparing this field must treat it as free text,
+   * not as an already-resolved identity.
    */
   readonly owner: string | null;
 }
@@ -78,24 +78,31 @@ export const typeOf = (type: string | null | undefined): string | null =>
   type === undefined || type === null || type.trim() === '' ? null : type.trim().toLowerCase();
 
 /**
- * The owner a ticket card names: the first assignee, resolved through the
- * directory. A Jira account resolves through its `jira:<account>` spelling and
- * shows as written where that spelling is undeclared.
+ * The owner a ticket card names: the assignee the directory resolves, where
+ * one does, otherwise the first assignee as written. A Jira account resolves
+ * through its `jira:<account>` spelling.
+ *
+ * Several assignees can be unequally known: one a raw tracker login the
+ * directory never declared, another a spelling it does. Taking index 0
+ * regardless would name the undeclared one and read as unresolved even where
+ * a later assignee is the reader's own declared spelling — so every assignee
+ * is checked for a declared spelling before falling back to the first.
  *
  * @param assignees - the row's assignees, as the tracker spells them.
  * @param reading - the source and directory the lanes were read with.
- * @returns the handle, or `null` where nobody is assigned.
+ * @returns the resolved handle, the first assignee as written where none resolves, or `null` where nobody is assigned.
  */
 export const ownerOf = (
   assignees: readonly string[] | null | undefined,
   reading: Pick<TicketLanesReading, 'source' | 'directory'>,
 ): string | null => {
-  const first = (assignees ?? []).map((a) => a.trim()).find((a) => a !== '');
-  if (first === undefined) return null;
+  const named = (assignees ?? []).map((a) => a.trim()).filter((a) => a !== '');
+  if (named.length === 0) return null;
   const directory = reading.directory ?? {};
-  const spelling = reading.source?.match === 'tracker-account' ? `${reading.source.prefix}${first}` : first;
-  const person = resolvePerson(spelling, directory);
-  return directory[spelling.toLowerCase()] === undefined ? first : person.handle;
+  const spellingOf = (assignee: string): string =>
+    reading.source?.match === 'tracker-account' ? `${reading.source.prefix}${assignee}` : assignee;
+  const resolved = named.find((assignee) => declaresSpelling(spellingOf(assignee), directory));
+  return resolved === undefined ? named[0] : resolvePerson(spellingOf(resolved), directory).handle;
 };
 
 const rowOf = (reading: Pick<TicketLanesReading, 'source' | 'directory'>) => (row: TicketSourceRow): TicketLaneRow => ({

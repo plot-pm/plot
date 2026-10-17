@@ -58,6 +58,16 @@ describe('ticketLanes type and owner', () => {
     expect(lane(row('1', { assignees: ['JWloka'] }), { source: github, directory: { jwloka: 'jan' } })?.owner).toBe('jan');
   });
 
+  it('resolves a later assignee the directory declares, not just the first', () => {
+    const r = row('1', { assignees: ['unknown-bot', 'JWloka'] });
+    expect(lane(r, { source: github, directory: { jwloka: 'jan' } })?.owner).toBe('jan');
+  });
+
+  it('falls back to the first assignee as written where none resolves', () => {
+    const r = row('1', { assignees: ['unknown-bot', 'also-unknown'] });
+    expect(lane(r, { source: github, directory: { jwloka: 'jan' } })?.owner).toBe('unknown-bot');
+  });
+
   it('carries no type where the row states null', () => {
     expect(lane(row('1', { type: null }))?.type).toBeNull();
   });

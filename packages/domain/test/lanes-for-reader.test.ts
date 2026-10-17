@@ -39,7 +39,7 @@ describe('lanesForReader', () => {
     const actual = lanesForReader(STORIES, TICKETS, reader, false);
     expect(actual.storyLanes.map((l) => l.rows.length)).toEqual([2, 1, 0]);
     expect(actual.tickets?.open.rows.map((r) => r.id)).toEqual(['1', '2']);
-    expect([...actual.storyLanes, actual.tickets!.open].some((l) => l.hiddenByTopic)).toBe(false);
+    expect([...actual.storyLanes, actual.tickets!.open].some((l) => l.hiddenByOwner)).toBe(false);
   });
 
   it('keeps only the reader\'s stories when the filter is on', () => {
@@ -84,16 +84,16 @@ describe('lanesForReader', () => {
 
   it('flags a lane the filter emptied and not a lane that was empty before', () => {
     const actual = lanesForReader(STORIES, TICKETS, reader, true);
-    expect(actual.storyLanes.map((l) => l.hiddenByTopic)).toEqual([false, true, false]);
-    expect(actual.tickets?.open.hiddenByTopic).toBe(false);
-    expect(actual.tickets?.['in-progress'].hiddenByTopic).toBe(false);
-    expect(actual.tickets?.done.hiddenByTopic).toBe(false);
+    expect(actual.storyLanes.map((l) => l.hiddenByOwner)).toEqual([false, true, false]);
+    expect(actual.tickets?.open.hiddenByOwner).toBe(false);
+    expect(actual.tickets?.['in-progress'].hiddenByOwner).toBe(false);
+    expect(actual.tickets?.done.hiddenByOwner).toBe(false);
   });
 
   it('reports a non-empty lane the filter emptied entirely', () => {
     const tickets: TicketLaneGroups = { open: [ticket('5', 'eins78')], 'in-progress': [], done: [], moreCount: 0 };
     const actual = lanesForReader(STORIES, tickets, reader, true);
-    expect(actual.tickets?.open).toEqual({ rows: [], hiddenByTopic: true });
+    expect(actual.tickets?.open).toEqual({ rows: [], hiddenByOwner: true });
   });
 
   it('carries moreCount through and a missing ticket reading through', () => {
