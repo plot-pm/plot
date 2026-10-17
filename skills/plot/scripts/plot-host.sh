@@ -4213,18 +4213,20 @@ case "$op" in
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           # GAPS 3/4/10: `jmap` names no commit, so a push between builds would
           # carry the OLD head's colour onto the new one. The bundle names the
-          # rows `jmap` cannot settle (green/failing with a head sha); this reads
-          # each one's builds by sha, and the bundle binds the newest. One call
-          # per such row, never per open PR, so Jenkins cost stays bounded.
+          # rows `jmap` cannot settle (green/failing with a head sha, at most
+          # `SHA_LOOKUPS_PER_PASS`); this reads each one's builds by sha, and the
+          # bundle binds them. A lookup that exits non-zero could not ask: no row
+          # gets a reading from it, the pass asks no further row, and `jmap`'s
+          # colour stands, unbound — the contract above `jenkins_sha_runs`.
+          # 20 builds per lookup: one round trip at any window, and a plain job lists every branch's builds.
           _sha_map=$({ jq -c . <<<"$jen_map"; jq -c . <<<"$_gh_raw"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null \
             | while IFS=$'\t' read -r _b _s _j; do
-                printf '%s\t%s\t%s\n' "$_b" "$_j" "$(jenkins_sha_runs pr-list "$_b" 5 "$_s" 2>/dev/null </dev/null)"
+                _r=$(jenkins_sha_runs pr-list "$_b" 20 "$_s" 2>/dev/null </dev/null) || break
+                printf '%s\t%s\t%s\t%s\n' "$_b" "$_s" "$_j" "$_r"
               done | node "$here/board/plot-jenkins-pr-checks.mjs" bind 2>/dev/null)
           printf '%s' "$_gh_raw" \
             | jq -c --argjson jmap "$jen_map" --argjson shamap "${_sha_map:-null}" --arg jstatus "$jen_status" '.[] |
-              ($shamap[.headRefName] // null) as $shit |
-              ($jmap[.headRefName] // null) as $c |
-              ($shit // (if $c == null or (.headRefOid // "") == "" or ($c.checks != "green" and $c.checks != "failing") then $c else $c + {checks:"pending"} end)) as $eff |
+              ($shamap[.headRefName] // $jmap[.headRefName] // null) as $eff |
               {
                 number:.number, title:.title, state:.state, head:.headRefName,
                 draft:.isDraft,
@@ -4236,7 +4238,7 @@ case "$op" in
                 review:(.reviewDecision // ""),
                 url:.url,
                 updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),
-                checksSha:(if $shit != null then (.headRefOid // "") else "" end),
+                checksSha:($eff.checksSha // ""),
                 author:(.author.login // ""),
                 failing_checks:(if $eff.checks == "failing" then [$eff.job] else [] end)
               }'

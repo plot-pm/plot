@@ -2602,7 +2602,7 @@ test('host: a Jenkins build that was never built reads unknown on the PR row, bo
   assert.deepEqual(rows.get('feature/red').failing_checks, []);
 });
 
-test('host: a push that supersedes a build in flight reads pending on the new head, not the old colour', () => {
+test('host: a push after the last build reads pending on the new head, not the old colour', () => {
   // Done-when: a push between builds must not carry over the OLD head's
   // colour. `feature/green`'s branch-colour map still says `blue` (measured
   // against a PREVIOUS head), but the new head has no matching Jenkins build
@@ -2630,6 +2630,118 @@ test('host: a push that supersedes a build in flight reads pending on the new he
     'the new head has no Jenkins build yet, so it must not read the old head\'s green');
   assert.equal(rows.get('feature/green').checksSha, '',
     'no sha-bound match exists for the new head, so checksSha stays unbound');
+  assert.match(readFileSync(rest.argvFile, 'utf8'), /api\/json/,
+    'pending must come from a Jenkins answer, so the sha lookup must have reached curl');
+});
+
+// Rows with a head sha, so the sha-bound lookup is reached; `ghRowsFor` carries none.
+const ghRowsWithSha = (pairs) => JSON.stringify(pairs.map(([head, sha, updatedAt = ''], i) => ({
+  number: 200 + i, title: head, state: 'OPEN', headRefName: head, isDraft: false,
+  statusCheckRollup: [], mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN',
+  reviewDecision: null, url: `https://example.test/pr/${200 + i}`, headRefOid: sha,
+  author: { login: 'x' }, updatedAt, mergedAt: null,
+})));
+
+// A `curl` that records argv and answers `body` to every URL, and a `security`
+// that finds nothing, so the keychain on the test machine cannot supply a credential.
+const makeCurlAnswering = (body) => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jencurl-')));
+  const argvFile = path.join(dir, 'curl.argv');
+  writeFileSync(path.join(dir, 'curl'), `#!/usr/bin/env bash
+printf '%s\\n' "$@" >> "${argvFile}"
+printf '%s' '${body.replace(/'/g, `'\\''`)}'
+`);
+  writeFileSync(path.join(dir, 'security'), '#!/usr/bin/env bash\nexit 44\n');
+  chmodSync(path.join(dir, 'curl'), 0o755);
+  chmodSync(path.join(dir, 'security'), 0o755);
+  return { dir, argvFile };
+};
+
+const curlCalls = (argvFile) =>
+  existsSync(argvFile) ? readFileSync(argvFile, 'utf8').split('\n').filter((l) => l.includes('/api/json')) : [];
+
+const runJenkinsShaRows = ({ pairs, rest, credential = true }) => {
+  const env = { ...process.env, PLOT_HOST: '' };
+  delete env.JENKINS_USER;
+  delete env.JENKINS_API_TOKEN;
+  if (credential) Object.assign(env, { JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' });
+  const hostStubs = makeStubs({ ghJson: ghRowsWithSha(pairs) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], { cwd: makeJenkinsRepo(), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  return rowsByHead(res.stdout);
+};
+
+const jenkinsBuildsFor = (sha, result) => JSON.stringify({ builds: [
+  { number: 9, result, building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+    actions: [{ lastBuiltRevision: { SHA1: sha } }] },
+] });
+
+test('host: a sha lookup with no Jenkins API credential keeps the branch colour of green and failing rows', () => {
+  // `jenkins_sha_runs` exits 4 with no credential: Jenkins was not asked, so no
+  // row may read `pending` from it. The colour stays, unbound to the head.
+  const rest = makeCurlAnswering(jenkinsBuildsFor('other', 'SUCCESS'));
+  const rows = runJenkinsShaRows({ pairs: [['feature/green', 'sha-g'], ['feature/red', 'sha-r']], rest, credential: false });
+  assert.equal(rows.get('feature/green').checks, 'green');
+  assert.equal(rows.get('feature/green').checksSha, '');
+  assert.equal(rows.get('feature/red').checks, 'failing');
+  assert.deepEqual(rows.get('feature/red').failing_checks, ['webbloqs/continuous-build-multi/feature/red']);
+  assert.deepEqual(curlCalls(rest.argvFile), [], 'with no credential, nothing reaches Jenkins');
+});
+
+test('host: a sha lookup that Jenkins answers with HTML keeps the branch colour and stops asking', () => {
+  // An HTML body fails the `builds` test on both URLs, and `jenkins_sha_runs`
+  // exits 4. The colour stays, and the pass asks no further row: whatever made
+  // one lookup unanswerable makes the next one cost two more calls for nothing.
+  const rest = makeCurlAnswering('<html><body>Authentication required</body></html>');
+  const rows = runJenkinsShaRows({ pairs: [['feature/green', 'sha-g'], ['feature/red', 'sha-r']], rest });
+  assert.equal(rows.get('feature/green').checks, 'green');
+  assert.equal(rows.get('feature/red').checks, 'failing');
+  assert.equal(rows.get('feature/red').checksSha, '');
+  assert.equal(curlCalls(rest.argvFile).length, 2,
+    'one lookup: the multibranch URL, then the plain one, and no lookup for the second row');
+});
+
+test('host: a sha lookup answered with no build of the head reads pending', () => {
+  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-older-head', 'SUCCESS'));
+  const rows = runJenkinsShaRows({ pairs: [['feature/green', 'sha-new-head'], ['feature/red', 'sha-new-red']], rest });
+  assert.equal(rows.get('feature/green').checks, 'pending');
+  assert.equal(rows.get('feature/red').checks, 'pending');
+  assert.deepEqual(rows.get('feature/red').failing_checks, []);
+  assert.equal(curlCalls(rest.argvFile).length, 2, 'one multibranch call per row');
+});
+
+test('host: a sha lookup answered with a build of the head reads that build, bound to the head', () => {
+  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-head', 'SUCCESS'));
+  const rows = runJenkinsShaRows({ pairs: [['feature/red', 'sha-head']], rest });
+  assert.equal(rows.get('feature/red').checks, 'green',
+    'the branch colour says red, and the build of this head says SUCCESS');
+  assert.equal(rows.get('feature/red').checksSha, 'sha-head');
+  assert.deepEqual(rows.get('feature/red').failing_checks, []);
+});
+
+test('host: a refresh reads at most five rows by sha, the most recently updated first', () => {
+  // The sha lookup costs one Jenkins call per row; the cap bounds a pass against
+  // Jenkins' predicted limit of 60 whatever the number of open PRs.
+  const heads = ['feature/green', 'feature/red', 'feature/unstable'];
+  const pairs = Array.from({ length: 7 }, (_, i) => [heads[i % 3], `sha-${i}`, `2026-10-17T0${i}:00:00Z`]);
+  const many = JSON.stringify(Array.from({ length: 7 }, (_, i) => (
+    { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: `b${i}`, color: 'blue' })));
+  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-6', 'FAILURE'));
+  const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
+  const hostStubs = makeStubs({ ghJson: ghRowsWithSha(pairs.map(([, sha, at], i) => [`b${i}`, sha, at])) });
+  const jen = makeJenStub({ jobsJson: many });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], { cwd: makeJenkinsRepo(), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const rows = rowsByHead(res.stdout);
+  const asked = curlCalls(rest.argvFile);
+  assert.equal(asked.length, 5, `seven green rows with a head sha cost five calls:\n${asked.join('\n')}`);
+  assert.ok(!asked.some((u) => u.includes('/job/b0/') || u.includes('/job/b1/')), 'the two oldest rows are not asked');
+  assert.equal(rows.get('b6').checks, 'failing', 'the newest row is read by sha');
+  assert.equal(rows.get('b0').checks, 'green', 'a row past the cap keeps its branch colour');
+  assert.equal(rows.get('b0').checksSha, '');
 });
 
 test('host: a Jenkins refresh costs a fixed number of calls, whatever the branch count', () => {

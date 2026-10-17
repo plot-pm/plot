@@ -15,12 +15,16 @@ import { pathToFileURL } from 'node:url';
  * ```
  * { jq -c . <<<"$colours"; jq -c . <<<"$rows"; } | plot-jenkins-pr-checks.mjs rows
  * <branch>\t<sha>\t<job>                      # one row to read by sha
- * printf '<branch>\t<job>\t<runs json>\n' | plot-jenkins-pr-checks.mjs bind
- * {"<branch>":{"checks":"green","job":"<job>"}}
+ * printf '<branch>\t<sha>\t<job>\t<runs json>\n' | plot-jenkins-pr-checks.mjs bind
+ * {"<branch>":{"checks":"green","job":"<job>","checksSha":"<sha>"}}
  * ```
  *
  * The shell keeps the transport: it makes the Jenkins call per listed row and
  * the branch-colour map. This entry reads stdin only and spawns nothing.
+ *
+ * `bind` answers only the rows whose `<runs json>` is a JSON array. A row whose
+ * lookup could not ask Jenkins is left out or carries anything else, and the
+ * branch colour stands for it.
  */
 
 /** The exit codes the caller reads. */
@@ -64,17 +68,17 @@ export const run = (
     const colours = parseLine(lines[0] ?? '');
     const rows = parseLine(lines[1] ?? '');
     if (colours === null || typeof colours !== 'object' || !Array.isArray(rows)) return EXIT.ok;
-    for (const r of rowsToBind(rows as PrRowHead[], colours as Record<string, never>)) {
+    for (const r of rowsToBind(rows as PrRowHead[], colours as Record<string, { checks?: string; job?: string }>)) {
       write(`${r.branch}\t${r.sha}\t${r.job}\n`);
     }
     return EXIT.ok;
   }
   const bound: Record<string, BoundChecks> = {};
   for (const line of lines) {
-    const [branch, job, runs] = line.split('\t');
+    const [branch, sha, job, runs] = line.split('\t');
     const parsed = parseLine(runs ?? '');
-    if (branch === undefined || job === undefined || !Array.isArray(parsed)) continue;
-    const hit = bindChecks(parsed as JenkinsShaRun[], job);
+    if (branch === undefined || sha === undefined || job === undefined) continue;
+    const hit = bindChecks(Array.isArray(parsed) ? (parsed as JenkinsShaRun[]) : null, job, sha);
     if (hit !== null) bound[branch] = hit;
   }
   write(`${JSON.stringify(bound)}\n`);
