@@ -3010,6 +3010,31 @@ test('host: run-for-sha on Jenkins without a credential exits 4, never empty', (
     'the sha route does not go through `jen` at all, which carries no commit');
 });
 
+test('host: run-for-sha on Jenkins carries the job path as workflow, so Default branch checks can name it', () => {
+  // Done-when 1. `WorkflowShaRun.workflow` is a required field the domain's
+  // fold reads to match against `Default branch checks`; a Jenkins run with
+  // no `workflow` filters out of every declared-checks list silently.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const bin = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest-')));
+  const builds = JSON.stringify({ builds: [
+    { number: 7, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/7/',
+      actions: [{ lastBuiltRevision: { SHA1: 'asked-sha' } }] },
+  ] });
+  writeFileSync(path.join(bin, 'security'), '#!/usr/bin/env bash\necho stub\n');
+  writeFileSync(path.join(bin, 'curl'), `#!/usr/bin/env bash\nprintf '%s' '${builds}'\n`);
+  chmodSync(path.join(bin, 'security'), 0o755);
+  chmodSync(path.join(bin, 'curl'), 0o755);
+  const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'asked-sha'], {
+    repo, hostStubs, jen,
+    extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` },
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(JSON.parse(res.stdout).workflow, 'webbloqs/continuous-build-multi',
+    'the job path — the one stable name a Default branch checks entry can match against');
+});
+
 test('host: run-for-sha on Jenkins answers nothing when no build carries the asked sha', () => {
   // The arm matches `lastBuiltRevision.SHA1` against the asked sha and nothing
   // else. A `.[0]` fallback would answer the newest build, labelled with ITS

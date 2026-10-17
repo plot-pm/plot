@@ -2140,7 +2140,7 @@ export const run = async (
   const readDefaultBranch = seams.readDefaultBranch ?? (async (): Promise<void> => {
     if (defaultBranchWorld === null) return;
     try {
-      await refreshDefaultBranch(defaultBranchWorld);
+      await refreshDefaultBranch(defaultBranchWorld, warn);
     } catch (e) {
       warn(`plot-fleetd: default-branch read failed: ${e instanceof Error ? e.message : String(e)}`);
     }

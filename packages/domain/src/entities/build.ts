@@ -175,10 +175,10 @@ export interface ShaRun {
  *
  * A {@link ShaRun} that also names its workflow, because a commit carries one
  * run per workflow and a reader folding them into one answer must not lose the
- * workflow that failed. `workflow` is `''` where the CI system has no such
- * name (Jenkins).
+ * workflow that failed. Jenkins has one job rather than many named workflows,
+ * so its runs carry the job path here.
  */
 export interface WorkflowShaRun extends ShaRun {
-  /** The workflow's name; `''` where the CI system did not name it. */
+  /** The workflow's name; the job path for Jenkins. */
   workflow: string;
 }

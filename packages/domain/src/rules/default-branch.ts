@@ -44,6 +44,26 @@ export const declaredRuns = (
   checks.length === 0 ? [...runs] : runs.filter((run) => checks.includes(run.workflow));
 
 /**
+ * The declared check names that match none of the runs' `workflow` values.
+ *
+ * `declaredRuns` folds "a declared name matches nothing" and "no runs exist
+ * at all" into the same empty list; this tells them apart, so a caller can
+ * report a config typo rather than let it read as a quiet repository.
+ *
+ * @param runs - every workflow run of one commit.
+ * @param checks - the declared workflow names, from {@link checkNamesOf}.
+ * @returns the declared names with no matching run, in the order given;
+ *   empty for an empty `checks` list or where every name matches.
+ */
+export const unmatchedChecks = (
+  runs: readonly WorkflowShaRun[],
+  checks: readonly string[],
+): string[] => {
+  const workflows = new Set(runs.map((run) => run.workflow));
+  return checks.filter((name) => !workflows.has(name));
+};
+
+/**
  * Adds up the runs of one commit.
  *
  * `red` is tested first: one failure is red whatever else is still running.
