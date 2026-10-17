@@ -941,6 +941,29 @@ await esbuild.build({
 fs.copyFileSync(prIndexLookupArtifact, shippedPrIndexLookup);
 fs.chmodSync(shippedPrIndexLookup, 0o755);
 
+// Which Jenkins build binds to a PR row's head commit, for plot-host.sh.
+//
+// ONCE PER `pr-list` PASS under `CI: jenkins`, which is the cost rule's
+// operator-command tier. Reads stdin only and spawns nothing: the Jenkins calls
+// stay in the shell that owns the transport and the credential.
+const jenkinsPrChecksArtifact = path.join(here, 'dist/plot-jenkins-pr-checks.mjs');
+const shippedJenkinsPrChecks = path.join(here, '../../skills/plot/scripts/board/plot-jenkins-pr-checks.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/jenkins-pr-checks.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: jenkinsPrChecksArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(jenkinsPrChecksArtifact, shippedJenkinsPrChecks);
+fs.chmodSync(shippedJenkinsPrChecks, 0o755);
+
 // Whether a project's `Agent settings` file may reach a fleet agent, for
 // plot-agent-settings.sh.
 //
