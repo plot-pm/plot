@@ -5054,7 +5054,7 @@ case "$op" in
     # GitHub issues only, dispatched on `issue_source` like issue-open. Exit 4,
     # with the reason, for a source that cannot be asked.
     num="${1:?$op needs an issue number}"; source_said="$(issue_source)" || exit 1
-    [ "$be" = github ] && [ "$source_said" != nobody ] && [ "${source_said%%$'\t'*}" != nobody ] && [ "$source_said" != $'tracker\tjira' ] || { echo "plot-host: $op: ${source_said#*$'\t'}" >&2; exit 4; }
+    [ "$be" = github ] && { [ "$source_said" = git-host ] || [ "$source_said" = $'tracker\tgithub-issues' ]; } || { echo "plot-host: $op: ${source_said#*$'\t'}" >&2; exit 4; }
     case "$op" in
       issue-label) gh issue edit "$num" --add-label "${2:?issue-label needs a label}" ${3:+--remove-label "$3"} >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
