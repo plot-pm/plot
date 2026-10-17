@@ -71,7 +71,7 @@ The pass folds the returned rows into the held rows by key. A row whose state is
 
 ### Incremental
 
-- `feature/the-issue-pass-reads-since-its-last-answer` — the `Tracker` port gains an incremental read, the GitHub, Jira and fixture connectors implement it, and `refreshIssueIndex` folds its rows with a full read every N passes or once a day <!-- builds: issueListChanged, a tracker read of the issues changed since a time -->
+- `feature/the-issue-pass-reads-since-its-last-answer` — the `Tracker` port gains an incremental read, the GitHub, Jira and fixture connectors implement it, and `refreshIssueIndex` folds its rows with a full read every N passes or once a day → #1938 <!-- builds: issueListChanged, a tracker read of the issues changed since a time -->
 
 ### Write-through
 
