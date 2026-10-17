@@ -24,12 +24,14 @@ import { bashCleanliness, readAgentRegistryWithInfo } from './registry.js';
  * @param opts - where the fleet acts; `scripts` is the daemon's own port.
  * @param warn - receives a one-line reason when the pass throws.
  * @param queueHeld - the slices the queue's last tick held, or `null` before a tick has run.
+ * @param stopped - true once the daemon has a stop request; dispatch then starts no agent, while delivery, verification and design finish their bookkeeping.
  * @returns the function to hand to {@link fleetScan} as `after`.
  */
 export const fleetAutoWrites = (
   opts: ActOptions,
   warn: (line: string) => void,
   queueHeld: () => readonly HeldSlice[] | null = () => null,
+  stopped: () => boolean = () => false,
 ): ((pulse: FleetReading) => Promise<void>) => {
   // IN MEMORY, FOR THE DAEMON'S LIFE: a restart loses it, the brief either
   // landed or did not, and the next pass asks again.
@@ -45,7 +47,9 @@ export const fleetAutoWrites = (
         cleanliness: bashCleanliness,
       });
       const machine = await readMachine(opts);
-      own = maybeAutoDispatch(opts, pulse, controls, entries, own, machine, briefsAsked);
+      // A STOP THAT ARRIVED DURING THE SCAN STARTS NO NEW AGENT: only dispatch
+      // creates one, so only it is skipped (#1577).
+      if (!stopped()) own = maybeAutoDispatch(opts, pulse, controls, entries, own, machine, briefsAsked);
       runAutoDeliverPass(opts, pulse);
       // VERIFICATION GOES LAST: it takes an agent slot only when the queue
       // held no slice on `no-free-agent`, and dispatch has just had its turn.
