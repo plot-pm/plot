@@ -70,7 +70,7 @@ Each fix follows the layering rule in `CLAUDE.md`: a decision goes in the domain
 
 - `bug/fleetd-tick-guard-and-escalations` — guard `notifyEscalations`, bound `EscalationMemory`, read a fresh empty log as no tick (the board shows starting), and the #1456 and #1508 bullets that still hold → #1995
 - `bug/fleetd-stop-starts-no-agent` — skip the scan's after-step once stopping, resolve `wt_root` with `pwd -P`, and the stop-race tests
-- `bug/fleetd-once-and-channel-output` — `--once` output on a macOS pipe, channel retry newline and bound line, `over()` tests
+- `bug/fleetd-once-and-channel-output` — `--once` output on a macOS pipe, channel retry newline and bound line, `over()` tests → #1998
 - `bug/fleetd-unit-harness-findings` — the #1589 review findings
 - `bug/fleetd-retries-usage-limit-brief` — re-ask a brief that ended at the usage limit after its reset time → #1997
 - `bug/refused-hold-names-its-reason` — the Tick, `/plot-fleet --status` and the board show who refused, why and when, derived from the tick and never persisted
