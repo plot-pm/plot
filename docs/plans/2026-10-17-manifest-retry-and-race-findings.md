@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1968 merged
+- **Started:** 2026-10-17, Jan Wloka, `bug/the-implement-lock-covers-its-start`
 
 ## Changelog
 
