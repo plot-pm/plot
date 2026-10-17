@@ -124,12 +124,12 @@ export {
   ISSUE_INDEX_HOME_ENV,
   type IssueIndexFileOptions,
 } from './issue-index/issue-index-file.js';
-export { handOffIssueWrite } from './issue-index/hand-off-issue-write.js';
+export { handOffIssueWrite } from './issue-write-spool/hand-off-issue-write.js';
 export {
   issueWriteSpoolFile,
   issueWriteSpoolOver,
   ISSUE_WRITE_SPOOL_BYTES,
-} from './issue-index/issue-write-spool-file.js';
+} from './issue-write-spool/issue-write-spool-file.js';
 
 // THE DEFAULT-BRANCH READING'S FILE ADAPTER. One file under `.plot/state/`,
 // written by `plot-fleetd` only.

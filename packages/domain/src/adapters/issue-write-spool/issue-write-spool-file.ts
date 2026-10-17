@@ -5,7 +5,7 @@ import { answered, failed, type PortResult } from '../../port-result.js';
 import { decodeIssueWrite, encodeIssueWrite, type IssueWrite } from '../../entities/issue-write.js';
 import type { IssueIndexStore } from '../../ports/issue-index.js';
 import type { IssueWriteSpool } from '../../ports/issue-write-spool.js';
-import { issueIndexFile, type IssueIndexFileOptions } from './issue-index-file.js';
+import { issueIndexFile, type IssueIndexFileOptions } from '../issue-index/issue-index-file.js';
 
 /** The spool's filename, beside `issues.json`. */
 const FILENAME = 'issue-writes.jsonl';

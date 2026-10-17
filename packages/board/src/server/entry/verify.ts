@@ -6,8 +6,8 @@ import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-s
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { runProcess } from '@plot-pm/domain/adapters/run-script';
-import { handOffIssueWrite } from '@plot-pm/domain/adapters/issue-index/hand-off-issue-write';
-import { issueWriteSpoolFile } from '@plot-pm/domain/adapters/issue-index/issue-write-spool-file';
+import { handOffIssueWrite } from '@plot-pm/domain/adapters/issue-write-spool/hand-off-issue-write';
+import { issueWriteSpoolFile } from '@plot-pm/domain/adapters/issue-write-spool/issue-write-spool-file';
 import { reviewIssueUrl } from '@plot-pm/domain/adapters/tracker/tracker-issue-url';
 import { trackerForIssues } from '@plot-pm/domain/adapters/tracker/tracker-resolve';
 import type { Host, PlanStore, Refs, Scripts, Tracker, Trees } from '@plot-pm/domain';

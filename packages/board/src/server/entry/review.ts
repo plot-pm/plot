@@ -9,8 +9,8 @@ import { boundedRunProcess } from '@plot-pm/domain/adapters/bounded-run/bounded-
 import { agentRunCommand } from '@plot-pm/domain/adapters/agent-run/agent-run-command';
 import { HARNESS_LIMIT_LINES } from '@plot-pm/domain/adapters/harness/limit-lines';
 import { reviewIssueUrl } from '@plot-pm/domain/adapters/tracker/tracker-issue-url';
-import { handOffIssueWrite } from '@plot-pm/domain/adapters/issue-index/hand-off-issue-write';
-import { issueWriteSpoolFile } from '@plot-pm/domain/adapters/issue-index/issue-write-spool-file';
+import { handOffIssueWrite } from '@plot-pm/domain/adapters/issue-write-spool/hand-off-issue-write';
+import { issueWriteSpoolFile } from '@plot-pm/domain/adapters/issue-write-spool/issue-write-spool-file';
 import { ISSUE_MAY_EXIST } from '@plot-pm/domain/rules/refuted-issues';
 import { trackerForIssues } from '@plot-pm/domain/adapters/tracker/tracker-resolve';
 import { githubIssueOpen } from '@plot-pm/domain/adapters/tracker/tracker-github';

@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { issueIndexFile } from '../src/adapters/issue-index/issue-index-file.js';
-import { ISSUE_WRITE_SPOOL_BYTES, issueWriteSpoolOver } from '../src/adapters/issue-index/issue-write-spool-file.js';
-import { handOffIssueWrite } from '../src/adapters/issue-index/hand-off-issue-write.js';
+import { ISSUE_WRITE_SPOOL_BYTES, issueWriteSpoolOver } from '../src/adapters/issue-write-spool/issue-write-spool-file.js';
+import { handOffIssueWrite } from '../src/adapters/issue-write-spool/hand-off-issue-write.js';
 import type { Tracker } from '../src/ports/tracker.js';
 
 const roots: string[] = [];
