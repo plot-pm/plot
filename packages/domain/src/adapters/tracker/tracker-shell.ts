@@ -319,6 +319,19 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
      * @returns the closed issues, newest first, whether the read reached its
      *   end, and the requests it spent.
      */
+    /**
+     * Lists the open issues carrying `label`: `issue-list --paged --label <label>`.
+     * See {@link walk}. Only the GitHub arm of `plot-host.sh` accepts `--label`;
+     * the others exit 4, which answers `unaskable` with the stated reason.
+     *
+     * @param label - the label to filter by.
+     * @param limit - how many issues to read at most.
+     * @returns the labelled open issues, whether the read reached its end, and
+     *   the requests it spent.
+     */
+    issueListLabelled: (label: string, limit: number): Promise<PortResult<IssueRead>> =>
+      walk(['issue-list', '--paged', '--label', label], limit),
+
     issueListClosed: async (since: string, limit: number): Promise<PortResult<ClosedIssues>> => {
       const read = await walk(['issue-list', '--state', 'closed', '--since', since], limit);
       return read.ok ? answered({ ...read.value, issues: newestCloseFirst(read.value.issues) }) : read;

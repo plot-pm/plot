@@ -4,6 +4,7 @@ import type { LimitReading } from '../../entities/limit.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type {
   ClosedIssues,
+  IssueCommentOutcome,
   IssueOpen,
   IssueOpenOutcome,
   IssueRead,
@@ -47,6 +48,14 @@ export interface TrackerFixture {
   outcome?: StatusOutcome;
   /** Where every `issueOpen` is recorded, in call order, before it can refuse. */
   opened?: IssueOpen[];
+  /** The open issues `issueListLabelled` reports per label; a label absent here reports none. */
+  labelled?: Readonly<Record<string, readonly Issue[]>>;
+  /** Whether `issueListLabelled` fails outright. */
+  issueListLabelledFails?: boolean;
+  /** Where every `issueComment` is recorded, in call order, before it can refuse. */
+  commented?: { id: string; body: string }[];
+  /** Whether a comment write fails outright. */
+  issueCommentFails?: boolean;
   /** Whether an issue-open write fails outright. */
   issueOpenFails?: boolean;
   /** Whether a status write fails outright. */
@@ -79,6 +88,7 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
   const issues = fixture.issues ?? [];
   const written = fixture.written ?? [];
   const opened = fixture.opened ?? [];
+  const commented = fixture.commented ?? [];
   return {
     config: (): TrackerConfig => ({
       scheme: fixture.scheme ?? 'fixture',
@@ -130,6 +140,19 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
       written.push(write);
       if (fixture.statusWriteFails === true) return failed();
       return answered(fixture.outcome ?? 'written');
+    },
+
+    issueListLabelled: async (label, limit): Promise<PortResult<IssueRead>> => {
+      if (fixture.issueListLabelledFails === true) return failed();
+      const found = (fixture.labelled?.[label] ?? []).slice(0, limit);
+      return answered({ issues: found, complete: found.length < limit, pages: pagesOf(found.length) });
+    },
+
+    issueComment: async (id, body): Promise<PortResult<IssueCommentOutcome>> => {
+      // RECORDED BEFORE IT REFUSES, like `issueOpen`.
+      commented.push({ id, body });
+      if (fixture.issueCommentFails === true) return failed();
+      return answered<IssueCommentOutcome>({ outcome: 'commented' });
     },
 
     issueOpen: async (write): Promise<PortResult<IssueOpenOutcome>> => {

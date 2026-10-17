@@ -104,6 +104,15 @@ export interface IssueOpenOutcome {
 }
 
 /**
+ * What came of a comment write: the comment exists on the issue it was addressed to.
+ *
+ * A write that broke is a `PortResult` failure and is not a member here.
+ */
+export interface IssueCommentOutcome {
+  outcome: 'commented';
+}
+
+/**
  * The issues one paged read returned, whether it reached its end, and what it
  * spent.
  */
@@ -146,10 +155,10 @@ export type ClosedIssues = IssueRead;
  * connector, tagged with that connector's backend word, so its `limit()`
  * reports the `host` bucket and no second budget is ever opened.
  *
- * THE WRITES ARE TWO FACTS AND STAY TWO. Plot writes a status to the tracker
- * it was told about, and opens an issue for a claim it refuted. It writes
- * nothing else — no comment, no label on an existing issue, no transition it
- * was not asked for. A plan referencing an issue remains Plot's
+ * THE WRITES ARE THREE FACTS. Plot writes a status to the tracker it was told
+ * about, opens an issue for a claim it refuted, and comments on an issue it
+ * opened itself. It writes nothing else — no edit of an existing body, no label
+ * on an existing issue, no transition it was not asked for. A plan referencing an issue remains Plot's
  * record; the status is the one fact the tracker owns a copy of, because it is
  * the one a person reads in the tracker rather than in Plot.
  */
@@ -186,6 +195,20 @@ export interface Tracker {
    *   asked.
    */
   issueListOpen(limit: number): Promise<PortResult<IssueRead>>;
+
+  /**
+   * Lists the tracker's open issues that carry `label`, without their bodies.
+   *
+   * THE LABEL IS ASKED OF THE TRACKER, not read off the rows: an {@link Issue}
+   * carries no labels. A caller finding an issue Plot itself opened asks for the
+   * label Plot applied, then decides on the titles.
+   *
+   * @param label - the label to filter by, verbatim.
+   * @param limit - how many issues to read at most.
+   * @returns the issues, and whether the read reached its end; `unaskable`
+   *   where no tracker can be asked or the declared one cannot filter by label.
+   */
+  issueListLabelled(label: string, limit: number): Promise<PortResult<IssueRead>>;
 
   /**
    * Lists the issues the tracker closed at or after `since`, without bodies.
@@ -297,6 +320,27 @@ export interface Tracker {
    *   otherwise, with the reason in `lastRefusal`.
    */
   issueOpen(write: IssueOpen): Promise<PortResult<IssueOpenOutcome>>;
+
+  /**
+   * Adds one comment to an issue, and nothing else.
+   *
+   * THE THIRD WRITE ON THIS PORT, for the reason {@link Tracker.issueOpen} is
+   * the second: the comment states a fact Plot produced (a review's findings on
+   * a new head). It addresses an issue by the identifier `issueOpen` returned.
+   * It is NOT idempotent — the same call twice adds two comments. A comment is
+   * an append, so two concurrent writers cannot lose each other's text, which
+   * an edit of the body cannot promise.
+   *
+   * A REPOSITORY WITH NO TRACKER ANSWERS `unaskable`, NEVER `commented`, for
+   * the reason `statusWrite` does.
+   *
+   * @param id - the issue's identifier, as `issueOpen` returned it.
+   * @param body - the comment text, verbatim.
+   * @returns `commented`; `unaskable` where no tracker was declared or the
+   *   declared one cannot comment; `failed` otherwise, with the reason in
+   *   `lastRefusal`.
+   */
+  issueComment(id: string, body: string): Promise<PortResult<IssueCommentOutcome>>;
 
   /**
    * What is this connector's limit, and how well does it know it?

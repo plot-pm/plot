@@ -369,6 +369,11 @@
 #                                 as issue-list. Jira answers 404 for a missing
 #                                 key, which is exit 3 here (the tracker moved),
 #                                 never an empty body.
+#   issue-comment <number> <body>                   (github-issues)
+#                                 adds one comment to the issue; exit 4 for any
+#                                 other source. Not idempotent.
+#   issue-list --label <label>    keeps open issues carrying the label (github
+#                                 only; exit 4 on Jira and Bitbucket).
 #   issue-open <request-json>                       (jira)
 #   issue-open <title> <body> [--label <label>...]  (github-issues)
 #                                 THE SECOND OF TWO WRITES TO A TRACKER: open
@@ -4637,7 +4642,7 @@ case "$op" in
     # of them reproduces `an-outage-is-not-an-answer` — a board that says "no
     # issues" because it could not reach the tracker is stating a fact it does
     # not have.
-    limit=""; state="open"; since=""; page_token=""; paged=""
+    limit=""; state="open"; since=""; page_token=""; paged=""; label=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --limit) limit="${2:?}"; shift 2 ;;
@@ -4645,6 +4650,7 @@ case "$op" in
         --since) since="${2:?}"; shift 2 ;;
         --page-token) page_token="${2:?}"; shift 2 ;;
         --paged) paged=1; shift ;;
+        --label) label="${2:?}"; shift 2 ;;
         *) die "issue-list: unknown arg $1" ;;
       esac
     done
@@ -4664,6 +4670,7 @@ case "$op" in
     # NOTHING HAS BEEN SPENT: no `gh`, no `bb`, no curl has run yet.
     [ "${source_said%%$'\t'*}" != nobody ] || { echo "plot-host: ${source_said#*$'\t'}" >&2; exit 4; }
     if [ "$source_said" = $'tracker\tjira' ]; then
+      [ -z "$label" ] || { echo "plot-host: issue-list: --label is not supported for Jira" >&2; exit 4; }
       # Jira, resolved through the REST API — DISPATCHED ON `Tracker`, never on
       # `backend()`: a Bitbucket repo tracking in Jira is the normal enterprise
       # case, so the git host is irrelevant here (see the Jira helpers up top).
@@ -4799,8 +4806,9 @@ case "$op" in
       # itself, not the call, says what it is. `updatedAt` rides along so the
       # adapter's fold can compare it the way `foldIssueRows` already does.
       gh_json="number,title,url,createdAt,assignees,issueType"; search_args=(); ask_state="$gh_state"
-      if [ "$gh_state" = changed ]; then gh_json+=",updatedAt,state,closedAt"; ask_state=all; search_args=(--search "updated:>=$since")
-      elif [ "$gh_state" != open ]; then gh_json+=",closedAt"; search_args=(--search "closed:>=$since"); fi
+      [ -z "$label" ] || search_args=(--label "$label")
+      if [ "$gh_state" = changed ]; then gh_json+=",updatedAt,state,closedAt"; ask_state=all; search_args+=(--search "updated:>=$since")
+      elif [ "$gh_state" != open ]; then gh_json+=",closedAt"; search_args+=(--search "closed:>=$since"); fi
       if out="$(gh issue list --state "$ask_state" ${limit_args[@]+"${limit_args[@]}"} \
                   ${search_args[@]+"${search_args[@]}"} --json "$gh_json" 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
@@ -4831,7 +4839,7 @@ case "$op" in
       # A CLOSED OR CHANGED READ IS EXIT 4: `bb issue list` prints no closing or
       # update date, so there is nothing honest to return for either. It runs
       # before any `bb` command.
-      [ "$state" = open ] || { echo "plot-host: bitbucket cannot list closed or changed issues; bb prints neither date" >&2; exit 4; }
+      { [ "$state" = open ] && [ -z "$label" ]; } || { echo "plot-host: bitbucket cannot list closed or changed issues, or issues by label" >&2; exit 4; }
       bb_assert_issue_version || exit $?
       # `--state new,open` is bb's own default for `issue list` and is what
       # "open tracker issues" means; stated explicitly so a bb default change
@@ -5056,6 +5064,15 @@ case "$op" in
       $'tracker\tjira') jira_require_config; jira_ask /rest/api/2/issue -X POST -H 'Content-Type: application/json' --data-raw "${1:?issue-open needs a request}" || exit $? ;;
       $'tracker\tgithub-issues') gh issue create --title "${1:?issue-open needs a title}" --body "${2-}" "${@:3}" 2>"$HOST_ERR" || gh_fail ;;
       *) echo "plot-host: issue-open: ${source_said#*$'\t'}" >&2; exit 4 ;;
+    esac ;;
+
+  issue-comment)
+    # Add one comment to an issue: `issue-comment <number> <body>`, github-issues
+    # only. NOT IDEMPOTENT, like issue-open. Exit 4 for any other source.
+    source_said="$(issue_source)" || exit 1
+    case "$source_said" in
+      $'tracker\tgithub-issues') gh issue comment "${1:?issue-comment needs an issue}" --body "${2:?issue-comment needs a body}" 2>"$HOST_ERR" || gh_fail ;;
+      *) echo "plot-host: issue-comment: ${source_said#*$'\t'}" >&2; exit 4 ;;
     esac ;;
 
   # The projects `Ticket prefixes` scopes to, one per line, honoring
@@ -5354,6 +5371,6 @@ case "$op" in
     ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-comment|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
     ;;
 esac

@@ -5,6 +5,8 @@ import { trackerNone } from '@plot-pm/domain/adapters/tracker/tracker-none';
 import { ISSUE_MAY_EXIST } from '@plot-pm/domain/rules/refuted-issues';
 import type { Pr } from '@plot-pm/domain/entities/pr';
 import type { CommitStatusWrite } from '@plot-pm/domain/ports/host';
+import type { Issue } from '@plot-pm/domain/entities/issue';
+import type { Tracker } from '@plot-pm/domain';
 import type { IssueOpen } from '@plot-pm/domain/ports/tracker';
 import type { AgentRun, AgentRunRequest } from '@plot-pm/domain/ports/agent-run';
 import type { Trees } from '@plot-pm/domain';
@@ -202,7 +204,7 @@ describe('reviewPr', () => {
     const out = await reviewPr(r.deps, '7');
     expect(out.code).toBe(EXIT.issueNotOpened);
     expect(r.statuses.map((s) => [s.state, s.targetUrl])).toEqual([['success', 'https://github.com/o/r/pull/7']]);
-    expect(out.lines).toContain('plot-review: the follow-up issue was not opened: no Tracker declared');
+    expect(out.lines).toContain('plot-review: the follow-up issue was not opened: could not look for an open follow-up issue of PR #7: no Tracker declared');
   });
 
   it('keeps the pending entry when the issue may exist, so a second run opens none', async () => {
@@ -457,5 +459,132 @@ describe('reviewTracker', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('one follow-up issue per PR', () => {
+  const sha = (n: number): string => String(n).repeat(40);
+  const issueRow = (id: string, title: string): Issue => ({
+    id, title, url: '', createdAt: null, body: null, status: 'open', statusCategory: 'To Do', closedAt: null,
+  } as Issue);
+
+  /** A tracker whose opened issues show up in the labelled list, as on a real host. */
+  const withLabelled = (listed: Issue[], over: Partial<Tracker> = {}) => {
+    const opened: IssueOpen[] = [];
+    const commented: { id: string; body: string }[] = [];
+    const tracker: Tracker = {
+      ...trackerFixture({ scheme: 'github-issues', commented }),
+      issueListLabelled: async () => answered({ issues: listed, complete: true, pages: 1 }),
+      issueOpen: async (write) => {
+        opened.push(write);
+        const id = String(100 + opened.length);
+        listed.push(issueRow(id, write.title));
+        return answered({ outcome: 'opened' as const, id });
+      },
+      ...over,
+    };
+    return { tracker, opened, commented };
+  };
+
+  it('three heads of one PR yield one issue and two comments on it', async () => {
+    const listed: Issue[] = [];
+    const { tracker, opened, commented } = withLabelled(listed);
+    const files = new Map<string, string>();
+    for (const n of [1, 2, 3]) {
+      const r = rig('- [LOW] naming\nFindings: HIGH 0, MEDIUM 0, LOW 1\n', { prs: [pr({ headSha: sha(n) })], files });
+      r.deps.tracker = tracker;
+      const out = await reviewPr(r.deps, '7');
+      expect(out.code).toBe(EXIT.ok);
+      expect(out.lines.at(-1)).toContain('issue https://github.com/o/r/issues/101');
+    }
+    expect(opened).toHaveLength(1);
+    expect(commented.map((c) => c.id)).toEqual(['101', '101']);
+    expect(commented[0]!.body).toContain(sha(2));
+    expect(commented[1]!.body).toContain(sha(3));
+    expect(commented[1]!.body).toContain('naming');
+    expect(files.get(`${REVIEWS}/7-${sha(3)}.issue`)).toBe('101');
+  });
+
+  it('does not match PR #7 against an issue of PR #77', async () => {
+    const { tracker, opened, commented } = withLabelled([issueRow('9', 'plot-review: MEDIUM 0, LOW 1 on PR #77')]);
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n');
+    r.deps.tracker = tracker;
+    await reviewPr(r.deps, '7');
+    expect(opened).toHaveLength(1);
+    expect(commented).toHaveLength(0);
+  });
+
+  it('asks for the review label, so an issue without it never receives review text', async () => {
+    const asked: string[] = [];
+    const { tracker, opened, commented } = withLabelled([], {
+      issueListLabelled: async (label) => { asked.push(label); return answered({ issues: [], complete: true, pages: 1 }); },
+    });
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n');
+    r.deps.tracker = tracker;
+    await reviewPr(r.deps, '7');
+    expect(asked).toEqual(['ai-generated']);
+    expect(opened).toHaveLength(1);
+    expect(commented).toHaveLength(0);
+  });
+
+  it('opens nothing and comments nothing when the lookup fails', async () => {
+    const { tracker, opened, commented } = withLabelled([], {
+      issueListLabelled: async () => ({ ok: false as const, why: 'failed' as const }),
+      lastRefusal: () => 'plot-host: HTTP 502',
+    });
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n');
+    r.deps.tracker = tracker;
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.issueNotOpened);
+    expect(opened).toHaveLength(0);
+    expect(commented).toHaveLength(0);
+    expect(out.lines.join('\n')).toContain('plot-host: HTTP 502');
+    expect(r.files.has(`${REVIEWS}/7-${HEAD}.issue`)).toBe(false);
+    expect(r.statuses).toHaveLength(1);
+  });
+
+  it('opens nothing when the lookup stopped at its limit without a match', async () => {
+    const { tracker, opened } = withLabelled([], {
+      issueListLabelled: async () => answered({ issues: [], complete: false, pages: 1 }),
+    });
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n');
+    r.deps.tracker = tracker;
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.issueNotOpened);
+    expect(opened).toHaveLength(0);
+  });
+
+  it('a second run on the same head makes no lookup and no comment', async () => {
+    let lookups = 0;
+    const { tracker, commented } = withLabelled([issueRow('9', 'plot-review: MEDIUM 0, LOW 1 on PR #7')], {
+      issueListLabelled: async () => { lookups += 1; return answered({ issues: [issueRow('9', 'plot-review: MEDIUM 0, LOW 1 on PR #7')], complete: true, pages: 1 }); },
+    });
+    const files = new Map<string, string>();
+    for (let i = 0; i < 2; i += 1) {
+      const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n', { files });
+      r.deps.tracker = tracker;
+      await reviewPr(r.deps, '7');
+    }
+    expect(lookups).toBe(1);
+    expect(commented).toHaveLength(1);
+  });
+
+  it('removes the issue file and names the reason when the comment fails', async () => {
+    const { tracker } = withLabelled([issueRow('9', 'plot-review: MEDIUM 0, LOW 1 on PR #7')], {
+      issueComment: async () => ({ ok: false as const, why: 'failed' as const }),
+      lastRefusal: () => 'plot-host: HTTP 403',
+    });
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n');
+    r.deps.tracker = tracker;
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.issueNotOpened);
+    expect(out.lines.join('\n')).toContain('could not comment on issue 9: plot-host: HTTP 403');
+    expect(r.files.has(`${REVIEWS}/7-${HEAD}.issue`)).toBe(false);
+  });
+
+  it('trackerNone answers unaskable to the lookup and the comment, with its reason', async () => {
+    const none = trackerNone('no Tracker declared');
+    expect(await none.issueListLabelled('ai-generated', 10)).toEqual({ ok: false, why: 'unaskable', reason: 'no Tracker declared' });
+    expect(await none.issueComment('1', 'x')).toEqual({ ok: false, why: 'unaskable', reason: 'no Tracker declared' });
   });
 });
