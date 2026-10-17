@@ -31,6 +31,8 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 
 - [x] [row-placement-and-wording-1677-1791] Waiting on you: row placement and wording (#1830)
 - [x] [fleetd-scan-cost-and-read-cadence] fleetd scan cost and read cadence (#1845)
+- [ ] [the-ready-line-waits-for-every] Board: the ready line waits for every address, and a released desk says why (#1951: #1900, #1916)
+- [ ] [a-fresh-agent-after-a-wait] Fleet: a new free agent after a wait-bound end, safe supervisor endings, and slice waits (#1950: #1903, #1917, #1273)
 
 ### Deferred
 
@@ -49,3 +51,4 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 
 - 2026-10-16: Tiers set by Jan Wloka: Must are the three connector plans; Should are the ticket index and the ticket rows; Could are #1830 and #1845.
 - 2026-10-17: Added [one-review-issue-per-pr-a] as a Should: it stops plot-review opening one follow-up issue per PR head (#1881), the flood measured during this sprint.
+- 2026-10-17: Added [the-ready-line-waits-for-every] and [a-fresh-agent-after-a-wait] as Could by Jan Wloka: both plans are approved, and their fixes keep the board and the fleet running during the sprint.
