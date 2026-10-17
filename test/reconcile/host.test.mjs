@@ -3002,21 +3002,26 @@ test('host: a plain WorkflowJob reports its real state instead of failed', () =>
 
 test('host: runs on a plain job emits a line rather than exiting 4', () => {
   // WITHOUT THIS GATE EVERY OTHER ONE CAN PASS WHILE THE PORT STILL ANSWERS
-  // `unaskable`. `plot-host.sh` reads `.map[$branch]`, and a plain job has no
-  // branch key at all — so a reader that fixed `jenkins_build_map` and left the
-  // key shape alone would emit nothing here, exit 4, and
-  // `build-shell.ts:130-145` would turn that into `unaskable` with
-  // `refusal: null`, discarding the retry signal by design.
-  //
-  // The key is the job path's last segment, which is the name the instance
-  // declares and the name a caller asks by.
+  // `unaskable`. A plain (non-multibranch) job's REST URL has no branch
+  // segment — `jenkins_sha_runs`'s multibranch-then-plain fallback tries the
+  // branch path first and 404s, then the plain path, which this fixture's
+  // `curl` answers with `builds` regardless of which URL it was asked. Since
+  // the slice moved `runs` onto that same shared fetch, a reader that broke
+  // the plain fallback would exit 4 here even though every multibranch test
+  // above still passes.
   const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
-  const res = runJenkinsAllowFail(['runs', 'continuous-deploy'], { repo, hostStubs, jen });
+  const builds = JSON.stringify({ builds: [
+    { number: 3, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/3/',
+      actions: [{ lastBuiltRevision: { SHA1: 'some-sha' } }] },
+  ] });
+  const bin = makeJenkinsRestBin(builds);
+  const res = runJenkinsAllowFail(['runs', 'continuous-deploy'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(res.code, 0, `a readable plain job must not exit 4\n${res.stderr}`);
   const row = JSON.parse(res.stdout.trim());
-  assert.equal(row.conclusion, 'green', 'the state Jenkins reported, not a refusal');
+  assert.equal(row.conclusion, 'SUCCESS', 'the state Jenkins reported, not a refusal');
   assert.equal(row.workflow, 'quaweb/continuous-deploy',
     'the job is named, because that is what a reader opens');
 });
