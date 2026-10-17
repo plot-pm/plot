@@ -4,11 +4,12 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Issue:** #1846
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-10-17, Jan Wloka, plan-PR #1965 merged
 
 ## Changelog
 
