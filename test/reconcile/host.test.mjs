@@ -7715,3 +7715,23 @@ test('host: issue-open reports a Jira refusal as exit 3 with nothing on stdout',
   assert.equal(res.stdout, '');
   assert.match(res.stderr, /jira HTTP 400 — issuetype is invalid/);
 });
+
+test('host: a Jira issue-open the server rejects with a 4xx still records one budget line', () => {
+  // THE RECORD IS WRITTEN BEFORE THE STATUS IS CHECKED (`jira_curl` calls
+  // `budget_record_jira` ahead of `jira_check`), because the request reached
+  // Jira and Jira counts it whatever it answered.
+  const home = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-open-budget-')));
+  const ledger = path.join(home, 'budget.tsv');
+  const jiraLines = () => (existsSync(ledger)
+    ? readFileSync(ledger, 'utf8').split('\n').filter((l) => l.split('\t')[1] === 'jira')
+    : []);
+  const env = { PLOT_BUDGET_HOME: home, PLOT_BUDGET_OFF: '' };
+  const stub = makeJiraSequenceStub([{ body: '{"errorMessages":["issuetype is invalid"]}', status: 400 }]);
+  const res = runJira(['issue-open', '{}'], stub, env);
+  assert.equal(res.status, 3, res.stderr);
+  assert.equal(res.stdout, '');
+  assert.equal(jiraLines().length, 1, 'the rejected create spent one call');
+  const second = makeJiraSequenceStub([{ body: '{"errorMessages":["issuetype is invalid"]}', status: 400 }]);
+  runJira(['issue-open', '{}'], second, env);
+  assert.equal(jiraLines().length, 2, 'each rejected create adds exactly one line');
+});

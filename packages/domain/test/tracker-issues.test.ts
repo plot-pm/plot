@@ -14,7 +14,7 @@ import {
   trackerOfSource,
 } from '../src/adapters/tracker/tracker-resolve.js';
 import { ISSUE_MAY_EXIST, issueOpenOf } from '../src/adapters/tracker/tracker-shell.js';
-import type { IssueOpen } from '../src/ports/tracker.js';
+import type { IssueOpen, StatusWrite } from '../src/ports/tracker.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
 
 // The issue reader a repository with no `Tracker` key gets, and the spender
@@ -483,5 +483,68 @@ describe('trackerOfSource and trackerForIssues', () => {
     expect(await trackerForIssues('linear', 'github', context).issueList())
       .toMatchObject({ ok: false, why: 'unaskable', reason: expect.any(String) });
     expect(calls(argv)).toEqual([]);
+  });
+});
+
+describe('issueOpenOf on a Jira 4xx', () => {
+  const refusal = 'plot-host: jira HTTP 400 — issuetype is invalid';
+  const jiraKey = (stdout: string): string | null => jiraKeyOf(stdout);
+
+  it('reads an exit-3 run as failed and carries its stderr as the refusal, even with a body on stdout', () => {
+    let refused: string | null = 'unset';
+    const result = issueOpenOf(
+      { code: 3, stdout: '{"key":"PROJ-1"}', stderr: `${refusal}\n` },
+      jiraKey,
+      (said) => {
+        refused = said;
+      },
+    );
+    expect(result).toEqual({ ok: false, why: 'failed' });
+    expect(refused).toBe(refusal);
+  });
+
+  it('is not unaskable: only exit 4 reads as the connector being unaskable', () => {
+    const result = issueOpenOf({ code: 3, stdout: '', stderr: refusal }, jiraKey, () => undefined);
+    expect(result).toMatchObject({ ok: false });
+    expect(result).not.toHaveProperty('reason');
+  });
+});
+
+describe('trackerFixture', () => {
+  const write: IssueOpen = { title: 'T', body: 'B', labels: [] };
+  const status = { prUrl: 'u', status: 'Done' };
+
+  it('fails a status write on demand and still records the attempt', async () => {
+    const written: StatusWrite[] = [];
+    const tracker = trackerFixture({ statusWriteFails: true, written });
+    expect(await tracker.statusWrite(status)).toEqual({ ok: false, why: 'failed' });
+    expect(written).toEqual([status]);
+  });
+
+  it('answers a custom status outcome verbatim', async () => {
+    const tracker = trackerFixture({ outcome: 'no-target' });
+    expect(await tracker.statusWrite(status)).toEqual({ ok: true, value: 'no-target' });
+    expect(await trackerFixture().statusWrite(status)).toEqual({ ok: true, value: 'written' });
+  });
+
+  it('fails an issue-open on demand and still records the attempt', async () => {
+    const opened: IssueOpen[] = [];
+    const tracker = trackerFixture({ issueOpenFails: true, opened });
+    expect(await tracker.issueOpen(write)).toEqual({ ok: false, why: 'failed' });
+    expect(opened).toEqual([write]);
+  });
+
+  it('opens with an id that counts the recorded attempts', async () => {
+    const opened: IssueOpen[] = [];
+    const tracker = trackerFixture({ opened });
+    expect(await tracker.issueOpen(write)).toEqual({ ok: true, value: { outcome: 'opened', id: '1' } });
+    expect(await tracker.issueOpen(write)).toEqual({ ok: true, value: { outcome: 'opened', id: '2' } });
+    expect(opened).toHaveLength(2);
+  });
+
+  it('reports its spender, and a fixture connector with no account by default', async () => {
+    expect(await trackerFixture().spender()).toEqual({ ok: true, value: { connector: 'fixture', account: null } });
+    const spender = { connector: 'jira', account: 'acct' };
+    expect(await trackerFixture({ spender }).spender()).toEqual({ ok: true, value: spender });
   });
 });
