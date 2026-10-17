@@ -43,7 +43,6 @@ Domain rules follow the layering rule in `CLAUDE.md`: new code is arrow function
 
 ### Open Questions
 
-- [ ] #1903, for the operator: does "one fresh free agent" mean a new limit of one start per tick at `agents=0`, or does `scaleUp`'s existing start towards `Parallel agents`, at most `DESKS_PER_TICK = 3` per tick (`registryd-main.ts:983`), meet the decision? A limit of one changes `scaleUp` and the test at `queue.test.ts:540`, which expects 3. Slice 3 pins the answer in a test.
 - [ ] #1917: does any path other than a free wait produce a supervisor `unreadable` ending beside exit 124, for example the wrapper's own timeout killing a loop mid-slice? If so, `freeWaitEnded` alone cannot be the guard, and the `ok` declaration or ROW 2's own ending is.
 - [ ] #1273: which of the two candidates — the stale daemon or a wrong `merged` set — caused the hand-overs? Slice 1's tests decide.
 
@@ -66,6 +65,7 @@ Domain rules follow the layering rule in `CLAUDE.md`: new code is arrow function
 - Created from tracker issue #1950. The issue is the problem statement; this plan proposes the slices.
 - Nothing is written to the tracker.
 - 2026-10-17: #1903 decided by Jan Wloka: start a fresh agent
+- 2026-10-17: #1903 limit decided by Jan Wloka: the existing rule stands. At `agents=0`, `scaleUp` starts towards `Parallel agents`, at most `DESKS_PER_TICK = 3` per tick; no new limit of one start per tick. Slice 3 pins this in a test, and `queue.test.ts:540` keeps its expectation of 3.
 - 2026-10-17: Round 1 was a four-lens panel (estate, contradiction, deliverable, cost), unanimous `amend`; verdicts and moderation in `.plot/panels/a-fresh-agent-after-a-wait/`.
 - Panel disagreement, #1917 guard reading: estate proposed the desk's own records (`freeWaitEnded`, `ok` declaration), deliverable proposed other live manifests as `otherHolders` or ROW 2 writing its own ending, contradiction proposed the claim ref tip or last manifest; the plan takes the desk's own records with ROW 2 as the named alternative, because the manifest is gone when the rule runs.
 - Panel disagreement, #1273 cause: three lenses named a stale daemon bundle, deliverable added a wrong `merged` set; the moderator's log check supports the stale daemon and does not exclude the other, so slice 1's tests decide.
