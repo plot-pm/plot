@@ -3833,12 +3833,7 @@ case "$op" in
         jq -r '.[] | select(.mergedAt != null and .headRefOid != null) | .headRefOid' <<<"$out" || exit 3
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
-        if [ -n "$err" ] && is_lookup_miss "$err"; then
-          :
-        else
-          echo "plot-host: ${err:-gh pr list failed}" >&2
-          exit 3
-        fi
+        [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-gh pr list failed}" >&2; exit 3; }
       fi
     else
       bb_require_json
@@ -3848,12 +3843,7 @@ case "$op" in
         jq -r --arg b "$ref" '.[] | select(.source.branch.name==$b) | (.source.commit.hash // empty)' <<<"$out" || exit 3
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
-        if [ -n "$err" ] && is_lookup_miss "$err"; then
-          :
-        else
-          echo "plot-host: ${err:-bb pr list failed}" >&2
-          exit 3
-        fi
+        [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-bb pr list failed}" >&2; exit 3; }
       fi
     fi
     ;;
@@ -3877,19 +3867,11 @@ case "$op" in
       esac
     done
     [ -n "$title" ] || die "pr-create needs --title"
-    if [ "$be" = "github" ]; then
-      args=(pr create --title "$title" --body "$body")
-      [ -n "$base" ] && args+=(--base "$base")
-      [ -n "$head" ] && args+=(--head "$head")
-      [ "$draft" = 1 ] && args+=(--draft)
-      gh "${args[@]}"
-    else
-      args=(pr create --title "$title" --body "$body")
-      [ -n "$base" ] && args+=(--base "$base")
-      [ -n "$head" ] && args+=(--head "$head")
-      [ "$draft" = 1 ] && args+=(--draft)
-      bb "${args[@]}"
-    fi
+    args=(pr create --title "$title" --body "$body")
+    [ -n "$base" ] && args+=(--base "$base")
+    [ -n "$head" ] && args+=(--head "$head")
+    [ "$draft" = 1 ] && args+=(--draft)
+    if [ "$be" = "github" ]; then gh "${args[@]}"; else bb "${args[@]}"; fi
     ;;
 
   pr-merge)
@@ -4341,7 +4323,6 @@ case "$op" in
       # caller that asked for a window and got a full listing must not read the
       # answer as a delta.
       PR_LIST_SINCE="$since"
-      PR_SWEEP_ASKED=0
       # THE PLAIN LISTING IS `bb_state_listing`, one request per state at
       # `pagelen=50`, where `bb pr list` walks 10-row pages. Its header has the
       # measurement.
@@ -4387,13 +4368,11 @@ case "$op" in
                 }' "${bb_cmd[@]}" || exit $?
         else
           # Bitbucket without Jenkins: checks remain unknown
-          PR_LIST_JQ_ARGS=()
           pr_list_states bitbucket "$limit" "$bb_states" \
             '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),author:(.author.nickname // ""),failing_checks:[]}' \
             "${bb_cmd[@]}" || exit $?
         fi
       else
-        PR_LIST_JQ_ARGS=()
         pr_list_states bitbucket "$limit" "$bb_states" \
           '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,author:(.author.nickname // "")}' \
           "${bb_cmd[@]}" || exit $?
@@ -5074,12 +5053,8 @@ case "$op" in
     #   issue-close   <n>
     # GitHub issues only, dispatched on `issue_source` like issue-open. Exit 4,
     # with the reason, for a source that cannot be asked.
-    num="${1:?$op needs an issue number}"
-    source_said="$(issue_source)" || exit 1
-    case "$source_said" in
-      $'tracker\tgithub-issues'|git-host) [ "$be" = github ] || { echo "plot-host: $op: the git host's issues take no Plot write on this backend" >&2; exit 4; } ;;
-      *) echo "plot-host: $op: ${source_said#*$'\t'}" >&2; exit 4 ;;
-    esac
+    num="${1:?$op needs an issue number}"; source_said="$(issue_source)" || exit 1
+    [ "$be" = github ] && [ "$source_said" != nobody ] && [ "${source_said%%$'\t'*}" != nobody ] && [ "$source_said" != $'tracker\tjira' ] || { echo "plot-host: $op: ${source_said#*$'\t'}" >&2; exit 4; }
     case "$op" in
       issue-label) gh issue edit "$num" --add-label "${2:?issue-label needs a label}" ${3:+--remove-label "$3"} >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
@@ -5270,8 +5245,6 @@ case "$op" in
       # decides how much to trust it; a `throttled` observed during the session
       # is what corrects it.
       echo '{"connector":"bitbucket","bucket":"api","limit":1000,"remaining":null,"reset":null,"basis":"predicted"}'
-    else
-      echo "{\"connector\":\"$be\",\"bucket\":\"\",\"limit\":null,\"remaining\":null,\"reset\":null,\"basis\":\"unknown\"}"
     fi
     ;;
 
