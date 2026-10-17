@@ -46,3 +46,45 @@ export const foldIssueRows = (
   }
   return order.map((key) => byKey.get(key)!);
 };
+
+/** The open and closed rows a changed-since read leaves. */
+export interface ChangedIssueFold {
+  /** The open rows. */
+  rows: IssueIndexRow[];
+  /** The closed rows of the window that starts at `closedSince`. */
+  closedRows: IssueIndexRow[];
+}
+
+/**
+ * Folds the rows of one changed-since read into the held open and closed sets.
+ *
+ * - A changed row with `statusCategory` `Done` leaves the open set. It joins
+ *   the closed set only where its `closedAt` parses and is at or after
+ *   `closedSince`; a row closed earlier, or with no readable `closedAt`, joins
+ *   neither set.
+ * - Any other changed row is folded into the open set through
+ *   {@link foldIssueRows} and leaves the closed set.
+ *
+ * @param open - the held open rows.
+ * @param closed - the held closed rows.
+ * @param closedSince - the start of the closed set's window, ISO-8601.
+ * @param changed - the rows the changed read answered.
+ * @returns the open rows and the closed rows.
+ */
+export const foldChangedIssueRows = (
+  open: readonly IssueIndexRow[],
+  closed: readonly IssueIndexRow[],
+  closedSince: string,
+  changed: readonly IssueIndexRow[],
+): ChangedIssueFold => {
+  const done = changed.filter((row) => row.statusCategory === 'Done');
+  const notDone = changed.filter((row) => row.statusCategory !== 'Done');
+  const doneKeys = new Set(done.map((row) => row.number));
+  const openKeys = new Set(notDone.map((row) => row.number));
+  const floor = Date.parse(closedSince);
+  const inWindow = done.filter((row) => row.closedAt !== undefined && Date.parse(row.closedAt) >= floor);
+  return {
+    rows: foldIssueRows(open, notDone).filter((row) => !doneKeys.has(row.number)),
+    closedRows: foldIssueRows(closed, inWindow).filter((row) => !openKeys.has(row.number)),
+  };
+};

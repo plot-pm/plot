@@ -1,5 +1,5 @@
 import {
-  foldIssueRows,
+  foldChangedIssueRows,
   ISSUE_FULL_READ_MS,
   ISSUE_FULL_READ_PASSES,
   ISSUE_INDEX_CLOSED_DAYS,
@@ -308,16 +308,18 @@ const unaskableReason = (source: Exclude<IssueSource, { ask: 'nobody' }>, gitHos
  *   account: the PR pass's, or the one the index recorded. It sets
  *   `issueNextAt` to the backoff's end, as a hard floor.
  * - WHERE {@link dueForFullRead} ANSWERS FALSE, the pass asks
- *   {@link Tracker.issueListChanged} alone, since `held.at`, instead of the
- *   full open+closed+inbox read below. An answered changed read folds its
- *   rows into `held.rows` and `held.closed.rows` through {@link foldIssueRows},
- *   keyed by `statusCategory`: a row now `Done` leaves the open set and joins
- *   the closed one, any other row updates or joins the open set in place.
- *   `requests` is the changed read's own pages, `fullReadAt` carries over
- *   unchanged and `passesSinceFull` increments by one. A FAILED changed read
- *   keeps every held field — `rows`, `closed`, `at`, `fullReadAt` and
- *   `passesSinceFull` — and records `failedAt`/`reason`, feeding `backoffUntil`
- *   through {@link hostReaction} the same way a failed closed read does.
+ *   {@link Tracker.issueListChanged} first, since `held.at`. A complete
+ *   answer is folded into `held.rows` and `held.closed.rows` through
+ *   {@link foldChangedIssueRows} and replaces the full open+closed+inbox read
+ *   below: `requests` is the changed read's own pages, `fullReadAt` carries
+ *   over unchanged and `passesSinceFull` increments by one. An INCOMPLETE
+ *   answer (it stopped at {@link ISSUE_INDEX_OPEN_LIMIT}) and an UNASKABLE one
+ *   (a tracker or git host with no changed-since read) fall through to the
+ *   full read, which adds the changed read's pages to its `requests`; an
+ *   unaskable read spends 0 and sets no error. A FAILED changed read keeps
+ *   `rows`, `closed`, `at` and `fullReadAt`, increments `passesSinceFull` by
+ *   one, and records `failedAt`/`reason`, feeding `backoffUntil` through
+ *   {@link hostReaction} the same way a failed closed read does.
  * - An answered open read writes `nextAt` one {@link issueIntervalMs} after the
  *   pass started, `backoffUntil: null`, and at most
  *   {@link ISSUE_INDEX_OPEN_LIMIT} rows read page by page, with the read's own
@@ -395,19 +397,17 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
   const keptInbox = sameHeld ? held.inbox : undefined;
   const keptInboxAt = sameHeld ? held.inboxAt : undefined;
 
+  let changedSpent = 0;
   if (!dueForFullRead(held, sameHeld, startedAt) && held !== null && held.at !== undefined) {
     const changedRead = await tracker.issueListChanged(held.at, ISSUE_INDEX_OPEN_LIMIT);
-    if (changedRead.ok) {
+    if (changedRead.ok && changedRead.value.complete) {
       const at = new Date(startedAt).toISOString();
-      const closedChanged = changedRead.value.issues
-        .map(issueIndexRowOf)
-        .filter((row) => row.statusCategory === 'Done');
-      const openChanged = changedRead.value.issues
-        .map(issueIndexRowOf)
-        .filter((row) => row.statusCategory !== 'Done');
-      const closedKeys = new Set(closedChanged.map((row) => row.number));
-      const foldedOpen = foldIssueRows(held.rows ?? [], openChanged).filter((row) => !closedKeys.has(row.number));
-      const foldedClosed = foldIssueRows(held.closed?.rows ?? [], closedChanged);
+      const fold = foldChangedIssueRows(
+        held.rows ?? [],
+        held.closed?.rows ?? [],
+        held.closed?.since ?? closedSince(startedAt),
+        changedRead.value.issues.map(issueIndexRowOf),
+      );
       const requests = changedRead.value.pages;
       const nextAt = startedAt + issueIntervalMs(requests);
       state.issueError = null;
@@ -423,47 +423,51 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
         backoffUntil: null,
         at,
         answer: 'answered',
-        rows: foldedOpen,
+        rows: fold.rows,
         ...(held.complete === undefined ? {} : { complete: held.complete }),
         fullReadAt: held.fullReadAt,
         passesSinceFull: (held.passesSinceFull ?? 0) + 1,
-        ...(held.closed === undefined ? {} : { closed: { ...held.closed, rows: foldedClosed } }),
+        ...(held.closed === undefined ? {} : { closed: { ...held.closed, rows: fold.closedRows } }),
         ...(keptInbox === undefined ? {} : { inbox: keptInbox }),
         ...(keptInboxAt === undefined ? {} : { inboxAt: keptInboxAt }),
       });
       return;
     }
-    const finishedAt = clock();
-    const refusal = tracker.lastRefusal();
-    const reason = refusal ?? 'the changed issue read failed and said nothing';
-    const wait = waitOf(hostReaction(reason, null, finishedAt));
-    const backoffUntil = wait === null ? null : finishedAt + wait;
-    const requests = 1;
-    const nextAt = startedAt + issueIntervalMs(requests);
-    state.issueError = reason;
-    state.issueNextAt = backoffUntil ?? nextAt;
-    state.issueNextIsBackoff = backoffUntil !== null;
-    await world.issueStore.write({
-      v: ISSUE_INDEX_VERSION,
-      source: source.ask,
-      connector: spender.connector,
-      ...(spender.account === null ? {} : { account: spender.account }),
-      requests,
-      nextAt: backoffUntil ?? nextAt,
-      backoffUntil,
-      at: held.at,
-      answer: 'answered',
-      failedAt: new Date(startedAt).toISOString(),
-      reason,
-      rows: held.rows,
-      ...(held.complete === undefined ? {} : { complete: held.complete }),
-      fullReadAt: held.fullReadAt,
-      passesSinceFull: held.passesSinceFull,
-      ...keptClosed,
-      ...(keptInbox === undefined ? {} : { inbox: keptInbox }),
-      ...(keptInboxAt === undefined ? {} : { inboxAt: keptInboxAt }),
-    });
-    return;
+    if (changedRead.ok) {
+      changedSpent = changedRead.value.pages;
+    } else if (changedRead.why !== 'unaskable') {
+      const finishedAt = clock();
+      const refusal = tracker.lastRefusal();
+      const reason = refusal ?? 'the changed issue read failed and said nothing';
+      const wait = waitOf(hostReaction(reason, null, finishedAt));
+      const backoffUntil = wait === null ? null : finishedAt + wait;
+      const requests = 1;
+      const nextAt = startedAt + issueIntervalMs(requests);
+      state.issueError = reason;
+      state.issueNextAt = backoffUntil ?? nextAt;
+      state.issueNextIsBackoff = backoffUntil !== null;
+      await world.issueStore.write({
+        v: ISSUE_INDEX_VERSION,
+        source: source.ask,
+        connector: spender.connector,
+        ...(spender.account === null ? {} : { account: spender.account }),
+        requests,
+        nextAt: backoffUntil ?? nextAt,
+        backoffUntil,
+        at: held.at,
+        answer: 'answered',
+        failedAt: new Date(startedAt).toISOString(),
+        reason,
+        rows: held.rows,
+        ...(held.complete === undefined ? {} : { complete: held.complete }),
+        fullReadAt: held.fullReadAt,
+        passesSinceFull: (held.passesSinceFull ?? 0) + 1,
+        ...keptClosed,
+        ...(keptInbox === undefined ? {} : { inbox: keptInbox }),
+        ...(keptInboxAt === undefined ? {} : { inboxAt: keptInboxAt }),
+      });
+      return;
+    }
   }
 
   const result = await tracker.issueListOpen(ISSUE_INDEX_OPEN_LIMIT);
@@ -483,7 +487,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
       finishedAt = clock();
       inboxOutcome = inboxOutcomeOf(inboxRead, keptInbox, keptInboxAt, at, tracker.lastRefusal(), finishedAt);
     }
-    const requests = result.value.pages + outcome.spent + inboxOutcome.spent;
+    const requests = changedSpent + result.value.pages + outcome.spent + inboxOutcome.spent;
     const nextAt = startedAt + issueIntervalMs(requests);
     const ends = [
       outcome.wait === null ? null : closedFinishedAt + outcome.wait,
@@ -514,7 +518,7 @@ export const refreshIssueIndex = async (world: IssueWorld, state: IssueState): P
     return;
   }
 
-  const requests = 1;
+  const requests = changedSpent + 1;
   const nextAt = startedAt + issueIntervalMs(requests);
   const base: Pick<IssueIndex, 'v' | 'source' | 'connector' | 'account' | 'requests' | 'nextAt'> = {
     v: ISSUE_INDEX_VERSION,

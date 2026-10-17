@@ -7213,6 +7213,15 @@ test('host: issue-list bitbucket --state closed exits 4 with a reason and runs n
   assert.ok(!existsSync(stub.bbArgv), 'bb must not run');
 });
 
+test('host: issue-list bitbucket --state changed exits 4 with a reason and runs no bb', () => {
+  const stub = makeStubs();
+  const res = runBb(['issue-list', '--state', 'changed', '--since', '2026-09-01T00:00:00Z'], stub);
+  assert.equal(res.status, 4, res.stderr);
+  assert.equal(res.stdout, '');
+  assert.match(res.stderr, /\S/);
+  assert.ok(!existsSync(stub.bbArgv), 'bb must not run');
+});
+
 test('host: issue-list jira --state closed without Ticket prefixes exits 4 and runs no curl', () => {
   const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
   const res = runJira(['issue-list', '--state', 'closed', '--since', '2026-09-01T00:00:00Z'], stub, {
@@ -7270,6 +7279,36 @@ test('host: issue-list jira --state closed with a date-only --since sends the da
   assert.deepEqual(res.stdout.trim().split('\n').map((l) => JSON.parse(l).number), ['PROJ-6']);
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
   assert.ok(argv.includes('jql=resolved >= "2026-09-01" AND project IN (PROJ) ORDER BY resolved DESC'), argv.join('\n'));
+});
+
+test('host: issue-list jira --state changed sends since as relative minutes, so the reader\'s profile zone cannot shift it', () => {
+  const body = JSON.stringify({ issues: [{ key: 'PROJ-7', fields: {
+    summary: 'Edited', created: 'c', updated: '2026-09-03T10:00:00.000+0000',
+    status: { name: 'To Do', statusCategory: { name: 'To Do' } },
+  } }] });
+  const stub = makeJiraCurlStub({ body });
+  const since = new Date(Date.now() - 90 * 60_000).toISOString();
+  const res = runJira(['issue-list', '--state', 'changed', '--since', since], stub, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(res.stdout.trim().split('\n').map((l) => JSON.parse(l).updatedAt), ['2026-09-03T10:00:00.000+0000']);
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  const jql = argv.find((line) => line.startsWith('jql='));
+  const match = /^jql=updated >= "-(\d+)m" AND project IN \(PROJ\) ORDER BY updated DESC$/.exec(jql ?? '');
+  assert.ok(match, jql);
+  // 90 minutes back plus the 5-minute skew margin, rounded up; a run that
+  // crosses a minute boundary reads one more.
+  assert.ok(Number(match[1]) >= 95 && Number(match[1]) <= 97, jql);
+});
+
+test('host: issue-list jira --state changed without Ticket prefixes exits 4 and runs no curl', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list', '--state', 'changed', '--since', '2026-09-01T00:00:00Z'], stub, {
+    PLOT_TICKET_PREFIXES: '',
+  });
+  assert.equal(res.status, 4, res.stderr);
+  assert.equal(res.stdout, '');
+  assert.match(res.stderr, /Ticket prefixes/);
+  assert.ok(!existsSync(stub.argvFile), 'curl must not run');
 });
 
 test('host: issue-list jira open read is unchanged: no resolutiondate, no token line', () => {

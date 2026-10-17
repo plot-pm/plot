@@ -418,7 +418,9 @@ describe('the incremental issue read', () => {
   });
 
   it('moves a changed row that is now closed out of rows and into closed.rows', async () => {
-    const { dir } = fakeHost({}, {}, undefined, { lines: [changedRow(1, { statusCategory: 'Done' })] });
+    const { dir } = fakeHost({}, {}, undefined, {
+      lines: [changedRow(1, { statusCategory: 'Done', closedAt: new Date(NOW - 60_000).toISOString() })],
+    });
     const store = issueIndexFile({ home: storeHome() });
     await store.write(heldIncremental({
       closed: { since: SINCE, at: '2026-10-13T09:58:00.000Z', answer: 'answered', rows: [], complete: true },
@@ -492,12 +494,105 @@ describe('the incremental issue read', () => {
   });
 
   it('counts requests as the changed read\'s own pages', async () => {
-    const { dir } = fakeHost({}, {}, undefined, { lines: [changedRow(1)], token: 'p2' });
+    const { dir, argv } = fakeHost({}, {}, undefined, { rows: 150 });
     const store = issueIndexFile({ home: storeHome() });
     await store.write(heldIncremental());
     await refreshIssueIndex(worldOf(dir, store), freshIssueState());
     const index = await onDisk(store);
+    expect(argv().some((call) => call.startsWith('issue-list --paged'))).toBe(false);
     expect(index?.requests).toBe(2);
+  });
+
+  it('removes a changed row that reopened from closed.rows as it joins rows', async () => {
+    const { dir } = fakeHost({}, {}, undefined, { lines: [changedRow(9, { statusCategory: 'To Do' })] });
+    const store = issueIndexFile({ home: storeHome() });
+    await store.write(heldIncremental({
+      closed: { since: SINCE, at: '2026-10-13T09:58:00.000Z', answer: 'answered', rows: [{ number: '9', title: 'nine', url: 'u9', statusCategory: 'Done' }], complete: true },
+    }));
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    const index = await onDisk(store);
+    expect(index?.rows?.map((row) => row.number)).toEqual(['1', '2', '9']);
+    expect(index?.closed?.rows).toEqual([]);
+  });
+
+  it('keeps a changed row closed before closed.since out of closed.rows, and out of rows', async () => {
+    const before = new Date(Date.parse(SINCE) - 86_400_000).toISOString();
+    const { dir } = fakeHost({}, {}, undefined, { lines: [changedRow(1, { statusCategory: 'Done', closedAt: before })] });
+    const store = issueIndexFile({ home: storeHome() });
+    await store.write(heldIncremental({
+      closed: { since: SINCE, at: '2026-10-13T09:58:00.000Z', answer: 'answered', rows: [], complete: true },
+    }));
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    const index = await onDisk(store);
+    expect(index?.rows?.map((row) => row.number)).toEqual(['2']);
+    expect(index?.closed?.rows).toEqual([]);
+  });
+
+  it('reads whole where the changed read is incomplete, and counts its pages with the full read\'s', async () => {
+    const { dir, argv } = fakeHost({ rows: 3 }, { rows: 0 }, undefined, { lines: [changedRow(1)], token: 'p2' });
+    const store = issueIndexFile({ home: storeHome() });
+    await store.write(heldIncremental());
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    const index = await onDisk(store);
+    expect(argv()).toContain('issue-list --paged --limit 1000');
+    expect(index?.rows?.map((row) => row.number)).toEqual(['1', '2', '3']);
+    expect(index?.at).toBe(new Date(NOW).toISOString());
+    expect(index?.passesSinceFull).toBe(0);
+    expect(index?.requests).toBe(4);
+  });
+
+  it('counts a failed changed read toward the pass bound, so a read that keeps failing reaches a full read', async () => {
+    const { dir } = fakeHost({}, {}, undefined, { stderr: 'boom', code: 1 });
+    const store = issueIndexFile({ home: storeHome() });
+    await store.write(heldIncremental({ passesSinceFull: 4 }));
+    await refreshIssueIndex(worldOf(dir, store), freshIssueState());
+    expect((await onDisk(store))?.passesSinceFull).toBe(5);
+  });
+
+  describe('a source with no changed read', () => {
+    const unaskableChanged: FakeList = { stderr: 'plot-host: cannot list changed issues', code: 4 };
+
+    /**
+     * Runs a full pass, then a second pass one interval later whose open read
+     * answers `secondRows`, and returns the second pass's index, state, the
+     * first pass's state and the second pass's calls.
+     */
+    const twoPasses = async (over: Partial<IssueWorld>, closed: FakeList, secondRows: number) => {
+      const store = issueIndexFile({ home: storeHome() });
+      const first = fakeHost({ rows: 1 }, closed, undefined, unaskableChanged);
+      const firstState = freshIssueState();
+      await refreshIssueIndex(worldOf(first.dir, store, over), firstState);
+      const second = fakeHost({ rows: secondRows }, closed, undefined, unaskableChanged);
+      const state = freshIssueState();
+      await refreshIssueIndex(worldOf(second.dir, store, { ...over, now: () => NOW + 120_000 }), state);
+      return { index: await onDisk(store), state, firstState, calls: second.argv() };
+    };
+
+    it('reads whole every pass on a Bitbucket git host, with no changed-read failure recorded', async () => {
+      const { index, state, firstState, calls } = await twoPasses(
+        { gitHost: 'bitbucket' },
+        { stderr: 'plot-host: bitbucket cannot list closed or changed issues', code: 4 },
+        3,
+      );
+      expect(calls.some((call) => call.includes('--state changed'))).toBe(true);
+      expect(index?.rows?.map((row) => row.number)).toEqual(['1', '2', '3']);
+      expect(index?.at).toBe(new Date(NOW + 120_000).toISOString());
+      expect(index?.failedAt).toBeUndefined();
+      expect(index?.reason).toBeUndefined();
+      expect(index?.passesSinceFull).toBe(0);
+      expect(index?.requests).toBe(1);
+      expect(state.issueError).toBe(firstState.issueError);
+    });
+
+    it('reads whole every pass on Jira with no Ticket prefixes, with no error', async () => {
+      const { index, state, calls } = await twoPasses({ declaredTracker: 'jira https://x.invalid' }, { rows: 0 }, 3);
+      expect(calls.some((call) => call.startsWith('issue-list --paged'))).toBe(true);
+      expect(index?.rows?.map((row) => row.number)).toEqual(['1', '2', '3']);
+      expect(index?.failedAt).toBeUndefined();
+      expect(index?.reason).toBeUndefined();
+      expect(index?.passesSinceFull).toBe(0);
+      expect(state.issueError).toBeNull();
+    });
   });
 });
 

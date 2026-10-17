@@ -156,8 +156,8 @@ export const IssueIndexSchema = z
      */
     fullReadAt: z.string().optional(),
     /**
-     * How many passes have answered since `fullReadAt`, incremental or full;
-     * a full read resets this to 0. Absent reads the same as absent
+     * How many incremental passes have run since `fullReadAt`, answered or
+     * failed; a full read resets this to 0. Absent reads the same as absent
      * `fullReadAt`: due for a full read.
      */
     passesSinceFull: z.number().optional(),

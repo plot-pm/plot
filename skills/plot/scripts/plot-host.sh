@@ -4723,10 +4723,15 @@ case "$op" in
       # THE CHANGED READ IS GATED LIKE THE CLOSED READ, for the same reason: an
       # unscoped `updated >=` query reads the whole instance. It asks `updated`
       # rather than `resolved`, since a changed row may still be open, and
-      # carries `updatedAt` so the adapter's fold can compare it.
+      # carries `updatedAt` so the adapter's fold can compare it. It sends
+      # `since` as a RELATIVE `-Nm`, the minutes from `since` to now plus 5:
+      # Jira reads an absolute JQL time in the reader's profile zone, so a UTC
+      # `since` cut to `yyyy-MM-dd HH:mm` starts hours late for a reader behind
+      # UTC, and a relative time names the same instant in every zone. The 5
+      # minutes cover clock skew; the fold drops the rows read twice.
       elif [ "$state" = changed ]; then
         [ -n "$scope" ] || { echo "plot-host: changed Jira issues need 'Ticket prefixes' declared; an unscoped updated query reads the whole instance" >&2; exit 4; }
-        when="${since:0:10} ${since:11:5}"; jql="updated >= \"${when% }\"${scope} ORDER BY updated DESC"; fields="$fields,updated,resolutiondate"; paged=1
+        mins="$(jq -nr --arg s "$since" '($s[11:19] | . + "00:00:00"[length:]) as $t | (now - ("\($s[0:10])T\($t)Z" | fromdateiso8601)) / 60 | ceil + 5 | if . < 5 then 5 else . end')"; jql="updated >= \"-${mins}m\"${scope} ORDER BY updated DESC"; fields="$fields,updated,resolutiondate"; paged=1
       fi
       [ -z "$paged" ] || { max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; }
       token_args=(); [ -z "$page_token" ] || token_args=(--data-urlencode "nextPageToken=$page_token")

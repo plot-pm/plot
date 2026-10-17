@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { foldIssueRows } from '../src/rules/fold-issue-rows.js';
+import { foldChangedIssueRows, foldIssueRows } from '../src/rules/fold-issue-rows.js';
 import type { IssueIndexRow } from '../src/entities/issue-index.js';
 
 const row = (over: Partial<IssueIndexRow> = {}): IssueIndexRow => ({
@@ -71,5 +71,29 @@ describe('foldIssueRows', () => {
     const b = row({ number: '1', title: 'b', updatedAt: '2026-10-02T00:00:00Z' });
     expect(foldIssueRows([a], [b])).toEqual([b]);
     expect(foldIssueRows([b], [a])).toEqual([b]);
+  });
+});
+
+describe('foldChangedIssueRows', () => {
+  const SINCE = '2026-10-01T00:00:00.000Z';
+
+  it('moves a row closed inside the window from the open set to the closed set', () => {
+    const done = row({ statusCategory: 'Done', closedAt: '2026-10-05T00:00:00.000+0000' });
+    expect(foldChangedIssueRows([row()], [], SINCE, [done])).toEqual({ rows: [], closedRows: [done] });
+  });
+
+  it('drops a row closed before the window from both sets', () => {
+    const done = row({ statusCategory: 'Done', closedAt: '2026-09-05T00:00:00Z' });
+    expect(foldChangedIssueRows([row()], [], SINCE, [done])).toEqual({ rows: [], closedRows: [] });
+  });
+
+  it('drops a Done row with no closedAt from both sets', () => {
+    expect(foldChangedIssueRows([row()], [], SINCE, [row({ statusCategory: 'Done' })])).toEqual({ rows: [], closedRows: [] });
+  });
+
+  it('moves a reopened row from the closed set to the open set', () => {
+    const reopened = row({ statusCategory: 'To Do' });
+    const held = row({ statusCategory: 'Done', closedAt: '2026-10-05T00:00:00Z' });
+    expect(foldChangedIssueRows([], [held], SINCE, [reopened])).toEqual({ rows: [reopened], closedRows: [] });
   });
 });
