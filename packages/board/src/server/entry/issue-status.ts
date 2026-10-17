@@ -65,19 +65,20 @@ export const planFrom = (text: string): Pick<IssueStatusReading, 'phase' | 'issu
 };
 
 /**
- * Reads `--delivered <word>` and `--released <word>`; an absent flag is `''`.
+ * Reads `--approved <word>`, `--delivered <word>` and `--released <word>`; an absent flag is `''`.
  *
  * @param argv - the arguments after the script name.
  * @returns the configured words.
  * @throws on an unknown flag or a flag with no value.
  */
 export const wordsFrom = (argv: readonly string[]): IssueStatusWords => {
-  const words = { delivered: '', released: '' };
+  const words = { approved: '', delivered: '', released: '' };
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
     const value = argv[i + 1];
     if (value === undefined) throw new Error(`${flag} needs a value`);
-    if (flag === '--delivered') words.delivered = value;
+    if (flag === '--approved') words.approved = value;
+    else if (flag === '--delivered') words.delivered = value;
     else if (flag === '--released') words.released = value;
     else throw new Error(`unknown argument '${flag}'`);
   }
@@ -133,7 +134,7 @@ export const run = async (
   } catch (err) {
     process.stderr.write(`plot-issue-status: ${(err as Error).message}\n`);
     process.stderr.write(
-      'plot-issue-status: usage: plot-plan-meta.sh <plan> | plot-issue-status.mjs [--delivered <word>] [--released <word>]\n',
+      'plot-issue-status: usage: plot-plan-meta.sh <plan> | plot-issue-status.mjs [--approved <word>] [--delivered <word>] [--released <word>]\n',
     );
     return EXIT.usage;
   }

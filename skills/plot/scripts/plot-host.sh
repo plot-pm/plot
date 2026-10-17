@@ -5066,6 +5066,30 @@ case "$op" in
       *) echo "plot-host: issue-open: ${source_said#*$'\t'}" >&2; exit 4 ;;
     esac ;;
 
+  issue-label|issue-comment|issue-close)
+    # THE PLAN-STATE WRITES, and one-way: Plot sets a `plan:*` label, keeps one
+    # comment per plan and closes the issue at release; nothing reads any back.
+    #   issue-label   <n> <add> [<remove,...>]  adds one label, removes the rest
+    #   issue-comment <n> <marker> <body>       edits the comment holding <marker>, else posts
+    #   issue-close   <n>
+    # GitHub issues only, dispatched on `issue_source` like issue-open. Exit 4,
+    # with the reason, for a source that cannot be asked.
+    num="${1:?$op needs an issue number}"
+    source_said="$(issue_source)" || exit 1
+    case "$source_said" in
+      $'tracker\tgithub-issues'|git-host) [ "$be" = github ] || { echo "plot-host: $op: the git host's issues take no Plot write on this backend" >&2; exit 4; } ;;
+      *) echo "plot-host: $op: ${source_said#*$'\t'}" >&2; exit 4 ;;
+    esac
+    case "$op" in
+      issue-label) gh issue edit "$num" --add-label "${2:?issue-label needs a label}" ${3:+--remove-label "$3"} >/dev/null 2>"$HOST_ERR" || gh_fail ;;
+      issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
+      issue-comment)
+        cid="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" | jq -rs --arg m "${2:?issue-comment needs a marker}" '[.[][] | select(.body | contains($m))][0].id // empty')" || gh_fail
+        if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail
+        else gh issue comment "$num" --body "${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi ;;
+    esac
+    rm -f "$HOST_ERR" ;;
+
   # The projects `Ticket prefixes` scopes to, one per line, honoring
   # PLOT_TICKET_PREFIXES — the one answer the TypeScript connector asks.
   ticket-projects) tracker_projects ;;
@@ -5362,6 +5386,6 @@ case "$op" in
     ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
     ;;
 esac

@@ -5,7 +5,7 @@
 #         owed write, then a machine-countable summary:
 #             summary: tracker=<none|written|no-target|unaskable|failed>
 #         `none` means no write was owed: the plan names no issue, its phase is
-#         not Delivered or Released, or that phase's status word is not set.
+#         not Approved, Delivered or Released, or that phase's status word is not set.
 #         Exit 0 on every write outcome, `failed` included; 2 when the plan or
 #         the bundle cannot be read.
 #
@@ -36,6 +36,7 @@ if [ -z "$plan_file" ] || [ ! -f "$plan_file" ]; then
   exit 2
 fi
 
+approved=$(bash "$script_dir/plot-config.sh" get "Tracker approved status" '' 2>/dev/null) || approved=""
 delivered=$(bash "$script_dir/plot-config.sh" get "Tracker delivered status" '' 2>/dev/null) || delivered=""
 released=$(bash "$script_dir/plot-config.sh" get "Tracker released status" '' 2>/dev/null) || released=""
 
@@ -49,7 +50,7 @@ fi
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root=$(pwd)
 
 out=$(printf '%s' "$meta" | PLOT_SCRIPTS_DIR="$script_dir" PLOT_REPO_ROOT="$repo_root" \
-  node "$script_dir/board/plot-issue-status.mjs" --delivered "$delivered" --released "$released")
+  node "$script_dir/board/plot-issue-status.mjs" --approved "$approved" --delivered "$delivered" --released "$released")
 rc=$?
 [ -n "$out" ] && printf '%s\n' "$out"
 if [ "$rc" != 0 ]; then
