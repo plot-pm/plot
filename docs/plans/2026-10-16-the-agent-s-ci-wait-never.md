@@ -15,6 +15,7 @@
 - **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-credential-from-env`
 - **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-pr-checks-bind-to-head`
 - **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-runs-history`
+- **Started:** 2026-10-17, Jan Wloka, `feature/bitbucket-pr-state-binds-checks`
 
 ## Changelog
 
