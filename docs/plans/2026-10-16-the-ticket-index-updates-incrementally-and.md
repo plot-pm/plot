@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #1856
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-16, Jan Wloka, `feature/the-ticket-index-rows-carry-updated-at`
 - **Started:** 2026-10-17, Jan Wloka, `feature/the-issue-pass-reads-since-its-last-answer`
 - **Started:** 2026-10-17, Jan Wloka, `feature/the-index-takes-plots-own-issue-writes`
+- **Delivered:** 2026-10-17
 
 ## Changelog
 

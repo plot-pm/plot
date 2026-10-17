@@ -23,7 +23,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 
 ### Should Have
 
-- [ ] [the-ticket-index-updates-incrementally-and] The ticket index updates incrementally and takes Plot's own issue writes at once (#1856)
+- [x] [the-ticket-index-updates-incrementally-and] The ticket index updates incrementally and takes Plot's own issue writes at once (#1856)
 - [x] [ticket-rows-show-type-and-owner] Ticket rows show type and owner under one "Assigned to you" sub-header (#1837)
 
 ### Could Have
