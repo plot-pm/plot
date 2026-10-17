@@ -373,7 +373,7 @@
 #                                 adds one comment to the issue; exit 4 for any
 #                                 other source. Not idempotent.
 #   issue-list --label <label>    keeps open issues carrying the label (github
-#                                 only; exit 4 on Jira and Bitbucket).
+#                                 only; exit 4 on Bitbucket; the Jira connector never sends it).
 #   issue-open <request-json>                       (jira)
 #   issue-open <title> <body> [--label <label>...]  (github-issues)
 #                                 THE SECOND OF TWO WRITES TO A TRACKER: open
@@ -4670,7 +4670,6 @@ case "$op" in
     # NOTHING HAS BEEN SPENT: no `gh`, no `bb`, no curl has run yet.
     [ "${source_said%%$'\t'*}" != nobody ] || { echo "plot-host: ${source_said#*$'\t'}" >&2; exit 4; }
     if [ "$source_said" = $'tracker\tjira' ]; then
-      [ -z "$label" ] || { echo "plot-host: issue-list: --label is not supported for Jira" >&2; exit 4; }
       # Jira, resolved through the REST API — DISPATCHED ON `Tracker`, never on
       # `backend()`: a Bitbucket repo tracking in Jira is the normal enterprise
       # case, so the git host is irrelevant here (see the Jira helpers up top).
@@ -5070,10 +5069,8 @@ case "$op" in
     # Add one comment to an issue: `issue-comment <number> <body>`, github-issues
     # only. NOT IDEMPOTENT, like issue-open. Exit 4 for any other source.
     source_said="$(issue_source)" || exit 1
-    case "$source_said" in
-      $'tracker\tgithub-issues') gh issue comment "${1:?issue-comment needs an issue}" --body "${2:?issue-comment needs a body}" 2>"$HOST_ERR" || gh_fail ;;
-      *) echo "plot-host: issue-comment: ${source_said#*$'\t'}" >&2; exit 4 ;;
-    esac ;;
+    [ "$source_said" = $'tracker\tgithub-issues' ] || { echo "plot-host: issue-comment: ${source_said#*$'\t'}" >&2; exit 4; }
+    gh issue comment "${1:?issue-comment needs an issue}" --body "${2:?issue-comment needs a body}" 2>"$HOST_ERR" || gh_fail ;;
 
   # The projects `Ticket prefixes` scopes to, one per line, honoring
   # PLOT_TICKET_PREFIXES — the one answer the TypeScript connector asks.
