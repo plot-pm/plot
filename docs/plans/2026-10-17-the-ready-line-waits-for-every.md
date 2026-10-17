@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1953 merged
 - **Started:** 2026-10-17, Jan Wloka, `bug/ready-line-after-every-bind`
+- **Started:** 2026-10-17, Jan Wloka, `bug/released-desk-keeps-its-note`
 
 ## Changelog
 
