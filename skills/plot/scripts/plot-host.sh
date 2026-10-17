@@ -4846,12 +4846,9 @@ case "$op" in
       # call (the request-budget comment in fleet.ts counts exactly this).
       raw="$(bb issue list --state new --state open 2>&1)"; rc=$?
       raw="$(bb_strip_ansi <<<"$raw")"
-      if [ "$rc" -ne 0 ]; then
-        # bb's error is on stdout, now folded into `raw`. Report it and choose
-        # 4-vs-3 from its wording — never parse it as an issue (Done-when 6).
-        echo "plot-host: $raw" >&2
-        exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"
-      fi
+      # bb's error is on stdout, now folded into `raw`. Report it and choose
+      # 4-vs-3 from its wording — never parse it as an issue (Done-when 6).
+      [ "$rc" -eq 0 ] || { echo "plot-host: $raw" >&2; exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"; }
       # A row is `#NNN <STATE> <title>   by <reporter>`. Anchor on the `#NNN`
       # prefix (the header line ` :: Showing …` has none and is skipped for
       # free), lift the number, strip the known state badge word, then drop the
@@ -4965,10 +4962,7 @@ case "$op" in
       bb_assert_issue_version || exit $?
       raw="$(bb issue view "$num" 2>&1)"; rc=$?
       raw="$(bb_strip_ansi <<<"$raw")"
-      if [ "$rc" -ne 0 ]; then
-        echo "plot-host: $raw" >&2
-        exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"
-      fi
+      [ "$rc" -eq 0 ] || { echo "plot-host: $raw" >&2; exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"; }
       # Title is the first line. URL is lifted from the footer, which is bb's
       # only place that prints one for a viewed issue — so the contract's `url`
       # is real here even though issue-list's is "".
