@@ -1,0 +1,1 @@
+../2026-10-17-a-planned-issue-shows-its-plan.md
