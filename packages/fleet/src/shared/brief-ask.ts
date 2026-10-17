@@ -99,6 +99,7 @@ export const askForBriefLogPath = (repoRoot: string, slug: string): string =>
  * @param command - the configured fragment, already checked usable.
  * @param slug - the plan slug, for the prompt and the log path.
  * @param prompt - the assembled prompt, passed as one argument.
+ * @param onLimit - called with the reset epoch (seconds) when the run ends at the account's usage limit.
  * @returns the log path the session writes to, or `''` when the log cannot be opened.
  */
 export const askForBrief = (
@@ -106,6 +107,7 @@ export const askForBrief = (
   command: string,
   slug: string,
   prompt: string,
+  onLimit?: (resetEpoch: number) => void,
 ): string => {
   const log = askForBriefLogPath(opts.repoRoot, slug);
   try {
@@ -131,6 +133,7 @@ export const askForBrief = (
     },
     (record) => {
       if (record.code !== 0) console.log(`auto-dispatch: the brief command for ${slug} ended: ${record.line || `code ${record.code}`}`);
+      if (record.resetEpoch !== undefined) onLimit?.(record.resetEpoch);
     },
   );
   return log;
