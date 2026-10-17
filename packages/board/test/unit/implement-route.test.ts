@@ -159,6 +159,7 @@ describe('an action that cannot work is not offered', () => {
     const got = await post({ repoRoot: dir, command: '' });
     assert.equal(got.status, 409);
     assert.equal(refusal(got), 'no-implement-command');
+    assert.equal(got.body.running, undefined, 'a refusal that is not a running run carries no running mark');
     // The refusal NAMES THE FIX. A board that accepted the click and silently
     // did nothing is this repo's recurring defect wearing a button.
     assert.match(String(got.body.detail), /Implement command/);
@@ -213,6 +214,7 @@ describe('a second start while the first lives', () => {
     assert.equal(first.status, 202);
     const second = await post({ repoRoot: dir, command: 'sleep 1' });
     assert.equal(second.status, 409);
+    assert.equal(second.body.running, true, 'the running refusal is marked, so the button follows the run');
     await boardRunsSettled();
   });
 });
