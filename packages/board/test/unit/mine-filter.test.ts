@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ticketsForReader, ownedFromTicket } from '../../src/app/lib/agent-rows/mine-filter.js';
-import type { IssueRow, TicketSourceShape } from '../../src/contract/schema.js';
-import type { Reader } from '@plot-pm/domain';
+import type { IssueRow, TicketLaneRow, TicketSourceShape } from '../../src/contract/schema.js';
+import { isMine, lanesForReader, type Reader } from '@plot-pm/domain';
 
 /**
  * `ticketsForReader` is a thin wrapper around `isMine` over `OwnedRow`'s
@@ -68,5 +68,34 @@ describe('ownedFromTicket — the ticket arm of OwnedRow', () => {
   it('carries a null source as null, not as absent', () => {
     const row = ticket({ assignees: [] });
     expect(ownedFromTicket(row, null)).toEqual({ kind: 'ticket', assignees: [], source: null });
+  });
+});
+
+describe('Discovery and Delivery answer alike for one ticket', () => {
+  // Delivery reads a ticket through this file's `ticketsForReader` and
+  // `ownedFromTicket`; Discovery reads its lane row through the domain's
+  // `lanesForReader`. Both must keep or hide the same ticket.
+  const laneRow = (assignees: string[], source: TicketSourceShape | null): TicketLaneRow => ({
+    id: '1', title: 'A ticket', url: '', createdAt: null, body: null, status: '', statusCategory: '',
+    closedAt: null, type: null, owner: assignees[0] ?? null, assignees, source,
+  });
+  const discoveryKeeps = (row: TicketLaneRow, reader: Reader): boolean =>
+    lanesForReader([], { open: [row], 'in-progress': [], done: [], moreCount: 0 }, reader, true).tickets!.open.rows.length === 1;
+  const deliveryKeeps = (assignees: string[], source: TicketSourceShape | null, reader: Reader): boolean =>
+    ticketsForReader([ticket({ assignees })], reader, source, true).length === 1;
+
+  const reader: Reader = { hostUser: 'jwloka', directory: {} };
+  const cases: Array<[string, string[], TicketSourceShape | null, boolean]> = [
+    ['the reader as the second of two assignees, neither declared', ['alice', 'jwloka'], hostLoginSource, true],
+    ['the reader as the only assignee', ['jwloka'], hostLoginSource, true],
+    ['somebody else as the only assignee', ['alice'], hostLoginSource, false],
+    ['no assignee', [], hostLoginSource, true],
+    ['a null source', ['alice'], null, true],
+  ];
+
+  it.each(cases)('keeps or hides alike for %s', (_name, assignees, source, expected) => {
+    expect(isMine(ownedFromTicket(ticket({ assignees }), source), reader)).toBe(expected);
+    expect(deliveryKeeps(assignees, source, reader)).toBe(expected);
+    expect(discoveryKeeps(laneRow(assignees, source), reader)).toBe(expected);
   });
 });

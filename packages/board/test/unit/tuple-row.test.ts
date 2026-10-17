@@ -653,6 +653,40 @@ describe('age is one clock, and the label marks the exception', () => {
   });
 });
 
+describe('a plan head carries its own PR, not just its branch', () => {
+  it('leads with the PR link, branch link after', () => {
+    // The idea-branch PR is the thing a reader clicks to review the plan
+    // itself — ahead of the branch link, matching the PR-then-branch order
+    // every other kind already uses.
+    const t = tupleFromPlan({
+      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', waitingDays: 3,
+      branch: 'idea/a-plan', branchUrl: 'https://host/tree/idea/a-plan',
+      pr: { number: 42, url: 'https://host/pr/42', draft: false, state: 'OPEN' },
+    });
+    expect(t.links).toEqual([
+      { what: 'pr', label: '42', href: 'https://host/pr/42' },
+      { what: 'branch', label: 'idea/a-plan', href: 'https://host/tree/idea/a-plan' },
+    ]);
+  });
+
+  it('falls back to a branch-only link when the plan has no PR', () => {
+    const t = tupleFromPlan({
+      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', waitingDays: 3,
+      branch: 'idea/a-plan', branchUrl: 'https://host/tree/idea/a-plan',
+    });
+    expect(t.links).toEqual([
+      { what: 'branch', label: 'idea/a-plan', href: 'https://host/tree/idea/a-plan' },
+    ]);
+  });
+
+  it('renders no links at all with neither a branch nor a PR', () => {
+    const t = tupleFromPlan({
+      plan: 'a-plan', planFile: '2026-08-20-a-plan.md', phase: 'Design', waitingDays: 3,
+    });
+    expect(t.links).toEqual([]);
+  });
+});
+
 describe('an agent is named by its session id, never by an invented handle', () => {
   it('shortens the session id and renames nothing', () => {
     // The plan's own example said `@Dev-Agent`, and that name was dropped as a

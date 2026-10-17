@@ -727,7 +727,12 @@ const EXPECTED_FILES = 70;
 // 592 → 595 on 2026-10-16: the three `it(` of
 // `row-placement-quiet-and-ended-desk.browser.test.ts`, a new file counted in
 // `EXPECTED_FILES` above.
-const EXPECTED_TESTS = 595;
+// 595 → 597 on 2026-10-17: one `it(` in `agents-tab.browser.test.ts`, for the
+// plan head showing its own PR link and a tally scoped to what it heads
+// (#1760/#1742), and one in `mine-filter.browser.test.ts`, for the "Only my
+// work" empty-lane message (#1793). Both files already drove a page, so
+// `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 597;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

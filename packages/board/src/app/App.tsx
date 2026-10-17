@@ -141,6 +141,9 @@ function parseTab(): Tab {
 
 export function App() {
   const [board, setBoard] = useState<Board | null>(null);
+  // A stable identity, not a fresh object per render: `StoriesTab`'s own
+  // `useMemo` keys on this prop, and a new object every render would defeat it.
+  const reader = useMemo(() => readerFrom(board?.server), [board?.server]);
   const [fleet, setFleet] = useState<Fleet | null>(null);
   const [tab, setTab] = useState<Tab>(parseTab);
   // Swimlanes are a LAYOUT of the same board, not a third tab: the question is
@@ -1177,10 +1180,10 @@ export function App() {
             Show released
           </label>
         )}
-        {/* A plan card is the reader's where its `Assignee:` resolves to the
-            reader through the `People` directory, and somebody else's only
-            where the directory declares its spelling for another person. A
-            card naming nobody, or an undeclared spelling, stays. */}
+        {/* A plan card or ticket is the reader's where its assignee resolves
+            to the reader through the `People` directory, and somebody else's
+            only where the directory declares its spelling for another
+            person. A row naming nobody, or an undeclared spelling, stays. */}
         {(tab === 'planning' || tab === 'discovery') && board && (
           <label data-mine-filter className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
             <input
@@ -1215,7 +1218,7 @@ export function App() {
               idea={ideaInfo ?? { available: false, reason: 'this board has not said whether it can create plans' }}
               story={storyInfo ?? { available: false, reason: 'this board has not said whether it can create stories' }}
               issueAnswer={fleet?.issueAnswer ?? 'unsupported'}
-              reader={readerFrom(board.server)}
+              reader={reader}
               mineOnly={mineOnly}
             />
           ) : (
@@ -1348,7 +1351,7 @@ export function App() {
             )}
           {lanes ? (
             <Swimlanes
-              board={withEffectiveDispatch(boardForReader(board, readerFrom(board.server), mineOnly))}
+              board={withEffectiveDispatch(boardForReader(board, reader, mineOnly))}
               sprintSel={validSprintSel}
               storySel={validStorySel}
               pulse={pulse}
@@ -1361,7 +1364,7 @@ export function App() {
             />
           ) : (
             <BoardView
-              board={withEffectiveDispatch(boardForReader(board, readerFrom(board.server), mineOnly))}
+              board={withEffectiveDispatch(boardForReader(board, reader, mineOnly))}
               sprintSel={validSprintSel}
               storySel={validStorySel}
               pulse={pulse}

@@ -1200,6 +1200,17 @@ export const ServerInfoSchema = z.object({
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 
+/**
+ * How a ticket's assignees are written — the wire shape of the domain's
+ * `TicketSource`, carried so the client can resolve `ticketsForReader`
+ * without a second host call.
+ */
+export const TicketSourceSchema = z.union([
+  z.object({ service: z.string(), match: z.literal('host-login') }),
+  z.object({ service: z.string(), match: z.literal('tracker-account'), prefix: z.string() }),
+]);
+export type TicketSourceShape = z.infer<typeof TicketSourceSchema>;
+
 /** One ticket as the Discovery tab's lane groups carry it — raw dates, not a derived age. */
 export const TicketLaneRowSchema = z.object({
   id: z.string(),
@@ -1212,6 +1223,10 @@ export const TicketLaneRowSchema = z.object({
   closedAt: z.string().nullable(),
   type: z.string().nullable().default(null),
   owner: z.string().nullable().default(null),
+  /** Every assignee, as the tracker spells them — what "Only my work" reads, not `owner`. */
+  assignees: z.array(z.string()).default([]),
+  /** How the source writes `assignees`; `null` where it could not be determined. */
+  source: TicketSourceSchema.nullable().default(null),
 });
 export type TicketLaneRow = z.infer<typeof TicketLaneRowSchema>;
 
@@ -3436,17 +3451,6 @@ export const issueKey = (n: string | number): string => String(n);
 export const sectionKey = (
   row: { repo: string; branch: string; plan?: string | null },
 ): string => `${row.repo}/${row.branch}/${row.plan ?? ''}`;
-
-/**
- * How a ticket's assignees are written — the wire shape of the domain's
- * `TicketSource`, carried so the client can resolve `ticketsForReader`
- * without a second host call.
- */
-export const TicketSourceSchema = z.union([
-  z.object({ service: z.string(), match: z.literal('host-login') }),
-  z.object({ service: z.string(), match: z.literal('tracker-account'), prefix: z.string() }),
-]);
-export type TicketSourceShape = z.infer<typeof TicketSourceSchema>;
 
 export const IssueRowSchema = z.object({
   /**

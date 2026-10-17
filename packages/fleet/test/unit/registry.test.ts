@@ -1373,7 +1373,7 @@ describe('a desk whose loop ended at the free-wait bound — listed only while i
     fs.writeFileSync(path.join(repo, 'README.md'), 'r\n');
     g('add', '-A');
     g('commit', '-q', '-m', 'init');
-    fs.writeFileSync(path.join(repo, '.plot-worker.pid'), '99999');
+    fs.writeFileSync(path.join(repo, '.plot-worker.pid'), '999995');
     fs.writeFileSync(path.join(repo, '.plot-worker.exit'), '124');
     fs.writeFileSync(
       path.join(repo, '.plot-worker.ending.json'),
@@ -1391,10 +1391,19 @@ describe('a desk whose loop ended at the free-wait bound — listed only while i
     });
 
   it('drops a clean desk: no marker, no uncommitted work, nothing owed', async () => {
-    assert.deepEqual(await list(endedDesk()), []);
+    const wt = endedDesk();
+    assert.deepEqual(await list(wt), []);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(wt, '.plot-worker.ending.json'), 'utf8')), {
+      reason: 'bound',
+      actor: 'bound',
+    }, 'the bound ending is unread here — this suite is about the tree, not the reason the loop ended');
   });
 
-  it('keeps the desk, as `failed`, while it carries a PLOT-BLOCKED marker', async () => {
+  it('keeps the desk while it holds an untracked PLOT-BLOCKED.md marker, the same as any other untracked file', async () => {
+    // Renamed from "keeps the desk ... while it carries a PLOT-BLOCKED
+    // marker": `bashCleanliness` applies one exclusion set to every untracked
+    // path, and PLOT-BLOCKED.md is not in it — it reads dirty for the same
+    // reason `half-done.ts` below does, not because the name is special-cased.
     const wt = endedDesk((d) => fs.writeFileSync(path.join(d, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which retry?\n'));
     const got = await list(wt);
     assert.equal(got.length, 1);

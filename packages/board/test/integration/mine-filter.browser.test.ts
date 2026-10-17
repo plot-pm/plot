@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
-import { openCatalogue, board as buildBoard, card, column, expandAgentFolds, type Catalogue } from '../catalogue/index.js';
+import { openCatalogue, board as buildBoard, card, column, expandAgentFolds, story, type Catalogue } from '../catalogue/index.js';
 import { type AgentRow, type Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -250,6 +250,71 @@ describe('the board filters to my work', () => {
       // nothing — which reads as a broken filter.
       await expect.poll(() => page.locator('[data-mine-filter][data-mine-known="0"]').count())
         .toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+});
+
+/**
+ * DISCOVERY'S LANES SAY WHY THEY ARE EMPTY — "Only my work" against the
+ * topic filter's own empty-lane message, which `discovery-lanes-by-topic`
+ * already covers for `hiddenByTopic`. This covers the sibling reason,
+ * `hiddenByOwner`, which had no browser coverage at all.
+ */
+describe('discovery says Only my work hides a lane it emptied', () => {
+  let cat: Catalogue;
+
+  beforeAll(async () => {
+    cat = await openCatalogue();
+  }, 60_000);
+
+  afterAll(async () => {
+    await cat?.close();
+  });
+
+  const text = (page: Page) => page.locator('body').innerText();
+
+  it('says Only my work hides every ticket and story in a lane it emptied', async () => {
+    const page = await cat.open('an-empty-estate', {
+      tab: 'discovery',
+      over: {
+        fleet: fleet(),
+        board: buildBoard({
+          server: {
+            restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME,
+            people: { [ME]: ME, [THEM]: THEM },
+          },
+          storyLanes: [
+            { lane: 'Draft', stories: [story({ slug: 'theirs', title: 'Their story', author: THEM })] },
+            { lane: 'Active', stories: [] },
+            { lane: 'Done', stories: [] },
+            { lane: 'Archived', stories: [] },
+          ],
+          tickets: {
+            open: [{
+              id: '1', title: 'Their ticket', url: '', createdAt: null, body: null,
+              status: 'Open', statusCategory: 'To Do', closedAt: null, type: null, owner: THEM,
+              assignees: [THEM], source: { service: 'github', match: 'host-login' },
+            }],
+            'in-progress': [],
+            done: [],
+            moreCount: 0,
+          },
+        }),
+      },
+    });
+    try {
+      await page.getByText('Their story').waitFor({ timeout: 15_000 });
+      expect(await text(page)).not.toContain('Only my work hides');
+
+      await page.locator('[data-mine-toggle]').check();
+      await expect.poll(() => page.getByText('Their story').count()).toBe(0);
+      const shown = await text(page);
+      expect(shown).toContain('Only my work hides every ticket in this lane.');
+      expect(shown).toContain('Only my work hides every story in this lane.');
+      // STILL THE ORDINARY MESSAGE for a lane that was empty before the filter ran.
+      expect(shown).toContain('No tickets in this lane.');
     } finally {
       await page.close();
     }

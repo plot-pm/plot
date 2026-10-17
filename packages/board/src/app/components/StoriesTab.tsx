@@ -163,9 +163,9 @@ export function StoriesTab({
 
   // The domain decides which rows survive the selected topic, and which
   // lanes the topic emptied. `lanesForTopic` wants the same `{ lane, stories }`
-  // / `TicketLaneGroups` input shape `lanesForReader` itself took — its output
-  // carries `rows`/`hiddenByTopic` instead, so the ownership pass's result is
-  // reshaped back before being handed onward.
+  // / `TicketLaneGroups` input shape `lanesForReader` itself took, not the
+  // `OwnerFilteredLane` wrapper `lanesForReader` returns — so the ownership
+  // pass's kept rows are unwrapped before being handed onward.
   const filtered = useMemo(
     () => lanesForTopic(
       owned.storyLanes.map((l) => ({ lane: l.lane, stories: l.rows })),
@@ -179,12 +179,12 @@ export function StoriesTab({
   const filteredLaneGroups = filtered.storyLanes;
   const groups = discoveryGroups(show, filtered.storyLanes, filtered.tickets, issueAbsence);
 
-  // A lane's `hiddenByTopic` only says the TOPIC selection hid it — the reader
-  // filter above already dropped its own rows before `lanesForTopic` ever saw
-  // the lane, so a lane the OWNER filter alone emptied reads here as "already
-  // empty" unless the topic also would have emptied it. Reading the ownership
-  // pass's own lane finds the specific reason: topic-hid-it, filter-hid-it, or
-  // nothing-was-here regardless.
+  // `filtered`'s `hiddenByTopic` only ever says the TOPIC selection hid a
+  // lane — the reader filter above already dropped its own rows before
+  // `lanesForTopic` ever saw the lane, so a lane the OWNER filter alone
+  // emptied reads here as "already empty" unless the topic also would have
+  // emptied it. Reading the ownership pass's own lane and its `hiddenByOwner`
+  // finds that other reason.
   const ownedStoryByLane = new Map(owned.storyLanes.map((l) => [l.lane, l]));
 
   // The cloud counts only the groups on screen; max topic count is for sizing.
@@ -332,7 +332,7 @@ export function StoriesTab({
                     <p className="px-1 py-4 text-center text-xs text-slate-400 dark:text-slate-600">
                       {hiddenByTopic
                         ? 'This topic hides every ticket in this lane.'
-                        : owned.tickets![lane].hiddenByTopic
+                        : owned.tickets![lane].hiddenByOwner
                           ? 'Only my work hides every ticket in this lane.'
                           : 'No tickets in this lane.'}
                     </p>
@@ -401,7 +401,7 @@ export function StoriesTab({
                   <p className="px-1 py-4 text-center text-xs text-slate-400 dark:text-slate-600">
                     {group.hiddenByTopic
                       ? 'This topic hides every story in this lane.'
-                      : ownedStoryByLane.get(group.lane)?.hiddenByTopic
+                      : ownedStoryByLane.get(group.lane)?.hiddenByOwner
                         ? 'Only my work hides every story in this lane.'
                         : 'No stories in this lane.'}
                   </p>

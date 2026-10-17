@@ -58,6 +58,28 @@ describe('ticketLanes type and owner', () => {
     expect(lane(row('1', { assignees: ['JWloka'] }), { source: github, directory: { jwloka: 'jan' } })?.owner).toBe('jan');
   });
 
+  it('resolves a later assignee the directory declares, not just the first', () => {
+    const r = row('1', { assignees: ['unknown-bot', 'JWloka'] });
+    expect(lane(r, { source: github, directory: { jwloka: 'jan' } })?.owner).toBe('jan');
+  });
+
+  it('falls back to the first assignee as written where none resolves', () => {
+    const r = row('1', { assignees: ['unknown-bot', 'also-unknown'] });
+    expect(lane(r, { source: github, directory: { jwloka: 'jan' } })?.owner).toBe('unknown-bot');
+  });
+
+  it('carries the source onto the row', () => {
+    expect(lane(row('1'), { source: github })?.source).toEqual(github);
+    expect(lane(row('1'), { source: jira })?.source).toEqual(jira);
+    expect(lane(row('1'))?.source).toBeNull();
+  });
+
+  it('carries every assignee onto the row, not just the one owner names', () => {
+    const r = row('1', { assignees: ['alice', 'jwloka'] });
+    expect(lane(r, { source: github })?.assignees).toEqual(['alice', 'jwloka']);
+    expect(lane(row('2'))?.assignees).toEqual([]);
+  });
+
   it('carries no type where the row states null', () => {
     expect(lane(row('1', { type: null }))?.type).toBeNull();
   });
@@ -92,7 +114,7 @@ describe('ticketLanes', () => {
     const result = ticketLanes([row('1', { createdAt: null, status: null, statusCategory: null, closedAt: null })], [], null, reading(), false, NOW);
     expect(result.lanes?.open[0]).toEqual({
       id: '1', title: 't1', url: 'https://x/1', createdAt: null, body: null, status: '', statusCategory: '', closedAt: null,
-      type: null, owner: null,
+      type: null, owner: null, assignees: [], source: null,
     });
     const bare = ticketLanes([row('2')], [], null, reading(), false, NOW);
     expect(bare.lanes?.open[0]).toMatchObject({ createdAt: null, status: '', statusCategory: '', closedAt: null });

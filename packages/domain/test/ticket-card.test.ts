@@ -25,6 +25,8 @@ const row = (over: Partial<TicketLaneRow> = {}): TicketLaneRow => ({
   closedAt: null,
   type: null,
   owner: null,
+  assignees: [],
+  source: null,
   ...over,
 });
 

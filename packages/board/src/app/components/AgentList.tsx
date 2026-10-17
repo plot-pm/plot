@@ -1652,8 +1652,10 @@ export function AgentList({
                   // that must agree: the plan row's caret (`expanded`), the list
                   // that draws the rows, and the plan row's decision whether to
                   // state its sole slice's verdict. Computed once here, where
-                  // `planHeads` and the slice groups are already in hand.
-                  const planSliceGroups = sliceGroupsFor(group.rows, key, slices);
+                  // `planHeads` and the slice groups are already in hand — read
+                  // from `planShape.slices` rather than recomputed, so the two
+                  // cannot drift apart.
+                  const planSliceGroups = planShape.slices;
                   const planSliceRowsShown = sliceRowsShown(
                     planHeads, group.rows, planSliceGroups.length, group.plan, openPlans,
                   );

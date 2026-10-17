@@ -1262,6 +1262,8 @@ export interface PlanRowFacts {
   /** The branch this plan's work sits on, where the row names one. */
   branch?: string;
   branchUrl?: string;
+  /** The plan's own PR — the idea-branch PR it was reviewed through, where one exists. */
+  pr?: AgentRow['pr'];
 }
 
 /**
@@ -1297,9 +1299,10 @@ export function tupleFromPlan(facts: PlanRowFacts): TupleRow {
       href: facts.planFile ? `/plan/${encodeURIComponent(facts.planFile)}` : '',
       internal: true,
     },
-    links: facts.branch
-      ? [{ what: 'branch', label: facts.branch, href: facts.branchUrl ?? '' }]
-      : [],
+    links: [
+      ...(facts.pr ? [prLink(facts.pr)] : []),
+      ...(facts.branch ? [{ what: 'branch' as const, label: facts.branch, href: facts.branchUrl ?? '' }] : []),
+    ],
     ...(facts.rowCount != null && facts.rowCount > 1
       ? { tally: `(${facts.rowCount})` }
       : {}),

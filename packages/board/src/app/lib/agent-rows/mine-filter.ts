@@ -1,5 +1,5 @@
-import { isMine, type OwnedRow, type Reader } from '@plot-pm/domain';
-import { type AgentEntry, type AgentRow, type Board, type Card, type IssueRow, type StoryCard, type TicketSourceShape } from '../../../contract/schema.js';
+import { isMine, ownedTicket, type OwnedRow, type Reader } from '@plot-pm/domain';
+import { type AgentEntry, type AgentRow, type Board, type Card, type IssueRow, type TicketSourceShape } from '../../../contract/schema.js';
 
 /**
  * Where the "only my work" preference lives.
@@ -108,14 +108,6 @@ export const ownedFromCard = (card: Pick<Card, 'assignee' | 'author' | 'approver
   ({ kind: 'plan', assignee: card.assignee, author: card.author, approver: card.approver });
 
 /**
- * A story card as the ownership rule reads it — its author.
- *
- * `''` or absent where the story names nobody; the rule resolves it through
- * the reader's directory, same as a plan's `author` field.
- */
-export const ownedFromStory = (story: Pick<StoryCard, 'author'>): OwnedRow => ({ kind: 'story', author: story.author });
-
-/**
  * Who is reading, as the ownership rule wants it — the identity fields
  * `ServerInfo` carries, and the `People` directory beside them.
  *
@@ -162,7 +154,8 @@ export const agentsForReader = <T extends Pick<AgentEntry, 'identity' | 'state'>
 ): T[] => (on ? agents.filter((a) => isMine(ownedFromAgent(a), reader)) : agents);
 
 /**
- * A ticket row as the ownership rule reads it.
+ * A ticket row as the ownership rule reads it, through the domain's
+ * `ownedTicket` — the mapping Discovery's `lanesForReader` uses too.
  *
  * `source` is `null` where the board could not resolve how this read's
  * tickets name their assignees — {@link isMine} then sees `{ source: null }`
@@ -170,7 +163,7 @@ export const agentsForReader = <T extends Pick<AgentEntry, 'identity' | 'state'>
  * an unassigned row. Either way the row stays visible with the filter on.
  */
 export const ownedFromTicket = (row: Pick<IssueRow, 'assignees'>, source: TicketSourceShape | null): OwnedRow =>
-  ({ kind: 'ticket', assignees: [...row.assignees], source });
+  ownedTicket(row.assignees, source);
 
 /**
  * The tickets that stay in view, given the reader, how this read's tickets
