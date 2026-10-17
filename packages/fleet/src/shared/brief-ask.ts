@@ -20,6 +20,7 @@ import path from 'node:path';
 import { readConfig } from './config-reader.js';
 import type { ActOptions } from './action-log.js';
 import { startBoardRun } from './board-run.js';
+import { recordImplementAgent, releaseImplementLock, takeImplementLock, type ImplementLockDeps } from './implement-run.js';
 import { usableCommand } from './usable-command.js';
 import { briefPath } from '@plot-pm/fleet/shared/brief-path';
 
@@ -91,6 +92,11 @@ export const askForBriefLogPath = (repoRoot: string, slug: string): string =>
  * process group of the process that started it: a board stop ends it, and the
  * next pass asks again.
  *
+ * **IT TAKES THE PLAN'S IMPLEMENT LOCK** ({@link takeImplementLock}) before it
+ * opens anything, and releases it when the run ends. A brief and an implement
+ * for one slug cannot both run, so they cannot both write a brief; a brief that
+ * loses the lock logs why and returns `''`.
+ *
  * **A start failure is reported and never thrown.** This runs inside the
  * scan's success path, and an unstartable command must not take a pulse down
  * with it — the plan stays `no-brief` and the next pass asks again.
@@ -99,23 +105,35 @@ export const askForBriefLogPath = (repoRoot: string, slug: string): string =>
  * @param command - the configured fragment, already checked usable.
  * @param slug - the plan slug, for the prompt and the log path.
  * @param prompt - the assembled prompt, passed as one argument.
- * @returns the log path the session writes to, or `''` when the log cannot be opened.
+ * @param lockDeps - the implement lock's test seams.
+ * @returns the log path the session writes to, or `''` when the lock is held or the log cannot be opened.
  */
 export const askForBrief = (
   opts: ActOptions,
   command: string,
   slug: string,
   prompt: string,
+  lockDeps: ImplementLockDeps = {},
 ): string => {
   const log = askForBriefLogPath(opts.repoRoot, slug);
+  const couldNot = (why: string): '' => {
+    console.log(`auto-dispatch: could not ask for ${slug}'s brief: ${why}`);
+    return '';
+  };
+  let mine;
+  try {
+    mine = takeImplementLock(opts.repoRoot, slug, lockDeps);
+  } catch (err) {
+    return couldNot(err instanceof Error ? err.message : String(err));
+  }
+  if (mine === null) return couldNot(`an implement or brief run for ${slug} holds its lock`);
+  const held = mine;
+  const release = (): void => releaseImplementLock(opts.repoRoot, slug, held);
   try {
     fs.appendFileSync(log, '', 'utf8');
   } catch (err) {
-    console.log(
-      `auto-dispatch: could not ask for ${slug}'s brief: ` +
-      `${err instanceof Error ? err.message : String(err)}`,
-    );
-    return '';
+    release();
+    return couldNot(err instanceof Error ? err.message : String(err));
   }
   void startBoardRun(
     opts,
@@ -128,10 +146,15 @@ export const askForBrief = (
       env: {},
       logFile: log,
       statePath: null,
+      onStarted: (pid) => recordImplementAgent(opts.repoRoot, slug, held, { pid, startedAt: Date.now() }),
     },
     (record) => {
+      release();
       if (record.code !== 0) console.log(`auto-dispatch: the brief command for ${slug} ended: ${record.line || `code ${record.code}`}`);
     },
-  );
+  ).then((runner) => {
+    // A run this process left to the board calls no end handler.
+    if (runner === 'refused') release();
+  });
   return log;
 };

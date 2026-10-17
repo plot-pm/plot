@@ -12,6 +12,7 @@ import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/proce
 import { agentLogPath } from './agent-log.js';
 import { markBoardRun, startBoardRun, writeState, type BoardConfigReader } from './board-run.js';
 import { readConfig, type ConfigReadOptions } from './config-reader.js';
+import { mainCheckout } from './main-checkout.js';
 
 /**
  * Starting `/plot-implement` for a plan and recording how the run ended — the
@@ -128,11 +129,13 @@ export const IMPLEMENT_LOCK_BOUND_MS = IMPLEMENT_TIMEOUT_MS + 60_000;
 const GUARD_STALE_MS = 10_000;
 
 /**
- * Where the implement lock for a plan is, beside its state file. It holds one
- * {@link ImplementHolder} line while a run holds the slug.
+ * Where the implement lock for a plan is: beside the state file of the main
+ * checkout, so a call from a desk worktree and a call from the main checkout
+ * name one file. It holds one {@link ImplementHolder} line while a run holds the
+ * slug.
  */
 export const implementLockPath = (repoRoot: string, slug: string): string =>
-  `${implementStatePath(repoRoot, slug)}.lock`;
+  `${implementStatePath(mainCheckout(repoRoot), slug)}.lock`;
 
 /** The seams a test replaces in the implement lock. */
 export interface ImplementLockDeps {
