@@ -12,9 +12,7 @@
 fail_as() { echo "$(basename "$0"): $1" >&2; echo "summary: tracker=failed"; exit 2; }
 
 plot_tracker_write() {
-  local plan_file=$1 bundle=$2
-  shift 2
-
+  local plan_file=$1 bundle=$2; shift 2
   local script_dir=$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd)
   [ -n "$plan_file" ] && [ -f "$plan_file" ] || fail_as "usage: $(basename "$0") <plan file> [flags...]"
 
@@ -23,8 +21,7 @@ plot_tracker_write() {
 
   local repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root=$(pwd)
   local out=$(printf '%s' "$meta" | PLOT_SCRIPTS_DIR="$script_dir" PLOT_REPO_ROOT="$repo_root" \
-    node "$script_dir/board/$bundle" "$@")
-  local rc=$?
+    node "$script_dir/board/$bundle" "$@"); local rc=$?
   [ -n "$out" ] && printf '%s\n' "$out"
   [ "$rc" = 0 ] || fail_as "the bundle failed"
 
