@@ -273,11 +273,17 @@ describe('needsPersonMarker', () => {
     expect(text).not.toContain('nothing from the build connector');
   });
 
-  it('names a blocked agent\'s own report and asks how it should proceed', () => {
+  it('names a blocked worker and asks how it should proceed, without claiming the agent always self-reported', () => {
     const text = needsPersonMarker('blocked', 'infra/x', 'the agent asked whether to drop the migration');
-    expect(text).toContain('reported it could not proceed');
+    expect(text).toContain('stopped and cannot proceed on its own');
     expect(text).toContain('whether to drop the migration');
     expect(text).toContain('how it should proceed');
+  });
+
+  it('a blocked worker\'s marker also covers dropped background work, not only a self-report — finding 4 of #1843', () => {
+    const text = needsPersonMarker('blocked', 'infra/x', 'the turn ended with its background work dropped, twice');
+    expect(text).not.toContain('reported it could not proceed');
+    expect(text).toContain('background work was dropped twice');
   });
 
   it('gives every reason meaningfully distinct wording — no two share a sentence', () => {

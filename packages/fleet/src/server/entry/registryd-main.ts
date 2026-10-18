@@ -950,19 +950,29 @@ export const notifierFor = (configured: string): Notifier => {
 
 /**
  * What the tick reads to decide a desk's question escalation: the marker, the
- * configured ages, and the rungs already recorded for the desk and its
- * marker's modification time, in `.plot/state/escalations.tsv` or in this
- * daemon's {@link EscalationMemory}.
+ * configured ages, the rungs already recorded for the desk and its marker's
+ * modification time (in `.plot/state/escalations.tsv` or in this daemon's
+ * {@link EscalationMemory}), and whether the desk's branch merged.
  *
  * @param repoRoot - the repository root.
  * @param scriptsDir - where the helper scripts are.
  * @param memory - the rungs this daemon process applied.
+ * @param askMerged - asks the host whether a branch merged; defaults to
+ *   asking with no memo, so a caller that wants the tick's own memoized
+ *   answer passes `(branch) => merges.ask(branch)` — the same function
+ *   {@link freshAgentDeskReads} is given, so the two share one call per
+ *   branch per tick rather than each buying its own.
+ * @param tally - the host-call counter this pass increments; a no-op tally
+ *   where the caller does not track one.
  * @returns the world the tick's escalation pass reads through.
  */
 export const escalationWorldForRepo = (
   repoRoot: string,
   scriptsDir: string,
   memory: EscalationMemory = escalationMemory(),
+  askMerged: (branch: string) => ReturnType<Host['prMerged']> = (branch) =>
+    hostShell({ repoRoot, scriptDir: scriptsDir }).prMerged(branch),
+  tally: HostTally = { calls: 0 },
 ): EscalationWorld => ({
   marker: (worktree) => markerReading(worktree),
   // `plot-config.sh` answers the fallback for an empty value; `none` turns
@@ -973,6 +983,13 @@ export const escalationWorldForRepo = (
     ),
   recordedRungs: async (worktree, askedAt) =>
     recordedRungsFor([...readEscalations(repoRoot), ...memory.records], worktree, askedAt),
+  merged: async (branch) => {
+    // A FREE AGENT HOLDS NO BRANCH: there is no question to ask, so none is
+    // spent — the same guard `prMerged` above takes.
+    if (branch === '') return false;
+    tally.calls += 1;
+    return prMergedReading(await askMerged(branch)) === 'merged';
+  },
 });
 
 /**
@@ -1483,6 +1500,12 @@ export const startFreshSession = async (
 /**
  * The desk reads {@link startFreshAgents} takes in production.
  *
+ * `asks.asked` is memoized for the lifetime of this call — one call per
+ * tick, per {@link startFreshAgents}'s production call site — keyed by
+ * plan, branch and ending time, so a tick with several candidates on the
+ * same branch and ending reads `.plot/state/ending-asks.tsv` once rather
+ * than once per candidate.
+ *
  * @param context - the repository and its scripts directory.
  * @param asks - the `.plot/state/ending-asks.tsv` store.
  * @param askMerged - asks the host (or a tick's memo) whether a PR for a
@@ -1503,49 +1526,62 @@ export const freshAgentDeskReads = (
   heldFiles: (worktree: string) => Promise<readonly string[] | null>;
   hasMarker: (worktree: string) => Promise<boolean>;
   asks: FreshAgentAskReads;
-} => ({
-  deskFile: (worktree, name) => fileOrNull(join(worktree, name)),
-  // A CANDIDATE HAS NO MANIFEST, so the desk's `.plot-worker.pid` is the one
-  // pid source `deskLoopAlive` reads here.
-  loopAlive: (worktree) => readDeskLoop(worktree, { kind: 'unnamed' }).loop.kind === 'alive',
-  // A DEDICATED READ, NOT `world`'s `dirtyPaths` OR `dirtyCountOf`. Both
-  // collapse a failed read into a lossy value (`[]` or a count of `1`) for
-  // their own consumers; `holdingWorkAnswer` needs `null` preserved so it can
-  // say the files could not be listed rather than claiming none are held.
-  heldFiles: async (worktree) => {
-    const answer = await treesGit(context).dirtyPaths(worktree);
-    return answer.ok ? answer.value : null;
-  },
-  // A MARKER, NOT A DECLARATION: a marker written on a prior tick stops a
-  // second write, whatever the declaration file holds.
-  hasMarker: async (worktree) => (await markerReading(worktree)) !== null,
-  asks: {
-    endingAt: async (worktree) => {
-      try {
-        return (await stat(join(worktree, ENDING_FILENAME))).mtime.toISOString();
-      } catch {
-        return null;
-      }
+} => {
+  const askedMemo = new Map<string, ReturnType<EndingAskRecordStore['asked']>>();
+  const askedOnce: Pick<EndingAskRecordStore, 'asked'> = {
+    asked: (plan, branch, endingAt) => {
+      const key = `${plan}\t${branch}\t${endingAt}`;
+      const cached = askedMemo.get(key);
+      if (cached !== undefined) return cached;
+      const result = asks.asked(plan, branch, endingAt);
+      askedMemo.set(key, result);
+      return result;
     },
-    record: asks,
-    prMerged: async (branch) => {
-      tally.calls += 1;
-      return prMergedReading(await askMerged(branch));
+  };
+  return {
+    deskFile: (worktree, name) => fileOrNull(join(worktree, name)),
+    // A CANDIDATE HAS NO MANIFEST, so the desk's `.plot-worker.pid` is the one
+    // pid source `deskLoopAlive` reads here.
+    loopAlive: (worktree) => readDeskLoop(worktree, { kind: 'unnamed' }).loop.kind === 'alive',
+    // A DEDICATED READ, NOT `world`'s `dirtyPaths` OR `dirtyCountOf`. Both
+    // collapse a failed read into a lossy value (`[]` or a count of `1`) for
+    // their own consumers; `holdingWorkAnswer` needs `null` preserved so it can
+    // say the files could not be listed rather than claiming none are held.
+    heldFiles: async (worktree) => {
+      const answer = await treesGit(context).dirtyPaths(worktree);
+      return answer.ok ? answer.value : null;
     },
-    // THE SAME READ `startNothingDoneReleases` MAKES OF THE SAME PORT — one
-    // implementation of `Trees.commitBeyondClaim`/`hostShell(...).prState`
-    // asked from two pipelines, matching `nothingDoneDecisions`'s own doc
-    // comment on the duplicate `commitBeyondClaim` call.
-    commitBeyondClaim: async (worktree) => {
-      const commits = await treesGit(context).commitBeyondClaim(worktree);
-      return commits.ok ? commits.value : 'unanswerable';
+    // A MARKER, NOT A DECLARATION: a marker written on a prior tick stops a
+    // second write, whatever the declaration file holds.
+    hasMarker: async (worktree) => (await markerReading(worktree)) !== null,
+    asks: {
+      endingAt: async (worktree) => {
+        try {
+          return (await stat(join(worktree, ENDING_FILENAME))).mtime.toISOString();
+        } catch {
+          return null;
+        }
+      },
+      record: askedOnce,
+      prMerged: async (branch) => {
+        tally.calls += 1;
+        return prMergedReading(await askMerged(branch));
+      },
+      // THE SAME READ `startNothingDoneReleases` MAKES OF THE SAME PORT — one
+      // implementation of `Trees.commitBeyondClaim`/`hostShell(...).prState`
+      // asked from two pipelines, matching `nothingDoneDecisions`'s own doc
+      // comment on the duplicate `commitBeyondClaim` call.
+      commitBeyondClaim: async (worktree) => {
+        const commits = await treesGit(context).commitBeyondClaim(worktree);
+        return commits.ok ? commits.value : 'unanswerable';
+      },
+      prOpen: async (branch) => {
+        tally.calls += 1;
+        return prOpenReading(await hostShell(context).prState(branch));
+      },
     },
-    prOpen: async (branch) => {
-      tally.calls += 1;
-      return prOpenReading(await hostShell(context).prState(branch));
-    },
-  },
-});
+  };
+};
 
 /**
  * Reads, decides and applies the fresh-agent step for one completed tick.
@@ -2075,7 +2111,10 @@ export const run = async (
   const reportStore = supervisionReportFile({ cwd: repoRoot });
   const tempSweep = tempSweepShell({ repoRoot, scriptDir: scriptsDir });
   const escalated = escalationMemory();
-  const escalation = escalationWorldForRepo(repoRoot, scriptsDir, escalated);
+  // SHARES `merges` AND `tally` WITH `worldForRepo` ABOVE, so a branch this
+  // pass and the supervisor's own `prMerged` both ask about in the same tick
+  // costs one host call, memoized by `beginTick`'s clear — not two.
+  const escalation = escalationWorldForRepo(repoRoot, scriptsDir, escalated, (branch) => merges.ask(branch), tally);
   // READ WHEN A TICK HOLDS A `notify` WRITE, so a `Notify command` added
   // while the daemon runs takes effect at the next escalation.
   const notifier =

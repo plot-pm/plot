@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -65,6 +65,18 @@ describe('endingAskRecordFile', () => {
   it('skips a torn line rather than reading it as an ask', async () => {
     writeFileSync(join(home, 'ending-asks.tsv'), `${PLAN}\tinfra/x\n`);
     expect(await endingAskRecordFile({ home }).asked(PLAN, 'infra/x', '')).toEqual({ ok: true, value: false });
+  });
+
+  it('stays bounded across many more appends than its row cap — the ending-ask record stays bounded', async () => {
+    const store = endingAskRecordFile({ home });
+    for (let i = 0; i < 600; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await store.append(row({ branch: `infra/${i}`, endingAt: `2026-10-08T10:${String(i % 60).padStart(2, '0')}:00.000Z` }));
+    }
+    const lines = readFileSync(join(home, 'ending-asks.tsv'), 'utf8').split('\n').filter((line) => line !== '');
+    expect(lines.length).toBeLessThanOrEqual(500);
+    expect(await store.asked(PLAN, 'infra/599', '2026-10-08T10:59:00.000Z')).toEqual({ ok: true, value: true });
+    expect(await store.asked(PLAN, 'infra/0', ENDING_AT)).toEqual({ ok: true, value: false });
   });
 });
 

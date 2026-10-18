@@ -180,6 +180,15 @@ export interface EscalationWorld {
   ages(): Promise<readonly number[]>;
   /** The rungs already recorded for this desk path and this marker's modification time. */
   recordedRungs(worktree: string, askedAt: string): Promise<ReadonlySet<Rung>>;
+  /**
+   * Whether the host merged a PR for this branch.
+   *
+   * A merged desk's marker is stale by construction — the work it asked about
+   * already landed — so a desk this answers `true` for is skipped before its
+   * rung is computed. `''` asks nothing and answers `false`: a desk with no
+   * branch has no PR to have merged.
+   */
+  merged(branch: string): Promise<boolean>;
   /** The clock, for the age computation; `Date.now` when omitted. */
   now?(): number;
 }
@@ -387,6 +396,11 @@ const escalationWrites = async (
   for (const agent of agents) {
     const marker = await world.marker(agent.worktree);
     if (marker === null) continue;
+    // A MERGED DESK'S MARKER IS STALE BY CONSTRUCTION — the work it asked
+    // about already landed. Read AFTER the marker, so a desk with no question
+    // costs no host call at all, and read from the tick's own merge memo
+    // (`EscalationWorld.merged`'s caller), never a second unmemoized one.
+    if (await world.merged(agent.branch)) continue;
     const recordedRungs = await world.recordedRungs(agent.worktree, marker.askedAt);
     const ageMs = now() - new Date(marker.askedAt).getTime();
     const result = questionEscalation({ marker, ageMs, ages, recordedRungs });
@@ -845,8 +859,14 @@ export const readFreshAgentCandidates = async (
   const out: FreshAgentCandidateReadings[] = [];
   for (const tree of candidates) {
     const endingReading = readEnding(deskFile(tree.path, ENDING_FILENAME));
-    const ending = endingReading.read === 'ended' ? endingReading.ending.reason : null;
-    const detail = endingReading.read === 'ended' ? endingReading.ending.detail : '';
+    // A WORKTREE'S ENDING NAMES A BRANCH, AND IT MAY NOT BE THIS ONE: a prior
+    // worker's ending can outlive the branch it was written for if a
+    // different branch is checked out at the same path before the reaper
+    // runs. `endingAsksFreshStart` (ending-action.ts) already guards this for
+    // the operator-triggered continue path; this read needs the same guard.
+    const endingForThisBranch = endingReading.read === 'ended' && endingReading.ending.branch === tree.branch;
+    const ending = endingForThisBranch ? endingReading.ending.reason : null;
+    const detail = endingForThisBranch ? endingReading.ending.detail : '';
     const { runUrl, conclusion } = runFromEndingDetail(detail);
     const plan = tree.plan ?? '';
     const rows = await freshAgents.rowsFor(plan, tree.branch);
@@ -860,7 +880,7 @@ export const readFreshAgentCandidates = async (
       branch: tree.branch,
       worktree: tree.path,
       ending,
-      refusedAssignment: endingReading.read === 'ended' ? endingReading.ending.refusedAssignment : '',
+      refusedAssignment: endingForThisBranch ? endingReading.ending.refusedAssignment : '',
       correctionsText: deskFile(tree.path, CORRECTION_FILENAME) ?? '',
       runUrl,
       conclusion,

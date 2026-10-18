@@ -1176,6 +1176,7 @@ describe('the tick escalates a desk\'s aged question, for every verdict includin
     marker: async () => null,
     ages: async () => AGES,
     recordedRungs: async () => new Set(),
+    merged: async () => false,
     ...over,
   });
 
@@ -1275,6 +1276,29 @@ describe('the tick escalates a desk\'s aged question, for every verdict includin
     ]);
   });
 
+  it('skips a manifest-less desk whose branch already merged, however stale its marker — finding 1 of #1843', async () => {
+    const ended = {
+      path: '/estate/.worktrees/feature-two',
+      branch: 'feature/two',
+      isMain: false,
+      prunable: false,
+      planNamed: true,
+      plan: '2026-10-05-a-plan',
+      dirtyCount: 0,
+    };
+    const marker: MarkerReading = { firstLine: 'The worker on `feature/two` stopped on a run limit', askedAt: askedMinutesAgo(300) };
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({ workerAlive: async () => true, trees: async () => [ended] }),
+      escalation: escalation({
+        marker: async (worktree) => (worktree === ended.path ? marker : null),
+        merged: async (branch) => branch === ended.branch,
+        now: () => NOW,
+      }),
+    });
+    expect(report.decision.writes.filter((w) => w.kind === 'notify')).toEqual([]);
+  });
+
   it('reads a registry desk once, even where the trees name it too', async () => {
     const marker: MarkerReading = { firstLine: 'x', askedAt: askedMinutesAgo(16) };
     const report = await tick({
@@ -1317,6 +1341,7 @@ describe('the escalation record across ticks', () => {
     marker: async () => marker,
     ages: async () => AGES,
     recordedRungs: async (worktree, askedAt) => recordedRungsFor(readEscalations(root), worktree, askedAt),
+    merged: async () => false,
     now: () => now,
   });
 
@@ -1381,6 +1406,7 @@ describe('the escalation record across ticks', () => {
       marker: (worktree) => markerReading(worktree),
       ages: async () => AGES,
       recordedRungs: async () => new Set(),
+      merged: async () => false,
       now: () => now,
     });
     const input = (now: number) => ({
