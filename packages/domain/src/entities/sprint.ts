@@ -177,42 +177,57 @@ const quotedGoal = (lines: readonly string[]): string => {
   const rest = lines.slice(title + 1);
   const first = rest.findIndex((line) => line.trim() !== '');
   const tail = first < 0 ? [] : rest.slice(first);
-  const stop = tail.findIndex((line) => !line.startsWith('>'));
+  // A bare `>` separates paragraphs of one quote; only the first is the goal.
+  const stop = tail.findIndex((line) => !line.startsWith('>') || line.trim() === '>');
   const quoted = (stop < 0 ? tail : tail.slice(0, stop)).map((line) => line.replace(/^>\s?/, ''));
   return unlessPlaceholder(plainText(quoted.join(' ')));
 };
 
-const sectionGoal = (lines: readonly string[]): string => {
+/** The prose paragraphs of `## Sprint Goal`, whitespace collapsed, markdown kept. */
+const sectionParagraphs = (lines: readonly string[]): string[] => {
   const start = lines.findIndex((line) => /^## Sprint Goal\s*$/.test(line));
-  if (start < 0) return '';
+  if (start < 0) return [];
   const after = lines.slice(start + 1);
   const end = after.findIndex((line) => HEADING.test(line));
-  const body = (end < 0 ? after : after.slice(0, end))
+  return (end < 0 ? after : after.slice(0, end))
     .join('\n')
-    .replace(/<!--[\s\S]*?(?:-->|$)/g, '');
-  const prose = body
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, '')
     .split(/\n\s*\n/)
     .filter((paragraph) => !NOT_PROSE.test(paragraph))
-    .map((paragraph) => unlessPlaceholder(plainText(paragraph)));
-  return prose.find((paragraph) => paragraph !== '') ?? '';
+    .map((paragraph) => paragraph.replace(/\s+/g, ' ').trim());
 };
+
+const firstUsable = (candidates: readonly string[]): string =>
+  candidates.map(unlessPlaceholder).find((text) => text !== '') ?? '';
+
+const boldGoal = (paragraphs: readonly string[]): string =>
+  firstUsable(paragraphs.map((paragraph) => plainText(paragraph.match(/^\*\*(.+?)\*\*/)?.[1] ?? '')));
+
+const proseGoal = (paragraphs: readonly string[]): string =>
+  firstUsable(paragraphs.map(plainText));
 
 /**
  * The goal a sprint file states, as plain text.
  *
  * Read in this order:
- * 1. the `> ` blockquote directly under the `# Sprint:` title, joined across
- *    its lines — the template's one-line goal, which `/plot-sprint` fills;
- * 2. else the first prose paragraph under `## Sprint Goal`, ending at the next
- *    heading of any level, with HTML comments, lists, quotes and tables skipped.
+ * 1. the bold line opening a paragraph under `## Sprint Goal`, whole even when
+ *    it wraps — the shape of a hand-written sprint, whose `> ` block under the
+ *    title is often motivation rather than the goal;
+ * 2. else the `> ` blockquote directly under the `# Sprint:` title, up to its
+ *    first bare `>` line — the template's one-line goal, which `/plot-sprint`
+ *    fills;
+ * 3. else the first prose paragraph under `## Sprint Goal`.
  *
- * A candidate that is only a `<…>` template slot is never the goal. Bold,
- * emphasis, code spans and links are reduced to their text.
+ * `## Sprint Goal` ends at the next heading of any level, and its HTML
+ * comments, lists, quotes and tables are skipped. A candidate that is only a
+ * `<…>` template slot is never the goal. Bold, emphasis, code spans and links
+ * are reduced to their text.
  *
  * @param content - the sprint file's markdown.
  * @returns the goal, or `''` when the file states none.
  */
 export const sprintGoal = (content: string): string => {
   const lines = content.split(/\r?\n/);
-  return quotedGoal(lines) || sectionGoal(lines);
+  const paragraphs = sectionParagraphs(lines);
+  return boldGoal(paragraphs) || quotedGoal(lines) || proseGoal(paragraphs);
 };
