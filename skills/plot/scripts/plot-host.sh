@@ -86,8 +86,11 @@
 #                                 create a PR, print its URL
 #   pr-merge <number> [--squash] [--delete-branch] --match-head <sha>
 #                                 github: --match-head is mandatory, refused
-#                                 with no pin. bitbucket: cannot pin, refused
-#                                 (exit 4) when one is given.
+#                                 with no pin. bitbucket: no precondition on
+#                                 the merge endpoint, so the head is re-read
+#                                 immediately before merging; a mismatch
+#                                 refuses `head-moved` (exit 1), same name as
+#                                 github's.
 #   pr-ready <number>              take a PR out of draft
 #                                 merge the PR
 #   pr-list [--state open|merged|closed|all] [--limit N] [--rich|--rich-open]
@@ -3937,7 +3940,28 @@ case "$op" in
       merger_token=$(node "$here/plot-merger-token.mjs" "$merger_repo") || { mc=$?; [ "$mc" = 5 ] || exit "$mc"; }
       args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash) || args+=(--merge); [ "$delbranch" = 1 ] && args+=(--delete-branch)
       if [ -n "$merger_token" ]; then GH_TOKEN="$merger_token" gh "${args[@]}" --match-head-commit "$pin"; else gh "${args[@]}" --match-head-commit "$pin"; fi
-    elif [ -n "$pin" ]; then echo "plot-host: pr-merge --match-head: bitbucket cannot pin a merge to a commit; nothing was merged" >&2; exit 4
+    elif [ -n "$pin" ]; then
+      # Bitbucket Cloud's merge endpoint takes no head/version precondition
+      # (measured 2026-10-18 against its OpenAPI v3 spec: the request body
+      # names `type`, `message`, `close_source_branch`, `merge_strategy` and
+      # nothing else; no `If-Match` header). So the pin is enforced here, by
+      # re-reading the head immediately before merging rather than by passing
+      # one through — a reduced window (one round trip) rather than none.
+      # `bb_require_json` was already paid for by `pr-merge`'s own capability
+      # check path on every other arm; this re-read reuses `bb_state_row`,
+      # the same parser `pr-state` calls, rather than a second one.
+      bb_require_json
+      head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"; echo "plot-host: $err" >&2; exit 3; }
+      rm -f "$HOST_ERR"
+      head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"
+      if [ -z "$head_sha" ] || [ "$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')" ]; then
+        echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2
+        exit 1
+      fi
+      args=(pr merge "$num")
+      [ "$squash" = 1 ] && args+=(--squash)
+      [ "$delbranch" = 1 ] && args+=(--delete-branch)
+      bb "${args[@]}"
     else
       args=(pr merge "$num")
       [ "$squash" = 1 ] && args+=(--squash)
