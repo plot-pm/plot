@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1976 merged
 - **Started:** 2026-10-17, Jan Wloka, `bug/the-reaper-reads-the-desk-loop-and-the-root-marker`
+- **Started:** 2026-10-18, Jan Wloka, `bug/a-fresh-agent-prompt-describes-no-question`
 
 ## Changelog
 
