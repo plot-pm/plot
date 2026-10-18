@@ -55,6 +55,7 @@ import {
   phaseOfPlan,
   type PhaseMap,
   approverOf,
+  sprintGoal,
 } from '@plot-pm/domain';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import { people } from './server-info.js';
@@ -1433,12 +1434,9 @@ export function parseSprintContent(content: string, name: string): SprintCard | 
   const start = startMatch ? startMatch[1].trim() : '';
   const endMatch = statusBody.match(/^- \*\*End:\*\* (.+)$/m);
   const end = endMatch ? endMatch[1].trim() : '';
-  // Sprint goal — the bold statement from `## Sprint Goal`. Extract the first
-  // bold line as the goal headline.
-  const goalSection = content.match(/## Sprint Goal\s*\n([\s\S]*?)(?=\n## |$)/);
-  const goalBody = goalSection ? goalSection[1].trim() : '';
-  const goalMatch = goalBody.match(/^\*\*(.+?)\*\*/m);
-  const goal = goalMatch ? goalMatch[1].trim() : '';
+  // Sprint goal — the domain reads the `> ` line under the title first, then
+  // the first prose paragraph of `## Sprint Goal`, and never a `<…>` slot.
+  const goal = sprintGoal(content);
   // The timebox is NOT decided here: this parse has no clock, and reading one
   // would make the answer untestable. `collectSprints` stamps it against one
   // day for every sprint it returns; a caller parsing a file directly gets the
