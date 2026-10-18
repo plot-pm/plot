@@ -1,0 +1,1 @@
+../2026-10-18-a-merge-refuses-when-the-head.md
