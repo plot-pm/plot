@@ -1,0 +1,1 @@
+../2026-10-18-a-planned-ticket-shows-its-plan.md
