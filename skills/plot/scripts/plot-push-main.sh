@@ -7,7 +7,9 @@
 #         lines indented beneath it. Exit 0 if the commit landed on the default
 #         branch (clean, bypassed, or unknown), 1 if the push was rejected and a
 #         retry may clear it, 3 or 4 if the Writer App refused before pushing
-#         (no retry will clear it — see `plot-push-writer-app.mjs`).
+#         (no retry will clear it — see `plot-push-writer-app.mjs`), 6 if another
+#         default-branch writer held the lock for the whole wait (PLOT_PUSH_LOCK_WAIT,
+#         120 s) — nothing was pushed, and retrying the same write once it frees is right.
 # Designed for small-model consumption: one status word, no interpretation.
 #
 # WHY THIS EXISTS. Three commands push straight at the default branch to record
@@ -30,7 +32,9 @@
 # caller must retry: re-fetch the default branch, re-cut the disposable branch
 # from it, and push again. `refused` exits 3 or 4, where no retry can help —
 # the caller should stop, not loop. Making `bypassed` non-zero would turn a
-# SUCCESSFUL approval into an apparent failure at three call sites.
+# SUCCESSFUL approval into an apparent failure at three call sites. `locked`
+# exits 6 and is not `rejected`: the base is still current, so the caller waits
+# and repeats the push rather than re-cutting the branch.
 #
 # This script pushes and classifies once; retrying and re-applying the write
 # onto a freshly re-cut branch is the caller's loop. Skills interpret; scripts
@@ -99,6 +103,39 @@ branch="${1:?plot-push-main: need a branch to push}"
 default="${2:?plot-push-main: need the default branch}"
 
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-push-main: not a git repository" >&2; exit 1; }
+
+# ONE DEFAULT-BRANCH WRITER AT A TIME (#1349). Measured 2026-10-07: a 4-plan
+# /api/release batch ended 4 of 4 `push=rejected`, and a 6-plan /api/approve batch
+# ended 3 rejected, 1 bypassed, 1 micro-pr and 1 refused, because both routes
+# start their scripts in the background. The same batches run one at a time landed
+# every plan. The lock sits here, in the one script every caller already runs, so
+# the board routes and the no-board bundles take the same lock.
+#
+# A `mkdir`, NEVER `flock`, which macOS does not ship (`plot-budget.sh` says the
+# same). The directory is under the COMMON git dir, so every worktree of one
+# repository contends for it. Its `owner` file holds `pid<TAB>taken-at-ms<TAB>action`.
+#
+# STALE IS A DEAD PID, or a live one older than PLOT_PUSH_LOCK_STALE_S (default
+# 600). `plot-budget.sh` uses 10 s because its lock spans one rename; a push spans
+# a network round trip, so the bound must clear the 120 s wait with margin, and a
+# holder past it is a hung push rather than a slow one.
+lock="$(cd "$(git rev-parse --git-common-dir)" && pwd)/plot-push-main.lock"
+lock_wait="${PLOT_PUSH_LOCK_WAIT:-120}"; lock_stale="${PLOT_PUSH_LOCK_STALE_S:-600}"; waited=0; mine="$$	$(date +%s)000	push $branch"
+until mkdir "$lock" 2>/dev/null; do
+  IFS=$'\t' read -r h_pid h_at h_act <"$lock/owner" 2>/dev/null
+  if [ -n "${h_pid:-}" ] && { ! kill -0 "$h_pid" 2>/dev/null || [ $(( $(date +%s) - ${h_at:-0} / 1000 )) -gt "$lock_stale" ]; }; then
+    # Rename first, so one breaker moves a given directory; remove only that copy.
+    mv "$lock" "$lock.broken.$$" 2>/dev/null && { echo "plot-push-main: broke a stale lock held by pid $h_pid ($h_act)" >&2; rm -rf "$lock.broken.$$"; }
+    continue
+  fi
+  if [ "$waited" -ge "$lock_wait" ]; then
+    echo "push: locked — held by pid ${h_pid:-unknown} running ${h_act:-an unknown action}; waited ${lock_wait}s. Retry once it finishes; nothing was pushed." >&2
+    exit 6
+  fi
+  sleep 1; waited=$((waited + 1))
+done
+printf '%s\n' "$mine" >"$lock/owner"
+trap '[ "$(cat "$lock/owner" 2>/dev/null)" = "$mine" ] && rm -rf "$lock"' EXIT
 
 # stderr is captured rather than passed through, because it carries the ONLY
 # signal that separates a bypass from a clean push. A call site ending in
