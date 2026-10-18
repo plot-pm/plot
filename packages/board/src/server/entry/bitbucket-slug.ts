@@ -1,6 +1,6 @@
 // THROUGH THE NARROW PATH, not the package root, for the reason
 // `merge-subject.ts` gives: the root import bundles every entity and rule.
-import { bitbucketSlug } from '@plot-pm/domain/rules/bitbucket-slug';
+import { remoteSlug } from '@plot-pm/domain/rules/remote-slug';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -21,7 +21,7 @@ import { pathToFileURL } from 'node:url';
  * @returns the process exit code.
  */
 export const run = (argv: string[], write: (s: string) => void = (s) => process.stdout.write(s)): number => {
-  const slug = bitbucketSlug(argv[0] ?? '');
+  const slug = remoteSlug(argv[0] ?? '', 'bitbucket.org');
   if (slug !== null) write(`${slug}\n`);
   return 0;
 };

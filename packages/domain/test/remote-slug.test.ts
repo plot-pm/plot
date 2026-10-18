@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { bitbucketSlug } from '../src/rules/bitbucket-slug.js';
+import { remoteSlug } from '../src/rules/remote-slug.js';
 
-describe('bitbucketSlug', () => {
+describe('remoteSlug', () => {
   it.each([
     ['https://bitbucket.org/acme/repo.git', 'acme/repo'],
     ['ssh://git@bitbucket.org/acme/repo.git', 'acme/repo'],
@@ -12,7 +12,7 @@ describe('bitbucketSlug', () => {
     ['git@bitbucket.org:12345/repo.git', '12345/repo'],
     ['https://bitbucket.org/Acme/Repo/', 'Acme/Repo'],
   ])('%s -> %s', (url, slug) => {
-    expect(bitbucketSlug(url)).toBe(slug);
+    expect(remoteSlug(url, 'bitbucket.org')).toBe(slug);
   });
 
   it.each([
@@ -22,6 +22,6 @@ describe('bitbucketSlug', () => {
     'https://example.com/bitbucket.org/acme/repo',
     'git@bitbucket.org:repo.git',
   ])('%j -> null', (url) => {
-    expect(bitbucketSlug(url)).toBeNull();
+    expect(remoteSlug(url, 'bitbucket.org')).toBeNull();
   });
 });
