@@ -25,6 +25,17 @@ const CONFIG = ['## Plot Config', '', '- **Plan directory:** docs/plans/', '- **
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8', stdio: 'pipe' });
 
+/**
+ * Gives a fixture repository its own identity. The approval commits through the
+ * `Trees` adapter, which reads the repository's config and never this file's
+ * `-c` flags, and a CI runner has no global `user.email` to fall back on.
+ */
+const ownIdentity = (repo: string): void => {
+  git(repo, 'config', 'user.name', 't');
+  git(repo, 'config', 'user.email', 't@t');
+  git(repo, 'config', 'commit.gpgsign', 'false');
+};
+
 const planBody = (review: string, impl: string): string =>
   [
     '# Told', '', '## Status', '',
@@ -91,6 +102,7 @@ describe('an approval reflects the approved plan on its issue', () => {
     const other = path.join(root, 'other');
     git(root, 'init', '-q', '--bare', '-b', 'main', origin);
     git(root, 'init', '-q', '-b', 'main', repo);
+    ownIdentity(repo);
     writeFileSync(path.join(repo, 'CLAUDE.md'), CONFIG);
     git(repo, 'add', '-A');
     git(repo, 'commit', '-q', '-m', 'init');
@@ -145,6 +157,7 @@ describe('an approval reflects the approved plan on its issue', () => {
     roots.push(root);
     const repo = path.join(root, 'repo');
     git(root, 'init', '-q', '-b', 'main', repo);
+    ownIdentity(repo);
     writeFileSync(path.join(repo, 'CLAUDE.md'), CONFIG);
     git(repo, 'add', '-A');
     git(repo, 'commit', '-q', '-m', 'init');

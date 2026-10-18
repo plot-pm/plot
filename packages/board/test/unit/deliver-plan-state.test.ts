@@ -46,6 +46,11 @@ describe('a delivery reports its plan-state write', () => {
     const repo = path.join(root, 'repo');
     git(root, 'init', '-q', '--bare', '-b', 'main', origin);
     git(root, 'init', '-q', '-b', 'main', repo);
+    // The delivery commits through the `Trees` adapter, which reads the
+    // repository's config and never this file's `-c` flags.
+    git(repo, 'config', 'user.name', 't');
+    git(repo, 'config', 'user.email', 't@t');
+    git(repo, 'config', 'commit.gpgsign', 'false');
     mkdirSync(path.join(repo, 'docs/plans'), { recursive: true });
     writeFileSync(path.join(repo, PLAN), '# P\n\n## Status\n\n- **State:** Approved\n- **Approved:** 2026-10-17 by jw\n- **Issue:** #7\n');
     git(repo, 'add', '-A');
