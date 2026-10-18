@@ -2816,6 +2816,71 @@ test('host: pr-state bitbucket under jenkins with no Jenkins instance answers, r
   assert.equal(out.curls, 0, 'with no instance, nothing reaches Jenkins');
 });
 
+// --- Bitbucket pr-list binds its checks to the head, the pr-state treatment
+// above applied to the listing arm (plan bitbucket-jenkins-pr-list-binds-a).
+
+const bbRowsFor = (rows) => JSON.stringify(rows.map(({ id, head, sha, state = 'OPEN' }) => ({
+  id, title: head, state, source: { branch: { name: head }, commit: { hash: sha } },
+  links: { html: { href: `https://example.test/pr/${id}` } }, destination: { branch: { name: 'main' } },
+  updated_on: '', author: { nickname: 'x' },
+})));
+
+const runBbJenkinsPrList = ({ rows, build, instance }) => {
+  const rest = makeCurlAnswering(build);
+  const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
+  delete env.JENKINS_INSTANCE;
+  const hostStubs = makeStubs({ bbJson: bbRowsFor(rows) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], { cwd: makeJenkinsRepo({ gitHost: 'bitbucket', instance }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  return { rows: rowsByHead(res.stdout), curls: curlCalls(rest.argvFile).length };
+};
+
+test('host: pr-list bitbucket under jenkins binds a short head hash to the full Jenkins sha it begins', () => {
+  // The exact case a naive implementation (reading $jmap directly, as the
+  // arm did before this fix) passes without: `feature/red`'s branch colour is
+  // `red` (ambiguous — ties to a head), and the head sha is a 12-character
+  // Bitbucket short hash matching a 40-character Jenkins SHA1 only by prefix.
+  assert.equal(BB_SHORT.length, 12);
+  assert.equal(JENKINS_FULL.length, 40);
+  const { rows } = runBbJenkinsPrList({
+    rows: [{ id: 5, head: 'feature/red', sha: BB_SHORT }],
+    build: jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS'),
+  });
+  assert.equal(rows.get('feature/red').headSha, BB_SHORT);
+  assert.equal(rows.get('feature/red').checks, 'green', 'the build of this head says SUCCESS, and the colour says red');
+  assert.equal(rows.get('feature/red').checksSha, BB_SHORT, 'bound to the head the row names');
+});
+
+test('host: pr-list bitbucket under jenkins reads unknown for a head no build carries, never the stale colour', () => {
+  // A push between builds: the branch-colour map still answers for the
+  // PREVIOUS head, and the new head has no matching build yet. Reading
+  // $jmap directly would report the old head's `red` as `failing`; the fix
+  // must read `unknown`, never `pending` or the stale colour.
+  const { rows } = runBbJenkinsPrList({
+    rows: [{ id: 5, head: 'feature/red', sha: BB_SHORT }],
+    build: jenkinsBuildsFor('sha-older-head-not-a-prefix-match', 'FAILURE'),
+  });
+  assert.equal(rows.get('feature/red').checks, 'unknown', 'no build carries this head, so the red colour cannot bind to it');
+  assert.equal(rows.get('feature/red').checksSha, '');
+});
+
+test('host: pr-list bitbucket without jenkins is unchanged by the bind path', () => {
+  // Done-when: this slice is Bitbucket+Jenkins-only. Without CI: jenkins the
+  // plain Bitbucket arm still reports checks as unknown and no checksSha.
+  const hostStubs = makeStubs({ bbJson: bbRowsFor([{ id: 5, head: 'feature/red', sha: BB_SHORT }]) });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], {
+    cwd: trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-bb-nojen-'))),
+    encoding: 'utf8',
+    env: { ...process.env, PLOT_HOST: 'bitbucket', PATH: `${hostStubs.dir}:${process.env.PATH}` },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const rows = rowsByHead(res.stdout);
+  assert.equal(rows.get('feature/red').checks, 'unknown');
+  assert.equal(rows.get('feature/red').checksSha, undefined, 'the plain Bitbucket arm emits no checksSha field');
+});
+
 test('host: a refresh reads at most five rows by sha, the most recently updated first', () => {
   // The sha lookup costs one Jenkins call per row; the cap bounds a pass against
   // Jenkins' predicted limit of 60 whatever the number of open PRs.
