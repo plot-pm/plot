@@ -3052,10 +3052,11 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     // And the stripping removed something, so the two assertions above are
     // about code rather than about an empty string.
     expect(src).toMatch(/PLAN_ROW_TRACKS/);
-    // ONE `grid-cols-` in the whole row estate, and it is the tuple's.
+    // TWO `grid-cols-` in the whole row estate, both in `TupleRow.tsx`:
+    // `TUPLE_TRACKS` and `TICKET_TRACKS` (#1960, a ticket's title gives way).
     const tupleSrc = readFileSync(
       new URL('../../src/app/components/TupleRow.tsx', import.meta.url), 'utf8');
-    expect([...tupleSrc.matchAll(/grid-cols-\[/g)]).toHaveLength(1);
+    expect([...tupleSrc.matchAll(/grid-cols-\[/g)]).toHaveLength(2);
     expect(code).not.toMatch(/grid-cols-\[/);
   });
 });

@@ -504,6 +504,22 @@ plot_processes_block() { # $1=pid to skip
 # tick. Evidence only — the staleness judgement is `rules/supervisor-reading.ts`.
 # A supervisor process started before this change keeps writing `registryd.log`
 # while `fleetd.log` sits empty or stale, so the log with the newer mtime is read.
+#
+# #1580, INVESTIGATED AND CLOSED WITH NO CODE CHANGE: does a freshly-created,
+# empty `fleetd.log` read as a fresh tick? `[ -f "$log" ]` is true for a
+# zero-byte file, so its real mtime is read and age comes back near zero —
+# which answers "fresh" for a file with no tick in it yet.
+#
+# This is already correct rather than a gap, because of how `fleetd.log` is
+# written (`process-log.ts`'s `processLog`): the file is opened with `O_APPEND`
+# lazily, on the FIRST write, not at daemon start — so before any tick
+# completes the path does not exist yet, and this function's own `[ -f ]`
+# check answers empty (no reading), never "fresh". And a currently-live
+# `fleetd.log` is never old content's empty husk either: rotation always
+# `renameSync`s the previous file to `.1` before the new one is opened, so a
+# zero-byte `fleetd.log` is always a BRAND-NEW file, and "age near zero" is
+# simply true of it. There is no window in which an empty file carries a
+# stale mtime from a prior incarnation.
 tick_age_seconds() {
   local log touched old="$repo_root/.plot/logs/registryd.log"
   log="$repo_root/.plot/logs/fleetd.log"; if [ ! -f "$log" ] || [ "$old" -nt "$log" ]; then log="$old"; fi

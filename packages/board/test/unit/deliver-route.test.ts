@@ -338,7 +338,7 @@ describe('deliverability is read through the real plan parser for the pulse-free
  * this file — this one takes the dated file so the symlink and stale-checkout
  * tests below can each name their own.
  */
-function pulseNaming(dir: string, datedFile: string, readRef?: string): void {
+const pulseNaming = (dir: string, datedFile: string, readRef?: string): void => {
   const file = path.join(dir, '.plot', 'state', 'last-pulse.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({
@@ -364,11 +364,11 @@ function pulseNaming(dir: string, datedFile: string, readRef?: string): void {
     approvedAt: [],
     ideaPlans: [],
   }), 'utf8');
-}
+};
 
 /** A plan file's content at a given phase, in the shape the real parser reads. */
-function planBody(title: string, phase: string): string {
-  return [
+const planBody = (title: string, phase: string): string =>
+  [
     `# ${title}`, '', '## Status', '',
     `- **Phase:** ${phase}`,
     '- **Type:** feature',
@@ -377,7 +377,6 @@ function planBody(title: string, phase: string): string {
     '- `feature/one` — the first branch',
     '', '## Changelog', '', `- a plan at phase ${phase}`, '',
   ].join('\n');
-}
 
 describe('deliverability resolves the real dated file, not a symlink naming it', () => {
   const RESOLVE_SLUG = 'a-resolve-plan';
@@ -439,6 +438,32 @@ describe('deliverability reads the plan\'s phase at the pulse\'s own read ref', 
     });
     const got = await deliverability({ repoRoot: dir, scriptsDir: SCRIPTS, refs }, STALE_SLUG);
     assert.equal(got.verdict, 'already-delivered');
+  });
+
+  it('reads the ref through an active/ symlink under a symlinked repo root', async () => {
+    // The combined shape: `resolvePlanBySlug` returns a realpath, `repoRoot`
+    // is a symlink to the repo. A path built with `path.relative(repoRoot, file)`
+    // starts `../` and misses the ref, so the stale working tree answers.
+    const real = repo();
+    const link = `${real}-link`;
+    fs.symlinkSync(real, link);
+    made.push(link);
+    fs.writeFileSync(path.join(real, 'docs/plans', DATED), planBody('A stale checkout plan', 'Approved'), 'utf8');
+    fs.mkdirSync(path.join(real, 'docs/plans/active'), { recursive: true });
+    fs.symlinkSync(
+      path.join(real, 'docs/plans', DATED),
+      path.join(real, 'docs/plans/active', `${STALE_SLUG}.md`),
+    );
+    pulseNaming(real, DATED, 'origin/main');
+
+    const asked: string[] = [];
+    const base = refsFixture({
+      files: { [`origin/main:docs/plans/${DATED}`]: planBody('A stale checkout plan', 'delivered') },
+    });
+    const refs = { ...base, showFile: (ref: string, p: string) => { asked.push(p); return base.showFile(ref, p); } };
+    const got = await deliverability({ repoRoot: link, scriptsDir: SCRIPTS, refs }, STALE_SLUG);
+    assert.equal(got.verdict, 'already-delivered');
+    assert.deepEqual(asked, [`docs/plans/${DATED}`], 'repo-relative, forward slashes, no `..` segment');
   });
 
   it('falls back to the working tree when readRef is null (absent is not false)', async () => {

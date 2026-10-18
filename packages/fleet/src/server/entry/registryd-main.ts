@@ -80,6 +80,7 @@ import {
   escalationsPath,
   readEscalations,
   recordedRungsFor,
+  rememberEscalation,
   type EscalationMemory,
 } from '../../shared/escalations.js';
 import {
@@ -719,6 +720,10 @@ const queuedHasLandedOf = async (
  *   absent, every merge question goes to the host.
  * @param index - the PR index this world reads; the repository's own store
  *   when absent. It is read and never written.
+ * @param checksWaitMs - resolves `Checks wait`, in milliseconds. One
+ *   `readConfigAsync` call per tick, shared with {@link run}'s own
+ *   `defaultBranchWorld`, when the caller passes a cached thunk; a fresh read
+ *   every call when absent.
  * @returns the world the queue is read through.
  */
 export const queueWorldForRepo = (
@@ -728,6 +733,8 @@ export const queueWorldForRepo = (
   merges?: MergeMemo,
   index: PrIndexStore = prIndexFile({ cwd: repoRoot }),
   refusedSlices: RefusedSliceRecord = refusedSlicesFile({ cwd: repoRoot }),
+  checksWaitMs: () => Promise<number> = async () =>
+    checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')),
 ): QueueWorld => {
   const context = { repoRoot, scriptDir: scriptsDir };
   const plans = planStoreShell(context);
@@ -820,8 +827,7 @@ export const queueWorldForRepo = (
     defaultBranchRed: async () => {
       const held = await defaultBranchFile(repoRoot).read();
       if (!held.ok) return false;
-      const checksWaitMs = checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600'));
-      return defaultBranchRed(held.value, Date.now(), checksWaitMs);
+      return defaultBranchRed(held.value, Date.now(), await checksWaitMs());
     },
     prIndexRows: async () => {
       // THE STORE IS KEYED BY THE BACKEND WORD, as the board writes it. Reading
@@ -1298,7 +1304,7 @@ export const notifyEscalations = async (
       at: new Date().toISOString(),
       status,
     };
-    memory.records.push(record);
+    rememberEscalation(memory, record);
     if (!appendEscalation(repoRoot, record) && !memory.appendFailureReported) {
       memory.appendFailureReported = true;
       warn(
@@ -1768,20 +1774,35 @@ export interface ChannelSlot {
 /**
  * Binds the slot to a channel and builds the runs over it.
  *
+ * Where `stopped` reads true once `open` resolves, the bind is discarded
+ * rather than written: the slot's own stop path has already run by then and
+ * will never see this channel, so writing it would leave it running past the
+ * point the daemon meant to have stopped everything. The channel this call
+ * opened is stopped immediately instead.
+ *
  * @param slot - the slot to fill; left untouched where it already holds a channel.
  * @param open - one attempt to open the channel.
  * @param over - builds the monitor and the relay over an opened channel.
+ * @param onBound - called once the slot newly holds a channel; not called where it already did or where discarded.
+ * @param stopped - reads true where a stop was read while `open` was in flight; discards the bind. Defaults to never.
  * @returns true where the slot holds a channel after the call.
  */
 export const bindChannelSlot = async (
   slot: ChannelSlot,
   open: () => Promise<RunningChannel | null>,
   over: (channel: RunningChannel) => Pick<ChannelSlot, 'indexMonitor' | 'deskRelay'>,
+  onBound?: () => void,
+  stopped: () => boolean = () => false,
 ): Promise<boolean> => {
   if (slot.channel !== null) return true;
   const channel = await open();
   if (channel === null) return false;
+  if (stopped()) {
+    await channel.stop();
+    return false;
+  }
   Object.assign(slot, { channel }, over(channel));
+  onBound?.();
   return true;
 };
 
@@ -1886,6 +1907,8 @@ export interface RunSeams {
   readIssues?: () => Promise<void>;
   /** Replaces the drain of the tracker writes Plot made; tests only. */
   readIssueWrites?: () => Promise<void>;
+  /** The escalation `Notifier`; the configured `Notify command` by default. Tests only. */
+  notifier?: () => Promise<Notifier>;
 }
 
 /**
@@ -2015,12 +2038,24 @@ export const run = async (
   const scriptsDir = scriptsDirFor(here);
   const registryDir = registryDirFor(repoRoot, scriptsDir);
   const tally: HostTally = { calls: 0 };
+  // ONE `Checks wait` READ PER TICK, SHARED BY BOTH CONSUMERS. `queue`'s own
+  // `defaultBranchRed` and `defaultBranchWorld` below each used to call
+  // `readConfigAsync` independently — two `plot-config.sh` spawns for one
+  // value. `checksWaitCache` is cleared at the top of each tick (beside
+  // `tally.calls`), so the first read of a tick spawns once and the second
+  // reuses it; a config edit still takes effect on the NEXT tick.
+  let checksWaitCache: Promise<number> | null = null;
+  const checksWaitMs = (): Promise<number> => {
+    checksWaitCache ??= (async () =>
+      checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')))();
+    return checksWaitCache;
+  };
   // ONE MEMO FOR BOTH WORLDS. `tick` reads the supervisor world first, and its
   // `beginTick` clears the memo, so the queue read that follows shares the
   // tick's answers and the next tick asks again.
   const merges = mergeMemoOver(hostShell({ repoRoot, scriptDir: scriptsDir }));
   const world = worldForRepo(repoRoot, scriptsDir, tally, merges);
-  const queue = queueWorldForRepo(repoRoot, scriptsDir, tally, merges);
+  const queue = queueWorldForRepo(repoRoot, scriptsDir, tally, merges, undefined, undefined, checksWaitMs);
   // SHARES `tally` WITH `queue` ABOVE so a hand-over's fresh `queuedHasLanded`
   // call still counts toward the tick's host tally — but NOT `merges`: a
   // hand-over asks the host again on purpose, and the tick's memo would hand
@@ -2043,8 +2078,10 @@ export const run = async (
   const escalation = escalationWorldForRepo(repoRoot, scriptsDir, escalated);
   // READ WHEN A TICK HOLDS A `notify` WRITE, so a `Notify command` added
   // while the daemon runs takes effect at the next escalation.
-  const notifier = async (): Promise<Notifier> =>
-    notifierFor(await readConfigAsync({ repoRoot, scriptsDir }, NOTIFY_COMMAND_KEY, ''));
+  const notifier =
+    seams.notifier ??
+    (async (): Promise<Notifier> =>
+      notifierFor(await readConfigAsync({ repoRoot, scriptsDir }, NOTIFY_COMMAND_KEY, '')));
   // THE DAEMON IS THE ONLY WRITER OF THE FRESH-AGENT RECORD, for the reason
   // `reportStore` above gives, and the store lives for the daemon's whole life
   // so the `--git-common-dir` lookup is forked once.
@@ -2123,6 +2160,11 @@ export const run = async (
   const defaultBranchWorld = args.once
     ? null
     : {
+        // SHARES THE TICK LOOP'S CACHE (`checksWaitMs` ABOVE), rather than
+        // spawning its own `plot-config.sh` read for the same key — this
+        // object is built once, before the first tick, so without the share
+        // its read and the tick's were the two independent calls #1456/#1508
+        // named.
         branch: async () => {
           const base = await refsGit({ repoRoot, scriptDir: scriptsDir }).defaultBranch();
           return base.ok ? base.value : null;
@@ -2139,7 +2181,7 @@ export const run = async (
             ? withHostSlot(prState, call)
             : call(),
         now: () => Date.now(),
-        checksWaitMs: checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')),
+        checksWaitMs: await checksWaitMs(),
         checks: checkNamesOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Default branch checks', '')),
       };
   const readDefaultBranch = seams.readDefaultBranch ?? (async (): Promise<void> => {
@@ -2171,7 +2213,14 @@ export const run = async (
   const queueHolds: { held: readonly HeldSlice[] | null } = { held: null };
   const retryBind = args.once
     ? undefined
-    : () => bindChannelSlot(slot, () => startFleetChannel(repoRoot, () => undefined, openChannel), overChannel);
+    : () =>
+        bindChannelSlot(
+          slot,
+          () => startFleetChannel(repoRoot, () => undefined, openChannel),
+          overChannel,
+          () => warn('plot-fleetd: channel bound\n'),
+          stop,
+        );
   const scanClock = args.once
     ? null
     : startFleetClock(seams.clock ?? clockSystem(), {
@@ -2249,6 +2298,10 @@ export const run = async (
     // and the desks from disk, exactly as it does after a restart.
     let report: TickReport;
     tally.calls = 0;
+    // CLEARED HERE, beside `tally.calls`: a tick reads `Checks wait` at most
+    // once (`checksWaitMs` above), and a config edit on `main` takes effect
+    // on the NEXT tick rather than never.
+    checksWaitCache = null;
     try {
       // THE REGISTRY IS RE-READ HERE, at the top of every tick. That is the
       // whole of the daemon's state: there is nothing else to lose, so
@@ -2316,7 +2369,17 @@ export const run = async (
     // UNGATED BY `args.startAgents`, the same reasoning the tick's own
     // `escalation` world follows: a question ages whether or not this daemon
     // may grow the fleet.
-    await notifyEscalations(report, repoRoot, notifier, escalated, write, warn);
+    //
+    // GUARDED LIKE `relayBeat` BELOW: this runs after `runTick`'s own
+    // try/catch (`:2252-2292`) has already closed, so a rejection here — a
+    // notifier whose command throws rather than resolving `{ok: false}` —
+    // would otherwise be an unhandled rejection the loop-level guard cannot
+    // catch, because it already ran and returned.
+    try {
+      await notifyEscalations(report, repoRoot, notifier, escalated, write, warn);
+    } catch (e) {
+      warn(`plot-fleetd: escalation notify failed: ${e instanceof Error ? e.message : String(e)}\n`);
+    }
     await relayBeat(slot, warn);
     // A FRESH SESSION IS A START, so it is gated by `--start-agents` like the
     // starts above. A tick that was not allowed to start reports and acts on
@@ -2604,6 +2667,39 @@ export const writersFor = (
   return { out: (text) => void out.write(text), err: (text) => void err.write(text) };
 };
 
+/**
+ * Settles the process after the daemon's own run, without cutting off a
+ * write still in flight.
+ *
+ * SETS `exitCode`, NEVER CALLS `exit`, on the success path: `--once` on a
+ * macOS pipe can still have a write in flight when this resolves, and
+ * `process.exit` would cut it off before the OS buffer drains. Setting
+ * `exitCode` lets the event loop empty naturally, which waits for a
+ * backed-up stdout/stderr write to finish before the process ends.
+ *
+ * The failure path still calls `exit(1)` directly: it covers what throws
+ * before the loop is reached — an unreadable argument, a missing registry
+ * directory — and is itself the second half of error reporting, not a
+ * substitute for the loop's own `catch`. Without it such a failure is an
+ * unhandled rejection, which ends the process with an empty error log.
+ *
+ * @param daemon - the daemon's own run, resolving to its exit code.
+ * @param proc - the process whose `exitCode` is set or `exit` is called.
+ * @param err - where a start failure is reported.
+ */
+export const settleOnce = async (
+  daemon: Promise<number>,
+  proc: Pick<NodeJS.Process, 'exit' | 'exitCode'>,
+  err: (s: string) => void,
+): Promise<void> => {
+  try {
+    proc.exitCode = await daemon;
+  } catch (e: unknown) {
+    err(`plot-fleetd failed to start: ${e instanceof Error ? e.message : String(e)}\n`);
+    proc.exit(1);
+  }
+};
+
 // Only when RUN, never when imported — a test importing `run` must not have the
 // process loop under it.
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
@@ -2620,17 +2716,9 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   truncateInherited(2);
   const logs = logDir(process.env.PLOT_REPO_ROOT ?? process.cwd());
   const writers = writersFor(process.argv.slice(2), logs);
-  void startDaemon(process, dirname(fileURLToPath(import.meta.url)), writers.out, writers.err)
-    .then((code) => process.exit(code))
-    // THE SECOND HALF, AND NOT A SUBSTITUTE FOR THE FIRST. The loop's `catch`
-    // covers a failing tick; this covers what throws before the loop is
-    // reached — an unreadable argument, a missing registry directory. Without
-    // it such a failure is an unhandled rejection, which ends the process with
-    // an empty error log, which made the tick deaths invisible.
-    .catch((err: unknown) => {
-      process.stderr.write(
-        `plot-fleetd failed to start: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
-      process.exit(1);
-    });
+  void settleOnce(
+    startDaemon(process, dirname(fileURLToPath(import.meta.url)), writers.out, writers.err),
+    process,
+    (s) => process.stderr.write(s),
+  );
 }

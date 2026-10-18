@@ -2068,7 +2068,12 @@ function underNewDefault(label, oldWorkdir, args = ['--start'], { unloads = fals
   const oldPlist = path.join(home, 'Library', 'LaunchAgents', 'com.plot-pm.registryd.plist');
   return { ...s, r, calls: launchctlCalls(calls), oldPlist, bundle };
 }
-const startUnderNewDefault = (label, oldWorkdir, opts) => underNewDefault(label, oldWorkdir, ['--start', '--wait', '1'], opts);
+// The stub unloads on the first `bootout`, so `--wait` is never spent when
+// `unloads` is set: a runner-load-proof bound costs nothing there. Only a stub
+// that never unloads needs the short bound, to keep the refusal case fast.
+const UNLOAD_WAIT = (opts) => (opts?.unloads ? '60' : '1');
+const startUnderNewDefault = (label, oldWorkdir, opts) =>
+  underNewDefault(label, oldWorkdir, ['--start', '--wait', UNLOAD_WAIT(opts)], opts);
 const OLD_BOOTOUT = `bootout gui/${process.getuid()}/com.plot-pm.registryd`;
 
 test('migration: an old-label unit serving this checkout is booted out and removed', () => {
@@ -2128,7 +2133,7 @@ test('old label: --status leaves an old-label supervisor of another checkout out
 });
 
 test('old label: --stop unloads it, confirmed, and removes its plist', () => {
-  const { r, calls, oldPlist } = underNewDefault('old-stop', (s) => s.root, ['--stop', '--wait', '1'], { unloads: true });
+  const { r, calls, oldPlist } = underNewDefault('old-stop', (s) => s.root, ['--stop', '--wait', '60'], { unloads: true });
   assert.equal(r.status, 0, r.out);
   assert.ok(calls.includes(OLD_BOOTOUT), calls.join('\n'));
   assert.match(r.out, /unloading the old label 'com\.plot-pm\.registryd'/, r.out);
@@ -2146,7 +2151,7 @@ test('old label: --stop exits 1 and keeps the plist when the unload is never con
 
 test('old label: --stop never touches an old-label supervisor of another checkout', () => {
   const other = fs.realpathSync(scratch('plot-fleetctl-other-'));
-  const { r, calls, oldPlist } = underNewDefault('old-stop-other', other, ['--stop', '--wait', '1'], { unloads: true });
+  const { r, calls, oldPlist } = underNewDefault('old-stop-other', other, ['--stop', '--wait', '60'], { unloads: true });
   assert.equal(r.status, 0, r.out);
   assert.deepEqual(calls, []);
   assert.ok(fs.existsSync(oldPlist));
@@ -2167,7 +2172,7 @@ test('old label: a missing rule bundle refuses --start as a broken installation 
 });
 
 test('old label: a rule bundle that gives no answer refuses --stop and names the bundle and node', () => {
-  const { r, calls, oldPlist, bundle } = underNewDefault('old-rule-silent', (s) => s.root, ['--stop', '--wait', '1'], { unloads: true, rule: 'silent' });
+  const { r, calls, oldPlist, bundle } = underNewDefault('old-rule-silent', (s) => s.root, ['--stop', '--wait', '60'], { unloads: true, rule: 'silent' });
   assert.equal(r.status, 1, r.out);
   assert.ok(r.out.includes(`plot-fleetctl: the old-label rule at ${bundle} gave no answer\n  node on PATH: `), r.out);
   assert.match(r.out, /broken or partial installation of Plot/, r.out);
