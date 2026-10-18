@@ -1,5 +1,6 @@
 import {
   SprintStateSchema,
+  sprintGoal,
   type MoscowTier,
   type Sprint,
   type SprintItem,
@@ -172,7 +173,7 @@ export const sprintFrom = (content: string, slug: string): Sprint => {
     plannedEnd: field(statusBody, 'End'),
     actualEnd: actualEnd === '' ? null : actualEnd,
     release: field(statusBody, 'Release'),
-    goal: content.match(/## Sprint Goal\s*\n([\s\S]*?)(?=\n## |$)/)?.[1].match(/^\*\*(.+?)\*\*/m)?.[1].trim() ?? '',
+    goal: sprintGoal(content),
     items: itemsFrom(content),
   };
 };

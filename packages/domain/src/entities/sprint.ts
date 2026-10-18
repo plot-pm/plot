@@ -150,3 +150,69 @@ export const isPromised = (item: SprintItem): boolean => item.tier === 'must';
 export const sprintMembers = (sprint: Sprint): string[] => [
   ...new Set(sprint.items.map((item) => item.plan).filter((slug) => slug !== '')),
 ];
+
+/** A line that is only a template slot, such as `<sprint goal>`. */
+const PLACEHOLDER = /^<[^<>]*>$/;
+
+/** A paragraph opening with one of these is a list, a quote or a table, not prose. */
+const NOT_PROSE = /^\s*(?:[-*+]\s|\d+[.)]\s|>|\|)/;
+
+/** A markdown heading of any level. */
+const HEADING = /^#{1,6}\s/;
+
+const plainText = (text: string): string =>
+  text
+    .replace(/\s+/g, ' ')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(\S(?:[^*]*?\S)?)\*/g, '$1')
+    .replace(/`([^`]*)`/g, '$1')
+    .trim();
+
+const unlessPlaceholder = (text: string): string => (PLACEHOLDER.test(text) ? '' : text);
+
+const quotedGoal = (lines: readonly string[]): string => {
+  const title = lines.findIndex((line) => line.startsWith('# Sprint:'));
+  if (title < 0) return '';
+  const rest = lines.slice(title + 1);
+  const first = rest.findIndex((line) => line.trim() !== '');
+  const tail = first < 0 ? [] : rest.slice(first);
+  const stop = tail.findIndex((line) => !line.startsWith('>'));
+  const quoted = (stop < 0 ? tail : tail.slice(0, stop)).map((line) => line.replace(/^>\s?/, ''));
+  return unlessPlaceholder(plainText(quoted.join(' ')));
+};
+
+const sectionGoal = (lines: readonly string[]): string => {
+  const start = lines.findIndex((line) => /^## Sprint Goal\s*$/.test(line));
+  if (start < 0) return '';
+  const after = lines.slice(start + 1);
+  const end = after.findIndex((line) => HEADING.test(line));
+  const body = (end < 0 ? after : after.slice(0, end))
+    .join('\n')
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, '');
+  const prose = body
+    .split(/\n\s*\n/)
+    .filter((paragraph) => !NOT_PROSE.test(paragraph))
+    .map((paragraph) => unlessPlaceholder(plainText(paragraph)));
+  return prose.find((paragraph) => paragraph !== '') ?? '';
+};
+
+/**
+ * The goal a sprint file states, as plain text.
+ *
+ * Read in this order:
+ * 1. the `> ` blockquote directly under the `# Sprint:` title, joined across
+ *    its lines — the template's one-line goal, which `/plot-sprint` fills;
+ * 2. else the first prose paragraph under `## Sprint Goal`, ending at the next
+ *    heading of any level, with HTML comments, lists, quotes and tables skipped.
+ *
+ * A candidate that is only a `<…>` template slot is never the goal. Bold,
+ * emphasis, code spans and links are reduced to their text.
+ *
+ * @param content - the sprint file's markdown.
+ * @returns the goal, or `''` when the file states none.
+ */
+export const sprintGoal = (content: string): string => {
+  const lines = content.split(/\r?\n/);
+  return quotedGoal(lines) || sectionGoal(lines);
+};
