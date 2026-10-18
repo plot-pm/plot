@@ -68,7 +68,7 @@ Each slice first reproduces its issues' findings on main with a failing test. A 
 
 ### Drop
 
-- `bug/drop-reads-a-merged-desk-as-finished` — #1564, #1784: drop applies `mergedDeskState`; `defaultPrIndex` doc placement and `readIndex` order; the ok-seal after an answered blocked slice.
+- `bug/drop-reads-a-merged-desk-as-finished` — #1564, #1784: drop applies `mergedDeskState`; `defaultPrIndex` doc placement and `readIndex` order; the ok-seal after an answered blocked slice. → #2050
 
 ## Notes
 
