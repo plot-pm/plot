@@ -31,7 +31,7 @@ Issue #1952 groups three defects, each measured on 2026-10-16.
 
 ### Approach
 
-**#1881 — one issue per PR.** Before `plot-review` opens an issue (`packages/board/src/server/entry/review.ts`), it looks for an open issue with the `ai-generated` label and the title prefix `plot-review:` ending in `on PR #N`, through the tracker `reviewTracker` resolves. If one exists, the review comments on it with the new head SHA and any finding not yet reported, and records that issue as the review's issue. The domain decides whether an issue matches; the adapter only lists. The existing per-SHA record stays, so a re-review of the same head still reuses its recorded issue.
+**#1881 — one issue per PR.** Before `plot-review` opens an issue (`packages/board/src/server/entry/review.ts`), it looks for an open issue with the `ai-generated` label and the title prefix `plot-review:` ending in `on PR #N`, through the tracker `reviewTracker` resolves. If one exists, the review comments on it with the new head SHA and that head's full verdict, and records that issue as the review's issue. The domain decides whether an issue matches; the adapter only lists. The existing per-SHA record stays, so a re-review of the same head still reuses its recorded issue.
 
 **#1883 — sprint goal.** The parser change is preferred over the template change: the parser also reads the first non-empty line of `## Sprint Goal` when no bold line exists, so existing sprints written from the template start serving a goal with no edit. The template stays as it is. A test parses a sprint written from the shipped template and asserts a non-empty goal.
 
@@ -61,3 +61,4 @@ Issue #1952 groups three defects, each measured on 2026-10-16.
 
 - Created from tracker issue #1952 by an unattended `/plot-idea` run. `Design` was not stated in the prompt, so the plan starts in Draft. `Review: pr` follows `Plan PRs: required`.
 - The tracker received no comment, label or state change.
+- 2026-10-18: decided by Jan Wloka after review #2024: each comment on a PR's review issue carries that head's full verdict, not only findings not yet reported. Every head gets a full review, so its full verdict is the record; a diff would need per-finding parsing and a record of what was reported.
