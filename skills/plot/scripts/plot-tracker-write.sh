@@ -14,16 +14,13 @@ fail_as() { echo "$(basename "$0"): $1" >&2; echo "summary: tracker=failed"; exi
 plot_tracker_write() {
   local plan_file=$1 bundle=$2; shift 2
   local script_dir=$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd)
-  [ -n "$plan_file" ] && [ -f "$plan_file" ] || fail_as "usage: $(basename "$0") <plan file> [flags...]"
-
+  { [ -n "$plan_file" ] && [ -f "$plan_file" ]; } || fail_as "usage: $(basename "$0") <plan file> [flags...]"
   local meta=$(bash "$script_dir/plot-plan-meta.sh" "$plan_file" 2>/dev/null) || meta=""
   [ -n "$meta" ] || fail_as "cannot parse '$plan_file'"
-
-  local repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root=$(pwd)
+  local repo_root=$(git rev-parse --show-toplevel 2>/dev/null); [ -n "$repo_root" ] || repo_root=$(pwd)
   local out=$(printf '%s' "$meta" | PLOT_SCRIPTS_DIR="$script_dir" PLOT_REPO_ROOT="$repo_root" \
     node "$script_dir/board/$bundle" "$@"); local rc=$?
-  [ -n "$out" ] && printf '%s\n' "$out"
-  [ "$rc" = 0 ] || fail_as "the bundle failed"
+  [ -n "$out" ] && printf '%s\n' "$out"; [ "$rc" = 0 ] || fail_as "the bundle failed"
 
   # THE WORST OUTCOME NAMES THE RUN: one failed write among several is a failed
   # report, because the person reading the summary is the one who repairs it.
