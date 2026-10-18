@@ -3005,9 +3005,8 @@ test('host: runs on a plain job emits a line rather than exiting 4', () => {
   // `unaskable`. A plain (non-multibranch) job's REST URL has no branch
   // segment — `jenkins_sha_runs`'s multibranch-then-plain fallback tries the
   // branch path first and 404s, then the plain path, which this fixture's
-  // `curl` answers with `builds` regardless of which URL it was asked. Since
-  // the slice moved `runs` onto that same shared fetch, a reader that broke
-  // the plain fallback would exit 4 here even though every multibranch test
+  // `curl` answers with `builds` regardless of which URL it was asked. `runs`
+  // reads that shared fetch, so a reader that broke the plain fallback would exit 4 here even though every multibranch test
   // above still passes.
   const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
   const hostStubs = makeStubs({ ghJson: '[]' });
@@ -3138,20 +3137,24 @@ test('host: a bare-host instance names no job, so no shape is probed', () => {
 // A `curl` stub for the REST arm, same shape as the `run-for-sha` fixtures
 // below: a `bin` dir holding `security` (so `jenkins_rest_credential` finds a
 // usable keychain stub) and `curl` (so the `tree=` request is answered
-// in-process rather than reaching a real Jenkins).
-function makeJenkinsRestBin(buildsJson) {
+// in-process rather than reaching a real Jenkins). With `branchSeg`, a URL
+// naming that job segment answers `branchAnswer` instead, so a test can make
+// the branch URL 404 and the job URL answer.
+const makeJenkinsRestBin = (buildsJson, { branchSeg = '', branchAnswer = '' } = {}) => {
   const bin = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest-')));
   writeFileSync(path.join(bin, 'security'), '#!/usr/bin/env bash\necho stub\n');
-  writeFileSync(path.join(bin, 'curl'), `#!/usr/bin/env bash\nprintf '%s' '${buildsJson}'\n`);
+  writeFileSync(path.join(bin, 'curl'), branchSeg
+    ? `#!/usr/bin/env bash\ncase "$*" in *"/job/${branchSeg}/api/"*) printf '%s' '${branchAnswer}' ;; *) printf '%s' '${buildsJson}' ;; esac\n`
+    : `#!/usr/bin/env bash\nprintf '%s' '${buildsJson}'\n`);
   chmodSync(path.join(bin, 'security'), 0o755);
   chmodSync(path.join(bin, 'curl'), 0o755);
   return bin;
-}
+};
 
 test('host: runs on Jenkins reaches jenkins_sha_runs unfiltered, never gh, and returns every build newest first', () => {
-  // Gap 9. `gh` is not asked at all: a repository whose CI is Jenkins has no
+  // `gh` is not asked at all: a repository whose CI is Jenkins has no
   // GitHub Actions run to report. The REST answer carries more than one build,
-  // newest first — the whole point of this slice over the old one-entry stand-in.
+  // newest first.
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
@@ -3171,9 +3174,8 @@ test('host: runs on Jenkins reaches jenkins_sha_runs unfiltered, never gh, and r
 });
 
 test('host: runs on Jenkins carries conclusion host-neutral, raw from .result, matching the GitHub arm\'s convention', () => {
-  // The judgment call the brief left open: raw host value, uninterpreted —
-  // same convention the GitHub arm already uses, rather than the `checks` word
-  // `pr-list --rich`'s colour table settles.
+  // The raw host value, uninterpreted, as in the GitHub arm — not the `checks`
+  // word `pr-list --rich`'s colour table settles.
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
@@ -3187,9 +3189,8 @@ test('host: runs on Jenkins carries conclusion host-neutral, raw from .result, m
   assert.equal(row.conclusion, 'UNSTABLE', "Jenkins' own word, not the colour table's \"failing\"");
 });
 
-test('host: runs on Jenkins populates startedAt and url from the REST answer, no longer always empty', () => {
-  // Gap 9's done-when: these two fields were hard-coded `""` before this slice
-  // because `jenkins_build_map` carries neither. The REST answer does.
+test('host: runs on Jenkins populates startedAt and url from the REST answer', () => {
+  // `startedAt` and `url` are the build's own `timestamp` and `url`.
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
@@ -3206,8 +3207,7 @@ test('host: runs on Jenkins populates startedAt and url from the REST answer, no
 });
 
 test('host: runs on Jenkins leaves startedAt and url empty when the REST answer itself omits them', () => {
-  // The existing rule carried forward: a field this arm cannot measure stays
-  // empty, never guessed — even now that the common case is populated.
+  // A field this arm cannot measure stays empty, never guessed.
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
@@ -3219,6 +3219,46 @@ test('host: runs on Jenkins leaves startedAt and url empty when the REST answer 
     { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } }).trim());
   assert.equal(row.startedAt, '', 'Jenkins reported no timestamp for a still-queued build — stay honest, do not invent one');
   assert.equal(row.url, '');
+  assert.equal(row.conclusion, 'in_progress', 'a running build reads its status, as the GitHub arm does');
+});
+
+test('host: runs on a plain Jenkins job reports only the asked branch\'s builds', () => {
+  // A plain job's URL lists every branch's builds. The branch URL answers 404,
+  // the job URL answers builds of two branches, and `runs feature/x` keeps only
+  // the build whose recorded branch is `feature/x`.
+  const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
+  const builds = JSON.stringify({ builds: [
+    { number: 5, result: 'SUCCESS', building: false, timestamp: 1790000200000, url: 'https://ci.test/5/',
+      actions: [{ lastBuiltRevision: { SHA1: 'main-sha', branch: [{ name: 'refs/remotes/origin/main' }] } }] },
+    { number: 4, result: 'FAILURE', building: false, timestamp: 1790000100000, url: 'https://ci.test/4/',
+      actions: [{ lastBuiltRevision: { SHA1: 'x-sha', branch: [{ name: 'origin/feature/x' }] } }] },
+    { number: 3, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/3/',
+      actions: [{ lastBuiltRevision: { SHA1: 'unnamed-sha' } }] },
+  ] });
+  const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fx', branchAnswer: '<html>404 Not Found</html>' });
+  const res = runJenkinsAllowFail(['runs', 'feature/x'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(rows.map((r) => r.url), ['https://ci.test/4/'], 'main\'s build and the unnamed build are absent');
+});
+
+test('host: runs on Jenkins reports nothing for a branch the multibranch job has not indexed', () => {
+  // The branch URL answers 404 and the multibranch container answers `jobs`
+  // and no `builds`: the branch has never run, which is an empty history and
+  // not *cannot be asked*.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const container = JSON.stringify({ _class: 'org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject',
+    jobs: [{ name: 'feature%2Fgreen' }] });
+  const bin = makeJenkinsRestBin(container, { branchSeg: 'feature%2Fnew', branchAnswer: '<html>404 Not Found</html>' });
+  const res = runJenkinsAllowFail(['runs', 'feature/new'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, `an unindexed branch must not exit 4\n${res.stderr}`);
+  assert.equal(res.stdout.trim(), '');
 });
 
 test('host: runs on Jenkins reports nothing for a branch the job does not build', () => {
@@ -3242,7 +3282,8 @@ test('host: runs on Jenkins without a credential exits 4, never empty', () => {
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
-  const res = runJenkinsAllowFail(['runs', 'feature/red'], { repo, hostStubs, jen });
+  const res = runJenkinsAllowFail(['runs', 'feature/red'],
+    { repo, hostStubs, jen, extraEnv: { JENKINS_USER: '', JENKINS_API_TOKEN: '' } });
   assert.equal(res.code, 4);
   assert.equal(res.stdout.trim(), '');
   assert.match(res.stderr, /no Jenkins API credential|names no job path/);
