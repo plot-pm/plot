@@ -56,7 +56,7 @@ Issue #1952 groups three defects, each measured on 2026-10-16.
 - `bug/sprint-goal-reads-template` — #1883: parser fallback for the goal line, test from the shipped template → #2043
 ### Pid read waits
 
-- `bug/monitors-end-waits-for-pid` — #1909: one helper that waits for a positive pid, used by every pid-file read in the test
+- `bug/monitors-end-waits-for-pid` — #1909: one helper that waits for a positive pid, used by every pid-file read in the test → #2060
 
 ## Notes
 
