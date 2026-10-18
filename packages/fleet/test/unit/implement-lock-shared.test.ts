@@ -79,7 +79,7 @@ describe('a brief run and an implement for one slug', () => {
     expect(asked).toBe(briefLog);
     fs.writeFileSync(briefLog, 'the brief wrote this\n');
     const second = startImplement(opts(), SLUG, 'true', undefined, configured('Implement command', 'true'));
-    expect(second).toMatchObject({ failure: { running: true, holder: 'brief' } });
+    expect(second).toMatchObject({ failure: { running: true, holder: 'brief', log: briefLog } });
     expect('failure' in second && second.failure.detail).toContain(briefLog);
     expect(fs.readFileSync(briefLog, 'utf8')).toBe('the brief wrote this\n');
     await boardRunsSettled();
@@ -115,7 +115,7 @@ describe('the refusal names the run that holds the lock', () => {
     const deskOpts = { repoRoot: desk, scriptsDir };
     expect(startImplement(deskOpts, SLUG, 'sleep 1; true', undefined, configured('Implement command', 'sleep 1; true'))).toHaveProperty('log');
     const second = startImplement(opts(), SLUG, 'true', undefined, configured('Implement command', 'true'));
-    expect(second).toMatchObject({ failure: { running: true, holder: 'desk' } });
+    expect(second).toMatchObject({ failure: { running: true, holder: 'desk', log: implementLogPath(desk, SLUG) } });
     expect('failure' in second && second.failure.detail).toContain(implementLogPath(desk, SLUG));
     await boardRunsSettled();
   });

@@ -8,5 +8,5 @@ The implement lock now covers a brief run and every checkout of the repository, 
 plan: docs/plans/2026-10-17-manifest-retry-and-race-findings.md
 bumps:
   skills:
-    plot-implement: patch
+    plot: patch
 -->

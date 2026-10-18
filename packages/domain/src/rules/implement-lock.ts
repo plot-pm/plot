@@ -126,8 +126,7 @@ const runField = (text: string): ImplementRunKind | null | undefined =>
 const treeField = (text: string): string | null | undefined => {
   if (text === '-') return null;
   try {
-    const tree = decodeURIComponent(text);
-    return tree === '' ? undefined : tree;
+    return decodeURIComponent(text);
   } catch {
     return undefined;
   }

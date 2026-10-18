@@ -167,9 +167,17 @@ export const askForBrief = (
       if (record.code !== 0) console.log(`auto-dispatch: the brief command for ${slug} ended: ${record.line || `code ${record.code}`}`);
       if (record.resetEpoch !== undefined) onLimit?.(record.resetEpoch);
     },
-  ).then((runner) => {
-    // A run this process left to the board calls no end handler.
-    if (runner === 'refused') release();
-  });
+  ).then(
+    (runner) => {
+      // A run this process left to the board calls no end handler.
+      if (runner === 'refused') release();
+    },
+    (err: unknown) => {
+      // A start that threw calls no end handler either, and a brief lock has no
+      // age bound, so nothing else would free the slug while this process lives.
+      release();
+      console.log(`auto-dispatch: could not ask for ${slug}'s brief: ${err instanceof Error ? err.message : String(err)}`);
+    },
+  );
   return log;
 };

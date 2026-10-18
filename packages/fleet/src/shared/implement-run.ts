@@ -13,7 +13,7 @@ import {
   type ProcessSighting,
 } from '@plot-pm/domain';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
-import { agentLogPath } from './agent-log.js';
+import { agentLogPath, agentLogPathReadOnly } from './agent-log.js';
 import { markBoardRun, startBoardRun, writeState, type BoardConfigReader } from './board-run.js';
 import { readConfig, type ConfigReadOptions } from './config-reader.js';
 import { mainCheckout } from './main-checkout.js';
@@ -373,8 +373,11 @@ export const releaseImplementLock = (repoRoot: string, slug: string, mine: Imple
   const lock = implementLockPath(repoRoot, slug);
   try {
     if (isMine(readLock(lock), mine)) fs.rmSync(lock, { force: true });
-  } catch {
-    /* the lock's age bound frees the slug */
+  } catch (err) {
+    // An implement lock left behind frees on its age bound; a brief lock holds
+    // until its holder exits, which for the board is a restart. Logged so that
+    // case is visible.
+    console.error(`could not release the implement lock for ${slug}: ${err instanceof Error ? err.message : String(err)}`);
   }
 };
 
@@ -422,6 +425,8 @@ export interface ImplementLockRefusal {
   holder: ImplementLockHolder;
   /** The sentence to report, naming the log the holder writes where one is known. */
   detail: string;
+  /** The log the holder writes; `null` where the holder is unknown. */
+  log: string | null;
 }
 
 /**
@@ -431,7 +436,8 @@ export interface ImplementLockRefusal {
  * @param repoRoot - absolute path to the asking checkout.
  * @param slug - the plan slug.
  * @param holder - the holding record; `null` where the run released the lock before it was read.
- * @returns the holder's kind and the sentence to report.
+ * @returns the holder's kind, the sentence to report and the holder's log. Naming
+ *   another checkout's log creates nothing there.
  */
 export const implementLockRefusal = (
   repoRoot: string,
@@ -440,13 +446,19 @@ export const implementLockRefusal = (
 ): ImplementLockRefusal => {
   const kind = implementLockHolder(holder, lockTree(repoRoot));
   const tree = holder?.tree ?? repoRoot;
+  const log = {
+    implement: implementLogPath(repoRoot, slug),
+    brief: briefLogPath(tree, slug),
+    desk: agentLogPathReadOnly(tree, 'implement', slug, 'log'),
+    unknown: null,
+  }[kind];
   const detail = {
-    implement: `an implement for \`${slug}\` is already running — see ${implementLogPath(repoRoot, slug)}`,
-    brief: `a brief run for \`${slug}\` holds its implement lock — see ${briefLogPath(tree, slug)}`,
-    desk: `an implement for \`${slug}\` is already running in ${tree} — see ${implementLogPath(tree, slug)}`,
+    implement: `an implement for \`${slug}\` is already running — see ${log}`,
+    brief: `a brief run for \`${slug}\` holds its implement lock — see ${log}`,
+    desk: `an implement for \`${slug}\` is already running in ${tree} — see ${log}`,
     unknown: `an implement or brief run for \`${slug}\` holds its implement lock`,
   }[kind];
-  return { holder: kind, detail };
+  return { holder: kind, detail, log };
 };
 
 /** What {@link startImplement} could not do before the child existed. */
@@ -457,6 +469,8 @@ export interface ImplementStartFailure {
   running?: true;
   /** Who holds the lock, as seen from the starting checkout; set with `running`. */
   holder?: ImplementLockHolder;
+  /** The log the holder writes; set with `running` where the holder is known. */
+  log?: string;
 }
 
 /**
@@ -511,7 +525,9 @@ export const startImplement = (
   }
   if (mine === null) {
     const refusal = implementLockRefusal(opts.repoRoot, slug, heldImplementLock(opts.repoRoot, slug, lockDeps));
-    return { failure: { detail: refusal.detail, running: true, holder: refusal.holder } };
+    return {
+      failure: { detail: refusal.detail, running: true, holder: refusal.holder, ...(refusal.log === null ? {} : { log: refusal.log }) },
+    };
   }
   const held = mine;
   const release = (): void => releaseImplementLock(opts.repoRoot, slug, held);

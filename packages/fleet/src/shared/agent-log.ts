@@ -385,6 +385,24 @@ export const agentLogPath = (
 ): string => path.join(ensureAgentLogDir(repoRoot), `plot-${kind}-${id}${EXTENSIONS[file]}`);
 
 /**
+ * Where {@link agentLogPath} puts the `<file>` for a `<kind>` run keyed by
+ * `id`, without creating the directory or writing `info/exclude`. For naming a
+ * file in a checkout this process does not write to, such as another desk.
+ *
+ * @param repoRoot absolute path to the repository the run belongs to
+ * @param kind which command spawned the run
+ * @param id what names the run within that kind
+ * @param file which of the run's three files is wanted
+ * @returns an absolute path; neither the file nor its directory need exist
+ */
+export const agentLogPathReadOnly = (
+  repoRoot: string,
+  kind: AgentLogKind,
+  id: string | number,
+  file: AgentLogFile,
+): string => path.join(agentLogDir(repoRoot), `plot-${kind}-${id}${EXTENSIONS[file]}`);
+
+/**
  * Where a spec-writing run's prompt is written, keyed by plan slug.
  *
  * Over the existing `commission` kind, not a new one: the board's now-removed

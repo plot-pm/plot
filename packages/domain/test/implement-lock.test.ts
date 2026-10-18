@@ -104,7 +104,6 @@ describe('the lock record', () => {
       '4100\t1\t-\t2\t-\t900',
       '4100\t1\t-\t2\t-\t-\tagent\t%2Fwork',
       '4100\t1\t-\t2\t-\t-\timplement\t%E0%A4%A',
-      '4100\t1\t-\t2\t-\t-\timplement\t',
     ]) {
       expect(decodeImplementHolder(text)).toBeNull();
     }
