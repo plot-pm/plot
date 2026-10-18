@@ -18,6 +18,7 @@ import type { Desk, EndingRecord } from '../../ports/desk.js';
 import type { Trees } from '../../ports/trees.js';
 import type { Finding } from '../../entities/finding.js';
 import { findingsInText, MAX_LOG_BYTES, MONITOR_LOGS } from '../../rules/monitor-log.js';
+import { FREE_WAIT_FILENAME } from '../../rules/desk-loop-alive.js';
 
 /** `.plot-worker.ending.json`, matching `entities/ending.ts`'s own constant. */
 const ENDING_FILE = '.plot-worker.ending.json';
@@ -36,9 +37,6 @@ const CORRECTION_FILE = 'PLOT-CORRECTION.md';
 
 /** What desk holds waiting out a usage limit. */
 const LIMITED_FILE = '.plot-worker.limited';
-
-/** Which pid, if any, holds this desk waiting free — no branch assigned. */
-const FREE_WAIT_FILE = '.plot-worker.freewait';
 
 /** The worker's own pid records, moved rather than deleted between desks. */
 const WORKER_RECORD_NAMES = ['.plot-worker.pid', '.plot-worker.wrapper.pid'];
@@ -233,13 +231,13 @@ export const deskFs = (trees: Trees): Desk => {
     },
 
     writeFreeWaitRecord: async (worktree, pid): Promise<PortResult<void>> => {
-      bestEffortWrite(join(worktree, FREE_WAIT_FILE), `${pid}\n`);
+      bestEffortWrite(join(worktree, FREE_WAIT_FILENAME), `${pid}\n`);
       return answered(undefined);
     },
 
     clearFreeWaitRecord: async (worktree): Promise<PortResult<void>> => {
       try {
-        rmSync(join(worktree, FREE_WAIT_FILE), { force: true });
+        rmSync(join(worktree, FREE_WAIT_FILENAME), { force: true });
       } catch {
         /* best effort */
       }

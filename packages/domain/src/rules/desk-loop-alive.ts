@@ -83,11 +83,13 @@ export const deskLoopAlive = (reading: DeskLoopReading): DeskLoop => {
 };
 
 /**
- * The free-wait record's filename, matching `desk-fs.ts`'s own constant.
+ * The free-wait record's filename — the one export both `desk-fs.ts` (the
+ * `Desk` port's writer) and a caller outside that port import, so the name is
+ * declared once.
  *
- * A caller outside the `Desk` port — `continueOnDesk` reads this file
- * directly, the same way it reads `ENDING_FILENAME` via `deskEnding` rather
- * than through a port method, because the `Desk` port exposes writes only.
+ * `continueOnDesk` is such a caller: it reads this file directly, the same
+ * way it reads `ENDING_FILENAME` via `deskEnding` rather than through a port
+ * method, because the `Desk` port exposes writes only.
  */
 export const FREE_WAIT_FILENAME = '.plot-worker.freewait';
 

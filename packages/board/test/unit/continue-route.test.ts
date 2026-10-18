@@ -21,6 +21,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
+import { EventEmitter } from 'node:events';
 import { writeGate } from '../../src/server/write-gate.js';
 import { handleContinue } from '../../src/server/continue.js';
 import type { ContinueDeps } from '../../src/server/continue.js';
@@ -1124,6 +1125,119 @@ describe('continueOnDesk, as the registry tick calls it', () => {
   });
 });
 
+describe('two concurrent continuations on one desk — #1357', () => {
+  const input = (wt: string, dir: string) => ({
+    opts: { ...opts, manifestDir: dir },
+    readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'true' : fallback),
+    branch: BRANCH,
+    worktree: wt,
+    main: 'main',
+    previousPid: '424242',
+    answer: 'the composed answer',
+  });
+
+  const settleAfter = (wt: string) => spawned.add(wt);
+
+  it('starts exactly one loop when both calls pass the live-loop check before either spawns', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const dir = manifestDirFor(wt);
+    manifestDirs.push(dir);
+
+    // BOTH CALLS REACH THEIR OWN LOCK-TAKE BEFORE EITHER PROCEEDS, modelling a
+    // double-click or a click racing a supervisor tick: on unmodified main,
+    // neither call takes a lock at all, so both read the same dead-loop
+    // manifest and both spawn — this is the shared starting line the brief
+    // asks for, built with `onLocked` rather than real concurrency so the
+    // interleaving is deterministic.
+    let firstLocked = false;
+    let releaseSecond: (() => void) | undefined;
+    const second = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+
+    const first = continueOnDesk({
+      ...input(wt, dir),
+      onLocked: async () => {
+        firstLocked = true;
+        // Hold the lock until the second call has had its chance to take it.
+        await new Promise((r) => setTimeout(r, 50));
+      },
+    });
+    // Give the first call a moment to take the lock before the second tries.
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(firstLocked, true, 'the first call must reach the lock before the second starts');
+    const secondResult = await continueOnDesk({
+      ...input(wt, dir),
+      onLocked: async () => releaseSecond?.(),
+    });
+    void second;
+
+    const firstResult = await first;
+
+    const results = [firstResult, secondResult];
+    const started = results.filter((r) => r.kind === 'started');
+    const refused = results.filter((r) => r.kind === 'refused');
+    assert.equal(started.length, 1, 'exactly one call starts a loop');
+    assert.equal(refused.length, 1, 'the other is refused, not queued or retried');
+    assert.equal(refused[0]!.kind === 'refused' ? refused[0]!.reason : '', 'loop-alive');
+    if (started[0]!.kind === 'started') settleAfter(wt);
+
+    // THE STALE-PID-FILE HALF OF #1357: the refused call never reached the
+    // spawn or the pid-file write, so `.plot-worker.pid` holds only the
+    // started call's pid — never a value a second, refused call could have
+    // raced in to read or overwrite mid-sequence.
+    const pid = fs.readFileSync(path.join(wt, '.plot-worker.pid'), 'utf8').trim();
+    const startedPid = started[0]!.kind === 'started' ? started[0]!.pid : '';
+    assert.equal(pid, startedPid, 'the pid file names only the one call that actually spawned');
+  });
+});
+
+describe('a spawn that cannot start releases the lock — #1357', () => {
+  const input = (wt: string, dir: string, cmd: string) => ({
+    opts: { ...opts, manifestDir: dir },
+    readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? cmd : fallback),
+    branch: BRANCH,
+    worktree: wt,
+    main: 'main',
+    previousPid: '424242',
+    answer: 'the composed answer',
+  });
+
+  it('answers failed and leaves no lock behind, so a second call can then proceed', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const dir = manifestDirFor(wt);
+    manifestDirs.push(dir);
+
+    // A STUB CHILD THAT FIRES 'error' INSTEAD OF 'exit' — the exact shape a
+    // missing `sh` binary produces. On unmodified main the handler only
+    // logged and left the awaited promise (and, once the lock exists, the
+    // lock itself) hanging forever.
+    const failingSpawn = (() => {
+      const child = new EventEmitter();
+      queueMicrotask(() => child.emit('error', new Error('spawn sh ENOENT')));
+      return child;
+    }) as unknown as typeof spawn;
+
+    const result = await Promise.race([
+      continueOnDesk({ ...input(wt, dir, 'true'), spawn: failingSpawn }),
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error('continueOnDesk did not settle within 2000ms — the spawn error path is hanging')), 2000),
+      ),
+    ]);
+
+    assert.equal(result.kind, 'failed');
+    assert.equal(fs.existsSync(path.join(wt, '.plot-worker.continue.lock')), false, 'the lock was released');
+
+    // A SECOND CALL NOW PROCEEDS — the lock a hung first call would have held
+    // forever is gone, so this is not refused `loop-alive`.
+    const second = await continueOnDesk(input(wt, dir, 'true'));
+    assert.equal(second.kind, 'started');
+    if (second.kind === 'started') spawned.add(wt);
+  });
+});
+
 describe('the ending record routes an answer when no manifest names the desk', () => {
   /** Writes `.plot-worker.ending.json` naming `branch` as the reason the loop stopped. */
   function writeBlockedEnding(wt: string, branch: string): void {
@@ -1622,6 +1736,10 @@ describe('a stopped loop that removes its own manifest — #1376 review', () => 
     assert.equal(manifest.branch, BRANCH, 'the free manifest names the asked branch');
     assert.equal(manifest.pid, (out.body as { pid: string }).pid, 'the manifest names the new run');
     assert.equal(deskManifestFor('/tmp', wt, { manifestDir: dir }).kind, 'named');
+    // #1377: THE STOPPED PID'S FREEWAIT RECORD IS GONE — left in place, the
+    // new run's loop would read as still waiting free for a pid that no
+    // longer exists.
+    assert.equal(fs.existsSync(path.join(wt, '.plot-worker.freewait')), false, 'the old freewait record was removed');
   });
 
   it('the loop started on a stopped free waiter reads the continuation on the asked branch', async () => {
