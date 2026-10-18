@@ -1676,12 +1676,14 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
   printf '%s' "$out"
 }
 
-# Every Jenkins build of one job that built ONE sha, as a JSON array (newest
-# first), or exit 3 (no instance) / exit 4 (cannot be asked). Shared by
-# `run-for-sha` and `runs-for-sha`, so the instance, the credential and the
+# Every Jenkins build of one job, as a JSON array (newest first), or exit 3
+# (no instance) / exit 4 (cannot be asked). Shared by `run-for-sha`,
+# `runs-for-sha` and `runs`, so the instance, the credential and the
 # multibranch-then-plain URL fallback are written once.
 #
-# $1 = the op's name, $2 = branch, $3 = how many builds to list, $4 = the sha.
+# $1 = the op's name, $2 = branch, $3 = how many builds to list, $4 = the sha
+# to filter for, or "" for every build of the branch unfiltered (the shape
+# `runs` wants — branch-scoped history, not one sha's).
 # Run it in `$(...)` and read the exit code with `|| exit $?`: it exits rather
 # than returns, and a subshell's exit is the code the caller sees.
 #
@@ -1693,19 +1695,23 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
 # A BRANCH IS A JOB SEGMENT ON A MULTIBRANCH JOB AND NOT ON A PLAIN ONE, and no
 # reading of the configured path says which this is. The multibranch URL is
 # tried first and the plain one is the fallback (measured 2026-09-11: asking
-# the plain job for a branch segment answers 404). THE PLAIN JOB REPORTS ITS
-# OWN BUILDS whatever branch was asked about; the `sha` says which it built.
+# the plain job for a branch segment answers 404). THE PLAIN JOB REPORTS EVERY
+# BRANCH'S BUILDS, so an unfiltered read of it keeps only the builds whose
+# recorded `lastBuiltRevision.branch` names the asked branch, and a build that
+# records no branch only when the asked branch is the job's own key (the last
+# path segment, as `jenkins_build_map` keys it). A multibranch container that
+# answers `jobs` and no `builds` has not indexed the branch: an empty history.
 #
 # NO CREDENTIAL IS *CANNOT BE ASKED*, never *no run*: the keychain is macOS-only
 # and a Linux agent legitimately has none. AN UNREACHABLE INSTANCE IS NOT AN
 # EMPTY HISTORY: a refused or redirected request answers HTML, which fails the
 # `builds` test.
 #
-# ONLY THE ASKED-FOR SHA, never another build's. `result` is null while a build
+# WITH A SHA, ONLY THAT SHA'S BUILDS, never another's. `result` is null while a build
 # runs, Jenkins' own word for *in flight*, mapped to the `status`/`conclusion`
 # split the contract already uses so the shape does not fork per connector.
 jenkins_sha_runs() {
-  local op="$1" branch="$2" limit="$3" sha="$4" instance host job cred tree body try path
+  local op="$1" branch="$2" limit="$3" sha="$4" instance host job cred tree body try path plain=""
   instance="$(jenkins_instance)"
   [ -n "$instance" ] || jenkins_no_instance
   host="${instance%%/*}"
@@ -1721,27 +1727,32 @@ jenkins_sha_runs() {
     echo "  Jenkins' REST API takes basic auth with an API token, which \`jen auth login\` stores in the login keychain. The Keycloak bearer from \`jen auth token\` is NOT it." >&2
     exit 4
   }
-  tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1%5D%5D%5D%7B0,$limit%7D"
+  tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,$limit%7D"
   body=""
   for path in "$(jenkins_job_url_path "$job" "$branch")" "$(jenkins_job_url_path "$job" "")"; do
     host_slot_take jenkins ''
     try=$(curl -sg --max-time 30 -u "$cred" "https://$host$path/api/json?$tree" 2>/dev/null) || true
     host_slot_give; budget_record_call jenkins ''
     if printf '%s' "$try" | jq -e 'has("builds")' >/dev/null 2>&1; then body="$try"; break; fi
+    printf '%s' "$try" | jq -e 'has("jobs")' >/dev/null 2>&1 && { body='{"builds":[]}'; break; }
+    plain=1
   done
   cred=""
   if [ -z "$body" ]; then
     echo "plot-host: $op — Jenkins did not answer for '$host'" >&2
     exit 4
   fi
-  printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" '
+  printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" --arg branch "$branch" --arg plain "$plain" '
     [ .builds[]
       | { sha: ([ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision.SHA1 ] | first // ""),
+          br: [ .actions[]? | .lastBuiltRevision.branch[]?.name // empty | sub("^(refs/remotes/|refs/heads/)"; "") | sub("^origin/"; "") ],
           status: (if .building then "in_progress" else "completed" end),
           conclusion: (if .building then null else (.result // null) end),
           url: (.url // ""),
           startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ]
-    | map(select(.sha == $sha))' || exit 4
+    | if $sha != "" then map(select(.sha == $sha)) elif $plain == "" then .
+      else map(select(if (.br | length) > 0 then any(.br[]; . == $branch) else $branch == ($job | split("/") | last) end)) end
+    | map(del(.br))' || exit 4
 }
 
 ci_unaskable() { # $1 = the op's name, $2 = the CI word (may be empty)
@@ -4435,35 +4446,16 @@ case "$op" in
                           startedAt:.startedAt, url:.url}' 2>/dev/null || true
         ;;
       jenkins)
-        # ONE STATE PER BRANCH, REPORTED AS A HISTORY OF ONE — and the PR says
-        # so, because it is the honest limit of the transport this arm has.
-        # `jenkins_build_map` answers `{color, checks, job}` for every branch in
-        # one call: a CURRENT state, with no timestamps, no URL and no earlier
-        # runs. A history is what Jenkins holds and what its REST API answers;
-        # reading it is `the-ci-connector-is-jenkins`'s own slice, and inventing
-        # entries here to fill the shape would be the collector reaching a
-        # verdict (Principle 3).
+        # THE BRANCH'S BUILD HISTORY, newest first, read through
+        # `jenkins_sha_runs` with no sha — the REST call `run-for-sha` and
+        # `runs-for-sha` make. `startedAt` and `url` are Jenkins' own fields.
         #
-        # SO THE FIELDS THIS CANNOT MEASURE ARE EMPTY, never guessed. `workflow`
-        # names the Jenkins job, which is the one thing the map does carry and
-        # the detail a reader opens; `conclusion` is the `checks` word the
-        # colour table already settled; `startedAt` and `url` are empty,
-        # because a timestamp this arm invented would read as measurement.
-        _jen_instance="$(jenkins_instance)"
-        [ -n "$_jen_instance" ] || jenkins_no_instance
-        _jen_payload=$(jenkins_build_map "$_jen_instance")
-        _jen_status=$(printf '%s' "$_jen_payload" | jq -r '.status // "failed"' 2>/dev/null || echo "failed")
-        if [ "$_jen_status" != "ok" ]; then
-          # UNREACHABLE IS NOT EMPTY EITHER. `pr-list --rich` can mark its rows
-          # `unknown` and keep them; this op has no row to carry the word, so
-          # the only way to say *cannot verify* is the exit code. Printing
-          # nothing at exit 0 would read as *this branch has never run*.
-          echo "plot-host: runs — jenkins unreachable ($_jen_status)" >&2
-          exit 4
-        fi
-        printf '%s' "$_jen_payload" | jq -c --arg branch "$branch" \
-          '.map[$branch] // empty
-           | {workflow:(.job // ""), conclusion:(.checks // ""), startedAt:"", url:""}' 2>/dev/null || true
+        # CONCLUSION IS HOST-NEUTRAL, as in the GitHub arm above: Jenkins' raw
+        # `.result` (`SUCCESS`/`FAILURE`/...), and the `status` (`in_progress`)
+        # while a build runs — not the `checks` word the colour table settles
+        # for `pr-list --rich`.
+        _jen_all=$(jenkins_sha_runs runs "$branch" "$limit" "") || exit $?
+        printf '%s' "$_jen_all" | jq -c '.[] | {workflow:.workflow, conclusion:(.conclusion // .status), startedAt:.startedAt, url:.url}' 2>/dev/null || true
         ;;
       *)
         ci_unaskable runs "$_ci"
