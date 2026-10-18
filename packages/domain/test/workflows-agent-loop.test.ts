@@ -188,7 +188,12 @@ describe('agentLoop — row 4: an assignment', () => {
     // slice to the next free agent (250 times for one slice, 2026-10-03).
     const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, takeUpRefused: 'desk-reset', claim: null });
     expect(result.writes).toEqual([
-      { kind: 'refused-slice', branch: BRANCH },
+      {
+        kind: 'refused-slice',
+        branch: BRANCH,
+        session: SESSION,
+        reason: 'the desk reset at take-up was refused, claim: unknown',
+      },
       { kind: 'assignment-clear', session: SESSION },
     ]);
     expect(result.detail.exitCode).toBeNull();
