@@ -93,7 +93,11 @@ export interface PlanStateWrite {
   issue: string;
   /** The plan's phase. */
   phase: PlanStatePhase;
-  /** The plan file's address on the default branch. */
+  /**
+   * The plan's address at this phase: the plan PR's URL at `draft`, and while
+   * the plan is not yet on the default branch; the plan file's path on the
+   * default branch otherwise.
+   */
   planLink: string;
   /** The release version; read for `released` and ignored otherwise. */
   version?: string;

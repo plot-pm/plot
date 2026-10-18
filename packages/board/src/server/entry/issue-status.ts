@@ -6,6 +6,7 @@ import {
   trackerWriteSummary,
   type IssueStatusReading,
   type IssueStatusWords,
+  type TrackerWriteOutcome,
 } from '@plot-pm/domain/rules/issue-status';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
@@ -40,11 +41,8 @@ export const EXIT = {
   usage: 2,
 } as const;
 
-/** What one owed write came to. */
-export type WriteOutcome = 'written' | 'no-target' | 'unaskable' | 'failed';
-
 /** The reason printed where the connector left no sentence of its own. */
-const FALLBACK: Record<Exclude<WriteOutcome, 'written'>, string> = {
+const FALLBACK: Record<Exclude<TrackerWriteOutcome, 'written'>, string> = {
   'no-target': 'the tracker holds nowhere to put this status',
   unaskable: 'no tracker declared',
   failed: 'the write failed',
@@ -98,12 +96,12 @@ export const writeStatuses = async (
   reading: IssueStatusReading,
   tracker: Tracker,
   issueWrites?: IssueWriteSpool,
-): Promise<{ lines: string[]; outcomes: WriteOutcome[] }> => {
+): Promise<{ lines: string[]; outcomes: TrackerWriteOutcome[] }> => {
   const lines: string[] = [];
-  const outcomes: WriteOutcome[] = [];
+  const outcomes: TrackerWriteOutcome[] = [];
   for (const { issue, status } of issueStatusWrites(reading)) {
     const result = await tracker.statusWrite({ prUrl: '', issue, status });
-    const outcome: WriteOutcome = result.ok ? result.value : result.why;
+    const outcome: TrackerWriteOutcome = result.ok ? result.value : result.why;
     if (outcome === 'written' && issueWrites !== undefined) {
       await handOffIssueWrite(tracker, issueWrites, { number: issue, status });
     }

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { issueStatusWrites, planStateWrites, trackerWriteSummary, type IssueStatusWords } from '../src/rules/issue-status.js';
+import {
+  isPlanStatePhase,
+  issueStatusWrites,
+  planStateWrites,
+  trackerReportOf,
+  trackerWriteSummary,
+  type IssueStatusWords,
+} from '../src/rules/issue-status.js';
 
 const both: IssueStatusWords = { approved: 'Approved', delivered: 'In Review', released: 'Done' };
 
@@ -107,5 +114,39 @@ describe('a run’s write outcomes reduce to the one a caller reports', () => {
     expect(trackerWriteSummary(['written', 'no-target'])).toBe('no-target');
     expect(trackerWriteSummary(['no-target', 'unaskable'])).toBe('unaskable');
     expect(trackerWriteSummary(['unaskable', 'failed'])).toBe('failed');
+  });
+});
+
+describe('a phase word is one of the four, or none', () => {
+  it('accepts the four and refuses anything else', () => {
+    for (const phase of ['draft', 'approved', 'delivered', 'released']) expect(isPlanStatePhase(phase)).toBe(true);
+    expect(isPlanStatePhase('release')).toBe(false);
+  });
+});
+
+describe('a tracker-write run reads into what its caller reports', () => {
+  it('reads the per-issue lines and the summary of a clean run', () => {
+    const run = { stdout: '7\twritten\tapproved\nsummary: tracker=written\n', stderr: '', code: 0 };
+    expect(trackerReportOf(run)).toEqual({ lines: ['7\twritten\tapproved'], outcome: 'written' });
+  });
+
+  it('reads none where nothing was owed', () => {
+    expect(trackerReportOf({ stdout: 'summary: tracker=none\n', stderr: '', code: 0 })).toEqual({ lines: [], outcome: 'none' });
+  });
+
+  it('reports a non-zero exit as failed, with the script’s stderr as the reason', () => {
+    const run = { stdout: 'summary: tracker=failed\n', stderr: "plot-plan-state: 'x.md' is not a plan file\nplot-plan-state: usage: …\n", code: 2 };
+    expect(trackerReportOf(run)).toEqual({
+      lines: ["plot-plan-state: 'x.md' is not a plan file", 'plot-plan-state: usage: …'],
+      outcome: 'failed',
+    });
+  });
+
+  it('reports a run with no summary as failed, naming the exit code where stderr is empty', () => {
+    expect(trackerReportOf({ stdout: '', stderr: '', code: 0 })).toEqual({ lines: ['exited 0 with no tracker summary'], outcome: 'failed' });
+  });
+
+  it('reports an unknown summary word as failed rather than passing it on', () => {
+    expect(trackerReportOf({ stdout: 'summary: tracker=maybe\n', stderr: '', code: 0 }).outcome).toBe('failed');
   });
 });

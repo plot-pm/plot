@@ -423,7 +423,9 @@ reflect the draft on it through the tracker, passing that URL as the link:
 
 It ends with `summary: tracker=<outcome>`; `none` means the plan names no
 issue, `unaskable` means the repository declares no tracker. A `failed` write
-is reported and never blocks the PR already created.
+is reported and never blocks the PR already created. The comment carries the
+`<!-- plot:plan-link -->` marker, and every later phase edits that one comment
+in place.
 
 For `in-session`: no PR — the review happens now. Walk the user through
 the plan section by section; their go is recorded by `/plot-approve` as

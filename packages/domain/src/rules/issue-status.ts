@@ -59,7 +59,7 @@ export const issueStatusWrites = (reading: IssueStatusReading): readonly IssueSt
 const PLAN_STATE_PHASES: readonly PlanStatePhase[] = ['draft', 'approved', 'delivered', 'released'];
 
 /** Whether `phase` is one of the four {@link PlanStatePhase} values. */
-const isPlanStatePhase = (phase: string): phase is PlanStatePhase => (PLAN_STATE_PHASES as readonly string[]).includes(phase);
+export const isPlanStatePhase = (phase: string): phase is PlanStatePhase => (PLAN_STATE_PHASES as readonly string[]).includes(phase);
 
 /** What a plan's phase owes a {@link import('../ports/tracker.js').Tracker.planStateWrite}. */
 export interface PlanStateReading {
@@ -92,7 +92,7 @@ export const planStateWrites = (reading: PlanStateReading): readonly PlanStateWr
     .map((issue) => ({ issue, phase, planLink: reading.planLink, ...(reading.version === undefined ? {} : { version: reading.version }) }));
 };
 
-/** A write's outcome, shared by {@link import('../../../board/src/server/entry/issue-status.js').WriteOutcome} and its plan-state counterpart. */
+/** What one owed tracker write came to — a status write or a plan-state write alike. */
 export type TrackerWriteOutcome = 'written' | 'no-target' | 'unaskable' | 'failed';
 
 const WORST_LAST: readonly TrackerWriteOutcome[] = ['written', 'no-target', 'unaskable', 'failed'];
@@ -111,4 +111,45 @@ export const trackerWriteSummary = (outcomes: readonly TrackerWriteOutcome[]): T
   let summary: TrackerWriteOutcome | 'none' = 'none';
   for (const candidate of WORST_LAST) if (outcomes.includes(candidate)) summary = candidate;
   return summary;
+};
+
+/** One finished run of a tracker-write script, as its caller received it. */
+export interface TrackerRun {
+  /** The script's standard output. */
+  readonly stdout: string;
+  /** The script's standard error. */
+  readonly stderr: string;
+  /** The script's exit code. */
+  readonly code: number;
+}
+
+/** What a caller reports of one tracker-write run. */
+export interface TrackerReport {
+  /** The per-issue lines, then, on a failed run, the script's own reason. */
+  readonly lines: readonly string[];
+  /** The run's outcome, as its `summary: tracker=` line names it. */
+  readonly outcome: TrackerWriteOutcome | 'none';
+}
+
+const SUMMARY_WORDS: readonly string[] = ['none', ...WORST_LAST];
+
+/**
+ * Reads a tracker-write script's run into the lines and the outcome its caller reports.
+ *
+ * A run that exits non-zero, or prints no `summary: tracker=<outcome>` line
+ * naming a known outcome, is `failed`, and its stderr becomes the reason: the
+ * caller reports it and continues, and never blocks the lifecycle step.
+ *
+ * @param run - the script's stdout, stderr and exit code.
+ * @returns the per-issue lines (plus the reason on a failed run) and the outcome.
+ */
+export const trackerReportOf = (run: TrackerRun): TrackerReport => {
+  const out = run.stdout.split('\n').filter((line) => line.length > 0);
+  const lines = out.filter((line) => !line.startsWith('summary: '));
+  const said = out.map((line) => /^summary: tracker=([a-z-]+)$/.exec(line)?.[1]).find((word) => word !== undefined);
+  if (run.code === 0 && said !== undefined && SUMMARY_WORDS.includes(said)) {
+    return { lines, outcome: said as TrackerWriteOutcome | 'none' };
+  }
+  const why = run.stderr.split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
+  return { lines: [...lines, ...(why.length > 0 ? why : [`exited ${run.code} with no tracker summary`])], outcome: 'failed' };
 };

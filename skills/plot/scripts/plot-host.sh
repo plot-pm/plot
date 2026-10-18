@@ -5039,7 +5039,7 @@ case "$op" in
 
   issue-label|issue-comment|issue-close)
     # THE PLAN-STATE WRITES, and one-way: Plot sets a `plan:*` label, keeps one
-    # comment per plan and closes the issue at release; nothing reads any back.
+    # comment per issue and closes the issue at release; nothing reads any back.
     #   issue-label   <n> <add> [<remove,...>]  adds one label, removes the rest
     #   issue-comment <n> <marker> <body>       edits the comment holding <marker>, else posts
     #   issue-close   <n>

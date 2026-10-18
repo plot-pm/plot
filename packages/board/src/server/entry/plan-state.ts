@@ -1,6 +1,12 @@
 import { scriptsShell, trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
-import { planStateWrites, trackerWriteSummary, type PlanStateReading } from '@plot-pm/domain/rules/issue-status';
+import {
+  isPlanStatePhase,
+  planStateWrites,
+  trackerWriteSummary,
+  type PlanStateReading,
+  type TrackerWriteOutcome,
+} from '@plot-pm/domain/rules/issue-status';
 import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -40,11 +46,8 @@ export const EXIT = {
   usage: 2,
 } as const;
 
-/** What one owed write came to. */
-export type WriteOutcome = 'written' | 'no-target' | 'unaskable' | 'failed';
-
 /** The reason printed where the connector left no sentence of its own. */
-const FALLBACK: Record<Exclude<WriteOutcome, 'written'>, string> = {
+const FALLBACK: Record<Exclude<TrackerWriteOutcome, 'written'>, string> = {
   'no-target': 'the tracker holds nowhere to put this write',
   unaskable: 'no tracker declared',
   failed: 'the write failed',
@@ -68,7 +71,8 @@ export const issuesFrom = (text: string): readonly string[] => {
  *
  * @param argv - the arguments after the script name.
  * @returns the phase, link and version the caller declared.
- * @throws on an unknown flag, a flag with no value, or a missing `--phase`/`--plan-link`.
+ * @throws on an unknown flag, a flag with no value, a `--phase` outside the
+ *   four, or a missing `--phase`/`--plan-link`.
  */
 export const flagsFrom = (argv: readonly string[]): Pick<PlanStateReading, 'phase' | 'planLink' | 'version'> => {
   let phase: string | undefined;
@@ -84,6 +88,7 @@ export const flagsFrom = (argv: readonly string[]): Pick<PlanStateReading, 'phas
     else throw new Error(`unknown argument '${flag}'`);
   }
   if (phase === undefined) throw new Error('--phase is required');
+  if (!isPlanStatePhase(phase)) throw new Error(`unknown --phase '${phase}'`);
   if (planLink === undefined) throw new Error('--plan-link is required');
   return { phase, planLink, ...(version === undefined ? {} : { version }) };
 };
@@ -95,12 +100,12 @@ export const flagsFrom = (argv: readonly string[]): Pick<PlanStateReading, 'phas
  * @param tracker - the connector the repository declared.
  * @returns one `<issue>\t<outcome>\t<reason>` line per owed write.
  */
-export const writePlanStates = async (reading: PlanStateReading, tracker: Tracker): Promise<{ lines: string[]; outcomes: WriteOutcome[] }> => {
+export const writePlanStates = async (reading: PlanStateReading, tracker: Tracker): Promise<{ lines: string[]; outcomes: TrackerWriteOutcome[] }> => {
   const lines: string[] = [];
-  const outcomes: WriteOutcome[] = [];
+  const outcomes: TrackerWriteOutcome[] = [];
   for (const write of planStateWrites(reading)) {
     const result = await tracker.planStateWrite(write);
-    const outcome: WriteOutcome = result.ok ? result.value : result.why;
+    const outcome: TrackerWriteOutcome = result.ok ? result.value : result.why;
     const reason = (outcome === 'written' ? write.phase : (tracker.lastRefusal() ?? FALLBACK[outcome])).replace(/\s+/g, ' ').trim();
     lines.push(`${write.issue}\t${outcome}\t${reason}\n`);
     outcomes.push(outcome);
@@ -114,12 +119,14 @@ export const writePlanStates = async (reading: PlanStateReading, tracker: Tracke
  * @param argv - the plan file, then the flags.
  * @param context - where the scripts and the repository are.
  * @param write - where the answer goes.
+ * @param warn - where the reason for a usage error goes.
  * @returns the process exit code.
  */
 export const run = async (
   argv: readonly string[],
   context: ShellContext,
   write: (s: string) => void = (s) => process.stdout.write(s),
+  warn: (s: string) => void = (s) => process.stderr.write(s),
 ): Promise<number> => {
   const [planFile = '', ...flags] = argv;
   let reading: PlanStateReading;
@@ -131,10 +138,8 @@ export const run = async (
     if (line === undefined) throw new Error(`cannot parse '${planFile}'`);
     reading = { issues: issuesFrom(line), ...flagsFrom(flags) };
   } catch (err) {
-    process.stderr.write(`plot-plan-state: ${(err as Error).message}\n`);
-    process.stderr.write(
-      'plot-plan-state: usage: plot-plan-state.sh <plan file> --phase <draft|approved|delivered|released> --plan-link <link> [--version <v>]\n',
-    );
+    warn(`plot-plan-state: ${(err as Error).message}\n`);
+    warn('plot-plan-state: usage: plot-plan-state.sh <plan file> --phase <draft|approved|delivered|released> --plan-link <link> [--version <v>]\n');
     write('summary: tracker=failed\n');
     return EXIT.usage;
   }
