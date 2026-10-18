@@ -14,6 +14,8 @@
 - **Started:** 2026-10-16, Jan Wloka, `bug/jenkins-run-for-sha-conclusion`
 - **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-credential-from-env`
 - **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-pr-checks-bind-to-head`
+- **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-runs-history`
+- **Started:** 2026-10-17, Jan Wloka, `feature/bitbucket-pr-state-binds-checks`
 
 ## Changelog
 
@@ -43,8 +45,8 @@ Earlier plans built the Jenkins connector and its job-shape reading (`2026-09-08
 The gaps share one cause: the Jenkins arms return Jenkins' vocabulary and shapes where the domain expects the host-neutral ones (lowercase conclusions, a `workflow` name, a `checksSha` bound to a head). Each slice moves one mapping to the adapter edge, per the layering rule in `CLAUDE.md`, and adds a test at the port.
 
 1. **Gap 1 first, as the tracer.** `buildJenkins.runForSha` maps the conclusion through `jenkinsConclusion`, like `runsForSha`. A worker-loop test with a `SUCCESS` and a `FAILURE` fixture settles to `build passed` and `build failed`.
-2. **Gap 7 next.** `jenkins_rest_credential` also reads `JENKINS_USER` and `JENKINS_API_TOKEN` from the environment or the repository's `.env`, as the Jira connector reads its own. Without it, no Linux machine reaches gap 1's fix.
-3. **Gaps 5, 3, 4 and 10: bind every Jenkins reading to a commit.** The Jenkins arm emits `workflow` as the job path; open PR rows emit `checksSha` and read `pending` or `unknown` where the colour cannot bind to `headSha`; a plain pipeline is read by head sha through `jenkins_sha_runs`'s existing plain-job fallback (`plot-host.sh:1711`); `aborted` maps to `unknown` as the run-level mapping does. A declared `Default branch checks` name that matches no run is reported.
+2. **Gap 7 next.** `jenkins_rest_credential` also reads `JENKINS_USER` and `JENKINS_API_TOKEN` from the environment or the repository's `.env`, through the shared credential helper the Jira connector uses; `plot-host.sh` gets no second `.env` parser. Without it, no Linux machine reaches gap 1's fix.
+3. **Gaps 5, 3, 4 and 10: bind every Jenkins reading to a commit.** The Jenkins arm emits `workflow` as the job path; open PR rows emit `checksSha` and read `unknown`, never `pending`, where the colour cannot bind to `headSha`; a plain pipeline is read by head sha through `jenkins_sha_runs`'s existing plain-job fallback (`plot-host.sh:1711`); `aborted` maps to `unknown` as the run-level mapping does. A declared `Default branch checks` name that matches no run is reported.
 4. **Gaps 2, 6 and 8: merge-on-green for Bitbucket + Jenkins.** The Bitbucket arms of `pr-state` return `headSha`, `checks` and `checksSha`, read from the Jenkins build for `source.commit.hash` or from Bitbucket commit build statuses (`GET /2.0/repositories/{workspace}/{repo_slug}/commit/{sha}/statuses`). `pr-review` reads the `plot/review` status from the same endpoint. Under `CI: jenkins`, `pr-state` uses the same check source as `pr-list`. Pinning the merge follows #1556 and stays out of this plan.
 5. **Gap 9, low priority.** The `runs` op reads the job's builds with timestamps and URLs.
 
@@ -52,9 +54,9 @@ Wave order follows the dependency: gap 1 and gap 7 are independent and run first
 
 ### Open Questions
 
-- [ ] Should gaps 2, 6 and 8 split into a second plan? They add a Bitbucket read source and touch the host connector tracked by #1848.
-- [ ] Gap 3: when a colour cannot bind to the head, is `pending` or `unknown` the right word? `pending` holds a merge queue; `unknown` does not.
-- [ ] Gap 7: does the `.env` read belong to `plot-host.sh` or to a shared credential helper the Jira connector already uses?
+- [x] Should gaps 2, 6 and 8 split into a second plan? They add a Bitbucket read source and touch the host connector tracked by #1848. Decided 2026-10-17 by Jan Wloka: no split; gaps 2, 6 and 8 stay in this plan and finish with `feature/bitbucket-pr-state-binds-checks` (#1974). The Bitbucket `pr-list` arm with no sha binding (#1966) goes to #1848.
+- [x] Gap 3: when a colour cannot bind to the head, is `pending` or `unknown` the right word? `pending` holds a merge queue; `unknown` does not. Decided 2026-10-17 by Jan Wloka: a colour that cannot bind to the head reads `unknown`, never `pending`, because `pending` holds the merge queue and the #1961 HIGH finding was a failed lookup that turned into `pending`.
+- [x] Gap 7: does the `.env` read belong to `plot-host.sh` or to a shared credential helper the Jira connector already uses? Decided 2026-10-17 by Jan Wloka: the shared credential helper the Jira connector uses reads `.env` for Jenkins too, and `plot-host.sh` gets no second `.env` parser.
 
 ## Slices
 
@@ -73,8 +75,8 @@ Wave order follows the dependency: gap 1 and gap 7 are independent and run first
 
 ### Bitbucket and GitHub readings
 
-- `feature/bitbucket-pr-state-binds-checks` — Bitbucket `pr-state` and `pr-review` return a head-bound check word; `pr-state` follows `pr-list`'s source under `CI: jenkins` (gaps 2, 6, 8) <!-- waits: bug/jenkins-pr-checks-bind-to-head -->
-- `bug/jenkins-runs-history` — the `runs` op returns builds with timestamps and URLs (gap 9)
+- `feature/bitbucket-pr-state-binds-checks` — Bitbucket `pr-state` and `pr-review` return a head-bound check word; `pr-state` follows `pr-list`'s source under `CI: jenkins` (gaps 2, 6, 8) → #1974 <!-- waits: bug/jenkins-pr-checks-bind-to-head -->
+- `bug/jenkins-runs-history` → #1972 — the `runs` op returns builds with timestamps and URLs (gap 9)
 
 ## Notes
 
@@ -82,3 +84,4 @@ Wave order follows the dependency: gap 1 and gap 7 are independent and run first
 - Deliverable search for `jenkinsConclusion`: it exists at `build-jenkins.ts:22` and is applied at `:116` only. The tracer extends its use and builds no new helper.
 - Related Released plans: `2026-09-08-the-ci-connector-is-jenkins`, `2026-09-15-a-jenkins-job-is-read-by-its-shape`.
 - Definition of Done: docs/definition-of-done.md
+- 2026-10-17: open questions decided by Jan Wloka: gaps 2, 6 and 8 stay in this plan with #1974; an unbound colour reads `unknown`; the Jenkins `.env` read uses the Jira connector's credential helper.

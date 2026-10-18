@@ -34,6 +34,8 @@ export const fleetAutoWrites = (
   // IN MEMORY, FOR THE DAEMON'S LIFE: a restart loses it, the brief either
   // landed or did not, and the next pass asks again.
   const briefsAsked = new Set<string>();
+  // Reset epoch per branch whose brief ask ended at the usage limit; same life.
+  const briefWaits = new Map<string, number>();
   // WHAT THIS DAEMON DISPATCHED, the set it renews each pass. The shared marks
   // on disk are merged in by `maybeAutoDispatch` for the budget arithmetic.
   let own = new Set<string>();
@@ -45,7 +47,7 @@ export const fleetAutoWrites = (
         cleanliness: bashCleanliness,
       });
       const machine = await readMachine(opts);
-      own = maybeAutoDispatch(opts, pulse, controls, entries, own, machine, briefsAsked);
+      own = maybeAutoDispatch(opts, pulse, controls, entries, own, machine, briefsAsked, briefWaits);
       runAutoDeliverPass(opts, pulse);
       // VERIFICATION GOES LAST: it takes an agent slot only when the queue
       // held no slice on `no-free-agent`, and dispatch has just had its turn.

@@ -7,6 +7,7 @@ import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { trackerReads } from './tracker-shell.js';
 import { trackerGithub } from './tracker-github.js';
+import { githubPlanStateWrite } from './tracker-plan-state.js';
 import { trackerJira } from './tracker-jira.js';
 import { trackerNone } from './tracker-none.js';
 import { TRACKER_LISTERS } from './tracker-listers.js';
@@ -81,7 +82,7 @@ export const trackerShell = async (context: ShellContext): Promise<Tracker> => {
  * caller reading this `Tracker`'s `limit()` is reading the git host's budget,
  * not a second one nothing would charge against.
  *
- * THE WRITE ANSWERS `unaskable`, always, and says why. A status write has
+ * THE STATUS AND ISSUE-OPEN WRITES ANSWER `unaskable`, and say why. A status write has
  * nowhere native to land on a git host's own issue — there is no second surface
  * the way `trackerGithub`'s Projects write is one — and `unaskable` is the
  * honest answer the port-doc correction states: no tracker was declared, so no
@@ -113,6 +114,10 @@ export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker 
       unaskable("no Tracker declared; the git host's issues are read-only to Plot"),
     issueComment: async (): Promise<PortResult<IssueCommentOutcome>> =>
       unaskable("no Tracker declared; the git host's issues are read-only to Plot"),
+    // THE ONE WRITE THIS CONNECTOR MAKES, and one-way: the label and the plan
+    // comment on the git host's own issue. `plot-host.sh` answers exit 4, so
+    // `unaskable`, where the host cannot take it.
+    planStateWrite: githubPlanStateWrite(context, {}, reads.refuse),
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
     lastRefusal: (): string | null => reads.lastRefusal(),
     spender: (): Promise<PortResult<TrackerSpender>> => reads.spender(),

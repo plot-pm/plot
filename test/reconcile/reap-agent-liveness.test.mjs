@@ -233,14 +233,23 @@ test('--stop signals the worker\'s whole process group, so its child is gone too
   const { repo } = makeRepo();
   const branch = 'feature/stop-the-group';
   const marker = path.join(path.dirname(repo), 'child.pid');
-  const wrapper = spawn('sh', ['-c', `sleep 300 & echo $! > ${JSON.stringify(marker)}; exec sleep 300`],
-    { detached: true, stdio: 'ignore' });
+  // The pid is written to a temporary name and moved into place, so a reader
+  // sees the whole line or no file (#1676): `echo > marker` creates the file
+  // before it writes the pid.
+  const tmpMarker = `${marker}.tmp`;
+  const wrapper = spawn('sh', ['-c',
+    `sleep 300 & echo $! > ${JSON.stringify(tmpMarker)} && mv ${JSON.stringify(tmpMarker)} ${JSON.stringify(marker)}; exec sleep 300`],
+  { detached: true, stdio: 'ignore' });
   wrapper.unref();
   wrappers.push(record(String(wrapper.pid)));
-  for (let i = 0; i < 100 && !fs.existsSync(marker); i += 1) await sleep(50);
-  const childRec = readPid(marker);
-  const child = childRec?.pid;
-  wrappers.push(record(String(child), childRec?.recordedAt));
+  let childRec = readPid(marker);
+  for (let i = 0; i < 200 && childRec === undefined; i += 1) {
+    await sleep(50);
+    childRec = readPid(marker);
+  }
+  assert.ok(childRec !== undefined, 'precondition: the child wrote its pid');
+  const child = childRec.pid;
+  wrappers.push(record(String(child), childRec.recordedAt));
   desk(repo, branch, String(wrapper.pid));
   assert.ok(alive(child), 'precondition: the child runs');
 

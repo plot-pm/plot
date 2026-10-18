@@ -1,0 +1,1 @@
+../2026-10-17-delivery-reads-the-delivered-plan-and.md

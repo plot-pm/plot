@@ -4,6 +4,8 @@
  * `''` means that phase writes nothing. It is not a status to write.
  */
 export interface IssueStatusWords {
+  /** The word an `Approved` plan writes; `''` where the phase writes nothing. */
+  readonly approved: string;
   /** The word a `Delivered` plan writes; `''` where the phase writes nothing. */
   readonly delivered: string;
   /** The word a `Released` plan writes; `''` where the phase writes nothing. */
@@ -31,9 +33,9 @@ export interface IssueStatusWrite {
 /**
  * Decides which status writes a plan owes its tracker.
  *
- * Only `delivered` and `released` owe a write, each through its own word. A
- * phase whose word is empty owes nothing: one key never stands in for the
- * other.
+ * Only `approved`, `delivered` and `released` owe a write, each through its
+ * own word. A `draft` plan owes none: it has no status word. A phase whose word
+ * is empty owes nothing: one key never stands in for another.
  *
  * @param reading - the plan's phase, its issues and the configured words.
  * @returns one write per issue; empty where the phase owes none, the plan names
@@ -41,11 +43,13 @@ export interface IssueStatusWrite {
  */
 export const issueStatusWrites = (reading: IssueStatusReading): readonly IssueStatusWrite[] => {
   const status =
-    reading.phase === 'delivered'
-      ? reading.words.delivered
-      : reading.phase === 'released'
-        ? reading.words.released
-        : '';
+    reading.phase === 'approved'
+      ? reading.words.approved
+      : reading.phase === 'delivered'
+        ? reading.words.delivered
+        : reading.phase === 'released'
+          ? reading.words.released
+          : '';
   if (status === '') return [];
   return reading.issues.filter((issue) => issue !== '').map((issue) => ({ issue, status }));
 };

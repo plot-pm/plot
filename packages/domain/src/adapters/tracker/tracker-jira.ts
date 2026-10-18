@@ -7,6 +7,7 @@ import type {
   IssueOpen,
   IssueOpenOutcome,
   IssueRead,
+  PlanStateOutcome,
   StatusOutcome,
   StatusWrite,
   Tracker,
@@ -220,6 +221,13 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
     },
 
     issueComment: async (): Promise<PortResult<IssueCommentOutcome>> => unaskable('the Jira tracker does not comment on issues'),
+    // A STATUS AND NOTHING ELSE. A Jira issue takes no `plan:*` label, no plan
+    // comment and no close from Plot, so the tracker was reached and holds
+    // nowhere to put this.
+    planStateWrite: async (): Promise<PortResult<PlanStateOutcome>> => {
+      reads.refuse(null);
+      return answered<PlanStateOutcome>('no-target');
+    },
 
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
 

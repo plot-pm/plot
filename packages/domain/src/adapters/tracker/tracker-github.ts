@@ -15,6 +15,7 @@ import type {
 } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
+import { githubPlanStateWrite } from './tracker-plan-state.js';
 import { issueOpenOf, trackerReads } from './tracker-shell.js';
 
 /** The scheme `plot-host.sh` knows this connector's read arm by. */
@@ -78,7 +79,8 @@ export const githubIssueOpen =
   };
 
 /**
- * Adds one comment to a GitHub issue through `plot-host.sh issue-comment`.
+ * Adds one comment to a GitHub issue through `plot-host.sh issue-comment`,
+ * whose empty marker posts a new comment rather than editing one.
  *
  * @param context - where the scripts and the repository are.
  * @param refuse - records the refusal the calling connector's `lastRefusal` reports.
@@ -90,7 +92,7 @@ export const githubIssueComment =
   async (id: string, body: string): Promise<PortResult<IssueCommentOutcome>> => {
     const said = await runProcess(
       'bash',
-      [scriptPath(context, 'plot-host.sh'), 'issue-comment', id, body],
+      [scriptPath(context, 'plot-host.sh'), 'issue-comment', id, '', body],
       { cwd: context.repoRoot, env: { PLOT_TRACKER: SCHEME } },
     );
     if (said.code === 4) {
@@ -202,6 +204,7 @@ export const trackerGithub = (context: ShellContext): Tracker => {
     issueOpen: githubIssueOpen(context, reads.refuse),
 
     issueComment: githubIssueComment(context, reads.refuse),
+    planStateWrite: githubPlanStateWrite(context, { PLOT_TRACKER: SCHEME }, reads.refuse),
 
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),
 

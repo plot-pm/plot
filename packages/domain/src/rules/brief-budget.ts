@@ -21,17 +21,41 @@ export interface BriefBudgetReadings {
 }
 
 /**
- * The asked branches whose brief is still missing.
+ * The asked branches whose brief is still missing and that may not be asked again yet.
  *
  * @param asked Branches a brief writer was started for.
  * @param missingBriefs Branches this pass found with no brief on `origin/<main>`.
- * @returns A new set holding each asked branch that is still in `missingBriefs`.
- *   A branch whose brief landed, or that is no longer a candidate, is dropped.
+ * @param waits Reset epoch in seconds per branch whose last ask ended at the usage limit.
+ * @param now The clock reading in epoch seconds; read only where `waits` names a branch.
+ * @returns A new set holding each asked branch that is still in `missingBriefs`
+ *   and has no wait that `now` has reached. A branch whose brief landed, that is
+ *   no longer a candidate, or whose reset has come is dropped.
  */
 export const outstandingAsks = (
   asked: ReadonlySet<string>,
   missingBriefs: ReadonlySet<string>,
-): Set<string> => new Set([...asked].filter((branch) => missingBriefs.has(branch)));
+  waits: ReadonlyMap<string, number> = new Map(),
+  now = 0,
+): Set<string> =>
+  new Set(
+    [...asked].filter((branch) => {
+      if (!missingBriefs.has(branch)) return false;
+      const resetEpoch = waits.get(branch);
+      return resetEpoch === undefined || now < resetEpoch;
+    }),
+  );
+
+/**
+ * The usage-limit waits that still belong to an outstanding ask.
+ *
+ * @param waits Reset epoch in seconds per branch.
+ * @param outstanding The branches {@link outstandingAsks} kept.
+ * @returns A new map holding each wait whose branch is in `outstanding`.
+ */
+export const outstandingWaits = (
+  waits: ReadonlyMap<string, number>,
+  outstanding: ReadonlySet<string>,
+): Map<string, number> => new Map([...waits].filter(([branch]) => outstanding.has(branch)));
 
 /**
  * How many brief writers this pass may start.
