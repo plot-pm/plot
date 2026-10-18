@@ -1434,11 +1434,14 @@ export function parseSprintContent(content: string, name: string): SprintCard | 
   const endMatch = statusBody.match(/^- \*\*End:\*\* (.+)$/m);
   const end = endMatch ? endMatch[1].trim() : '';
   // Sprint goal — the bold statement from `## Sprint Goal`. Extract the first
-  // bold line as the goal headline.
+  // bold line as the goal headline; a sprint cut from the shipped template
+  // (`skills/plot/templates/sprint.md`) writes that section as plain text, so
+  // fall back to the first non-empty line when no bold line matches.
   const goalSection = content.match(/## Sprint Goal\s*\n([\s\S]*?)(?=\n## |$)/);
   const goalBody = goalSection ? goalSection[1].trim() : '';
   const goalMatch = goalBody.match(/^\*\*(.+?)\*\*/m);
-  const goal = goalMatch ? goalMatch[1].trim() : '';
+  const goalLineMatch = goalBody.match(/^.+$/m);
+  const goal = goalMatch ? goalMatch[1].trim() : goalLineMatch ? goalLineMatch[0].trim() : '';
   // The timebox is NOT decided here: this parse has no clock, and reading one
   // would make the answer untestable. `collectSprints` stamps it against one
   // day for every sprint it returns; a caller parsing a file directly gets the
