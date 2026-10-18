@@ -57,7 +57,7 @@ Three independent fixes, one slice each. Each is a bug fix with a reproducing te
 
 ### Write queue
 
-- `bug/default-branch-writes-take-turns` — #1349: serialise default-branch lifecycle writes with a lock in `plot-push-main.sh`, a 120 s wait bound and a refusal that names the holder
+- `bug/default-branch-writes-take-turns` — #1349: serialise default-branch lifecycle writes with a lock in `plot-push-main.sh`, a 120 s wait bound and a refusal that names the holder → #2039
 
 ## Notes
 
