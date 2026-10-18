@@ -63,7 +63,7 @@ Each slice first reproduces its issues' findings on main with a failing test. A 
 
 ### Needs a person
 
-- `bug/the-ending-ask-record-stays-bounded` — #1393, #1394: branch check for marker and start-fresh; merged-desk paging; the TSV prune and a single read; the `at`-field key; every host call counted; marker wording; one `prOpen` call per candidate.
+- `bug/the-ending-ask-record-stays-bounded` — #1393, #1394: branch check for marker and start-fresh; merged-desk paging; the TSV prune and a single read; the `at`-field key; every host call counted; marker wording; one `prOpen` call per candidate. → #2042
 
 ### Drop
 
