@@ -125,7 +125,7 @@ const ISSUE_LIMIT = 50;
  *
  * `rows` and `inbox` are read exactly as given, planned rows included; the
  * caller holds the `ISSUE_LIMIT` cap. A row that a plan in `plans` names shows
- * {@link ticketPhase}'s label as its `status` — except on a Jira source, whose
+ * {@link ticketPhase}'s label as its `status` — except on a `tracker-account` source, whose
  * rows keep the tracker's own state — and the rendered rows list the
  * unplanned ones first, then the planned ones, each newest first.
  *
@@ -148,8 +148,8 @@ export const waitingTickets = (
   const now = Date.now();
   const total = rows.length;
   const phaseOf = (row: IssueIndexRow) => ticketPhase(plans.get(row.number) ?? []);
-  // A Jira ticket keeps the tracker's own workflow state; only its place in the list follows the plan.
-  const wordOf = (row: IssueIndexRow): string | null => (source?.service === 'jira' ? null : phaseOf(row)?.label ?? null);
+  // A tracker-account source states its own workflow state, which stays; only its place in the list follows the plan.
+  const wordOf = (row: IssueIndexRow): string | null => (source?.match === 'tracker-account' ? null : phaseOf(row)?.label ?? null);
 
   const render = (selected: readonly IssueIndexRow[], notice: string | null): WaitingTickets => ({
     tickets: [
