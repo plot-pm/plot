@@ -2243,7 +2243,7 @@ export const run = async (
           () => prState.prError,
           // THE AUTOMATIC WRITES RUN HERE, on the pulse this scan just wrote
           // and never inside `tick`: a scan that failed calls nothing.
-          fleetAutoWrites({ repoRoot, scriptsDir, scripts }, warn, () => queueHolds.held),
+          fleetAutoWrites({ repoRoot, scriptsDir, scripts }, warn, () => queueHolds.held, stop),
         ),
         prs: prsBeat({ readPrs: seams.readPrs ?? readPrs, readDefaultBranch }, slot, retryBind),
         issues: seams.readIssues ?? readIssues,

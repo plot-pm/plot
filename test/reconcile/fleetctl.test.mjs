@@ -2896,3 +2896,32 @@ test('--status from a desk under the estate own desk root is not refused', () =>
   const r = run(ctl, ['--status'], fs.realpathSync(desk), guardBin);
   assert.doesNotMatch(r.out, /not part of the estate/);
 });
+
+// ── The desk root is compared as a physical path (#1586) ──────────────────────
+
+const symlinkedDeskRoot = (label) => {
+  const s = sandbox(label);
+  const real = path.join(s.box, 'real-desks');
+  const link = path.join(s.box, 'link-desks');
+  fs.mkdirSync(real);
+  fs.symlinkSync(real, link);
+  fs.writeFileSync(path.join(s.root, 'CLAUDE.md'), `## Plot Config\n\n- **Worktree root:** ${link}\n`);
+  return { ...s, real };
+};
+
+test('--status from a desk reached through a symlinked desk root is not refused', () => {
+  const { root, real, ctl, guardBin } = symlinkedDeskRoot('symlink-desks');
+  const desk = path.join(real, 'desk-a');
+  git(root, 'worktree', 'add', '-q', '-b', 'desk-a', desk);
+  const r = run(ctl, ['--status'], fs.realpathSync(desk), guardBin);
+  assert.doesNotMatch(r.out, /not part of the estate/);
+});
+
+test('--status from a linked worktree outside a symlinked desk root is still refused', () => {
+  const { root, box, ctl, guardBin } = symlinkedDeskRoot('symlink-foreign');
+  const foreign = path.join(box, 'foreign-wt');
+  git(root, 'worktree', 'add', '-q', '-b', 'scratch', foreign);
+  const r = run(ctl, ['--status'], fs.realpathSync(foreign), guardBin);
+  assert.equal(r.status, 3, r.out);
+  assert.match(r.out, /not part of the estate at/);
+});
