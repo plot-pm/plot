@@ -94,6 +94,7 @@ export const endedDeskPlacement = (readings: EndedDeskReadings): EndedDeskPlacem
     readings.blockedQuestion !== false
   ) {
     return {
+      section: 'waiting-on-you',
       owesPerson: true,
       note: "ended a free wait with its last slice still checked out — the work left behind is the prior slice's, not this wait's",
     };

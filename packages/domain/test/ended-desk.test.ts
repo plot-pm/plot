@@ -85,6 +85,7 @@ describe('endedDeskPlacement', () => {
     ['an unmerged slice', { merged: false }],
   ] as const)('names a desk with %s rather than leaving it a silent row — #1917', async (_name, over) => {
     expect(endedDeskPlacement(clean(await freeWaitDesk(), over))).toEqual({
+      section: 'waiting-on-you',
       owesPerson: true,
       note: "ended a free wait with its last slice still checked out — the work left behind is the prior slice's, not this wait's",
     });
