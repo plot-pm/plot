@@ -1,0 +1,1 @@
+../2026-10-18-bitbucket-jenkins-pr-list-binds-a.md
