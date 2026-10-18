@@ -6,12 +6,7 @@
 - **Ends as:** one PR to `main`
 - **Review of the code:** per repo convention (plot-review app, required since 2026-10-15)
 
-**This branch waits on PR #1974, still open at the time this brief was
-written.** The plan's slice line says so (`<!-- waits: PR #1974 -->`) and
-the Design section repeats it: "This plan depends on #1974 merging
-first." Check `gh pr view 1974 --json state,mergedAt` before starting —
-if it has not merged, do not begin this slice; re-check later or ask
-`/plot-pulse`. What follows assumes #1974 has landed.
+PR #1974 merged 2026-10-18T16:45Z (`f50e12d24`), so `jenkins_bind_rows` is on `main` and nothing blocks this slice.
 
 ### What to build
 
