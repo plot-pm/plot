@@ -1,37 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { agentLoop, type AgentLoopReadings } from '../src/workflows/agent-loop.js';
 import {
   endingAction,
   killedWorkerEnding,
   needsPersonMarker,
   type EndingActionReadings,
 } from '../src/rules/ending-action.js';
-import { reapProblems, type TreeReadings } from '../src/rules/reapable.js';
-import type { Write } from '../src/workflows/decision.js';
 
 const BRANCH = 'bug/a-slice-the-desk-held-before';
-
-const freeLoopAtBound = (over: Partial<AgentLoopReadings> = {}): AgentLoopReadings =>
-  ({
-    assignedBranch: '',
-    waitedSeconds: 28851,
-    boundSeconds: 28800,
-    registration: 'unset',
-    worktree: '/estate/.worktrees/free-04e1f562',
-    ...over,
-  }) as AgentLoopReadings;
-
-const mergedDesk = (over: Partial<TreeReadings> = {}): TreeReadings => ({
-  branch: BRANCH,
-  defaultBranch: 'main',
-  isMain: false,
-  workerPid: null,
-  dirtyPath: '',
-  blockedMarker: false,
-  merge: 'merged',
-  ...over,
-});
 
 const endingReadings = (over: Partial<EndingActionReadings> = {}): EndingActionReadings => ({
   ending: null,
@@ -50,20 +26,14 @@ const endingReadings = (over: Partial<EndingActionReadings> = {}): EndingActionR
 });
 
 describe('a free loop that ends at the wait bound — the full path', () => {
-  it('writes no marker, no declaration and no ending, so the desk reaps', () => {
-    const result = agentLoop(freeLoopAtBound());
-    const kinds = result.writes.map((w: Write) => w.kind);
-    expect(result.detail.exitCode).toBe(124);
-    expect(kinds).not.toContain('blocked-marker');
-    expect(kinds).not.toContain('declaration');
-    expect(kinds).not.toContain('loop-end');
-
-    // No marker was written, so the tree reads markerless and the reaper's
-    // `blocked-marker` refusal does not fire.
-    const refusals = reapProblems(mergedDesk({ blockedMarker: kinds.includes('blocked-marker') })).map((p) => p.refusal);
-    expect(refusals).not.toContain('blocked-marker');
-    expect(refusals).toEqual([]);
-  });
+  // #1784: this block used to open with a test asserting agentLoop(freeLoopAtBound())
+  // writes no blocked-marker/declaration/loop-end and that feeding those kinds into
+  // reapProblems(mergedDesk(...)) yields no refusals. Both halves are fully subsumed:
+  // workflows-agent-loop.test.ts's "ends the free wait with no ending reason, exit 124"
+  // already asserts `result.writes` is empty outright (stronger than the three
+  // not.toContain checks here), and reapable.test.ts already asserts
+  // refusalsOf(landed()) === [] for the same unblocked/merged fixture. Removed as
+  // redundant rather than kept for its wiring alone.
 
   it('is answered `leave` by the supervisor tick that finds the desk with exit 124 and no ending', () => {
     // The tick turns "exit 124, no ending, no live loop, branch still checked out"
