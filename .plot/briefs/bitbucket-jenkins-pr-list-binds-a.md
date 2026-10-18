@@ -11,18 +11,21 @@ PR #1974 merged 2026-10-18T16:45Z (`f50e12d24`), so `jenkins_bind_rows` is on `m
 ### What to build
 
 The Bitbucket arm of `pr-list --rich` under `CI: jenkins`
-(`plot-host.sh:4357-4393`) reads `checks` from `$jmap[.source.branch.name]`
-— the Jenkins branch colour — and never emits `checksSha`. A push between
-builds leaves the row showing the *previous* head's `green` until Jenkins
-builds the new one, because the branch-colour map carries no commit. The
-board and the merge queue read `checks`/`checksSha` straight off this row,
-so a stale `green` reads as "safe to merge" for a commit nobody built.
+(`plot-host.sh:4377-4413` as of `f50e12d24`, #1974 merged) reads `checks`
+from `$jmap[.source.branch.name]` — the Jenkins branch colour — and never
+emits `checksSha`. A push between builds leaves the row showing the
+*previous* head's `green` until Jenkins builds the new one, because the
+branch-colour map carries no commit. The board and the merge queue read
+`checks`/`checksSha` straight off this row, so a stale `green` reads as
+"safe to merge" for a commit nobody built.
 
-The GitHub arm already closed this gap (#1959, `plot-host.sh:4195-4221`+):
-it names the rows the branch-colour map can't settle to a commit (`green`
+The GitHub arm already closed this gap (#1959, then refactored by #1974
+into the reusable `jenkins_bind_rows`, `plot-host.sh:1765` onward): it
+names the rows the branch-colour map can't settle to a commit (`green`
 or `failing` with a head sha), reads each one's builds by sha, and binds
-the result over the branch-colour map before emitting `checks`. This slice
-gives the Bitbucket `pr-list` arm the identical treatment.
+the result over the branch-colour map before emitting `checks`. The
+GitHub `pr-list` arm calls it at `plot-host.sh:4237`. This slice gives
+the Bitbucket `pr-list` arm the identical treatment.
 
 ### The decisions the plan settles — do not re-derive them
 
@@ -171,21 +174,19 @@ plan's `## Slices` section.
 This branch owns:
 
 - `skills/plot/scripts/plot-host.sh` — the Bitbucket `pr-list --rich`
-  arm under `CI: jenkins` (`:4357-4393` as of this writing; line numbers
-  will have shifted once #1974 lands first)
+  arm under `CI: jenkins` (`:4377-4413` as of `f50e12d24`)
 - `test/reconcile/host.test.mjs` — new Bitbucket+Jenkins `pr-list`
   fixture(s) for the bound-head case
 - `skills/plot/scripts/README.md` — only if a helper's row changes
 - a changeset under `.changeset/` naming this fix
 
 The plan names one slice and one branch — there is no sibling branch in
-this plan to collide with. The branch this slice depends on
-(`feature/bitbucket-pr-state-binds-checks`, PR #1974) touches the same
-file (`plot-host.sh`) and the same test file, in a different region
-(`pr-state`'s Bitbucket arm, `bb_state_row`, and `jenkins_sha_runs`
-itself) — rebase onto `main` after #1974 merges rather than working from
-a stale base, so line numbers and the `jenkins_bind_rows` helper are the
-ones actually on `main`.
+this plan to collide with. PR #1974 (`feature/bitbucket-pr-state-binds-checks`)
+already merged and touched the same file (`plot-host.sh`) and the same
+test file, in a different region (`pr-state`'s Bitbucket arm,
+`bb_state_row`, and `jenkins_sha_runs` itself) — branch from current
+`main` so the line numbers above and the `jenkins_bind_rows` helper are
+the ones this branch actually sees.
 
 If you find something the plan did not anticipate, report it rather than
 improvising outside scope.
