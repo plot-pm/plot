@@ -134,6 +134,8 @@ const sandbox = ({ delivered = true, toolsCommitted = true, pushRejects = false 
     write(dir, `${SCRIPTS_REL}/${name}`, fs.readFileSync(path.join(scripts, name), 'utf8'));
     fs.chmodSync(path.join(dir, SCRIPTS_REL, name), 0o755);
   }
+  // plot-push-main.sh takes its lock through this helper.
+  write(dir, `${SCRIPTS_REL}/plot-push-lock.mjs`, fs.readFileSync(path.join(scripts, 'plot-push-lock.mjs'), 'utf8'));
   write(dir, `${SCRIPTS_REL}/plot-host.sh`, STUB_HOST);
   if (pushRejects) {
     write(dir, `${SCRIPTS_REL}/plot-push-main.real.sh`, fs.readFileSync(path.join(scripts, 'plot-push-main.sh'), 'utf8'));
