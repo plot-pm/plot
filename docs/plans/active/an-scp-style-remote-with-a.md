@@ -1,0 +1,1 @@
+../2026-10-18-an-scp-style-remote-with-a.md
