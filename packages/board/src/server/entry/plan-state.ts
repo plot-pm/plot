@@ -1,4 +1,4 @@
-import { scriptsShell, trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
+import { hostShell, scriptsShell, trackerForIssues, type ShellContext } from '@plot-pm/domain/adapters';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import {
   isPlanStatePhase,
@@ -94,6 +94,20 @@ export const flagsFrom = (argv: readonly string[]): Pick<PlanStateReading, 'phas
 };
 
 /**
+ * Resolves the connector a plan-state write goes through, as the board's
+ * issue readers do: a declared `Tracker` through its own connector, and a
+ * repository that declares none through its git host's issues
+ * (`trackerGitHost`), whose `planStateWrite` is the label and the comment.
+ *
+ * @param context - where the scripts and the repository are.
+ * @returns the connector for the declared `Tracker` key and the git host's backend.
+ */
+export const planStateTracker = async (context: ShellContext): Promise<Tracker> => {
+  const [declared, backend] = await Promise.all([scriptsShell(context).config('Tracker', ''), hostShell(context).backend()]);
+  return trackerForIssues(declared.ok ? declared.value.trim() : '', backend.ok ? backend.value : '', context);
+};
+
+/**
  * Performs every plan-state write the rule decides a plan owes.
  *
  * @param reading - the plan's phase, issues, link and (at release) version.
@@ -148,7 +162,7 @@ export const run = async (
     write('summary: tracker=none\n');
     return EXIT.ok;
   }
-  const tracker = await trackerShell(context);
+  const tracker = await planStateTracker(context);
   const { lines, outcomes } = await writePlanStates(reading, tracker);
   for (const line of lines) write(line);
   write(`summary: tracker=${trackerWriteSummary(outcomes)}\n`);

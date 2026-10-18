@@ -2,7 +2,8 @@
 // gives a broken call. A run owing no write resolves no tracker, so nothing
 // here reaches `plot-host.sh`.
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -108,5 +109,69 @@ describe('a run of the entry', () => {
     const code = await run([file, '--phase', 'approved', '--plan-link', 'docs/plans/p.md'], { repoRoot: root, scriptDir: SCRIPT_DIR }, (s) => out.push(s), () => {});
     expect(code).toBe(EXIT.ok);
     expect(out).toEqual(['summary: tracker=none\n']);
+  });
+});
+
+describe('the connector a run resolves', () => {
+  const roots: string[] = [];
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
+  /**
+   * Runs the entry over a real repository whose config declares `tracker` (or
+   * nothing), through a COPIED script set whose `plot-host.sh` answers
+   * `backend` with `github` and records every call. The connector is resolved
+   * for real; only the host script is a stub.
+   */
+  const runWith = async (tracker: string | null): Promise<{ code: number; out: string; hostCalls: string[] }> => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'plot-plan-state-resolve-')));
+    roots.push(root);
+    const scripts = path.join(root, 'scripts');
+    const marker = path.join(root, 'host.calls');
+    cpSync(SCRIPT_DIR, scripts, { recursive: true, dereference: true });
+    const host = path.join(scripts, 'plot-host.sh');
+    writeFileSync(
+      host,
+      [
+        '#!/usr/bin/env bash',
+        `printf '%s\\n' "$*" >> '${marker}'`,
+        'case "$1" in',
+        '  backend) echo github ;;',
+        '  issue-label|issue-comment) exit 0 ;;',
+        '  *) exit 4 ;;',
+        'esac',
+        '',
+      ].join('\n'),
+    );
+    chmodSync(host, 0o755);
+    const repo = path.join(root, 'repo');
+    execFileSync('git', ['init', '-q', '-b', 'main', repo]);
+    writeFileSync(
+      path.join(repo, 'CLAUDE.md'),
+      ['## Plot Config', '', '- **Plan directory:** docs/plans/', ...(tracker === null ? [] : [`- **Tracker:** ${tracker}`]), ''].join('\n'),
+    );
+    const file = path.join(repo, '2026-10-17-p.md');
+    writeFileSync(file, '# P\n\n## Status\n\n- **Phase:** Approved\n- **Issue:** #7\n');
+    const out: string[] = [];
+    const code = await run([file, '--phase', 'approved', '--plan-link', 'docs/plans/2026-10-17-p.md'], { repoRoot: repo, scriptDir: scripts }, (s) => out.push(s), () => {});
+    const hostCalls = existsSync(marker) ? readFileSync(marker, 'utf8').trim().split('\n') : [];
+    return { code, out: out.join(''), hostCalls };
+  };
+
+  it('writes through the git host’s issues where no Tracker is declared', async () => {
+    const r = await runWith(null);
+    expect(r.code).toBe(EXIT.ok);
+    expect(r.out).toBe('7\twritten\tapproved\nsummary: tracker=written\n');
+    expect(r.hostCalls).toContain('backend');
+    expect(r.hostCalls).toContain('issue-label 7 plan:approved plan:draft,plan:delivered,plan:released');
+    expect(r.hostCalls.some((call) => call.startsWith('issue-comment 7 <!-- plot:plan-link --> '))).toBe(true);
+  });
+
+  it('answers no-target, and touches no issue, where the declared Tracker is Jira', async () => {
+    const r = await runWith('jira https://tracker.invalid');
+    expect(r.code).toBe(EXIT.ok);
+    expect(r.out).toMatch(/^7\tno-target\t.*\nsummary: tracker=no-target\n$/);
+    expect(r.hostCalls.filter((call) => call.startsWith('issue-'))).toEqual([]);
   });
 });

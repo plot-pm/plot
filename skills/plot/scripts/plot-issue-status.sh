@@ -45,6 +45,6 @@ released=$(bash "$script_dir/plot-config.sh" get "Tracker released status" '' 2>
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null); [ -n "$repo_root" ] || repo_root=$(pwd)
 out=$(printf '%s' "$meta" | PLOT_SCRIPTS_DIR="$script_dir" PLOT_REPO_ROOT="$repo_root" \
-  node "$bundle" --approved "$approved" --delivered "$delivered" --released "$released") || fail_as "the bundle failed"
+  node "$bundle" --approved "$approved" --delivered "$delivered" --released "$released") || { [ -z "$out" ] || printf '%s\n' "$out"; fail_as "the bundle failed"; }
 printf '%s\n' "$out"
 exit 0

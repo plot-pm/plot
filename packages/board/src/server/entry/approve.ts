@@ -1163,9 +1163,9 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   }
 
   // A plan's phase, reflected on its issues — see Tracker.planStateWrite. Only
-  // a whole-plan approval owes it: a spike leaves the phase where it was. A
-  // failed write is reported and the approval stands.
-  let planState = 'none';
+  // a whole-plan approval owes it: a spike leaves the phase where it was, and
+  // reports `skipped`. A failed write is reported and the approval stands.
+  let planState = 'skipped';
   try {
     if (!args.spike) {
       const run = await ctx.scripts.awaited('plot-plan-state.sh', [approvedPlan.file, '--phase', 'approved', '--plan-link', approvedPlan.link]);
