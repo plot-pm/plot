@@ -76,9 +76,10 @@ export const rowsToBind = (
  *
  * `UNSTABLE` is failing. Every other word without a verdict — `ABORTED`,
  * `NOT_BUILT` — is `unknown`, because the PR row's `checks` has no `cancelled`.
- * An answer with no build of the commit is `pending`: the head has not been
- * built yet. A lookup that could not ask Jenkins is not an answer, and returns
- * `null` so the branch colour stands.
+ * An answer with no build of the commit is `unknown` and unbound: the colour
+ * cannot bind to the head, and `pending` would hold the merge queue on a head
+ * Jenkins may never report. A lookup that could not ask Jenkins is not an
+ * answer, and returns `null` so the branch colour stands.
  *
  * @param runs - builds of the commit, in any order, or `null` where the lookup
  *   could not ask.
@@ -93,7 +94,7 @@ export const bindChecks = (
 ): BoundChecks | null => {
   if (runs === null) return null;
   const newest = [...runs].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
-  if (newest === undefined) return { checks: 'pending', job, checksSha: '' };
+  if (newest === undefined) return { checks: 'unknown', job, checksSha: '' };
   const word = newest.conclusion;
   const bound = (checks: BoundChecks['checks']): BoundChecks => ({ checks, job, checksSha: sha });
   if (newest.status === 'in_progress' || word === null) return bound('pending');

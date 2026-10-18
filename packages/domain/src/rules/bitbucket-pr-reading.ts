@@ -27,7 +27,6 @@ export interface PrStateRow {
   base?: string;
   checks?: string;
   checksSha?: string;
-  job?: string;
 }
 
 /**

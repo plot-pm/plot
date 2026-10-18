@@ -1752,7 +1752,7 @@ jenkins_sha_runs() {
           conclusion: (if .building then null else (.result // null) end),
           url: (.url // ""),
           startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ]
-    | if $sha != "" then map(select(.sha == $sha)) elif $plain == "" then .
+    | if $sha != "" then map(select(.sha == $sha or (($sha | test("^[0-9a-f]{7,}$")) and (.sha | startswith($sha))))) elif $plain == "" then .
       else map(select(if (.br | length) > 0 then any(.br[]; . == $branch) else $branch == ($job | split("/") | last) end)) end
     | map(del(.br))' || exit 4
 }
@@ -1776,16 +1776,16 @@ jenkins_bind_rows() {
 # `pr-list`'s plain Bitbucket arm. Under it the branch colour from
 # `jenkins_build_map` settles `none` and `pending`, and a head whose colour is
 # `green` or `failing` is read by sha through `jenkins_bind_rows`, because a
-# colour carries no commit. Jenkins unreachable reads `unknown`, as in `pr-list`.
-# `headSha` is `source.commit.hash` from the payload already fetched.
+# colour carries no commit. Jenkins unreachable or no instance reads `unknown`.
+# `headSha` is `source.commit.hash`, a short hash `jenkins_sha_runs` prefix-matches.
 bb_state_row() {
   local colours=null bound=null inst
   if jq -e '.id' >/dev/null 2>&1 <<<"$1" && [ "$(ci_scheme)" = "jenkins" ]; then
-    inst="$(jenkins_instance)"; [ -n "$inst" ] || jenkins_no_instance
-    colours="$(jenkins_build_map "$inst" | jq -c 'if .status == "ok" then (.map // {}) else null end' 2>/dev/null)" || colours=null
+    inst="$(jenkins_instance)"
+    [ -z "$inst" ] || colours="$(jenkins_build_map "$inst" | jq -c 'if .status == "ok" then (.map // {}) else null end' 2>/dev/null)" || colours=null
     [ "$colours" = null ] || bound="$(jenkins_bind_rows pr-state "$colours" "$(jq -c '[{headRefName:.source.branch.name,headRefOid:.source.commit.hash}]' <<<"$1")")"
   fi
-  printf '%s\n%s\n%s\n' "$1" "$colours" "${bound:-null}" | node "$here/board/plot-jenkins-pr-checks.mjs" state
+  printf '%s\n%s\n%s\n' "$(jq -c . <<<"$1")" "$colours" "${bound:-null}" | node "$here/board/plot-jenkins-pr-checks.mjs" state
 }
 
 ci_unaskable() { # $1 = the op's name, $2 = the CI word (may be empty)
@@ -3885,7 +3885,7 @@ case "$op" in
       pr="/repositories/{ws}/{repo}/pullrequests/${1:?pr-review needs a PR number}"
       out="$(bb api "$pr")" && sha="$(jq -re '.source.commit.hash' <<<"$out")" \
         && st="$(bb api "/repositories/{ws}/{repo}/commit/$sha/statuses?sort=-created_on&pagelen=50")" && cm="$(bb api "$pr/comments?pagelen=100")" \
-        && printf '%s\n%s\n%s\n' "$sha" "$st" "$cm" | node "$here/board/plot-jenkins-pr-checks.mjs" review \
+        && printf '%s\n%s\n%s\n' "$sha" "$(jq -c . <<<"$st")" "$(jq -c . <<<"$cm")" | node "$here/board/plot-jenkins-pr-checks.mjs" review \
         || { echo "plot-host: pr-review: the read failed" >&2; exit 3; }
       exit 0
     fi
