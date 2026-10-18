@@ -62,7 +62,7 @@ Domain rules follow the layering rule in `CLAUDE.md`: new code is arrow function
 
 ### Wait-bound fleet
 
-- `bug/fleetd-at-agents-zero-after-a-wait` — after a free desk ends at the wait bound and the fleet is at `agents=0`, fleetd starts a new free agent while an approved slice is held `no-free-agent`, bounded by `Parallel agents` (#1903). Done when: a test reproduces the #1743 estate and asserts a `worker-start` write from `assign` — in `packages/domain/test/queue.test.ts` for a `scaleUp` change, or `packages/fleet/test/unit/registryd-tick.test.ts` if the cause is a desk at the bound counted in `readings.agents`; a slice held `no-brief`, `not-claimable` or `waits` starts none; the start count per tick is pinned in a test to the operator's answer on the open question; no starter is added beside `scaleUp`.
+- `bug/fleetd-at-agents-zero-after-a-wait` — after a free desk ends at the wait bound and the fleet is at `agents=0`, fleetd starts a new free agent while an approved slice is held `no-free-agent`, bounded by `Parallel agents` (#1903). Done when: a test reproduces the #1743 estate and asserts a `worker-start` write from `assign` — in `packages/domain/test/queue.test.ts` for a `scaleUp` change, or `packages/fleet/test/unit/registryd-tick.test.ts` if the cause is a desk at the bound counted in `readings.agents`; a slice held `no-brief`, `not-claimable` or `waits` starts none; the start count per tick is pinned in a test to the operator's answer on the open question; no starter is added beside `scaleUp`. → #2040
 
 ## Notes
 
