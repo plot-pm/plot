@@ -3,6 +3,7 @@ import type { IssueWriteSpool } from '@plot-pm/domain/ports/issue-write-spool';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import {
   issueStatusWrites,
+  trackerWriteSummary,
   type IssueStatusReading,
   type IssueStatusWords,
 } from '@plot-pm/domain/rules/issue-status';
@@ -97,8 +98,9 @@ export const writeStatuses = async (
   reading: IssueStatusReading,
   tracker: Tracker,
   issueWrites?: IssueWriteSpool,
-): Promise<string[]> => {
+): Promise<{ lines: string[]; outcomes: WriteOutcome[] }> => {
   const lines: string[] = [];
+  const outcomes: WriteOutcome[] = [];
   for (const { issue, status } of issueStatusWrites(reading)) {
     const result = await tracker.statusWrite({ prUrl: '', issue, status });
     const outcome: WriteOutcome = result.ok ? result.value : result.why;
@@ -109,8 +111,9 @@ export const writeStatuses = async (
       .replace(/\s+/g, ' ')
       .trim();
     lines.push(`${issue}\t${outcome}\t${reason}\n`);
+    outcomes.push(outcome);
   }
-  return lines;
+  return { lines, outcomes };
 };
 
 /**
@@ -140,9 +143,14 @@ export const run = async (
   }
   // NOTHING OWED ASKS NO TRACKER. Resolving one reads config through a script,
   // and the 90% of plans naming no issue have no reason to pay for it.
-  if (issueStatusWrites(reading).length === 0) return EXIT.ok;
+  if (issueStatusWrites(reading).length === 0) {
+    write('summary: tracker=none\n');
+    return EXIT.ok;
+  }
   const tracker = await trackerShell(context);
-  for (const line of await writeStatuses(reading, tracker, issueWriteSpoolFile({ cwd: context.repoRoot }))) write(line);
+  const { lines, outcomes } = await writeStatuses(reading, tracker, issueWriteSpoolFile({ cwd: context.repoRoot }));
+  for (const line of lines) write(line);
+  write(`summary: tracker=${trackerWriteSummary(outcomes)}\n`);
   return EXIT.ok;
 };
 

@@ -1,6 +1,6 @@
 import { trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
-import { planStateWrites, type PlanStateReading } from '@plot-pm/domain/rules/issue-status';
+import { planStateWrites, trackerWriteSummary, type PlanStateReading } from '@plot-pm/domain/rules/issue-status';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -92,15 +92,17 @@ export const flagsFrom = (argv: readonly string[]): Pick<PlanStateReading, 'phas
  * @param tracker - the connector the repository declared.
  * @returns one `<issue>\t<outcome>\t<reason>` line per owed write.
  */
-export const writePlanStates = async (reading: PlanStateReading, tracker: Tracker): Promise<string[]> => {
+export const writePlanStates = async (reading: PlanStateReading, tracker: Tracker): Promise<{ lines: string[]; outcomes: WriteOutcome[] }> => {
   const lines: string[] = [];
+  const outcomes: WriteOutcome[] = [];
   for (const write of planStateWrites(reading)) {
     const result = await tracker.planStateWrite(write);
     const outcome: WriteOutcome = result.ok ? result.value : result.why;
     const reason = (outcome === 'written' ? write.phase : (tracker.lastRefusal() ?? FALLBACK[outcome])).replace(/\s+/g, ' ').trim();
     lines.push(`${write.issue}\t${outcome}\t${reason}\n`);
+    outcomes.push(outcome);
   }
-  return lines;
+  return { lines, outcomes };
 };
 
 /**
@@ -129,9 +131,14 @@ export const run = async (
     return EXIT.usage;
   }
   // NOTHING OWED ASKS NO TRACKER, for the reason `issue-status.ts` gives.
-  if (planStateWrites(reading).length === 0) return EXIT.ok;
+  if (planStateWrites(reading).length === 0) {
+    write('summary: tracker=none\n');
+    return EXIT.ok;
+  }
   const tracker = await trackerShell(context);
-  for (const line of await writePlanStates(reading, tracker)) write(line);
+  const { lines, outcomes } = await writePlanStates(reading, tracker);
+  for (const line of lines) write(line);
+  write(`summary: tracker=${trackerWriteSummary(outcomes)}\n`);
   return EXIT.ok;
 };
 

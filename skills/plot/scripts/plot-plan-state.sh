@@ -18,7 +18,10 @@
 # IT DECIDES NOTHING. Which writes a plan owes is `planStateWrites`
 # (packages/domain/src/rules/issue-status.ts), reached through
 # board/plot-plan-state.mjs; the write goes through the tracker connector.
-# This script reads the plan for its issues, same as plot-issue-status.sh.
+# This script reads the plan for its issues, same as plot-issue-status.sh. The
+# bundle itself reduces the per-issue outcomes to the one summary line
+# (`trackerWriteSummary`, packages/domain/src/rules/issue-status.ts) — this
+# script only prints what it is given.
 #
 # THE CALLER RESOLVES THE LINK AND PHASE, as flags: the plan's address
 # differs by phase (the idea-branch PR link at draft, the plan file on the
@@ -31,9 +34,18 @@
 # macOS bash 3.2 throughout.
 set -uo pipefail
 
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 plan_file="${1:-}"
 shift || true
+bundle="$script_dir/board/plot-plan-state.mjs"
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-tracker-write.sh"
-plot_tracker_write "$plan_file" plot-plan-state.mjs "$@"
+fail_as() { echo "plot-plan-state: $1" >&2; echo "summary: tracker=failed"; exit 2; }
+
+{ [ -n "$plan_file" ] && [ -f "$plan_file" ]; } || fail_as "usage: plot-plan-state.sh <plan file> [flags...]"
+meta=$(bash "$script_dir/plot-plan-meta.sh" "$plan_file" 2>/dev/null) || meta=""
+[ -n "$meta" ] || fail_as "cannot parse '$plan_file'"
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null); [ -n "$repo_root" ] || repo_root=$(pwd)
+out=$(printf '%s' "$meta" | PLOT_SCRIPTS_DIR="$script_dir" PLOT_REPO_ROOT="$repo_root" node "$bundle" "$@") || fail_as "the bundle failed"
+printf '%s\n' "$out"
 exit 0

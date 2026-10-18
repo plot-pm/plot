@@ -91,3 +91,24 @@ export const planStateWrites = (reading: PlanStateReading): readonly PlanStateWr
     .filter((issue) => issue !== '')
     .map((issue) => ({ issue, phase, planLink: reading.planLink, ...(reading.version === undefined ? {} : { version: reading.version }) }));
 };
+
+/** A write's outcome, shared by {@link import('../../../board/src/server/entry/issue-status.js').WriteOutcome} and its plan-state counterpart. */
+export type TrackerWriteOutcome = 'written' | 'no-target' | 'unaskable' | 'failed';
+
+const WORST_LAST: readonly TrackerWriteOutcome[] = ['written', 'no-target', 'unaskable', 'failed'];
+
+/**
+ * Reduces a run's write outcomes to the one a caller reports.
+ *
+ * One failed write among several is a failed report, because the person
+ * reading the summary is the one who repairs it — so the worst outcome
+ * present wins: the last of {@link WORST_LAST} that appears in `outcomes`.
+ *
+ * @param outcomes - one per write this run attempted; empty means none was owed.
+ * @returns the worst outcome present, or `'none'` when `outcomes` is empty.
+ */
+export const trackerWriteSummary = (outcomes: readonly TrackerWriteOutcome[]): TrackerWriteOutcome | 'none' => {
+  let summary: TrackerWriteOutcome | 'none' = 'none';
+  for (const candidate of WORST_LAST) if (outcomes.includes(candidate)) summary = candidate;
+  return summary;
+};

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { issueStatusWrites, planStateWrites, type IssueStatusWords } from '../src/rules/issue-status.js';
+import { issueStatusWrites, planStateWrites, trackerWriteSummary, type IssueStatusWords } from '../src/rules/issue-status.js';
 
 const both: IssueStatusWords = { approved: 'Approved', delivered: 'In Review', released: 'Done' };
 
@@ -85,5 +85,27 @@ describe('a plan reflects its phase on its issues', () => {
     expect(planStateWrites({ phase: 'delivered', issues: ['7'], planLink: 'docs/plans/x.md' })).toEqual([
       { issue: '7', phase: 'delivered', planLink: 'docs/plans/x.md' },
     ]);
+  });
+});
+
+describe('a run’s write outcomes reduce to the one a caller reports', () => {
+  it('reports none where nothing was owed', () => {
+    expect(trackerWriteSummary([])).toBe('none');
+  });
+
+  it('reports the one outcome present', () => {
+    expect(trackerWriteSummary(['written'])).toBe('written');
+    expect(trackerWriteSummary(['failed'])).toBe('failed');
+  });
+
+  it('reports failed over written — one failed write among several is a failed report', () => {
+    expect(trackerWriteSummary(['written', 'failed'])).toBe('failed');
+    expect(trackerWriteSummary(['failed', 'written'])).toBe('failed');
+  });
+
+  it('ranks every pair worst-first: written < no-target < unaskable < failed', () => {
+    expect(trackerWriteSummary(['written', 'no-target'])).toBe('no-target');
+    expect(trackerWriteSummary(['no-target', 'unaskable'])).toBe('unaskable');
+    expect(trackerWriteSummary(['unaskable', 'failed'])).toBe('failed');
   });
 });
