@@ -3,7 +3,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
 import { deskMonitorsShell } from '../src/adapters/desk-monitors/desk-monitors-shell.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
@@ -17,6 +17,26 @@ import type { MonitoredDesk } from '../src/ports/desk-monitors.js';
  */
 
 const roots: string[] = [];
+
+const started: string[] = [];
+
+/** Starts the monitor and remembers its pid, so a failed assertion leaves no stub running. */
+const startTracked = (monitors: ReturnType<typeof deskMonitorsShell>, desk: MonitoredDesk): string => {
+  const result = monitors.start(desk);
+  const pid = result.ok ? result.value.agentMonitorPid : '';
+  if (pid !== '') started.push(pid);
+  return pid;
+};
+
+afterEach(() => {
+  for (const pid of started.splice(0)) {
+    try {
+      process.kill(Number(pid), 'SIGKILL');
+    } catch {
+      /* already gone */
+    }
+  }
+});
 
 afterAll(() => {
   for (const dir of roots) rmSync(dir, { recursive: true, force: true });
@@ -122,8 +142,7 @@ describe('deskMonitorsShell.start', () => {
   it('stops a running monitor', async () => {
     const { context, desk } = fixture(['plot-agent-monitor.sh'], () => 'while :; do sleep 0.2; done');
     const monitors = deskMonitorsShell(context);
-    const started = monitors.start(desk);
-    const pid = started.ok ? started.value.agentMonitorPid : '';
+    const pid = startTracked(monitors, desk);
     await waitForCommand(Number(pid), 'plot-agent-monitor.sh');
 
     expect(monitors.stop([pid])).toEqual({ ok: true, value: [pid] });
@@ -141,6 +160,19 @@ describe('deskMonitorsShell.start', () => {
     const child = spawn('sleep', ['30']);
     try {
       expect(deskMonitorsShell(fixture([]).context).stop([String(child.pid)])).toEqual({ ok: true, value: [] });
+      expect(child.exitCode).toBeNull();
+      expect(child.signalCode).toBeNull();
+    } finally {
+      child.kill('SIGKILL');
+      await new Promise((r) => child.on('exit', r));
+    }
+  });
+
+  it('leaves a live pid alone when its arguments only mention the monitor script name', async () => {
+    const { context } = fixture([]);
+    const child = spawn('sleep', ['30', 'plot-agent-monitor.sh']);
+    try {
+      expect(deskMonitorsShell(context).stop([String(child.pid)])).toEqual({ ok: true, value: [] });
       expect(child.exitCode).toBeNull();
       expect(child.signalCode).toBeNull();
     } finally {
