@@ -371,6 +371,11 @@
 #                                 as issue-list. Jira answers 404 for a missing
 #                                 key, which is exit 3 here (the tracker moved),
 #                                 never an empty body.
+#   issue-comment <number> <marker> <body>          (github)
+#                                 edits the comment holding <marker>, else posts
+#                                 one; an empty <marker> always posts, not idempotent.
+#   issue-list --label <label>    keeps open issues carrying the label (github
+#                                 only; exit 4 on Bitbucket and on Jira).
 #   issue-open <request-json>                       (jira)
 #   issue-open <title> <body> [--label <label>...]  (github-issues)
 #                                 THE SECOND OF TWO WRITES TO A TRACKER: open
@@ -1673,12 +1678,14 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
   printf '%s' "$out"
 }
 
-# Every Jenkins build of one job that built ONE sha, as a JSON array (newest
-# first), or exit 3 (no instance) / exit 4 (cannot be asked). Shared by
-# `run-for-sha` and `runs-for-sha`, so the instance, the credential and the
+# Every Jenkins build of one job, as a JSON array (newest first), or exit 3
+# (no instance) / exit 4 (cannot be asked). Shared by `run-for-sha`,
+# `runs-for-sha` and `runs`, so the instance, the credential and the
 # multibranch-then-plain URL fallback are written once.
 #
-# $1 = the op's name, $2 = branch, $3 = how many builds to list, $4 = the sha.
+# $1 = the op's name, $2 = branch, $3 = how many builds to list, $4 = the sha
+# to filter for, or "" for every build of the branch unfiltered (the shape
+# `runs` wants — branch-scoped history, not one sha's).
 # Run it in `$(...)` and read the exit code with `|| exit $?`: it exits rather
 # than returns, and a subshell's exit is the code the caller sees.
 #
@@ -1690,19 +1697,23 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
 # A BRANCH IS A JOB SEGMENT ON A MULTIBRANCH JOB AND NOT ON A PLAIN ONE, and no
 # reading of the configured path says which this is. The multibranch URL is
 # tried first and the plain one is the fallback (measured 2026-09-11: asking
-# the plain job for a branch segment answers 404). THE PLAIN JOB REPORTS ITS
-# OWN BUILDS whatever branch was asked about; the `sha` says which it built.
+# the plain job for a branch segment answers 404). THE PLAIN JOB REPORTS EVERY
+# BRANCH'S BUILDS, so an unfiltered read of it keeps only the builds whose
+# recorded `lastBuiltRevision.branch` names the asked branch, and a build that
+# records no branch only when the asked branch is the job's own key (the last
+# path segment, as `jenkins_build_map` keys it). A multibranch container that
+# answers `jobs` and no `builds` has not indexed the branch: an empty history.
 #
 # NO CREDENTIAL IS *CANNOT BE ASKED*, never *no run*: the keychain is macOS-only
 # and a Linux agent legitimately has none. AN UNREACHABLE INSTANCE IS NOT AN
 # EMPTY HISTORY: a refused or redirected request answers HTML, which fails the
 # `builds` test.
 #
-# ONLY THE ASKED-FOR SHA, never another build's. `result` is null while a build
+# WITH A SHA, ONLY THAT SHA'S BUILDS, never another's. `result` is null while a build
 # runs, Jenkins' own word for *in flight*, mapped to the `status`/`conclusion`
 # split the contract already uses so the shape does not fork per connector.
 jenkins_sha_runs() {
-  local op="$1" branch="$2" limit="$3" sha="$4" instance host job cred tree body try path
+  local op="$1" branch="$2" limit="$3" sha="$4" instance host job cred tree body try path plain=""
   instance="$(jenkins_instance)"
   [ -n "$instance" ] || jenkins_no_instance
   host="${instance%%/*}"
@@ -1718,27 +1729,32 @@ jenkins_sha_runs() {
     echo "  Jenkins' REST API takes basic auth with an API token, which \`jen auth login\` stores in the login keychain. The Keycloak bearer from \`jen auth token\` is NOT it." >&2
     exit 4
   }
-  tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1%5D%5D%5D%7B0,$limit%7D"
+  tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,$limit%7D"
   body=""
   for path in "$(jenkins_job_url_path "$job" "$branch")" "$(jenkins_job_url_path "$job" "")"; do
     host_slot_take jenkins ''
     try=$(curl -sg --max-time 30 -u "$cred" "https://$host$path/api/json?$tree" 2>/dev/null) || true
     host_slot_give; budget_record_call jenkins ''
     if printf '%s' "$try" | jq -e 'has("builds")' >/dev/null 2>&1; then body="$try"; break; fi
+    printf '%s' "$try" | jq -e 'has("jobs")' >/dev/null 2>&1 && { body='{"builds":[]}'; break; }
+    plain=1
   done
   cred=""
   if [ -z "$body" ]; then
     echo "plot-host: $op — Jenkins did not answer for '$host'" >&2
     exit 4
   fi
-  printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" '
+  printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" --arg branch "$branch" --arg plain "$plain" '
     [ .builds[]
       | { sha: ([ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision.SHA1 ] | first // ""),
+          br: [ .actions[]? | .lastBuiltRevision.branch[]?.name // empty | sub("^(refs/remotes/|refs/heads/)"; "") | sub("^origin/"; "") ],
           status: (if .building then "in_progress" else "completed" end),
           conclusion: (if .building then null else (.result // null) end),
           url: (.url // ""),
           startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ]
-    | map(select(.sha == $sha))' || exit 4
+    | if $sha != "" then map(select(.sha == $sha)) elif $plain == "" then .
+      else map(select(if (.br | length) > 0 then any(.br[]; . == $branch) else $branch == ($job | split("/") | last) end)) end
+    | map(del(.br))' || exit 4
 }
 
 # The sha-bound readings of the PR rows $3 whose branch colour in $2 cannot
@@ -3849,12 +3865,7 @@ case "$op" in
         jq -r '.[] | select(.mergedAt != null and .headRefOid != null) | .headRefOid' <<<"$out" || exit 3
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
-        if [ -n "$err" ] && is_lookup_miss "$err"; then
-          :
-        else
-          echo "plot-host: ${err:-gh pr list failed}" >&2
-          exit 3
-        fi
+        [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-gh pr list failed}" >&2; exit 3; }
       fi
     else
       bb_require_json
@@ -3864,12 +3875,7 @@ case "$op" in
         jq -r --arg b "$ref" '.[] | select(.source.branch.name==$b) | (.source.commit.hash // empty)' <<<"$out" || exit 3
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
-        if [ -n "$err" ] && is_lookup_miss "$err"; then
-          :
-        else
-          echo "plot-host: ${err:-bb pr list failed}" >&2
-          exit 3
-        fi
+        [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-bb pr list failed}" >&2; exit 3; }
       fi
     fi
     ;;
@@ -3900,19 +3906,11 @@ case "$op" in
       esac
     done
     [ -n "$title" ] || die "pr-create needs --title"
-    if [ "$be" = "github" ]; then
-      args=(pr create --title "$title" --body "$body")
-      [ -n "$base" ] && args+=(--base "$base")
-      [ -n "$head" ] && args+=(--head "$head")
-      [ "$draft" = 1 ] && args+=(--draft)
-      gh "${args[@]}"
-    else
-      args=(pr create --title "$title" --body "$body")
-      [ -n "$base" ] && args+=(--base "$base")
-      [ -n "$head" ] && args+=(--head "$head")
-      [ "$draft" = 1 ] && args+=(--draft)
-      bb "${args[@]}"
-    fi
+    args=(pr create --title "$title" --body "$body")
+    [ -n "$base" ] && args+=(--base "$base")
+    [ -n "$head" ] && args+=(--head "$head")
+    [ "$draft" = 1 ] && args+=(--draft)
+    if [ "$be" = "github" ]; then gh "${args[@]}"; else bb "${args[@]}"; fi
     ;;
 
   pr-merge)
@@ -4360,7 +4358,6 @@ case "$op" in
       # caller that asked for a window and got a full listing must not read the
       # answer as a delta.
       PR_LIST_SINCE="$since"
-      PR_SWEEP_ASKED=0
       # THE PLAIN LISTING IS `bb_state_listing`, one request per state at
       # `pagelen=50`, where `bb pr list` walks 10-row pages. Its header has the
       # measurement.
@@ -4406,13 +4403,11 @@ case "$op" in
                 }' "${bb_cmd[@]}" || exit $?
         else
           # Bitbucket without Jenkins: checks remain unknown
-          PR_LIST_JQ_ARGS=()
           pr_list_states bitbucket "$limit" "$bb_states" \
             '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),author:(.author.nickname // ""),failing_checks:[]}' \
             "${bb_cmd[@]}" || exit $?
         fi
       else
-        PR_LIST_JQ_ARGS=()
         pr_list_states bitbucket "$limit" "$bb_states" \
           '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,author:(.author.nickname // "")}' \
           "${bb_cmd[@]}" || exit $?
@@ -4475,35 +4470,16 @@ case "$op" in
                           startedAt:.startedAt, url:.url}' 2>/dev/null || true
         ;;
       jenkins)
-        # ONE STATE PER BRANCH, REPORTED AS A HISTORY OF ONE — and the PR says
-        # so, because it is the honest limit of the transport this arm has.
-        # `jenkins_build_map` answers `{color, checks, job}` for every branch in
-        # one call: a CURRENT state, with no timestamps, no URL and no earlier
-        # runs. A history is what Jenkins holds and what its REST API answers;
-        # reading it is `the-ci-connector-is-jenkins`'s own slice, and inventing
-        # entries here to fill the shape would be the collector reaching a
-        # verdict (Principle 3).
+        # THE BRANCH'S BUILD HISTORY, newest first, read through
+        # `jenkins_sha_runs` with no sha — the REST call `run-for-sha` and
+        # `runs-for-sha` make. `startedAt` and `url` are Jenkins' own fields.
         #
-        # SO THE FIELDS THIS CANNOT MEASURE ARE EMPTY, never guessed. `workflow`
-        # names the Jenkins job, which is the one thing the map does carry and
-        # the detail a reader opens; `conclusion` is the `checks` word the
-        # colour table already settled; `startedAt` and `url` are empty,
-        # because a timestamp this arm invented would read as measurement.
-        _jen_instance="$(jenkins_instance)"
-        [ -n "$_jen_instance" ] || jenkins_no_instance
-        _jen_payload=$(jenkins_build_map "$_jen_instance")
-        _jen_status=$(printf '%s' "$_jen_payload" | jq -r '.status // "failed"' 2>/dev/null || echo "failed")
-        if [ "$_jen_status" != "ok" ]; then
-          # UNREACHABLE IS NOT EMPTY EITHER. `pr-list --rich` can mark its rows
-          # `unknown` and keep them; this op has no row to carry the word, so
-          # the only way to say *cannot verify* is the exit code. Printing
-          # nothing at exit 0 would read as *this branch has never run*.
-          echo "plot-host: runs — jenkins unreachable ($_jen_status)" >&2
-          exit 4
-        fi
-        printf '%s' "$_jen_payload" | jq -c --arg branch "$branch" \
-          '.map[$branch] // empty
-           | {workflow:(.job // ""), conclusion:(.checks // ""), startedAt:"", url:""}' 2>/dev/null || true
+        # CONCLUSION IS HOST-NEUTRAL, as in the GitHub arm above: Jenkins' raw
+        # `.result` (`SUCCESS`/`FAILURE`/...), and the `status` (`in_progress`)
+        # while a build runs — not the `checks` word the colour table settles
+        # for `pr-list --rich`.
+        _jen_all=$(jenkins_sha_runs runs "$branch" "$limit" "") || exit $?
+        printf '%s' "$_jen_all" | jq -c '.[] | {workflow:.workflow, conclusion:(.conclusion // .status), startedAt:.startedAt, url:.url}' 2>/dev/null || true
         ;;
       *)
         ci_unaskable runs "$_ci"
@@ -4664,7 +4640,7 @@ case "$op" in
     # of them reproduces `an-outage-is-not-an-answer` — a board that says "no
     # issues" because it could not reach the tracker is stating a fact it does
     # not have.
-    limit=""; state="open"; since=""; page_token=""; paged=""
+    limit=""; state="open"; since=""; page_token=""; paged=""; label=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --limit) limit="${2:?}"; shift 2 ;;
@@ -4672,6 +4648,7 @@ case "$op" in
         --since) since="${2:?}"; shift 2 ;;
         --page-token) page_token="${2:?}"; shift 2 ;;
         --paged) paged=1; shift ;;
+        --label) label="${2:?}"; shift 2 ;;
         *) die "issue-list: unknown arg $1" ;;
       esac
     done
@@ -4701,6 +4678,7 @@ case "$op" in
       # the board. `PLOT_JIRA_JQL` overrides it for a team that wants a wider or
       # narrower inbox. ORDER BY created DESC so the newest ticket is first, the
       # same order `createdAt` gives the GitHub arm.
+      [ -z "$label" ] || { echo "plot-host: jira cannot list issues by label" >&2; exit 4; }
       jira_require_config
       # `Ticket prefixes` SCOPES THE DEFAULT to this repository's projects. The
       # default alone scopes by person and by state, so on a shared instance it
@@ -4826,8 +4804,9 @@ case "$op" in
       # itself, not the call, says what it is. `updatedAt` rides along so the
       # adapter's fold can compare it the way `foldIssueRows` already does.
       gh_json="number,title,url,createdAt,assignees,issueType"; search_args=(); ask_state="$gh_state"
-      if [ "$gh_state" = changed ]; then gh_json+=",updatedAt,state,closedAt"; ask_state=all; search_args=(--search "updated:>=$since")
-      elif [ "$gh_state" != open ]; then gh_json+=",closedAt"; search_args=(--search "closed:>=$since"); fi
+      [ -z "$label" ] || search_args=(--label "$label")
+      if [ "$gh_state" = changed ]; then gh_json+=",updatedAt,state,closedAt"; ask_state=all; search_args+=(--search "updated:>=$since")
+      elif [ "$gh_state" != open ]; then gh_json+=",closedAt"; search_args+=(--search "closed:>=$since"); fi
       if out="$(gh issue list --state "$ask_state" ${limit_args[@]+"${limit_args[@]}"} \
                   ${search_args[@]+"${search_args[@]}"} --json "$gh_json" 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
@@ -4858,7 +4837,7 @@ case "$op" in
       # A CLOSED OR CHANGED READ IS EXIT 4: `bb issue list` prints no closing or
       # update date, so there is nothing honest to return for either. It runs
       # before any `bb` command.
-      [ "$state" = open ] || { echo "plot-host: bitbucket cannot list closed or changed issues; bb prints neither date" >&2; exit 4; }
+      { [ "$state" = open ] && [ -z "$label" ]; } || { echo "plot-host: bitbucket cannot list closed or changed issues, or issues by label" >&2; exit 4; }
       bb_assert_issue_version || exit $?
       # `--state new,open` is bb's own default for `issue list` and is what
       # "open tracker issues" means; stated explicitly so a bb default change
@@ -4866,12 +4845,9 @@ case "$op" in
       # call (the request-budget comment in fleet.ts counts exactly this).
       raw="$(bb issue list --state new --state open 2>&1)"; rc=$?
       raw="$(bb_strip_ansi <<<"$raw")"
-      if [ "$rc" -ne 0 ]; then
-        # bb's error is on stdout, now folded into `raw`. Report it and choose
-        # 4-vs-3 from its wording — never parse it as an issue (Done-when 6).
-        echo "plot-host: $raw" >&2
-        exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"
-      fi
+      # bb's error is on stdout, now folded into `raw`. Report it and choose
+      # 4-vs-3 from its wording — never parse it as an issue (Done-when 6).
+      [ "$rc" -eq 0 ] || { echo "plot-host: $raw" >&2; exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"; }
       # A row is `#NNN <STATE> <title>   by <reporter>`. Anchor on the `#NNN`
       # prefix (the header line ` :: Showing …` has none and is skipped for
       # free), lift the number, strip the known state badge word, then drop the
@@ -4985,10 +4961,7 @@ case "$op" in
       bb_assert_issue_version || exit $?
       raw="$(bb issue view "$num" 2>&1)"; rc=$?
       raw="$(bb_strip_ansi <<<"$raw")"
-      if [ "$rc" -ne 0 ]; then
-        echo "plot-host: $raw" >&2
-        exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"
-      fi
+      [ "$rc" -eq 0 ] || { echo "plot-host: $raw" >&2; exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"; }
       # Title is the first line. URL is lifted from the footer, which is bb's
       # only place that prints one for a viewed issue — so the contract's `url`
       # is real here even though issue-list's is "".
@@ -5084,6 +5057,26 @@ case "$op" in
       $'tracker\tgithub-issues') gh issue create --title "${1:?issue-open needs a title}" --body "${2-}" "${@:3}" 2>"$HOST_ERR" || gh_fail ;;
       *) echo "plot-host: issue-open: ${source_said#*$'\t'}" >&2; exit 4 ;;
     esac ;;
+
+  issue-label|issue-comment|issue-close)
+    # THE PLAN-STATE WRITES, and one-way: Plot sets a `plan:*` label, keeps one
+    # comment per issue and closes the issue at release; nothing reads any back.
+    #   issue-label   <n> <add> [<remove,...>]  adds one label, removes the rest
+    #   issue-comment <n> <marker> <body>       edits the comment holding <marker>, else posts; an empty <marker> always posts
+    #   issue-close   <n>
+    # GitHub issues only, dispatched on `issue_source` like issue-open. Exit 4,
+    # with the reason, for a source that cannot be asked.
+    num="${1:?$op needs an issue number}"; source_said="$(issue_source)" || exit 1
+    [ "$be" = github ] && { [ "$source_said" = git-host ] || [ "$source_said" = $'tracker\tgithub-issues' ]; } || { echo "plot-host: $op: ${source_said#*$'\t'}" >&2; exit 4; }
+    case "$op" in
+      issue-label) gh issue edit "$num" --add-label "${2:?issue-label needs a label}" ${3:+--remove-label "$3"} >/dev/null 2>"$HOST_ERR" || gh_fail ;;
+      issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
+      issue-comment)
+        cid=""; [ -z "${2-}" ] || cid="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" '[.[][] | select(.body | contains($m))][0].id // empty')" || gh_fail
+        if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail
+        else gh issue comment "$num" --body "${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi ;;
+    esac
+    rm -f "$HOST_ERR" ;;
 
   # The projects `Ticket prefixes` scopes to, one per line, honoring
   # PLOT_TICKET_PREFIXES — the one answer the TypeScript connector asks.
@@ -5265,8 +5258,6 @@ case "$op" in
       # decides how much to trust it; a `throttled` observed during the session
       # is what corrects it.
       echo '{"connector":"bitbucket","bucket":"api","limit":1000,"remaining":null,"reset":null,"basis":"predicted"}'
-    else
-      echo "{\"connector\":\"$be\",\"bucket\":\"\",\"limit\":null,\"remaining\":null,\"reset\":null,\"basis\":\"unknown\"}"
     fi
     ;;
 
@@ -5381,6 +5372,6 @@ case "$op" in
     ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
     ;;
 esac

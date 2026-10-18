@@ -2,6 +2,7 @@ import { withEndedDesks } from './ended-desks.js';
 import { RELEASE_BRANCH, issueKey, sectionKey, type FleetWaiting } from '../contract/schema.js';
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
   BLOCKED_NOTE,
@@ -10,6 +11,7 @@ import {
   ELIGIBLE_NOTE,
   FINISHED_PLAN_NOTE,
   FleetScanLineSchema,
+  isBrokenState,
   isLiveState,
   PR_UNKNOWN_NOTE,
   unknownPhaseNote,
@@ -65,6 +67,8 @@ import {
   type Reader,
   type TicketSource,
   type PersonDirectory,
+  freeWaitEnded,
+  readEnding,
 } from '@plot-pm/domain';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
 // rather than behind `BuildBoardOptions`: the cap is shared state on the
@@ -1476,7 +1480,10 @@ export async function refreshRuns(
  * references anything", which would surface every issue in the tracker as
  * unplanned. Null lets the caller decline to answer instead.
  */
-async function referencedIssues(opts: BuildBoardOptions): Promise<Set<string> | null> {
+async function referencedIssues(
+  opts: BuildBoardOptions,
+  entry?: Pick<CacheEntry, 'ideaPlans' | 'prs'>,
+): Promise<Set<string> | null> {
   const planDir = await planDirectory(scriptsFor(opts));
   const dir = path.join(opts.repoRoot, planDir);
   let files: string[];
@@ -1490,22 +1497,66 @@ async function referencedIssues(opts: BuildBoardOptions): Promise<Set<string> | 
   } catch {
     return null; // no plan directory to read — not a claim that nothing is planned
   }
-  if (files.length === 0) return new Set();
-  const referenced = new Set<string>();
+  const scratch = await draftPlanFiles(opts, planDir, entry);
   try {
-    const answer = await scriptsFor(opts).planMeta(files);
-    if (!answer.ok) return null;
-    for (const line of answer.value.split('\n')) {
-      if (!line.trim()) continue;
-      const meta = JSON.parse(line) as { issues?: (string | number)[] };
-      // Absent on an older parser, which is a repo whose plans cannot reference
-      // issues at all — [] is then the true answer rather than a fallback.
-      for (const n of meta.issues ?? []) referenced.add(issueKey(n));
+    files.push(...scratch.files);
+    if (files.length === 0) return new Set();
+    const referenced = new Set<string>();
+    try {
+      const answer = await scriptsFor(opts).planMeta(files);
+      if (!answer.ok) return null;
+      for (const line of answer.value.split('\n')) {
+        if (!line.trim()) continue;
+        const meta = JSON.parse(line) as { issues?: (string | number)[] };
+        // Absent on an older parser, which is a repo whose plans cannot reference
+        // issues at all — [] is then the true answer rather than a fallback.
+        for (const n of meta.issues ?? []) referenced.add(issueKey(n));
+      }
+    } catch {
+      return null;
     }
-  } catch {
-    return null;
+    return referenced;
+  } finally {
+    if (scratch.dir) fs.rmSync(scratch.dir, { recursive: true, force: true });
   }
-  return referenced;
+}
+
+/**
+ * The plans of open `idea/` PRs, written out so the plan parser can read them.
+ *
+ * A plan under review lives on its `idea/<slug>` branch and reaches the plan
+ * directory only when the plan PR merges, so the directory read alone misses the
+ * issue it names. The branches are the ones the board already shows as draft
+ * plan rows: `entry.ideaPlans` (branch to plan file) that also hold an open PR in
+ * `entry.prs`. Each plan is read at its ref with one `git show` and copied to a
+ * temp directory, because `planMeta` takes file paths.
+ *
+ * A branch whose plan cannot be read is skipped; the other plans still count.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param planDir - the configured plan directory, relative to the repo root.
+ * @param entry - the cache entry holding `ideaPlans` and `prs`, or undefined.
+ * @returns the files written and their directory, which the caller removes.
+ */
+async function draftPlanFiles(
+  opts: BuildBoardOptions,
+  planDir: string,
+  entry: Pick<CacheEntry, 'ideaPlans' | 'prs'> | undefined,
+): Promise<{ dir: string | null; files: string[] }> {
+  const files: string[] = [];
+  if (!entry?.prs) return { dir: null, files };
+  let dir: string | null = null;
+  for (const [branch, file] of entry.ideaPlans) {
+    if (!entry.prs.has(branch)) continue;
+    const raw = await run('git', ['show', `origin/${branch}:${path.posix.join(planDir, file)}`], opts.repoRoot)
+      .catch(() => '');
+    if (!raw) continue;
+    dir ??= fs.mkdtempSync(path.join(os.tmpdir(), 'plot-draft-plans-'));
+    const target = path.join(dir, `${files.length}-${path.basename(file)}`);
+    fs.writeFileSync(target, raw);
+    files.push(target);
+  }
+  return { dir, files };
 }
 
 /** What `ticketLane` needs beyond the rows themselves, read from the cache without a new tracker call. */
@@ -1539,7 +1590,7 @@ export interface TicketLaneData {
 export async function ticketLaneData(opts: BuildBoardOptions): Promise<TicketLaneData | null> {
   const entry = ensureCache(opts);
   if (entry.issueSets === null) return null;
-  const referenced = await referencedIssues(opts);
+  const referenced = await referencedIssues(opts, entry);
   const declared = await scriptsFor(opts).config('Tracker', '');
   const source = issueSource({
     declared: declared.ok ? declared.value : '',
@@ -1757,12 +1808,13 @@ const inboxOf = (rows: readonly IssueIndexRow[], referenced: ReadonlySet<string>
 
 /**
  * What WAITING ON YOU shows for one read: the domain's `waitingTickets`,
- * given the rows unfiltered by `referenced`, the reader this process is, and
+ * given the rows and inbox filtered by `referenced`, the reader this process is, and
  * how this source names its assignees.
  *
  *
  * @param opts - the board's repo root and scripts directory.
  * @param rows - every open row this read holds, unfiltered by `referenced`.
+ * @param referenced - the issue keys the plans name; rows and inbox naming one are dropped.
  * @param source - how this read's tickets name their assignees, or `null`.
  * @param complete - whether `rows` is every open row, or the read's own cap stopped first.
  * @param inbox - the reader's own open tickets from a separate D23 inbox read,
@@ -1772,13 +1824,16 @@ const inboxOf = (rows: readonly IssueIndexRow[], referenced: ReadonlySet<string>
 const waitingOf = async (
   opts: BuildBoardOptions,
   rows: readonly IssueIndexRow[],
+  referenced: ReadonlySet<string>,
   source: import('@plot-pm/domain').TicketSource | null,
   complete: boolean,
   inbox: readonly IssueIndexRow[] | undefined = undefined,
 ): Promise<FleetWaiting> => {
   const [who, directory] = await Promise.all([identity(opts), people(opts)]);
   const reader: Reader = { hostUser: who.hostUser, gitEmail: who.gitEmail, directory };
-  const result = waitingTickets(rows, inbox, reader, source, complete);
+  const unplanned = (list: readonly IssueIndexRow[]) =>
+    list.filter((row) => !referenced.has(issueKey(row.number)));
+  const result = waitingTickets(unplanned(rows), inbox && unplanned(inbox), reader, source, complete);
   return {
     tickets: result.tickets.map((t) => ({
       kind: 'ticket' as const,
@@ -1921,7 +1976,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
   }
   const rows = said.value.issues.map(issueIndexRowOf);
   entry.issueSets = { answer: 'answered', at: stamp, rows, complete: said.value.complete, closed: outcome.closed };
-  const referenced = await referencedIssues(opts);
+  const referenced = await referencedIssues(opts, entry);
   if (referenced === null) {
     // The plans could not be read, so "which of these is unplanned" has no
     // answer. Reporting the unfiltered list would surface issues that ARE
@@ -1936,7 +1991,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
   entry.issueError = null;
   const gitHostBackend = entry.backend ?? '';
   const ticketSource = ticketSourceOf(source, gitHostBackend, TICKET_SOURCES);
-  entry.waiting = await waitingOf(opts, rows, ticketSource, said.value.complete);
+  entry.waiting = await waitingOf(opts, rows, referenced, ticketSource, said.value.complete);
 }
 
 const overlays = new WeakMap<CacheEntry, PrIndexStore>();
@@ -2030,7 +2085,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
     entry.waiting = null;
     return;
   }
-  const referenced = await referencedIssues(opts);
+  const referenced = await referencedIssues(opts, entry);
   if (referenced === null) {
     entry.issueAnswer = 'failed';
     entry.issueError = 'plans could not be read, so no issue can be called unplanned';
@@ -2051,7 +2106,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
   entry.issueError = null;
   const gitHostBackend = entry.backend ?? '';
   const ticketSource = ticketSourceOf(source, gitHostBackend, TICKET_SOURCES);
-  entry.waiting = await waitingOf(opts, rows, ticketSource, index.complete ?? true, index.inbox);
+  entry.waiting = await waitingOf(opts, rows, referenced, ticketSource, index.complete ?? true, index.inbox);
 };
 
 /**
@@ -6924,6 +6979,51 @@ export async function estateTotals(
   return counts;
 }
 
+/** One desk file's text, or `null` where absent — the same read `withEndedDesks` defaults to. */
+const readDeskFileSafe = (worktree: string, name: string): string | null => {
+  try {
+    return fs.readFileSync(path.join(worktree, name), 'utf8');
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Whether any entry's ending reads {@link freeWaitEnded} — the one case
+ * `endedDeskPlacement` can answer `quiet` for, and so the only case the
+ * `Worker bound` is worth paying a config read for.
+ *
+ * `read` is seamed exactly like `withEndedDesks`'s, so a test can prove the
+ * answer with no filesystem.
+ *
+ * @param agents - the registry's entries.
+ * @param read - returns one desk file's text, or `null` where absent.
+ * @returns true where at least one entry's desk would need `boundSeconds`.
+ */
+export const anyFreeWaitEnded = (
+  agents: readonly AgentEntry[],
+  read: (worktree: string, name: string) => string | null = readDeskFileSafe,
+): boolean =>
+  agents.some((agent) => {
+    if (agent.worktree === '' || !isBrokenState(agent.state)) return false;
+    const ending = readEnding(read(agent.worktree, '.plot-worker.ending.json'));
+    return freeWaitEnded(ending, read(agent.worktree, '.plot-worker.exit'));
+  });
+
+/**
+ * `Worker bound` in seconds, or `null` where the key is absent or not a
+ * positive whole number of seconds.
+ *
+ * `boundSecondsOf` (`@plot-pm/fleet/shared/fleet-run`) is deliberately not
+ * used: it substitutes a default for an absent or `0` key, and
+ * `endedDeskPlacement` must tell `0`, absent and unknown apart from a real
+ * bound — each of the first three words the note "at the wait bound".
+ */
+const workerBoundSeconds = async (opts: BuildBoardOptions): Promise<number | null> => {
+  const value = Number(await readConfigAsync(opts, 'Worker bound', ''));
+  return Number.isInteger(value) && value > 0 ? value : null;
+};
+
 /**
  * Read the cached pulse. Never runs the scan — that is the whole point.
  * `repoRoot` stays a parameter even while the UI shows one repo, so the second
@@ -7060,6 +7160,14 @@ export async function buildFleet(
   // state is added. A registry entry whose session has ended (`stalled`,
   // `finished`, `unknown`) is not a worker and is not counted.
   const liveAgents = entry.agents.filter((a) => isLiveState(a.state)).length;
+  // `Worker bound` is read ONLY where at least one entry's ending reads
+  // `freeWaitEnded` — the config read is an uncached subprocess (0.12-0.94 s
+  // measured) and `/api/fleet` is polled every 4 s per viewer, so paying for
+  // it on every refresh for a fleet with no ended free desk would be a cost
+  // with no reader. `boundSecondsOf` is deliberately not used here: it
+  // substitutes 28800 for an absent or `0` key, and a desk's note must read
+  // "at the wait bound" rather than "after 0 h" for either.
+  const boundSeconds = anyFreeWaitEnded(entry.agents) ? await workerBoundSeconds(opts) : null;
   return {
     generatedAt: new Date().toISOString(),
     ageSeconds,
@@ -7150,7 +7258,7 @@ export async function buildFleet(
     // Beside `rows`, never derived from them: a row is a branch that mentions an
     // agent, this is an agent that mentions a branch. A running worker appears
     // in both and is not duplicated — the entities differ.
-    agents: withEndedDesks(entry.agents, placedRows),
+    agents: withEndedDesks(entry.agents, placedRows, boundSeconds),
     // Metadata about the registry read — directory, manifest count, synthesized
     // count. Makes a synthesized fleet legible: a reader seeing `0 manifests,
     // 12 synthesized` knows the drop menu is absent because the board is reading

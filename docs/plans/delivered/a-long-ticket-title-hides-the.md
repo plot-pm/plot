@@ -1,0 +1,1 @@
+../2026-10-17-a-long-ticket-title-hides-the.md

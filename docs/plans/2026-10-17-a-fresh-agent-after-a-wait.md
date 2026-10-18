@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #1950, #1903, #1917, #1273
@@ -14,6 +14,9 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1954 merged
 - **Started:** 2026-10-17, Jan Wloka, `bug/the-registry-reads-branch-line-waits`
+- **Started:** 2026-10-18, Jan Wloka, `bug/a-free-desk-ending-acts-on-no-slice`
+- **Started:** 2026-10-18, Jan Wloka, `bug/fleetd-at-agents-zero-after-a-wait`
+- **Delivered:** 2026-10-18
 
 ## Changelog
 
@@ -56,11 +59,11 @@ Domain rules follow the layering rule in `CLAUDE.md`: new code is arrow function
 
 ### Supervisor endings
 
-- `bug/a-free-desk-ending-acts-on-no-slice` — a supervisor `unreadable` ending on a desk that ended a free wait answers `leave` for an unmerged branch, read from the desk's own records (#1917). Done when: `packages/domain/test/clean-wait-end.test.ts` gains the unmerged cases beside the merged one — open PR, commit beyond the claim, nothing beyond the claim — each failing on `origin/main` with `start-fresh` or `release-claim` and answering `leave` after the change; an unanswerable reading answers `leave`; the controller passes the reading with no host call; `endedDeskPlacement` gives such a desk a placement that names it rather than an empty-note row in *Waiting on you*; ROW 2's comment states what the desk holds.
+- `bug/a-free-desk-ending-acts-on-no-slice` — a supervisor `unreadable` ending on a desk that ended a free wait answers `leave` for an unmerged branch, read from the desk's own records (#1917). Done when: `packages/domain/test/clean-wait-end.test.ts` gains the unmerged cases beside the merged one — open PR, commit beyond the claim, nothing beyond the claim — each failing on `origin/main` with `start-fresh` or `release-claim` and answering `leave` after the change; an unanswerable reading answers `leave`; the controller passes the reading with no host call; `endedDeskPlacement` gives such a desk a placement that names it rather than an empty-note row in *Waiting on you*; ROW 2's comment states what the desk holds. → #2012
 
 ### Wait-bound fleet
 
-- `bug/fleetd-at-agents-zero-after-a-wait` — after a free desk ends at the wait bound and the fleet is at `agents=0`, fleetd starts a new free agent while an approved slice is held `no-free-agent`, bounded by `Parallel agents` (#1903). Done when: a test reproduces the #1743 estate and asserts a `worker-start` write from `assign` — in `packages/domain/test/queue.test.ts` for a `scaleUp` change, or `packages/fleet/test/unit/registryd-tick.test.ts` if the cause is a desk at the bound counted in `readings.agents`; a slice held `no-brief`, `not-claimable` or `waits` starts none; the start count per tick is pinned in a test to the operator's answer on the open question; no starter is added beside `scaleUp`.
+- `bug/fleetd-at-agents-zero-after-a-wait` — after a free desk ends at the wait bound and the fleet is at `agents=0`, fleetd starts a new free agent while an approved slice is held `no-free-agent`, bounded by `Parallel agents` (#1903). Done when: a test reproduces the #1743 estate and asserts a `worker-start` write from `assign` — in `packages/domain/test/queue.test.ts` for a `scaleUp` change, or `packages/fleet/test/unit/registryd-tick.test.ts` if the cause is a desk at the bound counted in `readings.agents`; a slice held `no-brief`, `not-claimable` or `waits` starts none; the start count per tick is pinned in a test to the operator's answer on the open question; no starter is added beside `scaleUp`. → #2040
 
 ## Notes
 

@@ -33,7 +33,7 @@ Type=simple
 # machine to save typing `--user`.
 
 WorkingDirectory=__REPO_ROOT__
-Environment=PLOT_REPO_ROOT=__REPO_ROOT__
+Environment="PLOT_REPO_ROOT=__REPO_ROOT__"
 
 # git, gh, node and the agent harness (claude, or the name in PLOT_HARNESS)
 # must be findable: systemd gives a unit a minimal PATH, and it holds no
@@ -43,8 +43,9 @@ Environment=PLOT_REPO_ROOT=__REPO_ROOT__
 # directory `plot-fleetctl.sh --start` resolved the harness in with
 # `command -v`, so a worker runs the binary the operator's shell runs. Each
 # comes first for EVERY binary in its directory; on a typical install the
-# harness directory is ~/.local/bin. The assignment is quoted, so a directory
-# holding a space stays one value.
+# harness directory is ~/.local/bin. Each assignment and each ExecStart path is quoted, so a
+# directory holding a space stays one value; the fill doubles `%`, which
+# systemd reads as a specifier.
 Environment="PATH=__NODE_DIR__:__HARNESS_DIR__:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 
 # `--start-agents` IS WHAT MAKES THIS A SUPERVISOR. The flag defaults off so that
@@ -56,7 +57,7 @@ Environment="PATH=__NODE_DIR__:__HARNESS_DIR__:/usr/local/bin:/usr/bin:/bin:/usr
 #
 # `--sweep-temp` runs `plot-reap.sh --sweep-temp --yes` at most once an hour:
 # nothing else schedules the backstop for temp paths a SIGKILL left behind.
-ExecStart=__NODE__ __FLEETD__ --start-agents --sweep-temp
+ExecStart="__NODE__" "__FLEETD__" --start-agents --sweep-temp
 
 # THE UNIT STOPS ONLY ITS DAEMON. An agent is not part of the daemon's
 # lifecycle: the supervisor starts agents with `--start-agents` and they outlive

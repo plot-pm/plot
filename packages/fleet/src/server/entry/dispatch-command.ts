@@ -202,7 +202,12 @@ export const runDetached = async (
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  warn(`plot-dispatch-command: the implement did not start within ${(deps.startWaitMs ?? 30_000) / 1000} s; read ${launchLog}\n`);
+  // The child is not ended: it may still take the lock, and the pid lets the
+  // caller see whether it did (`ps -p`) or end it (`kill`).
+  warn(
+    `plot-dispatch-command: the implement did not start within ${(deps.startWaitMs ?? 30_000) / 1000} s; ` +
+      `the dispatch process (pid ${child.pid}) is still running and may still start it; read ${launchLog}\n`,
+  );
   return 1;
 };
 

@@ -574,7 +574,7 @@ const unitFile = (home, fleetLabel, ctl) =>
 const unitPath = (body) => {
   const m = onLaunchd
     ? body.match(/<key>PATH<\/key>\s*<string>([^<]*)<\/string>/)
-    : body.match(/^Environment="?PATH=(.*?)"?$/m);
+    : body.match(/^Environment="PATH=([^"]*)"$/m);
   assert.ok(m, 'the unit carries no PATH');
   return m[1];
 };
@@ -599,8 +599,12 @@ const stubHarness = (box, name) => {
 
 // ONLY THE DIRECTORIES THE CASE NAMES, plus node's own, so a `claude` this
 // machine has installed cannot answer in the stub's place.
-const startWith = (label, { searchDirs = [], harness } = {}) => {
+const startWith = (label, { searchDirs = [], harness, systemd = !onLaunchd, editTemplate } = {}) => {
   const { root, box, ctl, fleetLabel, guardBin } = sandbox(label);
+  if (editTemplate) {
+    const tpl = path.join(root, 'skills', 'plot', 'units', onLaunchd && !systemd ? 'com.plot-pm.fleetd.plist' : 'plot-fleetd.service');
+    fs.writeFileSync(tpl, editTemplate(fs.readFileSync(tpl, 'utf8')));
+  }
   const home = path.join(box, 'home');
   fs.mkdirSync(home);
   // ON LINUX ONLY, A SYSTEMD THAT ACCEPTS `daemon-reload`. `guardBin`'s stub
@@ -612,7 +616,7 @@ const startWith = (label, { searchDirs = [], harness } = {}) => {
   // `stubSystemd` also fakes `uname -s` as Linux, so adding it here would
   // drive the systemd arm on a Darwin host while `onLaunchd` still says
   // launchd, and the two would disagree about where the unit lands.
-  const sd = onLaunchd ? null : stubSystemd(box);
+  const sd = systemd ? stubSystemd(box) : null;
   const r = run(ctl, ['--start'], root, guardBin, {
     HOME: home,
     PLOT_FLEET_LABEL: fleetLabel,
@@ -620,7 +624,10 @@ const startWith = (label, { searchDirs = [], harness } = {}) => {
     PATH: [...(sd ? [sd.bin] : []), guardBin, ...searchDirs,
       path.dirname(process.execPath), defaultUnitPath()].join(':'),
   });
-  return { r, box, home, file: unitFile(home, fleetLabel, ctl) };
+  const file = systemd && onLaunchd
+    ? path.join(home, '.config', 'systemd', 'user', `${unitNameFor(ctl, fleetLabel)}.service`)
+    : unitFile(home, fleetLabel, ctl);
+  return { r, box, home, file };
 };
 
 test('--start puts the resolved harness first, and a clean shell on the unit PATH finds it', () => {
@@ -741,20 +748,23 @@ test('--start names the pinned node directory once when the harness lives in it'
   }
 });
 
-test('--start names the pinned node directory once when PLOT_HARNESS is an absolute path into it', () => {
-  // The harness is resolved from the absolute name and node from PATH: two
-  // lookups that end on the same directory string.
-  const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-node-abs-')));
+test('--start removes the pinned node directory from the template\'s fixed list', () => {
+  // A distro node lives in /usr/bin, which the template's fixed list already
+  // names. The sandbox template lists the pinned directory in the fixed list so
+  // the case runs where no node is installed in /usr/bin.
+  const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-node-fixed-')));
   try {
     const pinned = pinnedNodeDir(stubBox);
-    const harness = path.join(pinned.dir, 'claude');
-    fs.writeFileSync(harness, '#!/bin/sh\nexit 0\n');
-    fs.chmodSync(harness, 0o755);
-    const { r, file } = startWith('node-abs', { searchDirs: [pinned.dir], harness });
+    const { dir } = stubHarness(stubBox, 'claude');
+    const { r, file } = startWith('node-fixed', {
+      searchDirs: [pinned.dir, dir],
+      editTemplate: (t) => t.replace(':/usr/bin:', `:${pinned.dir}:/usr/bin:`),
+    });
     assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
     const searched = unitPath(fs.readFileSync(file, 'utf8')).split(':');
-    assert.equal(searched.filter((d) => d === pinned.dir).length, 1);
-    assert.equal(searched.slice(1).join(':'), defaultUnitPath());
+    assert.equal(searched.filter((d) => d === pinned.dir).length, 1,
+      `the pinned node directory appears more than once on the unit PATH: ${searched.join(':')}`);
+    assert.ok(searched.includes('/usr/bin'), 'the fixed list lost an unrelated directory');
   } finally {
     fs.rmSync(stubBox, { recursive: true, force: true });
   }
@@ -776,7 +786,20 @@ test('refusal: a harness of the same name in the pinned node directory shadows t
   }
 });
 
-test('--start fills a node directory holding sed-special characters and a space verbatim', () => {
+test('a directory named like the harness in the pinned node directory is not a shadow', () => {
+  const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-shadow-dir-')));
+  try {
+    const pinned = pinnedNodeDir(stubBox);
+    fs.mkdirSync(path.join(pinned.dir, 'claude'));
+    const { dir } = stubHarness(stubBox, 'claude');
+    const { r, file } = startWith('harness-shadow-dir', { searchDirs: [dir, pinned.dir] });
+    assert.ok(fs.existsSync(file), `a directory refused --start as a shadow:\n${r.out}`);
+  } finally {
+    fs.rmSync(stubBox, { recursive: true, force: true });
+  }
+});
+
+test('--start fills a node directory holding sed-special characters and a space into the PATH line', () => {
   const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-node-odd-')));
   try {
     const pinned = pinnedNodeDir(stubBox, 'odd|dir more.v[1]');
@@ -784,6 +807,23 @@ test('--start fills a node directory holding sed-special characters and a space 
     const { r, file } = startWith('node-odd', { searchDirs: [pinned.dir, dir] });
     assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
     assert.deepEqual(unitPath(fs.readFileSync(file, 'utf8')).split(':').slice(0, 2), [pinned.dir, dir]);
+  } finally {
+    fs.rmSync(stubBox, { recursive: true, force: true });
+  }
+});
+
+test('a systemd fill quotes ExecStart and PLOT_REPO_ROOT and doubles % in a path with a space', () => {
+  const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-node-pct-')));
+  try {
+    const pinned = pinnedNodeDir(stubBox, 'odd dir 100%');
+    const { dir } = stubHarness(stubBox, 'claude');
+    const { r, file } = startWith('node-pct', { searchDirs: [pinned.dir, dir], systemd: true });
+    assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
+    const body = fs.readFileSync(file, 'utf8');
+    const doubled = (p) => p.replaceAll('%', '%%');
+    assert.match(body, new RegExp(`^ExecStart="${doubled(pinned.bin).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}" "[^"]+" --start-agents`, 'm'));
+    assert.match(body, /^Environment="PLOT_REPO_ROOT=[^"]+"$/m);
+    assert.equal(body.match(/^Environment="PATH=([^"]*)"$/m)[1].split(':')[0], doubled(pinned.dir));
   } finally {
     fs.rmSync(stubBox, { recursive: true, force: true });
   }
@@ -864,7 +904,9 @@ test('the filled systemd unit is well-formed', () => {
   for (const section of ['[Unit]', '[Service]', '[Install]']) {
     assert.ok(filled.includes(section), `the unit has no ${section} section`);
   }
-  assert.match(filled, /^ExecStart=\/tmp\/node \/tmp\/fleetd\.mjs --start-agents --sweep-temp$/m);
+  assert.match(filled, /^ExecStart="\/tmp\/node" "\/tmp\/fleetd\.mjs" --start-agents --sweep-temp$/m);
+  assert.match(filled, /^Environment="PLOT_REPO_ROOT=\/tmp\/repo"$/m);
+  assert.match(filled, /^Environment="PATH=[^"]*"$/m);
   assert.match(filled, /^Restart=always$/m);
   assert.match(filled, /^WantedBy=default\.target$/m);
   // Every non-comment, non-blank, non-section line is `Key=Value`.
@@ -2068,7 +2110,12 @@ function underNewDefault(label, oldWorkdir, args = ['--start'], { unloads = fals
   const oldPlist = path.join(home, 'Library', 'LaunchAgents', 'com.plot-pm.registryd.plist');
   return { ...s, r, calls: launchctlCalls(calls), oldPlist, bundle };
 }
-const startUnderNewDefault = (label, oldWorkdir, opts) => underNewDefault(label, oldWorkdir, ['--start', '--wait', '1'], opts);
+// The stub unloads on the first `bootout`, so `--wait` is never spent when
+// `unloads` is set: a runner-load-proof bound costs nothing there. Only a stub
+// that never unloads needs the short bound, to keep the refusal case fast.
+const UNLOAD_WAIT = (opts) => (opts?.unloads ? '60' : '1');
+const startUnderNewDefault = (label, oldWorkdir, opts) =>
+  underNewDefault(label, oldWorkdir, ['--start', '--wait', UNLOAD_WAIT(opts)], opts);
 const OLD_BOOTOUT = `bootout gui/${process.getuid()}/com.plot-pm.registryd`;
 
 test('migration: an old-label unit serving this checkout is booted out and removed', () => {
@@ -2128,7 +2175,7 @@ test('old label: --status leaves an old-label supervisor of another checkout out
 });
 
 test('old label: --stop unloads it, confirmed, and removes its plist', () => {
-  const { r, calls, oldPlist } = underNewDefault('old-stop', (s) => s.root, ['--stop', '--wait', '1'], { unloads: true });
+  const { r, calls, oldPlist } = underNewDefault('old-stop', (s) => s.root, ['--stop', '--wait', '60'], { unloads: true });
   assert.equal(r.status, 0, r.out);
   assert.ok(calls.includes(OLD_BOOTOUT), calls.join('\n'));
   assert.match(r.out, /unloading the old label 'com\.plot-pm\.registryd'/, r.out);
@@ -2146,7 +2193,7 @@ test('old label: --stop exits 1 and keeps the plist when the unload is never con
 
 test('old label: --stop never touches an old-label supervisor of another checkout', () => {
   const other = fs.realpathSync(scratch('plot-fleetctl-other-'));
-  const { r, calls, oldPlist } = underNewDefault('old-stop-other', other, ['--stop', '--wait', '1'], { unloads: true });
+  const { r, calls, oldPlist } = underNewDefault('old-stop-other', other, ['--stop', '--wait', '60'], { unloads: true });
   assert.equal(r.status, 0, r.out);
   assert.deepEqual(calls, []);
   assert.ok(fs.existsSync(oldPlist));
@@ -2167,7 +2214,7 @@ test('old label: a missing rule bundle refuses --start as a broken installation 
 });
 
 test('old label: a rule bundle that gives no answer refuses --stop and names the bundle and node', () => {
-  const { r, calls, oldPlist, bundle } = underNewDefault('old-rule-silent', (s) => s.root, ['--stop', '--wait', '1'], { unloads: true, rule: 'silent' });
+  const { r, calls, oldPlist, bundle } = underNewDefault('old-rule-silent', (s) => s.root, ['--stop', '--wait', '60'], { unloads: true, rule: 'silent' });
   assert.equal(r.status, 1, r.out);
   assert.ok(r.out.includes(`plot-fleetctl: the old-label rule at ${bundle} gave no answer\n  node on PATH: `), r.out);
   assert.match(r.out, /broken or partial installation of Plot/, r.out);
@@ -2890,4 +2937,33 @@ test('--status from a desk under the estate own desk root is not refused', () =>
   git(root, 'worktree', 'add', '-q', '-b', 'desk-a', desk);
   const r = run(ctl, ['--status'], fs.realpathSync(desk), guardBin);
   assert.doesNotMatch(r.out, /not part of the estate/);
+});
+
+// ── The desk root is compared as a physical path (#1586) ──────────────────────
+
+const symlinkedDeskRoot = (label) => {
+  const s = sandbox(label);
+  const real = path.join(s.box, 'real-desks');
+  const link = path.join(s.box, 'link-desks');
+  fs.mkdirSync(real);
+  fs.symlinkSync(real, link);
+  fs.writeFileSync(path.join(s.root, 'CLAUDE.md'), `## Plot Config\n\n- **Worktree root:** ${link}\n`);
+  return { ...s, real };
+};
+
+test('--status from a desk reached through a symlinked desk root is not refused', () => {
+  const { root, real, ctl, guardBin } = symlinkedDeskRoot('symlink-desks');
+  const desk = path.join(real, 'desk-a');
+  git(root, 'worktree', 'add', '-q', '-b', 'desk-a', desk);
+  const r = run(ctl, ['--status'], fs.realpathSync(desk), guardBin);
+  assert.doesNotMatch(r.out, /not part of the estate/);
+});
+
+test('--status from a linked worktree outside a symlinked desk root is still refused', () => {
+  const { root, box, ctl, guardBin } = symlinkedDeskRoot('symlink-foreign');
+  const foreign = path.join(box, 'foreign-wt');
+  git(root, 'worktree', 'add', '-q', '-b', 'scratch', foreign);
+  const r = run(ctl, ['--status'], fs.realpathSync(foreign), guardBin);
+  assert.equal(r.status, 3, r.out);
+  assert.match(r.out, /not part of the estate at/);
 });

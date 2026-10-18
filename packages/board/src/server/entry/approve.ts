@@ -28,6 +28,7 @@ import {
 import { approvalArm } from '@plot-pm/domain/rules/approval-arm';
 import { annotateSprintItem } from '@plot-pm/domain/rules/sprint-annotation';
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
+import { trackerReportOf } from '@plot-pm/domain/rules/issue-status';
 import {
   commitAndPush,
   localDate,
@@ -103,7 +104,7 @@ const USAGE = [
   '#               spike and for a plan a person approves, otherwise defaults to git user.name',
   '#   <slug>      the plan to approve',
   '# Output: one `step:` line per step, then a machine-countable summary:',
-  '#             summary: merged=yes phase=flipped record=written holds=1 sprint=none push=clean',
+  '#             summary: merged=yes phase=flipped record=written holds=1 sprint=none push=clean plan-state=none',
   '#         Exit 0 when the plan is Approved on the default branch (whether this',
   '#         run did the work or found it already done); 1 on a refusal or a',
   '#         failure, with the reason on stderr.',
@@ -175,6 +176,8 @@ interface PlanPr {
   draft: boolean;
   /** The head the host reported; absent where it named none. */
   headSha?: string;
+  /** The PR's address as the host reported it; absent or `''` where it named none. */
+  url?: string;
 }
 
 /** Reads one config key, falling back where the read fails. */
@@ -268,7 +271,7 @@ const readPlanPr = async (ctx: Context, branch: string): Promise<PlanPr> => {
   if (pr === null || (pr.state !== 'MERGED' && pr.state !== 'OPEN' && pr.state !== 'CLOSED')) {
     return { number: 0, state: 'NONE', draft: false };
   }
-  return { number: pr.number, state: pr.state, draft: pr.draft, headSha: pr.headSha };
+  return { number: pr.number, state: pr.state, draft: pr.draft, headSha: pr.headSha, url: pr.url };
 };
 
 /** How many open PRs, and how many merged PRs, the plan-PR lookup lists at most. */
@@ -1106,11 +1109,17 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
   // A batch PR's merge lands its other plans unapproved; the summary names them
   // so a reader approves each by its own slug.
   const carriedField = merged === 'yes' && landedDraft.length > 0 ? ` carried=${landedDraft.join(',')}` : '';
-  const summary = (report: WriteReport, push: string): string =>
-    `summary: merged=${merged} phase=${report.phase} record=${report.record} holds=${report.holds} sprint=${report.sprint} push=${push}${carriedField}\n`;
+  const summary = (report: WriteReport, push: string, planState: string): string =>
+    `summary: merged=${merged} phase=${report.phase} record=${report.record} holds=${report.holds} sprint=${report.sprint} push=${push} plan-state=${planState}${carriedField}\n`;
 
   let report: WriteReport;
   let push: string;
+  // The approved plan text the tracker write reads, and the link it carries.
+  // `Impl: same branch` records in this checkout and pushes nothing, so the plan
+  // is not on the default branch and the link is the plan PR's. Otherwise the
+  // record is booked in a worktree cut from `origin/<main>`, and this checkout
+  // need not hold the plan at all: the booking keeps a copy of what it pushed.
+  let approvedPlan: { file: string; link: string; dispose: () => void };
   if (sameBranch) {
     report = await applyLocalWrites(ctx, request(ctx.repoRoot));
     await stageApproval(ctx, ctx.repoRoot, rel, report);
@@ -1127,15 +1136,17 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
       push = 'local';
       write(`step: recorded on ${branch.ok ? branch.value : ''} — push it with the implementation\n`);
     }
+    approvedPlan = { file: path.join(ctx.repoRoot, rel), link: pr.url || `#${pr.number}`, dispose: () => {} };
   } else {
     const mainRoot = await mainRootOf(ctx);
     const outcome = await bookApproval(ctx, { mainRoot, main, request, args, inSession, prNumber: pr.number, who }, write, warn);
     if (outcome.exit !== undefined) {
-      write(summary(outcome.report, 'rejected'));
+      write(summary(outcome.report, 'rejected', 'skipped'));
       return outcome.exit;
     }
     report = outcome.report;
     push = outcome.push;
+    approvedPlan = { file: outcome.booked.file, link: rel, dispose: outcome.booked.dispose };
   }
 
   // A spike approval appends a fifth column, `spike`; a whole-plan row keeps four.
@@ -1151,13 +1162,57 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
     }
   }
 
-  write(summary(report, push));
+  // A plan's phase, reflected on its issues — see Tracker.planStateWrite. Only
+  // a whole-plan approval owes it: a spike leaves the phase where it was, and
+  // reports `skipped`. A failed write is reported and the approval stands.
+  let planState = 'skipped';
+  try {
+    if (!args.spike) {
+      const run = await ctx.scripts.awaited('plot-plan-state.sh', [approvedPlan.file, '--phase', 'approved', '--plan-link', approvedPlan.link]);
+      const told = trackerReportOf(run);
+      for (const line of told.lines) write(`  plan-state: ${line}\n`);
+      planState = told.outcome;
+    }
+  } finally {
+    approvedPlan.dispose();
+  }
+
+  write(summary(report, push, planState));
   spendActionReceipt(ctx.repoRoot, 'approve');
   return 0;
 };
 
+/** A copy of the plan as the booking pushed it, outliving the booking worktree. */
+interface BookedPlan {
+  /** The copy's path. */
+  file: string;
+  /** Removes the copy. */
+  dispose: () => void;
+}
+
 /** What the booking worktree flow handed back. */
-type Booked = { report: WriteReport; push: string; exit?: undefined } | { report: WriteReport; exit: number };
+type Booked =
+  | { report: WriteReport; push: string; booked: BookedPlan; exit?: undefined }
+  | { report: WriteReport; exit: number };
+
+/**
+ * Copies the booked plan out of the booking worktree before it is removed.
+ *
+ * @param ctx - the plan store to read and write through.
+ * @param file - the plan in the booking worktree.
+ * @returns the copy, or a refusal where the plan cannot be read or kept.
+ */
+const keepBookedPlan = async (ctx: Context, file: string): Promise<BookedPlan> => {
+  const text = await ctx.planStore.readText(file);
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'plot-approve-plan-'));
+  const copy = path.join(dir, path.basename(file));
+  const dispose = (): void => rmSync(dir, { recursive: true, force: true });
+  if (!text.ok || text.value === null || !(await ctx.planStore.writeText(copy, text.value)).ok) {
+    dispose();
+    throw new Refused(`the approval landed, but no copy of the booked plan could be kept at ${copy} for the tracker.\n  Re-run this — it is idempotent.`);
+  }
+  return { file: copy, dispose };
+};
 
 /**
  * Records the approval on the default branch through a disposable worktree
@@ -1230,7 +1285,10 @@ const bookApproval = async (
       await ctx.trees.removeOnly(tmpwt);
       return { report, exit: 1 };
     }
-    return { report, push: landed.pushed };
+    // THE BOOKED PLAN, KEPT FOR THE TRACKER: read after the push landed and
+    // before `finally` removes the worktree, so it is the text `main` holds.
+    const booked = await keepBookedPlan(ctx, path.join(tmpwt, flow.request(tmpwt).rel));
+    return { report, push: landed.pushed, booked };
   } finally {
     if (!keepBranch) await ctx.trees.removeWithBranch(tmpwt, bookbr);
   }

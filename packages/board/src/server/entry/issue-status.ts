@@ -3,8 +3,10 @@ import type { IssueWriteSpool } from '@plot-pm/domain/ports/issue-write-spool';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import {
   issueStatusWrites,
+  trackerWriteSummary,
   type IssueStatusReading,
   type IssueStatusWords,
+  type TrackerWriteOutcome,
 } from '@plot-pm/domain/rules/issue-status';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
@@ -39,11 +41,8 @@ export const EXIT = {
   usage: 2,
 } as const;
 
-/** What one owed write came to. */
-export type WriteOutcome = 'written' | 'no-target' | 'unaskable' | 'failed';
-
 /** The reason printed where the connector left no sentence of its own. */
-const FALLBACK: Record<Exclude<WriteOutcome, 'written'>, string> = {
+const FALLBACK: Record<Exclude<TrackerWriteOutcome, 'written'>, string> = {
   'no-target': 'the tracker holds nowhere to put this status',
   unaskable: 'no tracker declared',
   failed: 'the write failed',
@@ -65,19 +64,20 @@ export const planFrom = (text: string): Pick<IssueStatusReading, 'phase' | 'issu
 };
 
 /**
- * Reads `--delivered <word>` and `--released <word>`; an absent flag is `''`.
+ * Reads `--approved <word>`, `--delivered <word>` and `--released <word>`; an absent flag is `''`.
  *
  * @param argv - the arguments after the script name.
  * @returns the configured words.
  * @throws on an unknown flag or a flag with no value.
  */
 export const wordsFrom = (argv: readonly string[]): IssueStatusWords => {
-  const words = { delivered: '', released: '' };
+  const words = { approved: '', delivered: '', released: '' };
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
     const value = argv[i + 1];
     if (value === undefined) throw new Error(`${flag} needs a value`);
-    if (flag === '--delivered') words.delivered = value;
+    if (flag === '--approved') words.approved = value;
+    else if (flag === '--delivered') words.delivered = value;
     else if (flag === '--released') words.released = value;
     else throw new Error(`unknown argument '${flag}'`);
   }
@@ -96,11 +96,12 @@ export const writeStatuses = async (
   reading: IssueStatusReading,
   tracker: Tracker,
   issueWrites?: IssueWriteSpool,
-): Promise<string[]> => {
+): Promise<{ lines: string[]; outcomes: TrackerWriteOutcome[] }> => {
   const lines: string[] = [];
+  const outcomes: TrackerWriteOutcome[] = [];
   for (const { issue, status } of issueStatusWrites(reading)) {
     const result = await tracker.statusWrite({ prUrl: '', issue, status });
-    const outcome: WriteOutcome = result.ok ? result.value : result.why;
+    const outcome: TrackerWriteOutcome = result.ok ? result.value : result.why;
     if (outcome === 'written' && issueWrites !== undefined) {
       await handOffIssueWrite(tracker, issueWrites, { number: issue, status });
     }
@@ -108,8 +109,9 @@ export const writeStatuses = async (
       .replace(/\s+/g, ' ')
       .trim();
     lines.push(`${issue}\t${outcome}\t${reason}\n`);
+    outcomes.push(outcome);
   }
-  return lines;
+  return { lines, outcomes };
 };
 
 /**
@@ -133,15 +135,20 @@ export const run = async (
   } catch (err) {
     process.stderr.write(`plot-issue-status: ${(err as Error).message}\n`);
     process.stderr.write(
-      'plot-issue-status: usage: plot-plan-meta.sh <plan> | plot-issue-status.mjs [--delivered <word>] [--released <word>]\n',
+      'plot-issue-status: usage: plot-plan-meta.sh <plan> | plot-issue-status.mjs [--approved <word>] [--delivered <word>] [--released <word>]\n',
     );
     return EXIT.usage;
   }
   // NOTHING OWED ASKS NO TRACKER. Resolving one reads config through a script,
   // and the 90% of plans naming no issue have no reason to pay for it.
-  if (issueStatusWrites(reading).length === 0) return EXIT.ok;
+  if (issueStatusWrites(reading).length === 0) {
+    write('summary: tracker=none\n');
+    return EXIT.ok;
+  }
   const tracker = await trackerShell(context);
-  for (const line of await writeStatuses(reading, tracker, issueWriteSpoolFile({ cwd: context.repoRoot }))) write(line);
+  const { lines, outcomes } = await writeStatuses(reading, tracker, issueWriteSpoolFile({ cwd: context.repoRoot }));
+  for (const line of lines) write(line);
+  write(`summary: tracker=${trackerWriteSummary(outcomes)}\n`);
   return EXIT.ok;
 };
 

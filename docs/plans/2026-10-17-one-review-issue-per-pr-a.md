@@ -31,7 +31,7 @@ Issue #1952 groups three defects, each measured on 2026-10-16.
 
 ### Approach
 
-**#1881 — one issue per PR.** Before `plot-review` opens an issue (`packages/board/src/server/entry/review.ts`), it looks for an open issue with the `ai-generated` label and the title prefix `plot-review:` ending in `on PR #N`, through the tracker `reviewTracker` resolves. If one exists, the review comments on it with the new head SHA and any finding not yet reported, and records that issue as the review's issue. The domain decides whether an issue matches; the adapter only lists. The existing per-SHA record stays, so a re-review of the same head still reuses its recorded issue.
+**#1881 — one issue per PR.** Before `plot-review` opens an issue (`packages/board/src/server/entry/review.ts`), it looks for an open issue with the `ai-generated` label and the title prefix `plot-review:` ending in `on PR #N`, through the tracker `reviewTracker` resolves. If one exists, the review comments on it with the new head SHA and that head's full verdict, and records that issue as the review's issue. The domain decides whether an issue matches; the adapter only lists. The existing per-SHA record stays, so a re-review of the same head still reuses its recorded issue.
 
 **#1883 — sprint goal.** The parser change is preferred over the template change: the parser also reads the first non-empty line of `## Sprint Goal` when no bold line exists, so existing sprints written from the template start serving a goal with no edit. The template stays as it is. A test parses a sprint written from the shipped template and asserts a non-empty goal.
 
@@ -39,9 +39,9 @@ Issue #1952 groups three defects, each measured on 2026-10-16.
 
 ### Open Points
 
-- [ ] #1881: update the issue body or add a comment? A comment keeps the history of heads; an edit keeps one current list.
-- [ ] #1881: how does the match treat a closed issue — open a new one, or reopen? The issue text asks only about open issues.
-- [ ] #1881: a Bitbucket or Jira tracker may not list by title — does the tracker port gain a find operation, and what does `trackerNone` answer?
+- [x] #1881: update the issue body or add a comment? A comment: it keeps the history of heads and needs no read-modify-write, so two concurrent reviews cannot lose each other's text.
+- [x] #1881: how does the match treat a closed issue — open a new one, or reopen? A closed issue does not match; the lookup lists open issues only, so a closed one means a new issue.
+- [x] #1881: a Bitbucket or Jira tracker may not list by title — does the tracker port gain a find operation, and what does `trackerNone` answer? The port gains `issueListLabelled(label, limit)` and `issueComment(id, body)`; the title test is `findOpenReviewIssue` in the domain. `trackerNone`, the git-host tracker, Jira and Bitbucket answer `unaskable` with a reason; only the GitHub connector comments. An `unaskable` lookup opens an issue as before the lookup existed; a failed or truncated lookup opens nothing.
 - [ ] #1883: parser fallback or template change — the issue allows either; this plan picks the parser.
 - [ ] #1909: does `plot-worker-loop.sh` write the pid file with a plain redirect today?
 
@@ -52,7 +52,7 @@ Issue #1952 groups three defects, each measured on 2026-10-16.
 - `bug/plot-review-one-issue-per-pr` — #1881: find and update the open follow-up issue of the PR <!-- builds: findOpenReviewIssue, a lookup of the open follow-up issue for a PR -->
 ### Sprint goal from the template
 
-- `bug/sprint-goal-reads-template` — #1883: parser fallback for the goal line, test from the shipped template
+- `bug/sprint-goal-reads-template` — #1883: parser fallback for the goal line, test from the shipped template → #2043
 ### Pid read waits
 
 - `bug/monitors-end-waits-for-pid` — #1909: one helper that waits for a positive pid, used by every pid-file read in the test
@@ -61,3 +61,4 @@ Issue #1952 groups three defects, each measured on 2026-10-16.
 
 - Created from tracker issue #1952 by an unattended `/plot-idea` run. `Design` was not stated in the prompt, so the plan starts in Draft. `Review: pr` follows `Plan PRs: required`.
 - The tracker received no comment, label or state change.
+- 2026-10-18: decided by Jan Wloka after review #2024: each comment on a PR's review issue carries that head's full verdict, not only findings not yet reported. Every head gets a full review, so its full verdict is the record; a diff would need per-finding parsing and a record of what was reported.

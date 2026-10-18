@@ -101,7 +101,8 @@ export const planFileForSlug = (
  * The number a section's heading shows. *Working* counts its registry rows and
  * its running plan-level rows. *Waiting on you* counts its branch rows, broken
  * agents, draft plans and waiting plan-level rows; the halted line is not a row
- * and no count includes it. Every other section counts its branch rows.
+ * and no count includes it. *Quiet* counts its branch rows and the released
+ * free desks landing there. Every other section counts its branch rows.
  *
  * @param section - the section key.
  * @param held - how many rows of each kind the section holds.
@@ -114,6 +115,7 @@ export const sectionCount = (
     registry: number;
     broken: number;
     drafts: number;
+    quiet?: number;
     planLevel: { working: number; waiting: number };
   },
 ): number =>
@@ -121,7 +123,9 @@ export const sectionCount = (
     ? held.registry + held.planLevel.working
     : section === 'waiting-on-you'
       ? held.branches + held.broken + held.drafts + held.planLevel.waiting
-      : held.branches;
+      : section === 'quiet'
+        ? held.branches + (held.quiet ?? 0)
+        : held.branches;
 
 /**
  * A plan-level run as a WAITING ON YOU or WORKING row: the plan's name, the

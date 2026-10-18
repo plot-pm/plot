@@ -3,9 +3,11 @@ import type { LimitReading } from '../../entities/limit.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type {
   ClosedIssues,
+  IssueCommentOutcome,
   IssueOpen,
   IssueOpenOutcome,
   IssueRead,
+  PlanStateOutcome,
   StatusOutcome,
   StatusWrite,
   Tracker,
@@ -118,6 +120,7 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
 
     issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
     issueListOpen: (limit): Promise<PortResult<IssueRead>> => reads.issueListOpen(limit),
+    issueListLabelled: async (): Promise<PortResult<IssueRead>> => unaskable('the Jira tracker lists no issues by label'),
 
     // GATED THE SAME WAY `issueListInbox` IS: a changed-since read scoped by
     // project needs a project to scope by, and with none declared there is no
@@ -215,6 +218,15 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
       };
       const said = await runProcess('bash', [host, 'issue-open', JSON.stringify(request)], run);
       return issueOpenOf(said, jiraKeyOf, reads.refuse);
+    },
+
+    issueComment: async (): Promise<PortResult<IssueCommentOutcome>> => unaskable('the Jira tracker does not comment on issues'),
+    // A STATUS AND NOTHING ELSE. A Jira issue takes no `plan:*` label, no plan
+    // comment and no close from Plot, so the tracker was reached and holds
+    // nowhere to put this.
+    planStateWrite: async (): Promise<PortResult<PlanStateOutcome>> => {
+      reads.refuse(null);
+      return answered<PlanStateOutcome>('no-target');
     },
 
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),

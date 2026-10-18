@@ -35,7 +35,9 @@ export interface EndedDeskReadings {
 
 /** Where an ended desk belongs, and the words its row prints. */
 export interface EndedDeskPlacement {
-  /** True when a person must look at the desk; false when it only waits to be reaped. */
+  /** The board section the desk's row belongs in. */
+  readonly section: 'waiting-on-you' | 'quiet';
+  /** True when a person must look at the desk; false when it only waits to be reaped. Derived from `section`. */
   readonly owesPerson: boolean;
   /** The row text; `''` when the desk owes a person and has no ending to word. */
   readonly note: string;
@@ -73,13 +75,17 @@ export const freeWaitEnded = (ending: EndingReading, exit: string | null): boole
  * The desk owes nothing only when {@link freeWaitEnded} holds and every other
  * reading is a definite clean answer. A missing or unreadable record, any
  * other ending, a merge nobody asked about, and any unlanded work, dirty tree
- * or `PLOT-BLOCKED` question each leave the desk with a person.
+ * or `PLOT-BLOCKED` question each leave the desk with a person — but a
+ * {@link freeWaitEnded} desk among those still NAMES itself (#1917): the work
+ * `endingAction` now reads `leave` for belongs to the slice this desk held
+ * BEFORE the free wait began, not to this ending, so the row says that rather
+ * than printing no note at all.
  *
  * @param readings - what was measured of the desk.
  * @returns whether a person is owed, and the row text.
  */
 export const endedDeskPlacement = (readings: EndedDeskReadings): EndedDeskPlacement => {
-  const owed: EndedDeskPlacement = { owesPerson: true, note: '' };
+  const owed: EndedDeskPlacement = { section: 'waiting-on-you', owesPerson: true, note: '' };
   if (!freeWaitEnded(readings.ending, readings.exit)) return owed;
   if (
     readings.merged !== true ||
@@ -87,8 +93,16 @@ export const endedDeskPlacement = (readings: EndedDeskReadings): EndedDeskPlacem
     readings.unlanded !== false ||
     readings.blockedQuestion !== false
   ) {
-    return owed;
+    return {
+      section: 'waiting-on-you',
+      owesPerson: true,
+      note: "ended a free wait with its last slice still checked out — the work left behind is the prior slice's, not this wait's",
+    };
   }
   const after = readings.boundSeconds === null ? 'at the wait bound' : `after ${hours(readings.boundSeconds)} h`;
-  return { owesPerson: false, note: `ended ${after} with no slice offered — reaped on the next pass` };
+  return {
+    section: 'quiet',
+    owesPerson: false,
+    note: `ended ${after} with no slice offered — reaped on the next pass`,
+  };
 };

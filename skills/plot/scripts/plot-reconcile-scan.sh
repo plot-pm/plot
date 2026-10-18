@@ -1130,10 +1130,30 @@ branch_merged() { # $1=branch → 0 when its work landed
   printf '%s\n' "$ancestor_of_main" | grep -qx "$1"
 }
 
+# A PLAN'S CONTENT GOES STALE THE SAME WAY A PHASE GATE'S DOES. `plot-deliver.sh`
+# pushes the `Delivered:` record through `plot-push-main.sh` and never
+# fast-forwards the local checkout, so the working tree's copy of a just-
+# delivered plan still reads Approved for every scan run until something else
+# moves `$MAIN`. `plan_rows` above is read from exactly that stale copy — it has
+# to be, because sections 1/4/5/7/8/9/etc. need the working tree's view of
+# PLANS IN PROGRESS, which `origin/$MAIN` has never seen at all. Section 2 is
+# the one section asking "did delivery already land", so it alone re-reads the
+# single field it needs — phase — from the shared ref, the same fix
+# `plot-dispatch.sh`'s phase gate applies to its own single-plan read (see the
+# comment above `deref_on_ref` there): `git show`, no working-tree fallback,
+# because a fallback would reintroduce exactly the staleness this exists to
+# stop reading.
+#
+# ABSENCE IS NOT FALSE. `git show` failing (no origin remote, the path never
+# existed at that ref, a rename) means "cannot read the ref's answer", and the
+# working tree's phase stands — never manufacturing the opposite false
+# positive by treating "cannot confirm Approved" as "confirmed Delivered".
+# $1=path (working-tree-relative) → normalized phase, or empty if unreadable
+phase_at_main_ref() { plot_tmpfile blob mnd-ref && git show "origin/$MAIN:$1" >"$blob" 2>/dev/null && "$script_dir/plot-plan-meta.sh" "$blob" --prefixes "$PREFIX_RE" 2>/dev/null | jq -r '.phase' 2>/dev/null; }
+
 mnd_out=""
 while IFS="$US" read -r f st _raw _alt _alt_raw branches prs _ptype _psprint; do
-  [ -n "$f" ] || continue
-  [ "$st" = approved ] || continue
+  [ -n "$f" ] && [ "$st" = approved ] || continue; case "$(phase_at_main_ref "$f")" in "" | approved) ;; *) continue ;; esac
   base=$(basename "$f")
   merged_any=0
   merged_pr_hits=""
@@ -2965,11 +2985,11 @@ echo "== 23. A finished plan's issue is still open (a person decides) =="
 # `open_issues=`, stays OUT of `attention=`, and sits below the
 # `== blocking sections end ==` marker with every advisory section since 7.
 #
-# AND IT NAMES A DECISION, NOT A REPAIR. The plan behind this section settles
-# that Plot closes no ticket: `plot-host.sh` *"creates no ticket, closes none,
-# and touches no comment, label or assignee"*. So no close command is printed —
-# what a person decides is whether the issue is genuinely finished or whether
-# it outlived its plan, and only one of those ends in a close.
+# AND IT NAMES A DECISION, NOT A REPAIR. Plot closes an issue in one place:
+# `/plot-release`, through `Tracker.planStateWrite`, when it releases the plan.
+# This section closes none, so no close command is printed — what a person
+# decides is whether to release the plan, close the issue by hand, or record
+# why the issue outlived its plan.
 n_open_issues=0
 n_unread=0
 n_unread_waits=0
@@ -3111,7 +3131,7 @@ else
       oi_base=$(basename "$oi_file")
       oi_out+="  $oi_base — $oi_phase, still open: $oi_list\n"
       oi_out+="    inspect: plot-host.sh issue-view $oi_first\n"
-      oi_out+="    decide: close the issue by hand, or record why it stays open\n"
+      oi_out+="    decide: release the plan to close it through the tracker, close it by hand, or record why it stays open\n"
       n_open_issues=$((n_open_issues + 1))
     done 3<<< "$oi_claims"
 

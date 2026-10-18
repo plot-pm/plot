@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #1951, #1900, #1916
@@ -13,6 +13,8 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1953 merged
 - **Started:** 2026-10-17, Jan Wloka, `bug/ready-line-after-every-bind`
+- **Started:** 2026-10-17, Jan Wloka, `bug/released-desk-keeps-its-note`
+- **Delivered:** 2026-10-18
 
 ## Changelog
 
@@ -64,7 +66,7 @@ The bind chain is extracted into a function that takes the listen call as a para
 
 ### Released desk
 
-- `bug/released-desk-keeps-its-note` — read `Worker bound` in `buildFleet` when a desk reads `freeWaitEnded`, add `section` to `EndedDeskPlacement`, and place a released ended desk as an agent row in *Quiet* with its note. Done when: a domain unit test on `endedDeskPlacement` asserts `section` for each reading and the "after 8 h" wording for a bound of 28800 and the "at the wait bound" wording for `0` and `null`; a `withEndedDesks` unit test in `test/unit/ended-desks.test.ts` with the fake `read` proves the bound arrives; the catalogue browser test builds its `ended` by calling `withEndedDesks` over desk-file fixtures, not by hand, and asserts the note in *Quiet*. No new board-server test. <!-- builds: released-desk Quiet agent row, a domain section answer for ended desks -->
+- `bug/released-desk-keeps-its-note` — read `Worker bound` in `buildFleet` when a desk reads `freeWaitEnded`, add `section` to `EndedDeskPlacement`, and place a released ended desk as an agent row in *Quiet* with its note. Done when: a domain unit test on `endedDeskPlacement` asserts `section` for each reading and the "after 8 h" wording for a bound of 28800 and the "at the wait bound" wording for `0` and `null`; a `withEndedDesks` unit test in `test/unit/ended-desks.test.ts` with the fake `read` proves the bound arrives; the catalogue browser test builds its `ended` by calling `withEndedDesks` over desk-file fixtures, not by hand, and asserts the note in *Quiet*. No new board-server test. <!-- builds: released-desk Quiet agent row, a domain section answer for ended desks --> → #2000
 
 ## Notes
 

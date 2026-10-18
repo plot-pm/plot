@@ -26,7 +26,7 @@ const memorySpool = (): { spool: IssueWriteSpool; held: IssueWrite[] } => {
   };
 };
 
-const reading = { phase: 'delivered', issues: ['A-1'], words: { delivered: 'Delivered', released: '' } };
+const reading = { phase: 'delivered', issues: ['A-1'], words: { approved: '', delivered: 'Delivered', released: '' } };
 
 describe('a status write hands its row to the issue index', () => {
   it('hands the issue and the status the tracker took, tagged with its connector', async () => {

@@ -90,6 +90,30 @@ export function brokenAgentRows(
 }
 
 /**
+ * One QUIET row per BROKEN registry entry whose desk's loop ended clean — a
+ * released free desk's note, given a landing.
+ *
+ * THE COMPANION TO {@link brokenAgentRows}, and the split is `ended.section`.
+ * `endedDeskPlacement` answers `section: 'quiet'` only for a desk whose free
+ * wait ran out with its slice merged, its tree clean and nothing unpushed or
+ * blocked — exactly the entries {@link brokenAgentRows} filters OUT of
+ * Waiting on you. This is where they land instead, carrying the same note.
+ *
+ * Joined to a branch row by the same rule as `brokenAgentRows`: the join never
+ * rewrites a row, it only attaches one where the branch matches.
+ */
+export const quietEndedDeskRows = (
+  agents: AgentEntry[],
+  rowByBranch: Map<string, AgentRow>,
+): { agent: AgentEntry; row: AgentRow | null }[] =>
+  agents
+    .filter((agent) => isBrokenState(agent.state) && agent.ended?.section === 'quiet')
+    .map((agent) => ({
+      agent,
+      row: agent.branch ? rowByBranch.get(agent.branch) ?? null : null,
+    }));
+
+/**
  * One WAITING ON YOU row per Draft plan that no branch row belongs to — a plan
  * awaiting a person's decision, with no branch to carry it.
  *

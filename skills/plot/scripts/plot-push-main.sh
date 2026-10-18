@@ -7,7 +7,9 @@
 #         lines indented beneath it. Exit 0 if the commit landed on the default
 #         branch (clean, bypassed, or unknown), 1 if the push was rejected and a
 #         retry may clear it, 3 or 4 if the Writer App refused before pushing
-#         (no retry will clear it — see `plot-push-writer-app.mjs`).
+#         (no retry will clear it — see `plot-push-writer-app.mjs`), 6 if another
+#         default-branch writer held the lock for the whole wait (PLOT_PUSH_LOCK_WAIT,
+#         120 s) — nothing was pushed, and retrying the same write once it frees is right.
 # Designed for small-model consumption: one status word, no interpretation.
 #
 # WHY THIS EXISTS. Three commands push straight at the default branch to record
@@ -30,7 +32,9 @@
 # caller must retry: re-fetch the default branch, re-cut the disposable branch
 # from it, and push again. `refused` exits 3 or 4, where no retry can help —
 # the caller should stop, not loop. Making `bypassed` non-zero would turn a
-# SUCCESSFUL approval into an apparent failure at three call sites.
+# SUCCESSFUL approval into an apparent failure at three call sites. `locked`
+# exits 6 and is not `rejected`: the base is still current, so the caller waits
+# and repeats the push rather than re-cutting the branch.
 #
 # This script pushes and classifies once; retrying and re-applying the write
 # onto a freshly re-cut branch is the caller's loop. Skills interpret; scripts
@@ -95,10 +99,14 @@ if [ "${1:-}" = "--classify" ]; then
   exit 0
 fi
 
-branch="${1:?plot-push-main: need a branch to push}"
-default="${2:?plot-push-main: need the default branch}"
+branch="${1:?plot-push-main: need a branch to push}"; default="${2:?plot-push-main: need the default branch}"
 
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-push-main: not a git repository" >&2; exit 1; }
+
+# ONE DEFAULT-BRANCH WRITER AT A TIME (#1349). Every caller runs this script, so the
+# lock lives here; `plot-push-lock.mjs` holds the rule and its measurement. A waiter
+# past the bound exits 6 having pushed nothing.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; node "$here/plot-push-lock.mjs" take "$$" "push $branch" || exit $?; . "$here/plot-tmp.sh"; plot_on_exit node "$here/plot-push-lock.mjs" release "$$"
 
 # stderr is captured rather than passed through, because it carries the ONLY
 # signal that separates a bypass from a clean push. A call site ending in
@@ -109,7 +117,7 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-push-main: not a git rep
 # App, refuses by name (exit 4) where the key is malformed or unreadable, and
 # answers 5 with its one-line notice where no `Writer app` key is declared.
 # Exit 5 and every other origin take the plain push as the ambient identity.
-origin_url=$(git config --get remote.origin.url 2>/dev/null || true); here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; code=5
+origin_url=$(git config --get remote.origin.url 2>/dev/null || true); code=5
 case "$origin_url" in *github.com*) err=$(node "$here/plot-push-writer-app.mjs" "$branch" "$default" 2>&1 >/dev/null); code=$?; [ "$code" = 5 ] && printf '%s\n' "$err" >&2 ;; esac
 [ "$code" = 5 ] && { err=$(git push origin "$branch:$default" 2>&1 >/dev/null); code=$?; }
 

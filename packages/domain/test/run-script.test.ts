@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import type { Readable } from 'node:stream';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -187,6 +188,45 @@ describe('a timeout sends TERM before KILL', () => {
   const exited = (child: ChildProcess): Promise<NodeJS.Signals | null> =>
     new Promise((done) => child.once('exit', (_code, signal) => done(signal)));
 
+  /**
+   * Rejects with `message` when `pending` has not settled after `ms`, so a
+   * signal that never arrives fails the test inside its `finally` block
+   * instead of at vitest's own timeout, which skips it (#1594).
+   */
+  const withinMs = <T>(pending: Promise<T>, ms: number, message: string): Promise<T> => {
+    let timer: NodeJS.Timeout;
+    const bound = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${message} within ${ms}ms`)), ms);
+    });
+    return Promise.race([pending, bound]).finally(() => clearTimeout(timer));
+  };
+
+  /**
+   * Reads whole lines from a stream. A line resolves only once its newline has
+   * arrived, so a `data` chunk that ends mid-line never yields a partial pid.
+   */
+  const lineReader = (stream: Readable): (() => Promise<string>) => {
+    let buffered = '';
+    let wake: (() => void) | undefined;
+    stream.on('data', (chunk: Buffer) => {
+      buffered += chunk.toString();
+      wake?.();
+    });
+    return () =>
+      new Promise((done) => {
+        const take = (): boolean => {
+          const at = buffered.indexOf('\n');
+          if (at === -1) return false;
+          const line = buffered.slice(0, at);
+          buffered = buffered.slice(at + 1);
+          wake = undefined;
+          done(line);
+          return true;
+        };
+        if (!take()) wake = take;
+      });
+  };
+
   const alive = (pid: number): boolean => {
     try {
       process.kill(pid, 0);
@@ -237,26 +277,8 @@ describe('a timeout sends TERM before KILL', () => {
       ['-c', `sh -c 'trap "echo survived TERM" TERM; echo ready; while :; do sleep 1; done' & echo $!; wait`],
       { detached: true, stdio: ['ignore', 'pipe', 'ignore'] },
     );
-    // The pid and 'ready' lines share one stdout; buffer and split rather than
-    // assuming one `data` event per line.
-    let buffered = '';
-    const nextLine = (): Promise<string> => {
-      const fromBuffer = buffered.indexOf('\n');
-      if (fromBuffer !== -1) {
-        const line = buffered.slice(0, fromBuffer);
-        buffered = buffered.slice(fromBuffer + 1);
-        return Promise.resolve(line);
-      }
-      return new Promise((done) => {
-        leader.stdout.once('data', (chunk: Buffer) => {
-          buffered += chunk.toString();
-          const at = buffered.indexOf('\n');
-          const line = at === -1 ? buffered : buffered.slice(0, at);
-          buffered = at === -1 ? '' : buffered.slice(at + 1);
-          done(line);
-        });
-      });
-    };
+    // The pid and 'ready' lines share one stdout.
+    const nextLine = lineReader(leader.stdout);
     const straggler = Number(await nextLine());
     await nextLine(); // 'ready': the straggler's trap is installed.
     try {
@@ -265,7 +287,7 @@ describe('a timeout sends TERM before KILL', () => {
       // 2s: the straggler's `sleep` must die and its trap run before the KILL.
       killGroup(leader, 2_000);
       expect(await ended).toBe('SIGTERM');
-      expect(await survived).toBe('survived TERM');
+      expect(await withinMs(survived, 8_000, 'the straggler never reported surviving TERM')).toBe('survived TERM');
       await gone(straggler);
       expect(alive(straggler)).toBe(false);
     } finally {
@@ -298,29 +320,29 @@ describe('a timeout sends TERM before KILL', () => {
     expect(() => killGroup({ pid: undefined } as unknown as ChildProcess)).not.toThrow();
   });
 
-  it('lets a timed-out script remove the temp paths it registered', async () => {
-    // `gone()` polls for up to 10s on top of the 3s timeout above; vitest's 5s
-    // default would fire first.
+  it('lets a script ended by TERM remove the temp paths it registered', async () => {
+    // `gone()` polls for up to 10s after the grace; vitest's 5s default would
+    // fire first. The test ends the group once the script has printed its pid
+    // and directory, so no timer races the sourcing and the `mktemp` (#1544);
+    // that `runProcess` sends TERM on a timeout is asserted above. The `sleep`
+    // starts before the line is printed: a TERM that landed before the fork
+    // would leave a `sleep` that outlives it and holds the trap for 30s.
     const tmp = mkdtempSync(join(tmpdir(), 'plot-kill-term-'));
+    const child = spawn(
+      'bash',
+      ['-c', `source "${PLOT_TMP}"; plot_tmpdir work probe; sleep 30 & echo "$$ $work"; wait`],
+      { detached: true, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, TMPDIR: tmp } },
+    );
     try {
-      const started = Date.now();
-      // 3s, not 1s: the sourcing and the `mktemp` inside `plot_tmpdir` are the
-      // same line the assertion below parses, so widening the window here is
-      // the whole fix — the line can never be the timeout's bottleneck.
-      const run = await runProcess(
-        'bash',
-        ['-c', `source "${PLOT_TMP}"; plot_tmpdir work probe; echo "$$ $work"; sleep 30`],
-        { timeoutMs: 3_000, env: { TMPDIR: tmp } },
-      );
-      expect(Date.now() - started).toBeLessThan(KILL_GRACE_MS);
-      expect(run.code).toBe(1);
-      const [pid, work] = run.stdout.trim().split(' ');
+      const [pid, work] = (await lineReader(child.stdout)()).split(' ');
       expect(work.startsWith(tmp)).toBe(true);
+      killGroup(child);
       await gone(Number(pid));
       expect(alive(Number(pid))).toBe(false);
       expect(existsSync(work)).toBe(false);
     } finally {
+      if (child.pid !== undefined && alive(child.pid)) process.kill(-child.pid, 'SIGKILL');
       rmSync(tmp, { recursive: true, force: true });
     }
-  }, 15_000);
+  }, 20_000);
 });

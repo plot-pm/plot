@@ -23,6 +23,7 @@ import path from 'node:path';
 
 import { firstBrieflessBranch } from '@plot-pm/domain';
 import { maybeAutoDispatch } from '@plot-pm/fleet/shared/auto-dispatch';
+import { releaseImplementLock, takeImplementLock } from '@plot-pm/fleet/shared/implement-run';
 import { askForBriefLogPath, briefAskPrompt } from '../../src/server/brief-ask.js';
 import { boardRunsSettled, leaveBoardRunsToTheBoard } from '../../src/server/board-run.js';
 import { run as askEntry } from '../../src/server/entry/main.js';
@@ -100,8 +101,20 @@ function fixture(
     { mode: 0o755 },
   );
 
+  // THE SAME WRITER, ENDING AS A HARNESS DOES AT THE ACCOUNT'S USAGE LIMIT: the
+  // limit line on stdout and a non-zero status. The reset is a time of day, which
+  // the rule resolves to the next such instant within 24 hours.
+  const limited = path.join(scriptsDir, 'stub-limited-brief-writer.sh');
+  fs.writeFileSync(
+    limited,
+    `#!/usr/bin/env bash\n{ printf 'ARGC=%s\\n' "$#"; for a in "$@"; do printf 'ARG=%s\\n' "$a"; done; printf 'END\\n'; } >> ${JSON.stringify(askMarker)}\n` +
+      `echo "You've hit your session limit · resets 11pm (Europe/Berlin)"\nexit 1\n`,
+    { mode: 0o755 },
+  );
+
   if (opts.briefCommand !== undefined) {
-    const value = opts.briefCommand === '@writer' ? writer : opts.briefCommand;
+    const value = opts.briefCommand === '@writer' ? writer
+      : opts.briefCommand === '@limited' ? limited : opts.briefCommand;
     fs.writeFileSync(
       path.join(scriptsDir, 'plot-config.sh'),
       `#!/usr/bin/env bash\n` +
@@ -281,6 +294,28 @@ describe('maybeAutoDispatch — asking for the brief', () => {
     expect(f.askArgv()).toHaveLength(1);
   });
 
+  it('A HELD IMPLEMENT LOCK LEAVES THE BRANCH UNMARKED, so a later pass asks', async () => {
+    // An implement holding the slug may end without writing the brief. Marking
+    // the branch would leave it unasked until the board restarts.
+    const f = fixture([], { briefCommand: '@writer' });
+    const p = brieflessPulse();
+    const asked = new Set<string>();
+    const held = takeImplementLock(f.opts.repoRoot, 'needs-a-brief');
+    expect(held).not.toBeNull();
+
+    maybeAutoDispatch(f.opts, p, on(5), [], new Set(), undefined, asked);
+    await settle(() => f.askArgv().length, 0);
+    expect(f.askArgv()).toHaveLength(0);
+    expect(asked.has('feature/needs-a-brief')).toBe(false);
+
+    releaseImplementLock(f.opts.repoRoot, 'needs-a-brief', held!);
+    maybeAutoDispatch(f.opts, p, on(5), [], new Set(), undefined, asked);
+    await settle(() => f.askArgv().length, 1);
+    expect(f.askArgv()).toHaveLength(1);
+    expect(asked.has('feature/needs-a-brief')).toBe(true);
+    await boardRunsSettled();
+  });
+
   it('A SPENT BUDGET SPAWNS NOTHING, even with a no-brief plan eligible', async () => {
     // A brief writer is a `claude -p` process like any other, so asking while
     // the cap is spent starts work the operator capped.
@@ -455,6 +490,73 @@ describe('maybeAutoDispatch — asking for the brief', () => {
     maybeAutoDispatch(f.opts, brieflessPulse(), on(1), [free], new Set(), undefined, new Set());
     await settle(() => f.askArgv().length, 1);
     expect(f.askArgv()).toHaveLength(1);
+  });
+});
+
+describe('maybeAutoDispatch — a brief ask that ended at the usage limit', () => {
+  const BRANCH = 'feature/needs-a-brief';
+  const nowEpoch = () => Math.floor(Date.now() / 1000);
+
+  it('RECORDS THE RESET EPOCH of a wait ending against the branch', async () => {
+    const f = fixture([], { briefCommand: '@limited' });
+    const asked = new Set<string>();
+    const waits = new Map<string, number>();
+
+    maybeAutoDispatch(f.opts, brieflessPulse(), on(5), [], new Set(), undefined, asked, waits);
+    await settle(() => waits.size, 1);
+
+    expect(waits.get(BRANCH)).toBeGreaterThan(nowEpoch());
+    expect(waits.get(BRANCH)).toBeLessThanOrEqual(nowEpoch() + 24 * 3600);
+  });
+
+  it('A PULSE BEFORE THE RESET DOES NOT ASK AGAIN', async () => {
+    const f = fixture([], { briefCommand: '@writer' });
+    const asked = new Set([BRANCH]);
+    const waits = new Map([[BRANCH, nowEpoch() + 3600]]);
+
+    maybeAutoDispatch(f.opts, brieflessPulse(), on(5), [], new Set(), undefined, asked, waits);
+    await settle(() => f.askArgv().length, 0);
+
+    expect(f.askArgv()).toEqual([]);
+    expect(waits.get(BRANCH)).toBeDefined();
+  });
+
+  it('THE FIRST PULSE AT THE RESET ASKS AGAIN, with no margin', async () => {
+    const f = fixture([], { briefCommand: '@writer' });
+    const asked = new Set([BRANCH]);
+    const reset = nowEpoch();
+    const waits = new Map([[BRANCH, reset]]);
+
+    maybeAutoDispatch(f.opts, brieflessPulse(), on(5), [], new Set(), undefined, asked, waits, reset);
+    await settle(() => f.askArgv().length, 1);
+
+    expect(f.askArgv()).toHaveLength(1);
+    expect(asked.has(BRANCH)).toBe(true);
+    expect(waits.has(BRANCH)).toBe(false);
+  });
+
+  it('A SECOND WAIT REPLACES THE EPOCH rather than adding to it', async () => {
+    const f = fixture([], { briefCommand: '@limited' });
+    const asked = new Set([BRANCH]);
+    const old = nowEpoch() - 10;
+    const waits = new Map([[BRANCH, old]]);
+
+    maybeAutoDispatch(f.opts, brieflessPulse(), on(5), [], new Set(), undefined, asked, waits);
+    await settle(() => (waits.get(BRANCH) ?? 0) > old, 1);
+
+    expect(waits.get(BRANCH)).toBeGreaterThan(nowEpoch());
+  });
+
+  it('A BRIEF THAT LANDS CLEARS THE WAIT', async () => {
+    const f = fixture([], { briefCommand: '@writer' });
+    f.land(BRANCH);
+    const asked = new Set([BRANCH]);
+    const waits = new Map([[BRANCH, nowEpoch() + 3600]]);
+
+    maybeAutoDispatch(f.opts, brieflessPulse(), on(5), [], new Set(), undefined, asked, waits);
+
+    expect(asked.size).toBe(0);
+    expect(waits.size).toBe(0);
   });
 });
 

@@ -45,6 +45,7 @@ const endingReadings = (over: Partial<EndingActionReadings> = {}): EndingActionR
   prMerged: 'merged',
   endingAsked: false,
   blockedMarker: false,
+  freeWait: false,
   ...over,
 });
 
@@ -96,5 +97,62 @@ describe('the marker the 2026-10-15 desks received', () => {
 
   it('stays `leave` while the host confirms the merge', () => {
     expect(endingAction(endingReadings({ ending: 'blocked', prMerged: 'merged' }))).toBe('leave');
+  });
+});
+
+describe('#1917 — a free desk ending acts on no slice', () => {
+  // A free wait's `unreadable` (supervisor, exit 124) carries no slice at all.
+  // Before the fix, an unmerged branch reached `isBoundEnding`'s
+  // `boundBranchHoldsWork` check and answered `start-fresh` or
+  // `release-claim` for work the desk's PRIOR slice left behind — never this
+  // free wait's own. `freeWait: true` must short-circuit to `leave` before
+  // that check runs, whatever the branch holds.
+  it('answers `leave` for an open PR left by the slice before this free wait', () => {
+    const reading = endingReadings({
+      ending: 'unreadable',
+      prMerged: 'not-merged',
+      prOpen: true,
+      freeWait: true,
+    });
+    expect(endingAction(reading)).toBe('leave');
+  });
+
+  it('answers `leave` for a commit beyond the claim left by the slice before this free wait', () => {
+    const reading = endingReadings({
+      ending: 'unreadable',
+      prMerged: 'not-merged',
+      commitBeyondClaim: 'yes',
+      freeWait: true,
+    });
+    expect(endingAction(reading)).toBe('leave');
+  });
+
+  it('answers `leave` even where the branch holds nothing beyond its claim', () => {
+    const reading = endingReadings({
+      ending: 'unreadable',
+      prMerged: 'not-merged',
+      freeWait: true,
+    });
+    expect(endingAction(reading)).toBe('leave');
+  });
+
+  it('answers `leave` where the free-wait reading itself could not be taken', () => {
+    const reading = endingReadings({
+      ending: 'unreadable',
+      prMerged: 'not-merged',
+      prOpen: true,
+      freeWait: 'unanswerable',
+    });
+    expect(endingAction(reading)).toBe('leave');
+  });
+
+  it('still answers `start-fresh` for a mid-slice `unreadable` ending the desk\'s records do not call a free wait', () => {
+    const reading = endingReadings({
+      ending: 'unreadable',
+      prMerged: 'not-merged',
+      prOpen: true,
+      freeWait: false,
+    });
+    expect(endingAction(reading)).toBe('start-fresh');
   });
 });
