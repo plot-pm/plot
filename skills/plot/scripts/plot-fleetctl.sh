@@ -1147,10 +1147,8 @@ if [ "$mode" = "start" ]; then
   # the template's fixed list is removed, and so is the harness entry when the
   # harness lives in the same directory.
   # A DIRECTORY IS ESCAPED BEFORE IT REACHES `sed`: `|` is the delimiter here, `&` and `\` are
-  # special in the replacement, and `.[]*^$` are special in the pattern.
-  # systemd expands `%` specifiers in every value, so a systemd fill doubles each `%`.
-  pct='%'; [ "$plat" = systemd ] && pct='%%'
-  esc() { printf '%s' "$1" | sed -e 's/[][\\|&.*^$]/\\&/g' -e "s/%/$pct/g"; }
+  # special in the replacement, `.[]*^$` are special in the pattern, and systemd reads `%` as a specifier, so it doubles.
+  pct='%'; [ "$plat" = systemd ] && pct='%%'; esc() { printf '%s' "$1" | sed -e 's/[][\\|&.*^$]/\\&/g' -e "s/%/$pct/g"; }
   node_dir=$(dirname "$node_bin"); [ "$harness_dir" = "$node_dir" ] && harness_dir=""; nd=$(esc "$node_dir"); hd=$(esc "$harness_dir"); nb=$(esc "$node_bin"); rr=$(esc "$repo_root"); fd=$(esc "$fleetd")
   sed -e "s|__LABEL__|$LABEL|g" -e "s|__REPO_ROOT__|$rr|g" -e "s|__NODE__|$nb|g" -e "s|__FLEETD__|$fd|g" \
       -e "/__NODE_DIR__/s|:$nd:|:|g" -e "s|__NODE_DIR__:__HARNESS_DIR__:|$nd:${hd:+$hd:}|g" \
