@@ -2,6 +2,7 @@ import type { IssueIndexRow } from '../entities/issue-index.js';
 import { declaresSpelling, resolvePerson, type PersonDirectory } from '../entities/person.js';
 import { ownership, type OwnedRow, type Reader, type TicketSource } from './ownership.js';
 import { ownerOf, typeOf } from './ticket-lanes.js';
+import { ticketPhase, type TicketPlan } from './ticket-phase.js';
 
 /** One open ticket, shaped for the client — the fields `IssueRow` carries. */
 export interface WaitingTicket {
@@ -22,7 +23,7 @@ export interface WaitingTicket {
 
 /** What *Waiting on you* shows, and why. */
 export interface WaitingTickets {
-  /** The rows to render, newest first, cut to `ISSUE_LIMIT` by the caller. */
+  /** The rows to render — unplanned first, then planned, each newest first — cut to `ISSUE_LIMIT` by the caller. */
   readonly tickets: readonly WaitingTicket[];
   /** How many of the unplanned rows are in the union this answers. */
   readonly shown: number;
@@ -45,13 +46,14 @@ const toWaitingTicket = (
   row: IssueIndexRow,
   now: number,
   reading: Pick<Reader, 'directory'> & { source: TicketSource | null },
+  phase: string | null,
 ): WaitingTicket => ({
   kind: 'ticket',
   number: row.number,
   title: row.title,
   url: row.url,
   ageMinutes: ageMinutesOf(row.createdAt, now),
-  status: row.status ?? '',
+  status: phase ?? row.status ?? '',
   statusCategory: row.statusCategory ?? '',
   assignees: row.assignees ?? [],
   type: typeOf(row.type),
@@ -121,14 +123,18 @@ const ISSUE_LIMIT = 50;
  * `tracker-account` reader whose spellings name no candidate's assignee —
  * sees `inbox`, or every row where `inbox` is absent, with a notice naming why.
  *
- * `rows` and `inbox` are read exactly as given; the caller holds the
- * `ISSUE_LIMIT` cap and the unplanned filter upstream of this rule.
+ * `rows` and `inbox` are read exactly as given, planned rows included; the
+ * caller holds the `ISSUE_LIMIT` cap. A row that a plan in `plans` names shows
+ * {@link ticketPhase}'s label as its `status` — except on a Jira source, whose
+ * rows keep the tracker's own state — and the rendered rows list the
+ * unplanned ones first, then the planned ones, each newest first.
  *
- * @param rows - every unplanned open row the read holds.
- * @param inbox - the unplanned rows of the reader's own tracker-account read, where one exists.
+ * @param rows - every open row the read holds.
+ * @param inbox - the rows of the reader's own tracker-account read, where one exists.
  * @param reader - who is reading.
  * @param source - how this read's tickets name their assignees, or `null`.
  * @param complete - whether `rows` is every open row, or the read's cap stopped first.
+ * @param plans - the plans naming each ticket, keyed by the row's `number`; absent for an unplanned ticket.
  * @returns the rows to show, the shown/hidden counts, and the notice.
  */
 export const waitingTickets = (
@@ -137,12 +143,21 @@ export const waitingTickets = (
   reader: Reader,
   source: TicketSource | null,
   complete: boolean,
+  plans: ReadonlyMap<string, readonly TicketPlan[]> = new Map(),
 ): WaitingTickets => {
   const now = Date.now();
   const total = rows.length;
+  const phaseOf = (row: IssueIndexRow) => ticketPhase(plans.get(row.number) ?? []);
+  // A Jira ticket keeps the tracker's own workflow state; only its place in the list follows the plan.
+  const wordOf = (row: IssueIndexRow): string | null => (source?.service === 'jira' ? null : phaseOf(row)?.label ?? null);
 
   const render = (selected: readonly IssueIndexRow[], notice: string | null): WaitingTickets => ({
-    tickets: selected.slice(0, ISSUE_LIMIT).map((row) => toWaitingTicket(row, now, { source, directory: reader.directory })),
+    tickets: [
+      ...selected.filter((row) => phaseOf(row) === null),
+      ...selected.filter((row) => phaseOf(row) !== null),
+    ]
+      .slice(0, ISSUE_LIMIT)
+      .map((row) => toWaitingTicket(row, now, { source, directory: reader.directory }, wordOf(row))),
     shown: selected.length,
     hidden: total - selected.length,
     complete,
