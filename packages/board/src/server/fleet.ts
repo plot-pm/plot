@@ -1,5 +1,5 @@
 import { withEndedDesks } from './ended-desks.js';
-import { RELEASE_BRANCH, issueKey, sectionKey, type FleetWaiting } from '../contract/schema.js';
+import { PlanMetaSchema, RELEASE_BRANCH, issueKey, sectionKey, type FleetWaiting, type PlanMeta } from '../contract/schema.js';
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1488,33 +1488,28 @@ async function referencedIssues(
   const metas = await planMetasOf(opts, entry);
   if (metas === null) return null;
   const referenced = new Set<string>();
-  // `issues` is absent on an older parser, which is a repo whose plans cannot
-  // reference issues at all — [] is then the true answer rather than a fallback.
-  for (const meta of metas) for (const n of meta.issues ?? []) referenced.add(issueKey(n));
+  // `PlanMetaSchema` defaults an absent `issues` to [] — an older parser, whose
+  // plans cannot reference issues at all, so [] is the true answer.
+  for (const meta of metas) for (const n of meta.issues) referenced.add(issueKey(n));
   return referenced;
-}
-
-/** The fields of one `plot-plan-meta.sh` line that the ticket readings use. */
-interface PlanMetaLine {
-  file?: string;
-  phase?: string;
-  issues?: (string | number)[];
-  slices?: { branches?: { branch: string; deferred?: boolean }[] }[];
 }
 
 /**
  * Every plan's parsed metadata: the plan directory plus the open draft plans,
  * in one parser invocation.
  *
+ * Each line goes through `PlanMetaSchema`, the one reader of the parser's
+ * output, which also reads the parser's `waves` key as `slices`.
+ *
  * @param opts - the board's repo root and scripts directory.
  * @param entry - the cache entry holding `ideaPlans` and `prs`, or undefined.
- * @returns one record per plan, or null when the plans cannot be read — which
- *   is not a claim that nothing is planned.
+ * @returns one record per plan, or null when the plans cannot be read or a
+ *   line fails the schema — which is not a claim that nothing is planned.
  */
 async function planMetasOf(
   opts: BuildBoardOptions,
   entry?: Pick<CacheEntry, 'ideaPlans' | 'prs'>,
-): Promise<PlanMetaLine[] | null> {
+): Promise<PlanMeta[] | null> {
   const planDir = await planDirectory(scriptsFor(opts));
   const dir = path.join(opts.repoRoot, planDir);
   let files: string[];
@@ -1532,13 +1527,13 @@ async function planMetasOf(
   try {
     files.push(...scratch.files);
     if (files.length === 0) return [];
-    const metas: PlanMetaLine[] = [];
+    const metas: PlanMeta[] = [];
     try {
       const answer = await scriptsFor(opts).planMeta(files);
       if (!answer.ok) return null;
       for (const line of answer.value.split('\n')) {
         if (!line.trim()) continue;
-        metas.push(JSON.parse(line) as PlanMetaLine);
+        metas.push(PlanMetaSchema.parse(JSON.parse(line)));
       }
     } catch {
       return null;
@@ -1570,15 +1565,15 @@ async function ticketPlansOf(
   if (metas === null) return null;
   const byIssue = new Map<string, TicketPlan[]>();
   for (const meta of metas) {
-    const issues = meta.issues ?? [];
+    const issues = meta.issues;
     if (issues.length === 0) continue;
-    const base = path.basename(meta.file ?? '');
+    const base = path.basename(meta.file);
     const held = entry.pulse?.plans.find((p) => p.file === base) ?? entry.lastComplete?.plans.find((p) => p.file === base);
-    const branches = (meta.slices ?? []).flatMap((w) => w.branches ?? []).filter((b) => b.deferred !== true);
+    const branches = meta.slices.flatMap((w) => w.branches).filter((b) => !b.deferred);
     const merged = held === undefined
       ? null
       : branches.filter((b) => held.slices.some((w) => w.branches.some((x) => x.branch === b.branch && x.state === 'merged'))).length;
-    const plan: TicketPlan = { state: (meta.phase ?? '').toLowerCase(), total: branches.length, merged };
+    const plan: TicketPlan = { state: meta.phase.toLowerCase(), total: branches.length, merged };
     for (const n of issues) {
       const key = issueKey(n);
       byIssue.set(key, [...(byIssue.get(key) ?? []), plan]);

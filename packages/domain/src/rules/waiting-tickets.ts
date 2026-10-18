@@ -25,9 +25,9 @@ export interface WaitingTicket {
 export interface WaitingTickets {
   /** The rows to render — unplanned first, then planned, each newest first — cut to `ISSUE_LIMIT` by the caller. */
   readonly tickets: readonly WaitingTicket[];
-  /** How many of the unplanned rows are in the union this answers. */
+  /** How many of the open rows, planned or not, are in the union this answers. */
   readonly shown: number;
-  /** How many unplanned rows this answers does not include. */
+  /** How many open rows this answers does not include. */
   readonly hidden: number;
   /** Whether the rows given were every open row, or the read's own cap stopped first. */
   readonly complete: boolean;
@@ -147,22 +147,24 @@ export const waitingTickets = (
 ): WaitingTickets => {
   const now = Date.now();
   const total = rows.length;
-  const phaseOf = (row: IssueIndexRow) => ticketPhase(plans.get(row.number) ?? []);
   // A tracker-account source states its own workflow state, which stays; only its place in the list follows the plan.
-  const wordOf = (row: IssueIndexRow): string | null => (source?.match === 'tracker-account' ? null : phaseOf(row)?.label ?? null);
+  const keepsTrackerState = source?.match === 'tracker-account';
 
-  const render = (selected: readonly IssueIndexRow[], notice: string | null): WaitingTickets => ({
-    tickets: [
-      ...selected.filter((row) => phaseOf(row) === null),
-      ...selected.filter((row) => phaseOf(row) !== null),
-    ]
-      .slice(0, ISSUE_LIMIT)
-      .map((row) => toWaitingTicket(row, now, { source, directory: reader.directory }, wordOf(row))),
-    shown: selected.length,
-    hidden: total - selected.length,
-    complete,
-    notice,
-  });
+  const render = (selected: readonly IssueIndexRow[], notice: string | null): WaitingTickets => {
+    const phased = selected.map((row) => ({ row, phase: ticketPhase(plans.get(row.number) ?? []) }));
+    return {
+      tickets: [
+        ...phased.filter(({ phase }) => phase === null),
+        ...phased.filter(({ phase }) => phase !== null),
+      ]
+        .slice(0, ISSUE_LIMIT)
+        .map(({ row, phase }) => toWaitingTicket(row, now, { source, directory: reader.directory }, keepsTrackerState ? null : phase?.label ?? null)),
+      shown: selected.length,
+      hidden: total - selected.length,
+      complete,
+      notice,
+    };
+  };
 
   if (source === null) {
     const everyRow = [...rows].sort(byNewestFirst);
@@ -216,10 +218,9 @@ export const waitingTickets = (
 };
 
 /**
- * The sentence naming how many unplanned tickets are not assigned to the
- * reader.
+ * The sentence naming how many open tickets are not assigned to the reader.
  *
- * @param hidden - how many unplanned rows are not shown.
+ * @param hidden - how many open rows are not shown.
  * @param complete - whether `hidden` counts every open row, or the read's cap stopped first.
  * @returns the sentence, with *at least* where `complete` is false.
  */
@@ -232,7 +233,7 @@ export const hiddenSentence = (hidden: number, complete: boolean): string =>
  * The sentence naming how many of the open tickets are rendered.
  *
  * @param n - how many rows are rendered.
- * @param total - `shown` + `hidden`, the full unplanned count.
+ * @param total - `shown` + `hidden`, the full open count.
  * @param complete - whether `total` counts every open row, or the read's cap stopped first.
  * @returns the sentence, with *at least* where `complete` is false.
  */

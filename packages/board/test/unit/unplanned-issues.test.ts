@@ -7,12 +7,15 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { inferredPlanName,
 } from '../../src/app/components/AgentList.js';
 import { ageLabel } from '../../src/app/lib/agent-rows/row-identity.js';
 import { FleetSchema, IssueRowSchema, issueKey } from '../../src/contract/schema.js';
 import { refreshIssues, freshCacheEntry } from '../../src/server/fleet.js';
 import { rmTree } from '../helpers.mjs';
+
+const REAL_SCRIPTS = fileURLToPath(new URL('../../../../skills/plot/scripts', import.meta.url));
 
 /**
  * An issue is a signal the board can see — the decisions that reduce to
@@ -330,7 +333,8 @@ describe('a Draft plan PR answers its issue — the inbox reads idea/ branches a
       '  n=$(sed -n \'s/^Issue: *#\\{0,1\\}\\([0-9]*\\).*/\\1/p\' "$f" | head -1)',
       '  st=$(sed -n \'s/^State: *//p\' "$f" | head -1)',
       '  br=$(sed -n \'s/^Branch: *//p\' "$f" | awk \'{printf "%s{\\"branch\\":\\"%s\\"}", (NR>1?",":""), $1}\')',
-      '  if [ -n "$n" ]; then printf \'{"file":"%s","phase":"%s","issues":[%s],"slices":[{"branches":[%s]}]}\\n\' "$f" "${st:-draft}" "$n" "$br"; else echo \'{"issues":[]}\'; fi',
+      // `waves`, as the real parser writes it — the board renames it to `slices`.
+      '  printf \'{"file":"%s","format":"canonical","phase":"%s","issues":[%s],"waves":[{"branches":[%s]}]}\\n\' "$f" "${st:-draft}" "$n" "$br"',
       'done',
       '',
     ].join('\n'));
@@ -432,6 +436,22 @@ describe('a Draft plan PR answers its issue — the inbox reads idea/ branches a
     expect(status('1')).toBe('in progress 2/3');
     expect(status('2')).toBe('in progress');
     expect(numbers(entry.issues)).toEqual(['3']);
+  });
+
+  it('the real plan parser\'s output shows an Approved plan\'s merged slice count', async () => {
+    const dir = fixture({});
+    fs.writeFileSync(path.join(dir, 'plot-plan-meta.sh'), `#!/usr/bin/env bash\nexec bash ${JSON.stringify(path.join(REAL_SCRIPTS, 'plot-plan-meta.sh'))} "$@"\n`);
+    fs.writeFileSync(path.join(dir, 'docs', 'plans', 'a.md'), [
+      '# A plan', '', '## Status', '', '- **State:** Approved', '- **Issue:** #1', '',
+      '## Branches', '', '- `feature/one` — first', '- `feature/two` — second', '',
+    ].join('\n'));
+    const entry = entryFor([]);
+    const wave = (states: [string, string][]) => ({ branches: states.map(([branch, state]) => ({ branch, state })) });
+    entry.pulse = { plans: [{ file: 'a.md', slices: [wave([['feature/one', 'merged'], ['feature/two', 'open']])] }] } as never;
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(entry.waiting?.tickets.find((t) => t.number === '1')?.status).toBe('in progress 1/2');
   });
 
   it('no idea branches changes nothing from the directory read', async () => {
