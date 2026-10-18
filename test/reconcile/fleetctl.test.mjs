@@ -755,8 +755,9 @@ test('--start removes the pinned node directory from the template\'s fixed list'
   const stubBox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-node-fixed-')));
   try {
     const pinned = pinnedNodeDir(stubBox);
+    const { dir } = stubHarness(stubBox, 'claude');
     const { r, file } = startWith('node-fixed', {
-      searchDirs: [pinned.dir],
+      searchDirs: [pinned.dir, dir],
       editTemplate: (t) => t.replace(':/usr/bin:', `:${pinned.dir}:/usr/bin:`),
     });
     assert.ok(fs.existsSync(file), `no unit was filled:\n${r.out}`);
