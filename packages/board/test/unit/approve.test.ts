@@ -144,7 +144,7 @@ describe('approve perform — plan-PR merge ordering', () => {
     });
   };
 
-  it('merges a plan-PR with no head SHA on a host that cannot pin, and sends no pin', async () => {
+  it('refuses a plan-PR with no head SHA on bitbucket too, which now pins like every host', async () => {
     const statuses: CommitStatusWrite[] = [];
     const calls: string[][] = [];
     const ctx = ctxFor(statuses, calls);
@@ -154,7 +154,7 @@ describe('approve perform — plan-PR merge ordering', () => {
       perform(ctx, { dryRun: false, spike: false, who: 'jwloka', slug: SLUG }, () => {}, () => {}),
     ).rejects.toThrow(Refused);
 
-    expect(calls.filter((args) => args[0] === 'pr-merge')).toEqual([['pr-merge', '42', '--delete-branch']]);
+    expect(calls.filter((args) => args[0] === 'pr-merge')).toEqual([]);
   });
 
   it('pins the merge to the head SHA on a host that can pin', async () => {
