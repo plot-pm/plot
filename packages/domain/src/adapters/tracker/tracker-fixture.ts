@@ -7,6 +7,8 @@ import type {
   IssueOpen,
   IssueOpenOutcome,
   IssueRead,
+  PlanStateOutcome,
+  PlanStateWrite,
   StatusOutcome,
   StatusWrite,
   Tracker,
@@ -47,6 +49,12 @@ export interface TrackerFixture {
   outcome?: StatusOutcome;
   /** Where every `issueOpen` is recorded, in call order, before it can refuse. */
   opened?: IssueOpen[];
+  /** Where every `planStateWrite` is recorded, in call order, before it can refuse. */
+  planStates?: PlanStateWrite[];
+  /** What a plan-state write answers with; `written` by default. */
+  planStateOutcome?: PlanStateOutcome;
+  /** Whether a plan-state write fails outright. */
+  planStateWriteFails?: boolean;
   /** Whether an issue-open write fails outright. */
   issueOpenFails?: boolean;
   /** Whether a status write fails outright. */
@@ -79,6 +87,7 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
   const issues = fixture.issues ?? [];
   const written = fixture.written ?? [];
   const opened = fixture.opened ?? [];
+  const planStates = fixture.planStates ?? [];
   return {
     config: (): TrackerConfig => ({
       scheme: fixture.scheme ?? 'fixture',
@@ -137,6 +146,13 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
       opened.push(write);
       if (fixture.issueOpenFails === true) return failed();
       return answered<IssueOpenOutcome>({ outcome: 'opened', id: String(opened.length) });
+    },
+
+    planStateWrite: async (write): Promise<PortResult<PlanStateOutcome>> => {
+      // RECORDED BEFORE IT REFUSES, like `statusWrite`.
+      planStates.push(write);
+      if (fixture.planStateWriteFails === true) return failed();
+      return answered(fixture.planStateOutcome ?? 'written');
     },
 
     limit: async (): Promise<PortResult<readonly LimitReading[]>> =>

@@ -18,7 +18,7 @@ import {
   RELEASE_BRANCH,
 } from '../../../contract/schema.js';
 import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromSlice, planPrAggregate, statusTone, tupleAgeText, agentStateStatus, agentAvailability, shortSessionId, worktreeName, KIND_LABEL } from '../tuple-row.js';
-import { TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
+import { TICKET_TRACKS, TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
 import { activityPace } from './activity.js';
 import { soleRowStatus, exceptionSummary } from './stuck.js';
 import { type PlanGroup, elsewhereNote, planWaitingDays, sliceKeyOf, sliceSummaryFor } from './sections.js';
@@ -2753,6 +2753,7 @@ export function IssueRowView(
   return (
     <TupleRowView
       tuple={tupleFromIssue(issue, { showKindLabel })}
+      tracks={TICKET_TRACKS}
       rowAttr={{ 'data-issue-row': `${issue.number}` }}
       // THE TICKET'S TYPE AND OWNER, beside its name — a fact about the
       // ticket, the same slot a branch row's slice badge uses for a fact

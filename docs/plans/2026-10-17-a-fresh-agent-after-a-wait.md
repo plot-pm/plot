@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1954 merged
 - **Started:** 2026-10-17, Jan Wloka, `bug/the-registry-reads-branch-line-waits`
+- **Started:** 2026-10-18, Jan Wloka, `bug/a-free-desk-ending-acts-on-no-slice`
 
 ## Changelog
 
@@ -56,7 +57,7 @@ Domain rules follow the layering rule in `CLAUDE.md`: new code is arrow function
 
 ### Supervisor endings
 
-- `bug/a-free-desk-ending-acts-on-no-slice` — a supervisor `unreadable` ending on a desk that ended a free wait answers `leave` for an unmerged branch, read from the desk's own records (#1917). Done when: `packages/domain/test/clean-wait-end.test.ts` gains the unmerged cases beside the merged one — open PR, commit beyond the claim, nothing beyond the claim — each failing on `origin/main` with `start-fresh` or `release-claim` and answering `leave` after the change; an unanswerable reading answers `leave`; the controller passes the reading with no host call; `endedDeskPlacement` gives such a desk a placement that names it rather than an empty-note row in *Waiting on you*; ROW 2's comment states what the desk holds.
+- `bug/a-free-desk-ending-acts-on-no-slice` — a supervisor `unreadable` ending on a desk that ended a free wait answers `leave` for an unmerged branch, read from the desk's own records (#1917). Done when: `packages/domain/test/clean-wait-end.test.ts` gains the unmerged cases beside the merged one — open PR, commit beyond the claim, nothing beyond the claim — each failing on `origin/main` with `start-fresh` or `release-claim` and answering `leave` after the change; an unanswerable reading answers `leave`; the controller passes the reading with no host call; `endedDeskPlacement` gives such a desk a placement that names it rather than an empty-note row in *Waiting on you*; ROW 2's comment states what the desk holds. → #2012
 
 ### Wait-bound fleet
 

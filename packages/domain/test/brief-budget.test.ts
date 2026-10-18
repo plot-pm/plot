@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { briefAskBudget, outstandingAsks } from '../src/rules/brief-budget.js';
+import { briefAskBudget, outstandingAsks, outstandingWaits } from '../src/rules/brief-budget.js';
 
 describe('outstandingAsks', () => {
   it('drops an ask whose brief landed', () => {
@@ -26,6 +26,32 @@ describe('outstandingAsks', () => {
     const kept = outstandingAsks(asked, new Set(['feature/b']));
     expect(kept).not.toBe(asked);
     expect(asked).toEqual(new Set(['feature/a', 'feature/b']));
+  });
+});
+
+describe('outstandingAsks — usage-limit waits', () => {
+  const missing = new Set(['feature/a']);
+
+  it('keeps an ask whose reset lies ahead', () => {
+    const kept = outstandingAsks(new Set(['feature/a']), missing, new Map([['feature/a', 200]]), 199);
+    expect(kept).toEqual(new Set(['feature/a']));
+  });
+
+  it('drops an ask at its reset second, so the next pass asks again', () => {
+    const kept = outstandingAsks(new Set(['feature/a']), missing, new Map([['feature/a', 200]]), 200);
+    expect(kept).toEqual(new Set());
+  });
+
+  it('ignores a wait for a branch that is not asked', () => {
+    const kept = outstandingAsks(new Set(), missing, new Map([['feature/a', 100]]), 200);
+    expect(kept).toEqual(new Set());
+  });
+});
+
+describe('outstandingWaits', () => {
+  it('keeps a wait only for a branch still asked', () => {
+    const waits = new Map([['feature/a', 200], ['feature/b', 300]]);
+    expect(outstandingWaits(waits, new Set(['feature/b']))).toEqual(new Map([['feature/b', 300]]));
   });
 });
 

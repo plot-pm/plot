@@ -6,6 +6,7 @@ import type {
   IssueOpen,
   IssueOpenOutcome,
   IssueRead,
+  PlanStateOutcome,
   StatusOutcome,
   StatusWrite,
   Tracker,
@@ -215,6 +216,14 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
       };
       const said = await runProcess('bash', [host, 'issue-open', JSON.stringify(request)], run);
       return issueOpenOf(said, jiraKeyOf, reads.refuse);
+    },
+
+    // A STATUS AND NOTHING ELSE. A Jira issue takes no `plan:*` label, no plan
+    // comment and no close from Plot, so the tracker was reached and holds
+    // nowhere to put this.
+    planStateWrite: async (): Promise<PortResult<PlanStateOutcome>> => {
+      reads.refuse(null);
+      return answered<PlanStateOutcome>('no-target');
     },
 
     limit: (): Promise<PortResult<readonly LimitReading[]>> => reads.limit(),

@@ -4,11 +4,13 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { clockManual, defaultBranchFile, fleetStateFile } from '@plot-pm/domain/adapters';
+import { clockManual, defaultBranchFile, fleetStateFile, startChannel } from '@plot-pm/domain/adapters';
 import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 
 import {
   bindChannelSlot,
+  deskRelayOver,
+  indexMonitorOver,
   prsBeat,
   queueWorldForRepo,
   relayBeat,
@@ -91,6 +93,120 @@ describe('the prs beat', () => {
     await beat();
     expect(opens).toBe(3);
     expect(slot.channel).not.toBeNull();
+  });
+});
+
+describe('bindChannelSlot — the onBound callback (#1526 bullet 3)', () => {
+  it('calls onBound once the slot newly holds a channel', async () => {
+    const slot = emptySlot();
+    const bound: string[] = [];
+    const ok = await bindChannelSlot(
+      slot,
+      async () => fakeChannel(),
+      () => ({ indexMonitor: null, deskRelay: null }),
+      () => bound.push('bound'),
+    );
+    expect(ok).toBe(true);
+    expect(bound).toEqual(['bound']);
+  });
+
+  it('does not call onBound where the open fails', async () => {
+    const slot = emptySlot();
+    const bound: string[] = [];
+    const ok = await bindChannelSlot(
+      slot,
+      async () => null,
+      () => ({ indexMonitor: null, deskRelay: null }),
+      () => bound.push('bound'),
+    );
+    expect(ok).toBe(false);
+    expect(bound).toEqual([]);
+  });
+
+  it('does not call onBound where the slot already holds a channel', async () => {
+    const slot: ChannelSlot = { channel: fakeChannel(), indexMonitor: null, deskRelay: null };
+    const bound: string[] = [];
+    const ok = await bindChannelSlot(
+      slot,
+      async () => fakeChannel(),
+      () => ({ indexMonitor: null, deskRelay: null }),
+      () => bound.push('bound'),
+    );
+    expect(ok).toBe(true);
+    expect(bound).toEqual([]);
+  });
+});
+
+describe('indexMonitorOver and deskRelayOver — the "has gone over" case (#1526 bullet 4)', () => {
+  let dir = '';
+  let channel: RunningChannel | undefined;
+  afterEach(async () => {
+    await channel?.stop();
+    channel = undefined;
+    if (dir !== '') rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('indexMonitorOver clears a published "default branch red" once the reading settles green', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'registryd-index-monitor-over-'));
+    execFileSync('git', ['init', '--quiet'], { cwd: dir });
+    mkdirSync(join(dir, 'docs', 'plans'), { recursive: true });
+    channel = await startChannel({ address: join(dir, 'c.sock') });
+    const lines: string[] = [];
+    const run_ = indexMonitorOver({ repoRoot: dir, scriptDir: dir }, channel, (l) => lines.push(l));
+
+    const red: DefaultBranchReading = {
+      v: DEFAULT_BRANCH_VERSION,
+      branch: 'main',
+      headSha: 'abc',
+      head: 'red',
+      settled: { sha: 'abc', state: 'red' },
+      failingRuns: [],
+      headSince: new Date().toISOString(),
+      askedAt: new Date().toISOString(),
+      at: new Date().toISOString(),
+    };
+    await defaultBranchFile(dir).write(red);
+    await run_();
+    expect(channel.findings().some((f) => f.finding === 'default branch red')).toBe(true);
+    expect(lines.some((l) => l.includes('index-monitor publish') && l.includes('default branch red'))).toBe(true);
+
+    // THE READING HAS GONE OVER: main settled green, so the finding no longer holds.
+    await defaultBranchFile(dir).write({ ...red, head: 'green', settled: { sha: 'abc', state: 'green' } });
+    await run_();
+    expect(channel.findings().some((f) => f.finding === 'default branch red')).toBe(false);
+    expect(lines.some((l) => l.includes('index-monitor clear') && l.includes('default branch red'))).toBe(true);
+  });
+
+  it('deskRelayOver clears a published desk finding once the desk log no longer holds it', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'registryd-desk-relay-over-'));
+    execFileSync('git', ['init', '--quiet'], { cwd: dir });
+    execFileSync('git', ['checkout', '-b', 'feature/one', '--quiet'], { cwd: dir });
+    writeFileSync(join(dir, 'README.md'), 'x');
+    execFileSync('git', ['add', '-A'], { cwd: dir });
+    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'x', '--quiet'], { cwd: dir });
+    channel = await startChannel({ address: join(dir, 'c.sock') });
+    const lines: string[] = [];
+    const run_ = deskRelayOver({ repoRoot: dir, scriptDir: dir }, channel, (l) => lines.push(l));
+
+    const finding = {
+      monitor: 'AgentMonitor',
+      branch: 'feature/one',
+      worktree: dir,
+      finding: 'owes a review',
+      since: '2026-10-10T09:00:00Z',
+      evidence: '4 commits ahead, no PR',
+      measuredAt: '2026-10-10T09:05:00Z',
+    };
+    writeFileSync(join(dir, '.plot-worker.monitor.agent.jsonl'), `${JSON.stringify(finding)}\n`);
+    await run_();
+    expect(channel.findings().some((f) => f.finding === 'owes a review')).toBe(true);
+    expect(lines.some((l) => l.includes('desk-relay publish') && l.includes('owes a review'))).toBe(true);
+
+    // THE DESK LOG HAS GONE OVER: the finding no longer holds.
+    writeFileSync(join(dir, '.plot-worker.monitor.agent.jsonl'), '');
+    await run_();
+    expect(channel.findings().some((f) => f.finding === 'owes a review')).toBe(false);
+    expect(lines.some((l) => l.includes('desk-relay clear'))).toBe(true);
   });
 });
 
@@ -290,6 +406,9 @@ describe('run — the loop wiring', () => {
     expect(code).toBe(0);
     expect(opens).toBe(2);
     expect(warnings.filter((w) => w.includes('the channel could not start'))).toHaveLength(1);
+    // THE RETRY'S SUCCESS IS LOGGED (#1526 bullet 3): a late bind on a PR beat
+    // is otherwise invisible in --once/daemon output.
+    expect(warnings.filter((w) => w.includes('channel bound'))).toHaveLength(1);
     expect(events).toContain('read-default-branch');
     expect(events.at(-1)).toBe('channel-stop');
   });
@@ -321,7 +440,7 @@ describe('run — the loop wiring', () => {
         }),
       }),
     );
-    expect(warnings).toContain('plot-fleetd: pr-reader failed: monitor blew up');
+    expect(warnings).toContain('plot-fleetd: pr-reader failed: monitor blew up\n');
   });
 
   it('returns well before the interval when a stop arrives during the wait', async () => {
@@ -527,7 +646,7 @@ describe('a swallowed subscriber throw', () => {
       await new Promise((r) => setImmediate(r));
     }
     expect(scans).toBe(12);
-    expect(warnings).toEqual(['plot-fleetd: pr-reader failed: monitor blew up']);
+    expect(warnings).toEqual(['plot-fleetd: pr-reader failed: monitor blew up\n']);
   });
 });
 

@@ -23,12 +23,14 @@ import {
   reportTick,
   run,
   CHANNEL_SOCKET,
+  settleOnce,
   spendForTick,
   startAgents,
   worldForRepo,
+  writersFor,
   writeSupervisionReport,
 } from '../../src/server/entry/registryd-main.js';
-import { escalationMemory, readEscalations } from '../../src/shared/escalations.js';
+import { escalationMemory, readEscalations, ESCALATION_MEMORY_LIMIT } from '../../src/shared/escalations.js';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { MergedAnswer } from '@plot-pm/domain/ports/host';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
@@ -1205,6 +1207,82 @@ describe('run — a failed tick must not end the daemon', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  // THE CALL THE LOOP-LEVEL TRY/CATCH CANNOT SEE: `notifyEscalations` runs
+  // AFTER `runTick`'s own try/catch has already closed (`:2252-2292` above).
+  // A notifier whose command throws rather than resolving `{ok: false}` would
+  // be an unhandled rejection there, with nothing at the loop level to catch
+  // it — unless the call is independently guarded. `seams.tick` hands back a
+  // report carrying one `notify` write so `notifyEscalations` actually calls
+  // the notifier instead of returning early on an empty list; `seams.notifier`
+  // hands back a `Notifier` whose `notify()` rejects, which the real
+  // `notifierCommand` adapter can never do (it always resolves `{ok: true}`
+  // or `{ok: false, ...}`), so a seam is the only way to drive this case.
+  it('survives a notifier that rejects, and takes its next tick', async () => {
+    const dir = sandbox();
+    try {
+      const report: TickReport = {
+        startedAt: 0,
+        costMs: 1,
+        agents: 1,
+        incomplete: '',
+        handOver: null,
+        decision: {
+          outcome: 'decided',
+          workflow: 'supervise',
+          writes: [
+            {
+              kind: 'notify',
+              worktree: '/desks/feature-x',
+              askedAt: '2020-01-01T00:00:00.000Z',
+              rung: 'notified-1',
+              message: 'hi',
+            },
+          ],
+          detail: {
+            agents: [],
+            left: [],
+            reaping: [],
+            correcting: [],
+            needingAPerson: [],
+            deferred: [],
+            unclaimed: [],
+          },
+        },
+      };
+      let ticks = 0;
+      const warnings: string[] = [];
+      const code = await run(
+        [],
+        dir,
+        () => {},
+        async () => {},
+        // Stops AFTER the second tick, so the run proves it reached a tick
+        // following the one whose notifier rejected.
+        () => ticks >= 2,
+        (s) => warnings.push(s),
+        dir,
+        {
+          tick: async () => {
+            ticks += 1;
+            return report;
+          },
+          notifier: async () => ({
+            notify: async () => {
+              throw new Error('notifier boom');
+            },
+          }),
+        },
+      );
+      expect(code).toBe(0);
+      expect(ticks).toBe(2);
+      expect(warnings.some((w) => w.includes('escalation notify failed') && w.includes('notifier boom'))).toBe(
+        true,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 /**
@@ -1924,6 +2002,21 @@ describe('notifyEscalations — applies the tick\'s notify writes, once each', (
     expect([...(await world.recordedRungs('/estate/a', '2020-01-01T00:00:00.000Z'))]).toEqual(['notified-1']);
   });
 
+  it('stops growing past ESCALATION_MEMORY_LIMIT across many ticks\' worth of escalations', async () => {
+    const root = repo();
+    const memory = escalationMemory();
+    const notifier: Notifier = { notify: async () => ({ ok: true }) };
+    const total = ESCALATION_MEMORY_LIMIT + 50;
+    for (let i = 0; i < total; i += 1) {
+      await notifyEscalations(notifyTick(`/estate/${i}`, 'notified-1'), root, async () => notifier, memory, () => {}, () => {});
+    }
+    // One rung per tick, `total` ticks — a memory with no bound would hold
+    // every one of them. It holds the bound instead, and the most recent
+    // rung is still present: the oldest was dropped, not a random one.
+    expect(memory.records.length).toBe(ESCALATION_MEMORY_LIMIT);
+    expect(memory.records.at(-1)).toMatchObject({ worktree: `/estate/${total - 1}` });
+  });
+
   afterAll(() => {
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
   });
@@ -2185,5 +2278,92 @@ describe('queueWorldForRepo — the refused reading', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // THE CALLER'S CACHE, NOT THE WORLD'S OWN. `defaultBranchRed` used to read
+  // `Checks wait` with its own `readConfigAsync` call every time it was asked;
+  // `run()`'s loop and its `defaultBranchWorld` each asked it independently,
+  // two spawns of `plot-config.sh` for one value every tick. The fix shares
+  // ONE thunk between both callers — this proves the world's half of that
+  // contract: given a `checksWaitMs` thunk, `defaultBranchRed()` calls it
+  // exactly once per ask, however many times the world itself is asked within
+  // that one call. A mutant that re-reads instead of using the passed thunk's
+  // settled value would call it more than once here and fail the assertion.
+  it('reads `checksWaitMs` through the thunk it is given, once per ask', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'plot-checks-wait-thunk-'));
+    try {
+      const reading = {
+        // The literal `DefaultBranchReadingSchema.v` requires — see
+        // `DEFAULT_BRANCH_VERSION` in `@plot-pm/domain/entities/default-branch`,
+        // not re-exported from the package root.
+        v: 1 as const,
+        branch: 'main',
+        headSha: 'r'.repeat(40),
+        head: 'red' as const,
+        settled: { sha: 'r'.repeat(40), state: 'red' as const },
+        failingRuns: [],
+        headSince: new Date().toISOString(),
+        askedAt: new Date().toISOString(),
+        at: new Date().toISOString(),
+      };
+      mkdirSync(join(dir, '.plot', 'state'), { recursive: true });
+      writeFileSync(join(dir, '.plot', 'state', 'default-branch.json'), JSON.stringify(reading));
+      let calls = 0;
+      const checksWaitMs = async () => {
+        calls += 1;
+        return 3600_000;
+      };
+      const queue = queueWorldForRepo(dir, dir, { calls: 0 }, undefined, undefined, undefined, checksWaitMs);
+      expect(await queue.defaultBranchRed()).toBe(true);
+      expect(calls).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('settleOnce — --once must not cut off a write still draining (#1539)', () => {
+  it('sets exitCode rather than calling exit, so a backed-up write survives', async () => {
+    // A pipe reporting backpressure: `write` returns `false`, and nothing
+    // here ever resolves it — the old `process.exit(code)` would have torn
+    // the process down regardless, discarding that signal entirely.
+    const writers = writersFor(['--once'], '/unused', {
+      stdout: { write: () => false },
+      stderr: { write: () => false },
+    });
+    writers.out('whole output line\n');
+
+    let exitCalls = 0;
+    const proc: Pick<NodeJS.Process, 'exit' | 'exitCode'> = {
+      exitCode: null,
+      exit: (() => {
+        exitCalls += 1;
+        return undefined as never;
+      }) as NodeJS.Process['exit'],
+    };
+
+    await settleOnce(Promise.resolve(0), proc, () => {});
+
+    expect(proc.exitCode).toBe(0);
+    expect(exitCalls).toBe(0);
+  });
+
+  it('still reports and exits on a start failure, before the loop is reached', async () => {
+    let exitCalls = 0;
+    const proc: Pick<NodeJS.Process, 'exit' | 'exitCode'> = {
+      exitCode: null,
+      exit: ((code?: number) => {
+        exitCalls += 1;
+        expect(code).toBe(1);
+        return undefined as never;
+      }) as NodeJS.Process['exit'],
+    };
+    const err: string[] = [];
+
+    await settleOnce(Promise.reject(new Error('missing registry directory')), proc, (s) => err.push(s));
+
+    expect(exitCalls).toBe(1);
+    expect(err.join('')).toContain('plot-fleetd failed to start: missing registry directory');
+    expect(proc.exitCode).toBe(null);
   });
 });
