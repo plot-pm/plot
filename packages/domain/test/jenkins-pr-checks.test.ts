@@ -21,8 +21,8 @@ describe('bindChecks', () => {
     expect(bindChecks([run('FAILURE', '2026-10-16T09:00:00Z')], 'j/b', 's1')?.checks).toBe('failing');
   });
 
-  it('reads an answer with no build of the commit as pending and unbound', () => {
-    expect(bindChecks([], 'j/b', 's1')).toEqual({ checks: 'pending', job: 'j/b', checksSha: '' });
+  it('reads an answer with no build of the commit as unknown and unbound, never pending', () => {
+    expect(bindChecks([], 'j/b', 's1')).toEqual({ checks: 'unknown', job: 'j/b', checksSha: '' });
   });
 
   it('answers nothing where the lookup could not ask, so the branch colour stands', () => {

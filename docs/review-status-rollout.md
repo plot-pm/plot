@@ -118,8 +118,7 @@ shape of #1687.
 prints that the section was not evaluated.
 
 Direct pushes to the default branch are not PRs and are not examined.
-`pr-review` is GitHub only; on Bitbucket it exits 4 and every PR reads as
-unread.
+`pr-review` reads the `plot/review` commit status on both hosts. On Bitbucket the status words SUCCESSFUL, FAILED, INPROGRESS and STOPPED map to `success`, `failure`, `pending` and `error`.
 
 ## For this repository
 
