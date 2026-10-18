@@ -553,6 +553,10 @@ export interface RefusedSliceWrite {
   readonly kind: 'refused-slice';
   /** The branch the take-up was refused for. */
   readonly branch: string;
+  /** The session of the agent that refused; `''` where none is known. */
+  readonly session?: string;
+  /** Why the take-up was refused; `''` where none is known. */
+  readonly reason?: string;
 }
 
 /**

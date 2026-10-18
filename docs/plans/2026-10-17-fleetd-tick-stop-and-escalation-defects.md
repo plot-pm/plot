@@ -55,7 +55,7 @@ Group the members by the code they touch. Each slice closes its members complete
 3. **Output and channel** — #1526 (newline, channel bound line, `over()` tests), #1539.
 4. **Unit harness** — #1590.
 5. **Usage-limit retry** — #1716.
-6. **Refused hold names its reason** — #1642. It crosses domain, fleetd and board, so it takes its own slice. The refusal record derives from the tick each time and is never persisted.
+6. **Refused hold names its reason** — #1642. It crosses domain, fleetd and board, so it takes its own slice. The refusal record (session, reason, ISO time) is persisted next to the refusal in `.plot/state/refused-slices.tsv`, as optional columns after the branch. Decided 2026-10-18 by Jan Wloka.
 
 Each fix follows the layering rule in `CLAUDE.md`: a decision goes in the domain, and fleetd calls it. Each fix lands with a test that fails before it.
 
@@ -63,7 +63,7 @@ Each fix follows the layering rule in `CLAUDE.md`: a decision goes in the domain
 
 - [x] #1580: does an empty fresh `fleetd.log` count as a tick? The issue asks for a decision; the plan records it before slice 1 starts. Decided 2026-10-17 by Jan Wloka: a fresh empty `fleetd.log` is not a tick, and the board shows starting until the first tick line.
 - [ ] #1456 and #1508 are partial: which of their bullets still hold on `main`? Slice 1 re-measures each before changing it, and drops a bullet `main` has already fixed. The slice measures this and records the answer here before changing code.
-- [x] #1642: does the refusal record (who, why, when) persist in the index or derive from the tick? The answer decides whether slice 6 touches a stored file. Decided 2026-10-17 by Jan Wloka: the refusal record derives from the tick each time and is never persisted, so slice 6 touches no stored file.
+- [x] #1642: does the refusal record (who, why, when) persist in the index or derive from the tick? The answer decides whether slice 6 touches a stored file. Decided 2026-10-17 by Jan Wloka: the refusal record derives from the tick each time and is never persisted. Reversed 2026-10-18 by Jan Wloka: the code showed that a desk-reset refusal writes no ending record, so the reason is persisted next to the refusal in `refused-slices.tsv` (optional columns session, reason, ISO time; an old one-column line still reads).
 - [ ] Do slices 1 and 2 collide on the tick file? If they do, slice 2 waits for slice 1. The slice measures this and records the answer here before changing code.
 
 ## Slices
@@ -75,7 +75,7 @@ Each fix follows the layering rule in `CLAUDE.md`: a decision goes in the domain
 - `bug/fleetd-once-and-channel-output` — `--once` output on a macOS pipe, channel retry newline and bound line, `over()` tests → #1998
 - `bug/fleetd-unit-harness-findings` — the #1589 review findings
 - `bug/fleetd-retries-usage-limit-brief` — re-ask a brief that ended at the usage limit after its reset time → #1997
-- `bug/refused-hold-names-its-reason` — the Tick, `/plot-fleet --status` and the board show who refused, why and when, derived from the tick and never persisted
+- `bug/refused-hold-names-its-reason` — the Tick, `/plot-fleet --status` and the board show who refused, why and when, persisted next to the refusal in `refused-slices.tsv` (decided 2026-10-18 by Jan Wloka)
 
 ## Notes
 

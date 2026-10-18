@@ -674,6 +674,16 @@ describe('a slice an agent refused is held, by a reading that never latches', ()
     expect(whyNotReady(slice!)).toBe('refused');
   });
 
+  it('carries who, why and when from the world onto the slice, and nothing where the world has none', async () => {
+    const refusal = { session: 'sess-1', reason: 'reset refused', at: '2026-10-18T10:00:00.000Z' };
+    const named = await readQueue([], world({ refused: async () => true, refusal: async () => refusal }));
+    expect(named.slices[0].refusal).toEqual(refusal);
+
+    const bare = await readQueue([], world({ refused: async () => true, refusal: async () => null }));
+    expect(bare.slices[0].refused).toBe(true);
+    expect(bare.slices[0].refusal).toBeUndefined();
+  });
+
   it("leaves a sibling branch alone — the reading is per branch, not per plan", async () => {
     // CATCHES A READING THAT MARKS EVERY BRANCH ONCE ONE IS REFUSED, rather
     // than the one a world actually names.

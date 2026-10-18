@@ -190,7 +190,10 @@ const landOne = async (
       return { ok: true, value: undefined };
 
     case 'refused-slice':
-      return ports.refusedSlices.record(write.branch);
+      return ports.refusedSlices.record(write.branch, {
+        session: write.session ?? '',
+        reason: write.reason ?? '',
+      });
 
     case 'assignment-clear':
       return ports.agents.clearAssignment(write.session);

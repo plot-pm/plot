@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
-import type { RefusedSliceRecord } from '../../ports/refused-slices.js';
+import type { SliceRefusal, RefusedSliceRecord } from '../../ports/refused-slices.js';
 import { runProcess } from '../run-script.js';
 
 /**
@@ -24,18 +24,29 @@ export interface RefusedSlicesFileOptions {
   home?: string;
   /** Reads the environment; defaults to `process.env`. */
   env?: Record<string, string | undefined>;
+  /** The clock stamped on a new line; defaults to the system clock. */
+  now?: () => Date;
 }
 
 /** Whether a failure was the file simply not being there. */
 const isMissing = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && (error as { code?: string }).code === 'ENOENT';
 
-/** The branches a record's text holds, trimmed, blank lines dropped. */
-const branchesIn = (text: string): readonly string[] =>
+/** The lines a record's text holds, blank lines dropped. */
+const linesIn = (text: string): readonly string[] =>
   text
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line !== '');
+
+/** The branch a line names: its first column. */
+const branchOf = (line: string): string => line.split('\t')[0].trim();
+
+/** The branches a record's text holds. */
+const branchesIn = (text: string): readonly string[] => linesIn(text).map(branchOf);
+
+/** One column's text on one line, so it cannot split a row. */
+const oneColumn = (text: string): string => text.replace(/[\t\r\n]+/g, ' ').trim();
 
 /**
  * Reads and appends `.plot/state/refused-slices.tsv` for ONE repository.
@@ -85,7 +96,18 @@ export const refusedSlicesFile = (options: RefusedSlicesFileOptions = {}): Refus
       return answered(branchesIn(text).includes(branch));
     },
 
-    record: async (branch: string): Promise<PortResult<void>> => {
+    refusal: async (branch: string): Promise<PortResult<SliceRefusal | null>> => {
+      const dir = await dirOf();
+      if (dir === null) return answered(null);
+      const text = await textOf(join(dir, FILE));
+      if (text === null) return failed<SliceRefusal | null>();
+      const line = linesIn(text).find((l) => branchOf(l) === branch);
+      if (line === undefined) return answered(null);
+      const [, session = '', reason = '', at = ''] = line.split('\t');
+      return answered({ session, reason, at });
+    },
+
+    record: async (branch, detail): Promise<PortResult<void>> => {
       if (branch === '') return answered(undefined);
       const dir = await dirOf();
       if (dir === null) return failed<void>();
@@ -98,7 +120,11 @@ export const refusedSlicesFile = (options: RefusedSlicesFileOptions = {}): Refus
         // A file whose last line has no newline gets one first, so the
         // appended branch never joins the previous line.
         const lead = text === '' || text.endsWith('\n') ? '' : '\n';
-        await appendFile(path, `${lead}${branch}\n`, { encoding: 'utf8' });
+        const columns =
+          detail === undefined
+            ? ''
+            : `\t${oneColumn(detail.session)}\t${oneColumn(detail.reason)}\t${(options.now?.() ?? new Date()).toISOString()}`;
+        await appendFile(path, `${lead}${branch}${columns}\n`, { encoding: 'utf8' });
         return answered(undefined);
       } catch {
         return failed<void>();

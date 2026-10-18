@@ -53,6 +53,12 @@ describe('performLoopWrites — one arm per write kind', () => {
     expect(refusedSlices.branches).toEqual(['bug/held']);
   });
 
+  it('refused-slice carries the session and reason into the record', async () => {
+    const refusedSlices = refusedSlicesFixture();
+    await apply({ kind: 'refused-slice', branch: 'bug/held', session: 'sess-1', reason: 'why' }, { refusedSlices });
+    expect(refusedSlices.refusals.get('bug/held')).toMatchObject({ session: 'sess-1', reason: 'why' });
+  });
+
   it('desk-reset resets the desk onto the branch, through Trees', async () => {
     const calls: { path: string; branch: string; base: string }[] = [];
     const [{ result }] = await apply(

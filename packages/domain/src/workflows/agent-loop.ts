@@ -499,7 +499,16 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
     // next free agent would meet the same refusal.
     if (readings.takeUpRefused !== null) {
       const refusal: readonly Write[] =
-        readings.takeUpRefused === 'desk-reset' ? [{ kind: 'refused-slice', branch }] : [];
+        readings.takeUpRefused === 'desk-reset'
+          ? [
+              {
+                kind: 'refused-slice',
+                branch,
+                session: readings.session,
+                reason: `the desk reset at take-up was refused, claim: ${readings.claim ?? 'unknown'}`,
+              },
+            ]
+          : [];
       return decide('agent-loop', [...refusal, { kind: 'assignment-clear', session: readings.session }], {
         branch,
         exitCode: null,

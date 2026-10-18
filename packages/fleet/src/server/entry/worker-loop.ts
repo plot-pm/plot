@@ -1706,7 +1706,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
           deps.log(`plot-worker-loop: ${branch} names agent '${named}' and its charter ${launch.why} — refusing the take-up`);
           const session = readings.session;
           await performLoopWrites(
-            loopWritesOf([{ kind: 'refused-slice', branch }, { kind: 'assignment-clear', session }], deps.sdk !== undefined),
+            loopWritesOf([{ kind: 'refused-slice', branch, session, reason: `names agent '${named}' and its charter ${launch.why}` }, { kind: 'assignment-clear', session }], deps.sdk !== undefined),
             deps.ports,
             worktree,
           );
