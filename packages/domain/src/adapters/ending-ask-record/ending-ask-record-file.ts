@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
 import { answered, failed, type PortResult } from '../../port-result.js';
@@ -10,6 +10,17 @@ export const ENDING_ASK_RECORD_HOME_ENV = 'PLOT_ENDING_ASK_RECORD_HOME';
 
 /** The record's filename, under the common git dir's `.plot/state/`. */
 const FILE = 'ending-asks.tsv';
+
+/**
+ * The most rows one `append` leaves behind.
+ *
+ * The record exists so a later tick can tell "already asked" from "not yet"
+ * — once a row's slice is reaped, nothing reads that row again, but nothing
+ * here learns that a worktree is gone. A row count bound costs one array
+ * slice on the write path all the same and needs no new reading, so the
+ * file stays bounded without a reaper-aware prune.
+ */
+const MAX_ROWS = 500;
 
 /** The seams the adapter needs so a test never touches the operator's own file. */
 export interface EndingAskRecordFileOptions {
@@ -94,7 +105,21 @@ export const endingAskRecordFile = (options: EndingAskRecordFileOptions = {}): E
       if (path === null) return failed<void>();
       try {
         await mkdir(dirname(path), { recursive: true });
-        await appendFile(path, `${encodeRow(record)}\n`, { encoding: 'utf8' });
+        let existing: string;
+        try {
+          existing = await readFile(path, 'utf8');
+        } catch (error) {
+          if (!isMissing(error)) return failed<void>();
+          existing = '';
+        }
+        const rows = existing.split('\n').filter((line) => line !== '');
+        rows.push(encodeRow(record));
+        const bounded = rows.length > MAX_ROWS ? rows.slice(rows.length - MAX_ROWS) : rows;
+        if (bounded.length === rows.length) {
+          await appendFile(path, `${encodeRow(record)}\n`, { encoding: 'utf8' });
+        } else {
+          await writeFile(path, `${bounded.join('\n')}\n`, { encoding: 'utf8' });
+        }
         return answered(undefined);
       } catch {
         return failed<void>();

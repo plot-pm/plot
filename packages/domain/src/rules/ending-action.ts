@@ -530,8 +530,8 @@ export const needsPersonMarker = (ending: EndingReason, branch: string, detail: 
             `Decide: whether to wait longer, check the build connector, or resume without a CI answer.`;
     case 'blocked':
       return (
-        `The worker on \`${branch}\` reported it could not proceed (${detail || 'no detail was recorded'}). ` +
-        `Decide how it should proceed, or close out the slice.`
+        `The worker on \`${branch}\` stopped and cannot proceed on its own (${detail || 'no detail was recorded'}) — ` +
+        `either the agent said so, or its background work was dropped twice. Decide how it should proceed, or close out the slice.`
       );
     case 'corrections-spent':
     case 'turn-limit':

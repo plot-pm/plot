@@ -171,6 +171,18 @@ describe('readFreshAgentCandidates', () => {
     const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles, noMarker, noAsks);
     expect(reading?.detail).toBe('Slice max runs reached: 5');
   });
+
+  it('reads no ending for a desk whose checked-out branch does not match the ending file\'s own branch — finding 2 of #1843', async () => {
+    // The ending file names 'feature/old' — a branch a prior worker on this
+    // worktree held — while the tree checked out now is 'feature/x', per
+    // tree()'s default. endingAsksFreshStart (ending-action.ts) already
+    // guards this exact mismatch with `ending.ending.branch !== branch`;
+    // readFreshAgentCandidates carries no equivalent check.
+    const deskFile = (worktree: string, name: string) =>
+      name === ENDING_FILENAME ? endingFile('corrections-spent').replace('feature/x', 'feature/old') : null;
+    const [reading] = await readFreshAgentCandidates([tree()], deskFile, emptyStore, noHeldFiles, noMarker, noAsks);
+    expect(reading?.ending).toBeNull();
+  });
 });
 
 describe('freshAgentDecisions', () => {
@@ -1107,6 +1119,40 @@ describe('freshAgentDeskReads', () => {
 
   it('maps the host\'s merge answer to a reading', async () => {
     expect(await reads().asks.prMerged('feature/x')).toBe('merged');
+  });
+
+  // #1394's LOW: `asked` re-read the whole TSV on every candidate. One
+  // `freshAgentDeskReads` call is already scoped to one tick (its production
+  // call site at `registryd-main.ts` builds it fresh inside the per-tick
+  // `if` block), so a memo keyed by plan/branch/endingAt and scoped to this
+  // one call reads the file once per distinct question, however many
+  // candidates ask it — finding 5 of #1843, the per-tick-re-read half.
+  it('reads the ending-ask record once per distinct question, not once per candidate asking it — finding 5 of #1843', async () => {
+    let calls = 0;
+    const withMemo = freshAgentDeskReads(
+      { repoRoot: '/nowhere', scriptDir: '/nowhere' },
+      {
+        asked: async () => {
+          calls += 1;
+          return { ok: true, value: false };
+        },
+      },
+      async () => ({ ok: true, value: 'merged' }),
+    );
+    expect(await withMemo.asks.record.asked('2026-10-07-a-plan', 'infra/x', '2026-10-08T10:00:00.000Z')).toEqual({
+      ok: true,
+      value: false,
+    });
+    expect(await withMemo.asks.record.asked('2026-10-07-a-plan', 'infra/x', '2026-10-08T10:00:00.000Z')).toEqual({
+      ok: true,
+      value: false,
+    });
+    expect(calls).toBe(1);
+    expect(await withMemo.asks.record.asked('2026-10-07-a-plan', 'infra/y', '2026-10-08T10:00:00.000Z')).toEqual({
+      ok: true,
+      value: false,
+    });
+    expect(calls).toBe(2);
   });
 
   // THE TALLY: `freshAgentDeskReads` is where #1374's bug lived — `prMerged`
