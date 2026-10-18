@@ -13,6 +13,7 @@
 - **Started:** 2026-10-17, Jan Wloka, `bug/the-reaper-reads-the-desk-loop-and-the-root-marker`
 - **Started:** 2026-10-18, Jan Wloka, `bug/a-fresh-agent-prompt-describes-no-question`
 - **Started:** 2026-10-18, Jan Wloka, `bug/the-ending-ask-record-stays-bounded`
+- **Started:** 2026-10-18, Jan Wloka, `bug/drop-reads-a-merged-desk-as-finished`
 
 ## Changelog
 
