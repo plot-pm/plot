@@ -7974,6 +7974,63 @@ test('host: issue-list github closed records one extra call per 100 rows past th
   assert.equal(spent(250) - one, 2);
 });
 
+// --- issue-list --label and issue-comment: the review issue's lookup and append ---
+
+/** A `gh` that appends every call's argv, so a test sees each call rather than the last. */
+const makeLoggingGh = (answer) => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-gh-log-')));
+  const log = path.join(dir, 'gh.log');
+  writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash\nprintf '%s\\n' "--- call" "$@" >> "${log}"\nprintf '%s' '${answer}'\n`);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  const calls = () => (existsSync(log) ? readFileSync(log, 'utf8').split('--- call\n').filter(Boolean).map((c) => c.trim().split('\n')) : []);
+  return { dir, calls };
+};
+
+test('host: issue-list --label passes the label to gh on github', () => {
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runGh(['issue-list', '--label', 'ai-generated', '--limit', '5'], stubs);
+  assert.equal(res.status, 0, res.stderr);
+  const argv = argvOf(stubs.ghArgv);
+  assert.equal(argv[argv.indexOf('--label') + 1], 'ai-generated');
+});
+
+test('host: issue-list --label exits 4 on bitbucket and runs no bb', () => {
+  const stubs = makeStubs();
+  const res = runBb(['issue-list', '--label', 'ai-generated'], stubs);
+  assert.equal(res.status, 4, res.stderr);
+  assert.match(res.stderr, /by label/);
+  assert.ok(!existsSync(stubs.bbArgv), 'bb must not run');
+});
+
+test('host: issue-list --label exits 4 on jira and runs no curl', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list', '--label', 'ai-generated'], stub);
+  assert.equal(res.status, 4, res.stderr);
+  assert.match(res.stderr, /jira cannot list issues by label/);
+  assert.equal(res.stdout, '');
+  assert.ok(!existsSync(stub.argvFile), 'curl must not run');
+});
+
+test('host: issue-comment with an empty marker always posts and never reads or edits a comment', () => {
+  const gh = makeLoggingGh('[{"id":7,"body":"a comment that holds anything"}]');
+  const res = runAllowFail(['issue-comment', '12', '', 'the new head'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs: gh,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(gh.calls(), [['issue', 'comment', '12', '--body', 'the new head']]);
+});
+
+test('host: issue-comment with a marker edits the comment holding it', () => {
+  const gh = makeLoggingGh('[{"id":7,"body":"x <!-- m1 --> y"}]');
+  const res = runAllowFail(['issue-comment', '12', '<!-- m1 -->', 'edited'], {
+    env: { PLOT_HOST: 'github', PLOT_TRACKER: 'github-issues' },
+    stubs: gh,
+  });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(gh.calls().at(-1), ['api', '-X', 'PATCH', 'repos/{owner}/{repo}/issues/comments/7', '-f', 'body=edited']);
+});
+
 // --- issue-open: THE SECOND WRITE TO A TRACKER -------------------------------
 
 test('host: issue-open opens one github issue and prints its address', () => {

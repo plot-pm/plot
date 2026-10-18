@@ -2,7 +2,7 @@ import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { unaskable, type PortResult } from '../../port-result.js';
 import { issueSource, type IssueSource, type IssueSourceReading } from '../../rules/issue-source.js';
-import type { ClosedIssues, IssueOpenOutcome, IssueRead, StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
+import type { ClosedIssues, IssueCommentOutcome, IssueOpenOutcome, IssueRead, StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { trackerReads } from './tracker-shell.js';
@@ -100,6 +100,7 @@ export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker 
     issueList: (limit): Promise<PortResult<readonly Issue[]>> => reads.issueList(limit),
     issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
     issueListOpen: (limit): Promise<PortResult<IssueRead>> => reads.issueListOpen(limit),
+    issueListLabelled: (label, limit): Promise<PortResult<IssueRead>> => reads.issueListLabelled(label, limit),
     issueListChanged: (since, limit): Promise<PortResult<IssueRead>> => reads.issueListChanged(since, limit),
     // NO PERSON-SCOPED MODE DISTINCT FROM THE OPEN READ, for the same reason
     // `trackerGithub` has none: this connector's open read is never
@@ -110,6 +111,8 @@ export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker 
     statusWrite: async (): Promise<PortResult<StatusOutcome>> =>
       unaskable("no Tracker declared; the git host's issues are read-only to Plot"),
     issueOpen: async (): Promise<PortResult<IssueOpenOutcome>> =>
+      unaskable("no Tracker declared; the git host's issues are read-only to Plot"),
+    issueComment: async (): Promise<PortResult<IssueCommentOutcome>> =>
       unaskable("no Tracker declared; the git host's issues are read-only to Plot"),
     // THE ONE WRITE THIS CONNECTOR MAKES, and one-way: the label and the plan
     // comment on the git host's own issue. `plot-host.sh` answers exit 4, so

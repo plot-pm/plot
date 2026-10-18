@@ -39,9 +39,9 @@ Issue #1952 groups three defects, each measured on 2026-10-16.
 
 ### Open Points
 
-- [ ] #1881: update the issue body or add a comment? A comment keeps the history of heads; an edit keeps one current list.
-- [ ] #1881: how does the match treat a closed issue — open a new one, or reopen? The issue text asks only about open issues.
-- [ ] #1881: a Bitbucket or Jira tracker may not list by title — does the tracker port gain a find operation, and what does `trackerNone` answer?
+- [x] #1881: update the issue body or add a comment? A comment: it keeps the history of heads and needs no read-modify-write, so two concurrent reviews cannot lose each other's text.
+- [x] #1881: how does the match treat a closed issue — open a new one, or reopen? A closed issue does not match; the lookup lists open issues only, so a closed one means a new issue.
+- [x] #1881: a Bitbucket or Jira tracker may not list by title — does the tracker port gain a find operation, and what does `trackerNone` answer? The port gains `issueListLabelled(label, limit)` and `issueComment(id, body)`; the title test is `findOpenReviewIssue` in the domain. `trackerNone`, the git-host tracker, Jira and Bitbucket answer `unaskable` with a reason; only the GitHub connector comments. An `unaskable` lookup opens an issue as before the lookup existed; a failed or truncated lookup opens nothing.
 - [ ] #1883: parser fallback or template change — the issue allows either; this plan picks the parser.
 - [ ] #1909: does `plot-worker-loop.sh` write the pid file with a plain redirect today?
 

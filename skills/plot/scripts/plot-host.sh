@@ -369,6 +369,11 @@
 #                                 as issue-list. Jira answers 404 for a missing
 #                                 key, which is exit 3 here (the tracker moved),
 #                                 never an empty body.
+#   issue-comment <number> <marker> <body>          (github)
+#                                 edits the comment holding <marker>, else posts
+#                                 one; an empty <marker> always posts, not idempotent.
+#   issue-list --label <label>    keeps open issues carrying the label (github
+#                                 only; exit 4 on Bitbucket and on Jira).
 #   issue-open <request-json>                       (jira)
 #   issue-open <title> <body> [--label <label>...]  (github-issues)
 #                                 THE SECOND OF TWO WRITES TO A TRACKER: open
@@ -4616,7 +4621,7 @@ case "$op" in
     # of them reproduces `an-outage-is-not-an-answer` — a board that says "no
     # issues" because it could not reach the tracker is stating a fact it does
     # not have.
-    limit=""; state="open"; since=""; page_token=""; paged=""
+    limit=""; state="open"; since=""; page_token=""; paged=""; label=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --limit) limit="${2:?}"; shift 2 ;;
@@ -4624,6 +4629,7 @@ case "$op" in
         --since) since="${2:?}"; shift 2 ;;
         --page-token) page_token="${2:?}"; shift 2 ;;
         --paged) paged=1; shift ;;
+        --label) label="${2:?}"; shift 2 ;;
         *) die "issue-list: unknown arg $1" ;;
       esac
     done
@@ -4653,6 +4659,7 @@ case "$op" in
       # the board. `PLOT_JIRA_JQL` overrides it for a team that wants a wider or
       # narrower inbox. ORDER BY created DESC so the newest ticket is first, the
       # same order `createdAt` gives the GitHub arm.
+      [ -z "$label" ] || { echo "plot-host: jira cannot list issues by label" >&2; exit 4; }
       jira_require_config
       # `Ticket prefixes` SCOPES THE DEFAULT to this repository's projects. The
       # default alone scopes by person and by state, so on a shared instance it
@@ -4778,8 +4785,9 @@ case "$op" in
       # itself, not the call, says what it is. `updatedAt` rides along so the
       # adapter's fold can compare it the way `foldIssueRows` already does.
       gh_json="number,title,url,createdAt,assignees,issueType"; search_args=(); ask_state="$gh_state"
-      if [ "$gh_state" = changed ]; then gh_json+=",updatedAt,state,closedAt"; ask_state=all; search_args=(--search "updated:>=$since")
-      elif [ "$gh_state" != open ]; then gh_json+=",closedAt"; search_args=(--search "closed:>=$since"); fi
+      [ -z "$label" ] || search_args=(--label "$label")
+      if [ "$gh_state" = changed ]; then gh_json+=",updatedAt,state,closedAt"; ask_state=all; search_args+=(--search "updated:>=$since")
+      elif [ "$gh_state" != open ]; then gh_json+=",closedAt"; search_args+=(--search "closed:>=$since"); fi
       if out="$(gh issue list --state "$ask_state" ${limit_args[@]+"${limit_args[@]}"} \
                   ${search_args[@]+"${search_args[@]}"} --json "$gh_json" 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
@@ -4810,7 +4818,7 @@ case "$op" in
       # A CLOSED OR CHANGED READ IS EXIT 4: `bb issue list` prints no closing or
       # update date, so there is nothing honest to return for either. It runs
       # before any `bb` command.
-      [ "$state" = open ] || { echo "plot-host: bitbucket cannot list closed or changed issues; bb prints neither date" >&2; exit 4; }
+      { [ "$state" = open ] && [ -z "$label" ]; } || { echo "plot-host: bitbucket cannot list closed or changed issues, or issues by label" >&2; exit 4; }
       bb_assert_issue_version || exit $?
       # `--state new,open` is bb's own default for `issue list` and is what
       # "open tracker issues" means; stated explicitly so a bb default change
@@ -4818,12 +4826,9 @@ case "$op" in
       # call (the request-budget comment in fleet.ts counts exactly this).
       raw="$(bb issue list --state new --state open 2>&1)"; rc=$?
       raw="$(bb_strip_ansi <<<"$raw")"
-      if [ "$rc" -ne 0 ]; then
-        # bb's error is on stdout, now folded into `raw`. Report it and choose
-        # 4-vs-3 from its wording — never parse it as an issue (Done-when 6).
-        echo "plot-host: $raw" >&2
-        exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"
-      fi
+      # bb's error is on stdout, now folded into `raw`. Report it and choose
+      # 4-vs-3 from its wording — never parse it as an issue (Done-when 6).
+      [ "$rc" -eq 0 ] || { echo "plot-host: $raw" >&2; exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"; }
       # A row is `#NNN <STATE> <title>   by <reporter>`. Anchor on the `#NNN`
       # prefix (the header line ` :: Showing …` has none and is skipped for
       # free), lift the number, strip the known state badge word, then drop the
@@ -4937,10 +4942,7 @@ case "$op" in
       bb_assert_issue_version || exit $?
       raw="$(bb issue view "$num" 2>&1)"; rc=$?
       raw="$(bb_strip_ansi <<<"$raw")"
-      if [ "$rc" -ne 0 ]; then
-        echo "plot-host: $raw" >&2
-        exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"
-      fi
+      [ "$rc" -eq 0 ] || { echo "plot-host: $raw" >&2; exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"; }
       # Title is the first line. URL is lifted from the footer, which is bb's
       # only place that prints one for a viewed issue — so the contract's `url`
       # is real here even though issue-list's is "".
@@ -5041,7 +5043,7 @@ case "$op" in
     # THE PLAN-STATE WRITES, and one-way: Plot sets a `plan:*` label, keeps one
     # comment per plan and closes the issue at release; nothing reads any back.
     #   issue-label   <n> <add> [<remove,...>]  adds one label, removes the rest
-    #   issue-comment <n> <marker> <body>       edits the comment holding <marker>, else posts
+    #   issue-comment <n> <marker> <body>       edits the comment holding <marker>, else posts; an empty <marker> always posts
     #   issue-close   <n>
     # GitHub issues only, dispatched on `issue_source` like issue-open. Exit 4,
     # with the reason, for a source that cannot be asked.
@@ -5051,7 +5053,7 @@ case "$op" in
       issue-label) gh issue edit "$num" --add-label "${2:?issue-label needs a label}" ${3:+--remove-label "$3"} >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-comment)
-        cid="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" | jq -rs --arg m "${2:?issue-comment needs a marker}" '[.[][] | select(.body | contains($m))][0].id // empty')" || gh_fail
+        cid=""; [ -z "${2-}" ] || cid="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" '[.[][] | select(.body | contains($m))][0].id // empty')" || gh_fail
         if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail
         else gh issue comment "$num" --body "${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi ;;
     esac
