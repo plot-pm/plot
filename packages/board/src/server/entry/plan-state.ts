@@ -1,7 +1,7 @@
-import { trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
+import { scriptsShell, trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import { planStateWrites, trackerWriteSummary, type PlanStateReading } from '@plot-pm/domain/rules/issue-status';
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -9,24 +9,27 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * A plan's phase, reflected on the issues it answers, through the tracker port.
  *
  * ```
- * plot-plan-meta.sh plan.md | plot-plan-state.mjs --phase approved --plan-link docs/plans/x.md
+ * plot-plan-state.mjs docs/plans/x.md --phase approved --plan-link docs/plans/x.md
  * 7	written	approved
+ * summary: tracker=written
  * ```
  *
  * **ITS OWN ARTIFACT**, for the reason `plot-issue-status.mjs`'s is: it spawns
  * `plot-host.sh` through the tracker connector.
  *
- * **THE PLAN ARRIVES ON STDIN** as `plot-plan-meta.sh`'s JSON, for its issues —
- * matching `plot-issue-status.mjs`, so the shell that owns the plan file reads
- * it once. **THE CALLER RESOLVES THE LINK AND PHASE**, as flags: the plan's
- * address differs by phase (the idea-branch PR link at `draft`, the plan file
- * on the default branch otherwise) and the phase a plan file alone cannot
- * always name (a spike approval, an in-flight release version) — only the
+ * **IT READS THE PLAN ITSELF**, through the `Scripts` port's `planMeta` — the
+ * one parser of the plan format — for the plan's issues. `plot-plan-state.sh`
+ * is a launcher and reads nothing. This write reads no configuration key: the
+ * label is the phase name, so no status word is configured.
+ * **THE CALLER RESOLVES THE LINK AND PHASE**, as flags: the plan's address
+ * differs by phase (the idea-branch PR link at `draft`, the plan file on the
+ * default branch otherwise) and the phase a plan file alone cannot always
+ * name (a spike approval, an in-flight release version) — only the
  * calling command knows either at the moment it calls.
  *
  * **Tab-separated out**, one line per owed write:
- * `<issue>\t<written|no-target|unaskable|failed>\t<reason>`. No line means no
- * write was owed.
+ * `<issue>\t<written|no-target|unaskable|failed>\t<reason>`, then
+ * `summary: tracker=<none|written|no-target|unaskable|failed>`.
  */
 
 /** The exit codes the caller reads. */
@@ -48,7 +51,7 @@ const FALLBACK: Record<Exclude<WriteOutcome, 'written'>, string> = {
 };
 
 /**
- * Reads the plan's issues out of `plot-plan-meta.sh`'s JSON.
+ * Reads the plan's issues out of `plot-plan-meta.sh`'s JSON line.
  *
  * @param text - the parser's output.
  * @returns the issues as strings.
@@ -106,28 +109,33 @@ export const writePlanStates = async (reading: PlanStateReading, tracker: Tracke
 };
 
 /**
- * Reads the input, writes the plan states, prints the answer.
+ * Reads the plan, writes the plan states, prints the answer.
  *
- * @param argv - the flags.
- * @param stdin - the plan's JSON.
+ * @param argv - the plan file, then the flags.
  * @param context - where the scripts and the repository are.
  * @param write - where the answer goes.
  * @returns the process exit code.
  */
 export const run = async (
   argv: readonly string[],
-  stdin: string,
   context: ShellContext,
   write: (s: string) => void = (s) => process.stdout.write(s),
 ): Promise<number> => {
+  const [planFile = '', ...flags] = argv;
   let reading: PlanStateReading;
   try {
-    reading = { issues: issuesFrom(stdin), ...flagsFrom(argv) };
+    if (planFile === '' || !existsSync(planFile)) throw new Error(`'${planFile}' is not a plan file`);
+    const meta = await scriptsShell(context).planMeta([path.resolve(planFile)]);
+    if (!meta.ok) throw new Error(`cannot parse '${planFile}'`);
+    const line = meta.value.split('\n').map((l) => l.trim()).find(Boolean);
+    if (line === undefined) throw new Error(`cannot parse '${planFile}'`);
+    reading = { issues: issuesFrom(line), ...flagsFrom(flags) };
   } catch (err) {
     process.stderr.write(`plot-plan-state: ${(err as Error).message}\n`);
     process.stderr.write(
-      'plot-plan-state: usage: plot-plan-meta.sh <plan> | plot-plan-state.mjs --phase <draft|approved|delivered|released> --plan-link <link> [--version <v>]\n',
+      'plot-plan-state: usage: plot-plan-state.sh <plan file> --phase <draft|approved|delivered|released> --plan-link <link> [--version <v>]\n',
     );
+    write('summary: tracker=failed\n');
     return EXIT.usage;
   }
   // NOTHING OWED ASKS NO TRACKER, for the reason `issue-status.ts` gives.
@@ -150,7 +158,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     repoRoot: process.env.PLOT_REPO_ROOT ?? process.cwd(),
     scriptDir: process.env.PLOT_SCRIPTS_DIR ?? path.resolve(here, '..'),
   };
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(await run(process.argv.slice(2), Buffer.concat(chunks).toString('utf8'), context));
+  process.exit(await run(process.argv.slice(2), context));
 }
