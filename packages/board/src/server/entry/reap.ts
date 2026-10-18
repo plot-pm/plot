@@ -13,7 +13,8 @@ import { firstReapRefusal } from '@plot-pm/domain/rules/reapable';
 import { firstBranchRefusal, firstClaimRefusal, dirtyTreeOwner } from '@plot-pm/domain/rules/sweepable';
 import { realCommits, isEmptyClaim, type CommitReading } from '@plot-pm/domain/rules/empty-claim';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
-import { readDeskLoop } from '@plot-pm/fleet/shared/desk-loop';
+import { deskLoopAlive } from '@plot-pm/domain/rules/desk-loop-alive';
+import { pidAliveEverywhere, recordedLoopPids } from '@plot-pm/fleet/shared/desk-loop';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -303,15 +304,17 @@ const isRootMarkerLine = (line: string): boolean => line.slice(3) === ROOT_MARKE
 /**
  * The pid of a live worker or loop at a desk, or `''`.
  *
- * Falls through from {@link processWorkerPid} to `deskLoopAlive` over
- * `.plot-worker.pid` and the manifest's `pid` and `wrapperPid`, so a loop
- * sleeping between two agents keeps its desk.
+ * Falls through from {@link processWorkerPid} to `deskLoopAlive` over the
+ * manifest's `pid` and `wrapperPid`, so a loop sleeping between two agents
+ * keeps its desk. `.plot-worker.pid` is not read here: `plot_worker_state`
+ * already reads it, and a live wrapper with no agent under it reads `finished`.
  */
 const deskWorkerPid = async (processes: Processes, worktree: string, manifestDir: string): Promise<string> => {
   const pid = await processWorkerPid(processes, worktree);
   if (pid !== '') return pid;
   const manifest = manifestFor(manifestDir, worktree);
-  const { loop } = readDeskLoop(worktree, manifest === null ? { kind: 'unnamed' } : { kind: 'named', path: manifest });
+  if (manifest === null) return '';
+  const loop = deskLoopAlive({ pids: recordedLoopPids(manifest), alive: pidAliveEverywhere });
   return loop.kind === 'alive' ? loop.pid : '';
 };
 

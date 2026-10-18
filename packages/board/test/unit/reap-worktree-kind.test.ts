@@ -71,13 +71,20 @@ describe('runWorktreeKind', () => {
     expect(await reapOutput(ctxFor([], []))).toContain('would');
   });
 
-  it('keeps a desk whose .plot-worker.pid names a live loop while no agent runs', async () => {
+  it('keeps a desk whose manifest pid names a live loop while no agent runs', async () => {
+    const manifestDir = path.join(root, 'agents');
+    mkdirSync(manifestDir);
+    writeFileSync(path.join(manifestDir, 'a.json'), JSON.stringify({ worktree: desk, pid: String(process.pid), wrapperPid: '' }));
+
+    const out = await reapOutput(ctxFor([], []), manifestDir);
+
+    expect(out).toContain(`worker alive (pid ${process.pid})`);
+  });
+
+  it('reads a live wrapper in .plot-worker.pid with no agent under it as no loop', async () => {
     writeFileSync(path.join(desk, '.plot-worker.pid'), `${process.pid}\n`);
 
-    const out = await reapOutput(ctxFor([], []));
-
-    expect(out).toContain('keep');
-    expect(out).toContain(`worker alive (pid ${process.pid})`);
+    expect(await reapOutput(ctxFor([], []))).toContain('would');
   });
 
   it("keeps a desk whose manifest names a live wrapperPid", async () => {
