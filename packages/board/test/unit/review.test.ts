@@ -160,7 +160,7 @@ describe('reviewPr', () => {
     const out = await reviewPr(r.deps, '7');
     expect(out.code).toBe(EXIT.ok);
     expect(r.issues).toHaveLength(1);
-    expect(r.issues[0]!.title).toBe('plot-review: MEDIUM 1, LOW 1 on PR #7');
+    expect(r.issues[0]!.title).toBe('plot-review: findings on PR #7');
     expect(r.issues[0]!.labels).toEqual(['ai-generated']);
     expect(r.issues[0]!.body).toContain('a gap');
     expect(r.statuses).toEqual([{
@@ -204,7 +204,7 @@ describe('reviewPr', () => {
     const out = await reviewPr(r.deps, '7');
     expect(out.code).toBe(EXIT.issueNotOpened);
     expect(r.statuses.map((s) => [s.state, s.targetUrl])).toEqual([['success', 'https://github.com/o/r/pull/7']]);
-    expect(out.lines).toContain('plot-review: the follow-up issue was not opened: could not look for an open follow-up issue of PR #7: no Tracker declared');
+    expect(out.lines).toContain('plot-review: the follow-up issue was not opened: no Tracker declared');
   });
 
   it('keeps the pending entry when the issue may exist, so a second run opens none', async () => {
@@ -541,6 +541,19 @@ describe('one follow-up issue per PR', () => {
     expect(out.lines.join('\n')).toContain('plot-host: HTTP 502');
     expect(r.files.has(`${REVIEWS}/7-${HEAD}.issue`)).toBe(false);
     expect(r.statuses).toHaveLength(1);
+  });
+
+  it('opens one issue as before when the tracker cannot list by label', async () => {
+    const { tracker, opened, commented } = withLabelled([], {
+      issueListLabelled: async () => ({ ok: false as const, why: 'unaskable' as const, reason: 'the Jira tracker lists no issues by label' }),
+    });
+    const r = rig('Findings: HIGH 1, MEDIUM 0, LOW 0\n');
+    r.deps.tracker = tracker;
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.ok);
+    expect(opened).toHaveLength(1);
+    expect(commented).toHaveLength(0);
+    expect(r.files.get(`${REVIEWS}/7-${HEAD}.issue`)).toBe('101');
   });
 
   it('opens nothing when the lookup stopped at its limit without a match', async () => {

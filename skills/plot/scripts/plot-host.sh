@@ -373,7 +373,7 @@
 #                                 edits the comment holding <marker>, else posts
 #                                 one; an empty <marker> always posts, not idempotent.
 #   issue-list --label <label>    keeps open issues carrying the label (github
-#                                 only; exit 4 on Bitbucket; the Jira connector never sends it).
+#                                 only; exit 4 on Bitbucket and on Jira).
 #   issue-open <request-json>                       (jira)
 #   issue-open <title> <body> [--label <label>...]  (github-issues)
 #                                 THE SECOND OF TWO WRITES TO A TRACKER: open
@@ -4667,6 +4667,7 @@ case "$op" in
       # the board. `PLOT_JIRA_JQL` overrides it for a team that wants a wider or
       # narrower inbox. ORDER BY created DESC so the newest ticket is first, the
       # same order `createdAt` gives the GitHub arm.
+      [ -z "$label" ] || { echo "plot-host: jira cannot list issues by label" >&2; exit 4; }
       jira_require_config
       # `Ticket prefixes` SCOPES THE DEFAULT to this repository's projects. The
       # default alone scopes by person and by state, so on a shared instance it

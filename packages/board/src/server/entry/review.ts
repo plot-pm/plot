@@ -162,7 +162,7 @@ const followUpIssue = (
   counts: ReviewCounts,
   verdictText: string,
 ): { title: string; body: string } => ({
-  title: reviewIssueTitle(pr, counts),
+  title: reviewIssueTitle(pr),
   body: [
     `The reviewer found HIGH ${counts.high}, MEDIUM ${counts.medium}, LOW ${counts.low} on ${prUrl} at ${sha}.`,
     '',
@@ -179,21 +179,24 @@ const LOOKUP_LIMIT = 200;
 /**
  * The open follow-up issue of a PR, asked of the tracker.
  *
- * A failed or inconclusive read is `ok: false`: not knowing is not the same as
- * no issue existing, and opening on it would recreate the duplicates.
+ * A failed or truncated read is `ok: false`: not knowing is not the same as
+ * no issue existing, and opening on it would recreate the duplicates. A tracker
+ * that cannot list by label (`unaskable`, as Jira answers) allows no lookup, so
+ * the answer is no issue and the caller opens one, as before the lookup existed.
  *
  * @param deps - the tracker.
  * @param pr - the PR number.
- * @returns the issue or null where the complete read found none; else why it is not known.
+ * @returns the issue, or null where the complete read found none or no lookup is
+ *   possible; else why it is not known.
  */
 const openIssueOfPr = async (
   deps: ReviewDeps,
   pr: number,
 ): Promise<{ ok: true; issue: Issue | null } | { ok: false; why: string }> => {
   const listed = await deps.tracker.issueListLabelled(REVIEW_ISSUE_LABEL, LOOKUP_LIMIT);
+  if (!listed.ok && listed.why === 'unaskable') return { ok: true, issue: null };
   if (!listed.ok) {
-    const why = (listed.why === 'unaskable' ? listed.reason : undefined)
-      ?? deps.tracker.lastRefusal()
+    const why = deps.tracker.lastRefusal()
       ?? `the tracker answered ${listed.why} with no reason`;
     return { ok: false, why: `could not look for an open follow-up issue of PR #${pr}: ${why}` };
   }
