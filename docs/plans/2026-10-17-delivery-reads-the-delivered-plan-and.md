@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #1838
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1971 merged
 - **Started:** 2026-10-17, Jan Wloka, `bug/deliver-ref-read-canonical-path`
 - **Started:** 2026-10-18, Jan Wloka, `bug/default-branch-writes-take-turns`
+- **Delivered:** 2026-10-18
 
 ## Changelog
 
