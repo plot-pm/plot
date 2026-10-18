@@ -3131,7 +3131,7 @@ else
       oi_base=$(basename "$oi_file")
       oi_out+="  $oi_base — $oi_phase, still open: $oi_list\n"
       oi_out+="    inspect: plot-host.sh issue-view $oi_first\n"
-      oi_out+="    decide: close the issue by hand, or record why it stays open\n"
+      oi_out+="    decide: release the plan to close it through the tracker, close it by hand, or record why it stays open\n"
       n_open_issues=$((n_open_issues + 1))
     done 3<<< "$oi_claims"
 

@@ -499,6 +499,15 @@ const runDeliver = async (
       const match = line.match(/^summary: tracker=([a-z-]*)/);
       if (match) trackerReport = match[1];
     }
+
+    // A plan's phase, reflected on its issues: the same connector, a different
+    // write — see Tracker.planStateWrite. `rel` is the plan's address on `main`
+    // now that the push landed, so that is the link this write carries.
+    const planState = await ctx.scripts.awaited('plot-plan-state.sh', [bookedPlanFile, '--phase', 'delivered', '--plan-link', rel]);
+    for (const line of planState.stdout.split('\n')) {
+      if (line.length > 0 && !line.startsWith('summary: ')) write(`  plan-state: ${line}\n`);
+    }
+
     unlinkSyncSafe(bookedPlanFile);
 
     write(`summary: phase=${report.phase} record=${report.record} index=${report.index} sprint=${report.sprint} push=${pushResult.pushed} tracker=${trackerReport}\n`);

@@ -414,11 +414,22 @@ Refine the plan, then mark ready for review. Once reviewed, run \`/plot-approve 
 *Created with \`/plot-idea\`*"
 ```
 
+`pr-create` prints the PR's URL. If the plan's `## Status` names an `Issue:`,
+reflect the draft on it through the tracker, passing that URL as the link:
+
+```bash
+../plot/scripts/plot-plan-state.sh docs/plans/${CREATE_DATE}-<slug>.md --phase draft --plan-link <pr-url>
+```
+
+It ends with `summary: tracker=<outcome>`; `none` means the plan names no
+issue, `unaskable` means the repository declares no tracker. A `failed` write
+is reported and never blocks the PR already created.
+
 For `in-session`: no PR — the review happens now. Walk the user through
 the plan section by section; their go is recorded by `/plot-approve` as
 an in-file transition record. For `ballot`: point reviewers at the
 committed plan file and collect ballots; `/plot-approve` records the
-tally.
+tally. Neither writes a `draft` reflection: there is no PR link to carry.
 
 ### 9. Update Board Status
 

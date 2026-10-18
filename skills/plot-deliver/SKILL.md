@@ -431,6 +431,7 @@ The script:
 - Checks the sprint item's box
 - Pushes via `plot-push-main.sh`, retrying a rejected push up to five times
 - After the push lands, writes the status of each issue the plan's `Issue:` line names, through `plot-issue-status.sh` and the tracker port
+- After that, reflects the plan's `delivered` phase on the same issues, through `plot-plan-state.sh` and `Tracker.planStateWrite`
 
 Output is one `step:` line per operation, then a `summary:` line:
 

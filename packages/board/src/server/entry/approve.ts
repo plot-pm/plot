@@ -1151,6 +1151,20 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
     }
   }
 
+  // A plan's phase, reflected on its issues — see Tracker.planStateWrite. Only
+  // a whole-plan approval owes this: a spike leaves the phase untouched
+  // (`report.phase` stays what it was), so `planStateWrites` finds nothing to
+  // write and the call costs one no-op tracker resolution at most. Read from
+  // where `main` now sits, since the non-sameBranch path books the record in a
+  // worktree already removed by the time execution reaches here.
+  if (report.phase === 'approved') {
+    const approvedPlanFile = path.join(await mainRootOf(ctx), rel);
+    const planState = await ctx.scripts.awaited('plot-plan-state.sh', [approvedPlanFile, '--phase', 'approved', '--plan-link', rel]);
+    for (const line of planState.stdout.split('\n')) {
+      if (line.length > 0 && !line.startsWith('summary: ')) write(`  plan-state: ${line}\n`);
+    }
+  }
+
   write(summary(report, push));
   spendActionReceipt(ctx.repoRoot, 'approve');
   return 0;
