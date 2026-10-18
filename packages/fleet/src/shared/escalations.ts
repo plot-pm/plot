@@ -136,3 +136,27 @@ export interface EscalationMemory {
  * @returns a memory holding no records, with no failure reported.
  */
 export const escalationMemory = (): EscalationMemory => ({ records: [], appendFailureReported: false });
+
+/**
+ * How many records {@link rememberEscalation} keeps.
+ *
+ * `memory.records` exists only to cover a failed append — `readEscalations`
+ * re-reads the TSV file itself on every lookup, so the file is always the
+ * durable copy. A long-lived daemon notifying many desks over days would
+ * otherwise grow this array for the life of the process; this bounds it to
+ * comfortably more rungs than one tick can produce (`DESKS_PER_TICK` desks,
+ * {@link Rung} has few values) while still covering a run of failed appends.
+ */
+export const ESCALATION_MEMORY_LIMIT = 500;
+
+/**
+ * Adds one record to `memory`, dropping the oldest once the list would grow
+ * past {@link ESCALATION_MEMORY_LIMIT}.
+ *
+ * @param memory - the memory to add to.
+ * @param record - the record to add.
+ */
+export const rememberEscalation = (memory: EscalationMemory, record: EscalationRecord): void => {
+  memory.records.push(record);
+  if (memory.records.length > ESCALATION_MEMORY_LIMIT) memory.records.shift();
+};

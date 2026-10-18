@@ -80,6 +80,7 @@ import {
   escalationsPath,
   readEscalations,
   recordedRungsFor,
+  rememberEscalation,
   type EscalationMemory,
 } from '../../shared/escalations.js';
 import {
@@ -719,6 +720,10 @@ const queuedHasLandedOf = async (
  *   absent, every merge question goes to the host.
  * @param index - the PR index this world reads; the repository's own store
  *   when absent. It is read and never written.
+ * @param checksWaitMs - resolves `Checks wait`, in milliseconds. One
+ *   `readConfigAsync` call per tick, shared with {@link run}'s own
+ *   `defaultBranchWorld`, when the caller passes a cached thunk; a fresh read
+ *   every call when absent.
  * @returns the world the queue is read through.
  */
 export const queueWorldForRepo = (
@@ -728,6 +733,8 @@ export const queueWorldForRepo = (
   merges?: MergeMemo,
   index: PrIndexStore = prIndexFile({ cwd: repoRoot }),
   refusedSlices: RefusedSliceRecord = refusedSlicesFile({ cwd: repoRoot }),
+  checksWaitMs: () => Promise<number> = async () =>
+    checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')),
 ): QueueWorld => {
   const context = { repoRoot, scriptDir: scriptsDir };
   const plans = planStoreShell(context);
@@ -820,8 +827,7 @@ export const queueWorldForRepo = (
     defaultBranchRed: async () => {
       const held = await defaultBranchFile(repoRoot).read();
       if (!held.ok) return false;
-      const checksWaitMs = checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600'));
-      return defaultBranchRed(held.value, Date.now(), checksWaitMs);
+      return defaultBranchRed(held.value, Date.now(), await checksWaitMs());
     },
     prIndexRows: async () => {
       // THE STORE IS KEYED BY THE BACKEND WORD, as the board writes it. Reading
@@ -1298,7 +1304,7 @@ export const notifyEscalations = async (
       at: new Date().toISOString(),
       status,
     };
-    memory.records.push(record);
+    rememberEscalation(memory, record);
     if (!appendEscalation(repoRoot, record) && !memory.appendFailureReported) {
       memory.appendFailureReported = true;
       warn(
@@ -1886,6 +1892,8 @@ export interface RunSeams {
   readIssues?: () => Promise<void>;
   /** Replaces the drain of the tracker writes Plot made; tests only. */
   readIssueWrites?: () => Promise<void>;
+  /** The escalation `Notifier`; the configured `Notify command` by default. Tests only. */
+  notifier?: () => Promise<Notifier>;
 }
 
 /**
@@ -2015,12 +2023,24 @@ export const run = async (
   const scriptsDir = scriptsDirFor(here);
   const registryDir = registryDirFor(repoRoot, scriptsDir);
   const tally: HostTally = { calls: 0 };
+  // ONE `Checks wait` READ PER TICK, SHARED BY BOTH CONSUMERS. `queue`'s own
+  // `defaultBranchRed` and `defaultBranchWorld` below each used to call
+  // `readConfigAsync` independently — two `plot-config.sh` spawns for one
+  // value. `checksWaitCache` is cleared at the top of each tick (beside
+  // `tally.calls`), so the first read of a tick spawns once and the second
+  // reuses it; a config edit still takes effect on the NEXT tick.
+  let checksWaitCache: Promise<number> | null = null;
+  const checksWaitMs = (): Promise<number> => {
+    checksWaitCache ??= (async () =>
+      checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')))();
+    return checksWaitCache;
+  };
   // ONE MEMO FOR BOTH WORLDS. `tick` reads the supervisor world first, and its
   // `beginTick` clears the memo, so the queue read that follows shares the
   // tick's answers and the next tick asks again.
   const merges = mergeMemoOver(hostShell({ repoRoot, scriptDir: scriptsDir }));
   const world = worldForRepo(repoRoot, scriptsDir, tally, merges);
-  const queue = queueWorldForRepo(repoRoot, scriptsDir, tally, merges);
+  const queue = queueWorldForRepo(repoRoot, scriptsDir, tally, merges, undefined, undefined, checksWaitMs);
   // SHARES `tally` WITH `queue` ABOVE so a hand-over's fresh `queuedHasLanded`
   // call still counts toward the tick's host tally — but NOT `merges`: a
   // hand-over asks the host again on purpose, and the tick's memo would hand
@@ -2043,8 +2063,10 @@ export const run = async (
   const escalation = escalationWorldForRepo(repoRoot, scriptsDir, escalated);
   // READ WHEN A TICK HOLDS A `notify` WRITE, so a `Notify command` added
   // while the daemon runs takes effect at the next escalation.
-  const notifier = async (): Promise<Notifier> =>
-    notifierFor(await readConfigAsync({ repoRoot, scriptsDir }, NOTIFY_COMMAND_KEY, ''));
+  const notifier =
+    seams.notifier ??
+    (async (): Promise<Notifier> =>
+      notifierFor(await readConfigAsync({ repoRoot, scriptsDir }, NOTIFY_COMMAND_KEY, '')));
   // THE DAEMON IS THE ONLY WRITER OF THE FRESH-AGENT RECORD, for the reason
   // `reportStore` above gives, and the store lives for the daemon's whole life
   // so the `--git-common-dir` lookup is forked once.
@@ -2123,6 +2145,11 @@ export const run = async (
   const defaultBranchWorld = args.once
     ? null
     : {
+        // SHARES THE TICK LOOP'S CACHE (`checksWaitMs` ABOVE), rather than
+        // spawning its own `plot-config.sh` read for the same key — this
+        // object is built once, before the first tick, so without the share
+        // its read and the tick's were the two independent calls #1456/#1508
+        // named.
         branch: async () => {
           const base = await refsGit({ repoRoot, scriptDir: scriptsDir }).defaultBranch();
           return base.ok ? base.value : null;
@@ -2139,7 +2166,7 @@ export const run = async (
             ? withHostSlot(prState, call)
             : call(),
         now: () => Date.now(),
-        checksWaitMs: checksWaitMsOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Checks wait', '3600')),
+        checksWaitMs: await checksWaitMs(),
         checks: checkNamesOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Default branch checks', '')),
       };
   const readDefaultBranch = seams.readDefaultBranch ?? (async (): Promise<void> => {
@@ -2249,6 +2276,10 @@ export const run = async (
     // and the desks from disk, exactly as it does after a restart.
     let report: TickReport;
     tally.calls = 0;
+    // CLEARED HERE, beside `tally.calls`: a tick reads `Checks wait` at most
+    // once (`checksWaitMs` above), and a config edit on `main` takes effect
+    // on the NEXT tick rather than never.
+    checksWaitCache = null;
     try {
       // THE REGISTRY IS RE-READ HERE, at the top of every tick. That is the
       // whole of the daemon's state: there is nothing else to lose, so
@@ -2316,7 +2347,17 @@ export const run = async (
     // UNGATED BY `args.startAgents`, the same reasoning the tick's own
     // `escalation` world follows: a question ages whether or not this daemon
     // may grow the fleet.
-    await notifyEscalations(report, repoRoot, notifier, escalated, write, warn);
+    //
+    // GUARDED LIKE `relayBeat` BELOW: this runs after `runTick`'s own
+    // try/catch (`:2252-2292`) has already closed, so a rejection here — a
+    // notifier whose command throws rather than resolving `{ok: false}` —
+    // would otherwise be an unhandled rejection the loop-level guard cannot
+    // catch, because it already ran and returned.
+    try {
+      await notifyEscalations(report, repoRoot, notifier, escalated, write, warn);
+    } catch (e) {
+      warn(`plot-fleetd: escalation notify failed: ${e instanceof Error ? e.message : String(e)}\n`);
+    }
     await relayBeat(slot, warn);
     // A FRESH SESSION IS A START, so it is gated by `--start-agents` like the
     // starts above. A tick that was not allowed to start reports and acts on
