@@ -1075,14 +1075,16 @@ describe('continueOnDesk, as the registry tick calls it', () => {
     const wt = worktree();
     dirs.push(wt);
     const { dir, file } = resumableManifestDir(wt);
-    void file;
     // A READ-ONLY DIRECTORY: the manifest still reads and names the desk, so
     // the refusal checks pass and only the temp-file write for the new id fails.
     fs.chmodSync(dir, 0o555);
     try {
       const result = await continueOnDesk({ ...input(wt, dir), fresh: true });
       assert.equal(result.kind, 'failed');
-      assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false);
+      // The manifest write now runs AFTER the prompt (#1373), so the prompt
+      // file legitimately exists for this failure — what must not happen is
+      // the OLD session silently surviving as if nothing had been asked.
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).resumeId, 'the-spent-session');
     } finally {
       fs.chmodSync(dir, 0o755);
     }
@@ -1326,6 +1328,26 @@ describe('the ending record routes an answer when no manifest names the desk', (
     assert.equal(result.kind === 'refused' ? result.reason : '', 'no-worker-command');
     assert.equal(fs.readdirSync(emptyManifestDir).length, 0);
     assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false);
+  });
+
+  it('leaves no manifest when the prompt write fails after a write verdict — #1373', async () => {
+    // The manifest write now runs AFTER the prompt write succeeds, so a
+    // prompt-write failure must never leave a freshly written manifest behind
+    // naming a desk with no run starting on it.
+    const wt = worktree();
+    dirs.push(wt);
+    writeBlockedEnding(wt, BRANCH);
+    const emptyManifestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-ending-prompt-fails-'));
+    manifestDirs.push(emptyManifestDir);
+    // THE PROMPT PATH ITSELF IS A DIRECTORY, so `fs.writeFileSync` for the
+    // continuation file fails with `EISDIR` — the lock file and every other
+    // read/write this function does lives elsewhere in the worktree and is
+    // unaffected, unlike making the whole worktree read-only (which also
+    // blocks the continuation LOCK this function takes first).
+    fs.mkdirSync(path.join(wt, CONTINUATION_NAME));
+    const result = await continueOnDesk(input(wt, emptyManifestDir));
+    assert.equal(result.kind, 'failed');
+    assert.equal(fs.readdirSync(emptyManifestDir).length, 0, 'no manifest was written for a run that never started');
   });
 });
 
@@ -1655,6 +1677,118 @@ describe('a free-waiting loop is stopped, then the continuation starts — #1373
     assert.equal(stopCalled, false, 'a refusal that fires before continueTarget is ever asked must not stop anything');
     assert.doesNotThrow(() => process.kill(livePid, 0), 'the old loop is still running — the refusal did not touch it');
     assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false);
+  });
+
+  it('refuses no-manifest, and signals nothing, when the pre-stop manifest read comes back null — #1379', async () => {
+    const livePid = startRealProcess();
+    const wt = worktree({ pid: String(livePid) });
+    dirs.push(wt);
+    const dir = manifestWithPid(wt, String(livePid));
+    const manifestFile = path.join(dir, 'sess.json');
+    fs.writeFileSync(path.join(wt, '.plot-worker.freewait'), `${livePid}\n`);
+    let stopCalled = false;
+
+    // THE RACE: `continueTarget` found the manifest and named it to stamp, but
+    // by the time this function re-reads it just before the stop, it is gone
+    // — the same window `beforeStart` already exists to simulate (the #1376
+    // fixtures use it to drop the free-wait record mid-turn).
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      beforeStart: async () => {
+        fs.rmSync(manifestFile, { force: true });
+        return true;
+      },
+      stopLoop: async () => {
+        stopCalled = true;
+        return { ok: true };
+      },
+    });
+
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'no-manifest');
+    assert.equal(stopCalled, false, 'an unreadable pre-stop manifest must refuse before any signal is sent');
+    assert.doesNotThrow(() => process.kill(livePid, 0), 'the loop is left running — a stop with no way back never happens');
+  });
+
+  it('also waits for the manifest\'s wrapperPid to exit, not only the loop pid — #1379', async () => {
+    const livePid = startRealProcess();
+    const wrapper = spawn('sleep', ['30'], { stdio: 'ignore' });
+    const wrapperPid = wrapper.pid;
+    assert.ok(wrapperPid !== undefined, 'the fixture itself must spawn the wrapper successfully');
+    liveProcesses.push(wrapperPid);
+    record(wrapperPid);
+    const wt = worktree({ pid: String(livePid) });
+    dirs.push(wt);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-freewait-wrapper-'));
+    manifestDirs.push(dir);
+    fs.writeFileSync(
+      path.join(dir, 'sess.json'),
+      `${JSON.stringify(
+        { session: 'sess', branch: BRANCH, worktree: wt, pid: String(livePid), wrapperPid: String(wrapperPid) },
+        null,
+        2,
+      )}\n`,
+    );
+    fs.writeFileSync(path.join(wt, '.plot-worker.freewait'), `${livePid}\n`);
+
+    // `stopLoop` IS INJECTED, so this proves the ROUTE'S OWN SEQUENCING —
+    // that it asks the stop function for the wrapper pid at all, and only
+    // after the loop pid's stop already answered ok — not that the real
+    // `stopAndAwaitExit` can wait out a stubborn process (the #1376 block's
+    // "gives up past its deadline" test already covers that).
+    const stoppedPids: string[] = [];
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      stopLoop: async (pid) => {
+        stoppedPids.push(pid);
+        return { ok: true };
+      },
+    });
+
+    assert.equal(result.kind, 'started', JSON.stringify(result));
+    if (result.kind === 'started') spawned.add(wt);
+    assert.deepEqual(
+      stoppedPids,
+      [String(livePid), String(wrapperPid)],
+      'the manifest wrapperPid is waited for too, and only after the loop pid',
+    );
+  });
+
+  it('carries a warning naming the manifest when the post-start stamp fails to write — #1379', async () => {
+    const livePid = startRealProcess();
+    const wt = worktree({ pid: String(livePid) });
+    dirs.push(wt);
+    const dir = manifestWithPid(wt, String(livePid));
+    const manifestFile = path.join(dir, 'sess.json');
+    fs.writeFileSync(path.join(wt, '.plot-worker.freewait'), `${livePid}\n`);
+
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'sleep 2' : fallback),
+      stopLoop: async (pid) => {
+        signalOwn(Number(pid), 'SIGKILL', { command: 'sleep' });
+        // THE MANIFEST'S DIRECTORY, MADE READ-ONLY HERE — after every read this
+        // run needs (the pre-stop text, the refusal checks) already succeeded,
+        // and before the one write left: the post-spawn stamp's tmp-file write
+        // and rename. Read bits stay, so nothing upstream of the stamp notices.
+        fs.chmodSync(dir, 0o555);
+        return { ok: true };
+      },
+    });
+
+    try {
+      assert.equal(result.kind, 'started', JSON.stringify(result));
+      if (result.kind === 'started') {
+        spawned.add(wt);
+        assert.ok(result.warning !== undefined, 'a stamp that could not be written must say so');
+        assert.ok(
+          result.warning?.includes(manifestFile),
+          `the warning names the manifest path; got: ${result.warning}`,
+        );
+      }
+    } finally {
+      fs.chmodSync(dir, 0o755);
+    }
   });
 });
 

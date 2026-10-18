@@ -105,3 +105,105 @@ describe('register against write_agent_manifest', () => {
     expect(disagreements.map(report)).toEqual([]);
   });
 });
+
+/**
+ * THE SECOND DECLARED DUPLICATE (#1373): `agentsFs(...).register` and
+ * `@plot-pm/fleet`'s `writeDeskManifest` (`packages/fleet/src/shared/manifest-stamp.ts`)
+ * both write a fresh manifest naming a desk no manifest names yet.
+ *
+ * `writeDeskManifest` cannot be imported here directly — `@plot-pm/fleet`
+ * depends on `@plot-pm/domain`, never the other way, and this package's own
+ * layering rule (`controller → domain → port ← adapter`) holds even inside a
+ * test file. So it runs the way the shell side already does: as a separate
+ * process, invoked through `node`'s own ESM resolution hook rather than a
+ * static `import`. The hook rewrites only RELATIVE `./foo.js` specifiers to
+ * `./foo.ts` — `manifest-stamp.ts` names its siblings that way, matching the
+ * source's own `.js`-suffixed relative imports — and leaves bare specifiers
+ * (`@plot-pm/domain/...`) to Node's normal workspace resolution, which already
+ * finds them through the symlinks `pnpm install` wrote.
+ *
+ * Two fields never line up and are deliberately left out of the comparison:
+ * `session` (each side mints its own, and {@link writeDeskManifest} never
+ * takes one as input — only its UUID SHAPE is checked, as `startedAt` already
+ * is above) and `loop`/`slug` (fields `writeDeskManifest` writes that
+ * `register` has no equivalent for — `register` names a fresh dispatch,
+ * `writeDeskManifest` a continuation naming its own loop implementation).
+ */
+const FLEET_SIDES: Sides = { left: 'register', right: 'writeDeskManifest' };
+const fleetReport = describingAs(FLEET_SIDES);
+
+const resolverHookModule =
+  'data:text/javascript,' +
+  encodeURIComponent(
+    [
+      'export async function resolve(specifier, context, nextResolve) {',
+      "  if (specifier.startsWith('.') && specifier.endsWith('.js')) {",
+      "    try { return await nextResolve(specifier.replace(/\\.js$/, '.ts'), context); } catch {}",
+      '  }',
+      '  return nextResolve(specifier, context);',
+      '}',
+    ].join('\n'),
+  );
+
+/** Runs `writeDeskManifest` in a fresh process and returns the manifest it wrote. */
+const fleetWrite = (
+  dir: string,
+  fields: { worktree: string; branch: string; command: string; resumeId: string },
+): Record<string, unknown> => {
+  const manifestStampPath = path.resolve(here, '../../fleet/src/shared/manifest-stamp.ts');
+  const script = [
+    `import { register } from 'node:module';`,
+    `register(${JSON.stringify(resolverHookModule)}, import.meta.url);`,
+    `const { writeDeskManifest } = await import(${JSON.stringify(manifestStampPath)});`,
+    `const file = writeDeskManifest(${JSON.stringify(dir)}, ${JSON.stringify(fields)});`,
+    `if (file === null) throw new Error('writeDeskManifest returned null');`,
+    `process.stdout.write(file);`,
+  ].join('\n');
+  const file = execFileSync('node', ['--experimental-strip-types', '--input-type=module', '-e', script], {
+    encoding: 'utf8',
+    cwd: path.resolve(here, '../../..'),
+  }).trim();
+  return JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+};
+
+const FLEET_CASES: ReadonlyArray<{ name: string; branch: string; command: string; resumeId: string }> = [
+  { name: 'a plain command', branch: 'feature/x', command: 'plot-worker-loop.sh', resumeId: 'resume-abc' },
+  { name: 'a free agent with no branch', branch: '', command: 'plot-worker-loop.sh', resumeId: 'resume-def' },
+  { name: 'an empty resumeId — a fresh session', branch: 'bug/y', command: 'claude -p', resumeId: '' },
+];
+
+describe('register against writeDeskManifest', () => {
+  it('writes the same fields, for every case except session, loop and slug', async () => {
+    const disagreements: Disagreement[] = [];
+    for (const one of FLEET_CASES) {
+      const dir = mkdtempSync(path.join(tmpdir(), 'plot-manifest-fleet-corpus-'));
+      made.push(dir);
+      const worktree = '/estate/.worktrees/feature-x';
+      const session = '1b7e2d63-ab4f-5e2c-9b88-3f5da6e2b321';
+
+      const fleet = fleetWrite(dir, { worktree, branch: one.branch, command: one.command, resumeId: one.resumeId });
+      const registered = await agentsFs(
+        { repoRoot: dir, scriptDir: dir },
+        { manifestDir: dir },
+      ).register({ session, branch: one.branch, worktree, command: one.command, resumeId: one.resumeId });
+      expect(registered.ok).toBe(true);
+      const ours = JSON.parse(readFileSync(path.join(dir, `${session}.json`), 'utf8')) as Record<string, unknown>;
+
+      const SHARED_KEYS = ['resumeId', 'branch', 'worktree', 'command', 'pid', 'attempts'];
+      for (const key of SHARED_KEYS) {
+        compareField(disagreements, one.name, key, ours[key], fleet[key]);
+      }
+      compareField(disagreements, one.name, 'startedAt shape', STARTED.test(String(ours.startedAt)), true);
+      // `writeDeskManifest` writes `new Date().toISOString()` unrounded — unlike
+      // `register`, which strips the milliseconds `STARTED` above requires none
+      // of. Full ISO-8601 is the field it actually promises, so that is what is
+      // checked here rather than reusing `STARTED` and reporting a false
+      // disagreement on every run.
+      const FLEET_STARTED = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+      compareField(disagreements, one.name, 'startedAt shape (fleet)', FLEET_STARTED.test(String(fleet.startedAt)), true);
+      const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+      compareField(disagreements, one.name, 'session shape (fleet)', UUID.test(String(fleet.session)), true);
+    }
+    expect(disagreements.map(fleetReport)).toEqual([]);
+  });
+});
