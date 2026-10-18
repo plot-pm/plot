@@ -1309,6 +1309,27 @@ await esbuild.build({
 fs.copyFileSync(mergeSubjectArtifact, shippedMergeSubject);
 fs.chmodSync(shippedMergeSubject, 0o755);
 
+// The Bitbucket `<workspace>/<repo>` slug of a remote URL, for
+// `plot-host.sh commit-status`. Once per operator command, so it asks the
+// domain rather than duplicating the rule in sed.
+const bitbucketSlugArtifact = path.join(here, 'dist/plot-bitbucket-slug.mjs');
+const shippedBitbucketSlug = path.join(here, '../../skills/plot/scripts/board/plot-bitbucket-slug.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/bitbucket-slug.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: bitbucketSlugArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(bitbucketSlugArtifact, shippedBitbucketSlug);
+fs.chmodSync(shippedBitbucketSlug, 0o755);
+
 // `plot-deliver.sh`'s mechanical half — the ranking's confirmed first
 // operator-command script (the-shell-shrinks-into-the-domain, slice 4). Not a
 // readings-in/decision-out bundle like the others above: this one creates the

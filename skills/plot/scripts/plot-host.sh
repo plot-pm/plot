@@ -5358,15 +5358,13 @@ case "$op" in
     # `plot-commit-status.mjs` holds the GitHub App JWT/installation-token
     # exchange; `plot-bitbucket-commit-status.mjs` holds the Bitbucket state
     # mapping and Basic-auth build-status write, given a workspace/repo slug
-    # parsed here from `origin` (never from `bb`, which would mean asking
-    # whichever identity is signed in on this machine) — `.git` is stripped
-    # before capturing the slug, not inside a trailing optional group, or a
-    # greedy match absorbs it into the slug itself. A port after the host
-    # (`ssh://git@altssh.bitbucket.org:443/ws/repo`) is dropped first, or the
-    # `:` before it reads `443` as the workspace. A trailing slash on the
-    # origin URL is stripped the same pass — tolerated, not refused, since it
-    # names the same repo.
-    [ "$be" = "github" ] || { node "$here/plot-bitbucket-commit-status.mjs" "$(git config --get remote.origin.url 2>/dev/null | sed -E 's#\.git$##; s#(bitbucket\.org):[0-9]+/#\1/#; s#/$##' | sed -nE 's#^.*bitbucket\.org[:/]([^/]+)/(.+)$#\1/\2#p')" "$@" || exit $?; exit 0; }
+    # parsed from `origin` by the `plot-bitbucket-slug.mjs` bundle (never from
+    # `bb`, which would mean asking whichever identity is signed in on this
+    # machine). The bundle reads a port after the host of a scheme'd URL
+    # (`ssh://git@altssh.bitbucket.org:443/ws/repo`) as a port, and the colon
+    # of an scp-style remote (`git@bitbucket.org:12345/repo`) as the start of
+    # the path, so a numeric workspace survives. An empty slug is `unsupported`.
+    [ "$be" = "github" ] || { node "$here/plot-bitbucket-commit-status.mjs" "$(node "$here/board/plot-bitbucket-slug.mjs" "$(git config --get remote.origin.url 2>/dev/null)")" "$@" || exit $?; exit 0; }
     node "$here/plot-commit-status.mjs" --check "$@" || exit $?
     node "$here/plot-commit-status.mjs" --repo "$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || echo GH_REPO_VIEW_FAILED)" "$@" || exit $?
     ;;

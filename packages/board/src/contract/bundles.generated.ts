@@ -45,6 +45,7 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
   'skills/plot/scripts/board/plot-agent-state.mjs',
   'skills/plot/scripts/board/plot-approve.mjs',
   'skills/plot/scripts/board/plot-ask.mjs',
+  'skills/plot/scripts/board/plot-bitbucket-slug.mjs',
   'skills/plot/scripts/board/plot-branch-state.mjs',
   'skills/plot/scripts/board/plot-checkout-yield.mjs',
   'skills/plot/scripts/board/plot-claim-answer.mjs',
