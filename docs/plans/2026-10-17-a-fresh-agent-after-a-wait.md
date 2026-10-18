@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #1950, #1903, #1917, #1273
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-17, Jan Wloka, `bug/the-registry-reads-branch-line-waits`
 - **Started:** 2026-10-18, Jan Wloka, `bug/a-free-desk-ending-acts-on-no-slice`
 - **Started:** 2026-10-18, Jan Wloka, `bug/fleetd-at-agents-zero-after-a-wait`
+- **Delivered:** 2026-10-18
 
 ## Changelog
 
