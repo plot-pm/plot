@@ -73,7 +73,11 @@ export const freeWaitEnded = (ending: EndingReading, exit: string | null): boole
  * The desk owes nothing only when {@link freeWaitEnded} holds and every other
  * reading is a definite clean answer. A missing or unreadable record, any
  * other ending, a merge nobody asked about, and any unlanded work, dirty tree
- * or `PLOT-BLOCKED` question each leave the desk with a person.
+ * or `PLOT-BLOCKED` question each leave the desk with a person — but a
+ * {@link freeWaitEnded} desk among those still NAMES itself (#1917): the work
+ * `endingAction` now reads `leave` for belongs to the slice this desk held
+ * BEFORE the free wait began, not to this ending, so the row says that rather
+ * than printing no note at all.
  *
  * @param readings - what was measured of the desk.
  * @returns whether a person is owed, and the row text.
@@ -87,7 +91,10 @@ export const endedDeskPlacement = (readings: EndedDeskReadings): EndedDeskPlacem
     readings.unlanded !== false ||
     readings.blockedQuestion !== false
   ) {
-    return owed;
+    return {
+      owesPerson: true,
+      note: "ended a free wait with its last slice still checked out — the work left behind is the prior slice's, not this wait's",
+    };
   }
   const after = readings.boundSeconds === null ? 'at the wait bound' : `after ${hours(readings.boundSeconds)} h`;
   return { owesPerson: false, note: `ended ${after} with no slice offered — reaped on the next pass` };

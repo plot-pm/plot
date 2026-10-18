@@ -82,8 +82,11 @@ describe('endedDeskPlacement', () => {
     ['a dirty tree', { dirty: true }],
     ['a PLOT-BLOCKED question', { blockedQuestion: true }],
     ['an unmerged slice', { merged: false }],
-  ] as const)('keeps a desk with %s with a person', async (_name, over) => {
-    expect(endedDeskPlacement(clean(await freeWaitDesk(), over)).owesPerson).toBe(true);
+  ] as const)('names a desk with %s rather than leaving it a silent row — #1917', async (_name, over) => {
+    expect(endedDeskPlacement(clean(await freeWaitDesk(), over))).toEqual({
+      owesPerson: true,
+      note: "ended a free wait with its last slice still checked out — the work left behind is the prior slice's, not this wait's",
+    });
   });
 
   it('keeps a desk with no ending record with a person — absent is not clean', async () => {

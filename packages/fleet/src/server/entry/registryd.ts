@@ -8,6 +8,8 @@ import type { RegisteredTreeReadings } from '@plot-pm/domain/rules/unclaimed';
 import { freshAgentAnswer } from '@plot-pm/domain/rules/fresh-agent';
 import { freshAgentTurnLimitAnswer } from '@plot-pm/domain/rules/fresh-agent-turn-limit';
 import { readEnding, ENDING_FILENAME, type Ending, type EndingReason } from '@plot-pm/domain/entities/ending';
+import { readDeclaration, isComplete, DECLARATION_FILENAME } from '@plot-pm/domain/entities/declaration';
+import { freeWaitEnded } from '@plot-pm/domain/rules/ended-desk';
 import {
   endingAction,
   endingReleaseBranch,
@@ -714,6 +716,15 @@ export interface FreshAgentCandidateReadings {
    * for every other desk.
    */
   prOpen: PrOpenReading;
+  /**
+   * Whether the desk's own records say this ending closed a free wait rather
+   * than a slice (#1917) — {@link freeWaitEnded}'s own signature, or a sealed
+   * `ok` declaration left by the slice this desk held before the wait began.
+   * Read for every desk from two file reads already on this path; always a
+   * plain boolean here, never `'unanswerable'`, because both signals this
+   * composes are themselves plain booleans.
+   */
+  freeWait: boolean;
 }
 
 /** `PLOT-CORRECTION.md`'s filename — the desk's own account of every attempt. */
@@ -875,6 +886,14 @@ export const readFreshAgentCandidates = async (
       commitBeyondClaim:
         isBoundEnding(ending) && !endingAsked ? await asks.commitBeyondClaim(tree.path) : 'unanswerable',
       prOpen: isBoundEnding(ending) && !endingAsked ? await asks.prOpen(tree.branch) : 'unanswerable',
+      // #1917 — a free wait's `unreadable` ending carries no slice at all;
+      // what it holds beyond its claim belongs to the slice the desk held
+      // BEFORE the wait began. Two readings already on this path settle it:
+      // the ending/exit pair `freeWaitEnded` reads, and a sealed `ok`
+      // declaration `seal` leaves for a slice that finished cleanly.
+      freeWait:
+        freeWaitEnded(endingReading, deskFile(tree.path, EXIT_FILENAME)) ||
+        isComplete(readDeclaration(deskFile(tree.path, DECLARATION_FILENAME))),
     });
   }
   return out;
@@ -982,6 +1001,7 @@ export const freshAgentDecisions = (
       prMerged: reading.prMerged,
       endingAsked: reading.endingAsked,
       blockedMarker: reading.escalated,
+      freeWait: bound ? reading.freeWait : false,
     });
     // THE COMPOSED ANSWER FOLLOWS WHICH ENDING FIRED, NOT JUST THE VERDICT.
     // `freshAgentAnswer`'s whole text is about a spent correction budget,
@@ -1365,6 +1385,9 @@ export const nothingDoneDecisions = async (
       dirtyTree: 'no' as const,
       endingAsked: false,
       blockedMarker: false,
+      // `bound`/`unreadable`/`quiet` are filtered out above, so the row that
+      // reads `freeWait` never fires here either — filler, same reasoning.
+      freeWait: false,
     };
     out.push({ branch: endingReleaseBranch(readings), worktree: reading.worktree, verdict: endingAction(readings) });
   }
