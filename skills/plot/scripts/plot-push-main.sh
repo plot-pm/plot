@@ -99,17 +99,14 @@ if [ "${1:-}" = "--classify" ]; then
   exit 0
 fi
 
-branch="${1:?plot-push-main: need a branch to push}"
-default="${2:?plot-push-main: need the default branch}"
+branch="${1:?plot-push-main: need a branch to push}"; default="${2:?plot-push-main: need the default branch}"
 
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-push-main: not a git repository" >&2; exit 1; }
 
 # ONE DEFAULT-BRANCH WRITER AT A TIME (#1349). Every caller runs this script, so the
 # lock lives here; `plot-push-lock.mjs` holds the rule and its measurement. A waiter
 # past the bound exits 6 having pushed nothing.
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-node "$here/plot-push-lock.mjs" take "$$" "push $branch" || exit $?
-trap 'node "$here/plot-push-lock.mjs" release "$$"' EXIT
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; node "$here/plot-push-lock.mjs" take "$$" "push $branch" || exit $?; trap 'node "$here/plot-push-lock.mjs" release "$$"' EXIT
 
 # stderr is captured rather than passed through, because it carries the ONLY
 # signal that separates a bypass from a clean push. A call site ending in
