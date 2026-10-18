@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1971 merged
 - **Started:** 2026-10-17, Jan Wloka, `bug/deliver-ref-read-canonical-path`
+- **Started:** 2026-10-18, Jan Wloka, `bug/default-branch-writes-take-turns`
 
 ## Changelog
 
