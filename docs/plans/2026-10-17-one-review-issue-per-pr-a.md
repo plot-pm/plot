@@ -52,7 +52,7 @@ Issue #1952 groups three defects, each measured on 2026-10-16.
 - `bug/plot-review-one-issue-per-pr` — #1881: find and update the open follow-up issue of the PR <!-- builds: findOpenReviewIssue, a lookup of the open follow-up issue for a PR -->
 ### Sprint goal from the template
 
-- `bug/sprint-goal-reads-template` — #1883: parser fallback for the goal line, test from the shipped template
+- `bug/sprint-goal-reads-template` — #1883: parser fallback for the goal line, test from the shipped template → #2043
 ### Pid read waits
 
 - `bug/monitors-end-waits-for-pid` — #1909: one helper that waits for a positive pid, used by every pid-file read in the test
