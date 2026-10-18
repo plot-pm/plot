@@ -1,5 +1,5 @@
 import { withEndedDesks } from './ended-desks.js';
-import { RELEASE_BRANCH, issueKey, sectionKey, type FleetWaiting } from '../contract/schema.js';
+import { PlanMetaSchema, RELEASE_BRANCH, issueKey, sectionKey, type FleetWaiting, type PlanMeta } from '../contract/schema.js';
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -62,6 +62,7 @@ import {
   prRowPlacement,
   prChecksSuppressedByMerge,
   waitingTickets,
+  type TicketPlan,
   typeOf,
   ticketSourceOf,
   type Reader,
@@ -1484,6 +1485,31 @@ async function referencedIssues(
   opts: BuildBoardOptions,
   entry?: Pick<CacheEntry, 'ideaPlans' | 'prs'>,
 ): Promise<Set<string> | null> {
+  const metas = await planMetasOf(opts, entry);
+  if (metas === null) return null;
+  const referenced = new Set<string>();
+  // `PlanMetaSchema` defaults an absent `issues` to [] — an older parser, whose
+  // plans cannot reference issues at all, so [] is the true answer.
+  for (const meta of metas) for (const n of meta.issues) referenced.add(issueKey(n));
+  return referenced;
+}
+
+/**
+ * Every plan's parsed metadata: the plan directory plus the open draft plans,
+ * in one parser invocation.
+ *
+ * Each line goes through `PlanMetaSchema`, the one reader of the parser's
+ * output, which also reads the parser's `waves` key as `slices`.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param entry - the cache entry holding `ideaPlans` and `prs`, or undefined.
+ * @returns one record per plan, or null when the plans cannot be read or a
+ *   line fails the schema — which is not a claim that nothing is planned.
+ */
+async function planMetasOf(
+  opts: BuildBoardOptions,
+  entry?: Pick<CacheEntry, 'ideaPlans' | 'prs'>,
+): Promise<PlanMeta[] | null> {
   const planDir = await planDirectory(scriptsFor(opts));
   const dir = path.join(opts.repoRoot, planDir);
   let files: string[];
@@ -1500,25 +1526,60 @@ async function referencedIssues(
   const scratch = await draftPlanFiles(opts, planDir, entry);
   try {
     files.push(...scratch.files);
-    if (files.length === 0) return new Set();
-    const referenced = new Set<string>();
+    if (files.length === 0) return [];
+    const metas: PlanMeta[] = [];
     try {
       const answer = await scriptsFor(opts).planMeta(files);
       if (!answer.ok) return null;
       for (const line of answer.value.split('\n')) {
         if (!line.trim()) continue;
-        const meta = JSON.parse(line) as { issues?: (string | number)[] };
-        // Absent on an older parser, which is a repo whose plans cannot reference
-        // issues at all — [] is then the true answer rather than a fallback.
-        for (const n of meta.issues ?? []) referenced.add(issueKey(n));
+        metas.push(PlanMetaSchema.parse(JSON.parse(line)));
       }
     } catch {
       return null;
     }
-    return referenced;
+    return metas;
   } finally {
     if (scratch.dir) fs.rmSync(scratch.dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * The plans that name each ticket, keyed by issue key, with the slice counts
+ * {@link ticketPhase} needs.
+ *
+ * The merged count is read from the pulse the plan rows use (`entry.pulse`,
+ * then `entry.lastComplete` for a plan a partial pulse lacks): a branch whose
+ * state is `merged`. A plan the pulse does not hold gets `merged: null`, which
+ * the rule words as `in progress` with no count — an absent reading is not zero.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param entry - the cache entry holding the pulses, `ideaPlans` and `prs`.
+ * @returns the plans per issue key, or null when the plans cannot be read.
+ */
+async function ticketPlansOf(
+  opts: BuildBoardOptions,
+  entry: Pick<CacheEntry, 'ideaPlans' | 'prs' | 'pulse' | 'lastComplete'>,
+): Promise<Map<string, TicketPlan[]> | null> {
+  const metas = await planMetasOf(opts, entry);
+  if (metas === null) return null;
+  const byIssue = new Map<string, TicketPlan[]>();
+  for (const meta of metas) {
+    const issues = meta.issues;
+    if (issues.length === 0) continue;
+    const base = path.basename(meta.file);
+    const held = entry.pulse?.plans.find((p) => p.file === base) ?? entry.lastComplete?.plans.find((p) => p.file === base);
+    const branches = meta.slices.flatMap((w) => w.branches).filter((b) => !b.deferred);
+    const merged = held === undefined
+      ? null
+      : branches.filter((b) => held.slices.some((w) => w.branches.some((x) => x.branch === b.branch && x.state === 'merged'))).length;
+    const plan: TicketPlan = { state: meta.phase.toLowerCase(), total: branches.length, merged };
+    for (const n of issues) {
+      const key = issueKey(n);
+      byIssue.set(key, [...(byIssue.get(key) ?? []), plan]);
+    }
+  }
+  return byIssue;
 }
 
 /**
@@ -1808,13 +1869,13 @@ const inboxOf = (rows: readonly IssueIndexRow[], referenced: ReadonlySet<string>
 
 /**
  * What WAITING ON YOU shows for one read: the domain's `waitingTickets`,
- * given the rows and inbox filtered by `referenced`, the reader this process is, and
+ * given the rows and inbox, the plans naming each ticket, the reader this process is, and
  * how this source names its assignees.
  *
  *
  * @param opts - the board's repo root and scripts directory.
  * @param rows - every open row this read holds, unfiltered by `referenced`.
- * @param referenced - the issue keys the plans name; rows and inbox naming one are dropped.
+ * @param plans - the plans naming each issue key; a row naming one shows the plan's phase.
  * @param source - how this read's tickets name their assignees, or `null`.
  * @param complete - whether `rows` is every open row, or the read's own cap stopped first.
  * @param inbox - the reader's own open tickets from a separate D23 inbox read,
@@ -1824,16 +1885,14 @@ const inboxOf = (rows: readonly IssueIndexRow[], referenced: ReadonlySet<string>
 const waitingOf = async (
   opts: BuildBoardOptions,
   rows: readonly IssueIndexRow[],
-  referenced: ReadonlySet<string>,
+  plans: ReadonlyMap<string, readonly TicketPlan[]>,
   source: import('@plot-pm/domain').TicketSource | null,
   complete: boolean,
   inbox: readonly IssueIndexRow[] | undefined = undefined,
 ): Promise<FleetWaiting> => {
   const [who, directory] = await Promise.all([identity(opts), people(opts)]);
   const reader: Reader = { hostUser: who.hostUser, gitEmail: who.gitEmail, directory };
-  const unplanned = (list: readonly IssueIndexRow[]) =>
-    list.filter((row) => !referenced.has(issueKey(row.number)));
-  const result = waitingTickets(unplanned(rows), inbox && unplanned(inbox), reader, source, complete);
+  const result = waitingTickets(rows, inbox, reader, source, complete, plans);
   return {
     tickets: result.tickets.map((t) => ({
       kind: 'ticket' as const,
@@ -1976,8 +2035,8 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
   }
   const rows = said.value.issues.map(issueIndexRowOf);
   entry.issueSets = { answer: 'answered', at: stamp, rows, complete: said.value.complete, closed: outcome.closed };
-  const referenced = await referencedIssues(opts, entry);
-  if (referenced === null) {
+  const plans = await ticketPlansOf(opts, entry);
+  if (plans === null) {
     // The plans could not be read, so "which of these is unplanned" has no
     // answer. Reporting the unfiltered list would surface issues that ARE
     // planned; reporting none would claim the inbox is clear. Neither is known.
@@ -1986,12 +2045,12 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     entry.waiting = null;
     return;
   }
-  entry.issues = inboxOf(rows, referenced, Date.now());
+  entry.issues = inboxOf(rows, new Set(plans.keys()), Date.now());
   entry.issueAnswer = 'answered';
   entry.issueError = null;
   const gitHostBackend = entry.backend ?? '';
   const ticketSource = ticketSourceOf(source, gitHostBackend, TICKET_SOURCES);
-  entry.waiting = await waitingOf(opts, rows, referenced, ticketSource, said.value.complete);
+  entry.waiting = await waitingOf(opts, rows, plans, ticketSource, said.value.complete);
 }
 
 const overlays = new WeakMap<CacheEntry, PrIndexStore>();
@@ -2085,8 +2144,8 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
     entry.waiting = null;
     return;
   }
-  const referenced = await referencedIssues(opts, entry);
-  if (referenced === null) {
+  const plans = await ticketPlansOf(opts, entry);
+  if (plans === null) {
     entry.issueAnswer = 'failed';
     entry.issueError = 'plans could not be read, so no issue can be called unplanned';
     entry.issueAbsence = null;
@@ -2094,7 +2153,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
     return;
   }
   const rows = index.rows ?? [];
-  entry.issues = inboxOf(rows, referenced, Date.now());
+  entry.issues = inboxOf(rows, new Set(plans.keys()), Date.now());
   entry.issueAbsence = null;
   if (index.answer === 'failed') {
     entry.issueAnswer = 'failed';
@@ -2106,7 +2165,7 @@ const readIssuesFromStore = async (opts: BuildBoardOptions, entry: CacheEntry): 
   entry.issueError = null;
   const gitHostBackend = entry.backend ?? '';
   const ticketSource = ticketSourceOf(source, gitHostBackend, TICKET_SOURCES);
-  entry.waiting = await waitingOf(opts, rows, referenced, ticketSource, index.complete ?? true, index.inbox);
+  entry.waiting = await waitingOf(opts, rows, plans, ticketSource, index.complete ?? true, index.inbox);
 };
 
 /**

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { waitingTickets, hiddenSentence, shownSentence } from '../src/rules/waiting-tickets.js';
 import type { IssueIndexRow } from '../src/entities/issue-index.js';
 import type { Reader, TicketSource } from '../src/rules/ownership.js';
+import type { TicketPlan } from '../src/rules/ticket-phase.js';
 
 const GITHUB: TicketSource = { service: 'github', match: 'host-login' };
 const JIRA: TicketSource = { service: 'jira', match: 'tracker-account', prefix: 'jira:' };
@@ -240,5 +241,48 @@ describe('waitingTickets, the unmatched reader', () => {
     expect(result.shown).toBe(1);
     expect(result.tickets.some((t) => t.number === 'mine')).toBe(true);
     expect(result.notice).toBeNull();
+  });
+});
+
+describe('waitingTickets, planned tickets', () => {
+  const reader: Reader = { hostUser: 'jwloka' };
+  const plans = (entries: Record<string, TicketPlan[]>): Map<string, TicketPlan[]> => new Map(Object.entries(entries));
+
+  it('shows the plan phase as status on a planned ticket and the tracker state on an unplanned one', () => {
+    const rows = [
+      row('1', { assignees: ['jwloka'], status: 'open' }),
+      row('2', { assignees: ['jwloka'], status: 'open' }),
+    ];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '2': [{ state: 'approved', total: 6, merged: 3 }] }));
+    expect(result.tickets.map((t) => [t.number, t.status])).toEqual([['1', 'open'], ['2', 'in progress 3/6']]);
+  });
+
+  it('keeps a planned ticket in the list rather than dropping it', () => {
+    const rows = [row('7', { assignees: ['jwloka'], status: 'open' })];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '7': [{ state: 'delivered', total: 1, merged: 1 }] }));
+    expect(result.tickets).toHaveLength(1);
+    expect(result.tickets[0].status).toBe('delivered');
+  });
+
+  it('sorts unplanned rows ahead of planned rows even when a planned row is newer', () => {
+    const rows = [
+      row('planned-new', { assignees: ['jwloka'], createdAt: '2026-03-01T00:00:00.000Z' }),
+      row('plain-old', { assignees: ['jwloka'], createdAt: '2026-01-01T00:00:00.000Z' }),
+      row('plain-new', { assignees: ['jwloka'], createdAt: '2026-02-01T00:00:00.000Z' }),
+      row('planned-old', { assignees: ['jwloka'], createdAt: '2026-01-15T00:00:00.000Z' }),
+    ];
+    const planned = [{ state: 'draft', total: 0, merged: null }];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ 'planned-new': planned, 'planned-old': planned }));
+    expect(result.tickets.map((t) => t.number)).toEqual(['plain-new', 'plain-old', 'planned-new', 'planned-old']);
+  });
+
+  it('keeps the tracker state on a planned Jira ticket and still sorts it with the planned rows', () => {
+    const jiraReader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const rows = [
+      row('JIRA-1', { assignees: ['jan.wloka@quatico.com'], status: 'In Progress', createdAt: '2026-03-01T00:00:00.000Z' }),
+      row('JIRA-2', { assignees: ['jan.wloka@quatico.com'], status: 'To Do', createdAt: '2026-01-01T00:00:00.000Z' }),
+    ];
+    const result = waitingTickets(rows, undefined, jiraReader, JIRA, true, plans({ 'JIRA-1': [{ state: 'approved', total: 2, merged: 1 }] }));
+    expect(result.tickets.map((t) => [t.number, t.status])).toEqual([['JIRA-2', 'To Do'], ['JIRA-1', 'In Progress']]);
   });
 });

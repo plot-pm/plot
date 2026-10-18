@@ -58,7 +58,7 @@ const fixture = (tracker = '') => {
   write('plot-fleetctl.sh', "echo 'summary: install=installed'\nexit 0");
   write('plot-host.sh', `echo "$1" >> ${JSON.stringify(hosts)}\ncase "$1" in\n  backend) echo github ;;\nesac\nexit 0`);
   write('plot-config.sh', `if [ "$2" = Tracker ]; then printf '%s\\n' ${JSON.stringify(tracker)}; else printf '%s\\n' "$3"; fi`);
-  write('plot-plan-meta.sh', 'for f in "$@"; do echo \'{"issues":["2"]}\'; done');
+  write('plot-plan-meta.sh', 'for f in "$@"; do printf \'{"file":"%s","format":"canonical","phase":"draft","issues":["2"]}\\n\' "$f"; done');
   fs.mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'docs', 'plans', 'a-plan.md'), '# A plan\n');
   execFileSync('git', ['init', '--quiet'], { cwd: dir });
