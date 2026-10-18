@@ -31,39 +31,9 @@
 # macOS bash 3.2 throughout.
 set -uo pipefail
 
-script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-
 plan_file="${1:-}"
-if [ -z "$plan_file" ] || [ ! -f "$plan_file" ]; then
-  echo "plot-plan-state: usage: plot-plan-state.sh <plan file> --phase <phase> --plan-link <link> [--version <v>]" >&2
-  echo "summary: tracker=failed"
-  exit 2
-fi
-shift
+shift || true
 
-meta=$(bash "$script_dir/plot-plan-meta.sh" "$plan_file" 2>/dev/null) || meta=""
-if [ -z "$meta" ]; then
-  echo "plot-plan-state: cannot parse '$plan_file'" >&2
-  echo "summary: tracker=failed"
-  exit 2
-fi
-
-repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root=$(pwd)
-
-out=$(printf '%s' "$meta" | PLOT_SCRIPTS_DIR="$script_dir" PLOT_REPO_ROOT="$repo_root" \
-  node "$script_dir/board/plot-plan-state.mjs" "$@")
-rc=$?
-[ -n "$out" ] && printf '%s\n' "$out"
-if [ "$rc" != 0 ]; then
-  echo "summary: tracker=failed"
-  exit 2
-fi
-
-# THE WORST OUTCOME NAMES THE RUN: one failed write among several is a failed
-# report, because the person reading the summary is the one who repairs it.
-summary=none
-for word in written no-target unaskable failed; do
-  printf '%s\n' "$out" | cut -f2 | grep -qx "$word" && summary=$word
-done
-echo "summary: tracker=$summary"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-tracker-write.sh"
+plot_tracker_write "$plan_file" plot-plan-state.mjs "$@"
 exit 0

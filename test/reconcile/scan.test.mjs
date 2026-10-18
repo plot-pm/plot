@@ -4266,7 +4266,7 @@ test('section 23 reports a Released and a Delivered plan naming an open issue', 
     // open. A filter on `released` alone passes every other test in this block.
     assert.match(s, /2026-01-02-delivered-open\.md — delivered, still open: #102/,
       `a delivered plan must be caught as well:\n${s}`);
-    assert.match(s, /decide: close the issue by hand, or record why it stays open/,
+    assert.match(s, /decide: release the plan to close it through the tracker, close it by hand, or record why it stays open/,
       `the finding names a decision, never a repair:\n${s}`);
     // PLOT CLOSES NO TICKET. `plot-host.sh` creates none and closes none, so a
     // close command must not appear as a remedy.
