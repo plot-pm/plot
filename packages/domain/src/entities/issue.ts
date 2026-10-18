@@ -13,14 +13,17 @@ export const IssueAnswerSchema = z.enum(['answered', 'unsupported', 'failed']);
 export type IssueAnswer = z.infer<typeof IssueAnswerSchema>;
 
 /**
- * A ticket in a tracker Plot reads and never writes.
+ * A ticket in a tracker Plot reads, and writes only a status, a `plan:*` label
+ * and a comment to.
  *
  * Identity: a natural key — an opaque string, which fails by the source lying.
  * State: derived, so it goes stale and is re-run.
  *
  * Carries only facts the tracker stated. Tracker state — labels, priority —
- * is deliberately absent: Plot never writes to the tracker, so a mirrored
- * field is wrong between refreshes and wrong forever after an outage.
+ * is deliberately absent: a mirrored field is wrong between refreshes and wrong
+ * forever after an outage. `Tracker.planStateWrite` is the third write Plot
+ * makes, and it is one-way: Plot sets a `plan:*` label and posts a comment, and
+ * no rule reads either back, so the entity holds no labels.
  *
  * `status`, `statusCategory` and `assignees` are the NARROW exception, and
  * the refusal above still holds for the rest. What that refusal guards

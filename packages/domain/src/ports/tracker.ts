@@ -50,8 +50,8 @@ export interface TrackerSpender {
  * moved and the status it moved it to; which ticket, card or item that
  * corresponds to is the tracker's own mapping and the connector's to resolve.
  * Widening this to a body, a label or an assignee is the mirror this port
- * exists to refuse; `IssueOpen` is the one other write, and it carries a body
- * and labels because it states a fact Plot itself produced.
+ * exists to refuse; `IssueOpen` and `PlanStateWrite` are the other writes, and
+ * each carries only a fact Plot itself produced.
  */
 export interface StatusWrite {
   /** The pull request the status is about, as its address; `''` where there is none. */
@@ -78,6 +78,36 @@ export interface StatusWrite {
  * A write that broke is a `PortResult` failure and is not a member here.
  */
 export type StatusOutcome = 'written' | 'no-target';
+
+/** The plan phases whose state Plot reflects on an issue. */
+export type PlanStatePhase = 'draft' | 'approved' | 'delivered' | 'released';
+
+/**
+ * What a plan-state write is told: the third write Plot may make.
+ *
+ * The write is one-way. Plot sets a `plan:*` label and posts one comment, and
+ * no Plot code reads either back; git stays the source of truth for the phase.
+ */
+export interface PlanStateWrite {
+  /** The issue's identifier, verbatim from the plan's `Issue:` line. */
+  issue: string;
+  /** The plan's phase. */
+  phase: PlanStatePhase;
+  /** The plan file's address on the default branch. */
+  planLink: string;
+  /** The release version; read for `released` and ignored otherwise. */
+  version?: string;
+}
+
+/**
+ * What came of a plan-state write.
+ *
+ * `written` where the label, the comment and (at release) the close reached the
+ * issue. `no-target` where the tracker was reached and takes no such write, or
+ * the issue identifier names no issue. A write that broke is a `PortResult`
+ * failure and is not a member here.
+ */
+export type PlanStateOutcome = 'written' | 'no-target';
 
 /**
  * What an issue-open write is told: the whole of the second write Plot may make.
@@ -146,12 +176,13 @@ export type ClosedIssues = IssueRead;
  * connector, tagged with that connector's backend word, so its `limit()`
  * reports the `host` bucket and no second budget is ever opened.
  *
- * THE WRITES ARE TWO FACTS AND STAY TWO. Plot writes a status to the tracker
- * it was told about, and opens an issue for a claim it refuted. It writes
- * nothing else — no comment, no label on an existing issue, no transition it
- * was not asked for. A plan referencing an issue remains Plot's
- * record; the status is the one fact the tracker owns a copy of, because it is
- * the one a person reads in the tracker rather than in Plot.
+ * THE WRITES ARE THREE FACTS AND STAY THREE. Plot writes a status to the
+ * tracker it was told about, opens an issue for a claim it refuted, and
+ * reflects a plan's phase on the issue the plan answers through
+ * {@link Tracker.planStateWrite}: one `plan:*` label, one comment and, at
+ * release, a close. It writes nothing else, and NO RULE READS A `plan:*` LABEL
+ * OR THE COMMENT BACK. A plan referencing an issue remains Plot's record; the
+ * label is a reflection a person reads in the tracker, as the status is.
  */
 export interface Tracker {
   /**
@@ -297,6 +328,26 @@ export interface Tracker {
    *   otherwise, with the reason in `lastRefusal`.
    */
   issueOpen(write: IssueOpen): Promise<PortResult<IssueOpenOutcome>>;
+
+  /**
+   * Reflects a plan's phase on an issue, and nothing else.
+   *
+   * THE THIRD WRITE ON THIS PORT, and ONE-WAY: it sets the issue's `plan:*`
+   * label (replacing any previous `plan:*` label, so an issue carries one) and
+   * keeps one comment that links the plan, editing it on a re-run rather than
+   * posting a second. A `released` phase also names the version and closes the
+   * issue. No rule reads the label or the comment back.
+   *
+   * A REPOSITORY WITH NO TRACKER ANSWERS `unaskable`, NEVER `written`, for the
+   * reason `statusWrite` does. A Jira tracker takes a status and nothing else,
+   * so it answers `no-target`.
+   *
+   * @param write - the issue, the phase, the plan's link and the release version.
+   * @returns `written`; `no-target` where the tracker takes no such write;
+   *   `unaskable` where no tracker was declared; `failed` otherwise, with the
+   *   reason in `lastRefusal`.
+   */
+  planStateWrite(write: PlanStateWrite): Promise<PortResult<PlanStateOutcome>>;
 
   /**
    * What is this connector's limit, and how well does it know it?

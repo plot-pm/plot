@@ -3833,12 +3833,7 @@ case "$op" in
         jq -r '.[] | select(.mergedAt != null and .headRefOid != null) | .headRefOid' <<<"$out" || exit 3
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
-        if [ -n "$err" ] && is_lookup_miss "$err"; then
-          :
-        else
-          echo "plot-host: ${err:-gh pr list failed}" >&2
-          exit 3
-        fi
+        [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-gh pr list failed}" >&2; exit 3; }
       fi
     else
       bb_require_json
@@ -3848,12 +3843,7 @@ case "$op" in
         jq -r --arg b "$ref" '.[] | select(.source.branch.name==$b) | (.source.commit.hash // empty)' <<<"$out" || exit 3
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
-        if [ -n "$err" ] && is_lookup_miss "$err"; then
-          :
-        else
-          echo "plot-host: ${err:-bb pr list failed}" >&2
-          exit 3
-        fi
+        [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-bb pr list failed}" >&2; exit 3; }
       fi
     fi
     ;;
@@ -3877,19 +3867,11 @@ case "$op" in
       esac
     done
     [ -n "$title" ] || die "pr-create needs --title"
-    if [ "$be" = "github" ]; then
-      args=(pr create --title "$title" --body "$body")
-      [ -n "$base" ] && args+=(--base "$base")
-      [ -n "$head" ] && args+=(--head "$head")
-      [ "$draft" = 1 ] && args+=(--draft)
-      gh "${args[@]}"
-    else
-      args=(pr create --title "$title" --body "$body")
-      [ -n "$base" ] && args+=(--base "$base")
-      [ -n "$head" ] && args+=(--head "$head")
-      [ "$draft" = 1 ] && args+=(--draft)
-      bb "${args[@]}"
-    fi
+    args=(pr create --title "$title" --body "$body")
+    [ -n "$base" ] && args+=(--base "$base")
+    [ -n "$head" ] && args+=(--head "$head")
+    [ "$draft" = 1 ] && args+=(--draft)
+    if [ "$be" = "github" ]; then gh "${args[@]}"; else bb "${args[@]}"; fi
     ;;
 
   pr-merge)
@@ -4341,7 +4323,6 @@ case "$op" in
       # caller that asked for a window and got a full listing must not read the
       # answer as a delta.
       PR_LIST_SINCE="$since"
-      PR_SWEEP_ASKED=0
       # THE PLAIN LISTING IS `bb_state_listing`, one request per state at
       # `pagelen=50`, where `bb pr list` walks 10-row pages. Its header has the
       # measurement.
@@ -4387,13 +4368,11 @@ case "$op" in
                 }' "${bb_cmd[@]}" || exit $?
         else
           # Bitbucket without Jenkins: checks remain unknown
-          PR_LIST_JQ_ARGS=()
           pr_list_states bitbucket "$limit" "$bb_states" \
             '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),author:(.author.nickname // ""),failing_checks:[]}' \
             "${bb_cmd[@]}" || exit $?
         fi
       else
-        PR_LIST_JQ_ARGS=()
         pr_list_states bitbucket "$limit" "$bb_states" \
           '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,author:(.author.nickname // "")}' \
           "${bb_cmd[@]}" || exit $?
@@ -5066,6 +5045,26 @@ case "$op" in
       *) echo "plot-host: issue-open: ${source_said#*$'\t'}" >&2; exit 4 ;;
     esac ;;
 
+  issue-label|issue-comment|issue-close)
+    # THE PLAN-STATE WRITES, and one-way: Plot sets a `plan:*` label, keeps one
+    # comment per plan and closes the issue at release; nothing reads any back.
+    #   issue-label   <n> <add> [<remove,...>]  adds one label, removes the rest
+    #   issue-comment <n> <marker> <body>       edits the comment holding <marker>, else posts
+    #   issue-close   <n>
+    # GitHub issues only, dispatched on `issue_source` like issue-open. Exit 4,
+    # with the reason, for a source that cannot be asked.
+    num="${1:?$op needs an issue number}"; source_said="$(issue_source)" || exit 1
+    [ "$be" = github ] && { [ "$source_said" = git-host ] || [ "$source_said" = $'tracker\tgithub-issues' ]; } || { echo "plot-host: $op: ${source_said#*$'\t'}" >&2; exit 4; }
+    case "$op" in
+      issue-label) gh issue edit "$num" --add-label "${2:?issue-label needs a label}" ${3:+--remove-label "$3"} >/dev/null 2>"$HOST_ERR" || gh_fail ;;
+      issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
+      issue-comment)
+        cid="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" | jq -rs --arg m "${2:?issue-comment needs a marker}" '[.[][] | select(.body | contains($m))][0].id // empty')" || gh_fail
+        if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail
+        else gh issue comment "$num" --body "${3-}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi ;;
+    esac
+    rm -f "$HOST_ERR" ;;
+
   # The projects `Ticket prefixes` scopes to, one per line, honoring
   # PLOT_TICKET_PREFIXES — the one answer the TypeScript connector asks.
   ticket-projects) tracker_projects ;;
@@ -5246,8 +5245,6 @@ case "$op" in
       # decides how much to trust it; a `throttled` observed during the session
       # is what corrects it.
       echo '{"connector":"bitbucket","bucket":"api","limit":1000,"remaining":null,"reset":null,"basis":"predicted"}'
-    else
-      echo "{\"connector\":\"$be\",\"bucket\":\"\",\"limit\":null,\"remaining\":null,\"reset\":null,\"basis\":\"unknown\"}"
     fi
     ;;
 
@@ -5362,6 +5359,6 @@ case "$op" in
     ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
     ;;
 esac
