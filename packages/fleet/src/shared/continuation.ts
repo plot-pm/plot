@@ -199,23 +199,38 @@ export function composeContinuation(input: {
   truncated?: boolean;
 }): string {
   const { branch, briefPath, briefText, answer, question, landed } = input;
+  const marker = question !== '';
   const parts: string[] = [];
 
-  parts.push(
-    `You are continuing work on the branch ${branch} in this worktree.`,
-    '',
-    // NAMED AS A CONTINUATION TO THE WORKER TOO, not only in the UI. A worker
-    // told it is "replying" would look for a conversation to rejoin and find
-    // none; told it is continuing, it reads the brief and carries on. The same
-    // honesty the control's label owes the reader, the prompt owes the agent.
-    'A previous worker on this branch stopped to ask a question. That worker has',
-    'exited — you are a NEW run, not a reply to it, and there is no conversation',
-    'to resume. The question has been answered below; your job is the work.',
-    '',
-  );
-
-  if (question) {
+  if (marker) {
+    parts.push(
+      `You are continuing work on the branch ${branch} in this worktree.`,
+      '',
+      // NAMED AS A CONTINUATION TO THE WORKER TOO, not only in the UI. A worker
+      // told it is "replying" would look for a conversation to rejoin and find
+      // none; told it is continuing, it reads the brief and carries on. The same
+      // honesty the control's label owes the reader, the prompt owes the agent.
+      'A previous worker on this branch stopped to ask a question. That worker has',
+      'exited — you are a NEW run, not a reply to it, and there is no conversation',
+      'to resume. The question has been answered below; your job is the work.',
+      '',
+    );
     parts.push('## The question that stopped the previous run', '', question, '');
+  } else {
+    parts.push(
+      `You are continuing work on the branch ${branch} in this worktree.`,
+      '',
+      // A FRESH START, NOT A REPLY. There was no marker and no question — the
+      // previous worker ran out of turns, spent its corrections, or left work
+      // the fleet read as unlanded rather than stopping to ask anything. The
+      // answer below is a person's steer for this new run, not a reply to a
+      // question that was never written.
+      'The previous worker on this branch ended its run without a question — it ran',
+      'out of turns, spent its corrections, or left work the fleet could not take up',
+      'on its own. You are a NEW run, starting fresh. A person has left guidance',
+      'below; your job is the work.',
+      '',
+    );
   }
 
   parts.push('## The answer', '', answer.trim(), '');
@@ -248,19 +263,30 @@ export function composeContinuation(input: {
     '',
   );
 
-  parts.push(
-    '## Before you finish',
-    '',
-    // THE MARKER IS THE WORKER'S TO CLEAR, and this line is why. See
-    // handleContinue for the full reasoning and the alternative that was
-    // rejected.
-    'The blocked marker that stopped the previous run is still in this tree. It is',
-    'yours to delete once you have acted on the answer above — while it stands, the',
-    'fleet scan reads this branch as still waiting on a person.',
-    '',
-    'If you hit something new that a person must answer, write a fresh',
-    'PLOT-BLOCKED: line with the question and stop, exactly as before.',
-  );
+  if (marker) {
+    parts.push(
+      '## Before you finish',
+      '',
+      // THE MARKER IS THE WORKER'S TO CLEAR, and this line is why. See
+      // handleContinue for the full reasoning and the alternative that was
+      // rejected.
+      'The blocked marker that stopped the previous run is still in this tree. It is',
+      'yours to delete once you have acted on the answer above — while it stands, the',
+      'fleet scan reads this branch as still waiting on a person.',
+      '',
+      'If you hit something new that a person must answer, write a fresh',
+      'PLOT-BLOCKED: line with the question and stop, exactly as before.',
+    );
+  } else {
+    parts.push(
+      '## Before you finish',
+      '',
+      'There is no marker in this tree to clear — the previous run never wrote one.',
+      '',
+      'If you hit something a person must answer, write a fresh PLOT-BLOCKED: line',
+      'with the question and stop.',
+    );
+  }
 
   return parts.join('\n');
 }
@@ -541,8 +567,9 @@ const startMonitors = (input: {
 };
 
 /**
- * Starts a new worker on a desk that holds an unanswered `PLOT-BLOCKED`
- * marker, with `answer` in its prompt.
+ * Starts a new worker on a desk, with `answer` in its prompt — on a desk that
+ * holds an unanswered `PLOT-BLOCKED` marker, or, with `fresh`, on one whose
+ * ending alone earns a new session with no marker in the tree.
  *
  * Both callers share this: `POST /api/continue` after it has found the desk
  * through the pulse, and the registry tick for a desk whose ending earns a
