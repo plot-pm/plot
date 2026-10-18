@@ -620,6 +620,26 @@ export const readMarkerText = async (worktree: string): Promise<string> => {
 };
 
 /**
+ * Whether the worktree holds a `PLOT-BLOCKED.md`, and its first line.
+ *
+ * SPLIT FROM {@link readMarkerText} so a marker present but empty — the agent
+ * wrote the file and stopped before a first line landed in it — is not read
+ * the same as no marker at all. Both would otherwise answer `''`.
+ *
+ * @param worktree - the desk to read.
+ * @returns whether the file exists, and its first line (`''` when the file
+ *   is empty or unreadable).
+ */
+export const readMarker = async (worktree: string): Promise<{ present: boolean; text: string }> => {
+  try {
+    const text = await readFile(join(worktree, 'PLOT-BLOCKED.md'), 'utf8');
+    return { present: true, text: text.split('\n', 1).join('') };
+  } catch (err) {
+    return { present: (err as { code?: string }).code !== 'ENOENT', text: '' };
+  }
+};
+
+/**
  * The answer waiting in the desk's `.plot-worker.continue.md`, if any. The
  * file holds the prompt text; the resume id is the manifest's.
  *
@@ -816,9 +836,15 @@ export const readPass = async (
   // these reads anything about the desk or the host.
   if (exit.answer !== 'ran' && exit.answer !== 'dropped') return base;
 
-  // ROW 10 — the agent may have written its own marker.
-  const markerText = await readMarkerText(worktree);
-  if (markerText !== '') return { ...base, markerWritten: true, markerText };
+  // ROW 10 — the agent may have written its own marker. EXISTENCE DECIDES
+  // `markerWritten`, not the text: a marker file present but empty is still a
+  // marker, and `readMarkerText` alone cannot tell that apart from no file at
+  // all — both read "". `readMarker` makes the same existence check directly
+  // against the file, distinct from the text it carries.
+  const marker = await readMarker(worktree);
+  if (marker.present) {
+    return { ...base, markerWritten: true, markerText: marker.text };
+  }
   // ROW 10c — a dropped turn reads nothing further.
   if (exit.answer === 'dropped') return base;
 

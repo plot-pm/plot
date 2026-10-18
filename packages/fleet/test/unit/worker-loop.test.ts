@@ -307,6 +307,18 @@ describe('readPass — ROW 10, the agent wrote its own marker', () => {
     expect(readings.markerWritten).toBe(true);
     expect(readings.markerText).toBe('PLOT-BLOCKED: a question');
   });
+
+  it('reads markerWritten true for a marker file present but empty — empty is not absent', async () => {
+    const dir = tempDir('plot-worker-loop-desk-');
+    fs.writeFileSync(path.join(dir, 'PLOT-BLOCKED.md'), '');
+    const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: dir });
+    const clock = { since: null as number | null };
+    const prompt: PromptState = { running: null, exit: { answer: 'ran' }, pushedSha: '' };
+    const readings = await readPass(ports(), file, prompt, CONFIG, clock);
+    expect(readings.markerWritten).toBe(true);
+    expect(readings.markerText).toBe('');
+    expect(readings.resetRefusals).toEqual([]);
+  });
 });
 
 describe('readPass — ROW 11, unlanded work with no marker', () => {
