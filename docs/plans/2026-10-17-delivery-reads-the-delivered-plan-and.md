@@ -40,9 +40,9 @@ Three independent fixes, one slice each. Each is a bug fix with a reproducing te
 
 ### Open Questions
 
-- [ ] #1340: which of the three fixes? Reading from `origin/<default>` changes what every scan section sees, so its cost against the scan's CPU budget needs measuring first. The slice measures this and records the answer here before changing code.
+- [x] #1340: which of the three fixes? Option (a), the `origin/<default>` ref read, because it is the only one that does not depend on the checkout sitting on the default branch. The read only runs for plans already in the Approved phase (section 2's existing guard), not every plan in `docs/plans/`; measured 2026-10-18 on this repo (3 Approved plans), 20 iterations of `git show origin/main:<path>` piped through `plot-plan-meta.sh` and `jq` cost 1.16 s combined user+sys CPU, ~58 ms per call. Against the scan's own measured `--offline` cost of 279.9 s (`SKILL.md:501`), the added cost at this repo's current Approved count (well under 1 s total) is negligible.
 - [x] #1349: queue in the board routes or lock in `plot-push-main.sh`? What is the wait bound, and what does a waiter report when the bound passes? Decided 2026-10-17 by Jan Wloka: a lock inside `plot-push-main.sh` covers every caller, the wait bound is 120 s, and a waiter past the bound refuses and names the holder's pid and action, because a queue in the board routes leaves a no-board `plot-deliver.mjs` call racing.
-- [ ] Do slices 1 and 2 share the ref-read code, so that #1340 reuses the path fix from #1355? The slice measures this and records the answer here before changing code.
+- [x] Do slices 1 and 2 share the ref-read code, so that #1340 reuses the path fix from #1355? No — recorded as parallel, not shared. #1355 fixes `phaseAtRef` in `packages/board/src/server/deliver.ts` (TypeScript, reads one known plan file at a known ref); #1340 is a shell script reading every Approved-phase plan file in `docs/plans/` in one scan pass. Same class of bug (read at a pushed ref, not the working tree), different language and different cardinality — there is no code to literally share across the shell/TypeScript boundary.
 
 ## Slices
 
@@ -52,7 +52,7 @@ Three independent fixes, one slice each. Each is a bug fix with a reproducing te
 
 ### Scan source
 
-- `bug/scan-reads-plans-at-the-fetched-ref` — #1340: the delivery-landed gate reads the delivered plan, with the test and the `SKILL.md` correction
+- `bug/scan-reads-plans-at-the-fetched-ref` — #1340: the delivery-landed gate reads the delivered plan, with the test and the `SKILL.md` correction → #2017
 
 ### Write queue
 
