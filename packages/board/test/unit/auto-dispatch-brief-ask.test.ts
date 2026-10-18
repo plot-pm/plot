@@ -23,6 +23,7 @@ import path from 'node:path';
 
 import { firstBrieflessBranch } from '@plot-pm/domain';
 import { maybeAutoDispatch } from '@plot-pm/fleet/shared/auto-dispatch';
+import { releaseImplementLock, takeImplementLock } from '@plot-pm/fleet/shared/implement-run';
 import { askForBriefLogPath, briefAskPrompt } from '../../src/server/brief-ask.js';
 import { boardRunsSettled, leaveBoardRunsToTheBoard } from '../../src/server/board-run.js';
 import { run as askEntry } from '../../src/server/entry/main.js';
@@ -291,6 +292,28 @@ describe('maybeAutoDispatch — asking for the brief', () => {
     maybeAutoDispatch(f.opts, p, on(5), [], new Set(), undefined, asked);
     await settle(() => f.askArgv().length, 2);
     expect(f.askArgv()).toHaveLength(1);
+  });
+
+  it('A HELD IMPLEMENT LOCK LEAVES THE BRANCH UNMARKED, so a later pass asks', async () => {
+    // An implement holding the slug may end without writing the brief. Marking
+    // the branch would leave it unasked until the board restarts.
+    const f = fixture([], { briefCommand: '@writer' });
+    const p = brieflessPulse();
+    const asked = new Set<string>();
+    const held = takeImplementLock(f.opts.repoRoot, 'needs-a-brief');
+    expect(held).not.toBeNull();
+
+    maybeAutoDispatch(f.opts, p, on(5), [], new Set(), undefined, asked);
+    await settle(() => f.askArgv().length, 0);
+    expect(f.askArgv()).toHaveLength(0);
+    expect(asked.has('feature/needs-a-brief')).toBe(false);
+
+    releaseImplementLock(f.opts.repoRoot, 'needs-a-brief', held!);
+    maybeAutoDispatch(f.opts, p, on(5), [], new Set(), undefined, asked);
+    await settle(() => f.askArgv().length, 1);
+    expect(f.askArgv()).toHaveLength(1);
+    expect(asked.has('feature/needs-a-brief')).toBe(true);
+    await boardRunsSettled();
   });
 
   it('A SPENT BUDGET SPAWNS NOTHING, even with a no-brief plan eligible', async () => {

@@ -9,7 +9,8 @@ import { readConfig } from './config-reader.js';
 import {
   IMPLEMENT_COMMAND_KEY,
   implementLogPath,
-  implementRunning,
+  heldImplementLock,
+  implementLockRefusal,
   startImplement,
 } from './implement-run.js';
 import { usableCommand } from './usable-command.js';
@@ -98,12 +99,13 @@ export const startDispatch = (input: DispatchInput): DispatchStart => {
     };
   }
   const implementLog = implementLogPath(opts.repoRoot, slug);
-  if (implementRunning(opts.repoRoot, slug)) {
+  const holding = heldImplementLock(opts.repoRoot, slug);
+  if (holding !== null) {
     return {
       kind: 'refused',
       status: 409,
       reason: 'implement-running',
-      detail: `an implement for \`${slug}\` is already running — watch it at ${implementLog}, or wait for it to finish before dispatching again`,
+      detail: `${implementLockRefusal(opts.repoRoot, slug, holding).detail}; wait for it to finish before dispatching again`,
       log: implementLog,
     };
   }

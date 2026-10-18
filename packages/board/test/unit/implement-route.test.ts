@@ -214,7 +214,8 @@ describe('a second start while the first lives', () => {
     assert.equal(first.status, 202);
     const second = await post({ repoRoot: dir, command: 'sleep 1' });
     assert.equal(second.status, 409);
-    assert.equal(second.body.running, true, 'the running refusal is marked, so the button follows the run');
+    assert.equal(second.body.running, true, 'the running refusal is marked');
+    assert.equal(second.body.holder, 'implement', 'the holder is this checkout\'s implement run, so the button follows it');
     await boardRunsSettled();
   });
 });

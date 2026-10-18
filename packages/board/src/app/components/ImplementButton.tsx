@@ -160,8 +160,8 @@ export function ImplementButton({
         signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });
       const outcome = implementStartOutcome(res.status, (await res.json()) as Record<string, unknown>);
-      // A second start answered 409 `running` is the run the poll below already
-      // follows, not a failure.
+      // `implementStartOutcome` decides: a 409 held by this checkout's implement
+      // run is the run the poll below already follows; any other holder fails.
       if (outcome.kind === 'failed') setState(outcome);
     } catch (e) {
       setState({ kind: 'failed', message: e instanceof Error ? e.message : String(e) });

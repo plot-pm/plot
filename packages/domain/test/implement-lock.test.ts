@@ -5,6 +5,7 @@ import {
   decodeImplementHolder,
   encodeImplementHolder,
   implementLockHeld,
+  implementLockHolder,
   type ImplementHolder,
   type ImplementHolderReadings,
 } from '../src/rules/implement-lock.js';
@@ -18,6 +19,8 @@ const holder = (over: Partial<ImplementHolder> = {}): ImplementHolder => ({
   pgid: null,
   at: NOW - 1_000,
   agent: null,
+  run: null,
+  tree: null,
   ...over,
 });
 
@@ -82,6 +85,12 @@ describe('the lock record', () => {
     expect(decodeImplementHolder(encodeImplementHolder(full))).toEqual(full);
   });
 
+  it('reads back the run and a checkout path that holds a tab', () => {
+    const named = holder({ run: 'brief', tree: '/work/a\tb checkout' });
+    expect(encodeImplementHolder(named).split('\t')).toHaveLength(8);
+    expect(decodeImplementHolder(encodeImplementHolder(named))).toEqual(named);
+  });
+
   it('reads anything else as no record', () => {
     for (const text of [
       '',
@@ -93,8 +102,31 @@ describe('the lock record', () => {
       '4100\t1\t\t2\t-\t-',
       '4100\t1\t-\t2\t4200\t-',
       '4100\t1\t-\t2\t-\t900',
+      '4100\t1\t-\t2\t-\t-\tagent\t%2Fwork',
+      '4100\t1\t-\t2\t-\t-\timplement\t%E0%A4%A',
+      '4100\t1\t-\t2\t-\t-\timplement\t',
     ]) {
       expect(decodeImplementHolder(text)).toBeNull();
     }
+  });
+});
+
+describe('implementLockHolder', () => {
+  const TREE = '/work/board';
+
+  it('names this checkout\'s implement run, and an implement run in another checkout a desk', () => {
+    expect(implementLockHolder(holder({ run: 'implement', tree: TREE }), TREE)).toBe('implement');
+    expect(implementLockHolder(holder({ run: 'implement', tree: '/work/board/.worktrees/a' }), TREE)).toBe('desk');
+  });
+
+  it('names a brief run in any checkout', () => {
+    expect(implementLockHolder(holder({ run: 'brief', tree: TREE }), TREE)).toBe('brief');
+    expect(implementLockHolder(holder({ run: 'brief', tree: null }), TREE)).toBe('brief');
+  });
+
+  it('answers unknown for no record and for a record that names no run or no checkout', () => {
+    expect(implementLockHolder(null, TREE)).toBe('unknown');
+    expect(implementLockHolder(holder(), TREE)).toBe('unknown');
+    expect(implementLockHolder(holder({ run: 'implement', tree: null }), TREE)).toBe('unknown');
   });
 });

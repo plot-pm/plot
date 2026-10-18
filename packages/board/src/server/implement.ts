@@ -257,7 +257,9 @@ export async function handleImplement(
   if ('failure' in started) {
     json(
       started.failure.running ? 409 : 500,
-      started.failure.running ? { error: started.failure.detail, running: true } : { error: started.failure.detail },
+      started.failure.running
+        ? { error: started.failure.detail, running: true, holder: started.failure.holder ?? 'unknown' }
+        : { error: started.failure.detail },
     );
     return;
   }

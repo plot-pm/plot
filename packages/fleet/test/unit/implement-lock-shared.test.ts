@@ -67,7 +67,7 @@ describe('a brief run and an implement for one slug', () => {
     const log = implementLogPath(repo, SLUG);
     fs.writeFileSync(log, 'the implement wrote this\n');
     const asked = askForBrief(opts(), 'true', SLUG, 'write the brief');
-    expect(asked).toBe('');
+    expect(asked).toBeNull();
     expect(fs.existsSync(askForBriefLogPath(repo, SLUG))).toBe(false);
     expect(fs.readFileSync(log, 'utf8')).toBe('the implement wrote this\n');
     await boardRunsSettled();
@@ -79,14 +79,15 @@ describe('a brief run and an implement for one slug', () => {
     expect(asked).toBe(briefLog);
     fs.writeFileSync(briefLog, 'the brief wrote this\n');
     const second = startImplement(opts(), SLUG, 'true', undefined, configured('Implement command', 'true'));
-    expect(second).toMatchObject({ failure: { running: true } });
+    expect(second).toMatchObject({ failure: { running: true, holder: 'brief' } });
+    expect('failure' in second && second.failure.detail).toContain(briefLog);
     expect(fs.readFileSync(briefLog, 'utf8')).toBe('the brief wrote this\n');
     await boardRunsSettled();
   });
 
   it('releases the lock when the brief run ends', async () => {
     expect(askForBrief(opts(), 'true', SLUG, 'write the brief')).not.toBe('');
-    // A brief run records no state file, so the board's settle does not wait on it.
+    // The run's end handler releases the lock; the wait polls for the release.
     await vi.waitFor(() => expect(fs.existsSync(implementLockPath(repo, SLUG))).toBe(false), { timeout: 5_000 });
   });
 
@@ -94,10 +95,28 @@ describe('a brief run and an implement for one slug', () => {
     fs.mkdirSync(path.dirname(implementLockPath(repo, SLUG)), { recursive: true });
     fs.writeFileSync(
       implementLockPath(repo, SLUG),
-      encodeImplementHolder({ pid: 999999, startedAt: 1, pgid: null, at: Date.now(), agent: null }),
+      encodeImplementHolder({ pid: 999999, startedAt: 1, pgid: null, at: Date.now(), agent: null, run: 'implement', tree: repo }),
     );
     expect(askForBrief(opts(), 'true', SLUG, 'write the brief')).toBe(askForBriefLogPath(repo, SLUG));
     await boardRunsSettled();
   });
 });
 
+describe('the refusal names the run that holds the lock', () => {
+  it('names this checkout\'s implement run and its log', async () => {
+    expect(startImplement(opts(), SLUG, 'sleep 1; true', undefined, configured('Implement command', 'sleep 1; true'))).toHaveProperty('log');
+    const second = startImplement(opts(), SLUG, 'true', undefined, configured('Implement command', 'true'));
+    expect(second).toMatchObject({ failure: { running: true, holder: 'implement' } });
+    expect('failure' in second && second.failure.detail).toContain(implementLogPath(repo, SLUG));
+    await boardRunsSettled();
+  });
+
+  it('names an implement run in a desk, and the desk\'s log', async () => {
+    const deskOpts = { repoRoot: desk, scriptsDir };
+    expect(startImplement(deskOpts, SLUG, 'sleep 1; true', undefined, configured('Implement command', 'sleep 1; true'))).toHaveProperty('log');
+    const second = startImplement(opts(), SLUG, 'true', undefined, configured('Implement command', 'true'));
+    expect(second).toMatchObject({ failure: { running: true, holder: 'desk' } });
+    expect('failure' in second && second.failure.detail).toContain(implementLogPath(desk, SLUG));
+    await boardRunsSettled();
+  });
+});

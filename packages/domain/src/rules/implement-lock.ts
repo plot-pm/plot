@@ -6,6 +6,9 @@ export interface LockedProcess {
   startedAt: number;
 }
 
+/** Which run took an implement lock: a `/plot-implement` run, or a run of the `Brief command`. */
+export type ImplementRunKind = 'implement' | 'brief';
+
 /**
  * The record an implement lock holds.
  *
@@ -21,6 +24,10 @@ export interface ImplementHolder extends LockedProcess {
   at: number;
   /** The run's agent process; `null` until it has started. */
   agent: LockedProcess | null;
+  /** Which run took the lock; `null` for a record that names none. */
+  run: ImplementRunKind | null;
+  /** The checkout the run works in, as an absolute path; `null` for a record that names none. */
+  tree: string | null;
 }
 
 /** What the process table says about one recorded pid. */
@@ -86,7 +93,8 @@ export const implementLockHeld = (
 };
 
 /**
- * Writes a lock record as one line of tab-separated fields.
+ * Writes a lock record as one line of tab-separated fields. The checkout path
+ * is URI-encoded, so no tab or newline in it can split the line.
  *
  * @param holder - the record.
  * @returns the line, newline-terminated.
@@ -99,6 +107,8 @@ export const encodeImplementHolder = (holder: ImplementHolder): string =>
     holder.at,
     holder.agent?.pid ?? '-',
     holder.agent?.startedAt ?? '-',
+    holder.run ?? '-',
+    holder.tree === null ? '-' : encodeURIComponent(holder.tree),
   ].join('\t') + '\n';
 
 /** Reads one numeric field; `-` reads as `null`. */
@@ -108,20 +118,63 @@ const field = (text: string | undefined): number | null | undefined => {
   return text !== undefined && text !== '' && Number.isInteger(value) ? value : undefined;
 };
 
+/** Reads the run field; `-` reads as `null`. */
+const runField = (text: string): ImplementRunKind | null | undefined =>
+  text === '-' ? null : text === 'implement' || text === 'brief' ? text : undefined;
+
+/** Reads the checkout field; `-` reads as `null`. */
+const treeField = (text: string): string | null | undefined => {
+  if (text === '-') return null;
+  try {
+    const tree = decodeURIComponent(text);
+    return tree === '' ? undefined : tree;
+  } catch {
+    return undefined;
+  }
+};
+
 /**
- * Reads a lock record written by {@link encodeImplementHolder}.
+ * Reads a lock record written by {@link encodeImplementHolder}. A record of six
+ * fields, which names no run and no checkout, reads with both `null`.
  *
  * @param text - the lock file's content.
  * @returns the record, or `null` where the text is not one.
  */
 export const decodeImplementHolder = (text: string): ImplementHolder | null => {
-  const [pid, startedAt, pgid, at, agentPid, agentStartedAt, ...rest] = text.trim().split('\t').map(field);
-  if (rest.length > 0 || typeof pid !== 'number' || typeof startedAt !== 'number' || typeof at !== 'number') {
-    return null;
-  }
+  const fields = text.trim().split('\t');
+  if (fields.length !== 6 && fields.length !== 8) return null;
+  const [pid, startedAt, pgid, at, agentPid, agentStartedAt] = fields.slice(0, 6).map(field);
+  const run = fields.length === 8 ? runField(fields[6]) : null;
+  const tree = fields.length === 8 ? treeField(fields[7]) : null;
+  if (typeof pid !== 'number' || typeof startedAt !== 'number' || typeof at !== 'number') return null;
   if (pgid === undefined || agentPid === undefined || agentStartedAt === undefined) return null;
+  if (run === undefined || tree === undefined) return null;
   if (agentPid === null || agentStartedAt === null) {
-    return agentPid === agentStartedAt ? { pid, startedAt, pgid, at, agent: null } : null;
+    return agentPid === agentStartedAt ? { pid, startedAt, pgid, at, agent: null, run, tree } : null;
   }
-  return { pid, startedAt, pgid, at, agent: { pid: agentPid, startedAt: agentStartedAt } };
+  return { pid, startedAt, pgid, at, agent: { pid: agentPid, startedAt: agentStartedAt }, run, tree };
+};
+
+/**
+ * Who holds an implement lock, as seen from one checkout.
+ *
+ * - `implement` — a `/plot-implement` run in this checkout, whose state file this checkout reads.
+ * - `brief` — a run of the `Brief command`, which writes no state file.
+ * - `desk` — a `/plot-implement` run in another checkout, whose state file is there.
+ * - `unknown` — no holding record, or one that names no run or no checkout.
+ */
+export type ImplementLockHolder = 'implement' | 'brief' | 'desk' | 'unknown';
+
+/**
+ * Names who holds an implement lock, as seen from the checkout `tree`.
+ *
+ * @param holder - the holding record; `null` where the lock holds nothing or cannot be read.
+ * @param tree - the asking checkout, as an absolute path spelt the way the holder's `tree` is.
+ * @returns the holder's kind.
+ */
+export const implementLockHolder = (holder: ImplementHolder | null, tree: string): ImplementLockHolder => {
+  if (holder === null || holder.run === null) return 'unknown';
+  if (holder.run === 'brief') return 'brief';
+  if (holder.tree === null) return 'unknown';
+  return holder.tree === tree ? 'implement' : 'desk';
 };

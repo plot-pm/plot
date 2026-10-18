@@ -1,9 +1,13 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import {
   decodeImplementHolder,
   encodeImplementHolder,
   implementLockHeld,
+  implementLockHolder,
   type ImplementHolder,
+  type ImplementLockHolder,
+  type ImplementRunKind,
   type LockedProcess,
   type ProcessProbe,
   type ProcessSighting,
@@ -120,8 +124,9 @@ export const composeImplementPrompt = (slug: string): string =>
 export const IMPLEMENT_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
- * The longest a lock holds its slug, in milliseconds: the run's own bound and
- * one minute for the start and the record.
+ * The longest an implement run's lock holds its slug, in milliseconds: the
+ * run's own bound and one minute for the start and the record. A brief run's
+ * lock has no age bound.
  */
 export const IMPLEMENT_LOCK_BOUND_MS = IMPLEMENT_TIMEOUT_MS + 60_000;
 
@@ -136,6 +141,30 @@ const GUARD_STALE_MS = 10_000;
  */
 export const implementLockPath = (repoRoot: string, slug: string): string =>
   `${implementStatePath(mainCheckout(repoRoot), slug)}.lock`;
+
+/**
+ * Where the `Brief command` run for one plan writes its log. `brief-ask.ts`
+ * re-exports it as `askForBriefLogPath`, and `brief-ask-log.ts` reads the same
+ * path through it, so the writer and the readers share one spelling.
+ *
+ * @param repoRoot - absolute path to the repository root.
+ * @param slug - the plan slug.
+ * @returns the log's absolute path.
+ */
+export const briefLogPath = (repoRoot: string, slug: string): string =>
+  path.join(repoRoot, `.plot-brief-${slug}.log`);
+
+/**
+ * The checkout path a lock records and compares: the real path where it
+ * resolves, so a symlinked spelling and the real one name one checkout.
+ */
+const lockTree = (repoRoot: string): string => {
+  try {
+    return fs.realpathSync(repoRoot);
+  } catch {
+    return path.resolve(repoRoot);
+  }
+};
 
 /** The seams a test replaces in the implement lock. */
 export interface ImplementLockDeps {
@@ -161,15 +190,23 @@ const readLock = (lock: string): string | null => {
   }
 };
 
-/** Whether the lock text names a run that still holds the slug. A text that is no record holds nothing. */
-const lockHolds = (text: string, probe: ProcessProbe, now: number): boolean => {
+/**
+ * How long a lock record may hold its slug. A brief run has no time bound, so
+ * its lock holds while its processes live; every other run's lock holds for
+ * {@link IMPLEMENT_LOCK_BOUND_MS}.
+ */
+const lockBoundMs = (holder: ImplementHolder): number =>
+  holder.run === 'brief' ? Number.POSITIVE_INFINITY : IMPLEMENT_LOCK_BOUND_MS;
+
+/** The record the lock text names where that run still holds the slug; `null` where it holds nothing. */
+const holdingRecord = (text: string, probe: ProcessProbe, now: number): ImplementHolder | null => {
   const holder = decodeImplementHolder(text);
-  if (holder === null) return false;
+  if (holder === null) return null;
   const sight = (recorded: LockedProcess): ProcessSighting => {
     const alive = probe.alive(recorded.pid);
     return { alive, startedAt: alive === true ? probe.startedAt(recorded.pid) : null };
   };
-  return implementLockHeld(
+  const held = implementLockHeld(
     holder,
     {
       holder: sight(holder),
@@ -177,9 +214,13 @@ const lockHolds = (text: string, probe: ProcessProbe, now: number): boolean => {
       groupAlive: holder.pgid === null ? false : probe.groupAlive(holder.pgid),
     },
     now,
-    IMPLEMENT_LOCK_BOUND_MS,
+    lockBoundMs(holder),
   );
+  return held ? holder : null;
 };
+
+/** Whether the lock text names a run that still holds the slug. A text that is no record holds nothing. */
+const lockHolds = (text: string, probe: ProcessProbe, now: number): boolean => holdingRecord(text, probe, now) !== null;
 
 /**
  * Publishes `text` under `lock` where no file has the name: written whole to a
@@ -242,9 +283,10 @@ const takeGuard = (guard: string): boolean => {
  * stale lock is replaced only under the guard file, after reading it stale a
  * second time, so two takes that both read it stale cannot both replace it.
  *
- * @param repoRoot - absolute path to the repository root.
+ * @param repoRoot - absolute path to the checkout the run works in; the record names it.
  * @param slug - the plan slug.
  * @param deps - test seams.
+ * @param run - which run takes the lock; the record names it.
  * @returns this process's record, or `null` where another run holds the slug.
  * @throws where the lock's directory cannot be read or written.
  */
@@ -252,6 +294,7 @@ export const takeImplementLock = (
   repoRoot: string,
   slug: string,
   deps: ImplementLockDeps = {},
+  run: ImplementRunKind = 'implement',
 ): ImplementHolder | null => {
   const probe = deps.probe ?? processProbeSystem();
   const now = deps.now ?? Date.now;
@@ -263,6 +306,8 @@ export const takeImplementLock = (
     pgid: self.leadsGroup ? self.pid : null,
     at: now(),
     agent: null,
+    run,
+    tree: lockTree(repoRoot),
   };
   const text = encodeImplementHolder(mine);
   if (publishLock(lock, text)) return mine;
@@ -346,13 +391,62 @@ export const releaseImplementLock = (repoRoot: string, slug: string, mine: Imple
  * @param deps - test seams; `onStep` is not called.
  * @returns whether a run holds the slug's implement lock.
  */
-export const implementRunning = (repoRoot: string, slug: string, deps: ImplementLockDeps = {}): boolean => {
+export const implementRunning = (repoRoot: string, slug: string, deps: ImplementLockDeps = {}): boolean =>
+  heldImplementLock(repoRoot, slug, deps) !== null;
+
+/**
+ * The record of the run that holds the implement lock for `slug`, read the way
+ * {@link implementRunning} reads it.
+ *
+ * @param repoRoot - absolute path to the repository root.
+ * @param slug - the plan slug.
+ * @param deps - test seams; `onStep` is not called.
+ * @returns the holding record, or `null` where no run holds the slug or the lock cannot be read.
+ */
+export const heldImplementLock = (
+  repoRoot: string,
+  slug: string,
+  deps: ImplementLockDeps = {},
+): ImplementHolder | null => {
   try {
     const text = readLock(implementLockPath(repoRoot, slug));
-    return text !== null && lockHolds(text, deps.probe ?? processProbeSystem(), (deps.now ?? Date.now)());
+    return text === null ? null : holdingRecord(text, deps.probe ?? processProbeSystem(), (deps.now ?? Date.now)());
   } catch {
-    return false;
+    return null;
   }
+};
+
+/** Who holds a slug's implement lock, and the sentence that says so. */
+export interface ImplementLockRefusal {
+  /** The holder, as seen from the asking checkout. */
+  holder: ImplementLockHolder;
+  /** The sentence to report, naming the log the holder writes where one is known. */
+  detail: string;
+}
+
+/**
+ * Names the run that holds the implement lock for `slug`, as seen from the
+ * checkout `repoRoot`, in the words a refusal reports.
+ *
+ * @param repoRoot - absolute path to the asking checkout.
+ * @param slug - the plan slug.
+ * @param holder - the holding record; `null` where the run released the lock before it was read.
+ * @returns the holder's kind and the sentence to report.
+ */
+export const implementLockRefusal = (
+  repoRoot: string,
+  slug: string,
+  holder: ImplementHolder | null,
+): ImplementLockRefusal => {
+  const kind = implementLockHolder(holder, lockTree(repoRoot));
+  const tree = holder?.tree ?? repoRoot;
+  const detail = {
+    implement: `an implement for \`${slug}\` is already running — see ${implementLogPath(repoRoot, slug)}`,
+    brief: `a brief run for \`${slug}\` holds its implement lock — see ${briefLogPath(tree, slug)}`,
+    desk: `an implement for \`${slug}\` is already running in ${tree} — see ${implementLogPath(tree, slug)}`,
+    unknown: `an implement or brief run for \`${slug}\` holds its implement lock`,
+  }[kind];
+  return { holder: kind, detail };
 };
 
 /** What {@link startImplement} could not do before the child existed. */
@@ -361,6 +455,8 @@ export interface ImplementStartFailure {
   detail: string;
   /** Set where another live run holds the slug's lock, so the caller refuses rather than fails. */
   running?: true;
+  /** Who holds the lock, as seen from the starting checkout; set with `running`. */
+  holder?: ImplementLockHolder;
 }
 
 /**
@@ -373,7 +469,7 @@ export interface ImplementStartFailure {
  *
  * The implement lock is TAKEN first ({@link takeImplementLock}), then the
  * state file reads `running <pid>`, and the log is truncated last: a start that
- * loses the race to a live run fails with `running` set and has destroyed
+ * loses the race to a live run fails with `running` and `holder` set and has destroyed
  * nothing of the winner's. The lock names the agent process once it starts and
  * is removed when the run ends. Both the state file and the log are read back
  * as the answer, and a stale one reports a previous attempt's outcome for this
@@ -414,7 +510,8 @@ export const startImplement = (
     return cannotOpen(err);
   }
   if (mine === null) {
-    return { failure: { detail: `an implement for \`${slug}\` is already running — see ${log}`, running: true } };
+    const refusal = implementLockRefusal(opts.repoRoot, slug, heldImplementLock(opts.repoRoot, slug, lockDeps));
+    return { failure: { detail: refusal.detail, running: true, holder: refusal.holder } };
   }
   const held = mine;
   const release = (): void => releaseImplementLock(opts.repoRoot, slug, held);

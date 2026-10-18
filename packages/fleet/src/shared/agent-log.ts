@@ -244,7 +244,7 @@ const ensured = new Set<string>();
  * through {@link agentLogPath}, and a read route spawns nothing
  * (`a-read-route-spawns-nothing.test.ts`).
  */
-const commonGitDir = (repoRoot: string): string | undefined => {
+export const commonGitDir = (repoRoot: string): string | undefined => {
   const dotGit = path.join(repoRoot, '.git');
   const stat = fs.statSync(dotGit, { throwIfNoEntry: false });
   if (stat === undefined) return undefined;

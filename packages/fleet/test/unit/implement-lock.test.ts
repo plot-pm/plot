@@ -65,10 +65,15 @@ const probeOver = (table: Table, self: number, leadsGroup = false): ProcessProbe
 const twoTakers = (): Table => ({ procs: new Map([[1, 10], [2, 20]]), groups: new Set() });
 
 /** Writes a lock record naming `pid`, started at `startedAt`, taken at `at`. */
-const seedLock = (pid: number, startedAt: number, at = NOW, extra: { pgid?: number; agent?: { pid: number; startedAt: number } } = {}): void => {
+const seedLock = (
+  pid: number,
+  startedAt: number,
+  at = NOW,
+  extra: { pgid?: number; agent?: { pid: number; startedAt: number }; run?: 'implement' | 'brief' } = {},
+): void => {
   fs.writeFileSync(
     implementLockPath(repo, SLUG),
-    encodeImplementHolder({ pid, startedAt, pgid: extra.pgid ?? null, at, agent: extra.agent ?? null }),
+    encodeImplementHolder({ pid, startedAt, pgid: extra.pgid ?? null, at, agent: extra.agent ?? null, run: extra.run ?? 'implement', tree: repo }),
   );
 };
 
@@ -144,6 +149,14 @@ describe('takeImplementLock', () => {
     seedLock(2, 20, NOW - IMPLEMENT_LOCK_BOUND_MS);
     expect(takeImplementLock(repo, SLUG, { probe: probeOver(table, 1), now: () => NOW })).toMatchObject({ pid: 1 });
     fs.writeFileSync(implementLockPath(repo, SLUG), 'running 2');
+    expect(takeImplementLock(repo, SLUG, { probe: probeOver(table, 1), now: () => NOW })).toMatchObject({ pid: 1 });
+  });
+
+  it('keeps a brief run\'s lock older than the bound while its holder lives', () => {
+    const table = twoTakers();
+    seedLock(2, 20, NOW - IMPLEMENT_LOCK_BOUND_MS, { run: 'brief' });
+    expect(takeImplementLock(repo, SLUG, { probe: probeOver(table, 1), now: () => NOW })).toBeNull();
+    table.procs.delete(2);
     expect(takeImplementLock(repo, SLUG, { probe: probeOver(table, 1), now: () => NOW })).toMatchObject({ pid: 1 });
   });
 
