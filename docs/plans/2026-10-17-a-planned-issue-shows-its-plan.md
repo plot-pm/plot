@@ -61,7 +61,7 @@ Board: the inbox derives "planned" from git and never from a label. Today `refer
 
 ### Lifecycle commands
 
-- `feature/issue-plan-state-commands` — `plot-idea`, `plot-approve`, `plot-deliver` and `plot-release` call the write, and the release closes the issue with the plan-link comment naming the version; `Tracker approved status` is documented in the config reference; `plot-release/SKILL.md` and `plot-reconcile-scan.sh` stop saying a person closes the issue by hand <!-- waits: feature/issue-plan-state-write -->
+- `feature/issue-plan-state-commands` — `plot-idea`, `plot-approve`, `plot-deliver` and `plot-release` call the write, and the release closes the issue with the plan-link comment naming the version; `Tracker approved status` is documented in the config reference; `plot-release/SKILL.md` and `plot-reconcile-scan.sh` stop saying a person closes the issue by hand <!-- waits: feature/issue-plan-state-write --> → #2021
 
 ## Notes
 
