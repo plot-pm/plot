@@ -13,6 +13,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Started:** 2026-10-17, jwloka, `bug/plot-review-one-issue-per-pr`
+- **Started:** 2026-10-18, jwloka, `bug/monitors-end-waits-for-pid`
 
 ## Changelog
 
