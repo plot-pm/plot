@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Type:** bug
 - **Issue:** #1867
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-pr-checks-bind-to-head`
 - **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-runs-history`
 - **Started:** 2026-10-17, Jan Wloka, `feature/bitbucket-pr-state-binds-checks`
+- **Delivered:** 2026-10-18
 
 ## Changelog
 

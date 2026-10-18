@@ -19,7 +19,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 
 - [x] [bitbucket-parity-and-app-identities] Host connector: Bitbucket parity and App identities (#1848)
 - [x] [jira-inbox-and-issue-index] Tracker connector: Jira inbox and issue index (#1849)
-- [ ] [the-agent-s-ci-wait-never] Jenkins CI: the agent's CI wait settles, and a Jenkins check binds to a commit (#1867)
+- [x] [the-agent-s-ci-wait-never] Jenkins CI: the agent's CI wait settles, and a Jenkins check binds to a commit (#1867)
 
 ### Should Have
 
