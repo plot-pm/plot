@@ -59,7 +59,7 @@ Counting slices: the slice count uses the merged-PR reading the fleet already ma
 
 ### Ticket phase
 
-- `bug/planned-ticket-phase` — `ticketPhase` rule with unit tests; `waitingTickets` takes the plans per ticket, shows the phase in `status`, sorts unplanned first; `waitingOf` stops filtering planned rows and passes the plans <!-- builds: ticketPhase, the plan phase of a ticket in Waiting on you -->
+- `bug/planned-ticket-phase` — `ticketPhase` rule with unit tests; `waitingTickets` takes the plans per ticket, shows the phase in `status`, sorts unplanned first; `waitingOf` stops filtering planned rows and passes the plans <!-- builds: ticketPhase, the plan phase of a ticket in Waiting on you --> → #2041
 
 ## Notes
 
