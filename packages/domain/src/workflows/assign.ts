@@ -220,13 +220,18 @@ const scaleUp = (
   if (fleet === undefined) return null;
 
   const waiting = held.filter((slice) => slice.hold === 'no-free-agent').length;
-  // EVERY REGISTERED AGENT COUNTS AS RUNNING, free or busy alike. The question
-  // is how many workers this machine is carrying, and a free agent is carrying
-  // one — it holds a slot and is about to be handed a slice. Counting only the
-  // busy ones would start a second agent beside every idle one every tick.
+  // EVERY REGISTERED AGENT COUNTS AS RUNNING, free or busy alike — EXCEPT ONE
+  // WHOSE WORKER IS GONE. The question is how many workers this machine is
+  // carrying, and a free agent is carrying one — it holds a slot and is about
+  // to be handed a slice. Counting only the busy ones would start a second
+  // agent beside every idle one every tick. But a `state: 'none'` reading is
+  // a desk whose process has already ended; it holds nothing, the same answer
+  // `isAgentFree` already gives it, and leaving it in `running` would let a
+  // stale manifest entry occupy a slot the fleet is not actually carrying.
   // A GOING VERIFY RUN OR SPEC RUN HOLDS A SLOT TOO, and the daemon would
   // otherwise start workers the machine cannot carry beside them.
-  const running = readings.agents.length + (readings.verifying ?? 0) + (readings.specRunning ?? 0);
+  const alive = readings.agents.filter((a) => a.reading.state !== 'none').length;
+  const running = alive + (readings.verifying ?? 0) + (readings.specRunning ?? 0);
 
   const answer = fleetSize({
     requested: waiting === 0 ? running : fleet.size,

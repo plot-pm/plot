@@ -607,6 +607,39 @@ describe('assign — the tick starts agents when queued > running', () => {
     expect(decision.writes.filter((w) => w.kind === 'worker-start')).toHaveLength(2);
   });
 
+  it('does not count a dead agent as running — its worker is gone, not carrying a slot', () => {
+    // #1743: a desk that ended its free wait leaves a stale manifest entry.
+    // `isAgentFree` already reads `state: 'none'` as not free; `scaleUp` must
+    // make the same exclusion, or a dead entry still occupies a "running" slot
+    // and suppresses the start `no-free-agent` should trigger.
+    const decision = assign(
+      { slices: [slice({ branch: 'feature/a' })], agents: [agent('s1', { state: 'none' })] },
+      { fleet: cap({ size: 3 }) },
+    );
+    expect(decision.detail.held).toEqual([
+      { branch: 'feature/a', hold: 'no-free-agent', waitsOn: [], waitHeld: '', assignedTo: '' },
+    ]);
+    // The dead agent does not even cost a slot: zero alive, so the pass grows
+    // towards the full cap of 3 rather than stopping short at 2.
+    expect(decision.writes.filter((w) => w.kind === 'worker-start')).toHaveLength(3);
+  });
+
+  it('starts nothing for a slice held by its brief, its plan, or a wait — only a shortage starts', () => {
+    const decision = assign(
+      {
+        slices: [
+          slice({ branch: 'feature/a', briefPresent: false }),
+          slice({ branch: 'feature/b', claimable: false }),
+          slice({ branch: 'feature/c', waitsOn: ['feature/z'], waitHeld: 'unmerged' }),
+        ],
+        agents: [],
+      },
+      { fleet: cap() },
+    );
+    expect(decision.detail.scaling?.start).toBe(0);
+    expect(decision.writes.filter((w) => w.kind === 'worker-start')).toHaveLength(0);
+  });
+
   it('grows towards the cap and never past it', () => {
     const decision = assign(
       { slices: [slice({ branch: 'feature/a' }), slice({ branch: 'feature/b' })], agents: [] },
