@@ -28,6 +28,7 @@ const readings = (over: Partial<EndingActionReadings> = {}): EndingActionReading
   prMerged: 'not-merged',
   endingAsked: false,
   blockedMarker: false,
+  freeWait: false,
   ...over,
 });
 

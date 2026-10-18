@@ -392,6 +392,7 @@ describe('freshAgentDecisions', () => {
     endingAt: '',
     endingAsked: false,
     prMerged: 'unanswerable',
+    freeWait: false,
   });
 
   it('answers needs-a-person for after-prompt holding-work, corrections-spent and turn-limit on their second reach, together with the five outright reasons — no row keyed on ending alone', () => {
@@ -463,6 +464,7 @@ const spentReading = (over: Partial<FreshAgentCandidateReadings> = {}): FreshAge
   prMerged: 'unanswerable',
   commitBeyondClaim: 'unanswerable',
   prOpen: 'unanswerable',
+  freeWait: false,
   ...over,
 });
 

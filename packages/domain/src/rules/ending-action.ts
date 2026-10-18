@@ -97,6 +97,22 @@ export interface EndingActionReadings {
    * question stays the person's.
    */
   readonly blockedMarker: boolean;
+  /**
+   * Whether the desk's own records say this `unreadable` ending closed a
+   * FREE wait rather than a slice mid-run: {@link freeWaitEnded}'s own
+   * `unreadable`/`supervisor`/exit-124 signature, or a sealed `ok`
+   * declaration left by the slice this desk held before the wait began.
+   *
+   * **READ BY THE `bound`/`unreadable`/`quiet` ROW ONLY, AND IT WINS FIRST.**
+   * `true` answers `leave` before {@link boundBranchHoldsWork} is asked at
+   * all — an open PR, a commit beyond the claim or a dirty tree there belongs
+   * to the PRIOR slice this desk held, never to the free wait that just
+   * ended, so neither `start-fresh` nor `release-claim` is this tick's to
+   * answer. `'unanswerable'` takes the same arm as `true`, for the reason
+   * every other reading here does: a desk the records cannot clear of
+   * holding a slice must not be assumed clear of one.
+   */
+  readonly freeWait: boolean | 'unanswerable';
 }
 
 /** Whether an open PR carries a branch, or `'unanswerable'` where the host could not be asked. */
@@ -132,7 +148,8 @@ export type PrMergedReading = 'merged' | 'not-merged' | 'unanswerable';
  *   and the default where no row of this table answers otherwise: `spent`,
  *   `limited`, `unregistered`, `stopped`, a take-up `holding-work` whose desk
  *   never started, and a `bound`/`unreadable`/`quiet` ending whose branch's
- *   PR merged or whose desk carries a `PLOT-BLOCKED` marker.
+ *   PR merged, whose desk carries a `PLOT-BLOCKED` marker, or whose desk's own
+ *   records say the ending closed a free wait rather than a slice.
  */
 export type EndingActionVerdict = 'release-claim' | 'start-fresh' | 'needs-a-person' | 'leave';
 
@@ -262,6 +279,16 @@ const takeUpRefused = (refusedAssignment: string, branch: string): boolean =>
  * `bound`/`unreadable`/`quiet` ending answer `leave` where
  * {@link EndingActionReadings.prMerged} is `'merged'`.
  *
+ * **A FREE WAIT CARRIES NO SLICE TO ACT ON.** A `bound`/`unreadable`/`quiet`
+ * desk whose {@link EndingActionReadings.freeWait} is not `false` answers
+ * `leave` before {@link boundBranchHoldsWork} is even read — issue #1917. The
+ * only `unreadable` an empty (unassigned) loop can produce is the
+ * supervisor's synthesized one for an exit-124 free wait
+ * ({@link killedWorkerEnding}), and whatever that branch holds beyond its
+ * claim belongs to the slice the desk held BEFORE the wait began, never to
+ * this ending. `'unanswerable'` takes the same arm as `true`: a desk the
+ * records cannot clear of holding a slice must not be assumed clear of one.
+ *
  * **A MARKER KEEPS THE QUESTION WITH A PERSON.** A `bound`/`unreadable`/`quiet`
  * desk whose {@link EndingActionReadings.blockedMarker} is true answers
  * `leave`, never `start-fresh` or `release-claim`: a fresh session would
@@ -300,6 +327,7 @@ const endingTableAnswer = (readings: EndingActionReadings): EndingActionVerdict 
     return readings.priorFreshSessions > 0 ? 'needs-a-person' : 'start-fresh';
   }
   if (isBoundEnding(readings.ending)) {
+    if (readings.freeWait !== false) return 'leave';
     if (readings.prMerged === 'merged') return 'leave';
     if (readings.blockedMarker) return 'leave';
     if (!boundBranchHoldsWork(readings)) return 'release-claim';
