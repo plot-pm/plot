@@ -82,6 +82,7 @@ export * from './rules/cadence.js';
 export * from './rules/reaction.js';
 export * from './rules/concurrency.js';
 export * from './rules/implement-lock.js';
+export * from './rules/continue-lock.js';
 export * from './rules/refusal.js';
 export * from './rules/sample.js';
 export * from './rules/acting.js';
