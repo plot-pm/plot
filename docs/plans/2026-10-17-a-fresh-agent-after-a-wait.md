@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1954 merged
 - **Started:** 2026-10-17, Jan Wloka, `bug/the-registry-reads-branch-line-waits`
 - **Started:** 2026-10-18, Jan Wloka, `bug/a-free-desk-ending-acts-on-no-slice`
+- **Started:** 2026-10-18, Jan Wloka, `bug/fleetd-at-agents-zero-after-a-wait`
 
 ## Changelog
 

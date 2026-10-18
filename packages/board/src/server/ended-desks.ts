@@ -22,12 +22,14 @@ const readDeskFile = (worktree: string, name: string): string | null => {
  *
  * @param agents - the registry's entries.
  * @param rows - the placed branch rows, joined to an entry by branch or checkout.
+ * @param boundSeconds - the `Worker bound` in seconds, or `null` where it is not known.
  * @param read - returns one desk file's text, or `null` where absent.
  * @returns the entries, each with `ended` set only where the rule answered.
  */
 export const withEndedDesks = (
   agents: readonly AgentEntry[],
   rows: readonly AgentRow[],
+  boundSeconds: number | null = null,
   read: (worktree: string, name: string) => string | null = readDeskFile,
 ): AgentEntry[] => {
   const byBranch = new Map(rows.map((row) => [row.branch, row] as const));
@@ -44,7 +46,7 @@ export const withEndedDesks = (
       dirty: local ? local.localDirty : null,
       unlanded: local ? local.localAhead > 0 : null,
       blockedQuestion: local ? local.question !== null && local.question !== undefined : null,
-      boundSeconds: null,
+      boundSeconds,
     });
     return { ...agent, ended: placement };
   });

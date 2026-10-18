@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1968 merged
 - **Started:** 2026-10-17, Jan Wloka, `bug/the-implement-lock-covers-its-start`
+- **Started:** 2026-10-18, Jan Wloka, `bug/a-continue-starts-one-loop`
 
 ## Changelog
 
@@ -70,7 +71,7 @@ Each slice re-verifies its findings on main first, then fixes the ones that hold
 
 ### Start and stop
 
-- `bug/a-continue-starts-one-loop` — #1357 and #1377: the start lock, the spawn `'error'` path, the stale pid, the wrapper wait, the freewait leak and one definition of the freewait filename <!-- waits: bug/the-implement-lock-covers-its-start -->
+- `bug/a-continue-starts-one-loop` — #1357 and #1377: the start lock, the spawn `'error'` path, the stale pid, the wrapper wait, the freewait leak and one definition of the freewait filename → #2034 <!-- waits: bug/the-implement-lock-covers-its-start -->
 - `bug/a-failed-continue-leaves-its-desk-whole` — #1373 and #1379: manifest written last, `no-manifest` refused before the stop, the manifest restored on a stop timeout, the `warning` field and the corpus parity for `writeDeskManifest` <!-- waits: bug/a-continue-starts-one-loop -->
 
 ### Continuation

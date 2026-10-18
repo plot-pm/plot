@@ -31,7 +31,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 
 - [x] [row-placement-and-wording-1677-1791] Waiting on you: row placement and wording (#1830)
 - [x] [fleetd-scan-cost-and-read-cadence] fleetd scan cost and read cadence (#1845)
-- [ ] [the-ready-line-waits-for-every] Board: the ready line waits for every address, and a released desk says why (#1951: #1900, #1916)
+- [x] [the-ready-line-waits-for-every] Board: the ready line waits for every address, and a released desk says why (#1951: #1900, #1916)
 - [ ] [a-fresh-agent-after-a-wait] Fleet: a new free agent after a wait-bound end, safe supervisor endings, and slice waits (#1950: #1903, #1917, #1273)
 
 ### Deferred

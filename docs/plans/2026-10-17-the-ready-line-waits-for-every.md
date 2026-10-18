@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #1951, #1900, #1916
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1953 merged
 - **Started:** 2026-10-17, Jan Wloka, `bug/ready-line-after-every-bind`
 - **Started:** 2026-10-17, Jan Wloka, `bug/released-desk-keeps-its-note`
+- **Delivered:** 2026-10-18
 
 ## Changelog
 

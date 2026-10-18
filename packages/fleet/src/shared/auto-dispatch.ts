@@ -448,6 +448,10 @@ export function maybeAutoDispatch(
           // A second wait replaces the first: the map holds one epoch per branch.
           (resetEpoch) => briefWaits.set(branch, resetEpoch),
         );
+        // A HELD LOCK IS NOT MARKED. Another run for the slug holds it, and
+        // `askForBrief` has logged which; that run may end without a brief, so
+        // the next pass asks again. Nothing started, so the budget stands.
+        if (log === null) continue;
         // MARKED EVEN WHEN THE SPAWN FAILED. `askForBrief` reports and returns
         // '' rather than throwing, and marking anyway is the conservative
         // direction: a board that re-asked every pulse on a broken command would

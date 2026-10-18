@@ -14,6 +14,7 @@
 - **Started:** 2026-10-17, Jan Wloka, `bug/fleetd-once-and-channel-output`
 - **Started:** 2026-10-17, Jan Wloka, `bug/fleetd-stop-starts-no-agent`
 - **Started:** 2026-10-18, Jan Wloka, `bug/fleetd-unit-harness-findings`
+- **Started:** 2026-10-18, Jan Wloka, `bug/refused-hold-names-its-reason`
 
 ## Changelog
 

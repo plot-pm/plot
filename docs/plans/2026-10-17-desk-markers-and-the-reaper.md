@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1976 merged
 - **Started:** 2026-10-17, Jan Wloka, `bug/the-reaper-reads-the-desk-loop-and-the-root-marker`
+- **Started:** 2026-10-18, Jan Wloka, `bug/a-fresh-agent-prompt-describes-no-question`
 
 ## Changelog
 
@@ -57,7 +58,7 @@ Each slice first reproduces its issues' findings on main with a failing test. A 
 
 ### Fresh agent
 
-- `bug/a-fresh-agent-prompt-describes-no-question` — #1389, #1386: the start path passes the ending reason or a marker flag; no one-time sweep for endings from before #1371, whose count today the slice records; the prompt without a marker names no question; the empty `PLOT-BLOCKED` case; `dirtyPaths` read once per tick; the duplicate test and TSDoc history.
+- `bug/a-fresh-agent-prompt-describes-no-question` — #1389, #1386: the start path passes the ending reason or a marker flag; no one-time sweep for endings from before #1371, whose count today the slice records; the prompt without a marker names no question; the empty `PLOT-BLOCKED` case; `dirtyPaths` read once per tick; the duplicate test and TSDoc history. → #2033
 
 ### Needs a person
 

@@ -7,6 +7,7 @@ import { killedWorkerEnding } from '@plot-pm/domain/rules/ending-action';
 import { deskFs } from '@plot-pm/domain/adapters/desk/desk-fs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import { withEndedDesks } from '../../src/server/ended-desks.js';
+import { anyFreeWaitEnded } from '../../src/server/fleet.js';
 import { brokenAgentRows } from '../../src/app/lib/agent-rows/working-agents.js';
 import { AgentEntrySchema, AgentRowSchema, type AgentRow } from '../../src/contract/schema.js';
 
@@ -78,6 +79,7 @@ describe('a desk whose free wait ran out, in Waiting on you', () => {
   it('leaves for a merged slice, a clean tree and the records the real writers leave', async () => {
     const [agent] = withEndedDesks([desk(await freeWaitDesk())], [merged()]);
     expect(agent!.ended).toEqual({
+      section: 'quiet',
       owesPerson: false,
       note: 'ended at the wait bound with no slice offered — reaped on the next pass',
     });
@@ -120,5 +122,34 @@ describe('a desk whose free wait ran out, in Waiting on you', () => {
   it('attaches nothing to a live agent', async () => {
     const [agent] = withEndedDesks([desk(await freeWaitDesk(), { state: 'running' })], [merged()]);
     expect(agent!.ended).toBeUndefined();
+  });
+
+  it('words the note from the `boundSeconds` the caller passes, not a hardcoded value', async () => {
+    const [withBound] = withEndedDesks([desk(await freeWaitDesk())], [merged()], 3600);
+    expect(withBound!.ended?.note).toBe('ended after 1 h with no slice offered — reaped on the next pass');
+
+    const [noBound] = withEndedDesks([desk(await freeWaitDesk())], [merged()], null);
+    expect(noBound!.ended?.note).toBe('ended at the wait bound with no slice offered — reaped on the next pass');
+  });
+
+  it('lands the agent in Quiet, not Waiting on you, once released', async () => {
+    const [agent] = withEndedDesks([desk(await freeWaitDesk())], [merged()]);
+    expect(agent!.ended?.section).toBe('quiet');
+  });
+});
+
+describe('anyFreeWaitEnded — the gate on the `Worker bound` config read', () => {
+  it('answers true only where an entry reads as the free wait running out', async () => {
+    const d = await freeWaitDesk();
+    expect(anyFreeWaitEnded([desk(d)])).toBe(true);
+  });
+
+  it('answers false for an unrecorded ending and for an agent with no worktree', () => {
+    expect(anyFreeWaitEnded([desk(unrecordedDesk())])).toBe(false);
+    expect(anyFreeWaitEnded([desk('')])).toBe(false);
+  });
+
+  it('answers false for an empty fleet, so no config read is ever paid for one', () => {
+    expect(anyFreeWaitEnded([])).toBe(false);
   });
 });

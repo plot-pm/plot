@@ -255,7 +255,12 @@ export async function handleImplement(
   const branch = (deps.briefBranch ?? ((o, s) => briefBranchFromPulse(pulseFor(o), s)))(opts, slug);
   const started = startImplement(opts, slug, usable, undefined, readCfg, branch);
   if ('failure' in started) {
-    json(started.failure.running ? 409 : 500, { error: started.failure.detail });
+    json(
+      started.failure.running ? 409 : 500,
+      started.failure.running
+        ? { error: started.failure.detail, running: true, holder: started.failure.holder ?? 'unknown' }
+        : { error: started.failure.detail },
+    );
     return;
   }
   const { log } = started;

@@ -738,7 +738,11 @@ const EXPECTED_FILES = 71;
 // 597 → 599 on 2026-10-17: the two `it(` of
 // `long-ticket-title-keeps-plan-name.browser.test.ts`, a new file counted in
 // `EXPECTED_FILES` above.
-const EXPECTED_TESTS = 599;
+// 599 → 600 on 2026-10-18: one `it(` in
+// `row-placement-quiet-and-ended-desk.browser.test.ts`, for a released ended
+// desk landing as an agent row in Quiet with its note. The file already
+// drove a page, so `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 600;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

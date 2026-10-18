@@ -66,6 +66,7 @@ describe('endedDeskPlacement', () => {
     const desk = await freeWaitDesk();
     expect(freeWaitEnded(desk.ending, desk.exit)).toBe(true);
     expect(endedDeskPlacement(clean(desk))).toEqual({
+      section: 'quiet',
       owesPerson: false,
       note: 'ended after 8 h with no slice offered — reaped on the next pass',
     });
@@ -82,13 +83,21 @@ describe('endedDeskPlacement', () => {
     ['a dirty tree', { dirty: true }],
     ['a PLOT-BLOCKED question', { blockedQuestion: true }],
     ['an unmerged slice', { merged: false }],
-  ] as const)('keeps a desk with %s with a person', async (_name, over) => {
-    expect(endedDeskPlacement(clean(await freeWaitDesk(), over)).owesPerson).toBe(true);
+  ] as const)('names a desk with %s rather than leaving it a silent row — #1917', async (_name, over) => {
+    expect(endedDeskPlacement(clean(await freeWaitDesk(), over))).toEqual({
+      section: 'waiting-on-you',
+      owesPerson: true,
+      note: "ended a free wait with its last slice still checked out — the work left behind is the prior slice's, not this wait's",
+    });
   });
 
   it('keeps a desk with no ending record with a person — absent is not clean', async () => {
     const desk = await freeWaitDesk();
-    expect(endedDeskPlacement(clean(desk, { ending: { read: 'absent' } }))).toEqual({ owesPerson: true, note: '' });
+    expect(endedDeskPlacement(clean(desk, { ending: { read: 'absent' } }))).toEqual({
+      section: 'waiting-on-you',
+      owesPerson: true,
+      note: '',
+    });
   });
 
   it('keeps a supervisor record for any exit other than 124 with a person', async () => {
@@ -120,6 +129,26 @@ describe('endedDeskPlacement', () => {
     const desk = await freeWaitDesk();
     for (const over of [{ merged: null }, { dirty: null }, { unlanded: null }, { blockedQuestion: null }]) {
       expect(endedDeskPlacement(clean(desk, over)).owesPerson).toBe(true);
+    }
+  });
+
+  it('never disagrees with itself: `owesPerson` is exactly `section === \'waiting-on-you\'`', async () => {
+    const desk = await freeWaitDesk();
+    const readings: EndedDeskReadings[] = [
+      clean(desk),
+      clean(desk, { boundSeconds: null }),
+      clean(desk, { unlanded: true }),
+      clean(desk, { dirty: true }),
+      clean(desk, { blockedQuestion: true }),
+      clean(desk, { merged: false }),
+      clean(desk, { ending: { read: 'absent' } }),
+      clean(desk, { exit: '137' }),
+      clean(desk, { exit: null }),
+      { ending: { read: 'unreadable', why: 'not JSON' }, exit: '124', merged: true, dirty: false, unlanded: false, blockedQuestion: false, boundSeconds: null },
+    ];
+    for (const reading of readings) {
+      const placement = endedDeskPlacement(reading);
+      expect(placement.owesPerson).toBe(placement.section === 'waiting-on-you');
     }
   });
 });

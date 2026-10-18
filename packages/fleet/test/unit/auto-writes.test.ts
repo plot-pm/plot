@@ -31,6 +31,21 @@ describe('fleetAutoWrites', () => {
     expect(calls).toEqual(['dispatch', 'deliver']);
   });
 
+  it('starts no agent once a stop is requested, and still delivers', async () => {
+    calls.length = 0;
+    await fleetAutoWrites({ repoRoot: '/nowhere', scriptsDir: '/nowhere' }, () => {}, () => null, () => true)(PULSE);
+    expect(calls).toEqual(['deliver']);
+  });
+
+  it('reads the stop request after the pass starts, not when it is built', async () => {
+    calls.length = 0;
+    let stop = false;
+    const pass = fleetAutoWrites({ repoRoot: '/nowhere', scriptsDir: '/nowhere' }, () => {}, () => null, () => stop);
+    stop = true;
+    await pass(PULSE);
+    expect(calls).toEqual(['deliver']);
+  });
+
   it('contains a throw and reports it', async () => {
     calls.length = 0;
     const warned: string[] = [];
