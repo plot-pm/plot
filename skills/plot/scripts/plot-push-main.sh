@@ -106,7 +106,7 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-push-main: not a git rep
 # ONE DEFAULT-BRANCH WRITER AT A TIME (#1349). Every caller runs this script, so the
 # lock lives here; `plot-push-lock.mjs` holds the rule and its measurement. A waiter
 # past the bound exits 6 having pushed nothing.
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; node "$here/plot-push-lock.mjs" take "$$" "push $branch" || exit $?; trap 'node "$here/plot-push-lock.mjs" release "$$"' EXIT
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; node "$here/plot-push-lock.mjs" take "$$" "push $branch" || exit $?; . "$here/plot-tmp.sh"; plot_on_exit node "$here/plot-push-lock.mjs" release "$$"
 
 # stderr is captured rather than passed through, because it carries the ONLY
 # signal that separates a bypass from a clean push. A call site ending in
