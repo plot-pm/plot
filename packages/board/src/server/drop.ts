@@ -3,7 +3,8 @@ import http from 'node:http';
 import path from 'node:path';
 import type { BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
-import { KNOWN_STATES, deskPidAlive, parseManifest, resolveManifestDir, rowState, type AgentEntry, type LivenessResolver, type PidLiveness } from '@plot-pm/fleet/shared/registry';
+import { KNOWN_STATES, defaultPrIndex, deskPidAlive, parseManifest, resolveManifestDir, rowState, type AgentEntry, type LivenessResolver, type PidLiveness, type PrIndexReader } from '@plot-pm/fleet/shared/registry';
+import { deskBranchMerged, mergedDeskState } from '@plot-pm/domain/rules/merged-desk';
 import { LIVE_STATES } from '../contract/schema.js';
 import { localCapability } from './controllers/caller.js';
 
@@ -64,6 +65,14 @@ export interface DropOptions extends BuildBoardOptions {
    * board is showing rather than a file in the board's own worktree.
    */
   manifestDir?: string;
+  /**
+   * Read the PR index, to refine a `waiting` answer the same way
+   * `refreshStates` does. Injected in tests; in production the default is
+   * {@link defaultPrIndex}, which answers null with no scripts directory —
+   * leaving every `waiting` entry `waiting`, never read as "confirmed not
+   * merged".
+   */
+  prIndex?: PrIndexReader;
 }
 
 /** What the drop can say, on both success and refusal. */
@@ -149,6 +158,13 @@ function worktreeIsGone(entry: AgentEntry): boolean {
  * exit, was refused a drop with *state could not be verified*. A recorded exit
  * is verification; the guard's premise was never true for it.
  *
+ * A `waiting` answer is refined by {@link mergedDeskState} the same way
+ * `refreshStates` refines it: the PR index is read once, and only for a
+ * `waiting` answer whose branch has a MERGED row is the pid read. #1564 — this
+ * refinement was missing here, so a desk whose branch had merged and whose
+ * worker had already exited stayed `waiting` forever and {@link LIVE_STATES}
+ * refused the drop with "the agent is still running".
+ *
  * Awaited because {@link LivenessResolver} became awaitable when the registry
  * moved off the event loop. This is a WRITE route, so the await buys it
  * nothing it needed — it is the shared resolver's shape, followed rather than
@@ -159,6 +175,7 @@ async function classifyState(
   entry: AgentEntry,
   liveness: LivenessResolver | undefined,
   pidAlive: PidLiveness,
+  prIndex: PrIndexReader,
 ): Promise<AgentEntry['state']> {
   if (!entry.worktree) return 'unknown';
   if (!liveness) return 'unknown';
@@ -166,6 +183,17 @@ async function classifyState(
     const [answer] = await liveness([entry.worktree]);
     if (!KNOWN_STATES.has(answer)) return 'unknown';
     const state = answer as AgentEntry['state'];
+    if (state === 'waiting') {
+      try {
+        const merged = deskBranchMerged(await prIndex(), entry.branch);
+        if (!merged) return state;
+        return mergedDeskState({ state, merged, workerAlive: await pidAlive(entry.worktree) });
+      } catch {
+        // An unreadable index or pid leaves the shell's answer standing — never
+        // read as "confirmed not merged".
+        return state;
+      }
+    }
     // IT READS THE ROW'S RULE, not a second one. An agent between slices has a
     // finished desk and a live process, and the drop must refuse it for the
     // same reason WORKING must show it — the manifest it would remove belongs
@@ -238,7 +266,12 @@ export async function handleDrop(
   }
 
   // 2. Classify the state — refuse live workers.
-  const state = await classifyState(entry, opts.liveness, opts.pidAlive ?? deskPidAlive);
+  const state = await classifyState(
+    entry,
+    opts.liveness,
+    opts.pidAlive ?? deskPidAlive,
+    opts.prIndex ?? defaultPrIndex(opts.repoRoot, opts.scriptsDir),
+  );
   if (LIVE_STATES.has(state)) {
     json(200, {
       session,

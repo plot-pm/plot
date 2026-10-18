@@ -1079,13 +1079,6 @@ async function placeWorkers(
 }
 
 /**
- * The default liveness resolver, or a no-op when no scripts directory is known.
- *
- * Kept separate from {@link bashLiveness} so the "no scriptsDir → every entry
- * `unknown`" path is a plain empty-answer resolver rather than a special case
- * threaded through the batch call.
- */
-/**
  * The default PR index reader, or one that answers null when no scripts
  * directory is known.
  *
@@ -1093,7 +1086,7 @@ async function placeWorkers(
  * from `## Plot Config` with no host request. Any failure answers null, which
  * leaves every `waiting` desk `waiting`.
  */
-const defaultPrIndex = (repoRoot: string, scriptsDir?: string): PrIndexReader => async () => {
+export const defaultPrIndex = (repoRoot: string, scriptsDir?: string): PrIndexReader => async () => {
   if (!scriptsDir) return null;
   const backend = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
   if (!backend.ok) return null;
@@ -1101,6 +1094,13 @@ const defaultPrIndex = (repoRoot: string, scriptsDir?: string): PrIndexReader =>
   return read.ok ? read.value : null;
 };
 
+/**
+ * The default liveness resolver, or a no-op when no scripts directory is known.
+ *
+ * Kept separate from {@link bashLiveness} so the "no scriptsDir → every entry
+ * `unknown`" path is a plain empty-answer resolver rather than a special case
+ * threaded through the batch call.
+ */
 function defaultLiveness(scriptsDir?: string): LivenessResolver {
   if (!scriptsDir) return () => [];
   return (worktrees: string[]) => bashLiveness(scriptsDir, worktrees);

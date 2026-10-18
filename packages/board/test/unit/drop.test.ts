@@ -27,6 +27,7 @@ import { Readable } from 'node:stream';
 
 import { handleDrop, type DropOptions, type DropResult } from '../../src/server/drop.js';
 import { AGENT_MANIFEST_DIR, type LivenessResolver } from '@plot-pm/fleet/shared/registry';
+import type { PrIndex } from '@plot-pm/domain/entities/pr-index';
 import { rmTree } from '../helpers.mjs';
 
 /** The real helper scripts, so a test can resolve the directory through the shell. */
@@ -58,14 +59,28 @@ function configFile(root: string, value: string): void {
 }
 
 /** Write a manifest naming a session and a worktree, under an arbitrary directory. */
-function manifest(dir: string, session: string, worktree: string): string {
+function manifest(dir: string, session: string, worktree: string, branch = 'feature/x'): string {
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${session}.json`);
   fs.writeFileSync(
     file,
-    JSON.stringify({ session, branch: 'feature/x', worktree, startedAt: '2026-08-25T10:00:00Z' }),
+    JSON.stringify({ session, branch, worktree, startedAt: '2026-08-25T10:00:00Z' }),
   );
   return file;
+}
+
+/** A PR index whose one row is a MERGED, non-draft PR with the given head branch. */
+function mergedIndex(head: string): PrIndex {
+  return {
+    v: 4,
+    connector: 'github',
+    watermark: null,
+    complete: true,
+    at: '2026-10-17T00:00:00Z',
+    rows: [
+      { number: 1, head, state: 'MERGED', draft: false, checks: 'green', review: 'approved', url: '' },
+    ],
+  };
 }
 
 /** A same-origin POST carrying `body`. */
@@ -114,6 +129,7 @@ async function drop(
     // runs — which is what the default-reading test below asserts — so this
     // must pass `undefined` through rather than substituting a stub.
     ...(opts.pidAlive === undefined ? {} : { pidAlive: opts.pidAlive }),
+    ...(opts.prIndex === undefined ? {} : { prIndex: opts.prIndex }),
     manifestDir: opts.manifestDir,
   };
   await handleDrop(request({ session }), res, full);
@@ -403,6 +419,127 @@ describe('a GONE worktree is droppable; an unknown one that EXISTS is not', () =
     const body = got.body as unknown as DropResult;
     assert.equal(body.dropped, false, 'a positive running verdict outranks a missing directory');
     assert.match(body.reason, /still running/);
+    assert.ok(fs.existsSync(file), 'the manifest survives');
+  });
+});
+
+describe('#1564 — a waiting desk whose branch already merged is droppable', () => {
+  // `classifyState` read the shell's `waiting` answer and returned it unrefined,
+  // never asking whether the branch had since merged — the one refinement
+  // `refreshStates` already applies via `mergedDeskState`. A desk whose worker
+  // exited after its branch merged stayed `waiting` forever, and `LIVE_STATES`
+  // refused the drop with "the agent is still running" over a desk with nothing
+  // running and its work already on `main`.
+
+  it('a waiting desk with a merged PR-index row and a dead pid drops', async () => {
+    const root = repo();
+    configFile(root, 'shared-registry');
+    const wt = path.join(root, 'plot-wt-merged-waiting');
+    fs.mkdirSync(wt, { recursive: true });
+    const file = manifest(path.join(root, 'shared-registry'), 'sess-merged-waiting', wt, 'bug/merged-already');
+
+    const got = await drop('sess-merged-waiting', {
+      repoRoot: root,
+      liveness: fixedLiveness('waiting'),
+      prIndex: () => mergedIndex('bug/merged-already'),
+      pidAlive: () => false,
+    });
+
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, true, 'a waiting desk whose branch merged and whose worker exited is droppable');
+    assert.ok(!fs.existsSync(file), 'the manifest is removed');
+  });
+
+  it('a waiting desk with a merged PR-index row but a LIVE pid still refuses', async () => {
+    // The promotion only ever fires for a dead worker — `mergedDeskState`'s own
+    // guard. A live pid means the agent is still sitting on the branch, perhaps
+    // mid-slice on new work, and the drop must not remove its record.
+    const root = repo();
+    configFile(root, 'shared-registry');
+    const wt = path.join(root, 'plot-wt-merged-waiting-alive');
+    fs.mkdirSync(wt, { recursive: true });
+    const file = manifest(path.join(root, 'shared-registry'), 'sess-merged-alive', wt, 'bug/merged-already-alive');
+
+    const got = await drop('sess-merged-alive', {
+      repoRoot: root,
+      liveness: fixedLiveness('waiting'),
+      prIndex: () => mergedIndex('bug/merged-already-alive'),
+      pidAlive: () => true,
+    });
+
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, false, 'a live pid outranks the merge — the agent might still be asking');
+    assert.match(body.reason, /still running/);
+    assert.ok(fs.existsSync(file), 'the manifest survives');
+  });
+
+  it('a waiting desk with NO merged row still refuses — the fix only promotes a merged waiting desk', async () => {
+    const root = repo();
+    configFile(root, 'shared-registry');
+    const wt = path.join(root, 'plot-wt-still-asking');
+    fs.mkdirSync(wt, { recursive: true });
+    const file = manifest(path.join(root, 'shared-registry'), 'sess-still-asking', wt, 'bug/not-merged-yet');
+
+    const got = await drop('sess-still-asking', {
+      repoRoot: root,
+      liveness: fixedLiveness('waiting'),
+      prIndex: () => mergedIndex('some/other-branch'),
+      pidAlive: () => false,
+    });
+
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, false, 'no merged row for this branch means still waiting');
+    assert.match(body.reason, /still running/);
+    assert.ok(fs.existsSync(file), 'the manifest survives');
+  });
+
+  it('a waiting desk whose PR-index read throws leaves the shell answer standing, never invents a promotion', async () => {
+    const root = repo();
+    configFile(root, 'shared-registry');
+    const wt = path.join(root, 'plot-wt-unreadable-index');
+    fs.mkdirSync(wt, { recursive: true });
+    const file = manifest(path.join(root, 'shared-registry'), 'sess-unreadable', wt, 'bug/merged-already');
+
+    const got = await drop('sess-unreadable', {
+      repoRoot: root,
+      liveness: fixedLiveness('waiting'),
+      prIndex: () => {
+        throw new Error('store unreadable');
+      },
+      pidAlive: () => false,
+    });
+
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, false, 'a throwing index read must not be read as "confirmed not merged"');
+    assert.match(body.reason, /still running/);
+    assert.ok(fs.existsSync(file), 'the manifest survives');
+  });
+
+  it('the default PR-index reader answers null with no scriptsDir, leaving a waiting desk waiting', async () => {
+    // THE DEFAULT IS LOAD-BEARING, pinned the same way the default pid test
+    // above is. No `prIndex` override: `defaultPrIndex` runs for real and,
+    // with no scripts directory, degrades to null rather than throwing.
+    //
+    // `manifestDir` is passed explicitly (the seam `DropOptions` already
+    // carries) rather than relying on `scriptsDir` to resolve the configured
+    // directory via `plot-config.sh` — with `scriptsDir: ''` that resolution
+    // itself degrades to the repo-relative default, which would read from the
+    // wrong directory and mask this test's real subject.
+    const root = repo();
+    const dir = path.join(root, 'shared-registry');
+    const wt = path.join(root, 'plot-wt-no-scripts-dir');
+    fs.mkdirSync(wt, { recursive: true });
+    const file = manifest(dir, 'sess-no-scripts', wt, 'bug/merged-already');
+
+    const got = await drop('sess-no-scripts', {
+      repoRoot: root,
+      scriptsDir: '',
+      manifestDir: dir,
+      liveness: fixedLiveness('waiting'),
+    });
+
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, false, 'no scripts directory means the default reader answers null, not merged');
     assert.ok(fs.existsSync(file), 'the manifest survives');
   });
 });
