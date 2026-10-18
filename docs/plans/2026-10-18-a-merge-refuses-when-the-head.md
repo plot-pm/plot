@@ -54,7 +54,7 @@ Related: #1848 (Bitbucket parity).
 
 ### Bitbucket merge pin
 
-- `bug/a-merge-refuses-when-the-head` — Bitbucket arm of `pr-merge` honours `--match-head` (precondition or re-read), the gate and `host-pin.ts` drop or narrow the exemption, `CLAUDE.md` states the result. Tests cover a head that moved between check and merge: the merge refuses with `head-moved` and nothing merges, and a matching head merges.
+- `bug/a-merge-refuses-when-the-head` — Bitbucket arm of `pr-merge` honours `--match-head` (precondition or re-read), the gate and `host-pin.ts` drop or narrow the exemption, `CLAUDE.md` states the result. Tests cover a head that moved between check and merge: the merge refuses with `head-moved` and nothing merges, and a matching head merges. → #2067
 
 ## Notes
 
