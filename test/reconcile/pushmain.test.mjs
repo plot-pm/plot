@@ -17,10 +17,10 @@
 // its own author's recollection.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { existsSync as fsExistsSync, mkdtempSync, readdirSync as fsReaddirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync as fsExistsSync, mkdirSync, mkdtempSync, readdirSync as fsReaddirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -342,4 +342,69 @@ test('push-main: a readable but non-PEM Writer app key is caught and named, not 
   assert.match(r.stderr, /key failed to sign/);
   assert.match(r.stderr, /^push: refused/m);
   assert.equal(mainLog(bare), before);
+});
+
+// Serialisation (#1349). The lock is a directory under the common git dir, so
+// every worktree of a repository takes the same one.
+const lockDir = (work) => path.join(work, '.git', 'plot-push-main.lock');
+const pushWith = (work, env, branch = 'plot/tmp') =>
+  spawnSync('bash', [helper, branch, 'main'], { cwd: work, encoding: 'utf8', env: { ...process.env, ...env } });
+const prepared = () => {
+  const repo = makeRepo();
+  git(repo.work, 'checkout', '-q', '-b', 'plot/tmp');
+  git(repo.work, 'commit', '-q', '--allow-empty', '-m', 'bookkeeping');
+  return repo;
+};
+
+test('push-main: a second writer waits for the lock and lands after the holder releases', async () => {
+  const { work, bare } = prepared();
+  mkdirSync(lockDir(work));
+  writeFileSync(path.join(lockDir(work), 'owner'), `${process.pid}\t${Date.now()}\tholder\n`);
+  setTimeout(() => rmSync(lockDir(work), { recursive: true, force: true }), 1500);
+  const started = Date.now();
+  const r = await new Promise((resolve) => {
+    const child = spawn('bash', [helper, 'plot/tmp', 'main'], { cwd: work });
+    let out = '';
+    child.stdout.on('data', (d) => (out += d));
+    child.on('close', (code) => resolve({ code, out }));
+  });
+  assert.equal(r.code, 0);
+  assert.match(r.out, /^push: clean/);
+  assert.ok(Date.now() - started >= 1000, 'the push waited for the holder');
+  assert.match(mainLog(bare), /bookkeeping/);
+  assert.equal(fsExistsSync(lockDir(work)), false, 'the lock is released after the push');
+});
+
+test('push-main: a waiter past the bound refuses with exit 6 naming the holder pid and action', () => {
+  const { work, bare } = prepared();
+  mkdirSync(lockDir(work));
+  writeFileSync(path.join(lockDir(work), 'owner'), `${process.pid}\t${Date.now()}\tpush plot/other\n`);
+  const r = pushWith(work, { PLOT_PUSH_LOCK_WAIT: '1' });
+  assert.equal(r.status, 6);
+  assert.match(r.stderr, new RegExp(`push: locked — held by pid ${process.pid} running push plot/other`));
+  assert.doesNotMatch(mainLog(bare), /bookkeeping/, 'nothing was pushed');
+  assert.equal(fsExistsSync(lockDir(work)), true, 'a live holder keeps its lock');
+});
+
+test('push-main: a lock whose holder pid is dead is recovered, not waited on', () => {
+  const { work, bare } = prepared();
+  const dead = spawnSync('bash', ['-c', 'echo $$']).stdout.toString().trim();
+  mkdirSync(lockDir(work));
+  writeFileSync(path.join(lockDir(work), 'owner'), `${dead}\t${Date.now()}\tpush plot/gone\n`);
+  const r = pushWith(work, { PLOT_PUSH_LOCK_WAIT: '30' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(mainLog(bare), /bookkeeping/);
+  assert.equal(fsExistsSync(lockDir(work)), false);
+});
+
+test('push-main: a rejected push still releases the lock', () => {
+  const { work, bare } = prepared();
+  const other = path.join(path.dirname(bare), 'other');
+  execFileSync('git', ['clone', '-q', bare, other]);
+  git(other, 'checkout', '-q', '-B', 'main', 'origin/main');
+  git(other, 'commit', '-q', '--allow-empty', '-m', 'remote moved on');
+  git(other, 'push', '-q', 'origin', 'main');
+  const r = pushWith(work, {});
+  assert.equal(r.status, 1);
+  assert.equal(fsExistsSync(lockDir(work)), false);
 });
