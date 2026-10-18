@@ -450,9 +450,12 @@ hand.
 
 ```bash
 bash ../plot/scripts/plot-issue-status.sh <plan file>
+bash ../plot/scripts/plot-plan-state.sh <plan file> --phase released --plan-link <plan file> --version <version>
 ```
 
-The script writes the `Tracker released status` word to each issue the plan's `Issue:` line names, through the tracker port, and ends with `summary: tracker=<outcome>`. `none` means no write was owed (no issue, or the key is not set); `unaskable` means the repository declares no `Tracker`. **A `failed` write is reported in the summary and never undoes or repeats the release record.** It closes no issue, creates none and comments on none. Skip it for a plan whose commit did not land.
+The first script writes the `Tracker released status` word to each issue the plan's `Issue:` line names, through the tracker port, and ends with `summary: tracker=<outcome>`. `none` means no write was owed (no issue, or the key is not set); `unaskable` means the repository declares no `Tracker`. **A `failed` write is reported in the summary and never undoes or repeats the release record.**
+
+The second reflects the plan's `released` phase on the same issues, through `Tracker.planStateWrite`: a `plan:released` label, a comment naming `<version>`, and it closes the issue. Pass `<plan file>` as its repo-relative path on the default branch, the same string the plan's own record links to, and `<version>` as the version just released (e.g. `v2.3.0`). It too ends with `summary: tracker=<outcome>` and reports a `failed` write without undoing or repeating the release record. Skip both for a plan whose commit did not land.
 
 **Then the gate.** This is a multi-file write followed by a push, the shape that
 half-lands — and worse than delivery's, because it touches N plans, so a partial

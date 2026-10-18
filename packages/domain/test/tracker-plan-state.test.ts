@@ -91,6 +91,15 @@ describe('a plan-state write reflects the phase on a GitHub issue', () => {
     expect(host.comments()[0]).toContain('/blob/main/docs/plans/');
   });
 
+  it('edits the draft comment in place when the approved write follows it', async () => {
+    const host = issueHost();
+    const tracker = trackerGithub(host.context);
+    await tracker.planStateWrite(write('draft', { planLink: 'https://github.com/o/r/pull/123' }));
+    await tracker.planStateWrite(write('approved', { planLink: 'docs/plans/2026-10-17-a-planned-issue.md' }));
+    expect(host.comments()).toHaveLength(1);
+    expect(host.comments()[0]).toContain('Plan approved: docs/plans/2026-10-17-a-planned-issue.md');
+  });
+
   it('leaves exactly one plan label after a delivered write follows an approved one', async () => {
     const host = issueHost();
     const tracker = trackerGithub(host.context);
@@ -161,9 +170,10 @@ describe('the label and comment text', () => {
     expect(planStateLabelsToRemove('approved')).toBe('plan:draft,plan:delivered,plan:released');
   });
 
-  it('keys the comment on the plan slug, so a changed link still finds it', () => {
-    const a = planStateComment(write('approved', { planLink: 'https://x/a/2026-10-17-p.md' }));
-    const b = planStateComment(write('approved', { planLink: 'https://y/b/2026-10-17-p.md' }));
-    expect(a.split('\n')[0]).toBe(b.split('\n')[0]);
+  it('keys the comment on one marker, so the draft PR link and the later plan path share it', () => {
+    const draft = planStateComment(write('draft', { planLink: 'https://github.com/o/r/pull/123' }));
+    const approved = planStateComment(write('approved', { planLink: 'docs/plans/2026-10-17-p.md' }));
+    expect(draft.split('\n')[0]).toBe('<!-- plot:plan-link -->');
+    expect(approved.split('\n')[0]).toBe(draft.split('\n')[0]);
   });
 });

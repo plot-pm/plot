@@ -18,7 +18,9 @@
 # board/plot-issue-status.mjs; the write goes through the tracker connector, which
 # is the only caller of `plot-host.sh issue-status`. This script reads the plan
 # and the two config keys, and does not prefilter: a plan naming no issue is the
-# rule's answer to give, not this script's.
+# rule's answer to give, not this script's. The bundle itself reduces the
+# per-issue outcomes to the one summary line (`trackerWriteSummary`,
+# packages/domain/src/rules/issue-status.ts) — this script only prints what it is given.
 #
 # A WRITE THAT FAILS IS REPORTED, NEVER RAISED. The plan is delivered; the
 # tracker holds a copy of one fact about it. It closes nothing, creates nothing
@@ -28,41 +30,21 @@
 set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-
 plan_file="${1:-}"
-if [ -z "$plan_file" ] || [ ! -f "$plan_file" ]; then
-  echo "plot-issue-status: usage: plot-issue-status.sh <plan file>" >&2
-  echo "summary: tracker=failed"
-  exit 2
-fi
+bundle="$script_dir/board/plot-issue-status.mjs"
+
+fail_as() { echo "plot-issue-status: $1" >&2; echo "summary: tracker=failed"; exit 2; }
+
+{ [ -n "$plan_file" ] && [ -f "$plan_file" ]; } || fail_as "usage: plot-issue-status.sh <plan file>"
+meta=$(bash "$script_dir/plot-plan-meta.sh" "$plan_file" 2>/dev/null) || meta=""
+[ -n "$meta" ] || fail_as "cannot parse '$plan_file'"
 
 approved=$(bash "$script_dir/plot-config.sh" get "Tracker approved status" '' 2>/dev/null) || approved=""
 delivered=$(bash "$script_dir/plot-config.sh" get "Tracker delivered status" '' 2>/dev/null) || delivered=""
 released=$(bash "$script_dir/plot-config.sh" get "Tracker released status" '' 2>/dev/null) || released=""
 
-meta=$(bash "$script_dir/plot-plan-meta.sh" "$plan_file" 2>/dev/null) || meta=""
-if [ -z "$meta" ]; then
-  echo "plot-issue-status: cannot parse '$plan_file'" >&2
-  echo "summary: tracker=failed"
-  exit 2
-fi
-
-repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root=$(pwd)
-
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null); [ -n "$repo_root" ] || repo_root=$(pwd)
 out=$(printf '%s' "$meta" | PLOT_SCRIPTS_DIR="$script_dir" PLOT_REPO_ROOT="$repo_root" \
-  node "$script_dir/board/plot-issue-status.mjs" --approved "$approved" --delivered "$delivered" --released "$released")
-rc=$?
-[ -n "$out" ] && printf '%s\n' "$out"
-if [ "$rc" != 0 ]; then
-  echo "summary: tracker=failed"
-  exit 2
-fi
-
-# THE WORST OUTCOME NAMES THE RUN: one failed write among several is a failed
-# report, because the person reading the summary is the one who repairs it.
-summary=none
-for word in written no-target unaskable failed; do
-  printf '%s\n' "$out" | cut -f2 | grep -qx "$word" && summary=$word
-done
-echo "summary: tracker=$summary"
+  node "$bundle" --approved "$approved" --delivered "$delivered" --released "$released") || { [ -z "$out" ] || printf '%s\n' "$out"; fail_as "the bundle failed"; }
+printf '%s\n' "$out"
 exit 0

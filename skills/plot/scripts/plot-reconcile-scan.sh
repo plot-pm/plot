@@ -2985,11 +2985,11 @@ echo "== 23. A finished plan's issue is still open (a person decides) =="
 # `open_issues=`, stays OUT of `attention=`, and sits below the
 # `== blocking sections end ==` marker with every advisory section since 7.
 #
-# AND IT NAMES A DECISION, NOT A REPAIR. The plan behind this section settles
-# that Plot closes no ticket: `plot-host.sh` *"creates no ticket, closes none,
-# and touches no comment, label or assignee"*. So no close command is printed —
-# what a person decides is whether the issue is genuinely finished or whether
-# it outlived its plan, and only one of those ends in a close.
+# AND IT NAMES A DECISION, NOT A REPAIR. Plot closes an issue in one place:
+# `/plot-release`, through `Tracker.planStateWrite`, when it releases the plan.
+# This section closes none, so no close command is printed — what a person
+# decides is whether to release the plan, close the issue by hand, or record
+# why the issue outlived its plan.
 n_open_issues=0
 n_unread=0
 n_unread_waits=0
@@ -3131,7 +3131,7 @@ else
       oi_base=$(basename "$oi_file")
       oi_out+="  $oi_base — $oi_phase, still open: $oi_list\n"
       oi_out+="    inspect: plot-host.sh issue-view $oi_first\n"
-      oi_out+="    decide: close the issue by hand, or record why it stays open\n"
+      oi_out+="    decide: release the plan to close it through the tracker, close it by hand, or record why it stays open\n"
       n_open_issues=$((n_open_issues + 1))
     done 3<<< "$oi_claims"
 

@@ -21,6 +21,7 @@ import { flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-
 import { tickSprintItem } from '@plot-pm/domain/rules/sprint-tick';
 import { indexSymlinkPlacement } from '@plot-pm/domain/rules/index-symlink';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
+import { trackerReportOf } from '@plot-pm/domain/rules/issue-status';
 import { deliverabilityOf, type DeliverabilityPorts } from '../controllers/deliverability.js';
 import {
   commitAndPush,
@@ -476,7 +477,7 @@ const runDeliver = async (
       // The branch STAYS — only the worktree is removed, matching the shell's
       // `git worktree remove --force "$tmpwt"` with no `branch -D` beside it.
       await runGit(['-C', ctx.repoRoot, 'worktree', 'remove', '--force', tmpwt]);
-      write(`summary: phase=${report.phase} record=${report.record} index=${report.index} sprint=${report.sprint} push=rejected tracker=skipped\n`);
+      write(`summary: phase=${report.phase} record=${report.record} index=${report.index} sprint=${report.sprint} push=rejected plan-state=skipped tracker=skipped\n`);
       return 1;
     }
 
@@ -499,9 +500,19 @@ const runDeliver = async (
       const match = line.match(/^summary: tracker=([a-z-]*)/);
       if (match) trackerReport = match[1];
     }
+
+    // A plan's phase, reflected on its issues: the same connector, a different
+    // write — see Tracker.planStateWrite. `rel` is the plan's address on `main`
+    // now that the push landed, so that is the link this write carries.
+    // A failed write is reported and the delivery stands.
+    const planState = trackerReportOf(
+      await ctx.scripts.awaited('plot-plan-state.sh', [bookedPlanFile, '--phase', 'delivered', '--plan-link', rel]),
+    );
+    for (const line of planState.lines) write(`  plan-state: ${line}\n`);
+
     unlinkSyncSafe(bookedPlanFile);
 
-    write(`summary: phase=${report.phase} record=${report.record} index=${report.index} sprint=${report.sprint} push=${pushResult.pushed} tracker=${trackerReport}\n`);
+    write(`summary: phase=${report.phase} record=${report.record} index=${report.index} sprint=${report.sprint} push=${pushResult.pushed} plan-state=${planState.outcome} tracker=${trackerReport}\n`);
     spendActionReceipt(ctx.repoRoot, 'deliver');
     return 0;
   } catch (err) {

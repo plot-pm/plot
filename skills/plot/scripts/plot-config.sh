@@ -162,6 +162,14 @@
 #   Hosts plans         yes | no                      (no = refuse plan files)
 #   Tracker             plot | jira | github-issues | linear  (+ URL)
 #                       (plot = plans in this repo ARE the tracker; absent = same)
+#   Tracker approved status
+#                       the status word a plan's issues are set to when the plan
+#                       reaches Approved, in the tracker's own vocabulary
+#                       (`Approved`, `In Progress`). Read by plot-issue-status.sh.
+#                       Absent or empty = Approved writes nothing. Unlike the
+#                       `plan:*` label `plot-plan-state.sh` writes at every
+#                       phase including Approved, this status word is optional
+#                       and Jira-shaped — the two writes are separate paths.
 #   Tracker delivered status
 #                       the status word a plan's issues are set to when the plan
 #                       reaches Delivered, in the tracker's own vocabulary

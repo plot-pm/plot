@@ -113,9 +113,16 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # shell left to source that function from, so it writes the normalised word
 # directly rather than adding a third `plot-*.sh` literal.
 #
+# RAISED TO 16 ON 2026-10-18 for `entry/deliver.ts` and `entry/approve.ts`,
+# each gaining a `plot-plan-state.sh` site beside its existing
+# `plot-issue-status.sh` one. Same tracker connector, a different write —
+# `Tracker.planStateWrite` rather than the Jira-style status word — and the
+# same "no port answers this yet" the 2026-10-04 raise named for its sibling.
+# Inventing one here would be the gate driving the design once more.
+#
 # `ROOTS` names every package with TypeScript source. `registry.ts`, which
 # holds `WORKER_STATE_SCRIPT`, is in packages/fleet/src.
-ALLOWED=14
+ALLOWED=16
 
 ROOTS='packages/board/src packages/domain/src packages/fleet/src'
 

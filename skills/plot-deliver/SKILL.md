@@ -431,13 +431,14 @@ The script:
 - Checks the sprint item's box
 - Pushes via `plot-push-main.sh`, retrying a rejected push up to five times
 - After the push lands, writes the status of each issue the plan's `Issue:` line names, through `plot-issue-status.sh` and the tracker port
+- After that, reflects the plan's `delivered` phase on the same issues, through `plot-plan-state.sh` and `Tracker.planStateWrite`
 
 Output is one `step:` line per operation, then a `summary:` line:
 
 ```
 step: verified 3 branch(es) merged, 1 deferred
   push: clean — plot/deliver-slug → main
-summary: phase=flipped record=written index=moved sprint=updated push=clean tracker=none
+summary: phase=flipped record=written index=moved sprint=updated push=clean plan-state=none tracker=none
 ```
 
 The push status (`clean`, `bypassed`, `unknown`, `rejected`) comes from
@@ -457,7 +458,9 @@ The `tracker=` field reports the issue status write:
 | `failed` | The write broke; the `tracker:` lines above the summary name why |
 | `skipped` | The push was rejected, so the delivery did not land and no status is owed |
 
-**A `failed` tracker write is reported to the operator and never re-runs the delivery.** The plan is delivered; the tracker holds a copy of one fact about it. The status word comes from the `Tracker delivered status` config key and is never a literal. The script closes no issue, creates none and comments on none; the tracker port's other write, `issueOpen`, belongs to the verify workflow and delivery never calls it.
+**A `failed` tracker write is reported to the operator and never re-runs the delivery.** The plan is delivered; the tracker holds a copy of one fact about it. The status word comes from the `Tracker delivered status` config key and is never a literal. The script closes no issue and creates none; the tracker port's `issueOpen` write belongs to the verify workflow and delivery never calls it.
+
+The `plan-state=` field reports the plan-state write through `plot-plan-state.sh`: a `plan:delivered` label and Plot's one marked comment on each issue, edited in place. It takes the same values as `tracker=`. A `failed` write, including a run that exits non-zero, prints its reason on the `plan-state:` lines above the summary and never re-runs the delivery.
 
 > **Why the index writes are best-effort.** A repo with no `active/` link (a plan
 > written directly), no `delivered/` directory (a fresh adopter), or a read-only

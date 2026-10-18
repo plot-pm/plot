@@ -27,15 +27,12 @@ export const planStateLabelsToRemove = (phase: PlanStatePhase): string =>
     .join(',');
 
 /**
- * The marker a plan's comment carries, so a re-run finds it and edits it.
- *
- * @param planLink - the plan file's address; its file name is the plan's slug.
- * @returns an HTML comment holding the slug.
+ * The marker Plot's one comment on an issue carries, so every later phase finds
+ * that comment and edits it in place. It names no plan: the `draft` link is a
+ * PR's address and every later one a plan file's, so a marker derived from the
+ * link would differ between the two and leave a second comment.
  */
-export const planStateMarker = (planLink: string): string => {
-  const slug = (planLink.split('/').pop() ?? planLink).replace(/\.md$/, '');
-  return `<!-- plot-plan-state: ${slug} -->`;
-};
+export const PLAN_STATE_MARKER = '<!-- plot:plan-link -->';
 
 /**
  * The comment body for a phase.
@@ -46,7 +43,7 @@ export const planStateMarker = (planLink: string): string => {
  */
 export const planStateComment = (write: PlanStateWrite): string => {
   const release = write.phase === 'released' && write.version ? ` in ${write.version}` : '';
-  return `${planStateMarker(write.planLink)}\nPlan ${write.phase}${release}: ${write.planLink}`;
+  return `${PLAN_STATE_MARKER}\nPlan ${write.phase}${release}: ${write.planLink}`;
 };
 
 /** The issue number an identifier ends in, or null where it names none. */
@@ -76,7 +73,7 @@ export const githubPlanStateWrite =
     const host = scriptPath(context, 'plot-host.sh');
     const steps: string[][] = [
       ['issue-label', number, planStateLabel(write.phase), planStateLabelsToRemove(write.phase)],
-      ['issue-comment', number, planStateMarker(write.planLink), planStateComment(write)],
+      ['issue-comment', number, PLAN_STATE_MARKER, planStateComment(write)],
     ];
     if (write.phase === 'released') steps.push(['issue-close', number]);
     for (const step of steps) {
