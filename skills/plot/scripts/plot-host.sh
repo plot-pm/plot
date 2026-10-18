@@ -826,20 +826,11 @@ PR_LIST_PARTIAL_RC=7
 PR_LIST_JQ_ARGS=()
 
 # The name of a function to call with this state's raw rows ($1) right before
-# they are piped through `jq_prog`, or empty to skip it. Empty is every
-# existing caller's behaviour: `PR_LIST_JQ_ARGS` stands as the caller set it.
-#
-# WHY A HOOK RATHER THAN A SECOND LOOP. The Jenkins sha-bind
-# (`jenkins_bind_rows`) needs EACH STATE'S OWN rows — a branch's colour binds
-# to a sha that row carries, and `pr_list_states` is the one place that holds
-# a state's rows before they are consumed. Recomputing the bind outside this
-# loop would mean a second state-by-state walk that duplicates this one, which
-# is the shape `pr_list_states`'s own header already refuses for the host
-# command. The hook runs INSIDE the one loop that already exists, immediately
-# before the jq call its result feeds.
-#
-# SET AND CLEARED BY THE CALLER, same as `PR_LIST_JQ_ARGS`: `pr_list_states`
-# reads it once per state and writes neither global.
+# they are piped through `jq_prog`, or empty to skip it (every existing
+# caller's behaviour). Runs INSIDE the one per-state loop below rather than a
+# second walk, because the Jenkins sha-bind needs each state's own rows and
+# `pr_list_states` is the one place that holds them before they are consumed.
+# Set and cleared by the caller, same as `PR_LIST_JQ_ARGS`.
 PR_LIST_BIND_FN=""
 
 # --- the per-branch sweep (#333) --------------------------------------------
@@ -4404,11 +4395,7 @@ case "$op" in
           # called here via `PR_LIST_BIND_FN` because `pr_list_states` loops
           # per Bitbucket state and each state's rows are the only place the
           # head shas live — see that global's header.
-          _bb_jen_bind() { # $1 = this state's raw Bitbucket rows
-            local _shamap
-            _shamap="$(jenkins_bind_rows pr-list "$jen_map" "$(jq -c '[.[] | {headRefName:.source.branch.name,headRefOid:.source.commit.hash}]' <<<"$1")")"
-            PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status" --argjson shamap "${_shamap:-null}")
-          }
+          _bb_jen_bind() { local s; s="$(jenkins_bind_rows pr-list "$jen_map" "$(jq -c '[.[] | {headRefName:.source.branch.name,headRefOid:.source.commit.hash}]' <<<"$1")")"; PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status" --argjson shamap "${s:-null}"); } # $1 = this state's raw Bitbucket rows
           PR_LIST_BIND_FN=_bb_jen_bind
           pr_list_states bitbucket "$limit" "$bb_states" '.[] |
                 ($shamap[.source.branch.name] // $jmap[.source.branch.name] // null) as $jentry |
@@ -4425,14 +4412,9 @@ case "$op" in
                   mergeable:"unknown",
                   review:"",
                   url:(.links.html.href // ""),
-                  updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),
-                  checksSha:($jentry.checksSha // ""),
+                  updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),checksSha:($jentry.checksSha // ""),
                   author:(.author.nickname // ""),
-                  failing_checks:(
-                    if $jentry != null and $jentry.checks == "failing"
-                    then [$jentry.job]
-                    else []
-                  end)
+                  failing_checks:(if $jentry != null and $jentry.checks == "failing" then [$jentry.job] else [] end)
                 }' "${bb_cmd[@]}" || exit $?
           PR_LIST_BIND_FN=""
         else
