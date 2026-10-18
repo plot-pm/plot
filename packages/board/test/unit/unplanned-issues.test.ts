@@ -328,7 +328,9 @@ describe('a Draft plan PR answers its issue — the inbox reads idea/ branches a
     write('plot-plan-meta.sh', [
       'for f in "$@"; do',
       '  n=$(sed -n \'s/^Issue: *#\\{0,1\\}\\([0-9]*\\).*/\\1/p\' "$f" | head -1)',
-      '  if [ -n "$n" ]; then printf \'{"issues":[%s]}\\n\' "$n"; else echo \'{"issues":[]}\'; fi',
+      '  st=$(sed -n \'s/^State: *//p\' "$f" | head -1)',
+      '  br=$(sed -n \'s/^Branch: *//p\' "$f" | awk \'{printf "%s{\\"branch\\":\\"%s\\"}", (NR>1?",":""), $1}\')',
+      '  if [ -n "$n" ]; then printf \'{"file":"%s","phase":"%s","issues":[%s],"slices":[{"branches":[%s]}]}\\n\' "$f" "${st:-draft}" "$n" "$br"; else echo \'{"issues":[]}\'; fi',
       'done',
       '',
     ].join('\n'));
@@ -374,44 +376,62 @@ describe('a Draft plan PR answers its issue — the inbox reads idea/ branches a
 
   const numbers = (rows: readonly { number: string }[]) => rows.map((r) => r.number);
 
-  it('an issue named only by a Draft plan PR leaves the inbox and Waiting on you', async () => {
+  it('an issue named only by a Draft plan PR leaves the inbox and shows as planning in Waiting on you', async () => {
     const dir = fixture({ onBranch: { alpha: 2 } });
     const entry = entryFor(['alpha']);
 
     await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
 
     expect(numbers(entry.issues)).toEqual(['1', '3']);
-    expect(numbers(entry.waiting?.tickets ?? [])).toEqual(['1', '3']);
+    expect(numbers(entry.waiting?.tickets ?? [])).toEqual(['1', '3', '2']);
+    expect(entry.waiting?.tickets.find((t) => t.number === '2')?.status).toBe('planning');
   });
 
-  it('the same issue stays out once the plan has landed in the directory', async () => {
+  it('the same issue stays out of the inbox once the plan has landed in the directory', async () => {
     const dir = fixture({ onDisk: { '2026-10-17-alpha.md': 2 } });
     const entry = entryFor([]);
 
     await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
 
     expect(numbers(entry.issues)).toEqual(['1', '3']);
-    expect(numbers(entry.waiting?.tickets ?? [])).toEqual(['1', '3']);
+    expect(numbers(entry.waiting?.tickets ?? [])).toEqual(['1', '3', '2']);
   });
 
-  it('Waiting on you never lists an issue an on-disk plan references', async () => {
+  it('Waiting on you lists an issue an on-disk plan references after the unplanned ones, with its phase', async () => {
     const dir = fixture({ onDisk: { '2026-10-17-a.md': 1 } });
     const entry = entryFor([]);
 
     await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
 
-    expect(numbers(entry.waiting?.tickets ?? [])).toEqual(['2', '3']);
-    expect(entry.waiting?.shown).toBe(2);
+    expect(numbers(entry.waiting?.tickets ?? [])).toEqual(['2', '3', '1']);
+    expect(entry.waiting?.tickets.map((t) => t.status)).toEqual(['', '', 'planning']);
+    expect(entry.waiting?.shown).toBe(3);
   });
 
-  it('an unmatched reader still sees only the unplanned set, from the inbox argument as well', async () => {
+  it('an unmatched reader still sees only the unplanned set in the inbox, and the planned row after the rest in Waiting', async () => {
     const dir = fixture({ onDisk: { '2026-10-17-a.md': 1 }, login: 'somebody-else' });
     const entry = entryFor([]);
 
     await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
 
     expect(numbers(entry.issues)).toEqual(['2', '3']);
-    for (const t of entry.waiting?.tickets ?? []) expect(t.number).not.toBe('1');
+    expect(numbers(entry.waiting?.tickets ?? [])).toEqual(['2', '3', '1']);
+  });
+
+  it('an Approved plan shows its merged slice count from the pulse, and none where the pulse lacks the plan', async () => {
+    const dir = fixture({});
+    fs.writeFileSync(path.join(dir, 'docs', 'plans', 'a.md'), '# plan\n\nIssue: #1\nState: approved\nBranch: b/one\nBranch: b/two\nBranch: b/three\n');
+    fs.writeFileSync(path.join(dir, 'docs', 'plans', 'b.md'), '# plan\n\nIssue: #2\nState: approved\nBranch: b/four\n');
+    const entry = entryFor([]);
+    const wave = (states: [string, string][]) => ({ branches: states.map(([branch, state]) => ({ branch, state })) });
+    entry.pulse = { plans: [{ file: 'a.md', slices: [wave([['b/one', 'merged'], ['b/two', 'merged'], ['b/three', 'open']])] }] } as never;
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    const status = (n: string) => entry.waiting?.tickets.find((t) => t.number === n)?.status;
+    expect(status('1')).toBe('in progress 2/3');
+    expect(status('2')).toBe('in progress');
+    expect(numbers(entry.issues)).toEqual(['3']);
   });
 
   it('no idea branches changes nothing from the directory read', async () => {
