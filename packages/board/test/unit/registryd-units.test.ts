@@ -107,7 +107,7 @@ describe('both units tell the daemon which estate it supervises', () => {
   it('systemd sets the working directory and the variable', () => {
     const service = read(SERVICE);
     expect(service).toMatch(/^WorkingDirectory=__REPO_ROOT__$/m);
-    expect(service).toMatch(/^Environment=PLOT_REPO_ROOT=__REPO_ROOT__$/m);
+    expect(service).toMatch(/^Environment="PLOT_REPO_ROOT=__REPO_ROOT__"$/m);
   });
 
   it('both give the job a PATH, because neither init system supplies one', () => {
