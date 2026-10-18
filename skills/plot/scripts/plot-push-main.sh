@@ -104,38 +104,12 @@ default="${2:?plot-push-main: need the default branch}"
 
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-push-main: not a git repository" >&2; exit 1; }
 
-# ONE DEFAULT-BRANCH WRITER AT A TIME (#1349). Measured 2026-10-07: a 4-plan
-# /api/release batch ended 4 of 4 `push=rejected`, and a 6-plan /api/approve batch
-# ended 3 rejected, 1 bypassed, 1 micro-pr and 1 refused, because both routes
-# start their scripts in the background. The same batches run one at a time landed
-# every plan. The lock sits here, in the one script every caller already runs, so
-# the board routes and the no-board bundles take the same lock.
-#
-# A `mkdir`, NEVER `flock`, which macOS does not ship (`plot-budget.sh` says the
-# same). The directory is under the COMMON git dir, so every worktree of one
-# repository contends for it. Its `owner` file holds `pid<TAB>taken-at-ms<TAB>action`.
-#
-# STALE IS A DEAD PID, or a live one older than PLOT_PUSH_LOCK_STALE_S (default
-# 600). `plot-budget.sh` uses 10 s because its lock spans one rename; a push spans
-# a network round trip, so the bound must clear the 120 s wait with margin, and a
-# holder past it is a hung push rather than a slow one.
-lock="$(cd "$(git rev-parse --git-common-dir)" && pwd)/plot-push-main.lock"
-lock_wait="${PLOT_PUSH_LOCK_WAIT:-120}"; lock_stale="${PLOT_PUSH_LOCK_STALE_S:-600}"; waited=0; mine="$$	$(date +%s)000	push $branch"
-until mkdir "$lock" 2>/dev/null; do
-  IFS=$'\t' read -r h_pid h_at h_act <"$lock/owner" 2>/dev/null
-  if [ -n "${h_pid:-}" ] && { ! kill -0 "$h_pid" 2>/dev/null || [ $(( $(date +%s) - ${h_at:-0} / 1000 )) -gt "$lock_stale" ]; }; then
-    # Rename first, so one breaker moves a given directory; remove only that copy.
-    mv "$lock" "$lock.broken.$$" 2>/dev/null && { echo "plot-push-main: broke a stale lock held by pid $h_pid ($h_act)" >&2; rm -rf "$lock.broken.$$"; }
-    continue
-  fi
-  if [ "$waited" -ge "$lock_wait" ]; then
-    echo "push: locked — held by pid ${h_pid:-unknown} running ${h_act:-an unknown action}; waited ${lock_wait}s. Retry once it finishes; nothing was pushed." >&2
-    exit 6
-  fi
-  sleep 1; waited=$((waited + 1))
-done
-printf '%s\n' "$mine" >"$lock/owner"
-trap '[ "$(cat "$lock/owner" 2>/dev/null)" = "$mine" ] && rm -rf "$lock"' EXIT
+# ONE DEFAULT-BRANCH WRITER AT A TIME (#1349). Every caller runs this script, so the
+# lock lives here; `plot-push-lock.mjs` holds the rule and its measurement. A waiter
+# past the bound exits 6 having pushed nothing.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+node "$here/plot-push-lock.mjs" take "$$" "push $branch" || exit $?
+trap 'node "$here/plot-push-lock.mjs" release "$$"' EXIT
 
 # stderr is captured rather than passed through, because it carries the ONLY
 # signal that separates a bypass from a clean push. A call site ending in
@@ -146,7 +120,7 @@ trap '[ "$(cat "$lock/owner" 2>/dev/null)" = "$mine" ] && rm -rf "$lock"' EXIT
 # App, refuses by name (exit 4) where the key is malformed or unreadable, and
 # answers 5 with its one-line notice where no `Writer app` key is declared.
 # Exit 5 and every other origin take the plain push as the ambient identity.
-origin_url=$(git config --get remote.origin.url 2>/dev/null || true); here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; code=5
+origin_url=$(git config --get remote.origin.url 2>/dev/null || true); code=5
 case "$origin_url" in *github.com*) err=$(node "$here/plot-push-writer-app.mjs" "$branch" "$default" 2>&1 >/dev/null); code=$?; [ "$code" = 5 ] && printf '%s\n' "$err" >&2 ;; esac
 [ "$code" = 5 ] && { err=$(git push origin "$branch:$default" 2>&1 >/dev/null); code=$?; }
 
