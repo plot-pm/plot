@@ -47,7 +47,7 @@ The Bitbucket arm gets the same overlay as the GitHub arm.
 
 ### Bitbucket binding
 
-- `bug/bitbucket-jenkins-pr-list-binds-a` — bind the Bitbucket Jenkins arm of `pr-list --rich` to each PR's head and emit `checksSha`, with host tests on a 12-character hash and a 40-character SHA1 <!-- builds: Bitbucket sha-bound overlay in plot-host.sh pr-list, mirroring the GitHub _sha_map overlay --> <!-- waits: PR #1974 -->
+- `bug/bitbucket-jenkins-pr-list-binds-a` — bind the Bitbucket Jenkins arm of `pr-list --rich` to each PR's head and emit `checksSha`, with host tests on a 12-character hash and a 40-character SHA1 <!-- builds: Bitbucket sha-bound overlay in plot-host.sh pr-list, mirroring the GitHub _sha_map overlay --> <!-- waits: PR #1974 --> → #2063
 
 ## Notes
 
