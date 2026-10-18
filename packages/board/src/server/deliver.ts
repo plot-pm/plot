@@ -211,7 +211,8 @@ const refsFor = (opts: BuildBoardOptions): Refs =>
  *
  * @param opts - where to read, and optionally what to read through.
  * @param readRef - the ref the pulse was read from, or `null`.
- * @param file - the plan's real (dated) file path, as resolved on disk.
+ * @param file - the plan's real (dated) file path, as resolved on disk; the
+ *   ref path is built from the real paths of `file` and `opts.repoRoot`.
  * @returns the lowercased phase at `readRef`, or `null`.
  */
 const phaseAtRef = async (
@@ -220,7 +221,12 @@ const phaseAtRef = async (
   file: string,
 ): Promise<string | null> => {
   if (readRef === null) return null;
-  const relPath = path.relative(opts.repoRoot, file);
+  // Both sides canonical: `file` may or may not be a realpath, and a symlinked
+  // root (macOS `/var` → `/private/var`) otherwise yields a `../` path git cannot read.
+  const relPath = path
+    .relative(fs.realpathSync(opts.repoRoot), fs.realpathSync(file))
+    .split(path.sep)
+    .join('/');
   const blob = await refsFor(opts).showFile(readRef, relPath);
   if (!blob.ok || !blob.value) return null;
   let stageDir: string | null = null;
