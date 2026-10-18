@@ -244,7 +244,7 @@ const ensured = new Set<string>();
  * through {@link agentLogPath}, and a read route spawns nothing
  * (`a-read-route-spawns-nothing.test.ts`).
  */
-const commonGitDir = (repoRoot: string): string | undefined => {
+export const commonGitDir = (repoRoot: string): string | undefined => {
   const dotGit = path.join(repoRoot, '.git');
   const stat = fs.statSync(dotGit, { throwIfNoEntry: false });
   if (stat === undefined) return undefined;
@@ -383,6 +383,24 @@ export const agentLogPath = (
   id: string | number,
   file: AgentLogFile,
 ): string => path.join(ensureAgentLogDir(repoRoot), `plot-${kind}-${id}${EXTENSIONS[file]}`);
+
+/**
+ * Where {@link agentLogPath} puts the `<file>` for a `<kind>` run keyed by
+ * `id`, without creating the directory or writing `info/exclude`. For naming a
+ * file in a checkout this process does not write to, such as another desk.
+ *
+ * @param repoRoot absolute path to the repository the run belongs to
+ * @param kind which command spawned the run
+ * @param id what names the run within that kind
+ * @param file which of the run's three files is wanted
+ * @returns an absolute path; neither the file nor its directory need exist
+ */
+export const agentLogPathReadOnly = (
+  repoRoot: string,
+  kind: AgentLogKind,
+  id: string | number,
+  file: AgentLogFile,
+): string => path.join(agentLogDir(repoRoot), `plot-${kind}-${id}${EXTENSIONS[file]}`);
 
 /**
  * Where a spec-writing run's prompt is written, keyed by plan slug.

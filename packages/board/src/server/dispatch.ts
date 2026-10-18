@@ -349,7 +349,7 @@ export async function handleDispatch(
     opts: { ...opts, scripts: scriptsFor(opts) },
     slug,
     readCfg,
-    briefBranch: (s) => (deps.briefBranch ?? ((o, slug) => briefBranchFromPulse(pulseFor(o), slug)))(opts, s),
+    briefBranch: (s) => (deps.briefBranch ?? ((o, planSlug) => briefBranchFromPulse(pulseFor(o), planSlug)))(opts, s),
   });
   if (started.kind === 'refused') {
     const { status, kind: _kind, ...refusal } = started;

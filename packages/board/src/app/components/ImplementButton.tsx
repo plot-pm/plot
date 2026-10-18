@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { DispatchInfo } from '../../contract/schema.js';
+import { implementStartOutcome } from '../lib/implement-start-outcome.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 
 /**
@@ -158,12 +159,10 @@ export function ImplementButton({
         body: JSON.stringify({ slug }),
         signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });
-      const body = (await res.json()) as { error?: string; detail?: string };
-      if (!res.ok) {
-        // `detail` first: the refusals carry it, and it is the sentence that
-        // says which one happened.
-        setState({ kind: 'failed', message: body.detail ?? body.error ?? `HTTP ${res.status}` });
-      }
+      const outcome = implementStartOutcome(res.status, (await res.json()) as Record<string, unknown>);
+      // `implementStartOutcome` decides: a 409 held by this checkout's implement
+      // run is the run the poll below already follows; any other holder fails.
+      if (outcome.kind === 'failed') setState(outcome);
     } catch (e) {
       setState({ kind: 'failed', message: e instanceof Error ? e.message : String(e) });
     }

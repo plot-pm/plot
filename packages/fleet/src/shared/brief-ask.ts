@@ -15,11 +15,19 @@
  * in `maybeAutoDispatch`, and `planAutoDispatch` pure.
  */
 import fs from 'node:fs';
-import path from 'node:path';
 
 import { readConfig } from './config-reader.js';
 import type { ActOptions } from './action-log.js';
 import { startBoardRun } from './board-run.js';
+import {
+  briefLogPath,
+  heldImplementLock,
+  implementLockRefusal,
+  recordImplementAgent,
+  releaseImplementLock,
+  takeImplementLock,
+  type ImplementLockDeps,
+} from './implement-run.js';
 import { usableCommand } from './usable-command.js';
 import { briefPath } from '@plot-pm/fleet/shared/brief-path';
 
@@ -68,15 +76,14 @@ export const briefAskPrompt = (slug: string, branch: string, main: string): stri
 
 /**
  * Where `askForBrief` writes its log for one plan. `brief-ask-log.ts` reads
- * the same path through this function, so the writer and the reader share one
- * spelling.
+ * the same path through this function, and an implement refused by a brief's
+ * lock names it, so the writer and the readers share one spelling.
  *
  * @param repoRoot - absolute path to the repository root.
  * @param slug - the plan slug.
  * @returns the log's absolute path.
  */
-export const askForBriefLogPath = (repoRoot: string, slug: string): string =>
-  path.join(repoRoot, `.plot-brief-${slug}.log`);
+export const askForBriefLogPath = briefLogPath;
 
 /**
  * Starts the configured brief command for one plan through the `agentRun`
@@ -91,6 +98,13 @@ export const askForBriefLogPath = (repoRoot: string, slug: string): string =>
  * process group of the process that started it: a board stop ends it, and the
  * next pass asks again.
  *
+ * **IT TAKES THE PLAN'S IMPLEMENT LOCK** ({@link takeImplementLock}) before it
+ * opens anything, and releases it when the run ends. A brief and an implement
+ * for one slug cannot both run, so they cannot both write a brief; a brief that
+ * loses the lock logs who holds it and returns `null`. The run has no time
+ * bound, because a bound turns a usage-limit wait into an end; so its lock has
+ * no age bound either and holds while the run's processes live.
+ *
  * **A start failure is reported and never thrown.** This runs inside the
  * scan's success path, and an unstartable command must not take a pulse down
  * with it — the plan stays `no-brief` and the next pass asks again.
@@ -100,7 +114,8 @@ export const askForBriefLogPath = (repoRoot: string, slug: string): string =>
  * @param slug - the plan slug, for the prompt and the log path.
  * @param prompt - the assembled prompt, passed as one argument.
  * @param onLimit - called with the reset epoch (seconds) when the run ends at the account's usage limit.
- * @returns the log path the session writes to, or `''` when the log cannot be opened.
+ * @param lockDeps - the implement lock's test seams.
+ * @returns the log path the session writes to, `null` when another run holds the lock, or `''` when the lock or the log cannot be opened.
  */
 export const askForBrief = (
   opts: ActOptions,
@@ -108,16 +123,31 @@ export const askForBrief = (
   slug: string,
   prompt: string,
   onLimit?: (resetEpoch: number) => void,
-): string => {
+  lockDeps: ImplementLockDeps = {},
+): string | null => {
   const log = askForBriefLogPath(opts.repoRoot, slug);
+  const couldNot = (why: string): '' => {
+    console.log(`auto-dispatch: could not ask for ${slug}'s brief: ${why}`);
+    return '';
+  };
+  let mine;
+  try {
+    mine = takeImplementLock(opts.repoRoot, slug, lockDeps, 'brief');
+  } catch (err) {
+    return couldNot(err instanceof Error ? err.message : String(err));
+  }
+  if (mine === null) {
+    const refusal = implementLockRefusal(opts.repoRoot, slug, heldImplementLock(opts.repoRoot, slug, lockDeps));
+    console.log(`auto-dispatch: did not ask for ${slug}'s brief: ${refusal.detail}`);
+    return null;
+  }
+  const held = mine;
+  const release = (): void => releaseImplementLock(opts.repoRoot, slug, held);
   try {
     fs.appendFileSync(log, '', 'utf8');
   } catch (err) {
-    console.log(
-      `auto-dispatch: could not ask for ${slug}'s brief: ` +
-      `${err instanceof Error ? err.message : String(err)}`,
-    );
-    return '';
+    release();
+    return couldNot(err instanceof Error ? err.message : String(err));
   }
   void startBoardRun(
     opts,
@@ -130,10 +160,23 @@ export const askForBrief = (
       env: {},
       logFile: log,
       statePath: null,
+      onStarted: (pid) => recordImplementAgent(opts.repoRoot, slug, held, { pid, startedAt: Date.now() }),
     },
     (record) => {
+      release();
       if (record.code !== 0) console.log(`auto-dispatch: the brief command for ${slug} ended: ${record.line || `code ${record.code}`}`);
       if (record.resetEpoch !== undefined) onLimit?.(record.resetEpoch);
+    },
+  ).then(
+    (runner) => {
+      // A run this process left to the board calls no end handler.
+      if (runner === 'refused') release();
+    },
+    (err: unknown) => {
+      // A start that threw calls no end handler either, and a brief lock has no
+      // age bound, so nothing else would free the slug while this process lives.
+      release();
+      console.log(`auto-dispatch: could not ask for ${slug}'s brief: ${err instanceof Error ? err.message : String(err)}`);
     },
   );
   return log;

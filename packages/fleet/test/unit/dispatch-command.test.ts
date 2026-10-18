@@ -202,11 +202,21 @@ describe('the detached dispatch entry', () => {
   it('gives up where the implement never starts within the wait', async () => {
     const warned: string[] = [];
     const code = await runDetached([SLUG], repo, SCRIPT_DIR, {
-      launch: () => ({ pid: 1, exitCode: () => null }),
+      launch: () => ({ pid: 4242, exitCode: () => null }),
       startWaitMs: 100,
     }, () => {}, (s) => warned.push(s));
     expect(code).toBe(1);
     expect(warned.join('')).toMatch(/did not start/);
+  });
+
+  it('names the live dispatch process in the timeout message, since it may still start the implement', async () => {
+    const warned: string[] = [];
+    await runDetached([SLUG], repo, SCRIPT_DIR, {
+      launch: () => ({ pid: 4242, exitCode: () => null }),
+      startWaitMs: 100,
+    }, () => {}, (s) => warned.push(s));
+    expect(warned.join('')).toContain('pid 4242');
+    expect(warned.join('')).toMatch(/still running/);
   });
 });
 
