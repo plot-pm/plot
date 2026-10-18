@@ -105,6 +105,7 @@ export const askForBriefLogPath = (repoRoot: string, slug: string): string =>
  * @param command - the configured fragment, already checked usable.
  * @param slug - the plan slug, for the prompt and the log path.
  * @param prompt - the assembled prompt, passed as one argument.
+ * @param onLimit - called with the reset epoch (seconds) when the run ends at the account's usage limit.
  * @param lockDeps - the implement lock's test seams.
  * @returns the log path the session writes to, or `''` when the lock is held or the log cannot be opened.
  */
@@ -113,6 +114,7 @@ export const askForBrief = (
   command: string,
   slug: string,
   prompt: string,
+  onLimit?: (resetEpoch: number) => void,
   lockDeps: ImplementLockDeps = {},
 ): string => {
   const log = askForBriefLogPath(opts.repoRoot, slug);
@@ -151,6 +153,7 @@ export const askForBrief = (
     (record) => {
       release();
       if (record.code !== 0) console.log(`auto-dispatch: the brief command for ${slug} ended: ${record.line || `code ${record.code}`}`);
+      if (record.resetEpoch !== undefined) onLimit?.(record.resetEpoch);
     },
   ).then((runner) => {
     // A run this process left to the board calls no end handler.

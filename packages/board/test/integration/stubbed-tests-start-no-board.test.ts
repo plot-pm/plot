@@ -488,7 +488,10 @@ describe('a browser test that stubs its own state starts no board', () => {
 // for a quiet-kind row landing in Quiet and a clean ended desk leaving
 // Waiting on you. A plain addition; it serves its state through the
 // catalogue and starts no board.
-const EXPECTED_FILES = 70;
+// 70 → 71 on 2026-10-17: `long-ticket-title-keeps-plan-name.browser.test.ts`,
+// for a ticket row keeping its plan name beside a long title (#1960). A plain
+// addition; it serves its state through the catalogue and starts no board.
+const EXPECTED_FILES = 71;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -732,7 +735,10 @@ const EXPECTED_FILES = 70;
 // (#1760/#1742), and one in `mine-filter.browser.test.ts`, for the "Only my
 // work" empty-lane message (#1793). Both files already drove a page, so
 // `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 597;
+// 597 → 599 on 2026-10-17: the two `it(` of
+// `long-ticket-title-keeps-plan-name.browser.test.ts`, a new file counted in
+// `EXPECTED_FILES` above.
+const EXPECTED_TESTS = 599;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

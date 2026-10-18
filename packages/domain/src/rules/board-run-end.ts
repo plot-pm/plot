@@ -56,9 +56,17 @@ export interface BoardRunRecord {
   readonly outcome: 'done' | 'refused' | null;
   /** The absolute path a `written` role handed back and that exists; `null` otherwise. */
   readonly written: string | null;
+  /** The epoch second the account's usage limit resets, when the run ended on one that will lift; absent otherwise. */
+  readonly resetEpoch?: number;
 }
 
-const failure = (line: string, code = 1): BoardRunRecord => ({ code, line, outcome: null, written: null });
+const failure = (line: string, code = 1, resetEpoch?: number): BoardRunRecord => ({
+  code,
+  line,
+  outcome: null,
+  written: null,
+  ...(resetEpoch === undefined ? {} : { resetEpoch }),
+});
 
 /**
  * Reads one finished board-role run into the code and line its route records.
@@ -78,6 +86,8 @@ export const boardRunEnd = (reading: BoardRunEndReading): BoardRunRecord => {
     case 'wait':
       return failure(
         `the ${role} run stopped at the account's usage limit, which resets at ${new Date(end.resetEpoch * 1000).toISOString()}`,
+        1,
+        end.resetEpoch,
       );
     case 'end-limited':
       return failure(`the ${role} run stopped at the account's usage limit (${end.cause})`);

@@ -10,6 +10,7 @@ import {
   machineIsClear,
   dispatchDefers,
   outstandingAsks,
+  outstandingWaits,
   briefAskBudget,
   planAutoDispatch,
   dispatchPhase,
@@ -163,6 +164,8 @@ export function maybeAutoDispatch(
   inFlight: Set<string>,
   machine?: MachineEntity,
   briefsAsked: Set<string> = new Set(),
+  briefWaits: Map<string, number> = new Map(),
+  nowEpoch: number = Math.floor(Date.now() / 1000),
 ): Set<string> {
   // THE ASK RECORD IS MUTATED, NOT RETURNED, and that is the one asymmetry in
   // this signature. The in-flight set is returned because its contents are
@@ -343,8 +346,15 @@ export function maybeAutoDispatch(
   // this pass read `origin/<main>` and before any budget reads the tally, and
   // written back into the caller's set so the cache entry keeps the pruned
   // record. A branch whose brief landed, or that left the candidates, drops.
-  const kept = outstandingAsks(briefsAsked, missingBriefs);
+  //
+  // AN ASK THAT ENDED AT THE USAGE LIMIT HOLDS ITS SLOT UNTIL THE RESET. The
+  // wait is the third state beside asked and free: `outstandingAsks` drops the
+  // branch once `nowEpoch` reaches the reset, so this pass asks again, and
+  // `outstandingWaits` drops the epoch with it. In memory like `briefsAsked`.
+  const kept = outstandingAsks(briefsAsked, missingBriefs, briefWaits, nowEpoch);
   for (const branch of briefsAsked) if (!kept.has(branch)) briefsAsked.delete(branch);
+  const keptWaits = outstandingWaits(briefWaits, kept);
+  for (const branch of briefWaits.keys()) if (!keptWaits.has(branch)) briefWaits.delete(branch);
 
   if (controls.autoDispatch && missingBriefs.size > 0) {
     const missing = [...missingBriefs];
@@ -435,6 +445,8 @@ export function maybeAutoDispatch(
           command,
           plan.slug,
           briefAskPrompt(plan.slug, branch, pulse.main),
+          // A second wait replaces the first: the map holds one epoch per branch.
+          (resetEpoch) => briefWaits.set(branch, resetEpoch),
         );
         // MARKED EVEN WHEN THE SPAWN FAILED. `askForBrief` reports and returns
         // '' rather than throwing, and marking anyway is the conservative

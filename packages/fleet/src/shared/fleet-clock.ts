@@ -87,7 +87,7 @@ export const startFleetClock = (
         try {
           await run();
         } catch (e) {
-          warn(`plot-fleetd: ${name} failed: ${e instanceof Error ? e.message : String(e)}`);
+          warn(`plot-fleetd: ${name} failed: ${e instanceof Error ? e.message : String(e)}\n`);
         } finally {
           inFlight = false;
         }
@@ -144,9 +144,9 @@ export const fleetScan = (
   try {
     const result = await scanOnce(world, state, { record: false });
     if (await writeScan(fleetState, result, now(), prError())) landed = result.reading;
-    else warn('plot-fleetd: bridge write refused');
+    else warn('plot-fleetd: bridge write refused\n');
   } catch (e) {
-    warn(`plot-fleetd: scan failed: ${e instanceof Error ? e.message : String(e)}`);
+    warn(`plot-fleetd: scan failed: ${e instanceof Error ? e.message : String(e)}\n`);
   }
   if (landed !== null && after) await after(landed);
 };
@@ -172,6 +172,6 @@ export const fleetPrs = (
   try {
     await refreshPrs(world, state);
   } catch (e) {
-    warn(`plot-fleetd: PR read failed: ${e instanceof Error ? e.message : String(e)}`);
+    warn(`plot-fleetd: PR read failed: ${e instanceof Error ? e.message : String(e)}\n`);
   }
 };
