@@ -41,6 +41,17 @@ describe('bitbucketPrState', () => {
     });
   });
 
+  it('reads a payload with no source or destination as empty head, base and branch', () => {
+    const sparse = { id: 4, state: 'OPEN', links: { html: { href: 'https://bb/pr/4' } } };
+    expect(bitbucketPrState(sparse, { '': { checks: 'green' } }, null)).toMatchObject({
+      headSha: '',
+      base: '',
+      checks: 'green',
+      checksSha: '',
+    });
+    expect(bitbucketPrState(pr({ source: { branch: { name: 'feature/a' } } }), {}, null).headSha).toBe('');
+  });
+
   it('maps DECLINED to CLOSED and carries the merge commit', () => {
     expect(bitbucketPrState(pr({ state: 'DECLINED', merge_commit: { hash: 'm1' } }), null, null)).toMatchObject({
       state: 'CLOSED',
@@ -69,6 +80,10 @@ describe('bitbucketReview', () => {
 
   it('answers absent where no plot/review status exists', () => {
     expect(bitbucketReview('s', [{ key: 'ci/build', state: 'SUCCESSFUL' }], []).state).toBe('absent');
+  });
+
+  it('reads a comment with no content as no bypass', () => {
+    expect(bitbucketReview('s', [], [{}, { content: {} }]).bypass).toBe(false);
   });
 
   it('reports a comment starting review-bypass:', () => {
