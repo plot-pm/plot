@@ -199,6 +199,14 @@ describe('agentLoop — row 4: an assignment', () => {
     expect(result.detail.exitCode).toBeNull();
   });
 
+  it('names the claim in the reason when the desk reset was refused over a held claim', () => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, takeUpRefused: 'desk-reset', claim: 'held-by-agent' });
+    expect(result.writes[0]).toMatchObject({
+      kind: 'refused-slice',
+      reason: 'the desk reset at take-up was refused, claim: held-by-agent',
+    });
+  });
+
   it.each(['commit', 'push'] as const)('clears the assignment and writes nothing else when the %s was refused', (refused) => {
     const claim = refused === 'push' ? 'held-by-agent' : null;
     const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, takeUpRefused: refused, claim });
