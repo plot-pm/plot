@@ -1065,7 +1065,7 @@ if [ "$mode" = "start" ]; then
   # THE UNIT PUTS NODE'S DIRECTORY FIRST, so a harness of the same name in it
   # shadows the one resolved above. Refuse rather than bake in the wrong copy.
   shadow="$(dirname "$node_bin")/${harness_name##*/}"
-  [ -x "$shadow" ] && [ ! "$shadow" -ef "$harness_bin" ] && {
+  [ -f "$shadow" ] && [ -x "$shadow" ] && [ ! "$shadow" -ef "$harness_bin" ] && {
     printf "plot-fleetctl: node's directory holds another '%s' (%s)\n  The unit puts that directory first, so workers would run it instead of %s.\n  Fix it: remove or rename it, or use the node from the directory that holds the harness, then run this again.\n" "${harness_name##*/}" "$shadow" "$harness_bin" >&2; exit 1
   }
 
@@ -1147,10 +1147,10 @@ if [ "$mode" = "start" ]; then
   # the template's fixed list is removed, and so is the harness entry when the
   # harness lives in the same directory.
   # A DIRECTORY IS ESCAPED BEFORE IT REACHES `sed`: `|` is the delimiter here, `&` and `\` are
-  # special in the replacement, and `.[]*^$` are special in the pattern.
-  esc() { printf '%s' "$1" | sed 's/[][\\|&.*^$]/\\&/g'; }
-  node_dir=$(dirname "$node_bin"); [ "$harness_dir" = "$node_dir" ] && harness_dir=""; nd=$(esc "$node_dir"); hd=$(esc "$harness_dir"); nb=$(esc "$node_bin")
-  sed -e "s|__LABEL__|$LABEL|g" -e "s|__REPO_ROOT__|$repo_root|g" -e "s|__NODE__|$nb|g" -e "s|__FLEETD__|$fleetd|g" \
+  # special in the replacement, `.[]*^$` are special in the pattern, and systemd reads `%` as a specifier, so it doubles.
+  pct='%'; [ "$plat" = systemd ] && pct='%%'; esc() { printf '%s' "$1" | sed -e 's/[][\\|&.*^$]/\\&/g' -e "s/%/$pct/g"; }
+  node_dir=$(dirname "$node_bin"); [ "$harness_dir" = "$node_dir" ] && harness_dir=""; nd=$(esc "$node_dir"); hd=$(esc "$harness_dir"); nb=$(esc "$node_bin"); rr=$(esc "$repo_root"); fd=$(esc "$fleetd")
+  sed -e "s|__LABEL__|$LABEL|g" -e "s|__REPO_ROOT__|$rr|g" -e "s|__NODE__|$nb|g" -e "s|__FLEETD__|$fd|g" \
       -e "/__NODE_DIR__/s|:$nd:|:|g" -e "s|__NODE_DIR__:__HARNESS_DIR__:|$nd:${hd:+$hd:}|g" \
       "$template" > "$target" || { echo "plot-fleetctl: could not write $target" >&2; exit 1; }
 
