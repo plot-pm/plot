@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2054
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-18, Jan Wloka, plan-PR #2061 merged
 - **Started:** 2026-10-18, Jan Wloka, `bug/a-merge-refuses-when-the-head`
+- **Delivered:** 2026-10-19
 
 ## Changelog
 
