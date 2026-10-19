@@ -590,6 +590,11 @@ export interface LoopEndWrite {
    * Absent for every other ending.
    */
   readonly refusedAssignment?: string;
+  /**
+   * The handle the loop was resuming or about to resume when it ended.
+   * Absent for every ending but `unstarted`.
+   */
+  readonly resumeId?: string;
 }
 
 /**

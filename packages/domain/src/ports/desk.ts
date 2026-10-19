@@ -14,6 +14,8 @@ export interface EndingRecord {
   detail: string;
   /** The assignment a take-up refused; absent for every other ending. */
   refusedAssignment?: string;
+  /** The handle the loop was resuming or about to resume when it ended; absent where none is recorded. */
+  resumeId?: string;
 }
 
 /** One finding `publishFinding` appends, in the fields `FindingSchema` requires beside the ones the adapter fills. */

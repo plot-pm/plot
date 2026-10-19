@@ -205,6 +205,7 @@ const landOne = async (
         branch: write.branch,
         detail: write.detail,
         ...(write.refusedAssignment !== undefined ? { refusedAssignment: write.refusedAssignment } : {}),
+        ...(write.resumeId !== undefined ? { resumeId: write.resumeId } : {}),
       });
 
     case 'worker-finding':

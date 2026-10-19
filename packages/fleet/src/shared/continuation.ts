@@ -896,9 +896,10 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // THE MANIFEST THIS RUN USES, FROM HERE ON — either the one `continueTarget`
     // found, stamped in place, or a new one written because the desk's ending
     // record says it is waiting for exactly this answer and none names it yet.
-    // `resumeId` is recovered from the desk's own transcript directory rather
-    // than minted, so the new loop resumes the blocked agent's conversation
-    // instead of starting a stranger's.
+    // `resumeId` is the handle the ending itself recorded (#1788) where one was
+    // written; the transcript scan is a fallback for an ending with none, never
+    // the first source — see `resumeIdFromTranscript`'s own doc comment for why
+    // the newest-by-mtime file is not reliably this conversation's.
     //
     // WRITTEN LAST, AFTER THE PROMPT AND THE LOG (#1373): both of those already
     // succeeded by this point, so a `failed` return from here never leaves a
@@ -909,11 +910,12 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     if (target.manifest === 'stamp') {
       manifestPath = target.path;
     } else {
+      const recorded = ending.read === 'ended' ? ending.ending.resumeId : '';
       const written = writeDeskManifest(resolveManifestDir(opts.repoRoot, opts), {
         worktree,
         branch,
         command: cmd,
-        resumeId: resumeIdFromTranscript(worktree),
+        resumeId: recorded !== '' ? recorded : resumeIdFromTranscript(worktree),
       });
       if (written === null) {
         fs.closeSync(out);

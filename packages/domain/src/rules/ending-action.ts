@@ -588,5 +588,6 @@ export const killedWorkerEnding = (readings: KilledWorkerReadings): Ending | nul
     branch: readings.branch,
     detail: `the worker exited ${code} and wrote no ending`,
     refusedAssignment: '',
+    resumeId: '',
   };
 };

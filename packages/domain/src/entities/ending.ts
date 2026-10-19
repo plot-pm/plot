@@ -218,6 +218,7 @@ export const EndingSchema = z.object({
   branch: z.string().default(''),
   detail: z.string().default(''),
   refusedAssignment: z.string().default(''),
+  resumeId: z.string().default(''),
 });
 
 /**
@@ -243,6 +244,16 @@ export interface Ending {
    * is the only place the refused assignment is recorded as a field.
    */
   refusedAssignment: string;
+  /**
+   * The handle the loop was resuming or about to resume when it ended; `''`
+   * where none is recorded. Written for `unstarted` so a later continuation
+   * resumes the conversation the dying prompt was using rather than scanning
+   * the worktree's transcript directory for the newest file — which, in a
+   * worktree reused across slices, is not necessarily this ending's own
+   * conversation. An ending written before this field existed, or any other
+   * reason that never set it, reads `''`: absence, not an empty handle.
+   */
+  resumeId: string;
 }
 
 /**

@@ -271,7 +271,14 @@ export interface AgentLoopDetail {
 const wait = (branch: string, note: string): Decision<AgentLoopDetail> =>
   decide('agent-loop', [], { branch, exitCode: null, note });
 
-/** A decision that ends the loop, with its `loop-end` write appended last. */
+/**
+ * A decision that ends the loop, with its `loop-end` write appended last.
+ *
+ * @param resumeId - the handle the loop was resuming or about to resume;
+ *   carried only for `unstarted`, which is the one ending a later
+ *   continuation must resume the SAME conversation for rather than
+ *   whichever transcript file is newest on disk.
+ */
 const end = (
   worktree: string,
   branch: string,
@@ -280,10 +287,11 @@ const end = (
   detail: string,
   exitCode: number,
   writes: readonly Write[] = [],
+  resumeId?: string,
 ): Decision<AgentLoopDetail> =>
   decide(
     'agent-loop',
-    [...writes, { kind: 'loop-end', worktree, branch, reason, actor, detail, exitCode }],
+    [...writes, { kind: 'loop-end', worktree, branch, reason, actor, detail, exitCode, ...(resumeId !== undefined ? { resumeId } : {}) }],
     { branch, exitCode, note: detail },
   );
 
@@ -660,10 +668,19 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
       );
     }
     const question = `PLOT-BLOCKED: the prompt never started on \`${branch}\` after ${readings.startRetries} attempts — a person decides what to fix.`;
-    return end(worktree, branch, 'unstarted', 'agent', 'the prompt never started, retries spent', 1, [
-      { kind: 'blocked-marker', worktree, branch, question },
-      blockedDeclaration(worktree, branch, 'the prompt never started'),
-    ]);
+    return end(
+      worktree,
+      branch,
+      'unstarted',
+      'agent',
+      'the prompt never started, retries spent',
+      1,
+      [
+        { kind: 'blocked-marker', worktree, branch, question },
+        blockedDeclaration(worktree, branch, 'the prompt never started'),
+      ],
+      readings.checksResumeId,
+    );
   }
 
   // ROW 8 — a usage limit with a known reset the loop may wait for.

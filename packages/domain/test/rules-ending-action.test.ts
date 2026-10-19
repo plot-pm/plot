@@ -443,6 +443,7 @@ describe('killedWorkerEnding', () => {
       branch: 'infra/x',
       detail: 'the worker exited 143 and wrote no ending',
       refusedAssignment: '',
+      resumeId: '',
     });
     expect(killedWorkerEnding(desk({ exit: '137\n' }))?.detail).toBe('the worker exited 137 and wrote no ending');
   });
@@ -462,7 +463,7 @@ describe('killedWorkerEnding', () => {
   it('writes nothing over an ending that exists — a person\'s stopped ending among them — or one that does not parse', () => {
     const stopped: EndingReading = {
       read: 'ended',
-      ending: { reason: 'stopped', actor: 'operator', branch: 'infra/x', detail: '', refusedAssignment: '' },
+      ending: { reason: 'stopped', actor: 'operator', branch: 'infra/x', detail: '', refusedAssignment: '', resumeId: '' },
     };
     expect(killedWorkerEnding(desk({ ending: stopped }))).toBeNull();
     expect(killedWorkerEnding(desk({ ending: { read: 'unreadable', why: 'not JSON' } }))).toBeNull();
