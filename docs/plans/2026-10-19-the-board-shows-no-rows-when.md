@@ -61,7 +61,7 @@ Board impact: `packages/board/src/app/App.tsx` for options 1 and 2; the `/api/bo
 
 ### Slow answer shown
 
-- `bug/the-board-shows-no-rows-when` — the board poll shows a slow `/api/board` answer, with before and after answer times recorded in the PR
+- `bug/the-board-shows-no-rows-when` — the board poll shows a slow `/api/board` answer, with before and after answer times recorded in the PR → #2093
 
 ## Notes
 
