@@ -1557,6 +1557,7 @@ describe('a desk continued twice, once per NEEDS_PERSON_ENDINGS reason — #2107
 
     const first = await continueOnDesk(input(wt, manifestDir));
     assert.equal(first.kind, 'started', 'the fixture’s own first continue must succeed');
+    spawned.add(wt); // tracked, so settle waits for the first worker
     await settle(wt);
 
     // The loop ended: it removed its own manifest, and left a new ending and marker.
@@ -1592,19 +1593,19 @@ describe('a desk continued twice, once per NEEDS_PERSON_ENDINGS reason — #2107
   // once the fix (A or B, per the plan's Approach step 2) makes them pass.
   it.fails('spend-limit: the second continue refuses no-manifest — the bug', async () => {
     const second = await continueTwice('spend-limit');
-    assert.equal(second.kind, 'started');
+    assert.equal(second.kind, 'started', `refused ${second.reason}`);
     assert.notEqual(second.reason, 'no-manifest');
   });
 
   it.fails('run-limit: the second continue refuses no-manifest — the bug', async () => {
     const second = await continueTwice('run-limit');
-    assert.equal(second.kind, 'started');
+    assert.equal(second.kind, 'started', `refused ${second.reason}`);
     assert.notEqual(second.reason, 'no-manifest');
   });
 
   it.fails('checks-unanswered: the second continue refuses no-manifest — the bug', async () => {
     const second = await continueTwice('checks-unanswered');
-    assert.equal(second.kind, 'started');
+    assert.equal(second.kind, 'started', `refused ${second.reason}`);
     assert.notEqual(second.reason, 'no-manifest');
   });
 
@@ -1621,6 +1622,7 @@ describe('a desk continued twice, once per NEEDS_PERSON_ENDINGS reason — #2107
 
       const first = await continueOnDesk(input(wt, manifestDir));
       assert.equal(first.kind, 'started');
+      spawned.add(wt); // tracked, so settle waits for the first worker
       await settle(wt);
 
       for (const entry of fs.readdirSync(manifestDir)) fs.rmSync(path.join(manifestDir, entry));
@@ -1646,6 +1648,7 @@ describe('a desk continued twice, once per NEEDS_PERSON_ENDINGS reason — #2107
 
       const first = await continueOnDesk(input(wt, manifestDir));
       assert.equal(first.kind, 'started');
+      spawned.add(wt); // tracked, so settle waits for the first worker
       await settle(wt);
 
       for (const entry of fs.readdirSync(manifestDir)) fs.rmSync(path.join(manifestDir, entry));
