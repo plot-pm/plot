@@ -78,7 +78,7 @@ Each slice re-verifies its findings on main first, then fixes the ones that hold
 
 ### Continuation
 
-- `bug/a-continuation-obeys-the-limits` — #1381 and #1383: run and spend limits, the retry that carries the answer, the idempotent append, the read-error split and the leaf module for `CONTINUATION_NAME`
+- `bug/a-continuation-obeys-the-limits` — #1381 and #1383: run and spend limits, the retry that carries the answer, the idempotent append, the read-error split and the leaf module for `CONTINUATION_NAME` → #2078
 - `bug/an-unstarted-continue-resumes-no-stranger` — #1788 and the resume-id test from #1373 <!-- waits: bug/a-continuation-obeys-the-limits -->
 
 ## Notes
