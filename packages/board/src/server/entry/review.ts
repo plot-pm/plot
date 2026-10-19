@@ -60,9 +60,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * The status's `target_url` is the issue, or the PR where no issue was opened.
  * A verdict with no finding at all opens no issue. The issue id is recorded
  * per PR and head SHA, so a second run against the same head reuses the
- * recorded issue and opens none. A recorded `pending` entry — an earlier run
- * asked the tracker and recorded no answer — opens nothing, as `plot-verify`
- * does.
+ * recorded issue and opens none — but still writes its verdict, as a comment
+ * on the recorded issue. The comment and the status description carry the
+ * same run marker, the review's UTC timestamp to the second, so a reader can
+ * match the two. A recorded `pending` entry — an earlier run asked the
+ * tracker and recorded no answer — opens nothing, as `plot-verify` does.
  *
  * AN ISSUE THAT WAS NOT OPENED NEVER SKIPS THE STATUS. The status is written
  * on the reviewed SHA as above, the output names why no issue was opened, and
@@ -122,6 +124,8 @@ export interface ReviewDeps {
   readText: (file: string) => string | null;
   writeText: (file: string, text: string) => void;
   removeFile: (file: string) => void;
+  /** The current time, UTC to the second, as `2026-10-19T16:44:37Z`. */
+  now: () => string;
 }
 
 /** What one review run answered. */
@@ -153,6 +157,8 @@ const writeTextOutcome = (deps: ReviewDeps, file: string, text: string): ReviewO
  * @param prUrl - the PR's URL.
  * @param counts - the verdict's counts.
  * @param verdictText - the reviewer's final answer.
+ * @param run - this run's marker, shared with the status description so a
+ *   reader can match the two.
  * @returns the issue text.
  */
 const followUpIssue = (
@@ -161,17 +167,20 @@ const followUpIssue = (
   prUrl: string,
   counts: ReviewCounts,
   verdictText: string,
+  run: string,
 ): { title: string; body: string } => ({
   title: reviewIssueTitle(pr),
   body: [
     `The reviewer found HIGH ${counts.high}, MEDIUM ${counts.medium}, LOW ${counts.low} on ${prUrl} at ${sha}.`,
     '',
     verdictText.trim(),
+    '',
+    `run ${run}`,
   ].join('\n'),
 });
 
 /** The follow-up issue's URL, or why no issue was opened. */
-type FollowUp = { ok: true; url: string } | { ok: false; why: string };
+type FollowUp = { ok: true; url: string; commented: boolean } | { ok: false; why: string };
 
 /** How many labelled open issues the lookup reads; a read that stops here is not conclusive. */
 const LOOKUP_LIMIT = 200;
@@ -208,12 +217,14 @@ const openIssueOfPr = async (
 };
 
 /**
- * Reports one reviewed head on the follow-up issue: reuses the recorded issue,
- * else comments on the PR's open follow-up issue, else opens one.
+ * Reports one reviewed head on the follow-up issue: comments on the recorded
+ * issue, else comments on the PR's open follow-up issue, else opens one.
  *
  * The issue file holds `pending` while the tracker is asked, then the issue id.
  * A refusal that starts with {@link ISSUE_MAY_EXIST} keeps `pending`, so no
- * later run opens a second issue; any other refusal removes the file.
+ * later run opens a second issue; any other refusal removes the file — except
+ * a comment on an already-recorded id, where the id is still the right issue
+ * and removing it would make the next run look up or open another.
  *
  * @param deps - the tracker and file operations.
  * @param issueFile - the issue file for this PR and head.
@@ -221,6 +232,7 @@ const openIssueOfPr = async (
  * @param sha - the reviewed head.
  * @param counts - the verdict's counts.
  * @param verdictText - the reviewer's final answer.
+ * @param run - this run's marker, shared with the status description.
  * @returns the issue URL, or why no issue was opened.
  */
 const openFollowUp = async (
@@ -230,15 +242,26 @@ const openFollowUp = async (
   sha: string,
   counts: ReviewCounts,
   verdictText: string,
+  run: string,
 ): Promise<FollowUp> => {
   const recorded = deps.readText(issueFile)?.trim() ?? '';
   if (recorded === 'pending') {
     return { ok: false, why: `${ISSUE_MAY_EXIST}an earlier run asked the tracker for PR #${pr.number} at ${sha} and recorded no answer; remove ${issueFile} once checked` };
   }
+  const followUp = followUpIssue(pr.number, sha, pr.url, counts, verdictText, run);
   let issueId = recorded;
-  if (issueId === '') {
+  let didComment = false;
+  if (issueId !== '') {
+    const commented = await deps.tracker.issueComment(issueId, followUp.body);
+    if (!commented.ok) {
+      const why = (commented.why === 'unaskable' ? commented.reason : undefined)
+        ?? deps.tracker.lastRefusal()
+        ?? `the tracker answered ${commented.why} with no reason`;
+      return { ok: false, why: `could not comment on issue ${issueId}: ${why}` };
+    }
+    didComment = true;
+  } else {
     deps.writeText(issueFile, 'pending');
-    const followUp = followUpIssue(pr.number, sha, pr.url, counts, verdictText);
     const existing = await openIssueOfPr(deps, pr.number);
     if (!existing.ok) {
       deps.removeFile(issueFile);
@@ -255,6 +278,7 @@ const openFollowUp = async (
       }
       issueId = existing.issue.id;
       deps.writeText(issueFile, issueId);
+      didComment = true;
     } else {
       const opened = await deps.tracker.issueOpen({ ...followUp, labels: [REVIEW_ISSUE_LABEL] });
       if (!opened.ok) {
@@ -281,7 +305,7 @@ const openFollowUp = async (
   if (url === null) {
     return { ok: false, why: `issue ${issueId} was opened, but its URL cannot be composed for tracker '${scheme}'` };
   }
-  return { ok: true, url };
+  return { ok: true, url, commented: didComment };
 };
 
 /**
@@ -380,10 +404,11 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   }
 
   const findings = counts.high + counts.medium + counts.low;
+  const run = deps.now();
   let followUp: FollowUp | null = null;
   if (findings !== 0) {
     try {
-      followUp = await openFollowUp(deps, issueFile, pr, sha, counts, verdictText);
+      followUp = await openFollowUp(deps, issueFile, pr, sha, counts, verdictText, run);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       return refuse(`could not write ${issueFile}: ${reason}`);
@@ -393,11 +418,14 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   const description = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH finding${counts.high === 1 ? '' : 's'}`;
   const issueUrl = followUp?.ok === true ? followUp.url : null;
   if (followUp?.ok === false) lines.push(`plot-review: the follow-up issue was not opened: ${followUp.why}`);
+  const commented = followUp?.ok === true && followUp.commented;
   const written = await deps.host.commitStatus({
     sha,
     state,
     context: REVIEW_CONTEXT,
-    description: followUp?.ok === false ? `${description}; follow-up issue not opened` : description,
+    description: followUp?.ok === false
+      ? `${description}; follow-up issue not opened`
+      : commented ? `${description}; run ${run}` : description,
     targetUrl: issueUrl ?? pr.url,
   });
   if (!written.ok) {
@@ -517,6 +545,7 @@ const machineDeps = async (cwd: string, scriptDir: string): Promise<ReviewDeps |
       renameSync(`${file}.tmp`, file);
     },
     removeFile: (file) => rmSync(file, { force: true }),
+    now: () => new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
   };
 };
 

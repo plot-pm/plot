@@ -49,9 +49,9 @@ A repeated run on one head with an unchanged verdict then adds a second comment 
 
 ### Open Questions
 
-- [ ] Run marker: verdict timestamp in the status description and the comment, or a per-head run counter kept beside the issue file? The timestamp needs no new state; the counter reads better ("run 2").
-- [ ] Status description length: the host caps a commit-status description (GitHub: 140 characters). Does `1 HIGH finding; follow-up issue not opened; run 2026-10-19T16:44:37Z` fit with the existing suffix?
-- [ ] A second run whose verdict equals the recorded one: comment anyway, or skip and say so in the output? The issue asks for the first; the second saves noise.
+- [x] Run marker: the verdict timestamp, UTC to the second (`2026-10-19T16:44:37Z`), not a counter. `ReviewDeps` gained `now: () => string`, read once per `reviewPr` call, so the marker needs no new state beside the issue file and a test can fix the clock.
+- [x] Status description length: measured, not assumed. `99 HIGH findings; follow-up issue not opened; run 2026-10-19T16:44:37Z` is the worst case (three-digit count, both suffixes) and is pinned under the host's 140-character cap in `review.test.ts`. The run marker and the `follow-up issue not opened` suffix are mutually exclusive — a failed open has no comment to mark — so they never both lengthen the same description beyond that case.
+- [x] A second run whose verdict equals the recorded one: comments anyway. The issue's own contract ("every review writes its verdict") doesn't distinguish a changed verdict from a repeat of the last one, and skipping would need a way to compare the new verdict against the last comment's — state this change doesn't otherwise need. The noise cost is one comment per run, which is also the cost of running review twice.
 
 ## Slices
 
