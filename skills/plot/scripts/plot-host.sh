@@ -3962,10 +3962,8 @@ case "$op" in
     # right before merging; it matches by prefix, 7+ hex (domain's sameCommit).
     elif [ -n "$pin" ]; then bb_require_json; head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"; echo "plot-host: $err" >&2; exit 3; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
     else
-      args=(pr merge "$num")
-      [ "$squash" = 1 ] && args+=(--squash)
-      [ "$delbranch" = 1 ] && args+=(--delete-branch)
-      bb "${args[@]}"
+      echo "plot-host: pr-merge: bitbucket needs --match-head <sha>; nothing was merged" >&2
+      exit 1
     fi
     ;;
 

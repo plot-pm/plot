@@ -871,10 +871,18 @@ test('host: pr-merge github refuses with no --match-head, and calls no gh', () =
   assert.equal(argvOf(stubs.ghArgv), null, 'nothing reached gh');
 });
 
-test('host: pr-merge bitbucket merges with no pin', () => {
+// Bitbucket's merge endpoint takes no head precondition, so an unpinned call
+// has no way to know the head it is about to merge still matches what the
+// caller last read — the same gap #1730 found on GitHub, closed there by the
+// --match-head-commit refusal above. Asserting argvOf is null (not just the
+// exit code) proves bb was never invoked, matching the github refusal test.
+test('host: pr-merge bitbucket refuses with no --match-head, and calls no bb', () => {
   const stubs = makeStubs();
-  run(['pr-merge', '5', '--squash', '--delete-branch'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
-  assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'merge', '5', '--squash', '--delete-branch']);
+  const res = runAllowFail(['pr-merge', '5', '--squash', '--delete-branch'],
+    { env: { PLOT_HOST: 'bitbucket', PLOT_BB_SKIP_CAP_CHECK: '1' }, stubs });
+  assert.equal(res.code, 1);
+  assert.match(res.stderr, /--match-head/);
+  assert.equal(argvOf(stubs.bbArgv), null, 'nothing reached bb');
 });
 
 test('host: pr-list bitbucket flattens to number/title/state/head', () => {
