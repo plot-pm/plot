@@ -27,10 +27,14 @@ describe('chipRow — This sprint', () => {
     });
   });
 
-  it('reports zero hidden once the filter is on', () => {
-    const actual = chipRow(base({ sprint: { hasActiveSprint: true, on: true, visibleRows: [] } }));
-    expect(actual.thisSprint.hiddenCount).toBe(0);
-    expect(actual.thisSprint.on).toBe(true);
+  it('reports the same hidden count once the filter is on', () => {
+    const off = chipRow(base()).thisSprint;
+    const actual = chipRow(base({
+      sprint: { hasActiveSprint: true, on: true, visibleRows: base().sprint.visibleRows },
+    })).thisSprint;
+    expect(actual.hiddenCount).toBe(2);
+    expect(actual.hiddenCount).toBe(off.hiddenCount);
+    expect(actual.on).toBe(true);
   });
 
   it('is disabled with no active sprint, and never reports a hidden count', () => {
@@ -83,11 +87,12 @@ describe('chipRow — Mine', () => {
     expect(actual.mine.on).toBe(true);
   });
 
-  it('reports zero hidden once the filter is on', () => {
+  it('reports the same hidden count once the filter is on', () => {
     const actual = chipRow(base({
-      mine: { reader: { hostUser: 'jwloka', directory }, on: true, visibleRows: [] },
+      mine: { ...base().mine, on: true },
     }));
-    expect(actual.mine.hiddenCount).toBe(0);
+    expect(actual.mine.hiddenCount).toBe(1);
+    expect(actual.mine.hiddenCount).toBe(chipRow(base()).mine.hiddenCount);
   });
 });
 

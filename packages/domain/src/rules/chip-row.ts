@@ -3,17 +3,18 @@ import { isMine, type OwnedRow, type Reader } from './ownership.js';
 /**
  * One toggle chip on the Delivery tab's filter row.
  *
- * `hiddenCount` is the rows this chip's filter would hide if it were on,
- * counted over the rows reaching the row in their current (other-filters-applied)
- * state — `0` whenever `disabledReason` is non-null, since a chip that cannot
- * act hides nothing by its own action.
+ * `hiddenCount` is the rows this chip's filter hides when on, or would hide
+ * when off, counted over the rows reaching the chip with the other filters
+ * applied and this chip's own filter not — the same count whether `on` is true
+ * or false. It is `0` whenever `disabledReason` is non-null, since a chip that
+ * cannot act hides nothing by its own action.
  */
 export interface Chip {
   /** What the chip reads, e.g. `This sprint` or `Mine (jwloka)`. */
   readonly label: string;
   /** Whether the filter is currently active. */
   readonly on: boolean;
-  /** How many rows this chip's filter would hide. */
+  /** How many rows this chip's filter hides (on) or would hide (off). */
   readonly hiddenCount: number;
   /** Why the chip cannot act, naming the fix; `null` when it can. */
   readonly disabledReason: string | null;
@@ -81,7 +82,7 @@ const sprintChip = (readings: SprintChipReadings): Chip => {
   if (!readings.hasActiveSprint) {
     return { label: 'This sprint', on: false, hiddenCount: 0, disabledReason: 'No sprint is Active.' };
   }
-  const hiddenCount = readings.on ? 0 : readings.visibleRows.filter((row) => !row.inSprint).length;
+  const hiddenCount = readings.visibleRows.filter((row) => !row.inSprint).length;
   return { label: 'This sprint', on: readings.on, hiddenCount, disabledReason: null };
 };
 
@@ -103,9 +104,7 @@ const mineChip = (readings: MineChipReadings): Chip => {
     };
   }
   const label = `Mine (${identity})`;
-  const hiddenCount = readings.on
-    ? 0
-    : readings.visibleRows.filter((row) => !isMine(row, readings.reader)).length;
+  const hiddenCount = readings.visibleRows.filter((row) => !isMine(row, readings.reader)).length;
   return { label, on: readings.on, hiddenCount, disabledReason: null };
 };
 
