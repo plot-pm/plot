@@ -208,6 +208,15 @@ describe('readPass — the SDK runner readings', () => {
 });
 
 describe('readPass — ROW 4, take-up', () => {
+  it('reads an unreadable continuation as none when the caller passes no log — #2102', async () => {
+    const desk = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-readpass-unreadable-nolog-'));
+    made.push(desk);
+    fs.mkdirSync(path.join(desk, '.plot-worker.continue.md'));
+    const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: desk });
+    const readings = await readPass(ports(), file, RUNNING_NONE, CONFIG, { since: null });
+    expect(readings.continuation).toBeNull();
+  });
+
   it('logs a continuation file that is present but unreadable, and reads no continuation — #2102', async () => {
     const desk = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-readpass-unreadable-'));
     made.push(desk);
