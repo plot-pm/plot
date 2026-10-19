@@ -821,8 +821,17 @@ PR_LIST_PARTIAL_RC=7
 # TWO VARIADIC LISTS, ONE `"$@"`. The host command and the jq arguments are
 # both open-ended, and bash has one positional array — so the jq side travels
 # in this global, set by the caller immediately before the call. It is read
-# once per state and never written here.
+# once per state and never written here, UNLESS `PR_LIST_BIND_FN` names a
+# function that recomputes it — see below.
 PR_LIST_JQ_ARGS=()
+
+# The name of a function to call with this state's raw rows ($1) right before
+# they are piped through `jq_prog`, or empty to skip it (every existing
+# caller's behaviour). Runs INSIDE the one per-state loop below rather than a
+# second walk, because the Jenkins sha-bind needs each state's own rows and
+# `pr_list_states` is the one place that holds them before they are consumed.
+# Set and cleared by the caller, same as `PR_LIST_JQ_ARGS`.
+PR_LIST_BIND_FN=""
 
 # --- the per-branch sweep (#333) --------------------------------------------
 #
@@ -1326,6 +1335,7 @@ pr_list_states() { # $1=backend $2=limit $3=states $4=jq-program; rest=the host 
     [ -n "$PR_LIST_BRANCHES" ] || [ -n "$PR_LIST_SINCE" ] \
       || pr_list_report_truncation "$backend" "$limit" "$_s" \
       "$(jq 'length' <<<"$_raw" 2>/dev/null || echo 0)" "$BB_LIST_NEXT"
+    [ -z "$PR_LIST_BIND_FN" ] || "$PR_LIST_BIND_FN" "$_raw"
     printf '%s' "$_raw" | jq -c ${PR_LIST_JQ_ARGS[@]+"${PR_LIST_JQ_ARGS[@]}"} "$jq_prog"
   done
   pr_sweep_report "$_ok" "$((_ok + _failed))"
@@ -4377,9 +4387,18 @@ case "$op" in
           # Bitbucket PR list, `checks` filled from Jenkins — the SAME overlay
           # the GitHub arm uses, which is why it lives above the backend branch.
           # `bb`'s standing `unknown` becomes a real value where Jenkins answers.
-          PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status")
+          #
+          # A PUSH BETWEEN BUILDS LEAVES `$jmap`'S COLOUR STALE, same gap the
+          # GitHub arm closed (#1959/#1974): the branch-colour map carries no
+          # commit, so a green row can describe a head Jenkins never built. The
+          # fix is `jenkins_bind_rows` (`pr-state`'s own bind path, #1974),
+          # called here via `PR_LIST_BIND_FN` because `pr_list_states` loops
+          # per Bitbucket state and each state's rows are the only place the
+          # head shas live — see that global's header.
+          _bb_jen_bind() { local s; s="$(jenkins_bind_rows pr-list "$jen_map" "$(jq -c '[.[] | {headRefName:.source.branch.name,headRefOid:.source.commit.hash}]' <<<"$1")")"; PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status" --argjson shamap "${s:-null}"); } # $1 = this state's raw Bitbucket rows
+          PR_LIST_BIND_FN=_bb_jen_bind
           pr_list_states bitbucket "$limit" "$bb_states" '.[] |
-                ($jmap[.source.branch.name] // null) as $jentry |
+                ($shamap[.source.branch.name] // $jmap[.source.branch.name] // null) as $jentry |
                 {
                   number:.id, title:.title,
                   state:(if .state=="DECLINED" then "CLOSED" else .state end),
@@ -4393,14 +4412,11 @@ case "$op" in
                   mergeable:"unknown",
                   review:"",
                   url:(.links.html.href // ""),
-                  updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),
+                  updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),checksSha:($jentry.checksSha // ""),
                   author:(.author.nickname // ""),
-                  failing_checks:(
-                    if $jentry != null and $jentry.checks == "failing"
-                    then [$jentry.job]
-                    else []
-                  end)
+                  failing_checks:(if $jentry != null and $jentry.checks == "failing" then [$jentry.job] else [] end)
                 }' "${bb_cmd[@]}" || exit $?
+          PR_LIST_BIND_FN=""
         else
           # Bitbucket without Jenkins: checks remain unknown
           pr_list_states bitbucket "$limit" "$bb_states" \
