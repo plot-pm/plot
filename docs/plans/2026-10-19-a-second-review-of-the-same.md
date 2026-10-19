@@ -4,9 +4,10 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2126 merged
+- **Delivered:** 2026-10-20
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** #2115
 - **Story:** <!-- optional, story slug (docs/stories/<slug>/) -->
