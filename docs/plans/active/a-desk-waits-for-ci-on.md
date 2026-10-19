@@ -1,0 +1,1 @@
+../2026-10-19-a-desk-waits-for-ci-on.md
