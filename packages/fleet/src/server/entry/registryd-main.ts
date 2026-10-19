@@ -33,7 +33,7 @@ import {
 } from '@plot-pm/domain/adapters';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { Clock } from '@plot-pm/domain/ports/clock';
-import type { RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
+import type { SliceRefusal, RefusedSliceRecord } from '@plot-pm/domain/ports/refused-slices';
 import type { NotifyWrite } from '@plot-pm/domain/workflows/decision';
 import {
   parseQuestionEscalation,
@@ -880,6 +880,11 @@ export const queueWorldForRepo = (
       // the hold ends when the line is gone, and nothing ages it out.
       const answer = await refusedSlices.has(branch);
       return answer.ok && answer.value;
+    },
+    refusal: async (branch) => {
+      // UNREADABLE READS AS NO DETAIL: the hold itself comes from `refused`.
+      const answer = await refusedSlices.refusal(branch);
+      return answer.ok ? answer.value : null;
     },
     remoteHead: async (branch) => {
       const answer = await refs.remoteHead(branch);
@@ -2536,6 +2541,20 @@ const HOLD_SCOPE: Record<QueueHold, 'estate' | 'queue'> = {
 const KEPT_HOLD_NAMES = 12;
 
 /**
+ * The tail of a `refused` hold's line: who refused, why and when.
+ *
+ * @param refusal - the record's detail, absent where it names none.
+ * @returns `''` where no field is set, else ` — refused by <session>: <reason> (<at>)` with only the set fields.
+ */
+export const refusalText = (refusal: SliceRefusal | undefined): string => {
+  if (refusal === undefined) return '';
+  const who = refusal.session !== '' ? ` by ${refusal.session}` : '';
+  const why = refusal.reason !== '' ? `: ${refusal.reason}` : '';
+  const when = refusal.at !== '' ? ` (${refusal.at})` : '';
+  return who + why + when === '' ? '' : ` — refused${who}${why}${when}`;
+};
+
+/**
  * Writes one tick's report, and says what a one-shot run would exit with.
  *
  * **AN INCOMPLETE TICK GOES TO STDERR, A COMPLETED ONE TO STDOUT.** Both units
@@ -2626,7 +2645,9 @@ export const reportTick = (
             ? `    ${slice.branch} — waits on ${slice.waitsOn.join(', ')} (${slice.waitHeld})\n`
             : hold === 'assigned'
               ? `    ${slice.branch}: assigned to ${slice.assignedTo}\n`
-              : `    ${slice.branch}\n`,
+              : hold === 'refused'
+                ? `    ${slice.branch}${refusalText(slice.refusal)}\n`
+                : `    ${slice.branch}\n`,
         );
       }
       const rest = branches.length - named.length;

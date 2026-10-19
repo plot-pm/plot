@@ -995,6 +995,23 @@ describe('handOverCheck — a hand-over is checked before it is made', () => {
  * The hold never ends on a timer: it is a reading the caller takes fresh each
  * pass, and it clears the moment that reading does.
  */
+describe('matchQueue — a refused hold carries the refusal beside the branch', () => {
+  const refusal = { session: 'sess-1', reason: 'reset refused', at: '2026-10-18T10:00:00.000Z' };
+
+  it('copies the slice\'s refusal onto the held slice', () => {
+    const match = matchQueue({ slices: [slice({ refused: true, refusal })], agents: [] });
+    expect(match.held).toEqual([
+      { branch: 'feature/x', hold: 'refused', waitsOn: [], waitHeld: '', assignedTo: '', refusal },
+    ]);
+  });
+
+  it('carries no refusal onto another hold, even where the slice has one', () => {
+    const match = matchQueue({ slices: [slice({ claimable: false, refusal })], agents: [] });
+    expect(match.held).toHaveLength(1);
+    expect(match.held[0].refusal).toBeUndefined();
+  });
+});
+
 describe('whyNotReady — a refused slice is held rather than handed to another agent', () => {
   it('holds a claimable, briefed slice an agent refused, with agents free', () => {
     // CATCHES A HOLD THAT IS COUNTED AND NOT ENFORCED: the assertion is on

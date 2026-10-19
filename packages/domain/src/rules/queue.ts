@@ -2,6 +2,7 @@ import { type AgentReading, isAgentFree } from './free.js';
 import { sliceVerdicts, type PrereqAnswer } from './eligible.js';
 import type { LandedAnswer } from './landed.js';
 import { unnamedBranches } from './slice-name.js';
+import type { SliceRefusal } from '../ports/refused-slices.js';
 import type { PlanRecord, PlanRecordSlice } from '../ports/plan-store.js';
 import { planIdOf } from '../entities/plan.js';
 
@@ -108,6 +109,12 @@ export interface QueuedSlice {
    * ages it out.
    */
   refused: boolean;
+  /**
+   * Who refused the slice, why and when, where `refused` holds and the record
+   * names them; absent otherwise. Fields are `''` for a refusal recorded
+   * before the record carried them.
+   */
+  refusal?: SliceRefusal;
   /**
    * The agent a live manifest names this branch to, or `''` where none does.
    *
@@ -389,6 +396,8 @@ export interface HeldSlice {
   waitHeld: '' | 'unmerged' | 'unreachable';
   /** The agent a live manifest names where `hold` is `'assigned'`; `''` otherwise. */
   assignedTo: string;
+  /** Who refused it, why and when where `hold` is `'refused'` and the record names them; absent otherwise. */
+  refusal?: SliceRefusal;
 }
 
 /** What one matching pass made of the queue. */
@@ -660,6 +669,7 @@ export const matchQueue = (readings: QueueReadings): QueueMatch => {
         waitsOn: hold === 'waits' ? slice.waitsOn : [],
         waitHeld: hold === 'waits' ? slice.waitHeld : '',
         assignedTo: hold === 'assigned' ? slice.assignedTo : '',
+        ...(hold === 'refused' && slice.refusal !== undefined ? { refusal: slice.refusal } : {}),
       });
       continue;
     }

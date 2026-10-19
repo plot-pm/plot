@@ -425,6 +425,67 @@ describe('where a tick’s report goes', () => {
     );
   });
 
+  const heldReport = (held: readonly object[]): TickReport => ({
+    ...completed(),
+    handOver: {
+      outcome: 'decided',
+      workflow: 'assign',
+      writes: [],
+      detail: { assignments: [], held: held as never, idle: [], scaling: null },
+    },
+  });
+  const plain = { waitsOn: [], waitHeld: '', assignedTo: '' };
+
+  it('names who refused, why and when, under `held on refused`', () => {
+    const out: string[] = [];
+    reportTick(
+      heldReport([
+        {
+          branch: 'bug/x',
+          hold: 'refused',
+          ...plain,
+          refusal: { session: 'sess-1', reason: 'the desk reset was refused', at: '2026-10-18T10:00:00.000Z' },
+        },
+      ]),
+      (s) => out.push(s),
+      () => {},
+    );
+    const text = out.join('');
+    expect(text).toContain('held on refused (1):');
+    expect(text).toContain('    bug/x — refused by sess-1: the desk reset was refused (2026-10-18T10:00:00.000Z)\n');
+  });
+
+  it('prints a refused hold with no recorded reason as the branch alone', () => {
+    const out: string[] = [];
+    reportTick(
+      heldReport([
+        { branch: 'bug/old', hold: 'refused', ...plain },
+        { branch: 'bug/oldest', hold: 'refused', ...plain, refusal: { session: '', reason: '', at: '' } },
+      ]),
+      (s) => out.push(s),
+      () => {},
+    );
+    const text = out.join('');
+    expect(text).toContain('held on refused (2):\n    bug/old\n    bug/oldest\n');
+    expect(text).not.toContain('undefined');
+  });
+
+  it('leaves the other holds\' lines unchanged beside a refused one', () => {
+    const out: string[] = [];
+    reportTick(
+      heldReport([
+        { branch: 'bug/a', hold: 'no-brief', ...plain },
+        { branch: 'bug/b', hold: 'refused', ...plain, refusal: { session: 's', reason: 'r', at: '' } },
+      ]),
+      (s) => out.push(s),
+      () => {},
+    );
+    const text = out.join('');
+    expect(text).toContain('held on no-brief (1):\n    bug/a\n');
+    expect(text).toContain('held on refused (1):\n    bug/b — refused by s: r\n');
+    expect(text.indexOf('held on refused')).toBeLessThan(text.indexOf('held on no-brief'));
+  });
+
   it('names the agent a live manifest holds this branch for, under `held on assigned`', () => {
     const held: TickReport = {
       ...completed(),

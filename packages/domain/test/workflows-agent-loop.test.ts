@@ -188,10 +188,23 @@ describe('agentLoop — row 4: an assignment', () => {
     // slice to the next free agent (250 times for one slice, 2026-10-03).
     const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, takeUpRefused: 'desk-reset', claim: null });
     expect(result.writes).toEqual([
-      { kind: 'refused-slice', branch: BRANCH },
+      {
+        kind: 'refused-slice',
+        branch: BRANCH,
+        session: SESSION,
+        reason: 'the desk reset at take-up was refused, claim: unknown',
+      },
       { kind: 'assignment-clear', session: SESSION },
     ]);
     expect(result.detail.exitCode).toBeNull();
+  });
+
+  it('names the claim in the reason when the desk reset was refused over a held claim', () => {
+    const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, takeUpRefused: 'desk-reset', claim: 'held-by-agent' });
+    expect(result.writes[0]).toMatchObject({
+      kind: 'refused-slice',
+      reason: 'the desk reset at take-up was refused, claim: held-by-agent',
+    });
   });
 
   it.each(['commit', 'push'] as const)('clears the assignment and writes nothing else when the %s was refused', (refused) => {

@@ -98,4 +98,27 @@ describe('refusedSlicesFile', () => {
   it('reads a missing record as nothing refused', async () => {
     expect(answer(await fromDesk().has(BRANCH))).toBe(false);
   });
+
+  it('records who, why and when beside the branch, and reads them back', async () => {
+    const store = refusedSlicesFile({ cwd: desk, env: {}, now: () => new Date('2026-10-18T10:00:00Z') });
+    answer(await store.record(BRANCH, { session: 'sess-1', reason: 'the desk\treset\nwas refused' }));
+    expect(lines()).toEqual([`${BRANCH}\tsess-1\tthe desk reset was refused\t2026-10-18T10:00:00.000Z`]);
+    expect(answer(await store.has(BRANCH))).toBe(true);
+    expect(answer(await store.refusal(BRANCH))).toEqual({
+      session: 'sess-1',
+      reason: 'the desk reset was refused',
+      at: '2026-10-18T10:00:00.000Z',
+    });
+  });
+
+  it('still reads an old one-column file, with empty fields', async () => {
+    mkdirSync(join(main, '.git', '.plot', 'state'), { recursive: true });
+    writeFileSync(record, `${BRANCH}\nbug/two\n`);
+    const store = fromDesk();
+    expect(answer(await store.has(BRANCH))).toBe(true);
+    expect(answer(await store.refusal(BRANCH))).toEqual({ session: '', reason: '', at: '' });
+    expect(answer(await store.refusal('bug/absent'))).toBeNull();
+    answer(await store.record(BRANCH, { session: 's', reason: 'r' }));
+    expect(lines()).toEqual([BRANCH, 'bug/two']);
+  });
 });

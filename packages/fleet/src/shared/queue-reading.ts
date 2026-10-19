@@ -21,6 +21,7 @@ import {
 import { claimTip, orphanedClaims, type ClaimReading } from '@plot-pm/domain/rules/claim';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { PlanRecord, PlanRecordSlice, PortResult } from '@plot-pm/domain';
+import type { SliceRefusal } from '@plot-pm/domain/ports/refused-slices';
 import type { CommitSubject, RemoteHeadAnswer } from '@plot-pm/domain/ports/refs';
 
 import type { AgentEntry } from './registry.js';
@@ -136,6 +137,11 @@ export interface QueueWorld {
    * current refusal each pass rather than one it remembers.
    */
   refused(branch: string): Promise<boolean>;
+  /**
+   * Who refused the branch, why and when, asked only where {@link refused}
+   * answered true. `null` where the record names nothing.
+   */
+  refusal?(branch: string): Promise<SliceRefusal | null>;
   /**
    * Whether a branch's remote-tracking ref exists.
    *
@@ -356,9 +362,18 @@ export const readQueue = async (
       // under: an unclaimable slice reads `not-claimable` regardless, and asking
       // would pay for an answer nothing reads.
       const refused = entry.claimable ? await world.refused(entry.branch) : false;
+      const refusal = refused && world.refusal !== undefined ? await world.refusal(entry.branch) : null;
       const assignedTo = assigned.get(entry.branch) ?? '';
       const { slice, ...queued } = entry;
-      ofPlan.push({ ...queued, briefPresent, landed, priorUnknown: false, refused, assignedTo });
+      ofPlan.push({
+        ...queued,
+        briefPresent,
+        landed,
+        priorUnknown: false,
+        refused,
+        assignedTo,
+        ...(refusal !== null ? { refusal } : {}),
+      });
       ordered.push({ branch: entry.branch, slice, claimable: entry.claimable, landed });
     }
 
