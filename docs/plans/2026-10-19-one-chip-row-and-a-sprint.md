@@ -74,7 +74,7 @@ The chip's tooltip for a missing identity reads the state `only-my-work-says-no-
 
 ### Domain
 
-- `feature/chip-row-states-are-domain-properties` — one rule that returns, per chip, its label, on/off state, hidden count, and disabled reason with the fix it names; a rule for the sprint line's own item states; a rule for the filtered estate totals. Unit tests assert each. <!-- builds: chipRow, a domain rule for the filter chips' state, count and disabled reason -->
+- `feature/chip-row-states-are-domain-properties` — one rule that returns, per chip, its label, on/off state, hidden count, and disabled reason with the fix it names; a rule for the sprint line's own item states; a rule for the filtered estate totals. Unit tests assert each. <!-- builds: chipRow, a domain rule for the filter chips' state, count and disabled reason --> → #2089
 
 ### Board
 
