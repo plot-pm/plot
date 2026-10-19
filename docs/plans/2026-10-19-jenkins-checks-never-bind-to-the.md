@@ -49,7 +49,7 @@ One slice fixes the three causes in `plot-host.sh`. The plan states the target b
 
 ### Binding repair
 
-- `bug/jenkins-checks-bind-to-the-head` — resolve a slug-form Jenkins instance to the `jen` host, match a build by any `lastBuiltRevision`, and report a failed sha lookup; host tests on real-shaped values <!-- builds: slug-to-host resolution in jenkins_sha_runs, any-revision sha match, reported lookup failure in jenkins_bind_rows -->
+- `bug/jenkins-checks-bind-to-the-head` — resolve a slug-form Jenkins instance to the `jen` host, match a build by any `lastBuiltRevision`, and report a failed sha lookup; host tests on real-shaped values <!-- builds: slug-to-host resolution in jenkins_sha_runs, any-revision sha match, reported lookup failure in jenkins_bind_rows --> → #2109
 
 ## Notes
 
