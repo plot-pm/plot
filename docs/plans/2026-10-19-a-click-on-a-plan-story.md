@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:**
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2091 merged
+- **Started:** 2026-10-19, Jan Wloka, `bug/a-click-on-a-plan-story`
 
 ## Changelog
 
