@@ -742,7 +742,11 @@ const EXPECTED_FILES = 71;
 // `row-placement-quiet-and-ended-desk.browser.test.ts`, for a released ended
 // desk landing as an agent row in Quiet with its note. The file already
 // drove a page, so `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 600;
+// 600 → 601 on 2026-10-19: one `it(` in `mine-filter.browser.test.ts`, proving
+// the "no identity configured" hint stays hidden while `/api/board` has not
+// yet answered, even though `/api/fleet` already mounted the control (#2079).
+// The file already drove a page, so `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 601;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

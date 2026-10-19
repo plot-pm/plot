@@ -1,4 +1,4 @@
-import { isMine, ownedTicket, type OwnedRow, type Reader } from '@plot-pm/domain';
+import { isMine, ownedTicket, readerIsKnown, type OwnedRow, type Reader } from '@plot-pm/domain';
 import { type AgentEntry, type AgentRow, type Board, type Card, type IssueRow, type TicketSourceShape } from '../../../contract/schema.js';
 
 /**
@@ -120,6 +120,12 @@ export const ownedFromCard = (card: Pick<Card, 'assignee' | 'author' | 'approver
 export const readerFrom = (
   server?: { hostUser?: string; gitEmail?: string; people?: Record<string, string> },
 ): Reader => ({ hostUser: server?.hostUser, gitEmail: server?.gitEmail, directory: server?.people });
+
+// RE-EXPORTED, not redefined. `AgentList` renders the "no identity configured"
+// hint from this, and importing it alongside `readerFrom` keeps the reader's
+// construction and its known-ness in one place rather than reaching back into
+// `@plot-pm/domain` a second time for a single function.
+export { readerIsKnown };
 
 /**
  * The rows that stay in view, given the reader and whether the filter is on.

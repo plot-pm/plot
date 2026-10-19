@@ -16,6 +16,11 @@ import { readEnding, ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { endingAsksFreshStart } from '@plot-pm/domain/rules/ending-action';
 import { readDeskPid, resolveManifestDir } from './registry.js';
 import { takeContinueLock, releaseContinueLock } from './continue-lock.js';
+import { CONTINUATION_NAME } from './continuation-name.js';
+import { runLimitRefusal, DEFAULT_SLICE_MAX_RUNS } from '@plot-pm/domain/rules/run-limit';
+import { sliceSpendRefusal } from '@plot-pm/domain/rules/slice-spend-refusal';
+import { readSliceSpend } from '@plot-pm/domain/workflows/slice-spend';
+import { sliceSpendFile } from '@plot-pm/domain/adapters';
 
 /**
  * Starting a continuation on one desk — the non-HTTP half of `/api/continue`.
@@ -33,7 +38,7 @@ export interface ContinuationOptions {
   scriptsDir: string;
 }
 
-export const CONTINUATION_NAME = '.plot-worker.continue.md';
+export { CONTINUATION_NAME };
 
 /**
  * The environment variable naming the prompt file, for the `Worker command` to
@@ -110,7 +115,25 @@ export type ContinueRefusal =
    * holds) reads the same way and is accepted, because a wrongly-skipped
    * refusal — a second loop on the desk — is the worse failure.
    */
-  | 'loop-alive';
+  | 'loop-alive'
+  /**
+   * The slice has already started `Slice max runs` runs.
+   *
+   * **The limit wins over a person's answer, unconditionally.** A continuation
+   * is itself a run, so one that would be the run AT the limit is refused
+   * before it starts rather than let the slice overrun by one. There is no
+   * bypass: a person who wants another run raises the limit and asks again.
+   */
+  | 'run-limit'
+  /**
+   * The slice's recorded spend has already reached `Slice max spend`.
+   *
+   * Refused the same way `run-limit` is, and for the same reason: the limit
+   * wins. A project with no `Slice max spend` configured is never refused this
+   * way — `sliceSpendRefusal` reads an unconfigured limit as "no limit", not
+   * as zero.
+   */
+  | 'spend-limit';
 /** How many commits the prompt names before it says there are more. */
 export const COMMIT_MAX = 40;
 
@@ -515,6 +538,48 @@ const manifestText = (file: string): string | null => {
 };
 
 /**
+ * The manifest's `sliceRuns` count for `branch`.
+ *
+ * The same reading `worker-loop.ts`'s `sliceRunsOf` takes off the live
+ * manifest, duplicated rather than imported: no module under `shared/` imports
+ * an entry module under `server/entry/`.
+ *
+ * @param text - the manifest's raw text, or `null` when it could not be read.
+ * @param branch - the branch whose count is asked for.
+ * @returns the runs recorded for `branch`; `0` where the text is absent,
+ *   unparsable, or counts a different branch.
+ */
+const sliceRunsFromManifest = (text: string | null, branch: string): number => {
+  if (text === null) return 0;
+  try {
+    const raw = JSON.parse(text) as Record<string, unknown>;
+    const sliceRuns = raw.sliceRuns as { branch?: unknown; runs?: unknown } | undefined;
+    return sliceRuns?.branch === branch && typeof sliceRuns.runs === 'number' && Number.isInteger(sliceRuns.runs)
+      ? sliceRuns.runs
+      : 0;
+  } catch {
+    return 0;
+  }
+};
+
+/** A config value read as a positive integer, or `fallback` where it is not one. */
+const positiveOr = (raw: string, fallback: number): number => {
+  const n = Number(raw.trim());
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+};
+
+/**
+ * A config value read as a dollar amount, or `fallback` where it names none.
+ * The same pattern as `worker-loop.ts`'s `dollarsOrUnset`, duplicated for the
+ * reason {@link sliceRunsFromManifest} gives.
+ */
+const dollarsOr = (raw: string, fallback: number | null): number | null => {
+  const match = /^\s*\$?\s*(-?\d+(?:\.\d+)?)\s*(?:usd)?\s*$/i.exec(raw);
+  const n = match ? Number(match[1]) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+/**
  * Writes `text` back to `file` when the file is gone, atomically.
  *
  * @returns true when the file exists afterwards, false when it is gone and
@@ -593,8 +658,9 @@ const startMonitors = (input: {
  * Both callers share this: `POST /api/continue` after it has found the desk
  * through the pulse, and the registry tick for a desk whose ending earns a
  * fresh session. The refusals are the route's own, in the route's own order:
- * no marker, no `Worker command`, no single manifest naming the desk. Each
- * refusal happens before any write to the desk.
+ * no marker, no `Worker command`, no single manifest naming the desk, then
+ * `run-limit` and `spend-limit`. Each refusal happens before the stop of a
+ * free-waiting loop and before any write to the desk.
  *
  * With `fresh`, a desk with no marker is accepted where its ending is one
  * `endingAsksFreshStart` names for `branch`: `corrections-spent`,
@@ -723,6 +789,25 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // found: nothing signalled, nothing removed.
     if (stampPath !== '' && manifestBeforeStop === null) {
       return refused(409, 'no-manifest', `${stampPath} could not be read before the stop; the desk is left running`);
+    }
+
+    // THE LIMIT WINS, UNCONDITIONALLY (#1381). A continuation is itself a run,
+    // so it is checked against `Slice max runs`/`Slice max spend` before the
+    // stop and before the first write: a refusal leaves a free-waiting loop
+    // running. A person's answer does not override either limit. The run count
+    // comes from the `stamp` target's manifest; a `write` target has no
+    // manifest to read, so only the spend limit holds there.
+    const runs = sliceRunsFromManifest(manifestBeforeStop, branch);
+    const runLimit = positiveOr(readCfg(opts, 'Slice max runs', ''), DEFAULT_SLICE_MAX_RUNS);
+    if (runLimitRefusal(runs, runLimit)) {
+      return refused(409, 'run-limit', `the slice started ${runs} runs, the Slice max runs limit of ${runLimit}`);
+    }
+    const spendLimit = dollarsOr(readCfg(opts, 'Slice max spend', ''), null);
+    if (spendLimit !== null) {
+      const spend = await readSliceSpend(sliceSpendFile({ cwd: worktree }), branch);
+      if (sliceSpendRefusal({ costUsd: spend.costUsd }, spendLimit)) {
+        return refused(409, 'spend-limit', `the slice's recorded cost reached the Slice max spend limit of ${spendLimit}`);
+      }
     }
 
     // THE STOP, BEFORE ANYTHING ELSE TOUCHES THE DESK. `continueTarget` carries

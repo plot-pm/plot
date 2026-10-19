@@ -1,0 +1,1 @@
+../2026-10-19-chain-under-one-heading-reads-as.md

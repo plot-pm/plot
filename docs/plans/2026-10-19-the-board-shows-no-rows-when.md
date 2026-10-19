@@ -4,10 +4,11 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2087 merged
 - **Started:** 2026-10-19, Jan Wloka, `bug/the-board-shows-no-rows-when`
+- **Delivered:** 2026-10-19
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** #2083
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->

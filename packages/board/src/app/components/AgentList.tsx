@@ -63,6 +63,7 @@ import {
   readMineOnly,
   agentsForReader,
   readerFrom,
+  readerIsKnown,
   rowsForReader,
   ticketsForReader,
   writeMineOnly,
@@ -975,7 +976,13 @@ export function AgentList({
       {(() => {
         // WHETHER THE BOARD KNOWS WHO IS READING. Both fields empty is the
         // honest "not configured" answer, and the filter cannot act on it.
-        const known = (reader.hostUser ?? '') !== '' || (reader.gitEmail ?? '') !== '';
+        const known = readerIsKnown(reader);
+        // WHETHER THAT ANSWER IS THE BOARD'S OWN, rather than the gap before its
+        // first reply. `server` arrives on a separate, slower fetch than `fleet`
+        // — the Delivery tab mounts as soon as the fleet poll lands, which is
+        // most of the time first — so `undefined` here means "not asked yet",
+        // never "asked and named nobody". Only the latter is "not configured".
+        const boardAnswered = server !== undefined;
         const hidden = mineOnly ? filteredRows.length - visibleRows.length : 0;
         return (
           <label
@@ -1007,8 +1014,10 @@ export function AgentList({
             )}
             {/* WHY IT CAN DO NOTHING, where the board named nobody. Stated on
                 the control itself: a checkbox that ticks and changes nothing is
-                read as a broken filter. */}
-            {!known && (
+                read as a broken filter. Gated on `boardAnswered` too — the hint
+                claims the board checked and found no identity, which is false
+                while the board's own fetch is still outstanding. */}
+            {!known && boardAnswered && (
               <span className="text-xs italic text-slate-400 dark:text-slate-500">
                 no identity configured — nothing to match
               </span>

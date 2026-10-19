@@ -76,9 +76,12 @@ Each slice re-verifies its findings on main first, then fixes the ones that hold
 - `bug/a-continue-starts-one-loop` — #1357 and #1377: the start lock, the spawn `'error'` path, the stale pid, the wrapper wait, the freewait leak and one definition of the freewait filename → #2034 <!-- waits: bug/the-implement-lock-covers-its-start -->
 - `bug/a-failed-continue-leaves-its-desk-whole` — #1373 and #1379: manifest written last, `no-manifest` refused before the stop, the manifest restored on a stop timeout, the `warning` field and the corpus parity for `writeDeskManifest` → #2052 <!-- waits: bug/a-continue-starts-one-loop -->
 
-### Continuation
+### Continuation limits
 
 - `bug/a-continuation-obeys-the-limits` — #1381 and #1383: run and spend limits, the retry that carries the answer, the idempotent append, the read-error split and the leaf module for `CONTINUATION_NAME` → #2078
+
+### Unstarted resume
+
 - `bug/an-unstarted-continue-resumes-no-stranger` — #1788 and the resume-id test from #1373 <!-- waits: bug/a-continuation-obeys-the-limits -->
 
 ## Notes

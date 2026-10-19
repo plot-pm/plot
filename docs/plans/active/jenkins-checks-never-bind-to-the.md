@@ -1,0 +1,1 @@
+../2026-10-19-jenkins-checks-never-bind-to-the.md
