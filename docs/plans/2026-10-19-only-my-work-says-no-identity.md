@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #2079
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2081 merged
 - **Started:** 2026-10-19, Jan Wloka, `bug/only-my-work-says-no-identity`
+- **Delivered:** 2026-10-19
 
 ## Changelog
 
