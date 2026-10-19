@@ -1442,27 +1442,20 @@ echo
 # /plot-reslice declines the waves it should — that is a constraint on the
 # REPAIR, not on the REPORT.
 #
-# A HEADING WHOSE BRANCHES FORM ONE `waits:` CHAIN IS NOT UNCUT. Each branch
-# waiting for the one before it is a SEQUENCE, not several slices crammed under
-# one heading — `isChainedHeading` (`@plot-pm/domain/rules/slice-chain`) is the
-# rule, asked once per candidate heading through `board/plot-slice-chain.mjs`
-# rather than carried a second time in jq: this runs once per reconcile pass,
-# the frequency docs/shell-and-domain.md calls free.
+# A CHAIN (each branch waiting for the one before it) is a SEQUENCE, not an
+# uncut heading — `isChainedHeading` (`@plot-pm/domain/rules/slice-chain`),
+# asked per heading through `board/plot-slice-chain.mjs` rather than
+# duplicated in jq (docs/shell-and-domain.md: once per reconcile pass).
 echo "== 7. Uncut slices (a slice holds one branch — candidate /plot-reslice) =="
 unsliced_out=""
 slice_chain_bundle="$script_dir/board/plot-slice-chain.mjs"
 if [ -n "$plan_json" ]; then
   if [ -f "$slice_chain_bundle" ] && command -v node >/dev/null 2>&1; then
-    # One jq pass over the already-captured parser output, one record per
-    # multi-branch wave: file, heading (may be empty for an unnamed wave), branch
-    # count, and the wave's `branches` array (each a `{branch, waits_on}` object)
-    # as its own JSON document. Fields are joined with the ASCII unit separator
-    # (US, 0x1f) and read with IFS="$US" — NOT a tab: a wave with an empty name
-    # emits an empty middle field, and tab is IFS whitespace, so `read` would
-    # collapse the two adjacent tabs and shift later fields left. This is the
-    # same reason plan_rows uses US above; @tsv here reproduced exactly that
-    # field-shift bug. Phase-less files (phase == "NONE") are dropped, matching
-    # "a file with no Phase: is not a plan".
+    # One record per multi-branch wave: file, heading, branch count, and the
+    # wave's `branches` (each `{branch, waits_on}`) as its own JSON document —
+    # joined with US (0x1f), not tab: an empty heading plus IFS-whitespace tabs
+    # would collapse and shift fields (same reason plan_rows uses US above).
+    # Phase-less files (phase == "NONE") are dropped: no Phase:, no plan.
     while IFS="$US" read -r f wname wcount wbranches; do
       [ -n "$f" ] || continue
       chained=$(printf '{"branches":%s}\n' "$wbranches" | node "$slice_chain_bundle")
