@@ -153,9 +153,13 @@ describe('reviewPr', () => {
     expect(r.statuses[1]!.description).toContain(`run ${RUN}`);
   });
 
-  it('keeps the worst-case description under the host\'s 140-character cap', () => {
-    const description = `99 HIGH findings; follow-up issue not opened; run ${RUN}`;
-    expect(description.length).toBeLessThan(140);
+  it('keeps the worst-case description within the host\'s 140-character cap', async () => {
+    const r = rig('Findings: HIGH 99, MEDIUM 99, LOW 99\n');
+    await reviewPr(r.deps, '7');
+    await reviewPr(r.deps, '7');
+    const description = r.statuses[1]!.description;
+    expect(description).toBe(`99 HIGH findings; run ${RUN}`);
+    expect(description.length).toBeLessThanOrEqual(140);
   });
 
   it('writes success with the PR URL and opens no issue on no findings at all', async () => {
@@ -622,6 +626,29 @@ describe('one follow-up issue per PR', () => {
     const out = await reviewPr(r.deps, '7');
     expect(out.code).toBe(EXIT.issueNotOpened);
     expect(out.lines.join('\n')).toContain('could not comment on issue 9: plot-host: HTTP 403');
+    expect(r.files.get(`${REVIEWS}/7-${HEAD}.issue`)).toBe('9');
+    expect(r.statuses).toEqual([{
+      sha: HEAD, state: 'success', context: 'plot/review', description: 'no HIGH findings; verdict not commented',
+      targetUrl: 'https://github.com/o/r/issues/9',
+    }]);
+  });
+
+  it('keeps the recorded issue as the target and exits ok when the tracker takes no comment', async () => {
+    const { tracker, opened } = withLabelled([], {
+      issueListLabelled: async () => ({ ok: false as const, why: 'unaskable' as const, reason: 'the Jira tracker lists no issues by label' }),
+      issueComment: async () => ({ ok: false as const, why: 'unaskable' as const, reason: 'the Jira tracker does not comment on issues' }),
+    });
+    const files = new Map<string, string>([[`${REVIEWS}/7-${HEAD}.issue`, '9']]);
+    const r = rig('Findings: HIGH 1, MEDIUM 0, LOW 0\n', { files });
+    r.deps.tracker = tracker;
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.ok);
+    expect(opened).toHaveLength(0);
+    expect(r.statuses).toEqual([{
+      sha: HEAD, state: 'failure', context: 'plot/review', description: '1 HIGH finding',
+      targetUrl: 'https://github.com/o/r/issues/9',
+    }]);
+    expect(out.lines.join('\n')).toContain('could not comment on issue 9: the Jira tracker does not comment on issues');
     expect(r.files.get(`${REVIEWS}/7-${HEAD}.issue`)).toBe('9');
   });
 

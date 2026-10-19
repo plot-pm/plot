@@ -68,7 +68,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  *
  * AN ISSUE THAT WAS NOT OPENED NEVER SKIPS THE STATUS. The status is written
  * on the reviewed SHA as above, the output names why no issue was opened, and
- * the run exits {@link EXIT.issueNotOpened}.
+ * the run exits {@link EXIT.issueNotOpened}. A comment on a recorded issue
+ * that the tracker does not take (`unaskable`) keeps the issue as `target_url`
+ * and exits {@link EXIT.ok}; one that fails keeps the issue as `target_url`,
+ * describes the status `verdict not commented`, and exits
+ * {@link EXIT.issueNotOpened}. Either way the output names why.
  *
  * Every refusal writes no status and exits non-zero with the reason.
  */
@@ -81,7 +85,10 @@ export const EXIT = {
   usage: 2,
   /** The run refused; no status was written. */
   refused: 3,
-  /** A status was written, and the follow-up issue was not opened. */
+  /**
+   * A status was written, and the verdict did not reach a follow-up issue: no
+   * issue was opened, or the comment on the recorded issue failed.
+   */
   issueNotOpened: 4,
 } as const;
 
@@ -179,8 +186,14 @@ const followUpIssue = (
   ].join('\n'),
 });
 
-/** The follow-up issue's URL, or why no issue was opened. */
-type FollowUp = { ok: true; url: string; commented: boolean } | { ok: false; why: string };
+/**
+ * The follow-up issue's URL, or why no issue was opened. `uncommented` names
+ * why the verdict did not reach an issue that exists; `failed` is true where
+ * the tracker failed the comment rather than taking none.
+ */
+type FollowUp =
+  | { ok: true; url: string; commented: boolean; uncommented?: { why: string; failed: boolean } }
+  | { ok: false; why: string };
 
 /** How many labelled open issues the lookup reads; a read that stops here is not conclusive. */
 const LOOKUP_LIMIT = 200;
@@ -224,7 +237,10 @@ const openIssueOfPr = async (
  * A refusal that starts with {@link ISSUE_MAY_EXIST} keeps `pending`, so no
  * later run opens a second issue; any other refusal removes the file — except
  * a comment on an already-recorded id, where the id is still the right issue
- * and removing it would make the next run look up or open another.
+ * and removing it would make the next run look up or open another. A comment
+ * on a recorded id that the tracker does not take (`unaskable`, as Jira
+ * answers) or that fails still answers the recorded issue's URL, with
+ * `uncommented` naming why.
  *
  * @param deps - the tracker and file operations.
  * @param issueFile - the issue file for this PR and head.
@@ -251,15 +267,17 @@ const openFollowUp = async (
   const followUp = followUpIssue(pr.number, sha, pr.url, counts, verdictText, run);
   let issueId = recorded;
   let didComment = false;
+  let uncommented: { why: string; failed: boolean } | undefined;
   if (issueId !== '') {
     const commented = await deps.tracker.issueComment(issueId, followUp.body);
-    if (!commented.ok) {
+    if (commented.ok) {
+      didComment = true;
+    } else {
       const why = (commented.why === 'unaskable' ? commented.reason : undefined)
         ?? deps.tracker.lastRefusal()
         ?? `the tracker answered ${commented.why} with no reason`;
-      return { ok: false, why: `could not comment on issue ${issueId}: ${why}` };
+      uncommented = { why: `could not comment on issue ${issueId}: ${why}`, failed: commented.why !== 'unaskable' };
     }
-    didComment = true;
   } else {
     deps.writeText(issueFile, 'pending');
     const existing = await openIssueOfPr(deps, pr.number);
@@ -305,7 +323,9 @@ const openFollowUp = async (
   if (url === null) {
     return { ok: false, why: `issue ${issueId} was opened, but its URL cannot be composed for tracker '${scheme}'` };
   }
-  return { ok: true, url, commented: didComment };
+  return uncommented === undefined
+    ? { ok: true, url, commented: didComment }
+    : { ok: true, url, commented: false, uncommented };
 };
 
 /**
@@ -418,6 +438,8 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   const description = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH finding${counts.high === 1 ? '' : 's'}`;
   const issueUrl = followUp?.ok === true ? followUp.url : null;
   if (followUp?.ok === false) lines.push(`plot-review: the follow-up issue was not opened: ${followUp.why}`);
+  const uncommented = followUp?.ok === true ? followUp.uncommented : undefined;
+  if (uncommented !== undefined) lines.push(`plot-review: the verdict was not commented: ${uncommented.why}`);
   const commented = followUp?.ok === true && followUp.commented;
   const written = await deps.host.commitStatus({
     sha,
@@ -425,6 +447,7 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
     context: REVIEW_CONTEXT,
     description: followUp?.ok === false
       ? `${description}; follow-up issue not opened`
+      : uncommented?.failed === true ? `${description}; verdict not commented`
       : commented ? `${description}; run ${run}` : description,
     targetUrl: issueUrl ?? pr.url,
   });
@@ -433,7 +456,7 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   }
   const summary = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH`;
   lines.push(`plot-review: PR #${pr.number} ${sha} ${state}, ${summary}${issueUrl === null ? '' : `, issue ${issueUrl}`}`);
-  return { code: followUp?.ok === false ? EXIT.issueNotOpened : EXIT.ok, lines };
+  return { code: followUp?.ok === false || uncommented?.failed === true ? EXIT.issueNotOpened : EXIT.ok, lines };
 };
 
 /** `git`, run in `cwd`. */
