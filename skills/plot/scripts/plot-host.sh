@@ -1696,12 +1696,11 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
 # is missing, unparseable, or the line is absent — the caller decides what an
 # unresolved host means, same contract as every other helper here.
 jenkins_resolve_host() {
-  local slug="$1" out line
+  local slug="$1" line
   command -v jen >/dev/null 2>&1 || return 1
-  out=$(jen -I "$slug" auth status 2>&1) || true
-  line=$(printf '%s\n' "$out" | grep -iE '^Instance:' | head -1)
+  line=$(jen -I "$slug" auth status 2>&1 | grep -iE '^Instance:' | head -1) || true
   [ -n "$line" ] || return 1
-  printf '%s' "$line" | sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p'
+  sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p' <<<"$line"
 }
 
 # Every Jenkins build of one job, as a JSON array (newest first), or exit 3
@@ -1746,19 +1745,12 @@ jenkins_sha_runs() {
   job="${instance#*/}"
   [ "$job" = "$instance" ] && job=""
   [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"
-  if [ -z "$job" ]; then
-    echo "plot-host: $op — the Jenkins instance names no job path; a sha lives in a job's builds, so it must be <slug>/<job/path>, not a bare host" >&2
-    exit 4
-  fi
+  [ -n "$job" ] || { echo "plot-host: $op — the Jenkins instance names no job path; a sha lives in a job's builds, so it must be <slug>/<job/path>, not a bare host" >&2; exit 4; }
   # A dotted slug IS a host already, `jen`'s own passthrough rule — only a
   # bare slug (`ewz`) needs resolving to the host its credential is keyed by.
   case "$slug" in
     *.*) host="$slug" ;;
-    *) host="$(jenkins_resolve_host "$slug")" || {
-         echo "plot-host: $op — cannot resolve Jenkins instance '$slug' to a host" >&2
-         echo "  \`jen -I $slug auth status\` did not answer an 'Instance:' line; run it directly to see why." >&2
-         exit 4
-       } ;;
+    *) host="$(jenkins_resolve_host "$slug")" || { echo "plot-host: $op — cannot resolve Jenkins instance '$slug' to a host" >&2; echo "  \`jen -I $slug auth status\` did not answer an 'Instance:' line; run it directly to see why." >&2; exit 4; } ;;
   esac
   cred="$(jenkins_rest_credential "$host")" || {
     echo "plot-host: $op — no Jenkins API credential for '$host'" >&2
@@ -1788,8 +1780,7 @@ jenkins_sha_runs() {
           conclusion: (if .building then null else (.result // null) end),
           url: (.url // ""),
           startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ]
-    | if $sha != "" then map(select(any(.shas[]?; . == $sha or (($sha | test("^[0-9a-f]{7,}$")) and (. | startswith($sha))))))
-      elif $plain == "" then .
+    | if $sha != "" then map(select(any(.shas[]?; . == $sha or (($sha | test("^[0-9a-f]{7,}$")) and (. | startswith($sha)))))) elif $plain == "" then .
       else map(select(if (.br | length) > 0 then any(.br[]; . == $branch) else $branch == ($job | split("/") | last) end)) end
     | map(.sha = (.shas | first // "") | del(.shas, .br))' || exit 4
 }
