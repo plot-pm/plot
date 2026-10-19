@@ -1,0 +1,1 @@
+../2026-10-19-a-click-on-a-plan-story.md
