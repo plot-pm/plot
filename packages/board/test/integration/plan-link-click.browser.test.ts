@@ -168,7 +168,9 @@ describe('tiny-garden: a click on a plan name in Waiting on you', () => {
       const link = planRow.getByRole('link', { name: PLAN });
       const [popup] = await Promise.all([
         page.context().waitForEvent('page', { timeout: 10_000 }),
-        link.click({ modifiers: ['Meta'] }),
+        // `ControlOrMeta`: the new-tab modifier is Ctrl on Linux, where CI runs,
+        // and Cmd on macOS. A Meta-click on Linux opens no page at all.
+        link.click({ modifiers: ['ControlOrMeta'] }),
       ]);
       await popup.waitForLoadState();
       await popup.waitForURL(`**/plan/${PLAN_FILE}`, { timeout: 5_000 });
