@@ -57,7 +57,7 @@ A repeated run on one head with an unchanged verdict then adds a second comment 
 
 ### Verdict per run
 
-- `bug/plot-review-writes-every-verdict` — `openFollowUp` comments the verdict on the recorded issue, the status description and the comment carry the run marker, and a test pins both: a second run on one head adds a comment, and the status and the last comment agree. <!-- builds: a verdict comment for a head with a recorded issue -->
+- `bug/plot-review-writes-every-verdict` — `openFollowUp` comments the verdict on the recorded issue, the status description and the comment carry the run marker, and a test pins both: a second run on one head adds a comment, and the status and the last comment agree. <!-- builds: a verdict comment for a head with a recorded issue --> → #2133
 
 ## Notes
 
