@@ -3948,9 +3948,9 @@ case "$op" in
       args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash) || args+=(--merge); [ "$delbranch" = 1 ] && args+=(--delete-branch)
       if [ -n "$merger_token" ]; then GH_TOKEN="$merger_token" gh "${args[@]}" --match-head-commit "$pin"; else gh "${args[@]}" --match-head-commit "$pin"; fi
     # Bitbucket's merge endpoint takes no head precondition (measured 2026-10-18,
-    # see plan Notes), so the pin is enforced by re-reading the head via
-    # bb_state_row (pr-state's own parser) right before merging.
-    elif [ -n "$pin" ]; then bb_require_json; head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"; echo "plot-host: $err" >&2; exit 3; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; [ -n "$head_sha" ] && [ "$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')" ] || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
+    # see plan Notes), so the pin is enforced by re-reading the head via bb_state_row
+    # right before merging; it matches by prefix, 7+ hex (domain's sameCommit).
+    elif [ -n "$pin" ]; then bb_require_json; head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"; echo "plot-host: $err" >&2; exit 3; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
     else
       args=(pr merge "$num")
       [ "$squash" = 1 ] && args+=(--squash)

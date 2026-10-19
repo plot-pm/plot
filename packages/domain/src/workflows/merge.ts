@@ -64,14 +64,14 @@ const short = (sha: string | undefined): string =>
  * Refuses unless all four hold at the host's answer now: the head names the
  * same commit as the caller's sha (see {@link sameCommit} — a short host head
  * and a full-length caller sha, in either direction, still match), the check
- * rollup is green for that head, the PR is not a draft, and the default
- * branch is not red. A host that did not answer, or
- * that names no head commit, refuses as `unaskable`, and so does a
- * default-branch read that failed. A missing default-branch reading holds
- * nothing and the decision says so in its detail. A reading whose `askedAt`
- * is older than `input.checksWaitMs`, or does not parse, refuses as
- * `default-branch-stale`: a merge cannot be undone, so a reading no host
- * confirmed within the bound permits nothing, whether it reads red or green.
+ * rollup is green for that head, the PR is not a draft, and the default branch
+ * is not red. A host that did not answer, or that names no head commit,
+ * refuses as `unaskable`, and so does a default-branch read that failed. A
+ * missing default-branch reading holds nothing and the decision says so in its
+ * detail. A reading whose `askedAt` is older than `input.checksWaitMs`, or does
+ * not parse, refuses as `default-branch-stale`: a merge cannot be undone, so a
+ * reading no host confirmed within the bound permits nothing, whether it reads
+ * red or green.
  *
  * `checks-unbound` guards a rollup that names a commit other than the head.
  * A PR's `checksSha` and `headSha` both name commits on the same ref; when an
@@ -80,7 +80,8 @@ const short = (sha: string | undefined): string =>
  *
  * @param readings - the host's PR answer and the default-branch reading.
  * @param input - the PR, the head commit the caller read, the clock and the `Checks wait` bound.
- * @returns a decision with one `pr-merge` write pinned to `input.sha`, or the
+ * @returns a decision with one `pr-merge` write pinned to the host's head in
+ *   the host's own form (`pr.headSha`, which names the caller's commit), or the
  *   first refusal, naming the reading it saw.
  */
 export const merge = (readings: MergeReadings, input: MergeInput): Outcome<MergeDetail, MergeRefusal> => {
@@ -119,7 +120,7 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
       return no('default-branch-red', `${defaultBranch.branch} is red on ${short(defaultBranch.settled.sha)}. A merge now stacks a change on an unproven base.`);
     }
   }
-  return decide('merge', [{ kind: 'pr-merge', pr: input.pr, deleteBranch: false, sha: input.sha }], {
+  return decide('merge', [{ kind: 'pr-merge', pr: input.pr, deleteBranch: false, sha: pr.headSha }], {
     pr: input.pr,
     sha: input.sha,
     defaultBranchRead: readings.defaultBranch !== null,

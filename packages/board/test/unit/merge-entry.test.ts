@@ -46,7 +46,7 @@ const ports = (lookup: Pr | 'unaskable', answer: 'answered' | 'failed' = 'answer
 };
 
 describe('mergeAt', () => {
-  it('passes the caller’s sha to the host as --match-head', async () => {
+  it('passes the head the caller read to the host as --match-head', async () => {
     const { p, calls } = ports(pr());
     const out = await mergeAt(p, 7, HEAD);
     expect(out).toMatchObject({ merged: true, pr: 7, sha: HEAD, defaultBranchRead: false, unpinned: false });
@@ -75,6 +75,13 @@ describe('mergeAt', () => {
   it('merges on a Bitbucket-short 12-character head matching the caller’s full sha', async () => {
     const { p, calls } = ports(pr({ headSha: HEAD.slice(0, 12), checksSha: HEAD.slice(0, 12) }));
     expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: true, pr: 7, sha: HEAD });
+    // The pin is the host's own form of the head, so the host's re-read compares like with like.
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD.slice(0, 12)]]);
+  });
+
+  it('pins a 12-character caller sha to the host’s 40-character head', async () => {
+    const { p, calls } = ports(pr());
+    expect(await mergeAt(p, 7, HEAD.slice(0, 12))).toMatchObject({ merged: true, pr: 7 });
     expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD]]);
   });
 

@@ -615,6 +615,39 @@ test('host: pr-merge bitbucket merges a matching head', () => {
   assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'merge', '5']);
 });
 
+// Bitbucket reports `source.commit.hash` as a 12-character short hash, and a
+// caller pins the 40-character sha it read from git. The arm matches by prefix
+// under the domain's `sameCommit` rule: both hex, case ignored, the shorter at
+// least seven characters.
+const bbPrWithHead = (hash) =>
+  `{"id":5,"state":"OPEN","source":{"branch":{"name":"feature/x"},"commit":{"hash":"${hash}"}},"destination":{"branch":{"name":"main"}},"links":{"html":{"href":"https://example.test/pr/5"}}}`;
+const bbFullSha = '66836536f8c9' + 'a'.repeat(28);
+
+test('host: pr-merge bitbucket merges a 12-character head against the full 40-character pin', () => {
+  const stubs = makeStubs({ bbJson: bbPrWithHead('66836536F8C9') });
+  run(['pr-merge', '5', '--squash', '--match-head', bbFullSha],
+    { env: { PLOT_HOST: 'bitbucket', PLOT_BB_SKIP_CAP_CHECK: '1' }, stubs });
+  assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'merge', '5', '--squash']);
+});
+
+test('host: pr-merge bitbucket refuses a 12-character head that the 40-character pin does not extend', () => {
+  const stubs = makeStubs({ bbJson: bbPrWithHead('66836536f8c9') });
+  const res = runAllowFail(['pr-merge', '5', '--match-head', '66836536f8c8' + 'a'.repeat(28)],
+    { env: { PLOT_HOST: 'bitbucket', PLOT_BB_SKIP_CAP_CHECK: '1' }, stubs });
+  assert.equal(res.code, 1);
+  assert.match(res.stderr, /head-moved/);
+  assert.notDeepEqual(argvOf(stubs.bbArgv)?.slice(0, 2), ['pr', 'merge'], 'the merge call must never run');
+});
+
+test('host: pr-merge bitbucket refuses a pin shorter than seven characters', () => {
+  const stubs = makeStubs({ bbJson: bbPrWithHead('66836536f8c9') });
+  const res = runAllowFail(['pr-merge', '5', '--match-head', '668365'],
+    { env: { PLOT_HOST: 'bitbucket', PLOT_BB_SKIP_CAP_CHECK: '1' }, stubs });
+  assert.equal(res.code, 1);
+  assert.match(res.stderr, /head-moved/);
+  assert.notDeepEqual(argvOf(stubs.bbArgv)?.slice(0, 2), ['pr', 'merge'], 'the merge call must never run');
+});
+
 // A TRANSPORT FAILURE AND A LOOKUP MISS ARE TWO ANSWERS, AND THEY USED TO BE
 // ONE. Both make `gh` exit 1; before this the adapter caught both with a single
 // `|| echo '{"state":"NONE"}'` and exited 0. On 2026-08-17 GitHub returned 503
