@@ -6,6 +6,7 @@ import { Swimlanes } from './components/Swimlanes.js';
 import { PlanModal } from './components/PlanModal.js';
 import { SprintModal } from './components/SprintModal.js';
 import { boardTabOf, type BoardTab } from '@plot-pm/domain/rules/board-tab';
+import { planLinkClick } from '@plot-pm/domain/rules/plan-link-click';
 import { revealsReleased } from '@plot-pm/domain/rules/workflow-phases';
 import type { DiscoveryShow } from '@plot-pm/domain';
 import { StoriesTab } from './components/StoriesTab.js';
@@ -813,11 +814,12 @@ export function App() {
   const onOpenPlanFile = useCallback(
     (planFile: string): boolean => {
       const card = cardForPlanFile(planFile);
-      if (card) {
-        setOpenPlan(card);
+      const decision = planLinkClick(board !== null, card !== null);
+      if (decision === 'open') {
+        setOpenPlan(card as Card);
         return true;
       }
-      if (!board) {
+      if (decision === 'wait') {
         setPendingPlan(planFile);
         return true;
       }
@@ -827,13 +829,19 @@ export function App() {
   );
 
   // The deferred half of the click above. Once the board arrives, either the
-  // card is there and the modal opens, or it is not and the request is dropped
-  // — a click that resolves to nothing beats one that navigated away.
+  // card is there and the modal opens, or it is not and the click that was
+  // remembered instead of navigating falls back to the plan page now — a
+  // click that resolves to nothing must still go somewhere.
   useEffect(() => {
     if (!pendingPlan || !board) return;
     const card = cardForPlanFile(pendingPlan);
+    const file = pendingPlan;
     setPendingPlan('');
-    if (card) setOpenPlan(card);
+    if (planLinkClick(true, card !== null) === 'open') {
+      setOpenPlan(card as Card);
+    } else {
+      location.assign(`/plan/${encodeURIComponent(file)}`);
+    }
   }, [pendingPlan, board, cardForPlanFile]);
 
   /**
@@ -1417,12 +1425,16 @@ export function App() {
           sprint={openSprint}
           onClose={() => setOpenSprint(null)}
           onOpenPlan={(slug) => {
-            // Find the card for this plan slug and open it in the plan modal.
-            const card = allCards.find((c) => c.slug === slug);
-            if (card) {
+            const card = allCards.find((c) => c.slug === slug) ?? null;
+            if (planLinkClick(true, card !== null) === 'open') {
               setOpenSprint(null);
-              setOpenPlan(card);
+              setOpenPlan(card as Card);
+              return;
             }
+            // No card for this slug — the sprint member names a plan the
+            // board does not hold a card for; there is no `/plan/<file>` path
+            // to fall back to (only the slug, not the file), so the modal
+            // stays open rather than navigating nowhere.
           }}
         />
       )}
