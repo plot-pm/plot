@@ -266,6 +266,22 @@ describe('needsPersonMarker', () => {
     expect(text).not.toContain('remote tip moved');
   });
 
+  it('names a no-answer with mergeable=unknown the same as no mergeability at all', () => {
+    const text = needsPersonMarker('checks-unanswered', 'infra/x', 'no-answer: mergeable=unknown');
+    expect(text).toContain('No build ever answered');
+    expect(text).toContain('nothing from the build connector');
+    expect(text).not.toContain('starts no build for a PR that cannot merge');
+  });
+
+  it('names a no-answer with mergeable=conflicting as the cause, not a silent build connector', () => {
+    const text = needsPersonMarker('checks-unanswered', 'infra/x', 'no-answer: mergeable=conflicting');
+    expect(text).toContain('No build ever answered');
+    expect(text).toContain('mergeable=conflicting');
+    expect(text).toContain('the host starts no build for a PR that cannot merge');
+    expect(text).toContain('merge the default branch into `infra/x`');
+    expect(text).not.toContain('nothing from the build connector');
+  });
+
   it('names a tip-moved checks-unanswered as another commit shadowing this one', () => {
     const text = needsPersonMarker('checks-unanswered', 'infra/x', 'tip-moved: remote tip is 0e64fafd, agent pushed f743e573');
     expect(text).toContain('remote tip moved');

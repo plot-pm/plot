@@ -1,6 +1,7 @@
 import type { ClaimHolderAnswer } from '../rules/claim.js';
 import type { ChecksFromRuns, RemoteTipReading } from '../rules/checks-verdict.js';
 import type { LoopRegistration } from '../rules/desk-manifest.js';
+import type { Mergeability } from '../entities/pr.js';
 import type { PromptExit } from '../rules/prompt-exit.js';
 import type { ResetRefusal } from '../rules/reapable.js';
 import type { CommitReading, MonitorVerdict } from '../rules/sample.js';
@@ -215,6 +216,14 @@ export interface AgentLoopReadings {
   readonly correctionBudget: number;
   /** The PR number the checks are about, for a `blocked-marker` naming it. */
   readonly pr: number | null;
+  /**
+   * Whether the open PR merges cleanly, read once on entry to the checks wait
+   * alongside {@link pr} — `null` outside the wait, where no PR has been read
+   * yet. Read only so a `no-answer` ending's marker can name the host's own
+   * `mergeable` reading rather than a generic "check the build connector"
+   * when the real cause was a conflicting PR GitHub never started a run for.
+   */
+  readonly mergeable: Mergeability | null;
   /** The correction text to hand the agent on a failed build, already built by the caller. */
   readonly correctionText: string;
   /** The session to resume the correction in, or `''` to start a fresh worker. */
@@ -903,11 +912,17 @@ const ciWait = (readings: AgentLoopReadings, branch: string): Decision<AgentLoop
         blockedDeclaration(worktree, branch, 'the remote tip moved away from the pushed commit'),
       ]);
 
-    case 'no-answer':
-      // ROW 16 — the wait reached `Checks wait` with nothing conclusive.
-      return end(worktree, branch, 'checks-unanswered', 'agent', 'no-answer', 0, [
+    case 'no-answer': {
+      // ROW 16 — the wait reached `Checks wait` with nothing conclusive. The
+      // mergeability the host already gave on wait entry rides along in
+      // `detail`, the same way `tip-moved` carries the branch name — so a
+      // `conflicting` PR (GitHub never starts a `pull_request` run for one)
+      // names its own cause instead of reading as a silent build connector.
+      const detail = readings.mergeable !== null ? `no-answer: mergeable=${readings.mergeable}` : 'no-answer';
+      return end(worktree, branch, 'checks-unanswered', 'agent', detail, 0, [
         blockedDeclaration(worktree, branch, 'no CI answer by the Checks wait bound'),
       ]);
+    }
 
     case 'wait':
       // ROW 18 — the tip could not be read this pass; a failure to observe is
