@@ -530,13 +530,13 @@ export const needsPersonMarker = (ending: EndingReason, branch: string, detail: 
         );
       }
       // `mergeable=conflicting` NAMES THE CAUSE A GENERIC SENTENCE WOULD HIDE:
-      // GitHub never starts a `pull_request` run for a merge ref that
-      // conflicts, so "nothing from the build connector" is true but
-      // misleading when the host already said why. `unknown` is not evidence
-      // either way (GitHub computes it lazily) and falls through to the same
-      // wording as no mergeability at all.
+      // the host starts no build for a merge ref that conflicts, so "nothing
+      // from the build connector" is true but misleading when the host
+      // already said why. `unknown` is not evidence either way (a host can
+      // compute it lazily) and falls through to the same wording as no
+      // mergeability at all.
       return detail.includes('mergeable=conflicting')
-        ? `No build ever answered for \`${branch}\` (${detail}): GitHub never starts a build for a PR that cannot merge. ` +
+        ? `No build ever answered for \`${branch}\` (${detail}): the host starts no build for a PR that cannot merge. ` +
             `Decide: resolve the conflict (merge the default branch into \`${branch}\`), or resume without a CI answer.`
         : `No build ever answered for \`${branch}\` (${detail || 'no detail was recorded'}): the wait for CI ran out with nothing from the build connector. ` +
             `Decide: whether to wait longer, check the build connector, or resume without a CI answer.`;

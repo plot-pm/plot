@@ -270,14 +270,14 @@ describe('needsPersonMarker', () => {
     const text = needsPersonMarker('checks-unanswered', 'infra/x', 'no-answer: mergeable=unknown');
     expect(text).toContain('No build ever answered');
     expect(text).toContain('nothing from the build connector');
-    expect(text).not.toContain('GitHub never starts a build');
+    expect(text).not.toContain('starts no build for a PR that cannot merge');
   });
 
   it('names a no-answer with mergeable=conflicting as the cause, not a silent build connector', () => {
     const text = needsPersonMarker('checks-unanswered', 'infra/x', 'no-answer: mergeable=conflicting');
     expect(text).toContain('No build ever answered');
     expect(text).toContain('mergeable=conflicting');
-    expect(text).toContain('GitHub never starts a build for a PR that cannot merge');
+    expect(text).toContain('the host starts no build for a PR that cannot merge');
     expect(text).toContain('merge the default branch into `infra/x`');
     expect(text).not.toContain('nothing from the build connector');
   });
