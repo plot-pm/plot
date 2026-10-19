@@ -55,7 +55,7 @@ A click that cannot resolve a card must fall back to the anchor's own navigation
 
 ### Fix
 
-- `bug/a-click-on-a-plan-story` — reproduce the failing click in a browser test, fix the cause, and cover every modal-opening link with a click test
+- `bug/a-click-on-a-plan-story` — reproduce the failing click in a browser test, fix the cause, and cover every modal-opening link with a click test → #2104
 
 ## Notes
 
