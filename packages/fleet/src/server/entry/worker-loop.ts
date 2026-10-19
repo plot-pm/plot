@@ -57,6 +57,7 @@ import {
   type TakeUpRefusal,
 } from '@plot-pm/domain/workflows/agent-loop';
 import { claimAnswer, type ClaimHolderAnswer } from '@plot-pm/domain/rules/claim';
+import type { Mergeability } from '@plot-pm/domain/entities/pr';
 import { readSliceSpend, recordSliceRun, recordSliceSpend, type RunWriteRefusal } from '@plot-pm/domain/workflows/slice-spend';
 import { recordRunLimits } from '@plot-pm/domain/workflows/run-limits';
 import type { ResetRefusal } from '@plot-pm/domain/rules/reapable';
@@ -126,6 +127,11 @@ interface WaitClock {
    * finished prompt.
    */
   pr: number | null;
+  /**
+   * The open PR's mergeability, read once on entry to the checks wait
+   * alongside {@link pr} — not re-asked inside the wait, the same as `pr`.
+   */
+  mergeable: Mergeability | null;
 }
 
 /** Every port this entry reads or writes through, composed once at start. */
@@ -836,6 +842,7 @@ export const readPass = async (
     correctionAttempts: manifest.correctionAttempts,
     correctionBudget: config.correctionBudget,
     pr: null,
+    mergeable: null,
     correctionText: '',
     resumeId: manifest.resumeId,
     passAt,
@@ -942,16 +949,18 @@ export const readPass = async (
     }
     clock.since = Date.now();
     clock.pr = prNumber;
+    clock.mergeable = pr.mergeable;
   }
 
   // ROWS 12-18 — work is pushed and a PR is open: the CI wait.
   const pushed = true;
   const prOpen = true;
   const prNumber = clock.pr;
+  const mergeable = clock.mergeable;
   const waitedSeconds = Math.floor((Date.now() - clock.since) / 1000);
 
   if (config.checksWaitSeconds <= 0) {
-    return { ...base, pushed, prOpen, pr: prNumber, checks: 'none', waitedSeconds };
+    return { ...base, pushed, prOpen, pr: prNumber, mergeable, checks: 'none', waitedSeconds };
   }
 
   const pushedSha = prompt.pushedSha;
@@ -975,6 +984,7 @@ export const readPass = async (
     pushed,
     prOpen,
     pr: prNumber,
+    mergeable,
     tip,
     checks,
     checksPassed,
@@ -1614,7 +1624,7 @@ const runPrompt = async (
  * @returns the process exit code the decision named.
  */
 export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
-  const clock: WaitClock = { since: deps.waitStartedAt ?? null, pr: null };
+  const clock: WaitClock = { since: deps.waitStartedAt ?? null, pr: null, mergeable: null };
   let held: Held = { ...FRESH };
   // A carried hop names the branch the last prompt ran on, so it seeds
   // `previousBranch` too: a clear before the next prompt keeps the hop.

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #1841
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-18, Jan Wloka, `bug/a-failed-continue-leaves-its-desk-whole`
 - **Started:** 2026-10-19, Jan Wloka, `bug/a-continuation-obeys-the-limits`
 - **Started:** 2026-10-19, Jan Wloka, `bug/an-unstarted-continue-resumes-no-stranger`
+- **Delivered:** 2026-10-19
 
 ## Changelog
 

@@ -56,6 +56,7 @@ const freeLoop: AgentLoopReadings = {
   correctionAttempts: 0,
   correctionBudget: 2,
   pr: null,
+  mergeable: null,
   correctionText: '',
   resumeId: '',
   passAt: '2026-10-05T10:00:00.000Z',
@@ -1109,6 +1110,37 @@ describe('agentLoop — row 16: no check answer by Checks wait', () => {
     expect(
       isDecision(endingIsAttributable(SESSION, { actor: 'agent', reason: 'checks-unanswered' })),
     ).toBe(true);
+  });
+
+  it('carries a conflicting mergeable reading in the detail string', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: 'no-answer',
+      tip: 'pushed',
+      mergeable: 'conflicting',
+    });
+    const end = endWrite(result.writes);
+    expect(end?.reason).toBe('checks-unanswered');
+    expect(end?.detail).toBe('no-answer: mergeable=conflicting');
+  });
+
+  it('carries an unknown mergeable reading in the detail string, same as conflicting would', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: 'no-answer',
+      tip: 'pushed',
+      mergeable: 'unknown',
+    });
+    const end = endWrite(result.writes);
+    expect(end?.detail).toBe('no-answer: mergeable=unknown');
   });
 
   it('supervise answers needs-a-person from the declaration this row writes', () => {

@@ -35,7 +35,7 @@ import {
 import type { FleetReading } from '@plot-pm/domain';
 import { rmTree } from '../helpers.mjs';
 import { record, signalOwn } from '../../../../test/reconcile/own-process.mjs';
-import { agentsFs, freshAgentRecordFile } from '@plot-pm/domain/adapters';
+import { agentsFs, freshAgentRecordFile, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
 import type { DeskMonitors, MonitoredDesk } from '@plot-pm/domain';
 import { startFreshSession } from '@plot-pm/fleet/server/entry/registryd-main';
 import {
@@ -1659,6 +1659,110 @@ describe('a desk continued twice, once per NEEDS_PERSON_ENDINGS reason — #2107
       assert.equal(fs.readFileSync(path.join(wt, CONTINUATION_NAME), 'utf8'), promptBefore);
       assert.equal(fs.readFileSync(path.join(wt, '.plot-worker.exit'), 'utf8'), '0');
     });
+  });
+});
+
+// #1788 — an unstarted continuation must resume the SAME conversation the
+// dying prompt was using, not whichever transcript file is newest on disk. A
+// worktree is reused across many slices over its lifetime, so "newest by
+// mtime" can easily name a stranger's conversation rather than this ending's
+// own. The fix threads the handle `runPrompt` already computed through the
+// `unstarted` ending's own `resumeId` field; this test proves the manifest
+// written here carries THAT handle, not the newer unrelated transcript's.
+describe('an unstarted continuation resumes its own conversation, not a stranger\'s — #1788', () => {
+  const writeUnstartedEnding = (wt: string, resumeId?: string): void => {
+    fs.writeFileSync(
+      path.join(wt, ENDING_FILENAME),
+      JSON.stringify({
+        reason: 'unstarted',
+        actor: 'agent',
+        branch: BRANCH,
+        detail: 'the prompt never started, retries spent',
+        ...(resumeId !== undefined ? { resumeId } : {}),
+      }),
+    );
+  };
+
+  const input = (wt: string, dir: string) => ({
+    opts: { ...opts, manifestDir: dir },
+    readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'true' : fallback),
+    branch: BRANCH,
+    worktree: wt,
+    main: 'main',
+    previousPid: '',
+    answer: 'the composed answer',
+  });
+
+  const settleAfter = (wt: string) => spawned.add(wt);
+
+  /** A transcript home with two session files for `wt`: an older one, then a newer, unrelated one. */
+  function transcriptHomeWith(wt: string, older: string, newer: string): string {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-transcript-home-'));
+    const dir = transcriptDirFor(wt, home);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${older}.jsonl`), '{}\n');
+    // A later mtime than the file just written, so "newest by mtime" is
+    // unambiguous however fast the two writes land.
+    const now = new Date();
+    fs.utimesSync(path.join(dir, `${older}.jsonl`), new Date(now.getTime() - 60_000), new Date(now.getTime() - 60_000));
+    fs.writeFileSync(path.join(dir, `${newer}.jsonl`), '{}\n');
+    fs.utimesSync(path.join(dir, `${newer}.jsonl`), now, now);
+    return home;
+  }
+
+  let previousTranscriptHome: string | undefined;
+  const transcriptHomes: string[] = [];
+  afterEach(() => {
+    if (previousTranscriptHome === undefined) delete process.env[TRANSCRIPT_HOME_ENV];
+    else process.env[TRANSCRIPT_HOME_ENV] = previousTranscriptHome;
+    previousTranscriptHome = undefined;
+    while (transcriptHomes.length) rmTree(transcriptHomes.pop()!);
+  });
+
+  it('writes the manifest with the resume id the ending itself recorded, never the newer unrelated transcript', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const home = transcriptHomeWith(wt, 'the-failed-runs-own-handle', 'a-strangers-newer-conversation');
+    transcriptHomes.push(home);
+    previousTranscriptHome = process.env[TRANSCRIPT_HOME_ENV];
+    process.env[TRANSCRIPT_HOME_ENV] = home;
+    writeUnstartedEnding(wt, 'the-failed-runs-own-handle');
+    const emptyManifestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-unstarted-resume-id-'));
+    manifestDirs.push(emptyManifestDir);
+
+    const result = await continueOnDesk(input(wt, emptyManifestDir));
+    assert.equal(result.kind, 'started');
+    settleAfter(wt);
+
+    const found = deskManifestFor('/tmp', wt, { manifestDir: emptyManifestDir });
+    assert.equal(found.kind, 'named');
+    if (found.kind === 'named') {
+      const written = JSON.parse(fs.readFileSync(found.path, 'utf8'));
+      assert.equal(written.resumeId, 'the-failed-runs-own-handle', 'resumes the ending\'s own handle, not the newer stranger');
+    }
+  });
+
+  it('falls back to the transcript scan when the ending records no resume id', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const home = transcriptHomeWith(wt, 'an-older-conversation', 'the-newest-conversation');
+    transcriptHomes.push(home);
+    previousTranscriptHome = process.env[TRANSCRIPT_HOME_ENV];
+    process.env[TRANSCRIPT_HOME_ENV] = home;
+    writeUnstartedEnding(wt);
+    const emptyManifestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-unstarted-no-resume-id-'));
+    manifestDirs.push(emptyManifestDir);
+
+    const result = await continueOnDesk(input(wt, emptyManifestDir));
+    assert.equal(result.kind, 'started');
+    settleAfter(wt);
+
+    const found = deskManifestFor('/tmp', wt, { manifestDir: emptyManifestDir });
+    assert.equal(found.kind, 'named');
+    if (found.kind === 'named') {
+      const written = JSON.parse(fs.readFileSync(found.path, 'utf8'));
+      assert.equal(written.resumeId, 'the-newest-conversation', 'no recorded handle — the transcript scan is still the fallback');
+    }
   });
 });
 
