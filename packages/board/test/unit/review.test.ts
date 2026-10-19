@@ -31,6 +31,7 @@ interface Rig {
   deps: ReviewDeps;
   statuses: CommitStatusWrite[];
   issues: IssueOpen[];
+  commented: { id: string; body: string }[];
   requests: AgentRunRequest[];
   commands: string[];
   files: Map<string, string>;
@@ -39,6 +40,7 @@ interface Rig {
   changeBases: string[];
 }
 
+const RUN = '2026-10-19T16:44:37Z';
 const MERGE_BASE = 'c'.repeat(40);
 const DIFF = 'diff --git a/docs/review-status-rollout.md b/docs/review-status-rollout.md\n+one line\n';
 const CHANGE: ReviewChange = { ok: true, mergeBase: MERGE_BASE, files: ['docs/review-status-rollout.md'], diff: DIFF };
@@ -52,6 +54,7 @@ const rig = (
 ): Rig => {
   const statuses: CommitStatusWrite[] = [];
   const issues: IssueOpen[] = [];
+  const commented: { id: string; body: string }[] = [];
   const requests: AgentRunRequest[] = [];
   const commands: string[] = [];
   const removed: string[] = [];
@@ -88,7 +91,7 @@ const rig = (
   } as unknown as Trees;
   const deps: ReviewDeps = {
     host,
-    tracker: trackerFixture({ scheme: 'github-issues', opened: issues }),
+    tracker: trackerFixture({ scheme: 'github-issues', opened: issues, commented }),
     trees,
     agentRun: (command) => { commands.push(command); return agentRun; },
     repoRoot: '/repo', commonDir: '/repo/.git', base: 'main', currentBranch: 'feature/x',
@@ -98,8 +101,9 @@ const rig = (
     readText: (f) => files.get(f) ?? null,
     writeText: (f, t) => { written.push(f); files.set(f, t); },
     removeFile: (f) => { files.delete(f); },
+    now: () => RUN,
   };
-  return { deps, statuses, issues, requests, commands, files, removed, written, changeBases };
+  return { deps, statuses, issues, commented, requests, commands, files, removed, written, changeBases };
 };
 
 const FINDINGS = '- [HIGH] leaks a token\nFindings: HIGH 2, MEDIUM 1, LOW 0\n';
@@ -135,13 +139,27 @@ describe('reviewPr', () => {
     expect(r.issues[0]!.body).toContain('leaks a token');
   });
 
-  it('a second run on an unchanged head files no second issue', async () => {
+  it('a second run on an unchanged head files no second issue, and comments its verdict', async () => {
     const r = rig(FINDINGS);
     await reviewPr(r.deps, '7');
     await reviewPr(r.deps, '7');
     expect(r.issues).toHaveLength(1);
     expect(r.statuses).toHaveLength(2);
     expect(r.statuses[1]!.targetUrl).toBe(r.statuses[0]!.targetUrl);
+    expect(r.statuses[0]!.description).not.toContain('run ');
+    expect(r.commented).toHaveLength(1);
+    expect(r.commented[0]!.id).toBe('1');
+    expect(r.commented[0]!.body).toContain(`run ${RUN}`);
+    expect(r.statuses[1]!.description).toContain(`run ${RUN}`);
+  });
+
+  it('keeps the worst-case description within the host\'s 140-character cap', async () => {
+    const r = rig('Findings: HIGH 99, MEDIUM 99, LOW 99\n');
+    await reviewPr(r.deps, '7');
+    await reviewPr(r.deps, '7');
+    const description = r.statuses[1]!.description;
+    expect(description).toBe(`99 HIGH findings; run ${RUN}`);
+    expect(description.length).toBeLessThanOrEqual(140);
   });
 
   it('writes success with the PR URL and opens no issue on no findings at all', async () => {
@@ -567,7 +585,7 @@ describe('one follow-up issue per PR', () => {
     expect(opened).toHaveLength(0);
   });
 
-  it('a second run on the same head makes no lookup and no comment', async () => {
+  it('a second run on the same head makes no lookup, and comments its verdict again', async () => {
     let lookups = 0;
     const { tracker, commented } = withLabelled([issueRow('9', 'plot-review: MEDIUM 0, LOW 1 on PR #7')], {
       issueListLabelled: async () => { lookups += 1; return answered({ issues: [issueRow('9', 'plot-review: MEDIUM 0, LOW 1 on PR #7')], complete: true, pages: 1 }); },
@@ -579,7 +597,9 @@ describe('one follow-up issue per PR', () => {
       await reviewPr(r.deps, '7');
     }
     expect(lookups).toBe(1);
-    expect(commented).toHaveLength(1);
+    expect(commented).toHaveLength(2);
+    expect(commented[0]!.id).toBe('9');
+    expect(commented[1]!.id).toBe('9');
   });
 
   it('removes the issue file and names the reason when the comment fails', async () => {
@@ -593,6 +613,54 @@ describe('one follow-up issue per PR', () => {
     expect(out.code).toBe(EXIT.issueNotOpened);
     expect(out.lines.join('\n')).toContain('could not comment on issue 9: plot-host: HTTP 403');
     expect(r.files.has(`${REVIEWS}/7-${HEAD}.issue`)).toBe(false);
+  });
+
+  it('keeps the recorded issue file when a comment on it fails, and names the reason', async () => {
+    const { tracker } = withLabelled([issueRow('9', 'plot-review: MEDIUM 0, LOW 1 on PR #7')], {
+      issueComment: async () => ({ ok: false as const, why: 'failed' as const }),
+      lastRefusal: () => 'plot-host: HTTP 403',
+    });
+    const files = new Map<string, string>([[`${REVIEWS}/7-${HEAD}.issue`, '9']]);
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n', { files });
+    r.deps.tracker = tracker;
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.issueNotOpened);
+    expect(out.lines.join('\n')).toContain('could not comment on issue 9: plot-host: HTTP 403');
+    expect(r.files.get(`${REVIEWS}/7-${HEAD}.issue`)).toBe('9');
+    expect(r.statuses).toEqual([{
+      sha: HEAD, state: 'success', context: 'plot/review', description: 'no HIGH findings; verdict not commented',
+      targetUrl: 'https://github.com/o/r/issues/9',
+    }]);
+  });
+
+  it('keeps the recorded issue as the target and exits ok when the tracker takes no comment', async () => {
+    const { tracker, opened } = withLabelled([], {
+      issueListLabelled: async () => ({ ok: false as const, why: 'unaskable' as const, reason: 'the Jira tracker lists no issues by label' }),
+      issueComment: async () => ({ ok: false as const, why: 'unaskable' as const, reason: 'the Jira tracker does not comment on issues' }),
+    });
+    const files = new Map<string, string>([[`${REVIEWS}/7-${HEAD}.issue`, '9']]);
+    const r = rig('Findings: HIGH 1, MEDIUM 0, LOW 0\n', { files });
+    r.deps.tracker = tracker;
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.ok);
+    expect(opened).toHaveLength(0);
+    expect(r.statuses).toEqual([{
+      sha: HEAD, state: 'failure', context: 'plot/review', description: '1 HIGH finding',
+      targetUrl: 'https://github.com/o/r/issues/9',
+    }]);
+    expect(out.lines.join('\n')).toContain('could not comment on issue 9: the Jira tracker does not comment on issues');
+    expect(r.files.get(`${REVIEWS}/7-${HEAD}.issue`)).toBe('9');
+  });
+
+  it('a recorded pending still comments nothing', async () => {
+    const { tracker, commented } = withLabelled([issueRow('9', 'plot-review: MEDIUM 0, LOW 1 on PR #7')]);
+    const files = new Map<string, string>([[`${REVIEWS}/7-${HEAD}.issue`, 'pending']]);
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n', { files });
+    r.deps.tracker = tracker;
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.issueNotOpened);
+    expect(commented).toHaveLength(0);
+    expect(r.files.get(`${REVIEWS}/7-${HEAD}.issue`)).toBe('pending');
   });
 
   it('trackerNone answers unaskable to the lookup and the comment, with its reason', async () => {
