@@ -38,6 +38,7 @@ import {
   main,
   offsetClock,
   harnessName,
+  readContinuation,
   readLimitedReset,
   readManifestFields,
   readMarkerText,
@@ -1805,6 +1806,30 @@ describe('runWorkerLoop — remaining branches', () => {
   });
 });
 
+describe('readContinuation — #1383', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-read-continuation-'));
+    made.push(dir);
+  });
+
+  it('reads missing as a distinct outcome from present', async () => {
+    expect(await readContinuation(dir, 'h-1')).toEqual({ kind: 'missing' });
+    fs.writeFileSync(path.join(dir, '.plot-worker.continue.md'), 'use fetch');
+    expect(await readContinuation(dir, 'h-1')).toEqual({ kind: 'present', resumeId: 'h-1', text: 'use fetch' });
+  });
+
+  it('reads a present-but-unreadable file as distinct from missing', async () => {
+    // A directory at the continuation's path is present on disk and fails
+    // every `readFile` the same way a permission-denied file would, without
+    // depending on how this platform enforces file permissions.
+    fs.mkdirSync(path.join(dir, '.plot-worker.continue.md'));
+    const read = await readContinuation(dir, 'h-1');
+    expect(read.kind).toBe('unreadable');
+    expect(read).not.toEqual({ kind: 'missing' });
+  });
+});
+
 describe('runWorkerLoop on the command runner — a continuation resumes the blocked session', () => {
   it('appends the file’s text to PLOT-CORRECTION.md before the command starts, resumes the session, and removes the file after', async () => {
     const atStart: { corrections: unknown[]; endings: number; file: boolean }[] = [];
@@ -1829,12 +1854,63 @@ describe('runWorkerLoop on the command runner — a continuation resumes the blo
 
     await runWorkerLoop(r.deps);
 
-    expect(atStart[0]).toEqual({ corrections: [{ worktree: r.wt, correction: 'use fetch' }], endings: 0, file: true });
+    expect(atStart[0]).toEqual({
+      corrections: [{ worktree: r.wt, correction: '## Continuation answer\n\nuse fetch' }],
+      endings: 0,
+      file: true,
+    });
     expect(r.runs[0].env).toMatchObject({
       PLOT_SESSION_FLAG: '--resume',
       PLOT_SESSION_ID: 'h-1',
       PLOT_CORRECTION_FILE: path.join(r.wt, 'PLOT-CORRECTION.md'),
     });
     expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it('appends the continuation once, not once per restart, across two separate worker-loop runs — #1382, #1383', async () => {
+    // `held` (in-process retry state) never re-reads `.plot-worker.continue.md`
+    // — only `readPass`'s `exit === null` row does, which is true once per
+    // PROCESS, not once per pass. So the regression this guards against is a
+    // worker restart, not an in-process retry: the file survives
+    // (`consumeContinuation` skips `unstarted`), and a fresh `runWorkerLoop`
+    // call starts with `held.exit === null` again, re-entering that same row.
+    //
+    // `maxStartRetries: 1` ends the loop only after TWO failures (the first
+    // failure still retries, since `0 < 1`): both scripts fail here so the
+    // first run ends on `unstarted` with the assignment still held, rather
+    // than succeeding on the retry and sealing/clearing it.
+    const r = rig(
+      { ...ASSIGNED, resumeId: 'h-1' },
+      [{ status: 1 }, { status: 1 }],
+      { config: { ...rigConfig(), maxStartRetries: 1 } },
+    );
+    const baseDesk = r.ports.desk;
+    Object.assign(r.ports, {
+      trees: treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'no' }, branches: { [r.wt]: BRANCH } }),
+      // The fixture's own `appendCorrection` only records the call in memory;
+      // `correctionHasContinuation` reads the real file, so this writes it too.
+      desk: {
+        ...baseDesk,
+        appendCorrection: async (worktree: string, correction: string) => {
+          fs.appendFileSync(path.join(worktree, 'PLOT-CORRECTION.md'), `${correction}\n`);
+          return baseDesk.appendCorrection(worktree, correction);
+        },
+      },
+    });
+    r.deps = { ...r.deps, idle: { ...r.deps.idle, transcript: transcriptFixture({ spoken: [`${r.wt}\th-1`] }) } };
+    const file = path.join(r.wt, '.plot-worker.continue.md');
+    fs.writeFileSync(file, 'use fetch');
+
+    expect(await runWorkerLoop(r.deps)).toBe(1);
+    expect(r.deskCalls.appendedCorrections).toEqual([{ worktree: r.wt, correction: '## Continuation answer\n\nuse fetch' }]);
+    expect(fs.existsSync(file)).toBe(true);
+    expect(r.read().branch).toBe(BRANCH);
+
+    r.write({ ...r.read(), attempts: 0 });
+    r.runs.length = 0;
+
+    await runWorkerLoop(r.deps);
+
+    expect(r.deskCalls.appendedCorrections).toEqual([{ worktree: r.wt, correction: '## Continuation answer\n\nuse fetch' }]);
   });
 });

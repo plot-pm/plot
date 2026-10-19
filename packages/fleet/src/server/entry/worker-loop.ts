@@ -72,7 +72,7 @@ import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import { answer as promptAnswer, read as readAgentCharter } from './prompt.js';
 import { resolveLaunch } from '@plot-pm/domain/rules/prompt';
 import { performLoopWrites, type AppliedWrite, type LoopWritePorts, type LoopWrite } from './loop-writes.js';
-import { CONTINUATION_NAME } from '../../shared/continuation.js';
+import { CONTINUATION_NAME } from '../../shared/continuation-name.js';
 
 /**
  * `plot-worker-loop.mjs` — the JS loop, one process for an agent's whole life.
@@ -640,22 +640,36 @@ export const readMarker = async (worktree: string): Promise<{ present: boolean; 
 };
 
 /**
+ * A probe of the desk's `.plot-worker.continue.md`.
+ *
+ * **ABSENT IS NOT UNREADABLE.** `missing` is the normal case — no answer is
+ * waiting. `unreadable` is a probe that could not ask at all (a directory
+ * sits at the path, a permission denies the read) and must not be collapsed
+ * into the same silent `null` a missing file gets, per the estate's standing
+ * rule: a probe that could not ask is not the same as a probe that asked and
+ * got nothing.
+ */
+export type ContinuationRead =
+  | { readonly kind: 'present'; readonly resumeId: string; readonly text: string }
+  | { readonly kind: 'missing' }
+  | { readonly kind: 'unreadable'; readonly error: string };
+
+/**
  * The answer waiting in the desk's `.plot-worker.continue.md`, if any. The
  * file holds the prompt text; the resume id is the manifest's.
  *
  * @param worktree - the desk to read.
  * @param resumeId - this pass's manifest `resumeId`.
- * @returns the continuation reading; `null` where no file sits on the desk.
+ * @returns `present` with the text, `missing` where no file sits on the
+ *   desk (`ENOENT`), or `unreadable` for any other read failure.
  */
-export const readContinuation = async (
-  worktree: string,
-  resumeId: string,
-): Promise<AgentLoopReadings['continuation']> => {
+export const readContinuation = async (worktree: string, resumeId: string): Promise<ContinuationRead> => {
   try {
     const text = await readFile(join(worktree, CONTINUATION_NAME), 'utf8');
-    return { resumeId, text };
-  } catch {
-    return null;
+    return { kind: 'present', resumeId, text };
+  } catch (err) {
+    if ((err as { code?: string }).code === 'ENOENT') return { kind: 'missing' };
+    return { kind: 'unreadable', error: err instanceof Error ? err.message : String(err) };
   }
 };
 
@@ -672,6 +686,31 @@ const consumeContinuation = async (resume: { readonly continuation: boolean } | 
     await rm(join(worktree, CONTINUATION_NAME), { force: true });
   } catch {
     /* the next pass reads the file again */
+  }
+};
+
+/**
+ * The continuation entry's own heading in `PLOT-CORRECTION.md` — present once
+ * the answer has been appended, absent before.
+ *
+ * `consumeContinuation` removes `.plot-worker.continue.md` only once the exit
+ * answer is no longer `unstarted`, so a retry after `unstarted` reads the same
+ * file again and would re-append the same answer on every pass that reaches
+ * the command runner. The heading is what the second pass checks for instead
+ * of appending blindly — an idempotent APPEND, not an idempotent removal.
+ */
+const CONTINUATION_CORRECTION_HEADING = '## Continuation answer';
+
+/**
+ * Whether `worktree`'s `PLOT-CORRECTION.md` already carries the continuation
+ * heading — `false` where the file does not exist yet.
+ */
+const correctionHasContinuation = async (worktree: string): Promise<boolean> => {
+  try {
+    const text = await readFile(join(worktree, 'PLOT-CORRECTION.md'), 'utf8');
+    return text.includes(CONTINUATION_CORRECTION_HEADING);
+  } catch {
+    return false;
   }
 };
 
@@ -817,12 +856,17 @@ export const readPass = async (
     // desk's own branch is read before the reset touches it, so an
     // unlanded-work ending can name what the desk actually held (`#1281`), and
     // `agentLoop` uses a continuation only on that branch.
-    const [refusals, deskBranchAnswer, continuation] = await Promise.all([
+    const [refusals, deskBranchAnswer, continuationRead] = await Promise.all([
       readResetRefusals(ports, worktree),
       ports.trees.currentBranch(worktree),
       readContinuation(worktree, manifest.resumeId),
     ]);
     const markerText = refusals.includes('blocked-marker') ? await readMarkerText(worktree) : '';
+    // `agentLoop` takes a continuation only on `present`; `missing` and
+    // `unreadable` both read `null` to it, since `AgentLoopReadings` has no
+    // slot for a probe that could not ask. `readContinuation` itself still
+    // tells the two apart — see its own doc comment.
+    const continuation = continuationRead.kind === 'present' ? { resumeId: continuationRead.resumeId, text: continuationRead.text } : null;
     return {
       ...base,
       resetRefusals: refusals,
@@ -1486,7 +1530,12 @@ const runPrompt = async (
 
   // THE COMMAND RUNNER'S PROMPT IS THE PROJECT'S FILE, which reads
   // `PLOT-CORRECTION.md` first; the answer reaches the resumed session there.
-  if (resume !== null && resume.continuation) await deps.ports.desk.appendCorrection(worktree, resume.text);
+  // IDEMPOTENT: a retry after `unstarted` reads the same unconsumed
+  // continuation again (#1382, #1383) — the heading check keeps the second
+  // pass from appending the same answer twice.
+  if (resume !== null && resume.continuation && !(await correctionHasContinuation(worktree))) {
+    await deps.ports.desk.appendCorrection(worktree, `${CONTINUATION_CORRECTION_HEADING}\n\n${resume.text}`);
+  }
   const unset = settings === '' ? ['-u', 'PLOT_REPO_ROOT', '-u', 'PLOT_AGENT_SETTINGS'] : ['-u', 'PLOT_REPO_ROOT'];
   const run = deps.ports.boundedRun.run('env', [...unset, 'bash', '-c', '. "$1"', '_', file], {
     cwd: worktree,
