@@ -4,10 +4,11 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2085 merged
 - **Started:** 2026-10-19, Jan Wloka, `feature/the-delivery-tab-renders-one-chip-row`
+- **Delivered:** 2026-10-20
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** #2080
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
