@@ -31,8 +31,9 @@ import { AutoDispatchSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } 
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { agentRowKey } from '@plot-pm/domain/rules/desk-manifest';
-import { SprintFilter } from './SprintFilter.js';
+import { DeliveryFilters } from './DeliveryFilters.js';
 import { activeSprintButton, rowIsSprintExempt, sanitizeSelection, slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
+import type { ChipRowReadings } from '@plot-pm/domain/rules/chip-row';
 // THE BOARD'S ONE AGE DIALECT, borrowed rather than reimplemented. A second
 // formatter would drift from this one the first time either changed — the same
 // reason `ageLabel` was split out of `age` so an issue row and a branch row
@@ -62,8 +63,8 @@ import { isCollapsible, readCollapsed, writeCollapsed } from '../lib/agent-rows/
 import {
   readMineOnly,
   agentsForReader,
+  ownedFromRow,
   readerFrom,
-  readerIsKnown,
   rowsForReader,
   ticketsForReader,
   writeMineOnly,
@@ -561,17 +562,10 @@ export function AgentList({
   // can appear in the dropdown; this tab typically has one or two Active sprints
   // and the toggle is immediate.
   const [sprintFilter, setSprintFilter] = useState<Set<string>>(() => new Set());
-  const toggleSprintFilter = (slug: string) => {
-    setSprintFilter((prev) => {
-      const next = new Set(prev);
-      if (next.has(slug)) next.delete(slug);
-      else next.add(slug);
-      return next;
-    });
-  };
-  // SELECT EVERY ACTIVE SPRINT — D32 (story Open Point 12). The button sets
-  // the SAME state the per-sprint checkboxes do, so the rows, the exempt mark
-  // and the hidden count all come from the existing join unchanged.
+  // SELECT EVERY ACTIVE SPRINT, or none — the `This sprint` chip's whole
+  // vocabulary. The per-sprint checkboxes this chip replaced each called a
+  // per-slug toggle; the chip is all-or-nothing, so only the all-or-nothing
+  // setter survives.
   const selectAllSprints = (slugs: string[]) => setSprintFilter(new Set(slugs));
 
   // The fleet's active sprints, guarded for payloads predating the field.
@@ -630,12 +624,17 @@ export function AgentList({
     () => sanitizeSelection([...sprintFilter], activeSprints.map((s) => ({ value: s.slug, label: s.title }))),
     [sprintFilter, activeSprints],
   );
-  // The derived selection as a `Set`, for the control, which reads `has`.
-  const selectedSprintSet = useMemo(() => new Set(selectedSprints), [selectedSprints]);
   // Is any sprint selected? Asked of the DERIVED list at every site below: a
   // `sprintFilter.size` read would turn the filter on for a slug that no longer
   // filters anything, which is the defect wearing a different number.
   const sprintFilterOn = selectedSprints.length > 0;
+
+  // THE `This sprint` CHIP — one chip, all-or-nothing against every Active
+  // sprint. `chipRow`'s `SprintChipReadings.on` is a single boolean, and the
+  // per-sprint checkboxes this chip replaces are gone, so there is no selected
+  // SUBSET to read back: `sprintFilterOn` already means "every row not in an
+  // Active sprint is hidden", which is what turning the chip on means too.
+  const toggleThisSprintChip = () => selectAllSprints(sprintFilterOn ? [] : sprintSelectAll.selection);
 
   // PRUNE THE STORED SELECTION, so a dropped sprint cannot come back. A branch
   // switch to a tree where the closed sprint is still Active returns it to
@@ -660,18 +659,6 @@ export function AgentList({
     ? fleet.rows
     : fleet.rows.filter((r) =>
       rowIsSprintExempt(r) || slugPassesSprintFilter(r.plan, selectedSprints, membership));
-  // WHAT THE SPRINT FILTER DID, over the whole fleet — reported on its control.
-  // `exempt` counts the rows the filter passed without asking (they stay on
-  // screen and carry a mark); `hidden` counts the rows it removed. Two numbers
-  // because they are two facts: a reader told `4 hidden` must not have to work
-  // out how many unrelated rows were shown anyway.
-  const sprintReport = !sprintFilterOn
-    ? null
-    : {
-      hidden: fleet.rows.length - filteredRows.length,
-      exempt: filteredRows.filter(rowIsSprintExempt).length,
-    };
-
   // THE ROWS THIS READER ASKED FOR. Applied AFTER the sprint filter and BEFORE
   // `rowsBySection`, for the reason the sprint filter states about itself: both
   // answer *which rows does this reader want*, and the sections answer *where do
@@ -688,6 +675,36 @@ export function AgentList({
   // whose owner cannot be determined, both stay. Off, the array is returned
   // untouched.
   const visibleRows = rowsForReader(filteredRows, reader, mineOnly);
+
+  // THE CHIP ROW'S READINGS — `chipRow()` (`@plot-pm/domain`) decides every
+  // chip's label, on/off, hidden count and disabled reason from these; this
+  // component reads its answer rather than computing any of the three itself.
+  //
+  // `sprint.visibleRows` reads `fleet.rows` — the rows BEFORE the sprint
+  // filter's own effect, per `SprintChipReadings.visibleRows`'s contract —
+  // each mapped through the same `rowIsSprintExempt`/`slugPassesSprintFilter`
+  // pair the filter itself uses, against EVERY active sprint slug (the chip is
+  // all-or-nothing, matching `toggleThisSprintChip` above).
+  //
+  // `mine.visibleRows` reads `filteredRows` — after the sprint filter, before
+  // the `Mine` chip's own effect — each mapped through `ownedFromRow`, the same
+  // adapter `rowsForReader` uses.
+  const allSprintSlugs = useMemo(() => activeSprints.map((s) => s.slug), [activeSprints]);
+  const chipRowReadings: ChipRowReadings = {
+    sprint: {
+      hasActiveSprint: activeSprints.length > 0,
+      on: sprintFilterOn,
+      visibleRows: fleet.rows.map((r) => ({
+        inSprint: rowIsSprintExempt(r) || slugPassesSprintFilter(r.plan, allSprintSlugs, membership),
+      })),
+    },
+    mine: {
+      reader,
+      on: mineOnly,
+      visibleRows: filteredRows.map((r) => ownedFromRow(r)),
+    },
+    waitingOnMe: { on: false },
+  };
 
   // THE FILTERED ISSUES. Like rows, issues stay visible when no filter applies.
   // Issue rows have no sprint field, so they always pass the sprint filter.
@@ -918,114 +935,24 @@ export function AgentList({
           view-status line stays at the foot. See `StatusPanel`. */}
       <StatusPanel statuses={statuses} />
 
-      {/* THE SPRINT FILTER — one row per active sprint, each with a toggle,
-          release target, and status counts. Disabled but visible when no
-          sprint is Active, showing estate totals so the control teaches
-          readers it exists. Placed before the sections so it is above the
-          list.
+      {/* THE DELIVERY FILTERS — one row of toggle chips (`This sprint`,
+          `Mine (<identity>)`, `Waiting on me`), each sprint's own line, and the
+          estate totals at the row's right end. Replaces the sprint card and
+          the `Only my work` checkbox — two cards and three control styles,
+          per issue #2080 — with one row every chip shares. Placed before the
+          sections so it is above the list.
 
-          Estate totals are shown when the filter is OFF; sprint numbers when
-          ON. This is the "Compared" slice of the-sprint-filter-says-what-it-
-          filters plan: a reader sees the effect of turning the filter on
-          before touching it. */}
-      {/* THE TWO FILTERS SHARE ONE ROW, and the reason is a measurement rather
-          than taste. `agents-tab`'s footer assertion leaves ~79 px between the
-          collapsed board and a 1100 px viewport, and a second full-width block
-          above the sections spent it: the footer — which reports when the last
-          scan ran — ended 14.7 px below the fold, the very defect
-          `COLLAPSED_BY_DEFAULT` exists to prevent. Side by side, the sprint
-          block's own height already covers both. */}
-      <div className="flex flex-wrap items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <SprintFilter
-            sprints={activeSprints}
-            selected={selectedSprintSet}
-            onToggle={toggleSprintFilter}
-            estateTotals={fleet.estateTotals}
-            report={sprintReport}
-            selectAll={sprintSelectAll}
-            onSelectAll={() => selectAllSprints(sprintSelectAll.selection)}
-          />
-        </div>
-
-      {/* ONLY MY WORK — the filter that hides rows somebody else owns.
-
-          BESIDE THE SPRINT FILTER, because the two answer the same kind of
-          question (*which rows do I want*) and a reader looking for one will
-          look here for the other. It is a separate control rather than a third
-          sprint row: a sprint is a thing a plan belongs to, and ownership is a
-          fact about whoever is reading.
-
-          IT SHRINKS RATHER THAN HOLDING ITS WIDTH. `CARD_BELOW_PX` records
-          that a 375 px phone is a real reader here — the server is reachable
-          over Tailscale — and a `shrink-0` chip put 26 px of horizontal
-          overflow on the document at that width, which scrolls the whole board
-          sideways to reveal a checkbox.
-
-          OFF ON A FIRST VISIT, and it says what it hides once on. A board that
-          withheld rows silently could not be told apart from a quiet estate —
-          #967's own finding, and the reason the count is stated rather than
-          implied.
-
-          The identity is the BOARD's, which arrives on a separate fetch from the
-          rows. Where it is empty — a host CLI that names nobody, a server from
-          before the fields — every row reads as an unknown owner and NOTHING is
-          hidden, so the control is shown with the reason it can do nothing
-          rather than hidden itself: a control that vanishes teaches a reader it
-          does not exist, the rule `SprintFilter` states for its disabled arm. */}
-      {(() => {
-        // WHETHER THE BOARD KNOWS WHO IS READING. Both fields empty is the
-        // honest "not configured" answer, and the filter cannot act on it.
-        const known = readerIsKnown(reader);
-        // WHETHER THAT ANSWER IS THE BOARD'S OWN, rather than the gap before its
-        // first reply. `server` arrives on a separate, slower fetch than `fleet`
-        // — the Delivery tab mounts as soon as the fleet poll lands, which is
-        // most of the time first — so `undefined` here means "not asked yet",
-        // never "asked and named nobody". Only the latter is "not configured".
-        const boardAnswered = server !== undefined;
-        const hidden = mineOnly ? filteredRows.length - visibleRows.length : 0;
-        return (
-          <label
-            data-mine-filter
-            data-mine-known={known ? '1' : '0'}
-            className={`flex min-w-0 cursor-pointer flex-wrap items-center gap-2 self-start rounded-md border px-3 py-2 text-sm transition-colors ${
-              mineOnly
-                ? 'border-green-500 bg-green-50 dark:border-green-600 dark:bg-green-950/30'
-                : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800'
-            }`}
-          >
-            <input
-              type="checkbox"
-              data-mine-toggle
-              checked={mineOnly}
-              onChange={toggleMineOnly}
-              className="h-3.5 w-3.5 accent-green-600"
-            />
-            <span className="font-medium text-slate-700 dark:text-slate-200">
-              Only my work
-            </span>
-            {/* WHAT IT DID, once it is on. `0 hidden` is a real and useful
-                answer — it says the filter ran and this estate is all yours —
-                so it is printed rather than suppressed. */}
-            {mineOnly && (
-              <span data-mine-hidden={hidden} className="text-xs text-slate-500 dark:text-slate-400">
-                {hidden === 1 ? '1 row hidden' : `${hidden} rows hidden`}
-              </span>
-            )}
-            {/* WHY IT CAN DO NOTHING, where the board named nobody. Stated on
-                the control itself: a checkbox that ticks and changes nothing is
-                read as a broken filter. Gated on `boardAnswered` too — the hint
-                claims the board checked and found no identity, which is false
-                while the board's own fetch is still outstanding. */}
-            {!known && boardAnswered && (
-              <span className="text-xs italic text-slate-400 dark:text-slate-500">
-                no identity configured — nothing to match
-              </span>
-            )}
-          </label>
-        );
-      })()}
-      </div>
+          Every chip's label/on/hiddenCount/disabledReason is `chipRow()`'s
+          answer (`@plot-pm/domain`); `chipRowReadings` above builds what it
+          reads and this only renders what it returns. */}
+      <DeliveryFilters
+        readings={chipRowReadings}
+        onToggleSprint={toggleThisSprintChip}
+        onToggleMine={toggleMineOnly}
+        sprints={activeSprints}
+        mineBoardAnswered={server !== undefined}
+        estateTotals={fleet.estateTotals}
+      />
 
       {/* THE MASTER AGENT ROW — the branch the main checkout is on.
 

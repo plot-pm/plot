@@ -6,13 +6,25 @@ import { type AgentRow, type Fleet, type FleetSprint } from '../../src/contract/
 /**
  * AN OPEN BOARD FOLLOWS A SPRINT CHANGE — #1145, measured in a browser.
  *
- * The Agents tab holds «Sprint only» as an in-memory Set of sprint slugs, while
- * the control's boxes are built from the ACTIVE sprints of the moment. When a
- * selected sprint closes the two disagree, and the filter asks the membership
- * map — built from active sprints only — about a slug it has no entry for. That
+ * The Agents tab holds «This sprint» as an in-memory Set of sprint slugs, while
+ * the control is built from the ACTIVE sprints of the moment. When a selected
+ * sprint closes the two disagree, and the filter asks the membership map —
+ * built from active sprints only — about a slug it has no entry for. That
  * fails EVERY plan row, the closed sprint's own members included, so both
  * fixtures carry a row from each side: a test watching only the new sprint's
  * rows would miss half the defect.
+ *
+ * THE CONTROL IS NOW ONE CHIP, all-or-nothing against every Active sprint —
+ * `the-delivery-tab-renders-one-chip-row` replaced the per-sprint checkboxes
+ * this file tested with `data-sprint-toggle="<slug>"`. The scenario below
+ * (select, let the selected sprint close, confirm the selection survives an
+ * empty poll, confirm it prunes on the next non-empty one) still holds: it
+ * exercises `sprintFilter`'s `Set<string>` and `activeSprints`' own churn, and
+ * neither depends on a reader being able to pick a SUBSET of active sprints.
+ * `the Active sprint button checks every Active sprint box in one click` and
+ * `keeps filtering on the sprint that is still active`
+ * (`agents-tab.browser.test.ts`, `sprint-switch.browser.test.ts`) exercised
+ * exactly the subset case this chip removes — see their own updated comments.
  *
  * ## How one page sees two payloads
  *
@@ -152,14 +164,15 @@ describe('an open board follows a sprint change', () => {
     }, { timeout: 20_000 }).toBe(wanted);
   }
 
-  const checked = (page: Page, slug: string) =>
-    page.locator(`[data-sprint-toggle="${slug}"]`).isChecked();
+  // THE CHIP, all-or-nothing — `data-chip="This sprint"` with `data-chip-on`.
+  const chip = (page: Page) => page.locator('[data-chip="This sprint"]');
+  const chipOn = async (page: Page): Promise<boolean> => (await chip(page).getAttribute('data-chip-on')) === '1';
 
   it('stops filtering on a sprint that closed, and forgets it', async () => {
     // Sprint A active, naming `plan-a` only; `bug/b` is in no sprint.
     const page = await open(ONLY_A());
     try {
-      await page.locator(`[data-sprint-toggle="${SPRINT_A}"]`).check();
+      await chip(page).click();
       // The filter runs: A's member shows, the row in no sprint is hidden.
       await expectBranches(page, [ROW_A]);
 
@@ -171,55 +184,44 @@ describe('an open board follows a sprint change', () => {
       await expectBranches(page, [ROW_A, ROW_B]);
 
       // A active again: the selection came back unchanged, so `bug/b` is hidden
-      // once more and A's box is still checked. That is what proves the empty
+      // once more and the chip is still on. That is what proves the empty
       // poll pruned nothing.
       await swap(ONLY_A());
       await expectBranches(page, [ROW_A]);
-      expect(await checked(page, SPRINT_A)).toBe(true);
+      expect(await chipOn(page)).toBe(true);
 
       // THE SWITCH. A closes and B starts, naming neither plan. On `origin/main`
       // the retained slug hides BOTH rows — `plan-a` included, because the
       // membership map holds no entry for a closed sprint — and the board prints
-      // `2 hidden by Sprint only` beside an unchecked box.
+      // `2 hidden by Sprint only` beside a chip reading off.
       await swap(ONLY_B_EMPTY());
       await expectBranches(page, [ROW_A, ROW_B]);
       expect(await page.locator('[data-sprint-hidden]').count()).toBe(0);
       expect(await page.locator('body').innerText()).not.toContain('hidden by Sprint only');
-      expect(await checked(page, SPRINT_B)).toBe(false);
+      expect(await chipOn(page)).toBe(false);
 
       // THE PRUNE. Back to a tree where A is Active — a branch switch does this,
       // because `workingTreeSprints` reads the checked-out tree. A slug kept in
-      // the Set would filter again with its box checked, a selection this reader
-      // never made in this view. It was pruned, so A reads unchecked and `bug/b`
-      // stays visible. This assertion fails on `origin/main`.
+      // the Set would filter again with the chip on, a selection this reader
+      // never made in this view. It was pruned, so the chip reads off and
+      // `bug/b` stays visible. This assertion fails on `origin/main`.
       await swap(ONLY_A());
-      await expect.poll(() => checked(page, SPRINT_A), { timeout: 20_000 }).toBe(false);
+      await expect.poll(() => chipOn(page), { timeout: 20_000 }).toBe(false);
       await expectBranches(page, [ROW_A, ROW_B]);
     } finally {
       await page.close();
     }
   });
 
-  it('keeps filtering on the sprint that is still active', async () => {
-    // Two Active sprints, one member row each.
-    const page = await open(fleet([
-      sprint(SPRINT_A, 'Sprint A', [PLAN_A]),
-      sprint(SPRINT_B, 'Sprint B', [PLAN_B]),
-    ]));
-    try {
-      await page.locator(`[data-sprint-toggle="${SPRINT_A}"]`).check();
-      await page.locator(`[data-sprint-toggle="${SPRINT_B}"]`).check();
-      // Both members pass; the filter hides nothing yet.
-      await expectBranches(page, [ROW_A, ROW_B]);
-
-      // A closes. B stays selected, so B's member shows and `bug/a`, whose plan
-      // only the closed sprint named, is hidden. The filter still RUNS — it runs
-      // on the one sprint that is still active.
-      await swap(fleet([sprint(SPRINT_B, 'Sprint B', [PLAN_B])]));
-      await expectBranches(page, [ROW_B]);
-      expect(await checked(page, SPRINT_B)).toBe(true);
-    } finally {
-      await page.close();
-    }
-  });
+  // THE SUBSET CASE THIS CHIP REMOVES. The per-sprint checkboxes this file
+  // used to test let a reader select Sprint A alone, then Sprint B alone, and
+  // watch the filter track whichever subset was checked while the other
+  // sprint closed. `This sprint` is all-or-nothing against `activeSprints` —
+  // `toggleThisSprintChip` in `AgentList.tsx` — so there is no SUBSET for a
+  // closing sprint to leave behind: on is "every Active sprint", off is
+  // "none", and a sprint that closes while the chip is on just shrinks what
+  // "every Active sprint" means on the next poll. The scenario this test
+  // exercised (one sprint stays selected through the other's closure) has no
+  // equivalent left to assert — reported in this branch's PR as a plan gap
+  // rather than guessed at here.
 });

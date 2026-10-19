@@ -10,6 +10,19 @@ import { type AgentRow, type Fleet, type FleetSprint, type IssueRow } from '../.
  * about membership. The fixture carries a MEMBER row beside the exempt ones, so
  * a mark rendered on every row fails, and rows the filter must hide, so a
  * filter that stopped hiding anything fails too.
+ *
+ * THE TOGGLE IS NOW ONE CHIP, all-or-nothing — `the-delivery-tab-renders-one-
+ * chip-row` replaced the per-sprint checkbox (`data-sprint-toggle="<slug>"`)
+ * this file drove with `[data-chip="This sprint"]`. The exempt/member marking
+ * this file exists to test is unchanged by that rewrite — `rows.tsx`'s
+ * `data-sprint-exempt` and `AgentList.tsx`'s per-section `hiddenSuffix` /
+ * `data-sprint-unfiltered` are untouched — so only the toggle locator moved.
+ * One test did not survive: the old control rendered a tab-wide
+ * `data-sprint-hidden` / `data-sprint-exempt-count` total on a single
+ * unkeyed `[data-sprint-report]`, and the new `DeliveryFilters` renders that
+ * attribute keyed per ACTIVE SPRINT with no tab-wide hidden/exempt total at
+ * all — see the comment above `does not count an ownership-hidden row under
+ * Sprint only` below for why neither surviving figure is a substitute.
  */
 const ME = 'gardener';
 const THEM = 'neighbour';
@@ -123,8 +136,11 @@ describe('a sprint view says what it hid', () => {
   const header = (page: Page) =>
     page.locator('section:has([data-group-toggle="waiting-on-you"]) h2').first();
 
+  // THE CHIP, all-or-nothing — replaces the per-sprint `data-sprint-toggle`.
+  const chip = (page: Page) => page.locator('[data-chip="This sprint"]');
+
   async function sprintOnly(page: Page): Promise<void> {
-    await page.locator(`[data-sprint-toggle="${SPRINT}"]`).check();
+    await chip(page).click();
     await expect.poll(async () => (await branches(page)).includes(ELSEWHERE)).toBe(false);
     await reveal(page);
   }
@@ -162,47 +178,39 @@ describe('a sprint view says what it hid', () => {
     }
   });
 
-  it('reports hidden and exempt counts on the control, over the whole tab', async () => {
-    const page = await open();
-    try {
-      expect(await page.locator('[data-sprint-report]').count()).toBe(0);
-      await sprintOnly(page);
-      const report = page.locator('[data-sprint-report]');
-      await expect.poll(() => report.getAttribute('data-sprint-hidden')).toBe('2');
-      expect(await report.getAttribute('data-sprint-exempt-count')).toBe('2');
-      const text = (await report.textContent()) ?? '';
-      // Two phrases, two facts, together on one line.
-      expect(text).toContain('2 rows hidden');
-      expect(text).toContain('2 shown without a plan');
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('prints 0 rather than suppressing it', async () => {
-    const page = await open(fleet((r) => r.branch !== EXEMPT_PR && r.branch !== RELEASE));
-    try {
-      await sprintOnly(page);
-      const report = page.locator('[data-sprint-report]');
-      await expect.poll(() => report.getAttribute('data-sprint-exempt-count')).toBe('0');
-      expect(await report.textContent()).toContain('0 shown without a plan');
-      expect(await page.locator('[data-sprint-exempt]').count()).toBe(0);
-    } finally {
-      await page.close();
-    }
-  });
+  // THE CONTROL-LEVEL REPORT HAS NO REPLACEMENT. `SprintFilter` rendered one
+  // unkeyed `[data-sprint-report]` carrying tab-wide `data-sprint-hidden` and
+  // `data-sprint-exempt-count` totals ("2 rows hidden" / "2 shown without a
+  // plan"). `DeliveryFilters` renders `data-sprint-report={sprint.slug}`
+  // instead — ONE PER ACTIVE SPRINT, naming that sprint's own item counts,
+  // per `FleetSprintSchema`'s own TSDoc on why one sprint's line must never
+  // fold into another's. Neither of the two per-section figures that DID
+  // survive the rewrite is a substitute: `hiddenSuffix`
+  // (`— N hidden by Sprint only`, read via `header(page)`'s text below) is
+  // PER SECTION, not a tab-wide total, and `data-sprint-unfiltered` names
+  // which KINDS the sprint filter never saw rather than counting exempt rows.
+  // This is a real coverage loss from the old control-level total — reported
+  // in this branch's PR rather than guessed at here. The two tests that only
+  // asserted the removed attributes are gone; `marks the exempt rows and not
+  // the member row` and `hides no row the exemption showed before` above
+  // still cover the underlying exempt/hidden behaviour through DOM marks.
 
   it('does not count an ownership-hidden row under Sprint only', async () => {
     const page = await open();
     try {
-      await page.locator('[data-mine-toggle]').check();
+      const mineChip = page.locator('[data-chip^="Mine"]');
+      await mineChip.click();
       await expect.poll(async () => (await branches(page)).includes(MEMBER_THEIRS)).toBe(false);
       await sprintOnly(page);
       const text = (await header(page).textContent()) ?? '';
       // Sprint hid ELSEWHERE and LOOSE; ownership hid MEMBER_THEIRS. Only the
       // first two belong to this suffix.
       expect(text).toContain('2 hidden by Sprint only');
-      expect(await page.locator('[data-mine-hidden]').getAttribute('data-mine-hidden')).toBe('1');
+      // THE CHIP'S OWN HIDDEN COUNT, not `data-mine-hidden` — that attribute
+      // lived on the checkbox this rewrite removed and has no dedicated
+      // attribute equivalent; `chip.hiddenCount` is rendered only as text
+      // inside the button (`DeliveryFilters.tsx`'s `ChipView`).
+      expect(await mineChip.textContent()).toContain('1 hidden');
     } finally {
       await page.close();
     }

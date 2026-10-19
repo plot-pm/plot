@@ -14,7 +14,7 @@ import { SprintCountsSchema } from '../../src/contract/schema.js';
  * unexplained shortfall the additive bucket was chosen to avoid.
  *
  * THE SOURCE IS READ, NOT RENDERED. Vitest runs `environment: 'node'` here with
- * no jsdom and no React Testing Library, so `SprintFilter` cannot be mounted —
+ * no jsdom and no React Testing Library, so `DeliveryFilters` cannot be mounted —
  * `acting-spinner.test.ts` settles the convention this follows. `formatCounts`
  * is module-private, and exporting it to reach a test would widen the module's
  * API for the test's convenience rather than the component's.
@@ -31,11 +31,11 @@ const src = (rel: string) =>
     .replace(/^\s*\/\/.*$/gm, '')
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
 
-const SPRINT_FILTER = src('components/SprintFilter.tsx');
+const DELIVERY_FILTERS = src('components/DeliveryFilters.tsx');
 
 /** The template literal `formatCounts` returns, comments already gone. */
 const countsTemplate = () => {
-  const body = SPRINT_FILTER.split('function formatCounts')[1] ?? '';
+  const body = DELIVERY_FILTERS.split('function formatCounts')[1] ?? '';
   return body.split('\n}')[0] ?? '';
 };
 
