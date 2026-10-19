@@ -6,6 +6,7 @@ import type { PromptExit } from '../rules/prompt-exit.js';
 import type { ResetRefusal } from '../rules/reapable.js';
 import type { CommitReading, MonitorVerdict } from '../rules/sample.js';
 import { backgroundDropCorrection } from '../rules/background-drop.js';
+import { mergeConflictCorrection } from '../rules/merge-conflict.js';
 import { runLimitRefusal } from '../rules/run-limit.js';
 import { sliceSpendRefusal } from '../rules/slice-spend-refusal.js';
 import type { EndingActor, EndingReason } from '../entities/ending.js';
@@ -224,6 +225,18 @@ export interface AgentLoopReadings {
    * when the real cause was a conflicting PR GitHub never started a run for.
    */
   readonly mergeable: Mergeability | null;
+  /**
+   * Whether {@link mergeable} read `conflicting` at the same moment it was
+   * read, before the checks wait's clock started. `false` everywhere else,
+   * including inside an already-running wait — `mergeable` is read once on
+   * entry and not re-asked, so this is a ROW 12a-adjacent reading rather than
+   * something the wait itself re-derives. Checked before {@link ciWait} is
+   * called at all: GitHub starts no `pull_request` run for a merge ref that
+   * conflicts, so entering the wait (starting its clock, later computing
+   * {@link checks} from the runs) is pointless when the host already said it
+   * will build nothing.
+   */
+  readonly mergeConflictAtEntry: boolean;
   /** The correction text to hand the agent on a failed build, already built by the caller. */
   readonly correctionText: string;
   /** The session to resume the correction in, or `''` to start a fresh worker. */
@@ -445,6 +458,50 @@ const settled = (readings: AgentLoopReadings, branch: string): Decision<AgentLoo
   return end(worktree, branch, 'corrections-spent', 'agent', 'correction budget spent', 0, [
     { kind: 'blocked-marker', worktree, branch, question },
     blockedDeclaration(worktree, branch, `${readings.correctionAttempts} corrections spent, checks still failing`),
+  ]);
+};
+
+/**
+ * ROW 12a' — the PR conflicts with the default branch at the moment the
+ * checks wait would begin. Resumes the agent with a merge-main-and-push
+ * correction while `correctionBudget` has room left, the same budget a
+ * failed build spends; once it is spent, a second conflicting reading ends
+ * the slice for a person rather than resuming forever.
+ *
+ * @param readings - this pass's readings.
+ * @param branch - the branch the slice is on.
+ * @returns an `agent-resume` write with its `correction-count`, or the
+ *   `corrections-spent` ending.
+ */
+const mergeConflictCorrectionEnding = (readings: AgentLoopReadings, branch: string): Decision<AgentLoopDetail> => {
+  const { worktree } = readings;
+
+  if (readings.correctionAttempts < readings.correctionBudget) {
+    const limited = runLimitEnding(readings, branch);
+    if (limited !== null) return limited;
+    const overspent = spendLimitEnding(readings, branch);
+    if (overspent !== null) return overspent;
+    return decide(
+      'agent-loop',
+      [
+        {
+          kind: 'agent-resume',
+          branch,
+          worktree,
+          resumeId: readings.resumeId,
+          correction: mergeConflictCorrection(branch),
+        },
+        { kind: 'correction-count', worktree, correctionAttempts: readings.correctionAttempts + 1 },
+      ],
+      { branch, exitCode: null, note: `merge conflict, correction ${readings.correctionAttempts + 1}` },
+    );
+  }
+
+  const prText = readings.pr === null ? 'its PR' : `PR #${readings.pr}`;
+  const question = `PLOT-BLOCKED: \`${branch}\` still conflicts with the default branch after ${readings.correctionAttempts} corrections against ${prText} — a person decides what to do next.`;
+  return end(worktree, branch, 'corrections-spent', 'agent', 'correction budget spent, PR still conflicting', 0, [
+    { kind: 'blocked-marker', worktree, branch, question },
+    blockedDeclaration(worktree, branch, `${readings.correctionAttempts} corrections spent, PR still conflicting`),
   ]);
 };
 
@@ -805,6 +862,17 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
       readings.pushed ? 'no PR open, no checks wait' : 'nothing pushed, no checks wait',
     );
   }
+
+  // ROW 12a' — the PR conflicts with the default branch at the same moment
+  // the checks wait would begin. GitHub starts no `pull_request` run for a
+  // merge ref that conflicts, so entering the wait is pointless; the agent is
+  // resumed with a merge-main-and-push correction instead, bounded by the
+  // same `correctionBudget` a failed build spends (`#2122`'s second open
+  // question: reused rather than a new counter, since a conflict resumed
+  // unboundedly repeats the #1274-shaped failure mode a bound already exists
+  // to prevent). Checked before {@link ciWait} so its switch gains no case
+  // for a value `ChecksFromRuns` has no slot for.
+  if (readings.mergeConflictAtEntry) return mergeConflictCorrectionEnding(readings, branch);
 
   return ciWait(readings, branch);
 };

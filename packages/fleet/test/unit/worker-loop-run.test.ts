@@ -1086,6 +1086,40 @@ describe('runWorkerLoop — after the prompt', () => {
     r.deps = { ...r.deps, config: { ...rigConfig(), checksWaitSeconds: 0 } };
     expect(await runWorkerLoop(r.deps)).toBe(124);
   });
+
+  it('never starts the checks-wait clock on a conflicting PR, reading mergeConflictAtEntry instead (#2122)', async () => {
+    const conflicting: Pr = { number: 7, head: BRANCH, state: 'OPEN', mergeable: 'conflicting' } as Pr;
+    const r = rig(ASSIGNED, [{}], {}, { host: hostFixture({ prs: [conflicting] }) });
+    const clock = { since: null, pr: null, mergeable: null };
+    const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
+    const readings = await readPass(r.ports, r.manifestFile, ran, rigConfig(), clock);
+    expect(readings).toMatchObject({ pushed: true, prOpen: true, pr: 7, mergeable: 'conflicting', mergeConflictAtEntry: true, checks: null });
+    // THE CLOCK NEVER STARTS: a later pass would otherwise read a
+    // `waitedSeconds` ticking up toward `Checks wait` for a build GitHub
+    // never starts a run for.
+    expect(clock.since).toBeNull();
+  });
+
+  it('hands a merge-main-and-push correction back on a conflicting PR, rather than waiting the full Checks wait', async () => {
+    const conflicting: Pr = { number: 7, head: BRANCH, state: 'OPEN', mergeable: 'conflicting' } as Pr;
+    // The fixture host answers `conflicting` on every ask, so the agent is
+    // corrected twice (the full `correctionBudget`) before the slice ends —
+    // the same shape ROW 14's own test gets from a build that never passes.
+    const r = rig(ASSIGNED, [{}, {}, {}], {}, { host: hostFixture({ prs: [conflicting] }) });
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(r.deskCalls.corrections).toHaveLength(2);
+    expect(r.deskCalls.corrections[0]?.text).toContain(BRANCH);
+    expect(r.deskCalls.corrections[0]?.text).toContain('Merge the default branch');
+    expect(r.calls.corrections.map((c) => c.correctionAttempts)).toEqual([1, 2]);
+    expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('corrections-spent');
+  });
+
+  it('ends corrections-spent once the correction budget is spent on a conflict that never resolves (#2122)', async () => {
+    const conflicting: Pr = { number: 7, head: BRANCH, state: 'OPEN', mergeable: 'conflicting' } as Pr;
+    const r = rig({ ...ASSIGNED, correctionAttempts: 2 }, [{}], {}, { host: hostFixture({ prs: [conflicting] }) });
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('corrections-spent');
+  });
 });
 
 describe('runWorkerLoop — a restart', () => {
