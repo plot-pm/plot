@@ -1688,6 +1688,22 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
   printf '%s' "$out"
 }
 
+# The REST host for the Jenkins slug $1, read off `jen -I <slug> auth status`'s
+# `Instance:` line rather than reinvented here — `jen` already turns a slug
+# like `ewz` into `jenkins-ci-ewz.internal.quatico.dev` and keys its stored
+# credential by that resolved host, so a literal slug sent to `curl` or to
+# `jenkins_rest_credential` can only fail. Prints nothing (exit 1) when `jen`
+# is missing, unparseable, or the line is absent — the caller decides what an
+# unresolved host means, same contract as every other helper here.
+jenkins_resolve_host() {
+  local slug="$1" out line
+  command -v jen >/dev/null 2>&1 || return 1
+  out=$(jen -I "$slug" auth status 2>&1) || true
+  line=$(printf '%s\n' "$out" | grep -iE '^Instance:' | head -1)
+  [ -n "$line" ] || return 1
+  printf '%s' "$line" | sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p'
+}
+
 # Every Jenkins build of one job, as a JSON array (newest first), or exit 3
 # (no instance) / exit 4 (cannot be asked). Shared by `run-for-sha`,
 # `runs-for-sha` and `runs`, so the instance, the credential and the
@@ -1723,10 +1739,10 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
 # runs, Jenkins' own word for *in flight*, mapped to the `status`/`conclusion`
 # split the contract already uses so the shape does not fork per connector.
 jenkins_sha_runs() {
-  local op="$1" branch="$2" limit="$3" sha="$4" instance host job cred tree body try path plain=""
+  local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain=""
   instance="$(jenkins_instance)"
   [ -n "$instance" ] || jenkins_no_instance
-  host="${instance%%/*}"
+  slug="${instance%%/*}"
   job="${instance#*/}"
   [ "$job" = "$instance" ] && job=""
   [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"
@@ -1734,6 +1750,16 @@ jenkins_sha_runs() {
     echo "plot-host: $op — the Jenkins instance names no job path; a sha lives in a job's builds, so it must be <slug>/<job/path>, not a bare host" >&2
     exit 4
   fi
+  # A dotted slug IS a host already, `jen`'s own passthrough rule — only a
+  # bare slug (`ewz`) needs resolving to the host its credential is keyed by.
+  case "$slug" in
+    *.*) host="$slug" ;;
+    *) host="$(jenkins_resolve_host "$slug")" || {
+         echo "plot-host: $op — cannot resolve Jenkins instance '$slug' to a host" >&2
+         echo "  \`jen -I $slug auth status\` did not answer an 'Instance:' line; run it directly to see why." >&2
+         exit 4
+       } ;;
+  esac
   cred="$(jenkins_rest_credential "$host")" || {
     echo "plot-host: $op — no Jenkins API credential for '$host'" >&2
     echo "  Jenkins' REST API takes basic auth with an API token, which \`jen auth login\` stores in the login keychain. The Keycloak bearer from \`jen auth token\` is NOT it." >&2
@@ -1756,15 +1782,16 @@ jenkins_sha_runs() {
   fi
   printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" --arg branch "$branch" --arg plain "$plain" '
     [ .builds[]
-      | { sha: ([ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision.SHA1 ] | first // ""),
+      | { shas: [ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision.SHA1 ],
           br: [ .actions[]? | .lastBuiltRevision.branch[]?.name // empty | sub("^(refs/remotes/|refs/heads/)"; "") | sub("^origin/"; "") ],
           status: (if .building then "in_progress" else "completed" end),
           conclusion: (if .building then null else (.result // null) end),
           url: (.url // ""),
           startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ]
-    | if $sha != "" then map(select(.sha == $sha or (($sha | test("^[0-9a-f]{7,}$")) and (.sha | startswith($sha))))) elif $plain == "" then .
+    | if $sha != "" then map(select(any(.shas[]?; . == $sha or (($sha | test("^[0-9a-f]{7,}$")) and (. | startswith($sha))))))
+      elif $plain == "" then .
       else map(select(if (.br | length) > 0 then any(.br[]; . == $branch) else $branch == ($job | split("/") | last) end)) end
-    | map(del(.br))' || exit 4
+    | map(.sha = (.shas | first // "") | del(.shas, .br))' || exit 4
 }
 
 # The sha-bound readings of the PR rows $3 whose branch colour in $2 cannot
@@ -1775,7 +1802,7 @@ jenkins_sha_runs() {
 jenkins_bind_rows() {
   { jq -c . <<<"$2"; jq -c . <<<"$3"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null \
     | while IFS=$'\t' read -r _b _s _j; do
-        _r=$(jenkins_sha_runs "$1" "$_b" 20 "$_s" 2>/dev/null </dev/null) || break
+        _r=$(jenkins_sha_runs "$1" "$_b" 20 "$_s" </dev/null) || break
         printf '%s\t%s\t%s\t%s\n' "$_b" "$_s" "$_j" "$_r"
       done | node "$here/board/plot-jenkins-pr-checks.mjs" bind 2>/dev/null
 }
