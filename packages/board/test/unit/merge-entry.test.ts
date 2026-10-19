@@ -72,6 +72,12 @@ describe('mergeAt', () => {
     expect(calls).toEqual([]);
   });
 
+  it('merges on a Bitbucket-short 12-character head matching the caller’s full sha', async () => {
+    const { p, calls } = ports(pr({ headSha: HEAD.slice(0, 12), checksSha: HEAD.slice(0, 12) }));
+    expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: true, pr: 7, sha: HEAD });
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD]]);
+  });
+
   it('refuses unaskable when the host lookup fails', async () => {
     const { p, calls } = ports('unaskable');
     expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: false, reason: 'unaskable' });
