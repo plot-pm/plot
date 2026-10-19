@@ -109,8 +109,37 @@ const STARTING_POLL_MS = FLEET_POLL_MS;
  * It does NOT shorten the dimming: `DIM_AFTER_FAILURES` is counted in polls,
  * and a restart that was already costing 3 consecutive failures still costs 3.
  * What changes is that they are now counted at all.
+ *
+ * **This is the FLEET's bound only.** `/api/fleet` reads a cache the server
+ * refreshes on its own timer and never runs a scan inline — measured at 0.76 s
+ * under the same load that made `/api/board` take 4.4-4.9 s (2026-10-19, issue
+ * #2083) — so 3.5 s against a 4 s poll is still the right margin for it.
  */
 const POLL_TIMEOUT_MS = 3_500;
+
+/**
+ * How long the BOARD poll waits before it counts as a failure.
+ *
+ * `/api/board` walks every plan in the estate and spawns `plot-plan-meta.sh`
+ * once per build — no per-request caching, so a slow answer is the real cost
+ * of that walk, not a bug in the timeout. Measured 2026-10-19 on a loaded
+ * development machine (issue #2083): the same batched spawn that finishes in
+ * ~360 ms in isolation took 2.9-4.4 s inside the running server, from ambient
+ * CPU contention rather than any per-request inefficiency — the handler
+ * already does one batched read, not one per plan. `boardState` now
+ * coalesces concurrent builds (`fleet-state.ts`) so simultaneous pollers no
+ * longer multiply that contention, but it cannot remove ambient load, so the
+ * bound still needs real margin.
+ *
+ * 12 s is about 2.5x the worst `node --watch` restart measured for
+ * `POLL_TIMEOUT_MS` above (9.1 s) — a restart still counts as a failure well
+ * before the next 30 s poll — and leaves 18 s of slack before the board's own
+ * cadence fires again, which is what keeps at most one board request live at
+ * a time: a poll that is still outstanding at 12 s is abandoned and counted
+ * as a failure before its successor at 30 s could ever overtake it.
+ */
+const BOARD_POLL_TIMEOUT_MS = 12_000;
+
 /** A closed read walks up to 10 pages of the tracker, so it gets a longer bound than a poll. */
 const CLOSED_TIMEOUT_MS = 60_000;
 
@@ -322,12 +351,14 @@ export function App() {
       try {
         // Bounded so a poll killed mid-response lands in the branch below
         // rather than hanging: a timeout IS "did not reach", and `reached`
-        // must say so for the overlay to ever count it.
+        // must say so for the overlay to ever count it. `BOARD_POLL_TIMEOUT_MS`
+        // rather than the fleet's `POLL_TIMEOUT_MS` — see that constant's
+        // comment for why the board's own answer needs a longer bound.
         // `archived` rides the request itself — `discoveryLanes` reads it
         // off `/api/board`'s own query string, not a separate endpoint — so
         // the toggle's state has to be read fresh on every poll rather than
         // closed over at mount.
-        res = await fetch(boardPath(location.search), { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) });
+        res = await fetch(boardPath(location.search), { signal: AbortSignal.timeout(BOARD_POLL_TIMEOUT_MS) });
       } catch (e) {
         // The one branch that means no contact. Re-thrown so the single exit
         // below still records the message, with `reached` carrying the reason.

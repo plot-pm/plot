@@ -77,6 +77,18 @@ export const realEstateSource: EstateSource = {
 };
 
 /**
+ * The build `boardState` is already running, keyed by nothing — one board, one
+ * estate, one build at a time. A second caller awaits the FIRST caller's
+ * promise rather than starting its own.
+ *
+ * Module-level and not per-call: the whole point is for two concurrent HTTP
+ * requests (two browser tabs, a poll overtaking a slow previous one) to share
+ * one `buildBoard`, which is a module-wide fact about how many are running
+ * right now, not a per-request one.
+ */
+let inFlight: Promise<Board> | null = null;
+
+/**
  * Fleet state: the question `/api/board` and `/api/fleet` both serve.
  *
  * Takes typed arguments and returns a typed result — HTTP is one caller, the
@@ -91,6 +103,18 @@ export const realEstateSource: EstateSource = {
  * The columns are REPLACED rather than merged into, for the reason `mockCards`
  * records: half the board's controls are gated on a card, and rows without
  * cards render none of them.
+ *
+ * **Concurrent callers share one `buildBoard`.** Measured on a loaded
+ * development machine (2026-10-19, issue #2083): two `/api/board` requests
+ * fired at once each took its OWN batched `plot-plan-meta.sh` spawn, and the
+ * two spawns competed for the same CPU — both answered in ~5 s where a single
+ * request alone answered in ~3-4.5 s. `buildBoard` holds no server-side state
+ * a second concurrent run could read stale, so sharing one in-flight build
+ * costs nothing a second independent build would have given a poller, and
+ * removes exactly that self-inflicted multiplier. Each caller still applies
+ * its OWN `estate.columns` afterwards, so a mock source is unaffected and two
+ * callers with different estates never share a build — only `realEstateSource`
+ * calls ever overlap on `inFlight`.
  *
  * @param query where to read the estate from
  * @returns the board answer
@@ -112,7 +136,19 @@ export const boardState = async ({
   // The read happens ONCE here and the columns are taken from it; a mock source
   // overrides them without ever reading the real estate, so `mockCards` still
   // REPLACES the payload rather than merging into it.
-  const built = await buildBoard(opts);
+  //
+  // A MOCK ESTATE NEVER JOINS `inFlight` — only the real source's build is
+  // worth sharing, and a test or a fixture caller building its own `opts` must
+  // get its own answer every time.
+  let built: Board;
+  if (estate === realEstateSource) {
+    inFlight ??= buildBoard(opts).finally(() => {
+      inFlight = null;
+    });
+    built = await inFlight;
+  } else {
+    built = await buildBoard(opts);
+  }
   return { ...built, columns: estate.columns(opts, built) };
 };
 
