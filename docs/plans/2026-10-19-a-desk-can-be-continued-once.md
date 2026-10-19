@@ -10,6 +10,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2114 merged
+- **Started:** 2026-10-19, Jan Wloka, `bug/a-desk-can-be-continued-once-test`
 
 ## Changelog
 
