@@ -49,7 +49,7 @@ The domain takes readings as values (CLAUDE.md, *The Layering Rule*), so `mergea
 
 ### Question
 
-- `bug/a-no-answer-question-names-mergeability` — the `no-answer` marker text names the PR's mergeability <!-- builds: mergeability in the checks-unanswered marker text -->
+- `bug/a-no-answer-question-names-mergeability` — the `no-answer` marker text names the PR's mergeability <!-- builds: mergeability in the checks-unanswered marker text --> → #2123
 
 ### Reading
 
