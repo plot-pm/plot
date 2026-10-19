@@ -25,7 +25,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 
 - [x] [the-ticket-index-updates-incrementally-and] The ticket index updates incrementally and takes Plot's own issue writes at once (#1856)
 - [x] [ticket-rows-show-type-and-owner] Ticket rows show type and owner under one "Assigned to you" sub-header (#1837)
-- [ ] [one-review-issue-per-pr-a] Tooling: one review issue per PR, a sprint goal the board reads, and a pid read that waits (#1952: #1881, #1883, #1909)
+- [x] [one-review-issue-per-pr-a] Tooling: one review issue per PR, a sprint goal the board reads, and a pid read that waits (#1952: #1881, #1883, #1909)
 
 ### Could Have
 

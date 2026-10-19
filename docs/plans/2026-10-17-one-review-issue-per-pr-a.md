@@ -4,9 +4,10 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1955 merged
+- **Delivered:** 2026-10-19
 - **Story:** <!-- optional, story slug (docs/stories/<slug>/) — the durable intent this plan serves -->
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #1952, #1881, #1883, #1909
