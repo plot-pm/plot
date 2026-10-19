@@ -112,6 +112,19 @@ const STARTING_POLL_MS = FLEET_POLL_MS;
  * What changes is that they are now counted at all.
  */
 const POLL_TIMEOUT_MS = 3_500;
+/**
+ * How long a remembered plan click waits for the board before falling back to
+ * `/plan/<file>` on its own.
+ *
+ * Covers the case `DIM_AFTER_FAILURES` does not: a click remembered while
+ * `board` is `null` resolves only when `board` lands, and the aborted-poll path
+ * (#2083) can keep it `null` forever — the dimming threshold is about the
+ * overlay, four minutes long, and would leave a click silent for that same four
+ * minutes. One poll cycle (`POLL_MS`) is enough time for a board that is merely
+ * slow; past it the click falls back to navigation rather than waiting on an
+ * answer that may never come.
+ */
+const PENDING_PLAN_TIMEOUT_MS = 30_000;
 /** A closed read walks up to 10 pages of the tracker, so it gets a longer bound than a poll. */
 const CLOSED_TIMEOUT_MS = 60_000;
 
@@ -843,6 +856,20 @@ export function App() {
       location.assign(`/plan/${encodeURIComponent(file)}`);
     }
   }, [pendingPlan, board, cardForPlanFile]);
+
+  // The board may never arrive — the aborted-poll path (#2083) can leave
+  // `board` `null` indefinitely, and the effect above only resolves once it is
+  // not. This is the click's own deadline: past it, the click falls back to
+  // navigation on its own rather than waiting on an answer that may not come.
+  useEffect(() => {
+    if (!pendingPlan) return;
+    const file = pendingPlan;
+    const id = setTimeout(() => {
+      setPendingPlan('');
+      location.assign(`/plan/${encodeURIComponent(file)}`);
+    }, PENDING_PLAN_TIMEOUT_MS);
+    return () => clearTimeout(id);
+  }, [pendingPlan]);
 
   /**
    * Close the modal, switch to the board, filter to the plan's story, and land

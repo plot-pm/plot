@@ -81,7 +81,7 @@ import { waitingView } from '../lib/agent-rows/waiting-view.js';
 import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, SliceRow, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
 import { workingAgentRows, brokenAgentRows, quietEndedDeskRows, draftPlanRows } from '../lib/agent-rows/working-agents.js';
 import { DraftPlanRowView } from '../lib/agent-rows/draft-plan-row.js';
-import { PlanLevelRowView, sectionCount, verificationRows } from '../lib/agent-rows/plan-level-row.js';
+import { PlanLevelRowView, planFileFromFleet, sectionCount, verificationRows } from '../lib/agent-rows/plan-level-row.js';
 import { specRows } from '../lib/agent-rows/spec-row.js';
 import { hasExceptions } from '../lib/agent-rows/stuck.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
@@ -502,10 +502,12 @@ export function AgentList({
   const workingPlanRows = [...verifyWorkingRows, ...specWorkingRows];
   const verificationWaitingRows = [...verifyWaitingRows, ...specWaitingRows];
   // THE PLAN FILE of a plan-level row: the payload names only the slug, so the
-  // file is the `path` of the board card with that slug (`planFileForSlug`).
-  // "" before the board loads or where no card holds the slug, which
-  // `PlanLevelRowView` renders as the slug with no link.
-  const planFileOf = (slug: string): string => planFileForSlug?.(slug) ?? '';
+  // file is read from the fleet's own rows (`planFileFromFleet`), which exist
+  // before the board loads, and then from the board card with that slug
+  // (`planFileForSlug`). "" where neither holds it, which `PlanLevelRowView`
+  // renders as the slug with no link.
+  const planFileOf = (slug: string): string =>
+    planFileFromFleet(slug, fleet?.rows ?? [], fleet?.draftPlans ?? []) || (planFileForSlug?.(slug) ?? '');
 
   const [openSlices, setOpenSlices] = useState<Set<string>>(() => new Set());
   const sliceKey = sliceKeyOf;

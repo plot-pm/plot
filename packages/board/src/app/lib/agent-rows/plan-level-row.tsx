@@ -98,6 +98,25 @@ export const planFileForSlug = (
 };
 
 /**
+ * The plan file the fleet's own payload names for `slug`, or `''` where no
+ * branch row and no draft plan carries one. Reads the same payload that makes a
+ * plan-level row exist, so the answer does not wait for the board.
+ *
+ * @param slug - the plan slug a plan-level row names.
+ * @param rows - the fleet's branch rows.
+ * @param draftPlans - the fleet's draft plans.
+ * @returns the plan's file name, or `''`.
+ */
+export const planFileFromFleet = (
+  slug: string,
+  rows: readonly { plan: string; planFile: string }[],
+  draftPlans: readonly { plan: string; planFile: string }[],
+): string =>
+  rows.find((r) => r.plan === slug && r.planFile)?.planFile ??
+  draftPlans.find((d) => d.plan === slug && d.planFile)?.planFile ??
+  '';
+
+/**
  * The number a section's heading shows. *Working* counts its registry rows and
  * its running plan-level rows. *Waiting on you* counts its branch rows, broken
  * agents, draft plans and waiting plan-level rows; the halted line is not a row
