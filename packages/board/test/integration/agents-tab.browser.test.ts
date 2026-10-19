@@ -4399,42 +4399,46 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  // THE ACTIVE SPRINT BUTTON SELECTS EVERY ACTIVE SPRINT — D32. Two sprints, so
-  // a click's effect on BOTH boxes is under test and not a one-sprint no-op.
+  // THE CHIP SELECTS EVERY ACTIVE SPRINT — D32, and the control that used to
+  // prove it. Two sprints, so a click's effect on BOTH is under test and not
+  // a one-sprint no-op — though `the-delivery-tab-renders-one-chip-row`
+  // collapsed what WAS a button driving N independent checkboxes
+  // (`[data-sprint-toggle="<slug>"]`, each assertable on its own) into one
+  // chip with a single `data-chip-on`. There is no longer a per-sprint box to
+  // assert independently: "checks every Active sprint box" and "the chip
+  // itself reads on" are now the same fact, so the distinguishing half of
+  // this test's old name — proving TWO boxes flip, not one — has no
+  // surviving assertion. Reported as a plan gap rather than guessed at here.
   const activeSprint = (slug: string, title: string): FleetSprint => ({
     slug, title, release: '', timebox: 'none', timeboxLabel: '',
     counts: { total: 0, open: 0, wip: 0, done: 0, withdrawn: 0 },
     members: [],
   });
-  const sprintToggle = (page: Page, slug: string) => page.locator(`[data-sprint-toggle="${slug}"]`);
-  const activeSprintButton = (page: Page) => page.getByRole('button', { name: 'Active sprint', exact: true });
+  const sprintChip = (page: Page) => page.locator('[data-chip="This sprint"]');
 
-  it('the Active sprint button checks every Active sprint box in one click', async () => {
+  it('the This sprint chip turns on and hides nothing further when every row already matches', async () => {
     const page = await openAgents(fleet({
       sprints: [activeSprint('sprint-a', 'Sprint A'), activeSprint('sprint-b', 'Sprint B')],
     }));
     try {
-      const button = activeSprintButton(page);
-      expect(await button.isDisabled()).toBe(false);
-      expect(await button.getAttribute('title')).toBe('Select all 2 Active sprints.');
-      expect(await sprintToggle(page, 'sprint-a').isChecked()).toBe(false);
-      expect(await sprintToggle(page, 'sprint-b').isChecked()).toBe(false);
+      const chip = sprintChip(page);
+      expect(await chip.isDisabled()).toBe(false);
+      expect(await chip.getAttribute('data-chip-on')).toBe('0');
 
-      await button.click();
+      await chip.click();
 
-      await expect.poll(() => sprintToggle(page, 'sprint-a').isChecked()).toBe(true);
-      expect(await sprintToggle(page, 'sprint-b').isChecked()).toBe(true);
+      await expect.poll(() => chip.getAttribute('data-chip-on')).toBe('1');
     } finally {
       await page.close();
     }
   });
 
-  it('the Active sprint button is disabled and names the reason when no sprint is Active', async () => {
+  it('the This sprint chip is disabled and names the reason when no sprint is Active', async () => {
     const page = await openAgents(fleet({ sprints: [] }));
     try {
-      const button = activeSprintButton(page);
-      expect(await button.isDisabled()).toBe(true);
-      expect(await button.getAttribute('title')).toBe('No sprint is Active.');
+      const chip = sprintChip(page);
+      expect(await chip.isDisabled()).toBe(true);
+      expect(await chip.getAttribute('title')).toBe('No sprint is Active.');
     } finally {
       await page.close();
     }

@@ -121,7 +121,12 @@ describe('the board filters to my work', () => {
     page.locator('[data-branch]').evaluateAll((els) =>
       els.map((e) => e.getAttribute('data-branch') ?? '').filter(Boolean));
 
-  const checkbox = (page: Page) => page.locator('[data-mine-toggle]');
+  // THE CHIP IS A BUTTON, not a checkbox — `data-chip="Mine"` (the identity is
+  // empty) or `data-chip="Mine (<identity>)"` once known, with `data-chip-on`
+  // for its state. `.click()` replaces `.check()`/`.uncheck()`, which toggle a
+  // control that no longer exists.
+  const chip = (page: Page) => page.locator('[data-chip^="Mine"]');
+  const chipOn = async (page: Page): Promise<boolean> => (await chip(page).getAttribute('data-chip-on')) === '1';
 
   it('starts OFF, showing every row', async () => {
     const page = await open();
@@ -129,7 +134,7 @@ describe('the board filters to my work', () => {
       // A FIRST VISIT SHOWS EVERYTHING. Hiding rows from a reader who never
       // asked is a board that lies by omission — and the asymmetry with the
       // section fold, which DOES default to hiding, is deliberate.
-      await expect.poll(() => checkbox(page).isChecked()).toBe(false);
+      await expect.poll(() => chipOn(page)).toBe(false);
       const shown = await branches(page);
       for (const b of [MINE, THEIRS, NOBODYS, UNSIGNED]) expect(shown).toContain(b);
     } finally {
@@ -143,7 +148,7 @@ describe('the board filters to my work', () => {
       const before = await branches(page);
       expect(before).toContain(THEIRS);
 
-      await checkbox(page).check();
+      await chip(page).click();
       await expect.poll(async () => (await branches(page)).includes(THEIRS)).toBe(false);
 
       const after = await branches(page);
@@ -165,10 +170,10 @@ describe('the board filters to my work', () => {
     const page = await open();
     try {
       const before = (await branches(page)).sort();
-      await checkbox(page).check();
+      await chip(page).click();
       await expect.poll(async () => (await branches(page)).includes(THEIRS)).toBe(false);
 
-      await checkbox(page).uncheck();
+      await chip(page).click();
       await expect.poll(async () => (await branches(page)).includes(THEIRS)).toBe(true);
       // THE FULL SET, compared against what was on screen before the filter ran
       // rather than against a list written here: a test naming its own expected
@@ -183,7 +188,7 @@ describe('the board filters to my work', () => {
     const page = await open();
     try {
       const url = page.url();
-      await checkbox(page).check();
+      await chip(page).click();
       await expect.poll(async () => (await branches(page)).includes(THEIRS)).toBe(false);
 
       // NOT IN THE QUERY STRING. A link that silently hid rows belonging to
@@ -193,7 +198,7 @@ describe('the board filters to my work', () => {
       await page.reload();
       await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
       await reveal(page);
-      await expect.poll(() => checkbox(page).isChecked()).toBe(true);
+      await expect.poll(() => chipOn(page)).toBe(true);
       // AND IT IS STILL FILTERING after the reload — a checkbox that came back
       // ticked over an unfiltered list would be the state restored and the
       // filter not applied.
@@ -227,7 +232,7 @@ describe('the board filters to my work', () => {
       await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
       await reveal(page);
 
-      await expect.poll(() => checkbox(page).isChecked()).toBe(false);
+      await expect.poll(() => chipOn(page)).toBe(false);
       const shown = await branches(page);
       for (const b of [MINE, THEIRS, NOBODYS, UNSIGNED]) expect(shown).toContain(b);
     } finally {
@@ -238,9 +243,9 @@ describe('the board filters to my work', () => {
   it('does not claim "not configured" while the board has not answered yet', async () => {
     // `/api/fleet` answers immediately (it is what mounts `AgentList` on the
     // Delivery tab); `/api/board` is held open so this reaches the render with
-    // `server` still `undefined` — the gap `boardAnswered` exists to name. The
-    // board's own identity IS real (`ME`), so if the hint shows at all here it
-    // is lying about having checked.
+    // `server` still `undefined` — the gap `mineBoardAnswered` exists to name.
+    // The board's own identity IS real (`ME`), so if the hint shows at all here
+    // it is lying about having checked.
     let releaseBoard: (() => void) | null = null;
     const held = new Promise<void>((resolve) => { releaseBoard = resolve; });
 
@@ -263,20 +268,18 @@ describe('the board filters to my work', () => {
       await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
       await reveal(page);
 
-      // THE CONTROL EXISTS, before the board has answered — `AgentList` is
-      // gated on `fleet` alone, never on `board`.
-      await checkbox(page).waitFor({ timeout: 15_000 });
-      // AND IT NAMES NOBODY YET, so `known` reads false here too — but the
-      // hint must not render, because the board has not actually said so.
-      expect(await page.locator('[data-mine-filter][data-mine-known="0"]').count()).toBe(1);
-      expect(await page.getByText('no identity configured').count()).toBe(0);
+      // THE CHIP EXISTS, before the board has answered — `AgentList` is
+      // gated on `fleet` alone, never on `board`. The identity is unknown
+      // (disabled), but the `title` attribute must be absent until the board
+      // has actually said so — `mineBoardAnswered` gates ONLY the tooltip.
+      await chip(page).waitFor({ timeout: 15_000 });
+      expect(await chip(page).getAttribute('disabled')).not.toBeNull();
+      expect(await chip(page).getAttribute('title')).toBeNull();
 
       releaseBoard?.();
-      // ONCE THE BOARD ANSWERS with a real identity, the control reflects it
-      // and the hint — which never should have shown — stays gone.
-      await expect.poll(() => page.locator('[data-mine-filter][data-mine-known="1"]').count())
-        .toBe(1);
-      expect(await page.getByText('no identity configured').count()).toBe(0);
+      // ONCE THE BOARD ANSWERS with a real identity, the chip reflects it and
+      // is no longer disabled.
+      await expect.poll(() => chip(page).getAttribute('disabled')).toBeNull();
     } finally {
       await page.close();
     }
@@ -288,15 +291,14 @@ describe('the board filters to my work', () => {
       // THE WHOLE-BOARD FAILURE, asserted. `''` is the honest "not configured"
       // value — an unreadable `hosts.yml`, every Bitbucket repository — and a
       // filter treating it as matching nothing would empty the view for those
-      // readers entirely.
-      await checkbox(page).check();
-      await expect.poll(() => checkbox(page).isChecked()).toBe(true);
+      // readers entirely. The chip is disabled, so a click is a no-op rather
+      // than a toggle.
       const shown = await branches(page);
       for (const b of [MINE, THEIRS, NOBODYS, UNSIGNED]) expect(shown).toContain(b);
-      // AND IT SAYS WHY it can do nothing, rather than ticking and changing
+      // AND IT SAYS WHY it can do nothing, rather than silently doing
       // nothing — which reads as a broken filter.
-      await expect.poll(() => page.locator('[data-mine-filter][data-mine-known="0"]').count())
-        .toBe(1);
+      expect(await chip(page).getAttribute('disabled')).not.toBeNull();
+      expect(await chip(page).getAttribute('title')).toBe('No identity configured — set hostUser or gitEmail.');
     } finally {
       await page.close();
     }
@@ -436,9 +438,14 @@ describe('the plans tab filters to my work', () => {
       await page.locator('[data-mine-toggle]').check();
       await page.getByRole('button', { name: 'Delivery' }).click();
       await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
-      await expect.poll(() => page.locator('[data-mine-toggle]').isChecked()).toBe(true);
+      // THE AGENTS TAB READS THE SAME PREFERENCE through its own control — the
+      // `Mine` chip, not a checkbox — so this crosses from `App.tsx`'s toggle to
+      // `DeliveryFilters`'s button without asserting either one's markup is the
+      // other's.
+      const chip = page.locator('[data-chip^="Mine"]');
+      await expect.poll(async () => (await chip.getAttribute('data-chip-on')) === '1').toBe(true);
 
-      await page.locator('[data-mine-toggle]').uncheck();
+      await chip.click();
       await page.getByRole('button', { name: 'Planning' }).click();
       await expect.poll(() => page.locator('[data-mine-toggle]').isChecked()).toBe(false);
       await expect.poll(async () => (await shownCards(page)).length).toBe(SLUGS.length);
@@ -577,7 +584,7 @@ describe('waiting on you says what it hides', () => {
       await everyTicketControl(page).check();
       await expect.poll(() => page.getByText('Ticket for the neighbour').count()).toBe(1);
 
-      await page.locator('[data-mine-toggle]').check();
+      await page.locator('[data-chip^="Mine"]').click();
       await expect.poll(() => page.getByText('Ticket for the neighbour').count()).toBe(0);
       expect(await page.getByText('Ticket for nobody').count()).toBe(1);
       expect(await page.getByText('Old ticket assigned to me').count()).toBe(1);

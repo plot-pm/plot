@@ -495,7 +495,10 @@ describe('a browser test that stubs its own state starts no board', () => {
 // every board link that opens a modal ending in the modal or in navigation,
 // never in nothing (#2084). A plain addition; it serves its state through the
 // catalogue and starts no board.
-const EXPECTED_FILES = 72;
+// 72 → 73 on 2026-10-20: `delivery-filters.browser.test.ts`, for the Delivery
+// tab's one chip row at desktop width and at 375px (#2080). A plain addition;
+// it serves its state through the catalogue and starts no board.
+const EXPECTED_FILES = 73;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -752,7 +755,17 @@ const EXPECTED_FILES = 72;
 // The file already drove a page, so `EXPECTED_FILES` is unchanged.
 // 601 → 608 on 2026-10-19: the seven `it(` of `plan-link-click.browser.test.ts`,
 // a new file counted in `EXPECTED_FILES` above.
-const EXPECTED_TESTS = 608;
+// 608 → 607 on 2026-10-20: `the-delivery-tab-renders-one-chip-row` replaced the
+// per-sprint checkboxes and the sprint card's tab-wide hidden/exempt total with
+// one chip row (#2080). `sprint-switch.browser.test.ts` lost the one `it(` that
+// tested selecting a SUBSET of Active sprints — the chip is all-or-nothing, so
+// no subset exists to test. `sprint-exempt.browser.test.ts` lost the two `it(`
+// that asserted the removed tab-wide `data-sprint-report`/`data-sprint-hidden`/
+// `data-sprint-exempt-count` totals, which have no replacement: the new control
+// reports per ACTIVE SPRINT, never for the whole tab. `delivery-filters.browser.test.ts`
+// adds its own two `it(`, a new file counted in `EXPECTED_FILES` above. Net:
+// −1 − 2 + 2 = −1.
+const EXPECTED_TESTS = 607;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

@@ -1,0 +1,129 @@
+import { chipRow, type Chip, type ChipRowReadings } from '@plot-pm/domain/rules/chip-row';
+import type { FleetSprint, SprintCounts } from '../../contract/schema.js';
+
+/**
+ * The Delivery tab's filter row: one chip row (`This sprint`, `Mine`,
+ * `Waiting on me`), the active sprint's own line, and the estate totals.
+ *
+ * Replaces the two-card, two-style control `SprintFilter` + the `Only my
+ * work` checkbox used to split across — three controls in three visual
+ * styles, per issue #2080. Every chip's label/on/hiddenCount/disabledReason is
+ * read from `chipRow()` (`@plot-pm/domain`), not decided here: this component
+ * only renders what the rule returns (root `CLAUDE.md`, "Every rendered state
+ * is a domain property").
+ */
+interface DeliveryFiltersProps {
+  /** What `chipRow` needs to decide the three chips. */
+  readings: ChipRowReadings;
+  /** Toggle the `This sprint` chip. */
+  onToggleSprint: () => void;
+  /** Toggle the `Mine` chip. */
+  onToggleMine: () => void;
+  /** The active sprints, for the sprint line beneath the chip row. Empty renders no line. */
+  sprints: FleetSprint[];
+  /**
+   * Whether the board has answered the `Mine` chip's identity question yet.
+   * `chipRow`'s `disabledReason` does not distinguish "asked, found nobody"
+   * from "not asked yet" — `server` arrives on a separate, slower fetch than
+   * `fleet`, so this gates ONLY whether the reason is shown yet, matching the
+   * old control's `!known && boardAnswered` timing exactly.
+   */
+  mineBoardAnswered: boolean;
+  /** Estate-wide totals, shown at the right end of the chip row. */
+  estateTotals?: SprintCounts;
+}
+
+/**
+ * Format counts as a compact string: `<total> <unit> · <open> open · <wip>
+ * WIP · <done> done · <withdrawn> withdrawn`.
+ *
+ * All four bucket counts are shown, even when zero — the shape is the point,
+ * and hiding zeros would make the total harder to verify by eye.
+ */
+function formatCounts(counts: SprintCounts, unit: string): string {
+  return `${counts.total} ${unit} · ${counts.open} open · ${counts.wip} WIP`
+    + ` · ${counts.done} done · ${counts.withdrawn} withdrawn`;
+}
+
+/** One chip: filled when on, outlined when off, dimmed with a tooltip when disabled. */
+function ChipView({ chip, onToggle, showDisabledReason = true }: { chip: Chip; onToggle: () => void; showDisabledReason?: boolean }) {
+  const disabled = chip.disabledReason !== null;
+  return (
+    <button
+      type="button"
+      data-chip={chip.label}
+      data-chip-on={chip.on ? '1' : '0'}
+      disabled={disabled}
+      onClick={onToggle}
+      title={disabled && showDisabledReason ? chip.disabledReason ?? undefined : undefined}
+      className={`shrink rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+        disabled
+          ? 'cursor-not-allowed border-slate-200 text-slate-400 opacity-50 dark:border-slate-700 dark:text-slate-500'
+          : chip.on
+            ? 'border-green-600 bg-green-600 text-white dark:border-green-500 dark:bg-green-600'
+            : 'border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800'
+      }`}
+    >
+      {chip.label}
+      {!disabled && chip.on && (
+        <span className="ml-1 font-normal opacity-90">
+          {chip.hiddenCount === 1 ? '1 hidden' : `${chip.hiddenCount} hidden`}
+        </span>
+      )}
+    </button>
+  );
+}
+
+export function DeliveryFilters({
+  readings,
+  onToggleSprint,
+  onToggleMine,
+  sprints,
+  mineBoardAnswered,
+  estateTotals,
+}: DeliveryFiltersProps) {
+  const chips = chipRow(readings);
+
+  return (
+    <div data-delivery-filters className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <ChipView chip={chips.thisSprint} onToggle={onToggleSprint} />
+        <ChipView chip={chips.mine} onToggle={onToggleMine} showDisabledReason={mineBoardAnswered} />
+        <ChipView chip={chips.waitingOnMe} onToggle={() => {}} />
+        {estateTotals && (
+          <span data-estate-totals className="ml-auto min-w-0 text-xs text-slate-500 dark:text-slate-400">
+            {formatCounts(estateTotals, 'plans')}
+          </span>
+        )}
+      </div>
+      {/* THE SPRINT LINE — one per Active sprint, each its own name, target,
+          timebox and item counts, never the estate's. `FleetSprintSchema`'s
+          own TSDoc: "Two teams may share one train... picking the newest
+          would silently hide a commitment" — so every Active sprint gets its
+          own line rather than one line summing them.
+
+          THE SPRINT NAME IS NOT A LINK. The plan's own Open Questions leaves
+          "does the sprint line link to the sprint file on the board, or to a
+          sprint view?" unresolved — the board has no sprint page today — so
+          this renders plain text rather than guessing a destination. */}
+      {sprints.map((sprint) => (
+        <div key={sprint.slug} data-sprint-report={sprint.slug} className="px-1 text-xs text-slate-500 dark:text-slate-400">
+          <span className="font-medium text-slate-700 dark:text-slate-200">Sprint:</span>{' '}
+          {sprint.title}
+          {sprint.release && <span> · target {sprint.release}</span>}
+          {sprint.timeboxLabel && (
+            <span
+              data-sprint-timebox={sprint.slug}
+              data-timebox={sprint.timebox}
+              className={sprint.timebox === 'late' ? 'font-medium text-amber-700 dark:text-amber-500' : undefined}
+            >
+              {' · '}{sprint.timeboxLabel}
+            </span>
+          )}
+          {' — '}
+          {formatCounts(sprint.counts, 'items')}
+        </div>
+      ))}
+    </div>
+  );
+}
