@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2084
@@ -14,6 +14,7 @@
 - **Rounds:**
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2091 merged
 - **Started:** 2026-10-19, Jan Wloka, `bug/a-click-on-a-plan-story`
+- **Delivered:** 2026-10-19
 
 ## Changelog
 

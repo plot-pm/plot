@@ -6,6 +6,7 @@ import { Swimlanes } from './components/Swimlanes.js';
 import { PlanModal } from './components/PlanModal.js';
 import { SprintModal } from './components/SprintModal.js';
 import { boardTabOf, type BoardTab } from '@plot-pm/domain/rules/board-tab';
+import { planLinkClick } from '@plot-pm/domain/rules/plan-link-click';
 import { revealsReleased } from '@plot-pm/domain/rules/workflow-phases';
 import type { DiscoveryShow } from '@plot-pm/domain';
 import { StoriesTab } from './components/StoriesTab.js';
@@ -116,6 +117,19 @@ const STARTING_POLL_MS = FLEET_POLL_MS;
  * #2083) — so 3.5 s against a 4 s poll is still the right margin for it.
  */
 const POLL_TIMEOUT_MS = 3_500;
+/**
+ * How long a remembered plan click waits for the board before falling back to
+ * `/plan/<file>` on its own.
+ *
+ * Covers the case `DIM_AFTER_FAILURES` does not: a click remembered while
+ * `board` is `null` resolves only when `board` lands, and the aborted-poll path
+ * (#2083) can keep it `null` forever — the dimming threshold is about the
+ * overlay, four minutes long, and would leave a click silent for that same four
+ * minutes. One poll cycle (`POLL_MS`) is enough time for a board that is merely
+ * slow; past it the click falls back to navigation rather than waiting on an
+ * answer that may never come.
+ */
+const PENDING_PLAN_TIMEOUT_MS = 30_000;
 
 /**
  * How long the BOARD poll waits before it counts as a failure.
@@ -844,11 +858,12 @@ export function App() {
   const onOpenPlanFile = useCallback(
     (planFile: string): boolean => {
       const card = cardForPlanFile(planFile);
-      if (card) {
-        setOpenPlan(card);
+      const decision = planLinkClick(board !== null, card !== null);
+      if (decision === 'open') {
+        setOpenPlan(card as Card);
         return true;
       }
-      if (!board) {
+      if (decision === 'wait') {
         setPendingPlan(planFile);
         return true;
       }
@@ -858,14 +873,34 @@ export function App() {
   );
 
   // The deferred half of the click above. Once the board arrives, either the
-  // card is there and the modal opens, or it is not and the request is dropped
-  // — a click that resolves to nothing beats one that navigated away.
+  // card is there and the modal opens, or it is not and the click that was
+  // remembered instead of navigating falls back to the plan page now — a
+  // click that resolves to nothing must still go somewhere.
   useEffect(() => {
     if (!pendingPlan || !board) return;
     const card = cardForPlanFile(pendingPlan);
+    const file = pendingPlan;
     setPendingPlan('');
-    if (card) setOpenPlan(card);
+    if (planLinkClick(true, card !== null) === 'open') {
+      setOpenPlan(card as Card);
+    } else {
+      location.assign(`/plan/${encodeURIComponent(file)}`);
+    }
   }, [pendingPlan, board, cardForPlanFile]);
+
+  // The board may never arrive — the aborted-poll path (#2083) can leave
+  // `board` `null` indefinitely, and the effect above only resolves once it is
+  // not. This is the click's own deadline: past it, the click falls back to
+  // navigation on its own rather than waiting on an answer that may not come.
+  useEffect(() => {
+    if (!pendingPlan) return;
+    const file = pendingPlan;
+    const id = setTimeout(() => {
+      setPendingPlan('');
+      location.assign(`/plan/${encodeURIComponent(file)}`);
+    }, PENDING_PLAN_TIMEOUT_MS);
+    return () => clearTimeout(id);
+  }, [pendingPlan]);
 
   /**
    * Close the modal, switch to the board, filter to the plan's story, and land
@@ -1448,12 +1483,16 @@ export function App() {
           sprint={openSprint}
           onClose={() => setOpenSprint(null)}
           onOpenPlan={(slug) => {
-            // Find the card for this plan slug and open it in the plan modal.
-            const card = allCards.find((c) => c.slug === slug);
-            if (card) {
+            const card = allCards.find((c) => c.slug === slug) ?? null;
+            if (planLinkClick(true, card !== null) === 'open') {
               setOpenSprint(null);
-              setOpenPlan(card);
+              setOpenPlan(card as Card);
+              return;
             }
+            // No card for this slug — the sprint member names a plan the
+            // board does not hold a card for; there is no `/plan/<file>` path
+            // to fall back to (only the slug, not the file), so the modal
+            // stays open rather than navigating nowhere.
           }}
         />
       )}

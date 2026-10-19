@@ -54,7 +54,7 @@ const refusalOf = (r: MergeReadings, sha = HEAD) => {
 };
 
 describe('merge — the controller for a PR merge', () => {
-  it('decides one merge pinned to the caller’s sha', () => {
+  it('decides one merge pinned to the head the caller read', () => {
     const out = merge(readings(), { pr: 42, sha: HEAD, ...CLOCK });
     expect(out.outcome).not.toBe('refused');
     if (out.outcome === 'refused') return;
@@ -62,7 +62,7 @@ describe('merge — the controller for a PR merge', () => {
     expect(out.detail).toEqual({ pr: 42, sha: HEAD, defaultBranchRead: true });
   });
 
-  it('pins to the caller’s sha, never to a head it did not read', () => {
+  it('refuses a host head that is not the caller’s commit', () => {
     // The host head differs: the pin is what makes a late push fail at the host.
     expect(refusalOf(readings({ pr: pr({ headSha: OTHER, checksSha: OTHER }) }))).toBe('head-moved');
   });
@@ -72,7 +72,16 @@ describe('merge — the controller for a PR merge', () => {
     const out = merge(readings(), { pr: 42, sha: HEAD.toUpperCase(), ...CLOCK });
     expect(out.outcome).not.toBe('refused');
     if (out.outcome === 'refused') return;
-    expect(out.writes).toEqual([{ kind: 'pr-merge', pr: 42, deleteBranch: false, sha: HEAD.toUpperCase() }]);
+    expect(out.writes).toEqual([{ kind: 'pr-merge', pr: 42, deleteBranch: false, sha: HEAD }]);
+  });
+
+  it('pins a short caller sha to the host’s full head, never to the short form', () => {
+    // GitHub matches `--match-head-commit` against a full sha only, so a
+    // 12-character caller sha must reach the host as the 40-character head.
+    const out = merge(readings(), { pr: 42, sha: HEAD.slice(0, 12), ...CLOCK });
+    expect(out.outcome).not.toBe('refused');
+    if (out.outcome === 'refused') return;
+    expect(out.writes).toEqual([{ kind: 'pr-merge', pr: 42, deleteBranch: false, sha: HEAD }]);
   });
 
   it('refuses unaskable when the host did not answer', () => {

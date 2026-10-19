@@ -52,7 +52,7 @@ How the refusal arises, from the code on `main`:
 
 ### Reproduction
 
-- `bug/a-desk-can-be-continued-once-test` — a test continues one desk twice for each ending reason in `NEEDS_PERSON_ENDINGS` and records which second continues refuse <!-- builds: a two-continue test over NEEDS_PERSON_ENDINGS -->
+- `bug/a-desk-can-be-continued-once-test` — a test continues one desk twice for each ending reason in `NEEDS_PERSON_ENDINGS` and records which second continues refuse <!-- builds: a two-continue test over NEEDS_PERSON_ENDINGS --> → #2122
 
 ### Fix
 
