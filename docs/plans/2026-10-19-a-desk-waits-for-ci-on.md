@@ -54,7 +54,7 @@ The domain takes readings as values (CLAUDE.md, *The Layering Rule*), so `mergea
 
 ### Reading
 
-- `bug/a-desk-merges-main-when-its-pr-conflicts` — the agent loop reads mergeability before the CI wait and resumes the agent to merge the default branch on `conflicting` <!-- builds: a conflicting-PR row in ciWait -->
+- `bug/a-desk-merges-main-when-its-pr-conflicts` — the agent loop reads mergeability before the CI wait and resumes the agent to merge the default branch on `conflicting` <!-- builds: a conflicting-PR row in ciWait --> → #2136
 
 ## Notes
 
