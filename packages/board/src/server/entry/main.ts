@@ -145,7 +145,7 @@ export const run = async (
 
   if (argv[0] === 'merge') {
     const [, pr, sha] = argv;
-    if (!pr || !sha || !/^[0-9]+$/.test(pr) || !/^[0-9a-f]{40}$/i.test(sha)) {
+    if (!pr || !sha || !/^[0-9]+$/.test(pr) || !/^[0-9a-f]{7,40}$/i.test(sha)) {
       process.stderr.write('usage: plot-ask.mjs merge <pr> <sha>\n');
       return 2;
     }

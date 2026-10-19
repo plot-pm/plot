@@ -11,8 +11,9 @@ describe('plot-ask merge argv', () => {
     ['no arguments', ['merge']],
     ['no sha', ['merge', '7']],
     ['a non-numeric pr', ['merge', 'abc', 'deadbeef']],
-    ['a sha shorter than 40 hex characters', ['merge', '7', 'deadbeef']],
+    ['a sha shorter than 7 hex characters', ['merge', '7', 'dead']],
     ['a 40-character sha that is not hex', ['merge', '7', 'z'.repeat(40)]],
+    ['a 7-character sha that is not hex', ['merge', '7', 'g'.repeat(7)]],
     ['a numeric-looking pr with trailing text', ['merge', '7x', HEX40]],
   ];
 
