@@ -1449,9 +1449,7 @@ echo
 echo "== 7. Uncut slices (a slice holds one branch — candidate /plot-reslice) =="
 unsliced_out=""
 slice_chain_bundle="$script_dir/board/plot-slice-chain.mjs"
-slice_chain_ready=0
-[ -f "$slice_chain_bundle" ] && command -v node >/dev/null 2>&1 && slice_chain_ready=1
-if [ -n "$plan_json" ] && [ "$slice_chain_ready" = 1 ]; then
+if [ -n "$plan_json" ] && [ -f "$slice_chain_bundle" ] && command -v node >/dev/null 2>&1; then
     # One record per multi-branch wave: file, heading, branch count, and the
     # wave's `branches` (each `{branch, waits_on}`) as its own JSON document —
     # joined with US (0x1f), not tab: an empty heading plus IFS-whitespace tabs
