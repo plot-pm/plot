@@ -15,6 +15,7 @@
 - **Started:** 2026-10-17, Jan Wloka, `bug/the-implement-lock-covers-its-start`
 - **Started:** 2026-10-18, Jan Wloka, `bug/a-continue-starts-one-loop`
 - **Started:** 2026-10-18, Jan Wloka, `bug/a-failed-continue-leaves-its-desk-whole`
+- **Started:** 2026-10-19, Jan Wloka, `bug/a-continuation-obeys-the-limits`
 
 ## Changelog
 
