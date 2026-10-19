@@ -110,7 +110,7 @@ export interface AgentDesk {
  */
 /** What {@link Agents.register} needs to write a manifest. */
 export interface AgentRegistration {
-  /** The new agent's session id; also its first `resumeId`. */
+  /** The new agent's session id; also its first `resumeId` unless `resumeId` is given. */
   session: string;
   /** The branch it holds, or `''` for a free agent. */
   branch: string;
@@ -118,6 +118,8 @@ export interface AgentRegistration {
   worktree: string;
   /** The `Worker command` it runs. */
   command: string;
+  /** The conversation to resume. Defaults to `session` — a fresh registration has no other to name. */
+  resumeId?: string;
 }
 
 export interface Agents {

@@ -327,6 +327,8 @@ export type DeskContinuation =
       previousPid: string;
       prompt: string;
       log: string;
+      /** Set when the loop started but its manifest could not be stamped afterward; the registry row may still name the previous run. */
+      warning?: string;
     }
   | { kind: 'refused'; status: number; reason: ContinueRefusal; detail: string }
   | { kind: 'failed'; error: string };
@@ -713,6 +715,16 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     const manifestBeforeStop = stampPath === '' ? null : manifestText(stampPath);
     const previousMonitors = stampPath === '' ? [] : recordedMonitorPids(stampPath);
 
+    // SAVE-THEN-SIGNAL (#1379): a `stamp` target with no readable manifest
+    // refuses `no-manifest` HERE, before the loop is ever signalled. Checking
+    // this only after the stop (as the code used to) would have already sent
+    // `SIGTERM` and removed the freewait record for a manifest this run could
+    // never restore — a stop with no way back. The desk is left exactly as
+    // found: nothing signalled, nothing removed.
+    if (stampPath !== '' && manifestBeforeStop === null) {
+      return refused(409, 'no-manifest', `${stampPath} could not be read before the stop; the desk is left running`);
+    }
+
     // THE STOP, BEFORE ANYTHING ELSE TOUCHES THE DESK. `continueTarget` carries
     // `stop` only for a loop that reported its own pid waiting free, and only
     // after `beforeStart` ran. The free-wait record is read again here, because
@@ -722,9 +734,31 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       if (!deskWaitsFree(deskFreeWait(worktree), pid)) {
         return refused(409, 'loop-alive', `pid ${pid} left its free wait before the stop; it may be working a turn`);
       }
+      // THE WRAPPER'S PID, READ BEFORE THE MANIFEST IS OVERWRITTEN (#1379). The
+      // dispatcher's wrapper outlives the agent to write `.plot-worker.exit`; a
+      // stop that waits only for the loop pid can return while that wrapper is
+      // still mid-flight, so the NEW run's start-path removal of
+      // `.plot-worker.exit` (above, "A NEW RUN") races the OLD wrapper's write
+      // to the same file — the same shape #1377 already fixed on the start
+      // path's own spawn. `manifestBeforeStop` is read-only text at this point,
+      // never JSON-parsed elsewhere in this function, so reading it here costs
+      // nothing new.
+      const wrapperPid = (() => {
+        try {
+          const m = JSON.parse(manifestBeforeStop ?? '{}') as Record<string, unknown>;
+          return typeof m.wrapperPid === 'string' ? m.wrapperPid : '';
+        } catch {
+          return '';
+        }
+      })();
       const stop = input.stopLoop ?? stopAndAwaitExit;
       const stopped = await stop(pid);
       if (!stopped.ok) return refused(409, 'loop-alive', stopped.why);
+      if (wrapperPid !== '') {
+        const wrapperStop = input.stopLoop ?? stopAndAwaitExit;
+        const wrapperStopped = await wrapperStop(wrapperPid);
+        if (!wrapperStopped.ok) return refused(409, 'loop-alive', wrapperStopped.why);
+      }
       // THE FREEWAIT RECORD NAMED THE STOPPED PID, so it is stale the moment the
       // new run starts — left in place, `deskWaitsFree` would read the NEW pid's
       // loop as still waiting free for a pid that is gone.
@@ -736,47 +770,6 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       if (stampPath !== '' && (manifestBeforeStop === null || !restoreManifest(stampPath, manifestBeforeStop))) {
         return { kind: 'failed', error: `pid ${pid} stopped and removed ${stampPath}, which could not be written back` };
       }
-    }
-
-    // THE MANIFEST THIS RUN USES, FROM HERE ON — either the one `continueTarget`
-    // found, stamped in place, or a new one written because the desk's ending
-    // record says it is waiting for exactly this answer and none names it yet.
-    // `resumeId` is recovered from the desk's own transcript directory rather
-    // than minted, so the new loop resumes the blocked agent's conversation
-    // instead of starting a stranger's.
-    let manifestPath: string;
-    if (target.manifest === 'stamp') {
-      manifestPath = target.path;
-    } else {
-      const written = writeDeskManifest(resolveManifestDir(opts.repoRoot, opts), {
-        worktree,
-        branch,
-        command: cmd,
-        resumeId: resumeIdFromTranscript(worktree),
-      });
-      if (written === null) {
-        return { kind: 'failed', error: `cannot write a manifest naming ${worktree}; a start now would run unregistered` };
-      }
-      manifestPath = written;
-    }
-
-    // A FREE LOOP'S MANIFEST NAMES NO BRANCH, and a loop started on it waits
-    // free without reading the continuation. The asked branch is written before
-    // the start.
-    if (target.manifest === 'stamp' && !assignEmptyManifestBranch(manifestPath, branch)) {
-      return { kind: 'failed', error: `cannot write the branch into ${manifestPath}; a start now would wait free` };
-    }
-
-    // A FRESH SESSION IS DECIDED BEFORE ANY WRITE TO THE DESK. The loop resumes
-    // whatever conversation the manifest's `resumeId` names while a transcript
-    // exists for it; a new id has no transcript, so the loop creates a session.
-    // A manifest that cannot take the new id would resume the spent session, so
-    // the start does not happen.
-    if (input.fresh === true && !writeResumeId(manifestPath, randomUUID())) {
-      return {
-        kind: 'failed',
-        error: `cannot replace the resume id in ${manifestPath}; a start now would resume the previous session`,
-      };
     }
 
     const rel = briefPathFor(branch);
@@ -812,6 +805,56 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       return {
         kind: 'failed',
         error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+
+    // THE MANIFEST THIS RUN USES, FROM HERE ON — either the one `continueTarget`
+    // found, stamped in place, or a new one written because the desk's ending
+    // record says it is waiting for exactly this answer and none names it yet.
+    // `resumeId` is recovered from the desk's own transcript directory rather
+    // than minted, so the new loop resumes the blocked agent's conversation
+    // instead of starting a stranger's.
+    //
+    // WRITTEN LAST, AFTER THE PROMPT AND THE LOG (#1373): both of those already
+    // succeeded by this point, so a `failed` return from here never leaves a
+    // freshly written manifest behind for a loop that is not about to start —
+    // the manifest is the one piece of state a reader treats as "a worker is
+    // registered here," so it is the last thing created, not the first.
+    let manifestPath: string;
+    if (target.manifest === 'stamp') {
+      manifestPath = target.path;
+    } else {
+      const written = writeDeskManifest(resolveManifestDir(opts.repoRoot, opts), {
+        worktree,
+        branch,
+        command: cmd,
+        resumeId: resumeIdFromTranscript(worktree),
+      });
+      if (written === null) {
+        fs.closeSync(out);
+        return { kind: 'failed', error: `cannot write a manifest naming ${worktree}; a start now would run unregistered` };
+      }
+      manifestPath = written;
+    }
+
+    // A FREE LOOP'S MANIFEST NAMES NO BRANCH, and a loop started on it waits
+    // free without reading the continuation. The asked branch is written before
+    // the start.
+    if (target.manifest === 'stamp' && !assignEmptyManifestBranch(manifestPath, branch)) {
+      fs.closeSync(out);
+      return { kind: 'failed', error: `cannot write the branch into ${manifestPath}; a start now would wait free` };
+    }
+
+    // A FRESH SESSION IS DECIDED BEFORE ANY WRITE TO THE DESK. The loop resumes
+    // whatever conversation the manifest's `resumeId` names while a transcript
+    // exists for it; a new id has no transcript, so the loop creates a session.
+    // A manifest that cannot take the new id would resume the spent session, so
+    // the start does not happen.
+    if (input.fresh === true && !writeResumeId(manifestPath, randomUUID())) {
+      fs.closeSync(out);
+      return {
+        kind: 'failed',
+        error: `cannot replace the resume id in ${manifestPath}; a start now would resume the previous session`,
       };
     }
 
@@ -918,6 +961,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     fs.closeSync(out);
 
     const pid = Number(await readDeskPid(worktree)) || 0;
+    let warning: string | undefined;
     if (pid > 0) {
       let pidRecorded = true;
       try {
@@ -966,9 +1010,10 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
         const line = `started pid ${pid}, but ${manifestPath} could not be stamped; the registry still names the previous run`;
         logLine(log, line);
         console.error(`continuation: ${line}`);
+        warning = line;
       }
     }
-    return { kind: 'started', pid: String(pid), previousPid: input.previousPid, prompt: promptPath, log };
+    return { kind: 'started', pid: String(pid), previousPid: input.previousPid, prompt: promptPath, log, warning };
   } finally {
     release();
   }

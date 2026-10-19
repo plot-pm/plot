@@ -195,6 +195,9 @@ export async function handleContinue(
     previousPid: started.previousPid,
     prompt: started.prompt,
     log: started.log,
+    // Set only when the loop started but its manifest stamp failed afterward;
+    // `JSON.stringify` drops the key entirely when this is `undefined`.
+    warning: started.warning,
   });
 }
 

@@ -355,7 +355,7 @@ export const agentsFs = (context: ShellContext, options: AgentsFsOptions = {}): 
       // precision like `date -u +%Y-%m-%dT%H:%M:%SZ`.
       const manifest = {
         session: agent.session,
-        resumeId: agent.session,
+        resumeId: agent.resumeId ?? agent.session,
         branch: agent.branch,
         worktree: agent.worktree,
         command: agent.command,
