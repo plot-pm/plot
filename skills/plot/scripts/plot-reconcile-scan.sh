@@ -1448,8 +1448,7 @@ echo
 # duplicated in jq (docs/shell-and-domain.md: once per reconcile pass).
 echo "== 7. Uncut slices (a slice holds one branch — candidate /plot-reslice) =="
 unsliced_out=""
-slice_chain_bundle="$script_dir/board/plot-slice-chain.mjs"
-if [ -n "$plan_json" ] && [ -f "$slice_chain_bundle" ] && command -v node >/dev/null 2>&1; then
+if [ -n "$plan_json" ] && [ -f "$script_dir/board/plot-slice-chain.mjs" ] && command -v node >/dev/null 2>&1; then
     # One record per multi-branch wave: file, heading, branch count, and the
     # wave's `branches` (each `{branch, waits_on}`) as its own JSON document —
     # joined with US (0x1f), not tab: an empty heading plus IFS-whitespace tabs
@@ -1457,14 +1456,11 @@ if [ -n "$plan_json" ] && [ -f "$slice_chain_bundle" ] && command -v node >/dev/
     # Phase-less files (phase == "NONE") are dropped: no Phase:, no plan.
     while IFS="$US" read -r f wname wcount wbranches; do
       [ -n "$f" ] || continue
-      chained=$(printf '{"branches":%s}\n' "$wbranches" | node "$slice_chain_bundle")
-      [ "$chained" = "chained" ] && continue
-      base=$(basename "$f")
-      slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+      [ "$(printf '{"branches":%s}\n' "$wbranches" | node "$script_dir/board/plot-slice-chain.mjs")" = "chained" ] && continue
+      base=$(basename "$f"); slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
       # An unnamed wave (branches before any `### `) has no heading to name; say so
       # rather than print an empty token.
-      disp="${wname:-(unnamed wave)}"
-      unsliced_out+="  $base — wave '$disp' carries $wcount branch lines (a wave holds one)\n"
+      unsliced_out+="  $base — wave '${wname:-(unnamed wave)}' carries $wcount branch lines (a wave holds one)\n"
       # /plot-reslice is the repair, and it needs a human to name the slices and
       # argue their order — so the verb is `reslice:`, not `fix:`: a person must
       # decide, exactly as the index-drift section's is `optional:`.
@@ -1474,8 +1470,7 @@ if [ -n "$plan_json" ] && [ -f "$slice_chain_bundle" ] && command -v node >/dev/
       | jq -r 'select(.phase != "NONE") | .file as $f
                | .waves[]? | select((.branches | length) > 1)
                | [$f, .name, (.branches | length | tostring), (.branches | tojson)] | join("")')
-elif [ -n "$plan_json" ]; then
-  echo "  (not evaluated — board/plot-slice-chain.mjs or node is missing)"
+elif [ -n "$plan_json" ]; then echo "  (not evaluated — board/plot-slice-chain.mjs or node is missing)"
 fi
 if [ -n "$unsliced_out" ]; then printf '%b' "$unsliced_out"; else echo "  (none — every slice holds a single branch)"; fi
 echo
