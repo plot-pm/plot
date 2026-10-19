@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ownership, isMine, parsePersonDirectory, ticketSourceOf, type OwnedRow, type Reader, type TicketSource,
+  ownership, isMine, parsePersonDirectory, readerIsKnown, ticketSourceOf,
+  type OwnedRow, type Reader, type TicketSource,
 } from '../src/index.js';
 import { TICKET_SOURCES } from '../src/adapters/tracker/tracker-listers.js';
 
@@ -71,6 +72,24 @@ describe('a row with no determinable owner is shown', () => {
   it('shows a plan card, an issue row and a bare branch row', () => {
     expect(ownership({ kind: 'other' }, reader)).toBe('unknown');
     expect(isMine({ kind: 'other' }, reader)).toBe(true);
+  });
+});
+
+describe('readerIsKnown names whether the board can place this reader at all', () => {
+  it('is true where the host login is set', () => {
+    expect(readerIsKnown({ hostUser: 'jwloka' })).toBe(true);
+  });
+
+  it('is true where only the git email is set', () => {
+    expect(readerIsKnown({ gitEmail: 'jan.wloka@quatico.com' })).toBe(true);
+  });
+
+  it('is false where both are absent', () => {
+    expect(readerIsKnown({})).toBe(false);
+  });
+
+  it('is false where both are empty, as on an unreadable host CLI', () => {
+    expect(readerIsKnown({ hostUser: '', gitEmail: '' })).toBe(false);
   });
 });
 

@@ -235,6 +235,53 @@ describe('the board filters to my work', () => {
     }
   });
 
+  it('does not claim "not configured" while the board has not answered yet', async () => {
+    // `/api/fleet` answers immediately (it is what mounts `AgentList` on the
+    // Delivery tab); `/api/board` is held open so this reaches the render with
+    // `server` still `undefined` — the gap `boardAnswered` exists to name. The
+    // board's own identity IS real (`ME`), so if the hint shows at all here it
+    // is lying about having checked.
+    let releaseBoard: (() => void) | null = null;
+    const held = new Promise<void>((resolve) => { releaseBoard = resolve; });
+
+    const page = await cat.open('an-empty-estate', {
+      tab: 'delivery',
+      over: { fleet: fleet() },
+      route: {
+        '**/api/board': async (route) => {
+          await held;
+          await route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify(buildBoard({
+              server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME },
+            })),
+          });
+        },
+      },
+    });
+    try {
+      await page.getByText('Waiting on you').first().waitFor({ timeout: 15_000 });
+      await reveal(page);
+
+      // THE CONTROL EXISTS, before the board has answered — `AgentList` is
+      // gated on `fleet` alone, never on `board`.
+      await checkbox(page).waitFor({ timeout: 15_000 });
+      // AND IT NAMES NOBODY YET, so `known` reads false here too — but the
+      // hint must not render, because the board has not actually said so.
+      expect(await page.locator('[data-mine-filter][data-mine-known="0"]').count()).toBe(1);
+      expect(await page.getByText('no identity configured').count()).toBe(0);
+
+      releaseBoard?.();
+      // ONCE THE BOARD ANSWERS with a real identity, the control reflects it
+      // and the hint — which never should have shown — stays gone.
+      await expect.poll(() => page.locator('[data-mine-filter][data-mine-known="1"]').count())
+        .toBe(1);
+      expect(await page.getByText('no identity configured').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('hides nothing when the board names no reader', async () => {
     const page = await open('');
     try {
