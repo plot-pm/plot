@@ -1,0 +1,1 @@
+../2026-10-19-one-chip-row-and-a-sprint.md
