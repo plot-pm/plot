@@ -1697,8 +1697,7 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
 # unresolved host means, same contract as every other helper here.
 jenkins_resolve_host() {
   local line; line=$(jen -I "$1" auth status 2>&1 | grep -iE '^Instance:' | head -1) || true
-  [ -n "$line" ] || return 1
-  sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p' <<<"$line"
+  [ -n "$line" ] && sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p' <<<"$line" || return 1
 }
 
 # Every Jenkins build of one job, as a JSON array (newest first), or exit 3
@@ -1739,17 +1738,12 @@ jenkins_sha_runs() {
   local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain=""
   instance="$(jenkins_instance)"
   [ -n "$instance" ] || jenkins_no_instance
-  slug="${instance%%/*}"
-  job="${instance#*/}"
-  [ "$job" = "$instance" ] && job=""
-  [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"
+  slug="${instance%%/*}"; job="${instance#*/}"
+  [ "$job" = "$instance" ] && job=""; [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"
   [ -n "$job" ] || { echo "plot-host: $op — the Jenkins instance names no job path; a sha lives in a job's builds, so it must be <slug>/<job/path>, not a bare host" >&2; exit 4; }
   # A dotted slug IS a host already, `jen`'s own passthrough rule — only a
   # bare slug (`ewz`) needs resolving to the host its credential is keyed by.
-  case "$slug" in
-    *.*) host="$slug" ;;
-    *) host="$(jenkins_resolve_host "$slug")" || { echo "plot-host: $op — cannot resolve Jenkins instance '$slug' to a host" >&2; echo "  \`jen -I $slug auth status\` did not answer an 'Instance:' line; run it directly to see why." >&2; exit 4; } ;;
-  esac
+  case "$slug" in *.*) host="$slug" ;; *) host="$(jenkins_resolve_host "$slug")" || { echo "plot-host: $op — cannot resolve Jenkins instance '$slug' to a host" >&2; echo "  \`jen -I $slug auth status\` did not answer an 'Instance:' line; run it directly to see why." >&2; exit 4; } ;; esac
   cred="$(jenkins_rest_credential "$host")" || {
     echo "plot-host: $op — no Jenkins API credential for '$host'" >&2
     echo "  Jenkins' REST API takes basic auth with an API token, which \`jen auth login\` stores in the login keychain. The Keycloak bearer from \`jen auth token\` is NOT it." >&2
