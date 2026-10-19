@@ -470,6 +470,15 @@ describe('readPass — ROWS 12-18, the CI wait', () => {
     expect(readings.checks).toBe('settled');
     expect(readings.checksPassed).toBe(false);
   });
+
+  it('carries the PR mergeable reading from entry, read once and held for the rest of the wait', async () => {
+    const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: '/tmp/desk' });
+    const clock = { since: null as number | null };
+    const prompt: PromptState = { running: null, exit: { answer: 'ran' }, pushedSha: 'abc123' };
+    const conflictingPorts = pushedPorts({ host: hostFixture({ prs: [{ ...OPEN_PR, mergeable: 'conflicting' }] }) });
+    const readings = await readPass(conflictingPorts, file, prompt, CONFIG, clock);
+    expect(readings.mergeable).toBe('conflicting');
+  });
 });
 
 describe('loopWritesOf', () => {

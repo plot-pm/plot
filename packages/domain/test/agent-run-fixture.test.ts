@@ -60,6 +60,7 @@ const freeLoop: AgentLoopReadings = {
   correctionAttempts: 0,
   correctionBudget: 2,
   pr: null,
+  mergeable: null,
   correctionText: '',
   resumeId: '',
   passAt: '2026-10-05T10:00:00.000Z',
