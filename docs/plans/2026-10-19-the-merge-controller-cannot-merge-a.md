@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2101 merged
+- **Started:** 2026-10-19, Jan Wloka, `bug/the-merge-controller-cannot-merge-a-rule`
 
 ## Changelog
 
