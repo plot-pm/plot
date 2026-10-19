@@ -282,3 +282,17 @@ export const ownership = (row: OwnedRow, reader: Reader): Ownership => {
  * @returns false only where the row is somebody else's.
  */
 export const isMine = (row: OwnedRow, reader: Reader): boolean => ownership(row, reader) !== 'theirs';
+
+/**
+ * Whether the board can place this reader at all.
+ *
+ * True where either {@link Reader.hostUser} or {@link Reader.gitEmail} is
+ * non-empty. Both absent or empty is the honest "not configured" answer — an
+ * unreadable `hosts.yml`, every Bitbucket repository, or a client that has not
+ * yet received its first board payload.
+ *
+ * @param reader - who is reading.
+ * @returns false only where the board names no identity for this reader.
+ */
+export const readerIsKnown = (reader: Reader): boolean =>
+  (reader.hostUser ?? '') !== '' || (reader.gitEmail ?? '') !== '';
