@@ -36,14 +36,14 @@ The first slice reproduces the symptom in a browser test against a board whose `
 
 ### Open Questions
 
-- [ ] Which of the three candidates produces the symptom, or is there a fourth?
-- [ ] Does `/api/board` ever answer a first payload without `server.hostUser` and a later one with it?
+- [x] Which of the three candidates produces the symptom, or is there a fourth? A fourth: none of the three held on reproduction. `App.tsx` casts rather than parses (candidate 1), but the cast carries the fields through intact — no data is lost. No stale bundle was in play (candidate 2). `reader` DOES update once `board` resolves (candidate 3's literal framing — "never updates" — does not hold). The actual cause is a render-timing race: `AgentList` on the Delivery tab is gated on `fleet` alone, never on `board` (`App.tsx` around line 1227), and the fleet poll answers from a cheap server-side cache while the board poll runs a live scan — so landing on or switching to Delivery routinely renders `AgentList` with `server` still `undefined`, which read as "board checked and found nobody" rather than "board hasn't answered yet". Reproduced live with a Playwright `route` delaying `/api/board` by 3000ms: the hint showed, then correctly cleared once the delayed payload landed — confirming the symptom is real, transient, and self-healing. Fixed by gating the hint text specifically on a new `boardAnswered = server !== undefined` signal, alongside `known` (now `readerIsKnown`, a domain property); `data-mine-known` and the filtering logic (`rowsForReader` etc.) are unchanged, since both already treat "board pending" and "board answered empty" alike by design.
+- [x] Does `/api/board` ever answer a first payload without `server.hostUser` and a later one with it? Not from the server's own timing — `server-info.ts`'s identity computation is `await`ed inline per request with no stale/partial intermediate state. The gap is client-side: `server` is `undefined` until the board's own fetch resolves at all, regardless of what it will answer.
 
 ## Slices
 
 ### Reproduce and fix
 
-- `bug/only-my-work-says-no-identity` — a browser test where `/api/board` names `hostUser` or `gitEmail` and the hint is absent; the fix that makes it pass; `known` extracted as a domain property with a unit test
+- `bug/only-my-work-says-no-identity` — a browser test where `/api/board` names `hostUser` or `gitEmail` and the hint is absent; the fix that makes it pass; `known` extracted as a domain property with a unit test → #2090
 
 ## Notes
 
