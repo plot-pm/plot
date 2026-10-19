@@ -81,6 +81,7 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
   'skills/plot/scripts/board/plot-release-gate.mjs',
   'skills/plot/scripts/board/plot-review-bypass.mjs',
   'skills/plot/scripts/board/plot-review.mjs',
+  'skills/plot/scripts/board/plot-slice-chain.mjs',
   'skills/plot/scripts/board/plot-slice-pr.mjs',
   'skills/plot/scripts/board/plot-slice-spend.mjs',
   'skills/plot/scripts/board/plot-sprint-score.mjs',
