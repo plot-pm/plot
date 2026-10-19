@@ -1,6 +1,6 @@
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { constants, homedir, tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
@@ -691,25 +691,37 @@ const consumeContinuation = async (resume: { readonly continuation: boolean } | 
 };
 
 /**
- * The continuation entry's own heading in `PLOT-CORRECTION.md` — present once
- * the answer has been appended, absent before.
+ * The heading of one continuation answer's entry in `PLOT-CORRECTION.md`.
  *
- * `consumeContinuation` removes `.plot-worker.continue.md` only once the exit
- * answer is no longer `unstarted`, so a retry after `unstarted` reads the same
- * file again and would re-append the same answer on every pass that reaches
- * the command runner. The heading is what the second pass checks for instead
- * of appending blindly — an idempotent APPEND, not an idempotent removal.
+ * The heading carries the first 12 hex digits of the answer text's SHA-256, so
+ * each distinct answer has its own heading. `PLOT-CORRECTION.md` only grows
+ * within a slice, so a heading without that key would match every later answer
+ * after the first.
+ *
+ * @param text - the continuation answer.
+ * @returns `## Continuation answer <key>`.
  */
-const CONTINUATION_CORRECTION_HEADING = '## Continuation answer';
+const continuationHeading = (text: string): string =>
+  `## Continuation answer ${createHash('sha256').update(text).digest('hex').slice(0, 12)}`;
 
 /**
- * Whether `worktree`'s `PLOT-CORRECTION.md` already carries the continuation
- * heading — `false` where the file does not exist yet.
+ * Whether `worktree`'s `PLOT-CORRECTION.md` already carries the entry for this
+ * exact answer.
+ *
+ * `consumeContinuation` keeps `.plot-worker.continue.md` after an `unstarted`
+ * exit, so a retry or restart reads the same answer again. This check skips
+ * that repeat append. A different answer has a different heading and is
+ * appended. An identical answer text already in the file is not appended again.
+ *
+ * @param worktree - the desk.
+ * @param heading - the answer's heading from {@link continuationHeading}.
+ * @returns `true` where the heading is in the file; `false` where it is not or
+ *   the file does not exist.
  */
-const correctionHasContinuation = async (worktree: string): Promise<boolean> => {
+const correctionHasContinuation = async (worktree: string, heading: string): Promise<boolean> => {
   try {
     const text = await readFile(join(worktree, 'PLOT-CORRECTION.md'), 'utf8');
-    return text.includes(CONTINUATION_CORRECTION_HEADING);
+    return text.split('\n').includes(heading);
   } catch {
     return false;
   }
@@ -779,6 +791,7 @@ export const readPass = async (
   prompt: PromptState,
   config: PassConfig,
   clock: WaitClock,
+  log: (line: string) => void = () => {},
 ): Promise<AgentLoopReadings & { readonly buildRun: ShaRun | null }> => {
   const manifest = await readManifestFields(manifestFile);
   const passAt = new Date().toISOString();
@@ -862,6 +875,9 @@ export const readPass = async (
       ports.trees.currentBranch(worktree),
       readContinuation(worktree, manifest.resumeId),
     ]);
+    if (continuationRead.kind === 'unreadable') {
+      log(`plot-worker-loop: ${join(worktree, CONTINUATION_NAME)} is present but unreadable, so no answer reaches this run — ${continuationRead.error}`);
+    }
     const markerText = refusals.includes('blocked-marker') ? await readMarkerText(worktree) : '';
     // `agentLoop` takes a continuation only on `present`; `missing` and
     // `unreadable` both read `null` to it, since `AgentLoopReadings` has no
@@ -1531,11 +1547,14 @@ const runPrompt = async (
 
   // THE COMMAND RUNNER'S PROMPT IS THE PROJECT'S FILE, which reads
   // `PLOT-CORRECTION.md` first; the answer reaches the resumed session there.
-  // IDEMPOTENT: a retry after `unstarted` reads the same unconsumed
-  // continuation again (#1382, #1383) — the heading check keeps the second
-  // pass from appending the same answer twice.
-  if (resume !== null && resume.continuation && !(await correctionHasContinuation(worktree))) {
-    await deps.ports.desk.appendCorrection(worktree, `${CONTINUATION_CORRECTION_HEADING}\n\n${resume.text}`);
+  // A retry after `unstarted` reads the same unconsumed continuation again
+  // (#1382, #1383): the per-answer heading skips that repeat and appends every
+  // different answer in the same slice.
+  if (resume !== null && resume.continuation) {
+    const heading = continuationHeading(resume.text);
+    if (!(await correctionHasContinuation(worktree, heading))) {
+      await deps.ports.desk.appendCorrection(worktree, `${heading}\n\n${resume.text}`);
+    }
   }
   const unset = settings === '' ? ['-u', 'PLOT_REPO_ROOT', '-u', 'PLOT_AGENT_SETTINGS'] : ['-u', 'PLOT_REPO_ROOT'];
   const run = deps.ports.boundedRun.run('env', [...unset, 'bash', '-c', '. "$1"', '_', file], {
@@ -1622,7 +1641,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
       localChecks: held.localChecks,
       droppedOn: held.droppedOn,
     };
-    const readings = await readPass(deps.ports, deps.manifestFile, prompt, deps.config, clock);
+    const readings = await readPass(deps.ports, deps.manifestFile, prompt, deps.config, clock, deps.log);
     const decision = agentLoop(readings);
     if (readings.assignedBranch !== '') {
       // `tip-moved` IS READ BEFORE `buildRun`: it is the loop's own reading of

@@ -18,6 +18,7 @@ import {
 } from '@plot-pm/domain/adapters';
 import type { BoundedRun, Pr, Trees } from '@plot-pm/domain';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -1830,6 +1831,10 @@ describe('readContinuation — #1383', () => {
   });
 });
 
+/** The `PLOT-CORRECTION.md` entry the command runner appends for one continuation answer. */
+const continuationEntry = (text: string): string =>
+  `## Continuation answer ${createHash('sha256').update(text).digest('hex').slice(0, 12)}\n\n${text}`;
+
 describe('runWorkerLoop on the command runner — a continuation resumes the blocked session', () => {
   it('appends the file’s text to PLOT-CORRECTION.md before the command starts, resumes the session, and removes the file after', async () => {
     const atStart: { corrections: unknown[]; endings: number; file: boolean }[] = [];
@@ -1855,7 +1860,7 @@ describe('runWorkerLoop on the command runner — a continuation resumes the blo
     await runWorkerLoop(r.deps);
 
     expect(atStart[0]).toEqual({
-      corrections: [{ worktree: r.wt, correction: '## Continuation answer\n\nuse fetch' }],
+      corrections: [{ worktree: r.wt, correction: continuationEntry('use fetch') }],
       endings: 0,
       file: true,
     });
@@ -1902,7 +1907,7 @@ describe('runWorkerLoop on the command runner — a continuation resumes the blo
     fs.writeFileSync(file, 'use fetch');
 
     expect(await runWorkerLoop(r.deps)).toBe(1);
-    expect(r.deskCalls.appendedCorrections).toEqual([{ worktree: r.wt, correction: '## Continuation answer\n\nuse fetch' }]);
+    expect(r.deskCalls.appendedCorrections).toEqual([{ worktree: r.wt, correction: continuationEntry('use fetch') }]);
     expect(fs.existsSync(file)).toBe(true);
     expect(r.read().branch).toBe(BRANCH);
 
@@ -1911,6 +1916,48 @@ describe('runWorkerLoop on the command runner — a continuation resumes the blo
 
     await runWorkerLoop(r.deps);
 
-    expect(r.deskCalls.appendedCorrections).toEqual([{ worktree: r.wt, correction: '## Continuation answer\n\nuse fetch' }]);
+    expect(r.deskCalls.appendedCorrections).toEqual([{ worktree: r.wt, correction: continuationEntry('use fetch') }]);
+  });
+
+  it('appends a second, different answer in the same slice, and the resumed session reads it — #2102', async () => {
+    const atSecondStart: string[] = [];
+    const r = rig(
+      { ...ASSIGNED, resumeId: 'h-1' },
+      [
+        { status: 1 },
+        { status: 1 },
+        { during: () => atSecondStart.push(fs.readFileSync(path.join(r.wt, 'PLOT-CORRECTION.md'), 'utf8')) },
+      ],
+      { config: { ...rigConfig(), maxStartRetries: 1 } },
+    );
+    const baseDesk = r.ports.desk;
+    Object.assign(r.ports, {
+      trees: treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'no' }, branches: { [r.wt]: BRANCH } }),
+      desk: {
+        ...baseDesk,
+        appendCorrection: async (worktree: string, correction: string) => {
+          fs.appendFileSync(path.join(worktree, 'PLOT-CORRECTION.md'), `${correction}\n`);
+          return baseDesk.appendCorrection(worktree, correction);
+        },
+      },
+    });
+    r.deps = { ...r.deps, idle: { ...r.deps.idle, transcript: transcriptFixture({ spoken: [`${r.wt}\th-1`] }) } };
+    const file = path.join(r.wt, '.plot-worker.continue.md');
+    fs.writeFileSync(file, 'use fetch');
+
+    expect(await runWorkerLoop(r.deps)).toBe(1);
+
+    fs.writeFileSync(file, 'use undici instead');
+    r.write({ ...r.read(), attempts: 0 });
+    r.runs.length = 0;
+
+    await runWorkerLoop(r.deps);
+
+    expect(r.deskCalls.appendedCorrections).toEqual([
+      { worktree: r.wt, correction: continuationEntry('use fetch') },
+      { worktree: r.wt, correction: continuationEntry('use undici instead') },
+    ]);
+    expect(atSecondStart).toHaveLength(1);
+    expect(atSecondStart[0]).toContain('use undici instead');
   });
 });

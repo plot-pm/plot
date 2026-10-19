@@ -541,8 +541,8 @@ const manifestText = (file: string): string | null => {
  * The manifest's `sliceRuns` count for `branch`.
  *
  * The same reading `worker-loop.ts`'s `sliceRunsOf` takes off the live
- * manifest, duplicated rather than imported: `worker-loop.ts` already imports
- * {@link CONTINUATION_NAME} from this module, so importing back would cycle.
+ * manifest, duplicated rather than imported: no module under `shared/` imports
+ * an entry module under `server/entry/`.
  *
  * @param text - the manifest's raw text, or `null` when it could not be read.
  * @param branch - the branch whose count is asked for.
@@ -568,7 +568,11 @@ const positiveOr = (raw: string, fallback: number): number => {
   return Number.isInteger(n) && n > 0 ? n : fallback;
 };
 
-/** A config value read as a dollar amount, or `fallback` where it names none. */
+/**
+ * A config value read as a dollar amount, or `fallback` where it names none.
+ * The same pattern as `worker-loop.ts`'s `dollarsOrUnset`, duplicated for the
+ * reason {@link sliceRunsFromManifest} gives.
+ */
 const dollarsOr = (raw: string, fallback: number | null): number | null => {
   const match = /^\s*\$?\s*(-?\d+(?:\.\d+)?)\s*(?:usd)?\s*$/i.exec(raw);
   const n = match ? Number(match[1]) : NaN;
@@ -654,8 +658,9 @@ const startMonitors = (input: {
  * Both callers share this: `POST /api/continue` after it has found the desk
  * through the pulse, and the registry tick for a desk whose ending earns a
  * fresh session. The refusals are the route's own, in the route's own order:
- * no marker, no `Worker command`, no single manifest naming the desk. Each
- * refusal happens before any write to the desk.
+ * no marker, no `Worker command`, no single manifest naming the desk, then
+ * `run-limit` and `spend-limit`. Each refusal happens before the stop of a
+ * free-waiting loop and before any write to the desk.
  *
  * With `fresh`, a desk with no marker is accepted where its ending is one
  * `endingAsksFreshStart` names for `branch`: `corrections-spent`,
@@ -786,6 +791,25 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       return refused(409, 'no-manifest', `${stampPath} could not be read before the stop; the desk is left running`);
     }
 
+    // THE LIMIT WINS, UNCONDITIONALLY (#1381). A continuation is itself a run,
+    // so it is checked against `Slice max runs`/`Slice max spend` before the
+    // stop and before the first write: a refusal leaves a free-waiting loop
+    // running. A person's answer does not override either limit. The run count
+    // comes from the `stamp` target's manifest; a `write` target has no
+    // manifest to read, so only the spend limit holds there.
+    const runs = sliceRunsFromManifest(manifestBeforeStop, branch);
+    const runLimit = positiveOr(readCfg(opts, 'Slice max runs', ''), DEFAULT_SLICE_MAX_RUNS);
+    if (runLimitRefusal(runs, runLimit)) {
+      return refused(409, 'run-limit', `the slice started ${runs} runs, the Slice max runs limit of ${runLimit}`);
+    }
+    const spendLimit = dollarsOr(readCfg(opts, 'Slice max spend', ''), null);
+    if (spendLimit !== null) {
+      const spend = await readSliceSpend(sliceSpendFile({ cwd: worktree }), branch);
+      if (sliceSpendRefusal({ costUsd: spend.costUsd }, spendLimit)) {
+        return refused(409, 'spend-limit', `the slice's recorded cost reached the Slice max spend limit of ${spendLimit}`);
+      }
+    }
+
     // THE STOP, BEFORE ANYTHING ELSE TOUCHES THE DESK. `continueTarget` carries
     // `stop` only for a loop that reported its own pid waiting free, and only
     // after `beforeStart` ran. The free-wait record is read again here, because
@@ -830,24 +854,6 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       }
       if (stampPath !== '' && (manifestBeforeStop === null || !restoreManifest(stampPath, manifestBeforeStop))) {
         return { kind: 'failed', error: `pid ${pid} stopped and removed ${stampPath}, which could not be written back` };
-      }
-    }
-
-    // THE LIMIT WINS, UNCONDITIONALLY (#1381). A continuation is itself a run,
-    // so it is checked against `Slice max runs`/`Slice max spend` in the same
-    // position as every refusal above it — before the stop already ran, but
-    // still before the first write below. Decided 2026-10-17: a person's
-    // answer does not override either limit; there is no bypass.
-    const runs = sliceRunsFromManifest(manifestBeforeStop, branch);
-    const runLimit = positiveOr(readCfg(opts, 'Slice max runs', ''), DEFAULT_SLICE_MAX_RUNS);
-    if (runLimitRefusal(runs, runLimit)) {
-      return refused(409, 'run-limit', `the slice started ${runs} runs, the Slice max runs limit of ${runLimit}`);
-    }
-    const spendLimit = dollarsOr(readCfg(opts, 'Slice max spend', ''), null);
-    if (spendLimit !== null) {
-      const spend = await readSliceSpend(sliceSpendFile({ cwd: worktree }), branch);
-      if (sliceSpendRefusal({ costUsd: spend.costUsd }, spendLimit)) {
-        return refused(409, 'spend-limit', `the slice's recorded cost reached the Slice max spend limit of ${spendLimit}`);
       }
     }
 

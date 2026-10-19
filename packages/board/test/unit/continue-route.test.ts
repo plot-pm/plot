@@ -1800,6 +1800,36 @@ describe('a free-waiting loop is stopped, then the continuation starts — #1373
     assert.doesNotThrow(() => process.kill(livePid, 0), 'the loop is left running — a stop with no way back never happens');
   });
 
+  it('refuses run-limit before the stop, leaving a free-waiting loop and its free-wait record in place — #2102', async () => {
+    const livePid = startRealProcess();
+    const wt = worktree({ pid: String(livePid) });
+    dirs.push(wt);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-freewait-limit-'));
+    manifestDirs.push(dir);
+    fs.writeFileSync(
+      path.join(dir, 'sess.json'),
+      `${JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid: String(livePid), wrapperPid: '', sliceRuns: { branch: BRANCH, runs: 3 } }, null, 2)}\n`,
+    );
+    fs.writeFileSync(path.join(wt, '.plot-worker.freewait'), `${livePid}\n`);
+    let stopCalled = false;
+
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      readCfg: (_o: unknown, key: string, fallback: string) =>
+        key === 'Worker command' ? 'true' : key === 'Slice max runs' ? '3' : fallback,
+      stopLoop: async () => {
+        stopCalled = true;
+        return { ok: true };
+      },
+    });
+
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'run-limit');
+    assert.equal(stopCalled, false, 'a limit refusal must not stop the loop');
+    assert.doesNotThrow(() => process.kill(livePid, 0), 'the free-waiting loop is still running');
+    assert.equal(fs.existsSync(path.join(wt, '.plot-worker.freewait')), true, 'the free-wait record is kept');
+  });
+
   it('also waits for the manifest\'s wrapperPid to exit, not only the loop pid — #1379', async () => {
     const livePid = startRealProcess();
     const wrapper = spawn('sleep', ['30'], { stdio: 'ignore' });
