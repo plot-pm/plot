@@ -1696,9 +1696,7 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
 # is missing, unparseable, or the line is absent — the caller decides what an
 # unresolved host means, same contract as every other helper here.
 jenkins_resolve_host() {
-  local slug="$1" line
-  command -v jen >/dev/null 2>&1 || return 1
-  line=$(jen -I "$slug" auth status 2>&1 | grep -iE '^Instance:' | head -1) || true
+  local line; line=$(jen -I "$1" auth status 2>&1 | grep -iE '^Instance:' | head -1) || true
   [ -n "$line" ] || return 1
   sed -nE 's/.*\(https?:\/\/([^)\/]+).*/\1/p' <<<"$line"
 }
