@@ -1441,35 +1441,50 @@ echo
 # history and still counts: hiding it would be lying about the estate, and
 # /plot-reslice declines the waves it should — that is a constraint on the
 # REPAIR, not on the REPORT.
+#
+# A HEADING WHOSE BRANCHES FORM ONE `waits:` CHAIN IS NOT UNCUT. Each branch
+# waiting for the one before it is a SEQUENCE, not several slices crammed under
+# one heading — `isChainedHeading` (`@plot-pm/domain/rules/slice-chain`) is the
+# rule, asked once per candidate heading through `board/plot-slice-chain.mjs`
+# rather than carried a second time in jq: this runs once per reconcile pass,
+# the frequency docs/shell-and-domain.md calls free.
 echo "== 7. Uncut slices (a slice holds one branch — candidate /plot-reslice) =="
 unsliced_out=""
+slice_chain_bundle="$script_dir/board/plot-slice-chain.mjs"
 if [ -n "$plan_json" ]; then
-  # One jq pass over the already-captured parser output, one record per
-  # multi-branch wave: file, heading (may be empty for an unnamed wave), branch
-  # count. Fields are joined with the ASCII unit separator (US, 0x1f) and read
-  # with IFS="$US" — NOT a tab: a wave with an empty name emits an empty middle
-  # field, and tab is IFS whitespace, so `read` would collapse the two adjacent
-  # tabs and shift the count into the name. This is the same reason plan_rows
-  # uses US above; @tsv here reproduced exactly that field-shift bug.
-  # Phase-less files (phase == "NONE") are dropped, matching "a file with no
-  # Phase: is not a plan".
-  while IFS="$US" read -r f wname wcount; do
-    [ -n "$f" ] || continue
-    base=$(basename "$f")
-    slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
-    # An unnamed wave (branches before any `### `) has no heading to name; say so
-    # rather than print an empty token.
-    disp="${wname:-(unnamed wave)}"
-    unsliced_out+="  $base — wave '$disp' carries $wcount branch lines (a wave holds one)\n"
-    # /plot-reslice is the repair, and it needs a human to name the slices and
-    # argue their order — so the verb is `reslice:`, not `fix:`: a person must
-    # decide, exactly as the index-drift section's is `optional:`.
-    unsliced_out+="    reslice: /plot-reslice ${slug%.md}\n"
-    n_unsliced=$((n_unsliced + 1))
-  done < <(printf '%s\n' "$plan_json" \
-    | jq -r 'select(.phase != "NONE") | .file as $f
-             | .waves[]? | select((.branches | length) > 1)
-             | [$f, .name, (.branches | length | tostring)] | join("")')
+  if [ -f "$slice_chain_bundle" ] && command -v node >/dev/null 2>&1; then
+    # One jq pass over the already-captured parser output, one record per
+    # multi-branch wave: file, heading (may be empty for an unnamed wave), branch
+    # count, and the wave's `branches` array (each a `{branch, waits_on}` object)
+    # as its own JSON document. Fields are joined with the ASCII unit separator
+    # (US, 0x1f) and read with IFS="$US" — NOT a tab: a wave with an empty name
+    # emits an empty middle field, and tab is IFS whitespace, so `read` would
+    # collapse the two adjacent tabs and shift later fields left. This is the
+    # same reason plan_rows uses US above; @tsv here reproduced exactly that
+    # field-shift bug. Phase-less files (phase == "NONE") are dropped, matching
+    # "a file with no Phase: is not a plan".
+    while IFS="$US" read -r f wname wcount wbranches; do
+      [ -n "$f" ] || continue
+      chained=$(printf '{"branches":%s}\n' "$wbranches" | node "$slice_chain_bundle")
+      [ "$chained" = "chained" ] && continue
+      base=$(basename "$f")
+      slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+      # An unnamed wave (branches before any `### `) has no heading to name; say so
+      # rather than print an empty token.
+      disp="${wname:-(unnamed wave)}"
+      unsliced_out+="  $base — wave '$disp' carries $wcount branch lines (a wave holds one)\n"
+      # /plot-reslice is the repair, and it needs a human to name the slices and
+      # argue their order — so the verb is `reslice:`, not `fix:`: a person must
+      # decide, exactly as the index-drift section's is `optional:`.
+      unsliced_out+="    reslice: /plot-reslice ${slug%.md}\n"
+      n_unsliced=$((n_unsliced + 1))
+    done < <(printf '%s\n' "$plan_json" \
+      | jq -r 'select(.phase != "NONE") | .file as $f
+               | .waves[]? | select((.branches | length) > 1)
+               | [$f, .name, (.branches | length | tostring), (.branches | tojson)] | join("")')
+  else
+    echo "  (not evaluated — board/plot-slice-chain.mjs or node is missing)"
+  fi
 fi
 if [ -n "$unsliced_out" ]; then printf '%b' "$unsliced_out"; else echo "  (none — every slice holds a single branch)"; fi
 echo

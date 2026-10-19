@@ -1049,6 +1049,42 @@ before(() => {
 - \`feature/shipped-two\` — merged → #11
 `);
 
+  // A heading whose branches form one \`waits:\` chain — a sequence, not several
+  // slices crammed under one heading. Must stay silent: this is the property
+  // isChainedHeading exists for.
+  w('plans/2026-02-06-chained.md', `# Chained
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### Sequence
+- \`feature/chained-one\` — first
+- \`feature/chained-two\` <!-- waits: feature/chained-one --> — second
+- \`feature/chained-three\` <!-- waits: feature/chained-two --> — third
+`);
+
+  // A heading of THREE where only two chain — catches a rule that only tests
+  // pairs. The third branch waits on nothing, so the heading as a whole is
+  // still uncut and must be reported.
+  w('plans/2026-02-07-half-chained.md', `# Half chained
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### Partial
+- \`feature/half-one\` — first
+- \`feature/half-two\` <!-- waits: feature/half-one --> — second, chains onto the first
+- \`feature/half-three\` — third, waits on nothing
+`);
+
   fs.mkdirSync(path.join(uwRepo, 'plans', 'active'), { recursive: true });
   fs.mkdirSync(path.join(uwRepo, 'plans', 'delivered'), { recursive: true });
   // Link every plan so index drift stays silent — keeps this
@@ -1057,6 +1093,8 @@ before(() => {
   fs.symlinkSync('../2026-02-02-tidy.md', path.join(uwRepo, 'plans', 'active', 'tidy.md'));
   fs.symlinkSync('../2026-02-03-prose.md', path.join(uwRepo, 'plans', 'active', 'prose.md'));
   fs.symlinkSync('../2026-02-05-shipped.md', path.join(uwRepo, 'plans', 'delivered', 'shipped.md'));
+  fs.symlinkSync('../2026-02-06-chained.md', path.join(uwRepo, 'plans', 'active', 'chained.md'));
+  fs.symlinkSync('../2026-02-07-half-chained.md', path.join(uwRepo, 'plans', 'active', 'half-chained.md'));
 
   git(uwRepo, 'add', '-A');
   git(uwRepo, 'commit', '-q', '-m', 'plans');
@@ -1104,14 +1142,31 @@ test('scan: section 7 still counts a complete (delivered) multi-branch wave', ()
   assert.match(hits[0], /wave 'Landed' carries 2 branch lines/);
 });
 
+test('scan: a heading whose branches form one waits: chain stays silent', () => {
+  // The sequence (chained-one -> chained-two -> chained-three) is not several
+  // slices crammed under one heading — isChainedHeading must keep this quiet.
+  assert.doesNotMatch(uwSections['7'], /2026-02-06-chained\.md/);
+});
+
+test('scan: a heading of three where only two chain is still reported', () => {
+  // Catches a rule that only tests pairs: half-three waits on nothing, so the
+  // heading as a whole does not chain and must still be flagged.
+  const hits = uwSections['7'].split('\n')
+    .filter((l) => l.includes('2026-02-07-half-chained.md') && l.includes('carries'));
+  assert.equal(hits.length, 1, `expected one half-chained finding, got:\n${hits.join('\n')}`);
+  assert.match(hits[0], /wave 'Partial' carries 3 branch lines/);
+});
+
 test('scan: section 7 footer counter matches the number of findings', () => {
-  // tangled (Implementation, 5) + shipped (Landed, 2) = 2 findings. The counter
-  // is wired to the same variable the body increments — a footer wired to a
-  // different variable is a bug no single-finding assertion above can see.
+  // tangled (Implementation, 5) + shipped (Landed, 2) + half-chained (Partial,
+  // 3) = 3 findings. chained.md's sequence does not count — it is not uncut.
+  // The counter is wired to the same variable the body increments — a footer
+  // wired to a different variable is a bug no single-finding assertion above
+  // can see.
   const bodyFindings = uwSections['7'].split('\n').filter((l) => l.includes('carries')).length;
-  assert.equal(bodyFindings, 2, `expected 2 body findings, got ${bodyFindings}`);
+  assert.equal(bodyFindings, 3, `expected 3 body findings, got ${bodyFindings}`);
   const footer = uwReport.trim().split('\n').at(-1);
-  assert.match(footer, /\buncut_slices=2\b/);
+  assert.match(footer, /\buncut_slices=3\b/);
 });
 
 test('scan: an unsliced wave leaves attention= unchanged — the section does NOT gate', () => {

@@ -600,6 +600,27 @@ await esbuild.build({
 fs.copyFileSync(reviewBypassArtifact, shippedReviewBypass);
 fs.chmodSync(shippedReviewBypass, 0o755);
 
+// Section 7 of plot-reconcile-scan.sh asks this bundle whether a multi-branch
+// heading's waits: annotations form one chain. It holds no copy of the
+// decision — it answers through isChainedHeading.
+const sliceChainArtifact = path.join(here, 'dist/plot-slice-chain.mjs');
+const shippedSliceChain = path.join(here, '../../skills/plot/scripts/board/plot-slice-chain.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/slice-chain.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: sliceChainArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(sliceChainArtifact, shippedSliceChain);
+fs.chmodSync(shippedSliceChain, 0o755);
+
 // THE DELTA, RENDERED WHERE THE RULE IS NOT. `pulseDelta` is a domain rule with
 // its own tests; this artifact parses two readings, calls it, and composes
 // sentences. Bundled for the same reason the ones above are: `plot-ask.mjs`

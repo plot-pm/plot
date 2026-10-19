@@ -80,6 +80,7 @@ import {
 import { issueIndexFile, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
+import { isChainedHeading } from '@plot-pm/domain/rules/slice-chain';
 import {
   applyPrMaps,
   applyReaction,
@@ -6196,11 +6197,13 @@ export function rowsFromPulse(
             // TWO PLANS CLAIMING ONE BRANCH — from the estate-wide index, since
             // the collision is invisible from inside either plan.
             claimedBy: doubleClaimed.get(b.branch) ?? [],
-            // AND THE SLICE'S OTHER BRANCHES, where it holds more than one. A slice
-            // is carried out in ONE branch and one worktree, so several means the
-            // plan was never sliced after its spike. Read from the slice in hand —
+            // AND THE SLICE'S OTHER BRANCHES, where it holds more than one AND
+            // they do not chain. A slice is carried out in ONE branch and one
+            // worktree, so several means the heading was never sliced after its
+            // spike — UNLESS each branch waits on the one before it, which is a
+            // sequence rather than an uncut slice. Read from the slice in hand —
             // no index needed, unlike the double claim.
-            sliceSiblings: wave.branches.length > 1
+            sliceSiblings: wave.branches.length > 1 && !isChainedHeading(wave.branches)
               ? wave.branches.map((x) => x.branch)
               : [],
           }),
