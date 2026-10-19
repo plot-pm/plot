@@ -297,18 +297,39 @@ describe('what a worker knew at the time', () => {
         branch: 'feature/x',
         detail: 'the WorkerMonitor reported idle',
         refusedAssignment: '',
+        resumeId: '',
       },
     });
   });
 
-  it('defaults branch, detail and the refused assignment to empty rather than refusing', () => {
+  it('defaults branch, detail, the refused assignment and the resume id to empty rather than refusing', () => {
     // A worker that ended before it claimed anything holds no branch, and that
     // is an absence rather than a malformed record.
     const reading = readEnding(JSON.stringify({ reason: 'bound', actor: 'bound' }));
 
     expect(reading).toEqual({
       read: 'ended',
-      ending: { reason: 'bound', actor: 'bound', branch: '', detail: '', refusedAssignment: '' },
+      ending: { reason: 'bound', actor: 'bound', branch: '', detail: '', refusedAssignment: '', resumeId: '' },
+    });
+  });
+
+  it('reads an ending written before resumeId existed as absent rather than a malformed record', () => {
+    // An old blob simply never had the key; `safeParse` drops/defaults
+    // missing keys per the schema's existing policy, so an `unstarted`
+    // ending from before this field shipped reads `resumeId: ''` — no
+    // recorded handle — rather than refusing to parse.
+    const reading = readEnding(JSON.stringify({ reason: 'unstarted', actor: 'agent', branch: 'feature/x', detail: 'the prompt never started, retries spent' }));
+
+    expect(reading).toEqual({
+      read: 'ended',
+      ending: {
+        reason: 'unstarted',
+        actor: 'agent',
+        branch: 'feature/x',
+        detail: 'the prompt never started, retries spent',
+        refusedAssignment: '',
+        resumeId: '',
+      },
     });
   });
 
@@ -333,7 +354,14 @@ describe('what a worker knew at the time', () => {
       branch: '',
       detail: '',
       refusedAssignment: '',
+      resumeId: '',
     });
+  });
+
+  it('carries the resume id an unstarted ending records', () => {
+    const reading = readEnding(ended({ reason: 'unstarted', actor: 'agent', resumeId: 'abc-123' }));
+
+    expect(reading.read === 'ended' && reading.ending.resumeId).toBe('abc-123');
   });
 
   it('reads the assignment a take-up refused, beside the desk\'s own branch', () => {

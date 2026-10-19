@@ -553,6 +553,7 @@ describe('killedWorkerEndings', () => {
           branch: 'feature/x',
           detail: 'the worker exited 143 and wrote no ending',
           refusedAssignment: '',
+          resumeId: '',
         },
       },
     ]);
