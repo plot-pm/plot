@@ -208,6 +208,27 @@ describe('readPass — the SDK runner readings', () => {
 });
 
 describe('readPass — ROW 4, take-up', () => {
+  it('reads an unreadable continuation as none when the caller passes no log — #2102', async () => {
+    const desk = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-readpass-unreadable-nolog-'));
+    made.push(desk);
+    fs.mkdirSync(path.join(desk, '.plot-worker.continue.md'));
+    const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: desk });
+    const readings = await readPass(ports(), file, RUNNING_NONE, CONFIG, { since: null });
+    expect(readings.continuation).toBeNull();
+  });
+
+  it('logs a continuation file that is present but unreadable, and reads no continuation — #2102', async () => {
+    const desk = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-readpass-unreadable-'));
+    made.push(desk);
+    fs.mkdirSync(path.join(desk, '.plot-worker.continue.md'));
+    const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: desk });
+    const lines: string[] = [];
+    const readings = await readPass(ports(), file, RUNNING_NONE, CONFIG, { since: null }, (line) => lines.push(line));
+    expect(readings.continuation).toBeNull();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/\.plot-worker\.continue\.md is present but unreadable/);
+  });
+
   it('reads reset refusals and the marker text when the desk holds unlanded work', async () => {
     const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: '/tmp/desk' });
     const clock = { since: null as number | null };

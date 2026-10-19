@@ -30,7 +30,7 @@ export const CONTINUE_HINT =
   'Starts a NEW worker in this worktree with your answer, the brief, and what already landed. ' +
   'The agent that asked has already exited — this continues the work, not a conversation.';
 
-/** What the panel says for each refusal — five reasons, five different moves. */
+/** What the panel says for each refusal — one move per reason. */
 export function refusalWord(reason: ContinueRefusal): string {
   switch (reason) {
     case 'unknown-branch':
@@ -51,6 +51,12 @@ export function refusalWord(reason: ContinueRefusal): string {
       // by the route itself (#1373) — a refusal here means the loop is
       // actually working a turn, which the route will not interrupt.
       return 'A loop is already working a turn in this worktree — wait for it to finish, then continue.';
+    case 'run-limit':
+      // The limit wins over the answer, unconditionally — raising it is the
+      // only way forward; the route never bypasses it.
+      return 'This slice has reached its `Slice max runs` limit — raise the limit to continue it.';
+    case 'spend-limit':
+      return 'This slice has reached its `Slice max spend` limit — raise the limit to continue it.';
   }
 }
 

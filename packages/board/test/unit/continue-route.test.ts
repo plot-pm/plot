@@ -1127,6 +1127,96 @@ describe('continueOnDesk, as the registry tick calls it', () => {
   });
 });
 
+describe('continueOnDesk obeys Slice max runs and Slice max spend — #1381', () => {
+  /** A manifest directory naming `wt`, with a `sliceRuns` count for `BRANCH`. */
+  function manifestWithRuns(wt: string, runs: number): { dir: string } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-runs-'));
+    manifestDirs.push(dir);
+    fs.writeFileSync(
+      path.join(dir, 'sess.json'),
+      JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid: '424242', sliceRuns: { branch: BRANCH, runs } }),
+    );
+    return { dir };
+  }
+
+  const inputWith = (wt: string, dir: string, readCfg: (o: unknown, key: string, fallback: string) => string) => ({
+    opts: { ...opts, manifestDir: dir },
+    readCfg,
+    branch: BRANCH,
+    worktree: wt,
+    main: 'main',
+    previousPid: '424242',
+    answer: 'the composed answer',
+  });
+
+  const cfgWith = (values: Record<string, string>) =>
+    (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'true' : values[key] ?? fallback);
+
+  it('refuses run-limit, naming the limit, before any write, once the slice has started that many runs', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir } = manifestWithRuns(wt, 3);
+    const file = path.join(wt, CONTINUATION_NAME);
+    const result = await continueOnDesk(inputWith(wt, dir, cfgWith({ 'Slice max runs': '3' })));
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'run-limit');
+    assert.match(result.kind === 'refused' ? result.detail : '', /Slice max runs limit of 3/);
+    assert.equal(fs.existsSync(file), false);
+    assert.equal(fs.readFileSync(path.join(wt, '.plot-worker.exit'), 'utf8'), '0');
+  });
+
+  it('starts where the slice has run fewer times than Slice max runs', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir } = manifestWithRuns(wt, 2);
+    const result = await continueOnDesk(inputWith(wt, dir, cfgWith({ 'Slice max runs': '3' })));
+    assert.equal(result.kind, 'started');
+    spawned.add(wt);
+  });
+
+  /** Writes one run-kind spend line for `branch` into `wt`'s own record, at the adapter's real `--git-common-dir` path. */
+  function writeSliceSpend(wt: string, branch: string, costUsd: number): void {
+    const stateDir = path.join(wt, '.git', '.plot', 'state');
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir, 'slice-spend.jsonl'),
+      `${JSON.stringify({
+        kind: 'run',
+        branch,
+        at: new Date(0).toISOString(),
+        sessionId: 'sess-1',
+        role: 'worker',
+        models: { 'claude-sonnet-5': { inputTokens: 1, outputTokens: 1, cacheCreationTokens: 0, cacheReadTokens: 0, costUsd } },
+        costUsd,
+        turns: 1,
+      })}\n`,
+    );
+  }
+
+  it('refuses spend-limit, naming the limit, once the slice’s recorded cost reaches it', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir } = manifestWithRuns(wt, 0);
+    writeSliceSpend(wt, BRANCH, 10);
+    const file = path.join(wt, CONTINUATION_NAME);
+    const result = await continueOnDesk(inputWith(wt, dir, cfgWith({ 'Slice max spend': '10' })));
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'spend-limit');
+    assert.match(result.kind === 'refused' ? result.detail : '', /Slice max spend limit of 10/);
+    assert.equal(fs.existsSync(file), false);
+  });
+
+  it('never refuses on spend where the project configures no Slice max spend', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir } = manifestWithRuns(wt, 0);
+    writeSliceSpend(wt, BRANCH, 999_999);
+    const result = await continueOnDesk(inputWith(wt, dir, cfgWith({})));
+    assert.equal(result.kind, 'started');
+    spawned.add(wt);
+  });
+});
+
 describe('two concurrent continuations on one desk — #1357', () => {
   const input = (wt: string, dir: string) => ({
     opts: { ...opts, manifestDir: dir },
@@ -1708,6 +1798,36 @@ describe('a free-waiting loop is stopped, then the continuation starts — #1373
     assert.equal(result.kind === 'refused' ? result.reason : '', 'no-manifest');
     assert.equal(stopCalled, false, 'an unreadable pre-stop manifest must refuse before any signal is sent');
     assert.doesNotThrow(() => process.kill(livePid, 0), 'the loop is left running — a stop with no way back never happens');
+  });
+
+  it('refuses run-limit before the stop, leaving a free-waiting loop and its free-wait record in place — #2102', async () => {
+    const livePid = startRealProcess();
+    const wt = worktree({ pid: String(livePid) });
+    dirs.push(wt);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-freewait-limit-'));
+    manifestDirs.push(dir);
+    fs.writeFileSync(
+      path.join(dir, 'sess.json'),
+      `${JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid: String(livePid), wrapperPid: '', sliceRuns: { branch: BRANCH, runs: 3 } }, null, 2)}\n`,
+    );
+    fs.writeFileSync(path.join(wt, '.plot-worker.freewait'), `${livePid}\n`);
+    let stopCalled = false;
+
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      readCfg: (_o: unknown, key: string, fallback: string) =>
+        key === 'Worker command' ? 'true' : key === 'Slice max runs' ? '3' : fallback,
+      stopLoop: async () => {
+        stopCalled = true;
+        return { ok: true };
+      },
+    });
+
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'run-limit');
+    assert.equal(stopCalled, false, 'a limit refusal must not stop the loop');
+    assert.doesNotThrow(() => process.kill(livePid, 0), 'the free-waiting loop is still running');
+    assert.equal(fs.existsSync(path.join(wt, '.plot-worker.freewait')), true, 'the free-wait record is kept');
   });
 
   it('also waits for the manifest\'s wrapperPid to exit, not only the loop pid — #1379', async () => {
