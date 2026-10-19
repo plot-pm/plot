@@ -668,8 +668,9 @@ export const readContinuation = async (worktree: string, resumeId: string): Prom
     const text = await readFile(join(worktree, CONTINUATION_NAME), 'utf8');
     return { kind: 'present', resumeId, text };
   } catch (err) {
-    if ((err as { code?: string }).code === 'ENOENT') return { kind: 'missing' };
-    return { kind: 'unreadable', error: err instanceof Error ? err.message : String(err) };
+    const asError = err as NodeJS.ErrnoException;
+    if (asError.code === 'ENOENT') return { kind: 'missing' };
+    return { kind: 'unreadable', error: asError.message };
   }
 };
 
