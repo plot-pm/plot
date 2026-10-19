@@ -64,7 +64,7 @@ Each slice re-verifies its findings on main first, then fixes the ones that hold
 - [x] Does a retry after `unstarted` carry the continuation? Recommendation: yes, the answer was never delivered. Decided 2026-10-17 by Jan Wloka: yes, a retry after `unstarted` carries the continuation.
 - [x] Does take-up remove a continuation file written for another branch, or keep it for its slice? Recommendation: keep it, and record the branch it was written for, so a later take-up of that branch reads it and any other branch ignores it. Decided 2026-10-17 by Jan Wloka: take-up keeps a continuation file written for another branch and records that branch, and only that branch reads it.
 - [ ] Does a `blocked` desk's registry entry survive `leave()`? #1373 reopened the question from #1372: `main()` also calls `leave()` on a normal return, and `deregister` and `reap` remove entries. Measure it from the desk log and the registryd log around a restart before any code changes.
-- [ ] Does #1788's `unstarted` case need a second change beyond the `resumeId` source, for example a domain unit test only? Settle it when the slice re-reads `continue-target.ts`. The slice measures this and records the answer here before changing code.
+- [x] Does #1788's `unstarted` case need a second change beyond the `resumeId` source, for example a domain unit test only? Settle it when the slice re-reads `continue-target.ts`. The slice measures this and records the answer here before changing code. Decided 2026-10-19 by the slice: no. `continueTarget` already picks the `unstarted`/`blocked`/`holding-work` fallback path correctly; the gap was only in `continueOnDesk`'s write, which read `resumeIdFromTranscript` instead of the ending's own recorded handle. The fix adds `Ending.resumeId`, threads it from `runPrompt`'s handle through the `unstarted` row of `agentLoop`, and has `continueOnDesk` prefer it over the transcript scan, which remains the fallback.
 
 ## Slices
 
@@ -83,7 +83,7 @@ Each slice re-verifies its findings on main first, then fixes the ones that hold
 
 ### Unstarted resume
 
-- `bug/an-unstarted-continue-resumes-no-stranger` — #1788 and the resume-id test from #1373 <!-- waits: bug/a-continuation-obeys-the-limits -->
+- `bug/an-unstarted-continue-resumes-no-stranger` — #1788 and the resume-id test from #1373 → #2120 <!-- waits: bug/a-continuation-obeys-the-limits -->
 
 ## Notes
 
