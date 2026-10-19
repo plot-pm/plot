@@ -2355,6 +2355,7 @@ function makeJenStub({
   jobsJson = '[]',
   authReachable = true,
   jobListExit = 0,
+  resolvedHost = '', // '' = jen's own default pattern; null = no Instance: line at all
   viewJson = JSON.stringify({
     _class: 'org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject',
     name: 'continuous-build-multi',
@@ -2367,19 +2368,21 @@ function makeJenStub({
     : 'Jenkins auth:  NOT reachable';
   const body = `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "${callsFile}"
-# jen [-I slug] [--json] <group> <sub> [path] — consume -I's VALUE too, or the
-# slug is mistaken for the group.
+# jen [-I slug] [--json] <group> <sub> [path] — capture -I's VALUE, the real
+# CLI's own \`auth status\` echoes it back on an \`Instance:\` line.
 group=""
 sub=""
+slug=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    -I) shift 2 ;;
+    -I) slug="$2"; shift 2 ;;
     --json) shift ;;
     *) group="$1"; shift; sub="\${1:-}"; break ;;
   esac
 done
 if [ "$group" = auth ]; then
   printf '%s\\n' 'Keycloak:      signed in'
+  ${resolvedHost === null ? '' : `printf '%s\\n' "Instance:      \\$slug (https://${resolvedHost || 'jenkins-ci-$slug.internal.quatico.dev'})"`}
   printf '%s\\n' '${authLine}'
   exit 0
 fi
@@ -3317,10 +3320,14 @@ test('host: a bare-host instance names no job, so no shape is probed', () => {
 // usable keychain stub) and `curl` (so the `tree=` request is answered
 // in-process rather than reaching a real Jenkins). With `branchSeg`, a URL
 // naming that job segment answers `branchAnswer` instead, so a test can make
-// the branch URL 404 and the job URL answer.
-const makeJenkinsRestBin = (buildsJson, { branchSeg = '', branchAnswer = '' } = {}) => {
+// the branch URL 404 and the job URL answer. With `credHost`, `security` only
+// answers a lookup keyed by THAT host — a slug asked literally fails, proving
+// the credential is keyed by the resolved host and not the raw slug.
+const makeJenkinsRestBin = (buildsJson, { branchSeg = '', branchAnswer = '', credHost = '' } = {}) => {
   const bin = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest-')));
-  writeFileSync(path.join(bin, 'security'), '#!/usr/bin/env bash\necho stub\n');
+  writeFileSync(path.join(bin, 'security'), credHost
+    ? `#!/usr/bin/env bash\ncase "$*" in *"${credHost}"*) echo stub ;; *) exit 1 ;; esac\n`
+    : '#!/usr/bin/env bash\necho stub\n');
   writeFileSync(path.join(bin, 'curl'), branchSeg
     ? `#!/usr/bin/env bash\ncase "$*" in *"/job/${branchSeg}/api/"*) printf '%s' '${branchAnswer}' ;; *) printf '%s' '${buildsJson}' ;; esac\n`
     : `#!/usr/bin/env bash\nprintf '%s' '${buildsJson}'\n`);
@@ -3465,6 +3472,90 @@ test('host: runs on Jenkins without a credential exits 4, never empty', () => {
   assert.equal(res.code, 4);
   assert.equal(res.stdout.trim(), '');
   assert.match(res.stderr, /no Jenkins API credential|names no job path/);
+});
+
+// --- a bare slug resolves to jen's host, not a literal host --------------
+//
+// `ewz-kus-portal`'s instance names `ewz`, the Jenkins slug `jen` resolves to
+// `jenkins-ci-ewz.internal.quatico.dev` — not a host `curl` or the keychain
+// can use literally. These pin the repair: a bare slug is resolved through
+// `jen auth status`'s own `Instance:` line before the credential lookup and
+// the REST call, exactly as a dotted instance already was.
+
+test('host: runs on a slug-form Jenkins instance resolves the slug to jen\'s host before asking for a credential', () => {
+  const repo = makeJenkinsRepo({ instance: 'ewz/kus-portal/continuous-build-multi' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, resolvedHost: 'jenkins-ci-ewz.internal.quatico.dev' });
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://jenkins-ci-ewz.internal.quatico.dev/9/',
+      actions: [{ lastBuiltRevision: { SHA1: 'some-sha' } }] },
+  ] });
+  // security answers ONLY the resolved host — a literal 'ewz' lookup fails,
+  // so a credential found here proves the slug was resolved first.
+  const bin = makeJenkinsRestBin(builds, { credHost: 'jenkins-ci-ewz.internal.quatico.dev' });
+  const res = runJenkinsAllowFail(['runs', 'feature/red'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, `a slug instance must resolve to jen's host, not fail as an unkeyed credential\n${res.stderr}`);
+  const row = JSON.parse(res.stdout.trim());
+  assert.equal(row.conclusion, 'SUCCESS');
+});
+
+test('host: runs on a slug-form Jenkins instance exits 4, naming the slug, when jen cannot resolve it', () => {
+  const repo = makeJenkinsRepo({ instance: 'ewz/kus-portal/continuous-build-multi' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  // No `Instance:` line at all — `jen auth status` answered, but not with one.
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, resolvedHost: null });
+  const res = runJenkinsAllowFail(['runs', 'feature/red'], { repo, hostStubs, jen });
+  assert.equal(res.code, 4);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /cannot resolve Jenkins instance 'ewz' to a host/);
+});
+
+// --- a build can carry more than one lastBuiltRevision action ------------
+//
+// Real Jenkins builds on a multibranch pipeline that merges a feature branch
+// into develop before building it carry TWO `lastBuiltRevision` actions: one
+// naming develop's head, one naming the feature branch's own head. Matching
+// only the first (as the old filter did) misses a build whose branch head is
+// the SECOND action — exactly `ewz-kus-portal`'s repro.
+
+test('host: run-for-sha matches a sha carried by the second of two lastBuiltRevision actions', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const developSha = '1111111111111111111111111111111111aaaa';
+  const headSha = '2222222222222222222222222222222222bbbb';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: developSha } },
+        { lastBuiltRevision: { SHA1: headSha } },
+      ] },
+  ] });
+  const bin = makeJenkinsRestBin(builds);
+  const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', headSha],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  const row = JSON.parse(res.stdout.trim());
+  assert.equal(row.conclusion, 'SUCCESS', 'the build is found by its SECOND lastBuiltRevision action, not only its first');
+});
+
+// --- a failed sha lookup is visible, never silently swallowed ------------
+
+test('host: pr-list --rich surfaces a Jenkins sha-lookup failure on stderr rather than discarding it', () => {
+  // `jenkins_bind_rows` used to pipe `jenkins_sha_runs`'s stderr to
+  // /dev/null, so an unresolved slug or a missing credential left no trace
+  // anywhere a reader could see. The row still stands unbound — that wider
+  // contract is unchanged — but the reason is now on stderr.
+  const repo = makeJenkinsRepo({ instance: 'ewz/kus-portal/continuous-build-multi' });
+  // A head sha AND a green colour — `rowsToBind` only selects an ambiguous
+  // row (green/failing with a head sha) for a sha lookup at all.
+  const hostStubs = makeStubs({ ghJson: ghRowWithSha('feature/green', 'a'.repeat(40)) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, resolvedHost: null });
+  const res = runJenkinsAllowFail(['pr-list', '--rich'], { repo, hostStubs, jen });
+  assert.equal(res.code, 0, 'a failed sha lookup must not blank the PR list');
+  assert.match(res.stderr, /cannot resolve Jenkins instance 'ewz' to a host/,
+    'the lookup failure reaches stderr instead of being discarded');
 });
 
 test('host: runs on Jenkins with no instance configured exits 3, naming the three repairs', () => {
