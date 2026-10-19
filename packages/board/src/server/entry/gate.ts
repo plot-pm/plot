@@ -504,9 +504,10 @@ export interface ControllerReadings {
  * worktree holding `.plot-worker.pid` or `.plot-verify.pid`. After the prefilter: no git allows and says it went
  * UNVERIFIED; a linked worktree (a desk) is a worker's own call and is
  * allowed; then `controllerInvocation`, `unpinnedMerges` and the action
- * receipt, which is read and left in place. An unpinned `plot-host.sh
- * pr-merge` goes through where `plot-host.sh backend` answers `bitbucket`. No
- * `.plot/state/` allows the action and says it went UNVERIFIED.
+ * receipt, which is read and left in place. Every backend pins a merge
+ * ({@link hostPinsMerges}), so an unpinned `plot-host.sh pr-merge` always
+ * refuses here. No `.plot/state/` allows the action and says it went
+ * UNVERIFIED.
  *
  * A git reading that throws allows the call and says so, unless the command
  * runs a controller-owned action or an unpinned merge: that refuses, because

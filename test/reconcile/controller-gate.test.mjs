@@ -372,15 +372,22 @@ test('controller gate: the refusal names the pin flag of the program refused (M6
   assert.doesNotMatch(host.stderr, /--match-head-commit/);
 });
 
-test('controller gate: an unpinned plot-host.sh pr-merge passes on bitbucket and says nothing pins there (M6)', () => {
+test('controller gate: an unpinned plot-host.sh pr-merge is refused on bitbucket too (M6)', () => {
   const dir = repo();
   const cmd = 'bash skills/plot/scripts/plot-host.sh pr-merge 123';
   const bb = spawnSync('bash', [gate], {
     cwd: dir, input: JSON.stringify({ tool_input: { command: cmd } }), encoding: 'utf8',
     env: { ...process.env, PLOT_HOST: 'bitbucket' },
   });
-  assert.equal(bb.status, 0, `bitbucket cannot pin (stderr: ${bb.stderr})`);
-  assert.match(bb.stderr, /cannot pin a merge to a commit/);
+  assert.equal(bb.status, 2, `bitbucket now pins via re-read (stderr: ${bb.stderr})`);
+  assert.match(bb.stderr, /add --match-head <sha>/);
+  const pinned = spawnSync('bash', [gate], {
+    cwd: dir,
+    input: JSON.stringify({ tool_input: { command: 'bash skills/plot/scripts/plot-host.sh pr-merge 123 --match-head abc123' } }),
+    encoding: 'utf8',
+    env: { ...process.env, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(pinned.status, 0, `a pinned bitbucket pr-merge is allowed (stderr: ${pinned.stderr})`);
   const gh = spawnSync('bash', [gate], {
     cwd: dir, input: JSON.stringify({ tool_input: { command: 'gh pr merge 123' } }), encoding: 'utf8',
     env: { ...process.env, PLOT_HOST: 'bitbucket' },

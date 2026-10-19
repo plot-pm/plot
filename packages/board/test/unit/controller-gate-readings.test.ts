@@ -8,8 +8,8 @@ import { run as deliver } from '../../src/server/entry/deliver.js';
 
 /**
  * The controller gate against injected readings: which git readings it takes,
- * what a failed reading answers, and the Bitbucket exception for an unpinned
- * `plot-host.sh pr-merge`.
+ * what a failed reading answers, and that Bitbucket now requires the pin like
+ * every other `plot-host.sh pr-merge` backend.
  */
 
 const GATED = ['bash skills/plot/scripts/plot-', 'deliver.sh s'].join('');
@@ -78,17 +78,17 @@ describe('the controller gate reads no git before its text tests (LOW 9)', () =>
 });
 
 describe('an unpinned plot-host.sh pr-merge on Bitbucket (M6)', () => {
-  it('goes through where plot-host.sh resolves bitbucket, and says nothing pins there', async () => {
-    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    try {
-      const { r } = readings(MAIN, { backend: 'bitbucket' });
-      const answer = await ask(r, 'bash skills/plot/scripts/plot-host.sh pr-merge 12');
-      expect(answer.code).toBe(EXIT.allow);
-      expect(answer.warned).toBe('');
-      expect(write.mock.calls.join('')).toContain('cannot pin a merge to a commit');
-    } finally {
-      write.mockRestore();
-    }
+  it('refuses on bitbucket too, naming --match-head', async () => {
+    const { r } = readings(MAIN, { backend: 'bitbucket' });
+    const answer = await ask(r, 'bash skills/plot/scripts/plot-host.sh pr-merge 12');
+    expect(answer.code).toBe(EXIT.refuse);
+    expect(answer.warned).toContain('add --match-head <sha>');
+  });
+
+  it('allows a pinned merge on bitbucket', async () => {
+    const { r } = readings(MAIN, { backend: 'bitbucket' });
+    const answer = await ask(r, 'bash skills/plot/scripts/plot-host.sh pr-merge 12 --match-head abc');
+    expect(answer.code).toBe(EXIT.allow);
   });
 
   it('refuses on github, naming --match-head', async () => {

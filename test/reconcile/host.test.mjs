@@ -588,13 +588,31 @@ test('host: pr-merge github passes the merger token through the environment, nev
   assert.ok(!res.stderr.includes('merger-installation-token'), 'the installation token must never appear in stderr');
 });
 
-test('host: pr-merge bitbucket refuses a pin and calls no bb', () => {
-  const stubs = makeStubs();
+// Bitbucket Cloud's merge endpoint takes no head precondition (measured
+// 2026-10-18, recorded in the plan's Notes), so the pin is enforced by
+// re-reading the head immediately before merging. Both halves need their own
+// test: a passing case alone would not catch a refusal that never fires, and
+// a refusing case alone would not catch one that always fires.
+test('host: pr-merge bitbucket refuses head-moved and merges nothing', () => {
+  const movedSha = 'b'.repeat(40);
+  const stubs = makeStubs({
+    bbJson: `{"id":5,"state":"OPEN","source":{"branch":{"name":"feature/x"},"commit":{"hash":"${movedSha}"}},"destination":{"branch":{"name":"main"}},"links":{"html":{"href":"https://example.test/pr/5"}}}`,
+  });
   const res = runAllowFail(['pr-merge', '5', '--match-head', 'a'.repeat(40)],
-    { env: { PLOT_HOST: 'bitbucket' }, stubs });
-  assert.equal(res.code, 4);
-  assert.match(res.stderr, /cannot pin a merge/);
-  assert.equal(argvOf(stubs.bbArgv), null, 'nothing reached the Bitbucket CLI');
+    { env: { PLOT_HOST: 'bitbucket', PLOT_BB_SKIP_CAP_CHECK: '1' }, stubs });
+  assert.equal(res.code, 1);
+  assert.match(res.stderr, /head-moved/);
+  assert.notDeepEqual(argvOf(stubs.bbArgv), ['pr', 'merge', '5'], 'the merge call must never run');
+});
+
+test('host: pr-merge bitbucket merges a matching head', () => {
+  const sha = 'a'.repeat(40);
+  const stubs = makeStubs({
+    bbJson: `{"id":5,"state":"OPEN","source":{"branch":{"name":"feature/x"},"commit":{"hash":"${sha}"}},"destination":{"branch":{"name":"main"}},"links":{"html":{"href":"https://example.test/pr/5"}}}`,
+  });
+  run(['pr-merge', '5', '--match-head', sha],
+    { env: { PLOT_HOST: 'bitbucket', PLOT_BB_SKIP_CAP_CHECK: '1' }, stubs });
+  assert.deepEqual(argvOf(stubs.bbArgv), ['pr', 'merge', '5']);
 });
 
 // A TRANSPORT FAILURE AND A LOOKUP MISS ARE TWO ANSWERS, AND THEY USED TO BE

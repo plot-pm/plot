@@ -59,3 +59,17 @@ Related: #1848 (Bitbucket parity).
 ## Notes
 
 - Created from tracker issue #2054. No tracker write was made.
+- **2026-10-18 — Bitbucket Cloud merge-endpoint measurement.** Read against
+  Bitbucket's own OpenAPI v3 spec (`https://dac-static.atlassian.com/cloud/bitbucket/swagger.v3.json`),
+  the `POST /2.0/repositories/{workspace}/{repo_slug}/pullrequests/{pull_request_id}/merge`
+  operation. Its only query parameter is `async`; its request body
+  (`pullrequest_merge_parameters`) accepts `type`, `message`,
+  `close_source_branch` and `merge_strategy` and names no head-commit, sha or
+  version field; the operation declares no `If-Match`/ETag header parameter.
+  The 409 response ("one of the refs involved changed while attempting to
+  merge") is Bitbucket's own internal race detection, not a caller-supplied
+  precondition — nothing in the request lets a caller state the sha it
+  expects as the current head. **The endpoint offers no precondition**, so
+  this slice takes the plan's step 3: the Bitbucket arm re-reads the PR head
+  immediately before merging and refuses `head-moved` on a mismatch, leaving
+  a reduced (one host round-trip) rather than eliminated race window.
