@@ -79,7 +79,7 @@ The chip's tooltip for a missing identity reads the state `only-my-work-says-no-
 
 ### Board
 
-- `feature/the-delivery-tab-renders-one-chip-row` — replaces `SprintFilter.tsx`'s card, the `Active sprint` button and the `Only my work` checkbox with the chip row and the sprint line, rendering the domain properties. One browser test shows the row at desktop width and at 375 px. <!-- waits: feature/chip-row-states-are-domain-properties -->
+- `feature/the-delivery-tab-renders-one-chip-row` — replaces `SprintFilter.tsx`'s card, the `Active sprint` button and the `Only my work` checkbox with the chip row and the sprint line, rendering the domain properties. One browser test shows the row at desktop width and at 375 px. <!-- waits: feature/chip-row-states-are-domain-properties --> → #2137
 
 ## Notes
 
