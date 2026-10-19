@@ -60,7 +60,7 @@ Out of scope: `checks-unbound` on Bitbucket (#2075).
 
 ### Host
 
-- `bug/the-merge-controller-cannot-merge-a-host` — `plot-host.sh pr-merge` on Bitbucket matches the pin by prefix and refuses without `--match-head`; corpus test pairs it with the domain rule <!-- waits: bug/the-merge-controller-cannot-merge-a-rule -->
+- `bug/the-merge-controller-cannot-merge-a-host` — `plot-host.sh pr-merge` on Bitbucket matches the pin by prefix and refuses without `--match-head`; corpus test pairs it with the domain rule → #2139 <!-- waits: bug/the-merge-controller-cannot-merge-a-rule -->
 
 ## Notes
 
