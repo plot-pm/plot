@@ -280,7 +280,7 @@ const fakeBitbucket = async ({ statusCode = 201 } = {}) => {
         res.writeHead(code, { 'content-type': 'application/json' });
         res.end(JSON.stringify(json));
       };
-      if (req.method === 'POST' && req.url === '/repositories/myws/myrepo/commit/deadbeef/statuses/build') {
+      if (req.method === 'POST' && /^\/repositories\/[^/]+\/[^/]+\/commit\/deadbeef\/statuses\/build$/.test(req.url)) {
         return reply(statusCode, {});
       }
       return reply(404, { type: 'error', error: { message: 'unexpected route' } });
@@ -400,6 +400,23 @@ test('commit-status (bitbucket): resolves the workspace/repo from every SSH form
     const got = await bbCommitStatus(box, ARGS, api.url, BB_CRED);
     assert.equal(got.code, 0, `${remote}: ${got.err}`);
     assert.equal(api.requests.length, 1, remote);
+  }
+});
+
+test('commit-status (bitbucket): an scp-style remote keeps a numeric workspace, a scheme\'d one drops its port', async () => {
+  // `git@bitbucket.org:12345/repo.git` has no port: the colon starts the path.
+  // The old port strip deleted `12345`, left an empty slug and exited 4.
+  for (const remote of [
+    'git@bitbucket.org:12345/repo.git',
+    'ssh://git@bitbucket.org:22/acme/repo.git',
+  ]) {
+    const box = bbSandbox({ remote });
+    const api = await fakeBitbucket();
+    const got = await bbCommitStatus(box, ARGS, api.url, BB_CRED);
+    assert.equal(got.code, 0, `${remote}: ${got.err}`);
+    assert.equal(api.requests.length, 1, remote);
+    const slug = remote.includes('12345') ? '12345/repo' : 'acme/repo';
+    assert.ok(api.requests[0].url.includes(`/repositories/${slug}/`), `${remote}: ${api.requests[0].url}`);
   }
 });
 
