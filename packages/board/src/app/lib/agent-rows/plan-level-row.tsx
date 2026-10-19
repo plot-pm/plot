@@ -152,9 +152,9 @@ export const sectionCount = (
  * carries one, the restart command and the log path, both as plain text and
  * never as links.
  *
- * `planFile` comes from the caller, which reads it off the board card whose
- * `slug` is the row's `plan` (`planFileForSlug`). `''` renders the slug with no
- * plan link.
+ * `planFile` comes from the caller, which reads it from the fleet payload
+ * (`planFileFromFleet`) and then from the board card whose `slug` is the row's
+ * `plan` (`planFileForSlug`). `''` renders the slug with no plan link.
  */
 export const PlanLevelRowView = (
   { row, planFile, onOpenPlan }: {
