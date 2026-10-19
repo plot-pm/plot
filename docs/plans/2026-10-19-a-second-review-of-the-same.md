@@ -12,6 +12,7 @@
 - **Story:** <!-- optional, story slug (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
+- **Started:** 2026-10-19, Jan Wloka, `bug/plot-review-writes-every-verdict`
 
 ## Changelog
 
