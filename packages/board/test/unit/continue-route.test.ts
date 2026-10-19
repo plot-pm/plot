@@ -1508,6 +1508,163 @@ describe('a free desk whose prompt never started — #1773', () => {
   });
 });
 
+// #2107 — a desk can be continued once. The REAL incident: `free-fcd71bc3`
+// (`bug/a-click-on-a-plan-story`) was continued, opened PR #2104, ended again
+// with a new `PLOT-BLOCKED` marker, and a second continue refused
+// `no-manifest`. `free-7edb8d31` hit the same refusal earlier that day.
+//
+// This reproduces the SHAPE of both incidents rather than their exact ending
+// reason (still open per the plan's Open Point 1): continue one desk, let the
+// loop end for each reason in `NEEDS_PERSON_ENDINGS`, then continue again.
+describe('a desk continued twice, once per NEEDS_PERSON_ENDINGS reason — #2107', () => {
+  const input = (wt: string, dir: string) => ({
+    opts: { ...opts, manifestDir: dir },
+    readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'true' : fallback),
+    branch: BRANCH,
+    worktree: wt,
+    main: 'main',
+    previousPid: '',
+    answer: 'the composed answer',
+  });
+
+  /** Writes `.plot-worker.ending.json` naming `branch` as `reason` — the shape every reason uses alike. */
+  const writeEnding = (wt: string, reason: string, branch = BRANCH): void => {
+    fs.writeFileSync(
+      path.join(wt, ENDING_FILENAME),
+      JSON.stringify({ reason, actor: 'agent', branch, detail: '' }),
+    );
+  };
+
+  /** A fresh marker file — the loop's own end leaves one, and `markerIn` matches by filename, not content. */
+  const writeMarker = (wt: string, name = 'PLOT-BLOCKED-again.md'): void => {
+    fs.writeFileSync(path.join(wt, name), 'PLOT-BLOCKED: a new question from the continued run');
+  };
+
+  /**
+   * Continue once (ending `blocked`, accepted by the fallback), wait for that
+   * run to exit, then simulate the loop ending again with `reason`: remove the
+   * manifest the first continue wrote (a stopped loop removes its own, per
+   * `worker-loop.ts`), write a fresh ending record and marker, and ask a
+   * second continue. Returns the second continue's answer alone — the first is
+   * only the fixture's setup.
+   */
+  async function continueTwice(reason: string): Promise<{ kind: string; reason?: string }> {
+    const wt = worktree();
+    dirs.push(wt);
+    writeEnding(wt, 'blocked');
+    const manifestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-twice-'));
+    manifestDirs.push(manifestDir);
+
+    const first = await continueOnDesk(input(wt, manifestDir));
+    assert.equal(first.kind, 'started', 'the fixture’s own first continue must succeed');
+    spawned.add(wt); // tracked, so settle waits for the first worker
+    await settle(wt);
+
+    // The loop ended: it removed its own manifest, and left a new ending and marker.
+    for (const entry of fs.readdirSync(manifestDir)) fs.rmSync(path.join(manifestDir, entry));
+    writeEnding(wt, reason);
+    writeMarker(wt);
+
+    const second = await continueOnDesk(input(wt, manifestDir));
+    if (second.kind === 'started') spawned.add(wt);
+    return second.kind === 'refused' ? { kind: second.kind, reason: second.reason } : { kind: second.kind };
+  }
+
+  // THE CONTROL ROWS — prove the fixture reaches the second continue and that
+  // the harness accepts a valid desk. Without these, a broken fixture would
+  // read as five reproductions rather than three.
+  it('blocked: the second continue is accepted', async () => {
+    const second = await continueTwice('blocked');
+    assert.equal(second.kind, 'started');
+  });
+
+  it('unstarted: the second continue is accepted', async () => {
+    const second = await continueTwice('unstarted');
+    assert.equal(second.kind, 'started');
+  });
+
+  // THE MEASURED BUG — the fallback in `continue-target.ts:122-125` accepts
+  // only `blocked`, `holding-work` and `unstarted`. Each of these refuses
+  // `no-manifest`, exactly as `free-fcd71bc3` and `free-7edb8d31` did. Marked
+  // `it.fails`, not `it.skip`, per the plan: a skipped row measures nothing,
+  // and this branch must still merge with CI green.
+  //
+  // wave 2, `bug/a-desk-can-be-continued-once-fix`, flips these to plain `it`
+  // once the fix (A or B, per the plan's Approach step 2) makes them pass.
+  it.fails('spend-limit: the second continue refuses no-manifest — the bug', async () => {
+    const second = await continueTwice('spend-limit');
+    assert.equal(second.kind, 'started', `refused ${second.reason}`);
+    assert.notEqual(second.reason, 'no-manifest');
+  });
+
+  it.fails('run-limit: the second continue refuses no-manifest — the bug', async () => {
+    const second = await continueTwice('run-limit');
+    assert.equal(second.kind, 'started', `refused ${second.reason}`);
+    assert.notEqual(second.reason, 'no-manifest');
+  });
+
+  it.fails('checks-unanswered: the second continue refuses no-manifest — the bug', async () => {
+    const second = await continueTwice('checks-unanswered');
+    assert.equal(second.kind, 'started', `refused ${second.reason}`);
+    assert.notEqual(second.reason, 'no-manifest');
+  });
+
+  // GUARD CASES — stay refusals before and after the fix. Added to this same
+  // table so wave 2 cannot widen the rule past the evidence above: these never
+  // reproduce the bug, and a fix that starts either one is itself a defect.
+  describe('guard cases that must keep refusing after the fix', () => {
+    it('an absent ending record still refuses no-manifest on the second continue', async () => {
+      const wt = worktree();
+      dirs.push(wt);
+      writeEnding(wt, 'blocked');
+      const manifestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-twice-absent-'));
+      manifestDirs.push(manifestDir);
+
+      const first = await continueOnDesk(input(wt, manifestDir));
+      assert.equal(first.kind, 'started');
+      spawned.add(wt); // tracked, so settle waits for the first worker
+      await settle(wt);
+
+      for (const entry of fs.readdirSync(manifestDir)) fs.rmSync(path.join(manifestDir, entry));
+      fs.rmSync(path.join(wt, ENDING_FILENAME)); // no ending record at all — never a fallback
+      writeMarker(wt);
+      // The first continue's own prompt — a refused second continue must not touch it.
+      const promptBefore = fs.readFileSync(path.join(wt, CONTINUATION_NAME), 'utf8');
+
+      const second = await continueOnDesk(input(wt, manifestDir));
+      assert.equal(second.kind, 'refused');
+      assert.equal(second.kind === 'refused' ? second.reason : '', 'no-manifest');
+      // A refused continuation must leave no trace of a partial attempt.
+      assert.equal(fs.readFileSync(path.join(wt, CONTINUATION_NAME), 'utf8'), promptBefore);
+      assert.equal(fs.readFileSync(path.join(wt, '.plot-worker.exit'), 'utf8'), '0');
+    });
+
+    it('an ending naming a different branch still refuses no-manifest on the second continue', async () => {
+      const wt = worktree();
+      dirs.push(wt);
+      writeEnding(wt, 'blocked');
+      const manifestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-twice-wrong-branch-'));
+      manifestDirs.push(manifestDir);
+
+      const first = await continueOnDesk(input(wt, manifestDir));
+      assert.equal(first.kind, 'started');
+      spawned.add(wt); // tracked, so settle waits for the first worker
+      await settle(wt);
+
+      for (const entry of fs.readdirSync(manifestDir)) fs.rmSync(path.join(manifestDir, entry));
+      writeEnding(wt, 'blocked', 'bug/some-other-branch');
+      writeMarker(wt);
+      const promptBefore = fs.readFileSync(path.join(wt, CONTINUATION_NAME), 'utf8');
+
+      const second = await continueOnDesk(input(wt, manifestDir));
+      assert.equal(second.kind, 'refused');
+      assert.equal(second.kind === 'refused' ? second.reason : '', 'no-manifest');
+      assert.equal(fs.readFileSync(path.join(wt, CONTINUATION_NAME), 'utf8'), promptBefore);
+      assert.equal(fs.readFileSync(path.join(wt, '.plot-worker.exit'), 'utf8'), '0');
+    });
+  });
+});
+
 // #1788 — an unstarted continuation must resume the SAME conversation the
 // dying prompt was using, not whichever transcript file is newest on disk. A
 // worktree is reused across many slices over its lifetime, so "newest by
