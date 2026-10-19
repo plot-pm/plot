@@ -46,7 +46,7 @@ Both rules are domain properties with unit tests. The board row reads the verdic
 
 ### Chain detection
 
-- `bug/a-waits-chain-is-a-cut-slice-sequence` — domain rule for a chained heading; reconcile section 7 and the board `unsliced-wave` state use it
+- `bug/a-waits-chain-is-a-cut-slice-sequence` — domain rule for a chained heading; reconcile section 7 and the board `unsliced-wave` state use it → PR #2108
 
 ### Eligibility
 
