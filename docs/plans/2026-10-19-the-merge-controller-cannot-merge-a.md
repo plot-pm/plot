@@ -55,7 +55,7 @@ Out of scope: `checks-unbound` on Bitbucket (#2075).
 
 ### Rule and entry
 
-- `bug/the-merge-controller-cannot-merge-a-rule` — shared sha prefix rule in the domain, used by `merge.ts`; `plot-ask.mjs merge` accepts 7 to 40 hex characters <!-- builds: a shared sha prefix-match helper with a 7-character minimum -->
+- `bug/the-merge-controller-cannot-merge-a-rule` — shared sha prefix rule in the domain, used by `merge.ts`; `plot-ask.mjs merge` accepts 7 to 40 hex characters → #2112 <!-- builds: a shared sha prefix-match helper with a 7-character minimum -->
 
 ### Host
 
