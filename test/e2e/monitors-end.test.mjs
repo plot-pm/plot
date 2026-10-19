@@ -106,6 +106,27 @@ function waitForFile(file, ms = 15000) {
 }
 
 /**
+ * Waits for the pid file to hold a positive integer, and returns it parsed.
+ *
+ * `plot-dispatch.sh`'s wrapper writes this file with a plain shell redirect
+ * (`printf "%s" "$agent" > "$PLOT_PID_FILE"`), not a temp-file-plus-rename. A
+ * reader can observe the file between its creation and the `printf` landing
+ * bytes, so `waitForFile` alone can hand back `''` — and `Number('')` is `0`,
+ * a pid `alive()` then polls forever against. This waits past that empty read
+ * until the file holds a parseable positive integer.
+ */
+function waitForPid(file, ms = 15000) {
+  const deadline = Date.now() + ms;
+  let pid = NaN;
+  do {
+    if (fs.existsSync(file)) pid = Number(fs.readFileSync(file, 'utf8').trim());
+    if (Number.isInteger(pid) && pid > 0) return pid;
+    execFileSync('sleep', ['0.2']);
+  } while (Date.now() < deadline);
+  return pid;
+}
+
+/**
  * A long-lived process this test controls, and deliberately NOT its child.
  *
  * ZOMBIES ARE WHY. A `spawn`ed child that is killed stays in the process table
@@ -368,8 +389,8 @@ test('the wrapper reports its agent gone BEFORE the wrapper itself ends — the 
   // agent is exactly the case it wants: an agent that dies on its own.
   const run = dispatchOne('monitors-end-lower-bound', { workerCommand: 'sleep 2' });
   try {
-    assert.ok(waitForFile(run.pidFile), 'the wrapper never recorded the agent pid');
-    const agentPid = fs.readFileSync(run.pidFile, 'utf8').trim();
+    const agentPid = waitForPid(run.pidFile);
+    assert.ok(agentPid > 0, 'the wrapper never recorded the agent pid');
 
     assert.ok(waitForFile(run.workerFindings, 25000),
       'the wrapper published nothing at all about an agent that died under it');
@@ -386,7 +407,7 @@ test('the wrapper reports its agent gone BEFORE the wrapper itself ends — the 
 
     // It names the pid that exited, so the finding is about THIS agent rather
     // than a true statement about some process somewhere.
-    assert.match(line.evidence, new RegExp(`\\b${agentPid}\\b`),
+    assert.match(line.evidence, new RegExp(`\\b${String(agentPid)}\\b`),
       'the finding does not name the agent pid it is about');
 
     // AND THE LINE EXISTS BEFORE THE WRAPPER'S OWN EXIT RECORD IS STALE — the
@@ -407,8 +428,8 @@ test('an agent killed at the bound is reported gone by the wrapper, not clear', 
   // bound just killed it mid-flight.
   const run = dispatchOne('monitors-end-killed-gone', { workerCommand: 'sleep 30' });
   try {
-    assert.ok(waitForFile(run.pidFile), 'the wrapper never recorded the agent pid');
-    const agentPid = Number(fs.readFileSync(run.pidFile, 'utf8').trim());
+    const agentPid = waitForPid(run.pidFile);
+    assert.ok(agentPid > 0, 'the wrapper never recorded the agent pid');
 
     assert.ok(waitUntil(() => alive(agentPid)),
       'the agent was not alive long enough to kill it deliberately');
