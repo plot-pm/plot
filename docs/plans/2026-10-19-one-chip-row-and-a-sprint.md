@@ -12,6 +12,7 @@
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
+- **Started:** 2026-10-19, Jan Wloka, `feature/chip-row-states-are-domain-properties`
 
 ## Changelog
 
