@@ -160,21 +160,42 @@ test('no concurrency group in ci.yml is keyed on the ref', () => {
 
 // ── ci.yml: the guard, in each job by name ───────────────────────────────────
 
-// BY NAME, BOTH JOBS. A test that finds one guard anywhere in the file passes
+/**
+ * The steps of one job as text, one entry per `      - ` item, in file order.
+ * Comment lines between steps stay with the step below them.
+ */
+const jobSteps = (yaml, name) => {
+  const block = jobBlock(yaml, name);
+  const lines = block.slice(block.indexOf('\n    steps:')).split('\n');
+  const steps = [];
+  for (const line of lines) {
+    if (/^ {6}- /.test(line)) steps.push([line]);
+    else if (steps.length > 0) steps[steps.length - 1].push(line);
+  }
+  return steps.map((s) => s.join('\n'));
+};
+
+// BY NAME, EVERY JOB. A test that finds one guard anywhere in the file passes
 // with `corpus` unguarded — and `corpus` being skipped on a dispatched run
 // would make that pass by accident rather than by design.
-for (const job of ['corpus', 'validate']) {
-  test(`ci.yml's ${job} job starts with the dispatch guard`, () => {
-    const block = jobBlock(CI, job);
-    const steps = block.slice(block.indexOf('\n    steps:'));
-    const first = steps.split('\n').findIndex((l) => /^ {6}- /.test(l));
-    assert.notEqual(first, -1, `${job} must have steps`);
-    // The guard is the FIRST step: a checkout ahead of it would run on an
-    // unpinned ref before anything refused.
-    const firstStep = steps.split('\n').slice(first).join('\n');
-    const guard = firstStep.slice(0, firstStep.indexOf('\n      - ', 1) === -1
-      ? undefined
-      : firstStep.indexOf('\n      - ', 1));
+//
+// `validate` carries one step ahead of the guard: the check on the split
+// jobs' results, which checks nothing out. Every other job starts with it.
+for (const [job, skip] of [
+  ['corpus', 0],
+  ['helper-contracts', 0],
+  ['board-integration', 0],
+  ['validate', 1],
+]) {
+  test(`ci.yml's ${job} job runs the dispatch guard before any checkout`, () => {
+    const steps = jobSteps(CI, job);
+    assert.ok(steps.length > skip, `${job} must have steps`);
+    // A checkout ahead of the guard would run on an unpinned ref before
+    // anything refused, so no step before it may use an action.
+    for (const step of steps.slice(0, skip)) {
+      assert.doesNotMatch(step, /^\s*-? ?uses:/m, `${job}: no step ahead of the guard may use an action`);
+    }
+    const guard = steps[skip];
 
     assert.match(
       guard,
@@ -193,6 +214,36 @@ for (const job of ['corpus', 'validate']) {
     );
   });
 }
+
+// ── ci.yml: validate gates on the split jobs ─────────────────────────────────
+
+// A FAILED `needs:` SKIPS THE DEPENDENT JOB, and the ruleset accepts a skipped
+// required check. So `validate` must run unless the run was cancelled, and its
+// first step must fail unless both split jobs ended `success`.
+test("ci.yml's validate needs both split jobs and runs unless cancelled", () => {
+  const head = jobBlock(CI, 'validate').split('\n    steps:')[0];
+  assert.match(head, /^ {4}needs: \[helper-contracts, board-integration\]$/m);
+  assert.match(head, /^ {4}if: \$\{\{ !cancelled\(\) \}\}$/m);
+});
+
+test("ci.yml's validate starts with a step that fails unless both split jobs succeeded", () => {
+  const first = jobSteps(CI, 'validate')[0];
+  for (const job of ['helper-contracts', 'board-integration']) {
+    const key = job.replace('-', '_').toUpperCase();
+    assert.match(
+      first,
+      new RegExp(`${key}: \\$\\{\\{ needs\\.${job}\\.result \\}\\}`),
+      `the first step must read needs.${job}.result`,
+    );
+    assert.match(
+      first,
+      new RegExp(`if \\[ "\\$${key}" != "success" \\]`),
+      `the first step must compare ${job}'s result with success`,
+    );
+  }
+  assert.match(first, /exit 1/, 'the first step must exit 1 on a result other than success');
+  assert.doesNotMatch(first, /^\s*if: /m, 'the first step must run on every event');
+});
 
 // ── release.yml: the dispatch job ────────────────────────────────────────────
 

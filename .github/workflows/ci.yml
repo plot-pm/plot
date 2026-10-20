@@ -182,7 +182,10 @@ jobs:
         timeout-minutes: 10
         run: pnpm --filter @plot-pm/domain run test:corpus
 
-  # ── Helper contract tests: its own job, parallel to `validate`. ────────────
+  # ── Helper contract tests: its own job, ahead of `validate`. ──────────────
+  #
+  # Runs in parallel with `board-integration`; `validate` starts after both
+  # end, through its `needs:` edge.
   #
   # SPLIT OUT 2026-10-20 (#2121). Measured over the 30 most recent `validate`
   # runs on `main` and on PRs: this step alone carried a median of 462.5 s and
@@ -316,7 +319,10 @@ jobs:
           echo "=== fixture directories ==="
           ls -dt "${TMPDIR:-/tmp}"/plot-* 2>/dev/null | head -20 || true
 
-  # ── Board integration tests: its own job, parallel to `validate`. ──────────
+  # ── Board integration tests: its own job, ahead of `validate`. ────────────
+  #
+  # Runs in parallel with `helper-contracts`; `validate` starts after both
+  # end, through its `needs:` edge.
   #
   # SPLIT OUT 2026-10-20 (#2121), same measurement as `helper-contracts` above:
   # median 542.5 s, p95 600 s, max 606 s over the last 30 `validate` runs.
@@ -401,17 +407,26 @@ jobs:
 
   validate:
     runs-on: ubuntu-latest
-    # `helper-contracts` and `board-integration` are REQUIRED here rather than
-    # left as siblings with no edge, because the branch ruleset (measured
-    # 2026-10-20, ruleset 24412719) names `validate` and `plot/review` as its
-    # only required contexts. A split job with no `needs:` edge is not a
-    # required check, so it could fail silently without blocking a merge —
-    # this `needs:` makes `validate` itself fail when either does, so the one
-    # context the ruleset already requires still gates on their outcome. The
+    # `helper-contracts` and `board-integration` gate a merge through this job,
+    # because the branch ruleset (measured 2026-10-20, ruleset 24412719) names
+    # `validate` and `plot/review` as its only required contexts. A split job
+    # is not a required check by itself.
+    #
+    # `needs:` ALONE DOES NOT FAIL THIS JOB. When a needed job fails, GitHub
+    # SKIPS the dependent job, and the ruleset accepts a `skipped` required
+    # check. So `validate` runs whenever the run was not cancelled
+    # (`if: !cancelled()`), and its first step exits 1 unless both split jobs
+    # ended `success`. A red split job then makes `validate` read `failure`,
+    # and a cancelled run still reads `cancelled`.
+    #
+    # The edge orders the jobs: the two split jobs run in parallel with each
+    # other, and `validate` starts after both end. When a split job fails,
+    # `validate`'s own steps after the first do not run in that run. The
     # alternative, named in the plan's Open Questions, is a ruleset change
     # that adds both job names as their own required contexts; that is a
     # settings change a person makes, reported rather than made here.
     needs: [helper-contracts, board-integration]
+    if: ${{ !cancelled() }}
     # A CEILING, not a target. GitHub's default is 360 minutes, which is not a
     # limit anyone waits for — a wedged step simply never returns, and the run
     # sits in `in_progress` looking like work. Measured 2026-08-19: eleven runs
@@ -428,11 +443,43 @@ jobs:
     # comfortably under the 60 % (900 s) target the plan set. The cap stays at
     # 25 so a hang still turns into a FAILURE rather than a 360-minute silence,
     # and a failure can be re-run while a hang has to be noticed first.
+    #
+    # THE RUN'S WALL TIME is the slower split job plus `validate`, not the
+    # slower of the three: at the step p95s, max(547.6 s, 600 s) + 376.65 s
+    # = 976.65 s (16.3 min), plus each job's checkout, install and build. Each
+    # job's `timeout-minutes` counts only its own steps, never the wait on
+    # `needs:`, so each job stays under its own cap: `helper-contracts` 12 min
+    # (p95 9.1 min), `board-integration` 15 min (p95 10.0 min), `validate`
+    # 25 min (p95 6.3 min).
     timeout-minutes: 25
     steps:
-      # The dispatch guard, first step for the reason the `corpus` copy states:
-      # a checkout ahead of it would clone an unpinned ref before anything
-      # refused. The two refusals are the ref and the head SHA.
+      # FIRST STEP: the split jobs' results. `if: !cancelled()` above lets this
+      # job run after a split job failed, so this step turns that failure into
+      # this job's `failure` rather than a `skipped` the ruleset accepts. It
+      # checks nothing out, so it runs safely ahead of the dispatch guard.
+      - name: Require the split jobs
+        env:
+          HELPER_CONTRACTS: ${{ needs.helper-contracts.result }}
+          BOARD_INTEGRATION: ${{ needs.board-integration.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+          if [ "$HELPER_CONTRACTS" != "success" ]; then
+            echo "::error::helper-contracts ended '$HELPER_CONTRACTS', not 'success'"
+            failed=1
+          fi
+          if [ "$BOARD_INTEGRATION" != "success" ]; then
+            echo "::error::board-integration ended '$BOARD_INTEGRATION', not 'success'"
+            failed=1
+          fi
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+          echo "helper-contracts and board-integration both ended success"
+
+      # The dispatch guard, ahead of any checkout for the reason the `corpus`
+      # copy states: a checkout ahead of it would clone an unpinned ref before
+      # anything refused. The two refusals are the ref and the head SHA.
       - name: Guard the dispatched run
         if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
