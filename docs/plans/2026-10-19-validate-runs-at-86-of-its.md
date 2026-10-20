@@ -94,7 +94,7 @@ Two steps hold 74.3 % of the median total (998.0 s of 1343.0 s). 3 of 30 runs en
 
 ### Report
 
-- `infra/a-timeout-reads-as-a-timeout` — a run that reached its cap reads as a timeout in `plot-host.sh` and `checks-verdict.ts`, and the desk and merge script act on that word <!-- waits: infra/validate-step-budget -->
+- `infra/a-timeout-reads-as-a-timeout` — a run that reached its cap reads as a timeout in `plot-host.sh` and `checks-verdict.ts`, and the desk and merge script act on that word <!-- waits: infra/validate-step-budget --> → #2149
 
 ## Notes
 
