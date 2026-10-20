@@ -10,6 +10,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-20, Jan Wloka, plan-PR #2174 merged
+- **Started:** 2026-10-20, Jan Wloka, `bug/continue-route-increments-relaunches-across-two`
 
 ## Changelog
 
