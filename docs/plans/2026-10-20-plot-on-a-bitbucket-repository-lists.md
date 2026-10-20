@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Issue:** #2169
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-20, Jan Wloka, plan-PR #2171 merged
 - **Started:** 2026-10-20, Jan Wloka, `bug/plot-on-a-bitbucket-repository-lists-no-tickets`
 - **Started:** 2026-10-20, Jan Wloka, `feature/sprint-ownership-and-issue-source`
+- **Delivered:** 2026-10-20
 
 ## Changelog
 
