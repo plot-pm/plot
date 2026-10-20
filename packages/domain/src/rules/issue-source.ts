@@ -44,12 +44,15 @@ export type IssueSource =
 /** The prefix `plot-host.sh` puts on every sentence it writes to stderr. */
 const SCRIPT_PREFIX = /^plot-host:\s*/;
 
+/** The `Tracker` scheme that means "no external tracker", same as an empty declaration. */
+const NO_EXTERNAL_TRACKER = 'plot';
+
 /**
  * Decides who answers a repository's open-issue list.
  *
  * A declared tracker is never answered by the git host in its place: a list
- * from the wrong service is wrong about every row. Only a repository that
- * declared no tracker asks its git host.
+ * from the wrong service is wrong about every row. A repository that declared
+ * no tracker, or declared {@link NO_EXTERNAL_TRACKER}, asks its git host.
  *
  * @param reading - the declared `Tracker` value, the git host's backend, and
  *   the schemes a connector lists.
@@ -58,7 +61,7 @@ const SCRIPT_PREFIX = /^plot-host:\s*/;
 export const issueSource = (reading: IssueSourceReading): IssueSource => {
   // The first word, as one string: `split` with a limit of 1 joins to it.
   const scheme = reading.declared.trim().split(/\s+/, 1).join('').toLowerCase();
-  if (scheme === '') return { ask: 'git-host' };
+  if (scheme === '' || scheme === NO_EXTERNAL_TRACKER) return { ask: 'git-host' };
   const lister = reading.listers.find((l) => l.scheme === scheme);
   if (lister === undefined) {
     return {

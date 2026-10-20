@@ -7784,19 +7784,18 @@ test('host: issue-list refuses a tracker no connector lists, and spends no host 
   assert.equal(argvOf(stubs.ghArgv), null, 'gh is never called for a tracker it does not own');
 });
 
-test('host: issue-list refuses Tracker: plot on github, the rule\'s own decision', () => {
-  // A repository declaring `plot` tracks in its own plans. It LOSES its
-  // open-issue list here, as it already did on the board with #1132 — stated
-  // in the plan's Open Points so a reviewer can object. `plot` means *there is
-  // no tracker*, and the git host is not asked in its place.
+test('host: issue-list asks the github git host for Tracker: plot, same as no tracker', () => {
+  // A repository declaring `plot` tracks in its own plans, and `plot` reads
+  // the same as an empty declaration: the git host lists its own issues.
   const stubs = makeStubs({ ghJson: '[]' });
   const res = runAllowFail(['issue-list'], {
     env: { PLOT_HOST: 'github', PLOT_TRACKER: 'plot' },
     stubs,
   });
-  assert.equal(res.code, 4, res.stderr);
-  assert.match(res.stderr, /plot/, 'the refusal names the declared scheme');
-  assert.equal(argvOf(stubs.ghArgv), null, 'no gh call for a repository tracking in its own plans');
+  assert.equal(res.code, 0, res.stderr);
+  const argv = argvOf(stubs.ghArgv);
+  assert.ok(argv, 'gh is called for a repository declaring Tracker: plot');
+  assert.deepEqual(argv.slice(0, 2), ['issue', 'list']);
 });
 
 test('host: issue-list refuses github-issues on bitbucket, naming the host it needs', () => {
