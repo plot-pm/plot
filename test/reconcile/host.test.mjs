@@ -2817,9 +2817,12 @@ const runJenkinsShaRows = ({ pairs, rest, credential = true }) => {
   return rowsByHead(res.stdout);
 };
 
-const jenkinsBuildsFor = (sha, result) => JSON.stringify({ builds: [
+const jenkinsBuildsFor = (sha, result, second) => JSON.stringify({ builds: [
   { number: 9, result, building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
-    actions: [{ lastBuiltRevision: { SHA1: sha } }] },
+    actions: second
+      ? [{ lastBuiltRevision: { SHA1: sha, branch: [{ name: `origin/${second.branch || 'develop'}` }] } },
+         { lastBuiltRevision: { SHA1: second.sha, branch: [{ name: `origin/${second.headBranch || 'feature/red'}` }] } }]
+      : [{ lastBuiltRevision: { SHA1: sha } }] },
 ] });
 
 test('host: a sha lookup with no Jenkins API credential keeps the branch colour of green and failing rows', () => {
@@ -3717,6 +3720,130 @@ test('host: run-for-sha matches a sha carried by the second of two lastBuiltRevi
   assert.equal(res.code, 0, res.stderr);
   const row = JSON.parse(res.stdout.trim());
   assert.equal(row.conclusion, 'SUCCESS', 'the build is found by its SECOND lastBuiltRevision action, not only its first');
+  assert.equal(row.sha, headSha, '.sha reports the matched sha, not the merge-base (first) entry');
+});
+
+// `.sha` used to report `.shas | first`, always the merge-base entry on a
+// merge-before-build job. These pin the repair for every position and shape
+// `jenkins_sha_runs` is asked to read it in: the matched entry first, the
+// matched entry second, a short-hash prefix, `runs-for-sha`'s plural, and
+// `runs`'s branch-head reading with no sha at all.
+
+test('host: run-for-sha reports the matched sha when it is the FIRST of two lastBuiltRevision actions', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const developSha = '1111111111111111111111111111111111aaaa';
+  const headSha = '2222222222222222222222222222222222bbbb';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: developSha } },
+        { lastBuiltRevision: { SHA1: headSha } },
+      ] },
+  ] });
+  const bin = makeJenkinsRestBin(builds);
+  const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', developSha],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  const row = JSON.parse(res.stdout.trim());
+  assert.equal(row.sha, developSha, 'a fix that swaps first for last would fail this case instead');
+});
+
+test('host: run-for-sha matches a short-hash prefix and reports the full matched sha', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const developSha = '1111111111111111111111111111111111aaaa';
+  const headSha = '2222222222222222222222222222222222bbbb';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: developSha } },
+        { lastBuiltRevision: { SHA1: headSha } },
+      ] },
+  ] });
+  const bin = makeJenkinsRestBin(builds);
+  const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', headSha.slice(0, 7)],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  const row = JSON.parse(res.stdout.trim());
+  assert.equal(row.sha, headSha, 'the full sha of the matched entry, not the prefix asked for');
+});
+
+test('host: runs-for-sha reports the matched sha, not the merge-base entry', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const developSha = '1111111111111111111111111111111111aaaa';
+  const headSha = '2222222222222222222222222222222222bbbb';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: developSha } },
+        { lastBuiltRevision: { SHA1: headSha } },
+      ] },
+  ] });
+  const bin = makeJenkinsRestBin(builds);
+  const res = runJenkinsAllowFail(['runs-for-sha', 'feature/red', headSha],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  const rows = JSON.parse(res.stdout.trim());
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].sha, headSha);
+});
+
+// `run-for-sha`/`runs-for-sha` require a non-empty sha (`${1:?$op needs a
+// sha}`), so the no-sha arm of `jenkins_sha_runs` is reachable only from
+// `runs` — which drops `.sha` from its own output before printing. No CLI op
+// today prints `.sha` for a no-sha lookup. These two read the jq program's
+// branch-head selection directly, sourcing `jenkins_sha_runs` the way
+// `prMergedLib` sources `plot-pr-merged.sh` above, since that is the only way
+// to observe a value no CLI surface exposes.
+const jenkinsShaRunsLib = adapter;
+
+function sourcedJenkinsShaRuns(branch, builds) {
+  const script = `exit() { return "\${1:-0}"; }\nsource ${JSON.stringify(jenkinsShaRunsLib)}\n`
+    + `jenkins_instance() { echo "ci.test/webbloqs/continuous-build-multi"; }\n`
+    + `jenkins_resolve_host() { echo "ci.test"; }\n`
+    + `jenkins_rest_credential() { echo "stub:stub"; }\n`
+    + `jenkins_job_url_path() { echo "/job/webbloqs/job/continuous-build-multi"; }\n`
+    + `curl() { printf '%s' '${builds}'; }\n`
+    + `jenkins_sha_runs runs ${JSON.stringify(branch)} 10 ""`;
+  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  return { code: res.status, stdout: res.stdout, stderr: res.stderr };
+}
+
+test('host: the no-sha branch-head arm of jenkins_sha_runs selects the entry naming the branch, not the first (merge-base) entry', () => {
+  const developSha = '1111111111111111111111111111111111aaaa';
+  const headSha = '2222222222222222222222222222222222bbbb';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: developSha, branch: [{ name: 'refs/remotes/origin/develop' }] } },
+        { lastBuiltRevision: { SHA1: headSha, branch: [{ name: 'origin/feature/red' }] } },
+      ] },
+  ] });
+  const res = sourcedJenkinsShaRuns('feature/red', builds);
+  assert.equal(res.code, 0, res.stderr);
+  const [row] = JSON.parse(res.stdout.trim());
+  assert.equal(row.sha, headSha, 'the entry whose branch names the asked branch, not the first (merge-base) entry');
+});
+
+test('host: the no-sha branch-head arm of jenkins_sha_runs falls back to the last entry when no action names the branch', () => {
+  const developSha = '1111111111111111111111111111111111aaaa';
+  const headSha = '2222222222222222222222222222222222bbbb';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: developSha } },
+        { lastBuiltRevision: { SHA1: headSha } },
+      ] },
+  ] });
+  const res = sourcedJenkinsShaRuns('feature/red', builds);
+  assert.equal(res.code, 0, res.stderr);
+  const [row] = JSON.parse(res.stdout.trim());
+  assert.equal(row.sha, headSha, 'with no branch name on any entry, the last entry stands for the head');
 });
 
 // --- a failed sha lookup is visible, never silently swallowed ------------
