@@ -1165,6 +1165,21 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(clock.since).toBeNull();
   });
 
+  it('reads mergeable as unknown when trees.mergeConflict itself cannot answer', async () => {
+    // A `git merge-tree` run can fail to answer at all (no `origin/<default>`
+    // ref, a git binary that errors) — `mergeConflict` reports that as
+    // `ok: false`, and absent is not false: the reading stays `unknown`
+    // rather than guessing `conflicting` or `mergeable`.
+    const unknownMergeable: Pr = { number: 7, head: BRANCH, state: 'OPEN', mergeable: 'unknown' } as Pr;
+    const r = rig(ASSIGNED, [{}], {}, { host: hostFixture({ prs: [unknownMergeable] }) });
+    const trees = { ...r.ports.trees, mergeConflict: async () => ({ ok: false as const, why: 'failed' as const }) };
+    const clock = { since: null, pr: null, mergeable: null };
+    const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
+    const readings = await readPass({ ...r.ports, trees }, r.manifestFile, ran, rigConfig(), clock);
+    expect(readings).toMatchObject({ mergeable: 'unknown' });
+    expect(clock.since).not.toBeNull();
+  });
+
   it('does not ask trees.mergeConflict when the host already answers mergeable', async () => {
     const mergeable: Pr = { number: 7, head: BRANCH, state: 'OPEN', mergeable: 'mergeable' } as Pr;
     const r = rig(ASSIGNED, [{}], {}, { host: hostFixture({ prs: [mergeable] }) });
