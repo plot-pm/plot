@@ -1790,27 +1790,19 @@ jenkins_sha_runs() {
 
 # The sha-bound readings of the PR rows $3 whose branch colour in $2 cannot
 # settle the head: a JSON object keyed by branch, or nothing where no lookup
-# was needed. $1 = the op's name. The bundle names the rows (at most
-# `SHA_LOOKUPS_PER_PASS`), `jenkins_sha_runs` reads each by sha, the bundle binds
-# them. A lookup that cannot ask Jenkins ends the pass, and the colour stands.
+# was needed. $1 = the op's name, $4 = optional path to also receive the
+# branches `rowsToBind` named this pass (one per line), so a caller can tell
+# "named but the ask broke early" (the colour must still stand, per "absent is
+# not false") from "never named because the row is past the cap" (the colour
+# must not stand) without a second, duplicate run of the same `rows` verb.
+# `jenkins_sha_runs` reads each named row by sha, the bundle binds them. A
+# lookup that cannot ask Jenkins ends the pass, and the colour stands.
 jenkins_bind_rows() {
-  { jq -c . <<<"$2"; jq -c . <<<"$3"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null \
-    | while IFS=$'\t' read -r _b _s _j; do
-        _r=$(jenkins_sha_runs "$1" "$_b" 20 "$_s" </dev/null) || break
-        printf '%s\t%s\t%s\t%s\n' "$_b" "$_s" "$_j" "$_r"
-      done | node "$here/board/plot-jenkins-pr-checks.mjs" bind 2>/dev/null
-}
-
-# The branches `rowsToBind` selected from $1 (the branch colours) and $2 (PR
-# rows) — a JSON array, at most `SHA_LOOKUPS_PER_PASS`. Pure and network-free:
-# the same `rows` verb `jenkins_bind_rows` feeds into `jenkins_sha_runs`,
-# called again here so a caller can tell "named but the ask broke early" (the
-# colour must still stand, per "absent is not false") from "never named
-# because the row is past the cap" (the colour must not stand, because it may
-# belong to a commit the row no longer carries).
-jenkins_named_rows() {
-  { jq -c . <<<"$1"; jq -c . <<<"$2"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null \
-    | jq -R -c -s 'split("\n") | map(select(length > 0) | split("\t")[0])'
+  local _named; _named="$({ jq -c . <<<"$2"; jq -c . <<<"$3"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null)"
+  : >"${4:-/dev/null}"; [ -z "$_named" ] && return; cut -f1 <<<"$_named" >"${4:-/dev/null}"
+  printf '%s\n' "$_named" | while IFS=$'\t' read -r _b _s _j; do
+      _r=$(jenkins_sha_runs "$1" "$_b" 20 "$_s" </dev/null) || break; printf '%s\t%s\t%s\t%s\n' "$_b" "$_s" "$_j" "$_r"
+    done | node "$here/board/plot-jenkins-pr-checks.mjs" bind 2>/dev/null
 }
 
 # Prints the `pr-state` row of the Bitbucket PR payload $1 (`null` for no PR).
@@ -4288,16 +4280,10 @@ case "$op" in
           # `SHA_LOOKUPS_PER_PASS` (`rowsToBind`) and reads `unknown`: its
           # colour may belong to a commit this PR no longer carries (same gap
           # as the Bitbucket arm, `bitbucket-jenkins-pr-list-rows-past`).
-          _sha_map=$(jenkins_bind_rows pr-list "$jen_map" "$_gh_raw")
-          _named=$(jenkins_named_rows "$jen_map" "$_gh_raw")
+          plot_tmpfile _named_file host-prlist-named; _sha_map=$(jenkins_bind_rows pr-list "$jen_map" "$_gh_raw" "$_named_file"); _named=$(jq -R -c -s 'split("\n") | map(select(length > 0))' <"$_named_file")
           printf '%s' "$_gh_raw" \
             | jq -c --argjson jmap "$jen_map" --argjson shamap "${_sha_map:-null}" --argjson named "${_named:-[]}" --arg jstatus "$jen_status" "$MERGEABLE_OF"'.[] |
-              ($jmap[.headRefName]) as $colour |
-              (($colour.checks == "green" or $colour.checks == "failing")) as $ambiguous |
-              (.headRefName) as $head |
-              ((.headRefOid // "") != "") as $hasSha |
-              (($named | index($head)) != null) as $wasNamed |
-              ($shamap[.headRefName] // (if ($ambiguous and $hasSha and ($wasNamed | not)) then null else $colour end) // null) as $eff |
+              ($jmap[.headRefName]) as $colour | (($colour.checks == "green" or $colour.checks == "failing")) as $ambiguous | (.headRefName) as $head | ((.headRefOid // "") != "") as $hasSha | (($named | index($head)) != null) as $wasNamed | ($shamap[.headRefName] // (if ($ambiguous and $hasSha and ($wasNamed | not)) then null else $colour end) // null) as $eff |
               {
                 number:.number, title:.title, state:.state, head:.headRefName,
                 draft:.isDraft,
@@ -4448,8 +4434,8 @@ case "$op" in
           # `$shamap`.
           #
           # AND A ROW PAST THE CAP IS NOT THE SAME AS ONE THE CAP NAMED WHOSE
-          # ASK THEN BROKE EARLY. `$named` (`jenkins_named_rows`, the same
-          # `rows` verb, pure and network-free) lists exactly what `rowsToBind`
+          # ASK THEN BROKE EARLY. `$named` (`jenkins_bind_rows`'s own 4th-arg
+          # side file, pure and network-free) lists exactly what `rowsToBind`
           # selected. A row `$named` never lists is past the cap and reads
           # `unknown`: its colour may belong to a commit this PR no longer
           # carries. A row `$named` lists but `$shamap` has no entry for is one
@@ -4459,21 +4445,10 @@ case "$op" in
           # `updatedAt` travels too: `rowsToBind` sorts by it to pick the most
           # recently updated rows, and a row list that never carries it sorts
           # as a no-op, leaving the cap keyed on array order instead.
-          _bb_jen_bind() {
-            local rows s n
-            rows="$(jq -c '[.[] | {headRefName:.source.branch.name,headRefOid:.source.commit.hash,updatedAt:.updated_on}]' <<<"$1")"
-            s="$(jenkins_bind_rows pr-list "$jen_map" "$rows")"
-            n="$(jenkins_named_rows "$jen_map" "$rows")"
-            PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status" --argjson shamap "${s:-null}" --argjson named "${n:-[]}")
-          } # $1 = this state's raw Bitbucket rows
+          _bb_jen_bind() { local s n named_file; plot_tmpfile named_file host-bbprlist-named; s="$(jenkins_bind_rows pr-list "$jen_map" "$(jq -c '[.[] | {headRefName:.source.branch.name,headRefOid:.source.commit.hash,updatedAt:.updated_on}]' <<<"$1")" "$named_file")"; n="$(jq -R -c -s 'split("\n") | map(select(length > 0))' <"$named_file")"; PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status" --argjson shamap "${s:-null}" --argjson named "${n:-[]}"); } # $1 = this state's raw Bitbucket rows
           PR_LIST_BIND_FN=_bb_jen_bind
           pr_list_states bitbucket "$limit" "$bb_states" '.[] |
-                ($jmap[.source.branch.name]) as $colour |
-                (($colour.checks == "green" or $colour.checks == "failing")) as $ambiguous |
-                (.source.branch.name) as $head |
-                ((.source.commit.hash // "") != "") as $hasSha |
-                (($named | index($head)) != null) as $wasNamed |
-                ($shamap[.source.branch.name] // (if ($ambiguous and $hasSha and ($wasNamed | not)) then null else $colour end) // null) as $jentry |
+                ($jmap[.source.branch.name]) as $colour | (($colour.checks == "green" or $colour.checks == "failing")) as $ambiguous | (.source.branch.name) as $head | ((.source.commit.hash // "") != "") as $hasSha | (($named | index($head)) != null) as $wasNamed | ($shamap[.source.branch.name] // (if ($ambiguous and $hasSha and ($wasNamed | not)) then null else $colour end) // null) as $jentry |
                 {
                   number:.id, title:.title,
                   state:(if .state=="DECLINED" then "CLOSED" else .state end),
