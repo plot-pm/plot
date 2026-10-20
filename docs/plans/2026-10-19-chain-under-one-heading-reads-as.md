@@ -51,7 +51,7 @@ Both rules are domain properties with unit tests. The board row reads the verdic
 
 ### Eligibility
 
-- `bug/an-unmerged-waits-target-blocks-eligibility` — a branch whose `waits:` target has not merged reads blocked with the target named, in the row and in dispatch; corpus test pairs the scan with the domain <!-- waits: bug/a-waits-chain-is-a-cut-slice-sequence -->
+- `bug/an-unmerged-waits-target-blocks-eligibility` — a branch whose `waits:` target has not merged reads blocked with the target named, in the row and in dispatch; corpus test pairs the scan with the domain <!-- waits: bug/a-waits-chain-is-a-cut-slice-sequence --> → PR #2142
 
 ## Notes
 
