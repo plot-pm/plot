@@ -162,6 +162,14 @@
 #   Hosts plans         yes | no                      (no = refuse plan files)
 #   Tracker             plot | jira | github-issues | linear  (+ URL)
 #                       (plot = plans in this repo ARE the tracker; absent = same)
+#   Sprint owner        plot                        (absent = same as unset)
+#                       Independent of `Tracker`: who owns /plot-sprint, as
+#                       opposed to where issues live. Absent, or any value but
+#                       `plot`, changes nothing — sprints follow `Tracker` alone,
+#                       same as before this key existed. `Sprint owner: plot`
+#                       is the one declaration that lets plot own sprints
+#                       while `Tracker` still names an external tracker for
+#                       issues (e.g. a Bitbucket repo with Jira tickets).
 #   Tracker approved status
 #                       the status word a plan's issues are set to when the plan
 #                       reaches Approved, in the tracker's own vocabulary

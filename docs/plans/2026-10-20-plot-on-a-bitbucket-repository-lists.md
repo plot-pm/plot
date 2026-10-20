@@ -38,10 +38,13 @@ Two defects follow:
 
 ### Approach
 
-The issue names two options for the config shape. The plan leaves the choice to the reader.
+**Decided: option 2, a second key.** `Tracker` keeps meaning only "where do issues live." A new key, `Sprint owner`, answers "who owns this repository's sprints," independently.
 
-1. **`/plot-sprint` accepts an external tracker.** The repository declares `Tracker: jira <url>`, `issueSource` answers `tracker`, and the sprint gate stops reading the `Tracker` value as the sprint owner. This removes the second meaning of `plot` but reverses the gate's rule that a shadow sprint board drifts.
-2. **Sprint ownership and issue source become separate keys.** `Tracker` keeps meaning the issue source; a new key (name open) says who owns sprints. `Tracker: plot` keeps meaning "no external tracker" and nothing changes for repositories that declare it today.
+Option 1 — loosening `/plot-sprint`'s gate to accept `Tracker: jira <url>` directly — was rejected because it reopens what #2077 settled on purpose: a declared external tracker meaning "plot is not the sprint owner here" exists specifically to prevent a shadow sprint board drifting from the tracker's own view. Loosening that rule for every repository that declares a non-`plot` `Tracker` needs its own argument for why drift doesn't recur, and the issue gives none — it asks only for ewz-kus-portal's specific combination (plot sprints, Jira issues), not for the gate to open generally. Option 2 grants exactly that combination, opt-in, per repository, with zero behaviour change for every repository that declares only `Tracker` today — which is the entire existing estate.
+
+**`Sprint owner`** takes the value `plot` or is absent. Absent, or any value other than `plot`, changes nothing: `/plot-sprint` follows `Tracker` alone, exactly as before this key existed — `Tracker: plot` (or no declaration) proceeds, any other declared tracker declines. `Sprint owner: plot` is the one declaration that overrides a declared external `Tracker` for sprint ownership specifically, letting a repository say "plot" to the first question while still naming Jira (or another tracker) for the second. A repository that sets only `Tracker: jira <url>` and no `Sprint owner` still declines sprints — the same behaviour as today, unchanged until `Sprint owner: plot` is also set.
+
+This makes "plot owns sprints, an external tracker lists issues" a real, named configuration for the first time — previously it was ewz-kus-portal's bug report, reachable only by setting `Tracker: plot` and losing the issue list (the defect this plan's wave 1 fixed one half of, and this wave's reason for existing). The combination does not reopen the plan's closed Question 3: that question was about `Tracker: plot` alone on a host with no issue-list command, and is unaffected by whether a *second*, independent key also grants plot sprint ownership — `issueSource` still reads only `Tracker`, never `Sprint owner`, so a Bitbucket-and-Jira repository under this new combination resolves exactly as a Bitbucket-and-Jira repository with `Tracker: jira <url>` always has: the tracker arm, not the git-host arm, same as the `Tracker: plot` case that closed Question 3 was never routed through once `Tracker` itself names Jira.
 
 The issue also asks for two behaviours that hold under either option:
 
@@ -72,14 +75,17 @@ Measured 2026-10-20 on `bug/plot-on-a-bitbucket-repository-lists-no-tickets`. Th
 | Shell | `bb_assert_issue_version` (`plot-host.sh:2286`) | keeps the `Tracker` advice on exit 4 | drops it |
 | Shell | `ask_issue_source` (`plot-reconcile-scan.sh:3026`) | same three-way answer as `issue_source`; advisory only, never gates delivery | same |
 | Board | `verify.ts:730`, `plan-state.ts:105`, `review.ts:508`, `fleet.ts:1656` (and `:1773`, `:1941`, `:2105`) | all read `Tracker` and hand it whole to `trackerForIssues` | same — no independent branch |
-| Skill (prose) | `/plot-sprint` gate (`skills/plot-sprint/SKILL.md:17`) | sprints proceed (the shell default for a missing key is literally `"plot"`) | the skill declines outright: sprints do not run until the config changes |
+| Skill (prose) | `/plot-sprint` gate (`skills/plot-sprint/SKILL.md:17`) | sprints proceed (the shell default for a missing key is literally `"plot"`) | the skill declines **unless `Sprint owner: plot` is also declared** — the one reader this plan changes |
+| Skill (prose) | `/plot-idea` (`skills/plot-idea/SKILL.md:110`) | reads `Tracker` as a passthrough value for ceremony bounds, never a binary decline — unaffected | same, passthrough |
+| Skill (prose) | `story-tracking` (`skills/story-tracking/SKILL.md:70`) | reads `Tracker` to check for an existing umbrella ticket, value passthrough, never a binary decline — unaffected | same, passthrough |
+| Domain | `sprintOwner` (`rules/issue-source.ts`, new) | `plot` unless `Sprint owner` names anything but `plot` while `Tracker` names an external tracker | `external` with the scheme, unless `Sprint owner: plot` overrides it |
 
 The absent-key column is folded into `plot` everywhere above: every reader normalizes a missing `Tracker` line to `''`, and `issueSource` treats `''` and `'plot'` identically (`rules/issue-source.ts:64`). No reader treats "absent" as a third case.
 
 ### Open Questions
 
-- [ ] Option 1 or option 2 above?
-- [ ] If option 2: what is the new key's name, and what does a repository with only `Tracker: jira <url>` get for sprints?
+- [x] Option 1 or option 2 above? **Closed 2026-10-20, on `feature/sprint-ownership-and-issue-source`.** Option 2 — see `## Design › Approach` above.
+- [x] If option 2: what is the new key's name, and what does a repository with only `Tracker: jira <url>` get for sprints? **Closed 2026-10-20.** The key is `Sprint owner`. A repository declaring only `Tracker: jira <url>` (no `Sprint owner`) still declines sprints — same as today — until it also declares `Sprint owner: plot`.
 - [x] Is "nothing to list" a distinct answer from `nobody`, and does the board show it as an empty inbox or as an absence sentence? **Closed 2026-10-20, on `bug/plot-on-a-bitbucket-repository-lists-no-tickets`.** It is not a fourth answer. `bb_assert_issue_version`'s exit 4 already flows into `fleet.ts`/`issue-refresh.ts` as `issueAnswer: 'unsupported'` plus an `issueAbsence` sentence — the board already rendered the absence sentence before this branch started; the only defect was the sentence's wording always naming `Tracker` regardless of whether it was declared. Fixed by reading the declared value once, in the domain (`bbIssueCommandMissing`), and asking it through the existing `plot-issue-source.mjs` bundle rather than a second config read in shell.
 
 ## Slices
