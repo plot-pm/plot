@@ -86,6 +86,19 @@ function remoteHas(repo, branch) {
 // A `gh` answering `pr list` from a per-branch table, honouring `--state` the
 // way the real CLI does: `open` filters to PRs with no `mergedAt` and no closure,
 // `all` returns everything.
+//
+// WITH NO `--head`, EVERY BRANCH'S ROWS COME BACK, EACH NAMING ITS OWN HEAD.
+// `plot-host.sh`'s plain GitHub `pr-list` arm never passes `--head` — it lists
+// the whole repository and leaves head-filtering to the caller, exactly as
+// `_plot_open_lookup` does by matching `"head":"$br"` in the payload. A stub
+// that answered only `--head` calls returned nothing for that call shape,
+// which is why `pr_open` read `none` for a branch with a live PR (measured
+// 2026-10-20, CI run 39456622654) — a test-harness gap, not a production bug.
+//
+// `headRefName` IS THE REAL `gh --json` FIELD. `plot-host.sh`'s own jq maps it
+// onto `head` in the payload it emits; a stub naming the field `head` directly
+// would pass under a hand assertion but fail the instant `plot-host.sh`'s own
+// `.headRefName` read it, exactly as it did here.
 function stubGh(tmp, prs) {
   const bin = path.join(tmp, 'bin');
   fs.mkdirSync(bin, { recursive: true });
@@ -94,10 +107,13 @@ function stubGh(tmp, prs) {
 const argv = process.argv.slice(2);
 if (argv[0] !== 'pr' || argv[1] !== 'list') { process.exit(1); }
 const table = ${JSON.stringify(prs)};
-const head = argv[argv.indexOf('--head') + 1];
+const hi = argv.indexOf('--head');
+const head = hi === -1 ? null : argv[hi + 1];
 const si = argv.indexOf('--state');
 const state = si === -1 ? 'open' : argv[si + 1];
-let all = table[head] || [];
+let all = head != null
+  ? (table[head] || []).map((p) => ({ ...p, headRefName: head }))
+  : Object.entries(table).flatMap(([h, prs]) => prs.map((p) => ({ ...p, headRefName: h })));
 if (state === 'open') all = all.filter((p) => p.state === 'open');
 process.stdout.write(JSON.stringify(all));
 `);
