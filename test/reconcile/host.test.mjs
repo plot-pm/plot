@@ -397,11 +397,35 @@ test('host: pr-state github maps gh --json and normalizes', () => {
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
     number: 7, state: 'OPEN', draft: true, url: 'https://example.test/pr/7', mergeCommit: '',
-    headSha: '', base: 'main', checks: 'none', checksSha: '',
+    headSha: '', base: 'main', checks: 'none', checksSha: '', mergeable: 'unknown',
   });
   assert.deepEqual(argvOf(stubs.ghArgv),
-    ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup']);
+    ['pr', 'view', '7', '--json', 'number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus']);
 });
+
+// The desk's early merge reads `pr-state`'s `mergeable` (worker-loop.ts
+// readPass). Each row is [gh payload fields, word]; `pr-list --rich` reads the
+// same fold.
+const MERGEABLE_FOLD_CASES = [
+  [{ mergeable: 'CONFLICTING' }, 'conflicting'],
+  [{ mergeable: 'UNKNOWN', mergeStateStatus: 'DIRTY' }, 'conflicting'],
+  [{ mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN' }, 'mergeable'],
+  [{ mergeable: 'UNKNOWN' }, 'unknown'],
+];
+
+for (const [fields, word] of MERGEABLE_FOLD_CASES) {
+  test(`host: pr-state github reads ${JSON.stringify(fields)} as mergeable ${word}`, () => {
+    const state = makeStubs({
+      ghJson: JSON.stringify({ number: 7, state: 'OPEN', isDraft: false, url: 'u', ...fields }),
+    });
+    assert.equal(JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: state })).mergeable, word, 'pr-state');
+    const list = makeStubs({
+      ghJson: JSON.stringify([{ number: 7, title: 't', state: 'OPEN', headRefName: 'feature/x', isDraft: false, url: 'u', ...fields }]),
+    });
+    const rows = run(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs: list }).trim().split('\n').map((l) => JSON.parse(l));
+    assert.equal(rows[0].mergeable, word, 'pr-list --rich');
+  });
+}
 
 test('host: pr-state github names the head and the checks read for it', () => {
   const sha = 'a'.repeat(40);
@@ -787,8 +811,9 @@ test('host: pr-state bitbucket normalizes DECLINED to CLOSED', () => {
 
 // The three keys a merge reads — the head and the checks read for it — are
 // carried only where the host names a head. Bitbucket cannot pin a merge, so its
-// arm leaves them out and a reader takes absent as not known.
-const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha']);
+// arm leaves them out and a reader takes absent as not known. `mergeable` is
+// the same case: Bitbucket's payload does not name it, and absent reads as unknown.
+const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha', 'mergeable']);
 const keysOf = (json) => Object.keys(JSON.parse(json)).filter((k) => !MERGE_KEYS.has(k)).sort();
 
 test('host: pr-state returns the same key set on both backends — merged PR', () => {
@@ -5156,6 +5181,7 @@ test('host: pr-state falls back to REST when the GraphQL budget is spent', () =>
   const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
   assert.deepEqual(out, {
     number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', base: 'main', checks: 'unknown',
+    mergeable: 'unknown',
   });
   const calls = callsOf(stubs.callsFile);
   assert.ok(
@@ -5171,6 +5197,26 @@ test('host: pr-state falls back to REST when the GraphQL budget is spent', () =>
 // THE ASSERTION A NAIVE IMPLEMENTATION FAILS. An adapter that always uses REST
 // satisfies the test above and makes every scan ~186 calls instead of one. The
 // cheap path staying default is the whole reason this is a fallback.
+// REST's single-PR payload carries `mergeable` as a boolean and
+// `mergeable_state` as `dirty`; both read as the GraphQL path's word.
+for (const [fields, word] of [
+  [{ mergeable: false, mergeable_state: 'dirty' }, 'conflicting'],
+  [{ mergeable: null, mergeable_state: 'dirty' }, 'conflicting'],
+  [{ mergeable: true, mergeable_state: 'clean' }, 'mergeable'],
+  [{ mergeable: null, mergeable_state: 'unknown' }, 'unknown'],
+]) {
+  test(`host: pr-state over REST reads ${JSON.stringify(fields)} as mergeable ${word}`, () => {
+    const stubs = makeStubsRateAware({
+      graphqlRemaining: 0,
+      coreRemaining: 4997,
+      restJson: JSON.stringify({
+        number: 7, state: 'open', draft: false, html_url: 'u', merged: false, base: { ref: 'main' }, ...fields,
+      }),
+    });
+    assert.equal(JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs })).mergeable, word);
+  });
+}
+
 test('host: pr-state does NOT use REST while GraphQL has budget', () => {
   const stubs = makeStubsRateAware({
     graphqlRemaining: 4998,
@@ -6105,6 +6151,7 @@ test('host: the harvested body reaches the caller unchanged', () => {
   });
   assert.deepEqual(JSON.parse(out), {
     number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', base: 'main', checks: 'unknown',
+    mergeable: 'unknown',
   });
   assert.doesNotMatch(out, /X-Ratelimit|HTTP\//i, 'no header may reach a caller’s parse');
 });

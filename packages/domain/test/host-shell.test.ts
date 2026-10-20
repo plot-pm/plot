@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterAll, describe, it, expect } from 'vitest';
+import { afterAll, afterEach, describe, it, expect, vi } from 'vitest';
 
 import { EXIT_PARTIAL } from '../src/adapters/host-exit.js';
 import { hostShell, refusalKindOfExit } from '../src/adapters/host/host-shell.js';
@@ -916,6 +916,49 @@ describe('the exit code this adapter reads is the one the script spends', () => 
     const run = prListAll(repoWhoseBbIs(EVERY_STATE_FAILS));
     expect(run.status).not.toBe(EXIT_PARTIAL);
     expect(run.stderr).toContain('no state answered');
+  });
+});
+
+/**
+ * `prState` over the REAL `plot-host.sh`, with only `gh` stubbed on PATH.
+ *
+ * The desk's early merge (`worker-loop.ts` `readPass`) acts on
+ * `mergeable === 'conflicting'`. A fake script that prints the word would pass
+ * while the real one never asks for it, so this runs production's script.
+ */
+describe('prState reads mergeability through the real script', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** A GitHub context whose `gh` prints the given `pr view` payload. */
+  const githubWhoseGhSays = (payload: object): ShellContext => {
+    const root = mkdtempSync(join(tmpdir(), 'plot-host-real-'));
+    shells.push(root);
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    writeFileSync(join(bin, 'gh'), `#!/usr/bin/env bash\nprintf '%s' '${JSON.stringify(payload)}'\n`);
+    chmodSync(join(bin, 'gh'), 0o755);
+    vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
+    vi.stubEnv('PLOT_HOST', 'github');
+    vi.stubEnv('PLOT_BUDGET_HOME', join(root, 'budget'));
+    vi.stubEnv('PLOT_BUDGET_ACCOUNT', 'octo-reader');
+    return { repoRoot: root, scriptDir: realScriptDir };
+  };
+
+  it('answers conflicting for a PR GitHub reports CONFLICTING', async () => {
+    const host = hostShell(
+      githubWhoseGhSays({ number: 7, state: 'OPEN', isDraft: false, url: 'u', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' }),
+    );
+    const answer = await host.prState('feature/x');
+    expect(answer).toMatchObject({ ok: true, value: { number: 7, mergeable: 'conflicting' } });
+  });
+
+  it('answers mergeable for a PR GitHub reports MERGEABLE', async () => {
+    const host = hostShell(
+      githubWhoseGhSays({ number: 7, state: 'OPEN', isDraft: false, url: 'u', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN' }),
+    );
+    expect(await host.prState('feature/x')).toMatchObject({ ok: true, value: { mergeable: 'mergeable' } });
   });
 });
 

@@ -843,6 +843,7 @@ export const readPass = async (
     correctionBudget: config.correctionBudget,
     pr: null,
     mergeable: null,
+    mergeConflictAtEntry: false,
     correctionText: '',
     resumeId: manifest.resumeId,
     passAt,
@@ -946,6 +947,14 @@ export const readPass = async (
         pr: prNumber,
         commitBeyondClaim: commitBeyondClaim !== null && commitBeyondClaim.ok ? commitBeyondClaim.value : 'unanswerable',
       };
+    }
+    // THE CLOCK DOES NOT START ON A CONFLICTING PR. GitHub starts no
+    // `pull_request` run for a merge ref that conflicts, so waiting
+    // `Checks wait` here would wait for a build that cannot happen —
+    // returned before `clock.since` is set, so neither this pass nor any
+    // later one reaches `checksFromRuns` for this reading.
+    if (pr.mergeable === 'conflicting') {
+      return { ...base, pushed, prOpen, pr: prNumber, mergeable: pr.mergeable, mergeConflictAtEntry: true };
     }
     clock.since = Date.now();
     clock.pr = prNumber;

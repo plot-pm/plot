@@ -57,6 +57,7 @@ const freeLoop: AgentLoopReadings = {
   correctionBudget: 2,
   pr: null,
   mergeable: null,
+  mergeConflictAtEntry: false,
   correctionText: '',
   resumeId: '',
   passAt: '2026-10-05T10:00:00.000Z',
@@ -945,6 +946,142 @@ describe('agentLoop — row 12a applies before the CI wait only', () => {
     expect(declarationWrite(result.writes)?.status).toBe('blocked');
     expect(endWrite(result.writes)?.reason).toBe('corrections-spent');
     expect(kindsOf(result.writes)).not.toContain('assignment-clear');
+  });
+});
+
+describe("agentLoop — row 12a': the PR conflicts with the default branch at wait entry", () => {
+  it('resumes the agent with a merge-main-and-push correction and raises correctionAttempts, never entering the wait', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: null,
+      mergeConflictAtEntry: true,
+      correctionAttempts: 0,
+      correctionBudget: 2,
+      resumeId: 'resume-abc',
+    });
+    expect(kindsOf(result.writes)).toEqual(['agent-resume', 'correction-count']);
+    const resume = result.writes.find((w) => w.kind === 'agent-resume');
+    expect(resume).toMatchObject({ resumeId: 'resume-abc' });
+    expect(resume && 'correction' in resume ? resume.correction : '').toContain(BRANCH);
+    const count = result.writes.find((w) => w.kind === 'correction-count');
+    expect(count).toMatchObject({ correctionAttempts: 1 });
+    expect(result.detail.exitCode).toBeNull();
+    expect(endWrite(result.writes)).toBeUndefined();
+  });
+
+  it('ends corrections-spent, exit 0, with a marker naming the PR, once the budget is spent', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: null,
+      mergeConflictAtEntry: true,
+      correctionAttempts: 2,
+      correctionBudget: 2,
+      pr: 1249,
+    });
+    expect(kindsOf(result.writes)).toEqual(['blocked-marker', 'declaration', 'loop-end']);
+    const marker = result.writes.find((w) => w.kind === 'blocked-marker');
+    expect(marker && 'question' in marker ? marker.question : '').toContain('#1249');
+    const end = endWrite(result.writes);
+    expect(end?.reason).toBe('corrections-spent');
+    expect(end?.actor).toBe('agent');
+    expect(end?.exitCode).toBe(0);
+  });
+
+  it('names "its PR" in the blocked question when no PR number is known', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: null,
+      mergeConflictAtEntry: true,
+      correctionAttempts: 2,
+      correctionBudget: 2,
+      pr: null,
+    });
+    const marker = result.writes.find((w) => w.kind === 'blocked-marker');
+    expect(marker && 'question' in marker ? marker.question : '').toContain('its PR');
+  });
+
+  it('at Slice max runs, starts no resume and ends run-limit with a blocked declaration', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: null,
+      mergeConflictAtEntry: true,
+      correctionAttempts: 0,
+      correctionBudget: 2,
+      sliceRuns: 12,
+      sliceMaxRuns: 12,
+    });
+    expect(result.writes.some((w) => w.kind === 'agent-resume')).toBe(false);
+    expect(endWrite(result.writes)?.reason).toBe('run-limit');
+    expect(endWrite(result.writes)?.actor).toBe('agent');
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
+  });
+
+  it('at Slice max spend, starts no resume and ends spend-limit with a blocked declaration', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: null,
+      mergeConflictAtEntry: true,
+      correctionAttempts: 0,
+      correctionBudget: 2,
+      sliceCostUsd: 5,
+      sliceMaxSpendUsd: 5,
+    });
+    expect(result.writes.some((w) => w.kind === 'agent-resume')).toBe(false);
+    expect(endWrite(result.writes)?.reason).toBe('spend-limit');
+    expect(endWrite(result.writes)?.actor).toBe('agent');
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
+  });
+
+  it('is checked before ciWait, so a conflict reading at wait entry never produces a "waiting for checks" note', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: null,
+      mergeConflictAtEntry: true,
+      correctionAttempts: 0,
+      correctionBudget: 2,
+    });
+    expect(result.detail.note).not.toBe('waiting for checks');
+  });
+
+  it('leaves mergeable=mergeable and mergeable=unknown readings to enter the ordinary CI wait unaffected', () => {
+    for (const mergeable of ['mergeable', 'unknown'] as const) {
+      const result = agentLoop({
+        ...freeLoop,
+        assignedBranch: BRANCH,
+        exit: { answer: 'ran' },
+        pushed: true,
+        prOpen: true,
+        checks: null,
+        mergeConflictAtEntry: false,
+        mergeable,
+      });
+      expect(result.writes).toEqual([]);
+      expect(result.detail.note).toBe('waiting for checks');
+    }
   });
 });
 
