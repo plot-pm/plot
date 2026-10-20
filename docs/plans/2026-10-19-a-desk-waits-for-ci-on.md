@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #2106
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2110 merged
 - **Started:** 2026-10-19, Jan Wloka, `bug/a-no-answer-question-names-mergeability`
 - **Started:** 2026-10-20, Jan Wloka, `bug/a-desk-merges-main-when-its-pr-conflicts`
+- **Delivered:** 2026-10-20
 
 ## Changelog
 
