@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-20, Jan Wloka, plan-PR #2191 merged
+- **Started:** 2026-10-20, Jan Wloka, `bug/merge-commit-not-in-this-clone`
 
 ## Changelog
 
