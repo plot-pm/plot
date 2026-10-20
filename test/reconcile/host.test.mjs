@@ -55,8 +55,20 @@ const adapter = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-h
 // with a Quatico-style version (no sha), and accepts `--help --json` without
 // error. This is because the adapter now checks bb's --json capability before
 // any PR call, and the old stub shape failed that check silently.
+// The Bitbucket `mergeable` fold runs `git fetch origin <base>` for an OPEN
+// row, and this suite runs inside a real checkout: a `git` in every stub
+// directory refuses `fetch`, so no case reaches the network or moves the
+// checkout's `origin/<base>`. Every other git call goes to the real git.
+const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+const offlineGit = (dir) => {
+  writeFileSync(path.join(dir, 'git'),
+    `#!/usr/bin/env bash\n[ "\$1" = fetch ] && { echo 'fatal: offline in host.test.mjs' >&2; exit 128; }\nexec "${realGit}" "$@"\n`);
+  chmodSync(path.join(dir, 'git'), 0o755);
+};
+
 function makeStubs({ ghJson = '{}', bbJson = '{}', ghFail = null, bbFail = null } = {}) {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-')));
+  offlineGit(dir);
   const ghStub = (json, fail) => {
     const argvFile = path.join(dir, 'gh.argv');
     const body = fail != null
@@ -989,7 +1001,7 @@ test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', (
   const hit = JSON.parse(run(['pr-state', 'feature/a'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(hit, {
     number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4', mergeCommit: '', headSha: '', base: 'main',
-    checks: 'unknown', checksSha: '', mergeable: 'unknown',
+    checks: 'unknown', checksSha: '', mergeable: 'unknown', mergeableReason: 'no head commit for this pull request',
   });
   // NOT `--state all`: bb has no such state. See the strict-stub tests below.
   assert.ok(

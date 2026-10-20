@@ -39,9 +39,11 @@ export interface PrStateRow {
  * `bound` entry, read for the head commit by sha, outranks the branch colour,
  * which carries no commit. A branch colour stands unbound with `checksSha: ''`.
  *
- * `mergeable` is always `unknown`: Bitbucket Cloud's REST API has no field or
- * endpoint that reports merge-conflict status for a pull request (measured
- * 2026-10-20 against the PR object, its diffstat, and its statuses).
+ * `mergeable` is always `unknown` here: Bitbucket Cloud's REST API has no
+ * field or endpoint that reports merge-conflict status for a pull request
+ * (measured 2026-10-20 against the PR object, its diffstat, and its
+ * statuses). `plot-host.sh` overlays a real reading from a local
+ * `git merge-tree` check afterward, via `foldBitbucketMergeable`.
  *
  * @param pr - the payload, or `null` where the branch has no pull request.
  * @param colours - the branch-colour map, or `null` where it was not read.
