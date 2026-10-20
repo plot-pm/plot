@@ -57,7 +57,7 @@ How the refusal arises, from the code on `main`:
 
 ### Fix
 
-- `bug/a-desk-can-be-continued-once-fix` — the chosen fix (A or B) with the test from the first slice passing <!-- waits: bug/a-desk-can-be-continued-once-test -->
+- `bug/a-desk-can-be-continued-once-fix` — the chosen fix (A or B) with the test from the first slice passing <!-- waits: bug/a-desk-can-be-continued-once-test --> → #2140
 
 ## Notes
 
