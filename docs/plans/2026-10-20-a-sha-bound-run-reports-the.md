@@ -58,7 +58,7 @@ Related plans, all Delivered or Approved on the same arm: `2026-10-18-bitbucket-
 
 ### Runs That Ran
 
-- `bug/jenkins-runs-skip-builds-that-did` — `runs` omits `NOT_BUILT` and `ABORTED` builds; test per result value <!-- waits: bug/a-sha-bound-run-reports-the -->
+- `bug/jenkins-runs-skip-builds-that-did` — `runs` omits `NOT_BUILT` and `ABORTED` builds; test per result value → #2181 <!-- waits: bug/a-sha-bound-run-reports-the -->
 
 ## Notes
 
