@@ -2930,10 +2930,10 @@ test('host: pr-state bitbucket under jenkins with no Jenkins instance answers, r
 // --- Bitbucket pr-list binds its checks to the head, the pr-state treatment
 // above applied to the listing arm (plan bitbucket-jenkins-pr-list-binds-a).
 
-const bbRowsFor = (rows) => JSON.stringify(rows.map(({ id, head, sha, state = 'OPEN' }) => ({
+const bbRowsFor = (rows) => JSON.stringify(rows.map(({ id, head, sha, state = 'OPEN', updatedAt = '' }) => ({
   id, title: head, state, source: { branch: { name: head }, commit: { hash: sha } },
   links: { html: { href: `https://example.test/pr/${id}` } }, destination: { branch: { name: 'main' } },
-  updated_on: '', author: { nickname: 'x' },
+  updated_on: updatedAt, author: { nickname: 'x' },
 })));
 
 const runBbJenkinsPrList = ({ rows, build, instance }) => {
@@ -2992,6 +2992,63 @@ test('host: pr-list bitbucket without jenkins is unchanged by the bind path', ()
   assert.equal(rows.get('feature/red').checksSha, undefined, 'the plain Bitbucket arm emits no checksSha field');
 });
 
+test('host: pr-list bitbucket under jenkins reads unknown, never a stale colour, for rows past the lookup cap', () => {
+  // The Bitbucket counterpart of the GitHub cap test below — same defect,
+  // same fix (bitbucket-jenkins-pr-list-rows-past). Seven rows, each an
+  // ambiguous branch colour (green) with its own head sha: `rowsToBind` binds
+  // the five most recently updated by sha, and the two oldest must read
+  // `unknown` with no `checksSha` rather than the branch's green colour,
+  // which may belong to a commit this PR no longer carries.
+  const rows = Array.from({ length: 7 }, (_, i) => ({
+    id: 10 + i, head: `feature/b${i}`, sha: `sha-${i}`, updatedAt: `2026-10-17T0${i}:00:00Z`,
+  }));
+  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-6', 'FAILURE'));
+  const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
+  delete env.JENKINS_INSTANCE;
+  const hostStubs = makeStubs({ bbJson: bbRowsFor(rows) });
+  const many = JSON.stringify(Array.from({ length: 7 }, (_, i) => (
+    { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: `feature/b${i}`, color: 'blue' })));
+  const jen = makeJenStub({ jobsJson: many });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const out = rowsByHead(res.stdout);
+  const asked = curlCalls(rest.argvFile);
+  assert.equal(asked.length, 5, `seven ambiguous rows with a head sha cost five calls:\n${asked.join('\n')}`);
+  assert.equal(out.get('feature/b6').checks, 'failing', 'the newest row is read by sha');
+  assert.equal(out.get('feature/b0').checks, 'unknown', 'a row past the cap must not read its branch colour as the head\'s checks');
+  assert.equal(out.get('feature/b0').checksSha, '');
+  assert.equal(out.get('feature/b1').checks, 'unknown', 'same for the other row past the cap');
+  assert.equal(out.get('feature/b1').checksSha, '');
+  for (const row of out.values()) {
+    assert.ok(!(row.checks === 'green' && (row.checksSha ?? '') === ''), `row past the cap must not read green with no checksSha: ${JSON.stringify(row)}`);
+    assert.ok(!(row.checks === 'failing' && (row.checksSha ?? '') === '' && row.head !== 'feature/b6'), `row past the cap must not read failing with no checksSha: ${JSON.stringify(row)}`);
+  }
+});
+
+test('host: pr-list bitbucket under jenkins still reads a row inside the cap by its bound colour', () => {
+  // Catches a fix that blanks every row rather than only the ones past the
+  // cap: three ambiguous rows, all inside SHA_LOOKUPS_PER_PASS, must all bind.
+  const rows = [
+    { id: 20, head: 'feature/c0', sha: 'sha-c0', updatedAt: '2026-10-17T03:00:00Z' },
+    { id: 21, head: 'feature/c1', sha: 'sha-c1', updatedAt: '2026-10-17T02:00:00Z' },
+    { id: 22, head: 'feature/c2', sha: 'sha-c2', updatedAt: '2026-10-17T01:00:00Z' },
+  ];
+  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-c1', 'SUCCESS'));
+  const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
+  delete env.JENKINS_INSTANCE;
+  const hostStubs = makeStubs({ bbJson: bbRowsFor(rows) });
+  const many = JSON.stringify(rows.map((r) => (
+    { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: r.head, color: 'blue' })));
+  const jen = makeJenStub({ jobsJson: many });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const out = rowsByHead(res.stdout);
+  assert.equal(out.get('feature/c1').checks, 'green', 'a row inside the cap, bound to its own sha, still reads its colour');
+  assert.equal(out.get('feature/c1').checksSha, 'sha-c1');
+});
+
 test('host: a refresh reads at most five rows by sha, the most recently updated first', () => {
   // The sha lookup costs one Jenkins call per row; the cap bounds a pass against
   // Jenkins' predicted limit of 60 whatever the number of open PRs.
@@ -3011,8 +3068,10 @@ test('host: a refresh reads at most five rows by sha, the most recently updated 
   assert.equal(asked.length, 5, `seven green rows with a head sha cost five calls:\n${asked.join('\n')}`);
   assert.ok(!asked.some((u) => u.includes('/job/b0/') || u.includes('/job/b1/')), 'the two oldest rows are not asked');
   assert.equal(rows.get('b6').checks, 'failing', 'the newest row is read by sha');
-  assert.equal(rows.get('b0').checks, 'green', 'a row past the cap keeps its branch colour');
+  assert.equal(rows.get('b0').checks, 'unknown', 'a row past the cap is not bound to its head, so its branch colour must not stand in for it');
   assert.equal(rows.get('b0').checksSha, '');
+  assert.equal(rows.get('b1').checks, 'unknown', 'same for the other row past the cap');
+  assert.equal(rows.get('b1').checksSha, '');
 });
 
 test('host: a Jenkins refresh costs a fixed number of calls, whatever the branch count', () => {
