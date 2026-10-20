@@ -11,7 +11,6 @@
 - **Story:**
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:**
 
 ## Changelog
 
