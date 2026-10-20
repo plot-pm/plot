@@ -138,9 +138,8 @@ _plot_merged_lookup() {
 # as `unaskable` rather than trusting a `none` that might be hiding behind a
 # fuller page.
 _plot_open_lookup() {
-  local br="$1" out err ok=1
+  local br="$1" out ok=1 err="${TMPDIR:-/tmp}/plot-pr-open-err.$$.$RANDOM"
   [ -n "$br" ] && [ -f "$_plot_host_sh" ] || { echo unaskable; return; }
-  err="${TMPDIR:-/tmp}/plot-pr-open-err.$$.$RANDOM"
   out=$(bash "$_plot_host_sh" pr-list --state open --branch "$br" --limit 100 2>"$err") || ok=0
   grep -q 'possibly truncated' "$err" 2>/dev/null && ok=0
   rm -f -- "$err" 2>/dev/null
