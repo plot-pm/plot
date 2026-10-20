@@ -980,6 +980,15 @@ const ciWait = (readings: AgentLoopReadings, branch: string): Decision<AgentLoop
         blockedDeclaration(worktree, branch, 'the remote tip moved away from the pushed commit'),
       ]);
 
+    case 'timed-out':
+      // ROW 16b — the run for the pushed commit hit its own `timeout-minutes`.
+      // The build reached no verdict about the code, so the agent gets no
+      // correction and the correction budget stays as it is: a person decides
+      // whether to re-run the build or raise the cap.
+      return end(worktree, branch, 'checks-unanswered', 'agent', 'timed-out: the run for the pushed commit hit its own timeout-minutes', 0, [
+        blockedDeclaration(worktree, branch, 'the build hit its own timeout-minutes before a conclusion'),
+      ]);
+
     case 'no-answer': {
       // ROW 16 — the wait reached `Checks wait` with nothing conclusive. The
       // mergeability the host already gave on wait entry rides along in

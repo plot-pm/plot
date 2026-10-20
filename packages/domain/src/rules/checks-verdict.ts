@@ -168,34 +168,29 @@ export const runWasNotAcquired = (run: ShaRun): boolean => {
  * `cancelled` conclusion is read as a `timeout-minutes` cap rather than a
  * concurrency supersession.
  *
- * MEASURED, NOT GUESSED. Wave 1 sampled no superseded run; this slice forced
- * one and measured three superseded jobs cancelled 53–91 s after they
- * started (run `39363175090`, 2026-10-20), against two confirmed
- * `timeout-minutes: 25` runs that each ran ~25 minutes before GitHub cut them
- * off (runs `39357335917` and `39357617553`, same day). The repo's lowest
- * job-level `timeout-minutes` is 10 (`.github/workflows/ci.yml`). Five
- * minutes sits an order of magnitude above the measured supersessions and
- * half the measured floor, with room on both sides.
+ * Measured 2026-10-20: three superseded jobs were cancelled 53–91 s after
+ * they started (run `39363175090`), and two `timeout-minutes: 25` runs each
+ * ran ~25 minutes before GitHub cut them off (runs `39357335917` and
+ * `39357617553`). The repo's lowest job-level `timeout-minutes` is 10
+ * (`.github/workflows/ci.yml`). Five minutes sits above every measured
+ * supersession and below every configured cap.
+ *
+ * A job a person cancels by hand after five minutes or more reads as a
+ * timeout: `gh run view --json jobs` reports no job's `timeout-minutes`, so
+ * the elapsed time is compared with this floor and not with the job's cap.
  */
 const MIN_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * Whether a cancelled run is evidence of a job that hit its own
- * `timeout-minutes`, rather than a real failure or a run GitHub cancelled
- * before any step started (a concurrency supersession).
+ * `timeout-minutes`, rather than a run a concurrency group superseded.
  *
- * THE STEP FINGERPRINT ALONE DOES NOT WORK — measured, not assumed. Wave 1's
- * hypothesis was that a supersession cancels a run before any step starts, so
- * every step there would read `skipped` with none `success` and none
- * `cancelled`, distinguishable from a timeout's "some `success`, then one
- * `cancelled`, then the rest `skipped`". This slice forced a real
- * supersession to check that hypothesis (brief's own instruction) and found
- * it false: GitHub always appends "Post " cleanup steps (checkout, setup-node
- * teardown, …) that read `success` at job teardown REGARDLESS of why the job
- * was cancelled. A confirmed supersession and a confirmed timeout produced
- * the IDENTICAL step shape — `success*, cancelled, skipped*, success*` — on
- * real data (2026-10-20). A pure `steps[].conclusion` reading cannot tell
- * them apart; see `MIN_TIMEOUT_MS` for the reading that does.
+ * THE STEP FINGERPRINT ALONE DOES NOT TELL THEM APART. GitHub appends
+ * "Post " cleanup steps (checkout, setup-node teardown, …) that read
+ * `success` at job teardown whatever cancelled the job. A confirmed
+ * supersession and a confirmed timeout carry the identical step shape —
+ * `success*, cancelled, skipped*, success*` — measured on real runs
+ * 2026-10-20.
  *
  * THE FINGERPRINT PLUS ELAPSED TIME. A job carries the shape above AND ran
  * for at least {@link MIN_TIMEOUT_MS} before its `cancelled` step concluded —
@@ -243,6 +238,10 @@ export const runWasTimedOut = (run: ShaRun): boolean => {
  *   is still that commit (or unreadable this pass). Keep waiting.
  * - `settled`: the run for the pushed commit concluded. The caller reads
  *   {@link ShaRun.conclusion} to decide pass or fail.
+ * - `timed-out`: the run for the pushed commit was cancelled because a job hit
+ *   its own `timeout-minutes` ({@link runWasTimedOut}). The build reached no
+ *   verdict about the code, so the caller asks a person and hands the agent
+ *   no correction.
  * - `no-answer`: the wait reached `Checks wait` with nothing conclusive —
  *   including a run {@link runWasNotAcquired} reads as no runner having run
  *   it (#1295), which never counts as `settled` however it concluded.
@@ -250,7 +249,7 @@ export const runWasTimedOut = (run: ShaRun): boolean => {
  *   even inside the bound, because no build this loop could read would be
  *   about the agent's own work.
  */
-export type ChecksFromRuns = 'none' | 'wait' | 'settled' | 'no-answer' | 'tip-moved';
+export type ChecksFromRuns = 'none' | 'wait' | 'settled' | 'timed-out' | 'no-answer' | 'tip-moved';
 
 /**
  * Decides one pass of the loop's own CI wait, from the build connector's run
@@ -274,6 +273,10 @@ export type ChecksFromRuns = 'none' | 'wait' | 'settled' | 'no-answer' | 'tip-mo
  * A BOUND OF `0` OR LESS ANSWERS `none` before any other reading, as
  * {@link checksVerdict} does: no wait starts.
  *
+ * A TIMED-OUT RUN IS NOT `settled`. A `cancelled` run {@link runWasTimedOut}
+ * matches answers `timed-out`, so no caller reads its `cancelled` conclusion
+ * as a failed build and hands the agent a correction for it.
+ *
  * @param readings - what the loop measured this pass.
  * @returns the verdict for this pass.
  */
@@ -283,10 +286,12 @@ export const checksFromRuns = (readings: ChecksFromRunsReadings): ChecksFromRuns
 
   const run = readings.run !== null && readings.run.sha === readings.pushedSha ? readings.run : null;
 
+  if (run !== null && runWasTimedOut(run)) return 'timed-out';
+
   if (
     run !== null &&
     run.conclusion !== null &&
-    (SETTLED_CONCLUSIONS.includes(run.conclusion) || runWasTimedOut(run)) &&
+    SETTLED_CONCLUSIONS.includes(run.conclusion) &&
     !runWasNotAcquired(run)
   ) {
     return 'settled';
@@ -332,12 +337,12 @@ export interface BuildFindingAnswer {
  * only names `success`/`failure`/`action_required` as settled; the loop's own
  * call site never reaches a `timed_out` run through `buildFindingFor` —
  * `checksFromRuns` keeps it at `wait`/`no-answer` instead. A documented gap,
- * not ported here. **`cancelled` IS AN EXCEPTION, NOW.** A `cancelled` run
- * whose job steps carry the timeout fingerprint ({@link runWasTimedOut})
- * reaches `settled` and is read as `build timed out` here, checked before the
- * generic failure arm so it is never reported as a plain `build failed`.
+ * not ported here. A `cancelled` run whose job steps and elapsed time carry
+ * the timeout fingerprint ({@link runWasTimedOut}) reads as `build timed out`,
+ * checked before the generic failure arm so it never reads as `build failed`.
+ * `checksFromRuns` answers `timed-out` for that run, not `settled`.
  *
- * @param run - the settled run `checksFromRuns` found for the pushed sha.
+ * @param run - the run `checksFromRuns` found for the pushed sha.
  * @returns the finding and its evidence sentence, or `null` while the run has
  *   not reached a word this function recognises (expected for a run
  *   `checksFromRuns` itself does not call `settled` — see above).

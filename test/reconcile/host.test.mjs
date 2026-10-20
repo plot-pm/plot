@@ -1516,6 +1516,18 @@ test('host: run-for-sha carries an empty steps array for a job no runner ever pi
   assert.deepEqual(out.jobs, [{ conclusion: 'cancelled', startedAt: null, completedAt: null, steps: [] }]);
 });
 
+test('host: run-for-sha reads a job whose steps are null as an empty steps array', () => {
+  const stubs = makeRunForShaStub({
+    listJson: JSON.stringify([
+      { headSha: 'abc123', conclusion: 'failure', status: 'completed', startedAt: '2026-10-05T10:00:00Z', url: 'u1', databaseId: 999 },
+    ]),
+    jobsJson: JSON.stringify({ jobs: [{ conclusion: 'cancelled', startedAt: null, completedAt: null, steps: null }] }),
+  });
+  const out = JSON.parse(run(['run-for-sha', 'feature/x', 'abc123'],
+    { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs }).trim());
+  assert.deepEqual(out.jobs, [{ conclusion: 'cancelled', startedAt: null, completedAt: null, steps: [] }]);
+});
+
 test('host: run-for-sha makes no gh run view call for a run still going or that passed', () => {
   const stubs = makeRunForShaStub({
     listJson: JSON.stringify([

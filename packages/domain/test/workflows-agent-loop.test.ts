@@ -1293,6 +1293,41 @@ describe('agentLoop — row 16: no check answer by Checks wait', () => {
   });
 });
 
+describe('agentLoop — row 16b: the run hit its own timeout-minutes', () => {
+  it('ends checks-unanswered, detail timed-out, and spends no correction', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: 'timed-out',
+      checksPassed: null,
+      correctionText: '',
+      correctionAttempts: 0,
+      correctionBudget: 2,
+      tip: 'pushed',
+    });
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'loop-end']);
+    const end = endWrite(result.writes);
+    expect(end?.reason).toBe('checks-unanswered');
+    expect(end?.detail).toMatch(/^timed-out: /);
+    expect(end?.exitCode).toBe(0);
+  });
+
+  it('supervise answers needs-a-person from the declaration this row writes', () => {
+    const result = superviseAfter({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: 'timed-out',
+    });
+    expect(result.detail.needingAPerson).toEqual([BRANCH]);
+  });
+});
+
 describe('agentLoop — row 17: the remote tip is no longer the pushed commit', () => {
   it('ends checks-unanswered, detail tip-moved, exit 0, even with a green run for the new tip', () => {
     const result = agentLoop({

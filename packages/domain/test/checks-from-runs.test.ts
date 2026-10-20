@@ -157,7 +157,7 @@ describe('checksFromRuns — the loop asking its own CI wait', () => {
     expect(checksFromRuns({ ...base, run: concludedRun(PUSHED, 'failure') })).toBe('settled');
   });
 
-  it('settles a run whose cancelled job carries the timeout fingerprint — the motivating bug', () => {
+  it('answers timed-out, never settled, for a run whose cancelled job carries the timeout fingerprint', () => {
     // Real shape, measured on a confirmed timeout (run 39357335917,
     // 2026-10-20): some `success` steps, one `cancelled` (the step running
     // when the 25-minute cap fired), `skipped` steps, then `success` again —
@@ -175,7 +175,9 @@ describe('checksFromRuns — the loop asking its own CI wait', () => {
         },
       ],
     };
-    expect(checksFromRuns({ ...base, run: timedOut })).toBe('settled');
+    expect(checksFromRuns({ ...base, run: timedOut })).toBe('timed-out');
+    // Inside the bound and at it alike: a timed-out run never waits for more.
+    expect(checksFromRuns({ ...base, run: timedOut, waitedSeconds: 3600 })).toBe('timed-out');
   });
 
   it('does not settle a not-acquired run even though it shares the cancelled conclusion', () => {
