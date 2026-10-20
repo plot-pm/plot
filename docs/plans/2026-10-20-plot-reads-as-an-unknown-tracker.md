@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #2077
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-20, Jan Wloka, plan-PR #2151 merged
 - **Started:** 2026-10-20, Jan Wloka, `bug/plot-reads-as-an-unknown-tracker`
+- **Delivered:** 2026-10-20
 
 ## Changelog
 
