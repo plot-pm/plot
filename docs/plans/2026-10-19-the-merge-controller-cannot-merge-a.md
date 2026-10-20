@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Story:**
 - **Sprint:**
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2101 merged
 - **Started:** 2026-10-19, Jan Wloka, `bug/the-merge-controller-cannot-merge-a-rule`
 - **Started:** 2026-10-19, Jan Wloka, `bug/the-merge-controller-cannot-merge-a-host`
+- **Delivered:** 2026-10-20
 
 ## Changelog
 
