@@ -1583,30 +1583,25 @@ describe('a desk continued twice, once per NEEDS_PERSON_ENDINGS reason — #2107
     assert.equal(second.kind, 'started');
   });
 
-  // THE MEASURED BUG — the fallback in `continue-target.ts:122-125` accepts
-  // only `blocked`, `holding-work` and `unstarted`. Each of these refuses
-  // `no-manifest`, exactly as `free-fcd71bc3` and `free-7edb8d31` did. Marked
-  // `it.fails`, not `it.skip`, per the plan: a skipped row measures nothing,
-  // and this branch must still merge with CI green.
-  //
-  // wave 2, `bug/a-desk-can-be-continued-once-fix`, flips these to plain `it`
-  // once the fix (A or B, per the plan's Approach step 2) makes them pass.
-  it.fails('spend-limit: the second continue refuses no-manifest — the bug', async () => {
+  // THE MEASURED BUG, NOW FIXED — the fallback in `continue-target.ts` used to
+  // accept only `blocked`, `holding-work` and `unstarted`, refusing
+  // `no-manifest` for the other three `NEEDS_PERSON_ENDINGS` reasons exactly
+  // as `free-fcd71bc3` and `free-7edb8d31` did. The fallback now accepts
+  // every `NEEDS_PERSON_ENDINGS` reason via `endingAsksPersonOutright`, so
+  // these three rows are plain `it` rather than `it.fails`.
+  it('spend-limit: the second continue is accepted', async () => {
     const second = await continueTwice('spend-limit');
     assert.equal(second.kind, 'started', `refused ${second.reason}`);
-    assert.notEqual(second.reason, 'no-manifest');
   });
 
-  it.fails('run-limit: the second continue refuses no-manifest — the bug', async () => {
+  it('run-limit: the second continue is accepted', async () => {
     const second = await continueTwice('run-limit');
     assert.equal(second.kind, 'started', `refused ${second.reason}`);
-    assert.notEqual(second.reason, 'no-manifest');
   });
 
-  it.fails('checks-unanswered: the second continue refuses no-manifest — the bug', async () => {
+  it('checks-unanswered: the second continue is accepted', async () => {
     const second = await continueTwice('checks-unanswered');
     assert.equal(second.kind, 'started', `refused ${second.reason}`);
-    assert.notEqual(second.reason, 'no-manifest');
   });
 
   // GUARD CASES — stay refusals before and after the fix. Added to this same
