@@ -159,8 +159,45 @@ export const runWasNotAcquired = (run: ShaRun): boolean => {
   if (run.conclusion !== 'failure' && run.conclusion !== 'cancelled') return false;
   if (run.jobs === undefined || run.jobs.length === 0) return false;
   return run.jobs.every(
-    (job) => (job.conclusion !== 'failure' && job.conclusion !== 'cancelled') || job.steps === 0,
+    (job) => (job.conclusion !== 'failure' && job.conclusion !== 'cancelled') || job.steps.length === 0,
   );
+};
+
+/**
+ * Whether a cancelled run is evidence of a job that hit its own
+ * `timeout-minutes`, rather than a real failure or a run GitHub cancelled
+ * before any step started (a concurrency supersession).
+ *
+ * THE FINGERPRINT, MEASURED ACROSS 4 SAMPLED TIMEOUTS (wave 1, see the plan):
+ * one or more steps conclude `success` (or `skipped`, for a pre-dispatch
+ * guard step), then exactly one step concludes `cancelled` — the step
+ * running when the cap fired — then every remaining step concludes
+ * `skipped`. A supersession cancels the run before any step starts, so every
+ * step there reads `skipped` with none `success` and none `cancelled` —
+ * distinguishable from a timeout by the absence of a `success` step ahead of
+ * the lone `cancelled` one.
+ *
+ * ABSENT `jobs` NEVER READS AS A TIMEOUT, for the same reason
+ * {@link runWasNotAcquired} never reads it as "no steps": a run the collector
+ * did not fetch job facts for answers false here, not true.
+ *
+ * ONE JOB IS ENOUGH. A run with several jobs where only one hit its own cap
+ * is a timeout for the agent's purposes — the pushed commit's build did not
+ * reach a clean conclusion either way.
+ *
+ * @param run - the run to read.
+ * @returns true when at least one job's steps carry the timeout fingerprint.
+ */
+export const runWasTimedOut = (run: ShaRun): boolean => {
+  if (run.conclusion !== 'cancelled') return false;
+  if (run.jobs === undefined || run.jobs.length === 0) return false;
+  return run.jobs.some((job) => {
+    const cancelledAt = job.steps.findIndex((s) => s === 'cancelled');
+    if (cancelledAt === -1) return false;
+    const before = job.steps.slice(0, cancelledAt);
+    const after = job.steps.slice(cancelledAt + 1);
+    return before.some((s) => s === 'success') && after.every((s) => s === 'skipped');
+  });
 };
 
 /**
@@ -215,7 +252,7 @@ export const checksFromRuns = (readings: ChecksFromRunsReadings): ChecksFromRuns
   if (
     run !== null &&
     run.conclusion !== null &&
-    SETTLED_CONCLUSIONS.includes(run.conclusion) &&
+    (SETTLED_CONCLUSIONS.includes(run.conclusion) || runWasTimedOut(run)) &&
     !runWasNotAcquired(run)
   ) {
     return 'settled';
@@ -225,7 +262,12 @@ export const checksFromRuns = (readings: ChecksFromRunsReadings): ChecksFromRuns
 };
 
 /** The BuildMonitor finding words, verbatim as `FindingNameSchema` carries them. */
-export type BuildFindingWord = 'build passed' | 'build failed' | 'build needs approval' | 'head moved';
+export type BuildFindingWord =
+  | 'build passed'
+  | 'build failed'
+  | 'build needs approval'
+  | 'build timed out'
+  | 'head moved';
 
 /** One pass's build finding: the word to publish and the evidence sentence behind it. */
 export interface BuildFindingAnswer {
@@ -251,12 +293,15 @@ export interface BuildFindingAnswer {
  *
  * **NARROWER THAN THE SHELL ON `build failed`.** `sample_finding` reads any
  * terminal conclusion other than `success`/`action_required` — including
- * `timed_out`, `cancelled`, `startup_failure` — as `build failed`. This
- * function does not, because {@link SETTLED_CONCLUSIONS} (shared with
- * {@link checksFromRuns}) only names `success`/`failure`/`action_required` as
- * settled; the loop's own call site never reaches a `timed_out` or
- * `cancelled` run through `buildFindingFor` — `checksFromRuns` keeps it at
- * `wait`/`no-answer` instead. A documented gap, not ported here.
+ * `timed_out`, `startup_failure` — as `build failed`. This function does not,
+ * because {@link SETTLED_CONCLUSIONS} (shared with {@link checksFromRuns})
+ * only names `success`/`failure`/`action_required` as settled; the loop's own
+ * call site never reaches a `timed_out` run through `buildFindingFor` —
+ * `checksFromRuns` keeps it at `wait`/`no-answer` instead. A documented gap,
+ * not ported here. **`cancelled` IS AN EXCEPTION, NOW.** A `cancelled` run
+ * whose job steps carry the timeout fingerprint ({@link runWasTimedOut})
+ * reaches `settled` and is read as `build timed out` here, checked before the
+ * generic failure arm so it is never reported as a plain `build failed`.
  *
  * @param run - the settled run `checksFromRuns` found for the pushed sha.
  * @returns the finding and its evidence sentence, or `null` while the run has
@@ -273,6 +318,12 @@ export const buildFindingFor = (run: ShaRun): BuildFindingAnswer | null => {
   }
   if (run.conclusion === 'success') {
     return { finding: 'build passed', evidence: `the run at ${url} for ${run.sha} concluded success` };
+  }
+  if (runWasTimedOut(run)) {
+    return {
+      finding: 'build timed out',
+      evidence: `the run at ${url} for ${run.sha} hit its own timeout-minutes before a conclusion`,
+    };
   }
   if (run.conclusion !== null && SETTLED_CONCLUSIONS.includes(run.conclusion)) {
     return { finding: 'build failed', evidence: `the run at ${url} for ${run.sha} concluded ${run.conclusion}` };

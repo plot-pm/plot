@@ -156,17 +156,23 @@ export interface ShaRun {
   /** When it started, ISO-8601 as the system reported it; `''` when absent. */
   startedAt: string;
   /**
-   * Each job's own conclusion and step count, for a run that concluded
-   * `failure` or `cancelled`; `undefined` where the collector did not report
-   * it (a run still going or that succeeded, or a CI system other than
-   * GitHub Actions).
+   * Each job's own conclusion and the verbatim conclusion of every one of its
+   * steps, for a run that concluded `failure` or `cancelled`; `undefined`
+   * where the collector did not report it (a run still going or that
+   * succeeded, or a CI system other than GitHub Actions).
    *
    * ABSENT IS NOT EMPTY. A rule reading this field for "every failed job ran
    * 0 steps" must tell a run with no `jobs` reading apart from a run whose
    * `jobs` array is empty — the first has not been measured and the second
    * has been measured as having none, which are different facts.
+   *
+   * STEPS CARRY THEIR OWN CONCLUSION, NOT A COUNT. `runWasTimedOut` reads the
+   * fingerprint of a job that hit its own `timeout-minutes` — one or more
+   * steps `success`, then exactly one `cancelled`, then the rest `skipped` —
+   * which a bare count cannot tell apart from a job GitHub cancelled before
+   * any step ran.
    */
-  jobs?: readonly { conclusion: string | null; steps: number }[];
+  jobs?: readonly { conclusion: string | null; steps: readonly (string | null)[] }[];
 }
 
 /**

@@ -69,6 +69,7 @@ export type FindingVerdict =
   | 'unlanded'
   | 'build-failed'
   | 'build-approval'
+  | 'build-timed-out'
   | 'head-moved';
 
 /**
@@ -129,6 +130,14 @@ const READINGS: Readonly<Record<Errand, FindingReading>> = {
   'build needs approval': {
     verdict: 'build-approval',
     action: 'approve the workflow run',
+    list: 'needsHuman',
+  },
+  // THE RUN HIT ITS OWN `timeout-minutes`, NOT A TEST FAILURE. GitHub reports
+  // `cancelled` either way; this errand exists so a person reads "the run
+  // timed out" instead of treating it as a code failure to debug.
+  'build timed out': {
+    verdict: 'build-timed-out',
+    action: 'look at the run that hit its timeout',
     list: 'needsHuman',
   },
   'head moved': {

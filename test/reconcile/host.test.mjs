@@ -1493,15 +1493,27 @@ test('host: run-for-sha prints jobs for a failed run, read from one extra gh run
     listJson: JSON.stringify([
       { headSha: 'abc123', conclusion: 'failure', status: 'completed', startedAt: '2026-10-05T10:00:00Z', url: 'u1', databaseId: 999 },
     ]),
-    jobsJson: JSON.stringify({ jobs: [{ conclusion: 'cancelled', steps: [] }] }),
+    jobsJson: JSON.stringify({ jobs: [{ conclusion: 'cancelled', steps: [{ conclusion: 'success' }, { conclusion: 'cancelled' }] }] }),
   });
   const out = JSON.parse(run(['run-for-sha', 'feature/x', 'abc123'],
     { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs }).trim());
   assert.equal(out.sha, 'abc123');
   assert.equal(out.conclusion, 'failure');
-  assert.deepEqual(out.jobs, [{ conclusion: 'cancelled', steps: 0 }]);
+  assert.deepEqual(out.jobs, [{ conclusion: 'cancelled', steps: ['success', 'cancelled'] }]);
   const calls = callsOf(stubs.callsFile);
   assert.ok(calls.some((c) => c.startsWith('run view 999')), 'gh run view was asked about the matched run');
+});
+
+test('host: run-for-sha carries an empty steps array for a job no runner ever picked up (#1295)', () => {
+  const stubs = makeRunForShaStub({
+    listJson: JSON.stringify([
+      { headSha: 'abc123', conclusion: 'failure', status: 'completed', startedAt: '2026-10-05T10:00:00Z', url: 'u1', databaseId: 999 },
+    ]),
+    jobsJson: JSON.stringify({ jobs: [{ conclusion: 'cancelled', steps: [] }] }),
+  });
+  const out = JSON.parse(run(['run-for-sha', 'feature/x', 'abc123'],
+    { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs }).trim());
+  assert.deepEqual(out.jobs, [{ conclusion: 'cancelled', steps: [] }]);
 });
 
 test('host: run-for-sha makes no gh run view call for a run still going or that passed', () => {

@@ -210,10 +210,13 @@ describe('a CI connector reads the run for one commit', () => {
       hostThat(
         `echo '{"sha":"abc123","status":"completed","conclusion":"failure",` +
           `"url":"https://x.invalid/9","startedAt":"2026-09-07T10:00:00Z",` +
-          `"jobs":[{"conclusion":"cancelled","steps":0}]}'`,
+          `"jobs":[{"conclusion":"cancelled","steps":["success","cancelled"]}]}'`,
       ),
     ).runForSha('feature/x', 'abc123');
-    expect(answer).toMatchObject({ ok: true, value: { jobs: [{ conclusion: 'cancelled', steps: 0 }] } });
+    expect(answer).toMatchObject({
+      ok: true,
+      value: { jobs: [{ conclusion: 'cancelled', steps: ['success', 'cancelled'] }] },
+    });
   });
 
   it('leaves jobs undefined when the script reports none', async () => {

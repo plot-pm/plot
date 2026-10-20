@@ -4,6 +4,7 @@ import {
   checksFromRuns,
   checksVerdict,
   runWasNotAcquired,
+  runWasTimedOut,
   type ChecksFromRunsReadings,
 } from '../src/rules/checks-verdict.js';
 import type { ShaRun } from '../src/entities/build.js';
@@ -136,7 +137,7 @@ describe('checksFromRuns — the loop asking its own CI wait', () => {
     // #1295: a GitHub Actions outage cancelled jobs after 15 minutes with 0
     // steps and an empty runner name. Reading this as `settled` spent a
     // slice's whole correction budget on an outage.
-    const unacquired = { ...concludedRun(PUSHED, 'failure'), jobs: [{ conclusion: 'cancelled', steps: 0 }] };
+    const unacquired = { ...concludedRun(PUSHED, 'failure'), jobs: [{ conclusion: 'cancelled', steps: [] }] };
     expect(checksFromRuns({ ...base, run: unacquired })).toBe('wait');
     expect(checksFromRuns({ ...base, run: unacquired, waitedSeconds: 3600 })).toBe('no-answer');
   });
@@ -145,8 +146,8 @@ describe('checksFromRuns — the loop asking its own CI wait', () => {
     const mixed = {
       ...concludedRun(PUSHED, 'failure'),
       jobs: [
-        { conclusion: 'cancelled', steps: 0 },
-        { conclusion: 'failure', steps: 4 },
+        { conclusion: 'cancelled', steps: [] },
+        { conclusion: 'failure', steps: ['success', 'failure', 'success', 'success'] },
       ],
     };
     expect(checksFromRuns({ ...base, run: mixed })).toBe('settled');
@@ -154,6 +155,102 @@ describe('checksFromRuns — the loop asking its own CI wait', () => {
 
   it('settles a failed run with no jobs field — absent is not 0 steps', () => {
     expect(checksFromRuns({ ...base, run: concludedRun(PUSHED, 'failure') })).toBe('settled');
+  });
+
+  it('settles a run whose cancelled job carries the timeout fingerprint — the motivating bug', () => {
+    // wave 1 measured this shape across all 4 sampled timeouts: one or more
+    // `success` steps, then exactly one `cancelled` (the step running when
+    // the cap fired), then the rest `skipped`.
+    const timedOut = {
+      ...concludedRun(PUSHED, 'cancelled'),
+      jobs: [{ conclusion: 'cancelled', steps: ['success', 'success', 'cancelled', 'skipped', 'skipped'] }],
+    };
+    expect(checksFromRuns({ ...base, run: timedOut })).toBe('settled');
+  });
+
+  it('does not settle a not-acquired run even though it shares the cancelled conclusion', () => {
+    // The naive patch this test is written to catch: treating every
+    // `cancelled` run as settled would also settle a host-outage run
+    // `runWasNotAcquired` exists to keep unsettled (#1295).
+    const notAcquired = { ...concludedRun(PUSHED, 'cancelled'), jobs: [{ conclusion: 'cancelled', steps: [] }] };
+    expect(checksFromRuns({ ...base, run: notAcquired })).toBe('wait');
+    expect(checksFromRuns({ ...base, run: notAcquired, waitedSeconds: 3600 })).toBe('no-answer');
+  });
+
+  it('does not settle a concurrency-superseded run — every step skipped, none success or cancelled', () => {
+    const superseded = {
+      ...concludedRun(PUSHED, 'cancelled'),
+      jobs: [{ conclusion: 'cancelled', steps: ['skipped', 'skipped', 'skipped'] }],
+    };
+    expect(checksFromRuns({ ...base, run: superseded })).toBe('wait');
+    expect(checksFromRuns({ ...base, run: superseded, waitedSeconds: 3600 })).toBe('no-answer');
+  });
+});
+
+describe('runWasTimedOut — a cancelled run whose job hit its own timeout-minutes', () => {
+  it('answers false for a running or successful run', () => {
+    expect(runWasTimedOut(runningRun(PUSHED))).toBe(false);
+    expect(runWasTimedOut(concludedRun(PUSHED, 'success'))).toBe(false);
+  });
+
+  it('answers false for a failure conclusion — the fingerprint is cancelled-only', () => {
+    expect(
+      runWasTimedOut({
+        ...concludedRun(PUSHED, 'failure'),
+        jobs: [{ conclusion: 'failure', steps: ['success', 'failure'] }],
+      }),
+    ).toBe(false);
+  });
+
+  it('answers false when jobs is absent', () => {
+    expect(runWasTimedOut(concludedRun(PUSHED, 'cancelled'))).toBe(false);
+  });
+
+  it('answers true for the measured fingerprint: success(es), one cancelled, then all skipped', () => {
+    expect(
+      runWasTimedOut({
+        ...concludedRun(PUSHED, 'cancelled'),
+        jobs: [{ conclusion: 'cancelled', steps: ['success', 'success', 'cancelled', 'skipped', 'skipped'] }],
+      }),
+    ).toBe(true);
+  });
+
+  it('answers false for a not-acquired run — no success step precedes the cancelled one', () => {
+    expect(
+      runWasTimedOut({ ...concludedRun(PUSHED, 'cancelled'), jobs: [{ conclusion: 'cancelled', steps: [] }] }),
+    ).toBe(false);
+  });
+
+  it('answers false for a supersession — every step skipped, none success or cancelled', () => {
+    expect(
+      runWasTimedOut({
+        ...concludedRun(PUSHED, 'cancelled'),
+        jobs: [{ conclusion: 'cancelled', steps: ['skipped', 'skipped', 'skipped'] }],
+      }),
+    ).toBe(false);
+  });
+
+  it('answers false when a step after the cancelled one is not skipped', () => {
+    // Two jobs cancelled independently, or a shape wave 1 did not measure —
+    // refuse the fingerprint rather than guess.
+    expect(
+      runWasTimedOut({
+        ...concludedRun(PUSHED, 'cancelled'),
+        jobs: [{ conclusion: 'cancelled', steps: ['success', 'cancelled', 'cancelled'] }],
+      }),
+    ).toBe(false);
+  });
+
+  it('answers true when at least one job of several carries the fingerprint', () => {
+    expect(
+      runWasTimedOut({
+        ...concludedRun(PUSHED, 'cancelled'),
+        jobs: [
+          { conclusion: 'skipped', steps: ['skipped'] },
+          { conclusion: 'cancelled', steps: ['success', 'cancelled', 'skipped'] },
+        ],
+      }),
+    ).toBe(true);
   });
 });
 
@@ -175,7 +272,7 @@ describe('runWasNotAcquired — a failed or cancelled run no runner ever ran a s
     expect(
       runWasNotAcquired({
         ...concludedRun(PUSHED, 'cancelled'),
-        jobs: [{ conclusion: 'cancelled', steps: 0 }],
+        jobs: [{ conclusion: 'cancelled', steps: [] }],
       }),
     ).toBe(true);
   });
@@ -184,7 +281,7 @@ describe('runWasNotAcquired — a failed or cancelled run no runner ever ran a s
     expect(
       runWasNotAcquired({
         ...concludedRun(PUSHED, 'failure'),
-        jobs: [{ conclusion: 'failure', steps: 1 }],
+        jobs: [{ conclusion: 'failure', steps: ['failure'] }],
       }),
     ).toBe(false);
   });
@@ -194,8 +291,8 @@ describe('runWasNotAcquired — a failed or cancelled run no runner ever ran a s
       runWasNotAcquired({
         ...concludedRun(PUSHED, 'failure'),
         jobs: [
-          { conclusion: 'success', steps: 12 },
-          { conclusion: 'cancelled', steps: 0 },
+          { conclusion: 'success', steps: Array(12).fill('success') },
+          { conclusion: 'cancelled', steps: [] },
         ],
       }),
     ).toBe(true);
