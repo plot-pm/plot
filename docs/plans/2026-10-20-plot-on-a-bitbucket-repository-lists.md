@@ -90,7 +90,7 @@ The absent-key column is folded into `plot` everywhere above: every reader norma
 
 ### Sprint and issue source
 
-- `feature/sprint-ownership-and-issue-source` — the config shape the reader picks in Open Questions, so a Bitbucket and Jira repository runs sprints and lists its Jira tickets from config alone.
+- `feature/sprint-ownership-and-issue-source` — the config shape the reader picks in Open Questions, so a Bitbucket and Jira repository runs sprints and lists its Jira tickets from config alone. → #2204
 
 ## Notes
 
