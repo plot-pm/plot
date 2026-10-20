@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2153
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-20, Jan Wloka, plan-PR #2165 merged
 - **Started:** 2026-10-20, Jan Wloka, `bug/a-sha-bound-run-reports-the`
+- **Delivered:** 2026-10-20
 
 ## Changelog
 
