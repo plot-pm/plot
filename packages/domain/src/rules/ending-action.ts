@@ -489,9 +489,10 @@ export const secondFreshSessionMarker = (ending: EndingReason, branch: string): 
  * `checks-unanswered` names a build that never answered. Collapsing these
  * into one sentence would read correctly for none of them.
  *
- * **`checks-unanswered` READS `detail`,** because the ending's own two
- * readings — `no-answer` and `tip-moved` — are different problems: the first
- * is a build nobody watched, the second is work a later push shadowed. No
+ * **`checks-unanswered` READS `detail`,** because the ending's three
+ * readings — `no-answer`, `tip-moved` and `timed-out` — are different
+ * problems: the first is a build nobody watched, the second is work a later
+ * push shadowed, the third is a build that hit its own `timeout-minutes`. No
  * other reason here branches on `detail`.
  *
  * **`corrections-spent`, `turn-limit`, `bound`, `unreadable`, `quiet` AND
@@ -527,6 +528,12 @@ export const needsPersonMarker = (ending: EndingReason, branch: string, detail: 
         return (
           `No build ever answered for \`${branch}\`'s own work: the branch's remote tip moved to a commit this worker did not push (${detail}). ` +
           `Decide: whether the newer commit is this worker's to continue from, or someone else's.`
+        );
+      }
+      if (detail.includes('timed-out')) {
+        return (
+          `The build for \`${branch}\`'s pushed commit hit its own timeout-minutes before a conclusion (${detail}). ` +
+          `Decide: re-run the build, raise the job's timeout-minutes, or resume without a CI answer.`
         );
       }
       // `mergeable=conflicting` NAMES THE CAUSE A GENERIC SENTENCE WOULD HIDE:

@@ -159,8 +159,74 @@ export const runWasNotAcquired = (run: ShaRun): boolean => {
   if (run.conclusion !== 'failure' && run.conclusion !== 'cancelled') return false;
   if (run.jobs === undefined || run.jobs.length === 0) return false;
   return run.jobs.every(
-    (job) => (job.conclusion !== 'failure' && job.conclusion !== 'cancelled') || job.steps === 0,
+    (job) => (job.conclusion !== 'failure' && job.conclusion !== 'cancelled') || job.steps.length === 0,
   );
+};
+
+/**
+ * The shortest elapsed time, in milliseconds, a job must have run before its
+ * `cancelled` conclusion is read as a `timeout-minutes` cap rather than a
+ * concurrency supersession.
+ *
+ * Measured 2026-10-20: three superseded jobs were cancelled 53–91 s after
+ * they started (run `39363175090`), and two `timeout-minutes: 25` runs each
+ * ran ~25 minutes before GitHub cut them off (runs `39357335917` and
+ * `39357617553`). The repo's lowest job-level `timeout-minutes` is 10
+ * (`.github/workflows/ci.yml`). Five minutes sits above every measured
+ * supersession and below every configured cap.
+ *
+ * A job a person cancels by hand after five minutes or more reads as a
+ * timeout: `gh run view --json jobs` reports no job's `timeout-minutes`, so
+ * the elapsed time is compared with this floor and not with the job's cap.
+ */
+const MIN_TIMEOUT_MS = 5 * 60 * 1000;
+
+/**
+ * Whether a cancelled run is evidence of a job that hit its own
+ * `timeout-minutes`, rather than a run a concurrency group superseded.
+ *
+ * THE STEP FINGERPRINT ALONE DOES NOT TELL THEM APART. GitHub appends
+ * "Post " cleanup steps (checkout, setup-node teardown, …) that read
+ * `success` at job teardown whatever cancelled the job. A confirmed
+ * supersession and a confirmed timeout carry the identical step shape —
+ * `success*, cancelled, skipped*, success*` — measured on real runs
+ * 2026-10-20.
+ *
+ * THE FINGERPRINT PLUS ELAPSED TIME. A job carries the shape above AND ran
+ * for at least {@link MIN_TIMEOUT_MS} before its `cancelled` step concluded —
+ * read from the job's own `startedAt`/`completedAt`, already present in the
+ * same `gh run view --json jobs` response {@link runWasNotAcquired} reads, no
+ * second API call. A supersession's near-instant cancellation fails this
+ * bound; a real timeout clears it by a wide margin.
+ *
+ * ABSENT `jobs`, OR ABSENT TIMING, NEVER READS AS A TIMEOUT, for the same
+ * reason {@link runWasNotAcquired} never reads absent `jobs` as "no steps": a
+ * run the collector did not fetch job facts for, or a job whose `startedAt`
+ * or `completedAt` the system did not report, answers false here, not true.
+ *
+ * ONE JOB IS ENOUGH. A run with several jobs where only one hit its own cap
+ * is a timeout for the agent's purposes — the pushed commit's build did not
+ * reach a clean conclusion either way.
+ *
+ * @param run - the run to read.
+ * @returns true when at least one job's steps and elapsed time together carry
+ *   the timeout fingerprint.
+ */
+export const runWasTimedOut = (run: ShaRun): boolean => {
+  if (run.conclusion !== 'cancelled') return false;
+  if (run.jobs === undefined || run.jobs.length === 0) return false;
+  return run.jobs.some((job) => {
+    const cancelledAt = job.steps.findIndex((s) => s === 'cancelled');
+    if (cancelledAt === -1) return false;
+    const before = job.steps.slice(0, cancelledAt);
+    const after = job.steps.slice(cancelledAt + 1);
+    if (!before.some((s) => s === 'success')) return false;
+    if (!after.every((s) => s === 'skipped' || s === 'success')) return false;
+    if (job.startedAt === null || job.startedAt === undefined) return false;
+    if (job.completedAt === null || job.completedAt === undefined) return false;
+    const elapsedMs = Date.parse(job.completedAt) - Date.parse(job.startedAt);
+    return Number.isFinite(elapsedMs) && elapsedMs >= MIN_TIMEOUT_MS;
+  });
 };
 
 /**
@@ -172,6 +238,10 @@ export const runWasNotAcquired = (run: ShaRun): boolean => {
  *   is still that commit (or unreadable this pass). Keep waiting.
  * - `settled`: the run for the pushed commit concluded. The caller reads
  *   {@link ShaRun.conclusion} to decide pass or fail.
+ * - `timed-out`: the run for the pushed commit was cancelled because a job hit
+ *   its own `timeout-minutes` ({@link runWasTimedOut}). The build reached no
+ *   verdict about the code, so the caller asks a person and hands the agent
+ *   no correction.
  * - `no-answer`: the wait reached `Checks wait` with nothing conclusive —
  *   including a run {@link runWasNotAcquired} reads as no runner having run
  *   it (#1295), which never counts as `settled` however it concluded.
@@ -179,7 +249,7 @@ export const runWasNotAcquired = (run: ShaRun): boolean => {
  *   even inside the bound, because no build this loop could read would be
  *   about the agent's own work.
  */
-export type ChecksFromRuns = 'none' | 'wait' | 'settled' | 'no-answer' | 'tip-moved';
+export type ChecksFromRuns = 'none' | 'wait' | 'settled' | 'timed-out' | 'no-answer' | 'tip-moved';
 
 /**
  * Decides one pass of the loop's own CI wait, from the build connector's run
@@ -203,6 +273,10 @@ export type ChecksFromRuns = 'none' | 'wait' | 'settled' | 'no-answer' | 'tip-mo
  * A BOUND OF `0` OR LESS ANSWERS `none` before any other reading, as
  * {@link checksVerdict} does: no wait starts.
  *
+ * A TIMED-OUT RUN IS NOT `settled`. A `cancelled` run {@link runWasTimedOut}
+ * matches answers `timed-out`, so no caller reads its `cancelled` conclusion
+ * as a failed build and hands the agent a correction for it.
+ *
  * @param readings - what the loop measured this pass.
  * @returns the verdict for this pass.
  */
@@ -211,6 +285,8 @@ export const checksFromRuns = (readings: ChecksFromRunsReadings): ChecksFromRuns
   if (readings.tip === 'other') return 'tip-moved';
 
   const run = readings.run !== null && readings.run.sha === readings.pushedSha ? readings.run : null;
+
+  if (run !== null && runWasTimedOut(run)) return 'timed-out';
 
   if (
     run !== null &&
@@ -225,7 +301,12 @@ export const checksFromRuns = (readings: ChecksFromRunsReadings): ChecksFromRuns
 };
 
 /** The BuildMonitor finding words, verbatim as `FindingNameSchema` carries them. */
-export type BuildFindingWord = 'build passed' | 'build failed' | 'build needs approval' | 'head moved';
+export type BuildFindingWord =
+  | 'build passed'
+  | 'build failed'
+  | 'build needs approval'
+  | 'build timed out'
+  | 'head moved';
 
 /** One pass's build finding: the word to publish and the evidence sentence behind it. */
 export interface BuildFindingAnswer {
@@ -251,14 +332,17 @@ export interface BuildFindingAnswer {
  *
  * **NARROWER THAN THE SHELL ON `build failed`.** `sample_finding` reads any
  * terminal conclusion other than `success`/`action_required` — including
- * `timed_out`, `cancelled`, `startup_failure` — as `build failed`. This
- * function does not, because {@link SETTLED_CONCLUSIONS} (shared with
- * {@link checksFromRuns}) only names `success`/`failure`/`action_required` as
- * settled; the loop's own call site never reaches a `timed_out` or
- * `cancelled` run through `buildFindingFor` — `checksFromRuns` keeps it at
- * `wait`/`no-answer` instead. A documented gap, not ported here.
+ * `timed_out`, `startup_failure` — as `build failed`. This function does not,
+ * because {@link SETTLED_CONCLUSIONS} (shared with {@link checksFromRuns})
+ * only names `success`/`failure`/`action_required` as settled; the loop's own
+ * call site never reaches a `timed_out` run through `buildFindingFor` —
+ * `checksFromRuns` keeps it at `wait`/`no-answer` instead. A documented gap,
+ * not ported here. A `cancelled` run whose job steps and elapsed time carry
+ * the timeout fingerprint ({@link runWasTimedOut}) reads as `build timed out`,
+ * checked before the generic failure arm so it never reads as `build failed`.
+ * `checksFromRuns` answers `timed-out` for that run, not `settled`.
  *
- * @param run - the settled run `checksFromRuns` found for the pushed sha.
+ * @param run - the run `checksFromRuns` found for the pushed sha.
  * @returns the finding and its evidence sentence, or `null` while the run has
  *   not reached a word this function recognises (expected for a run
  *   `checksFromRuns` itself does not call `settled` — see above).
@@ -273,6 +357,12 @@ export const buildFindingFor = (run: ShaRun): BuildFindingAnswer | null => {
   }
   if (run.conclusion === 'success') {
     return { finding: 'build passed', evidence: `the run at ${url} for ${run.sha} concluded success` };
+  }
+  if (runWasTimedOut(run)) {
+    return {
+      finding: 'build timed out',
+      evidence: `the run at ${url} for ${run.sha} hit its own timeout-minutes before a conclusion`,
+    };
   }
   if (run.conclusion !== null && SETTLED_CONCLUSIONS.includes(run.conclusion)) {
     return { finding: 'build failed', evidence: `the run at ${url} for ${run.sha} concluded ${run.conclusion}` };

@@ -4688,6 +4688,7 @@ export const AttentionVerdictSchema = z.enum([
   'unlanded',
   'build-failed',
   'build-approval',
+  'build-timed-out',
   'head-moved',
 ]);
 export type AttentionVerdict = z.infer<typeof AttentionVerdictSchema>;

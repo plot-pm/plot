@@ -975,7 +975,7 @@ describe('runWorkerLoop — after the prompt', () => {
               conclusion: 'failure',
               url: 'u',
               startedAt: '',
-              jobs: [{ conclusion: 'cancelled', steps: 0 }],
+              jobs: [{ conclusion: 'cancelled', steps: [] }],
             },
           }),
         },
@@ -986,6 +986,50 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(r.deskCalls.corrections).toHaveLength(0);
     expect(r.deskCalls.buildFindings).toHaveLength(0);
     expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('checks-unanswered');
+  });
+
+  it('asks a person about a run that hit its own timeout-minutes, and spends no correction (row 16b)', async () => {
+    // A `cancelled` run whose job ran 25 minutes, then hit its cap: the
+    // build reached no verdict about the code, so the agent is not resumed
+    // with "concluded cancelled" and the correction budget stays at 0.
+    const r = rig(ASSIGNED, [{}, {}]);
+    r.deps = {
+      ...r.deps,
+      ports: {
+        ...r.ports,
+        build: {
+          ...r.ports.build,
+          runForSha: async () => ({
+            ok: true,
+            value: {
+              sha: 'sha-1',
+              status: 'completed',
+              conclusion: 'cancelled',
+              url: 'u',
+              startedAt: '',
+              jobs: [
+                {
+                  conclusion: 'cancelled',
+                  startedAt: '2026-10-20T02:09:01Z',
+                  completedAt: '2026-10-20T02:34:22Z',
+                  steps: ['success', 'success', 'cancelled', 'skipped', 'success'],
+                },
+              ],
+            },
+          }),
+        },
+      },
+    };
+    expect(await runWorkerLoop(r.deps)).toBe(0);
+    expect(r.deskCalls.corrections).toHaveLength(0);
+    expect(r.calls.corrections).toHaveLength(0);
+    expect(r.read().correctionAttempts).toBe(0);
+    expect(r.runs).toHaveLength(1);
+    expect(r.deskCalls.endings.at(-1)?.record).toMatchObject({ reason: 'checks-unanswered' });
+    expect(r.deskCalls.endings.at(-1)?.record.detail).toMatch(/^timed-out: /);
+    expect(r.deskCalls.buildFindings).toEqual([
+      expect.objectContaining({ finding: expect.objectContaining({ branch: BRANCH, finding: 'build timed out' }) }),
+    ]);
   });
 
   it('ends corrections-spent once the correction budget is spent (row 15)', async () => {

@@ -289,6 +289,13 @@ describe('needsPersonMarker', () => {
     expect(text).not.toContain('nothing from the build connector');
   });
 
+  it('names a timed-out checks-unanswered as a build that hit its own cap, not a silent connector', () => {
+    const text = needsPersonMarker('checks-unanswered', 'infra/x', 'timed-out: the run for the pushed commit hit its own timeout-minutes');
+    expect(text).toContain('hit its own timeout-minutes');
+    expect(text).toContain('re-run the build');
+    expect(text).not.toContain('nothing from the build connector');
+  });
+
   it('names a blocked worker and asks how it should proceed, without claiming the agent always self-reported', () => {
     const text = needsPersonMarker('blocked', 'infra/x', 'the agent asked whether to drop the migration');
     expect(text).toContain('stopped and cannot proceed on its own');
