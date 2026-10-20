@@ -975,7 +975,7 @@ describe('runWorkerLoop — after the prompt', () => {
               conclusion: 'failure',
               url: 'u',
               startedAt: '',
-              jobs: [{ conclusion: 'cancelled', steps: 0 }],
+              jobs: [{ conclusion: 'cancelled', steps: [] }],
             },
           }),
         },
