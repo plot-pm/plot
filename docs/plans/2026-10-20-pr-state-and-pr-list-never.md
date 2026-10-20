@@ -52,7 +52,7 @@ The fold stays in one place: any new Bitbucket mapping extends `MERGEABLE_OF` or
 
 ### Bitbucket mergeable
 
-- `bug/pr-state-and-pr-list-never` — Measure the Bitbucket conflict endpoints, then fold the answer into `pr-list --rich` and `pr-state`, or document `unknown` and give the desk another signal.
+- `bug/pr-state-and-pr-list-never` — Measure the Bitbucket conflict endpoints, then fold the answer into `pr-list --rich` and `pr-state`, or document `unknown` and give the desk another signal. → #2176
 
 ## Notes
 
