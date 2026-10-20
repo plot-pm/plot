@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bitbucketMergeable, gitSupportsMergeTree } from '../src/rules/bitbucket-mergeable.js';
+import { bitbucketMergeable, foldBitbucketMergeable, gitSupportsMergeTree } from '../src/rules/bitbucket-mergeable.js';
 
 describe('gitSupportsMergeTree', () => {
   it.each([
@@ -40,7 +40,27 @@ describe('bitbucketMergeable', () => {
   it('reports unknown with a reason for an empty base ref', () => {
     expect(bitbucketMergeable({ ...base, baseRef: '', mergeTree: { code: 0 } })).toEqual({
       mergeable: 'unknown',
-      mergeableReason: 'base branch not found in the local clone',
+      mergeableReason: 'no base branch for this pull request',
+    });
+  });
+
+  it('reports unknown naming the base when its fetch failed, even when mergeTree looks clean', () => {
+    expect(bitbucketMergeable({ ...base, baseFetched: false, mergeTree: { code: 0 } })).toEqual({
+      mergeable: 'unknown',
+      mergeableReason: 'fetching origin/main failed, so the local base may be stale',
+    });
+  });
+
+  it('reports unknown naming the head when the head commit is not in the clone', () => {
+    expect(bitbucketMergeable({ ...base, baseFetched: true, headInClone: false })).toEqual({
+      mergeable: 'unknown',
+      mergeableReason: 'head commit abc123 is not in the local clone',
+    });
+  });
+
+  it('reads merge-tree when the fetch succeeded and the head is in the clone', () => {
+    expect(bitbucketMergeable({ ...base, baseFetched: true, headInClone: true, mergeTree: { code: 1 } })).toEqual({
+      mergeable: 'conflicting',
     });
   });
 
@@ -76,5 +96,20 @@ describe('bitbucketMergeable', () => {
     for (const code of [2, 127, 128, null]) {
       expect(bitbucketMergeable({ ...base, mergeTree: { code } }).mergeable).not.toBe('conflicting');
     }
+  });
+});
+
+describe('foldBitbucketMergeable', () => {
+  const input = { headSha: 'abc123', baseRef: 'origin/main', gitVersion: 'git version 2.43.0', mergeTree: { code: 1 } };
+
+  it('folds the reading into an OPEN row', () => {
+    expect(foldBitbucketMergeable({ number: 1, state: 'OPEN', mergeable: 'unknown' }, input)).toEqual({
+      number: 1, state: 'OPEN', mergeable: 'conflicting',
+    });
+  });
+
+  it.each(['MERGED', 'CLOSED', 'NONE'])('returns a %s row unchanged', (state) => {
+    const row = { number: 1, state, mergeable: 'unknown' };
+    expect(foldBitbucketMergeable(row, input)).toBe(row);
   });
 });

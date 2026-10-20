@@ -55,8 +55,20 @@ const adapter = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-h
 // with a Quatico-style version (no sha), and accepts `--help --json` without
 // error. This is because the adapter now checks bb's --json capability before
 // any PR call, and the old stub shape failed that check silently.
+// The Bitbucket `mergeable` fold runs `git fetch origin <base>` for an OPEN
+// row, and this suite runs inside a real checkout: a `git` in every stub
+// directory refuses `fetch`, so no case reaches the network or moves the
+// checkout's `origin/<base>`. Every other git call goes to the real git.
+const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+const offlineGit = (dir) => {
+  writeFileSync(path.join(dir, 'git'),
+    `#!/usr/bin/env bash\n[ "\$1" = fetch ] && { echo 'fatal: offline in host.test.mjs' >&2; exit 128; }\nexec "${realGit}" "$@"\n`);
+  chmodSync(path.join(dir, 'git'), 0o755);
+};
+
 function makeStubs({ ghJson = '{}', bbJson = '{}', ghFail = null, bbFail = null } = {}) {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-')));
+  offlineGit(dir);
   const ghStub = (json, fail) => {
     const argvFile = path.join(dir, 'gh.argv');
     const body = fail != null

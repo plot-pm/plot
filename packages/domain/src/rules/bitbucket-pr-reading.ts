@@ -43,7 +43,7 @@ export interface PrStateRow {
  * field or endpoint that reports merge-conflict status for a pull request
  * (measured 2026-10-20 against the PR object, its diffstat, and its
  * statuses). `plot-host.sh` overlays a real reading from a local
- * `git merge-tree` check afterward, via `bitbucketMergeable`.
+ * `git merge-tree` check afterward, via `foldBitbucketMergeable`.
  *
  * @param pr - the payload, or `null` where the branch has no pull request.
  * @param colours - the branch-colour map, or `null` where it was not read.

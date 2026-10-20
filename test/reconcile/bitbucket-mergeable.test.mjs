@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, chmodSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -210,11 +210,19 @@ test('host: an unreachable head sha reads unknown with a reason, never conflicti
   assert.equal(out.code, 0, out.stderr);
   const row = JSON.parse(out.stdout);
   assert.equal(row.mergeable, 'unknown');
-  assert.ok(row.mergeableReason, 'must name a reason');
-  assert.notEqual(row.mergeable, 'conflicting');
+  assert.equal(row.mergeableReason, 'head commit 0000000000000000000000000000000000dead is not in the local clone');
 });
 
-test('host: a missing base branch reads unknown naming the base, never conflicting', () => {
+test('host: a 12-character head hash, as Bitbucket reports it, still reads mergeable', () => {
+  const sandbox = makeSandboxRepo();
+  const { dir } = makeCountingBbStub(prRow({ id: 24, branch: 'clean-branch', headSha: sandbox.cleanSha.slice(0, 12) }));
+  const out = runInRepo(['pr-state', '24'], { repo: sandbox.workDir, stubDir: dir });
+  assert.equal(out.code, 0, out.stderr);
+  const row = JSON.parse(out.stdout);
+  assert.equal(row.mergeable, 'mergeable', row.mergeableReason);
+});
+
+test('host: a base branch the remote does not have reads unknown naming the base, never conflicting', () => {
   const sandbox = makeSandboxRepo();
   const { dir } = makeCountingBbStub(
     prRow({ id: 21, branch: 'clean-branch', baseBranch: 'does-not-exist', headSha: sandbox.cleanSha }),
@@ -223,7 +231,7 @@ test('host: a missing base branch reads unknown naming the base, never conflicti
   assert.equal(out.code, 0, out.stderr);
   const row = JSON.parse(out.stdout);
   assert.equal(row.mergeable, 'unknown');
-  assert.equal(row.mergeableReason, 'base branch not found in the local clone');
+  assert.equal(row.mergeableReason, 'fetching origin/does-not-exist failed, so the local base may be stale');
 });
 
 test('host: a failed fetch (no origin remote) reads unknown, never conflicting', () => {
@@ -235,6 +243,77 @@ test('host: a failed fetch (no origin remote) reads unknown, never conflicting',
   const row = JSON.parse(out.stdout);
   assert.equal(row.mergeable, 'unknown');
   assert.notEqual(row.mergeable, 'conflicting');
+});
+
+// The remote is unreachable while `origin/main` is still in the clone: the
+// stale ref must not be read, because main may have moved since it was fetched.
+test('host: a failed fetch with a stale origin/<base> still present reads unknown, never mergeable', () => {
+  const sandbox = makeSandboxRepo();
+  execFileSync('git', ['remote', 'set-url', 'origin', path.join(sandbox.workDir, 'no-such-remote.git')], { cwd: sandbox.workDir });
+  execFileSync('git', ['rev-parse', '--verify', 'origin/main'], { cwd: sandbox.workDir });
+  const { dir } = makeCountingBbStub(prRow({ id: 25, branch: 'clean-branch', headSha: sandbox.cleanSha }));
+  const out = runInRepo(['pr-state', '25'], { repo: sandbox.workDir, stubDir: dir });
+  assert.equal(out.code, 0, out.stderr);
+  const row = JSON.parse(out.stdout);
+  assert.equal(row.mergeable, 'unknown');
+  assert.equal(row.mergeableReason, 'fetching origin/main failed, so the local base may be stale');
+});
+
+// A `git` ahead of the real one on PATH that counts `fetch` calls, and refuses
+// every fetch where `failFetch` is set.
+function makeGitSpy({ failFetch = false } = {}) {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-mt-gitspy-')));
+  const log = path.join(dir, 'fetch.log');
+  writeFileSync(path.join(dir, 'git'), `#!/usr/bin/env bash
+if [ "\$1" = fetch ]; then echo "\$*" >> "${log}"; ${failFetch ? 'exit 1' : ':'}; fi
+exec /usr/bin/env PATH="${process.env.PATH}" git "$@"
+`);
+  chmodSync(path.join(dir, 'git'), 0o755);
+  const fetches = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : []);
+  return { dir, fetches };
+}
+
+test('host: pr-list --rich fetches each distinct base once, however many rows name it', () => {
+  const sandbox = makeSandboxRepo();
+  const rows = `[${prRow({ id: 60, branch: 'clean-branch', headSha: sandbox.cleanSha })},`
+    + `${prRow({ id: 61, branch: 'conflict-branch', headSha: sandbox.conflictSha })}]`;
+  const { dir } = makeCountingBbStub(rows);
+  const spy = makeGitSpy();
+  const out = runInRepo(['pr-list', '--rich'], { repo: sandbox.workDir, stubDir: dir, env: { PATH: `${spy.dir}:${dir}:${process.env.PATH}` } });
+  assert.equal(out.code, 0, out.stderr);
+  const byNumber = new Map(out.stdout.trim().split('\n').map((l) => JSON.parse(l)).map((r) => [r.number, r]));
+  assert.equal(byNumber.get(60).mergeable, 'mergeable');
+  assert.equal(byNumber.get(61).mergeable, 'conflicting');
+  assert.deepEqual(spy.fetches(), ['fetch -q origin +refs/heads/main:refs/remotes/origin/main']);
+});
+
+// A `node` ahead of the real one on PATH that fails only the mergeable bundle,
+// so the fold has no reading to overlay.
+function makeBrokenFoldNode() {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-mt-node-')));
+  writeFileSync(path.join(dir, 'node'), `#!/usr/bin/env bash
+case "\$1" in *plot-bitbucket-mergeable.mjs) exit 1 ;; esac
+exec /usr/bin/env PATH="${process.env.PATH}" node "$@"
+`);
+  chmodSync(path.join(dir, 'node'), 0o755);
+  return dir;
+}
+
+test('host: a fold with no reading keeps the pr-state and pr-list --rich rows unchanged', () => {
+  const sandbox = makeSandboxRepo();
+  const { dir } = makeCountingBbStub(`[${prRow({ id: 62, branch: 'clean-branch', headSha: sandbox.cleanSha })}]`);
+  const env = { PATH: `${makeBrokenFoldNode()}:${dir}:${process.env.PATH}` };
+  const list = runInRepo(['pr-list', '--rich'], { repo: sandbox.workDir, stubDir: dir, env });
+  assert.equal(list.code, 0, list.stderr);
+  const row = JSON.parse(list.stdout.trim());
+  assert.equal(row.number, 62);
+  assert.equal(row.mergeable, 'unknown');
+  assert.equal(row.base, undefined);
+
+  const state = runInRepo(['pr-state', 'clean-branch'], { repo: sandbox.workDir, stubDir: dir, env });
+  assert.equal(state.code, 0, state.stderr);
+  assert.equal(JSON.parse(state.stdout).number, 62);
+  assert.equal(JSON.parse(state.stdout).mergeable, 'unknown');
 });
 
 test('host: old git reads unknown even for a cleanly-merging branch, never mergeable', () => {
@@ -290,7 +369,7 @@ test('host: the fold charges no extra bb call — host call count is unchanged',
   assert.ok(bbCallCount(countFile) <= 2, `expected at most 2 bb calls, got ${bbCallCount(countFile)}`);
 });
 
-test('host: the sandbox index and working tree are untouched after every case above', () => {
+test('host: pr-state and pr-list --rich leave a sandbox index and working tree untouched', () => {
   const sandbox = makeSandboxRepo();
   const before = gitStatus(sandbox.workDir);
   const { dir } = makeCountingBbStub(prRow({ id: 50, branch: 'conflict-branch', headSha: sandbox.conflictSha }));
