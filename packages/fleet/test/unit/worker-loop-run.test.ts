@@ -1144,6 +1144,39 @@ describe('runWorkerLoop — after the prompt', () => {
     expect(clock.since).toBeNull();
   });
 
+  it('reads mergeConflictAtEntry from trees.mergeConflict when the host cannot answer mergeable (#2167)', async () => {
+    // Bitbucket Cloud carries no field or endpoint for a PR's merge-conflict
+    // status, so its `pr-state` answers `mergeable: 'unknown'` on every PR.
+    // The desk falls back to a local `git merge-tree` reading through the
+    // trees port rather than trusting a host answer that is never anything
+    // but `unknown` there.
+    const unknownMergeable: Pr = { number: 7, head: BRANCH, state: 'OPEN', mergeable: 'unknown' } as Pr;
+    const r = rig(ASSIGNED, [{}], {}, { host: hostFixture({ prs: [unknownMergeable] }) });
+    const clock = { since: null, pr: null, mergeable: null };
+    const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
+    const readings = await readPass(
+      { ...r.ports, trees: treesFixture({ quiet: { [r.wt]: 5000 }, mergeConflicts: { [r.wt]: 'conflicting' } }) },
+      r.manifestFile,
+      ran,
+      rigConfig(),
+      clock,
+    );
+    expect(readings).toMatchObject({ pushed: true, prOpen: true, pr: 7, mergeable: 'conflicting', mergeConflictAtEntry: true, checks: null });
+    expect(clock.since).toBeNull();
+  });
+
+  it('does not ask trees.mergeConflict when the host already answers mergeable', async () => {
+    const mergeable: Pr = { number: 7, head: BRANCH, state: 'OPEN', mergeable: 'mergeable' } as Pr;
+    const r = rig(ASSIGNED, [{}], {}, { host: hostFixture({ prs: [mergeable] }) });
+    let asked = false;
+    const trees = { ...r.ports.trees, mergeConflict: async () => { asked = true; return { ok: true, value: 'conflicting' as const }; } };
+    const clock = { since: null, pr: null, mergeable: null };
+    const ran = { running: null, exit: { answer: 'ran' as const, status: 0, ranSeconds: 5 }, pushedSha: 'sha-1' } as never;
+    const readings = await readPass({ ...r.ports, trees }, r.manifestFile, ran, rigConfig(), clock);
+    expect(asked).toBe(false);
+    expect(readings).toMatchObject({ mergeable: 'mergeable' });
+  });
+
   it('hands a merge-main-and-push correction back on a conflicting PR, rather than waiting the full Checks wait', async () => {
     const conflicting: Pr = { number: 7, head: BRANCH, state: 'OPEN', mergeable: 'conflicting' } as Pr;
     // The fixture host answers `conflicting` on every ask, so the agent is

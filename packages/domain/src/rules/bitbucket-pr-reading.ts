@@ -27,6 +27,7 @@ export interface PrStateRow {
   base?: string;
   checks?: string;
   checksSha?: string;
+  mergeable?: string;
 }
 
 /**
@@ -37,6 +38,10 @@ export interface PrStateRow {
  * answer), and `none` where Jenkins answered and has no job for the branch. A
  * `bound` entry, read for the head commit by sha, outranks the branch colour,
  * which carries no commit. A branch colour stands unbound with `checksSha: ''`.
+ *
+ * `mergeable` is always `unknown`: Bitbucket Cloud's REST API has no field or
+ * endpoint that reports merge-conflict status for a pull request (measured
+ * 2026-10-20 against the PR object, its diffstat, and its statuses).
  *
  * @param pr - the payload, or `null` where the branch has no pull request.
  * @param colours - the branch-colour map, or `null` where it was not read.
@@ -62,6 +67,7 @@ export const bitbucketPrState = (
     base: pr.destination?.branch?.name ?? '',
     checks,
     checksSha: entry?.checksSha ?? '',
+    mergeable: 'unknown',
   };
 };
 

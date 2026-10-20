@@ -1,3 +1,4 @@
+import type { Mergeability } from '../../entities/pr.js';
 import type { Worktree } from '../../entities/worktree.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { Trees } from '../../ports/trees.js';
@@ -99,6 +100,11 @@ export interface TreesFixture {
    * table reads `unanswerable`, the direction the git adapter fails in.
    */
   claimCommits?: Readonly<Record<string, CommitReading>>;
+  /**
+   * What `mergeConflict` answers, keyed by path. A path absent from the table
+   * reads `unknown`, the direction the git adapter fails in.
+   */
+  mergeConflicts?: Readonly<Record<string, Mergeability>>;
   /** Paths where `resetOnto` refuses — the checkout-failure case. */
   resetRefusedAt?: readonly string[];
   /** Paths where `resetBranch` refuses — the checkout-failure case. */
@@ -227,6 +233,9 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
 
     commitBeyondClaim: async (path) =>
       answered<CommitReading>(fixture.claimCommits?.[path] ?? 'unanswerable'),
+
+    mergeConflict: async (path) =>
+      answered<Mergeability>(fixture.mergeConflicts?.[path] ?? 'unknown'),
 
     currentBranch: async (path) => {
       const branch = branches[path];
