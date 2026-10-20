@@ -47,7 +47,7 @@ The expected shape, from the issue: the advice is true or absent. Where a fetch 
 
 ### Fix
 
-- `bug/merge-commit-not-in-this-clone` — the scan advises a fetch only when a fetch can bring the commit, and otherwise names the reason
+- `bug/merge-commit-not-in-this-clone` — the scan advises a fetch only when a fetch can bring the commit, and otherwise names the reason → #2201
 
 ## Notes
 
