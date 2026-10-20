@@ -49,7 +49,7 @@ The plan states the target behaviour and leaves the choice of mechanism open (se
 
 ### Unbound rows
 
-- `bug/bitbucket-jenkins-pr-list-rows-past` — rows past the lookup cap no longer report a branch colour as their head's checks
+- `bug/bitbucket-jenkins-pr-list-rows-past` — rows past the lookup cap no longer report a branch colour as their head's checks → #2160
 
 ## Notes
 
