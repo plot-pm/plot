@@ -38,7 +38,12 @@
 #                                 Bitbucket Cloud's REST API has no field or
 #                                 endpoint that reports merge-conflict status
 #                                 for a pull request (measured 2026-10-20), so
-#                                 `mergeable` is always "unknown" there.
+#                                 `mergeable` there comes from a local
+#                                 `git merge-tree --write-tree <base> <head>`
+#                                 read instead — the host stays unasked. A
+#                                 missing head/base, a failed fetch, or git
+#                                 older than 2.38 reads "unknown" with a
+#                                 `mergeableReason`, never "conflicting".
 #                                 NONE = no PR found (exit 0 — callers branch on
 #                                 state, not exit codes)
 #   pr-merged <branch>            has ANY PR for this branch merged? prints one
@@ -1816,6 +1821,61 @@ jenkins_bind_rows() {
     done | node "$here/board/plot-jenkins-pr-checks.mjs" bind 2>/dev/null
 }
 
+# Overlays the real `mergeable` reading onto a Bitbucket `pr-state`/`pr-list`
+# row, from a local `git merge-tree --write-tree` check — Bitbucket Cloud's
+# REST API has no field for this (see `bitbucket-pr-reading.ts`). $1 = the row
+# JSON, already carrying `mergeable:"unknown"`, `headSha` and `base`.
+#
+# A MERGED or CLOSED row keeps `unknown` and runs no git call: `git merge-tree`
+# answers "would this merge now", which is meaningless for a PR already
+# settled one way or the other, and the host already answered `state` for it.
+#
+# THE HOST STAYS UNASKED. Both inputs below are local: `base` came from the
+# payload `bb_state_row`'s caller already fetched, and `git fetch` is a plain
+# git read, not a host CLI call — `scripts/check-host-cli-callers.sh` gates
+# `gh`/`bb` calls only. A fetch failure (no network, base deleted upstream)
+# answers `unknown` with a reason rather than guessing.
+bb_fold_mergeable() {
+  local row="$1" state head base reading
+  state="$(jq -r '.state' <<<"$row")"
+  # NONE has no pull request to ask about, and MERGED/CLOSED are already
+  # settled — both keep the row exactly as built, with no `mergeable` key
+  # where none existed (`pr-state branch NONE carries mergeCommit`) and
+  # `unknown` where `bitbucketPrState` already wrote it.
+  if [ "$state" = "NONE" ] || [ "$state" = "MERGED" ] || [ "$state" = "CLOSED" ]; then
+    printf '%s' "$row"
+    return
+  fi
+  head="$(jq -r '.headSha // ""' <<<"$row")"
+  base="$(jq -r '.base // ""' <<<"$row")"
+  local base_ref="" mt_code="" mt_err="" mt_err_file
+  if [ -n "$base" ]; then
+    git fetch -q origin "$base" "$head" 2>/dev/null
+    git rev-parse --verify -q "origin/$base" >/dev/null 2>&1 && base_ref="origin/$base"
+  fi
+  if [ -n "$head" ] && [ -n "$base_ref" ] && git cat-file -e "$head" 2>/dev/null; then
+    plot_tmpfile mt_err_file host-mergetree || return 3
+    git merge-tree --write-tree "$base_ref" "$head" >/dev/null 2>"$mt_err_file"
+    mt_code=$?
+    mt_err="$(cat "$mt_err_file" 2>/dev/null)"
+  fi
+  reading="$(printf '%s\n%s\n%s\n%s\n%s\n' "$head" "$base_ref" "$(git --version 2>/dev/null)" "$mt_code" "$mt_err" \
+    | node "$here/board/plot-bitbucket-mergeable.mjs")"
+  jq -c --argjson r "$reading" '. + $r' <<<"$row"
+}
+
+# `pr-list --rich`'s per-line fold: each stdin line is a row carrying a
+# temporary `base` key (the destination branch, added only so this can run
+# `bb_fold_mergeable`), stripped again before the row reaches a caller — the
+# documented `--rich` shape gains no new field.
+bb_fold_mergeable_stream() {
+  local line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    bb_fold_mergeable "$line" | jq -c 'del(.base)'
+  done
+}
+
 # Prints the `pr-state` row of the Bitbucket PR payload $1 (`null` for no PR).
 #
 # Without `CI: jenkins` the check is `unknown`, absent and not false, as in
@@ -1824,6 +1884,12 @@ jenkins_bind_rows() {
 # `green` or `failing` is read by sha through `jenkins_bind_rows`, because a
 # colour carries no commit. Jenkins unreachable or no instance reads `unknown`.
 # `headSha` is `source.commit.hash`, a short hash `jenkins_sha_runs` prefix-matches.
+#
+# `mergeable` ARRIVES FROM `bitbucketPrState()` ALREADY `"unknown"`; this folds
+# the real reading on top via `bb_fold_mergeable`, a separate step so the two
+# concerns — the row's shape, and whether it merges cleanly — stay on
+# different lines (`bug/pr-state-and-pr-merged-miss` touches the state-walk
+# loop that builds $1, not this tail).
 bb_state_row() {
   local colours=null bound=null inst
   if jq -e '.id' >/dev/null 2>&1 <<<"$1" && [ "$(ci_scheme)" = "jenkins" ]; then
@@ -1831,7 +1897,7 @@ bb_state_row() {
     [ -z "$inst" ] || colours="$(jenkins_build_map "$inst" | jq -c 'if .status == "ok" then (.map // {}) else null end' 2>/dev/null)" || colours=null
     [ "$colours" = null ] || bound="$(jenkins_bind_rows pr-state "$colours" "$(jq -c '[{headRefName:.source.branch.name,headRefOid:.source.commit.hash}]' <<<"$1")")"
   fi
-  printf '%s\n%s\n%s\n' "$(jq -c . <<<"$1")" "$colours" "${bound:-null}" | node "$here/board/plot-jenkins-pr-checks.mjs" state
+  bb_fold_mergeable "$(printf '%s\n%s\n%s\n' "$(jq -c . <<<"$1")" "$colours" "${bound:-null}" | node "$here/board/plot-jenkins-pr-checks.mjs" state)"
 }
 
 ci_unaskable() { # $1 = the op's name, $2 = the CI word (may be empty)
@@ -4494,14 +4560,21 @@ case "$op" in
                   url:(.links.html.href // ""),
                   updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),checksSha:($jentry.checksSha // ""),
                   author:(.author.nickname // ""),
-                  failing_checks:(if $jentry != null and $jentry.checks == "failing" then [$jentry.job] else [] end)
-                } + (if $jstatus == "ok" and $ambiguous and $jentry == null then {checksLookup:"skipped"} else {} end)' "${bb_cmd[@]}" || exit $?
+                  failing_checks:(if $jentry != null and $jentry.checks == "failing" then [$jentry.job] else [] end),
+                  base:(.destination.branch.name // "")
+                } + (if $jstatus == "ok" and $ambiguous and $jentry == null then {checksLookup:"skipped"} else {} end)' "${bb_cmd[@]}" \
+            | bb_fold_mergeable_stream
+          _bb_rc=${PIPESTATUS[0]}
           PR_LIST_BIND_FN=""
+          [ "$_bb_rc" = 0 ] || exit "$_bb_rc"
         else
           # Bitbucket without Jenkins: checks remain unknown
           pr_list_states bitbucket "$limit" "$bb_states" \
-            '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),author:(.author.nickname // ""),failing_checks:[]}' \
-            "${bb_cmd[@]}" || exit $?
+            '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),author:(.author.nickname // ""),failing_checks:[],base:(.destination.branch.name // "")}' \
+            "${bb_cmd[@]}" \
+            | bb_fold_mergeable_stream
+          _bb_rc=${PIPESTATUS[0]}
+          [ "$_bb_rc" = 0 ] || exit "$_bb_rc"
         fi
       else
         pr_list_states bitbucket "$limit" "$bb_states" \
