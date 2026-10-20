@@ -2253,11 +2253,7 @@ bb_strip_ansi() {
 # means. Reads the already-stripped, already-lowercased error text.
 bb_issue_exit_code() {
   local err="$1"
-  if LC_ALL=C grep -qiE 'are you sure this is a bitbucket repo|\b40[34]\b|not found|no issue tracker|issue tracker.*(disabled|not enabled)|repository not found' <<<"$err"; then
-    echo 4
-  else
-    echo 3
-  fi
+  LC_ALL=C grep -qiE 'are you sure this is a bitbucket repo|\b40[34]\b|not found|no issue tracker|issue tracker.*(disabled|not enabled)|repository not found' <<<"$err" && echo 4 || echo 3
 }
 
 # Assert the format the parse below was written against. `bb` puts its version
@@ -2275,27 +2271,17 @@ bb_issue_exit_code() {
 # about issues, which is exit 4 — the same answer as a disabled tracker. Any
 # other help text keeps the refusal below, exit 3. Exits 4 or 3; 0 passes.
 #
-# THE ADVICE TO DECLARE `Tracker` FITS ONLY WHERE NOBODY DECLARED ONE YET. A
-# repository with `Tracker: plot` is already asking its git host for issues
-# (`issueSource` reads `plot` the same as an absent key) — telling it to
-# declare the key it declared would mislead rather than fix anything. Whether
-# the advice belongs is a decision over the declared value, so it is asked of
-# the domain (`board/plot-issue-source.mjs --bb-issue-missing`) rather than
-# re-read here: `issue_source` already reads this repository's `Tracker` and
-# a second reading is the drift `an-outage-is-not-an-answer` names.
+# The `Tracker` advice below fits only where nobody declared one — asked of
+# the domain (`--bb-issue-missing`) rather than re-read here, since this is
+# the same declared value `issue_source` already read. A failed ask keeps
+# the advice: naming `Tracker` to a repository that declared one is
+# harmless, dropping it for one that has not would hide the fix.
 bb_assert_issue_version() {
   [ -n "${PLOT_BB_SKIP_VERSION_CHECK:-}" ] && return 0
-  local v
-  v="$(bb --version 2>/dev/null | bb_strip_ansi | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  local v="$(bb --version 2>/dev/null | bb_strip_ansi | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   if [ "$v" != "$BB_ISSUE_VERSION" ]; then
     if bb_lacks_issue_command; then
-      local missing
-      # A bundle that cannot be asked still means *bb lacks the command* —
-      # that part is certain from `bb_lacks_issue_command` alone. Only the
-      # ADVICE is uncertain, so a failed ask keeps it: mentioning `Tracker` to
-      # a repository that already declared one is harmless, where dropping it
-      # for one that has not would hide the fix.
-      missing="$(tracker_raw | node "$here/board/plot-issue-source.mjs" --bb-issue-missing 2>/dev/null)" || missing=''
+      local missing="$(tracker_raw | node "$here/board/plot-issue-source.mjs" --bb-issue-missing 2>/dev/null)"
       [ -n "$missing" ] || missing="bb lists no issue command — Quatico bb has none, unlike craftamap/bb — so this repository's issues cannot be read through it; declare the issue tracker with the \`Tracker\` config key"
       echo "plot-host: bb ${v:-unknown} $missing" >&2
       return 4
