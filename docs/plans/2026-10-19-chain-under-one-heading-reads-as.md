@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2095 merged
 - **Started:** 2026-10-19, Jan Wloka, `bug/a-waits-chain-is-a-cut-slice-sequence`
+- **Started:** 2026-10-20, Jan Wloka, `bug/an-unmerged-waits-target-blocks-eligibility`
 
 ## Changelog
 
