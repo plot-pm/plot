@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync, rmSync, cpSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync, rmSync, cpSync, readdirSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -8123,14 +8123,40 @@ exit 9
   return { dir, argvFile };
 }
 
-// `node` must stay reachable (`_plot_landed` shells to it), so the exclusion
-// is targeted — every directory on the real PATH that resolves a `gh`
-// executable is dropped, and nothing else.
+// DROPPING A WHOLE DIRECTORY IS WRONG WHEN `gh` SHARES ONE WITH `bash` ITSELF.
+// On GitHub's `ubuntu-latest` runners `gh` ships via apt into `/usr/bin`,
+// the same directory as `bash`, `env` and `grep` — so filtering out any
+// directory containing `gh` (the prior approach) left `spawnSync('bash', …)`
+// unable to resolve `bash` at all: `status: null`, `error.code: 'ENOENT'`,
+// which is indistinguishable from a real test failure in the TAP summary.
+// Measured 2026-10-20, CI run 39456622654.
+//
+// So the exclusion is a symlink farm, not a directory list: every executable
+// reachable on the real PATH is linked into one fresh directory, except `gh`
+// itself. `bash`, `env`, `node` (`_plot_landed` shells to it) and everything
+// else stay resolvable; only `gh` is gone.
 function pathWithoutGh() {
-  return process.env.PATH
-    .split(':')
-    .filter((dir) => dir && !existsSync(path.join(dir, 'gh')))
-    .join(':');
+  const farm = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-no-gh-')));
+  for (const dir of process.env.PATH.split(':')) {
+    if (!dir) continue;
+    let entries;
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of entries) {
+      if (name === 'gh') continue;
+      const dest = path.join(farm, name);
+      if (existsSync(dest)) continue;
+      try {
+        symlinkSync(path.join(dir, name), dest);
+      } catch {
+        // A broken source link or a races-with-itself name — skip it.
+      }
+    }
+  }
+  return farm;
 }
 
 test('plot-pr-merged: a Bitbucket branch with a merged PR reads as merged, with no gh on PATH', () => {
