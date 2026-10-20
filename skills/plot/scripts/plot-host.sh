@@ -553,6 +553,10 @@ ISSUE_PAGE_ROWS=100
 # that failed, as opposed to exit 4 (cannot be asked) or an answered empty list.
 # An empty message or a recognised lookup miss is an answer; anything else exits 3.
 miss_or_exit3() { [ -z "$1" ] || is_lookup_miss "$1" || { echo "plot-host: $1" >&2; exit 3; }; }
+# `pr-merged`'s own third value for a failed call: a lookup miss still means
+# not-merged, anything else prints the host's words and answers `unknown`
+# rather than exiting — the caller already branches on this word, not a code.
+miss_or_unknown() { if [ -z "$1" ] || is_lookup_miss "$1"; then echo "not-merged"; else echo "plot-host: $1" >&2; echo "unknown"; fi; }
 gh_fail() { echo "plot-host: $(cat "$HOST_ERR" 2>/dev/null)" >&2; rm -f "$HOST_ERR"; exit 3; }
 
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
@@ -1011,6 +1015,13 @@ bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values
   _out="$(bb "$@" api "$_path")" || return $?
   printf '%s' "$_out" | jq -c '.values // []'
 }
+
+# A FULL `bb_branch_query` PAGE WITH NO MATCHING ROW CANNOT PROVE ABSENCE.
+# $1=the JSON array, $2=a jq `any(.[]; …)` predicate naming the field that
+# would carry the answer. True only at the 50-row ceiling with the predicate
+# finding nothing — the one condition `pr-merged`, `pr-merge-commit` and
+# `pr-merged-heads` each guard against before reading silence as a negative.
+bb_full_page_lacks() { [ "$(jq 'length' <<<"$1")" -ge 50 ] && ! jq -e "$2" >/dev/null 2>&1 <<<"$1"; }
 
 # Ask about EVERY tracked branch in one state, printing one combined array.
 #
@@ -3750,14 +3761,16 @@ case "$op" in
         # cannot see past its first 50 rows — `pr-merged`'s header has the
         # measurement. `bb_states_for all` still expands to three calls because
         # `bb pr list` (and this REST filter) has no `all` state.
-        out=""; bb_rc=0; bb_full=0
+        #
+        # NO "FULL PAGE, NO MATCH" GUARD HERE, unlike the single-state arms
+        # below. The loop breaks on the first non-empty page, and every row in
+        # it already matches `$ref` — `bb_branch_query` filtered server-side —
+        # so a full page is 50 real answers, never a truncated non-match. The
+        # condition the other arms guard against cannot occur in this walk.
+        out=""; bb_rc=0
         bb_all_states="$(bb_states_for all)" || exit 1
         for _s in $bb_all_states; do
           if _part="$(bb_branch_query "$ref" "$_s" ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
-            # A FULL PAGE CANNOT PROVE ABSENCE for THIS state — the branch could
-            # carry more than 50 PRs in it. Noted and the walk continues; it only
-            # matters if no later state answers positively either.
-            [ "$(jq 'length' <<<"$_part")" -ge 50 ] && bb_full=1
             out="$out$_part"
             [ "$(jq 'length' <<<"$_part")" -gt 0 ] && break
           else
@@ -3767,10 +3780,6 @@ case "$op" in
         if [ "$bb_rc" = 0 ]; then
           rm -f "$HOST_ERR"
           out="$(jq -c -s 'add // []' <<<"$out")"
-          if [ "$(jq 'length' <<<"$out")" = 0 ] && [ "$bb_full" = 1 ]; then
-            echo "plot-host: pr-state: a branch query for '$ref' returned a full page with no match; cannot prove absence" >&2
-            exit 3
-          fi
           # THE BRANCH ARM CARRIES `mergeCommit` TOO, and it is the path that
           # matters most: `plot-pr-state.sh:33` asks `pr-state "idea/${SLUG}"` —
           # a branch, not a number — and `:47` reads `.mergeCommit // empty`
@@ -3818,23 +3827,10 @@ case "$op" in
         # is not the merge, exactly as the state is not the merge.
         if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt 2>"$HOST_ERR")"; then
           rm -f "$HOST_ERR"
-          if jq -e 'any(.[]; .mergedAt != null)' >/dev/null 2>&1 <<<"$out"; then
-            echo "merged"
-          else
-            echo "not-merged"
-          fi
+          jq -e 'any(.[]; .mergedAt != null)' >/dev/null 2>&1 <<<"$out" && echo "merged" || echo "not-merged"
         else
           err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
-          # A LOOKUP MISS IS AN ANSWER — the branch has no PR, so nothing merged.
-          # Anything else is the host failing to be asked, and that is `unknown`
-          # rather than exit 3: the caller asked a question with a third value
-          # for exactly this case, and the answer fails safe toward keeping.
-          if [ -z "$err" ] || is_lookup_miss "$err"; then
-            echo "not-merged"
-          else
-            echo "plot-host: $err" >&2
-            echo "unknown"
-          fi
+          miss_or_unknown "$err"
         fi
       else
         bb_require_json
@@ -3852,26 +3848,13 @@ case "$op" in
           # and a branch carrying more than 50 merged PRs could hide a MERGED row
           # past it — so 50 rows with none matching answers `unknown`, not
           # `not-merged`, the same rule a failed call follows below.
-          got="$(jq 'length' <<<"$out")" || got=0
-          if jq -e 'any(.[]; .state == "MERGED")' >/dev/null 2>&1 <<<"$out"; then
-            echo "merged"
-          elif [ "$got" -ge 50 ]; then
-            echo "plot-host: pr-merged: the branch query for '$ref' returned a full page with no merged PR; cannot prove absence" >&2
-            echo "unknown"
-          else
-            echo "not-merged"
+          if jq -e 'any(.[]; .state == "MERGED")' >/dev/null 2>&1 <<<"$out"; then echo "merged"
+          elif bb_full_page_lacks "$out" 'any(.[]; .state == "MERGED")'; then echo "plot-host: pr-merged: the branch query for '$ref' returned a full page with no merged PR; cannot prove absence" >&2; echo "unknown"
+          else echo "not-merged"
           fi
         else
           err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
-          # ERROR CLASSIFICATION TRAVELS UNTOUCHED. `bb_branch_query` prints no
-          # classification on purpose, so the raw stderr is read here exactly as
-          # the old listing-based call was.
-          if [ -z "$err" ] || is_lookup_miss "$err"; then
-            echo "not-merged"
-          else
-            echo "plot-host: $err" >&2
-            echo "unknown"
-          fi
+          miss_or_unknown "$err"
         fi
       fi
     fi
@@ -3927,11 +3910,7 @@ case "$op" in
       # `merge_commit.hash` on a merged PR.
       if out="$(bb_branch_query "$ref" merged ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        got="$(jq 'length' <<<"$out")" || got=0
-        if [ "$got" -ge 50 ] && ! jq -e 'any(.[]; .merge_commit.hash != null)' >/dev/null 2>&1 <<<"$out"; then
-          echo "plot-host: pr-merge-commit: the branch query for '$ref' returned a full page with no merge commit; cannot prove absence" >&2
-          exit 3
-        fi
+        bb_full_page_lacks "$out" 'any(.[]; .merge_commit.hash != null)' && { echo "plot-host: pr-merge-commit: the branch query for '$ref' returned a full page with no merge commit; cannot prove absence" >&2; exit 3; }
         jq -r 'map(.merge_commit.hash // empty) | first // empty' <<<"$out"
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
@@ -3974,11 +3953,7 @@ case "$op" in
       # `source.commit.hash`.
       if out="$(bb_branch_query "$ref" merged ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        got="$(jq 'length' <<<"$out")" || got=0
-        if [ "$got" -ge 50 ] && ! jq -e 'any(.[]; .source.commit.hash != null)' >/dev/null 2>&1 <<<"$out"; then
-          echo "plot-host: pr-merged-heads: the branch query for '$ref' returned a full page with no merged head; cannot prove absence" >&2
-          exit 3
-        fi
+        bb_full_page_lacks "$out" 'any(.[]; .source.commit.hash != null)' && { echo "plot-host: pr-merged-heads: the branch query for '$ref' returned a full page with no merged head; cannot prove absence" >&2; exit 3; }
         jq -r '.[] | (.source.commit.hash // empty)' <<<"$out" || exit 3
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
