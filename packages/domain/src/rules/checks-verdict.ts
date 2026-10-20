@@ -164,29 +164,58 @@ export const runWasNotAcquired = (run: ShaRun): boolean => {
 };
 
 /**
+ * The shortest elapsed time, in milliseconds, a job must have run before its
+ * `cancelled` conclusion is read as a `timeout-minutes` cap rather than a
+ * concurrency supersession.
+ *
+ * MEASURED, NOT GUESSED. Wave 1 sampled no superseded run; this slice forced
+ * one and measured three superseded jobs cancelled 53–91 s after they
+ * started (run `39363175090`, 2026-10-20), against two confirmed
+ * `timeout-minutes: 25` runs that each ran ~25 minutes before GitHub cut them
+ * off (runs `39357335917` and `39357617553`, same day). The repo's lowest
+ * job-level `timeout-minutes` is 10 (`.github/workflows/ci.yml`). Five
+ * minutes sits an order of magnitude above the measured supersessions and
+ * half the measured floor, with room on both sides.
+ */
+const MIN_TIMEOUT_MS = 5 * 60 * 1000;
+
+/**
  * Whether a cancelled run is evidence of a job that hit its own
  * `timeout-minutes`, rather than a real failure or a run GitHub cancelled
  * before any step started (a concurrency supersession).
  *
- * THE FINGERPRINT, MEASURED ACROSS 4 SAMPLED TIMEOUTS (wave 1, see the plan):
- * one or more steps conclude `success` (or `skipped`, for a pre-dispatch
- * guard step), then exactly one step concludes `cancelled` — the step
- * running when the cap fired — then every remaining step concludes
- * `skipped`. A supersession cancels the run before any step starts, so every
- * step there reads `skipped` with none `success` and none `cancelled` —
- * distinguishable from a timeout by the absence of a `success` step ahead of
- * the lone `cancelled` one.
+ * THE STEP FINGERPRINT ALONE DOES NOT WORK — measured, not assumed. Wave 1's
+ * hypothesis was that a supersession cancels a run before any step starts, so
+ * every step there would read `skipped` with none `success` and none
+ * `cancelled`, distinguishable from a timeout's "some `success`, then one
+ * `cancelled`, then the rest `skipped`". This slice forced a real
+ * supersession to check that hypothesis (brief's own instruction) and found
+ * it false: GitHub always appends "Post " cleanup steps (checkout, setup-node
+ * teardown, …) that read `success` at job teardown REGARDLESS of why the job
+ * was cancelled. A confirmed supersession and a confirmed timeout produced
+ * the IDENTICAL step shape — `success*, cancelled, skipped*, success*` — on
+ * real data (2026-10-20). A pure `steps[].conclusion` reading cannot tell
+ * them apart; see `MIN_TIMEOUT_MS` for the reading that does.
  *
- * ABSENT `jobs` NEVER READS AS A TIMEOUT, for the same reason
- * {@link runWasNotAcquired} never reads it as "no steps": a run the collector
- * did not fetch job facts for answers false here, not true.
+ * THE FINGERPRINT PLUS ELAPSED TIME. A job carries the shape above AND ran
+ * for at least {@link MIN_TIMEOUT_MS} before its `cancelled` step concluded —
+ * read from the job's own `startedAt`/`completedAt`, already present in the
+ * same `gh run view --json jobs` response {@link runWasNotAcquired} reads, no
+ * second API call. A supersession's near-instant cancellation fails this
+ * bound; a real timeout clears it by a wide margin.
+ *
+ * ABSENT `jobs`, OR ABSENT TIMING, NEVER READS AS A TIMEOUT, for the same
+ * reason {@link runWasNotAcquired} never reads absent `jobs` as "no steps": a
+ * run the collector did not fetch job facts for, or a job whose `startedAt`
+ * or `completedAt` the system did not report, answers false here, not true.
  *
  * ONE JOB IS ENOUGH. A run with several jobs where only one hit its own cap
  * is a timeout for the agent's purposes — the pushed commit's build did not
  * reach a clean conclusion either way.
  *
  * @param run - the run to read.
- * @returns true when at least one job's steps carry the timeout fingerprint.
+ * @returns true when at least one job's steps and elapsed time together carry
+ *   the timeout fingerprint.
  */
 export const runWasTimedOut = (run: ShaRun): boolean => {
   if (run.conclusion !== 'cancelled') return false;
@@ -196,7 +225,12 @@ export const runWasTimedOut = (run: ShaRun): boolean => {
     if (cancelledAt === -1) return false;
     const before = job.steps.slice(0, cancelledAt);
     const after = job.steps.slice(cancelledAt + 1);
-    return before.some((s) => s === 'success') && after.every((s) => s === 'skipped');
+    if (!before.some((s) => s === 'success')) return false;
+    if (!after.every((s) => s === 'skipped' || s === 'success')) return false;
+    if (job.startedAt === null || job.startedAt === undefined) return false;
+    if (job.completedAt === null || job.completedAt === undefined) return false;
+    const elapsedMs = Date.parse(job.completedAt) - Date.parse(job.startedAt);
+    return Number.isFinite(elapsedMs) && elapsedMs >= MIN_TIMEOUT_MS;
   });
 };
 

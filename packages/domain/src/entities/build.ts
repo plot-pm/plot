@@ -156,23 +156,37 @@ export interface ShaRun {
   /** When it started, ISO-8601 as the system reported it; `''` when absent. */
   startedAt: string;
   /**
-   * Each job's own conclusion and the verbatim conclusion of every one of its
-   * steps, for a run that concluded `failure` or `cancelled`; `undefined`
-   * where the collector did not report it (a run still going or that
-   * succeeded, or a CI system other than GitHub Actions).
+   * Each job's own conclusion, start/completion time and the verbatim
+   * conclusion of every one of its steps, for a run that concluded `failure`
+   * or `cancelled`; `undefined` where the collector did not report it (a run
+   * still going or that succeeded, or a CI system other than GitHub Actions).
    *
    * ABSENT IS NOT EMPTY. A rule reading this field for "every failed job ran
    * 0 steps" must tell a run with no `jobs` reading apart from a run whose
    * `jobs` array is empty — the first has not been measured and the second
    * has been measured as having none, which are different facts.
    *
-   * STEPS CARRY THEIR OWN CONCLUSION, NOT A COUNT. `runWasTimedOut` reads the
-   * fingerprint of a job that hit its own `timeout-minutes` — one or more
-   * steps `success`, then exactly one `cancelled`, then the rest `skipped` —
-   * which a bare count cannot tell apart from a job GitHub cancelled before
-   * any step ran.
+   * STEPS CARRY THEIR OWN CONCLUSION, NOT A COUNT. `runWasNotAcquired` reads
+   * a bare count; `runWasTimedOut` cannot, because GitHub always appends
+   * "Post " cleanup steps that read `success` at job teardown regardless of
+   * why the job was cancelled — measured on three real runs (2026-10-20): a
+   * confirmed `timeout-minutes` cap and a confirmed concurrency supersession
+   * both produced the identical shape `success*, cancelled, skipped*,
+   * success*`. The step fingerprint alone cannot tell them apart; see
+   * `runWasTimedOut` for the elapsed-time reading that does.
+   *
+   * `startedAt`/`completedAt` ARE THAT READING. Both are ISO-8601 as GitHub
+   * reports them, `undefined`/`null` where the job never started or has not
+   * finished, or where a caller building a fixture does not care about timing
+   * — read from the same `gh run view --json jobs` call the step fingerprint
+   * already pays for, never a second API call.
    */
-  jobs?: readonly { conclusion: string | null; steps: readonly (string | null)[] }[];
+  jobs?: readonly {
+    conclusion: string | null;
+    startedAt?: string | null;
+    completedAt?: string | null;
+    steps: readonly (string | null)[];
+  }[];
 }
 
 /**

@@ -4657,7 +4657,7 @@ case "$op" in
     # Slurped via stdin, never `--argjson`: that flag caps at 128 KB on Linux.
     _gh_jobs=$(gh run view "$_gh_db_id" --json jobs 2>/dev/null) || { echo "plot-host: run-for-sha — gh run view failed" >&2; exit 4; }
     jq -n -c --slurpfile match <(printf '%s' "$_gh_match") --slurpfile run <(printf '%s' "$_gh_jobs") \
-      '$match[0] + {jobs: [$run[0].jobs[] | {conclusion, steps: [.steps[].conclusion]}]}' || exit 4
+      '$match[0] + {jobs: [$run[0].jobs[] | {conclusion, startedAt, completedAt, steps: [.steps[].conclusion]}]}' || exit 4
     ;;
 
   issue-list)

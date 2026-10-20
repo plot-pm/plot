@@ -158,12 +158,22 @@ describe('checksFromRuns — the loop asking its own CI wait', () => {
   });
 
   it('settles a run whose cancelled job carries the timeout fingerprint — the motivating bug', () => {
-    // wave 1 measured this shape across all 4 sampled timeouts: one or more
-    // `success` steps, then exactly one `cancelled` (the step running when
-    // the cap fired), then the rest `skipped`.
+    // Real shape, measured on a confirmed timeout (run 39357335917,
+    // 2026-10-20): some `success` steps, one `cancelled` (the step running
+    // when the 25-minute cap fired), `skipped` steps, then `success` again —
+    // GitHub's own "Post " cleanup steps, which run regardless of why the job
+    // was cancelled. Elapsed time (25m21s here) is what the fingerprint alone
+    // cannot supply.
     const timedOut = {
       ...concludedRun(PUSHED, 'cancelled'),
-      jobs: [{ conclusion: 'cancelled', steps: ['success', 'success', 'cancelled', 'skipped', 'skipped'] }],
+      jobs: [
+        {
+          conclusion: 'cancelled',
+          startedAt: '2026-10-20T02:09:01Z',
+          completedAt: '2026-10-20T02:34:22Z',
+          steps: ['success', 'success', 'cancelled', 'skipped', 'skipped', 'success', 'success'],
+        },
+      ],
     };
     expect(checksFromRuns({ ...base, run: timedOut })).toBe('settled');
   });
@@ -172,15 +182,30 @@ describe('checksFromRuns — the loop asking its own CI wait', () => {
     // The naive patch this test is written to catch: treating every
     // `cancelled` run as settled would also settle a host-outage run
     // `runWasNotAcquired` exists to keep unsettled (#1295).
-    const notAcquired = { ...concludedRun(PUSHED, 'cancelled'), jobs: [{ conclusion: 'cancelled', steps: [] }] };
+    const notAcquired = {
+      ...concludedRun(PUSHED, 'cancelled'),
+      jobs: [{ conclusion: 'cancelled', startedAt: null, completedAt: null, steps: [] }],
+    };
     expect(checksFromRuns({ ...base, run: notAcquired })).toBe('wait');
     expect(checksFromRuns({ ...base, run: notAcquired, waitedSeconds: 3600 })).toBe('no-answer');
   });
 
-  it('does not settle a concurrency-superseded run — every step skipped, none success or cancelled', () => {
+  it('does not settle a concurrency-superseded run — same step shape as a timeout, too little elapsed time', () => {
+    // Real shape, measured on a confirmed supersession (run 39363175090,
+    // 2026-10-20): the step fingerprint is IDENTICAL to a real timeout once
+    // "Post " cleanup steps are accounted for — `success*, cancelled,
+    // skipped*, success*`. What differs is elapsed time: 53 s here against
+    // 25+ minutes for a real timeout.
     const superseded = {
       ...concludedRun(PUSHED, 'cancelled'),
-      jobs: [{ conclusion: 'cancelled', steps: ['skipped', 'skipped', 'skipped'] }],
+      jobs: [
+        {
+          conclusion: 'cancelled',
+          startedAt: '2026-10-20T03:14:19Z',
+          completedAt: '2026-10-20T03:15:12Z',
+          steps: ['success', 'success', 'success', 'success', 'success', 'success', 'success', 'cancelled', 'skipped', 'success', 'success', 'success'],
+        },
+      ],
     };
     expect(checksFromRuns({ ...base, run: superseded })).toBe('wait');
     expect(checksFromRuns({ ...base, run: superseded, waitedSeconds: 3600 })).toBe('no-answer');
@@ -188,6 +213,9 @@ describe('checksFromRuns — the loop asking its own CI wait', () => {
 });
 
 describe('runWasTimedOut — a cancelled run whose job hit its own timeout-minutes', () => {
+  const timing = { startedAt: '2026-10-04T12:00:00Z', completedAt: '2026-10-04T12:25:00Z' };
+  const tooShort = { startedAt: '2026-10-04T12:00:00Z', completedAt: '2026-10-04T12:00:53Z' };
+
   it('answers false for a running or successful run', () => {
     expect(runWasTimedOut(runningRun(PUSHED))).toBe(false);
     expect(runWasTimedOut(concludedRun(PUSHED, 'success'))).toBe(false);
@@ -197,7 +225,7 @@ describe('runWasTimedOut — a cancelled run whose job hit its own timeout-minut
     expect(
       runWasTimedOut({
         ...concludedRun(PUSHED, 'failure'),
-        jobs: [{ conclusion: 'failure', steps: ['success', 'failure'] }],
+        jobs: [{ conclusion: 'failure', ...timing, steps: ['success', 'failure'] }],
       }),
     ).toBe(false);
   });
@@ -206,37 +234,71 @@ describe('runWasTimedOut — a cancelled run whose job hit its own timeout-minut
     expect(runWasTimedOut(concludedRun(PUSHED, 'cancelled'))).toBe(false);
   });
 
-  it('answers true for the measured fingerprint: success(es), one cancelled, then all skipped', () => {
+  it('answers true for the measured fingerprint run long enough: success(es), one cancelled, then skipped/success', () => {
     expect(
       runWasTimedOut({
         ...concludedRun(PUSHED, 'cancelled'),
-        jobs: [{ conclusion: 'cancelled', steps: ['success', 'success', 'cancelled', 'skipped', 'skipped'] }],
+        jobs: [
+          {
+            conclusion: 'cancelled',
+            ...timing,
+            steps: ['success', 'success', 'cancelled', 'skipped', 'skipped', 'success'],
+          },
+        ],
       }),
     ).toBe(true);
   });
 
   it('answers false for a not-acquired run — no success step precedes the cancelled one', () => {
     expect(
-      runWasTimedOut({ ...concludedRun(PUSHED, 'cancelled'), jobs: [{ conclusion: 'cancelled', steps: [] }] }),
-    ).toBe(false);
-  });
-
-  it('answers false for a supersession — every step skipped, none success or cancelled', () => {
-    expect(
       runWasTimedOut({
         ...concludedRun(PUSHED, 'cancelled'),
-        jobs: [{ conclusion: 'cancelled', steps: ['skipped', 'skipped', 'skipped'] }],
+        jobs: [{ conclusion: 'cancelled', startedAt: null, completedAt: null, steps: [] }],
       }),
     ).toBe(false);
   });
 
-  it('answers false when a step after the cancelled one is not skipped', () => {
+  it('answers false for a supersession — the identical step shape, but cancelled too soon to be a timeout', () => {
+    // Measured on real data (2026-10-20): a confirmed supersession produces
+    // the SAME step shape as a confirmed timeout once "Post " steps are
+    // counted. Elapsed time is the only signal that tells them apart.
+    expect(
+      runWasTimedOut({
+        ...concludedRun(PUSHED, 'cancelled'),
+        jobs: [
+          {
+            conclusion: 'cancelled',
+            ...tooShort,
+            steps: ['success', 'success', 'cancelled', 'skipped', 'success'],
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it('answers false when a step after the cancelled one is neither skipped nor success', () => {
     // Two jobs cancelled independently, or a shape wave 1 did not measure —
     // refuse the fingerprint rather than guess.
     expect(
       runWasTimedOut({
         ...concludedRun(PUSHED, 'cancelled'),
-        jobs: [{ conclusion: 'cancelled', steps: ['success', 'cancelled', 'cancelled'] }],
+        jobs: [{ conclusion: 'cancelled', ...timing, steps: ['success', 'cancelled', 'cancelled'] }],
+      }),
+    ).toBe(false);
+  });
+
+  it('answers false when job timing is absent even though the step shape and conclusion match', () => {
+    expect(
+      runWasTimedOut({
+        ...concludedRun(PUSHED, 'cancelled'),
+        jobs: [
+          {
+            conclusion: 'cancelled',
+            startedAt: null,
+            completedAt: null,
+            steps: ['success', 'success', 'cancelled', 'skipped'],
+          },
+        ],
       }),
     ).toBe(false);
   });
@@ -246,8 +308,8 @@ describe('runWasTimedOut — a cancelled run whose job hit its own timeout-minut
       runWasTimedOut({
         ...concludedRun(PUSHED, 'cancelled'),
         jobs: [
-          { conclusion: 'skipped', steps: ['skipped'] },
-          { conclusion: 'cancelled', steps: ['success', 'cancelled', 'skipped'] },
+          { conclusion: 'skipped', startedAt: null, completedAt: null, steps: ['skipped'] },
+          { conclusion: 'cancelled', ...timing, steps: ['success', 'cancelled', 'skipped'] },
         ],
       }),
     ).toBe(true);
