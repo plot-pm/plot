@@ -63,7 +63,7 @@ Checks before the slices are written:
 
 ### Issue list under Tracker plot
 
-- `bug/plot-on-a-bitbucket-repository-lists-no-tickets` — `issue-list` on a host with no issue command answers "nothing to list" under `Tracker: plot`, and the exit-4 text stops advising a key that is already declared.
+- `bug/plot-on-a-bitbucket-repository-lists-no-tickets` — `issue-list` on a host with no issue command answers "nothing to list" under `Tracker: plot`, and the exit-4 text stops advising a key that is already declared. → #2195
 
 ### Sprint and issue source
 
