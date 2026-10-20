@@ -9,7 +9,7 @@ import { z } from 'zod';
  * unparseable by construction, which is the fallback the store is required to
  * take.
  */
-export const PR_INDEX_VERSION = 4;
+export const PR_INDEX_VERSION = 5;
 
 /**
  * One PR as the store holds it — exactly what the host answered, and nothing
@@ -79,6 +79,13 @@ export const PrIndexRowSchema = z
     checksSha: z.string().optional(),
     /** When the host merged the PR, as the host spelled it; absent on a PR it has not merged. */
     mergedAt: z.string().optional(),
+    /**
+     * `'skipped'` where a Jenkins-backed pass did not look this row up this
+     * pass — the cap (`SHA_LOOKUPS_PER_PASS`), or an ask that broke early —
+     * never where Jenkins itself answered. Absent everywhere else, including
+     * every non-Jenkins adapter; never a value that collides with `checks`.
+     */
+    checksLookup: z.string().optional(),
   })
   .strict();
 

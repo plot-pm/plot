@@ -1,6 +1,7 @@
 import {
   bindChecks,
   rowsToBind,
+  SHA_LOOKUPS_PER_PASS,
   type BoundChecks,
   type JenkinsShaRun,
   type PrRowHead,
@@ -14,11 +15,16 @@ import { pathToFileURL } from 'node:url';
  * `bindChecks` reached from `plot-host.sh`, once per `pr-list` pass.
  *
  * ```
- * { jq -c . <<<"$colours"; jq -c . <<<"$rows"; } | plot-jenkins-pr-checks.mjs rows
+ * { jq -c . <<<"$colours"; jq -c . <<<"$rows"; jq -c . <<<"${bound:-null}"; } | plot-jenkins-pr-checks.mjs rows
  * <branch>\t<sha>\t<job>                      # one row to read by sha
  * printf '<branch>\t<sha>\t<job>\t<runs json>\n' | plot-jenkins-pr-checks.mjs bind
  * {"<branch>":{"checks":"green","job":"<job>","checksSha":"<sha>"}}
  * ```
+ *
+ * `rows`'s third stdin line is the caller's PR index, read-only: branch ->
+ * the `checksSha` already on record there. Absent (`null` or no line) where
+ * the caller holds no index — every row then sorts exactly as it always has.
+ * See `rowsToBind`'s rotation note.
  *
  * Two more verbs fold what the shell read for Bitbucket (`pr-state`, `pr-review`):
  *
@@ -86,7 +92,14 @@ export const run = (
     const colours = parseLine(lines[0] ?? '');
     const rows = parseLine(lines[1] ?? '');
     if (colours === null || typeof colours !== 'object' || !Array.isArray(rows)) return EXIT.ok;
-    for (const r of rowsToBind(rows as PrRowHead[], colours as Record<string, { checks?: string; job?: string }>)) {
+    const parsedBound = parseLine(lines[2] ?? '');
+    const bound = parsedBound !== null && typeof parsedBound === 'object'
+      ? (parsedBound as Record<string, string>)
+      : {};
+    for (const r of rowsToBind(
+      rows as PrRowHead[], colours as Record<string, { checks?: string; job?: string }>,
+      SHA_LOOKUPS_PER_PASS, bound,
+    )) {
       write(`${r.branch}\t${r.sha}\t${r.job}\n`);
     }
     return EXIT.ok;

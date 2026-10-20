@@ -353,6 +353,17 @@ export const CardPrSchema = z.object({
    * as `headSha` under another name.
    */
   checksSha: z.string().optional(),
+  /**
+   * `'skipped'` where a Jenkins-backed pass did not look this PR's checks up
+   * this pass — the lookup cap, or an ask that broke early — rather than
+   * Jenkins itself having answered. See `ChecksReadings.checksLookup` in the
+   * domain.
+   *
+   * `.optional()` for the same reason as `checksSha`: absent means *no such
+   * signal was reported* (every host before v5 wrote no such field; GitHub
+   * and Bitbucket without Jenkins never will), never *Jenkins answered*.
+   */
+  checksLookup: z.string().optional(),
 });
 export type CardPr = z.infer<typeof CardPrSchema>;
 
