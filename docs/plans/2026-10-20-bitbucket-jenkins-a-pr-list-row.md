@@ -46,7 +46,7 @@ The plan states the target behaviour and leaves the mechanism to the Open Questi
 
 ### Not looked up
 
-- `bug/bitbucket-jenkins-a-pr-list-row` — a row past the lookup cap reads distinct from a row Jenkins cannot answer, and every open PR binds within a bounded number of passes
+- `bug/bitbucket-jenkins-a-pr-list-row` — a row past the lookup cap reads distinct from a row Jenkins cannot answer, and every open PR binds within a bounded number of passes → #2198
 
 ## Notes
 
