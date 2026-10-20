@@ -473,6 +473,10 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     // The first run must have EXITED before the second continues: the new
     // `loop-alive` refusal reads the pid the first one started, and `true`
     // runs so briefly that the race goes the wrong way more often than not.
+    // `settle` only waits when `wt` is tracked in `spawned`; add it explicitly
+    // here rather than through `postTo`'s parse of the response body, so the
+    // wait holds regardless of what that body carries.
+    spawned.add(wt);
     await settle(wt);
     // The marker must exist for the second continuation to be accepted. The
     // `true` worker never cleared the first run's marker, so a PLOT-BLOCKED* FILE
@@ -546,6 +550,10 @@ describe('answering UPDATES the manifest — the path that produced the defect',
     // The first run must have EXITED before the second continues: the new
     // `loop-alive` refusal reads the pid the first one started, and `true`
     // runs so briefly that the race goes the wrong way more often than not.
+    // `settle` only waits when `wt` is tracked in `spawned`; add it explicitly
+    // here rather than through `postTo`'s parse of the response body, so the
+    // wait holds regardless of what that body carries.
+    spawned.add(wt);
     await settle(wt);
     fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED-again.md'), 'PLOT-BLOCKED: and again?');
     const second = await postTo(root, { branch: BRANCH, answer: 'go' }, {
