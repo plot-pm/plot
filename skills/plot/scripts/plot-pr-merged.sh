@@ -124,14 +124,9 @@ _plot_landed() {
 # is silence, and silence is never permission.
 _plot_merged_lookup() {
   local br="$1" word
-  [ -n "$br" ] || { echo unaskable; return; }
-  [ -f "$_plot_host_sh" ] || { echo unaskable; return; }
+  [ -n "$br" ] && [ -f "$_plot_host_sh" ] || { echo unaskable; return; }
   word=$(bash "$_plot_host_sh" pr-merged "$br" 2>/dev/null) || { echo unaskable; return; }
-  case "$word" in
-    merged) echo found ;;
-    not-merged) echo none ;;
-    *) echo unaskable ;;
-  esac
+  case "$word" in merged) echo found ;; not-merged) echo none ;; *) echo unaskable ;; esac
 }
 
 # What the host says about an OPEN PR on this branch: found / none / unaskable.
@@ -144,26 +139,17 @@ _plot_merged_lookup() {
 # fuller page.
 _plot_open_lookup() {
   local br="$1" out err rc
-  [ -n "$br" ] || { echo unaskable; return; }
-  [ -f "$_plot_host_sh" ] || { echo unaskable; return; }
+  [ -n "$br" ] && [ -f "$_plot_host_sh" ] || { echo unaskable; return; }
   err="${TMPDIR:-/tmp}/plot-pr-open-err.$$.$RANDOM"
   out=$(bash "$_plot_host_sh" pr-list --state open --branch "$br" --limit 100 2>"$err")
   rc=$?
-  if [ "$rc" -ne 0 ]; then
-    rm -f -- "$err" 2>/dev/null
-    echo unaskable
-    return
-  fi
-  if grep -q 'possibly truncated' "$err" 2>/dev/null; then
+  if [ "$rc" -ne 0 ] || grep -q 'possibly truncated' "$err" 2>/dev/null; then
     rm -f -- "$err" 2>/dev/null
     echo unaskable
     return
   fi
   rm -f -- "$err" 2>/dev/null
-  case "$out" in
-    *"\"head\":\"$br\""*) echo found ;;
-    *) echo none ;;
-  esac
+  case "$out" in *"\"head\":\"$br\""*) echo found ;; *) echo none ;; esac
 }
 
 # Did the host merge ANY PR for this branch?
