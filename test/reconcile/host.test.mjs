@@ -791,8 +791,36 @@ test('host: pr-state bitbucket normalizes DECLINED to CLOSED', () => {
   const out = JSON.parse(run(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(out, {
     number: 9, state: 'CLOSED', draft: false, url: 'https://example.test/pr/9', mergeCommit: '', headSha: '', base: 'develop',
-    checks: 'unknown', checksSha: '',
+    checks: 'unknown', checksSha: '', mergeable: 'unknown',
   });
+});
+
+// Bitbucket Cloud's REST API has no field or endpoint that reports a pull
+// request's merge-conflict status (measured 2026-10-20 against the PR object,
+// its diffstat, and its statuses, over a sample of 20 PRs on a real repo). So
+// `mergeable` is always `unknown` there, explicitly carried rather than
+// omitted — a reader must not need to know that absence means unknown.
+test('host: pr-state bitbucket always answers mergeable unknown, key present', () => {
+  const stubs = makeStubs({
+    bbJson: '{"id":9,"state":"OPEN","links":{"html":{"href":"https://example.test/pr/9"}},'
+      + '"source":{"branch":{"name":"feature/y"}}}',
+  });
+  const out = JSON.parse(run(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  assert.ok('mergeable' in out, 'the key is present even though Bitbucket cannot answer it');
+  assert.equal(out.mergeable, 'unknown');
+});
+
+// THE NAIVE-IMPLEMENTATION TRAP: a payload that merely LOOKS like it could
+// answer mergeability (`state: MERGED`, a populated `merge_commit`) must not
+// be read as a verdict. Only a real conflict-reporting endpoint — which
+// Bitbucket does not have — may ever produce anything but `unknown`.
+test('host: pr-state bitbucket does not infer mergeable from state or merge_commit', () => {
+  const stubs = makeStubs({
+    bbJson: '{"id":9,"state":"MERGED","links":{"html":{"href":"https://example.test/pr/9"}},'
+      + '"merge_commit":{"hash":"abc1234"},"source":{"branch":{"name":"feature/y"}}}',
+  });
+  const out = JSON.parse(run(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  assert.equal(out.mergeable, 'unknown', 'a merged PR is not evidence of a clean merge check');
 });
 
 // --- pr-state: both arms answer with the same KEY SET ----------------------
@@ -812,7 +840,9 @@ test('host: pr-state bitbucket normalizes DECLINED to CLOSED', () => {
 // The three keys a merge reads — the head and the checks read for it — are
 // carried only where the host names a head. Bitbucket cannot pin a merge, so its
 // arm leaves them out and a reader takes absent as not known. `mergeable` is
-// the same case: Bitbucket's payload does not name it, and absent reads as unknown.
+// excluded for a different reason: both backends always carry the key, but
+// Bitbucket's value is always the literal `unknown` while GitHub's is a real
+// fold, so the two are not comparable key-for-key the way the others are.
 const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha', 'mergeable']);
 const keysOf = (json) => Object.keys(JSON.parse(json)).filter((k) => !MERGE_KEYS.has(k)).sort();
 
@@ -959,7 +989,7 @@ test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', (
   const hit = JSON.parse(run(['pr-state', 'feature/a'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(hit, {
     number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4', mergeCommit: '', headSha: '', base: 'main',
-    checks: 'unknown', checksSha: '',
+    checks: 'unknown', checksSha: '', mergeable: 'unknown',
   });
   // NOT `--state all`: bb has no such state. See the strict-stub tests below.
   assert.ok(
@@ -2787,9 +2817,12 @@ const runJenkinsShaRows = ({ pairs, rest, credential = true }) => {
   return rowsByHead(res.stdout);
 };
 
-const jenkinsBuildsFor = (sha, result) => JSON.stringify({ builds: [
+const jenkinsBuildsFor = (sha, result, second) => JSON.stringify({ builds: [
   { number: 9, result, building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
-    actions: [{ lastBuiltRevision: { SHA1: sha } }] },
+    actions: second
+      ? [{ lastBuiltRevision: { SHA1: sha, branch: [{ name: `origin/${second.branch || 'develop'}` }] } },
+         { lastBuiltRevision: { SHA1: second.sha, branch: [{ name: `origin/${second.headBranch || 'feature/red'}` }] } }]
+      : [{ lastBuiltRevision: { SHA1: sha } }] },
 ] });
 
 test('host: a sha lookup with no Jenkins API credential keeps the branch colour of green and failing rows', () => {
@@ -3687,6 +3720,130 @@ test('host: run-for-sha matches a sha carried by the second of two lastBuiltRevi
   assert.equal(res.code, 0, res.stderr);
   const row = JSON.parse(res.stdout.trim());
   assert.equal(row.conclusion, 'SUCCESS', 'the build is found by its SECOND lastBuiltRevision action, not only its first');
+  assert.equal(row.sha, headSha, '.sha reports the matched sha, not the merge-base (first) entry');
+});
+
+// `.sha` used to report `.shas | first`, always the merge-base entry on a
+// merge-before-build job. These pin the repair for every position and shape
+// `jenkins_sha_runs` is asked to read it in: the matched entry first, the
+// matched entry second, a short-hash prefix, `runs-for-sha`'s plural, and
+// `runs`'s branch-head reading with no sha at all.
+
+test('host: run-for-sha reports the matched sha when it is the FIRST of two lastBuiltRevision actions', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const developSha = '1111111111111111111111111111111111aaaa';
+  const headSha = '2222222222222222222222222222222222bbbb';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: developSha } },
+        { lastBuiltRevision: { SHA1: headSha } },
+      ] },
+  ] });
+  const bin = makeJenkinsRestBin(builds);
+  const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', developSha],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  const row = JSON.parse(res.stdout.trim());
+  assert.equal(row.sha, developSha, 'a fix that swaps first for last would fail this case instead');
+});
+
+test('host: run-for-sha matches a short-hash prefix and reports the full matched sha', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const developSha = '1111111111111111111111111111111111aaaa';
+  const headSha = '2222222222222222222222222222222222bbbb';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: developSha } },
+        { lastBuiltRevision: { SHA1: headSha } },
+      ] },
+  ] });
+  const bin = makeJenkinsRestBin(builds);
+  const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', headSha.slice(0, 7)],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  const row = JSON.parse(res.stdout.trim());
+  assert.equal(row.sha, headSha, 'the full sha of the matched entry, not the prefix asked for');
+});
+
+test('host: runs-for-sha reports the matched sha, not the merge-base entry', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const developSha = '1111111111111111111111111111111111aaaa';
+  const headSha = '2222222222222222222222222222222222bbbb';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: developSha } },
+        { lastBuiltRevision: { SHA1: headSha } },
+      ] },
+  ] });
+  const bin = makeJenkinsRestBin(builds);
+  const res = runJenkinsAllowFail(['runs-for-sha', 'feature/red', headSha],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  const rows = JSON.parse(res.stdout.trim());
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].sha, headSha);
+});
+
+// `run-for-sha`/`runs-for-sha` require a non-empty sha (`${1:?$op needs a
+// sha}`), so the no-sha arm of `jenkins_sha_runs` is reachable only from
+// `runs` — which drops `.sha` from its own output before printing. No CLI op
+// today prints `.sha` for a no-sha lookup. These two read the jq program's
+// branch-head selection directly, sourcing `jenkins_sha_runs` the way
+// `prMergedLib` sources `plot-pr-merged.sh` above, since that is the only way
+// to observe a value no CLI surface exposes.
+const jenkinsShaRunsLib = adapter;
+
+function sourcedJenkinsShaRuns(branch, builds) {
+  const script = `exit() { return "\${1:-0}"; }\nsource ${JSON.stringify(jenkinsShaRunsLib)}\n`
+    + `jenkins_instance() { echo "ci.test/webbloqs/continuous-build-multi"; }\n`
+    + `jenkins_resolve_host() { echo "ci.test"; }\n`
+    + `jenkins_rest_credential() { echo "stub:stub"; }\n`
+    + `jenkins_job_url_path() { echo "/job/webbloqs/job/continuous-build-multi"; }\n`
+    + `curl() { printf '%s' '${builds}'; }\n`
+    + `jenkins_sha_runs runs ${JSON.stringify(branch)} 10 ""`;
+  const res = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  return { code: res.status, stdout: res.stdout, stderr: res.stderr };
+}
+
+test('host: the no-sha branch-head arm of jenkins_sha_runs selects the entry naming the branch, not the first (merge-base) entry', () => {
+  const developSha = '1111111111111111111111111111111111aaaa';
+  const headSha = '2222222222222222222222222222222222bbbb';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: developSha, branch: [{ name: 'refs/remotes/origin/develop' }] } },
+        { lastBuiltRevision: { SHA1: headSha, branch: [{ name: 'origin/feature/red' }] } },
+      ] },
+  ] });
+  const res = sourcedJenkinsShaRuns('feature/red', builds);
+  assert.equal(res.code, 0, res.stderr);
+  const [row] = JSON.parse(res.stdout.trim());
+  assert.equal(row.sha, headSha, 'the entry whose branch names the asked branch, not the first (merge-base) entry');
+});
+
+test('host: the no-sha branch-head arm of jenkins_sha_runs falls back to the last entry when no action names the branch', () => {
+  const developSha = '1111111111111111111111111111111111aaaa';
+  const headSha = '2222222222222222222222222222222222bbbb';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: developSha } },
+        { lastBuiltRevision: { SHA1: headSha } },
+      ] },
+  ] });
+  const res = sourcedJenkinsShaRuns('feature/red', builds);
+  assert.equal(res.code, 0, res.stderr);
+  const [row] = JSON.parse(res.stdout.trim());
+  assert.equal(row.sha, headSha, 'with no branch name on any entry, the last entry stands for the head');
 });
 
 // --- a failed sha lookup is visible, never silently swallowed ------------
@@ -5456,7 +5613,7 @@ test('host: pr-state bitbucket is unaffected — no budget query, no REST', () =
   // is empty because there is nothing honest to put in it.
   assert.deepEqual(out, {
     number: 7, state: 'MERGED', draft: false, url: 'https://bb.test/pr/7', mergeCommit: '', headSha: '', base: '',
-    checks: 'unknown', checksSha: '',
+    checks: 'unknown', checksSha: '', mergeable: 'unknown',
   });
   assert.equal(argvOf(stubs.ghArgv), null, 'the GitHub CLI is not touched on a Bitbucket repo');
 });

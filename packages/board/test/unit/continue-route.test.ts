@@ -464,12 +464,15 @@ describe('answering UPDATES the manifest — the path that produced the defect',
   it('increments relaunches across TWO relaunches', async () => {
     // Catches a stamp that sets previousPid correctly but never counts: relaunch
     // once, then relaunch the same worktree again.
-    const wt = worktree({ pid: '111' });
+    // 424242, not a low pid: the `loop-alive` refusal reads the fixture's pid,
+    // and a low pid such as 111 is a live process on a Linux CI runner.
+    const wt = worktree({ pid: '424242' });
     dirs.push(wt);
-    const { root, manifest } = repoWithManifest(wt, '111');
+    const { root, manifest } = repoWithManifest(wt, '424242');
     roots.push(root);
 
     const first = await postTo(root, { branch: BRANCH, answer: 'go' }, deps(wt));
+    assert.equal(first.status, 202, `the first continue must start a run: ${JSON.stringify(first.body)}`);
     // The first run must have EXITED before the second continues: the new
     // `loop-alive` refusal reads the pid the first one started, and `true`
     // runs so briefly that the race goes the wrong way more often than not.

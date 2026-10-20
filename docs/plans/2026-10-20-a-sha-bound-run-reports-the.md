@@ -43,10 +43,12 @@ Related plans, all Delivered or Approved on the same arm: `2026-10-18-bitbucket-
 
 ### Open Questions
 
-- [ ] For `runs` with no sha, which entry is the branch head: the one whose `branch` matches the branch name, or the last one? Check against a real build payload from ewz-kus-portal.
+- [x] For `runs` with no sha, which entry is the branch head: the one whose `branch` matches the branch name, or the last one? **Answered by fixture, not by a real ewz-kus-portal payload** — no live build payload was available to this run. The fix reads the entry whose `lastBuiltRevision.branch` names the asked branch, falling back to the last entry when no action names it. `host.test.mjs` pins both arms directly against `jenkins_sha_runs`, since no CLI op prints `.sha` for a no-sha lookup (see below).
 - [ ] Does any consumer of `.sha` (BuildMonitor, `plot-jenkins-pr-checks.mjs`) rely on the current merge-base value?
 - [ ] Should `ABORTED` drop out of `runs`? A caller that wants to know a build was cancelled loses that answer.
 - [ ] Does the `runs` filter belong in this plan or a separate one? It is a separate defect with a separate consumer.
+
+**Discovery (slice 1):** `run-for-sha`/`runs-for-sha` take their sha via `${1:?$op needs a sha}`, which errors on an empty string as well as an unset argument — no CLI op can call `jenkins_sha_runs` with an empty sha. `runs` is the only no-sha caller, and it drops `.sha` from its own output before printing (`{workflow,conclusion,startedAt,url}`). So no CLI surface prints `.sha` for a no-sha lookup today; the branch-head arm is tested by sourcing `jenkins_sha_runs` directly (with `exit` stubbed to `return`, the way `prMergedLib` sources `plot-pr-merged.sh` elsewhere in `host.test.mjs`) rather than through a CLI op.
 
 ## Slices
 
@@ -56,7 +58,7 @@ Related plans, all Delivered or Approved on the same arm: `2026-10-18-bitbucket-
 
 ### Runs That Ran
 
-- `bug/jenkins-runs-skip-builds-that-did` — `runs` omits `NOT_BUILT` and `ABORTED` builds; test per result value <!-- waits: bug/a-sha-bound-run-reports-the -->
+- `bug/jenkins-runs-skip-builds-that-did` — `runs` omits `NOT_BUILT` and `ABORTED` builds; test per result value → #2181 <!-- waits: bug/a-sha-bound-run-reports-the -->
 
 ## Notes
 

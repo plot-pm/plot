@@ -948,17 +948,26 @@ export const readPass = async (
         commitBeyondClaim: commitBeyondClaim !== null && commitBeyondClaim.ok ? commitBeyondClaim.value : 'unanswerable',
       };
     }
+    // A HOST THAT CANNOT ANSWER MERGEABLE IS ASKED A SECOND WAY. Bitbucket
+    // Cloud has no field or endpoint for this, so `pr.mergeable` reads
+    // `unknown` on every Bitbucket PR; `trees.mergeConflict` reads the same
+    // fact from a `git merge-tree` run against the local checkout instead of
+    // the host. On GitHub this only fires in the host's own gap between a
+    // push landing and its mergeable field settling.
+    const mergeConflictAnswer = pr.mergeable === 'unknown' ? await ports.trees.mergeConflict(worktree) : null;
+    const mergeable =
+      mergeConflictAnswer !== null ? (mergeConflictAnswer.ok ? mergeConflictAnswer.value : 'unknown') : pr.mergeable;
     // THE CLOCK DOES NOT START ON A CONFLICTING PR. GitHub starts no
     // `pull_request` run for a merge ref that conflicts, so waiting
     // `Checks wait` here would wait for a build that cannot happen —
     // returned before `clock.since` is set, so neither this pass nor any
     // later one reaches `checksFromRuns` for this reading.
-    if (pr.mergeable === 'conflicting') {
-      return { ...base, pushed, prOpen, pr: prNumber, mergeable: pr.mergeable, mergeConflictAtEntry: true };
+    if (mergeable === 'conflicting') {
+      return { ...base, pushed, prOpen, pr: prNumber, mergeable, mergeConflictAtEntry: true };
     }
     clock.since = Date.now();
     clock.pr = prNumber;
-    clock.mergeable = pr.mergeable;
+    clock.mergeable = mergeable;
   }
 
   // ROWS 12-18 — work is pushed and a PR is open: the CI wait.

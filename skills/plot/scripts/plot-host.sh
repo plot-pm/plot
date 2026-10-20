@@ -35,8 +35,10 @@
 #                                   {"number":N,"state":"OPEN|MERGED|CLOSED|NONE",
 #                                    "draft":true|false,"url":"...",
 #                                    "mergeable":"mergeable|conflicting|unknown"}
-#                                 Bitbucket and a REST lookup by branch omit
-#                                 `mergeable`; a reader takes absent as unknown.
+#                                 Bitbucket Cloud's REST API has no field or
+#                                 endpoint that reports merge-conflict status
+#                                 for a pull request (measured 2026-10-20), so
+#                                 `mergeable` is always "unknown" there.
 #                                 NONE = no PR found (exit 0 — callers branch on
 #                                 state, not exit codes)
 #   pr-merged <branch>            has ANY PR for this branch merged? prints one
@@ -203,7 +205,11 @@
 #                                 construct one (it is "" only if the host omits
 #                                 it); `mergeable` is mergeable|conflicting|
 #                                 unknown, and "unknown" is what a host that
-#                                 cannot answer reports (absent is not false)
+#                                 cannot answer reports (absent is not false).
+#                                 Bitbucket Cloud's REST API has no field or
+#                                 endpoint that answers this at all (measured
+#                                 2026-10-20), so `mergeable` is always
+#                                 "unknown" there.
 #                                 --limit raises the host CLI's default page of
 #                                 30, which --state all exhausts immediately
 #                                 THREE OUTCOMES, KEPT APART — the same rule
@@ -1785,7 +1791,7 @@ jenkins_sha_runs() {
           startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ]
     | if $sha != "" then map(select(any(.shas[]?; . == $sha or (($sha | test("^[0-9a-f]{7,}$")) and (. | startswith($sha)))))) elif $plain == "" then .
       else map(select(if (.br | length) > 0 then any(.br[]; . == $branch) else $branch == ($job | split("/") | last) end)) end
-    | map(.sha = (.shas | first // "") | del(.shas, .br))' || exit 4
+    | map(.sha = (if $sha != "" then (.shas[] | select(. == $sha or (($sha | test("^[0-9a-f]{7,}$")) and (startswith($sha))))) else (if (.br | length) > 0 then ([.br, .shas] | transpose[] | select(.[0] == $branch) | .[1]) // (.shas | last // "") else (.shas | last // "") end) end) | del(.shas, .br))' || exit 4
 }
 
 # The sha-bound readings of the PR rows $3 whose branch colour in $2 cannot
