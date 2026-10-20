@@ -14,19 +14,30 @@ compatibility: Designed for Claude Code and Cursor. Requires git. Sprint skeleto
 
 # Plot: Sprint
 
-**Tracker gate — check before anything else.** Sprints exist only where
-plot is the tracker. Read the declared tracker:
+**Sprint-owner gate — check before anything else.** Sprints exist only
+where plot owns them. Read the declared sprint owner and the declared
+tracker:
 
 ```bash
+SPRINT_OWNER=$(../plot/scripts/plot-config.sh get "Sprint owner" "")
 TRACKER=$(../plot/scripts/plot-config.sh get "Tracker" "plot")
 ```
 
-If it names an external tracker (jira, github-issues, linear, …), decline:
-"This repo's sprints live in <tracker> — plot writes no sprint artifact
-here, because a shadow board drifts. Plan-level status stays visible via
-`/plot` and the board." This is a gate, not advice; the config must change
-before `/plot-sprint` operates in this repo. Only `Tracker: plot` (or no
-declaration) proceeds.
+`Sprint owner` and `Tracker` answer independent questions — who owns this
+repo's sprints, and where its issues live. A repository that declares only
+`Tracker` keeps today's rule: `Tracker: plot` (or no declaration) proceeds,
+and any external tracker (jira, github-issues, linear, …) declines — a
+repository with Jira tickets does not get plot sprints for free, because a
+shadow board drifts. `Sprint owner: plot` is the one declaration that
+overrides an external `Tracker` for sprints alone, letting a repository say
+"plot" to the first question while still naming Jira (or another tracker)
+for the second; `Sprint owner` set to anything else, or left undeclared,
+changes nothing.
+
+Decline with: "This repo's sprints live in <tracker> — plot writes no
+sprint artifact here, because a shadow board drifts. Plan-level status
+stays visible via `/plot` and the board." This is a gate, not advice; the
+config must change before `/plot-sprint` operates in this repo.
 
 Sprints are **not plans**. Plans track *what* to build; sprints track *when* to ship it. Sprint files live in `docs/sprints/`. The initial skeleton commits directly to main; subsequent Planning-phase refinement may optionally happen on a `sprint/<slug>` branch with a draft PR for review. Principle 2 ("Plans are approved before implementation") does not apply to sprints — sprints don't spawn implementation branches — but the *refinement* benefits from the same review surface.
 
