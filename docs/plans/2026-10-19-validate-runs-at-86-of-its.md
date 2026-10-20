@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Issue:** #2121
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2124 merged
 - **Started:** 2026-10-19, Jan Wloka, `infra/validate-step-budget`
 - **Started:** 2026-10-20, Jan Wloka, `infra/a-timeout-reads-as-a-timeout`
+- **Delivered:** 2026-10-20
 
 ## Changelog
 
