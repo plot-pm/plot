@@ -249,11 +249,20 @@ describe('runWasTimedOut — a cancelled run whose job hit its own timeout-minut
     ).toBe(true);
   });
 
-  it('answers false for a not-acquired run — no success step precedes the cancelled one', () => {
+  it('answers false for a not-acquired run — no steps ran at all', () => {
     expect(
       runWasTimedOut({
         ...concludedRun(PUSHED, 'cancelled'),
         jobs: [{ conclusion: 'cancelled', startedAt: null, completedAt: null, steps: [] }],
+      }),
+    ).toBe(false);
+  });
+
+  it('answers false when no success step precedes the cancelled one', () => {
+    expect(
+      runWasTimedOut({
+        ...concludedRun(PUSHED, 'cancelled'),
+        jobs: [{ conclusion: 'cancelled', ...timing, steps: ['cancelled', 'skipped'] }],
       }),
     ).toBe(false);
   });
@@ -296,6 +305,32 @@ describe('runWasTimedOut — a cancelled run whose job hit its own timeout-minut
             conclusion: 'cancelled',
             startedAt: null,
             completedAt: null,
+            steps: ['success', 'success', 'cancelled', 'skipped'],
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it('answers false when job timing is the other absent shape — fields left undefined rather than null', () => {
+    expect(
+      runWasTimedOut({
+        ...concludedRun(PUSHED, 'cancelled'),
+        jobs: [
+          {
+            conclusion: 'cancelled',
+            steps: ['success', 'success', 'cancelled', 'skipped'],
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      runWasTimedOut({
+        ...concludedRun(PUSHED, 'cancelled'),
+        jobs: [
+          {
+            conclusion: 'cancelled',
+            startedAt: '2026-10-04T12:00:00Z',
             steps: ['success', 'success', 'cancelled', 'skipped'],
           },
         ],
@@ -385,11 +420,32 @@ describe('buildFindingFor — the loop\'s own BuildMonitor finding, from a settl
     // The shell's `sample_finding` reads `timed_out`/`cancelled`/`startup_failure`
     // as `build failed` too, but `checksFromRuns` only calls a run settled on
     // `success`/`failure`/`action_required` (SETTLED_CONCLUSIONS) — a `timed_out`
-    // or `cancelled` run keeps the loop at `wait`/`no-answer` and never reaches
-    // `buildFindingFor` through the loop's own call site. Documented as a gap
-    // from the shell's wider vocabulary, not ported here.
+    // or plain `cancelled` run keeps the loop at `wait`/`no-answer` and never
+    // reaches `buildFindingFor` through the loop's own call site. Documented as
+    // a gap from the shell's wider vocabulary, not ported here.
     expect(buildFindingFor(concludedRun(PUSHED, 'timed_out'))).toBeNull();
     expect(buildFindingFor(concludedRun(PUSHED, 'cancelled'))).toBeNull();
+  });
+
+  it('reports build timed out for a cancelled run whose job hit its own timeout-minutes', () => {
+    // Same real shape as the `checksFromRuns` fixture above (run 39357335917,
+    // 2026-10-20) — this is the arm checked before the generic failure arm so
+    // a timeout is never reported as a plain `build failed`.
+    const timedOut = {
+      ...concludedRun(PUSHED, 'cancelled'),
+      jobs: [
+        {
+          conclusion: 'cancelled',
+          startedAt: '2026-10-20T02:09:01Z',
+          completedAt: '2026-10-20T02:34:22Z',
+          steps: ['success', 'success', 'cancelled', 'skipped', 'skipped', 'success', 'success'],
+        },
+      ],
+    };
+    expect(buildFindingFor(timedOut)).toEqual({
+      finding: 'build timed out',
+      evidence: `the run at ${URL} for ${PUSHED} hit its own timeout-minutes before a conclusion`,
+    });
   });
 
   it('reports build needs approval for an action_required conclusion, mirroring "build needs approval"', () => {
