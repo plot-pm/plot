@@ -2365,6 +2365,28 @@ for (const args of [['issue-list'], ['issue-view', '5']]) {
   });
 }
 
+// The bug: a repository that HAS declared `Tracker` still saw the advice to
+// declare it, because the exit-4 message named `Tracker` no matter what.
+// These two mirror each other on the one axis that must flip the text:
+// declared vs. undeclared — everything else about the failure (bb 1.9.0, no
+// issue command, exit 4, no issue call spent) stays identical.
+test('host: issue-list bitbucket keeps the `Tracker` advice where none is declared', () => {
+  const stub = makeBbWithoutIssueStub();
+  const res = runBb(['issue-list'], stub);
+  assert.equal(res.status, 4, res.stderr);
+  assert.match(res.stderr, /`Tracker` config key/);
+});
+
+test('host: issue-list bitbucket drops the `Tracker` advice where Tracker: plot is declared', () => {
+  const stub = makeBbWithoutIssueStub();
+  const res = runBb(['issue-list'], stub, { PLOT_TRACKER: 'plot' });
+  assert.equal(res.status, 4, res.stderr);
+  assert.match(res.stderr, /bb 1\.9\.0 lists no issue command/);
+  assert.match(res.stderr, /Quatico bb has none/);
+  assert.doesNotMatch(res.stderr, /`Tracker`/, 'the repository already declared Tracker — the advice would mislead');
+});
+
+
 test('host: issue-view bitbucket returns {number,title,body,url} from bb view text', () => {
   const stub = makeBbIssueStub({ out: BB_VIEW_ANSI });
   const res = runBb(['issue-view', '3'], stub);
@@ -8081,6 +8103,20 @@ test('host: issue-list asks the github git host for Tracker: plot, same as no tr
   const argv = argvOf(stubs.ghArgv);
   assert.ok(argv, 'gh is called for a repository declaring Tracker: plot');
   assert.deepEqual(argv.slice(0, 2), ['issue', 'list']);
+});
+
+// #1131's actual field case, and the counterpart the GitHub test above needs
+// so the two arms cannot drift apart: `Tracker: plot` on Bitbucket must ask
+// bb exactly as the undeclared case does. Before this fix, bb's missing
+// `issue` command made `issue_source` unreachable for the WRONG reason — the
+// shell read the version mismatch before it ever read `Tracker` — so a
+// repository with `bb` present and working would still reach bb normally.
+test('host: issue-list asks the bitbucket git host for Tracker: plot, same as no tracker', () => {
+  const stub = makeBbIssueStub({ out: BB_LIST_ANSI });
+  const res = runBb(['issue-list'], stub, { PLOT_TRACKER: 'plot' });
+  assert.equal(res.status, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(rows.length, 2, 'bb is asked and answers, same as an undeclared Tracker');
 });
 
 test('host: issue-list refuses github-issues on bitbucket, naming the host it needs', () => {

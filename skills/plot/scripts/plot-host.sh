@@ -2253,11 +2253,7 @@ bb_strip_ansi() {
 # means. Reads the already-stripped, already-lowercased error text.
 bb_issue_exit_code() {
   local err="$1"
-  if LC_ALL=C grep -qiE 'are you sure this is a bitbucket repo|\b40[34]\b|not found|no issue tracker|issue tracker.*(disabled|not enabled)|repository not found' <<<"$err"; then
-    echo 4
-  else
-    echo 3
-  fi
+  LC_ALL=C grep -qiE 'are you sure this is a bitbucket repo|\b40[34]\b|not found|no issue tracker|issue tracker.*(disabled|not enabled)|repository not found' <<<"$err" && echo 4 || echo 3
 }
 
 # Assert the format the parse below was written against. `bb` puts its version
@@ -2274,13 +2270,20 @@ bb_issue_exit_code() {
 # that lists a `pr` command and no `issue` command is a bb that cannot be asked
 # about issues, which is exit 4 — the same answer as a disabled tracker. Any
 # other help text keeps the refusal below, exit 3. Exits 4 or 3; 0 passes.
+#
+# The `Tracker` advice below fits only where nobody declared one — asked of
+# the domain (`--bb-issue-missing`) rather than re-read here, since this is
+# the same declared value `issue_source` already read. A failed ask keeps
+# the advice: naming `Tracker` to a repository that declared one is
+# harmless, dropping it for one that has not would hide the fix.
 bb_assert_issue_version() {
   [ -n "${PLOT_BB_SKIP_VERSION_CHECK:-}" ] && return 0
-  local v
-  v="$(bb --version 2>/dev/null | bb_strip_ansi | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  local v="$(bb --version 2>/dev/null | bb_strip_ansi | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   if [ "$v" != "$BB_ISSUE_VERSION" ]; then
     if bb_lacks_issue_command; then
-      echo "plot-host: bb ${v:-unknown} lists no issue command — Quatico bb has none, unlike craftamap/bb — so this repository's issues cannot be read through it; declare the issue tracker with the \`Tracker\` config key" >&2
+      local missing="$(tracker_raw | node "$here/board/plot-issue-source.mjs" --bb-issue-missing 2>/dev/null)"
+      [ -n "$missing" ] || missing="bb lists no issue command — Quatico bb has none, unlike craftamap/bb — so this repository's issues cannot be read through it; declare the issue tracker with the \`Tracker\` config key"
+      echo "plot-host: bb ${v:-unknown} $missing" >&2
       return 4
     fi
     echo "plot-host: bb issue parse targets $BB_ISSUE_VERSION but found '${v:-unknown}' — refusing to mis-read a format that may have moved" >&2

@@ -5,7 +5,7 @@
 // measurement one layer down — `tracker-resolve.ts` re-exports the list and
 // imports three connectors, so importing it here would ship them.
 import { TRACKER_LISTERS } from '@plot-pm/domain/adapters/tracker/tracker-listers';
-import { issueSource } from '@plot-pm/domain/rules/issue-source';
+import { bbIssueCommandMissing, issueSource } from '@plot-pm/domain/rules/issue-source';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -22,6 +22,11 @@ import { pathToFileURL } from 'node:url';
  * nobody	no connector lists issues from the declared tracker `linear`, and ...
  * # exit 0 for all three
  * # exit 2 — no git host named
+ *
+ * plot-issue-source.mjs --bb-issue-missing < <(echo plot)
+ * lists no issue command — Quatico bb has none, unlike craftamap/bb — ...
+ * # the declare-Tracker advice is appended only where stdin is empty
+ * # the caller prepends its own `bb ${version}` ahead of this sentence
  * ```
  *
  * **Its own bundle, for the reason the ones before it give.** `plot-ask.mjs`
@@ -69,7 +74,16 @@ export const run = (
   stdin: string,
   write: (s: string) => void = (s) => process.stdout.write(s),
 ): number => {
-  const [gitHost = ''] = args;
+  const [first = ''] = args;
+  // A second question this bundle answers, routed by flag rather than a
+  // second entry point: `bb_assert_issue_version` needs to know whether
+  // `Tracker` is declared before it can word its own refusal, and that
+  // reads the same `declared` value this entry already takes on stdin.
+  if (first === '--bb-issue-missing') {
+    write(`${bbIssueCommandMissing(stdin)}\n`);
+    return EXIT.ok;
+  }
+  const gitHost = first;
   if (gitHost.trim() === '') return EXIT.usage;
   const source = issueSource({
     declared: stdin,
