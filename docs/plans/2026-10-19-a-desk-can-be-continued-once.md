@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #2107
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2114 merged
 - **Started:** 2026-10-19, Jan Wloka, `bug/a-desk-can-be-continued-once-test`
 - **Started:** 2026-10-20, Jan Wloka, `bug/a-desk-can-be-continued-once-fix`
+- **Delivered:** 2026-10-20
 
 ## Changelog
 
