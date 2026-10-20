@@ -3405,11 +3405,7 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   # shas stayed unresolvable after a fresh, non-shallow fetch.
   if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
     unrel_out+="  $base — delivered, PR #$last_pr names merge commit $sha, not in this clone → cannot resolve\n"
-    if [ "$PR_SOURCE" = bb ]; then
-      unrel_out+="    unreachable: Bitbucket exposes no ref for a squash/merge commit once its source branch is deleted — a fetch cannot bring it\n"
-    else
-      unrel_out+="    inspect: git fetch --tags origin, then re-run\n"
-    fi
+    if [ "$PR_SOURCE" = bb ]; then unrel_out+="    unreachable: Bitbucket exposes no ref for a squash/merge commit once its source branch is deleted — a fetch cannot bring it\n"; else unrel_out+="    inspect: git fetch --tags origin, then re-run\n"; fi
     n_unrel=$((n_unrel + 1))
     continue
   fi
