@@ -95,3 +95,26 @@ export const issueAbsence = (reason: string): string => {
     ? 'Open issues are not listed: this host has no issue tracker.'
     : `Open issues are not listed: ${why}`;
 };
+
+/**
+ * The stderr sentence for a Bitbucket `bb` with no issue command.
+ *
+ * The advice to declare `Tracker` fits only where the repository has not
+ * already declared one — the same `declared` value {@link issueSource} reads.
+ * A repository with `Tracker: plot` (or no `Tracker` key at all, which reads
+ * the same) is already asking its git host; telling it to declare the key it
+ * declared would mislead rather than fix anything.
+ *
+ * Starts with "lists", not "bb lists": the caller already wrote `bb
+ * ${version}` ahead of this sentence, so a leading "bb" here would repeat it.
+ *
+ * @param declared - the `Tracker` key's value, verbatim; `''` where none is declared.
+ * @returns the sentence `plot-host.sh` appends after `bb ${version}` on stderr before exiting 4.
+ */
+export const bbIssueCommandMissing = (declared: string): string => {
+  const base = 'lists no issue command — Quatico bb has none, unlike craftamap/bb — ' +
+    "so this repository's issues cannot be read through it";
+  return declared.trim() === ''
+    ? `${base}; declare the issue tracker with the \`Tracker\` config key`
+    : base;
+};

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { issueAbsence, issueSource, type IssueLister } from '../src/rules/issue-source.js';
+import { bbIssueCommandMissing, issueAbsence, issueSource, type IssueLister } from '../src/rules/issue-source.js';
 
 // The vendor table is a reading the caller supplies; the adapters hold the real
 // one beside the tracker connectors.
@@ -78,5 +78,25 @@ describe('the sentence an unaskable issue list shows', () => {
 
   it('never reads as a list that could not be read', () => {
     expect(issueAbsence('plot-host: anything')).not.toMatch(/could not be read|incomplete/);
+  });
+});
+
+describe('the sentence a bb with no issue command shows', () => {
+  it('keeps the advice to declare `Tracker` where the repository declared none', () => {
+    expect(bbIssueCommandMissing('')).toMatch(/declare the issue tracker with the `Tracker` config key/);
+    expect(bbIssueCommandMissing('   ')).toMatch(/declare the issue tracker with the `Tracker` config key/);
+  });
+
+  it('drops the advice where the repository already declared `Tracker`', () => {
+    // `Tracker: plot` is the issue's case — the same value `issueSource` reads
+    // as "ask the git host" — and a repository tracking elsewhere, e.g. Jira,
+    // has equally already made the declaration the advice would ask it to make.
+    expect(bbIssueCommandMissing('plot')).not.toMatch(/Tracker/);
+    expect(bbIssueCommandMissing('jira https://acme.atlassian.net')).not.toMatch(/Tracker/);
+  });
+
+  it('states the same reason regardless of the declaration', () => {
+    expect(bbIssueCommandMissing('plot')).toMatch(/^lists no issue command/);
+    expect(bbIssueCommandMissing('')).toMatch(/^lists no issue command/);
   });
 });

@@ -53,11 +53,33 @@ Checks before the slices are written:
 - The `bb_assert_issue_version` refusal (`plot-host.sh:2277`) and the `issue-list` consumers it reaches read the same distinction: a host that cannot list versus a tracker nobody declared.
 - A test names `Tracker: plot` on Bitbucket beside `Tracker: plot` on GitHub, so the two cannot drift.
 
+#### Every reader of `Tracker`
+
+Measured 2026-10-20 on `bug/plot-on-a-bitbucket-repository-lists-no-tickets`. The board and shell layers never branch on the string themselves — every site below funnels through the domain's `issueSource`/`trackerFor`/`trackerForIssues`, which are the only places the three-way decision is made.
+
+| Layer | Reader | `plot` / absent | `jira <url>` |
+|---|---|---|---|
+| Domain | `issueSource` (`rules/issue-source.ts:61`) | `{ ask: 'git-host' }` | `{ ask: 'tracker', scheme: 'jira' }` if a lister is registered for the scheme (it is); `{ ask: 'nobody', reason }` for an unregistered scheme (e.g. `linear`) |
+| Domain | `bbIssueCommandMissing` (`rules/issue-source.ts:114`) | appends "declare the issue tracker with the `Tracker` config key" | omits the advice — the repository already declared one |
+| Domain | `trackerFor` (`adapters/tracker/tracker-resolve.ts:42`) | `trackerNone()` — every op answers `unaskable` | `trackerJira(context, baseUrl)` |
+| Domain | `trackerGitHost` (`tracker-resolve.ts:96`) | the active connector when `issueSource` answered `git-host`; wraps the git host's own issue reads | never constructed — Jira takes the `tracker` branch instead |
+| Domain | `trackerForIssues`/`trackerOfSource` (`tracker-resolve.ts:139`) | composes the two above; the one place every board/shell consumer calls rather than re-deciding | same |
+| Shell | `tracker_raw`/`tracker_scheme` (`plot-host.sh:2514`, `:2522`) | `""` | `"jira"` (first word, lowercased) — pass-through, not a branch |
+| Shell | `issue_source` (`plot-host.sh:2551`) | relays the domain's `git-host` answer | relays `tracker`/`nobody` |
+| Shell | `issue-list`/`issue-view` dispatch (`plot-host.sh:4754`, `:4997`) | git-host arm (gh/bb) | Jira REST arm via `jira_require_config`, or exit 4 if `nobody` |
+| Shell | `issue-status` op (`plot-host.sh:5106`) | exits 4 — Jira-only write | looks up/POSTs a Jira transition |
+| Shell | `bb_assert_issue_version` (`plot-host.sh:2286`) | keeps the `Tracker` advice on exit 4 | drops it |
+| Shell | `ask_issue_source` (`plot-reconcile-scan.sh:3026`) | same three-way answer as `issue_source`; advisory only, never gates delivery | same |
+| Board | `verify.ts:730`, `plan-state.ts:105`, `review.ts:508`, `fleet.ts:1656` (and `:1773`, `:1941`, `:2105`) | all read `Tracker` and hand it whole to `trackerForIssues` | same — no independent branch |
+| Skill (prose) | `/plot-sprint` gate (`skills/plot-sprint/SKILL.md:17`) | sprints proceed (the shell default for a missing key is literally `"plot"`) | the skill declines outright: sprints do not run until the config changes |
+
+The absent-key column is folded into `plot` everywhere above: every reader normalizes a missing `Tracker` line to `''`, and `issueSource` treats `''` and `'plot'` identically (`rules/issue-source.ts:64`). No reader treats "absent" as a third case.
+
 ### Open Questions
 
 - [ ] Option 1 or option 2 above?
 - [ ] If option 2: what is the new key's name, and what does a repository with only `Tracker: jira <url>` get for sprints?
-- [ ] Is "nothing to list" a distinct answer from `nobody`, and does the board show it as an empty inbox or as an absence sentence?
+- [x] Is "nothing to list" a distinct answer from `nobody`, and does the board show it as an empty inbox or as an absence sentence? **Closed 2026-10-20, on `bug/plot-on-a-bitbucket-repository-lists-no-tickets`.** It is not a fourth answer. `bb_assert_issue_version`'s exit 4 already flows into `fleet.ts`/`issue-refresh.ts` as `issueAnswer: 'unsupported'` plus an `issueAbsence` sentence — the board already rendered the absence sentence before this branch started; the only defect was the sentence's wording always naming `Tracker` regardless of whether it was declared. Fixed by reading the declared value once, in the domain (`bbIssueCommandMissing`), and asking it through the existing `plot-issue-source.mjs` bundle rather than a second config read in shell.
 
 ## Slices
 
