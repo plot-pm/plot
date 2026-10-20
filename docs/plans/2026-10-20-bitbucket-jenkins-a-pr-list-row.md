@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2170
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-20, Jan Wloka, plan-PR #2184 merged
 - **Started:** 2026-10-20, Jan Wloka, `bug/bitbucket-jenkins-a-pr-list-row`
+- **Delivered:** 2026-10-20
 
 ## Changelog
 
