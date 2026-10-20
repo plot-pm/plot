@@ -52,7 +52,7 @@ Checks for the slice:
 
 ### Tracker plot reads as the git host
 
-- `bug/plot-reads-as-an-unknown-tracker` — `issueSource` answers `git-host` for `Tracker: plot`, with a test covering `plot`, an empty declaration, and an unknown scheme.
+- `bug/plot-reads-as-an-unknown-tracker` — `issueSource` answers `git-host` for `Tracker: plot`, with a test covering `plot`, an empty declaration, and an unknown scheme. → #2161
 
 ## Notes
 
