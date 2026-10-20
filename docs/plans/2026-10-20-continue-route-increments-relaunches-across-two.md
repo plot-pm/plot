@@ -46,6 +46,10 @@ Other tests that call `postTo` and then `settle` may share the gap. The slice gr
 
 - `bug/continue-route-increments-relaunches-across-two` — add `wt` to `spawned` before `settle(wt)` in the TWO-relaunches test, correct the comment at `:473`, and audit the other `settle(` call sites. Verify by running the test 50 times in a loop on the fixed and the unfixed file: the unfixed file must fail at least once. → #2177
 
+### A dead fixture pid
+
+- `bug/continue-route-fixture-pid-is-dead` — replace the TWO-relaunches test's fixture pid 111 with 424242, and assert that the first continue answers 202. Pid 111 is a live process on a Linux CI runner, so the route refused the first continue as `loop-alive` and `settle` timed out after 15 s on both main runs after #2177.
+
 ## Notes
 
 Source: https://github.com/plot-pm/plot/issues/2148. Related: #2122, #2107.
