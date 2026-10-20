@@ -4563,18 +4563,14 @@ case "$op" in
                   failing_checks:(if $jentry != null and $jentry.checks == "failing" then [$jentry.job] else [] end),
                   base:(.destination.branch.name // "")
                 } + (if $jstatus == "ok" and $ambiguous and $jentry == null then {checksLookup:"skipped"} else {} end)' "${bb_cmd[@]}" \
-            | bb_fold_mergeable_stream
-          _bb_rc=${PIPESTATUS[0]}
+            | bb_fold_mergeable_stream || exit $?
           PR_LIST_BIND_FN=""
-          [ "$_bb_rc" = 0 ] || exit "$_bb_rc"
         else
           # Bitbucket without Jenkins: checks remain unknown
           pr_list_states bitbucket "$limit" "$bb_states" \
             '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),author:(.author.nickname // ""),failing_checks:[],base:(.destination.branch.name // "")}' \
             "${bb_cmd[@]}" \
-            | bb_fold_mergeable_stream
-          _bb_rc=${PIPESTATUS[0]}
-          [ "$_bb_rc" = 0 ] || exit "$_bb_rc"
+            | bb_fold_mergeable_stream || exit $?
         fi
       else
         pr_list_states bitbucket "$limit" "$bb_states" \

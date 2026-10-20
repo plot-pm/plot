@@ -989,7 +989,7 @@ test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', (
   const hit = JSON.parse(run(['pr-state', 'feature/a'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(hit, {
     number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4', mergeCommit: '', headSha: '', base: 'main',
-    checks: 'unknown', checksSha: '', mergeable: 'unknown',
+    checks: 'unknown', checksSha: '', mergeable: 'unknown', mergeableReason: 'no head commit for this pull request',
   });
   // NOT `--state all`: bb has no such state. See the strict-stub tests below.
   assert.ok(
