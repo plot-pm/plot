@@ -335,18 +335,21 @@ describe('an unreadable store is nothing to start from', () => {
     // One full read re-asks every PR, so a quiet PR the incremental window
     // would never re-ask still gains the fields the newer format needs.
     //
-    // VERSION 4 ADDS `headSha`, `headSince`, `checksSha` AND `mergedAt`; a v3
-    // file fails the literal parse and reads as *ask the host*. Version 3 was
-    // what made the `wholeAt` rule safe: A version-2 store carries no
-    // `wholeAt`, and a reader accepting it would have to guess whether its full
-    // read was due — against `at`, the clock this slice removed. Refusing it
-    // costs exactly one full read per machine, and `prWindowFor` would have
-    // answered a full read for a store with no `wholeAt` in any case.
-    expect(PR_INDEX_VERSION).toBe(4);
-    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 3 }))).toBeNull();
-    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 4 }))).not.toBeNull();
+    // VERSION 5 ADDS `checksLookup`; a v4 file fails the literal parse and
+    // reads as *ask the host* — the same `.strict()` consequence version 4's
+    // own addition (`headSha`, `headSince`, `checksSha`, `mergedAt`) had on a
+    // v3 file. Version 3 was what made the `wholeAt` rule safe: A version-2
+    // store carries no `wholeAt`, and a reader accepting it would have to
+    // guess whether its full read was due — against `at`, the clock this
+    // slice removed. Refusing it costs exactly one full read per machine, and
+    // `prWindowFor` would have answered a full read for a store with no
+    // `wholeAt` in any case.
+    expect(PR_INDEX_VERSION).toBe(5);
+    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 4 }))).toBeNull();
+    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 5 }))).not.toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 1 }))).toBeNull();
     expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 2 }))).toBeNull();
+    expect(decodePrIndex(JSON.stringify({ ...store([row(1)]), v: 3 }))).toBeNull();
   });
 
   it('keeps a row with no author without the key, and a row with one with it', () => {

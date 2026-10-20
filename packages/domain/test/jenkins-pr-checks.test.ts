@@ -105,4 +105,51 @@ describe('rowsToBind', () => {
     expect(droppedBranches).toHaveLength(3);
     expect(droppedBranches.every((b) => !boundBranches.has(b))).toBe(true);
   });
+
+  describe('rotation', () => {
+    // SEVEN ROWS, NEWEST FIRST, CAP 5: with no memory the same two rows
+    // (r5, r6, the oldest two) never bind on any pass. `bound` is what the
+    // caller's PR index already holds from the previous pass.
+    const many = Array.from({ length: 7 }, (_, i) => ({
+      headRefName: `r${i}`,
+      headRefOid: `s${i}`,
+      updatedAt: `2026-10-17T${String(10 + i).padStart(2, '0')}:00:00Z`,
+    }));
+    const green = Object.fromEntries(many.map((r) => [r.headRefName, { checks: 'green', job: `j/${r.headRefName}` }]));
+
+    it('a row left out of pass 1 is picked up in pass 2, rather than the same newest rows winning again', () => {
+      const pass1 = rowsToBind(many, green, 5);
+      const pass1Branches = new Set(pass1.map((r) => r.branch));
+      expect(pass1Branches.has('r0')).toBe(false);
+      expect(pass1Branches.has('r1')).toBe(false);
+
+      // Pass 1's answers are now the caller's stored `checksSha` — bound to
+      // their current head.
+      const bound = Object.fromEntries(pass1.map((r) => [r.branch, r.sha]));
+      const pass2 = rowsToBind(many, green, 5, bound);
+      const pass2Branches = new Set(pass2.map((r) => r.branch));
+      // r0 and r1 were never bound, so they win a slot on pass 2 over rows
+      // the caller's index already confirms are bound to their current head.
+      expect(pass2Branches.has('r0')).toBe(true);
+      expect(pass2Branches.has('r1')).toBe(true);
+    });
+
+    it('a row already bound to its current head is not asked again while an unbound row is waiting', () => {
+      const bound = { r5: 's5', r6: 's6' };
+      const picked = rowsToBind(many, green, 2, bound);
+      // Both slots go to never-bound rows, newest first among them, even
+      // though r5/r6 are the most recently updated of all seven.
+      expect(picked.map((r) => r.branch)).toEqual(['r4', 'r3']);
+    });
+
+    it('a row whose head moved past the bound sha is treated as unbound', () => {
+      const bound = { r6: 'stale-sha' };
+      const picked = rowsToBind(many, green, 1, bound);
+      expect(picked[0]?.branch).toBe('r6');
+    });
+
+    it('with no bound map, every row sorts exactly as it did before rotation existed', () => {
+      expect(rowsToBind(many, green, 3)).toEqual(rowsToBind(many, green, 3, {}));
+    });
+  });
 });

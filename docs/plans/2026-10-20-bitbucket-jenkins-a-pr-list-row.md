@@ -37,16 +37,16 @@ The plan states the target behaviour and leaves the mechanism to the Open Questi
 
 ### Open Questions
 
-- [ ] New `checks` word or separate field for "not looked up"? Which readers branch on `unknown` today?
-- [ ] Does rotation belong in `rowsToBind` (pure, no memory) or in the caller that holds the PR index?
-- [ ] What does one Jenkins sha lookup cost on ewz-kus-portal, and does a higher cap or rotation cost less per pass than the fleet's rate budget allows? Measure before choosing a number.
-- [ ] Does the GitHub-plus-Jenkins arm of `pr-list --rich` have the same gap?
+- [x] New `checks` word or separate field for "not looked up"? Which readers branch on `unknown` today? **Separate field, `checksLookup: 'skipped'`.** `checkWord`/`prStates` in `packages/board/src/server/fleet.ts` switch on `PrRecord['checks']` by exact string value with a `default: 'unknown'` catch-all, and the board's merge-queue reduction reads the same way — both are unaffected by a sibling field. A new `checks` word would have forced an edit in every one of those switches and in `ChecksSchema`; the separate field leaves `checks: unknown` exactly as every existing reader (`checks-reading.ts`'s `checksVerdict`, the board, `pr-refresh.ts`) already reads it, and only a reader that asks about `checksLookup` sees the new fact. `PrIndexRowSchema`, `CardPrSchema` and `ChecksReadings` all carry it as `.optional()`.
+- [x] Does rotation belong in `rowsToBind` (pure, no memory) or in the caller that holds the PR index? **In `rowsToBind`.** It takes the caller's `bound` map (branch → `checksSha` the PR index already has on record) as a plain argument and stays pure — no port, no await, consistent with "readings as values" (`CLAUDE.md`'s note on the domain's shape). The caller (`plot-host.sh`'s `pr-list --rich`, via the new `--bound-shas` flag) is the one that reads the index and passes it in; `rowsToBind` only sorts already-bound branches after never-bound/stale ones.
+- [x] What does one Jenkins sha lookup cost on ewz-kus-portal, and does a higher cap or rotation cost less per pass than the fleet's rate budget allows? Measure before choosing a number. **Measured 2026-10-20 against the live repository** (`bb pr list` baseline ~0.96s; a full `pr-list --state open --rich` with 5 ambiguous rows ~5.06s) — roughly **0.8s per Jenkins sha lookup**, consistent with this repo's own `AGENTS.md` measurement of 7.5s for one PR's `--rich` call. Jenkins' connector predicts a limit of 60 requests (`plot-host.sh:1418`), so even doubling `SHA_LOOKUPS_PER_PASS` to 10 (~8s/pass) stays far inside budget. Rotation already solves the correctness gap — every open PR binds within `ceil(n / 5)` passes rather than never — so raising the cap is optional throughput tuning, not required by this plan, and `SHA_LOOKUPS_PER_PASS` stays at 5.
+- [x] Does the GitHub-plus-Jenkins arm of `pr-list --rich` have the same gap? **Yes.** Both arms share one `jenkins_bind_rows`/`rowsToBind` mechanism and the same cap; the GitHub+Jenkins jq pipeline in `plot-host.sh` had the identical `$named`/ambiguous-row collapse into `unknown` with no distinguishing signal, and now carries the identical `checksLookup` fix.
 
 ## Slices
 
 ### Not looked up
 
-- `bug/bitbucket-jenkins-a-pr-list-row` — a row past the lookup cap reads distinct from a row Jenkins cannot answer, and every open PR binds within a bounded number of passes
+- `bug/bitbucket-jenkins-a-pr-list-row` — a row past the lookup cap reads distinct from a row Jenkins cannot answer, and every open PR binds within a bounded number of passes → #2198
 
 ## Notes
 

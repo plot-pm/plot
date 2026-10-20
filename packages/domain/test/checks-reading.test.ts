@@ -113,6 +113,16 @@ describe('checksVerdict', () => {
     expect(verdict.detail).toContain('not the same fact');
   });
 
+  it('names the pass rather than the board when this pass skipped the lookup', () => {
+    // `checksLookup: 'skipped'` is a distinct fact from "the board could not
+    // ask" — a row past this pass's cap, not a row the host ever failed to
+    // answer. The label and sentence must say which.
+    const verdict = checksVerdict(reading({ checks: 'unknown', checksLookup: 'skipped' }));
+    expect(verdict.label).toBe('checks not looked up yet');
+    expect(verdict.detail).toContain('did not look up');
+    expect(verdict.detail).toContain('not the same fact');
+  });
+
   it('names the conflict as the cause when none rides on a conflicting branch', () => {
     const clean = checksVerdict(reading({ checks: 'none', mergeable: 'mergeable' }));
     const conflicting = checksVerdict(reading({ checks: 'none', mergeable: 'conflicting' }));

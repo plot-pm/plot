@@ -2305,6 +2305,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
           author: record?.author ?? '',
           headSha: record?.headSha,
           checksSha: record?.checksSha,
+          checksLookup: record?.checksLookup,
         };
       }),
       // Read from the record this card's OWN column measures recency by. Always

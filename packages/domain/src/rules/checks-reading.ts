@@ -45,6 +45,14 @@ export interface ChecksReadings {
    * the two are read nowhere near each other.
    */
   checksSha?: string;
+  /**
+   * `'skipped'` where a Jenkins-backed pass did not look this row up this
+   * pass — the cap, or an ask that broke early — rather than Jenkins having
+   * answered `unknown` itself. Absent everywhere else, including on a
+   * payload written before this field existed; a consumer must not read
+   * absence as "Jenkins answered."
+   */
+  checksLookup?: string;
 }
 
 /**
@@ -191,6 +199,16 @@ export const checksVerdict = (readings: ChecksReadings): ChecksVerdict => {
     };
   }
   if (readings.checks === 'unknown') {
+    if (readings.checksLookup === 'skipped') {
+      return {
+        state: 'unknown',
+        prominence,
+        shown,
+        label: 'checks not looked up yet',
+        detail:
+          'This pass did not look up this pull request’s checks — it will be asked on a later pass. This is not the same fact as the host having no opinion.',
+      };
+    }
     return {
       state: 'unknown',
       prominence,

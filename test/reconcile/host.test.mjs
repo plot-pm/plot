@@ -2737,6 +2737,8 @@ test('host: a Jenkins build that was aborted reads unknown on the PR row, bound 
   assert.equal(rows.get('feature/green').checksSha, sha,
     'an aborted build still binds the row to the head it was measured against');
   assert.deepEqual(rows.get('feature/green').failing_checks, []);
+  assert.equal(rows.get('feature/green').checksLookup, undefined,
+    'Jenkins answered this row — that is a different fact from the pass never asking it');
 });
 
 test('host: a Jenkins build that was never built reads unknown on the PR row, bound to its head sha', () => {
@@ -2765,6 +2767,8 @@ test('host: a Jenkins build that was never built reads unknown on the PR row, bo
   assert.equal(rows.get('feature/red').checks, 'unknown');
   assert.equal(rows.get('feature/red').checksSha, sha);
   assert.deepEqual(rows.get('feature/red').failing_checks, []);
+  assert.equal(rows.get('feature/red').checksLookup, undefined,
+    'Jenkins answered this row — that is a different fact from the pass never asking it');
 });
 
 test('host: a push after the last build reads unknown on the new head, not the old colour', () => {
@@ -3071,10 +3075,13 @@ test('host: pr-list bitbucket under jenkins reads unknown, never a stale colour,
   const asked = curlCalls(rest.argvFile);
   assert.equal(asked.length, 5, `seven ambiguous rows with a head sha cost five calls:\n${asked.join('\n')}`);
   assert.equal(out.get('feature/b6').checks, 'failing', 'the newest row is read by sha');
+  assert.equal(out.get('feature/b6').checksLookup, undefined, 'a row Jenkins answered carries no checksLookup');
   assert.equal(out.get('feature/b0').checks, 'unknown', 'a row past the cap must not read its branch colour as the head\'s checks');
   assert.equal(out.get('feature/b0').checksSha, '');
+  assert.equal(out.get('feature/b0').checksLookup, 'skipped', 'a row past the cap is not the same fact as Jenkins answering unknown');
   assert.equal(out.get('feature/b1').checks, 'unknown', 'same for the other row past the cap');
   assert.equal(out.get('feature/b1').checksSha, '');
+  assert.equal(out.get('feature/b1').checksLookup, 'skipped');
   for (const row of out.values()) {
     assert.ok(!(row.checks === 'green' && (row.checksSha ?? '') === ''), `row past the cap must not read green with no checksSha: ${JSON.stringify(row)}`);
     assert.ok(!(row.checks === 'failing' && (row.checksSha ?? '') === '' && row.head !== 'feature/b6'), `row past the cap must not read failing with no checksSha: ${JSON.stringify(row)}`);
@@ -3123,10 +3130,13 @@ test('host: a refresh reads at most five rows by sha, the most recently updated 
   assert.equal(asked.length, 5, `seven green rows with a head sha cost five calls:\n${asked.join('\n')}`);
   assert.ok(!asked.some((u) => u.includes('/job/b0/') || u.includes('/job/b1/')), 'the two oldest rows are not asked');
   assert.equal(rows.get('b6').checks, 'failing', 'the newest row is read by sha');
+  assert.equal(rows.get('b6').checksLookup, undefined, 'a row Jenkins answered carries no checksLookup');
   assert.equal(rows.get('b0').checks, 'unknown', 'a row past the cap is not bound to its head, so its branch colour must not stand in for it');
   assert.equal(rows.get('b0').checksSha, '');
+  assert.equal(rows.get('b0').checksLookup, 'skipped', 'a row past the cap is not the same fact as Jenkins answering unknown');
   assert.equal(rows.get('b1').checks, 'unknown', 'same for the other row past the cap');
   assert.equal(rows.get('b1').checksSha, '');
+  assert.equal(rows.get('b1').checksLookup, 'skipped');
 });
 
 test('host: a Jenkins refresh costs a fixed number of calls, whatever the branch count', () => {

@@ -1801,10 +1801,15 @@ jenkins_sha_runs() {
 # "named but the ask broke early" (the colour must still stand, per "absent is
 # not false") from "never named because the row is past the cap" (the colour
 # must not stand) without a second, duplicate run of the same `rows` verb.
+# $5 = optional JSON object, branch -> the checksSha the caller's PR index
+# already has on record; a branch bound there to its CURRENT head costs the
+# pass nothing to re-confirm, so `rowsToBind` (rotation) spends the cap's
+# lookups on branches that are absent or stale there first. Absent entirely
+# where the caller holds no index — every row then sorts exactly as before.
 # `jenkins_sha_runs` reads each named row by sha, the bundle binds them. A
 # lookup that cannot ask Jenkins ends the pass, and the colour stands.
 jenkins_bind_rows() {
-  local _named; _named="$({ jq -c . <<<"$2"; jq -c . <<<"$3"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null)"
+  local _named; _named="$({ jq -c . <<<"$2"; jq -c . <<<"$3"; jq -c . <<<"${5:-null}"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null)"
   : >"${4:-/dev/null}"; [ -z "$_named" ] && return; cut -f1 <<<"$_named" >"${4:-/dev/null}"
   printf '%s\n' "$_named" | while IFS=$'\t' read -r _b _s _j; do
       _r=$(jenkins_sha_runs "$1" "$_b" 20 "$_s" </dev/null) || break; printf '%s\t%s\t%s\t%s\n' "$_b" "$_s" "$_j" "$_r"
@@ -4028,13 +4033,12 @@ case "$op" in
     # --state all, where the newest 30 crowd out every older merged PR. A caller
     # that wants history says how much; the default stays the host's, so no
     # existing caller's result changes.
-    limit=""
-    branches=""
+    limit=""; branches=""
     # THE WINDOW, AND IT IS THE HOST'S OWN STAMP. Empty means ask about
     # everything, which is what every caller predating this asks and what a
     # caller with no stored watermark must ask. A caller that has one sends it
     # verbatim — see the header: re-rendering it is how a window closes forever.
-    since=""
+    since=""; _bound_shas=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --state) state="${2:?}"; shift 2 ;;
@@ -4077,6 +4081,14 @@ case "$op" in
         # over the wrong set answers confidently about branches nobody asked
         # about while missing the ones they did.
         --branch) branches="${branches:+$branches }${2:?}"; shift 2 ;;
+        # ROTATION'S READ-ONLY INPUT (`bitbucket-jenkins-a-pr-list-row`):
+        # branch -> the `checksSha` the caller's PR index already has on
+        # record, JSON, so `jenkins_bind_rows` spends this pass's capped
+        # lookups on branches the index does NOT yet confirm bound to their
+        # current head. OPT-IN, like `--branch` above — a caller with no
+        # index (or none built yet) passes nothing, and every row sorts
+        # exactly as it always has.
+        --bound-shas) _bound_shas="${2:?}"; shift 2 ;;
         *) die "pr-list: unknown arg $1" ;;
       esac
     done
@@ -4289,10 +4301,15 @@ case "$op" in
           # `SHA_LOOKUPS_PER_PASS` (`rowsToBind`) and reads `unknown`: its
           # colour may belong to a commit this PR no longer carries (same gap
           # as the Bitbucket arm, `bitbucket-jenkins-pr-list-rows-past`).
-          plot_tmpfile _named_file host-prlist-named; _sha_map=$(jenkins_bind_rows pr-list "$jen_map" "$_gh_raw" "$_named_file"); _named=$(jq -R -c -s 'split("\n") | map(select(length > 0))' <"$_named_file")
+          plot_tmpfile _named_file host-prlist-named; _sha_map=$(jenkins_bind_rows pr-list "$jen_map" "$_gh_raw" "$_named_file" "$_bound_shas"); _named=$(jq -R -c -s 'split("\n") | map(select(length > 0))' <"$_named_file")
           printf '%s' "$_gh_raw" \
             | jq -c --argjson jmap "$jen_map" --argjson shamap "${_sha_map:-null}" --argjson named "${_named:-[]}" --arg jstatus "$jen_status" "$MERGEABLE_OF"'.[] |
               ($jmap[.headRefName]) as $colour | (($colour.checks == "green" or $colour.checks == "failing")) as $ambiguous | (.headRefName) as $head | ((.headRefOid // "") != "") as $hasSha | (($named | index($head)) != null) as $wasNamed | ($shamap[.headRefName] // (if ($ambiguous and $hasSha and ($wasNamed | not)) then null else $colour end) // null) as $eff |
+              # A ROW `$eff == null` WITH `$ambiguous` NEVER GOT A JENKINS ANSWER
+              # THIS PASS — past the cap, or a lookup that broke early. That is a
+              # different fact from Jenkins NAMING "unknown", so it carries its
+              # own field rather than collapsing into the same `checks` word
+              # (`bitbucket-jenkins-a-pr-list-row`).
               {
                 number:.number, title:.title, state:.state, head:.headRefName,
                 draft:.isDraft,
@@ -4304,7 +4321,7 @@ case "$op" in
                 checksSha:($eff.checksSha // ""),
                 author:(.author.login // ""),
                 failing_checks:(if $eff.checks == "failing" then [$eff.job] else [] end)
-              }'
+              } + (if $jstatus == "ok" and $ambiguous and $eff == null then {checksLookup:"skipped"} else {} end)'
         else
           # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
           _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} \
@@ -4454,10 +4471,14 @@ case "$op" in
           # `updatedAt` travels too: `rowsToBind` sorts by it to pick the most
           # recently updated rows, and a row list that never carries it sorts
           # as a no-op, leaving the cap keyed on array order instead.
-          _bb_jen_bind() { local s n named_file; plot_tmpfile named_file host-bbprlist-named; s="$(jenkins_bind_rows pr-list "$jen_map" "$(jq -c '[.[] | {headRefName:.source.branch.name,headRefOid:.source.commit.hash,updatedAt:.updated_on}]' <<<"$1")" "$named_file")"; n="$(jq -R -c -s 'split("\n") | map(select(length > 0))' <"$named_file")"; PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status" --argjson shamap "${s:-null}" --argjson named "${n:-[]}"); } # $1 = this state's raw Bitbucket rows
+          _bb_jen_bind() { local s n named_file; plot_tmpfile named_file host-bbprlist-named; s="$(jenkins_bind_rows pr-list "$jen_map" "$(jq -c '[.[] | {headRefName:.source.branch.name,headRefOid:.source.commit.hash,updatedAt:.updated_on}]' <<<"$1")" "$named_file" "$_bound_shas")"; n="$(jq -R -c -s 'split("\n") | map(select(length > 0))' <"$named_file")"; PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status" --argjson shamap "${s:-null}" --argjson named "${n:-[]}"); } # $1 = this state's raw Bitbucket rows
           PR_LIST_BIND_FN=_bb_jen_bind
           pr_list_states bitbucket "$limit" "$bb_states" '.[] |
                 ($jmap[.source.branch.name]) as $colour | (($colour.checks == "green" or $colour.checks == "failing")) as $ambiguous | (.source.branch.name) as $head | ((.source.commit.hash // "") != "") as $hasSha | (($named | index($head)) != null) as $wasNamed | ($shamap[.source.branch.name] // (if ($ambiguous and $hasSha and ($wasNamed | not)) then null else $colour end) // null) as $jentry |
+                # A ROW `$jentry == null` WITH `$ambiguous` NEVER GOT A JENKINS
+                # ANSWER THIS PASS — past the cap, or a lookup that broke early.
+                # Distinct from Jenkins naming "unknown" itself — own field
+                # rather than the same `checks` word (`bitbucket-jenkins-a-pr-list-row`).
                 {
                   number:.id, title:.title,
                   state:(if .state=="DECLINED" then "CLOSED" else .state end),
@@ -4474,7 +4495,7 @@ case "$op" in
                   updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),checksSha:($jentry.checksSha // ""),
                   author:(.author.nickname // ""),
                   failing_checks:(if $jentry != null and $jentry.checks == "failing" then [$jentry.job] else [] end)
-                }' "${bb_cmd[@]}" || exit $?
+                } + (if $jstatus == "ok" and $ambiguous and $jentry == null then {checksLookup:"skipped"} else {} end)' "${bb_cmd[@]}" || exit $?
           PR_LIST_BIND_FN=""
         else
           # Bitbucket without Jenkins: checks remain unknown

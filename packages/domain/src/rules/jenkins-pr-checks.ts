@@ -45,20 +45,35 @@ export const SHA_LOOKUPS_PER_PASS = 5;
  * is already in flight. A row with no head sha cannot be bound.
  *
  * Each entry costs the caller one Jenkins lookup, so at most `limit` rows are
- * returned, the most recently updated first. A row past the limit is left out
- * of the answer; the caller must not read its branch colour as the head's
- * check, because that is exactly the ambiguity this rule exists to flag.
+ * returned. A row past the limit is left out of the answer; the caller must
+ * not read its branch colour as the head's check, because that is exactly the
+ * ambiguity this rule exists to flag.
+ *
+ * **ROTATION.** `bound` is the caller's record of which branch already read
+ * its CURRENT head — the PR index's stored `checksSha`, read-only. A row whose
+ * branch is absent from `bound`, or whose head has moved past the sha `bound`
+ * names, goes first; a row already bound to its current head goes last, since
+ * asking it again would spend a lookup confirming what the caller already
+ * knows. Within each group the most recently updated row goes first, so a
+ * repository with no stale rows keeps today's order exactly. With more
+ * ambiguous rows than `limit`, the never-bound and stale rows win the slots —
+ * each pass clears some of them, so a repository with `n` such rows binds
+ * every one within `ceil(n / limit)` passes rather than the same newest rows
+ * every time.
  *
  * @param rows - the host's PR rows.
  * @param colours - the branch-colour map, keyed by branch, each entry carrying
  *   `checks` and `job`.
  * @param limit - the most rows to return.
- * @returns one entry per row to read by sha, newest `updatedAt` first.
+ * @param bound - each branch's checksSha as the caller's index last stored it,
+ *   or absent where the caller holds no index.
+ * @returns one entry per row to read by sha, unbound and stale rows first.
  */
 export const rowsToBind = (
   rows: readonly PrRowHead[],
   colours: Readonly<Record<string, { checks?: string; job?: string }>>,
   limit: number = SHA_LOOKUPS_PER_PASS,
+  bound: Readonly<Record<string, string>> = {},
 ): Array<{ branch: string; sha: string; job: string }> =>
   [...rows]
     .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
@@ -70,6 +85,7 @@ export const rowsToBind = (
         ? [{ branch: row.headRefName, sha, job: entry.job ?? row.headRefName }]
         : [];
     })
+    .sort((a, b) => Number(bound[a.branch] === a.sha) - Number(bound[b.branch] === b.sha))
     .slice(0, limit);
 
 /**

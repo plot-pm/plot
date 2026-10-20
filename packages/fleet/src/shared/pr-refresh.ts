@@ -428,6 +428,12 @@ export interface PrRecord {
   headSince?: string;
   /** The commit `checks` was computed for; the rollup arm only. */
   checksSha?: string;
+  /**
+   * `'skipped'` where a Jenkins-backed pass did not look this row up this
+   * pass — the cap, or an ask that broke early — never where Jenkins itself
+   * answered. Absent everywhere else; never a value `checks` already reports.
+   */
+  checksLookup?: string;
   /** The host's merge time; absent on an open PR. */
   mergedAt?: string;
 }
@@ -1113,6 +1119,7 @@ const storeRow = (
   if (typeof pr.updatedAt === 'string' && pr.updatedAt !== '') row.updatedAt = pr.updatedAt;
   if (typeof pr.author === 'string' && pr.author !== '') row.author = pr.author;
   if (typeof pr.checksSha === 'string' && pr.checksSha !== '') row.checksSha = pr.checksSha;
+  if (typeof pr.checksLookup === 'string' && pr.checksLookup !== '') row.checksLookup = pr.checksLookup;
   // A MERGED row is terminal: while the host answers MERGED, the first stored
   // `mergedAt` stands. Bitbucket reads it from `updated_on`, which moves on
   // every later comment, so a merged row with no stored predecessor takes the
@@ -1159,6 +1166,7 @@ const recordOf = (row: PrIndexRow): PrRecord => {
   if (row.headSha !== undefined) pr.headSha = row.headSha;
   if (row.headSince !== undefined) pr.headSince = row.headSince;
   if (row.checksSha !== undefined) pr.checksSha = row.checksSha;
+  if (row.checksLookup !== undefined) pr.checksLookup = row.checksLookup;
   if (row.mergedAt !== undefined) pr.mergedAt = row.mergedAt;
   return pr;
 };
@@ -1471,6 +1479,20 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     const args = ['pr-list', window.since === null ? '--rich-open' : '--rich',
       '--state', 'all', '--limit', String(PR_LIMIT)];
     if (window.since !== null) args.push('--since', window.since);
+    // ROTATION'S READ-ONLY INPUT (`bitbucket-jenkins-a-pr-list-row`): each
+    // open branch's stored `checksSha`, so a Jenkins-backed `pr-list` spends
+    // this pass's capped lookups on branches the store does NOT yet confirm
+    // bound to their current head, rather than the same newest-`updatedAt`
+    // rows every time. Keyed by `head`, never by number — the shell joins
+    // Jenkins' colour map on branch name, the same key `rowsToBind` reads.
+    // Built from `stored`, already read above for the seed and the window;
+    // a second read would be a second file for one answer the first already
+    // gave.
+    const boundShas: Record<string, string> = {};
+    for (const row of stored?.rows ?? []) {
+      if (row.state === 'OPEN' && row.head !== '' && row.checksSha) boundShas[row.head] = row.checksSha;
+    }
+    if (Object.keys(boundShas).length > 0) args.push('--bound-shas', JSON.stringify(boundShas));
     const said = await withHostSlot(entry, () => scripts.hostSaid(args));
     // A refusal is thrown so the catch below keeps owning the backoff. It is one
     // policy — keep the last good map, wait where the host named a wait — and
