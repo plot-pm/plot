@@ -44,7 +44,7 @@ Each Bitbucket arm asks for the branch itself, with the per-branch query `pr-lis
 
 ## Slices
 
-### Branch query
+### Branch query (Branch: bug/pr-state-and-pr-merged-miss, PR: #2209)
 
 - `bug/pr-state-and-pr-merged-miss` — Bitbucket `pr-state`, `pr-merged` and the merge-commit and head lookups ask for the branch itself, or answer `unknown`; tests cover a fixture whose branch merged past the first page.
 

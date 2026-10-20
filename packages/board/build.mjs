@@ -1351,6 +1351,29 @@ await esbuild.build({
 fs.copyFileSync(bitbucketSlugArtifact, shippedBitbucketSlug);
 fs.chmodSync(shippedBitbucketSlug, 0o755);
 
+// The Bitbucket `mergeable` reading from a local `git merge-tree` check, for
+// `plot-host.sh pr-state` and `pr-list --rich`. Once per Bitbucket PR row, the
+// operator-command tier `docs/shell-and-domain.md` puts on the calling side.
+// Reads stdin only and spawns nothing: the shell keeps `git fetch`, `git
+// --version` and `git merge-tree` itself, the one place reaching the process.
+const bitbucketMergeableArtifact = path.join(here, 'dist/plot-bitbucket-mergeable.mjs');
+const shippedBitbucketMergeable = path.join(here, '../../skills/plot/scripts/board/plot-bitbucket-mergeable.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/bitbucket-mergeable.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: bitbucketMergeableArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(bitbucketMergeableArtifact, shippedBitbucketMergeable);
+fs.chmodSync(shippedBitbucketMergeable, 0o755);
+
 // `plot-deliver.sh`'s mechanical half — the ranking's confirmed first
 // operator-command script (the-shell-shrinks-into-the-domain, slice 4). Not a
 // readings-in/decision-out bundle like the others above: this one creates the
@@ -1616,6 +1639,7 @@ const needsDesignKb = (fs.statSync(shippedNeedsDesign).size / 1024).toFixed(1);
 const claimAnswerKb = (fs.statSync(shippedClaimAnswer).size / 1024).toFixed(1);
 const reapKb = (fs.statSync(shippedReap).size / 1024).toFixed(1);
 const gateKb = (fs.statSync(shippedGate).size / 1024).toFixed(1);
+const bitbucketMergeableKb = (fs.statSync(shippedBitbucketMergeable).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1658,4 +1682,5 @@ console.log(`Built plot-needs-design.mjs (${needsDesignKb} KB) → skills/plot/s
 console.log(`Built plot-claim-answer.mjs (${claimAnswerKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-reap.mjs (${reapKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-gate.mjs (${gateKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-bitbucket-mergeable.mjs (${bitbucketMergeableKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

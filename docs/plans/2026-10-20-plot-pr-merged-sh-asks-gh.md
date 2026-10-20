@@ -59,7 +59,7 @@ The exemption comment records why the 2026-09-06 attempt stopped, and the slices
 
 ## Slices
 
-### Route the lookups
+### Route the lookups (Branch: bug/plot-pr-merged-sh-asks-gh, PR: #2206)
 
 - `bug/plot-pr-merged-sh-asks-gh` — route `_plot_merged_lookup` and `_plot_open_lookup` through `plot-host.sh`, delete the gate exemption, and add a Bitbucket test (stub `bb`, no `gh`) proving a merged branch reads as merged.
 

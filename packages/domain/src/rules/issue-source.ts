@@ -97,6 +97,45 @@ export const issueAbsence = (reason: string): string => {
 };
 
 /**
+ * Who owns a repository's sprints: plot itself, or an external tracker plot
+ * defers to.
+ *
+ * `plot` means `/plot-sprint` operates; `external` carries the tracker's
+ * scheme so the decline sentence can name it.
+ */
+export type SprintOwner =
+  | { readonly owns: 'plot' }
+  | { readonly owns: 'external'; readonly scheme: string };
+
+/**
+ * Decides who owns a repository's sprints.
+ *
+ * `Sprint owner` and `Tracker` answer independent questions — this repo's
+ * sprints versus where its issues live — and a repository that sets neither,
+ * or sets only `Tracker`, keeps today's rule unchanged: a declared external
+ * tracker means plot is not the sprint owner, because a shadow sprint board
+ * drifts from the one plot would otherwise keep. `Sprint owner` exists only
+ * to let a repository say "plot" to the first question while still naming an
+ * external tracker for the second — declaring `Sprint owner` with any other
+ * value, or declaring `Sprint owner: plot` with no `Tracker`, decides nothing
+ * a bare `Tracker` reading didn't already decide, so the key is read only
+ * where it is present and non-empty.
+ *
+ * @param declaredSprintOwner - the `Sprint owner` config key's value,
+ *   verbatim; `''` where the repository declared none.
+ * @param declaredTracker - the `Tracker` config key's value, verbatim; `''`
+ *   where the repository declared none.
+ * @returns `plot` where `/plot-sprint` operates, or `external` with the
+ *   tracker's scheme where it declines.
+ */
+export const sprintOwner = (declaredSprintOwner: string, declaredTracker: string): SprintOwner => {
+  const owner = declaredSprintOwner.trim().toLowerCase();
+  if (owner === NO_EXTERNAL_TRACKER) return { owns: 'plot' };
+  const scheme = declaredTracker.trim().split(/\s+/, 1).join('').toLowerCase();
+  return scheme === '' || scheme === NO_EXTERNAL_TRACKER ? { owns: 'plot' } : { owns: 'external', scheme };
+};
+
+/**
  * The stderr sentence for a Bitbucket `bb` with no issue command.
  *
  * The advice to declare `Tracker` fits only where the repository has not

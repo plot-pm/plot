@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2188
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-20, Jan Wloka, plan-PR #2196 merged
 - **Started:** 2026-10-20, Jan Wloka, `bug/pr-state-and-pr-list-still`
+- **Delivered:** 2026-10-20
 
 ## Changelog
 
@@ -51,7 +52,7 @@ Deliverable check (`plot-deliverable-search.sh`): `trees-git.ts` `mergeConflict`
 
 ### Merge-tree reading
 
-- `bug/pr-state-and-pr-list-still` — Bitbucket `pr-state` and `pr-list --rich` fold `mergeable` from `git merge-tree --write-tree` and name the reason for an `unknown`; contract tests under `test/reconcile/` with a sandbox repo holding one clean and one conflicting branch <!-- builds: bitbucketMergeable, a merge-tree fold in plot-host.sh -->
+- `bug/pr-state-and-pr-list-still` — Bitbucket `pr-state` and `pr-list --rich` fold `mergeable` from `git merge-tree --write-tree` and name the reason for an `unknown`; contract tests under `test/reconcile/` with a sandbox repo holding one clean and one conflicting branch <!-- builds: bitbucketMergeable, a merge-tree fold in plot-host.sh --> → #2207
 
 ## Notes
 
