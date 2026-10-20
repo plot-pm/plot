@@ -15,6 +15,17 @@ describe('who answers the open-issue list', () => {
     expect(issueSource({ declared: '   ', gitHost, listers })).toEqual({ ask: 'git-host' });
   });
 
+  it.each(['github', 'bitbucket'])('asks the %s git host where the tracker is declared `plot`, same as none', (gitHost) => {
+    expect(issueSource({ declared: 'plot', gitHost, listers })).toEqual({ ask: 'git-host' });
+    expect(issueSource({ declared: 'Plot', gitHost, listers })).toEqual({ ask: 'git-host' });
+    expect(issueSource({ declared: 'plot extra', gitHost, listers })).toEqual({ ask: 'git-host' });
+  });
+
+  it('never falls back to the git host for a scheme that only starts with `plot`', () => {
+    expect(issueSource({ declared: 'plotter', gitHost: 'github', listers }).ask).toBe('nobody');
+    expect(issueSource({ declared: 'plot-x', gitHost: 'github', listers }).ask).toBe('nobody');
+  });
+
   it('asks a listed tracker, and not the git host, where it is declared', () => {
     // The issue's case: a Bitbucket repository whose tickets live in Jira.
     expect(issueSource({ declared: 'jira https://acme.atlassian.net', gitHost: 'bitbucket', listers }))
@@ -39,7 +50,6 @@ describe('who answers the open-issue list', () => {
       ask: 'nobody',
       reason: 'no connector lists issues from the declared tracker `linear`, and the git host is not asked in its place',
     });
-    expect(issueSource({ declared: 'plot', gitHost: 'github', listers }).ask).toBe('nobody');
   });
 
   it('reads the table it is given, and holds no list of its own', () => {
