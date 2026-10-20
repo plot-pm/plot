@@ -182,20 +182,304 @@ jobs:
         timeout-minutes: 10
         run: pnpm --filter @plot-pm/domain run test:corpus
 
+  # ── Helper contract tests: its own job, ahead of `validate`. ──────────────
+  #
+  # Runs in parallel with `board-integration`; `validate` starts after both
+  # end, through its `needs:` edge.
+  #
+  # SPLIT OUT 2026-10-20 (#2121). Measured over the 30 most recent `validate`
+  # runs on `main` and on PRs: this step alone carried a median of 462.5 s and
+  # a p95 of 547.6 s — 36.5 % of `validate`'s 1500 s cap at the median. Combined
+  # with Board integration below, the two steps held 1005 s of `validate`'s
+  # 1345 s median total (74.7 %), which is why splitting both was the only
+  # option that reached the 60 %-of-cap target; bounding either step alone
+  # left the job's STEP SUM over the cap, because the cap fires on the sum,
+  # not on any one step.
+  #
+  # Copies `corpus`'s pattern: its own `runs-on`, its own ceiling set from the
+  # same measurement, and the dispatch guard first — a checkout ahead of it
+  # would clone an unpinned ref before anything refused.
+  helper-contracts:
+    runs-on: ubuntu-latest
+    # 12 minutes, same as the step carried before the split: p95 was 547.6 s
+    # (9.1 min) and max was 554 s (9.2 min) over 30 runs, so 12 keeps the
+    # margin the step already had rather than tightening it.
+    timeout-minutes: 12
+    steps:
+      - name: Guard the dispatched run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/changeset-release/main" ]; then
+            echo "::error::a dispatched run is only valid on refs/heads/changeset-release/main, got $GITHUB_REF"
+            exit 1
+          fi
+          if [ -z "${EXPECTED_SHA:-}" ]; then
+            echo "::error::expected_sha is empty, so this run is unpinned"
+            exit 1
+          fi
+          if [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::head moved: expected $EXPECTED_SHA, testing $GITHUB_SHA"
+            exit 1
+          fi
+          echo "Dispatched run pinned to $GITHUB_SHA on $GITHUB_REF"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Same reason as `validate`'s own checkout: the domain suite's
+          # `ports-real-state.test.ts` reads commits by sha and needs full
+          # history to do it.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # THE CHECKOUT HOLDS main'S BUILD, NOT A PR'S OWN, same as `validate`:
+      # `test/reconcile/*.test.mjs` loads the generated board bundles, so this
+      # step has to run before them here too.
+      - name: Build the board bundles
+        run: pnpm run build:board
+
+      # A CEILING AND A WITNESS, because the failure this catches reports NOTHING.
+      #
+      # Measured 2026-08-30/31: 10 of 16 observed runs cancelled here, at ~25
+      # minutes, with no step marked `failure` and `--log-failed` empty. The
+      # suite passes 912/912 locally in ~7 min on the same commit, so the cause
+      # is not in the assertions and has survived eight eliminations.
+      #
+      # `--test-reporter=tap` is the load-bearing half: node's default reporter
+      # buffers, so when the job is killed its output dies with it. TAP streams,
+      # so the last line before silence NAMES the file that wedged.
+      #
+      # MEASURED 2026-09-10, AND IT IS ARITHMETIC RATHER THAN A HANG. A full
+      # local run finished — `cancelled 0`, exit 1 on two assertions — in
+      # **22m 08s** (`duration_ms 1328462`) carrying **139.3 minutes of
+      # test work** across 1565 tests in 75 files. That is 6.3x effective
+      # parallelism on a 16-core machine at load 5.4.
+      #
+      # To fit this ceiling the suite needs **11.6x**. A 2-4 core CI runner
+      # gives ~4x, which predicts ~35 minutes — and the reported symptom was a
+      # cancellation at ~25. The suite is not wedging; it is being killed
+      # mid-stream, which is why no step is marked `failure` and
+      # `--log-failed` is empty. `node --test` never gave up, so it reported
+      # nothing to give up on.
+      #
+      # THE SUITE OUTGREW THE CEILING: 42 files at the 912/912 reference
+      # (2026-08-31) against **75 files and 1565 tests** ten days later, while
+      # `timeout-minutes` stayed at 12. The "~2 minutes on a healthy run"
+      # recorded in CHANGELOG.md:2366 was measured on that smaller suite.
+      #
+      # 35 tests exceed 30s and the slowest single test is **255.6s**, so the
+      # cost is a few shell-spawning files rather than a broad regression:
+      # `dispatch.test.mjs` and `fleet.test.mjs` were the two still running at
+      # 12 minutes, each turning over `plot-dispatch.sh` / `plot-fleet-scan.sh`
+      # subprocesses continuously at 1.4-2.3s of CPU per 12 minutes of wall
+      # clock. Quiet at 0% CPU, but never idle — which is exactly what an
+      # earlier reading of "0% CPU for 28 minutes" looked like from outside.
+      #
+      # `dispatch.test.mjs` ALONE takes 6m 05s for its 93 tests — half this
+      # ceiling in one file, on an idle machine. Run alone it is 93/93 green;
+      # in the full suite it contributed both of the run's two failures, each
+      # `spawnSync bash ETIMEDOUT` against the 30s bound its own `staff()`
+      # helper sets (`dispatch.test.mjs:76`) while neighbouring tests around
+      # that helper passed at 39.8s and 45.0s. So those two are contention,
+      # not assertions — and the repair is bounding concurrency, never
+      # weakening the assertion.
+      #
+      # NOT FIXED HERE, DELIBERATELY. Raising this ceiling, sharding the suite
+      # or bounding the slow files are three different answers, and this slice
+      # scoped itself to the measurement and the split — both named in
+      # `docs/plans/2026-10-19-validate-runs-at-86-of-its.md`. What changed is
+      # that the hang is no longer unexplained (CHANGELOG.md:2368), and the
+      # step now runs in its own job so a wedge here cannot carry `validate`'s
+      # other steps to the same cancellation.
+      #
+      # SPLIT OUT OF `validate` 2026-10-20 (#2121): see the comment on the
+      # `helper-contracts` job above for the measurement that drove the split.
+      - name: Helper contract tests
+        timeout-minutes: 12
+        run: pnpm run test:contracts
+      - name: What was still running (only when the suite wedged)
+        if: failure()
+        run: |
+          echo "=== processes ==="
+          ps -eo pid,ppid,etime,stat,args | grep -E '[n]ode|[b]ash|[s]leep|[g]it' | head -50 || true
+          echo "=== worker logs left behind ==="
+          find "${TMPDIR:-/tmp}" -name '.plot-worker*.log' -mmin -30 2>/dev/null | head -20 | while read -r f; do
+            echo "--- $f"; tail -30 "$f" || true
+          done
+          echo "=== fixture directories ==="
+          ls -dt "${TMPDIR:-/tmp}"/plot-* 2>/dev/null | head -20 || true
+
+  # ── Board integration tests: its own job, ahead of `validate`. ────────────
+  #
+  # Runs in parallel with `helper-contracts`; `validate` starts after both
+  # end, through its `needs:` edge.
+  #
+  # SPLIT OUT 2026-10-20 (#2121), same measurement as `helper-contracts` above:
+  # median 542.5 s, p95 600 s, max 606 s over the last 30 `validate` runs.
+  board-integration:
+    runs-on: ubuntu-latest
+    # The longest legitimate run was measured at 606 s (10.1 min); 15 is the
+    # bound the step already carried before the split, kept rather than
+    # tightened.
+    timeout-minutes: 15
+    steps:
+      - name: Guard the dispatched run
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/changeset-release/main" ]; then
+            echo "::error::a dispatched run is only valid on refs/heads/changeset-release/main, got $GITHUB_REF"
+            exit 1
+          fi
+          if [ -z "${EXPECTED_SHA:-}" ]; then
+            echo "::error::expected_sha is empty, so this run is unpinned"
+            exit 1
+          fi
+          if [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::head moved: expected $EXPECTED_SHA, testing $GITHUB_SHA"
+            exit 1
+          fi
+          echo "Dispatched run pinned to $GITHUB_SHA on $GITHUB_REF"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the board bundles
+        run: pnpm run build:board
+
+      # THE STEP THAT HUNG ELEVEN TIMES IN ONE DAY, and neither half of this is
+      # optional. The cache usually removes the download entirely; the timeout
+      # decides what happens on the days it does not.
+      #
+      # Keyed on the resolved Playwright version rather than on the lockfile
+      # hash: the browser build is chosen by that version and by nothing else,
+      # so a lockfile change elsewhere must not evict a browser that is still
+      # correct. `restore-keys` lets a near-miss serve the OS deps while the
+      # exact browser is fetched.
+      - name: Cache the Playwright browser
+        timeout-minutes: 10
+        id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('packages/board/package.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      # THREE MINUTES, against a step that takes ~45 s warm and ~90 s cold.
+      # This is deliberately tight: the failure mode is not a slow CDN, it is a
+      # connection that never completes, and every measured hang sat past 10
+      # minutes with no output. A tight bound turns that into a fast, re-runnable
+      # failure instead of an hour of silence — the difference between a gate and
+      # a thing somebody has to watch.
+      - name: Install Playwright browser
+        timeout-minutes: 3
+        run: pnpm --filter @plot-pm/board exec playwright install --with-deps chromium
+
+      # The longest legitimate step — a real browser against the built artifact.
+      # Measured green at 4 to 8 minutes; 15 covers a saturated runner without
+      # letting a wedged browser hold the job to the ceiling above.
+      - name: Board integration tests (vitest + Playwright)
+        timeout-minutes: 15
+        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board exec vitest run
+
   validate:
     runs-on: ubuntu-latest
+    # `helper-contracts` and `board-integration` gate a merge through this job,
+    # because the branch ruleset (measured 2026-10-20, ruleset 24412719) names
+    # `validate` and `plot/review` as its only required contexts. A split job
+    # is not a required check by itself.
+    #
+    # `needs:` ALONE DOES NOT FAIL THIS JOB. When a needed job fails, GitHub
+    # SKIPS the dependent job, and the ruleset accepts a `skipped` required
+    # check. So `validate` runs whenever the run was not cancelled
+    # (`if: !cancelled()`), and its first step exits 1 unless both split jobs
+    # ended `success`. A red split job then makes `validate` read `failure`,
+    # and a cancelled run still reads `cancelled`.
+    #
+    # The edge orders the jobs: the two split jobs run in parallel with each
+    # other, and `validate` starts after both end. When a split job fails,
+    # `validate`'s own steps after the first do not run in that run. The
+    # alternative, named in the plan's Open Questions, is a ruleset change
+    # that adds both job names as their own required contexts; that is a
+    # settings change a person makes, reported rather than made here.
+    needs: [helper-contracts, board-integration]
+    if: ${{ !cancelled() }}
     # A CEILING, not a target. GitHub's default is 360 minutes, which is not a
     # limit anyone waits for — a wedged step simply never returns, and the run
     # sits in `in_progress` looking like work. Measured 2026-08-19: eleven runs
     # hung on the Playwright download alone, 10 to 57 minutes each, every one
-    # ended by hand. A green run takes about 7 minutes, so 25 leaves ample room
-    # for a slow runner while turning a hang into a FAILURE — and a failure can
-    # be re-run, while a hang has to be noticed first.
+    # ended by hand.
+    #
+    # RE-MEASURED 2026-10-20 (#2121): the comment here said a green run takes
+    # about 7 minutes (measured 2026-08-19); over the last 30 `validate` runs
+    # it took a median of 1345 s (22.4 min) and three runs read `cancelled` at
+    # the 1500 s cap with every step `success`. `helper-contracts` and
+    # `board-integration` above now carry the two steps that held 74.7 % of
+    # that time (median 1005 s combined), so `validate`'s own remaining steps
+    # measure a median of 346.5 s and a p95 of 376.65 s — 25.1 % of this cap,
+    # comfortably under the 60 % (900 s) target the plan set. The cap stays at
+    # 25 so a hang still turns into a FAILURE rather than a 360-minute silence,
+    # and a failure can be re-run while a hang has to be noticed first.
+    #
+    # THE RUN'S WALL TIME is the slower split job plus `validate`, not the
+    # slower of the three: at the step p95s, max(547.6 s, 600 s) + 376.65 s
+    # = 976.65 s (16.3 min), plus each job's checkout, install and build. Each
+    # job's `timeout-minutes` counts only its own steps, never the wait on
+    # `needs:`, so each job stays under its own cap: `helper-contracts` 12 min
+    # (p95 9.1 min), `board-integration` 15 min (p95 10.0 min), `validate`
+    # 25 min (p95 6.3 min).
     timeout-minutes: 25
     steps:
-      # The dispatch guard, first step for the reason the `corpus` copy states:
-      # a checkout ahead of it would clone an unpinned ref before anything
-      # refused. The two refusals are the ref and the head SHA.
+      # FIRST STEP: the split jobs' results. `if: !cancelled()` above lets this
+      # job run after a split job failed, so this step turns that failure into
+      # this job's `failure` rather than a `skipped` the ruleset accepts. It
+      # checks nothing out, so it runs safely ahead of the dispatch guard.
+      - name: Require the split jobs
+        env:
+          HELPER_CONTRACTS: ${{ needs.helper-contracts.result }}
+          BOARD_INTEGRATION: ${{ needs.board-integration.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+          if [ "$HELPER_CONTRACTS" != "success" ]; then
+            echo "::error::helper-contracts ended '$HELPER_CONTRACTS', not 'success'"
+            failed=1
+          fi
+          if [ "$BOARD_INTEGRATION" != "success" ]; then
+            echo "::error::board-integration ended '$BOARD_INTEGRATION', not 'success'"
+            failed=1
+          fi
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+          echo "helper-contracts and board-integration both ended success"
+
+      # The dispatch guard, ahead of any checkout for the reason the `corpus`
+      # copy states: a checkout ahead of it would clone an unpinned ref before
+      # anything refused. The two refusals are the ref and the head SHA.
       - name: Guard the dispatched run
         if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
@@ -262,75 +546,12 @@ jobs:
       - name: Build the board bundles
         run: pnpm run build:board
 
-      # A CEILING AND A WITNESS, because the failure this catches reports NOTHING.
-      #
-      # Measured 2026-08-30/31: 10 of 16 observed runs cancelled here, at ~25
-      # minutes, with no step marked `failure` and `--log-failed` empty. The
-      # suite passes 912/912 locally in ~7 min on the same commit, so the cause
-      # is not in the assertions and has survived eight eliminations.
-      #
-      # `--test-reporter=tap` is the load-bearing half: node's default reporter
-      # buffers, so when the job is killed its output dies with it. TAP streams,
-      # so the last line before silence NAMES the file that wedged.
-      #
-      # MEASURED 2026-09-10, AND IT IS ARITHMETIC RATHER THAN A HANG. A full
-      # local run finished — `cancelled 0`, exit 1 on two assertions — in
-      # **22m 08s** (`duration_ms 1328462`) carrying **139.3 minutes of
-      # test work** across 1565 tests in 75 files. That is 6.3x effective
-      # parallelism on a 16-core machine at load 5.4.
-      #
-      # To fit this ceiling the suite needs **11.6x**. A 2-4 core CI runner
-      # gives ~4x, which predicts ~35 minutes — and the reported symptom was a
-      # cancellation at ~25. The suite is not wedging; it is being killed
-      # mid-stream, which is why no step is marked `failure` and
-      # `--log-failed` is empty. `node --test` never gave up, so it reported
-      # nothing to give up on.
-      #
-      # THE SUITE OUTGREW THE CEILING: 42 files at the 912/912 reference
-      # (2026-08-31) against **75 files and 1565 tests** ten days later, while
-      # `timeout-minutes` stayed at 12. The "~2 minutes on a healthy run"
-      # recorded in CHANGELOG.md:2366 was measured on that smaller suite.
-      #
-      # 35 tests exceed 30s and the slowest single test is **255.6s**, so the
-      # cost is a few shell-spawning files rather than a broad regression:
-      # `dispatch.test.mjs` and `fleet.test.mjs` were the two still running at
-      # 12 minutes, each turning over `plot-dispatch.sh` / `plot-fleet-scan.sh`
-      # subprocesses continuously at 1.4-2.3s of CPU per 12 minutes of wall
-      # clock. Quiet at 0% CPU, but never idle — which is exactly what an
-      # earlier reading of "0% CPU for 28 minutes" looked like from outside.
-      #
-      # `dispatch.test.mjs` ALONE takes 6m 05s for its 93 tests — half this
-      # ceiling in one file, on an idle machine. Run alone it is 93/93 green;
-      # in the full suite it contributed both of the run's two failures, each
-      # `spawnSync bash ETIMEDOUT` against the 30s bound its own `staff()`
-      # helper sets (`dispatch.test.mjs:76`) while neighbouring tests around
-      # that helper passed at 39.8s and 45.0s. So those two are contention,
-      # not assertions — and the repair is bounding concurrency, never
-      # weakening the assertion.
-      #
-      # NOT FIXED HERE, DELIBERATELY. Raising this ceiling, sharding the suite
-      # or bounding the slow files are three different answers and the plan
-      # scoped this slice to the measurement. What changed is that the hang is
-      # no longer unexplained (CHANGELOG.md:2368).
-      - name: Helper contract tests
-        timeout-minutes: 12
-        run: pnpm run test:contracts
-      - name: What was still running (only when the suite wedged)
-        if: failure()
-        run: |
-          echo "=== processes ==="
-          ps -eo pid,ppid,etime,stat,args | grep -E '[n]ode|[b]ash|[s]leep|[g]it' | head -50 || true
-          echo "=== worker logs left behind ==="
-          find "${TMPDIR:-/tmp}" -name '.plot-worker*.log' -mmin -30 2>/dev/null | head -20 | while read -r f; do
-            echo "--- $f"; tail -30 "$f" || true
-          done
-          echo "=== fixture directories ==="
-          ls -dt "${TMPDIR:-/tmp}"/plot-* 2>/dev/null | head -20 || true
-      # BOUNDED like its neighbours. The reconcile step above carries
-      # `timeout-minutes: 12` because it once wedged until the job ceiling at 25
-      # and reported nothing; this step had no bound at all. E2E dispatches real
-      # workers, so it is the likeliest of all of them to hang — and now that it
-      # is CI's gate rather than a local one, a hang here is the only place the
+      # BOUNDED like the helper contract suite now split into its own
+      # `helper-contracts` job: that step carries `timeout-minutes: 12`
+      # because it once wedged until the job ceiling at 25 and reported
+      # nothing; this step had no bound at all. E2E dispatches real workers,
+      # so it is the likeliest of all of them to hang — and now that it is
+      # CI's gate rather than a local one, a hang here is the only place the
       # failure can surface.
       - name: E2E choreography tests
         timeout-minutes: 15
@@ -1324,44 +1545,9 @@ jobs:
         timeout-minutes: 10
         run: ./scripts/owned-run.sh pnpm --filter @plot-pm/fleet exec vitest run --coverage
 
-      # ── Board integration tests: a real browser (Playwright) renders the just-
-      #    built artifact against the tiny-garden fixture, asserting the mobile
-      #    no-horizontal-scroll fix and the inline-sprint filter. ───────────────
-      # THE STEP THAT HUNG ELEVEN TIMES IN ONE DAY, and neither half of this is
-      # optional. The cache usually removes the download entirely; the timeout
-      # decides what happens on the days it does not.
-      #
-      # Keyed on the resolved Playwright version rather than on the lockfile
-      # hash: the browser build is chosen by that version and by nothing else,
-      # so a lockfile change elsewhere must not evict a browser that is still
-      # correct. `restore-keys` lets a near-miss serve the OS deps while the
-      # exact browser is fetched.
-      - name: Cache the Playwright browser
-        timeout-minutes: 10
-        id: playwright-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('packages/board/package.json') }}
-          restore-keys: |
-            playwright-${{ runner.os }}-
-
-      # THREE MINUTES, against a step that takes ~45 s warm and ~90 s cold.
-      # This is deliberately tight: the failure mode is not a slow CDN, it is a
-      # connection that never completes, and every measured hang sat past 10
-      # minutes with no output. A tight bound turns that into a fast, re-runnable
-      # failure instead of an hour of silence — the difference between a gate and
-      # a thing somebody has to watch.
-      - name: Install Playwright browser
-        timeout-minutes: 3
-        run: pnpm --filter @plot-pm/board exec playwright install --with-deps chromium
-
-      # The longest legitimate step — a real browser against the built artifact.
-      # Measured green at 4 to 8 minutes; 15 covers a saturated runner without
-      # letting a wedged browser hold the job to the ceiling above.
-      - name: Board integration tests (vitest + Playwright)
-        timeout-minutes: 15
-        run: ./scripts/owned-run.sh pnpm --filter @plot-pm/board exec vitest run
+      # Board integration tests (vitest + Playwright) split out into their own
+      # `board-integration` job 2026-10-20 (#2121) — see the comment on that
+      # job above for the measurement that drove the split.
 
       # NOT gated on pull_request: an unknown package name aborts `changeset
       # version` for the WHOLE repo, so it must fail on main too — the four-day

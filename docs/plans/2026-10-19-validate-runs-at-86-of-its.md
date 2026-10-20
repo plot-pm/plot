@@ -53,11 +53,37 @@ Two steps hold 78 % of the time. The comment above the cap in `ci.yml` says a gr
    The target is a p95 of at most 60 % of the cap, or a cap raised only if a split does not reach that.
 3. **Report a timeout as a timeout.** GitHub gives a job that reached its cap the conclusion `cancelled`. Plot reads that word in `plot-host.sh` (line 4651) and `rules/checks-verdict.ts` (lines 141–162, 254). The slice decides how to tell the two apart, for example a step-level `timeout-minutes` that makes the step `failure`, or a job-end marker step with `if: always()` that records the elapsed time. It then makes the desk and `plot-ask.mjs merge` tell the two apart.
 
+### Measured distribution (30 runs, main and PRs, 2026-10-20)
+
+Every `validate` step with `started_at`/`completed_at` set, read from `repos/plot-pm/plot/actions/runs/<id>/jobs`. Seconds, n=30 unless noted.
+
+| step | median | p95 | max |
+|---|---|---|---|
+| Board integration tests (vitest + Playwright) | 542.5 | 600.0 | 606.0 |
+| Helper contract tests | 462.5 | 547.6 | 554.0 |
+| Fleet unit tests + loop coverage gate | 123.0 | 125.0 | 125.0 |
+| E2E choreography tests | 43.0 | 47.0 | 47.0 |
+| Domain tests + coverage gate | 38.0 | 47.5 | 48.0 |
+| Fleet bundle tests | 36.0 | 36.5 | 37.0 |
+| Board tests | 29.5 | 37.0 | 37.0 |
+| Install Playwright browser | 11.0 | 14.1 | 15.0 |
+| Domain typecheck | 6.0 | 7.0 | 7.0 |
+| Board typecheck | 6.0 | 8.0 | 8.0 |
+| Build the board bundles | 4.0 | 5.5 | 6.0 |
+| Cache the Playwright browser | 3.5 | 5.0 | 6.0 |
+| Board build + artifact freshness | 3.5 | 4.5 | 5.0 |
+| Fleet typecheck | 3.0 | 5.0 | 5.0 |
+| remaining ~40 gate/checkout/setup steps | ≤1.0 each | ≤2.0 each | ≤5.0 each |
+| **`validate` total (sum of steps)** | **1343.0** | **1514.0** | **1515.0** |
+| **`validate` total, Board integration + Helper contract removed** | **345.0** | **375.65** | **382.0** |
+
+Two steps hold 74.3 % of the median total (998.0 s of 1343.0 s). 3 of 30 runs ended at the job cap (1500 s = 25 min) with every executed step `success`; a 4th ended `cancelled` with the same signature. With the two steps split into their own jobs, `validate`'s own remaining p95 is 375.65 s — 25.0 % of the 1500 s cap, against the plan's 60 % (900 s) target.
+
 ### Open Questions
 
-- [ ] Does GitHub expose the timeout cause in the jobs API (`steps[].conclusion`, annotations), so Plot can read it with no workflow change?
-- [ ] Do the split jobs need to be separate required checks, and does the branch ruleset (`Default branch checks: CI`) name `validate` only?
-- [ ] Does a `cancelled` run caused by a superseding push (concurrency group) differ from a timeout in the data Plot reads?
+- [x] **Does GitHub expose the timeout cause in the jobs API (`steps[].conclusion`, annotations), so Plot can read it with no workflow change?** Yes. All 4 `cancelled` runs in the 30-run sample carry the same step-level fingerprint: every step up to the one running when the cap fired is `success` or `skipped` (pre-dispatch-guard steps), the step that was running reads `cancelled` itself, and every step after it is `skipped`. `steps[].conclusion` alone tells a timeout-caused cancellation apart from one where the job never started — no annotation and no workflow change needed.
+- [x] **Do the split jobs need to be separate required checks, and does the branch ruleset (`Default branch checks: CI`) name `validate` only?** Confirmed via the live ruleset API (`repos/plot-pm/plot/rulesets/24412719`): required contexts are `validate` and `plot/review` only. A new job with no edge into `validate` is invisible to the ruleset. This slice uses a `needs:` edge from `validate` onto the two new jobs rather than a ruleset change — see the PR description for the full reasoning. A ruleset change (adding `helper-contracts` and `board-integration` as their own required contexts) remains available if a person prefers it; that edit is not made here.
+- [x] **Does a `cancelled` run caused by a superseding push (concurrency group) differ from a timeout in the data Plot reads?** All 4 `cancelled` runs in this 30-run sample were timeouts (same fingerprint above); none was a concurrency-group supersession, so the sample has no example of that case to compare against. Expected difference, from how GitHub's concurrency cancellation works: a superseded run is cancelled before any step starts, so every step reads `skipped` (none `success`, none `cancelled`) — a run with at least one `success` step before the `cancelled` one is a timeout, a run with zero non-skipped steps is a supersession. Wave 2 (`infra/a-timeout-reads-as-a-timeout`) should verify this against a real superseded run rather than relying on this inference alone.
 
 ## Slices
 
