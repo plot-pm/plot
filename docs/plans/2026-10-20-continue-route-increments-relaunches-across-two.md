@@ -43,7 +43,7 @@ Other tests that call `postTo` and then `settle` may share the gap. The slice gr
 
 ### Wait for the first worker
 
-- `bug/continue-route-increments-relaunches-across-two` — add `wt` to `spawned` before `settle(wt)` in the TWO-relaunches test, correct the comment at `:473`, and audit the other `settle(` call sites. Verify by running the test 50 times in a loop on the fixed and the unfixed file: the unfixed file must fail at least once.
+- `bug/continue-route-increments-relaunches-across-two` — add `wt` to `spawned` before `settle(wt)` in the TWO-relaunches test, correct the comment at `:473`, and audit the other `settle(` call sites. Verify by running the test 50 times in a loop on the fixed and the unfixed file: the unfixed file must fail at least once. → #2177
 
 ## Notes
 
