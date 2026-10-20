@@ -63,7 +63,7 @@ Two steps hold 78 % of the time. The comment above the cap in `ci.yml` says a gr
 
 ### Measure and bound
 
-- `infra/validate-step-budget` — measure the last 30 runs, then split or bound the slow steps so p95 stays at or below 60 % of the cap
+- `infra/validate-step-budget` — measure the last 30 runs, then split or bound the slow steps so p95 stays at or below 60 % of the cap → #2141
 
 ### Report
 
