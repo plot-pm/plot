@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
+import type { Mergeability } from '../../entities/pr.js';
 import type { Worktree } from '../../entities/worktree.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { Trees } from '../../ports/trees.js';
@@ -390,6 +391,30 @@ export const treesGit = (context: ShellContext): Trees => {
       if (commits === null || commits.length === 0) return unanswerable;
       return answered<CommitReading>(realCommits(commits) > 0 ? 'yes' : 'no');
     },
+
+    // `--write-tree` performs the merge in git's object database only: no
+    // write to the index or the worktree, so a desk mid-turn is never
+    // disturbed by asking this. Exit 0 is a clean merge, exit 1 is a real
+    // conflict; any other outcome (no base ref, git itself failing) answers
+    // `unknown` rather than guessing a side.
+    mergeConflict: async (path): Promise<PortResult<Mergeability>> => {
+      const unknown = answered<Mergeability>('unknown');
+      let directory = false;
+      try {
+        directory = statSync(path).isDirectory();
+      } catch {
+        directory = false;
+      }
+      if (path === '' || !directory) return unknown;
+      const git: GitIn = (args) => runProcess('git', ['-C', path, ...args], inRepo);
+      const base = await defaultBase(git);
+      if (base === '') return unknown;
+      const merge = await git(['merge-tree', '--write-tree', base, 'HEAD']);
+      if (merge.code === 0) return answered<Mergeability>('mergeable');
+      if (merge.code === 1) return answered<Mergeability>('conflicting');
+      return unknown;
+    },
+
     prune: async () => {
       const run = await runProcess('git', ['worktree', 'prune'], inRepo);
       return run.code === 0 ? answered(undefined) : failed<void>();

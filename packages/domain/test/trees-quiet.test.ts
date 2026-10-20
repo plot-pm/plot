@@ -185,6 +185,60 @@ describe('treesGit().commitBeyondClaim', () => {
   });
 });
 
+describe('treesGit().mergeConflict', () => {
+  /** A fresh clone of `bare`, on a branch from `origin/main`, so each case starts from no commits of its own. */
+  const freshDesk = (name: string): string => {
+    const at = path.join(root, name);
+    git(root, ['clone', '--quiet', bare, at]);
+    git(at, ['config', 'user.email', 'test@example.com']);
+    git(at, ['config', 'user.name', 'Test']);
+    git(at, ['checkout', '--quiet', '-b', `infra/${name}`]);
+    return at;
+  };
+
+  it('answers unknown for an empty path and for a path that is not a directory', async () => {
+    expect(await trees().mergeConflict('')).toEqual({ ok: true, value: 'unknown' });
+    expect(await trees().mergeConflict(path.join(root, 'nothing-here'))).toEqual({ ok: true, value: 'unknown' });
+  });
+
+  it('answers mergeable where the branch merges cleanly, and touches neither the index nor the worktree', async () => {
+    const at = freshDesk('clean-merge');
+    fs.writeFileSync(path.join(at, 'clean.txt'), 'w\n');
+    git(at, ['add', '-A']);
+    git(at, ['commit', '--quiet', '-m', 'clean work']);
+    expect(await trees().mergeConflict(at)).toEqual({ ok: true, value: 'mergeable' });
+    expect(git(at, ['status', '--porcelain']).trim()).toBe('');
+  });
+
+  it('answers conflicting where the branch and origin/<default> touch the same line, and touches neither the index nor the worktree', async () => {
+    const at = freshDesk('conflicting');
+    fs.writeFileSync(path.join(at, 'conflict.txt'), 'from branch\n');
+    git(at, ['add', '-A']);
+    git(at, ['commit', '--quiet', '-m', 'branch writes conflict.txt']);
+
+    git(desk, ['checkout', '--quiet', 'main']);
+    fs.writeFileSync(path.join(desk, 'conflict.txt'), 'from main\n');
+    git(desk, ['add', '-A']);
+    git(desk, ['commit', '--quiet', '-m', 'main writes conflict.txt']);
+    git(desk, ['push', '--quiet', 'origin', 'HEAD:main']);
+    git(at, ['fetch', '--quiet', 'origin']);
+
+    expect(await trees().mergeConflict(at)).toEqual({ ok: true, value: 'conflicting' });
+    expect(git(at, ['status', '--porcelain']).trim()).toBe('');
+
+    git(desk, ['fetch', '--quiet', 'origin']);
+  });
+
+  it('is unknown where no origin/<default> ref exists', async () => {
+    const lone = path.join(root, 'lone-merge');
+    git(root, ['init', '--quiet', '--initial-branch=main', lone]);
+    git(lone, ['config', 'user.email', 'test@example.com']);
+    git(lone, ['config', 'user.name', 'Test']);
+    git(lone, ['commit', '--quiet', '--allow-empty', '-m', 'one']);
+    expect(await trees().mergeConflict(lone)).toEqual({ ok: true, value: 'unknown' });
+  });
+});
+
 describe('treesFixture quiet and commits', () => {
   const fixture = treesFixture({ quiet: { '/a': 12, '/b': null }, commits: { '/a': 'yes' } });
 
@@ -197,5 +251,14 @@ describe('treesFixture quiet and commits', () => {
   it('answers unanswerable for a path the table does not name', async () => {
     expect(await fixture.hasCommits('/a')).toEqual({ ok: true, value: 'yes' });
     expect(await fixture.hasCommits('/c')).toEqual({ ok: true, value: 'unanswerable' });
+  });
+});
+
+describe('treesFixture mergeConflicts', () => {
+  it('answers the table and reads an absent path as unknown, the direction the git adapter fails in', async () => {
+    const fixture = treesFixture({ mergeConflicts: { '/a': 'conflicting', '/b': 'mergeable' } });
+    expect(await fixture.mergeConflict('/a')).toEqual({ ok: true, value: 'conflicting' });
+    expect(await fixture.mergeConflict('/b')).toEqual({ ok: true, value: 'mergeable' });
+    expect(await fixture.mergeConflict('/c')).toEqual({ ok: true, value: 'unknown' });
   });
 });

@@ -35,8 +35,10 @@
 #                                   {"number":N,"state":"OPEN|MERGED|CLOSED|NONE",
 #                                    "draft":true|false,"url":"...",
 #                                    "mergeable":"mergeable|conflicting|unknown"}
-#                                 Bitbucket and a REST lookup by branch omit
-#                                 `mergeable`; a reader takes absent as unknown.
+#                                 Bitbucket Cloud's REST API has no field or
+#                                 endpoint that reports merge-conflict status
+#                                 for a pull request (measured 2026-10-20), so
+#                                 `mergeable` is always "unknown" there.
 #                                 NONE = no PR found (exit 0 — callers branch on
 #                                 state, not exit codes)
 #   pr-merged <branch>            has ANY PR for this branch merged? prints one
@@ -203,7 +205,11 @@
 #                                 construct one (it is "" only if the host omits
 #                                 it); `mergeable` is mergeable|conflicting|
 #                                 unknown, and "unknown" is what a host that
-#                                 cannot answer reports (absent is not false)
+#                                 cannot answer reports (absent is not false).
+#                                 Bitbucket Cloud's REST API has no field or
+#                                 endpoint that answers this at all (measured
+#                                 2026-10-20), so `mergeable` is always
+#                                 "unknown" there.
 #                                 --limit raises the host CLI's default page of
 #                                 30, which --state all exhausts immediately
 #                                 THREE OUTCOMES, KEPT APART — the same rule

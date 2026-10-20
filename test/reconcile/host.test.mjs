@@ -791,8 +791,36 @@ test('host: pr-state bitbucket normalizes DECLINED to CLOSED', () => {
   const out = JSON.parse(run(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(out, {
     number: 9, state: 'CLOSED', draft: false, url: 'https://example.test/pr/9', mergeCommit: '', headSha: '', base: 'develop',
-    checks: 'unknown', checksSha: '',
+    checks: 'unknown', checksSha: '', mergeable: 'unknown',
   });
+});
+
+// Bitbucket Cloud's REST API has no field or endpoint that reports a pull
+// request's merge-conflict status (measured 2026-10-20 against the PR object,
+// its diffstat, and its statuses, over a sample of 20 PRs on a real repo). So
+// `mergeable` is always `unknown` there, explicitly carried rather than
+// omitted — a reader must not need to know that absence means unknown.
+test('host: pr-state bitbucket always answers mergeable unknown, key present', () => {
+  const stubs = makeStubs({
+    bbJson: '{"id":9,"state":"OPEN","links":{"html":{"href":"https://example.test/pr/9"}},'
+      + '"source":{"branch":{"name":"feature/y"}}}',
+  });
+  const out = JSON.parse(run(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  assert.ok('mergeable' in out, 'the key is present even though Bitbucket cannot answer it');
+  assert.equal(out.mergeable, 'unknown');
+});
+
+// THE NAIVE-IMPLEMENTATION TRAP: a payload that merely LOOKS like it could
+// answer mergeability (`state: MERGED`, a populated `merge_commit`) must not
+// be read as a verdict. Only a real conflict-reporting endpoint — which
+// Bitbucket does not have — may ever produce anything but `unknown`.
+test('host: pr-state bitbucket does not infer mergeable from state or merge_commit', () => {
+  const stubs = makeStubs({
+    bbJson: '{"id":9,"state":"MERGED","links":{"html":{"href":"https://example.test/pr/9"}},'
+      + '"merge_commit":{"hash":"abc1234"},"source":{"branch":{"name":"feature/y"}}}',
+  });
+  const out = JSON.parse(run(['pr-state', '9'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  assert.equal(out.mergeable, 'unknown', 'a merged PR is not evidence of a clean merge check');
 });
 
 // --- pr-state: both arms answer with the same KEY SET ----------------------
@@ -812,7 +840,9 @@ test('host: pr-state bitbucket normalizes DECLINED to CLOSED', () => {
 // The three keys a merge reads — the head and the checks read for it — are
 // carried only where the host names a head. Bitbucket cannot pin a merge, so its
 // arm leaves them out and a reader takes absent as not known. `mergeable` is
-// the same case: Bitbucket's payload does not name it, and absent reads as unknown.
+// excluded for a different reason: both backends always carry the key, but
+// Bitbucket's value is always the literal `unknown` while GitHub's is a real
+// fold, so the two are not comparable key-for-key the way the others are.
 const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha', 'mergeable']);
 const keysOf = (json) => Object.keys(JSON.parse(json)).filter((k) => !MERGE_KEYS.has(k)).sort();
 
@@ -959,7 +989,7 @@ test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', (
   const hit = JSON.parse(run(['pr-state', 'feature/a'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
   assert.deepEqual(hit, {
     number: 4, state: 'OPEN', draft: false, url: 'https://example.test/pr/4', mergeCommit: '', headSha: '', base: 'main',
-    checks: 'unknown', checksSha: '',
+    checks: 'unknown', checksSha: '', mergeable: 'unknown',
   });
   // NOT `--state all`: bb has no such state. See the strict-stub tests below.
   assert.ok(
@@ -5456,7 +5486,7 @@ test('host: pr-state bitbucket is unaffected — no budget query, no REST', () =
   // is empty because there is nothing honest to put in it.
   assert.deepEqual(out, {
     number: 7, state: 'MERGED', draft: false, url: 'https://bb.test/pr/7', mergeCommit: '', headSha: '', base: '',
-    checks: 'unknown', checksSha: '',
+    checks: 'unknown', checksSha: '', mergeable: 'unknown',
   });
   assert.equal(argvOf(stubs.ghArgv), null, 'the GitHub CLI is not touched on a Bitbucket repo');
 });

@@ -1,3 +1,4 @@
+import type { Mergeability } from '../entities/pr.js';
 import type { PortResult } from '../port-result.js';
 import type { Worktree } from '../entities/worktree.js';
 import type { TreePresence } from '../rules/reapable.js';
@@ -174,6 +175,22 @@ export interface Trees {
    *   no `origin/<default>` ref exists, or git cannot list the commits.
    */
   commitBeyondClaim(path: string): Promise<PortResult<CommitReading>>;
+
+  /**
+   * Whether a checkout's HEAD would merge cleanly into the local
+   * `origin/<default>` ref, without touching the worktree or the index.
+   *
+   * `git merge-tree --write-tree` runs the merge entirely in git's object
+   * database; nothing it does is visible in `git status`. For a host that
+   * cannot answer a pull request's own mergeable field — Bitbucket Cloud's
+   * REST API has none — this is the desk's other way to learn the same fact.
+   *
+   * @param path - the checkout's absolute path.
+   * @returns `mergeable` where the merge has no conflict, `conflicting` where
+   *   it does, and `unknown` where no local `origin/<default>` ref exists or
+   *   git cannot run the merge.
+   */
+  mergeConflict(path: string): Promise<PortResult<Mergeability>>;
 
   /**
    * How many commits a checkout's HEAD holds that its configured upstream does
