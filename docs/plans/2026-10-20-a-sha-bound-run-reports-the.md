@@ -52,7 +52,7 @@ Related plans, all Delivered or Approved on the same arm: `2026-10-18-bitbucket-
 
 ### Sha Of A Run
 
-- `bug/a-sha-bound-run-reports-the` — `jenkins_sha_runs` reports the matched sha in `.sha`; fixture test with two `lastBuiltRevision` entries <!-- builds: jenkins_sha_runs matched-sha reading -->
+- `bug/a-sha-bound-run-reports-the` — `jenkins_sha_runs` reports the matched sha in `.sha`; fixture test with two `lastBuiltRevision` entries → #2173 <!-- builds: jenkins_sha_runs matched-sha reading -->
 
 ### Runs That Ran
 
