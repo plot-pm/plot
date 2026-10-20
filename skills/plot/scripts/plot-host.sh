@@ -1789,6 +1789,7 @@ jenkins_sha_runs() {
           conclusion: (if .building then null else (.result // null) end),
           url: (.url // ""),
           startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ]
+    | (if $sha == "" then map(select(.conclusion != "NOT_BUILT" and .conclusion != "ABORTED")) else . end)
     | if $sha != "" then map(select(any(.shas[]?; . == $sha or (($sha | test("^[0-9a-f]{7,}$")) and (. | startswith($sha)))))) elif $plain == "" then .
       else map(select(if (.br | length) > 0 then any(.br[]; . == $branch) else $branch == ($job | split("/") | last) end)) end
     | map(.sha = (if $sha != "" then (.shas[] | select(. == $sha or (($sha | test("^[0-9a-f]{7,}$")) and (startswith($sha))))) else (if (.br | length) > 0 then ([.br, .shas] | transpose[] | select(.[0] == $branch) | .[1]) // (.shas | last // "") else (.shas | last // "") end) end) | del(.shas, .br))' || exit 4

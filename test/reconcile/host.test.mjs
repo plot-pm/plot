@@ -3540,6 +3540,75 @@ test('host: runs on Jenkins reaches jenkins_sha_runs unfiltered, never gh, and r
   assert.equal(argvOf(hostStubs.ghArgv), null, 'gh is never asked about a Jenkins pipeline');
 });
 
+test('host: runs on Jenkins omits NOT_BUILT and ABORTED builds, keeping the ones that ran', () => {
+  // Neither result is a run of the branch's code: `NOT_BUILT` means Jenkins
+  // never started the build, `ABORTED` means it was cancelled before it
+  // finished. A caller reading `runs` to see what actually ran must not see
+  // either.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const builds = JSON.stringify({ builds: [
+    { number: 11, result: 'NOT_BUILT', building: false, timestamp: 1790000300000, url: 'https://ci.test/11/',
+      actions: [{ lastBuiltRevision: { SHA1: 'sha-not-built' } }] },
+    { number: 10, result: 'ABORTED', building: false, timestamp: 1790000200000, url: 'https://ci.test/10/',
+      actions: [{ lastBuiltRevision: { SHA1: 'sha-aborted' } }] },
+    { number: 9, result: 'FAILURE', building: false, timestamp: 1790000100000, url: 'https://ci.test/9/',
+      actions: [{ lastBuiltRevision: { SHA1: 'newer-sha' } }] },
+    { number: 8, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/8/',
+      actions: [{ lastBuiltRevision: { SHA1: 'older-sha' } }] },
+  ] });
+  const bin = makeJenkinsRestBin(builds);
+  const out = runJenkins(['runs', 'feature/red'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  const rows = out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(rows.map((r) => r.conclusion), ['FAILURE', 'SUCCESS'],
+    'NOT_BUILT and ABORTED are absent; the builds that ran survive, newest first');
+});
+
+test('host: runs on Jenkins keeps a still-building row, which must not be mistaken for NOT_BUILT or ABORTED', () => {
+  // A filter written as `select(.conclusion != null)` would wrongly drop an
+  // in-progress build: its `conclusion` is null while building, which reads
+  // as "absent", not as `NOT_BUILT`/`ABORTED`.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const builds = JSON.stringify({ builds: [
+    { number: 12, result: null, building: true, timestamp: 1790000400000, url: 'https://ci.test/12/',
+      actions: [{ lastBuiltRevision: { SHA1: 'sha-building' } }] },
+    { number: 10, result: 'ABORTED', building: false, timestamp: 1790000200000, url: 'https://ci.test/10/',
+      actions: [{ lastBuiltRevision: { SHA1: 'sha-aborted' } }] },
+  ] });
+  const bin = makeJenkinsRestBin(builds);
+  const out = runJenkins(['runs', 'feature/red'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  const rows = out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(rows.map((r) => r.conclusion), ['in_progress'], 'the building row survives, ABORTED does not');
+});
+
+test('host: run-for-sha and runs-for-sha still return a NOT_BUILT or ABORTED build for the exact sha asked', () => {
+  // The filter belongs to `runs` only (the plan's Design §2): a sha-bound
+  // lookup is asking "did sha X run", and a caller that pinned a sha already
+  // knows the answer it wants to see, including a cancelled or not-built
+  // state for that exact sha.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const builds = jenkinsBuildsFor('sha-aborted', 'ABORTED');
+  const bin = makeJenkinsRestBin(builds);
+  const singular = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'sha-aborted'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(singular.code, 0, singular.stderr);
+  assert.equal(JSON.parse(singular.stdout.trim()).conclusion, 'ABORTED', 'run-for-sha still reports the cancelled build');
+
+  const plural = runJenkinsAllowFail(['runs-for-sha', 'feature/red', 'sha-aborted'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(plural.code, 0, plural.stderr);
+  const rows = JSON.parse(plural.stdout.trim());
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].conclusion, 'ABORTED', 'runs-for-sha still reports the cancelled build');
+});
+
 test('host: runs on Jenkins carries conclusion host-neutral, raw from .result, matching the GitHub arm\'s convention', () => {
   // The raw host value, uninterpreted, as in the GitHub arm — not the `checks`
   // word `pr-list --rich`'s colour table settles.
