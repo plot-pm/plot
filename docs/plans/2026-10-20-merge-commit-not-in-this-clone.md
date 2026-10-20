@@ -39,9 +39,18 @@ The expected shape, from the issue: the advice is true or absent. Where a fetch 
 
 ### Open Questions
 
-- [ ] Which ref carries the Bitbucket merge commit, and does a refspec addition fetch it, or is it unreachable by design?
-- [ ] Does the same false advice appear elsewhere (`grep` for `git fetch --tags origin` in the scan and `packages/domain`)?
-- [ ] Does the finding need a distinct wording per population, or one wording that names the unknown?
+- [x] Which ref carries the Bitbucket merge commit, and does a refspec addition fetch it, or is it unreachable by design? **Unreachable by design.** Bitbucket Cloud has never exposed a `refs/pull-requests/*` equivalent of GitHub's `refs/pull/N/{head,merge}`. On GitHub, a merge/squash/rebase result always lands on the base branch ref, covered by the default refspec. On Bitbucket, once a PR's source branch is deleted after a squash/merge — the common case, and what `plot-host.sh pr-merge --delete-branch` itself does — the merge commit was never transmitted to any clone on any ref. No refspec addition can fetch an object the host's git transport never sent.
+- [x] Does the same false advice appear elsewhere (`grep` for `git fetch --tags origin` in the scan and `packages/domain`)? **No.** `git grep -n "fetch --tags origin" -- skills packages test` returns exactly one shell-code site both before and after this fix: `skills/plot/scripts/plot-reconcile-scan.sh`. `skills/plot-reconcile/` quotes no fetch advice (checked directly; no hits).
+- [x] Does the finding need a distinct wording per population, or one wording that names the unknown? **One wording, branched two ways on `PR_SOURCE`** (already computed, no new host call). `--no-fetch` and a shallow clone both resolve to "a fetch would help" regardless of backend, so they keep `git fetch --tags origin, then re-run`. A true Bitbucket-ref gap gets its own line naming the reason. The population split in the code comment stays descriptive; the finding's wording only needs to split on whether a fetch can help, which collapses to backend (Bitbucket vs. everyone else) because GitHub's merge/squash/rebase result is always reachable via the base branch ref.
+
+## Done when
+
+- [x] `skills/plot/scripts/plot-reconcile-scan.sh` section 6 advises `git fetch --tags origin` only where a fetch can help; a Bitbucket-sourced unreachable merge commit (`PR_SOURCE = bb`) gets a line naming why instead.
+- [x] `test/reconcile/scan.test.mjs` covers both populations: a Bitbucket fixture asserting the fetch line is absent and the reason line is present, and a GitHub `--no-fetch` fixture asserting the fetch line is still present (over-correction guard). Both pass; the pre-existing section-6 tests (5 of 5) still pass.
+- [x] `git grep -n "fetch --tags origin" -- skills packages test` returns exactly one shell-code site, same as before the fix.
+- [x] `skills/plot-reconcile/` quotes no fetch advice — no change needed there.
+- [x] `scripts/check-shell-lines.sh pr` shows zero net growth: 12113 lines now, 12113 at merge base.
+- [x] No new host call added; `PR_SOURCE` (already in scope) is the only new signal read.
 
 ## Slices
 

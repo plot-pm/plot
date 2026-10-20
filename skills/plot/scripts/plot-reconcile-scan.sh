@@ -3395,10 +3395,17 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   # the pipeline's is not: 0 when the object store holds the commit, non-zero
   # when it does not. Three populations arrive here — `--no-fetch` with PRs on,
   # a merge commit outside the local refspec or a shallow clone, and a PR merged
-  # outside the host's merge button.
+  # outside the host's merge button. A fetch helps the first two, on either
+  # backend. The third is Bitbucket-specific and a fetch cannot help:
+  # Bitbucket Cloud exposes no `refs/pull-requests/*` equivalent of GitHub's
+  # PR refs, so a squash/merge commit whose source branch was then deleted
+  # (the common case; `pr-merge --delete-branch` above does this) was never
+  # transmitted to any clone on any ref — not a refspec gap, an object this
+  # host never sent. Measured 2026-10-20 against ewz-kus-portal: three such
+  # shas stayed unresolvable after a fresh, non-shallow fetch.
   if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
     unrel_out+="  $base — delivered, PR #$last_pr names merge commit $sha, not in this clone → cannot resolve\n"
-    unrel_out+="    inspect: git fetch --tags origin, then re-run\n"
+    if [ "$PR_SOURCE" = bb ]; then unrel_out+="    unreachable: Bitbucket exposes no ref for a squash/merge commit once its source branch is deleted — a fetch cannot bring it\n"; else unrel_out+="    inspect: git fetch --tags origin, then re-run\n"; fi
     n_unrel=$((n_unrel + 1))
     continue
   fi

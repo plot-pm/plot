@@ -4069,6 +4069,85 @@ test('scan: a merge commit this clone lacks is reported, not skipped', () => {
   assert.doesNotMatch(sections['6'], /shipped in v9\.0\.0/);
 });
 
+test('scan: a Bitbucket merge commit outside this clone names the reason, not a fetch', () => {
+  // THE DEFECT THIS SLICE FIXES. Bitbucket Cloud exposes no `refs/pull-
+  // requests/*` ref — unlike GitHub's `refs/pull/N/{head,merge}` — so a
+  // squash/merge commit whose source branch was then deleted was never
+  // transmitted to any clone on any ref. `git fetch --tags origin` cannot
+  // bring it, so the finding must not advise it. Field-measured 2026-10-20
+  // against ewz-kus-portal: three such shas stayed unresolvable after a
+  // fresh, non-shallow fetch.
+  const absent = '0'.repeat(39) + '2';
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-s6-bb2-'));
+  fs.writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+case "$*" in
+  *"pr view "*)
+    n=$(printf '%s' "$*" | sed -E 's/.*pr view ([0-9]+).*/\\1/')
+    printf '%s' "{\\"id\\":$n,\\"state\\":\\"MERGED\\",\\"links\\":{\\"html\\":{\\"href\\":\\"u\\"}},\\"source\\":{\\"branch\\":{\\"name\\":\\"x\\"},\\"commit\\":{\\"hash\\":\\"x\\"}},\\"destination\\":{\\"branch\\":{\\"name\\":\\"main\\"}},\\"merge_commit\\":{\\"hash\\":\\"${absent}\\"}}" ;;
+  *"api "*"/pullrequests?state="*) printf '%s' '{"values":[]}' ;;
+  *) printf '%s' '[]' ;;
+esac
+exit 0
+`);
+  fs.chmodSync(path.join(dir, 'bb'), 0o755);
+  const saved = execFileSync('git', ['-C', s6Repo, 'remote', 'get-url', 'origin'],
+    { encoding: 'utf8' }).trim();
+  git(s6Repo, 'remote', 'set-url', 'origin', 'https://bitbucket.org/plot-pm/fixture.git');
+  let out;
+  try {
+    out = execFileSync('bash', [scan, '--no-fetch'], {
+      encoding: 'utf8',
+      cwd: s6Repo,
+      env: {
+        ...process.env,
+        PLOT_BB_SKIP_CAP_CHECK: '1',
+        PATH: `${dir}:${process.env.PATH}`,
+      },
+    });
+  } finally {
+    git(s6Repo, 'remote', 'set-url', 'origin', saved);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  const sections = splitSections(out);
+
+  // The finding still reports — same shape, same sha, same count — just not
+  // the advice that cannot help.
+  assert.match(sections['6'], /2026-03-01-one\.md — delivered, PR #101 names merge commit/,
+    `an unresolvable Bitbucket sha must still report:\n${sections['6']}`);
+  assert.match(sections['6'], new RegExp(absent));
+  assert.match(sections['6'], /not in this clone → cannot resolve/);
+  assert.match(out.trim().split('\n').at(-1), /\bunreleased_delivered=3\b/);
+
+  // THE ASSERTION THAT MATTERS: no fetch advice on Bitbucket. A fetch cannot
+  // bring a commit this host never exposed a ref for.
+  assert.doesNotMatch(sections['6'], /git fetch --tags origin/,
+    `Bitbucket's unreachable merge commit must not be handed false advice:\n${sections['6']}`);
+  assert.match(sections['6'], /unreachable: Bitbucket exposes no ref/,
+    `the finding must name why, not just that it cannot resolve:\n${sections['6']}`);
+});
+
+test('scan: a GitHub merge commit outside this clone keeps the fetch advice', () => {
+  // THE OVER-CORRECTION GUARD. A guard that deletes the advice everywhere
+  // would pass the Bitbucket test above trivially. On GitHub a merge/squash/
+  // rebase commit always lands on the base branch ref, which the default
+  // refspec covers — `--no-fetch` or a shallow clone are the only reasons it
+  // would still be missing, and a fetch resolves both. This is the existing
+  // `--no-fetch` fixture (`scan: a merge commit this clone lacks is reported,
+  // not skipped`), re-asserted for the fetch line specifically so a change
+  // to that test cannot silently drop this guard's coverage.
+  const absent = '0'.repeat(39) + '1';
+  s6Bin = scratch('plot-scan-s6-gh-');
+  makeSection6Stub(s6Bin, absent);
+  const out = execFileSync('bash', [scan, '--no-fetch'], {
+    encoding: 'utf8',
+    cwd: s6Repo,
+    env: { ...process.env, PATH: `${s6Bin}:${process.env.PATH}` },
+  });
+  const sections = splitSections(out);
+  assert.match(sections['6'], /git fetch --tags origin, then re-run/,
+    `a --no-fetch GitHub miss is fetchable, and must say so:\n${sections['6']}`);
+});
+
 test('scan: a free section-6 finding survives --offline', () => {
   // THE FLAG GUARDS THE HOST CALL, NOT THE ITERATION. The `no PR annotation`
   // arm answers from the plan file alone and costs no network, so a flag that
