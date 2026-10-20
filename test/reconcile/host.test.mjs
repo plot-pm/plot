@@ -7983,56 +7983,68 @@ for (const rich of [true, false]) {
 // asking, passes every return-value check below and writes the file anyway.
 
 // The two lookups are SOURCED, not run, so they need their own runner rather
-// than the `run` helper above, which spawns `plot-host.sh`.
+// than the `run` helper above, which spawns `plot-host.sh` directly. They now
+// ask through `plot-host.sh` themselves (`bash "$_plot_host_sh" …`), so a
+// stub placed on `PATH` answers THAT call, not a direct `gh`/`bb` invocation
+// from the sourced script.
 const prMergedLib = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-pr-merged.sh');
 
-function sourcedPrMerged(script, stubDir) {
+function sourcedPrMerged(script, stubDir, extraEnv = {}) {
   const res = spawnSync('bash', ['-c', `source ${JSON.stringify(prMergedLib)}\n${script}`], {
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}` },
+    env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}`, ...extraEnv },
   });
   return { code: res.status, stdout: res.stdout, stderr: res.stderr };
 }
 
-// One merged PR and one open PR in the same listing, every field in both rows.
-function makePrMergedStub() {
-  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-prmerged-')));
+// One merged PR and one open PR, both on `feature/x`, shaped as
+// `plot-host.sh`'s GitHub arm emits them — `--json mergedAt` for `pr-merged`,
+// the full field set for `pr-list`. One `gh` stub answers both calls by
+// branching on `--state all` (pr-merged) vs `--state open` (pr-list).
+function makeGhPrMergedStub() {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-prmerged-gh-')));
   const argvFile = path.join(dir, 'gh.argv');
-  const rows = JSON.stringify([
-    { number: 101, mergedAt: '2026-01-01T00:00:00Z', headRefOid: 'a'.repeat(40) },
-    { number: 102, mergedAt: null, headRefOid: 'b'.repeat(40) },
-  ]);
   writeFileSync(
     path.join(dir, 'gh'),
-    `#!/usr/bin/env bash\nprintf '%s\\n' "$@" >> ${JSON.stringify(argvFile)}\nprintf '%s' ${JSON.stringify(rows)}\n`,
+    `#!/usr/bin/env bash
+printf '%s\\n' "$@" >> ${JSON.stringify(argvFile)}
+if [[ "$*" == *"--state all"* ]]; then
+  printf '%s' '[{"mergedAt":"2026-01-01T00:00:00Z"}]'
+elif [[ "$*" == *"--state open"* ]]; then
+  printf '%s' '[{"number":5,"title":"t","state":"OPEN","headRefName":"feature/x","isDraft":false,"url":"u","updatedAt":"x","author":{"login":"a"},"headRefOid":"${'c'.repeat(40)}","mergedAt":null}]'
+fi
+`,
   );
   chmodSync(path.join(dir, 'gh'), 0o755);
   return { dir, argvFile };
 }
 
-test('plot-pr-merged: an empty branch refuses, and gh is never asked', () => {
-  const stub = makePrMergedStub();
+test('plot-pr-merged: an empty branch refuses, and the host is never asked', () => {
+  const stub = makeGhPrMergedStub();
 
   // `unaskable`, never `none`. `rules/landed.ts` defines `unaskable` as *the
   // lookup did not run, or did not answer*, and a lookup that refuses an empty
   // branch did not run. `none` would claim the host spoke and found nothing,
   // which `mayRemove` reads as permission to remove.
-  const merged = sourcedPrMerged('_plot_merged_lookup ""', stub.dir);
+  const merged = sourcedPrMerged('_plot_merged_lookup ""', stub.dir, { PLOT_HOST: 'github' });
   assert.equal(merged.stdout.trim(), 'unaskable', 'an empty branch is unaskable, not none');
-  const open = sourcedPrMerged('_plot_open_lookup ""', stub.dir);
+  const open = sourcedPrMerged('_plot_open_lookup ""', stub.dir, { PLOT_HOST: 'github' });
   assert.equal(open.stdout.trim(), 'unaskable', 'an empty branch is unaskable, not none');
 
   // `pr_merged ""` returning 0 is the defect: every caller reads 0 as *merged*,
   // and `plot-release-refs.sh` deletes remote refs on that answer.
-  assert.equal(sourcedPrMerged('pr_merged ""', stub.dir).code, 1, 'pr_merged "" refuses');
+  assert.equal(sourcedPrMerged('pr_merged ""', stub.dir, { PLOT_HOST: 'github' }).code, 1, 'pr_merged "" refuses');
 
   // `pr_open` VETOES, so 1 releases the veto — safe only because `pr_merged ""`
   // refuses on the same branch, which `mayRemove` asserts. Returning 0 here to
   // be "conservative" would block nothing real and contradict the plan.
-  assert.equal(sourcedPrMerged('pr_open ""', stub.dir).code, 1, 'pr_open "" has no veto to cast');
+  assert.equal(
+    sourcedPrMerged('pr_open ""', stub.dir, { PLOT_HOST: 'github' }).code, 1, 'pr_open "" has no veto to cast',
+  );
 
   // THE ASSERTION A NAIVE GUARD FAILS. The stub appends its argv on every
-  // invocation, so the file exists if and only if `gh` ran at least once.
+  // invocation, so the file exists if and only if `gh` ran at least once —
+  // through `plot-host.sh`, which is the only thing left able to call it.
   assert.equal(
     existsSync(stub.argvFile), false,
     `no gh call is made for an empty branch; argv recorded: ${
@@ -8043,23 +8055,199 @@ test('plot-pr-merged: an empty branch refuses, and gh is never asked', () => {
 test('plot-pr-merged: a non-empty branch with a merged PR still reads as merged', () => {
   // THE POLARITY CHECK. A guard with the test inverted, or one that refuses
   // every branch, passes every assertion above and fails here.
-  const stub = makePrMergedStub();
+  const stub = makeGhPrMergedStub();
 
   assert.equal(
-    sourcedPrMerged('_plot_merged_lookup feature/x', stub.dir).stdout.trim(), 'found',
+    sourcedPrMerged('_plot_merged_lookup feature/x', stub.dir, { PLOT_HOST: 'github' }).stdout.trim(), 'found',
     'a real branch still reaches the host',
   );
   assert.equal(
-    sourcedPrMerged('_plot_open_lookup feature/x', stub.dir).stdout.trim(), 'found',
+    sourcedPrMerged('_plot_open_lookup feature/x', stub.dir, { PLOT_HOST: 'github' }).stdout.trim(), 'found',
     'a real branch still reaches the host',
   );
-  assert.equal(sourcedPrMerged('pr_merged feature/x', stub.dir).code, 0, 'a merged PR still reads as merged');
+  assert.equal(
+    sourcedPrMerged('pr_merged feature/x', stub.dir, { PLOT_HOST: 'github' }).code, 0,
+    'a merged PR still reads as merged',
+  );
 
   // And the guard did not swallow the call.
   assert.ok(existsSync(stub.argvFile), 'a non-empty branch does reach gh');
   assert.ok(
     readFileSync(stub.argvFile, 'utf8').includes('feature/x'),
     'the branch travels in the call',
+  );
+});
+
+// --- plot-pr-merged.sh: the Bitbucket arm, and it is asked with no `gh` on
+// `PATH` at all ---------------------------------------------------------
+//
+// THIS IS THE MEASURED DEFECT. On a Bitbucket remote `_plot_merged_lookup`
+// called `gh` directly, which either fails or answers about the wrong host;
+// `PATH` here is built WITHOUT a `gh` entry rather than with one stubbed to
+// fail, so a routing that still shells to `gh` anywhere is caught by `gh`
+// simply not existing, not by a stub choosing to refuse.
+function makeBbOnlyStub({ mergedBranch = null, openRows = [] } = {}) {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-prmerged-bb-')));
+  const argvFile = path.join(dir, 'bb.argv');
+  const mergedRows = mergedBranch
+    ? JSON.stringify([{ source: { branch: { name: mergedBranch } } }])
+    : '[]';
+  const openValues = JSON.stringify(openRows.map((branch, i) => ({
+    id: i + 1,
+    title: 't',
+    state: 'OPEN',
+    source: { branch: { name: branch }, commit: { hash: 'c'.repeat(40) } },
+    updated_on: '2026-01-01T00:00:00Z',
+    author: { nickname: 'a' },
+    links: { html: { href: 'u' } },
+  })));
+  writeFileSync(
+    path.join(dir, 'bb'),
+    `#!/usr/bin/env bash
+if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
+if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
+printf '%s\\n' "$@" >> ${JSON.stringify(argvFile)}
+if [[ "$*" == "pr list --state merged --json" ]]; then
+  printf '%s' ${JSON.stringify(mergedRows)}
+  exit 0
+fi
+if [[ "$*" == *"api "*"/pullrequests"* ]]; then
+  printf '{"values":%s}' ${JSON.stringify(openValues)}
+  exit 0
+fi
+echo "unexpected bb call: $*" >&2
+exit 9
+`,
+  );
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  return { dir, argvFile };
+}
+
+// `node` must stay reachable (`_plot_landed` shells to it), so the exclusion
+// is targeted — every directory on the real PATH that resolves a `gh`
+// executable is dropped, and nothing else.
+function pathWithoutGh() {
+  return process.env.PATH
+    .split(':')
+    .filter((dir) => dir && !existsSync(path.join(dir, 'gh')))
+    .join(':');
+}
+
+test('plot-pr-merged: a Bitbucket branch with a merged PR reads as merged, with no gh on PATH', () => {
+  const stub = makeBbOnlyStub({ mergedBranch: 'infra/x' });
+  const noGhPath = `${stub.dir}:${pathWithoutGh()}`;
+  const ghCheck = spawnSync('bash', ['-c', 'command -v gh'], { env: { ...process.env, PATH: noGhPath } });
+  assert.notEqual(ghCheck.status, 0, 'the test PATH must not resolve gh at all');
+
+  const res = sourcedPrMerged('pr_merged infra/x', stub.dir, { PLOT_HOST: 'bitbucket', PATH: noGhPath });
+  assert.equal(res.code, 0, `a Bitbucket merge reads as merged: ${res.stderr}`);
+});
+
+test('plot-pr-merged: a Bitbucket branch with no merged PR reads as not merged', () => {
+  const stub = makeBbOnlyStub({ mergedBranch: 'infra/other' });
+
+  assert.equal(
+    sourcedPrMerged('_plot_merged_lookup infra/x', stub.dir, { PLOT_HOST: 'bitbucket' }).stdout.trim(), 'none',
+    'a branch with no merged PR of its own reads as none, even though another branch merged',
+  );
+  assert.equal(
+    sourcedPrMerged('pr_merged infra/x', stub.dir, { PLOT_HOST: 'bitbucket' }).code, 1,
+    'no merged PR for this branch means pr_merged refuses',
+  );
+});
+
+test('plot-pr-merged: a failing bb and an absent bb both read as unaskable, not none', () => {
+  // A FAILING bb, stderr carrying a message `is_lookup_miss` does not
+  // recognise as a genuine miss.
+  const failDir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-prmerged-bbfail-')));
+  writeFileSync(
+    path.join(failDir, 'bb'),
+    `#!/usr/bin/env bash
+if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
+if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
+echo "dial tcp: connection refused" >&2
+exit 1
+`,
+  );
+  chmodSync(path.join(failDir, 'bb'), 0o755);
+
+  assert.equal(
+    sourcedPrMerged('_plot_merged_lookup infra/x', failDir, { PLOT_HOST: 'bitbucket' }).stdout.trim(), 'unaskable',
+  );
+  assert.equal(
+    sourcedPrMerged('_plot_open_lookup infra/x', failDir, { PLOT_HOST: 'bitbucket' }).stdout.trim(), 'unaskable',
+  );
+  assert.equal(sourcedPrMerged('pr_merged infra/x', failDir, { PLOT_HOST: 'bitbucket' }).code, 1);
+  assert.equal(sourcedPrMerged('pr_open infra/x', failDir, { PLOT_HOST: 'bitbucket' }).code, 1);
+
+  // AN ABSENT bb, on a PATH that resolves neither CLI.
+  const emptyDir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-prmerged-none-')));
+  assert.equal(
+    sourcedPrMerged('_plot_merged_lookup infra/x', emptyDir, { PLOT_HOST: 'bitbucket' }).stdout.trim(), 'unaskable',
+  );
+  assert.equal(
+    sourcedPrMerged('_plot_open_lookup infra/x', emptyDir, { PLOT_HOST: 'bitbucket' }).stdout.trim(), 'unaskable',
+  );
+  assert.equal(sourcedPrMerged('pr_merged infra/x', emptyDir, { PLOT_HOST: 'bitbucket' }).code, 1);
+  assert.equal(sourcedPrMerged('pr_open infra/x', emptyDir, { PLOT_HOST: 'bitbucket' }).code, 1);
+});
+
+// --- plot-pr-merged.sh: the open lookup's row match and truncation guard ----
+//
+// `--branch` never filters `gh pr list`'s rows on GitHub (confirmed against
+// the adapter directly: the flag is forwarded only to `--rich-open`'s
+// recursive self-call), so `_plot_open_lookup` must match `.head` itself —
+// these three cases are what a missing head filter fails.
+test('plot-pr-merged: open lookup matches the asked branch, not just any open PR', () => {
+  const stub = makeGhPrMergedStub();
+  assert.equal(
+    sourcedPrMerged('_plot_open_lookup feature/x', stub.dir, { PLOT_HOST: 'github' }).stdout.trim(), 'found',
+    'an open PR on the asked branch',
+  );
+});
+
+test('plot-pr-merged: open lookup reads none when the only open PR is on a different branch', () => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-prmerged-ghother-')));
+  writeFileSync(
+    path.join(dir, 'gh'),
+    `#!/usr/bin/env bash
+if [[ "$*" == *"--state open"* ]]; then
+  printf '%s' '[{"number":5,"title":"t","state":"OPEN","headRefName":"feature/other","isDraft":false,"url":"u","updatedAt":"x","author":{"login":"a"},"headRefOid":"${'c'.repeat(40)}","mergedAt":null}]'
+fi
+`,
+  );
+  chmodSync(path.join(dir, 'gh'), 0o755);
+
+  assert.equal(
+    sourcedPrMerged('_plot_open_lookup feature/x', dir, { PLOT_HOST: 'github' }).stdout.trim(), 'none',
+    'an open PR that is not on the asked branch must not read as found',
+  );
+});
+
+test('plot-pr-merged: open lookup reads unaskable when the page is possibly truncated', () => {
+  // `_plot_open_lookup` always asks `--limit 100`, so proving the truncation
+  // guard fires needs a stub that returns exactly 100 rows — the boundary
+  // `plot-host.sh` itself cannot prove complete (`pr_list_report_truncation`:
+  // count == limit is unprovable; count < limit is proven complete).
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-prmerged-trunc-')));
+  const rows = Array.from({ length: 100 }, (_, i) => ({
+    number: i + 1, title: 't', state: 'OPEN', headRefName: `feature/other-${i}`, isDraft: false, url: 'u',
+    updatedAt: 'x', author: { login: 'a' }, headRefOid: 'c'.repeat(40), mergedAt: null,
+  }));
+  writeFileSync(
+    path.join(dir, 'gh'),
+    `#!/usr/bin/env bash
+if [[ "$*" == *"--state open"* ]]; then
+  printf '%s' ${JSON.stringify(JSON.stringify(rows))}
+fi
+`,
+  );
+  chmodSync(path.join(dir, 'gh'), 0o755);
+
+  const res = sourcedPrMerged('_plot_open_lookup feature/x', dir, { PLOT_HOST: 'github' });
+  assert.equal(
+    res.stdout.trim(), 'unaskable',
+    'a page the host could not prove complete must not be read as none, even though feature/x is absent from it',
   );
 });
 

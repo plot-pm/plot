@@ -34,41 +34,26 @@
 # `mayRemove` in the rule, asserted over all nine combinations of the two
 # readings, and exactly one of them permits a removal.
 #
-# WHY THIS STILL ASKS `gh` AND NOT `plot-host.sh`. Measured 2026-09-06, and it
-# is the answer to a question this file's exemption in
-# `scripts/check-host-cli-callers.sh` was left open for.
+# BOTH LOOKUPS ASK THROUGH `plot-host.sh`, WHICH IS WHY NEITHER CALLS `gh` OR
+# `bb` DIRECTLY. The 2026-09-06 attempt stopped on two gaps, both since closed:
+# an absent CLI used to arrive from `plot-host.sh pr-merged` as `not-merged`
+# (fixed the same day — `is_lookup_miss` now excludes the shell's own
+# `command not found`), and the open lookup had no op to call at all (`pr-list
+# --state open` answers it, filtered to the asked branch here because the
+# GitHub arm does not filter rows by head itself).
 #
-# `plot-host.sh pr-merged` prints `merged`/`not-merged`/`unknown`, three words
-# that read like the three readings below. THEY DO NOT MATCH. An ABSENT CLI
-# arrives from the adapter as `not-merged`, where `_plot_merged_lookup` answers
-# `unaskable`:
+# `_plot_merged_lookup` maps `plot-host.sh pr-merged`'s three words onto the
+# three readings, and the mapping is NOT the identity: `merged` → `found`,
+# `not-merged` → `none`, `unknown` or a non-zero exit → `unaskable`.
 #
-#   plot-host.sh pr-merged <branch>   → not-merged (exit 0)
-#   _plot_merged_lookup <branch>      → unaskable
-#
-# The cause is the adapter's `is_lookup_miss`. A missing binary makes the shell
-# say `bash: gh: command not found`, and that matches the same `not found` it
-# uses to recognise a genuine "no pull requests found" — one phrase covering two
-# conditions the rule below exists to keep apart.
-#
-# THE DIRECTION IS WHY IT BLOCKS RATHER THAN ANNOYS. `not-merged` reads as
-# `none` — the host spoke and said nothing merged — so `mayRemove` may permit a
-# removal where `unaskable` refuses. `plot-release-refs.sh` deletes remote refs
-# on this answer and a deleted ref is not re-creatable.
-#
-# AND `pr_open` HAS NO OP TO CALL AT ALL. It needs found/none/unaskable about
-# ANY open PR; `pr-state` answers about ONE — the newest — and reports a failed
-# lookup with the same `state:"NONE"` payload as a real absence. It can express
-# neither "any" nor "unaskable".
-#
-# THE COST WAS MEASURED TOO, and it is the smaller objection. Ten sequential
-# calls on this machine: 4.75 s direct, 9.25 s through the adapter — +450 ms per
-# branch, from the connector's slot and budget accounting rather than from the
-# spawn. Across the 48 branches the fleet scan walks that is ~21 s. Real, but it
-# is the correctness gap above that decides this, not the clock.
-#
-# Both halves are pinned in `test/reconcile/host.test.mjs`, so the exemption
-# rests on tests that fail when it stops being true.
+# `_plot_open_lookup` asks `pr-list --state open --branch <br>` and reads its
+# rows for one whose `head` equals the branch asked about. The `--branch` flag
+# narrows the Bitbucket arm to a per-branch sweep; GitHub's arm does not filter
+# on it at all, so the match here is load-bearing on that backend. A page
+# `plot-host.sh` could not prove complete says so on stderr
+# ("possibly truncated") — a caller that read `none` past that warning could
+# miss its own branch's open PR behind a fuller page, so it reads `unaskable`
+# instead.
 #
 # AN EMPTY BRANCH IS NOT ASKED ABOUT. `gh pr list --head ""` applies no filter,
 # so every PR in the repository matches: measured 2026-10-01 on `origin/main`
@@ -116,6 +101,11 @@
 # npm package alike, which is why both are vendored together.
 _plot_landed_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-landed.mjs"
 
+# `plot-host.sh`, resolved the same way and for the same reason: the two
+# lookups below ask it rather than `gh`/`bb` directly, so it must be found
+# beside this script regardless of either caller's cwd.
+_plot_host_sh="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/plot-host.sh"
+
 # Ask the rule about one branch's two lookups.
 #
 # $1=merged reading, $2=open reading, both `found`/`none`/`unaskable`.
@@ -133,22 +123,47 @@ _plot_landed() {
 # ran and matched nothing is the host speaking, while a lookup that did not run
 # is silence, and silence is never permission.
 _plot_merged_lookup() {
-  local br="$1" out
+  local br="$1" word
   [ -n "$br" ] || { echo unaskable; return; }
-  command -v gh >/dev/null 2>&1 || { echo unaskable; return; }
-  out=$(gh pr list --head "$br" --state all --limit 100 --json mergedAt 2>/dev/null) \
-    || { echo unaskable; return; }
-  case "$out" in *'"mergedAt":"'*) echo found ;; *) echo none ;; esac
+  [ -f "$_plot_host_sh" ] || { echo unaskable; return; }
+  word=$(bash "$_plot_host_sh" pr-merged "$br" 2>/dev/null) || { echo unaskable; return; }
+  case "$word" in
+    merged) echo found ;;
+    not-merged) echo none ;;
+    *) echo unaskable ;;
+  esac
 }
 
 # What the host says about an OPEN PR on this branch: found / none / unaskable.
+#
+# `--branch` narrows the Bitbucket arm to a true per-branch sweep, but the
+# GitHub arm never filters its `gh pr list` call on it — so the row match
+# below is what actually answers "this branch" on that backend. A page
+# `plot-host.sh` could not prove complete says so on stderr, and that is read
+# as `unaskable` rather than trusting a `none` that might be hiding behind a
+# fuller page.
 _plot_open_lookup() {
-  local br="$1" out
+  local br="$1" out err rc
   [ -n "$br" ] || { echo unaskable; return; }
-  command -v gh >/dev/null 2>&1 || { echo unaskable; return; }
-  out=$(gh pr list --head "$br" --state open --limit 1 --json number 2>/dev/null) \
-    || { echo unaskable; return; }
-  case "$out" in *'"number"'*) echo found ;; *) echo none ;; esac
+  [ -f "$_plot_host_sh" ] || { echo unaskable; return; }
+  err="${TMPDIR:-/tmp}/plot-pr-open-err.$$.$RANDOM"
+  out=$(bash "$_plot_host_sh" pr-list --state open --branch "$br" --limit 100 2>"$err")
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    rm -f -- "$err" 2>/dev/null
+    echo unaskable
+    return
+  fi
+  if grep -q 'possibly truncated' "$err" 2>/dev/null; then
+    rm -f -- "$err" 2>/dev/null
+    echo unaskable
+    return
+  fi
+  rm -f -- "$err" 2>/dev/null
+  case "$out" in
+    *"\"head\":\"$br\""*) echo found ;;
+    *) echo none ;;
+  esac
 }
 
 # Did the host merge ANY PR for this branch?
