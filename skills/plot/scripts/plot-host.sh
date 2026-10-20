@@ -33,7 +33,10 @@
 #                                 for free. Never prints `unknown`.
 #   pr-state <number|branch> [--repo <owner/repo>]   one JSON object:
 #                                   {"number":N,"state":"OPEN|MERGED|CLOSED|NONE",
-#                                    "draft":true|false,"url":"..."}
+#                                    "draft":true|false,"url":"...",
+#                                    "mergeable":"mergeable|conflicting|unknown"}
+#                                 Bitbucket and a REST lookup by branch omit
+#                                 `mergeable`; a reader takes absent as unknown.
 #                                 NONE = no PR found (exit 0 — callers branch on
 #                                 state, not exit codes)
 #   pr-merged <branch>            has ANY PR for this branch merged? prints one
@@ -554,6 +557,14 @@ CHECKS_OF='def ck: (.conclusion // "") as $k | (.status // "") as $s | (if $s !=
   elif $s == "" and $w == "SUCCESS" then "ok" else "bad" end;
   def checks_of: if (.statusCheckRollup|length) == 0 then "none" elif any(.statusCheckRollup[]; ck == "bad") then "failing"
   elif any(.statusCheckRollup[]; ck == "wait") then "pending" else "green" end;'
+
+# THE ONE FOLD of a PR's mergeability into a word, for `pr-list --rich` and both
+# `pr-state` transports. GraphQL says `mergeable` CONFLICTING|MERGEABLE|UNKNOWN
+# and `mergeStateStatus` DIRTY; REST's single-PR payload says `mergeable`
+# true|false|null and `mergeable_state` dirty. REST's list payload carries
+# neither, so a `pr-state` asked by branch over REST reads `unknown`.
+MERGEABLE_OF='def mergeable_of: if .mergeable == "CONFLICTING" or .mergeable == false or .mergeStateStatus == "DIRTY" or .mergeable_state == "dirty" then "conflicting"
+  elif .mergeable == "MERGEABLE" or .mergeable == true then "mergeable" else "unknown" end;'
 
 # Exit 5 — the host refused to answer FOR NOW. A rate limit, primary or
 # secondary: nothing is broken, nothing needs fixing, and the same question
@@ -2137,14 +2148,14 @@ gh_rest_repo() {
 }
 
 rest_pr_to_state() {
-  jq -c '
+  jq -c "$MERGEABLE_OF"'
     (if (.merged == true) or (.merged_at != null) then "MERGED"
      else (.state // "" | ascii_upcase) end) as $state
     | { number: .number,
         state: $state,
         draft: (.draft // false),
         url: (.html_url // ""),
-        mergeCommit: (.merge_commit_sha // ""), headSha: (.head.sha // ""), base: (.base.ref // ""), checks: "unknown" }
+        mergeCommit: (.merge_commit_sha // ""), headSha: (.head.sha // ""), base: (.base.ref // ""), checks: "unknown", mergeable: mergeable_of }
   '
 }
 
@@ -3644,9 +3655,9 @@ case "$op" in
       # mergeCommit is what lets a caller ask "which release contains this?" —
       # `git tag --contains <sha>` answers exactly, where dates cannot. It is ""
       # for anything unmerged, which is the honest answer rather than a guess.
-      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup 2>"$HOST_ERR")"; then
+      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit,headRefOid,baseRefName,statusCheckRollup,mergeable,mergeStateStatus 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        jq -c "$CHECKS_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,checksSha:(.headRefOid // "")}' <<<"$out"
+        jq -c "$CHECKS_OF$MERGEABLE_OF"'{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // ""),headSha:(.headRefOid // ""),base:(.baseRefName // ""),checks:checks_of,checksSha:(.headRefOid // ""),mergeable:mergeable_of}' <<<"$out"
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # REFUSED FOR RATE IS NOT ANSWERED. The budget gate above could not see
@@ -4259,16 +4270,13 @@ case "$op" in
           # 20 builds per lookup: one round trip at any window, and a plain job lists every branch's builds.
           _sha_map=$(jenkins_bind_rows pr-list "$jen_map" "$_gh_raw")
           printf '%s' "$_gh_raw" \
-            | jq -c --argjson jmap "$jen_map" --argjson shamap "${_sha_map:-null}" --arg jstatus "$jen_status" '.[] |
+            | jq -c --argjson jmap "$jen_map" --argjson shamap "${_sha_map:-null}" --arg jstatus "$jen_status" "$MERGEABLE_OF"'.[] |
               ($shamap[.headRefName] // $jmap[.headRefName] // null) as $eff |
               {
                 number:.number, title:.title, state:.state, head:.headRefName,
                 draft:.isDraft,
                 checks:(if $jstatus != "ok" then "unknown" elif $eff == null then "none" else $eff.checks end),
-                mergeable:(
-                  if .mergeable=="CONFLICTING" or .mergeStateStatus=="DIRTY" then "conflicting"
-                  elif .mergeable=="MERGEABLE" then "mergeable"
-                  else "unknown" end),
+                mergeable:mergeable_of,
                 review:(.reviewDecision // ""),
                 url:.url,
                 updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),
@@ -4283,14 +4291,11 @@ case "$op" in
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_gh_raw" \
-            | jq -c "$CHECKS_OF"'.[] | {
+            | jq -c "$CHECKS_OF$MERGEABLE_OF"'.[] | {
                 number:.number, title:.title, state:.state, head:.headRefName,
                 draft:.isDraft,
                 checks:checks_of,
-                mergeable:(
-                  if .mergeable=="CONFLICTING" or .mergeStateStatus=="DIRTY" then "conflicting"
-                  elif .mergeable=="MERGEABLE" then "mergeable"
-                  else "unknown" end),
+                mergeable:mergeable_of,
                 review:(.reviewDecision // ""),
                 url:.url,
                 updatedAt:(.updatedAt // ""),headSha:(.headRefOid // ""),checksSha:(.headRefOid // ""),mergedAt:(.mergedAt // ""),

@@ -465,7 +465,7 @@ const settled = (readings: AgentLoopReadings, branch: string): Decision<AgentLoo
  * ROW 12a' — the PR conflicts with the default branch at the moment the
  * checks wait would begin. Resumes the agent with a merge-main-and-push
  * correction while `correctionBudget` has room left, the same budget a
- * failed build spends; once it is spent, a second conflicting reading ends
+ * failed build spends; once it is spent, the next conflicting reading ends
  * the slice for a person rather than resuming forever.
  *
  * @param readings - this pass's readings.

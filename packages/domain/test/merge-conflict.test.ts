@@ -21,8 +21,10 @@ describe('mergeConflictCorrection', () => {
     expect(text).toContain('take ours');
   });
 
-  it('names the bounded retry: a second conflicting reading ends the slice for a person', () => {
+  it('names the bounded retry: a reading after the correction budget is spent ends the slice for a person', () => {
     const text = mergeConflictCorrection(BRANCH);
+    expect(text).toContain('`Correction budget`');
     expect(text).toContain('ends the slice for a person');
+    expect(text).not.toContain('second conflicting reading');
   });
 });
