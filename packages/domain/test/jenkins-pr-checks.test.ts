@@ -90,4 +90,19 @@ describe('rowsToBind', () => {
     const green = Object.fromEntries(many.map((r) => [r.headRefName, { checks: 'green' }]));
     expect(rowsToBind(many, green)).toHaveLength(SHA_LOOKUPS_PER_PASS);
   });
+
+  it('leaves the rows past the limit out of the answer, naming only the ones it asks about', () => {
+    const many = Array.from({ length: SHA_LOOKUPS_PER_PASS + 3 }, (_, i) => ({
+      headRefName: `r${i}`,
+      headRefOid: `s${i}`,
+      updatedAt: `2026-10-17T${String(10 + i).padStart(2, '0')}:00:00Z`,
+    }));
+    const green = Object.fromEntries(many.map((r) => [r.headRefName, { checks: 'green', job: `j/${r.headRefName}` }]));
+    const bound = rowsToBind(many, green);
+    expect(bound).toHaveLength(SHA_LOOKUPS_PER_PASS);
+    const boundBranches = new Set(bound.map((r) => r.branch));
+    const droppedBranches = many.map((r) => r.headRefName).filter((b) => !boundBranches.has(b));
+    expect(droppedBranches).toHaveLength(3);
+    expect(droppedBranches.every((b) => !boundBranches.has(b))).toBe(true);
+  });
 });

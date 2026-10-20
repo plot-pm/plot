@@ -45,8 +45,9 @@ export const SHA_LOOKUPS_PER_PASS = 5;
  * is already in flight. A row with no head sha cannot be bound.
  *
  * Each entry costs the caller one Jenkins lookup, so at most `limit` rows are
- * returned, the most recently updated first. A row past the limit keeps its
- * branch colour, unbound.
+ * returned, the most recently updated first. A row past the limit is left out
+ * of the answer; the caller must not read its branch colour as the head's
+ * check, because that is exactly the ambiguity this rule exists to flag.
  *
  * @param rows - the host's PR rows.
  * @param colours - the branch-colour map, keyed by branch, each entry carrying
