@@ -51,7 +51,7 @@ The header comment for `issue-list` documents the new behaviour. The GitHub arm 
 
 ### Limit guard
 
-- `bug/jira-issue-list-limit-above-one` — refuse or warn on `issue-list --limit` above one page without `--paged` on Jira; contract test in `test/reconcile/host.test.mjs`; header comment updated
+- `bug/jira-issue-list-limit-above-one` — refuse or warn on `issue-list --limit` above one page without `--paged` on Jira; contract test in `test/reconcile/host.test.mjs`; header comment updated → #2233
 
 ## Notes
 
