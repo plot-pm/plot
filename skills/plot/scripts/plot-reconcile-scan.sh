@@ -3085,9 +3085,7 @@ else
   # judged against one, so the reader is told the configuration gap rather
   # than a status that does not exist.
   oi_released_status=$(cfg "Tracker released status" "" 2>/dev/null)
-
-  oi_host_failed=0
-  oi_out=""
+  oi_host_failed=0; oi_out=""
   # THE CLAIMS ARE READ ON FD 3, and the reason is a measured defect rather
   # than style: a nested `while read` inside a loop fed by `<<<` drains the
   # OUTER loop's stdin. Measured while writing this section — the first plan
@@ -3096,8 +3094,7 @@ else
   # none. A dedicated descriptor is what keeps the two readers apart.
   while IFS=$'\t' read -r oi_file oi_phase oi_keys <&3; do
     [ -n "$oi_file" ] || continue
-    oi_base=$(basename "$oi_file")
-    oi_hits=""
+    oi_base=$(basename "$oi_file"); oi_hits=""
     # PER KEY, NOT PER PLAN. A plan naming `935, 940` where only `940` is open
     # must report `940` alone — a whole-plan match would name a closed issue
     # as the finding and send a person to the wrong ticket.
@@ -3119,12 +3116,10 @@ else
         # anything — reported unchecked for this key alone, never dropped and
         # never read as closed.
         oi_out+="  $oi_base — $oi_phase, $oi_key not checked: ${oi_view_err:-plot-host.sh exited $oi_view_rc}\n"
-        n_issue_unread=$((n_issue_unread + 1))
-        continue
+        n_issue_unread=$((n_issue_unread + 1)); continue
       fi
       oi_state=$(printf '%s' "$oi_view" | jq -r '.state // "open"' 2>/dev/null)
-      [ "$oi_state" = closed ] && continue
-      oi_hits+="${oi_hits:+,}$oi_key"
+      [ "$oi_state" = closed ] && continue || oi_hits+="${oi_hits:+,}$oi_key"
     done
     IFS="$oi_IFS_saved"
     [ -n "$oi_hits" ] || continue
@@ -3133,8 +3128,7 @@ else
     # nothing in a Jira search.
     oi_list=$(printf '%s' "$oi_hits" | tr ',' '\n' | sed 's/^[0-9]/#&/' | paste -sd, - | sed 's/,/, /g')
 
-    oi_out+="  $oi_base — $oi_phase, still open: $oi_list\n"
-    oi_out+="    inspect: plot-host.sh issue-view $oi_first\n"
+    oi_out+="  $oi_base — $oi_phase, still open: $oi_list\n    inspect: plot-host.sh issue-view $oi_first\n"
     # THE HINT NAMES WHY, NOT A REPAIR THAT CANNOT REPAIR ANYTHING: only a
     # DELIVERED plan's release can still move the issue. A RELEASED plan is
     # already past that step.
