@@ -110,6 +110,7 @@ export const answersFrom = (value: unknown): AdoptionAnswers => {
     definitionOfDone: stringsOr(given.definitionOfDone),
     tracker: stringOr(given.tracker),
     trackerUrl: stringOr(given.trackerUrl),
+    sprintOwner: stringOr(given.sprintOwner),
     ticketPrefixes: stringsOr(given.ticketPrefixes),
     ci: stringOr(given.ci),
     worktreeRoot: stringOr(given.worktreeRoot),

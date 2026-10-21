@@ -83,6 +83,7 @@ describe('answersFrom', () => {
       definitionOfDone: [],
       tracker: '',
       trackerUrl: '',
+      sprintOwner: '',
       ticketPrefixes: [],
       ci: '',
       worktreeRoot: '',
@@ -93,6 +94,11 @@ describe('answersFrom', () => {
       // to something other than *not answered* is how a proposal becomes a write.
       mainBranch: '',
     });
+  });
+
+  it('reads a confirmed sprint owner', () => {
+    expect(answersFrom({ sprintOwner: 'plot' }).sprintOwner).toBe('plot');
+    expect(answersFrom({ sprintOwner: 7 }).sprintOwner).toBe('');
   });
 
   it('reads a confirmed default branch', () => {

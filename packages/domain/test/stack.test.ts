@@ -500,6 +500,24 @@ describe('proposeStack', () => {
     expect(p.language.language).toBeNull();
   });
 
+  it('proposes a branch-name ticket prefix under the same threshold', () => {
+    const p = proposeStack(readings({
+      branchTicketPrefix: 'QUACDS',
+      branchTicketPrefixCount: 2,
+      branchesRead: 40,
+    }));
+    expect(p.branchTicket).toEqual({ prefix: 'QUACDS', matched: 2, outOf: 40 });
+    // The subject population is untouched by the branch one.
+    expect(p.ticket.prefix).toBeNull();
+    // One branch is no scheme, and readings with no branch names propose none.
+    expect(proposeStack(readings({
+      branchTicketPrefix: 'QUACDS',
+      branchTicketPrefixCount: 1,
+      branchesRead: 40,
+    })).branchTicket.prefix).toBeNull();
+    expect(proposeStack(readings()).branchTicket).toEqual({ prefix: null, matched: 0, outOf: 0 });
+  });
+
   it('reads the ticket count from its own field, not the style counts', () => {
     // Two readings over one sample, and pairing the wrong count with the wrong
     // proposal is exactly the mistake a single collector-side `if` chain hid.

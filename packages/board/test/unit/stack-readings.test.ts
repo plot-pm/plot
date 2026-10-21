@@ -47,6 +47,13 @@ describe('readingsFrom — the CI signals', () => {
 });
 
 describe('readingsFrom — wave 1\'s default-branch pair', () => {
+  it('maps the branch-name ticket readings, absent ones as none read', () => {
+    const r = readingsFrom({ branch_ticket_prefix: 'QUACDS', branch_ticket_prefix_count: 5, branches_read: 40 });
+    expect([r.branchTicketPrefix, r.branchTicketPrefixCount, r.branchesRead]).toEqual(['QUACDS', 5, 40]);
+    const absent = readingsFrom({});
+    expect([absent.branchTicketPrefix, absent.branchTicketPrefixCount, absent.branchesRead]).toEqual(['', 0, 0]);
+  });
+
   it('maps both readings and the `ok` status', () => {
     const r = readingsFrom({
       default_branch: 'main',

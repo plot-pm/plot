@@ -75,6 +75,15 @@ export interface StackReadings {
   ticketPrefixCount: number;
   /** How many subjects were read for the two counts above. */
   subjectsRead: number;
+  /**
+   * The most frequent ticket prefix in branch names, or `''` where none was
+   * seen. Absent where the collector read no branch names.
+   */
+  branchTicketPrefix?: string;
+  /** How many distinct branch names carried {@link StackReadings.branchTicketPrefix}. */
+  branchTicketPrefixCount?: number;
+  /** How many distinct branch names were read for the two counts above. */
+  branchesRead?: number;
   /** How many German words the hub docs' sample carried. */
   germanWordCount: number;
   /** Whether any hub doc was found to sample at all. */
@@ -180,9 +189,9 @@ export interface CommitStyleProposal {
 export interface TicketProposal {
   /** The prefix proposed, or `null` where none recurred. */
   prefix: string | null;
-  /** How many subjects carried it. */
+  /** How many subjects, or branch names, carried it. */
   matched: number;
-  /** How many subjects were read. */
+  /** How many subjects, or branch names, were read. */
   outOf: number;
 }
 
@@ -259,6 +268,11 @@ export interface StackProposal {
   commitStyle: CommitStyleProposal;
   /** Which ticket scheme its subjects reference. */
   ticket: TicketProposal;
+  /**
+   * Which ticket scheme its branch names reference, under the same threshold
+   * as {@link StackProposal.ticket}; `matched` and `outOf` count branch names.
+   */
+  branchTicket: TicketProposal;
   /** Which language its hub docs are written in. */
   language: LanguageProposal;
   /**
@@ -685,6 +699,11 @@ export const proposeStack = (readings: StackReadings): StackProposal => ({
     readings.ticketPrefix,
     readings.ticketPrefixCount,
     readings.subjectsRead,
+  ),
+  branchTicket: proposeTicket(
+    readings.branchTicketPrefix ?? '',
+    readings.branchTicketPrefixCount ?? 0,
+    readings.branchesRead ?? 0,
   ),
   language: proposeLanguage(readings.germanWordCount, readings.hasHubDoc),
   ci: readings.ciSignals === null ? null : proposeCi(readings.ciSignals),

@@ -34,8 +34,8 @@
 #   subjects_read     how many subjects the two counts above were read from
 #   branch_ticket_prefix the most frequent prefix in branch names (local and
 #                     remote-tracking), e.g. QUACDS; "" if none was seen
-#   branch_ticket_prefix_count how many branches carried it
-#   branches_read     how many branch names the two counts above were read from
+#   branch_ticket_prefix_count how many distinct branch names carried it
+#   branches_read     how many distinct branch names were read
 #   commit_style_counts {"colon":n,"dash":n,"conventional":n} — how many
 #                     subjects match each notation
 #   existing_systems  planning/doc dirs already present (never judged, only listed)
@@ -175,9 +175,9 @@ subjects_read=$(printf '%s\n' "$subjects" | grep -c . || true)
 # commit SUBJECTS; a repository that already declares `Tracker: plot` (or no
 # `Tracker` at all) and still runs Jira is more reliably seen in its BRANCH
 # names than in its commits, which a Bitbucket squash-merge habit can leave
-# ticket-free. Local and remote-tracking branches both count — a fresh clone
-# before any fetch sees only `refs/heads/`.
-branch_names=$(git for-each-ref --format='%(refname:short)' refs/heads/ refs/remotes/ 2>/dev/null)
+# ticket-free. A local branch and its `origin/` copy are ONE name: the remote
+# part is stripped, `HEAD` dropped, and each name counted once.
+branch_names=$(git for-each-ref --format='%(refname)' refs/heads/ refs/remotes/ 2>/dev/null | sed -E 's#^refs/(heads|remotes/[^/]+)/##' | grep -vx HEAD | sort -u)
 read -r branch_ticket_count branch_ticket <<<"$(printf '%s\n' "$branch_names" | top_prefix)"
 
 # --- commit style -------------------------------------------------------

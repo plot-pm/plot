@@ -115,6 +115,21 @@ test('detect: counts the ticket prefix it saw in branch names, a different popul
   assert.equal(probe(plain).branch_ticket_prefix_count, 0);
 });
 
+test('detect: counts a pushed branch once, not once per local and remote copy', () => {
+  // One Jira-keyed branch checked out locally AND mirrored on origin is one
+  // branch. Counted per ref it reads as 2, which clears the two-occurrence bar
+  // `proposeTicket` sets for a scheme — so one branch would propose a tracker.
+  const r = repoWith({ 'a.txt': 'x' });
+  git(r, 'branch', 'bug/QUACDS-12-fix-thing');
+  git(r, 'update-ref', 'refs/remotes/origin/bug/QUACDS-12-fix-thing', 'HEAD');
+  git(r, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+  git(r, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+  const d = probe(r);
+  assert.equal(d.branch_ticket_prefix, 'QUACDS');
+  assert.equal(d.branch_ticket_prefix_count, 1, 'the local and origin copies are one branch');
+  assert.equal(d.branches_read, 2, 'main and the ticket branch; origin/HEAD is no branch');
+});
+
 test('detect: lists pre-existing planning systems without judging them', () => {
   const r = repoWith({
     'docs/plans/2026-01-01-old.md': '# old',
