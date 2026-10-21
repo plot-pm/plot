@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** bug
+- **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2250
 - **Review:** pr
 - **Impl:** own branches
@@ -48,7 +49,7 @@ Layering: this is shell on the adapter side of the host port. No domain rule cha
 
 ### Resolve .env from the main checkout
 
-- `bug/jira-credentials-are-not-found-in` — a worktree falls back to the main checkout's `.env` for the Jira, Jenkins and Bitbucket review credentials
+- `bug/jira-credentials-are-not-found-in` — a worktree falls back to the main checkout's `.env` for the Jira, Jenkins and Bitbucket review credentials → #2263
 
 ## Notes
 

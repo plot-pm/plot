@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** bug
+- **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2248
 - **Review:** pr
 - **Impl:** own branches
@@ -55,7 +56,7 @@ The key resolution is a decision, so it belongs in the domain (`rules/sprint-rel
 
 ### Key resolution
 
-- `bug/sprint-release-comparison-drops-must-haves` — resolve a sprint item's key from `Issue:`, `ticket:` frontmatter and item text, and report an unkeyed item as not compared <!-- builds: resolveItemKey, a key resolver for sprint items -->
+- `bug/sprint-release-comparison-drops-must-haves` — resolve a sprint item's key from `Issue:`, `ticket:` frontmatter and item text, and report an unkeyed item as not compared <!-- builds: resolveItemKey, a key resolver for sprint items --> → #2265
 
 ## Notes
 
