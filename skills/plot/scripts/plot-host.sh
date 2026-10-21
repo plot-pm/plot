@@ -1724,8 +1724,16 @@ jenkins_no_instance() {
 # credential is not a credential; the caller turns an empty answer into
 # exit 4, which is *cannot be asked*.
 jenkins_rest_credential() { # $1 = the bare host
-  local u="${JENKINS_USER:-}" t="${JENKINS_API_TOKEN:-}" env_file src="the environment"
-  [ -n "$u" ] || [ -n "$t" ] || { src=.env; env_file="$(git rev-parse --show-toplevel 2>/dev/null || echo .)/.env"; [ -r "$env_file" ] && u="$(read_env_var JENKINS_USER "$env_file")" && t="$(read_env_var JENKINS_API_TOKEN "$env_file")"; }
+  local u="${JENKINS_USER:-}" t="${JENKINS_API_TOKEN:-}" src="the environment" found env_file
+  if [ -z "$u" ] && [ -z "$t" ]; then
+    found="$(plot_env_file)" || found=""
+    if [ -n "$found" ]; then
+      env_file="${found%|*}"
+      src="${found#*|}.env"
+      u="$(read_env_var JENKINS_USER "$env_file")"
+      t="$(read_env_var JENKINS_API_TOKEN "$env_file")"
+    fi
+  fi
   [ -n "$u" ] && [ -n "$t" ] && { echo "plot-host: JENKINS_USER and JENKINS_API_TOKEN read from $src" >&2; printf '%s:%s' "$u" "$t"; return 0; }
   command -v security >/dev/null 2>&1 || return 1; u=$(security find-generic-password -s jen -a "jenkins-user:$1" -w 2>/dev/null) || return 1
   t=$(security find-generic-password -s jen -a "jenkins-token:$1" -w 2>/dev/null) || return 1
@@ -2712,6 +2720,36 @@ read_env_var() { # $1=name $2=file → the value, or nothing
           -e 's/[[:space:]]*$//'
 }
 
+# The `.env` candidate for this checkout, and which of two locations it came
+# from. `.env` is untracked, so it lives only in the MAIN checkout — a fleet
+# desk or a scratch worktree under `Worktree root` has none of its own, and
+# `git rev-parse --show-toplevel` there answers with the WORKTREE, which never
+# holds one. Prints "<path>|" (worktree) or "<path>|the main checkout's" on a
+# readable candidate, or nothing when neither location has one.
+#
+# NO UPWARD WALK past either location — the fallback is exactly one more
+# place to look, not a search. `--git-common-dir`'s parent is the main
+# checkout root only for a standard `git worktree add` checkout; where the
+# command fails, prints nothing, or its parent directory does not exist, this
+# falls through to "no main checkout .env" rather than inventing a path.
+plot_env_file() {
+  local root env_file common parent
+  root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."
+  env_file="$root/.env"
+  if [ -r "$env_file" ]; then
+    printf '%s|' "$env_file"
+    return 0
+  fi
+
+  common="$(git rev-parse --git-common-dir 2>/dev/null)" || return 0
+  [ -n "$common" ] || return 0
+  parent="$(dirname "$common")"
+  [ -d "$parent" ] || return 0
+  env_file="$parent/.env"
+  [ -r "$env_file" ] || return 0
+  printf "%s|the main checkout's " "$env_file"
+}
+
 # The env var scheme for Jira auth. The plan left the EXACT names open, to be
 # confirmed against a real instance; these follow Jira Cloud's documented Basic
 # scheme (email + API token, base64'd into an Authorization header):
@@ -2741,15 +2779,13 @@ read_env_var() { # $1=name $2=file → the value, or nothing
 # one was used. `plot-board-probe.sh` reports `auth` as three words rather than
 # a boolean for the same reason. THE VALUE IS NEVER PRINTED — only the source.
 jira_load_env_file() {
-  local root env_file email token
+  local found env_file source email token
   [ -z "${JIRA_EMAIL:-}" ] && [ -z "${JIRA_API_TOKEN:-}" ] || return 0
 
-  # The repository root, `plot-config.sh:145`'s idiom. NO UPWARD WALK past it:
-  # a search toward $HOME would read a file the operator did not mean for this
-  # repository.
-  root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."
-  env_file="$root/.env"
-  [ -r "$env_file" ] || return 0
+  found="$(plot_env_file)" || return 0
+  [ -n "$found" ] || return 0
+  env_file="${found%|*}"
+  source="${found#*|}"
 
   email="$(read_env_var JIRA_EMAIL "$env_file")"
   token="$(read_env_var JIRA_API_TOKEN "$env_file")"
@@ -2760,7 +2796,7 @@ jira_load_env_file() {
   JIRA_EMAIL="$email"
   JIRA_API_TOKEN="$token"
   export JIRA_EMAIL JIRA_API_TOKEN
-  echo "plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from .env" >&2
+  echo "plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from ${source}.env" >&2
 }
 
 jira_require_config() {

@@ -4491,6 +4491,91 @@ test('host: a source note prints once per call, not once per retry loop', () => 
   assert.equal(notes.length, 1, `expected exactly one source note, got:\n${res.stderr}`);
 });
 
+// --- a worktree with no .env of its own falls back to the main checkout's ---
+
+// Same shape as `jiraWorktreeRepo`, built on `makeJenkinsRepo`'s Plot Config.
+function makeJenkinsWorktreeRepo({ mainEnv = null, worktreeEnv = null } = {}) {
+  const main = makeJenkinsRepo();
+  execFileSync('git', ['config', 'user.email', 't@t'], { cwd: main });
+  execFileSync('git', ['config', 'user.name', 't'], { cwd: main });
+  execFileSync('git', ['add', 'CLAUDE.md'], { cwd: main });
+  execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: main });
+  if (mainEnv !== null) writeFileSync(path.join(main, '.env'), mainEnv);
+
+  const worktreesParent = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jen-wt-parent-')));
+  const worktree = path.join(worktreesParent, 'wt');
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'wt-branch', worktree], { cwd: main });
+  if (worktreeEnv !== null) writeFileSync(path.join(worktree, '.env'), worktreeEnv);
+
+  return { main, worktree };
+}
+
+test('host: run-for-sha in a worktree with no .env reads the main checkout\'s, and the source is named', () => {
+  const { worktree } = makeJenkinsWorktreeRepo({
+    mainEnv: `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`,
+  });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub({ sha: 'abc123' });
+  const env = { ...process.env };
+  delete env.JENKINS_USER;
+  delete env.JENKINS_API_TOKEN;
+  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
+    cwd: worktree,
+    encoding: 'utf8',
+    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const argv = readFileSync(rest.argvFile, 'utf8');
+  assert.ok(argv.includes(`${JENKINS_DOTENV_USER}:${JENKINS_DOTENV_TOKEN}`), 'the main checkout\'s pair must reach curl -u');
+  assert.match(res.stderr, /read from the main checkout's \.env/);
+});
+
+test('host: run-for-sha — the worktree\'s own .env wins over the main checkout\'s', () => {
+  const worktreeUser = 'worktree-jenkins-user';
+  const worktreeToken = 'worktree-jenkins-tok';
+  const { worktree } = makeJenkinsWorktreeRepo({
+    mainEnv: `JENKINS_USER=${JENKINS_DOTENV_USER}\nJENKINS_API_TOKEN=${JENKINS_DOTENV_TOKEN}\n`,
+    worktreeEnv: `JENKINS_USER=${worktreeUser}\nJENKINS_API_TOKEN=${worktreeToken}\n`,
+  });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub({ sha: 'abc123' });
+  const env = { ...process.env };
+  delete env.JENKINS_USER;
+  delete env.JENKINS_API_TOKEN;
+  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
+    cwd: worktree,
+    encoding: 'utf8',
+    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const argv = readFileSync(rest.argvFile, 'utf8');
+  assert.ok(argv.includes(`${worktreeUser}:${worktreeToken}`), 'the worktree\'s own pair wins');
+  assert.ok(!argv.includes(JENKINS_DOTENV_TOKEN), 'the main checkout\'s .env was not read');
+  assert.match(res.stderr, /read from \.env/);
+  assert.doesNotMatch(res.stderr, /read from the main checkout's \.env/);
+});
+
+test('host: run-for-sha — neither the worktree nor the main checkout has a credential, refusal unchanged', () => {
+  const { worktree } = makeJenkinsWorktreeRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rest = makeJenkinsRestStub();
+  const env = { ...process.env };
+  delete env.JENKINS_USER;
+  delete env.JENKINS_API_TOKEN;
+  const res = spawnSync('bash', [adapter, 'run-for-sha', 'feature/red', 'abc123'], {
+    cwd: worktree,
+    encoding: 'utf8',
+    env: { ...env, PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_HOST: '' },
+  });
+  assert.equal(res.status, 4);
+  assert.match(res.stderr, /no Jenkins API credential/);
+  assert.equal(res.stdout.trim(), '');
+  assert.ok(!existsSync(rest.argvFile), 'curl must never be called with no credential');
+});
+
 // --- runs-for-sha: every run for one sha --------------------------------------
 
 const THREE_WORKFLOWS = JSON.stringify([
@@ -7161,6 +7246,67 @@ test('host: nothing but the two named variables is imported', () => {
   const argv = readFileSync(stub.argvFile, 'utf8');
   assert.ok(!argv.includes('WRONG.atlassian.net'), 'an unrelated variable must not be imported');
   assert.ok(argv.includes('acme.atlassian.net'), 'the environment still decides the base URL');
+});
+
+// --- a worktree with no .env of its own falls back to the main checkout's ---
+
+// `.env` is untracked, so a `git worktree add` checkout never has one of its
+// own — only the main checkout does. `jiraWorktreeRepo` builds exactly that
+// shape: a main checkout optionally carrying `.env`, and a worktree off it
+// optionally carrying its own.
+function jiraWorktreeRepo({ mainEnv = null, worktreeEnv = null } = {}) {
+  const main = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-dotenv-main-')));
+  execFileSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: main });
+  execFileSync('git', ['config', 'user.email', 't@t'], { cwd: main });
+  execFileSync('git', ['config', 'user.name', 't'], { cwd: main });
+  writeFileSync(path.join(main, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['add', 'seed.txt'], { cwd: main });
+  execFileSync('git', ['commit', '-q', '-m', 'seed'], { cwd: main });
+  if (mainEnv !== null) writeFileSync(path.join(main, '.env'), mainEnv);
+
+  const worktreesParent = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-dotenv-wt-parent-')));
+  const worktree = path.join(worktreesParent, 'wt');
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'wt-branch', worktree, 'main'], { cwd: main });
+  if (worktreeEnv !== null) writeFileSync(path.join(worktree, '.env'), worktreeEnv);
+
+  return { main, worktree };
+}
+
+test('host: a worktree with no .env reads the main checkout\'s, and the source is named', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const { worktree } = jiraWorktreeRepo({ mainEnv: `JIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n` });
+  const res = runJiraNoCreds(['issue-list'], stub, worktree);
+  assert.equal(res.status, 0, `the call must proceed (stderr: ${res.stderr})`);
+  const argv = readFileSync(stub.argvFile, 'utf8');
+  assert.ok(argv.includes(`${DOTENV_EMAIL}:${DOTENV_TOKEN}`), 'the main checkout\'s pair reaches --user');
+  assert.match(res.stderr, /read from the main checkout's \.env/,
+    'an operator debugging a stale-credential 401 must be able to tell which file was read');
+});
+
+test('host: the worktree\'s own .env wins over the main checkout\'s', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const worktreeEmail = 'worktree-user@acme.test';
+  const worktreeToken = 'tok-from-worktree';
+  const { worktree } = jiraWorktreeRepo({
+    mainEnv: `JIRA_EMAIL=${DOTENV_EMAIL}\nJIRA_API_TOKEN=${DOTENV_TOKEN}\n`,
+    worktreeEnv: `JIRA_EMAIL=${worktreeEmail}\nJIRA_API_TOKEN=${worktreeToken}\n`,
+  });
+  const res = runJiraNoCreds(['issue-list'], stub, worktree);
+  assert.equal(res.status, 0, `the call must proceed (stderr: ${res.stderr})`);
+  const argv = readFileSync(stub.argvFile, 'utf8');
+  assert.ok(argv.includes(`${worktreeEmail}:${worktreeToken}`), 'the worktree\'s own pair wins');
+  assert.ok(!argv.includes(DOTENV_TOKEN), 'the main checkout\'s .env was not read');
+  assert.match(res.stderr, /read from \.env/);
+  assert.doesNotMatch(res.stderr, /read from the main checkout's \.env/);
+});
+
+test('host: neither the worktree nor the main checkout has a credential — the refusal is unchanged', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const { worktree } = jiraWorktreeRepo();
+  const res = runJiraNoCreds(['issue-list'], stub, worktree);
+  assert.equal(res.status, 3, 'an auth gap is a config error, never an empty inbox');
+  assert.match(res.stderr, /Jira needs JIRA_EMAIL and JIRA_API_TOKEN in the environment/);
+  assert.equal(res.stdout.trim(), '');
 });
 
 // --- the ledger, which is what the widening owns -----------------------------
