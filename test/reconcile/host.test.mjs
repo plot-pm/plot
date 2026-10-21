@@ -3814,6 +3814,157 @@ test('host: runs on Jenkins reports nothing for a branch the job does not build'
   assert.equal(res.stdout.trim(), '');
 });
 
+// --- ewz-kus-portal: a branch built in another job entirely -----------------
+//
+// `docs/plans/2026-10-21-jenkins-run-for-sha-on-the.md`. The real body the
+// multibranch ROOT answers carries no `jobs` key at all once `tree=builds[…]`
+// filters it out — unlike `JEN_JOBS`-shaped fixtures above, which still carry
+// `jobs` and so passed under the OLD `has("jobs")` arm too. A `_class`-only
+// body is the one the old code could not read as empty.
+const JEN_ROOT_CLASS_ONLY = JSON.stringify({
+  _class: 'org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject',
+});
+
+test('host: run-for-sha on Jenkins reads an unindexed default branch as empty, not a refusal (ewz)', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const bin = makeJenkinsRestBin(JEN_ROOT_CLASS_ONLY, { branchSeg: 'develop', branchAnswer: '<html>404 Not Found</html>' });
+  const res = runJenkinsAllowFail(['run-for-sha', 'develop', 'deadbeef'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, `a _class-only root must not exit 4\n${res.stderr}`);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: runs on Jenkins still exits 4 when the root itself does not answer (HTML both calls)', () => {
+  // The catching case: an implementation that reads "no builds" as "no
+  // branch" would also read an unreachable Jenkins as an empty history. Both
+  // URLs answer HTML here — Jenkins never answered at all — so this must stay
+  // exit 4, same as the existing HTML-body test at the plain-job arm.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const bin = makeJenkinsRestBin('<html>404 Not Found</html>', { branchSeg: 'develop', branchAnswer: '<html>404 Not Found</html>' });
+  const res = runJenkinsAllowFail(['runs', 'develop'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 4, 'a root that answers nothing usable must still mean "Jenkins did not answer"');
+  assert.equal(res.stdout.trim(), '');
+});
+
+// `Default branch job` — the repository names a separate job for its default
+// branch. `origin/HEAD` must resolve for `jenkins_sha_runs` to apply it; these
+// tests set the symref directly, as `default-branch-repair.test.mjs` does —
+// no actual remote is needed for `git symbolic-ref --short` to read it.
+const makeJenkinsRepoWithDefaultBranch = (branch, opts = {}) => {
+  const repo = makeJenkinsRepo(opts);
+  execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${branch}`], { cwd: repo });
+  return repo;
+};
+
+// A curl stub keyed on the JOB PREFIX, not the branch segment —
+// `makeJenkinsRestBin`'s `branchSeg` match cannot tell "continuous-deploy"
+// from "continuous-build-multi" apart, because both job paths end in the same
+// `/job/develop` segment. Answers `builds` only under `jobPrefix`'s own path
+// (branch or root) and 404-HTML under every other job path, so a result at
+// all proves which job was actually asked.
+const makeJenkinsRestBinKeyedOnJob = (jobPrefix, buildsJson) => {
+  const bin = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest-job-')));
+  writeFileSync(path.join(bin, 'security'), '#!/usr/bin/env bash\necho stub\n');
+  writeFileSync(path.join(bin, 'curl'), `#!/usr/bin/env bash
+case "$*" in
+  *"/job/${jobPrefix}"*) printf '%s' '${buildsJson.replace(/'/g, `'\\''`)}' ;;
+  *) printf '%s' '<html>404 Not Found</html>' ;;
+esac
+`);
+  chmodSync(path.join(bin, 'security'), 0o755);
+  chmodSync(path.join(bin, 'curl'), 0o755);
+  return bin;
+};
+
+test('host: "Default branch job" routes the default branch to its own job, bypassing the multibranch path', () => {
+  const repo = makeJenkinsRepoWithDefaultBranch('develop');
+  writeFileSync(path.join(repo, 'CLAUDE.md'),
+    readFileSync(path.join(repo, 'CLAUDE.md'), 'utf8') + '- **Default branch job:** continuous-deploy\n');
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const builds = JSON.stringify({ builds: [
+    { number: 3, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/3/',
+      actions: [{ lastBuiltRevision: { SHA1: 'deploy-sha' } }] },
+  ] });
+  // Only `continuous-deploy`'s own path answers `builds`; the multibranch job
+  // path (`continuous-build-multi`) 404s. A result at all proves the override
+  // routed the request to the named job instead.
+  const bin = makeJenkinsRestBinKeyedOnJob('continuous-deploy', builds);
+  const res = runJenkinsAllowFail(['runs', 'develop'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(rows.map((r) => r.conclusion), ['SUCCESS']);
+});
+
+test('host: "Default branch job" leaves every other branch on the multibranch path', () => {
+  // Keyed on the job prefix, not the branch segment: `continuous-deploy`'s
+  // path answers builds, the multibranch job's path 404s on the branch
+  // segment and answers `_class`-only at its root. If the override applied
+  // unconditionally (ignoring `$branch`), this would wrongly read
+  // `deploy-build`'s row for a branch the multibranch job never built.
+  const repo = makeJenkinsRepoWithDefaultBranch('develop');
+  writeFileSync(path.join(repo, 'CLAUDE.md'),
+    readFileSync(path.join(repo, 'CLAUDE.md'), 'utf8') + '- **Default branch job:** continuous-deploy\n');
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const bin = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jenrest-job-')));
+  writeFileSync(path.join(bin, 'security'), '#!/usr/bin/env bash\necho stub\n');
+  writeFileSync(path.join(bin, 'curl'), `#!/usr/bin/env bash
+case "$*" in
+  *"/job/continuous-deploy"*) printf '%s' '${JSON.stringify({ builds: [
+    { number: 1, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/1/',
+      actions: [{ lastBuiltRevision: { SHA1: 'deploy-build-sha' } }] },
+  ] }).replace(/'/g, `'\\''`)}' ;;
+  *"/job/continuous-build-multi/job/feature%2Fnew"*) printf '%s' '<html>404 Not Found</html>' ;;
+  *"/job/continuous-build-multi"*) printf '%s' '${JEN_ROOT_CLASS_ONLY.replace(/'/g, `'\\''`)}' ;;
+  *) printf '%s' '<html>404 Not Found</html>' ;;
+esac
+`);
+  chmodSync(path.join(bin, 'security'), 0o755);
+  chmodSync(path.join(bin, 'curl'), 0o755);
+  const res = runJenkinsAllowFail(['runs', 'feature/new'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(res.stdout.trim(), '', 'a non-default branch still reads through the multibranch job, unindexed means empty — not the deploy job\'s row');
+});
+
+test('host: with no "Default branch job" key, the default branch behaves exactly as before', () => {
+  const repo = makeJenkinsRepoWithDefaultBranch('develop');
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const bin = makeJenkinsRestBin(JEN_ROOT_CLASS_ONLY, { branchSeg: 'develop', branchAnswer: '<html>404 Not Found</html>' });
+  const res = runJenkinsAllowFail(['runs', 'develop'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  assert.equal(res.stdout.trim(), '', 'unset key: the empty-history fix applies, nothing else changes');
+});
+
+test('host: PLOT_JENKINS_JOB overrides "Default branch job", same precedence it already had', () => {
+  const repo = makeJenkinsRepoWithDefaultBranch('develop');
+  writeFileSync(path.join(repo, 'CLAUDE.md'),
+    readFileSync(path.join(repo, 'CLAUDE.md'), 'utf8') + '- **Default branch job:** continuous-deploy\n');
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const builds = JSON.stringify({ builds: [
+    { number: 7, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/7/',
+      actions: [{ lastBuiltRevision: { SHA1: 'env-sha' } }] },
+  ] });
+  // Only the env-named job's own path answers; "Default branch job"'s path
+  // 404s, so a result at all proves PLOT_JENKINS_JOB won.
+  const bin = makeJenkinsRestBinKeyedOnJob('continuous-build-multi', builds);
+  const res = runJenkinsAllowFail(['runs', 'develop'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`, PLOT_JENKINS_JOB: 'continuous-build-multi' } });
+  assert.equal(res.code, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(rows.map((r) => r.conclusion), ['SUCCESS'], 'PLOT_JENKINS_JOB still wins over the config key');
+});
+
 test('host: runs on Jenkins without a credential exits 4, never empty', () => {
   // Same direction of failure `run-for-sha` already relies on: an absent
   // credential must answer *cannot be asked*, never *this branch has no runs*.

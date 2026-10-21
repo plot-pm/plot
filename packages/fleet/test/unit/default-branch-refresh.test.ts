@@ -375,11 +375,13 @@ describe('refreshDefaultBranch', () => {
     expect(r.stored()).toMatchObject({ head: 'unknown', settled: { sha: 'a1', state: 'red' } });
   });
 
-  it('reads an unaskable CI as unreadable and writes nothing', async () => {
+  it('reads an unaskable CI as unreadable, writes nothing, and names the reason', async () => {
     const r = rig();
     r.world.build = { runsForSha: async () => ({ ok: false, why: 'unaskable' }) };
-    expect(await refreshDefaultBranch(r.world)).toBe('unreadable');
+    const warned: string[] = [];
+    expect(await refreshDefaultBranch(r.world, (line) => warned.push(line))).toBe('unreadable');
     expect(r.stored()).toBeNull();
+    expect(warned).toEqual(["plot-fleetd: default-branch read skipped — CI did not answer for 'main' at a1"]);
   });
 
   it('keeps a settled red reading when the CI becomes unaskable', async () => {
@@ -400,12 +402,23 @@ describe('refreshDefaultBranch', () => {
     expect(r.stored()?.settled).toBeUndefined();
   });
 
-  it('writes nothing when the tip cannot be read', async () => {
+  it('writes nothing when the tip cannot be read, and names the reason', async () => {
     const r = rig();
     r.tip(null);
-    expect(await refreshDefaultBranch(r.world)).toBe('unreadable');
+    const warned: string[] = [];
+    expect(await refreshDefaultBranch(r.world, (line) => warned.push(line))).toBe('unreadable');
     expect(r.stored()).toBeNull();
     expect(r.calls()).toBe(0);
+    expect(warned).toEqual(["plot-fleetd: default-branch read skipped — the remote tip of 'main' could not be read"]);
+  });
+
+  it('names the reason when the default branch itself cannot be read', async () => {
+    const r = rig();
+    r.world.branch = async () => null;
+    const warned: string[] = [];
+    expect(await refreshDefaultBranch(r.world, (line) => warned.push(line))).toBe('unreadable');
+    expect(r.stored()).toBeNull();
+    expect(warned).toEqual(['plot-fleetd: default-branch read skipped — the default branch could not be read']);
   });
 
   it('takes a host slot for each runs read', async () => {
