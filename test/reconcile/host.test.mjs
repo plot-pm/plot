@@ -2403,13 +2403,14 @@ test('host: issue-list bitbucket keeps the `Tracker` advice where none is declar
   assert.match(res.stderr, /`Tracker` config key/);
 });
 
-test('host: issue-list bitbucket drops the `Tracker` advice where Tracker: plot is declared', () => {
+test('host: issue-list bitbucket names the working pair where Tracker: plot is declared', () => {
   const stub = makeBbWithoutIssueStub();
   const res = runBb(['issue-list'], stub, { PLOT_TRACKER: 'plot' });
   assert.equal(res.status, 4, res.stderr);
   assert.match(res.stderr, /bb 1\.9\.0 lists no issue command/);
   assert.match(res.stderr, /Quatico bb has none/);
-  assert.doesNotMatch(res.stderr, /`Tracker`/, 'the repository already declared Tracker — the advice would mislead');
+  assert.match(res.stderr, /Tracker: jira <base URL>/, 'names the remedy rather than asking for a key already declared');
+  assert.match(res.stderr, /Sprint owner: plot/);
 });
 
 

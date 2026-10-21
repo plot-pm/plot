@@ -24,8 +24,8 @@ import { pathToFileURL } from 'node:url';
  * # exit 2 — no git host named
  *
  * plot-issue-source.mjs --bb-issue-missing < <(echo plot)
- * lists no issue command — Quatico bb has none, unlike craftamap/bb — ...
- * # the declare-Tracker advice is appended only where stdin is empty
+ * lists no issue command — Quatico bb has none, unlike craftamap/bb — ...; declare `Tracker: jira <base URL>` with `Sprint owner: plot`
+ * # an empty stdin instead gets the advice to declare the `Tracker` key
  * # the caller prepends its own `bb ${version}` ahead of this sentence
  * ```
  *
