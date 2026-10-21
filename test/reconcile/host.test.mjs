@@ -8930,6 +8930,77 @@ test('host: issue-list jira --paged open read asks 100 a page and prints the nex
   assert.ok(argv.includes('nextPageToken=tok-1'));
 });
 
+// --- the unpaged open/inbox read refuses a --limit above one page ----------
+//
+// Jira caps maxResults at 100 itself, so an unpaged `--limit 200` silently
+// returned 100 rows with no sign the other 100 existed (measured 2026-10-21,
+// ewz-kus-portal). The open and inbox reads now refuse before any curl.
+
+test('host: issue-list jira --limit 100 still answers; --limit 101 refuses', () => {
+  // `-gt`, not `-ge`: a guard written the other way would refuse a full
+  // single page, which is still exactly one page.
+  const stub100 = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res100 = runJira(['issue-list', '--limit', '100'], stub100);
+  assert.equal(res100.status, 0, res100.stderr);
+
+  const stub101 = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res101 = runJira(['issue-list', '--limit', '101'], stub101);
+  assert.equal(res101.status, 2, res101.stderr);
+  assert.match(res101.stderr, /--paged/);
+  assert.ok(!existsSync(stub101.argvFile), 'a refused call must not run curl');
+});
+
+test('host: issue-list jira --limit 200 --paged still answers with one page and the token', () => {
+  // The only way a direct caller reads more than one page is --paged; a guard
+  // that refused --paged too would close that path entirely.
+  const body = JSON.stringify({
+    issues: [{ key: 'PROJ-1', fields: { summary: 'Open', created: 'c', status: { name: 'To Do', statusCategory: { name: 'To Do' } } } }],
+    nextPageToken: 'tok-2',
+  });
+  const stub = makeJiraCurlStub({ body });
+  const res = runJira(['issue-list', '--limit', '200', '--paged'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const lines = res.stdout.trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(lines.map((l) => l.number ?? l.nextPageToken), ['PROJ-1', 'tok-2']);
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  assert.ok(argv.includes('maxResults=100'));
+});
+
+test('host: issue-list jira with no --limit still answers (default 50, not refused)', () => {
+  // A guard comparing an empty string against ISSUE_PAGE_ROWS under `set -u`
+  // or bash arithmetic would error; the empty case must skip the guard.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const argv = readFileSync(stub.argvFile, 'utf8');
+  assert.match(argv, /^maxResults=50$/m);
+});
+
+test('host: issue-list jira a non-numeric --limit is not turned into a guard bypass', () => {
+  // `[ "$limit" -gt 100 ]` on `abc` errors arithmetic; the guard must decide
+  // this case deliberately rather than crash past it unbounded. The guard
+  // skips (not its job to validate shape) and the host itself rejects the
+  // non-numeric maxResults.
+  const stub = makeJiraCurlStub({ body: 'invalid maxResults', status: 400 });
+  const res = runJira(['issue-list', '--limit', 'abc'], stub);
+  assert.notEqual(res.status, 0, 'a non-numeric limit must not read as success');
+  assert.notEqual(res.status, 2, 'the above-one-page refusal never fires for a non-numeric limit');
+});
+
+test('host: issue-list jira --state inbox --limit 101 refuses the same as open', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list', '--state', 'inbox', '--limit', '101'], stub);
+  assert.equal(res.status, 2, res.stderr);
+  assert.ok(!existsSync(stub.argvFile), 'a refused call must not run curl');
+});
+
+test('host: issue-list jira --state closed --limit 500 is unaffected: closed forces --paged itself', () => {
+  const repo = makeTicketPrefixRepo('- **Ticket prefixes:** PROJ\n');
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJiraIn(repo, ['issue-list', '--state', 'closed', '--since', '2026-09-01', '--limit', '500'], stub);
+  assert.equal(res.status, 0, res.stderr);
+});
+
 test('host: issue-list github closed records one extra call per 100 rows past the first', () => {
   const rows = (n) => JSON.stringify(Array.from({ length: n }, (_, i) => ({
     number: i + 1, title: 't', url: 'u', createdAt: 'c', closedAt: 'd',
