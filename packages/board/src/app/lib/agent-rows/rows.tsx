@@ -316,6 +316,18 @@ export interface AgentListProps {
    * `defaultBranchStatus` already treats as "not red" rather than "green".
    */
   defaultBranch?: DefaultBranchReading;
+  /**
+   * Whether the board's OWN checkout is clean — `/api/board`'s
+   * `checkoutClean`, carried the same way `defaultBranch` above is. Absent or
+   * null reads as "no reading", which `checkoutHealthStatus` treats as "say
+   * nothing" rather than "clean".
+   */
+  checkoutClean?: boolean | null;
+  /**
+   * Commits the board's checkout is behind the ref it reads plans from —
+   * `/api/board`'s `planSource.behind`. Same absence rule as `checkoutClean`.
+   */
+  checkoutBehind?: number | null;
 }
 
 /**

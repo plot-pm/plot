@@ -2202,6 +2202,16 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     return read.ok ? read.value ?? undefined : undefined;
   })();
 
+  // Whether THIS checkout — the one every read above just walked — is itself
+  // clean. A local `git status --porcelain`, no network, the same cost class
+  // as `measureBehind` above it. `null` where it could not be read, never a
+  // guessed clean: see `checkoutHealthStatus`, which treats null as "say
+  // nothing" rather than "fine".
+  const checkoutClean = await (async () => {
+    const status = await treesFor(opts).isClean(repoRoot);
+    return status.ok ? status.value : null;
+  })();
+
   // EACH PLAN'S AUTHOR — ONE BATCHED GIT-LOG WALK, READ ONCE ABOVE THE LOOP.
   // Same hoist as `spendLines` above: a per-plan call here would be one `git
   // log` spawn per plan per refresh, on the same ~290-plan estate.
@@ -2532,6 +2542,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // split `tickets`/`plansUnreadable`/`storyLanes` already follow.
     topics: extractTopics(stories.map((s) => storyTopicInput(s))),
     defaultBranch: defaultBranchReading,
+    checkoutClean,
     // Unset until `discoveryLanes` fills them in: the Discovery lane cache
     // lives in `fleet.ts`, which this walker has no dependency on. index.ts
     // overwrites all three at response time, the same hand and the same

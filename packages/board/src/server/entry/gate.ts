@@ -14,6 +14,7 @@ import {
   unpinnedMerges,
   withoutQuotedHeredocs,
 } from '@plot-pm/domain/rules/controller-gate';
+import { mainCheckoutWriteRefusal, mutatesGitState } from '@plot-pm/domain/rules/main-checkout-write';
 
 /**
  * The `node` entry point `plot-gates.sh` launches: one PreToolUse hook that
@@ -458,6 +459,40 @@ const gitWhere = async (cwd: string, scriptDir: string): Promise<Where> => {
   return { root, linked: linked.ok && linked.value };
 };
 
+/** What the main-checkout gate reads from the world, so a test can replace it. */
+export interface MainCheckoutReadings {
+  readonly where: (cwd: string, scriptDir: string) => Promise<Where>;
+}
+
+/**
+ * `main-checkout`: refuses a git command that mutates `HEAD`, the index, or a
+ * ref when the working directory is the repository's MAIN checkout rather
+ * than a linked (desk) worktree.
+ *
+ * `wants` is a pure string test over {@link mutatesGitState}, so a read-only
+ * command never reads git. `ask` reads the repository root and whether the
+ * checkout is linked; a linked worktree (a desk) is allowed, and so is a root
+ * read that fails — this gate cannot tell a desk from the main checkout
+ * without git, and failing open matches every other gate here. This refuses
+ * unconditionally, for an interactive session as much as an unattended one:
+ * the incident this closes (#2311) was a person running `git commit`/`git
+ * reset` by hand against the checkout the board reads, not a script.
+ */
+export const mainCheckoutGateOf = (readings: MainCheckoutReadings): Gate => ({
+  name: 'main-checkout',
+  wants: (command) => mutatesGitState(command),
+  ask: async (_command) => {
+    const cwd = process.cwd();
+    const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    const where = await readings.where(cwd, scriptDir);
+    if (!where.root.ok || where.linked) return null;
+    return mainCheckoutWriteRefusal(scriptDir);
+  },
+  onError: 'allow',
+});
+
+const mainCheckoutGate = mainCheckoutGateOf({ where: gitWhere });
+
 /** The backend `plot-host.sh` resolves, or `''` where it does not answer. */
 const hostBackend = async (cwd: string, scriptDir: string): Promise<string> => {
   const { hostShell } = await import('@plot-pm/domain/adapters/host/host-shell');
@@ -580,7 +615,7 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
 const controllerGate = controllerGateOf({ desk: underDesk, where: gitWhere, backend: hostBackend });
 
 /** The registered gates. */
-export const GATES: readonly Gate[] = [bundleCommitGate, briefNameGate, stateGate, controllerGate, phaseGate];
+export const GATES: readonly Gate[] = [bundleCommitGate, briefNameGate, stateGate, controllerGate, phaseGate, mainCheckoutGate];
 
 /** The exit codes the hook contract reads. */
 export const EXIT = { allow: 0, refuse: 2 } as const;

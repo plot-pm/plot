@@ -1366,6 +1366,11 @@ export function App() {
               // `defaultBranchStatus` reads as "no reading" and shows nothing,
               // never a guessed green.
               defaultBranch={board?.defaultBranch}
+              // THE BOARD'S OWN CHECKOUT, same rule as `defaultBranch` above:
+              // rides on the BOARD payload, undefined until the first board
+              // lands, which `checkoutHealthStatus` reads as "say nothing".
+              checkoutClean={board?.checkoutClean}
+              checkoutBehind={board?.planSource?.behind}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>
