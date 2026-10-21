@@ -62,7 +62,7 @@ All host reads go through `plot-host.sh`; the scan adds no direct `gh` or `bb` c
 
 ### Fix
 
-- `bug/resolve-the-release-of-a-pr` — section 6 follows a non-default destination branch to the default branch and names the deleted destination branch when the chain breaks
+- `bug/resolve-the-release-of-a-pr` → #2235 — section 6 follows a non-default destination branch to the default branch and names the deleted destination branch when the chain breaks
 
 ## Notes
 
