@@ -392,6 +392,19 @@
 #                                 as issue-list. Jira answers 404 for a missing
 #                                 key, which is exit 3 here (the tracker moved),
 #                                 never an empty body.
+#   version-read <name> [--limit N]  (jira only; exit 4 on github/bitbucket)
+#                                 ONE version — {"name":…,"released":bool,
+#                                 "releaseDate":"…"|null} on its own JSON line —
+#                                 then its fixVersion issues, one per line, as
+#                                 issue-list's rows, optionally followed by a
+#                                 trailing {"nextPageToken":"…"} line.
+#                                 THREE OUTCOMES, kept apart on purpose: a
+#                                 version Jira does not know is EXIT 2, never
+#                                 the same as EXIT 3 (an unreachable Jira) or
+#                                 the empty issue list a version with no
+#                                 matching issue still answers. A 404 on the
+#                                 version lookup is exit 2; any other Jira
+#                                 failure (network, 401/403/5xx) is exit 3.
 #   issue-comment <number> <marker> <body>          (github)
 #                                 edits the comment holding <marker>, else posts
 #                                 one; an empty <marker> always posts, not idempotent.
@@ -5149,6 +5162,79 @@ case "$op" in
     fi
     ;;
 
+  version-read)
+    # ONE Jira version, then its fixVersion issues — see the usage header.
+    # JIRA ONLY: no GitHub or Bitbucket concept of a fix version exists, so
+    # every other `Tracker` answers exit 4 rather than being asked at all.
+    name="${1:?version-read needs a version name}"; shift
+    limit=""; page_token=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --limit) limit="${2:?--limit needs a value}"; shift 2 ;;
+        --page-token) page_token="${2:?--page-token needs a value}"; shift 2 ;;
+        *) die "version-read: unknown argument '$1'" ;;
+      esac
+    done
+    source_said="$(issue_source)" || exit 1
+    [ "$source_said" = $'tracker\tjira' ] || { echo "plot-host: version-read needs 'Tracker: jira'" >&2; exit 4; }
+    jira_require_config
+    projects="$(tracker_projects)"
+    [ -n "$projects" ] || { echo "plot-host: version-read needs 'Ticket prefixes' declared, to know which project's versions to search" >&2; exit 4; }
+    project="$(printf '%s' "$projects" | head -1)"
+    # THE VERSION ITSELF IS ASKED ONLY ON THE FIRST PAGE. It has no "get by
+    # name" ENDPOINT, only get-by-id and a project's paged list — so the list
+    # is read and filtered here. A page of ISSUE_PAGE_ROWS is generous for a
+    # count of releases per project. A page-token call already confirmed the
+    # version on its first page, so it skips straight to the issues search.
+    if [ -z "$page_token" ]; then
+      raw="$(jira_curl "/rest/api/2/project/$project/versions")"; rc=$?
+      if [ "$rc" -ne 0 ]; then echo "plot-host: jira request failed (curl exit $rc)" >&2; exit 3; fi
+      status="$(printf '%s' "$raw" | tail -n1)"
+      body="$(printf '%s' "$raw" | sed '$d')"
+      # THE THREE OUTCOMES, kept apart from jira_check's two on purpose: a 404
+      # here means the PROJECT is unknown, which is a config fact (exit 3,
+      # like every other Jira lookup failure) rather than "this version is
+      # unknown" — that verdict comes from the filter below, once the list
+      # itself answered.
+      if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+        detail="$(printf '%s' "$body" | jq -r 'try (.errorMessages | join("; ")) catch empty' 2>/dev/null)"
+        echo "plot-host: jira HTTP $status${detail:+ — $detail}" >&2
+        exit 3
+      fi
+      version_json="$(printf '%s' "$body" | jq -c --arg name "$name" '[.[] | select(.name == $name)][0] // empty')"
+      if [ -z "$version_json" ]; then
+        echo "plot-host: jira has no version named '$name' in project $project" >&2
+        exit 2
+      fi
+      printf '%s\n' "$version_json" | jq -c '{name:.name,released:(.released // false),releaseDate:(.releaseDate // null)}'
+    fi
+    # THE ISSUES, via the same search/jql op issue-list uses, scoped by a JQL
+    # string literal rather than appended to the default query: this read has
+    # no person clause and no $scope to splice into, only the version's name.
+    # Quotes and backslashes in the name are escaped for JQL's own string
+    # syntax — Jira rejects an unescaped quote inside one.
+    jql_name="$(printf '%s' "$name" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"
+    token_args=(); [ -z "$page_token" ] || token_args=(--data-urlencode "nextPageToken=$page_token")
+    body="$(jira_ask "/rest/api/2/search/jql" \
+             -G \
+             --data-urlencode "jql=fixVersion = \"$jql_name\" ORDER BY created DESC" \
+             --data-urlencode "fields=summary,created,status,assignee,issuetype" \
+             --data-urlencode "maxResults=$max" \
+             ${token_args[@]+"${token_args[@]}"})" || exit $?
+    base="$(tracker_base_url)"
+    printf '%s' "$body" | jq -c --arg base "$base" '(.issues[]? | {
+        number: .key,
+        title: (.fields.summary // ""),
+        url: ($base + "/browse/" + .key),
+        createdAt: (.fields.created // ""),
+        status: (.fields.status.name // ""),
+        statusCategory: (.fields.status.statusCategory.name // ""),
+        assignees: ([.fields.assignee.emailAddress // .fields.assignee.accountId] | map(select(. != null)))
+      } + (if .fields.issuetype.name then {type: .fields.issuetype.name} else {} end)),
+      (select(.nextPageToken) | {nextPageToken: .nextPageToken})'
+    ;;
+
   issue-status)
     # THE ONE WRITE TO A TRACKER, and the amendment this op records: Plot writes
     # a STATUS to the tracker it was told about, and writes nothing else. No
@@ -5526,6 +5612,6 @@ case "$op" in
     ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|version-read|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
     ;;
 esac

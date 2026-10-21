@@ -1,4 +1,5 @@
 import type { Issue } from '../../entities/issue.js';
+import { ISSUE_PAGE_ROWS } from '../../entities/issue-index.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type {
@@ -13,10 +14,18 @@ import type {
   Tracker,
   TrackerConfig,
   TrackerSpender,
+  VersionRead,
 } from '../../ports/tracker.js';
-import { asText, runProcess } from '../run-script.js';
+import { asJsonLines, asText, runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
-import { issueOpenOf, trackerReads } from './tracker-shell.js';
+import { issueOpenOf, pageOf, trackerReads, unaskableReasonOf } from './tracker-shell.js';
+
+/** One `version-read` call's first line, before its issues. */
+interface RawVersion {
+  name?: string;
+  released?: boolean;
+  releaseDate?: string | null;
+}
 
 /** The scheme `plot-host.sh` knows this connector by. */
 const SCHEME = 'jira';
@@ -159,6 +168,64 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
     },
 
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
+
+    // A HAND-ROLLED PAGE LOOP, not `trackerReads`' `walk()`: that helper is
+    // private to the read factory and assumes every line is an issue or a
+    // token. Here the FIRST call's first line is the version object, which
+    // no later call repeats — `plot-host.sh version-read` asks for it only
+    // when invoked with no `--page-token` (see its usage header) — so the
+    // loop below reads it once and feeds every call's remaining lines
+    // through `pageOf`, same as `walk()` does for the whole page.
+    versionRead: async (name: string, limit: number): Promise<PortResult<VersionRead>> => {
+      let version: RawVersion | null = null;
+      const issues: Issue[] = [];
+      let token: string | null = null;
+      const seen = new Set<string>();
+      let calls = 0;
+      while (issues.length < limit) {
+        const args = ['version-read', name, '--limit', String(limit - issues.length)];
+        if (token !== null) args.push('--page-token', token);
+        const said = await runProcess('bash', [host, ...args], run);
+        calls += 1;
+        if (said.code === 2) {
+          reads.refuse(null);
+          return unaskable(`jira has no version named '${name}'`);
+        }
+        if (said.code === 4) {
+          reads.refuse(null);
+          return unaskable(unaskableReasonOf(said.stderr));
+        }
+        if (said.code !== 0) {
+          reads.refuse(said.stderr.trim() || said.stdout.trim() || `plot-host.sh exited ${said.code}`);
+          return failed();
+        }
+        reads.refuse(null);
+        let body = said.stdout;
+        if (version === null) {
+          const newline = body.indexOf('\n');
+          const first = newline === -1 ? body : body.slice(0, newline);
+          version = asJsonLines<RawVersion>(first)[0] ?? null;
+          body = newline === -1 ? '' : body.slice(newline + 1);
+        }
+        const page = pageOf(body);
+        issues.push(...page.issues);
+        token = page.next;
+        if (token === null || page.issues.length === 0 || seen.has(token)) break;
+        seen.add(token);
+      }
+      if (version === null) {
+        return failed();
+      }
+      const kept = issues.slice(0, limit);
+      return answered<VersionRead>({
+        name: version.name ?? name,
+        released: version.released ?? false,
+        releaseDate: version.releaseDate ?? null,
+        issues: kept,
+        complete: token === null && issues.length < limit,
+        pages: Math.max(1, calls, Math.ceil(kept.length / ISSUE_PAGE_ROWS)),
+      });
+    },
 
     statusWrite: async (write: StatusWrite): Promise<PortResult<StatusOutcome>> => {
       // THE ISSUE A CALLER NAMED WINS OVER ONE MINED FROM THE ADDRESS. It is

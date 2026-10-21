@@ -15,6 +15,7 @@ import type {
   Tracker,
   TrackerConfig,
   TrackerSpender,
+  VersionRead,
 } from '../../ports/tracker.js';
 
 /** The tracker a fixture answers as. */
@@ -68,6 +69,11 @@ export interface TrackerFixture {
   issueOpenFails?: boolean;
   /** Whether a status write fails outright. */
   statusWriteFails?: boolean;
+  /**
+   * The versions `versionRead` answers from, keyed by name; a name absent
+   * here answers `unaskable` — the same shape as a Jira 404 on the version.
+   */
+  versions?: Readonly<Record<string, Omit<VersionRead, 'issues' | 'complete' | 'pages'>>>;
   /** The limit readings `limit` reports. */
   limits?: readonly LimitReading[];
   /** What `spender` reports; connector `fixture` and a null account by default. */
@@ -140,6 +146,21 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
       return found
         ? answered(found)
         : answered({ ...(issues[0] ?? ({} as Issue)), id, body: '' });
+    },
+
+    // UNKNOWN NAME IS `unaskable`, THE SAME SHAPE AS A JIRA 404 ON THE
+    // VERSION — the fixture's `versions` map stands in for the project's
+    // version list, so a name absent there is this fixture's "not found".
+    versionRead: async (name, limit): Promise<PortResult<VersionRead>> => {
+      const version = fixture.versions?.[name];
+      if (version === undefined) return unaskable(`this fixture has no version named '${name}'`);
+      const withVersion = fixture.labelled?.[`fixVersion:${name}`] ?? [];
+      return answered({
+        ...version,
+        issues: withVersion.slice(0, limit),
+        complete: withVersion.length < limit,
+        pages: pagesOf(Math.min(withVersion.length, limit)),
+      });
     },
 
     statusWrite: async (write): Promise<PortResult<StatusOutcome>> => {

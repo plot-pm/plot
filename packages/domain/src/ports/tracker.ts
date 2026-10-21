@@ -166,6 +166,22 @@ export interface IssueRead {
 /** The issues a tracker closed in a window: an {@link IssueRead}, newest close first. */
 export type ClosedIssues = IssueRead;
 
+/** One tracker version, and the issues whose fix version names it. */
+export interface VersionRead {
+  /** The version's name, as the tracker names it. */
+  name: string;
+  /** Whether the tracker marks this version released. */
+  released: boolean;
+  /** The release date the tracker states, ISO-8601; null where it states none. */
+  releaseDate: string | null;
+  /** The issues whose fix version is this one, without bodies. */
+  issues: readonly Issue[];
+  /** False where the issue read stopped at its limit, so more may exist. */
+  complete: boolean;
+  /** The requests the read spent, counted as {@link IssueRead.pages} is. */
+  pages: number;
+}
+
 /**
  * Reads a tracker, and writes one fact back to it.
  *
@@ -261,6 +277,24 @@ export interface Tracker {
    *   `Ticket prefixes`, or no tracker can be asked.
    */
   issueListClosed(since: string, limit: number): Promise<PortResult<ClosedIssues>>;
+
+  /**
+   * Reads one tracker version, and the issues whose fix version names it.
+   *
+   * THREE OUTCOMES, NOT TWO. A version the tracker does not know is a clean
+   * not-found answer, `unaskable` with a `version-not-found` reason; an
+   * unreachable tracker is `failed`; a tracker that cannot be asked at all
+   * (no version concept, or none declared) is `unaskable` with a different
+   * reason. An empty issue list is a fourth, separate fact: the version
+   * exists and names no issue.
+   *
+   * @param name - the version's name, verbatim — matched by the tracker, not by this port.
+   * @param limit - how many of its issues to read at most.
+   * @returns the version and its issues; `unaskable` where the version is
+   *   unknown to the tracker, the tracker has no version concept, or no
+   *   tracker was declared; `failed` where the tracker could not be reached.
+   */
+  versionRead(name: string, limit: number): Promise<PortResult<VersionRead>>;
 
   /**
    * Lists the issues, open or closed, changed at or after `since`, without
