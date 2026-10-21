@@ -178,19 +178,12 @@ subjects_read=${subjects_read:-0}
 # `Tracker` at all) and still runs Jira is more reliably seen in its BRANCH
 # names than in its commits, which a Bitbucket squash-merge habit can leave
 # ticket-free. Local and remote-tracking branches both count — a fresh clone
-# before any fetch sees only `refs/heads/`, and this must not read as "no
-# scheme" for that reason alone.
-#
-# MOST FREQUENT, REPORTED RAW, EXACTLY LIKE THE COMMIT-SUBJECT FIELD. Whether
-# one occurrence makes a scheme is the rule's decision, not this script's.
-branch_ticket_line=$(git for-each-ref --format='%(refname:short)' refs/heads/ refs/remotes/ 2>/dev/null \
-  | grep -oE '\b[A-Z][A-Z0-9]{1,9}-[0-9]+' \
-  | sed 's/-[0-9]*$//' | sort | uniq -c | sort -rn | head -1)
-branch_ticket=$(printf '%s' "$branch_ticket_line" | awk '{ print $2 }')
-branch_ticket_count=$(printf '%s' "$branch_ticket_line" | awk '{ print $1 + 0 }')
-[ -n "$branch_ticket_count" ] || branch_ticket_count=0
-branches_read=$(git for-each-ref --format='%(refname:short)' refs/heads/ refs/remotes/ 2>/dev/null | grep -c . || true)
-branches_read=${branches_read:-0}
+# before any fetch sees only `refs/heads/`, read once and reused below.
+branch_names=$(git for-each-ref --format='%(refname:short)' refs/heads/ refs/remotes/ 2>/dev/null)
+read -r branch_ticket_count branch_ticket <<<"$(printf '%s\n' "$branch_names" | grep -oE '\b[A-Z][A-Z0-9]{1,9}-[0-9]+' \
+  | sed 's/-[0-9]*$//' | sort | uniq -c | sort -rn | head -1)"
+branch_ticket_count=${branch_ticket_count:-0}
+branches_read=$(printf '%s\n' "$branch_names" | grep -c . || true)
 
 # --- commit style -------------------------------------------------------
 # Reviewer agents check commit subjects, so an adopted agent aligned to the
