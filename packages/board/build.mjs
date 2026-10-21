@@ -1354,6 +1354,32 @@ await esbuild.build({
 fs.copyFileSync(mergeSubjectArtifact, shippedMergeSubject);
 fs.chmodSync(shippedMergeSubject, 0o755);
 
+// Which tag shipped a delivered plan whose PR's merge commit is empty or
+// absent from the clone, for `plot-reconcile-scan.sh` section 6. Where the PR
+// merged into a non-default branch, it walks that branch's merged PRs onward
+// through the host and refs ports and asks the domain's `releaseChainStep`.
+//
+// ONCE PER DELIVERED PLAN THAT REACHES THE CASE, not once per agent per pass —
+// section 6 runs once per operator `/plot-reconcile` invocation, so it asks
+// the domain rather than duplicating the walk in shell.
+const releaseChainArtifact = path.join(here, 'dist/plot-release-chain.mjs');
+const shippedReleaseChain = path.join(here, '../../skills/plot/scripts/board/plot-release-chain.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/release-chain.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: releaseChainArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(releaseChainArtifact, shippedReleaseChain);
+fs.chmodSync(shippedReleaseChain, 0o755);
+
 // The Bitbucket `<workspace>/<repo>` slug of a remote URL, for
 // `plot-host.sh commit-status`. Once per operator command, so it asks the
 // domain rather than duplicating the rule in sed.

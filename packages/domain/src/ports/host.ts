@@ -32,6 +32,18 @@ export type PrLookup = Pr | null;
  */
 export type MergedAnswer = 'merged' | 'not-merged' | 'unknown';
 
+/** One merged PR as `prMergeDests` reads it. */
+export interface MergeDest {
+  /** The PR's number. */
+  readonly number: number;
+  /** The branch the PR merged into. */
+  readonly base: string;
+  /** The PR's merge commit sha. */
+  readonly mergeCommit: string;
+  /** When it merged, ISO-8601, or `''` where the host did not say. */
+  readonly mergedAt: string;
+}
+
 /**
  * What a call observed about the host's willingness to answer.
  *
@@ -241,6 +253,17 @@ export interface Host {
    *   empty list is never read from silence.
    */
   prMergedHeads(branch: string): Promise<PortResult<readonly string[]>>;
+
+  /**
+   * Every merged PR whose head is a branch: where it merged, with which
+   * commit, and when.
+   *
+   * @param branch - the head branch to ask about.
+   * @returns one entry per merged PR; empty where no PR for this branch
+   *   merged. A host that could not be asked fails the result, so an empty
+   *   list is never read from silence.
+   */
+  prMergeDests(branch: string): Promise<PortResult<readonly MergeDest[]>>;
 
   /**
    * Opens a PR for a branch.
