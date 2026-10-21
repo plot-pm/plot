@@ -141,17 +141,17 @@ score_items() { # stdin: one `checked\tslug\tdelivered` per line → one state p
 # moves the link, and the link is the cheaper of the two to read; a withdrawal
 # moves nothing, so it has only the phase to be read from.
 plan_delivery() { # $1=slug → "true|false|withdrawn<TAB>issue key or empty"
-  local f meta phase issue
+  local f meta phase="" issue="" state
   f=$(ls "$PLAN_DIR"/*-"$1".md 2>/dev/null | head -1)
-  [ -n "$f" ] || { printf 'false\t'; return 0; }
-  meta=$(bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null)
-  phase=$(printf '%s' "$meta" | sed -n 's/.*"phase":"\([a-z]*\)".*/\1/p' | head -1)
-  issue=$(printf '%s' "$meta" | sed -n 's/.*"issues":\[\([^]]*\)\].*/\1/p' | head -1 |
-    grep -oE '"[A-Z][A-Z0-9]*-[0-9]+"' | head -1 | tr -d '"')
-  case "$phase" in
-    rejected|superseded) printf 'withdrawn\t%s' "$issue"; return 0 ;;
-  esac
-  if [ -e "$DELIVERED_DIR/$1.md" ]; then printf 'true\t%s' "$issue"; else printf 'false\t%s' "$issue"; fi
+  if [ -n "$f" ]; then
+    meta=$(bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null)
+    phase=$(printf '%s' "$meta" | sed -n 's/.*"phase":"\([a-z]*\)".*/\1/p' | head -1)
+    issue=$(printf '%s' "$meta" | sed -n 's/.*"issues":\[\([^]]*\)\].*/\1/p' | head -1 |
+      grep -oE '"[A-Z][A-Z0-9]*-[0-9]+"' | head -1 | tr -d '"')
+  fi
+  case "$phase" in rejected|superseded) state=withdrawn ;; *)
+    [ -e "$DELIVERED_DIR/$1.md" ] && state=true || state=false ;; esac
+  printf '%s\t%s' "$state" "$issue"
 }
 
 # Collapse `a/b/../c` → `a/c` textually. NOT `readlink -f` or `realpath`: the
@@ -267,12 +267,9 @@ emit_tier() { # $1=file $2=heading regex $3=must|should|could → JSON array
     # Must-have does — the issue key is simply dropped where the tier has no
     # use for it, rather than paying a second `plot-plan-meta.sh` read to avoid
     # reading a field that costs nothing extra to have in hand.
-    if [ -n "$slug" ]; then
-      IFS=$'\t' read -r delivered issue <<<"$(plan_delivery "$slug")"
-      [ "$tier" = "must" ] || issue=""
-    else
-      delivered=none; issue=""
-    fi
+    if [ -n "$slug" ]; then IFS=$'\t' read -r delivered issue <<<"$(plan_delivery "$slug")"
+    else delivered=none; issue=""; fi
+    [ "$tier" = "must" ] && [ -n "$slug" ] || issue=""
     checkeds+=("$checked"); slugs+=("$slug"); texts+=("$text"); delivereds+=("$delivered"); issues+=("$issue")
   done < <(awk -v want="$2" '
     /^###[ \t]/ { in_t = ($0 ~ want) ? 1 : 0; next }
