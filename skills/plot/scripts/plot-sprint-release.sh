@@ -236,8 +236,8 @@ status_line() { # $1=file $2=field → value or ""
 # gathers every item's readings; the second pairs each with the status the
 # domain returned. The readings are held in arrays rather than re-parsed, so
 # the line the rule scored and the line rendered here are the same line.
-emit_tier() { # $1=file $2=heading regex $3=must|should|could → JSON array
-  local f="$1" tier="${3:-}" out="[" first=1 line checked slug text delivered issue i n
+emit_tier() { # $1=file $2=heading regex → JSON array
+  local f="$1" out="[" first=1 line checked slug text delivered issue i n
   local -a checkeds=() slugs=() texts=() delivereds=() issues=() states=()
   while IFS= read -r line; do
     case "$line" in
@@ -258,11 +258,10 @@ emit_tier() { # $1=file $2=heading regex $3=must|should|could → JSON array
     slug=$(printf '%s' "$text" | grep -oE '^(~~)?\[[a-z0-9][a-z0-9-]*\]' | tr -d '[]~' || true)
     # ONE READ ANSWERS BOTH FIELDS: `plan_delivery` returns delivery state and
     # the plan's raw issues array together, so a Should or Could pays the same
-    # single call a Must-have does — the array is dropped where the tier has
-    # no use for it, rather than paying a second `plot-plan-meta.sh` read.
+    # single call a Must-have does. The gate bundle reads only `must`, so a
+    # Should/Could row carrying an array too costs nothing downstream.
     if [ -n "$slug" ]; then IFS=$'\t' read -r delivered issue <<<"$(plan_delivery "$slug")"
     else delivered=none; issue="[]"; fi
-    [ "$tier" = "must" ] && [ -n "$slug" ] || issue="[]"
     checkeds+=("$checked"); slugs+=("$slug"); texts+=("$text"); delivereds+=("$delivered"); issues+=("$issue")
   done < <(awk -v want="$2" '
     /^###[ \t]/ { in_t = ($0 ~ want) ? 1 : 0; next }
@@ -327,9 +326,9 @@ emit_sprint() { # $1=file → one JSON object
   # which reads as a sprint that promised nothing, the one direction this script
   # must never be lenient in.
   local musts shoulds coulds
-  musts=$(emit_tier "$f" '[Mm]ust' must)     || return 1
-  shoulds=$(emit_tier "$f" '[Ss]hould' should) || return 1
-  coulds=$(emit_tier "$f" '[Cc]ould' could)   || return 1
+  musts=$(emit_tier "$f" '[Mm]ust')     || return 1
+  shoulds=$(emit_tier "$f" '[Ss]hould') || return 1
+  coulds=$(emit_tier "$f" '[Cc]ould')   || return 1
   printf '{"sprint":"%s","file":"%s","phase":"%s","release":"%s"' \
     "$(jesc "$slug")" "$(jesc "$f")" "$(jesc "$phase")" "$(jesc "$release")"
   printf ',"must":%s'   "$musts"
