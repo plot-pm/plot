@@ -120,9 +120,17 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # same "no port answers this yet" the 2026-10-04 raise named for its sibling.
 # Inventing one here would be the gate driving the design once more.
 #
+# RAISED TO 17 ON 2026-10-21 for `entry/sprint-release-gate.ts`'s `configShell`,
+# which reads a `## Plot Config` key through `plot-config.sh` the same way
+# `adapters/tracker/tracker-resolve.ts`'s `trackerShell` already does for
+# `Tracker` — but for `Sprint owner`, which that adapter has no reason to read.
+# No config port exists yet to answer "what does this key say" from an entry,
+# and inventing one here would be the gate driving the design the header warns
+# against.
+#
 # `ROOTS` names every package with TypeScript source. `registry.ts`, which
 # holds `WORKER_STATE_SCRIPT`, is in packages/fleet/src.
-ALLOWED=16
+ALLOWED=17
 
 ROOTS='packages/board/src packages/domain/src packages/fleet/src'
 
@@ -150,6 +158,7 @@ plot-approve.sh	the `plan-store` port answers its file writes — `writeText(fil
 plot-deliver.sh	the `plan-store` port answers its file writes — `writeText(file, content)`, implemented at adapters/plan-store/plan-store-shell.ts; `board/plot-deliver.mjs` is the entry that asks it.
 plot-reap.sh	the `trees` port answers this — `removeOnly(path)`, implemented at adapters/trees/trees-git.ts with `git worktree remove --force`; `board/plot-reap.mjs` is the entry that asks it.
 plot-release-refs.sh	no port answers this yet. Deleting a remote ref is a `refs` write, and `refs` carries none.
+plot-config.sh	no port answers this yet. Reading a `## Plot Config` key is answered the same way `adapters/tracker/tracker-resolve.ts`'s `trackerShell` already reads `Tracker`, but no port carries an arbitrary key read.
 MAP
 )
 

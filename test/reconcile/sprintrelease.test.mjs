@@ -27,7 +27,7 @@ function run(cwd, ...args) {
 
 // A sprint repo: plans land in delivered/ or active/, items reference them by
 // slug. `release` omitted → no `Release:` line at all, the pre-existing shape.
-function repo({ release, must = [], should = [], could = [], delivered = [], active = [], withdrawn = [], activeSprint = true, phase = 'Active', second } = {}) {
+function repo({ release, must = [], should = [], could = [], delivered = [], active = [], withdrawn = [], plans = [], tracker, activeSprint = true, phase = 'Active', second } = {}) {
   const w = fs.mkdtempSync(path.join(tmp, 'r-'));
   git(w, 'init', '-q', '-b', 'main');
   git(w, 'config', 'user.email', 'test@example.invalid');
@@ -36,7 +36,8 @@ function repo({ release, must = [], should = [], could = [], delivered = [], act
     '## Plot Config\n\n- **Plan directory:** docs/plans/\n' +
     '- **Active index:** docs/plans/active/\n' +
     '- **Delivered index:** docs/plans/delivered/\n' +
-    '- **Sprint directory:** docs/sprints/\n');
+    '- **Sprint directory:** docs/sprints/\n' +
+    (tracker === undefined ? '' : `- **Tracker:** ${tracker}\n`));
   for (const d of ['docs/plans/active', 'docs/plans/delivered', 'docs/sprints/active']) {
     fs.mkdirSync(path.join(w, d), { recursive: true });
   }
@@ -52,6 +53,15 @@ function repo({ release, must = [], should = [], could = [], delivered = [], act
     fs.writeFileSync(
       path.join(w, 'docs/plans', `2026-08-20-${slug}.md`),
       `# ${slug}\n\n## Status\n\n- **State:** ${state}\n- **Type:** bug\n`,
+    );
+  }
+  // A plan naming an issue: `{ slug, issue, state }`, where an absent `state`
+  // writes no `State:` line and the plan's phase reads `NONE`.
+  for (const { slug, issue, state } of plans) {
+    fs.writeFileSync(
+      path.join(w, 'docs/plans', `2026-08-20-${slug}.md`),
+      `# ${slug}\n\n## Status\n\n` + (state === undefined ? '' : `- **State:** ${state}\n`) +
+        `- **Type:** feature\n- **Issue:** ${issue}\n`,
     );
   }
 
@@ -173,6 +183,38 @@ test('a withdrawn plan outranks the Delivered index, because it is asked first',
   // would report `false` and lose the decision.
   const w = repo({ must: ['- [x] [alpha] Do alpha'], withdrawn: ['alpha'], delivered: ['alpha'] });
   assert.equal(run(w).must[0].state, 'withdrawn');
+});
+
+// --- A plan's issue keys -----------------------------------------------------
+//
+// `plan_delivery` reads phase and issues in one sed pass. A `\t` in that
+// replacement is a literal `t` under BSD sed, which puts the whole line into
+// `phase` and empties `issues` — so the separator is pinned in the source too,
+// because a Linux run cannot reproduce the BSD reading.
+
+test("a Must-have carries its plan's Jira key, and a rejected one still reads withdrawn", () => {
+  const w = repo({
+    tracker: 'jira https://example.atlassian.net PROJ',
+    must: ['- [ ] [alpha] Do alpha', '- [ ] [beta] Do beta'],
+    plans: [{ slug: 'alpha', issue: 'PROJ-1', state: 'Approved' }, { slug: 'beta', issue: 'PROJ-2', state: 'Rejected' }],
+  });
+  const r = run(w);
+  assert.deepEqual(r.must.map((m) => [m.state, m.issues]), [['open', ['PROJ-1']], ['withdrawn', ['PROJ-2']]]);
+});
+
+test('a plan with no State: line keeps its Jira key', () => {
+  const w = repo({
+    tracker: 'jira https://example.atlassian.net PROJ',
+    must: ['- [ ] [alpha] Do alpha'],
+    plans: [{ slug: 'alpha', issue: 'PROJ-3' }],
+  });
+  assert.deepEqual(run(w).must[0].issues, ['PROJ-3']);
+});
+
+test('no sed replacement in the collector writes \\t — BSD sed reads it as a literal t', () => {
+  const src = fs.readFileSync(script, 'utf8');
+  const offenders = src.split('\n').filter((l) => /\bsed\b/.test(l) || /^\s+sed /.test(l)).filter((l) => /\\[0-9]\\t|\\t\\[0-9]/.test(l));
+  assert.deepEqual(offenders, []);
 });
 
 test('a struck-through reference still names its plan', () => {

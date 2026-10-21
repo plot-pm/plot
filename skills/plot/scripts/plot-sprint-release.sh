@@ -112,31 +112,36 @@ score_items() { # stdin: one `checked\tslug\tdelivered` per line → one state p
   node "$HERE/board/plot-sprint-score.mjs" 2>/dev/null
 }
 
-# What the plan estate says about <slug>.
+# What the plan estate says about <slug>: delivery state and, for a Must-have,
+# its plan's raw `issues` array — one `plot-plan-meta.sh` read answers both.
 #
 # THE WITHDRAWAL IS ASKED FIRST, because it is the stronger reading: a rejected
 # plan is not in the Delivered index either, so testing delivery first would
 # report `false` and lose the decision.
 #
-# `plot-plan-meta.sh` IS THE READER, and this script re-parses nothing. It has
-# accepted `rejected` and `superseded` beside the four phases since before this
-# question was asked; the reading existed and this script did not ask for it.
+# `plot-plan-meta.sh` IS THE READER, and this script re-parses nothing — not
+# even the `issues` array it already sorted: that is passed through verbatim
+# and `plot-sprint-release-gate.mjs`'s `mustHavesFrom` picks the first
+# Jira-shaped (quoted) entry, per docs/shell-and-domain.md — a rule that picks
+# ONE of several readings belongs in the domain, not a shell regex.
 #
 # Delivery stays a DIRECTORY test — file or symlink, either is delivery — which
 # is deliberate and not an inconsistency. `/plot-deliver` writes the phase and
 # moves the link, and the link is the cheaper of the two to read; a withdrawal
 # moves nothing, so it has only the phase to be read from.
-plan_delivery() { # $1=slug → true|false|withdrawn
-  local f phase
+plan_delivery() { # $1=slug → "true|false|withdrawn<TAB>raw issues array or []"
+  local f phase="" issues="[]" state
   f=$(ls "$PLAN_DIR"/*-"$1".md 2>/dev/null | head -1)
-  if [ -n "$f" ]; then
-    phase=$(bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null |
-      sed -n 's/.*"phase":"\([a-z]*\)".*/\1/p' | head -1)
-    case "$phase" in
-      rejected|superseded) printf 'withdrawn'; return 0 ;;
-    esac
-  fi
-  [ -e "$DELIVERED_DIR/$1.md" ] && printf 'true' || printf 'false'
+  # ONE sed READS BOTH FIELDS: `plot-plan-meta.sh` always emits `"phase"`
+  # ahead of `"issues"` in its fixed key order, so one pass captures both.
+  # A SPACE SEPARATES THEM, never `\t`: BSD sed writes a literal `t` for `\t`
+  # in a replacement. `[A-Za-z]` matches `NONE` and `UNKNOWN`, so a plan with
+  # no `State:` keeps its issue keys.
+  [ -n "$f" ] && read -r phase issues < <(bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null |
+    sed -n 's/.*"phase":"\([A-Za-z]*\)".*"issues":\(\[[^]]*\]\).*/\1 \2/p')
+  issues="${issues:-[]}"
+  case "$phase" in rejected|superseded) state=withdrawn ;; *) [ -e "$DELIVERED_DIR/$1.md" ] && state=true || state=false ;; esac
+  printf '%s\t%s' "$state" "$issues"
 }
 
 # Collapse `a/b/../c` → `a/c` textually. NOT `readlink -f` or `realpath`: the
@@ -228,8 +233,8 @@ status_line() { # $1=file $2=field → value or ""
 # domain returned. The readings are held in arrays rather than re-parsed, so
 # the line the rule scored and the line rendered here are the same line.
 emit_tier() { # $1=file $2=heading regex → JSON array
-  local f="$1" out="[" first=1 line checked slug text delivered i n
-  local -a checkeds=() slugs=() texts=() delivereds=() states=()
+  local f="$1" out="[" first=1 line checked slug text delivered issue i n
+  local -a checkeds=() slugs=() texts=() delivereds=() issues=() states=()
   while IFS= read -r line; do
     case "$line" in
       "- [ ] "*) checked=false ;;
@@ -247,8 +252,12 @@ emit_tier() { # $1=file $2=heading regex → JSON array
     # nothing. The optional `~~` is the whole fix — the anchor stays, so a
     # `[slug]` appearing mid-prose is still not a reference.
     slug=$(printf '%s' "$text" | grep -oE '^(~~)?\[[a-z0-9][a-z0-9-]*\]' | tr -d '[]~' || true)
-    if [ -n "$slug" ]; then delivered=$(plan_delivery "$slug"); else delivered=none; fi
-    checkeds+=("$checked"); slugs+=("$slug"); texts+=("$text"); delivereds+=("$delivered")
+    # ONE READ ANSWERS BOTH FIELDS: `plan_delivery` returns delivery state and
+    # the plan's raw issues array together, so a Should or Could pays the same
+    # single call a Must-have does. The gate bundle reads only `must`, so a
+    # Should/Could row carrying an array too costs nothing downstream.
+    if [ -n "$slug" ]; then IFS=$'\t' read -r delivered issue <<<"$(plan_delivery "$slug")"; else delivered=none; issue="[]"; fi
+    checkeds+=("$checked"); slugs+=("$slug"); texts+=("$text"); delivereds+=("$delivered"); issues+=("$issue")
   done < <(awk -v want="$2" '
     /^###[ \t]/ { in_t = ($0 ~ want) ? 1 : 0; next }
     /^##[ \t]/  { in_t = 0 }
@@ -274,10 +283,8 @@ emit_tier() { # $1=file $2=heading regex → JSON array
   fi
 
   for ((i = 0; i < n; i++)); do
-    [ $first -eq 1 ] || out="$out,"
-    first=0
-    out="$out{\"slug\":\"$(jesc "${slugs[$i]}")\",\"text\":\"$(jesc "${texts[$i]}")\""
-    out="$out,\"checked\":${checkeds[$i]},\"delivered\":"
+    [ $first -eq 1 ] || out="$out,"; first=0
+    out="$out{\"slug\":\"$(jesc "${slugs[$i]}")\",\"text\":\"$(jesc "${texts[$i]}")\",\"checked\":${checkeds[$i]},\"delivered\":"
     # `true`/`false` are JSON booleans; `none` and `withdrawn` are words, so
     # they are quoted. The wire keeps the shell's own spelling either way — the
     # caller reads what was measured, not a status derived from it.
@@ -285,7 +292,7 @@ emit_tier() { # $1=file $2=heading regex → JSON array
       none|withdrawn) out="$out\"${delivereds[$i]}\"" ;;
       *) out="$out${delivereds[$i]}" ;;
     esac
-    out="$out,\"state\":\"${states[$i]}\"}"
+    out="$out,\"issues\":${issues[$i]},\"state\":\"${states[$i]}\"}"
   done
   printf '%s]' "$out"
 }
@@ -315,12 +322,8 @@ emit_sprint() { # $1=file → one JSON object
   musts=$(emit_tier "$f" '[Mm]ust')     || return 1
   shoulds=$(emit_tier "$f" '[Ss]hould') || return 1
   coulds=$(emit_tier "$f" '[Cc]ould')   || return 1
-  printf '{"sprint":"%s","file":"%s","phase":"%s","release":"%s"' \
-    "$(jesc "$slug")" "$(jesc "$f")" "$(jesc "$phase")" "$(jesc "$release")"
-  printf ',"must":%s'   "$musts"
-  printf ',"should":%s' "$shoulds"
-  printf ',"could":%s'  "$coulds"
-  printf '}'
+  printf '{"sprint":"%s","file":"%s","phase":"%s","release":"%s","must":%s,"should":%s,"could":%s}' \
+    "$(jesc "$slug")" "$(jesc "$f")" "$(jesc "$phase")" "$(jesc "$release")" "$musts" "$shoulds" "$coulds"
 }
 
 # --- Output. `sprints` is an ARRAY because two active sprints may target one
@@ -355,7 +358,7 @@ if [ "$n" = "1" ]; then
   # shape, and one a caller should not have to index into.
   one="${sprints#\{}"      # drop the inner object's opening brace
   one="${one%\}}"          # and its closing one, leaving bare key:value pairs
-  printf ',%s}\n' "$one"  # spliced in, then the OUTER object is closed here
+  printf ',%s}\n' "$one"
 else
   # Many sprints: no top-level mirror to pick, because picking one would be
   # answering "which sprint?" — the question this script refuses to answer.

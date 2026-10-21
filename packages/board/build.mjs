@@ -824,6 +824,30 @@ await esbuild.build({
 fs.copyFileSync(releaseGateArtifact, shippedReleaseGate);
 fs.chmodSync(shippedReleaseGate, 0o755);
 
+// The sprint-owner refusal and the Jira Release comparison, for /plot-sprint
+// status and /plot-release step 0.
+//
+// Its own artifact for the reason the issue-status one is: it spawns
+// plot-host.sh through the tracker connector, where plot-release-gate.mjs and
+// plot-sprint-score.mjs spawn nothing.
+const sprintReleaseGateArtifact = path.join(here, 'dist/plot-sprint-release-gate.mjs');
+const shippedSprintReleaseGate = path.join(here, '../../skills/plot/scripts/board/plot-sprint-release-gate.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/sprint-release-gate.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: sprintReleaseGateArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(sprintReleaseGateArtifact, shippedSprintReleaseGate);
+fs.chmodSync(shippedSprintReleaseGate, 0o755);
+
 // The one lifecycle move that runs backwards, for /plot-reject.
 //
 // ONCE PER REVERSAL, the same call site the sprint transition answers at. Its
@@ -1642,6 +1666,7 @@ const proposeStackKb = (fs.statSync(shippedProposeStack).size / 1024).toFixed(1)
 const sprintTransitionKb = (fs.statSync(shippedSprintTransition).size / 1024).toFixed(1);
 const fleetSizeKb = (fs.statSync(shippedFleetSize).size / 1024).toFixed(1);
 const releaseGateKb = (fs.statSync(shippedReleaseGate).size / 1024).toFixed(1);
+const sprintReleaseGateKb = (fs.statSync(shippedSprintReleaseGate).size / 1024).toFixed(1);
 const planUndeliverKb = (fs.statSync(shippedPlanUndeliver).size / 1024).toFixed(1);
 const adoptKb = (fs.statSync(shippedAdopt).size / 1024).toFixed(1);
 const slicePrKb = (fs.statSync(shippedSlicePr).size / 1024).toFixed(1);
@@ -1685,6 +1710,7 @@ console.log(`Built plot-propose-stack.mjs (${proposeStackKb} KB) → skills/plot
 console.log(`Built plot-sprint-transition.mjs (${sprintTransitionKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-fleet-size.mjs (${fleetSizeKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-release-gate.mjs (${releaseGateKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-sprint-release-gate.mjs (${sprintReleaseGateKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-plan-undeliver.mjs (${planUndeliverKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-adopt.mjs (${adoptKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-slice-pr.mjs (${slicePrKb} KB) → skills/plot/scripts/board/`);
