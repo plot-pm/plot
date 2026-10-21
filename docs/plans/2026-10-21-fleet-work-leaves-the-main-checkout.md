@@ -64,7 +64,7 @@ Manifesto check and layering: any new decision about which checkout a command ma
 
 ### Fix
 
-- `bug/main-checkout-stays-clean` — fix each named writer and add the sandbox contract test that asserts a clean, consistent main checkout after the fleet commands. <!-- builds: a sandbox contract test asserting the main checkout is clean and consistent --> <!-- waits: bug/main-checkout-writers-measured -->
+- `bug/main-checkout-stays-clean` — fix each named writer and add the sandbox contract test that asserts a clean, consistent main checkout after the fleet commands. <!-- builds: a sandbox contract test asserting the main checkout is clean and consistent --> <!-- waits: bug/main-checkout-writers-measured --> → #2317
 
 ## Notes
 
