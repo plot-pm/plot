@@ -33,7 +33,10 @@
 # skills/plot/scripts/board/<name>.mjs plus an esbuild call whose `entryPoints`
 # path and `outfile` (a `const` bound to dist/<name>.mjs) name the same bundle.
 # A `build.mjs` that is absent, or in which no declaration parses, fails the
-# gate rather than reading as "nothing declared".
+# gate rather than reading as "nothing declared". The parser is
+# `read_declared_bundles` in `lib-declared-bundles.sh`, sourced by this script
+# and by `check-helper-table.sh` — one parser, because a second one drifts
+# when `build.mjs` changes shape.
 #
 # THE NAME IS THE BACKTICKED TOKEN in the first cell, as `check-helper-table.sh`
 # reads it, so `` `x.sh` (sourced) `` names `x.sh`. A table row whose first cell
@@ -55,6 +58,10 @@
 # push measures only its own range. A merge-base comparison on `main` compares
 # HEAD with itself and always passes, which is why `push` has its own "before".
 set -euo pipefail
+
+here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib-declared-bundles.sh
+source "$here/lib-declared-bundles.sh"
 
 README=skills/plot/scripts/README.md
 
@@ -113,58 +120,8 @@ $errs"
   printf '%s\n' "$out"
 }
 
-BUILD=packages/board/build.mjs
 declared=""
 declared_read=0
-
-# Prints "board/<name>.mjs<TAB><entry path relative to packages/board/>" per
-# bundle that build.mjs at HEAD declares, or fails.
-read_declared() {
-  local text out
-  text=$(git show "HEAD:$BUILD" 2>/dev/null) || fail "$BUILD is absent at HEAD, so no declared bundle can be read as evidence."
-  out=$(printf '%s\n' "$text" | awk -v q="'" '
-    function quoted(s) { sub("^[^" q "]*" q, "", s); sub(q ".*$", "", s); return s }
-    BEGIN {
-      shipped_re = "^const shipped[A-Za-z]* = path\\.join\\(here, " q "\\.\\./\\.\\./skills/plot/scripts/board/[^" q "]+\\.mjs" q "\\);"
-      dist_re = "^const [A-Za-z]+ = path\\.join\\(here, " q "dist/[^" q "]+\\.mjs" q "\\);"
-      entry_re = "^[ \t]+entryPoints: \\[path\\.join\\(here, " q "[^" q "]+" q "\\)\\],?[ \t]*$"
-      out_re = "^[ \t]+outfile: [A-Za-z]+,?[ \t]*$"
-      copy_re = "^[ \t]*fs\\.copyFileSync\\([A-Za-z]+, *[A-Za-z]+\\);"
-      inblock = 0
-    }
-    # A call opens on a line holding esbuild.build({ and closes on the first
-    # }); at the same indent; entry and outfile are read only between the two.
-    !inblock && /esbuild\.build\(\{[ \t]*$/ {
-      inblock = 1; entry = ""; outv = ""
-      indent = $0; sub(/[^ \t].*$/, "", indent)
-      next
-    }
-    inblock {
-      if ($0 == indent "});") {
-        if (entry != "" && outv != "") calls[++n] = outv "\t" entry
-        inblock = 0; entry = ""; outv = ""
-      } else if ($0 ~ entry_re) entry = quoted($0)
-      else if ($0 ~ out_re) { outv = $2; sub(/,$/, "", outv) }
-      next
-    }
-    $0 ~ shipped_re { p = quoted($0); sub(/^.*\/board\//, "", p); shipped[$2] = p; next }
-    $0 ~ dist_re { p = quoted($0); sub(/^dist\//, "", p); dist[$2] = p; next }
-    $0 ~ copy_re {
-      c = $0; sub(/^[^(]*\(/, "", c); sub(/\).*$/, "", c); split(c, cp, / *, */)
-      copied[cp[1] SUBSEP cp[2]] = 1
-      next
-    }
-    END {
-      for (i = 1; i <= n; i++) {
-        split(calls[i], f, "\t")
-        if (!(f[1] in dist)) continue
-        for (s in shipped) if ((f[1] SUBSEP s) in copied) printf "board/%s\t%s\n", shipped[s], f[2]
-      }
-    }
-  ')
-  [ -n "$out" ] || fail "$BUILD at HEAD declares no bundle this gate can parse, so the declarations cannot serve as evidence. Fix the parser in this script, not the build."
-  printf '%s\n' "$out"
-}
 
 # True when board/<name>.mjs is built in HEAD, or declared in build.mjs with an
 # entry source that exists in HEAD.
@@ -173,7 +130,7 @@ bundle_holds() { # <path as named in Replaced by>
   b=${1#skills/plot/scripts/}
   git cat-file -e "HEAD:skills/plot/scripts/$b" 2>/dev/null && return 0
   if [ "$declared_read" -eq 0 ]; then
-    declared=$(read_declared) || exit 1
+    declared=$(read_declared_bundles . fail) || exit 1
     declared_read=1
   fi
   entry=$(printf '%s\n' "$declared" | awk -F'\t' -v b="$b" '$1 == b { print $2; exit }')

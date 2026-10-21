@@ -42,12 +42,25 @@
 # recorded, because it is the one that answers *does this script have a row*.
 #
 # The population is what git TRACKS (`git ls-files`), as `check-desk-markers.sh`
-# reads it, so an untracked scratch script never fails the gate.
+# reads it, so an untracked scratch script never fails the gate. Bundles are the
+# exception: a PR carries no built bundle (`check-no-bundle-diff.sh`), so the
+# `board/<name>.mjs` names `packages/board/build.mjs` declares join the tracked
+# ones, counted once. Measured 2026-10-21: #2235 and #2243 each added a bundle
+# with no row, passed here, and failed `validate` on main after the build.
+# `build.mjs` is read by `lib-declared-bundles.sh`, the parser
+# `check-decision-count.sh` uses.
 #
 # Usage: check-helper-table.sh [repo-root]   (default: this repository)
 set -euo pipefail
 
 root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+# shellcheck source=scripts/lib-declared-bundles.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib-declared-bundles.sh"
+
+# On stderr: it runs inside the `$(...)` that reads the declarations, whose
+# stdout is captured and whose `exit` ends only the subshell.
+fail_unreadable() { echo "::error::check-helper-table.sh: $*" >&2; exit 1; }
 
 claude_md="$root/CLAUDE.md"
 readme="$root/skills/plot/scripts/README.md"
@@ -114,14 +127,20 @@ trap 'rm -f "$rows_tmp" "$files_tmp"' EXIT
 # The first cell of every table row, unwrapped from its backticks.
 sed -n 's/^|[[:space:]]*`\([^`]*\)`.*/\1/p' "$readme" | sort -u > "$rows_tmp"
 
-# THE SHIPPED POPULATION: top-level `.sh` helpers and the `board/*.mjs`
-# bundles. Both are what a skill or a loop invokes by name. Nothing else in
-# the directory ships — and every one of the 35 tracked bundles is marked
-# `-merge` in `.gitattributes`, so the two sets need no by-name exceptions.
+# THE SHIPPED POPULATION: top-level `.sh` helpers, the tracked `board/*.mjs`
+# bundles, and the bundles `build.mjs` declares. All are what a skill or a loop
+# invokes by name. Nothing else in the directory ships — and every one of the 35
+# tracked bundles is marked `-merge` in `.gitattributes`, so the sets need no
+# by-name exceptions. A tracked bundle `build.mjs` no longer declares still
+# counts. An unreadable `build.mjs` fails: the declarations are the input.
+declared="$(read_declared_bundles "$root" fail_unreadable)" || exit 1
 {
-  git -C "$root" ls-files 'skills/plot/scripts/*.sh'
-  git -C "$root" ls-files 'skills/plot/scripts/board/*.mjs'
-} | sed 's|^skills/plot/scripts/||' | sort -u > "$files_tmp"
+  {
+    git -C "$root" ls-files 'skills/plot/scripts/*.sh'
+    git -C "$root" ls-files 'skills/plot/scripts/board/*.mjs'
+  } | sed 's|^skills/plot/scripts/||'
+  printf '%s\n' "$declared" | cut -f1
+} | sort -u > "$files_tmp"
 
 if [ ! -s "$files_tmp" ]; then
   echo "::error::check-helper-table.sh found no tracked scripts under skills/plot/scripts. That is a gate that cannot read its inputs, not an estate with no scripts."
