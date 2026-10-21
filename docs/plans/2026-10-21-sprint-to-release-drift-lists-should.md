@@ -56,7 +56,7 @@ Tests: a domain test with a Release key named only by a Should item and one name
 
 ### Count all tiers
 
-- `bug/sprint-to-release-drift-lists-should` — Count every sprint item's key in the Release-to-sprint direction and keep `missingFromRelease` Must Have only <!-- builds: a tier-complete named-key set in sprintReleaseDrift -->
+- `bug/sprint-to-release-drift-lists-should` — Count every sprint item's key in the Release-to-sprint direction and keep `missingFromRelease` Must Have only <!-- builds: a tier-complete named-key set in sprintReleaseDrift --> → #2300
 
 ## Notes
 
