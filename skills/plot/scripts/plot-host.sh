@@ -2716,13 +2716,10 @@ read_env_var() { # $1=name $2=file → the value, or nothing
 # command fails, prints nothing, or its parent directory does not exist, this
 # falls through to "no main checkout .env" rather than inventing a path.
 plot_env_file() {
-  local root env_file common
-  root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."; env_file="$root/.env"
+  local root env_file common; root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."; env_file="$root/.env"
   [ -r "$env_file" ] && { printf '%s|' "$env_file"; return 0; }
   common="$(git rev-parse --git-common-dir 2>/dev/null)" && [ -n "$common" ] || return 0
-  env_file="$(dirname "$common")/.env"
-  [ -r "$env_file" ] || return 0
-  printf "%s|the main checkout's " "$env_file"
+  env_file="$(dirname "$common")/.env"; [ -r "$env_file" ] && printf "%s|the main checkout's " "$env_file"
 }
 
 # The env var scheme for Jira auth. The plan left the EXACT names open, to be
@@ -2746,14 +2743,12 @@ plot_env_file() {
 jira_load_env_file() {
   local found env_file source email token
   [ -z "${JIRA_EMAIL:-}" ] && [ -z "${JIRA_API_TOKEN:-}" ] || return 0
-  found="$(plot_env_file)"; [ -n "$found" ] || return 0
-  env_file="${found%|*}"; source="${found#*|}"
+  found="$(plot_env_file)"; [ -n "$found" ] || return 0; env_file="${found%|*}"; source="${found#*|}"
   email="$(read_env_var JIRA_EMAIL "$env_file")"; token="$(read_env_var JIRA_API_TOKEN "$env_file")"
   # BOTH OR NEITHER. Half a Basic credential authenticates nothing, and a
   # partial pickup would turn today's honest refusal into a 401 further in.
   [ -n "$email" ] && [ -n "$token" ] || return 0
-  export JIRA_EMAIL="$email" JIRA_API_TOKEN="$token"
-  echo "plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from ${source}.env" >&2
+  export JIRA_EMAIL="$email" JIRA_API_TOKEN="$token"; echo "plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from ${source}.env" >&2
 }
 
 jira_require_config() {
