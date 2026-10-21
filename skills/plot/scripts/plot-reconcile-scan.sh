@@ -3019,9 +3019,7 @@ oi_plans=$(printf '%s' "$oi_claims" | grep -c . 2>/dev/null) || oi_plans=0
 # The question is asked only where there is something to ask about, so a repo
 # with nothing finished and an offline run both cost no node start — the two
 # arms below stay first for that reason as well as their own.
-oi_ask=""
-oi_scheme=""
-oi_reason=""
+oi_ask=""; oi_scheme=""; oi_reason=""
 oi_entry="$script_dir/board/plot-issue-source.mjs"
 ask_issue_source() {
   local declared backend out rc
