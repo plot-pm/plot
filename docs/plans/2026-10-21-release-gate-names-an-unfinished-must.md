@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2281
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2291 merged
 - **Started:** 2026-10-21, Jan Wloka, `bug/release-gate-names-an-unfinished-must`
+- **Delivered:** 2026-10-22
 
 ## Changelog
 
