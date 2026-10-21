@@ -126,8 +126,8 @@ export const pickReleaseHop = (
   candidates: readonly ReleaseChainCandidate[],
   previous: ReleaseChainPrevious,
 ): ReleaseChainCandidate | 'none' | { readonly ambiguous: number } => {
-  const proven = candidates.filter((c) => c.contains === 'yes');
-  if (proven.length > 0) return earliest(proven) ?? 'none';
+  const proven = earliest(candidates.filter((c) => c.contains === 'yes'));
+  if (proven !== undefined) return proven;
   const open = candidates.filter((c) => c.contains === 'unknown');
   const after = timeOf(previous.mergedAt);
   if (Number.isNaN(after)) {
