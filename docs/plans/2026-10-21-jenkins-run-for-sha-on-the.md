@@ -37,15 +37,15 @@ Board impact: none expected for the plan format; the `default-branch-red` hold r
 
 ### Open Questions
 
-- [ ] Config key, message only, or both? The issue allows either. A key adds a Plot Config surface; a message alone leaves the default branch without CI reading on this project.
-- [ ] Should the key name one job for the default branch only, or a branch-to-job map? The field test shows one case, the default branch.
-- [ ] Does the empty answer for an absent branch change what `plot-ask.mjs merge` does? A missing reading holds nothing, per `default-branch-red`.
+- [x] Config key, message only, or both? Both: a `Default branch job` key plus a warning. A new `## Plot Config` row in `skills/plot/scripts/plot-config.sh` documents it; a message alone would have left ewz-kus-portal with no default-branch CI reading, which is the failure being fixed.
+- [x] Should the key name one job for the default branch only, or a branch-to-job map? One job. The field test shows one case; a map is a surface nobody has asked for.
+- [x] Does the empty answer for an absent branch change what `plot-ask.mjs merge` does? No. `defaultBranchRed(null, ...)` already returns `false` — a missing reading holds nothing — and `packages/domain/test/default-branch.test.ts` already asserts it; the `'unreadable'` outcome writes no file, so this path was already covered rather than needing a new test.
 
 ## Slices
 
 ### Jenkins default branch job
 
-- `bug/jenkins-run-for-sha-on-the` — `jenkins_sha_runs` answers empty for a branch the multibranch job lacks, and the default branch can name its own job <!-- builds: a Plot Config key for the default branch's Jenkins job -->
+- `bug/jenkins-run-for-sha-on-the` — `jenkins_sha_runs` answers empty for a branch the multibranch job lacks, and the default branch can name its own job <!-- builds: a Plot Config key for the default branch's Jenkins job --> → #2306
 
 ## Notes
 
