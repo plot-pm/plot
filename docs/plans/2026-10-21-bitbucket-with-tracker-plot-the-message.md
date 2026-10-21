@@ -51,7 +51,7 @@ Release 2.28.0 waits on this.
 
 ### Adoption
 
-- `bug/bitbucket-with-tracker-plot-adoption` — `/plot-board-setup` and `/plot-init` propose `Tracker: jira <base URL>` with `Sprint owner: plot` on a Bitbucket remote with a Jira key in branch names <!-- waits: bug/bitbucket-with-tracker-plot-the-message -->
+- `bug/bitbucket-with-tracker-plot-adoption` — `/plot-board-setup` and `/plot-init` propose `Tracker: jira <base URL>` with `Sprint owner: plot` on a Bitbucket remote with a Jira key in branch names <!-- waits: bug/bitbucket-with-tracker-plot-the-message --> → #2245
 
 ## Notes
 
