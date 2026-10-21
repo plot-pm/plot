@@ -4988,8 +4988,7 @@ case "$op" in
       # unpaged read, on stderr, one line, before `$body` is reprojected below.
       # `// ""` reads a missing key and an empty one alike as "no more pages" —
       # a full page with no token (50 of 50) is Jira's own answer, not "cut".
-      cut=false; [ -n "$paged" ] || read -r rows cut <<<"$(jq -r '[(.issues|length), ((.nextPageToken // "")!="")] | @tsv' <<<"$body")"
-      [ "$cut" = true ] && echo "plot-host: jira issue-list state=$state possibly truncated ($rows rows, requested limit $max)" >&2
+      cut=false; [ -n "$paged" ] || read -r rows cut <<<"$(jq -r '[(.issues|length), ((.nextPageToken // "")!="")] | @tsv' <<<"$body")"; [ "$cut" = true ] && echo "plot-host: jira issue-list state=$state possibly truncated ($rows rows, requested limit $max)" >&2
       # `number` is the Jira KEY (PROJ-123), a string — #447 taught the parser to
       # read that form. `url` is built from the base + /browse/<key>; Jira's
       # search payload carries no browse URL, and the base is ours to know
