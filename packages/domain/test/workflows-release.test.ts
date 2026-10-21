@@ -54,6 +54,11 @@ describe('release — naming a plan-less item', () => {
     expect(refused(out) && out.detail).toContain('[unnamed item]');
   });
 
+  it('names a plan-less item whose text is absent', () => {
+    const out = release(ready({ sprintItems: [item({ plan: '' })] }), on);
+    expect(refused(out) && out.detail).toContain('[unnamed item]');
+  });
+
   it('keeps [<plan>] for a slugged item, whatever its text says', () => {
     const out = release(ready({ sprintItems: [item({ text: 'EWZ-9 something' })] }), on);
     expect(refused(out) && out.detail).toContain('[unfinished-plan] — not delivered');
