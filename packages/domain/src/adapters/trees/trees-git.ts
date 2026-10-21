@@ -199,7 +199,7 @@ export const treesGit = (context: ShellContext): Trees => {
 
   const isClean = async (path: string): Promise<PortResult<boolean>> => {
     const run = await runProcess('git', ['-C', path, 'status', '--porcelain'], inRepo);
-    return run.code === 0 ? answered(run.stdout.trim().length === 0) : answered(false);
+    return run.code === 0 ? answered(run.stdout.trim().length === 0) : failed();
   };
 
   const list = (): Promise<PortResult<readonly Worktree[]>> =>

@@ -14,7 +14,7 @@ import {
   unpinnedMerges,
   withoutQuotedHeredocs,
 } from '@plot-pm/domain/rules/controller-gate';
-import { mainCheckoutWriteRefusal, mutatesGitState } from '@plot-pm/domain/rules/main-checkout-write';
+import { gitWriteDirs, mainCheckoutWriteRefusal, mutatesGitState } from '@plot-pm/domain/rules/main-checkout-write';
 
 /**
  * The `node` entry point `plot-gates.sh` launches: one PreToolUse hook that
@@ -465,28 +465,29 @@ export interface MainCheckoutReadings {
 }
 
 /**
- * `main-checkout`: refuses a git command that mutates `HEAD`, the index, or a
- * ref when the working directory is the repository's MAIN checkout rather
- * than a linked (desk) worktree.
+ * `main-checkout`: refuses an unattended agent's (`PLOT_UNATTENDED=1`) git
+ * command that mutates `HEAD`, the index, or a ref in the repository's MAIN
+ * checkout rather than a linked (desk) worktree.
  *
- * `wants` is a pure string test over {@link mutatesGitState}, so a read-only
- * command never reads git. `ask` reads the repository root and whether the
- * checkout is linked; a linked worktree (a desk) is allowed, and so is a root
- * read that fails — this gate cannot tell a desk from the main checkout
- * without git, and failing open matches every other gate here. This refuses
- * unconditionally, for an interactive session as much as an unattended one:
- * the incident this closes (#2311) was a person running `git commit`/`git
- * reset` by hand against the checkout the board reads, not a script.
+ * Without `PLOT_UNATTENDED=1` it allows everything and reads nothing: an
+ * interactive session and Plot's own skills commit in the main checkout. With
+ * it, `wants` is a string test over {@link mutatesGitState}, so a read-only
+ * command never reads git. `ask` reads, for each mutating call, the directory
+ * its `-C` options name (or the working directory) and refuses where that is
+ * not a linked worktree. A root read that fails allows: without git this gate
+ * cannot tell a desk from the main checkout.
  */
 export const mainCheckoutGateOf = (readings: MainCheckoutReadings): Gate => ({
   name: 'main-checkout',
-  wants: (command) => mutatesGitState(command),
-  ask: async (_command) => {
+  wants: (command) => process.env.PLOT_UNATTENDED === '1' && mutatesGitState(command),
+  ask: async (command) => {
     const cwd = process.cwd();
     const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-    const where = await readings.where(cwd, scriptDir);
-    if (!where.root.ok || where.linked) return null;
-    return mainCheckoutWriteRefusal(scriptDir);
+    for (const dir of gitWriteDirs(command)) {
+      const where = await readings.where(dir === null ? cwd : resolve(cwd, dir), scriptDir);
+      if (where.root.ok && !where.linked) return mainCheckoutWriteRefusal(scriptDir);
+    }
+    return null;
   },
   onError: 'allow',
 });

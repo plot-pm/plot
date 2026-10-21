@@ -1,18 +1,13 @@
 /**
- * Whether an unattended agent's command writes git state directly into the
- * repository's MAIN checkout, rather than its own desk worktree.
+ * Whether a command writes git state, and in which directory each write runs,
+ * so a gate can refuse an unattended agent's write to the repository's MAIN
+ * checkout rather than its own desk worktree (#2311,
+ * `docs/plans/2026-10-21-fleet-work-leaves-the-main-checkout.md`).
  *
- * The incident this guards against (#2311, `docs/plans/2026-10-21-fleet-work-leaves-the-main-checkout.md`)
- * was not a script writing to the wrong path — wave 1's sandbox runs cleared
- * every named script. It was an interactive session running `git commit` /
- * `git reset` directly against the checkout the operator had open, following
- * the same "append `→ #<number>`" bookkeeping instructions a hand-off brief
- * gives by hand. So this reads the same two signals the controller gate
- * already reads — `PLOT_UNATTENDED=1`, and whether the cwd resolves to a
- * linked worktree — and refuses a git command that mutates `HEAD` or the
- * index when both say "this is an unattended agent, and this is not a desk".
+ * This module reads the command text only. The caller decides who is asking
+ * (`PLOT_UNATTENDED=1`) and whether a directory is a linked worktree.
  */
-import { isReadSegment, programWords, withoutComments, withoutQuotes, wordBasename } from './ci-suite.js';
+import { programWords, withoutComments, withoutQuotes, wordBasename } from './ci-suite.js';
 
 /** A git subcommand that mutates `HEAD`, the index, or a ref. */
 const MUTATING_GIT_SUBCOMMANDS: ReadonlySet<string> = new Set([
@@ -22,6 +17,7 @@ const MUTATING_GIT_SUBCOMMANDS: ReadonlySet<string> = new Set([
   'restore',
   'merge',
   'rebase',
+  'pull',
   'cherry-pick',
   'revert',
   'am',
@@ -35,54 +31,122 @@ const MUTATING_GIT_SUBCOMMANDS: ReadonlySet<string> = new Set([
   'mv',
 ]);
 
+/** The git global options whose value is the next word. */
+const GLOBAL_VALUE_OPTIONS: ReadonlySet<string> = new Set([
+  '-C',
+  '-c',
+  '--git-dir',
+  '--work-tree',
+  '--namespace',
+  '--config-env',
+  '--super-prefix',
+]);
+
+/** The `git branch` options that create, delete, move, copy or reconfigure a branch. */
+const BRANCH_WRITE_OPTIONS: ReadonlySet<string> = new Set([
+  '-d', '-D', '--delete', '-m', '-M', '--move', '-c', '-C', '--copy', '-f', '--force',
+  '-u', '--set-upstream-to', '--unset-upstream', '--edit-description', '-t', '--track', '--no-track',
+  '--create-reflog',
+]);
+
 /**
- * Whether a simple command's program is a git call naming a mutating
- * subcommand. `git grep`/`git log`/`git show`/`git diff`/`git status` and the
- * rest of git's read surface are not in {@link MUTATING_GIT_SUBCOMMANDS}, so
- * they pass. `git branch` with no further argument only lists and would be a
- * false positive, but `branch -f`/`branch -d <name>` mutate — the gate is not
- * asked to split that hair: a bare `git branch` inside an unattended agent's
- * command on the main checkout is rare enough that refusing it is a false
- * positive worth naming over a missed mutation.
+ * The `git branch` options that put it in list mode, where a further word is a
+ * pattern. A list filter that takes a commit as its next word, given without
+ * one of these, reads as a write: a refusal the agent can rephrase.
+ */
+const BRANCH_LIST_OPTIONS: ReadonlySet<string> = new Set(['-a', '--all', '-r', '--remotes', '-l', '--list', '--show-current']);
+
+/**
+ * Whether a mutating subcommand's arguments ask only for a read:
+ * `git stash list|show`, and `git branch` with no write option that has no
+ * argument, a list option, or `--show-current`.
+ */
+const readsOnly = (sub: string, args: readonly string[]): boolean => {
+  if (sub === 'stash') return args[0] === 'list' || args[0] === 'show';
+  if (sub !== 'branch') return false;
+  const options = args.filter((word) => word.startsWith('-')).map((word) => word.split('=')[0]);
+  if (options.some((option) => BRANCH_WRITE_OPTIONS.has(option))) return false;
+  return options.some((option) => BRANCH_LIST_OPTIONS.has(option)) || options.length === args.length;
+};
+
+/** Whether a `-C` value is missing, a parameter, a substitution, or quoted text the reader removed. */
+const unknowable = (value: string): boolean => /^$|[$`'"]/.test(value);
+
+/**
+ * The directory a mutating git call in one simple command runs in.
  *
  * @param words - one simple command, split on whitespace, quotes already removed.
- * @returns whether the segment runs a mutating git subcommand.
+ * @returns `null` for the working directory, the path the `-C` options name,
+ *   or `undefined` where the command is no mutating git call or its `-C` path
+ *   cannot be read from the text.
  */
-const isMutatingGitSegment = (words: readonly string[]): boolean => {
-  if (isReadSegment(words)) return false;
+const writeDirOf = (words: readonly string[]): string | null | undefined => {
   const program = programWords(words);
-  if (program.length === 0 || wordBasename(program[0]) !== 'git') return false;
-  const sub = program.slice(1).find((w) => !w.startsWith('-'));
-  return sub !== undefined && MUTATING_GIT_SUBCOMMANDS.has(sub);
+  if (program.length === 0 || wordBasename(program[0]) !== 'git') return undefined;
+  let i = 1;
+  let dir: string | null = null;
+  let known = true;
+  while (i < program.length && program[i].startsWith('-')) {
+    const option = program[i];
+    if (!GLOBAL_VALUE_OPTIONS.has(option)) {
+      i += 1;
+      continue;
+    }
+    const value = program[i + 1] ?? '';
+    if (option === '-C') {
+      if (unknowable(value)) known = false;
+      else dir = dir === null || value.startsWith('/') ? value : `${dir}/${value}`;
+    }
+    i += 2;
+  }
+  const sub = program[i];
+  if (sub === undefined || !MUTATING_GIT_SUBCOMMANDS.has(sub) || readsOnly(sub, program.slice(i + 1))) return undefined;
+  return known ? dir : undefined;
 };
 
 /**
- * Whether a command line runs a git subcommand that mutates `HEAD`, the
- * index, or a ref. Quoted text and `#` comments are not read; each segment
- * split on `&&`, `||`, `;`, `|` and newlines is tested on its own, so one
- * mutating segment in a chain is enough.
+ * The directory of each git call in a command that mutates `HEAD`, the index,
+ * or a ref. Quoted text and `#` comments are not read. Each simple command,
+ * split on `&&`, `||`, `;`, `|`, new lines, `$(`, backticks and parentheses,
+ * is tested on its own. Git global options before the subcommand are skipped,
+ * and successive `-C` paths are joined the way git joins them.
+ *
+ * A call whose `-C` path is a parameter, a substitution or quoted text is left
+ * out, because the text does not name the directory it writes to.
  *
  * @param command - the command line.
- * @returns whether any segment mutates git state.
+ * @returns one entry per mutating git call: `null` for the working directory,
+ *   otherwise the path its `-C` options name (absolute, or relative to the
+ *   working directory).
  */
-export const mutatesGitState = (command: string): boolean =>
+export const gitWriteDirs = (command: string): readonly (string | null)[] =>
   withoutQuotes(withoutComments(command))
-    .split(/&&|\|\||[;|\n]/)
-    .map((segment) => segment.trim().split(/\s+/).filter((word) => word !== ''))
-    .some((words) => words.length > 0 && isMutatingGitSegment(words));
+    .split(/&&|\|\||\$\(|[;|\n`()]/)
+    .map((segment) => writeDirOf(segment.trim().split(/\s+/).filter((word) => word !== '')))
+    .filter((dir): dir is string | null => dir !== undefined);
 
 /**
- * The refusal text for a mutating git command an unattended agent ran
- * directly against the main checkout.
+ * Whether a command line runs a git call that mutates `HEAD`, the index, or a
+ * ref in a directory its text names. See {@link gitWriteDirs}.
+ *
+ * @param command - the command line.
+ * @returns whether any simple command is such a call.
+ */
+export const mutatesGitState = (command: string): boolean => gitWriteDirs(command).length > 0;
+
+/**
+ * The refusal text for a mutating git call an unattended agent
+ * (`PLOT_UNATTENDED=1`) ran against the main checkout.
  *
  * @param scriptDir - the absolute directory holding the plot scripts, so the
- *   refusal can point at the desk helper rather than describe it.
+ *   refusal names the desk helper by path.
  * @returns the text for stderr.
  */
 export const mainCheckoutWriteRefusal = (scriptDir: string): string =>
   [
-    'plot-main-checkout-gate: this command mutates git state and the working directory is the MAIN checkout,',
-    '  not a desk worktree. An unattended agent writes to its own worktree, never to the checkout the board reads.',
+    'plot-main-checkout-gate: this command mutates git state in the MAIN checkout, not a desk worktree,',
+    '  and PLOT_UNATTENDED=1 marks the caller as an unattended agent. An unattended agent writes to its own',
+    '  worktree, never to the checkout the board reads.',
     '',
     `  Resolve the desk worktree first: . "${scriptDir}/plot-desk-root.sh"; plot_desk_root`,
     '  then run this command with that path as the working directory (or `git -C <desk> ...`).',
