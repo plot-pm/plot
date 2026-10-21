@@ -42,7 +42,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [x] [jira-issue-list-answers-an-unknown] Jira issue-list answers an unknown fix version and a cut result silently (#2251)
 - [x] [check-helper-table-sh-misses-a] check-helper-table.sh misses a new bundle on its PR and turns main red after the merge (#2260)
 - [x] [reconcile-23-ignores-a-plan-s] Reconcile §23 ignores a plan's ticket: frontmatter key (#2269)
-- [ ] [sprint-to-release-drift-lists-should] Sprint-to-Release drift lists Should and Could items as not in the sprint (#2279)
+- [x] [sprint-to-release-drift-lists-should] Sprint-to-Release drift lists Should and Could items as not in the sprint (#2279)
 - [ ] [release-gate-names-an-unfinished-must] Release gate names an unfinished Must Have with no plan as [] (#2281)
 - [ ] [reconcile-23-tells-a-released-plan] Reconcile §23 tells a Released plan to release, and reads a window of open issues (#2283)
 - [ ] [reconcile-does-not-report-a-plan] Reconcile does not report a plan linked in both active and delivered (#2284)
