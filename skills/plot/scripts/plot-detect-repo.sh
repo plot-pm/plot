@@ -169,7 +169,6 @@ fi
 SUBJECT_SAMPLE=80
 subjects=$(git log --format=%s -"$SUBJECT_SAMPLE" 2>/dev/null)
 read -r ticket_count ticket <<<"$(printf '%s\n' "$subjects" | top_prefix)"
-ticket_count=${ticket_count:-0}
 subjects_read=$(printf '%s\n' "$subjects" | grep -c . || true)
 
 # --- ticket prefix in branch names ---------------------------------------
@@ -181,7 +180,6 @@ subjects_read=$(printf '%s\n' "$subjects" | grep -c . || true)
 # before any fetch sees only `refs/heads/`.
 branch_names=$(git for-each-ref --format='%(refname:short)' refs/heads/ refs/remotes/ 2>/dev/null)
 read -r branch_ticket_count branch_ticket <<<"$(printf '%s\n' "$branch_names" | top_prefix)"
-branch_ticket_count=${branch_ticket_count:-0}
 branches_read=$(printf '%s\n' "$branch_names" | grep -c . || true)
 
 # --- commit style -------------------------------------------------------
