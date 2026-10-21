@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2214
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-10-21, Jan Wloka, plan-PR #2225 merged
 
 ## Changelog
 
