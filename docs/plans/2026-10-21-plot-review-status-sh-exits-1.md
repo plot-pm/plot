@@ -44,7 +44,7 @@ Add a contract test under `test/reconcile/` that runs the script on a sprint fil
 
 ### Fix
 
-- `bug/plot-review-status-sh-exits-1` — guard the slug extraction and add the mixed-sprint contract test
+- `bug/plot-review-status-sh-exits-1` — guard the slug extraction and add the mixed-sprint contract test → #2303
 
 ## Notes
 
