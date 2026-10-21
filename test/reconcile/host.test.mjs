@@ -9221,20 +9221,33 @@ test('host: pr-merge-commit exits 3 on a non-miss failure and on a full page wit
   assert.equal(resFull.stdout.trim(), '');
 });
 
-test('host: pr-merge-dest prints number, destination and merge commit for a branch merged past the first page', () => {
+test('host: pr-merge-dest prints number, destination, merge commit and merge time for every merged PR of a branch', () => {
   const branch = 'feature/ewzkus-3845-contractaccount-bykey-tracer';
-  const row = {
-    ...restPr(3644, branch, 'MERGED'),
+  const row = (id, hash) => ({
+    ...restPr(id, branch, 'MERGED'),
     destination: { branch: { name: 'develop' } },
-    merge_commit: { hash: 'deadbee' },
-  };
-  const bb = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [row] } });
+    merge_commit: { hash },
+  });
+  const bb = makeSweepBbStub({
+    prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [row(3644, 'deadbee'), row(3701, 'cafe001')] },
+  });
   const res = spawnSync('bash', [adapter, 'pr-merge-dest', branch], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout.trim(), '3644\tdevelop\tdeadbee');
+  assert.equal(
+    res.stdout.trim(),
+    '3644\tdevelop\tdeadbee\t2026-09-20T12:00:04+00:00\n3701\tdevelop\tcafe001\t2026-09-20T12:00:01+00:00',
+  );
+
+  // `pr-merge-commit` shares the arm and still prints the first sha alone.
+  const one = spawnSync('bash', [adapter, 'pr-merge-commit', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(one.status, 0, one.stderr);
+  assert.equal(one.stdout.trim(), 'deadbee');
 });
 
 test('host: pr-merge-dest prints nothing, exit 0, for a branch the branch query proves has none', () => {

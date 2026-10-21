@@ -3360,31 +3360,11 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   last_pr="${prs##*,}"
   pr_state_row=$("$script_dir/plot-host.sh" pr-state "$last_pr" </dev/null 2>/dev/null)
   sha=$(jq -r '.mergeCommit // empty' <<<"$pr_state_row" 2>/dev/null)
-  dest=$(jq -r '.base // empty' <<<"$pr_state_row" 2>/dev/null)
   # No grep fallback. An earlier draft searched commit messages for "#N", which
   # matched any commit MENTIONING the PR rather than its merge — and reported
   # v2.2.0 for a plan that shipped in v1.7.0. A wrong version in a transition
   # record is a claim nobody re-checks, so an unanswerable case says so instead.
-  if [ -z "$sha" ]; then
-    unrel_out+="  $base — delivered, but PR #$last_pr has no merge commit → cannot resolve\n"
-    # THE COMMAND MUST BE ONE THE OPERATOR CAN RUN. This printed `gh pr view`
-    # unconditionally until 2026-09-18, so a Bitbucket repository was handed a
-    # CLI it does not have — on every finding of a section that, there, reported
-    # all 45 of its delivered plans. `PR_SOURCE` carries the backend's CLI name
-    # once the probe succeeded, and a STATUS WORD (`degraded`/`absent`/`failed`/
-    # `off`) when it did not, which is why the arms are named rather than
-    # interpolated: `degraded pr view 943` is not a command either. The fallback
-    # names the adapter, which answers on every backend and is the one place
-    # allowed to ask.
-    case "$PR_SOURCE" in
-      gh) unrel_out+="    inspect: gh pr view $last_pr --json state,mergeCommit\n" ;;
-      bb) unrel_out+="    inspect: bb pr view $last_pr --json\n" ;;
-      *)  unrel_out+="    inspect: plot-host.sh pr-state $last_pr\n" ;;
-    esac
-    n_unrel=$((n_unrel + 1))
-    continue
-  fi
-
+  #
   # A SHA THIS REPOSITORY DOES NOT HOLD IS NOT AN UNRELEASED PLAN, and until
   # 2026-09-18 it read as one. `git tag --contains <unknown-sha>` prints
   # `error: no such commit` and the rc of the PIPELINE is `head`'s — measured 0
@@ -3392,74 +3372,35 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   # simply not released yet. Silence, in the one section written so that
   # "cannot tell" and "nothing wrong" cannot look the same.
   #
-  # A DESTINATION THAT IS NOT THE DEFAULT BRANCH, AND WAS ITSELF DELETED AFTER
-  # ITS OWN MERGE, IS THE SAME SYMPTOM AS A DELETED SOURCE BRANCH (#2201) BUT A
-  # DIFFERENT CAUSE: the merge commit named here sits on a ref no clone holds
-  # not because the PR's OWN branch was deleted, but because the branch it
-  # merged INTO was. `git tag --contains` cannot place a commit whose branch
-  # left no trace — the release is still knowable by following that
-  # destination's own merged PR onward, repeating until the trail reaches the
-  # default branch, cycles, or runs out. Checked before `cat-file -e` because a
-  # destination branch's merge commit routinely fails that same check, and
-  # this case has a real answer where the plain "not in this clone" finding
-  # below does not.
-  if [ -n "$dest" ] && [ "$dest" != "$MAIN" ]; then
-    hops=""; walk_branch="$dest"; depth=0
-    while [ "$depth" -lt 6 ]; do
-      row=$("$script_dir/plot-host.sh" pr-merge-dest "$walk_branch" </dev/null 2>/dev/null)
-      if [ -z "$row" ]; then
-        hops+="$walk_branch"$'\t'"not-found"$'\n'
-        break
-      fi
-      IFS=$'\t' read -r hop_num hop_base hop_sha <<<"$row"
-      hops+="$walk_branch"$'\t'"found"$'\t'"$hop_num"$'\t'"$hop_base"$'\t'"$hop_sha"$'\n'
-      [ "$hop_base" = "$MAIN" ] && break
-      walk_branch="$hop_base"
-      depth=$((depth + 1))
-    done
-    chain_result=$(printf '@default %s\n@hops\n%s' "$MAIN" "$hops" \
-                   | node "$script_dir/board/plot-release-chain.mjs" classify 2>/dev/null)
-    IFS=$'\t' read -r chain_outcome chain_a chain_b <<<"$chain_result"
-    if [ "$chain_outcome" = resolved ]; then
-      tag=$(git tag --contains "$chain_a" 2>/dev/null \
-            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | head -1)
-      if [ -n "$tag" ]; then
-        slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
-        unrel_out+="  $base — shipped in $tag via $dest, plan still Delivered\n"
-        unrel_out+="    consider: /plot-release (records Phase: Released, ${slug%.md})\n"
-        n_unrel=$((n_unrel + 1))
-        continue
-      fi
-      # The chain resolved onto the default branch but that commit carries no
-      # release tag yet — genuinely not released, nothing to report.
-      continue
-    fi
-    unrel_out+="  $base — delivered, PR #$last_pr merged into deleted branch '$dest' → cannot resolve ($chain_a at '$chain_b')\n"
-    n_unrel=$((n_unrel + 1))
-    continue
-  fi
-
   # `cat-file -e` IS ASKED SEPARATELY because its exit code is readable where
-  # the pipeline's is not: 0 when the object store holds the commit, non-zero
-  # when it does not. Three populations arrive here — `--no-fetch` with PRs on,
-  # a merge commit outside the local refspec or a shallow clone, and a PR merged
-  # outside the host's merge button. A fetch helps the first two, on either
-  # backend. The third is Bitbucket-specific and a fetch cannot help:
-  # Bitbucket Cloud exposes no `refs/pull-requests/*` equivalent of GitHub's
-  # PR refs, so a squash/merge commit whose source branch was then deleted
-  # (the common case; `pr-merge --delete-branch` above does this) was never
-  # transmitted to any clone on any ref — not a refspec gap, an object this
-  # host never sent. Measured 2026-10-20 against ewz-kus-portal: three such
-  # shas stayed unresolvable after a fresh, non-shallow fetch.
-  if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
-    unrel_out+="  $base — delivered, PR #$last_pr names merge commit $sha, not in this clone → cannot resolve\n"
-    if [ "$PR_SOURCE" = bb ]; then unrel_out+="    unreachable: Bitbucket exposes no ref for a squash/merge commit once its source branch is deleted — a fetch cannot bring it\n"; else unrel_out+="    inspect: git fetch --tags origin, then re-run\n"; fi
-    n_unrel=$((n_unrel + 1))
-    continue
+  # the pipeline's is not. A sha in the clone takes the DIRECT PATH: the tag
+  # that contains it is the exact answer, whatever branch the PR merged into.
+  #
+  # AN EMPTY OR ABSENT SHA GOES TO `plot-release-chain.mjs`, which prints the
+  # whole verdict. Three populations arrive there — `--no-fetch` with PRs on, a
+  # merge commit outside the local refspec or a shallow clone, and a merge
+  # commit on a branch no clone holds. Measured 2026-10-21 against
+  # ewz-kus-portal (Bitbucket): PRs #3488–#3490 merged into
+  # `feature/ewzkus-3518-sammelrechnungen`, deleted later; that branch's own
+  # PR #3491 merged into `develop` as `651cb9be3724`, in v5.23.2213. Where the
+  # PR merged into a non-default branch, the bundle follows that branch's
+  # merged PRs onward and accepts a hop only when its merge commit contains
+  # the previous commit, or when it is the one PR that can have carried it.
+  # Every other case — including a host that did not answer — is a named
+  # "cannot tell" or "cannot resolve", never silence. `PR_SOURCE` picks advice
+  # the operator can run: `gh`, `bb`, or the adapter.
+  if [ -z "$sha" ] || ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+    chain=$(node "$script_dir/board/plot-release-chain.mjs" resolve "$last_pr" "$MAIN" "$PR_SOURCE" <<<"$pr_state_row")
+    IFS=$'\t' read -r chain_verb tag <<<"$chain"
+    case "$chain_verb" in
+      unreleased) continue ;;
+      shipped) ;;
+      *) unrel_out+="  $base — ${tag:-delivered, PR #$last_pr → cannot tell (plot-release-chain.mjs gave no answer)}\n"; n_unrel=$((n_unrel + 1)); continue ;;
+    esac
+  else
+    tag=$(git tag --contains "$sha" 2>/dev/null \
+          | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | head -1)
   fi
-
-  tag=$(git tag --contains "$sha" 2>/dev/null \
-        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | head -1)
   [ -n "$tag" ] || continue   # genuinely not released yet — nothing to report
 
   slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')

@@ -1,116 +1,177 @@
-// THROUGH THE NARROW PATH, not the package root, for the reason
+// THROUGH THE NARROW PATHS, not the package root, for the reason
 // `agent-settings.ts` gives: the root import bundles every entity and rule.
-import { releaseChain, type ReleaseChainHop, type ReleaseChainReading } from '@plot-pm/domain/rules/release-chain';
+import { releaseChainStep, type ReleaseChainHop, type ReleaseChainStep } from '@plot-pm/domain/rules/release-chain';
+import { hostShell } from '@plot-pm/domain/adapters/host/host-shell';
+import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
+import type { Host } from '@plot-pm/domain/ports/host';
+import type { Refs } from '@plot-pm/domain/ports/refs';
 import { realpathSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
- * Classifies a release chain's walk trace — {@link releaseChain} reached
- * without HTTP, for `plot-reconcile-scan.sh` section 6.
+ * Section 6 of `plot-reconcile-scan.sh` for a delivered plan whose PR's merge
+ * commit is empty or absent from the clone.
  *
  * ```
- * plot-release-chain.mjs classify < readings
+ * plot-release-chain.mjs resolve <pr> <default-branch> <pr-source> < pr-state-row
  * ```
  *
- * **ONCE PER DELIVERED PLAN THE WALK ENGAGES FOR, not once per agent per
- * pass.** Section 6 runs once per operator `/plot-reconcile` invocation, so
- * this calls the domain rather than duplicating the walk's cycle and depth
- * checks in shell, per `docs/shell-and-domain.md`.
- *
- * **THE SHELL COLLECTS THE TRACE; THIS CLASSIFIES IT.** Each hop needs one
- * `plot-host.sh pr-merge-dest <branch>` call, so the I/O loop stays in the
- * script and this bundle only answers, given the trace so far, whether it
- * resolved, dead-ended, cycled, or ran too deep.
- *
- * ## The stdin format
- *
- * ```
- * @default <branch>                              # the repository's default branch
- * @hops                                           # then one hop per line, in walk order
- * <branch>\tfound\t<number>\t<base>\t<mergeCommit>
- * <branch>\tnot-found
- * ```
+ * Reads the `plot-host.sh pr-state` row on stdin. Where the PR merged into a
+ * non-default branch, it walks that branch's merged PRs onward through the
+ * host port, tests containment through the refs port, and asks
+ * {@link releaseChainStep} for each step. The scan calls this once per plan
+ * that reaches the case, not once per agent per pass.
  *
  * ## The output
  *
+ * One line:
+ *
  * ```
- * resolved\t<mergeCommit>
- * refused\t<reason>\t<branch>
+ * shipped\t<tag> via <destination>
+ * unreleased
+ * finding\t<finding text, with `\n` escapes for its second line>
  * ```
  */
 
 /** The exit codes the caller reads. */
 export const EXIT = {
-  /** The rule answered. */
+  /** The answer is on stdout. */
   ok: 0,
   /** The caller named no verb, or one this does not have. */
   usage: 2,
 } as const;
 
+/** What the scan knows about the plan's PR. */
+export interface ResolveInput {
+  /** The PR number the plan names last. */
+  readonly pr: string;
+  /** The PR's merge commit, or `''` where the host named none. */
+  readonly mergeCommit: string;
+  /** The branch the PR merged into, or `''` where the host did not say. */
+  readonly base: string;
+  /** The repository's default branch. */
+  readonly defaultBranch: string;
+  /** The scan's PR source: the CLI name `gh` or `bb`, or a status word. */
+  readonly prSource: string;
+}
+
+/** The ports a walk reads. */
+export interface ResolvePorts {
+  readonly host: Pick<Host, 'prMergeDests' | 'lastRefusal'>;
+  readonly refs: Pick<Refs, 'contains' | 'tagsContaining'>;
+}
+
+const fetchAdvice = (prSource: string): string =>
+  prSource === 'bb'
+    ? 'unreachable: Bitbucket exposes no ref for this merge commit — a fetch cannot bring it'
+    : 'inspect: git fetch --tags origin, then re-run';
+
+const inspectPr = (prSource: string, pr: string): string => {
+  if (prSource === 'gh') return `gh pr view ${pr} --json state,mergeCommit`;
+  if (prSource === 'bb') return `bb pr view ${pr} --json`;
+  return `plot-host.sh pr-state ${pr}`;
+};
+
+const refusalText = (step: Extract<ReleaseChainStep, { outcome: 'refused' }>): string => {
+  if (step.reason === 'host-failed') return `cannot tell (the host did not answer for '${step.branch}')`;
+  if (step.reason === 'ambiguous') {
+    return `cannot tell (ambiguous at '${step.branch}': ${step.candidates} merged PRs qualify)`;
+  }
+  return `cannot resolve (${step.reason} at '${step.branch}')`;
+};
+
 /**
- * Parses the sectioned readings.
+ * Walks the release chain of one plan's PR and answers the scan's line.
  *
- * @param stdin - the readings as the scan wrote them.
- * @returns the reading {@link releaseChain} takes, with unknown lines ignored.
+ * @param input - the PR, its merge commit and destination, and the scan's context.
+ * @param ports - the host and refs ports the walk reads.
+ * @param warn - where a host refusal's own words go.
+ * @returns the output line, without its newline.
  */
-export const parseReadings = (stdin: string): ReleaseChainReading => {
-  let defaultBranch = '';
+export const resolveRelease = async (
+  input: ResolveInput,
+  ports: ResolvePorts,
+  warn: (s: string) => void,
+): Promise<string> => {
+  const { pr, mergeCommit, base, defaultBranch, prSource } = input;
+  if (mergeCommit === '') {
+    return `finding\tdelivered, but PR #${pr} has no merge commit → cannot resolve\\n    inspect: ${inspectPr(prSource, pr)}`;
+  }
+  if (base === '' || base === defaultBranch) {
+    return `finding\tdelivered, PR #${pr} names merge commit ${mergeCommit}, not in this clone → cannot resolve\\n    ${fetchAdvice(prSource)}`;
+  }
+  const into = `delivered, PR #${pr} merged into '${base}' →`;
   const hops: ReleaseChainHop[] = [];
-  let section: 'none' | 'hops' = 'none';
-  for (const line of stdin.split('\n')) {
-    if (line === '') continue;
-    if (line.startsWith('@')) {
-      const space = line.indexOf(' ');
-      const verb = space === -1 ? line.slice(1) : line.slice(1, space);
-      const rest = space === -1 ? '' : line.slice(space + 1);
-      if (verb === 'default') {
-        defaultBranch = rest;
-        section = 'none';
-      } else if (verb === 'hops') {
-        section = 'hops';
-      } else {
-        section = 'none';
+  for (;;) {
+    const step = releaseChainStep({ defaultBranch, planCommit: mergeCommit, destination: base, hops });
+    if (step.outcome === 'refused') return `finding\t${into} ${refusalText(step)}`;
+    if (step.outcome === 'resolved') {
+      const tags = await ports.refs.tagsContaining(step.mergeCommit);
+      if (!tags.ok) {
+        return `finding\t${into} cannot tell (merge commit ${step.mergeCommit} on '${defaultBranch}' is not in this clone)\\n    ${fetchAdvice(prSource)}`;
       }
+      const tag = tags.value[0];
+      return tag === undefined ? 'unreleased' : `shipped\t${tag} via ${base}`;
+    }
+    const merged = await ports.host.prMergeDests(step.branch);
+    if (!merged.ok) {
+      const said = ports.host.lastRefusal()?.said ?? '';
+      warn(`plot-release-chain: pr-merge-dest ${step.branch} failed${said === '' ? '' : `: ${said}`}\n`);
+      hops.push({ answered: false });
       continue;
     }
-    if (section !== 'hops') continue;
-    const [branch, status, number, base, mergeCommit] = line.split('\t');
-    if (branch === undefined) continue;
-    if (status === 'found' && number !== undefined && base !== undefined && mergeCommit !== undefined) {
-      hops.push({ branch, found: true, number, base, mergeCommit });
-    } else {
-      hops.push({ branch, found: false });
+    const candidates = [];
+    for (const dest of merged.value) {
+      const contains = await ports.refs.contains(step.previous, dest.mergeCommit);
+      candidates.push({ ...dest, contains: contains.ok ? contains.value : ('unknown' as const) });
     }
+    hops.push({ answered: true, candidates });
   }
-  return { defaultBranch, hops };
+};
+
+/**
+ * Parses the `pr-state` row.
+ *
+ * @param stdin - the row as `plot-host.sh pr-state` printed it.
+ * @returns the merge commit and destination, each `''` where absent or unreadable.
+ */
+export const parseRow = (stdin: string): { mergeCommit: string; base: string } => {
+  try {
+    const row = JSON.parse(stdin) as { mergeCommit?: unknown; base?: unknown };
+    return {
+      mergeCommit: typeof row.mergeCommit === 'string' ? row.mergeCommit : '',
+      base: typeof row.base === 'string' ? row.base : '',
+    };
+  } catch {
+    return { mergeCommit: '', base: '' };
+  }
 };
 
 /**
  * Answers the verb.
  *
  * @param argv - the arguments after the script name.
- * @param stdin - the readings.
+ * @param stdin - the `pr-state` row.
+ * @param ports - the host and refs ports the walk reads.
  * @param write - where the answer goes.
- * @param warn - where a usage refusal goes.
+ * @param warn - where a usage refusal and a host refusal go.
  * @returns the process exit code.
  */
-export const run = (
-  argv: string[],
+export const run = async (
+  argv: readonly string[],
   stdin: string,
+  ports: ResolvePorts,
   write: (s: string) => void = (s) => process.stdout.write(s),
   warn: (s: string) => void = (s) => process.stderr.write(s),
-): number => {
-  const verb = argv[0];
-  if (verb !== 'classify') {
-    warn('plot-release-chain: usage: plot-release-chain.mjs classify < readings\n');
+): Promise<number> => {
+  const [verb, pr, defaultBranch, prSource = ''] = argv;
+  if (verb !== 'resolve' || pr === undefined || defaultBranch === undefined) {
+    warn('plot-release-chain: usage: plot-release-chain.mjs resolve <pr> <default-branch> <pr-source> < pr-state-row\n');
     return EXIT.usage;
   }
-  const result = releaseChain(parseReadings(stdin));
-  if (result.outcome === 'resolved') {
-    write(`resolved\t${result.mergeCommit}\n`);
-  } else {
-    write(`refused\t${result.reason}\t${result.branch}\n`);
-  }
+  const line = await resolveRelease({ pr, defaultBranch, prSource, ...parseRow(stdin) }, ports, warn);
+  write(`${line}\n`);
   return EXIT.ok;
 };
 
@@ -122,7 +183,10 @@ export const run = (
 // bundle invoked from a sandbox compared two spellings of one path, the block
 // never ran, and the process exited 0 having written nothing.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const context = { repoRoot: process.cwd(), scriptDir };
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(run(process.argv.slice(2), Buffer.concat(chunks).toString('utf8')));
+  const stdin = Buffer.concat(chunks).toString('utf8');
+  process.exit(await run(process.argv.slice(2), stdin, { host: hostShell(context), refs: refsGit(context) }));
 }

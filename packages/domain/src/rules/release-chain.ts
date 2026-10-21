@@ -1,110 +1,176 @@
 /**
- * Which tag shipped a plan's PR when its merge commit sits on a non-default
- * branch deleted after its own merge — the follow #2215 adds beside #2201's
- * direct resolve.
+ * Which merge commit on the default branch carries a plan's PR when that PR's
+ * own merge commit is not in the clone and the PR merged into a non-default
+ * branch — the follow #2215 adds beside #2201's direct resolve.
  *
- * A PR MAY MERGE INTO A BRANCH THAT IS NOT THE DEFAULT ONE, and that branch
- * may itself be merged onward and deleted. The merge commit the first PR
- * names then sits on a ref no clone holds — not because the PR's OWN source
- * branch was deleted (#2201's case, resolved directly with no walk), but
- * because its DESTINATION was. The release is still knowable by following the
- * destination branch's own merged PR, repeating until the trail reaches the
- * default branch or runs out.
+ * The caller asks this only after the direct path failed: the plan's merge
+ * commit is absent from the clone, so `git tag --contains` cannot place it.
+ * The walk then follows the destination branch's own merged PR onward, one
+ * host call per hop, until a hop merges into the default branch.
  *
- * THE SHELL COLLECTS THE TRACE; THIS CLASSIFIES IT. Each hop needs one host
- * call (`plot-host.sh pr-merge-dest <branch>`), so the walk's I/O stays in
- * `plot-reconcile-scan.sh` and only the decision — resolved, dead end, or
- * cycle/too-deep — is asked of this pure function, per `docs/shell-and-domain.md`'s
- * rule for a lookup run once per operator command.
+ * THE CALLER RUNS THE I/O; THIS DECIDES EACH STEP. {@link releaseChainStep}
+ * reads the trace so far and answers the next branch to ask about, the
+ * resolved merge commit, or a refusal. It reads values and awaits nothing.
  *
  * @concept release-chain
  */
 
-/** One step of the walk: a branch the trail reached, and what naming its merged PR found. */
+/** How many hops a walk may ask about before it is refused rather than followed further. */
+export const MAX_RELEASE_CHAIN_DEPTH = 5;
+
+/** Whether one commit contains another: `unknown` where git could not tell. */
+export type ReleaseChainContainment = 'yes' | 'no' | 'unknown';
+
+/** One merged PR whose head is the branch a hop asked about. */
+export interface ReleaseChainCandidate {
+  /** The PR's number. */
+  readonly number: number;
+  /** The branch the PR merged into. */
+  readonly base: string;
+  /** The PR's merge commit sha. */
+  readonly mergeCommit: string;
+  /** When the PR merged, ISO-8601, or `''` where the host did not say. */
+  readonly mergedAt: string;
+  /**
+   * Whether `mergeCommit` contains the commit the previous step reached;
+   * `unknown` where either commit is absent from the clone.
+   */
+  readonly contains: ReleaseChainContainment;
+}
+
+/** What asking the host about one branch returned. */
 export type ReleaseChainHop =
   | {
-      /** The branch this hop asked about. */
-      readonly branch: string;
-      /** A merged PR was found with this head. */
-      readonly found: true;
-      /** That PR's number. */
-      readonly number: string;
-      /** That PR's destination branch. */
-      readonly base: string;
-      /** That PR's merge commit sha. */
-      readonly mergeCommit: string;
+      /** The host answered; an empty list means no PR with this head merged. */
+      readonly answered: true;
+      readonly candidates: readonly ReleaseChainCandidate[];
     }
   | {
-      readonly branch: string;
-      /** No merged PR was found with this head — the trail ends here. */
-      readonly found: false;
+      /** The host could not be asked. */
+      readonly answered: false;
     };
 
-/** What the caller read before asking: the default branch, and the walk's trace in order. */
+/** What the caller read before asking. */
 export interface ReleaseChainReading {
-  /** The default branch; a hop whose `base` equals this ends the walk successfully. */
+  /** The default branch; a hop whose PR merged into it ends the walk. */
   readonly defaultBranch: string;
-  /**
-   * The hops asked, in walk order — the first hop's `branch` is the plan's PR's
-   * own (deleted) destination, and each later hop's `branch` is the previous
-   * hop's `base`.
-   */
+  /** The plan's PR's merge commit — the first commit a hop must carry. */
+  readonly planCommit: string;
+  /** The branch the plan's PR merged into — the first branch to ask about. */
+  readonly destination: string;
+  /** The hops asked so far, in walk order. */
   readonly hops: readonly ReleaseChainHop[];
 }
 
-/** How many hops a walk may take before it is refused rather than followed further. */
-export const MAX_RELEASE_CHAIN_DEPTH = 5;
+/**
+ * Why a walk stopped without reaching the default branch: `dead-end` where no
+ * merged PR qualifies, `cycle` where the walk reaches a branch it already
+ * asked about, `too-deep` where it needs more than
+ * {@link MAX_RELEASE_CHAIN_DEPTH} hops, `ambiguous` where several PRs qualify
+ * and nothing orders them, and `host-failed` where the host could not be asked.
+ */
+export type ReleaseChainRefusal = 'dead-end' | 'cycle' | 'too-deep' | 'ambiguous' | 'host-failed';
 
-/** The chain's outcome: resolved to a merge commit on the default branch, or refused naming why. */
-export type ReleaseChainResult =
-  | { readonly outcome: 'resolved'; readonly mergeCommit: string }
+/** The answer for the trace so far. */
+export type ReleaseChainStep =
+  | {
+      /** Ask the host about `branch`, and test each candidate against `previous`. */
+      readonly outcome: 'ask';
+      readonly branch: string;
+      /** The commit each candidate's merge commit must contain. */
+      readonly previous: string;
+    }
+  | {
+      readonly outcome: 'resolved';
+      /** The merge commit on the default branch. */
+      readonly mergeCommit: string;
+    }
   | {
       readonly outcome: 'refused';
-      readonly reason: 'dead-end' | 'cycle' | 'too-deep';
+      readonly reason: ReleaseChainRefusal;
       /** The branch the walk could not get past. */
       readonly branch: string;
+      /** How many candidates qualified, for `ambiguous`; `0` otherwise. */
+      readonly candidates: number;
     };
 
+/** The commit and merge time a walk step reached. */
+export interface ReleaseChainPrevious {
+  /** The commit a candidate must contain. */
+  readonly commit: string;
+  /** When that commit merged, ISO-8601, or `''` where unknown. */
+  readonly mergedAt: string;
+}
+
+const timeOf = (iso: string): number => (iso === '' ? Number.NaN : Date.parse(iso));
+
+const earliest = (candidates: readonly ReleaseChainCandidate[]): ReleaseChainCandidate | undefined =>
+  [...candidates].sort((a, b) => timeOf(a.mergedAt) - timeOf(b.mergedAt))[0];
+
 /**
- * Classifies a release chain's walk trace.
+ * Picks the merged PR that carried the previous commit onward.
  *
- * **RESOLVED** at the first hop whose `base` is the default branch — its
- * `mergeCommit` is the commit `git tag --contains` can be asked about.
+ * A candidate whose merge commit contains the previous commit wins, the
+ * earliest-merged where several do. A candidate that does not contain it never
+ * qualifies. Where containment is unknown, a candidate qualifies by merging at
+ * or after the previous merge, and the earliest wins. With no previous merge
+ * time, one candidate of unknown containment qualifies and several are
+ * ambiguous.
  *
- * **`dead-end`** at the first hop with no merged PR: the branch was deleted
- * with nothing naming where its work went on to.
- *
- * **`cycle`** where a hop's branch repeats one already walked — two merged
- * branches naming each other as destination, which `git tag --contains` could
- * not break out of either.
- *
- * **`too-deep`** where the trace exceeds {@link MAX_RELEASE_CHAIN_DEPTH} hops
- * with neither of the above — a long chain the walk declines to keep
- * following rather than one judged unresolvable.
- *
- * @param reading - the default branch and the walk's hops, in order.
- * @returns the resolved merge commit, or a refusal naming the branch and why.
+ * @param candidates - the branch's merged PRs.
+ * @param previous - the commit and merge time the previous step reached.
+ * @returns the picked candidate, `'none'` where none qualifies, or
+ *   `{ ambiguous }` with the count where several qualify and nothing orders them.
  */
-export const releaseChain = (reading: ReleaseChainReading): ReleaseChainResult => {
-  const visited = new Set<string>();
-  for (const [index, hop] of reading.hops.entries()) {
-    if (visited.has(hop.branch)) {
-      return { outcome: 'refused', reason: 'cycle', branch: hop.branch };
-    }
-    visited.add(hop.branch);
-    if (index >= MAX_RELEASE_CHAIN_DEPTH) {
-      return { outcome: 'refused', reason: 'too-deep', branch: hop.branch };
-    }
-    if (!hop.found) {
-      return { outcome: 'refused', reason: 'dead-end', branch: hop.branch };
-    }
-    if (hop.base === reading.defaultBranch) {
-      return { outcome: 'resolved', mergeCommit: hop.mergeCommit };
-    }
+export const pickReleaseHop = (
+  candidates: readonly ReleaseChainCandidate[],
+  previous: ReleaseChainPrevious,
+): ReleaseChainCandidate | 'none' | { readonly ambiguous: number } => {
+  const proven = candidates.filter((c) => c.contains === 'yes');
+  if (proven.length > 0) return earliest(proven) ?? 'none';
+  const open = candidates.filter((c) => c.contains === 'unknown');
+  const after = timeOf(previous.mergedAt);
+  if (Number.isNaN(after)) {
+    if (open.length > 1) return { ambiguous: open.length };
+    return open[0] ?? 'none';
   }
-  // An empty trace, or one whose last hop neither resolved nor refused — the
-  // shell stopped collecting without reaching either, which this treats as the
-  // walk going nowhere rather than guessing a verdict it was not given.
-  const last = reading.hops[reading.hops.length - 1];
-  return { outcome: 'refused', reason: 'too-deep', branch: last?.branch ?? '' };
+  return earliest(open.filter((c) => timeOf(c.mergedAt) >= after)) ?? 'none';
+};
+
+/**
+ * Answers the next step of a release-chain walk.
+ *
+ * **`ask`** where the trace holds no answer yet for the branch the walk reached.
+ * **`resolved`** at the first picked PR that merged into the default branch.
+ * **`refused`** naming the branch and the {@link ReleaseChainRefusal}.
+ *
+ * @param reading - the default branch, the plan's merge commit and destination, and the hops so far.
+ * @returns the next step.
+ */
+export const releaseChainStep = (reading: ReleaseChainReading): ReleaseChainStep => {
+  const visited = new Set<string>();
+  let branch = reading.destination;
+  let previous: ReleaseChainPrevious = { commit: reading.planCommit, mergedAt: '' };
+  for (let depth = 0; ; depth += 1) {
+    const at = branch;
+    const refuse = (reason: ReleaseChainRefusal, candidates = 0): ReleaseChainStep => ({
+      outcome: 'refused',
+      reason,
+      branch: at,
+      candidates,
+    });
+    if (visited.has(at)) return refuse('cycle');
+    visited.add(at);
+    const hop = reading.hops[depth];
+    if (hop === undefined) {
+      return depth >= MAX_RELEASE_CHAIN_DEPTH ? refuse('too-deep') : { outcome: 'ask', branch: at, previous: previous.commit };
+    }
+    if (!hop.answered) return refuse('host-failed');
+    const picked = pickReleaseHop(hop.candidates, previous);
+    if (picked === 'none') return refuse('dead-end');
+    if ('ambiguous' in picked) return refuse('ambiguous', picked.ambiguous);
+    if (picked.base === reading.defaultBranch) return { outcome: 'resolved', mergeCommit: picked.mergeCommit };
+    previous = { commit: picked.mergeCommit, mergedAt: picked.mergedAt };
+    branch = picked.base;
+  }
 };
