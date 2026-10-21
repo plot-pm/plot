@@ -300,8 +300,7 @@ emit_tier() { # $1=file $2=heading regex $3=must|should|could → JSON array
       none|withdrawn) out="$out\"${delivereds[$i]}\"" ;;
       *) out="$out${delivereds[$i]}" ;;
     esac
-    out="$out,\"issues\":${issues[$i]}"
-    out="$out,\"state\":\"${states[$i]}\"}"
+    out="$out,\"issues\":${issues[$i]},\"state\":\"${states[$i]}\"}"
   done
   printf '%s]' "$out"
 }
@@ -356,9 +355,14 @@ while IFS= read -r f; do
   sprints="$sprints$one_sprint"
 done <<<"$FILES"
 
+# Computed once: every exit below carries the same declared-config pair, and
+# repeating the two `jesc` calls at each site is what the shell-lines ratchet
+# charges for, not the declaration itself.
+owner_tracker=$(printf '"declaredSprintOwner":"%s","declaredTracker":"%s"' "$(jesc "$DECLARED_SPRINT_OWNER")" "$(jesc "$DECLARED_TRACKER")")
+
 if [ -z "$sprints" ]; then
-  printf '{"sprints":[],"sprint":"","file":"","phase":"","release":"","note":"%s","must":[],"should":[],"could":[],"declaredSprintOwner":"%s","declaredTracker":"%s"}\n' \
-    "$(jesc "${resolve_note:-sprint file not found}")" "$(jesc "$DECLARED_SPRINT_OWNER")" "$(jesc "$DECLARED_TRACKER")"
+  printf '{"sprints":[],"sprint":"","file":"","phase":"","release":"","note":"%s","must":[],"should":[],"could":[],%s}\n' \
+    "$(jesc "${resolve_note:-sprint file not found}")" "$owner_tracker"
   exit 0
 fi
 
@@ -371,11 +375,9 @@ if [ "$n" = "1" ]; then
   # shape, and one a caller should not have to index into.
   one="${sprints#\{}"      # drop the inner object's opening brace
   one="${one%\}}"          # and its closing one, leaving bare key:value pairs
-  printf ',%s,"declaredSprintOwner":"%s","declaredTracker":"%s"}\n' \
-    "$one" "$(jesc "$DECLARED_SPRINT_OWNER")" "$(jesc "$DECLARED_TRACKER")"
+  printf ',%s,%s}\n' "$one" "$owner_tracker"
 else
   # Many sprints: no top-level mirror to pick, because picking one would be
   # answering "which sprint?" — the question this script refuses to answer.
-  printf ',"sprint":"","file":"","phase":"","release":"","must":[],"should":[],"could":[],"declaredSprintOwner":"%s","declaredTracker":"%s"}\n' \
-    "$(jesc "$DECLARED_SPRINT_OWNER")" "$(jesc "$DECLARED_TRACKER")"
+  printf ',"sprint":"","file":"","phase":"","release":"","must":[],"should":[],"could":[],%s}\n' "$owner_tracker"
 fi
