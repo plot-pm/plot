@@ -83,21 +83,33 @@ describe('the sentence an unaskable issue list shows', () => {
 
 describe('the sentence a bb with no issue command shows', () => {
   it('keeps the advice to declare `Tracker` where the repository declared none', () => {
-    expect(bbIssueCommandMissing('')).toMatch(/declare the issue tracker with the `Tracker` config key/);
-    expect(bbIssueCommandMissing('   ')).toMatch(/declare the issue tracker with the `Tracker` config key/);
+    expect(bbIssueCommandMissing('', 'jira')).toMatch(/declare the issue tracker with the `Tracker` config key/);
+    expect(bbIssueCommandMissing('   ', 'jira')).toMatch(/declare the issue tracker with the `Tracker` config key/);
   });
 
-  it('drops the advice where the repository already declared `Tracker`', () => {
+  it('names the working configuration where `Tracker: plot` is declared', () => {
     // `Tracker: plot` is the issue's case — the same value `issueSource` reads
-    // as "ask the git host" — and a repository tracking elsewhere, e.g. Jira,
-    // has equally already made the declaration the advice would ask it to make.
-    expect(bbIssueCommandMissing('plot')).not.toMatch(/Tracker/);
-    expect(bbIssueCommandMissing('jira https://acme.atlassian.net')).not.toMatch(/Tracker/);
+    // as "ask the git host" — and the git host cannot list issues here, so the
+    // message names the pair that moves the repository to a tracker that can.
+    expect(bbIssueCommandMissing('plot', 'jira')).toMatch(/Tracker: jira <base URL>/);
+    expect(bbIssueCommandMissing('plot', 'jira')).toMatch(/Sprint owner: plot/);
+  });
+
+  it('does not gain the pair where the repository already declared an external `Tracker`', () => {
+    // A repository tracking elsewhere, e.g. Jira, has already made the
+    // declaration the pair would ask it to make — adding it would mislead.
+    expect(bbIssueCommandMissing('jira https://acme.atlassian.net', 'jira')).not.toMatch(/Tracker/);
+  });
+
+  it('names the scheme the caller suggests, and asks for a declaration when it suggests none', () => {
+    expect(bbIssueCommandMissing('plot', 'linear')).toMatch(/Tracker: linear <base URL>/);
+    expect(bbIssueCommandMissing('plot', '')).toMatch(/declare the issue tracker with the `Tracker` config key/);
+    expect(bbIssueCommandMissing('plot', '')).not.toMatch(/Sprint owner/);
   });
 
   it('states the same reason regardless of the declaration', () => {
-    expect(bbIssueCommandMissing('plot')).toMatch(/^lists no issue command/);
-    expect(bbIssueCommandMissing('')).toMatch(/^lists no issue command/);
+    expect(bbIssueCommandMissing('plot', 'jira')).toMatch(/^lists no issue command/);
+    expect(bbIssueCommandMissing('', 'jira')).toMatch(/^lists no issue command/);
   });
 });
 

@@ -90,3 +90,16 @@ describe('the issue-source entry answers who lists a repository\'s issues', () =
     expect(out).toEqual([]);
   });
 });
+
+describe('the issue-source entry answers the bb-issue-missing sentence', () => {
+  it('names the working pair for a `plot` stdin', () => {
+    const { stdout } = ask(['--bb-issue-missing'], 'plot');
+    expect(stdout).toContain('Tracker: jira <base URL>');
+    expect(stdout).toContain('Sprint owner: plot');
+  });
+
+  it('names the `Tracker` key for an empty stdin', () => {
+    const { stdout } = ask(['--bb-issue-missing'], '');
+    expect(stdout).toContain('`Tracker` config key');
+  });
+});
