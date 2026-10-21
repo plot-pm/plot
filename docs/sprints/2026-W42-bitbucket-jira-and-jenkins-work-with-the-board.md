@@ -30,6 +30,11 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [x] [plot-pr-merged-sh-asks-gh] `plot-pr-merged.sh` asks the host through `plot-host.sh`, not `gh` (#2186)
 - [x] [pr-state-and-pr-merged-miss] Bitbucket: pr-state and pr-merged ask per branch, so old merged PRs read merged (#2187)
 - [x] [pr-state-and-pr-list-still] Bitbucket: pr-state and pr-list answer mergeable outside the desk (#2188)
+- [ ] [a-sprint-cannot-be-read-as] Jira tracker: a Plot sprint reads as a Jira Release (fixVersion) (#2212)
+- [ ] [jira-issue-list-limit-above-one] Jira: issue-list --limit above one page pages or says so (#2213)
+- [ ] [resolve-the-release-of-a-pr] Reconcile: resolve the release of a PR merged into a deleted branch (#2215)
+- [ ] [bitbucket-with-tracker-plot-the-message] Bitbucket with `Tracker: plot`: the message names the working configuration (#2216)
+- [ ] [jenkins-run-for-sha-can-answer] Jenkins: run-for-sha skips builds that never ran (#2214)
 
 ### Should Have
 
@@ -63,3 +68,4 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - 2026-10-17: Added [one-review-issue-per-pr-a] as a Should: it stops plot-review opening one follow-up issue per PR head (#1881), the flood measured during this sprint.
 - 2026-10-17: Added [the-ready-line-waits-for-every] and [a-fresh-agent-after-a-wait] as Could by Jan Wloka: both plans are approved, and their fixes keep the board and the fleet running during the sprint.
 - 2026-10-21: Added ten plans as Must by Jan Wloka: [plot-reads-as-an-unknown-tracker], [bitbucket-jenkins-pr-list-rows-past], [a-sha-bound-run-reports-the], [pr-state-and-pr-list-never], [plot-on-a-bitbucket-repository-lists], [bitbucket-jenkins-a-pr-list-row], [merge-commit-not-in-this-clone], [plot-pr-merged-sh-asks-gh], [pr-state-and-pr-merged-miss], [pr-state-and-pr-list-still]. The field tests on ewz-kus-portal (Bitbucket, Jira, Jenkins) on 2026-10-19 to 2026-10-21 found each defect; all ten are delivered. Jan Wloka ruled that the release waits for every gap the tests found, including a sprint read as a Jira Release (#2212) and #2213–#2216, whose plans join when they are dispatched.
+- 2026-10-21: Added [a-sprint-cannot-be-read-as], [jira-issue-list-limit-above-one], [resolve-the-release-of-a-pr], [bitbucket-with-tracker-plot-the-message] and [jenkins-run-for-sha-can-answer] as Must by Jan Wloka, before their plans are approved or dispatched. Jan Wloka overrode the dispatched-only rule for mid-sprint additions: the release 2.28.0 waits for these five gaps from the ewz-kus-portal field test of 2026-10-21 (#2212, #2213, #2214, #2215, #2216).
