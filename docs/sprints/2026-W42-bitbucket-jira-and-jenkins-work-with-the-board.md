@@ -30,7 +30,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [x] [plot-pr-merged-sh-asks-gh] `plot-pr-merged.sh` asks the host through `plot-host.sh`, not `gh` (#2186)
 - [x] [pr-state-and-pr-merged-miss] Bitbucket: pr-state and pr-merged ask per branch, so old merged PRs read merged (#2187)
 - [x] [pr-state-and-pr-list-still] Bitbucket: pr-state and pr-list answer mergeable outside the desk (#2188)
-- [ ] [a-sprint-cannot-be-read-as] Jira tracker: a Plot sprint reads as a Jira Release (fixVersion) (#2212)
+- [x] [a-sprint-cannot-be-read-as] Jira tracker: a Plot sprint reads as a Jira Release (fixVersion) (#2212)
 - [x] [jira-issue-list-limit-above-one] Jira: issue-list --limit above one page pages or says so (#2213)
 - [x] [resolve-the-release-of-a-pr] Reconcile: resolve the release of a PR merged into a deleted branch (#2215)
 - [x] [bitbucket-with-tracker-plot-the-message] Bitbucket with `Tracker: plot`: the message names the working configuration (#2216)
