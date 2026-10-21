@@ -59,6 +59,10 @@ set -uo pipefail
 
 j() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
+# The most frequent QUACDS-style prefix in a newline list of text, and how
+# often it occurred — one `count prefix` pair on stdout, empty if none.
+top_prefix() { grep -oE '\b[A-Z][A-Z0-9]{1,9}-[0-9]+' | sed 's/-[0-9]*$//' | sort | uniq -c | sort -rn | head -1; }
+
 git rev-parse --git-dir >/dev/null 2>&1 || { echo '{"error":"not a git repository"}'; exit 1; }
 
 # --- git host -----------------------------------------------------------
@@ -163,14 +167,10 @@ fi
 # Whether one occurrence is a scheme is `proposeTicket`'s decision, and it used
 # to be an `awk '$1 >= 2'` here.
 SUBJECT_SAMPLE=80
-ticket_line=$(git log --format=%s -"$SUBJECT_SAMPLE" 2>/dev/null \
-  | grep -oE '\b[A-Z][A-Z0-9]{1,9}-[0-9]+' \
-  | sed 's/-[0-9]*$//' | sort | uniq -c | sort -rn | head -1)
-ticket=$(printf '%s' "$ticket_line" | awk '{ print $2 }')
-ticket_count=$(printf '%s' "$ticket_line" | awk '{ print $1 + 0 }')
-[ -n "$ticket_count" ] || ticket_count=0
-subjects_read=$(git log --format=%s -"$SUBJECT_SAMPLE" 2>/dev/null | grep -c . || true)
-subjects_read=${subjects_read:-0}
+subjects=$(git log --format=%s -"$SUBJECT_SAMPLE" 2>/dev/null)
+read -r ticket_count ticket <<<"$(printf '%s\n' "$subjects" | top_prefix)"
+ticket_count=${ticket_count:-0}
+subjects_read=$(printf '%s\n' "$subjects" | grep -c . || true)
 
 # --- ticket prefix in branch names ---------------------------------------
 # THE SAME READING, A DIFFERENT POPULATION. `ticket_prefix` above samples
@@ -178,10 +178,9 @@ subjects_read=${subjects_read:-0}
 # `Tracker` at all) and still runs Jira is more reliably seen in its BRANCH
 # names than in its commits, which a Bitbucket squash-merge habit can leave
 # ticket-free. Local and remote-tracking branches both count — a fresh clone
-# before any fetch sees only `refs/heads/`, read once and reused below.
+# before any fetch sees only `refs/heads/`.
 branch_names=$(git for-each-ref --format='%(refname:short)' refs/heads/ refs/remotes/ 2>/dev/null)
-read -r branch_ticket_count branch_ticket <<<"$(printf '%s\n' "$branch_names" | grep -oE '\b[A-Z][A-Z0-9]{1,9}-[0-9]+' \
-  | sed 's/-[0-9]*$//' | sort | uniq -c | sort -rn | head -1)"
+read -r branch_ticket_count branch_ticket <<<"$(printf '%s\n' "$branch_names" | top_prefix)"
 branch_ticket_count=${branch_ticket_count:-0}
 branches_read=$(printf '%s\n' "$branch_names" | grep -c . || true)
 
