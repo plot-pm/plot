@@ -56,7 +56,7 @@ The contract test adds a fixture repo whose `build.mjs` declares a bundle with n
 
 ### Declared bundles
 
-- `infra/check-helper-table-declared-bundles` — count `build.mjs`-declared bundles in `check-helper-table.sh` and share the parser with `check-decision-count.sh` <!-- builds: a shared declared-bundle reader used by check-helper-table.sh and check-decision-count.sh -->
+- `infra/check-helper-table-declared-bundles` — count `build.mjs`-declared bundles in `check-helper-table.sh` and share the parser with `check-decision-count.sh` → #2276 <!-- builds: a shared declared-bundle reader used by check-helper-table.sh and check-decision-count.sh -->
 
 ## Notes
 
