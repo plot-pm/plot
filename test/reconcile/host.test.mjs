@@ -8895,6 +8895,85 @@ test('host: issue-list jira --state changed without Ticket prefixes exits 4 and 
   assert.ok(!existsSync(stub.argvFile), 'curl must not run');
 });
 
+// --- Jira versions: `version-list` and `issue-list --fix-version` -----------
+//
+// The two shell halves of `Tracker.versionRead`. The adapter decides whether a
+// name is known; these tests pin what the shell sends and prints.
+
+test('host: version-list jira asks one project and prints name, released and releaseDate per version', () => {
+  const body = JSON.stringify([
+    { id: '1', name: 'kus-portal-101', released: true, releaseDate: '2026-09-30' },
+    { id: '2', name: 'kus-portal-102' },
+  ]);
+  const stub = makeJiraCurlStub({ body });
+  const res = runJira(['version-list', 'PROJ'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(res.stdout.trim().split('\n').map((l) => JSON.parse(l)), [
+    { name: 'kus-portal-101', released: true, releaseDate: '2026-09-30' },
+    { name: 'kus-portal-102', released: false, releaseDate: null },
+  ]);
+  assert.ok(readFileSync(stub.argvFile, 'utf8').split('\n').includes('https://acme.atlassian.net/rest/api/2/project/PROJ/versions'));
+});
+
+test('host: version-list jira exits 3 on a 404 and on a 200 that is not JSON, never 0 or 2', () => {
+  for (const [body, status] of [['{"errorMessages":["No project could be found with key \'PROJ\'."]}', 404], ['<html>proxy</html>', 200]]) {
+    const res = runJira(['version-list', 'PROJ'], makeJiraCurlStub({ body, status }));
+    assert.equal(res.status, 3, `${status}: ${res.stderr}`);
+    assert.equal(res.stdout, '');
+  }
+});
+
+test('host: version-list exits 4 where the tracker is not Jira', () => {
+  const stub = makeJiraCurlStub({ body: '[]' });
+  const res = runJira(['version-list', 'PROJ'], stub, { PLOT_TRACKER: 'github-issues' });
+  assert.equal(res.status, 4, res.stderr);
+  assert.ok(!existsSync(stub.argvFile), 'curl must not run');
+});
+
+test('host: issue-list jira --fix-version scopes by project, escapes the name and prints the next token', () => {
+  const body = JSON.stringify({
+    issues: [{ key: 'PROJ-8', fields: { summary: 'In the release', created: 'c', status: { name: 'Done', statusCategory: { name: 'Done' } } } }],
+    nextPageToken: 'tok-2',
+  });
+  const stub = makeJiraCurlStub({ body });
+  const res = runJira(['issue-list', '--fix-version', 'kus "102" \\ x', '--limit', '500'], stub, { PLOT_TICKET_PREFIXES: 'PROJ, OTHER' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(res.stdout.trim().split('\n').map((l) => JSON.parse(l)), [
+    { number: 'PROJ-8', title: 'In the release', url: 'https://acme.atlassian.net/browse/PROJ-8', createdAt: 'c', status: 'Done', statusCategory: 'Done', assignees: [] },
+    { nextPageToken: 'tok-2' },
+  ]);
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  assert.ok(argv.includes('jql=fixVersion = "kus \\"102\\" \\\\ x" AND project IN (PROJ, OTHER) ORDER BY created DESC'), argv.join('\n'));
+  assert.ok(argv.includes('maxResults=100'));
+});
+
+// A shared instance where OTHER also holds a version named `kus-portal-102`.
+// The stub answers like Jira: a query with no project clause matches both
+// projects' issues, and a query scoped to PROJ matches PROJ's alone.
+test('host: issue-list jira --fix-version leaves out a same-named version of a project not in Ticket prefixes', () => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jira-')));
+  const issue = (key) => ({ key, fields: { summary: key, created: 'c', status: { name: 'Done', statusCategory: { name: 'Done' } } } });
+  const both = Buffer.from(JSON.stringify({ issues: [issue('PROJ-1'), issue('OTHER-1')] })).toString('base64');
+  const own = Buffer.from(JSON.stringify({ issues: [issue('PROJ-1')] })).toString('base64');
+  writeFileSync(path.join(dir, 'curl'), `#!/usr/bin/env bash
+body='${both}'
+for a in "$@"; do case "$a" in jql=*"project IN (PROJ)"*) body='${own}' ;; esac; done
+printf '%s' "$body" | base64 -d; printf '\\n200'
+`);
+  chmodSync(path.join(dir, 'curl'), 0o755);
+  const res = runJira(['issue-list', '--fix-version', 'kus-portal-102'], { dir }, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(res.stdout.trim().split('\n').map((l) => JSON.parse(l).number), ['PROJ-1']);
+});
+
+test('host: issue-list jira --fix-version without Ticket prefixes exits 4 and runs no curl', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list', '--fix-version', 'kus-portal-102'], stub, { PLOT_TICKET_PREFIXES: '' });
+  assert.equal(res.status, 4, res.stderr);
+  assert.match(res.stderr, /Ticket prefixes/);
+  assert.ok(!existsSync(stub.argvFile), 'curl must not run');
+});
+
 test('host: issue-list jira open read is unchanged: no resolutiondate, no token line', () => {
   const body = JSON.stringify({
     issues: [{ key: 'PROJ-1', fields: { summary: 'Open', created: 'c', status: { name: 'To Do', statusCategory: { name: 'To Do' } } } }],

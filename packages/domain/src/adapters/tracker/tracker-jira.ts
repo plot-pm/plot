@@ -1,5 +1,4 @@
 import type { Issue } from '../../entities/issue.js';
-import { ISSUE_PAGE_ROWS } from '../../entities/issue-index.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type {
@@ -16,16 +15,31 @@ import type {
   TrackerSpender,
   VersionRead,
 } from '../../ports/tracker.js';
-import { asJsonLines, asText, runProcess } from '../run-script.js';
+import { asText, runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
-import { issueOpenOf, pageOf, trackerReads, unaskableReasonOf } from './tracker-shell.js';
+import { issueOpenOf, trackerReads, VERSION_NOT_FOUND, type RawVersion } from './tracker-shell.js';
 
-/** One `version-read` call's first line, before its issues. */
-interface RawVersion {
-  name?: string;
-  released?: boolean;
-  releaseDate?: string | null;
-}
+/**
+ * Folds the same-named versions of several projects into one.
+ *
+ * Each project holds its own copy of a version. The fold is released only
+ * where every copy is, and carries the latest release date any copy states.
+ *
+ * @param name - the version's name.
+ * @param copies - the copies, one per project that holds the name; at least one.
+ * @returns the version's name, released flag and release date.
+ */
+export const versionOf = (
+  name: string,
+  copies: readonly RawVersion[],
+): Pick<VersionRead, 'name' | 'released' | 'releaseDate'> => {
+  const dates = copies.map((copy) => copy.releaseDate ?? null).filter((date): date is string => date !== null && date !== '');
+  return {
+    name,
+    released: copies.every((copy) => copy.released === true),
+    releaseDate: dates.length === 0 ? null : [...dates].sort().at(-1) ?? null,
+  };
+};
 
 /** The scheme `plot-host.sh` knows this connector by. */
 const SCHEME = 'jira';
@@ -169,61 +183,35 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
 
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
 
-    // A HAND-ROLLED PAGE LOOP, not `trackerReads`' `walk()`: that helper is
-    // private to the read factory and assumes every line is an issue or a
-    // token. Here the FIRST call's first line is the version object, which
-    // no later call repeats — `plot-host.sh version-read` asks for it only
-    // when invoked with no `--page-token` (see its usage header) — so the
-    // loop below reads it once and feeds every call's remaining lines
-    // through `pageOf`, same as `walk()` does for the whole page.
+    // EVERY `Ticket prefixes` PROJECT IS ASKED, and the issue search is scoped
+    // to the same projects: a same-named version in another project on a
+    // shared instance is not this repository's release.
     versionRead: async (name: string, limit: number): Promise<PortResult<VersionRead>> => {
-      let version: RawVersion | null = null;
-      const issues: Issue[] = [];
-      let token: string | null = null;
-      const seen = new Set<string>();
-      let calls = 0;
-      while (issues.length < limit) {
-        const args = ['version-read', name, '--limit', String(limit - issues.length)];
-        if (token !== null) args.push('--page-token', token);
-        const said = await runProcess('bash', [host, ...args], run);
-        calls += 1;
-        if (said.code === 2) {
-          reads.refuse(null);
-          return unaskable(`jira has no version named '${name}'`);
-        }
-        if (said.code === 4) {
-          reads.refuse(null);
-          return unaskable(unaskableReasonOf(said.stderr));
-        }
-        if (said.code !== 0) {
-          reads.refuse(said.stderr.trim() || said.stdout.trim() || `plot-host.sh exited ${said.code}`);
-          return failed();
-        }
-        reads.refuse(null);
-        let body = said.stdout;
-        if (version === null) {
-          const newline = body.indexOf('\n');
-          const first = newline === -1 ? body : body.slice(0, newline);
-          version = asJsonLines<RawVersion>(first)[0] ?? null;
-          body = newline === -1 ? '' : body.slice(newline + 1);
-        }
-        const page = pageOf(body);
-        issues.push(...page.issues);
-        token = page.next;
-        if (token === null || page.issues.length === 0 || seen.has(token)) break;
-        seen.add(token);
-      }
-      if (version === null) {
+      const projects = await projectsRead();
+      if (!projects.ok) {
+        reads.refuse(projects.why);
         return failed();
       }
-      const kept = issues.slice(0, limit);
+      if (projects.projects.length === 0) {
+        reads.refuse(null);
+        return unaskable(`a Jira version read needs '${PROJECTS_KEY}' declared`);
+      }
+      const copies: RawVersion[] = [];
+      for (const project of projects.projects) {
+        const listed = await reads.versionList(project);
+        if (!listed.ok) return listed;
+        copies.push(...listed.value.filter((version) => version.name === name));
+      }
+      if (copies.length === 0) {
+        reads.refuse(null);
+        return unaskable(`${VERSION_NOT_FOUND}: jira has no version named '${name}' in ${projects.projects.join(', ')}`);
+      }
+      const issues = await reads.issueListVersion(name, limit);
+      if (!issues.ok) return issues;
       return answered<VersionRead>({
-        name: version.name ?? name,
-        released: version.released ?? false,
-        releaseDate: version.releaseDate ?? null,
-        issues: kept,
-        complete: token === null && issues.length < limit,
-        pages: Math.max(1, calls, Math.ceil(kept.length / ISSUE_PAGE_ROWS)),
+        ...versionOf(name, copies),
+        ...issues.value,
+        pages: issues.value.pages + projects.projects.length,
       });
     },
 

@@ -178,7 +178,7 @@ export interface VersionRead {
   issues: readonly Issue[];
   /** False where the issue read stopped at its limit, so more may exist. */
   complete: boolean;
-  /** The requests the read spent, counted as {@link IssueRead.pages} is. */
+  /** The requests the read spent: one per project version list, plus the issue pages counted as {@link IssueRead.pages} is. */
   pages: number;
 }
 
@@ -281,12 +281,17 @@ export interface Tracker {
   /**
    * Reads one tracker version, and the issues whose fix version names it.
    *
-   * THREE OUTCOMES, NOT TWO. A version the tracker does not know is a clean
-   * not-found answer, `unaskable` with a `version-not-found` reason; an
+   * Three outcomes stay apart. A version the tracker does not know is
+   * `unaskable` with a reason that starts `version-not-found:`; an
    * unreachable tracker is `failed`; a tracker that cannot be asked at all
-   * (no version concept, or none declared) is `unaskable` with a different
-   * reason. An empty issue list is a fourth, separate fact: the version
-   * exists and names no issue.
+   * (no version concept, no project scope, or none declared) is `unaskable`
+   * with a reason that does not start `version-not-found`. An empty issue
+   * list is a separate fact: the version exists and names no issue.
+   *
+   * A tracker that scopes a repository to several projects reads the version
+   * in each of them and the issues of those projects only. The answer is
+   * released only where every project's copy is, and carries the latest
+   * release date any copy states.
    *
    * @param name - the version's name, verbatim — matched by the tracker, not by this port.
    * @param limit - how many of its issues to read at most.
