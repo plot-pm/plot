@@ -49,6 +49,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [ ] [reconcile-on-bitbucket-reads-merged-branches] Reconcile on Bitbucket reads merged branches as orphans past 50 merged PRs (#2282)
 - [x] [jenkins-run-for-sha-on-the] Jenkins run-for-sha on the default branch reports no answer when the branch builds in another job (#2278)
 - [ ] [plot-review-status-sh-exits-1] plot-review-status.sh exits 1 with no output on a sprint item without a plan (#2280)
+- [ ] [fleet-work-leaves-the-main-checkout] Fleet work leaves the main checkout dirty and behind its HEAD (#2311)
 
 ### Should Have
 
@@ -91,3 +92,4 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - 2026-10-21: Added [release-gate-names-an-unfinished-must], [reconcile-23-tells-a-released-plan] and [reconcile-does-not-report-a-plan] as Must by Jan Wloka: the sixth ewz-kus-portal field test found them (#2281, #2283, #2284).
 - 2026-10-21: Added [reconcile-on-bitbucket-reads-merged-branches] as Must by Jan Wloka: the sixth ewz-kus-portal field test found a merged branch reported as an orphan past the first 50 merged PRs (#2282).
 - 2026-10-21: Added [jenkins-run-for-sha-on-the] and [plot-review-status-sh-exits-1] as Must by Jan Wloka: the sixth ewz-kus-portal field test found them (#2278, #2280).
+- 2026-10-22: Added [fleet-work-leaves-the-main-checkout] as Must by Jan Wloka: fleet work left the board's checkout with 22 stale tracked files and a desk's draft, so the board showed delivered plans as in progress (#2311).
