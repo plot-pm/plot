@@ -2767,11 +2767,12 @@ test('host: a Jenkins build that was aborted reads unknown on the PR row, bound 
     'Jenkins answered this row — that is a different fact from the pass never asking it');
 });
 
-test('host: a Jenkins build that was never built reads unknown on the PR row, bound to its head sha', () => {
-  // Done-when 3 (gap 10), the other result word the sha-run path already maps
-  // (NOT_BUILT -> unknown). A naive implementation mapping only the happy path
-  // would fall through the colour table's else branch and leave this at the
-  // branch-colour map's stale answer instead.
+test('host: a Jenkins build that was never built reads unknown on the PR row, unbound', () => {
+  // A build that was never built is no run for its sha
+  // (2026-10-21-jenkins-run-for-sha-can-answer.md, Design §1), so the row
+  // reads unknown with no bound sha. A naive implementation mapping only the
+  // happy path would fall through the colour table's else branch and leave
+  // this at the branch-colour map's stale answer (`failing`) instead.
   const repo = makeJenkinsRepo();
   const sha = 'sha-notbuilt';
   const hostStubs = makeStubs({ ghJson: ghRowWithSha('feature/red', sha) });
@@ -2791,7 +2792,7 @@ test('host: a Jenkins build that was never built reads unknown on the PR row, bo
   assert.equal(res.status, 0, res.stderr);
   const rows = rowsByHead(res.stdout);
   assert.equal(rows.get('feature/red').checks, 'unknown');
-  assert.equal(rows.get('feature/red').checksSha, sha);
+  assert.equal(rows.get('feature/red').checksSha, '', 'no run binds the row to a sha');
   assert.deepEqual(rows.get('feature/red').failing_checks, []);
   assert.equal(rows.get('feature/red').checksLookup, undefined,
     'Jenkins answered this row — that is a different fact from the pass never asking it');
@@ -3649,7 +3650,7 @@ test('host: run-for-sha and runs-for-sha still return an ABORTED build for the e
   // partway. A caller that pinned a sha already knows the answer it wants to
   // see, including a cancelled state for that exact sha. `NOT_BUILT` has no
   // such exemption: nothing ran, so there is nothing for a sha-bound lookup
-  // to report either (plan's Design §2).
+  // to report either (2026-10-21-jenkins-run-for-sha-can-answer.md, Design §1).
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
