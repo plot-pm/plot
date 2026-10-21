@@ -96,9 +96,10 @@ exit 1
 if [[ "\$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
 if [[ "\$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
 printf '%s\\n' "$@" > "${argvFile}"
-# The plain listing is \`bb api …/pullrequests?state=<S>&pagelen=50\`, and
+# The plain listing is \`bb api …/pullrequests?state=<S>&pagelen=50\`, and the
+# per-branch query is \`bb api …/pullrequests?q=…&pagelen=50\` — either way
 # \`bb api\` returns the raw page, so the canned rows arrive under \`values\`.
-if [[ "\$*" == *"api "*"/pullrequests?state="* ]]; then
+if [[ "\$*" == *"api "*"/pullrequests?state="* || "\$*" == *"api "*"/pullrequests?q="* ]]; then
   printf '{"values":%s}' '${json.replace(/'/g, `'\\''`)}'
   exit 0
 fi
@@ -192,6 +193,12 @@ while [ $# -gt 0 ]; do
     # state is Bitbucket's upper-case word, and its answer is a raw page.
     */pullrequests\\?state=*)
       state="\${1#*\\?state=}"; state="\$(printf '%s' "\${state%%&*}" | tr '[:upper:]' '[:lower:]')"; page=1; shift ;;
+    # The per-branch query: \`bb api …/pullrequests?q=state=%22<S>%22…\`. The \`=\`
+    # inside the \`q=\` clauses is a literal bash character, never passed through
+    # \`url_encode\` — only its value is — so the state word sits between a
+    # literal \`state=%22\` and the next \`%22\`.
+    */pullrequests\\?q=*)
+      state="\${1#*state=%22}"; state="\${state%%%22*}"; state="\$(printf '%s' "\$state" | tr '[:upper:]' '[:lower:]')"; page=1; shift ;;
     *) shift ;;
   esac
 done
@@ -750,10 +757,12 @@ test('host: pr-merged-heads fails on a silent CLI failure, and answers empty on 
   assert.equal(miss.stdout.trim(), '');
 });
 
+// The branch filter is now the HOST's, via \`bb_branch_query\`'s \`q=\` — the stub
+// answers as the real endpoint would, with only the asked branch's row, not a
+// second branch's row this code would have to filter out itself.
 test('host: pr-merged-heads on bitbucket matches the branch and reads source.commit.hash', () => {
   const stubs = makeStubs({ bbJson: JSON.stringify([
     { source: { branch: { name: 'feature/x' }, commit: { hash: 'ccc333' } } },
-    { source: { branch: { name: 'feature/y' }, commit: { hash: 'ddd444' } } },
   ]) });
   const out = run(['pr-merged-heads', 'feature/x'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
   assert.equal(out.trim(), 'ccc333');
@@ -1008,7 +1017,12 @@ test('host: bb pr-state by branch resolves via pr-list filter (hit and miss)', (
     argvOf(stubs.bbArgv).every((a) => a !== 'all'),
     'pr-state must not send GitHub\'s `all` to bb',
   );
-  const miss = JSON.parse(run(['pr-state', 'feature/nope'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  // The branch is now part of the REQUEST (`q=` filters on it), so a stub that
+  // answers every call identically cannot express a miss — the real endpoint
+  // would answer a different branch with no rows. A fresh stub with an empty
+  // page stands in for that.
+  const missStubs = makeStubs({ bbJson: '[]' });
+  const miss = JSON.parse(run(['pr-state', 'feature/nope'], { env: { PLOT_HOST: 'bitbucket' }, stubs: missStubs }));
   assert.equal(miss.state, 'NONE');
 });
 
@@ -8836,4 +8850,280 @@ test('host: a Jira issue-open the server rejects with a 4xx still records one bu
   const second = makeJiraSequenceStub([{ body: '{"errorMessages":["issuetype is invalid"]}', status: 400 }]);
   runJira(['issue-open', '{}'], second, env);
   assert.equal(jiraLines().length, 2, 'each rejected create adds exactly one line');
+});
+
+// --- the four Bitbucket arms ask the host per branch, not per page ---------
+//
+// `pr-state`, `pr-merged`, `pr-merge-commit` and `pr-merged-heads` used to read
+// `bb pr list --state <s> --json` — a fixed 50-row page, newest first — and
+// filter `source.branch.name` locally. A PR merged before the newest 50 reads
+// as unmerged: measured 2026-10-20 on ewz-kus-portal, PR #3644 merged
+// 2026-09-26 was invisible to a page reaching back only to 2026-09-30. All
+// four now call `bb_branch_query`, which puts `source.branch.name` inside the
+// REST endpoint's `q=` filter, so the host answers about the one branch asked
+// rather than a page this adapter would have to walk and still might miss.
+//
+// `makeSweepBbStub` is reused from the `pr-list --branch` tests above: it
+// REFUSES `bb pr list` outright, so a fix that merely widened the page (rather
+// than asking per branch) fails every test in this block.
+
+test('host: pr-merged finds a branch merged past the first page', () => {
+  const branch = 'feature/ewzkus-3845-contractaccount-bykey-tracer';
+  const bb = makeSweepBbStub({
+    prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [restPr(3644, branch, 'MERGED')] },
+  });
+  const res = spawnSync('bash', [adapter, 'pr-merged', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'merged', 'invisible to a 50-row page, found by the branch query');
+});
+
+test('host: pr-merged answers not-merged for a branch the branch query proves has none', () => {
+  const bb = makeSweepBbStub();
+  const res = spawnSync('bash', [adapter, 'pr-merged', 'feature/no-pr-here'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'not-merged');
+});
+
+test('host: pr-merged answers unknown, never not-merged, on a non-miss failure', () => {
+  const bb = makeSweepBbStub({ fail: { pullrequests: { said: 'error: HTTP 500 — server error', code: 1 } } });
+  const res = spawnSync('bash', [adapter, 'pr-merged', 'feature/x'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, 'pr-merged always exits 0 — the answer carries the uncertainty');
+  assert.equal(res.stdout.trim(), 'unknown', 'a non-miss failure must not read as not-merged');
+});
+
+test('host: pr-merged answers unknown when bb is absent from PATH', () => {
+  const stubs = makeStubs({ bbFail: 'bash: bb: command not found' });
+  const res = spawnSync('bash', [adapter, 'pr-merged', 'feature/x'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0);
+  assert.equal(res.stdout.trim(), 'unknown', 'an absent CLI is not a lookup miss');
+});
+
+test('host: pr-merged answers unknown on a full page with no merged row for the branch', () => {
+  // 50 rows, none for the asked branch — the branch query's own ceiling, and
+  // the one case a page-based fix cannot even express: the page IS already
+  // the per-branch answer, so a full one with no match cannot be ruled out as
+  // truncated. `pr-merged`'s not-merged default would be an unsafe RESULT: a
+  // caller reads it as proof nothing merged.
+  const branch = 'feature/x';
+  const fifty = Array.from({ length: 50 }, (_, i) => restPr(2000 + i, branch, 'MERGED'));
+  const bb = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx': fifty.map((r) => ({ ...r, state: 'OPEN' })) } });
+  const res = spawnSync('bash', [adapter, 'pr-merged', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'unknown', 'a full page with no MERGED row cannot prove absence');
+  assert.match(res.stderr, /cannot prove absence/);
+});
+
+test('host: pr-merged request carries exactly one q= with both state and the branch, encoded', () => {
+  const bb = makeSweepBbStub();
+  spawnSync('bash', [adapter, 'pr-merged', 'feature/ki-anwendungen-unter-angebote'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  const calls = sweepCalls(bb.callsFile);
+  assert.equal(calls.length, 1, 'pr-merged asks one state — merged — not the three pr-state walks');
+  const call = calls[0];
+  assert.equal((call.match(/\?q=/g) || []).length, 1, 'exactly one q= parameter');
+  assert.match(call, /state=%22MERGED%22/);
+  assert.match(call, /source\.branch\.name=%22feature%2Fki-anwendungen-unter-angebote%22/);
+  assert.match(call, /%20AND%20/, 'the two clauses are joined by AND, encoded');
+});
+
+test('host: pr-merge-commit prints the hash for a branch merged past the first page', () => {
+  const branch = 'feature/ewzkus-3845-contractaccount-bykey-tracer';
+  const row = { ...restPr(3644, branch, 'MERGED'), merge_commit: { hash: 'deadbee' } };
+  const bb = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [row] } });
+  const res = spawnSync('bash', [adapter, 'pr-merge-commit', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'deadbee');
+});
+
+test('host: pr-merge-commit prints nothing, exit 0, for a branch the branch query proves has none', () => {
+  const bb = makeSweepBbStub();
+  const res = spawnSync('bash', [adapter, 'pr-merge-commit', 'feature/no-pr-here'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: pr-merge-commit exits 3 on a non-miss failure and on a full page with no hash', () => {
+  const failed = makeSweepBbStub({ fail: { pullrequests: { said: 'error: HTTP 500 — server error', code: 1 } } });
+  const resFail = spawnSync('bash', [adapter, 'pr-merge-commit', 'feature/x'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${failed.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(resFail.status, 3, 'a non-miss failure must not print empty and exit 0');
+  assert.equal(resFail.stdout.trim(), '');
+
+  const branch = 'feature/x';
+  const fifty = Array.from({ length: 50 }, (_, i) => restPr(2000 + i, branch, 'MERGED'));
+  const full = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx': fifty } });
+  const resFull = spawnSync('bash', [adapter, 'pr-merge-commit', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${full.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(resFull.status, 3, 'a full page with no merge_commit.hash cannot prove absence');
+  assert.equal(resFull.stdout.trim(), '');
+});
+
+test('host: pr-merged-heads prints the head for a branch merged past the first page', () => {
+  const branch = 'feature/ewzkus-3845-contractaccount-bykey-tracer';
+  const row = { ...restPr(3644, branch, 'MERGED'), source: { branch: { name: branch }, commit: { hash: 'ccc333' } } };
+  const bb = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [row] } });
+  const res = spawnSync('bash', [adapter, 'pr-merged-heads', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'ccc333');
+});
+
+test('host: pr-merged-heads prints nothing, exit 0, for a branch the branch query proves has none', () => {
+  const bb = makeSweepBbStub();
+  const res = spawnSync('bash', [adapter, 'pr-merged-heads', 'feature/no-pr-here'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: pr-merged-heads exits 3 on a non-miss failure and on a full page with no head', () => {
+  const failed = makeSweepBbStub({ fail: { pullrequests: { said: 'error: HTTP 500 — server error', code: 1 } } });
+  const resFail = spawnSync('bash', [adapter, 'pr-merged-heads', 'feature/x'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${failed.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(resFail.status, 3);
+  assert.equal(resFail.stdout.trim(), '');
+
+  const branch = 'feature/x';
+  const fifty = Array.from({ length: 50 }, (_, i) => restPr(2000 + i, branch, 'MERGED'));
+  const full = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx': fifty } });
+  const resFull = spawnSync('bash', [adapter, 'pr-merged-heads', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${full.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(resFull.status, 3, 'a full page with no source.commit.hash cannot prove absence');
+  assert.equal(resFull.stdout.trim(), '');
+});
+
+test('host: pr-state by branch finds a PR merged past the first page', () => {
+  const branch = 'feature/ewzkus-3845-contractaccount-bykey-tracer';
+  const key = (s) => `${s}%22%20AND%20source.branch.name=%22feature%2Fewzkus-3845`;
+  const bb = makeSweepBbStub({
+    prs: {
+      [key('OPEN')]: [],
+      [key('MERGED')]: [{ ...restPr(3644, branch, 'MERGED'), links: { html: { href: 'https://bitbucket.org/x/3644' } } }],
+    },
+  });
+  const res = spawnSync('bash', [adapter, 'pr-state', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const out = JSON.parse(res.stdout);
+  assert.equal(out.number, 3644, 'invisible to a 50-row page, found by the branch query');
+  assert.equal(out.state, 'MERGED');
+});
+
+test('host: pr-state by branch reports NONE only once every state answered, never on a failure', () => {
+  const bb = makeSweepBbStub();
+  const miss = spawnSync('bash', [adapter, 'pr-state', 'feature/no-pr-here'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(miss.status, 0, miss.stderr);
+  assert.equal(JSON.parse(miss.stdout).state, 'NONE');
+  assert.equal(sweepCalls(bb.callsFile).length, 3, 'all three states asked before answering NONE');
+
+  const failed = makeSweepBbStub({ fail: { pullrequests: { said: 'error: HTTP 500 — server error', code: 1 } } });
+  const res = spawnSync('bash', [adapter, 'pr-state', 'feature/x'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${failed.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.notEqual(res.status, 0, 'a failed query must never answer NONE');
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: pr-state by branch resolves a full page of real matches, not an error', () => {
+  // `pr-state`'s branch walk stops at the first state whose page is non-empty
+  // (`bb_branch_query` already filtered to this branch, so every row matches),
+  // so a 50-row OPEN page is 50 real answers, not a truncated non-match — the
+  // "full page, cannot prove absence" guard belongs to the single-state arms
+  // below, where a full page can genuinely hide whether a MERGED row exists
+  // beyond row 50. Here the first row still answers correctly.
+  const branch = 'feature/x';
+  const fifty = Array.from({ length: 50 }, (_, i) => ({ ...restPr(2000 - i, branch, 'OPEN'), links: { html: { href: `https://bitbucket.org/x/${2000 - i}` } } }));
+  const key = 'OPEN%22%20AND%20source.branch.name=%22feature%2Fx';
+  const bb = makeSweepBbStub({ prs: { [key]: fifty } });
+  const res = spawnSync('bash', [adapter, 'pr-state', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const out = JSON.parse(res.stdout);
+  assert.equal(out.state, 'OPEN');
+  assert.equal(sweepCalls(bb.callsFile).length, 1, 'stops at the first state — a full matching page still answers');
+});
+
+test('host: pr-state by branch still resolves open-before-merged with the branch query', () => {
+  const branch = 'feature/a';
+  const key = (s) => `${s}%22%20AND%20source.branch.name=%22feature%2Fa`;
+  const bb = makeSweepBbStub({
+    prs: {
+      [key('OPEN')]: [{ ...restPr(4, branch, 'OPEN'), links: { html: { href: 'https://bitbucket.org/x/4' } } }],
+      [key('MERGED')]: [{ ...restPr(9, branch, 'MERGED'), links: { html: { href: 'https://bitbucket.org/x/9' } } }],
+    },
+  });
+  const state = spawnSync('bash', [adapter, 'pr-state', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(state.status, 0, state.stderr);
+  const out = JSON.parse(state.stdout);
+  assert.equal(out.number, 4, 'the open PR still outranks the older merged one');
+  assert.equal(out.state, 'OPEN');
+  assert.equal(sweepCalls(bb.callsFile).length, 1, 'stops at the first state that answers');
+
+  const merged = spawnSync('bash', [adapter, 'pr-merged', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(merged.status, 0, merged.stderr);
+  assert.equal(merged.stdout.trim(), 'merged', 'pr-merged asks only the merged state directly');
+});
+
+test('host: pr-state by branch request carries exactly one q= with both state and the branch, encoded', () => {
+  const bb = makeSweepBbStub();
+  spawnSync('bash', [adapter, 'pr-state', 'feature/ki-anwendungen-unter-angebote'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  const calls = sweepCalls(bb.callsFile);
+  assert.equal(calls.length, 3, 'no PR in any state — all three are asked');
+  for (const [i, state] of ['OPEN', 'MERGED', 'DECLINED'].entries()) {
+    assert.equal((calls[i].match(/\?q=/g) || []).length, 1, 'exactly one q= parameter');
+    assert.match(calls[i], new RegExp(`state=%22${state}%22`));
+    assert.match(calls[i], /source\.branch\.name=%22feature%2Fki-anwendungen-unter-angebote%22/);
+  }
 });

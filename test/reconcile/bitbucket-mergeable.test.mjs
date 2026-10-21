@@ -46,7 +46,7 @@ function makeCountingBbStub(prJson) {
 if [[ "\$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
 if [[ "\$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
 c="\$(cat "${countFile}")"; echo "\$((c + 1))" > "${countFile}"
-if [[ "\$*" == *"api "*"/pullrequests?state="* ]]; then
+if [[ "\$*" == *"api "*"/pullrequests?state="* || "\$*" == *"api "*"/pullrequests?q="* ]]; then
   printf '{"values":%s}' '${prJson.replace(/'/g, `'\\''`)}'
   exit 0
 fi

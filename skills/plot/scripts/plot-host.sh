@@ -46,6 +46,13 @@
 #                                 `mergeableReason`, never "conflicting".
 #                                 NONE = no PR found (exit 0 — callers branch on
 #                                 state, not exit codes)
+#                                 ON BITBUCKET, a branch name asks the host
+#                                 PER BRANCH (`bb_branch_query`'s `q=` filter),
+#                                 never a repository-wide page — a PR merged
+#                                 before a page's newest 50 used to read as
+#                                 NONE. A page full at that filter's own
+#                                 ceiling without a match exits 3, the same as
+#                                 any other unanswerable question.
 #   pr-merged <branch>            has ANY PR for this branch merged? prints one
 #                                 word: merged|not-merged|unknown
 #                                 READS `mergedAt`, NEVER `state`: a merged PR
@@ -551,6 +558,10 @@ ISSUE_PAGE_ROWS=100
 # that failed, as opposed to exit 4 (cannot be asked) or an answered empty list.
 # An empty message or a recognised lookup miss is an answer; anything else exits 3.
 miss_or_exit3() { [ -z "$1" ] || is_lookup_miss "$1" || { echo "plot-host: $1" >&2; exit 3; }; }
+# `pr-merged`'s own third value for a failed call: a lookup miss still means
+# not-merged, anything else prints the host's words and answers `unknown`
+# rather than exiting — the caller already branches on this word, not a code.
+miss_or_unknown() { if [ -z "$1" ] || is_lookup_miss "$1"; then echo "not-merged"; else echo "plot-host: $1" >&2; echo "unknown"; fi; }
 gh_fail() { echo "plot-host: $(cat "$HOST_ERR" 2>/dev/null)" >&2; rm -f "$HOST_ERR"; exit 3; }
 
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
@@ -1009,6 +1020,13 @@ bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values
   _out="$(bb "$@" api "$_path")" || return $?
   printf '%s' "$_out" | jq -c '.values // []'
 }
+
+# A FULL `bb_branch_query` PAGE WITH NO MATCHING ROW CANNOT PROVE ABSENCE.
+# $1=the JSON array, $2=a jq `any(.[]; …)` predicate naming the field that
+# would carry the answer. True only at the 50-row ceiling with the predicate
+# finding nothing — the one condition `pr-merged`, `pr-merge-commit` and
+# `pr-merged-heads` each guard against before reading silence as a negative.
+bb_full_page_lacks() { [ "$(jq 'length' <<<"$1")" -ge 50 ] && ! jq -e "$2" >/dev/null 2>&1 <<<"$1"; }
 
 # Ask about EVERY tracked branch in one state, printing one combined array.
 #
@@ -3765,14 +3783,25 @@ case "$op" in
         #
         # A declined-only or PR-less branch still pays for all three; those are
         # the cases where the third call is the one carrying the answer.
+        #
+        # ASK THE HOST FOR THE BRANCH; DO NOT PAGE FURTHER. `bb_branch_query`
+        # replaces each state's whole-repository page with the per-branch REST
+        # filter, costing one request per state asked instead of one page that
+        # cannot see past its first 50 rows — `pr-merged`'s header has the
+        # measurement. `bb_states_for all` still expands to three calls because
+        # `bb pr list` (and this REST filter) has no `all` state.
+        #
+        # NO "FULL PAGE, NO MATCH" GUARD HERE, unlike the single-state arms
+        # below. The loop breaks on the first non-empty page, and every row in
+        # it already matches `$ref` — `bb_branch_query` filtered server-side —
+        # so a full page is 50 real answers, never a truncated non-match. The
+        # condition the other arms guard against cannot occur in this walk.
         out=""; bb_rc=0
         bb_all_states="$(bb_states_for all)" || exit 1
         for _s in $bb_all_states; do
-          if _part="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state "$_s" --json 2>"$HOST_ERR")"; then
+          if _part="$(bb_branch_query "$ref" "$_s" ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
             out="$out$_part"
-            # `jq -e` exits non-zero on null/false, so this asks "did this state
-            # contain the branch?" without a second parse of the whole page.
-            jq -e --arg b "$ref" 'any(.[]; .source.branch.name==$b)' >/dev/null 2>&1 <<<"$_part" && break
+            [ "$(jq 'length' <<<"$_part")" -gt 0 ] && break
           else
             bb_rc=1; break
           fi
@@ -3786,9 +3815,10 @@ case "$op" in
           # from the answer. A fix touching only the numeric pair above would
           # leave that caller reading an absent key on every Bitbucket repo.
           #
-          # The hash rides on the page the state walk already fetched, so this
-          # costs no extra call.
-          bb_fold_mergeable "$(bb_state_row "$(jq -c --arg b "$ref" '[.[] | select(.source.branch.name==$b)][0] // null' <<<"$out")")"
+          # The hash rides on the page the branch query already fetched, so this
+          # costs no extra call. `bb_branch_query` already filtered to the
+          # branch, so every row in `out` already matches it.
+          bb_fold_mergeable "$(bb_state_row "$(jq -c '.[0] // null' <<<"$out")")"
         else
           err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
@@ -3824,36 +3854,36 @@ case "$op" in
         # --state all, because a merged PR reports CLOSED and the default `open`
         # would hide every one of them. --limit 100 rather than 1: the newest PR
         # is not the merge, exactly as the state is not the merge.
-        pm_cmd=(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt)
-        pm_jq='any(.[]; .mergedAt != null)'
-      else
-        bb_require_json
-        # Bitbucket has no `--head` filter, so the branch is matched locally.
-        # MERGED is bb's own state word here rather than a timestamp: the API
-        # exposes no `mergedAt`, so this is the closest fact the backend holds,
-        # and it is a positive statement about the merge rather than an inference
-        # from CLOSED — `DECLINED` is bb's closed-unmerged word and is distinct.
-        pm_cmd=(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state merged --json)
-        pm_jq='any(.[]; .source.branch.name==$b)'
-      fi
-      if out="$("${pm_cmd[@]}" 2>"$HOST_ERR")"; then
-        rm -f "$HOST_ERR"
-        if jq -e --arg b "$ref" "$pm_jq" >/dev/null 2>&1 <<<"$out"; then
-          echo "merged"
+        if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt 2>"$HOST_ERR")"; then
+          rm -f "$HOST_ERR"
+          jq -e 'any(.[]; .mergedAt != null)' >/dev/null 2>&1 <<<"$out" && echo "merged" || echo "not-merged"
         else
-          echo "not-merged"
+          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+          miss_or_unknown "$err"
         fi
       else
-        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
-        # A LOOKUP MISS IS AN ANSWER — the branch has no PR, so nothing merged.
-        # Anything else is the host failing to be asked, and that is `unknown`
-        # rather than exit 3: the caller asked a question with a third value
-        # for exactly this case, and the answer fails safe toward keeping.
-        if [ -z "$err" ] || is_lookup_miss "$err"; then
-          echo "not-merged"
+        bb_require_json
+        # ASK THE HOST FOR THE BRANCH; DO NOT PAGE FURTHER. `bb pr list --state
+        # merged` returns one fixed page of 50, newest first, and a branch whose
+        # merge is older than that page reads as unmerged — measured 2026-10-20
+        # on ewz-kus-portal: PR #3644 merged 2026-09-26, invisible to a page that
+        # reached back only to 2026-09-30. `bb_branch_query` puts
+        # `source.branch.name` inside `q=` so the host filters, costing one
+        # request instead of a listing this adapter refuses to page past its
+        # ceiling (see `bb_branch_sweep`'s header).
+        if out="$(bb_branch_query "$ref" merged ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
+          rm -f "$HOST_ERR"
+          # A FULL PAGE CANNOT PROVE ABSENCE. `bb_branch_query` asks pagelen=50,
+          # and a branch carrying more than 50 merged PRs could hide a MERGED row
+          # past it — so 50 rows with none matching answers `unknown`, not
+          # `not-merged`, the same rule a failed call follows below.
+          if jq -e 'any(.[]; .state == "MERGED")' >/dev/null 2>&1 <<<"$out"; then echo "merged"
+          elif bb_full_page_lacks "$out" 'any(.[]; .state == "MERGED")'; then echo "plot-host: pr-merged: the branch query for '$ref' returned a full page with no merged PR; cannot prove absence" >&2; echo "unknown"
+          else echo "not-merged"
+          fi
         else
-          echo "plot-host: $err" >&2
-          echo "unknown"
+          err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+          miss_or_unknown "$err"
         fi
       fi
     fi
@@ -3904,11 +3934,13 @@ case "$op" in
       fi
     else
       bb_require_json
-      # Bitbucket names the merge commit `merge_commit.hash` on a merged PR.
-      if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state merged --json 2>"$HOST_ERR")"; then
+      # ASK THE HOST FOR THE BRANCH; DO NOT PAGE FURTHER — `pr-merged`'s header
+      # states the measurement and the cost. Bitbucket names the merge commit
+      # `merge_commit.hash` on a merged PR.
+      if out="$(bb_branch_query "$ref" merged ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        jq -r --arg b "$ref" 'map(select(.source.branch.name==$b))
-               | map(.merge_commit.hash // empty) | first // empty' <<<"$out"
+        bb_full_page_lacks "$out" 'any(.[]; .merge_commit.hash != null)' && { echo "plot-host: pr-merge-commit: the branch query for '$ref' returned a full page with no merge commit; cannot prove absence" >&2; exit 3; }
+        jq -r 'map(.merge_commit.hash // empty) | first // empty' <<<"$out"
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         miss_or_exit3 "$err"
@@ -3945,13 +3977,16 @@ case "$op" in
       fi
     else
       bb_require_json
-      # Bitbucket names the merged head `source.commit.hash`.
-      if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state merged --json 2>"$HOST_ERR")"; then
+      # ASK THE HOST FOR THE BRANCH; DO NOT PAGE FURTHER — `pr-merged`'s header
+      # states the measurement and the cost. Bitbucket names the merged head
+      # `source.commit.hash`.
+      if out="$(bb_branch_query "$ref" merged ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        jq -r --arg b "$ref" '.[] | select(.source.branch.name==$b) | (.source.commit.hash // empty)' <<<"$out" || exit 3
+        bb_full_page_lacks "$out" 'any(.[]; .source.commit.hash != null)' && { echo "plot-host: pr-merged-heads: the branch query for '$ref' returned a full page with no merged head; cannot prove absence" >&2; exit 3; }
+        jq -r '.[] | (.source.commit.hash // empty)' <<<"$out" || exit 3
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
-        [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-bb pr list failed}" >&2; exit 3; }
+        [ -n "$err" ] && is_lookup_miss "$err" || { echo "plot-host: ${err:-the branch query failed}" >&2; exit 3; }
       fi
     fi
     ;;
