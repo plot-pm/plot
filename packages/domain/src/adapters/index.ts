@@ -40,6 +40,7 @@ export {
   HOST_ISSUE_LISTERS,
   TICKET_SOURCES,
   TRACKER_LISTERS,
+  TRACKER_VERSION_SCHEMES,
   trackerFor,
   trackerShell,
   trackerForIssues,

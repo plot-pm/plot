@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { sprintReleaseDrift } from '../src/rules/sprint-release.js';
+import { releaseIsRead, sprintReleaseDrift } from '../src/rules/sprint-release.js';
 
 describe('sprintReleaseDrift', () => {
   it('reports nothing when every Must-have names an issue the Release carries and vice versa', () => {
@@ -49,5 +49,25 @@ describe('sprintReleaseDrift', () => {
 
   it('answers no drift for an empty sprint and an empty Release', () => {
     expect(sprintReleaseDrift([], [])).toEqual({ missingFromRelease: [], missingFromSprint: [] });
+  });
+});
+
+describe('releaseIsRead', () => {
+  const versions = ['vendor-a'];
+
+  it('reads the Release where Plot owns the sprint and the tracker scheme reads versions', () => {
+    expect(releaseIsRead({ owns: 'plot' }, 'Vendor-A https://example.invalid PROJ', versions)).toBe(true);
+  });
+
+  it('reads nothing where no tracker is declared', () => {
+    expect(releaseIsRead({ owns: 'plot' }, '', versions)).toBe(false);
+  });
+
+  it('reads nothing where the declared tracker has no version concept', () => {
+    expect(releaseIsRead({ owns: 'plot' }, 'vendor-b', versions)).toBe(false);
+  });
+
+  it('reads nothing where an external tracker owns the sprint', () => {
+    expect(releaseIsRead({ owns: 'external', scheme: 'vendor-a' }, 'vendor-a', versions)).toBe(false);
   });
 });

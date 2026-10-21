@@ -33,3 +33,9 @@ export const HOST_ISSUE_LISTERS: readonly HostIssueLister[] = [
 
 /** The reading `ticketSourceOf` takes: every lister the adapters declare. */
 export const TICKET_SOURCES: TicketSourceReading = { listers: TRACKER_LISTERS, hosts: HOST_ISSUE_LISTERS };
+
+/**
+ * The tracker schemes whose connector answers `Tracker.versionRead` — the
+ * reading `releaseIsRead` takes. Every other connector answers `unaskable`.
+ */
+export const TRACKER_VERSION_SCHEMES: readonly string[] = ['jira'];

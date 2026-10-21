@@ -15,13 +15,15 @@ compatibility: Designed for Claude Code and Cursor. Requires git. Sprint skeleto
 # Plot: Sprint
 
 **Sprint-owner gate — check before anything else.** Sprints exist only
-where plot owns them. `plot-sprint-release-gate.sh` asks the domain's
-`sprintOwner()` rule and **exits 3 when an external tracker owns this
-repository's sprints** — a refusal, not a sentence this skill could print
-and a future edit could skip:
+where plot owns them. The gate bundle asks the domain's `sprintOwner()`
+rule and **exits 3 when an external tracker owns this repository's
+sprints** — a refusal, not a sentence this skill could print and a future
+edit could skip. `{}` on stdin asks the owner check alone: it reads no
+sprint, runs no collector and calls no tracker, so a broken collector
+cannot stop `create`:
 
 ```bash
-../plot/scripts/plot-sprint-release-gate.sh >/dev/null
+printf '{}' | node ../plot/scripts/board/plot-sprint-release-gate.mjs >/dev/null
 status=$?
 ```
 
@@ -38,9 +40,9 @@ question while still naming Jira (or another tracker) for the second;
 
 `status` 3 means the gate refused — print its stderr sentence verbatim and
 stop; the config must change before `/plot-sprint` operates in this repo.
-`status` 0 means it ran (checked a Jira Release or found nothing to check);
-proceed. `status` 2 means the facts were unreadable — a broken
-installation, not a sprint's state; report it and stop.
+`status` 0 means Plot owns this repository's sprints; proceed. Any other
+status means the bundle could not run — a broken installation, not a
+sprint's state; report it and stop.
 
 Sprints are **not plans**. Plans track *what* to build; sprints track *when* to ship it. Sprint files live in `docs/sprints/`. The initial skeleton commits directly to main; subsequent Planning-phase refinement may optionally happen on a `sprint/<slug>` branch with a draft PR for review. Principle 2 ("Plans are approved before implementation") does not apply to sprints — sprints don't spawn implementation branches — but the *refinement* benefits from the same review surface.
 
@@ -669,12 +671,13 @@ Report one of:
 - **Not cut** — no tag: `Release 2.5.2: not cut. 1 Must Have open.`
 - **Cut over the gate** — a `--ignore-sprint` line is in `## Notes`: quote it.
 
-**When the repository's tracker is Jira**, also run the sprint-owner gate and
-report what it found, same as Status step 2 below — this is the same
-check, run at close instead of at a status glance. An `externalOwner`
-refusal here (exit 3) means this sprint is not plot-owned at all, which
-step 1 should already have caught; a non-Jira or undeclared tracker
-answers `checked: false` with no entry, meaning nothing to report.
+**When the repository's tracker is Jira**, also run
+`../plot/scripts/plot-sprint-release-gate.sh <slug>` and report what it
+found, same as Status step 2 below — this is the same check, run at close
+instead of at a status glance. An `externalOwner` refusal here (exit 3)
+means this sprint is not plot-owned at all, which step 1 should already
+have caught; a non-Jira or undeclared tracker answers `sprints: []`,
+meaning nothing to report.
 
 **Closing a sprint whose release slipped is a legitimate outcome, and this step
 never blocks it.** A timebox that ends is the definition of a timebox; a command
@@ -824,20 +827,21 @@ Read the sprint file and display:
   repository's `Tracker` is Jira:
 
   ```bash
-  ../plot/scripts/plot-sprint-release-gate.sh
+  ../plot/scripts/plot-sprint-release-gate.sh <slug>
   ```
 
   This is the one call: it re-derives the sprint-owner check, so a status
-  glance never reports drift for a repository that declined earlier. Read
-  the `sprints[]` entry whose `sprint` matches this slug and report its
-  `verdict`:
+  glance never reports drift for a repository that declined earlier. The
+  slug names this sprint whatever its phase, so a Planning or Committed
+  sprint is checked too. Read the `sprints[]` entry whose `sprint` matches
+  this slug and report its `verdict`:
 
   | `verdict` | Report |
   |---|---|
-  | `checked: false` (no `unreachable`) | nothing — no Release target, or a non-Jira tracker; this sprint's line is unchanged from today |
+  | no `sprints[]` entry for this slug | nothing — no `Release:` target, or a tracker with no Release to read; this sprint's line is unchanged from today |
   | `checked: false, unreachable: true` | `⚠ Release <version>: <reason>` — a wrong `Release:` field (`unaskable`) and an unreachable Jira (`failed`) are different facts, so print the gate's own `reason` rather than a generic line |
   | `checked: true`, both lists empty | `Release <version>: in sync with Jira.` |
-  | `checked: true`, `missingFromRelease` non-empty | `⚠ <n> Must Have(s) not in Jira <version>: <issue or text, …>` |
+  | `checked: true`, `missingFromRelease` non-empty | `⚠ <n> Must Have(s) not in Jira <version>: <issue, …>` |
   | `checked: true`, `missingFromSprint` non-empty | `⚠ Jira <version> carries <n> issue(s) this sprint does not list: <key, …>` |
 
   Exit 3 (`externalOwner`) from the gate means this repository's sprints are

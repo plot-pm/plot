@@ -182,6 +182,8 @@ Release does not carry, or a Release issue no Must-have names.
 **This exits 3 (`externalOwner`) only when this repository's sprints are not
 plot-owned at all** — the same `sprintOwner()` refusal step 0's Must-Have gate
 never needed to ask about, because that gate reads the sprint file directly.
+On exit 3, print the gate's stderr sentence as a note, report no drift, and
+continue the release: exit 3 refuses the drift read, never the cut.
 A `--ignore-sprint` cut still runs this call: the flag clears the Must-Have
 refusal and nothing else, and drift reporting is not a refusal to clear.
 
@@ -189,10 +191,10 @@ Read the `sprints[]` entry whose `sprint` matches this release's sprint:
 
 | `verdict` | Report |
 |---|---|
-| `checked: false` (no `unreachable`) | nothing — no Release target, or a non-Jira tracker |
+| no `sprints[]` entry for this sprint | nothing — no `Release:` target, or a tracker with no Release to read |
 | `checked: false, unreachable: true` | `⚠ Release <version>: <reason>` — print the gate's own `reason`; a wrong `Release:` field and an unreachable Jira are different facts the cutter acts on differently |
 | `checked: true`, both lists empty | nothing — in sync, no news to report here |
-| `checked: true`, `missingFromRelease` non-empty | `⚠ <n> Must Have(s) not in Jira <version>: <issue or text, …>` — **this never refuses the cut**; it is drift to show the operator, the same way `openShoulds` is asked rather than gated |
+| `checked: true`, `missingFromRelease` non-empty | `⚠ <n> Must Have(s) not in Jira <version>: <issue, …>` — **this never refuses the cut**; it is drift to show the operator, the same way `openShoulds` is asked rather than gated |
 | `checked: true`, `missingFromSprint` non-empty | `⚠ Jira <version> carries <n> issue(s) this sprint does not list: <key, …>` |
 
 **Neither direction gates.** The brief and this gate both treat the Jira

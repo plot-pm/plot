@@ -2,7 +2,9 @@
 # The sprint-owner gate in front of a Jira Release comparison: collect the
 # facts, ask the domain for its verdict, print what it said.
 #
-#   plot-sprint-release-gate.sh
+#   plot-sprint-release-gate.sh [<sprint-slug>]
+#
+# A slug names one sprint whatever its phase; no slug reads every active sprint.
 #
 # THE SPRINT-OWNER DECLINE IS A REFUSAL HERE, NOT A SENTENCE A SKILL PRINTS.
 # `sprintOwner()` had zero callers before this bundle: the decline existed as
@@ -11,8 +13,8 @@
 # nothing past it runs.
 #
 # NO TRACKER, OR A NON-JIRA ONE, IS NOT A REFUSAL. A repository naming no
-# tracker, or a GitHub-issues one, answers `sprints: []` with no entries —
-# nothing is being checked, because there is nothing to compare.
+# tracker, or a GitHub-issues one, answers `sprints: []`, asks no tracker, and
+# reports no drift.
 #
 # Exit 0 the gate ran (checked or not, per sprint), 2 the facts were
 # unreadable, 3 an external tracker owns this repository's sprints.
@@ -29,7 +31,7 @@ bundle="$script_dir/board/plot-sprint-release-gate.mjs"
 # COLLECT, THEN ASK. The collector's JSON travels unchanged: a reshaping step
 # between them would be a third place that reads a sprint item, and the two
 # that exist are already one more than the rule needs.
-facts=$(bash "$script_dir/plot-sprint-release.sh" 2>/dev/null)
+facts=$(bash "$script_dir/plot-sprint-release.sh" "$@" 2>/dev/null)
 [ -n "$facts" ] \
   || { echo "plot-sprint-release-gate: plot-sprint-release.sh reported nothing — the sprint estate could not be read." >&2; exit 2; }
 

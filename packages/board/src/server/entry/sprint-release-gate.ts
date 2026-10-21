@@ -1,9 +1,9 @@
-import { trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
+import { TRACKER_VERSION_SCHEMES, trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
 import { runProcess } from '@plot-pm/domain/adapters/run-script';
 import { scriptPath } from '@plot-pm/domain/adapters/scripts';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import { sprintOwner } from '@plot-pm/domain/rules/issue-source';
-import { sprintReleaseDrift, type SprintReleaseItem } from '@plot-pm/domain/rules/sprint-release';
+import { releaseIsRead, sprintReleaseDrift, type SprintReleaseItem } from '@plot-pm/domain/rules/sprint-release';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -24,10 +24,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * runs, the same shape `plot-release-gate.sh` already uses for the Must-Have
  * gate.
  *
- * **NO TRACKER, OR A NON-JIRA ONE, IS NOT A REFUSAL.** The plan is explicit:
- * the Release is read only when the tracker is Jira. A repository with no
- * tracker, or a GitHub-issues one, is told nothing is being checked rather than
- * refused — `sprints: []` with no entries, because there is nothing to compare.
+ * **NO TRACKER, OR A NON-JIRA ONE, IS NOT A REFUSAL.** The Release is read
+ * only where `releaseIsRead` answers `true`: Plot owns the sprint and the
+ * declared tracker's scheme is in `TRACKER_VERSION_SCHEMES`. Every other
+ * repository answers `sprints: []`, asks no tracker, and reports no drift.
+ *
+ * **THE OWNER CHECK READS NO INPUT.** `{}` on stdin asks only whether Plot owns
+ * this repository's sprints: exit 3 or `{"sprints":[]}`. `/plot-sprint` opens
+ * with that call, so a broken collector cannot stop `create`.
  *
  * **EVERY ACTIVE SPRINT, MIRRORING `release-gate.ts`'s `itemsFrom`.** Two teams
  * may share one train, so this reads `report.sprints[]` directly rather than a
@@ -241,18 +245,37 @@ export const verdict = async (input: GateInput, tracker: Tracker): Promise<Verdi
   return { sprints };
 };
 
+/** What `run` reaches outside the process, replaceable in a test. */
+export interface GateWorld {
+  /** Reads one `## Plot Config` key's value; `''` where none is declared. */
+  readonly config: (key: string) => Promise<string>;
+  /** Builds the connector the repository declared. */
+  readonly tracker: () => Promise<Tracker>;
+}
+
+/**
+ * The world `run` reaches by default: `plot-config.sh` and `trackerShell`.
+ *
+ * @param context - where the scripts and the repository are.
+ * @returns the config reader and tracker builder for that repository.
+ */
+export const shellWorld = (context: ShellContext): GateWorld => ({
+  config: (key) => configShell(context, key),
+  tracker: () => trackerShell(context),
+});
+
 /**
  * Reads stdin, answers the gate, prints the verdict.
  *
  * @param text - the whole of stdin: the collector's report.
- * @param context - where the scripts and the repository are.
+ * @param world - the config reader and tracker builder.
  * @param write - where the verdict goes.
  * @param warn - where a refusal's sentence goes.
  * @returns the process exit code — 0 checked (or nothing to check), 2 unreadable input, 3 external sprint owner.
  */
 export const run = async (
   text: string,
-  context: ShellContext,
+  world: GateWorld,
   write: (s: string) => void = (s) => process.stdout.write(s),
   warn: (s: string) => void = (s) => process.stderr.write(s),
 ): Promise<number> => {
@@ -264,8 +287,8 @@ export const run = async (
     return EXIT.usage;
   }
   const [declaredSprintOwner, declaredTracker] = await Promise.all([
-    configShell(context, 'Sprint owner'),
-    configShell(context, 'Tracker'),
+    world.config('Sprint owner'),
+    world.config('Tracker'),
   ]);
   const owner = sprintOwner(declaredSprintOwner, declaredTracker);
   if (owner.owns === 'external') {
@@ -274,8 +297,13 @@ export const run = async (
     );
     return EXIT.externalOwner;
   }
-  const tracker = await trackerShell(context);
-  const answered = await verdict(input, tracker);
+  // NO VERSION READ, NO TRACKER BUILT: a repository whose tracker has no
+  // Release, or that declared none, reports no drift line at all.
+  if (!releaseIsRead(owner, declaredTracker, TRACKER_VERSION_SCHEMES) || input.releases.length === 0) {
+    write(`${JSON.stringify({ sprints: [] })}\n`);
+    return EXIT.ok;
+  }
+  const answered = await verdict(input, await world.tracker());
   write(`${JSON.stringify(answered)}\n`);
   return EXIT.ok;
 };
@@ -290,5 +318,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   };
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(await run(Buffer.concat(chunks).toString('utf8'), context));
+  process.exit(await run(Buffer.concat(chunks).toString('utf8'), shellWorld(context)));
 }
