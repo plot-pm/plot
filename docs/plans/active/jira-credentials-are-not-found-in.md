@@ -1,0 +1,1 @@
+../2026-10-21-jira-credentials-are-not-found-in.md
