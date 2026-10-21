@@ -9414,6 +9414,65 @@ test('host: pr-merge-commit exits 3 on a non-miss failure and on a full page wit
   assert.equal(resFull.stdout.trim(), '');
 });
 
+test('host: pr-merge-dest prints number, destination, merge commit and merge time for every merged PR of a branch', () => {
+  const branch = 'feature/ewzkus-3845-contractaccount-bykey-tracer';
+  const row = (id, hash) => ({
+    ...restPr(id, branch, 'MERGED'),
+    destination: { branch: { name: 'develop' } },
+    merge_commit: { hash },
+  });
+  const bb = makeSweepBbStub({
+    prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [row(3644, 'deadbee'), row(3701, 'cafe001')] },
+  });
+  const res = spawnSync('bash', [adapter, 'pr-merge-dest', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(
+    res.stdout.trim(),
+    '3644\tdevelop\tdeadbee\t2026-09-20T12:00:04+00:00\n3701\tdevelop\tcafe001\t2026-09-20T12:00:01+00:00',
+  );
+
+  // `pr-merge-commit` shares the arm and still prints the first sha alone.
+  const one = spawnSync('bash', [adapter, 'pr-merge-commit', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(one.status, 0, one.stderr);
+  assert.equal(one.stdout.trim(), 'deadbee');
+});
+
+test('host: pr-merge-dest prints nothing, exit 0, for a branch the branch query proves has none', () => {
+  const bb = makeSweepBbStub();
+  const res = spawnSync('bash', [adapter, 'pr-merge-dest', 'feature/no-pr-here'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: pr-merge-dest exits 3 on a non-miss failure and on a full page with no merge commit', () => {
+  const failed = makeSweepBbStub({ fail: { pullrequests: { said: 'error: HTTP 500 — server error', code: 1 } } });
+  const resFail = spawnSync('bash', [adapter, 'pr-merge-dest', 'feature/x'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${failed.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(resFail.status, 3, 'a non-miss failure must not print empty and exit 0');
+  assert.equal(resFail.stdout.trim(), '');
+
+  const branch = 'feature/x';
+  const fifty = Array.from({ length: 50 }, (_, i) => restPr(2000 + i, branch, 'MERGED'));
+  const full = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx': fifty } });
+  const resFull = spawnSync('bash', [adapter, 'pr-merge-dest', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${full.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(resFull.status, 3, 'a full page with no merge_commit.hash cannot prove absence');
+  assert.equal(resFull.stdout.trim(), '');
+});
+
 test('host: pr-merged-heads prints the head for a branch merged past the first page', () => {
   const branch = 'feature/ewzkus-3845-contractaccount-bykey-tracer';
   const row = { ...restPr(3644, branch, 'MERGED'), source: { branch: { name: branch }, commit: { hash: 'ccc333' } } };

@@ -91,6 +91,11 @@
 #                                 empty answer sends the reaper to a weaker
 #                                 reading, so only a recognised lookup miss is
 #                                 empty.
+#   pr-merge-dest <branch>          one tab-separated line `number\tbase\tsha\tmergedAt`
+#                                 per merged PR with this head branch, or EMPTY
+#                                 (exit 0) where none merged. The same query
+#                                 `pr-merge-commit` runs. EXIT 3 is the question
+#                                 failing.
 #   pr-review <number>             one JSON line `{"sha","state","bypass"}`: the PR's
 #                                 head sha, the newest `plot/review` status on it
 #                                 (`success|failure|pending|error`, or `absent`),
@@ -3903,7 +3908,7 @@ case "$op" in
     fi
     ;;
 
-  pr-merge-commit)
+  pr-merge-commit|pr-merge-dest)
     # THE MERGE COMMIT OF A BRANCH'S MERGED PR, and nothing else.
     #
     # A SECOND SUBCOMMAND RATHER THAN A FIELD ON `pr-merged`, because that one
@@ -3923,22 +3928,29 @@ case "$op" in
     #
     # PRINTS NOTHING AND EXITS 0 where no PR merged — an ANSWER, the same shape
     # `pr-state` gives for a missing PR. Exit 3 is the question failing.
-    ref="${1:?pr-merge-commit needs a branch}"; shift || true
+    #
+    # `pr-merge-dest` RUNS THE SAME QUERY and prints every merged PR instead of
+    # the first sha: one `number<TAB>base<TAB>sha<TAB>mergedAt` line each, read
+    # off the same payload. `plot-release-chain.mjs` asks it once per hop of a
+    # release-chain walk. Bitbucket names no merge time, so `mergedAt` is
+    # `updated_on`, as in `pr-list`.
+    ref="${1:?$op needs a branch}"; shift || true
     repo_args=()
     while [ $# -gt 0 ]; do
       case "$1" in
         --repo) repo_args=(-R "${2:?}"); shift 2 ;;
-        *) die "pr-merge-commit: unknown arg $1" ;;
+        *) die "$op: unknown arg $1" ;;
       esac
     done
+    if [ "$op" = pr-merge-dest ]; then pick='.[] | [.n, .b, .s, .t] | @tsv'; else pick='first.s // empty'; fi
     if [ "$be" = "github" ]; then
-      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt,mergeCommit 2>"$HOST_ERR")"; then
+      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
         # The FIRST merged PR carrying a sha. A branch may hold several merged
         # PRs; each names its own merge commit, and any of them is a commit that
         # landed this branch's work.
-        jq -r 'map(select(.mergedAt != null and .mergeCommit != null))
-               | map(.mergeCommit.oid) | first // empty' <<<"$out"
+        jq -r 'map(select(.mergedAt != null and .mergeCommit != null)
+               | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # A lookup miss is an answer: no PR, so no merge commit. Anything else
@@ -3953,8 +3965,9 @@ case "$op" in
       # `merge_commit.hash` on a merged PR.
       if out="$(bb_branch_query "$ref" merged ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        bb_full_page_lacks "$out" 'any(.[]; .merge_commit.hash != null)' && { echo "plot-host: pr-merge-commit: the branch query for '$ref' returned a full page with no merge commit; cannot prove absence" >&2; exit 3; }
-        jq -r 'map(.merge_commit.hash // empty) | first // empty' <<<"$out"
+        bb_full_page_lacks "$out" 'any(.[]; .merge_commit.hash != null)' && { echo "plot-host: $op: the branch query for '$ref' returned a full page with no merge commit; cannot prove absence" >&2; exit 3; }
+        jq -r 'map(select(.merge_commit.hash != null)
+               | {n: .id, b: (.destination.branch.name // ""), s: .merge_commit.hash, t: (.updated_on // "")}) | '"$pick" <<<"$out"
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         miss_or_exit3 "$err"

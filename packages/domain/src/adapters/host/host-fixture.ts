@@ -7,6 +7,7 @@ import type {
   HostRefusal,
   LimitObservation,
   MergedAnswer,
+  MergeDest,
   PrCreateRequest,
   PrLookup,
   PrReviewReading,
@@ -129,6 +130,15 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
     prMergedHeads: async (branch): Promise<PortResult<readonly string[]>> =>
       // A branch absent from the table has no merged head — an answer.
       answered(fixture.mergedHeads?.[branch] ?? []),
+
+    prMergeDests: async (branch): Promise<PortResult<readonly MergeDest[]>> =>
+      // The declared PRs with this head that merged, so a fixture states the
+      // destination in the one place it states the PR.
+      answered(
+        prs
+          .filter((pr) => pr.head === branch && pr.mergedAt !== null)
+          .map((pr) => ({ number: pr.number, base: pr.base, mergeCommit: pr.mergeCommit, mergedAt: pr.mergedAt ?? '' })),
+      ),
 
     prCreate: async (request): Promise<PortResult<string>> => {
       opened.push(request);
