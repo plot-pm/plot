@@ -118,40 +118,34 @@ score_items() { # stdin: one `checked\tslug\tdelivered` per line → one state p
 }
 
 # What the plan estate says about <slug>: delivery state and, for a Must-have,
-# its Jira issue key — one `plot-plan-meta.sh` read answers both.
+# its plan's raw `issues` array — one `plot-plan-meta.sh` read answers both.
 #
 # THE WITHDRAWAL IS ASKED FIRST, because it is the stronger reading: a rejected
 # plan is not in the Delivered index either, so testing delivery first would
 # report `false` and lose the decision.
 #
-# `plot-plan-meta.sh` IS THE READER, and this script re-parses nothing. It has
-# accepted `rejected` and `superseded` beside the four phases since before this
-# question was asked; the reading existed and this script did not ask for it.
-# The issue key comes from the SAME read: `plot-plan-meta.sh` already parses
-# the plan's `Issue:` field into a sorted `issues` array, gating Jira-key
-# recognition on the repository's own `Tracker` config. MATCHING IS BY ISSUE
-# KEY ONLY — never guessed from the Must-have's own text — and takes the FIRST
-# quoted (Jira-shaped) entry, because `Issue:` may also carry unquoted
-# GitHub-style `#N` signals that are not what this comparison is about. "" when
-# the plan names no Jira key — a Must-have with no match is reported as drift
-# by the domain rule, never guessed at.
+# `plot-plan-meta.sh` IS THE READER, and this script re-parses nothing — not
+# even the `issues` array it already sorted: that is passed through verbatim
+# and `plot-sprint-release-gate.mjs`'s `mustHavesFrom` picks the first
+# Jira-shaped (quoted) entry, per docs/shell-and-domain.md — a rule that picks
+# ONE of several readings belongs in the domain, not a shell regex.
 #
 # Delivery stays a DIRECTORY test — file or symlink, either is delivery — which
 # is deliberate and not an inconsistency. `/plot-deliver` writes the phase and
 # moves the link, and the link is the cheaper of the two to read; a withdrawal
 # moves nothing, so it has only the phase to be read from.
-plan_delivery() { # $1=slug → "true|false|withdrawn<TAB>issue key or empty"
-  local f meta phase="" issue="" state
+plan_delivery() { # $1=slug → "true|false|withdrawn<TAB>raw issues array or []"
+  local f meta phase="" issues="[]" state
   f=$(ls "$PLAN_DIR"/*-"$1".md 2>/dev/null | head -1)
   if [ -n "$f" ]; then
     meta=$(bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null)
     phase=$(printf '%s' "$meta" | sed -n 's/.*"phase":"\([a-z]*\)".*/\1/p' | head -1)
-    issue=$(printf '%s' "$meta" | sed -n 's/.*"issues":\[\([^]]*\)\].*/\1/p' | head -1 |
-      grep -oE '"[A-Z][A-Z0-9]*-[0-9]+"' | head -1 | tr -d '"')
+    issues=$(printf '%s' "$meta" | grep -oE '"issues":\[[^]]*\]' | head -1 | sed 's/^"issues"://')
+    [ -n "$issues" ] || issues="[]"
   fi
   case "$phase" in rejected|superseded) state=withdrawn ;; *)
     [ -e "$DELIVERED_DIR/$1.md" ] && state=true || state=false ;; esac
-  printf '%s\t%s' "$state" "$issue"
+  printf '%s\t%s' "$state" "$issues"
 }
 
 # Collapse `a/b/../c` → `a/c` textually. NOT `readlink -f` or `realpath`: the
@@ -263,13 +257,12 @@ emit_tier() { # $1=file $2=heading regex $3=must|should|could → JSON array
     # `[slug]` appearing mid-prose is still not a reference.
     slug=$(printf '%s' "$text" | grep -oE '^(~~)?\[[a-z0-9][a-z0-9-]*\]' | tr -d '[]~' || true)
     # ONE READ ANSWERS BOTH FIELDS: `plan_delivery` returns delivery state and
-    # issue key together, so a Should or Could pays the same single call a
-    # Must-have does — the issue key is simply dropped where the tier has no
-    # use for it, rather than paying a second `plot-plan-meta.sh` read to avoid
-    # reading a field that costs nothing extra to have in hand.
+    # the plan's raw issues array together, so a Should or Could pays the same
+    # single call a Must-have does — the array is dropped where the tier has
+    # no use for it, rather than paying a second `plot-plan-meta.sh` read.
     if [ -n "$slug" ]; then IFS=$'\t' read -r delivered issue <<<"$(plan_delivery "$slug")"
-    else delivered=none; issue=""; fi
-    [ "$tier" = "must" ] && [ -n "$slug" ] || issue=""
+    else delivered=none; issue="[]"; fi
+    [ "$tier" = "must" ] && [ -n "$slug" ] || issue="[]"
     checkeds+=("$checked"); slugs+=("$slug"); texts+=("$text"); delivereds+=("$delivered"); issues+=("$issue")
   done < <(awk -v want="$2" '
     /^###[ \t]/ { in_t = ($0 ~ want) ? 1 : 0; next }
@@ -307,7 +300,7 @@ emit_tier() { # $1=file $2=heading regex $3=must|should|could → JSON array
       none|withdrawn) out="$out\"${delivereds[$i]}\"" ;;
       *) out="$out${delivereds[$i]}" ;;
     esac
-    out="$out,\"issue\":\"$(jesc "${issues[$i]}")\""
+    out="$out,\"issues\":${issues[$i]}"
     out="$out,\"state\":\"${states[$i]}\"}"
   done
   printf '%s]' "$out"

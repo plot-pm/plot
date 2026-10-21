@@ -54,11 +54,26 @@ export const EXIT = {
   externalOwner: 3,
 } as const;
 
-/** One Must-have as `plot-sprint-release.sh` reports it, enriched with its issue key. */
+/** One Must-have as `plot-sprint-release.sh` reports it, enriched with its plan's raw issues array. */
 interface ReportedMust {
   text?: unknown;
-  issue?: unknown;
+  issues?: unknown;
 }
+
+/** Matches a Jira-shaped key (`PROJ-123`) and nothing else — never a bare GitHub issue number. */
+const JIRA_KEY = /^[A-Z][A-Z0-9]*-[0-9]+$/;
+
+/**
+ * The first Jira-shaped key in a plan's `issues` array, read in the sorted
+ * order `plot-plan-meta.sh` already produces (GitHub numbers first, Jira keys
+ * after) — so this picks the first of the latter rather than guessing from a
+ * Must-have's own text. `''` where the plan names no Jira key.
+ */
+const firstJiraKey = (issues: unknown): string => {
+  if (!Array.isArray(issues)) return '';
+  const hit = issues.find((v) => typeof v === 'string' && JIRA_KEY.test(v));
+  return typeof hit === 'string' ? hit : '';
+};
 
 /** One sprint's block of the collector's report. */
 interface ReportedSprint {
@@ -118,7 +133,7 @@ const mustHavesFrom = (block: ReportedSprint, sprint: string): SprintReleaseItem
   for (const entry of raw as ReportedMust[]) {
     mustHaves.push({
       text: typeof entry.text === 'string' ? entry.text : '',
-      issue: typeof entry.issue === 'string' ? entry.issue : '',
+      issue: firstJiraKey(entry.issues),
     });
   }
   return mustHaves;
