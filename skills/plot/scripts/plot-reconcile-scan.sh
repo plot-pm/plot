@@ -699,13 +699,11 @@ load_merged_pr_heads() {
     # STDERR IS KEPT: `plot-host.sh` already decides completeness
     # (`pr_list_report_truncation`) and prints it as "possibly truncated" —
     # reading that carries the adapter's verdict rather than re-deriving it.
-    local host_err=""
-    plot_tmpfile host_err reconcile-merged-list-err || host_err=""
+    local host_err=""; plot_tmpfile host_err reconcile-merged-list-err || host_err=""
     if [ -n "$host_err" ] && out=$(PLOT_HOST="$MERGED_HOST_ENV" bash "$MERGED_HOST_SCRIPT" pr-list --state merged --limit "$MERGED_PR_LIMIT" $MERGED_REPO_ARGS </dev/null 2>"$host_err"); then
       host_heads=$(printf '%s' "$out" | jq -r 'select(.number != null) | "\(.number) \(.head)"' 2>/dev/null)
     fi
-    [ -n "$host_err" ] && grep -q 'possibly truncated' "$host_err" 2>/dev/null && MERGED_PR_TRUNCATED=1
-    [ -n "$host_err" ] && rm -f "$host_err"
+    [ -n "$host_err" ] && { grep -q 'possibly truncated' "$host_err" 2>/dev/null && MERGED_PR_TRUNCATED=1; rm -f "$host_err"; }
   fi
 
   merged_pr_heads=$(printf '%s\n%s\n' "$host_heads" "$index_heads" | grep .)
@@ -1310,13 +1308,12 @@ while IFS= read -r b; do
     # orphan. `merged` reclassifies it; `unknown`/a failed ask does not. GitHub
     # honours `--limit`, so its truncation is its own ceiling, not a page it
     # cannot widen — Bitbucket only.
-    if [ "$MERGED_PR_TRUNCATED" = 1 ] && [ "$MERGED_HOST_ENV" = bitbucket ] && [ -n "$MERGED_HOST_SCRIPT" ] \
+    if [ "$MERGED_PR_TRUNCATED" = 1 ] && [ "$MERGED_HOST_ENV" = bitbucket ] \
        && word=$(PLOT_HOST="$MERGED_HOST_ENV" bash "$MERGED_HOST_SCRIPT" pr-merged "$b" $MERGED_REPO_ARGS </dev/null 2>/dev/null) \
        && [ "$word" = merged ]; then
       stale_out+="  origin/$b — merged into $MAIN, no open PR → deletion candidate\n"
       stale_out+="    fix: git push origin --delete $b\n"
-      n_stale=$((n_stale + 1))
-      continue
+      n_stale=$((n_stale + 1)); continue
     fi
     stale_out+="  origin/$b — ahead of $MAIN, no open PR → orphan (needs judgment)\n"
     stale_out+="    inspect: git log --oneline origin/$MAIN..origin/$b\n"
