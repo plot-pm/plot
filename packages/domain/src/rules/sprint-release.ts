@@ -1,15 +1,15 @@
 import type { SprintOwner } from './issue-source.js';
 
 /**
- * Compares a Plot sprint's Must-haves against a tracker Release's issues.
+ * Compares a Plot sprint's items against a tracker Release's issues.
  *
  * The sprint file is the commitment and the Release is read beside it — this
  * rule never writes to either. Two findings travel apart, never folded into
  * one "mismatch" bucket: a Must-have the Release does not carry, and a
- * Release issue no Must-have names.
+ * Release issue no sprint item — of any MoSCoW tier — names.
  */
 
-/** One Must-have as this rule reads it. */
+/** One sprint item as this rule reads it. */
 export interface SprintReleaseItem {
   /** The sprint's own wording of the item. */
   text: string;
@@ -21,30 +21,41 @@ export interface SprintReleaseItem {
 export interface SprintReleaseDrift {
   /** Must-haves naming an issue the Release's `issues` does not carry. */
   readonly missingFromRelease: readonly SprintReleaseItem[];
-  /** Release issue keys no Must-have names. */
+  /** Release issue keys no sprint item, of any MoSCoW tier, names. */
   readonly missingFromSprint: readonly string[];
   /** Must-haves whose key resolution found nothing — reported, never silently dropped. */
   readonly notCompared: readonly SprintReleaseItem[];
 }
 
 /**
- * Compares Must-haves against a Release's issue keys.
+ * Compares a sprint's items against a Release's issue keys.
  *
- * **Matching is by issue key only.** The caller supplies each Must-have's key,
- * normally via {@link resolveItemKey}. A Must-have with key `''` names no
- * issue: it is reported in `notCompared` rather than either drift list, and
+ * **Matching is by issue key only.** The caller supplies each item's key,
+ * normally via {@link resolveItemKey}. An item with key `''` names no issue:
+ * a Must-have is reported in `notCompared` rather than either drift list, and
  * its text is never matched against the Release.
+ *
+ * **The two directions read different tiers, on purpose.** `missingFromRelease`
+ * and `notCompared` read Must-haves alone — only a Must-have is required to
+ * ship in the Release, so a Should or Could item absent from it is not drift.
+ * `missingFromSprint` reads Must-haves, Should-haves and Could-haves together:
+ * a Release issue is accounted for if any tier names its key, regardless of
+ * priority.
  *
  * @param mustHaves - the sprint's Must-have items, each with the issue key its plan names, or `''`.
  * @param releaseIssueKeys - the Jira keys `Tracker.versionRead` answered for the Release.
- * @returns the drift in both directions, plus the items no source named a key for.
+ * @param otherTiers - the sprint's Should-have and Could-have items, each with the issue key its plan names, or `''`; counted only toward `missingFromSprint`.
+ * @returns the drift in both directions, plus the Must-haves no source named a key for.
  */
 export const sprintReleaseDrift = (
   mustHaves: readonly SprintReleaseItem[],
   releaseIssueKeys: readonly string[],
+  otherTiers: readonly SprintReleaseItem[] = [],
 ): SprintReleaseDrift => {
   const releaseKeys = new Set(releaseIssueKeys);
-  const namedKeys = new Set(mustHaves.map((item) => item.issue).filter((issue) => issue !== ''));
+  const namedKeys = new Set(
+    [...mustHaves, ...otherTiers].map((item) => item.issue).filter((issue) => issue !== ''),
+  );
   return {
     missingFromRelease: mustHaves.filter((item) => item.issue !== '' && !releaseKeys.has(item.issue)),
     missingFromSprint: releaseIssueKeys.filter((key) => !namedKeys.has(key)),

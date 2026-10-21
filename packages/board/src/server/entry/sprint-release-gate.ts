@@ -88,6 +88,8 @@ interface ReportedSprint {
   sprint?: unknown;
   release?: unknown;
   must?: unknown;
+  should?: unknown;
+  could?: unknown;
 }
 
 /** The collector's whole report, as `plot-sprint-release.sh` writes it. */
@@ -98,8 +100,13 @@ interface Report {
 
 /** What the caller asked this bundle to check. */
 export interface GateInput {
-  /** Every sprint declaring a `Release:` target, each with its own Must-haves. */
-  releases: readonly { readonly sprint: string; readonly release: string; readonly mustHaves: readonly SprintReleaseItem[] }[];
+  /** Every sprint declaring a `Release:` target, each with its own Must-haves and its Should/Could-haves. */
+  releases: readonly {
+    readonly sprint: string;
+    readonly release: string;
+    readonly mustHaves: readonly SprintReleaseItem[];
+    readonly otherTiers: readonly SprintReleaseItem[];
+  }[];
   /** How many issues a page of `versionRead` may answer. */
   limit: number;
 }
@@ -121,32 +128,38 @@ export interface Verdict {
 }
 
 /**
- * Reads one sprint block's Must-haves off the collector's JSON.
+ * Reads one sprint block's items off the collector's JSON, for one MoSCoW tier.
  *
- * Each Must-have's key is resolved by {@link resolveItemKey}, never guessed at
+ * Each item's key is resolved by {@link resolveItemKey}, never guessed at
  * here: the `Issue:` line, `ticket:` frontmatter and item text are collected
  * from the report and handed to the domain, in that fixed order.
  *
  * @param block - one sprint's object from the report.
+ * @param tier - the tier's field name on `block` (`must`, `should` or `could`).
  * @param sprint - the sprint's slug, for the error it may throw.
  * @param ticketPrefixes - this repository's `Ticket prefixes`, for the item-text fallback.
- * @returns the sprint's Must-haves, each carrying the issue key resolution found.
- * @throws when the block's `must` is not a list or a Must-have is malformed.
+ * @returns the tier's items, each carrying the issue key resolution found; `[]` where the report names no field for this tier.
+ * @throws when the field is present and not a list, or an item is malformed.
  */
-const mustHavesFrom = (block: ReportedSprint, sprint: string, ticketPrefixes: readonly string[]): SprintReleaseItem[] => {
-  const mustHaves: SprintReleaseItem[] = [];
-  const raw = block.must;
-  if (raw === undefined) return mustHaves;
-  if (!Array.isArray(raw)) throw new Error(`sprint '${sprint}' has a 'must' that is not a list`);
+const tierItemsFrom = (
+  block: ReportedSprint,
+  tier: 'must' | 'should' | 'could',
+  sprint: string,
+  ticketPrefixes: readonly string[],
+): SprintReleaseItem[] => {
+  const items: SprintReleaseItem[] = [];
+  const raw = block[tier];
+  if (raw === undefined) return items;
+  if (!Array.isArray(raw)) throw new Error(`sprint '${sprint}' has a '${tier}' that is not a list`);
   for (const entry of raw as ReportedMust[]) {
     const text = typeof entry.text === 'string' ? entry.text : '';
     const ticket = typeof entry.ticket === 'string' ? entry.ticket : '';
-    mustHaves.push({
+    items.push({
       text,
       issue: resolveItemKey(issueLineKeys(entry.issues), ticket, text, ticketPrefixes),
     });
   }
-  return mustHaves;
+  return items;
 };
 
 /**
@@ -169,7 +182,8 @@ export const inputFrom = (text: string, ticketPrefixes: readonly string[] = []):
     throw new Error(`could not read the sprint report: ${(err as Error).message}`);
   }
   const sprints = report.sprints;
-  const releases: { sprint: string; release: string; mustHaves: SprintReleaseItem[] }[] = [];
+  const releases: { sprint: string; release: string; mustHaves: SprintReleaseItem[]; otherTiers: SprintReleaseItem[] }[] =
+    [];
   if (sprints !== undefined) {
     if (!Array.isArray(sprints)) throw new Error("the sprint report's 'sprints' is not a list");
     for (const block of sprints as ReportedSprint[]) {
@@ -178,7 +192,12 @@ export const inputFrom = (text: string, ticketPrefixes: readonly string[] = []):
       // A sprint naming no Release says nothing about one — it contributes no
       // entry rather than one this bundle would have to skip downstream.
       if (release.trim() === '') continue;
-      releases.push({ sprint, release, mustHaves: mustHavesFrom(block, sprint, ticketPrefixes) });
+      const mustHaves = tierItemsFrom(block, 'must', sprint, ticketPrefixes);
+      const otherTiers = [
+        ...tierItemsFrom(block, 'should', sprint, ticketPrefixes),
+        ...tierItemsFrom(block, 'could', sprint, ticketPrefixes),
+      ];
+      releases.push({ sprint, release, mustHaves, otherTiers });
     }
   }
   return {
@@ -209,6 +228,7 @@ const configShell = async (context: ShellContext, key: string): Promise<string> 
  *
  * @param release - the sprint's `Release:` field, verbatim.
  * @param mustHaves - the sprint's Must-haves, each with the issue key its plan names.
+ * @param otherTiers - the sprint's Should-haves and Could-haves, each with the issue key its plan names.
  * @param limit - how many issues a page of `versionRead` may answer.
  * @param tracker - the connector the repository declared.
  * @returns the sprint's verdict.
@@ -216,6 +236,7 @@ const configShell = async (context: ShellContext, key: string): Promise<string> 
 const sprintVerdict = async (
   release: string,
   mustHaves: readonly SprintReleaseItem[],
+  otherTiers: readonly SprintReleaseItem[],
   limit: number,
   tracker: Tracker,
 ): Promise<SprintVerdict> => {
@@ -229,7 +250,7 @@ const sprintVerdict = async (
         : 'the tracker could not be reached';
     return { checked: false, unreachable: true, reason };
   }
-  const drift = sprintReleaseDrift(mustHaves, read.value.issues.map((i) => i.id));
+  const drift = sprintReleaseDrift(mustHaves, read.value.issues.map((i) => i.id), otherTiers);
   return { checked: true, ...drift };
 };
 
@@ -247,10 +268,10 @@ export const verdict = async (input: GateInput, tracker: Tracker): Promise<Verdi
   // exactly as it did before this bundle existed — the regression this gate
   // must not cause.
   const sprints = await Promise.all(
-    input.releases.map(async ({ sprint, release, mustHaves }) => ({
+    input.releases.map(async ({ sprint, release, mustHaves, otherTiers }) => ({
       sprint,
       release,
-      verdict: await sprintVerdict(release, mustHaves, input.limit, tracker),
+      verdict: await sprintVerdict(release, mustHaves, otherTiers, input.limit, tracker),
     })),
   );
   return { sprints };
