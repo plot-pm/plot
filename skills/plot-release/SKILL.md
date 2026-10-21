@@ -42,6 +42,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
 | 0. Sprint Gate | Small | `plot-release-gate.sh` decides; this step reads its exit code and prints its sentence. The Should-Have question needs a person, not a bigger model |
+| 0. Jira Release drift | Small | `plot-sprint-release-gate.sh` and the domain rule decide; this step reads the JSON verdict and prints the matching line — reporting only, no judgement, never a refusal |
 | 0b. Verification Findings | Small | Reads each Delivered feature/bug plan's `Verified:` record and `## Verification` claim lines, sorts them into refuted and unverified as `verificationOf` does, and prints both lists; no judgment, no question asked |
 | 1. Determine Version | Mid | Heuristic: plan types → bump suggestion; the open-RC-round check is a mechanical `RC:` line test |
 | 2A. RC Path | Small | Git tag; in-place edit of an existing checklist plus one plain item per delivered feature/bug plan it does not name, or template generation where none exists |
@@ -165,6 +166,39 @@ nobody can undo** — a tag is public and a published package cannot be recalled
 so the version is still named by a person, and step 4 still hands off to the
 project's own release process. This gate is the refusal in front of that
 approval, never a replacement for it.
+
+#### Jira Release drift, where the tracker is Jira
+
+**Run alongside the Must-Have gate above, same step, same cheap-to-refuse
+moment.** Where a sprint names a `Release:` target and this repository's
+`Tracker` is Jira, the sprint's Must-haves and the Jira Release (fixVersion)
+they name can drift apart in either direction — a Must-have whose issue the
+Release does not carry, or a Release issue no Must-have names.
+
+```bash
+../plot/scripts/plot-sprint-release-gate.sh
+```
+
+**This exits 3 (`externalOwner`) only when this repository's sprints are not
+plot-owned at all** — the same `sprintOwner()` refusal step 0's Must-Have gate
+never needed to ask about, because that gate reads the sprint file directly.
+A `--ignore-sprint` cut still runs this call: the flag clears the Must-Have
+refusal and nothing else, and drift reporting is not a refusal to clear.
+
+Read the `sprints[]` entry whose `sprint` matches this release's sprint:
+
+| `verdict` | Report |
+|---|---|
+| `checked: false` (no `unreachable`) | nothing — no Release target, or a non-Jira tracker |
+| `checked: false, unreachable: true` | `⚠ Release <version>: <reason>` — print the gate's own `reason`; a wrong `Release:` field and an unreachable Jira are different facts the cutter acts on differently |
+| `checked: true`, both lists empty | nothing — in sync, no news to report here |
+| `checked: true`, `missingFromRelease` non-empty | `⚠ <n> Must Have(s) not in Jira <version>: <issue or text, …>` — **this never refuses the cut**; it is drift to show the operator, the same way `openShoulds` is asked rather than gated |
+| `checked: true`, `missingFromSprint` non-empty | `⚠ Jira <version> carries <n> issue(s) this sprint does not list: <key, …>` |
+
+**Neither direction gates.** The brief and this gate both treat the Jira
+comparison as reporting, not refusal — the Must-Have gate above is the one
+thing in step 0 that can stop the cut. Drift goes into the step 6 summary
+alongside `openCoulds`.
 
 ### 0b. Report Verification Findings
 
@@ -508,6 +542,9 @@ Print:
 - Withdrawn from the sprint: each item whose plan is Rejected or Superseded,
   with its tier — a promise the sprint dropped is a fact this release made, and
   the summary is where the cutter reads it
+- Jira Release drift (where the tracker is Jira and a verdict was `checked`):
+  Must-haves not in the Jira Release, and Jira Release issues the sprint does
+  not list — reported, never a reason the cut was refused
 - Plans marked Released: `<slug>` → `<version>` for each, and every plan **not**
   marked with its reason (docs/infra, or unresolvable)
 - Tracker: each marked plan's `tracker=` value from step 5b, with the `<issue>` lines of any `failed` write
