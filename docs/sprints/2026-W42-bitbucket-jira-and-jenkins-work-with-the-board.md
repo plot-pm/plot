@@ -36,7 +36,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [x] [bitbucket-with-tracker-plot-the-message] Bitbucket with `Tracker: plot`: the message names the working configuration (#2216)
 - [x] [jenkins-run-for-sha-can-answer] Jenkins: run-for-sha skips builds that never ran (#2214) <!-- pr: #2225, branch: bug/jenkins-run-for-sha-can-answer -->
 - [x] [a-sha-lookup-matches-a-build] Jenkins: a sha lookup matches a build on its built revision, not its merge base (#2229)
-- [ ] [sprint-release-comparison-drops-must-haves] Sprint/Release comparison drops Must Haves whose Jira key is not on an Issue: line (#2248)
+- [x] [sprint-release-comparison-drops-must-haves] Sprint/Release comparison drops Must Haves whose Jira key is not on an Issue: line (#2248)
 - [ ] [reconcile-23-checks-no-plan-under] Reconcile §23 checks no plan under a Jira tracker (#2249)
 - [ ] [jira-credentials-are-not-found-in] Jira credentials are not found in a worktree or fleet desk (#2250)
 - [ ] [jira-issue-list-answers-an-unknown] Jira issue-list answers an unknown fix version and a cut result silently (#2251)
