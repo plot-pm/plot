@@ -13,7 +13,6 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2222 merged
 - **Started:** 2026-10-21, Jan Wloka, `bug/jira-issue-list-limit-above-one`
-- **Started:** 2026-10-21, Jan Wloka, `bug/jira-issue-list-limit-above-one`
 
 ## Changelog
 
