@@ -46,6 +46,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [ ] [release-gate-names-an-unfinished-must] Release gate names an unfinished Must Have with no plan as [] (#2281)
 - [ ] [reconcile-23-tells-a-released-plan] Reconcile §23 tells a Released plan to release, and reads a window of open issues (#2283)
 - [ ] [reconcile-does-not-report-a-plan] Reconcile does not report a plan linked in both active and delivered (#2284)
+- [ ] [reconcile-on-bitbucket-reads-merged-branches] Reconcile on Bitbucket reads merged branches as orphans past 50 merged PRs (#2282)
 
 ### Should Have
 
@@ -86,3 +87,4 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - 2026-10-21: Added [reconcile-23-ignores-a-plan-s] as Must by Jan Wloka: §23 must read the `ticket:` key that [sprint-release-comparison-drops-must-haves] adds, or 33 of 40 ewz plans read "not checked" (#2269).
 - 2026-10-21: Added [sprint-to-release-drift-lists-should] as Must by Jan Wloka: the sixth ewz-kus-portal field test found that the Release-to-sprint drift lists 6 Should and Could items as missing from `kafka-gp-sync` (#2279).
 - 2026-10-21: Added [release-gate-names-an-unfinished-must], [reconcile-23-tells-a-released-plan] and [reconcile-does-not-report-a-plan] as Must by Jan Wloka: the sixth ewz-kus-portal field test found them (#2281, #2283, #2284).
+- 2026-10-21: Added [reconcile-on-bitbucket-reads-merged-branches] as Must by Jan Wloka: the sixth ewz-kus-portal field test found a merged branch reported as an orphan past the first 50 merged PRs (#2282).
