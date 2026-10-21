@@ -77,8 +77,7 @@ const KNOWN_UNCARRIED = [
   // The board passes it from its own PlanMeta to verificationOf; no PlanStore reader decides on it.
   'verified_raw',
   'issues',
-  // `plot-sprint-release.sh` carries it beside `issues` to the sprint/Release gate, which
-  // resolves it with `resolveItemKey`; no PlanStore reader decides on it.
+  // Read by sprint-release-gate's own input, not through PlanStore; no PlanStore reader decides on it.
   'ticket',
   'malformed_prs',
   'changelog',
