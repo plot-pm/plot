@@ -34,9 +34,32 @@ export interface ReleaseSprintItem {
   tier: MoscowTier;
   /** The plan it names. */
   plan: string;
+  /**
+   * The item's own text from the sprint checklist, or absent.
+   *
+   * Names a plan-less item, which has no slug to print.
+   */
+  text?: string;
   /** What the plan estate says actually happened. */
   status: ItemStatus;
 }
+
+const JIRA_KEY = /[A-Z][A-Z0-9]+-[0-9]+/;
+
+/**
+ * The label a refusal prints for a sprint item.
+ *
+ * @param item - the item to name.
+ * @returns `[<plan>]` for an item with a plan; otherwise `[<key>]` with the first
+ * Jira-shaped key in its text, else `[<text>]`, else `[unnamed item]`.
+ */
+export const itemLabel = (item: ReleaseSprintItem): string => {
+  if (item.plan !== '') return `[${item.plan}]`;
+  const text = (item.text ?? '').trim();
+  const key = JIRA_KEY.exec(text);
+  if (key !== null) return `[${key[0]}]`;
+  return text === '' ? '[unnamed item]' : `[${text}]`;
+};
 
 /** A plan at `State: Delivered`, and the tag its work landed in. Step 5b. */
 export interface ReleasePlanReading {
@@ -184,7 +207,7 @@ export const release = (
   // still a fact the cutter has not been told.
   const withdrawn = readings.sprintItems
     .filter((i) => i.status === 'withdrawn')
-    .map((i) => `[${i.plan}] — withdrawn (sprint ${i.sprint})`);
+    .map((i) => `${itemLabel(i)} — withdrawn (sprint ${i.sprint})`);
 
   // Step 0 — the sprint gate. Run before anything else, because a release that
   // has been tagged cannot be un-cut and refusing is only cheap while it is
@@ -192,7 +215,7 @@ export const release = (
   const openMusts = unfinished('must');
   if (!candidate && !input.ignoreSprint && openMusts.length > 0) {
     const named = openMusts
-      .map((i) => `[${i.plan}] — ${i.status === 'disputed' ? 'checked in the sprint, but the plan is not delivered' : 'not delivered'} (sprint ${i.sprint})`)
+      .map((i) => `${itemLabel(i)} — ${i.status === 'disputed' ? 'checked in the sprint, but the plan is not delivered' : 'not delivered'} (sprint ${i.sprint})`)
       .join('; ');
     return no(
       'must-haves-open',
@@ -288,7 +311,7 @@ export const release = (
     for (const sprint of new Set(openMusts.map((i) => i.sprint))) {
       const file = readings.sprintFiles[sprint];
       if (file === undefined || file === '') continue;
-      const items = openMusts.filter((i) => i.sprint === sprint).map((i) => `[${i.plan}]`).join(', ');
+      const items = openMusts.filter((i) => i.sprint === sprint).map(itemLabel).join(', ');
       writes.push({
         kind: 'sprint-note',
         file,

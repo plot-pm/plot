@@ -178,6 +178,26 @@ describe('reading the collector', () => {
     expect(items[0]!.plan).toBe('');
   });
 
+  it('carries the item text through for the domain to label', () => {
+    const items = itemsFrom(
+      JSON.stringify({
+        sprints: [{ sprint: 's', release: '2.16.0', must: [{ slug: '', text: 'Sync EWZ-123', state: 'open' }] }],
+      }),
+    );
+    expect(items[0]!.text).toBe('Sync EWZ-123');
+  });
+
+  it('names a plan-less open Must by its Jira key in the refusal', () => {
+    const answered = answer(
+      JSON.stringify({
+        sprints: [{ sprint: 's', release: '2.16.0', must: [{ slug: '', text: 'Sync EWZ-123', state: 'open' }] }],
+      }),
+      [],
+    );
+    expect(answered.detail).toContain('[EWZ-123]');
+    expect(answered.detail).not.toContain('[]');
+  });
+
   it('reads an item whose slug is absent as naming no plan', () => {
     const items = itemsFrom(
       JSON.stringify({

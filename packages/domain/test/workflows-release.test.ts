@@ -35,6 +35,45 @@ const item = (over: Partial<ReleaseReadings['sprintItems'][number]> = {}) => ({
   ...over,
 });
 
+describe('release — naming a plan-less item', () => {
+  const planless = (text: string, over = {}) => item({ plan: '', text, ...over });
+
+  it('labels a plan-less Must Have with the Jira key in its text', () => {
+    const out = release(ready({ sprintItems: [planless('Sync GP data EWZ-123 with Kafka')] }), on);
+    expect(refused(out) && out.detail).toContain('[EWZ-123] — not delivered');
+    expect(refused(out) && out.detail).not.toContain('[]');
+  });
+
+  it('labels a plan-less Must Have with no key by its raw text', () => {
+    const out = release(ready({ sprintItems: [planless('Tidy the runbook')] }), on);
+    expect(refused(out) && out.detail).toContain('[Tidy the runbook] — not delivered');
+  });
+
+  it('names an item with neither plan nor text', () => {
+    const out = release(ready({ sprintItems: [planless('')] }), on);
+    expect(refused(out) && out.detail).toContain('[unnamed item]');
+  });
+
+  it('keeps [<plan>] for a slugged item, whatever its text says', () => {
+    const out = release(ready({ sprintItems: [item({ text: 'EWZ-9 something' })] }), on);
+    expect(refused(out) && out.detail).toContain('[unfinished-plan] — not delivered');
+  });
+
+  it('labels a withdrawn plan-less item in the withdrawn list', () => {
+    const out = release(ready({ sprintItems: [planless('EWZ-7 dropped', { status: 'withdrawn' })] }), on);
+    expect(decided(out) && out.detail.withdrawn).toEqual(['[EWZ-7] — withdrawn (sprint a-sprint)']);
+  });
+
+  it('labels a plan-less item in the --ignore-sprint note', () => {
+    const out = release(
+      ready({ sprintItems: [planless('EWZ-5 open')], sprintFiles: { 'a-sprint': 'docs/sprints/s.md' } }),
+      { ...on, ignoreSprint: true },
+    );
+    const note = decided(out) ? out.writes.find((w) => w.kind === 'sprint-note') : undefined;
+    expect(note && 'note' in note && note.note).toContain('open: [EWZ-5]');
+  });
+});
+
 describe('release — the sprint gate', () => {
   it('refuses an open Must Have and names what clears it', () => {
     const out = release(ready({ sprintItems: [item()] }), on);
