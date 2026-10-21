@@ -525,13 +525,9 @@ load_open_pr_branches() {
   # parsed, by `load_merged_pr_heads`, because the PR index answers it first and
   # the index needs to know which branches the sections will ask about. The
   # host and repository this call resolved travel to it unchanged.
-  MERGED_HOST_SCRIPT="$host_script"
-  MERGED_HOST_ENV="$host_env"
-  MERGED_REPO_ARGS="$repo_args"
+  MERGED_HOST_SCRIPT="$host_script"; MERGED_HOST_ENV="$host_env"; MERGED_REPO_ARGS="$repo_args"
 }
-MERGED_HOST_SCRIPT=""
-MERGED_HOST_ENV=""
-MERGED_REPO_ARGS=""
+MERGED_HOST_SCRIPT=""; MERGED_HOST_ENV=""; MERGED_REPO_ARGS=""
 if [ "$do_pr" = 1 ]; then
   load_open_pr_branches
 else
@@ -1273,8 +1269,7 @@ while IFS= read -r b; do
         claims_out+="    inspect: git log -1 --format='claimed %cr' origin/$b\n"
       fi
     fi
-    n_claims=$((n_claims + 1))
-    continue
+    n_claims=$((n_claims + 1)); continue
   fi
   if [ "$is_merged" = 1 ]; then
     # "merged" HERE MEANS THE HOST SAID SO, or — where it had no PR to read —
