@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Type:** bug
 - **Issue:** #2278
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2285 merged
 - **Started:** 2026-10-21, Jan Wloka, `bug/jenkins-run-for-sha-on-the`
+- **Delivered:** 2026-10-21
 
 ## Changelog
 
