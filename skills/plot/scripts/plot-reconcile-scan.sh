@@ -2929,28 +2929,25 @@ echo "== 23. A finished plan's issue is still open (a person decides) =="
 # the phase and `issues[]` come from the parse this sweep already holds, and
 # the open list is one host call.
 #
-# ONE CALL, NEVER ONE PER PLAN. `issue-list` answers every open issue as JSON
-# lines; membership in that set is then a test per plan, so cost is constant in
-# plan count (21 finished plans name an issue on this estate). The alternative
-# is `issue-view` per plan, and it cannot answer the question at all: its
-# payload is `{number,title,body,url}` with NO state, it is documented as
-# reading *one open issue*, and a closed or missing issue exits 3 — a failure,
-# not a "closed" answer. Twenty-one calls to learn less.
+# ONE CALL PER KEY, NEVER A WINDOW. `issue-view <key>` answers any issue
+# regardless of state and fails only when the key does not exist — the same
+# read the Jira-only branch below already made per key. Cost is constant in
+# the count of DISTINCT keys finished plans name, not in how many issues the
+# tracker holds, so a plan that finished long ago is checked exactly as
+# cheaply as one that finished yesterday.
 #
-# MEMBERSHIP MEANS OPEN; ABSENCE DOES NOT MEAN CLOSED. `issue-list` is bounded
-# — `gh issue list` defaults to 30 without `--limit` — so an issue outside the
-# window is absent for a reason that has nothing to do with its state. The
-# window is therefore STATED, the way section 22 states its merge window and
-# `MERGED_PR_LIMIT` states the PR one, and when the returned count reaches the
-# limit the section says what it may have missed rather than printing `(none)`
-# as if complete.
+# A WINDOWED LIST CANNOT TELL ABSENT FROM CLOSED. `issue-list` is bounded —
+# `gh issue list` defaults to 30 without `--limit` — so an issue outside the
+# window reads as closed for a reason that has nothing to do with its state.
+# Measured 2026-10-21 (ewz-kus-portal, issue #2283): an open issue past row
+# 200 was absent from a 200-row window and read as closed. Asking per key
+# removes the window instead of stating it.
 #
-# THREE OUTCOMES STAY APART, exactly as `issue-list` documents them: exit 0
-# with lines is an answer, exit 4 is *this host has no tracker to ask*, and any
-# other non-zero is the question FAILING. The last two both print
-# `(not evaluated — …)` with the reason, because an outage that printed
-# `(none)` would report a clean estate it never measured — an outage is not an
-# answer, the failure the adapter's own three-way split exists for.
+# THREE OUTCOMES STAY APART, exactly as `issue-view` documents them: exit 0 is
+# an answer, exit 4 is *this host has no tracker to ask* (printed once, not
+# per key), and any other non-zero is that ONE key's lookup FAILING — reported
+# as unchecked for that key alone, never silently dropped and never read as
+# closed.
 #
 # `issues[]` HOLDS NUMBERS, AND JIRA ANSWERS KEYS. `plot-plan-meta.sh` parses
 # `Issue: #N`, so on a Jira tracker no returned key can ever match a parsed
@@ -2990,17 +2987,17 @@ echo "== 23. A finished plan's issue is still open (a person decides) =="
 # `== blocking sections end ==` marker with every advisory section since 7.
 #
 # AND IT NAMES A DECISION, NOT A REPAIR. Plot closes an issue in one place:
-# `/plot-release`, through `Tracker.planStateWrite`, when it releases the plan.
-# This section closes none, so no close command is printed — what a person
-# decides is whether to release the plan, close the issue by hand, or record
-# why the issue outlived its plan.
-n_open_issues=0
+# `/plot-release`, through `Tracker.planStateWrite`, when it releases the plan
+# — and only a DELIVERED plan's release can still move the issue. A RELEASED
+# plan is already past that step, so telling it to "release the plan" names a
+# repair that cannot repair anything; the hint instead names why the issue
+# outlived its plan: no `Tracker released status` is configured (a release
+# writes nothing the tracker reads as closed), or the issue sits in a tracker
+# status Plot does not own. This section closes nothing either way — a person
+# still decides.
+n_open_issues=0; n_issue_unread=0
 n_unread=0
 n_unread_waits=0
-# THE WINDOW, stated rather than implied. `PLOT_ISSUE_LIMIT` raises it; the
-# default is far above `gh`'s own 30 and above this estate's open count.
-ISSUE_LIMIT=${PLOT_ISSUE_LIMIT:-200}
-oi_out=""
 # The finished plans that name an issue, read from the parse already in memory
 # (`plan_json`, one `plot-plan-meta.sh` run for the whole sweep). NOT a body
 # scan for `#NNN`: `issues[]` is a dedicated field precisely because a body
@@ -3025,9 +3022,7 @@ oi_plans=$(printf '%s' "$oi_claims" | grep -c . 2>/dev/null) || oi_plans=0
 # The question is asked only where there is something to ask about, so a repo
 # with nothing finished and an offline run both cost no node start — the two
 # arms below stay first for that reason as well as their own.
-oi_ask=""
-oi_scheme=""
-oi_reason=""
+oi_ask=""; oi_scheme=""; oi_reason=""
 oi_entry="$script_dir/board/plot-issue-source.mjs"
 ask_issue_source() {
   local declared backend out rc
@@ -3085,77 +3080,65 @@ elif [ "$oi_ask" = unaskable ]; then
   echo "  (not evaluated — the tracker source could not be decided: $oi_reason)"
   echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
 else
-  oi_err_file=""
-  plot_tmpfile oi_err_file reconcile-issue-err || oi_err_file=""
-  # SEPARATE call from parse, the shape section 3 uses at `:473`: capture the
-  # adapter's own exit status rather than jq's, because a rate limit makes it
-  # exit 5 and testing `$?` after a pipe loses that.
-  #
-  # ONE PAGE PER CALL, through the paging `plot-host.sh` already speaks and
-  # `tracker-shell.ts`'s `walk` drives: `--paged` makes a Jira read ask at most
-  # 100 rows and print `{"nextPageToken":"…"}` last, which goes back as
-  # `--page-token`; GitHub and Bitbucket page inside one call and print no token.
-  # NOT AN UNPAGED `--limit 200`: Jira refuses an unpaged limit above one page
-  # with exit 2, which read as "the tracker question failed" on every Jira repo.
-  # The read stops at `ISSUE_LIMIT` rows, at a page that adds none, or at the
-  # last token. A page that fails fails the read, as in `walk`, because the rows
-  # before it would pass for the end of the list. The token line carries no
-  # `number`, so the parse below drops it.
-  oi_raw=""; oi_token=""; oi_rc=0; oi_n=0
-  while oi_page=$(bash "$script_dir/plot-host.sh" issue-list --paged --limit "$((ISSUE_LIMIT - oi_n))" ${oi_token:+--page-token "$oi_token"} </dev/null 2>"${oi_err_file:-/dev/null}") || { oi_rc=$?; false; }; do
-    oi_raw+="$oi_page"$'\n'; oi_before=$oi_n; oi_n=$(printf '%s' "$oi_raw" | grep -c '"number":')
-    oi_token=$(printf '%s\n' "$oi_page" | jq -r '.nextPageToken // empty' 2>/dev/null | tail -1)
-    [ -n "$oi_token" ] && [ "$oi_n" -gt "$oi_before" ] && [ "$oi_n" -lt "$ISSUE_LIMIT" ] || break
-  done
-  oi_err=""
-  [ -n "$oi_err_file" ] && oi_err=$(head -1 "$oi_err_file" 2>/dev/null) && /bin/rm -f "$oi_err_file" 2>/dev/null
+  # `Tracker released status` IS READ ONCE, the same shape `plot-issue-status.sh:38`
+  # already reads it in — a release that declares no status word cannot be
+  # judged against one, so the reader is told the configuration gap rather
+  # than a status that does not exist.
+  oi_released_status=$(cfg "Tracker released status" "" 2>/dev/null)
+  oi_host_failed=0; oi_out=""
+  # THE CLAIMS ARE READ ON FD 3, and the reason is a measured defect rather
+  # than style: a nested `while read` inside a loop fed by `<<<` drains the
+  # OUTER loop's stdin. Measured while writing this section — the first plan
+  # never iterated, the second saw only its first issue, and the third read
+  # the previous plan's numbers, so a fixture with three findings reported
+  # none. A dedicated descriptor is what keeps the two readers apart.
+  while IFS=$'\t' read -r oi_file oi_phase oi_keys <&3; do
+    [ -n "$oi_file" ] || continue
+    oi_base=$(basename "$oi_file"); oi_hits=""; oi_IFS_saved="$IFS"
+    # PER KEY, NOT PER PLAN. A plan naming `935, 940` where only `940` is open
+    # must report `940` alone — a whole-plan match would name a closed issue
+    # as the finding and send a person to the wrong ticket.
+    IFS=','
+    for oi_key in $oi_keys; do
+      IFS="$oi_IFS_saved"; [ -n "$oi_key" ] || continue
+      oi_view_err_file=""; plot_tmpfile oi_view_err_file reconcile-issue-err || oi_view_err_file=""
+      oi_view=$(bash "$script_dir/plot-host.sh" issue-view "$oi_key" </dev/null 2>"${oi_view_err_file:-/dev/null}"); oi_view_rc=$?
+      oi_view_err=""; [ -n "$oi_view_err_file" ] && oi_view_err=$(head -1 "$oi_view_err_file" 2>/dev/null) && /bin/rm -f "$oi_view_err_file" 2>/dev/null
+      if [ "$oi_view_rc" -eq 4 ]; then
+        # EXIT 4 IS A CONFIGURATION, NOT A FAULT: this host has no tracker to
+        # ask, and it will answer the same for every remaining key — said once.
+        [ "$oi_host_failed" -eq 0 ] && { echo "  (not evaluated — this host cannot be asked for issues: ${oi_view_err:-tracker unavailable})"; echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."; }
+        oi_host_failed=1; break 2
+      elif [ "$oi_view_rc" -ne 0 ]; then
+        # ONE KEY'S LOOKUP FAILING is that key's own failure, not evidence of
+        # anything — reported unchecked for this key alone, never dropped and
+        # never read as closed.
+        oi_out+="  $oi_base — $oi_phase, $oi_key not checked: ${oi_view_err:-plot-host.sh exited $oi_view_rc}\n"
+        n_issue_unread=$((n_issue_unread + 1)); continue
+      fi
+      oi_state=$(printf '%s' "$oi_view" | jq -r '.state // "open"' 2>/dev/null)
+      [ "$oi_state" = closed ] && continue || oi_hits+="${oi_hits:+,}$oi_key"
+    done
+    IFS="$oi_IFS_saved"; [ -n "$oi_hits" ] || continue
+    # A NUMBER PRINTS AS `#N` AND A JIRA KEY AS ITSELF: `#PROJ-101` finds
+    # nothing in a Jira search.
+    oi_first=$(printf '%s' "$oi_hits" | cut -d, -f1); oi_list=$(printf '%s' "$oi_hits" | tr ',' '\n' | sed 's/^[0-9]/#&/' | paste -sd, - | sed 's/,/, /g')
 
-  # EXIT 4 IS A CONFIGURATION, NOT A FAULT: this host has no tracker to ask.
-  if [ "$oi_rc" -ne 0 ]; then
-    [ "$oi_rc" -eq 4 ] && echo "  (not evaluated — this host cannot be asked for issues: ${oi_err:-tracker unavailable})" || echo "  (not evaluated — the tracker question failed: ${oi_err:-plot-host.sh exited $oi_rc})"
-    echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
-  else
-    # An empty answer is a VALUE — zero open issues — not a failure. The
-    # adapter exits non-zero with empty stdout when the question fails, so
-    # reaching here means the host answered.
-    oi_open=$(printf '%s' "$oi_raw" | jq -r 'select(.number != null) | .number' 2>/dev/null)
-    oi_count=$(printf '%s' "$oi_open" | grep -c . 2>/dev/null) || oi_count=0
-
-    # THE CLAIMS ARE READ ON FD 3, and the reason is a measured defect rather
-    # than style: a nested `while read` inside a loop fed by `<<<` drains the
-    # OUTER loop's stdin. Measured while writing this section — the first plan
-    # never iterated, the second saw only its first issue, and the third read
-    # the previous plan's numbers, so a fixture with three findings reported
-    # none. A dedicated descriptor is what keeps the two readers apart.
-    while IFS=$'\t' read -r oi_file oi_phase oi_nums <&3; do
-      [ -n "$oi_file" ] || continue
-      # PER ISSUE, NOT PER PLAN. A plan naming `#1, #2` where only #2 is open
-      # must report #2 alone — a whole-plan match would name a closed issue as
-      # the finding and send a person to the wrong ticket. `grep -x -F -f` is
-      # the whole membership test in one call: fixed strings, whole line, so
-      # `#10` can never match inside `#101`.
-      oi_hits=$(printf '%s' "$oi_nums" | tr ',' '\n' \
-                 | grep -x -F -f <(printf '%s\n' "$oi_open") 2>/dev/null)
-      [ -n "$oi_hits" ] || continue
-      oi_first=$(printf '%s\n' "$oi_hits" | head -1)
-      # A NUMBER PRINTS AS `#N` AND A JIRA KEY AS ITSELF: `#PROJ-101` finds
-      # nothing in a Jira search.
-      oi_list=$(printf '%s\n' "$oi_hits" | sed 's/^[0-9]/#&/' | paste -sd, - | sed 's/,/, /g')
-
-      oi_base=$(basename "$oi_file")
-      oi_out+="  $oi_base — $oi_phase, still open: $oi_list\n"
-      oi_out+="    inspect: plot-host.sh issue-view $oi_first\n"
+    oi_out+="  $oi_base — $oi_phase, still open: $oi_list\n    inspect: plot-host.sh issue-view $oi_first\n"
+    # THE HINT NAMES WHY, NOT A REPAIR THAT CANNOT REPAIR ANYTHING: only a
+    # DELIVERED plan's release can still move the issue. A RELEASED plan is
+    # already past that step.
+    if [ "$oi_phase" != released ]; then
       oi_out+="    decide: release the plan to close it through the tracker, close it by hand, or record why it stays open\n"
-      n_open_issues=$((n_open_issues + 1))
-    done 3<<< "$oi_claims"
+    elif [ -z "$oi_released_status" ]; then
+      oi_out+="    decide: no 'Tracker released status' is configured, so releasing this plan again would not move the issue — close it by hand, or record why it stays open\n"
+    else
+      oi_out+="    decide: the issue waits in a tracker status Plot does not own — it has not reached the declared '$oi_released_status' status — close it by hand, or record why it stays open\n"
+    fi; n_open_issues=$((n_open_issues + 1))
+  done 3<<< "$oi_claims"
 
+  if [ "$oi_host_failed" -eq 0 ]; then
     if [ -n "$oi_out" ]; then printf '%b' "$oi_out"; else echo "  (none — every issue a finished plan names is closed)"; fi
-    echo "  window: the $oi_count open issue(s) the tracker returned, limit $ISSUE_LIMIT (raise with PLOT_ISSUE_LIMIT)."
-    # A FULL WINDOW CANNOT CLAIM COMPLETENESS. Absence past the limit says
-    # nothing about an issue's state, so the section says so rather than
-    # letting `(none)` read as a measured clean estate.
-    [ "$oi_count" -lt "$ISSUE_LIMIT" ] || printf '%s\n' "  note: the tracker returned as many issues as the limit allows — an open" \
-      "        issue beyond this window would not be seen. Raise PLOT_ISSUE_LIMIT."
     [ "$oi_scheme" != jira ] || [ -z "$oi_keyless" ] || echo "  not checked: $(printf '%s' "$oi_keyless" | awk -F', ' '{print NF}') finished plan(s) name no Jira key — $oi_keyless"
     # JIRA'S OPEN READ IS AN INBOX, NOT A PROJECT LIST, with no `Ticket
     # prefixes` declared (`plot-host.sh` issue-list, the jira arm's `scope`/
@@ -3446,5 +3429,5 @@ fi
 echo
 
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs review_bypass=$n_review_bypass desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues unread_headings=$n_unread unread_waits=$n_unread_waits temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs review_bypass=$n_review_bypass desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues issue_unread=$n_issue_unread unread_headings=$n_unread unread_waits=$n_unread_waits temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
 exit 0
