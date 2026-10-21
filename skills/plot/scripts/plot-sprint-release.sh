@@ -28,6 +28,11 @@ DELIVERED_DIR="$(bash "$HERE/plot-config.sh" get "Delivered index" "docs/plans/d
 DELIVERED_DIR="${DELIVERED_DIR%/}"
 PLAN_DIR="$(bash "$HERE/plot-config.sh" get "Plan directory" "docs/plans/")"
 PLAN_DIR="${PLAN_DIR%/}"
+# Carried through for plot-sprint-release-gate.sh, which decides the
+# sprint-owner refusal and the Jira Release comparison — this script collects
+# facts and decides nothing (Manifesto Principle 3).
+DECLARED_SPRINT_OWNER="$(bash "$HERE/plot-config.sh" get "Sprint owner" "")"
+DECLARED_TRACKER="$(bash "$HERE/plot-config.sh" get "Tracker" "")"
 
 jesc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g'; }
 
@@ -139,6 +144,27 @@ plan_delivery() { # $1=slug → true|false|withdrawn
   [ -e "$DELIVERED_DIR/$1.md" ] && printf 'true' || printf 'false'
 }
 
+# The Jira issue key a Must-have's plan names, for plot-sprint-release-gate.sh.
+#
+# MATCHING IS BY ISSUE KEY ONLY, read from the plan's `Issue:` field — never
+# guessed from the Must-have's own text. `plot-plan-meta.sh` already parses
+# that field into a sorted `issues` array, gating Jira-key recognition on the
+# repository's own `Tracker` config, so this re-reads nothing: it takes the
+# FIRST quoted (Jira-shaped) entry, because a plan's `Issue:` field may also
+# carry its own GitHub-style `#N` signals, which are printed unquoted and are
+# not what this comparison is about.
+#
+# "" where the plan names no Jira key — a Must-have with no match is reported
+# as drift by the domain rule, never guessed at.
+plan_issue() { # $1=slug → issue key, or ""
+  local f
+  f=$(ls "$PLAN_DIR"/*-"$1".md 2>/dev/null | head -1)
+  [ -n "$f" ] || { printf ''; return 0; }
+  bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null |
+    sed -n 's/.*"issues":\[\([^]]*\)\].*/\1/p' | head -1 |
+    grep -oE '"[A-Z][A-Z0-9]*-[0-9]+"' | head -1 | tr -d '"'
+}
+
 # Collapse `a/b/../c` → `a/c` textually. NOT `readlink -f` or `realpath`: the
 # first differs between GNU and BSD (and CI is Linux while most authors are on
 # macOS), and both would resolve to an absolute path when every other path this
@@ -227,9 +253,9 @@ status_line() { # $1=file $2=field → value or ""
 # gathers every item's readings; the second pairs each with the status the
 # domain returned. The readings are held in arrays rather than re-parsed, so
 # the line the rule scored and the line rendered here are the same line.
-emit_tier() { # $1=file $2=heading regex → JSON array
-  local f="$1" out="[" first=1 line checked slug text delivered i n
-  local -a checkeds=() slugs=() texts=() delivereds=() states=()
+emit_tier() { # $1=file $2=heading regex $3=must|should|could → JSON array
+  local f="$1" tier="${3:-}" out="[" first=1 line checked slug text delivered issue i n
+  local -a checkeds=() slugs=() texts=() delivereds=() issues=() states=()
   while IFS= read -r line; do
     case "$line" in
       "- [ ] "*) checked=false ;;
@@ -248,7 +274,11 @@ emit_tier() { # $1=file $2=heading regex → JSON array
     # `[slug]` appearing mid-prose is still not a reference.
     slug=$(printf '%s' "$text" | grep -oE '^(~~)?\[[a-z0-9][a-z0-9-]*\]' | tr -d '[]~' || true)
     if [ -n "$slug" ]; then delivered=$(plan_delivery "$slug"); else delivered=none; fi
-    checkeds+=("$checked"); slugs+=("$slug"); texts+=("$text"); delivereds+=("$delivered")
+    # THE ISSUE KEY IS ONLY READ FOR MUST-HAVES — the Jira Release comparison
+    # has no use for a Should or Could's plan, and reading it would pay a
+    # `plot-plan-meta.sh` call per item for a field nothing consumes.
+    if [ "$tier" = "must" ] && [ -n "$slug" ]; then issue=$(plan_issue "$slug"); else issue=""; fi
+    checkeds+=("$checked"); slugs+=("$slug"); texts+=("$text"); delivereds+=("$delivered"); issues+=("$issue")
   done < <(awk -v want="$2" '
     /^###[ \t]/ { in_t = ($0 ~ want) ? 1 : 0; next }
     /^##[ \t]/  { in_t = 0 }
@@ -285,6 +315,7 @@ emit_tier() { # $1=file $2=heading regex → JSON array
       none|withdrawn) out="$out\"${delivereds[$i]}\"" ;;
       *) out="$out${delivereds[$i]}" ;;
     esac
+    out="$out,\"issue\":\"$(jesc "${issues[$i]}")\""
     out="$out,\"state\":\"${states[$i]}\"}"
   done
   printf '%s]' "$out"
@@ -312,9 +343,9 @@ emit_sprint() { # $1=file → one JSON object
   # which reads as a sprint that promised nothing, the one direction this script
   # must never be lenient in.
   local musts shoulds coulds
-  musts=$(emit_tier "$f" '[Mm]ust')     || return 1
-  shoulds=$(emit_tier "$f" '[Ss]hould') || return 1
-  coulds=$(emit_tier "$f" '[Cc]ould')   || return 1
+  musts=$(emit_tier "$f" '[Mm]ust' must)     || return 1
+  shoulds=$(emit_tier "$f" '[Ss]hould' should) || return 1
+  coulds=$(emit_tier "$f" '[Cc]ould' could)   || return 1
   printf '{"sprint":"%s","file":"%s","phase":"%s","release":"%s"' \
     "$(jesc "$slug")" "$(jesc "$f")" "$(jesc "$phase")" "$(jesc "$release")"
   printf ',"must":%s'   "$musts"
@@ -341,8 +372,8 @@ while IFS= read -r f; do
 done <<<"$FILES"
 
 if [ -z "$sprints" ]; then
-  printf '{"sprints":[],"sprint":"","file":"","phase":"","release":"","note":"%s","must":[],"should":[],"could":[]}\n' \
-    "$(jesc "${resolve_note:-sprint file not found}")"
+  printf '{"sprints":[],"sprint":"","file":"","phase":"","release":"","note":"%s","must":[],"should":[],"could":[],"declaredSprintOwner":"%s","declaredTracker":"%s"}\n' \
+    "$(jesc "${resolve_note:-sprint file not found}")" "$(jesc "$DECLARED_SPRINT_OWNER")" "$(jesc "$DECLARED_TRACKER")"
   exit 0
 fi
 
@@ -355,9 +386,11 @@ if [ "$n" = "1" ]; then
   # shape, and one a caller should not have to index into.
   one="${sprints#\{}"      # drop the inner object's opening brace
   one="${one%\}}"          # and its closing one, leaving bare key:value pairs
-  printf ',%s}\n' "$one"  # spliced in, then the OUTER object is closed here
+  printf ',%s,"declaredSprintOwner":"%s","declaredTracker":"%s"}\n' \
+    "$one" "$(jesc "$DECLARED_SPRINT_OWNER")" "$(jesc "$DECLARED_TRACKER")"
 else
   # Many sprints: no top-level mirror to pick, because picking one would be
   # answering "which sprint?" — the question this script refuses to answer.
-  printf ',"sprint":"","file":"","phase":"","release":"","must":[],"should":[],"could":[]}\n'
+  printf ',"sprint":"","file":"","phase":"","release":"","must":[],"should":[],"could":[],"declaredSprintOwner":"%s","declaredTracker":"%s"}\n' \
+    "$(jesc "$DECLARED_SPRINT_OWNER")" "$(jesc "$DECLARED_TRACKER")"
 fi
