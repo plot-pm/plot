@@ -24,6 +24,20 @@ interface RawIssue {
   nextPageToken?: string;
 }
 
+/** One version as `plot-host.sh version-list` reports it. */
+export interface RawVersion {
+  name?: string;
+  released?: boolean;
+  releaseDate?: string | null;
+}
+
+/**
+ * The start of the `unaskable` reason a `Tracker.versionRead` gives for a
+ * version the tracker does not know. Every adapter that knows versions starts
+ * that reason with it, and no other reason starts with it.
+ */
+export const VERSION_NOT_FOUND = 'version-not-found';
+
 /** One limit reading as `plot-host.sh` reports it. */
 interface RawLimit {
   connector?: string;
@@ -366,6 +380,29 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
      */
     issueListInbox: (limit: number): Promise<PortResult<IssueRead>> =>
       walk(['issue-list', '--state', 'inbox', '--paged'], limit),
+
+    /**
+     * Lists the issues whose fix version is `name`, walking the script's pages:
+     * `issue-list --fix-version <name>`. See {@link walk}. Only the Jira arm of
+     * `plot-host.sh` accepts it; the others exit 4.
+     *
+     * @param name - the version's name, verbatim.
+     * @param limit - how many issues to read at most.
+     * @returns the issues, whether the read reached its end, and the requests it spent.
+     */
+    issueListVersion: (name: string, limit: number): Promise<PortResult<IssueRead>> =>
+      walk(['issue-list', '--fix-version', name], limit),
+
+    /**
+     * Lists one project's versions: `version-list <project>`. Only the Jira arm
+     * of `plot-host.sh` answers it; the others exit 4. A line that does not
+     * parse answers `failed`.
+     *
+     * @param project - the project key.
+     * @returns every version of the project, unfiltered.
+     */
+    versionList: (project: string): Promise<PortResult<RawVersion[]>> =>
+      ask(['version-list', project], (stdout) => asJsonLines<RawVersion>(stdout)),
 
     issueView: (id: string): Promise<PortResult<Issue>> =>
       ask(['issue-view', id], (stdout) => issueOf(asJson<RawIssue>(stdout))),

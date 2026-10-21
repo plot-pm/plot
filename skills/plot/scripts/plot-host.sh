@@ -399,6 +399,19 @@
 #                                 as issue-list. Jira answers 404 for a missing
 #                                 key, which is exit 3 here (the tracker moved),
 #                                 never an empty body.
+#   issue-list --state version --fix-version <name> [--limit N] [--page-token T]
+#                                 (jira only; exit 4 elsewhere) the issues whose
+#                                 fixVersion is <name>, in the `Ticket prefixes`
+#                                 projects, one page of at most 100 with a last
+#                                 `{"nextPageToken":"…"}` line. Exit 4 with no
+#                                 `Ticket prefixes`: an unscoped fixVersion query
+#                                 reads every project on a shared instance.
+#   version-list <project>        (jira only; exit 4 elsewhere) the versions of
+#                                 one project, one JSON line each:
+#                                 {"name":…,"released":bool,"releaseDate":…|null}.
+#                                 It decides nothing: whether a name is known is
+#                                 the Tracker adapter's answer. Exit 3 for any
+#                                 failed request, a 404 on the project included.
 #   issue-comment <number> <marker> <body>          (github)
 #                                 edits the comment holding <marker>, else posts
 #                                 one; an empty <marker> always posts, not idempotent.
@@ -2831,20 +2844,14 @@ budget_record_jira() {
 # CAN be asked; if it cannot be reached, that is a failure to answer, not a host
 # that structurally has no tracker (the bitbucket-DISABLED case exit 4 is for).
 jira_check() {
-  local raw="$1" curl_rc="$2"
-  local status body
-  if [ "$curl_rc" -ne 0 ]; then
-    echo "plot-host: jira request failed (curl exit $curl_rc) — a network failure is not an empty inbox" >&2
-    return 3
-  fi
+  local raw="$1" curl_rc="$2" status body detail
+  [ "$curl_rc" -eq 0 ] || { echo "plot-host: jira request failed (curl exit $curl_rc) — a network failure is not an empty inbox" >&2; return 3; }
   # The status is the last line; the body is everything before it.
-  status="$(printf '%s' "$raw" | tail -n1)"
-  body="$(printf '%s' "$raw" | sed '$d')"
+  status="$(printf '%s' "$raw" | tail -n1)"; body="$(printf '%s' "$raw" | sed '$d')"
   if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
     # Name the status AND Jira's own errorMessages if it sent any (it returns
     # {"errorMessages":[…],"errors":{…}} on 4xx). 401/403 are the auth failures
     # this story exists to keep out of the inbox; 5xx is an outage. Both are 3.
-    local detail
     detail="$(printf '%s' "$body" | jq -r 'try (.errorMessages | join("; ")) catch empty' 2>/dev/null)"
     echo "plot-host: jira HTTP $status${detail:+ — $detail}" >&2
     return 3
@@ -4803,7 +4810,7 @@ case "$op" in
     # of them reproduces `an-outage-is-not-an-answer` — a board that says "no
     # issues" because it could not reach the tracker is stating a fact it does
     # not have.
-    limit=""; state="open"; since=""; page_token=""; paged=""; label=""
+    limit=""; state="open"; since=""; page_token=""; paged=""; label=""; fix_version=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --limit) limit="${2:?}"; shift 2 ;;
@@ -4812,12 +4819,13 @@ case "$op" in
         --page-token) page_token="${2:?}"; shift 2 ;;
         --paged) paged=1; shift ;;
         --label) label="${2:?}"; shift 2 ;;
+        --fix-version) fix_version="${2:?}"; state=version; shift 2 ;;
         *) die "issue-list: unknown arg $1" ;;
       esac
     done
     # `--since` is spliced into a JQL string and a search qualifier, so its shape
     # is checked here: a value outside it is a usage error, never a query.
-    [[ "$state" =~ ^(open|closed|inbox|changed)$ ]] || die "issue-list: --state is open, closed, inbox or changed, not '$state'"
+    [[ "$state" =~ ^(open|closed|inbox|changed|version)$ ]] || die "issue-list: --state is open, closed, inbox, changed or version, not '$state'"
     [[ "$state" =~ ^(closed|changed)$ ]] && ! [[ "$since" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}[0-9:.]*Z?)?$ ]] && die "issue-list: --state $state needs --since <iso>"
     limit_args=()
     [ -n "$limit" ] && limit_args=(--limit "$limit")
@@ -4830,6 +4838,7 @@ case "$op" in
     # asked at all* — a configuration a person fixes, not a call to retry.
     # NOTHING HAS BEEN SPENT: no `gh`, no `bb`, no curl has run yet.
     [ "${source_said%%$'\t'*}" != nobody ] || { echo "plot-host: ${source_said#*$'\t'}" >&2; exit 4; }
+    [ "$state" != version ] || [ "$source_said" = $'tracker\tjira' ] || { echo "plot-host: only a Jira tracker has fix versions" >&2; exit 4; }
     if [ "$source_said" = $'tracker\tjira' ]; then
       # Jira, resolved through the REST API — DISPATCHED ON `Tracker`, never on
       # `backend()`: a Bitbucket repo tracking in Jira is the normal enterprise
@@ -4865,6 +4874,10 @@ case "$op" in
       # closed reads keep `assignee = currentUser()` only where `$scope` is
       # empty. The inbox read below keeps it unconditionally, and the scope too.
       person=""; [ -n "$scope" ] || person="assignee = currentUser() AND "
+      # THE CLOSED, CHANGED AND VERSION READS REQUIRE `Ticket prefixes`: an
+      # unscoped `resolved >=`, `updated >=` or `fixVersion =` query reads every
+      # project on the instance, the hazard `tracker_projects` measured.
+      [ -n "$scope" ] || ! [[ "$state" =~ ^(closed|changed|version)$ ]] || { echo "plot-host: $state Jira issues need 'Ticket prefixes' declared; an unscoped $state query reads the whole instance" >&2; exit 4; }
       # PLOT_JIRA_JQL STILL WINS OVER BOTH. Teams worked around this bug with
       # their own JQL; an override that stopped overriding would break exactly
       # the people who noticed the problem first.
@@ -4881,14 +4894,13 @@ case "$op" in
         # THE CLOSED READ REQUIRES `Ticket prefixes` AND READS NOT PLOT_JIRA_JQL.
         # An unscoped `resolved >=` query reads the whole instance — the hazard
         # `tracker_projects` measured for the open read — so with none declared
-        # the read exits 4 before any curl. `jira_require_config` follows. The
+        # the read exits 4 before any curl, at the guard above. The
         # closed read is always paged: a page is ISSUE_PAGE_ROWS, and the
         # TypeScript adapter walks the pages, so this arm holds no loop. JQL dates take
         # `yyyy-MM-dd` or `yyyy-MM-dd HH:mm`, so the ISO `since` is cut to the
         # shape it has: a date-only `since` sends the date alone. JQL takes no
         # offset, so Jira reads the time in the reader's profile zone. Its
         # person clause drops with the open read's (D20), same reason.
-        [ -n "$scope" ] || { echo "plot-host: closed Jira issues need 'Ticket prefixes' declared; an unscoped resolved query reads the whole instance" >&2; exit 4; }
         when="${since:0:10} ${since:11:5}"; jql="resolved >= \"${when% }\"${scope} ORDER BY resolved DESC"
         fields="$fields,resolutiondate"; paged=1
       # THE D23 INBOX READ: always person-scoped, and project-scoped by `$scope`
@@ -4904,8 +4916,11 @@ case "$op" in
       # UTC, and a relative time names the same instant in every zone. The 5
       # minutes cover clock skew; the fold drops the rows read twice.
       elif [ "$state" = changed ]; then
-        [ -n "$scope" ] || { echo "plot-host: changed Jira issues need 'Ticket prefixes' declared; an unscoped updated query reads the whole instance" >&2; exit 4; }
         mins="$(jq -nr --arg s "$since" '($s[11:19] | . + "00:00:00"[length:]) as $t | (now - ("\($s[0:10])T\($t)Z" | fromdateiso8601)) / 60 | ceil + 5 | if . < 5 then 5 else . end')"; jql="updated >= \"-${mins}m\"${scope} ORDER BY updated DESC"; fields="$fields,updated,resolutiondate"; paged=1
+      # THE VERSION READ, gated with the closed read above: `fixVersion = "<name>"`
+      # alone matches a same-named version in every project on a shared
+      # instance. The name is escaped for a JQL string literal.
+      elif [ "$state" = version ]; then jql="fixVersion = \"$(printf '%s' "$fix_version" | sed 's/\\/\\\\/g; s/"/\\"/g')\"${scope} ORDER BY created DESC"; paged=1
       fi
       # AN UNPAGED READ'S --limit ABOVE ONE PAGE IS REFUSED, NOT CLAMPED. Open
       # and inbox are the only states still unpaged here — closed and changed
@@ -5257,6 +5272,12 @@ case "$op" in
   # PLOT_TICKET_PREFIXES — the one answer the TypeScript connector asks.
   ticket-projects) tracker_projects ;;
 
+  version-list)
+    # A Jira project's versions, unfiltered — see the usage header.
+    source_said="$(issue_source)" || exit 1; [ "$source_said" = $'tracker\tjira' ] || { echo "plot-host: version-list needs 'Tracker: jira'" >&2; exit 4; }
+    jira_require_config; body="$(jira_ask "/rest/api/2/project/${1:?version-list needs a project key}/versions")" || exit $?
+    printf '%s' "$body" | jq -c '.[] | {name, released: (.released // false), releaseDate: (.releaseDate // null)}' || exit 3 ;;
+
   pr-body)
     num="${1:?pr-body needs a PR number}"; shift
     body=""
@@ -5545,6 +5566,6 @@ case "$op" in
     ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
     ;;
 esac
