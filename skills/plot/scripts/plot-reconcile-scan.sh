@@ -3003,15 +3003,14 @@ oi_out=""
 # scan for `#NNN`: `issues[]` is a dedicated field precisely because a body
 # cannot tell a signal from a citation, and plans here cite issues constantly.
 oi_claims=""; oi_keyless=""
+# KEY RESOLUTION MIRRORS `resolveItemKey` (sprint-release.ts): the first
+# Jira-shaped `issues[]` entry wins, else a Jira-shaped `ticket:` stands in.
 if [ -n "$plan_json" ]; then
-  oi_claims=$(printf '%s\n' "$plan_json" | jq -r '
-    select(.phase == "delivered" or .phase == "released")
-    | select((.issues // []) | length > 0)
-    | "\(.file)\t\(.phase)\t\(.issues | map(tostring) | join(","))"' 2>/dev/null)
-  # THE FINISHED PLANS NAMING NO KEY, by slug. Under a Jira tracker they are
-  # plans this section skips, and the section names them rather than letting a
-  # clean result read as a full check.
-  oi_keyless=$(printf '%s\n' "$plan_json" | jq -r 'select((.phase == "delivered" or .phase == "released") and ((.issues // []) | length == 0)) | .file | split("/") | last | sub("\\.md$"; "") | sub("^[0-9]{4}-[0-9]{2}-[0-9]{2}-"; "")' 2>/dev/null | paste -sd, - | sed 's/,/, /g')
+  oi_tagged=$(printf '%s\n' "$plan_json" | jq -r --arg re '^[A-Z][A-Z0-9]*-[0-9]+$' '
+    select(.phase == "delivered" or .phase == "released") | (.issues // []) as $issues | (.ticket // "") as $ticket
+    | (if ($issues | map(select(tostring | test($re))) | length) > 0 then $issues elif ($ticket | test($re)) then $issues + [$ticket] else $issues end) as $r
+    | if ($r | length) > 0 then "C\t\(.file)\t\(.phase)\t\($r | map(tostring) | join(","))" else "K\t\(.file | split("/") | last | sub("\\.md$"; "") | sub("^[0-9]{4}-[0-9]{2}-[0-9]{2}-"; ""))" end' 2>/dev/null)
+  oi_claims=$(printf '%s\n' "$oi_tagged" | sed -n 's/^C\t//p'); oi_keyless=$(printf '%s\n' "$oi_tagged" | sed -n 's/^K\t//p' | paste -sd, - | sed 's/,/, /g')
 fi
 oi_plans=$(printf '%s' "$oi_claims" | grep -c . 2>/dev/null) || oi_plans=0
 
