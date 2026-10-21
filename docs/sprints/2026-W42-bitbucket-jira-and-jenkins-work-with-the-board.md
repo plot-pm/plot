@@ -33,7 +33,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [ ] [a-sprint-cannot-be-read-as] Jira tracker: a Plot sprint reads as a Jira Release (fixVersion) (#2212)
 - [x] [jira-issue-list-limit-above-one] Jira: issue-list --limit above one page pages or says so (#2213)
 - [x] [resolve-the-release-of-a-pr] Reconcile: resolve the release of a PR merged into a deleted branch (#2215)
-- [ ] [bitbucket-with-tracker-plot-the-message] Bitbucket with `Tracker: plot`: the message names the working configuration (#2216)
+- [x] [bitbucket-with-tracker-plot-the-message] Bitbucket with `Tracker: plot`: the message names the working configuration (#2216)
 - [x] [jenkins-run-for-sha-can-answer] Jenkins: run-for-sha skips builds that never ran (#2214) <!-- pr: #2225, branch: bug/jenkins-run-for-sha-can-answer -->
 - [x] [a-sha-lookup-matches-a-build] Jenkins: a sha lookup matches a build on its built revision, not its merge base (#2229)
 
