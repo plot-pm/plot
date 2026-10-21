@@ -302,7 +302,14 @@
 #                                 closed read and an open read given `--paged`
 #                                 print that line, and on Jira ask 100 rows a
 #                                 page; an open read without `--paged` prints
-#                                 issue rows alone. EXIT 4 where the closed read
+#                                 issue rows alone. EXIT 2 on Jira where an open
+#                                 or inbox read's `--limit` exceeds 100 without
+#                                 `--paged`: Jira caps `maxResults` at 100
+#                                 itself, so the unpaged read would otherwise
+#                                 return 100 rows with no sign the rest exist —
+#                                 a usage error naming `--paged`, checked before
+#                                 any curl. `--limit 100` still answers; the
+#                                 guard is `>`, not `>=`. EXIT 4 where the closed read
 #                                 cannot be asked at all: Bitbucket (`bb issue
 #                                 list` prints no closing date) and Jira with no
 #                                 `Ticket prefixes`, both before any bb or curl.
@@ -4900,7 +4907,19 @@ case "$op" in
         [ -n "$scope" ] || { echo "plot-host: changed Jira issues need 'Ticket prefixes' declared; an unscoped updated query reads the whole instance" >&2; exit 4; }
         mins="$(jq -nr --arg s "$since" '($s[11:19] | . + "00:00:00"[length:]) as $t | (now - ("\($s[0:10])T\($t)Z" | fromdateiso8601)) / 60 | ceil + 5 | if . < 5 then 5 else . end')"; jql="updated >= \"-${mins}m\"${scope} ORDER BY updated DESC"; fields="$fields,updated,resolutiondate"; paged=1
       fi
-      [ -z "$paged" ] || { max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; }
+      # AN UNPAGED READ'S --limit ABOVE ONE PAGE IS REFUSED, NOT CLAMPED. Open
+      # and inbox are the only states still unpaged here — closed and changed
+      # forced `paged=1` above. Jira caps maxResults at 100 itself, so an
+      # unpaged `--limit 200` silently returned 100 rows with no sign the other
+      # 100 existed (measured 2026-10-21, ewz-kus-portal). Exit 2 is new here —
+      # this arm otherwise uses `die` (1) for usage and 3/4 for host states —
+      # because a stderr warning is lost wherever stderr is discarded, and the
+      # three-outcomes rule above says a partial answer must not look like a
+      # complete one. Checked BEFORE any curl: nothing is spent on a call this
+      # refuses. `-gt`, not `-ge`: a full single page (100) is still one page
+      # and must still answer. A non-numeric `--limit` skips this guard and
+      # reaches Jira as an invalid `maxResults` instead — not this guard's job.
+      if [ -n "$paged" ]; then max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; else [[ "$max" =~ ^[0-9]+$ ]] && [ "$max" -gt "$ISSUE_PAGE_ROWS" ] && { echo "plot-host: issue-list: --limit $limit exceeds one Jira page ($ISSUE_PAGE_ROWS); pass --paged to read it a page at a time" >&2; exit 2; }; fi
       token_args=(); [ -z "$page_token" ] || token_args=(--data-urlencode "nextPageToken=$page_token")
       # jq builds the query string so a JQL with spaces/quotes is encoded once,
       # not hand-escaped. --data-urlencode via curl -G keeps the token out of the
