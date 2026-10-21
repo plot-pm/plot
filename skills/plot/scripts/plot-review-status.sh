@@ -29,7 +29,7 @@ FIRST=true
 
 while IFS= read -r line; do
   # Extract slug from [slug] pattern
-  ITEM_SLUG=$(echo "$line" | grep -oE '\[([a-z0-9-]+)\]' | head -1 | tr -d '[]')
+  ITEM_SLUG=$(echo "$line" | grep -oE '\[([a-z0-9-]+)\]' | head -1 | tr -d '[]' || true)
   [ -z "$ITEM_SLUG" ] && continue
 
   # Check if item has an annotation comment
