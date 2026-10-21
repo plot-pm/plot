@@ -324,12 +324,8 @@ emit_sprint() { # $1=file → one JSON object
   musts=$(emit_tier "$f" '[Mm]ust')     || return 1
   shoulds=$(emit_tier "$f" '[Ss]hould') || return 1
   coulds=$(emit_tier "$f" '[Cc]ould')   || return 1
-  printf '{"sprint":"%s","file":"%s","phase":"%s","release":"%s"' \
-    "$(jesc "$slug")" "$(jesc "$f")" "$(jesc "$phase")" "$(jesc "$release")"
-  printf ',"must":%s'   "$musts"
-  printf ',"should":%s' "$shoulds"
-  printf ',"could":%s'  "$coulds"
-  printf '}'
+  printf '{"sprint":"%s","file":"%s","phase":"%s","release":"%s","must":%s,"should":%s,"could":%s}' \
+    "$(jesc "$slug")" "$(jesc "$f")" "$(jesc "$phase")" "$(jesc "$release")" "$musts" "$shoulds" "$coulds"
 }
 
 # --- Output. `sprints` is an ARRAY because two active sprints may target one
