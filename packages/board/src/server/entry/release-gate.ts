@@ -52,6 +52,7 @@ import { pathToFileURL } from 'node:url';
 /** One item as `plot-sprint-release.sh` writes it. */
 interface ReportedItem {
   slug?: unknown;
+  text?: unknown;
   state?: unknown;
 }
 
@@ -109,8 +110,9 @@ const tierFrom = (
       // A lightweight task names no plan and the collector writes `""`. It is
       // carried through rather than dropped: an unfinished item with no plan is
       // still a promise the sprint made, and the gate names it by its text
-      // being empty rather than by not appearing at all.
+      // (below) rather than by not appearing at all.
       plan: typeof entry.slug === 'string' ? entry.slug : '',
+      text: typeof entry.text === 'string' ? entry.text : '',
       status: status as ItemStatus,
     };
   });
