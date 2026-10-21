@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2312 merged
+- **Started:** 2026-10-22, Jan Wloka, `bug/main-checkout-writers-measured`
 
 ## Changelog
 
