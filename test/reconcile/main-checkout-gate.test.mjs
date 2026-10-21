@@ -7,8 +7,9 @@
 // `plot-gate.mjs` bundle, run exactly as `plot-gates.sh` runs it (hook JSON
 // on stdin, cwd as the working directory), refuses a mutating git command in
 // the MAIN checkout when PLOT_UNATTENDED=1 says an unattended agent runs it,
-// allows the same command at a desk (a linked worktree), and allows an
-// attended session in the main checkout.
+// allows the same command at a desk (a linked worktree), allows an attended
+// session in the main checkout, and allows an unattended run whose spawn set
+// PLOT_MAIN_CHECKOUT_WRITER=1 (the brief and implement runs).
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, execFile } from 'node:child_process';
@@ -54,15 +55,21 @@ const makeEstate = (label) => {
   return { tmp, origin, main, desk };
 };
 
-/** The environment with PLOT_UNATTENDED set to `value`, or removed where `value` is undefined. */
-const envWith = (value) => {
+/**
+ * The environment with PLOT_UNATTENDED set to `value`, or removed where `value`
+ * is undefined, and PLOT_MAIN_CHECKOUT_WRITER set to `writer` or removed.
+ */
+const envWith = (value, writer) => {
   const env = { ...process.env };
   delete env.PLOT_UNATTENDED;
+  delete env.PLOT_MAIN_CHECKOUT_WRITER;
   if (value !== undefined) env.PLOT_UNATTENDED = value;
+  if (writer !== undefined) env.PLOT_MAIN_CHECKOUT_WRITER = writer;
   return env;
 };
 const UNATTENDED = envWith('1');
 const ATTENDED = envWith(undefined);
+const MAIN_WRITER = envWith('1', '1');
 
 /**
  * Runs the real gate bundle exactly as plot-gates.sh invokes it: hook JSON on
@@ -113,4 +120,28 @@ test('main-checkout gate: allows an attended commit in the main checkout', async
   const { main } = makeEstate('allow-attended');
   const answer = await runGateBundle(main, 'git commit -am "interactive"', ATTENDED);
   assert.equal(answer.code, 0, `expected an attended session to be allowed, got exit ${answer.code}, stderr:\n${answer.stderr}`);
+});
+
+test('main-checkout gate: allows an unattended run marked PLOT_MAIN_CHECKOUT_WRITER=1 to commit in the main checkout', async () => {
+  const { main } = makeEstate('allow-writer');
+  const answer = await runGateBundle(main, 'git add -A && git commit -m "brief" && git pull --rebase', MAIN_WRITER);
+  assert.equal(answer.code, 0, `expected a marked writer to be allowed, got exit ${answer.code}, stderr:\n${answer.stderr}`);
+});
+
+test('main-checkout gate: refuses an unattended git add in the main checkout without the writer marker', async () => {
+  const { main } = makeEstate('refuse-add');
+  const answer = await runGateBundle(main, 'git add -A', UNATTENDED);
+  assert.equal(answer.code, 2, `expected a refusal, got exit ${answer.code}, stderr:\n${answer.stderr}`);
+});
+
+test('main-checkout gate: refuses an unattended cd <main> && git commit run from a desk', async () => {
+  const { main, desk } = makeEstate('refuse-cd');
+  const answer = await runGateBundle(desk, `cd ${main} && git commit -am "via cd"`, UNATTENDED);
+  assert.equal(answer.code, 2, `expected a refusal, got exit ${answer.code}, stderr:\n${answer.stderr}`);
+});
+
+test('main-checkout gate: allows an unattended cd <desk> && git commit run from the main checkout', async () => {
+  const { main, desk } = makeEstate('allow-cd');
+  const answer = await runGateBundle(main, `cd ${desk} && git commit -am "via cd"`, UNATTENDED);
+  assert.equal(answer.code, 0, `expected the desk to be allowed, stderr:\n${answer.stderr}`);
 });

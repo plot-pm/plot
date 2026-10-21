@@ -1463,8 +1463,7 @@ export const BoardSchema = z.object({
    * Whether the board's OWN checkout — the one every read above walked — is
    * clean (`git status --porcelain` empty). `null` where it could not be
    * read; `.optional()` for an older server that predates this field. Neither
-   * absence means clean: see `checkoutHealthStatus` in `@plot-pm/domain`,
-   * which renders this alongside `planSource.behind`.
+   * absence means clean: see `checkoutHealthStatus` in `@plot-pm/domain`.
    */
   checkoutClean: z.boolean().nullable().optional(),
   /**

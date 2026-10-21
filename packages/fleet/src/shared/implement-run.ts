@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
 import path from 'node:path';
 import {
   decodeImplementHolder,
@@ -568,6 +569,9 @@ export const startImplement = (
         // THE DECLARATION, not a switch — the same one `idea.ts` sets. On drift
         // `/plot-implement` step 2 stops and reports rather than asking.
         PLOT_UNATTENDED: '1',
+        // The brief and the `Started:` record are committed in the main
+        // checkout by design, so the `main-checkout` gate allows this run.
+        [MAIN_CHECKOUT_WRITER_ENV]: '1',
         PLOT_PLAN_SLUG: slug,
         ...(branch === null ? {} : { PLOT_BRIEF_BRANCH: branch }),
       },

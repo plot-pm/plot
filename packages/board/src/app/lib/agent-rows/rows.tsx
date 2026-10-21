@@ -323,11 +323,6 @@ export interface AgentListProps {
    * nothing" rather than "clean".
    */
   checkoutClean?: boolean | null;
-  /**
-   * Commits the board's checkout is behind the ref it reads plans from —
-   * `/api/board`'s `planSource.behind`. Same absence rule as `checkoutClean`.
-   */
-  checkoutBehind?: number | null;
 }
 
 /**

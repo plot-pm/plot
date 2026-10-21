@@ -1370,7 +1370,6 @@ export function App() {
               // rides on the BOARD payload, undefined until the first board
               // lands, which `checkoutHealthStatus` reads as "say nothing".
               checkoutClean={board?.checkoutClean}
-              checkoutBehind={board?.planSource?.behind}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>

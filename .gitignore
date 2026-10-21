@@ -81,6 +81,13 @@ node_modules/
 # already ignored above.
 .plot/logs/
 
+# A brief agent's console log, written into the MAIN checkout: `plot-dispatch.sh`
+# writes `.plot/brief-<branch>.log` and the fleet's implement run writes
+# `.plot-brief-<slug>.log`. Untracked and unignored, either one keeps the board's
+# "uncommitted changes" warning on after every brief request.
+.plot/brief-*.log
+.plot-brief-*.log
+
 # ralph-plot-sprint runner scratch (iteration logs, heartbeat, handover)
 .ralph-state/
 packages/domain/coverage/

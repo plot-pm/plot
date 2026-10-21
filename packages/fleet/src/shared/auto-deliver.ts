@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
 import {
   deliveryReadings,
   planAutoDeliver,
@@ -266,6 +267,9 @@ export function runAutoDeliver(
             // anyway; setting this makes a skipped check name itself in the log
             // rather than the agent improvising past it.
             PLOT_UNATTENDED: '1',
+            // /plot-deliver commits a plan's `→ #<number>` annotation in the
+            // main checkout by design, so the `main-checkout` gate allows it.
+            [MAIN_CHECKOUT_WRITER_ENV]: '1',
             PLOT_PLAN_SLUG: plan.slug,
           },
           logFile: log,

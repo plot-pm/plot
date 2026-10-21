@@ -14,7 +14,7 @@ import {
   unpinnedMerges,
   withoutQuotedHeredocs,
 } from '@plot-pm/domain/rules/controller-gate';
-import { gitWriteDirs, mainCheckoutWriteRefusal, mutatesGitState } from '@plot-pm/domain/rules/main-checkout-write';
+import { gatesMainCheckout, gitWriteDirs, mainCheckoutWriteRefusal, mutatesGitState } from '@plot-pm/domain/rules/main-checkout-write';
 
 /**
  * The `node` entry point `plot-gates.sh` launches: one PreToolUse hook that
@@ -469,17 +469,19 @@ export interface MainCheckoutReadings {
  * command that mutates `HEAD`, the index, or a ref in the repository's MAIN
  * checkout rather than a linked (desk) worktree.
  *
- * Without `PLOT_UNATTENDED=1` it allows everything and reads nothing: an
- * interactive session and Plot's own skills commit in the main checkout. With
- * it, `wants` is a string test over {@link mutatesGitState}, so a read-only
+ * Without `PLOT_UNATTENDED=1`, or with `PLOT_MAIN_CHECKOUT_WRITER=1`, it allows
+ * everything and reads nothing ({@link gatesMainCheckout}): an interactive
+ * session, and the brief, implement, deliver, reslice and story runs whose
+ * spawn sets the marker, commit in the main checkout by design. Otherwise
+ * `wants` is a string test over {@link mutatesGitState}, so a read-only
  * command never reads git. `ask` reads, for each mutating call, the directory
- * its `-C` options name (or the working directory) and refuses where that is
+ * its `cd` and `-C` arguments name (or the working directory) and refuses where that is
  * not a linked worktree. A root read that fails allows: without git this gate
  * cannot tell a desk from the main checkout.
  */
 export const mainCheckoutGateOf = (readings: MainCheckoutReadings): Gate => ({
   name: 'main-checkout',
-  wants: (command) => process.env.PLOT_UNATTENDED === '1' && mutatesGitState(command),
+  wants: (command) => gatesMainCheckout(process.env) && mutatesGitState(command),
   ask: async (command) => {
     const cwd = process.cwd();
     const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');

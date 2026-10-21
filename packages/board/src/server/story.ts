@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
 import { agentLogPath } from './agent-log.js';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
@@ -508,6 +509,9 @@ export async function handleStory(
       // contract that makes the whole route possible: `/story-tracking`
       // is run this way several times a day from the prompt.
       PLOT_UNATTENDED: '1',
+      // /story-tracking commits on the branch the main checkout holds, by
+      // design, so the `main-checkout` gate allows this run.
+      [MAIN_CHECKOUT_WRITER_ENV]: '1',
       [STORY_PROMPT_ENV]: promptPath,
       PLOT_ISSUE: String(number),
     },

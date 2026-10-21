@@ -21,13 +21,17 @@ const MAIN: Where = { root: { ok: true, value: '/nowhere/repo' }, linked: false 
 const DESK: Where = { root: { ok: true, value: '/nowhere/desk' }, linked: true };
 const NO_ROOT: Where = { root: { ok: false }, linked: false };
 
-let prior: string | undefined;
+const KEYS = ['PLOT_UNATTENDED', 'PLOT_MAIN_CHECKOUT_WRITER'] as const;
+let prior: Partial<Record<(typeof KEYS)[number], string>> = {};
 beforeEach(() => {
-  prior = process.env.PLOT_UNATTENDED;
+  prior = Object.fromEntries(KEYS.flatMap((key) => (process.env[key] === undefined ? [] : [[key, process.env[key]]])));
+  delete process.env.PLOT_MAIN_CHECKOUT_WRITER;
 });
 afterEach(() => {
-  if (prior === undefined) delete process.env.PLOT_UNATTENDED;
-  else process.env.PLOT_UNATTENDED = prior;
+  for (const key of KEYS) {
+    if (prior[key] === undefined) delete process.env[key];
+    else process.env[key] = prior[key];
+  }
 });
 
 describe('the main-checkout gate, for an unattended agent', () => {
@@ -76,6 +80,30 @@ describe('the main-checkout gate, for an unattended agent', () => {
 
   it('allows a mutating command when the repository root cannot be read', async () => {
     expect((await ask(readings(NO_ROOT), 'git commit -m x')).code).toBe(EXIT.allow);
+  });
+
+  it('judges the directory a literal cd moves to before the call', async () => {
+    const asked: string[] = [];
+    const r = readings((dir) => (dir === '/nowhere/repo' ? MAIN : DESK), asked);
+    expect((await ask(r, 'cd /nowhere/repo && git commit -m x')).code).toBe(EXIT.refuse);
+    expect(asked).toEqual(['/nowhere/repo']);
+    expect((await ask(r, 'cd /nowhere/desk && git commit -m x')).code).toBe(EXIT.allow);
+  });
+
+  it('refuses git add in the main checkout', async () => {
+    expect((await ask(readings(MAIN), 'git add -A')).code).toBe(EXIT.refuse);
+  });
+
+  it('refuses when the writer marker is set to anything but 1', async () => {
+    process.env.PLOT_MAIN_CHECKOUT_WRITER = '';
+    expect((await ask(readings(MAIN), 'git commit -m x')).code).toBe(EXIT.refuse);
+  });
+
+  it('allows a commit in the main checkout when its spawn set PLOT_MAIN_CHECKOUT_WRITER=1, reading no git', async () => {
+    process.env.PLOT_MAIN_CHECKOUT_WRITER = '1';
+    const asked: string[] = [];
+    expect((await ask(readings(MAIN, asked), 'git add -A && git commit -m brief && git pull --rebase')).code).toBe(EXIT.allow);
+    expect(asked).toEqual([]);
   });
 
   it('allows and goes UNVERIFIED when the git reading throws', async () => {
