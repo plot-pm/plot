@@ -20,6 +20,16 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [x] [bitbucket-parity-and-app-identities] Host connector: Bitbucket parity and App identities (#1848)
 - [x] [jira-inbox-and-issue-index] Tracker connector: Jira inbox and issue index (#1849)
 - [x] [the-agent-s-ci-wait-never] Jenkins CI: the agent's CI wait settles, and a Jenkins check binds to a commit (#1867)
+- [x] [plot-reads-as-an-unknown-tracker] `Tracker: plot` reads the git host's issues, not an unknown tracker (#2077)
+- [x] [bitbucket-jenkins-pr-list-rows-past] Bitbucket + Jenkins: pr-list rows past the lookup cap read unbound (#2154)
+- [x] [a-sha-bound-run-reports-the] Jenkins: a sha-bound run reports the PR head, not the merge base, and builds that never ran are not listed (#2153)
+- [x] [pr-state-and-pr-list-never] Bitbucket: the desk reads mergeable from a local merge-tree check (#2156)
+- [x] [plot-on-a-bitbucket-repository-lists] Bitbucket with `Tracker: plot` lists tickets, and a Plot sprint has a `Sprint owner` (#2169)
+- [x] [bitbucket-jenkins-a-pr-list-row] Bitbucket + Jenkins: a row past the lookup cap reads "not looked up", not Jenkins unknown (#2170)
+- [x] [merge-commit-not-in-this-clone] Reconcile: a merge commit not in this clone (#2155)
+- [x] [plot-pr-merged-sh-asks-gh] `plot-pr-merged.sh` asks the host through `plot-host.sh`, not `gh` (#2186)
+- [x] [pr-state-and-pr-merged-miss] Bitbucket: pr-state and pr-merged ask per branch, so old merged PRs read merged (#2187)
+- [x] [pr-state-and-pr-list-still] Bitbucket: pr-state and pr-list answer mergeable outside the desk (#2188)
 
 ### Should Have
 
@@ -52,3 +62,4 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - 2026-10-16: Tiers set by Jan Wloka: Must are the three connector plans; Should are the ticket index and the ticket rows; Could are #1830 and #1845.
 - 2026-10-17: Added [one-review-issue-per-pr-a] as a Should: it stops plot-review opening one follow-up issue per PR head (#1881), the flood measured during this sprint.
 - 2026-10-17: Added [the-ready-line-waits-for-every] and [a-fresh-agent-after-a-wait] as Could by Jan Wloka: both plans are approved, and their fixes keep the board and the fleet running during the sprint.
+- 2026-10-21: Added ten plans as Must by Jan Wloka: [plot-reads-as-an-unknown-tracker], [bitbucket-jenkins-pr-list-rows-past], [a-sha-bound-run-reports-the], [pr-state-and-pr-list-never], [plot-on-a-bitbucket-repository-lists], [bitbucket-jenkins-a-pr-list-row], [merge-commit-not-in-this-clone], [plot-pr-merged-sh-asks-gh], [pr-state-and-pr-merged-miss], [pr-state-and-pr-list-still]. The field tests on ewz-kus-portal (Bitbucket, Jira, Jenkins) on 2026-10-19 to 2026-10-21 found each defect; all ten are delivered. Jan Wloka ruled that the release waits for every gap the tests found, including a sprint read as a Jira Release (#2212) and #2213–#2216, whose plans join when they are dispatched.
