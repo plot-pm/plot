@@ -9215,12 +9215,13 @@ test('host: version-list exits 4 where the tracker is not Jira', () => {
 });
 
 test('host: issue-list jira --fix-version scopes by project, escapes the name and prints the next token', () => {
-  const body = JSON.stringify({
+  const name = 'kus "102" \\ x';
+  const searchBody = JSON.stringify({
     issues: [{ key: 'PROJ-8', fields: { summary: 'In the release', created: 'c', status: { name: 'Done', statusCategory: { name: 'Done' } } } }],
     nextPageToken: 'tok-2',
   });
-  const stub = makeJiraCurlStub({ body });
-  const res = runJira(['issue-list', '--fix-version', 'kus "102" \\ x', '--limit', '500'], stub, { PLOT_TICKET_PREFIXES: 'PROJ, OTHER' });
+  const stub = makeVersionAwareCurlStub({ versions: { PROJ: [{ name }], OTHER: [{ name: 'unrelated' }] }, searchBody });
+  const res = runJira(['issue-list', '--fix-version', name, '--limit', '500'], stub, { PLOT_TICKET_PREFIXES: 'PROJ, OTHER' });
   assert.equal(res.status, 0, res.stderr);
   assert.deepEqual(res.stdout.trim().split('\n').map((l) => JSON.parse(l)), [
     { number: 'PROJ-8', title: 'In the release', url: 'https://acme.atlassian.net/browse/PROJ-8', createdAt: 'c', status: 'Done', statusCategory: 'Done', assignees: [] },
@@ -9239,9 +9240,13 @@ test('host: issue-list jira --fix-version leaves out a same-named version of a p
   const issue = (key) => ({ key, fields: { summary: key, created: 'c', status: { name: 'Done', statusCategory: { name: 'Done' } } } });
   const both = Buffer.from(JSON.stringify({ issues: [issue('PROJ-1'), issue('OTHER-1')] })).toString('base64');
   const own = Buffer.from(JSON.stringify({ issues: [issue('PROJ-1')] })).toString('base64');
+  const versions = Buffer.from(JSON.stringify([{ name: 'kus-portal-102' }])).toString('base64');
   writeFileSync(path.join(dir, 'curl'), `#!/usr/bin/env bash
 body='${both}'
-for a in "$@"; do case "$a" in jql=*"project IN (PROJ)"*) body='${own}' ;; esac; done
+for a in "$@"; do case "$a" in
+  */project/PROJ/versions) printf '%s' "$(printf '%s' '${versions}' | base64 -d)"; printf '\\n200'; exit 0 ;;
+  jql=*"project IN (PROJ)"*) body='${own}' ;;
+esac; done
 printf '%s' "$body" | base64 -d; printf '\\n200'
 `);
   chmodSync(path.join(dir, 'curl'), 0o755);
@@ -9256,6 +9261,157 @@ test('host: issue-list jira --fix-version without Ticket prefixes exits 4 and ru
   assert.equal(res.status, 4, res.stderr);
   assert.match(res.stderr, /Ticket prefixes/);
   assert.ok(!existsSync(stub.argvFile), 'curl must not run');
+});
+
+// --- the --fix-version existence check, before the issue search is spent ---
+//
+// `fixVersion = "<name>"` alone matches nothing for a name Jira has never
+// heard of and still exits 0 with no rows (measured 2026-10-21). The checks
+// below pin the refusal, its placement before the search, and the cases a
+// naive "empty means unknown" implementation would get wrong.
+
+// A stub that answers differently per URL: `.../versions` for the existence
+// check, `/search/jql` for the issue search — so a test can tell whether the
+// search ran at all, not just what it returned.
+function makeVersionAwareCurlStub({ versions = {}, searchBody = JIRA_SEARCH_OK, versionsStatus = 200 } = {}) {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jira-')));
+  const argvFile = path.join(dir, 'curl.argv');
+  const toB64 = (s) => Buffer.from(s, 'utf8').toString('base64');
+  const cases = Object.entries(versions)
+    .map(([project, list]) => `*"/project/${project}/versions"*) body='${toB64(JSON.stringify(list))}'; status='${versionsStatus}' ;;`)
+    .join('\n');
+  writeFileSync(path.join(dir, 'curl'), `#!/usr/bin/env bash
+printf '%s\\n' "$@" >> "${argvFile}"
+printf '===\\n' >> "${argvFile}"
+body='${toB64(searchBody)}'; status='200'
+for a in "$@"; do case "$a" in
+${cases}
+esac; done
+printf '%s' "$(printf '%s' "$body" | base64 -d)"
+printf '\\n%s' "$status"
+`);
+  chmodSync(path.join(dir, 'curl'), 0o755);
+  return { dir, argvFile };
+}
+
+const callCount = (argvFile) => readFileSync(argvFile, 'utf8').split('===\n').filter((c) => c.trim() !== '').length;
+
+test('host: issue-list jira --fix-version answers when the name is a known version', () => {
+  const stub = makeVersionAwareCurlStub({ versions: { PROJ: [{ name: 'kus-portal-101' }, { name: 'kus-portal-102' }] } });
+  const res = runJira(['issue-list', '--fix-version', 'kus-portal-102'], stub, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(res.stdout.trim().split('\n').map((l) => JSON.parse(l).number), ['PROJ-123', 'PROJ-99']);
+});
+
+test('host: issue-list jira --fix-version exits 4 naming version-not-found and never reaches the issue search', () => {
+  const stub = makeVersionAwareCurlStub({ versions: { PROJ: [{ name: 'kus-portal-101' }] } });
+  const res = runJira(['issue-list', '--fix-version', 'kus-portal-102'], stub, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(res.status, 4, res.stderr);
+  assert.equal(res.stdout, '');
+  assert.match(res.stderr, /version-not-found: kus-portal-102/);
+  const argv = readFileSync(stub.argvFile, 'utf8');
+  assert.ok(!argv.includes('/search/jql'), 'the issue search must not run once the version is unknown');
+});
+
+test('host: issue-list jira --fix-version only counts a same-named version inside Ticket prefixes projects', () => {
+  const stub = makeVersionAwareCurlStub({ versions: { PROJ: [{ name: 'other-name' }], OTHER: [{ name: 'kus-portal-102' }] } });
+  const res = runJira(['issue-list', '--fix-version', 'kus-portal-102'], stub, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(res.status, 4, res.stderr);
+  assert.match(res.stderr, /version-not-found: kus-portal-102/);
+});
+
+test('host: issue-list jira --fix-version propagates a failed version-list rather than reading it as not-found', () => {
+  const stub = makeVersionAwareCurlStub({ versions: { PROJ: [{ name: 'irrelevant' }] }, versionsStatus: 500 });
+  const res = runJira(['issue-list', '--fix-version', 'kus-portal-102'], stub, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(res.status, 3, res.stderr);
+  assert.doesNotMatch(res.stderr, /version-not-found/);
+});
+
+test('host: issue-list jira --fix-version with a quote and a backslash reaches the existence check unescaped and the JQL escaped', () => {
+  const name = 'kus "102" \\ x';
+  const stub = makeVersionAwareCurlStub({ versions: { PROJ: [{ name }] } });
+  const res = runJira(['issue-list', '--fix-version', name], stub, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(res.status, 0, res.stderr);
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  assert.ok(argv.includes('jql=fixVersion = "kus \\"102\\" \\\\ x" AND project IN (PROJ) ORDER BY created DESC'), argv.join('\n'));
+});
+
+// --- the unpaged open/inbox cut notice --------------------------------------
+//
+// An unpaged read of exactly ISSUE_PAGE_ROWS (50 by default) rows, with more
+// known to exist, used to exit 0 with no sign anything was left out (measured
+// 2026-10-21, ewz-kus-portal: 100+ open issues, 50 printed, no note). The
+// notice is one stderr line; stdout is unchanged either way.
+
+function jiraIssuesBody(n, { nextPageToken } = {}) {
+  const issues = Array.from({ length: n }, (_, i) => ({
+    key: `PROJ-${i}`,
+    fields: { summary: `Issue ${i}`, created: 'c', status: { name: 'To Do', statusCategory: { name: 'To Do' } } },
+  }));
+  return JSON.stringify(nextPageToken ? { issues, nextPageToken } : { issues });
+}
+
+test('host: issue-list jira open read of 50 rows with a nextPageToken prints the cut notice on stderr', () => {
+  const stub = makeJiraCurlStub({ body: jiraIssuesBody(50, { nextPageToken: 'tok-2' }) });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim().split('\n').length, 50);
+  assert.match(res.stderr, /plot-host: jira issue-list state=open possibly truncated \(50 rows, requested limit 50\)/);
+});
+
+test('host: issue-list jira open read of 50 rows with no nextPageToken prints no notice', () => {
+  const stub = makeJiraCurlStub({ body: jiraIssuesBody(50) });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stderr, '');
+});
+
+test('host: issue-list jira open read of 49 rows prints no notice', () => {
+  const stub = makeJiraCurlStub({ body: jiraIssuesBody(49) });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stderr, '');
+});
+
+test('host: issue-list jira open read of 49 rows with a nextPageToken still prints the cut notice', () => {
+  const stub = makeJiraCurlStub({ body: jiraIssuesBody(49, { nextPageToken: 'tok-2' }) });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stderr, /plot-host: jira issue-list state=open possibly truncated \(49 rows, requested limit 50\)/);
+});
+
+test('host: issue-list jira --paged read prints no cut notice (the token line already says so)', () => {
+  const stub = makeJiraCurlStub({ body: jiraIssuesBody(100, { nextPageToken: 'tok-2' }) });
+  const res = runJira(['issue-list', '--paged'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stderr, '');
+});
+
+test('host: issue-list jira --state version read prints no cut notice', () => {
+  const stub = makeVersionAwareCurlStub({
+    versions: { PROJ: [{ name: 'kus-portal-102' }] },
+    searchBody: jiraIssuesBody(100, { nextPageToken: 'tok-2' }),
+  });
+  const res = runJira(['issue-list', '--fix-version', 'kus-portal-102'], stub, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stderr, '');
+});
+
+test('host: issue-list jira inbox read of 50 rows with a nextPageToken prints the cut notice', () => {
+  const stub = makeJiraCurlStub({ body: jiraIssuesBody(50, { nextPageToken: 'tok-2' }) });
+  const res = runJira(['issue-list', '--state', 'inbox'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stderr, /plot-host: jira issue-list state=inbox possibly truncated \(50 rows, requested limit 50\)/);
+});
+
+test('host: issue-list jira cut read prints byte-identical stdout to the uncut case', () => {
+  const bodyCut = jiraIssuesBody(50, { nextPageToken: 'tok-2' });
+  const bodyWhole = jiraIssuesBody(50);
+  const resCut = runJira(['issue-list'], makeJiraCurlStub({ body: bodyCut }));
+  const resWhole = runJira(['issue-list'], makeJiraCurlStub({ body: bodyWhole }));
+  assert.equal(resCut.status, 0, resCut.stderr);
+  assert.equal(resWhole.status, 0, resWhole.stderr);
+  assert.equal(resCut.stdout, resWhole.stdout);
 });
 
 test('host: issue-list jira open read is unchanged: no resolutiondate, no token line', () => {

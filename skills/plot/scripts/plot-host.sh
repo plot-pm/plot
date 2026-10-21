@@ -307,7 +307,13 @@
 #                                 closed read and an open read given `--paged`
 #                                 print that line, and on Jira ask 100 rows a
 #                                 page; an open read without `--paged` prints
-#                                 issue rows alone. EXIT 2 on Jira where an open
+#                                 issue rows alone — ON STDOUT. On Jira, an
+#                                 unpaged open or inbox read whose page was cut
+#                                 prints one STDERR line instead:
+#                                 `plot-host: jira issue-list state=<s> possibly
+#                                 truncated (<n> rows, requested limit <L>)` —
+#                                 stdout is unchanged, so a reader taking every
+#                                 stdout line as an issue still can. EXIT 2 on Jira where an open
 #                                 or inbox read's `--limit` exceeds 100 without
 #                                 `--paged`: Jira caps `maxResults` at 100
 #                                 itself, so the unpaged read would otherwise
@@ -410,7 +416,13 @@
 #                                 projects, one page of at most 100 with a last
 #                                 `{"nextPageToken":"…"}` line. Exit 4 with no
 #                                 `Ticket prefixes`: an unscoped fixVersion query
-#                                 reads every project on a shared instance.
+#                                 reads every project on a shared instance. EXIT
+#                                 4 ALSO for a <name> none of those projects'
+#                                 `version-list` has — `plot-host: version-not-
+#                                 found: <name>` on stderr, checked before any
+#                                 issue search is spent; a 404/5xx on that
+#                                 version-list check propagates its own exit
+#                                 code instead, never read as not-found.
 #   version-list <project>        (jira only; exit 4 elsewhere) the versions of
 #                                 one project, one JSON line each:
 #                                 {"name":…,"released":bool,"releaseDate":…|null}.
@@ -4878,7 +4890,15 @@ case "$op" in
       # THE CLOSED, CHANGED AND VERSION READS REQUIRE `Ticket prefixes`: an
       # unscoped `resolved >=`, `updated >=` or `fixVersion =` query reads every
       # project on the instance, the hazard `tracker_projects` measured.
-      [ -n "$scope" ] || ! [[ "$state" =~ ^(closed|changed|version)$ ]] || { echo "plot-host: $state Jira issues need 'Ticket prefixes' declared; an unscoped $state query reads the whole instance" >&2; exit 4; }
+      [ -n "$scope" ] || ! [[ "$state" =~ ^(closed|changed|version)$ ]] || { echo "plot-host: $state Jira issues need 'Ticket prefixes' declared; an unscoped $state query reads the whole instance" >&2; exit 4; }; if [ "$state" = version ]; then found=""; for p in $projects; do vbody="$(jira_ask "/rest/api/2/project/$p/versions")" || exit $?; [ "$(jq --arg n "$fix_version" 'any(.[]; .name == $n)' <<<"$vbody")" = true ] && found=1; done; [ -n "$found" ] || { echo "plot-host: version-not-found: $fix_version" >&2; exit 4; }; fi
+      # A VERSION READ EXISTS BEFORE IT IS SEARCHED: `fixVersion = "<name>"` alone
+      # matches nothing for a name Jira has never heard of and still exits 0 with
+      # no rows (measured 2026-10-21) — the exact silent empty answer this guard
+      # exists to refuse. `version-list` per `Ticket prefixes` project is the
+      # same read `versionRead` (tracker-jira.ts) makes to decide the same
+      # question, so a same-named version outside those projects still counts as
+      # unknown. A failed list (`|| exit $?`) propagates rather than reading as
+      # not-found: absent is not false.
       # PLOT_JIRA_JQL STILL WINS OVER BOTH. Teams worked around this bug with
       # their own JQL; an override that stopped overriding would break exactly
       # the people who noticed the problem first.
@@ -4945,7 +4965,14 @@ case "$op" in
                --data-urlencode "jql=$jql" \
                --data-urlencode "fields=$fields" \
                --data-urlencode "maxResults=$max" \
-               ${token_args[@]+"${token_args[@]}"})" || exit $?
+               ${token_args[@]+"${token_args[@]}"})" || exit $?; cut=false; [ -n "$paged" ] || read -r rows cut <<<"$(jq -r '[(.issues|length), ((.nextPageToken // "")!="")] | @tsv' <<<"$body")"; [ "$cut" = true ] && echo "plot-host: jira issue-list state=$state possibly truncated ($rows rows, requested limit $max)" >&2
+      # AN UNPAGED OPEN OR INBOX READ NEVER PRINTS ITS OWN "more rows exist"
+      # signal — a paged read's `{"nextPageToken":…}` line IS that signal, and
+      # printing it here too would duplicate it (open question 2). So this is
+      # the only place that reads the response's own `nextPageToken` for an
+      # unpaged read, on stderr, one line, before `$body` is reprojected below.
+      # `// ""` reads a missing key and an empty one alike as "no more pages" —
+      # a full page with no token (50 of 50) is Jira's own answer, not "cut".
       # `number` is the Jira KEY (PROJ-123), a string — #447 taught the parser to
       # read that form. `url` is built from the base + /browse/<key>; Jira's
       # search payload carries no browse URL, and the base is ours to know
