@@ -138,8 +138,7 @@ plan_delivery() { # $1=slug → "true|false|withdrawn<TAB>raw issues array or []
   [ -n "$f" ] && read -r phase issues < <(bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null |
     sed -n 's/.*"phase":"\([a-z]*\)".*"issues":\(\[[^]]*\]\).*/\1\t\2/p')
   issues="${issues:-[]}"
-  case "$phase" in rejected|superseded) state=withdrawn ;; *)
-    [ -e "$DELIVERED_DIR/$1.md" ] && state=true || state=false ;; esac
+  case "$phase" in rejected|superseded) state=withdrawn ;; *) [ -e "$DELIVERED_DIR/$1.md" ] && state=true || state=false ;; esac
   printf '%s\t%s' "$state" "$issues"
 }
 
@@ -255,8 +254,7 @@ emit_tier() { # $1=file $2=heading regex → JSON array
     # the plan's raw issues array together, so a Should or Could pays the same
     # single call a Must-have does. The gate bundle reads only `must`, so a
     # Should/Could row carrying an array too costs nothing downstream.
-    if [ -n "$slug" ]; then IFS=$'\t' read -r delivered issue <<<"$(plan_delivery "$slug")"
-    else delivered=none; issue="[]"; fi
+    if [ -n "$slug" ]; then IFS=$'\t' read -r delivered issue <<<"$(plan_delivery "$slug")"; else delivered=none; issue="[]"; fi
     checkeds+=("$checked"); slugs+=("$slug"); texts+=("$text"); delivereds+=("$delivered"); issues+=("$issue")
   done < <(awk -v want="$2" '
     /^###[ \t]/ { in_t = ($0 ~ want) ? 1 : 0; next }
