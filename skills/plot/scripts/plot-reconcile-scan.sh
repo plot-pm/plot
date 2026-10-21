@@ -3105,18 +3105,13 @@ else
     for oi_key in $oi_keys; do
       IFS="$oi_IFS_saved"
       [ -n "$oi_key" ] || continue
-      oi_view_err_file=""
-      plot_tmpfile oi_view_err_file reconcile-issue-err || oi_view_err_file=""
+      oi_view_err_file=""; plot_tmpfile oi_view_err_file reconcile-issue-err || oi_view_err_file=""
       oi_view=$(bash "$script_dir/plot-host.sh" issue-view "$oi_key" </dev/null 2>"${oi_view_err_file:-/dev/null}"); oi_view_rc=$?
-      oi_view_err=""
-      [ -n "$oi_view_err_file" ] && oi_view_err=$(head -1 "$oi_view_err_file" 2>/dev/null) && /bin/rm -f "$oi_view_err_file" 2>/dev/null
+      oi_view_err=""; [ -n "$oi_view_err_file" ] && oi_view_err=$(head -1 "$oi_view_err_file" 2>/dev/null) && /bin/rm -f "$oi_view_err_file" 2>/dev/null
       if [ "$oi_view_rc" -eq 4 ]; then
         # EXIT 4 IS A CONFIGURATION, NOT A FAULT: this host has no tracker to
         # ask, and it will answer the same for every remaining key — said once.
-        if [ "$oi_host_failed" -eq 0 ]; then
-          echo "  (not evaluated — this host cannot be asked for issues: ${oi_view_err:-tracker unavailable})"
-          echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
-        fi
+        [ "$oi_host_failed" -eq 0 ] && { echo "  (not evaluated — this host cannot be asked for issues: ${oi_view_err:-tracker unavailable})"; echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."; }
         oi_host_failed=1
         break 2
       elif [ "$oi_view_rc" -ne 0 ]; then
@@ -3143,14 +3138,12 @@ else
     # THE HINT NAMES WHY, NOT A REPAIR THAT CANNOT REPAIR ANYTHING: only a
     # DELIVERED plan's release can still move the issue. A RELEASED plan is
     # already past that step.
-    if [ "$oi_phase" = released ]; then
-      if [ -z "$oi_released_status" ]; then
-        oi_out+="    decide: no 'Tracker released status' is configured, so releasing this plan again would not move the issue — close it by hand, or record why it stays open\n"
-      else
-        oi_out+="    decide: the issue waits in a tracker status Plot does not own — it has not reached the declared '$oi_released_status' status — close it by hand, or record why it stays open\n"
-      fi
-    else
+    if [ "$oi_phase" != released ]; then
       oi_out+="    decide: release the plan to close it through the tracker, close it by hand, or record why it stays open\n"
+    elif [ -z "$oi_released_status" ]; then
+      oi_out+="    decide: no 'Tracker released status' is configured, so releasing this plan again would not move the issue — close it by hand, or record why it stays open\n"
+    else
+      oi_out+="    decide: the issue waits in a tracker status Plot does not own — it has not reached the declared '$oi_released_status' status — close it by hand, or record why it stays open\n"
     fi
     n_open_issues=$((n_open_issues + 1))
   done 3<<< "$oi_claims"

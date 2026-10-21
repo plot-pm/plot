@@ -5155,8 +5155,7 @@ case "$op" in
     elif [ "$be" = "github" ]; then
       if out="$(gh issue view "$num" --json number,title,body,url,state 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        jq -c '{number:.number,title:(.title // ""),body:(.body // ""),url:(.url // ""),
-                state:((.state // "open") | ascii_downcase)}' <<<"$out"
+        jq -c '{number:.number,title:(.title // ""),body:(.body // ""),url:(.url // ""),state:((.state // "open") | ascii_downcase)}' <<<"$out"
       else
         # NO miss/fail split here, and that is deliberate. `host_miss_or_fail`
         # exists where an absent subject is a NORMAL answer — a branch with no
@@ -5197,10 +5196,7 @@ case "$op" in
       # this vocabulary has no word for) stays open, the same default
       # issue-list's mapping leaves for an unmapped badge.
       bb_state="$(sed -n '2p' <<<"$raw" | sed -E 's/^([A-Z ]+)[[:space:]]*•.*$/\1/; s/[[:space:]]+$//')"
-      case "$bb_state" in
-        RESOLVED|CLOSED) state=closed ;;
-        *) state=open ;;
-      esac
+      case "$bb_state" in RESOLVED|CLOSED) state=closed ;; *) state=open ;; esac
       # Body is the block between the metadata head and the footer. The head is
       # the title + the two fixed meta lines (state, Type:) plus an optional
       # Component/Milestone/Version line; the tail is the footer. This is the
