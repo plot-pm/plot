@@ -28,11 +28,6 @@ DELIVERED_DIR="$(bash "$HERE/plot-config.sh" get "Delivered index" "docs/plans/d
 DELIVERED_DIR="${DELIVERED_DIR%/}"
 PLAN_DIR="$(bash "$HERE/plot-config.sh" get "Plan directory" "docs/plans/")"
 PLAN_DIR="${PLAN_DIR%/}"
-# Carried through for plot-sprint-release-gate.sh, which decides the
-# sprint-owner refusal and the Jira Release comparison — this script collects
-# facts and decides nothing (Manifesto Principle 3).
-DECLARED_SPRINT_OWNER="$(bash "$HERE/plot-config.sh" get "Sprint owner" "")"
-DECLARED_TRACKER="$(bash "$HERE/plot-config.sh" get "Tracker" "")"
 
 jesc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g'; }
 
@@ -354,14 +349,9 @@ while IFS= read -r f; do
   sprints="$sprints$one_sprint"
 done <<<"$FILES"
 
-# Computed once: every exit below carries the same declared-config pair, and
-# repeating the two `jesc` calls at each site is what the shell-lines ratchet
-# charges for, not the declaration itself.
-owner_tracker=$(printf '"declaredSprintOwner":"%s","declaredTracker":"%s"' "$(jesc "$DECLARED_SPRINT_OWNER")" "$(jesc "$DECLARED_TRACKER")")
-
 if [ -z "$sprints" ]; then
-  printf '{"sprints":[],"sprint":"","file":"","phase":"","release":"","note":"%s","must":[],"should":[],"could":[],%s}\n' \
-    "$(jesc "${resolve_note:-sprint file not found}")" "$owner_tracker"
+  printf '{"sprints":[],"sprint":"","file":"","phase":"","release":"","note":"%s","must":[],"should":[],"could":[]}\n' \
+    "$(jesc "${resolve_note:-sprint file not found}")"
   exit 0
 fi
 
@@ -374,9 +364,9 @@ if [ "$n" = "1" ]; then
   # shape, and one a caller should not have to index into.
   one="${sprints#\{}"      # drop the inner object's opening brace
   one="${one%\}}"          # and its closing one, leaving bare key:value pairs
-  printf ',%s,%s}\n' "$one" "$owner_tracker"
+  printf ',%s}\n' "$one"
 else
   # Many sprints: no top-level mirror to pick, because picking one would be
   # answering "which sprint?" — the question this script refuses to answer.
-  printf ',"sprint":"","file":"","phase":"","release":"","must":[],"should":[],"could":[],%s}\n' "$owner_tracker"
+  printf ',"sprint":"","file":"","phase":"","release":"","must":[],"should":[],"could":[]}\n'
 fi

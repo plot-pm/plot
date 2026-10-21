@@ -1,4 +1,6 @@
 import { trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
+import { runProcess } from '@plot-pm/domain/adapters/run-script';
+import { scriptPath } from '@plot-pm/domain/adapters/scripts';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import { sprintOwner } from '@plot-pm/domain/rules/issue-source';
 import { sprintReleaseDrift, type SprintReleaseItem } from '@plot-pm/domain/rules/sprint-release';
@@ -84,18 +86,12 @@ interface ReportedSprint {
 
 /** The collector's whole report, as `plot-sprint-release.sh` writes it. */
 interface Report {
-  declaredSprintOwner?: unknown;
-  declaredTracker?: unknown;
   sprints?: unknown;
   limit?: unknown;
 }
 
 /** What the caller asked this bundle to check. */
 export interface GateInput {
-  /** The `Sprint owner` config key's value, verbatim; `''` where none is declared. */
-  declaredSprintOwner: string;
-  /** The `Tracker` config key's value, verbatim; `''` where none is declared. */
-  declaredTracker: string;
   /** Every sprint declaring a `Release:` target, each with its own Must-haves. */
   releases: readonly { readonly sprint: string; readonly release: string; readonly mustHaves: readonly SprintReleaseItem[] }[];
   /** How many issues a page of `versionRead` may answer. */
@@ -171,11 +167,26 @@ export const inputFrom = (text: string): GateInput => {
     }
   }
   return {
-    declaredSprintOwner: typeof report.declaredSprintOwner === 'string' ? report.declaredSprintOwner : '',
-    declaredTracker: typeof report.declaredTracker === 'string' ? report.declaredTracker : '',
     releases,
     limit: typeof report.limit === 'number' && report.limit > 0 ? report.limit : 200,
   };
+};
+
+/**
+ * Reads a `## Plot Config` key through `plot-config.sh`, the same call
+ * `trackerShell` already makes for `Tracker` — mirrored here for `Sprint
+ * owner` rather than threading it through the collector's JSON, which would
+ * read the key from shell AND from here.
+ *
+ * @param context - where the scripts and the repository are.
+ * @param key - the config key's exact name.
+ * @returns the key's value, verbatim; `''` where none is declared or the read failed.
+ */
+const configShell = async (context: ShellContext, key: string): Promise<string> => {
+  const said = await runProcess('bash', [scriptPath(context, 'plot-config.sh'), 'get', key, ''], {
+    cwd: context.repoRoot,
+  });
+  return said.code === 0 ? said.stdout.trim() : '';
 };
 
 /**
@@ -252,7 +263,11 @@ export const run = async (
     warn(`plot-sprint-release-gate: ${(err as Error).message}\n`);
     return EXIT.usage;
   }
-  const owner = sprintOwner(input.declaredSprintOwner, input.declaredTracker);
+  const [declaredSprintOwner, declaredTracker] = await Promise.all([
+    configShell(context, 'Sprint owner'),
+    configShell(context, 'Tracker'),
+  ]);
+  const owner = sprintOwner(declaredSprintOwner, declaredTracker);
   if (owner.owns === 'external') {
     warn(
       `plot-sprint-release-gate: this repository's sprints are owned by its '${owner.scheme}' tracker — Plot does not read or write a sprint here.\n`,
