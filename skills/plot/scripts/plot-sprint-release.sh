@@ -283,8 +283,7 @@ emit_tier() { # $1=file $2=heading regex → JSON array
   fi
 
   for ((i = 0; i < n; i++)); do
-    [ $first -eq 1 ] || out="$out,"
-    first=0
+    [ $first -eq 1 ] || out="$out,"; first=0
     out="$out{\"slug\":\"$(jesc "${slugs[$i]}")\",\"text\":\"$(jesc "${texts[$i]}")\",\"checked\":${checkeds[$i]},\"delivered\":"
     # `true`/`false` are JSON booleans; `none` and `withdrawn` are words, so
     # they are quoted. The wire keeps the shell's own spelling either way — the
