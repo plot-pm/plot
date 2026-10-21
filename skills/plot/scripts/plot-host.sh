@@ -1793,15 +1793,40 @@ jenkins_resolve_host() {
 # EMPTY HISTORY: a refused or redirected request answers HTML, which fails the
 # `builds` test.
 #
+# A BRANCH THE MULTIBRANCH JOB NEVER INDEXED IS AN EMPTY HISTORY, NOT A
+# REFUSAL. Measured live on ewz-kus-portal: `develop` builds in a separate job
+# (`kus-portal/continuous-deploy`), so the branch segment 404s and the
+# multibranch root answers only `{"_class":"…WorkflowMultiBranchProject"}` —
+# `tree=builds[…]` strips `jobs`, so a `has("jobs")` test never matches and the
+# function exited 4 for a Jenkins that had, in fact, answered. The decision is
+# keyed on the ROOT's `_class` rather than on `jobs`: widening `tree=` to carry
+# `jobs` would make a root that merely LISTS children (not this branch's
+# absence) answer `{"builds":[]}` too. An HTML body or no answer at all still
+# fails every test here and stays exit 4.
+#
+# THE DEFAULT BRANCH CAN NAME ITS OWN JOB, read through `Default branch job` —
+# the same key-reading shape `jenkins_instance` uses. It applies only when
+# `$branch` is the repository's local `origin/HEAD`, never to every branch:
+# ewz's other branches still build on the multibranch job, and a map nobody
+# has asked for is out of scope (brief: "a map is a surface nobody has asked
+# for"). `PLOT_JENKINS_JOB` still overrides `$job` for every branch, same
+# precedence as today — it wins, because it already means "ignore the
+# instance's own job path" and a narrower override must not un-set a broader
+# one.
+#
 # WITH A SHA, ONLY THAT SHA'S BUILDS, never another's. `result` is null while a build
 # runs, Jenkins' own word for *in flight*, mapped to the `status`/`conclusion`
 # split the contract already uses so the shape does not fork per connector.
 jenkins_sha_runs() {
-  local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain=""
+  local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain="" default_job default_branch_name
   instance="$(jenkins_instance)"
   [ -n "$instance" ] || jenkins_no_instance
   slug="${instance%%/*}"; job="${instance#*/}"
-  [ "$job" = "$instance" ] && job=""; [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"
+  [ "$job" = "$instance" ] && job=""
+  default_branch_name=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
+  default_job=$(bash "$here/plot-config.sh" get "Default branch job" "" 2>/dev/null || echo "")
+  [ -n "$default_job" ] && [ -n "$default_branch_name" ] && [ "$branch" = "$default_branch_name" ] && job="$default_job"
+  [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"
   [ -n "$job" ] || { echo "plot-host: $op — the Jenkins instance names no job path; a sha lives in a job's builds, so it must be <slug>/<job/path>, not a bare host" >&2; exit 4; }
   # A dotted slug IS a host already, `jen`'s own passthrough rule — only a
   # bare slug (`ewz`) needs resolving to the host its credential is keyed by.
@@ -1813,12 +1838,23 @@ jenkins_sha_runs() {
   }
   tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,$limit%7D"
   body=""
-  for path in "$(jenkins_job_url_path "$job" "$branch")" "$(jenkins_job_url_path "$job" "")"; do
+  local root_path; root_path="$(jenkins_job_url_path "$job" "")"
+  for path in "$(jenkins_job_url_path "$job" "$branch")" "$root_path"; do
     host_slot_take jenkins ''
     try=$(curl -sg --max-time 30 -u "$cred" "https://$host$path/api/json?$tree" 2>/dev/null) || true
     host_slot_give; budget_record_call jenkins ''
     if printf '%s' "$try" | jq -e 'has("builds")' >/dev/null 2>&1; then body="$try"; break; fi
-    printf '%s' "$try" | jq -e 'has("jobs")' >/dev/null 2>&1 && { body='{"builds":[]}'; break; }
+    # ONLY AT THE ROOT: a multibranch container that answered its OWN `_class`
+    # and no `builds` has not indexed this branch at all — an empty history,
+    # not a refusal. Checking this on the BRANCH path too would be wrong: a
+    # branch segment never carries a container's `_class`, so this arm would
+    # never fire there anyway, but keying on "which path" rather than "which
+    # body shape" keeps the empty-history reading from ever depending on what
+    # a branch-level answer happens to contain.
+    if [ "$path" = "$root_path" ] \
+      && printf '%s' "$try" | jq -e '._class == "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject"' >/dev/null 2>&1; then
+      body='{"builds":[]}'; break
+    fi
     plain=1
   done
   cred=""

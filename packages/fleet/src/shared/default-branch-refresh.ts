@@ -168,7 +168,8 @@ export type DefaultBranchOutcome = 'skipped' | 'asked' | 'unreadable';
  *
  * @param world - the reads and the file.
  * @param warn - receives a one-line reason for each declared check name that
- *   matched none of the head's runs; defaults to doing nothing.
+ *   matched none of the head's runs, and for each path that ends the refresh
+ *   with `'unreadable'`; defaults to doing nothing.
  * @returns what the refresh did.
  */
 export const refreshDefaultBranch = async (
@@ -176,10 +177,16 @@ export const refreshDefaultBranch = async (
   warn: (line: string) => void = () => undefined,
 ): Promise<DefaultBranchOutcome> => {
   const branch = await world.branch();
-  if (branch === null) return 'unreadable';
+  if (branch === null) {
+    warn('plot-fleetd: default-branch read skipped — the default branch could not be read');
+    return 'unreadable';
+  }
 
   const tip = await world.refs.remoteSha(branch);
-  if (!tip.ok || tip.value === 'unknown') return 'unreadable';
+  if (!tip.ok || tip.value === 'unknown') {
+    warn(`plot-fleetd: default-branch read skipped — the remote tip of '${branch}' could not be read`);
+    return 'unreadable';
+  }
   const sha = tip.value.sha;
 
   const stored = await world.store.read();
@@ -193,7 +200,10 @@ export const refreshDefaultBranch = async (
   }
 
   const asked = await world.slot(() => world.build.runsForSha(branch, sha));
-  if (!asked.ok && asked.why === 'unaskable') return 'unreadable';
+  if (!asked.ok && asked.why === 'unaskable') {
+    warn(`plot-fleetd: default-branch read skipped — CI did not answer for '${branch}' at ${sha}`);
+    return 'unreadable';
+  }
 
   const stamp = new Date(now).toISOString();
   const headSince = unchanged ? previous.headSince : stamp;

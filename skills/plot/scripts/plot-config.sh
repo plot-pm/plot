@@ -231,6 +231,15 @@
 #                       Read back by /plot-board-setup to verify auth against
 #                       the right instance — without it the only runnable
 #                       check verifies nothing.
+#   Default branch job  a job path (`<folder>/<job>`) that builds the default
+#                       branch outside the multibranch job `Jenkins instance`
+#                       names. Read by `jenkins_sha_runs` only for the
+#                       repository's own default branch (`git symbolic-ref
+#                       refs/remotes/origin/HEAD`); every other branch still
+#                       reads the multibranch job. `PLOT_JENKINS_JOB` overrides
+#                       it, as it overrides `Jenkins instance`. Absent: the
+#                       default branch reads the multibranch job like any
+#                       other branch, unchanged.
 #
 # `Plan template` is a repo-root-relative path to the plan template /plot-idea
 # instantiates; when absent, /plot-idea falls back to the shipped template.
