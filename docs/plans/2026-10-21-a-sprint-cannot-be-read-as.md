@@ -52,7 +52,7 @@ Layering follows CLAUDE.md: controller → domain → port ← adapter. A shell 
 
 ### Read path
 
-- `feature/jira-version-read` — Tracker port read for a version and its fixVersion issues, with the Jira implementation and fixture tests <!-- builds: versionRead, a Tracker port read for a Jira version and its issues -->
+- `feature/jira-version-read` — Tracker port read for a version and its fixVersion issues, with the Jira implementation and fixture tests <!-- builds: versionRead, a Tracker port read for a Jira version and its issues --> → #2236
 
 ### Sprint source
 
