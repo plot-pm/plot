@@ -294,7 +294,7 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // `desk-finding.test.mjs` guards from the other side.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 review_bypass=0 desks=0 no_changeset=0 open_issues=0 unread_headings=0 unread_waits=0 temp_sweepable=0 legacy_tmp_caches=0 broken_locks=0 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 review_bypass=0 desks=0 no_changeset=0 open_issues=0 issue_unread=0 unread_headings=0 unread_waits=0 temp_sweepable=0 legacy_tmp_caches=0 broken_locks=0 pr_source=degraded main=main');
 });
 
 // A docs plan that also names a Sprint. Section 6 exempts docs/infra plans by
@@ -4526,15 +4526,21 @@ ${tracker ? `- **Tracker:** ${tracker}\n` : ''}`);
   return { tmp, repo, shim, report, sections: splitSections(report) };
 };
 
-/** A stub answering `issue-list` with the given open issue numbers. */
-const issueHost = (numbers, { marker = '', limitEcho = false } = {}) => `#!/usr/bin/env bash
+/**
+ * A stub answering `issue-view <n>` for the given open issue numbers — any
+ * other number it is asked about is reported closed, the same "absence is not
+ * membership" shape `issue-list` no longer gets to answer for this section.
+ */
+const issueHost = (openNumbers, { marker = '' } = {}) => `#!/usr/bin/env bash
 case "$1" in
   backend) echo github ;;
   default-branch) echo main ;;
-  issue-list)
-    ${marker ? `printf 'called\\n' >> '${marker}'` : ':'}
-    ${limitEcho ? 'true' : 'true'}
-${numbers.map((n) => `    echo '{"number":${n},"title":"t","url":"u"}'`).join('\n')}
+  issue-view)
+    ${marker ? `printf 'called %s\\n' "$2" >> '${marker}'` : ':'}
+    case "$2" in
+${openNumbers.map((n) => `      ${n}) echo '{"number":${n},"title":"t","url":"u","state":"open"}' ;;`).join('\n')}
+      *) echo '{"number":'"$2"',"title":"t","url":"u","state":"closed"}' ;;
+    esac
     ;;
   pr-list) ;;
   *) echo "{}" ;;
@@ -4552,14 +4558,79 @@ test('section 23 reports a Released and a Delivered plan naming an open issue', 
     // open. A filter on `released` alone passes every other test in this block.
     assert.match(s, /2026-01-02-delivered-open\.md — delivered, still open: #102/,
       `a delivered plan must be caught as well:\n${s}`);
+    // DELIVERED KEEPS TODAY'S HINT: a release has not happened yet, so telling
+    // the reader to release the plan still names a real next step.
     assert.match(s, /decide: release the plan to close it through the tracker, close it by hand, or record why it stays open/,
-      `the finding names a decision, never a repair:\n${s}`);
+      `a delivered plan's finding names a decision, never a repair:\n${s}`);
     // THE SCAN CLOSES NO TICKET. Only `/plot-release` closes an issue, so a
     // close command must not appear as a remedy.
     assert.doesNotMatch(s, /issue close/, `no close command may be printed:\n${s}`);
   } finally {
     fs.rmSync(f.tmp, { recursive: true, force: true });
     fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 names the configuration gap for a Released plan with no Tracker released status', () => {
+  // THE OBSERVED FAILURE: five Released plans on ewz-kus-portal were told to
+  // "release the plan" when they already were — and the project declares no
+  // `Tracker released status`, so releasing it again would not move the issue.
+  const f = issueFixture(issueHost([101, 102, 106]));
+  try {
+    const s = f.sections['23'];
+    const line = s.split('\n').find((l) => l.includes('2026-01-01-released-open'));
+    assert.ok(line, `the released plan must still be a finding:\n${s}`);
+    assert.doesNotMatch(s.split('decide:')[1] ?? '', /^ release the plan/,
+      `a Released plan must not be told to release the plan again:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 says a Released plan\'s issue has no Tracker released status configured', () => {
+  const f = issueFixture(issueHost([101]));
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /decide: no 'Tracker released status' is configured, so releasing this plan again would not move the issue/,
+      `the reader is told the configuration gap, not a repeat of the release step:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 names the declared Tracker released status a Released plan\'s issue has not reached', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-oi-relstatus-'));
+  const origin = path.join(tmp, 'origin.git');
+  const repo = path.join(tmp, 'repo');
+  git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(tmp, 'clone', '-q', origin, repo);
+  git(repo, 'config', 'user.email', 'test@example.invalid');
+  git(repo, 'config', 'user.name', 'Plot Test');
+  git(repo, 'config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(repo, 'CLAUDE.md'),
+    '# F\n\n## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n- **Delivered index:** plans/delivered/\n- **Tracker released status:** Done\n');
+  fs.mkdirSync(path.join(repo, 'plans'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'plans', '2026-01-01-r.md'),
+    '# R\n\n## Status\n\n- **State:** Released\n- **Type:** feature\n- **Issue:** #101\n\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'released-status fixture');
+  git(repo, 'push', '-q', 'origin', 'main');
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-oi-relstatus-shim-'));
+  shimScripts(shim);
+  fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), issueHost([101]));
+  fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
+  git(repo, 'remote', 'set-url', 'origin', 'https://github.com/plot-pm/fixture.git');
+  try {
+    const out = execFileSync('bash', [path.join(shim, 'scripts', 'plot-reconcile-scan.sh'), '--no-fetch'],
+      { encoding: 'utf8', cwd: repo });
+    const s = splitSections(out)['23'];
+    assert.match(s, /decide: the issue waits in a tracker status Plot does not own — it has not reached the declared 'Done' status/,
+      `a declared status names itself in the hint, since the hint cannot show the tracker's own current status:\n${s}`);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(shim, { recursive: true, force: true });
   }
 });
 
@@ -4614,7 +4685,7 @@ test('section 23 says not evaluated when the tracker cannot be asked (exit 4)', 
 case "$1" in
   backend) echo github ;;
   default-branch) echo main ;;
-  issue-list) echo "no tracker configured for this host" >&2; exit 4 ;;
+  issue-view) echo "no tracker configured for this host" >&2; exit 4 ;;
   pr-list) ;;
   *) echo "{}" ;;
 esac
@@ -4635,12 +4706,22 @@ exit 0
   }
 });
 
-test('section 23 says not evaluated when the tracker question fails (exit 3)', () => {
+test('section 23 reports one key\'s own lookup failing as unchecked, not closed and not dropped', () => {
+  // A NON-4 EXIT IS THAT KEY'S OWN FAILURE, never the whole section's: #101
+  // fails and #102 still answers, so the section must report #101 as unchecked
+  // while still finding #102 open — a whole-section "not evaluated" here would
+  // hide #102's real finding behind one key's outage.
   const f = issueFixture(`#!/usr/bin/env bash
 case "$1" in
   backend) echo github ;;
   default-branch) echo main ;;
-  issue-list) echo "HTTP 503 upstream unavailable" >&2; exit 3 ;;
+  issue-view)
+    case "$2" in
+      101) echo "HTTP 503 upstream unavailable" >&2; exit 3 ;;
+      102) echo '{"number":102,"title":"t","url":"u","state":"open"}' ;;
+      *) echo '{"number":'"$2"',"title":"t","url":"u","state":"closed"}' ;;
+    esac
+    ;;
   pr-list) ;;
   *) echo "{}" ;;
 esac
@@ -4648,13 +4729,13 @@ exit 0
 `);
   try {
     const s = f.sections['23'];
-    assert.match(s, /\(not evaluated — the tracker question failed/,
-      `a failed question is not an empty estate:\n${s}`);
-    // THE ERROR TEXT IS THE HOST'S OWN, the rule `PR_ERROR` already follows: a
-    // person reads "HTTP 503" and acts; no word this scan invents is worth more.
-    assert.match(s, /HTTP 503 upstream unavailable/,
-      `the host's own words carry the reason:\n${s}`);
-    assert.doesNotMatch(s, /\(none/, `a failed question must never print (none):\n${s}`);
+    assert.match(s, /2026-01-01-released-open\.md — released, 101 not checked: HTTP 503 upstream unavailable/,
+      `the host's own words carry the reason, the way PR_ERROR already does:\n${s}`);
+    assert.doesNotMatch(s, /2026-01-01-released-open\.md.*still open/,
+      `a key that failed must not be reported as open:\n${s}`);
+    assert.doesNotMatch(s, /\(not evaluated/, `one key's failure is not the whole section failing:\n${s}`);
+    assert.match(s, /2026-01-02-delivered-open\.md — delivered, still open: #102/,
+      `a key that answered is still a finding, unaffected by another key's outage:\n${s}`);
   } finally {
     fs.rmSync(f.tmp, { recursive: true, force: true });
     fs.rmSync(f.shim, { recursive: true, force: true });
@@ -4686,11 +4767,15 @@ test('section 23 never asks the tracker under --no-pr', () => {
   }
 });
 
-test('section 23 warns when the tracker returned a full window', () => {
-  // PLOT_ISSUE_LIMIT=2 with two issues returned: the count equals the limit, so
-  // a third open issue would be invisible and the section must say so. Absence
-  // past the window says nothing about an issue's state.
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-oi-limit-'));
+test('section 23 finds an issue a 200-row window would have hidden', () => {
+  // THE OBSERVED DEFECT, replacing the old window-and-intersect test: a
+  // per-key lookup has no row limit to exceed, so an issue numbered past where
+  // a 200-row `issue-list` page would have ended is still found open. #50000
+  // stands in for "row 201+ of a 250-issue open list" — what matters is that no
+  // window bounds the read, not the specific number. `PLOT_ISSUE_LIMIT=2` is
+  // set to prove the old window variable, still read elsewhere in this file,
+  // has no effect on this section any more.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-oi-nowindow-'));
   const origin = path.join(tmp, 'origin.git');
   const repo = path.join(tmp, 'repo');
   git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
@@ -4702,13 +4787,13 @@ test('section 23 warns when the tracker returned a full window', () => {
     '# F\n\n## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n- **Delivered index:** plans/delivered/\n');
   fs.mkdirSync(path.join(repo, 'plans'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'plans', '2026-01-01-r.md'),
-    '# R\n\n## Status\n\n- **State:** Released\n- **Type:** feature\n- **Issue:** #101\n\n');
+    '# R\n\n## Status\n\n- **State:** Released\n- **Type:** feature\n- **Issue:** #50000\n\n');
   git(repo, 'add', '-A');
-  git(repo, 'commit', '-q', '-m', 'limit fixture');
+  git(repo, 'commit', '-q', '-m', 'no-window fixture');
   git(repo, 'push', '-q', 'origin', 'main');
-  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-oi-limit-shim-'));
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-oi-nowindow-shim-'));
   shimScripts(shim);
-  fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), issueHost([101, 999]));
+  fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), issueHost([50000]));
   fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
   git(repo, 'remote', 'set-url', 'origin', 'https://github.com/plot-pm/fixture.git');
   try {
@@ -4716,10 +4801,9 @@ test('section 23 warns when the tracker returned a full window', () => {
       encoding: 'utf8', cwd: repo, env: { ...process.env, PLOT_ISSUE_LIMIT: '2' },
     });
     const s = splitSections(out)['23'];
-    assert.match(s, /window: the 2 open issue\(s\) the tracker returned, limit 2/,
-      `the window is stated the way section 22 states its own:\n${s}`);
-    assert.match(s, /an open\n\s+issue beyond this window would not be seen/,
-      `a full window cannot claim completeness:\n${s}`);
+    assert.match(s, /2026-01-01-r\.md — released, still open: #50000/,
+      `a per-key lookup has no window to fall outside of, however small PLOT_ISSUE_LIMIT is set:\n${s}`);
+    assert.doesNotMatch(s, /window:/, `the window note is gone with the window it described:\n${s}`);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
     fs.rmSync(shim, { recursive: true, force: true });
@@ -4761,10 +4845,11 @@ test('section 23 sits below the marker and stays out of the delivery gate', () =
 // call, so an unaskable tracker costs no process at all.
 
 /**
- * A `plot-host.sh` stub that records every call it receives.
+ * A `plot-host.sh` stub that records every call it receives and answers
+ * `issue-view` open for the given numbers — closed for anything else.
  *
  * THE MARKER IS THE ONLY EVIDENCE OF A NON-CALL. An implementation that prints
- * the right sentence AFTER asking `issue-list` passes every output assertion
+ * the right sentence AFTER asking `issue-view` passes every output assertion
  * in this block — the output is identical. One line per invocation, holding the
  * whole argument list, is what separates the two.
  */
@@ -4773,8 +4858,11 @@ printf '%s\n' "$*" >> '${marker}'
 case "$1" in
   backend) echo ${backend} ;;
   default-branch) echo main ;;
-  issue-list)
-${numbers.map((n) => `    echo '{"number":${n},"title":"t","url":"u"}'`).join('\n')}
+  issue-view)
+    case "$2" in
+${numbers.map((n) => `      ${n}) echo '{"number":${n},"title":"t","url":"u","state":"open"}' ;;`).join('\n')}
+      *) echo '{"number":'"$2"',"title":"t","url":"u","state":"closed"}' ;;
+    esac
     ;;
   pr-list) ;;
   *) echo "{}" ;;
@@ -4830,46 +4918,24 @@ test('section 23 asks no host when no connector lists the declared tracker', () 
 // --- Section 23 under Jira: keys, not numbers -------------------------------
 //
 // THE REFUSAL IS GONE. `oi_claims` already carries `PROJ-123` keys from
-// `plot-plan-meta.sh`'s own Jira parse (gated on `Tracker: jira`), and the
-// section's membership test (`grep -x -F -f`) is plain fixed-string matching —
-// it needs no second reader for a key any more than it needed one for `#101`.
-// These fixtures build a repository with `Tracker: jira` and plans naming
-// `PROJ-NNN` keys, and a `plot-host.sh` stub whose `issue-list` answers the
+// `plot-plan-meta.sh`'s own Jira parse (gated on `Tracker: jira`), and a key
+// is looked up through `issue-view` exactly as a GitHub number is — it needs
+// no second reader for a key any more than it needed one for `#101`. These
+// fixtures build a repository with `Tracker: jira` and plans naming
+// `PROJ-NNN` keys, and a `plot-host.sh` stub whose `issue-view` answers the
 // Jira shape (`number` is the KEY STRING, matching the adapter's own
-// `number: .key` — see `plot-host.sh`'s jira issue-list arm).
+// `number: .key` — see `plot-host.sh`'s jira issue-view arm).
 
-/**
- * A stub answering `issue-list` with the given open Jira keys, the way the real
- * Jira arm answers: an unpaged `--limit` above one page (100) exits 2 before
- * any row, and a `--paged` read prints one page and then
- * `{"nextPageToken":"…"}` while another page follows. `keys` is one page of
- * keys, or an array of pages.
- */
-const jiraIssueHost = (keys, { marker = '' } = {}) => {
-  const pages = Array.isArray(keys[0]) ? keys : [keys];
-  return `#!/usr/bin/env bash
-${marker ? `printf '%s\\n' "$*" >> '${marker}'` : ''}
+/** A stub answering `issue-view <key>` for the given open Jira keys. */
+const jiraIssueHost = (openKeys, { marker = '' } = {}) => `#!/usr/bin/env bash
 case "$1" in
   backend) echo github ;;
   default-branch) echo main ;;
-  issue-list)
-    shift; paged=""; limit=50; token=""
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --paged) paged=1; shift ;;
-        --limit) limit="$2"; shift 2 ;;
-        --page-token) token="$2"; shift 2 ;;
-        *) shift ;;
-      esac
-    done
-    if [ -z "$paged" ] && [ "$limit" -gt 100 ]; then
-      echo "plot-host: issue-list: --limit $limit exceeds one Jira page (100); pass --paged to read it a page at a time" >&2
-      exit 2
-    fi
-    case "$token" in
-${pages.map((page, i) => `      ${i === 0 ? "''" : `p${i}`})
-${page.map((k) => `        echo '{"number":"${k}","title":"t","url":"u"}'`).join('\n')}
-        ${i + 1 < pages.length ? `[ -z "$paged" ] || echo '{"nextPageToken":"p${i + 1}"}'` : ':'} ;;`).join('\n')}
+  issue-view)
+    ${marker ? `printf '%s\\n' "$*" >> '${marker}'` : ':'}
+    case "$2" in
+${openKeys.map((k) => `      ${k}) echo '{"number":"${k}","title":"t","url":"u","state":"open"}' ;;`).join('\n')}
+      *) echo '{"number":"'"$2"'","title":"t","url":"u","state":"closed"}' ;;
     esac
     ;;
   pr-list) ;;
@@ -4877,7 +4943,6 @@ ${page.map((k) => `        echo '{"number":"${k}","title":"t","url":"u"}'`).join
 esac
 exit 0
 `;
-};
 
 /**
  * A repository declaring `Tracker: jira`, with plans naming Jira keys instead
@@ -5104,24 +5169,24 @@ test('section 23 does not warn about Ticket prefixes when an override scopes the
   }
 });
 
-test('section 23 reads a Jira open list page by page, not as one unpaged read above 100', () => {
-  // THE STUB REFUSES WHAT THE REAL ADAPTER REFUSES: an unpaged `--limit` above
-  // one Jira page exits 2. The default window is 200, so a single unpaged read
-  // prints "not evaluated" here. PROJ-101 sits on the SECOND page, so a read
-  // that stops after one page reports nothing.
+test('section 23 asks Jira per key, never issue-list, so no page or window applies', () => {
+  // THE PAGINATION THIS TEST ONCE PROVED IS GONE WITH THE CALL IT PAGED: a
+  // per-key `issue-view` lookup has no page size and no window to exceed. What
+  // replaces it is proof that `issue-list` is never called at all.
   const marker = markerFile();
-  const f = jiraIssueFixture(jiraIssueHost([['PROJ-900', 'PROJ-901'], ['PROJ-101']], { marker }),
+  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101'], { marker }),
     ['--no-fetch'], { ticketPrefixes: 'PROJ' });
   try {
     const s = f.sections['23'];
-    assert.doesNotMatch(s, /not evaluated/, `the paged read answers:\n${s}`);
+    assert.doesNotMatch(s, /not evaluated/, `the per-key read answers:\n${s}`);
     assert.match(s, /2026-01-01-released-open\.md — released, still open: PROJ-101$/m,
-      `a key on the second page is a finding:\n${s}`);
-    assert.match(s, /window: the 3 open issue\(s\) the tracker returned, limit 200/,
-      `the window counts both pages and no token line:\n${s}`);
-    const reads = callsTo(marker).filter((c) => c.startsWith('issue-list'));
-    assert.deepEqual(reads, ['issue-list --paged --limit 200', 'issue-list --paged --limit 198 --page-token p1'],
-      `each page asks for what remains of the window, and the second passes the token:\n${reads.join('\n')}`);
+      `the key is a finding:\n${s}`);
+    assert.doesNotMatch(s, /window:/, `the window note described a call this section no longer makes:\n${s}`);
+    const calls = callsTo(marker);
+    assert.ok(!calls.some((c) => c.startsWith('issue-list')),
+      `section 23 must never call issue-list any more:\n${calls.join('\n')}`);
+    assert.ok(calls.some((c) => c.startsWith('issue-view')),
+      `section 23 must ask issue-view per key:\n${calls.join('\n')}`);
   } finally {
     fs.rmSync(f.tmp, { recursive: true, force: true });
     fs.rmSync(f.shim, { recursive: true, force: true });
@@ -5166,8 +5231,8 @@ test('section 23 still asks the git host when no Tracker key is declared', () =>
     assert.match(s, /2026-01-01-released-open\.md — released, still open: #101/,
       `an undeclared tracker still reaches the git host's issues:\n${s}`);
     assert.match(f.report, /open_issues=3/, 'the findings are the same three as before');
-    assert.ok(callsTo(marker).some((c) => c.startsWith('issue-list')),
-      'the git host IS asked when the entry answers git-host');
+    assert.ok(callsTo(marker).some((c) => c.startsWith('issue-view')),
+      'the git host IS asked, per key, when the entry answers git-host');
   } finally {
     fs.rmSync(f.tmp, { recursive: true, force: true });
     fs.rmSync(f.shim, { recursive: true, force: true });
@@ -5186,7 +5251,7 @@ test('section 23 asks the git host for github-issues on a GitHub repository', ()
     assert.match(s, /2026-01-02-delivered-open\.md — delivered, still open: #102/,
       `an allowed tracker scheme reaches the issue list:\n${s}`);
     assert.match(f.report, /open_issues=3/, 'the findings are unchanged');
-    assert.ok(callsTo(marker).some((c) => c.startsWith('issue-list')),
+    assert.ok(callsTo(marker).some((c) => c.startsWith('issue-view')),
       'github-issues on GitHub is asked, not refused');
   } finally {
     fs.rmSync(f.tmp, { recursive: true, force: true });

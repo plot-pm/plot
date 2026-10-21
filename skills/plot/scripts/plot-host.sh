@@ -381,9 +381,10 @@
 #                                 the question FAILING (exit 3), never an empty
 #                                 inbox — an auth gap must not read *you have no
 #                                 tickets*, the failure this story is named for.
-#   issue-view <number>           ONE open issue as a single JSON object:
-#                                 {"number":N,"title":"…","body":"…","url":"…"}
-#                                 READ-ONLY — the second of the two issue reads.
+#   issue-view <number>           ONE issue, any state, as a single JSON object:
+#                                 {"number":N,"title":"…","body":"…","url":"…",
+#                                 "state":"open|closed"}. READ-ONLY — the
+#                                 second of the two issue reads.
 #                                 The board's *Create plan* action needs
 #                                 the issue's BODY as the problem statement, and
 #                                 issue-list deliberately omits it: the list is
@@ -5139,18 +5140,23 @@ case "$op" in
       # the board. jira_check turns that 404 into exit 3 with empty stdout.
       jira_require_config
       body_json="$(jira_ask "/rest/api/2/issue/$num" \
-               -G --data-urlencode "fields=summary,description")" || exit $?
+               -G --data-urlencode "fields=summary,description,status")" || exit $?
       base="$(tracker_base_url)"
+      # `state` FOLLOWS issue-list's OWN WORD: `statusCategory.name == "Done"`
+      # is closed, same mapping as the list's open/closed reader — a second
+      # vocabulary here would drift from the one issue-list already keeps.
       printf '%s' "$body_json" | jq -c --arg base "$base" '{
           number: .key,
           title: (.fields.summary // ""),
           body: (.fields.description // ""),
-          url: ($base + "/browse/" + .key)
+          url: ($base + "/browse/" + .key),
+          state: (if .fields.status.statusCategory.name == "Done" then "closed" else "open" end)
         }'
     elif [ "$be" = "github" ]; then
-      if out="$(gh issue view "$num" --json number,title,body,url 2>"$HOST_ERR")"; then
+      if out="$(gh issue view "$num" --json number,title,body,url,state 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        jq -c '{number:.number,title:(.title // ""),body:(.body // ""),url:(.url // "")}' <<<"$out"
+        jq -c '{number:.number,title:(.title // ""),body:(.body // ""),url:(.url // ""),
+                state:((.state // "open") | ascii_downcase)}' <<<"$out"
       else
         # NO miss/fail split here, and that is deliberate. `host_miss_or_fail`
         # exists where an absent subject is a NORMAL answer — a branch with no
@@ -5185,6 +5191,16 @@ case "$op" in
       # is real here even though issue-list's is "".
       title="$(sed -n '1p' <<<"$raw")"
       url="$(grep -oE 'https?://[^[:space:]]+' <<<"$(grep -F 'View this issue on Bitbucket' <<<"$raw")" | head -1)"
+      # Line 2 is `<STATE> • <reporter> opened <createdOn>` — the same badge
+      # word `issue-list` strips from its own row, read here instead of
+      # discarded. RESOLVED/CLOSED close it; everything else (including states
+      # this vocabulary has no word for) stays open, the same default
+      # issue-list's mapping leaves for an unmapped badge.
+      bb_state="$(sed -n '2p' <<<"$raw" | sed -E 's/^([A-Z ]+)[[:space:]]*•.*$/\1/; s/[[:space:]]+$//')"
+      case "$bb_state" in
+        RESOLVED|CLOSED) state=closed ;;
+        *) state=open ;;
+      esac
       # Body is the block between the metadata head and the footer. The head is
       # the title + the two fixed meta lines (state, Type:) plus an optional
       # Component/Milestone/Version line; the tail is the footer. This is the
@@ -5206,8 +5222,8 @@ case "$op" in
         { lines[NR]=$0; if ($0 ~ /[^[:space:]]/) { if (!first) first=NR; last=NR } }
         END { for (i=first; i<=last; i++) print lines[i] }
       ' <<<"$body")"
-      jq -cn --argjson number "$num" --arg title "$title" --arg body "$body" --arg url "$url" \
-        '{number:$number,title:$title,body:$body,url:$url}'
+      jq -cn --argjson number "$num" --arg title "$title" --arg body "$body" --arg url "$url" --arg state "$state" \
+        '{number:$number,title:$title,body:$body,url:$url,state:$state}'
     fi
     ;;
 
