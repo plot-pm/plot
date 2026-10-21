@@ -6,6 +6,7 @@
 
 - **State:** Delivered
 - **Type:** bug
+- **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2186
 - **Review:** pr
 - **Impl:** own branches
