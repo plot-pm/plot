@@ -1818,16 +1818,12 @@ jenkins_resolve_host() {
 # runs, Jenkins' own word for *in flight*, mapped to the `status`/`conclusion`
 # split the contract already uses so the shape does not fork per connector.
 jenkins_sha_runs() {
-  local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain="" default_job default_branch_name
+  local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain="" default_job root_path
   instance="$(jenkins_instance)"
   [ -n "$instance" ] || jenkins_no_instance
-  slug="${instance%%/*}"; job="${instance#*/}"
-  [ "$job" = "$instance" ] && job=""
-  default_branch_name=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
-  default_job=$(bash "$here/plot-config.sh" get "Default branch job" "" 2>/dev/null || echo "")
-  [ -n "$default_job" ] && [ -n "$default_branch_name" ] && [ "$branch" = "$default_branch_name" ] && job="$default_job"
-  [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"
-  [ -n "$job" ] || { echo "plot-host: $op — the Jenkins instance names no job path; a sha lives in a job's builds, so it must be <slug>/<job/path>, not a bare host" >&2; exit 4; }
+  slug="${instance%%/*}"; job="${instance#*/}"; [ "$job" = "$instance" ] && job=""
+  default_job=$(bash "$here/plot-config.sh" get "Default branch job" "" 2>/dev/null || true); [ -n "$default_job" ] && [ "$branch" = "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')" ] && job="$default_job"
+  [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"; [ -n "$job" ] || { echo "plot-host: $op — the Jenkins instance names no job path; a sha lives in a job's builds, so it must be <slug>/<job/path>, not a bare host" >&2; exit 4; }
   # A dotted slug IS a host already, `jen`'s own passthrough rule — only a
   # bare slug (`ewz`) needs resolving to the host its credential is keyed by.
   case "$slug" in *.*) host="$slug" ;; *) host="$(jenkins_resolve_host "$slug")" || { echo "plot-host: $op — cannot resolve Jenkins instance '$slug' to a host" >&2; echo "  \`jen -I $slug auth status\` did not answer an 'Instance:' line; run it directly to see why." >&2; exit 4; } ;; esac
@@ -1837,8 +1833,7 @@ jenkins_sha_runs() {
     exit 4
   }
   tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,$limit%7D"
-  body=""
-  local root_path; root_path="$(jenkins_job_url_path "$job" "")"
+  body=""; root_path="$(jenkins_job_url_path "$job" "")"
   for path in "$(jenkins_job_url_path "$job" "$branch")" "$root_path"; do
     host_slot_take jenkins ''
     try=$(curl -sg --max-time 30 -u "$cred" "https://$host$path/api/json?$tree" 2>/dev/null) || true
@@ -1851,10 +1846,7 @@ jenkins_sha_runs() {
     # never fire there anyway, but keying on "which path" rather than "which
     # body shape" keeps the empty-history reading from ever depending on what
     # a branch-level answer happens to contain.
-    if [ "$path" = "$root_path" ] \
-      && printf '%s' "$try" | jq -e '._class == "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject"' >/dev/null 2>&1; then
-      body='{"builds":[]}'; break
-    fi
+    [ "$path" = "$root_path" ] && printf '%s' "$try" | jq -e '._class == "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject"' >/dev/null 2>&1 && { body='{"builds":[]}'; break; }
     plain=1
   done
   cred=""
