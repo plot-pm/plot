@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2217 merged
+- **Started:** 2026-10-21, Jan Wloka, `feature/jira-version-read`
 
 ## Changelog
 
