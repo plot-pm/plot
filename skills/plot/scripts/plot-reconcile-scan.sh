@@ -3002,12 +3002,16 @@ oi_out=""
 # (`plan_json`, one `plot-plan-meta.sh` run for the whole sweep). NOT a body
 # scan for `#NNN`: `issues[]` is a dedicated field precisely because a body
 # cannot tell a signal from a citation, and plans here cite issues constantly.
-oi_claims=""
+oi_claims=""; oi_keyless=""
 if [ -n "$plan_json" ]; then
   oi_claims=$(printf '%s\n' "$plan_json" | jq -r '
     select(.phase == "delivered" or .phase == "released")
     | select((.issues // []) | length > 0)
     | "\(.file)\t\(.phase)\t\(.issues | map(tostring) | join(","))"' 2>/dev/null)
+  # THE FINISHED PLANS NAMING NO KEY, by slug. Under a Jira tracker they are
+  # plans this section skips, and the section names them rather than letting a
+  # clean result read as a full check.
+  oi_keyless=$(printf '%s\n' "$plan_json" | jq -r 'select((.phase == "delivered" or .phase == "released") and ((.issues // []) | length == 0)) | .file | split("/") | last | sub("\\.md$"; "") | sub("^[0-9]{4}-[0-9]{2}-[0-9]{2}-"; "")' 2>/dev/null | paste -sd, - | sed 's/,/, /g')
 fi
 oi_plans=$(printf '%s' "$oi_claims" | grep -c . 2>/dev/null) || oi_plans=0
 
@@ -3145,13 +3149,12 @@ else
 
     if [ -n "$oi_out" ]; then printf '%b' "$oi_out"; else echo "  (none — every issue a finished plan names is closed)"; fi
     echo "  window: the $oi_count open issue(s) the tracker returned, limit $ISSUE_LIMIT (raise with PLOT_ISSUE_LIMIT)."
-    if [ "$oi_count" -ge "$ISSUE_LIMIT" ]; then
-      # A FULL WINDOW CANNOT CLAIM COMPLETENESS. Absence past the limit says
-      # nothing about an issue's state, so the section says so rather than
-      # letting `(none)` read as a measured clean estate.
-      echo "  note: the tracker returned as many issues as the limit allows — an open"
-      echo "        issue beyond this window would not be seen. Raise PLOT_ISSUE_LIMIT."
-    fi
+    # A FULL WINDOW CANNOT CLAIM COMPLETENESS. Absence past the limit says
+    # nothing about an issue's state, so the section says so rather than
+    # letting `(none)` read as a measured clean estate.
+    [ "$oi_count" -lt "$ISSUE_LIMIT" ] || printf '%s\n' "  note: the tracker returned as many issues as the limit allows — an open" \
+      "        issue beyond this window would not be seen. Raise PLOT_ISSUE_LIMIT."
+    [ "$oi_scheme" != jira ] || [ -z "$oi_keyless" ] || echo "  not checked: $(printf '%s' "$oi_keyless" | awk -F', ' '{print NF}') finished plan(s) name no Jira key — $oi_keyless"
     # JIRA'S OPEN READ IS AN INBOX, NOT A PROJECT LIST, with no `Ticket
     # prefixes` declared (`plot-host.sh` issue-list, the jira arm's `scope`/
     # `person` split): `assignee = currentUser() AND resolution = EMPTY`. A

@@ -4967,7 +4967,7 @@ test('section 23 is silent about a plan whose Jira key is closed', () => {
   }
 });
 
-test('section 23 counts no plan without a parseable key among the plans it checks', () => {
+test('section 23 names a finished plan without a parseable key as not checked', () => {
   // `tbd` parses to no `#N` and no `PROJ-NNN` key, so `oi_claims` must not name
   // the plan. The offline arm prints the count of plans `oi_claims` names, so a
   // parser that took `tbd` as a key turns "2" into "3" here, and the online run
@@ -4980,6 +4980,8 @@ test('section 23 counts no plan without a parseable key among the plans it check
     assert.doesNotMatch(online.sections['23'], /2026-01-04-released-nokey/,
       `a plan naming no parseable key is not a finding:\n${online.sections['23']}`);
     assert.match(online.report, /open_issues=1/, 'only the keyed open plan counts');
+    assert.match(online.sections['23'], /^  not checked: 1 finished plan\(s\) name no Jira key — released-nokey$/m,
+      `the skipped plan is named by slug, so a clean result does not read as a full check:\n${online.sections['23']}`);
   } finally {
     for (const f of [offline, online]) {
       fs.rmSync(f.tmp, { recursive: true, force: true });
