@@ -519,8 +519,7 @@ function reset_state() {
   delete branches; n_branches = 0
   delete prs; n_prs = 0; delete dprs; n_dprs = 0
   delete malformed_prs; n_malformed_prs = 0
-  fm_issue = ""; canon_issue = ""
-  fm_ticket = ""
+  fm_issue = ""; canon_issue = ""; fm_ticket = ""
   delete issues; n_issues = 0
   delete wave_names; delete wave_of; delete wave_seq; delete wave_count
   delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; delete spike_of; n_waves = 0
@@ -530,7 +529,7 @@ function reset_state() {
   fm_changelog = ""
   delete changelog; n_changelog = 0; changelog_seen = 0; cl_open = 0
 }
-function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, design, approved, delivered, issue, issue2, ticket, i, j, k, v, is_dup, out, sorted_b, sorted_p, sorted_i, nb, np, ni, num_issues, str_issues, n_num_i, n_str_i, issue_is_str) {
+function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, design, approved, delivered, issue, issue2, i, j, k, v, is_dup, out, sorted_b, sorted_p, sorted_i, nb, np, ni, num_issues, str_issues, n_num_i, n_str_i, issue_is_str) {
   # THE PHASE IS READ FROM THE FIELD PLOT WRITES. A canonical `State:`/`Phase:`
   # outranks front matter, because every lifecycle script writes the canonical
   # body and none writes front matter: `plot-approve.sh` holds zero front-matter
@@ -588,10 +587,6 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   #
   # A LIST, because one plan can answer several signals; the plan that
   # introduced this field subsumes three.
-  # `ticket:` is a frontmatter-only field: there is no canonical `## Status`
-  # body counterpart, unlike `Issue:` above. It exists for a Must-have whose
-  # plan names its tracker key only in frontmatter, not on an `Issue:` line.
-  ticket = strip_placeholder(fm_ticket)
   issue = strip_placeholder((fm_issue != "") ? fm_issue : canon_issue)
   # GitHub-style `#N` is parsed everywhere, regardless of tracker.
   while (match(issue, /#[0-9]+/)) {
@@ -677,8 +672,10 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
     else
       out = out (i > 1 ? "," : "") sorted_i[i]
   }
-  out = out "],\"ticket\":\"" jesc(ticket) "\""
-  out = out ",\"malformed_prs\":["
+  # `ticket:` is a frontmatter-only field: there is no canonical `## Status`
+  # body counterpart, unlike `Issue:`. It exists for a Must-have whose plan
+  # names its tracker key only in frontmatter, not on an `Issue:` line.
+  out = out "],\"ticket\":\"" jesc(strip_placeholder(fm_ticket)) "\",\"malformed_prs\":["
   for (i = 1; i <= n_malformed_prs; i++) out = out (i > 1 ? "," : "") "\"" jesc(malformed_prs[i]) "\""
   out = out "]"
   # Document order, never sorted: a changelog is a narrative sequence, and the

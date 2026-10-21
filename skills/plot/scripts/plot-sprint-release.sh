@@ -139,9 +139,8 @@ plan_delivery() { # $1=slug → "true|false|withdrawn<TAB>raw issues array or []
   # `UNKNOWN`, so a plan with no `State:` keeps its issue keys.
   [ -n "$f" ] && read -r phase issues ticket < <(bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null |
     sed -n 's/.*"phase":"\([A-Za-z]*\)".*"issues":\(\[[^]]*\]\).*"ticket":"\([^"]*\)".*/\1 \2 \3/p')
-  issues="${issues:-[]}"
   case "$phase" in rejected|superseded) state=withdrawn ;; *) [ -e "$DELIVERED_DIR/$1.md" ] && state=true || state=false ;; esac
-  printf '%s\t%s\t%s' "$state" "$issues" "$ticket"
+  printf '%s\t%s\t%s' "$state" "${issues:-[]}" "$ticket"
 }
 
 # Collapse `a/b/../c` → `a/c` textually. NOT `readlink -f` or `realpath`: the
