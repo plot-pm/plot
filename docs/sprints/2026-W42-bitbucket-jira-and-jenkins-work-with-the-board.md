@@ -47,6 +47,8 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [ ] [reconcile-23-tells-a-released-plan] Reconcile §23 tells a Released plan to release, and reads a window of open issues (#2283)
 - [ ] [reconcile-does-not-report-a-plan] Reconcile does not report a plan linked in both active and delivered (#2284)
 - [ ] [reconcile-on-bitbucket-reads-merged-branches] Reconcile on Bitbucket reads merged branches as orphans past 50 merged PRs (#2282)
+- [ ] [jenkins-run-for-sha-on-the] Jenkins run-for-sha on the default branch reports no answer when the branch builds in another job (#2278)
+- [ ] [plot-review-status-sh-exits-1] plot-review-status.sh exits 1 with no output on a sprint item without a plan (#2280)
 
 ### Should Have
 
@@ -88,3 +90,4 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - 2026-10-21: Added [sprint-to-release-drift-lists-should] as Must by Jan Wloka: the sixth ewz-kus-portal field test found that the Release-to-sprint drift lists 6 Should and Could items as missing from `kafka-gp-sync` (#2279).
 - 2026-10-21: Added [release-gate-names-an-unfinished-must], [reconcile-23-tells-a-released-plan] and [reconcile-does-not-report-a-plan] as Must by Jan Wloka: the sixth ewz-kus-portal field test found them (#2281, #2283, #2284).
 - 2026-10-21: Added [reconcile-on-bitbucket-reads-merged-branches] as Must by Jan Wloka: the sixth ewz-kus-portal field test found a merged branch reported as an orphan past the first 50 merged PRs (#2282).
+- 2026-10-21: Added [jenkins-run-for-sha-on-the] and [plot-review-status-sh-exits-1] as Must by Jan Wloka: the sixth ewz-kus-portal field test found them (#2278, #2280).
