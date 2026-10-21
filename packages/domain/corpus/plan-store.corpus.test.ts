@@ -77,6 +77,8 @@ const KNOWN_UNCARRIED = [
   // The board passes it from its own PlanMeta to verificationOf; no PlanStore reader decides on it.
   'verified_raw',
   'issues',
+  // Read by sprint-release-gate's own input, not through PlanStore; no PlanStore reader decides on it.
+  'ticket',
   'malformed_prs',
   'changelog',
   'long_wave_names',

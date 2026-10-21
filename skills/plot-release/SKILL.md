@@ -193,9 +193,10 @@ Read the `sprints[]` entry whose `sprint` matches this release's sprint:
 |---|---|
 | no `sprints[]` entry for this sprint | nothing — no `Release:` target, or a tracker with no Release to read |
 | `checked: false, unreachable: true` | `⚠ Release <version>: <reason>` — print the gate's own `reason`; a wrong `Release:` field and an unreachable Jira are different facts the cutter acts on differently |
-| `checked: true`, both lists empty | nothing — in sync, no news to report here |
+| `checked: true`, both lists empty, `notCompared` empty | nothing — in sync, no news to report here |
 | `checked: true`, `missingFromRelease` non-empty | `⚠ <n> Must Have(s) not in Jira <version>: <issue, …>` — **this never refuses the cut**; it is drift to show the operator, the same way `openShoulds` is asked rather than gated |
 | `checked: true`, `missingFromSprint` non-empty | `⚠ Jira <version> carries <n> issue(s) this sprint does not list: <key, …>` |
+| `checked: true`, `notCompared` non-empty | `⚠ <n> Must Have(s) named no Jira key, not compared: <text, …>` — never refuses the cut, and never folded into `missingFromRelease`: naming no key is not evidence the Release lacks the item |
 
 **Neither direction gates.** The brief and this gate both treat the Jira
 comparison as reporting, not refusal — the Must-Have gate above is the one

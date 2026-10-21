@@ -843,6 +843,7 @@ Read the sprint file and display:
   | `checked: true`, both lists empty | `Release <version>: in sync with Jira.` |
   | `checked: true`, `missingFromRelease` non-empty | `⚠ <n> Must Have(s) not in Jira <version>: <issue, …>` |
   | `checked: true`, `missingFromSprint` non-empty | `⚠ Jira <version> carries <n> issue(s) this sprint does not list: <key, …>` |
+  | `checked: true`, `notCompared` non-empty | `⚠ <n> Must Have(s) named no Jira key, not compared: <text, …>` — named by item text, never folded into `missingFromRelease`: an unresolved key is not evidence the Release lacks it |
 
   Exit 3 (`externalOwner`) from the gate means this repository's sprints are
   not plot-owned — status should not reach that state normally (Status
