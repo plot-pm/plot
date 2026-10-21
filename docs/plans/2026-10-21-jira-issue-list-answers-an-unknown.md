@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2257 merged
+- **Started:** 2026-10-21, Jan Wloka, `bug/jira-issue-list-answers-an-unknown`
 
 ## Changelog
 
