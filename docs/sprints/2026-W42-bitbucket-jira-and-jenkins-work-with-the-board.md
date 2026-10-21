@@ -43,6 +43,9 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [x] [check-helper-table-sh-misses-a] check-helper-table.sh misses a new bundle on its PR and turns main red after the merge (#2260)
 - [x] [reconcile-23-ignores-a-plan-s] Reconcile §23 ignores a plan's ticket: frontmatter key (#2269)
 - [ ] [sprint-to-release-drift-lists-should] Sprint-to-Release drift lists Should and Could items as not in the sprint (#2279)
+- [ ] [release-gate-names-an-unfinished-must] Release gate names an unfinished Must Have with no plan as [] (#2281)
+- [ ] [reconcile-23-tells-a-released-plan] Reconcile §23 tells a Released plan to release, and reads a window of open issues (#2283)
+- [ ] [reconcile-does-not-report-a-plan] Reconcile does not report a plan linked in both active and delivered (#2284)
 
 ### Should Have
 
@@ -82,3 +85,4 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - 2026-10-21: Added [check-helper-table-sh-misses-a] as Must by Jan Wloka: the helper-table gate missed two new bundles on their PRs and turned main red twice during this sprint (#2260).
 - 2026-10-21: Added [reconcile-23-ignores-a-plan-s] as Must by Jan Wloka: §23 must read the `ticket:` key that [sprint-release-comparison-drops-must-haves] adds, or 33 of 40 ewz plans read "not checked" (#2269).
 - 2026-10-21: Added [sprint-to-release-drift-lists-should] as Must by Jan Wloka: the sixth ewz-kus-portal field test found that the Release-to-sprint drift lists 6 Should and Could items as missing from `kafka-gp-sync` (#2279).
+- 2026-10-21: Added [release-gate-names-an-unfinished-must], [reconcile-23-tells-a-released-plan] and [reconcile-does-not-report-a-plan] as Must by Jan Wloka: the sixth ewz-kus-portal field test found them (#2281, #2283, #2284).
