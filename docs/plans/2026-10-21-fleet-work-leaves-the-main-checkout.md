@@ -59,7 +59,7 @@ Manifesto check and layering: any new decision about which checkout a command ma
 
 ### Measurement
 
-- `bug/main-checkout-writers-measured` — reproduce the #2283 desk and the bookkeeping appends in a sandbox; name the process that writes scratch files and the command that moves `HEAD` without the tree, with the evidence in the PR.
+- `bug/main-checkout-writers-measured` — reproduce the #2283 desk and the bookkeeping appends in a sandbox; name the process that writes scratch files and the command that moves `HEAD` without the tree, with the evidence in the PR. → #2315
 
 ### Fix
 
