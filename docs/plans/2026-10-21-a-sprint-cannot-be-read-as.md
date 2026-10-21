@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2217 merged
 - **Started:** 2026-10-21, Jan Wloka, `feature/jira-version-read`
+- **Started:** 2026-10-21, Jan Wloka, `feature/sprint-reads-jira-release`
 
 ## Changelog
 
