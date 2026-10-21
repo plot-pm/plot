@@ -41,7 +41,7 @@ Depends on #2265 and #2266 being merged. The resolver's home is decided against 
 
 ### Key resolver
 
-- `bug/reconcile-23-ignores-a-plan-s` — §23 resolves a plan's key through the shared resolver (`Issue:` line, then `ticket:`) and lists only plans with neither as "not checked"
+- `bug/reconcile-23-ignores-a-plan-s` — §23 resolves a plan's key through the shared resolver (`Issue:` line, then `ticket:`) and lists only plans with neither as "not checked" → #2273
 
 ## Notes
 
