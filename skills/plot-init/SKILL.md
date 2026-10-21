@@ -73,7 +73,9 @@ decision, not a collector's.
 
 It answers four questions, each carrying its evidence: `commitStyle` (the
 notation and how many of how many subjects carried it), `ticket` (the prefix or
-`null`, with the same two numbers), `language`, and `node`. **The thresholds
+`null`, with the same two numbers), `language`, and `node`. `branchTicket` is
+`ticket`'s reading over branch names instead of subjects, under the same
+threshold. **The thresholds
 live in `packages/domain/src/rules/stack.ts` and must not be recomputed here**
 — *two matching subjects make a style*, *two occurrences make a scheme*, *three
 German words make a German repository* were prose an agent was asked to follow
@@ -173,8 +175,9 @@ every prefix it saw, a lone `ONEOFF-1` included, with the count beside it;
 **The prefix is one-directional.** `ABC-123` is Jira's convention, and Linear
 and GitHub issues carry prefixed keys too — so it proposes and a person
 confirms. **Absence proves nothing:** a `null` `ticket.prefix` is not evidence
-against a tracker, so it falls to the *Ticket scheme* question above and
-**never proposes `Tracker: none` from silence**.
+against a tracker, so it falls to the *Ticket scheme* question above — or, on
+Bitbucket with a recurring `branchTicket.prefix`, to *A Jira key in branch
+names only* below — and **never proposes `Tracker: none` from silence**.
 
 **Then ask for the base URL, and nothing else.** `tracker-jira.ts` takes a base
 URL, and no commit subject carries one. That question is the only one this
@@ -241,6 +244,47 @@ project keys and shapes one query.
 > With a `null` `ticket.prefix` there is nothing to seed, so `ticketPrefixes`
 > stays empty and no key is written — the inbox is instance-wide, which is
 > today's behaviour and needs no disclosure.
+
+#### A Jira key in branch names only, on Bitbucket
+
+**This proposal fires on three readings together:** the probe's `git_host` is
+`bitbucket`, `ticket.prefix` is `null`, and `branchTicket.prefix` is not
+`null`. Where `ticket.prefix` recurs, the commit-subject proposal above fires
+instead, so the two never overlap.
+
+**The fallback is the reason it exists.** With no confirmed tracker,
+`composeAdoption` writes `Tracker: plot`. On Bitbucket that tells `bb` to list
+issues, and `bb` has no issue command: `plot-host.sh issue-list` exits 4 and
+names `Tracker: jira <base URL>` with `Sprint owner: plot` as the remedy. This
+proposal offers that pair at adoption instead of after the first refusal.
+
+**The signal is the branch name, not the commit subject.** A squash-merge
+habit common on Bitbucket can leave every commit subject ticket-free while the
+source branch still carries the Jira key. **Read `branchTicket.prefix` from the
+proposal, never the probe's `branch_ticket_prefix`.** `proposeStack` applies
+the same two-occurrence threshold to both populations, and
+`branchTicket.matched` / `branchTicket.outOf` are the two numbers to print:
+
+> Found `QUACDS` in 5 of 40 branch names, on a Bitbucket remote → propose
+> `Tracker: jira` with `Sprint owner: plot`, in place of the `Tracker: plot`
+> fallback that cannot list issues there.
+
+**Then ask for the base URL, as for the commit-subject proposal**, and put the
+confirmed pair in the answers file: `"tracker": "jira"`, the URL in
+`"trackerUrl"`, and `"sprintOwner": "plot"`. `Sprint owner: plot` keeps
+`/plot-sprint` running beside the external tracker; this step cannot see
+whether the repository runs sprints, so the pair is proposed together, as the
+exit-4 sentence names it.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** the proposal is part of what step 2's
+> stop prints, and no file is written. Name the URL as unset — `<base URL>` is
+> words for the reader and never a value, because the parsers take the second
+> word of `Tracker` as the URL:
+>
+> `PLOT-UNASKED: Which Jira base URL? — default — proposed Tracker: jira with Sprint owner: plot from QUACDS in 5 of 40 branch names, URL unset; issue operations stay unavailable until it is added`
+>
+> With a `null` `branchTicket.prefix` this proposal does not fire, and the
+> `Ticket scheme` question above applies as before.
 
 #### The default branch
 
@@ -431,6 +475,7 @@ cat > /tmp/plot-answers.json <<'JSON'
   "definitionOfDone": ["test", "lint", "typecheck"],
   "tracker": "jira",
   "trackerUrl": "https://acme.atlassian.net",
+  "sprintOwner": "",
   "ticketPrefixes": ["QUACDS", "QUAWEB"],
   "ci": "",
   "worktreeRoot": "",
@@ -447,7 +492,9 @@ question; two are, and it refuses. An empty `worktreeRoot` takes `.worktrees`
 with the matching `.gitignore` line. An empty `definitionOfDone` is **not** an
 empty Definition: it is the unanswered question, and the command refuses. An
 empty `ticketPrefixes` is a **declined** proposal and refuses nothing: no
-`Ticket prefixes` key is written and the inbox stays instance-wide.
+`Ticket prefixes` key is written and the inbox stays instance-wide. An empty
+`sprintOwner` writes no `Sprint owner` key; `plot` comes only from the
+branch-name proposal in step 2.
 
 **An empty `mainBranch` is a declined proposal too, and it is the normal case.**
 The key is written only from a confirmed answer: where the two readings agree
@@ -798,6 +845,11 @@ prerequisite is a fact a reader can act on; silence is not.
   the wrong system. Two signals ask.
 - **Never guess the Jira base URL.** It is nowhere in git history. Ask for it,
   or — unattended — write the key without it and say the URL is missing.
+- **Never adopt a Bitbucket repository onto the `Tracker: plot` fallback when
+  `branchTicket.prefix` recurs.** Propose `Tracker: jira` with `Sprint owner:
+  plot`, naming the branch-name evidence — the pair the exit-4 refusal names,
+  offered before the refusal rather than after it. Never write `<base URL>` as
+  a value.
 - **Never write the measured prefix as the whole of `Ticket prefixes`.** The
   probe reports the most frequent of the prefixes it counted, so a repository
   mapping to three Jira projects seeds one. Ask for the list; a one-element
@@ -845,6 +897,8 @@ prerequisite is a fact a reader can act on; silence is not.
 | Proposing `Tracker: jira` as a bare word | A reader cannot tell a measurement from a guess, so the whole proposal loses trust | Print the evidence: `jira (QUACDS in 38 of 80 subjects)` |
 | Asking which tracker when the prefix already recurs | Interrogates the user about something the probe read | Propose from the signal; ask only for the base URL |
 | Guessing the Jira base URL from the git remote | A wrong URL fails later saying nothing about adoption | Ask; unattended, write the key and name the gap |
+| Adopting a Bitbucket repo onto the `Tracker: plot` fallback when its branch names carry a Jira key | `issue-list` exits 4 — the repository adopted Plot and never heard the remedy for a gap its own config created | Propose `Tracker: jira` with `Sprint owner: plot` from `branchTicket`; ask for the base URL |
+| Writing `Tracker: jira <base URL>` literally | The parsers read `<base` as the URL, the missing-URL guard passes, and every Jira call fails against `<base/rest/...` | Write `Tracker: jira` with no URL and name the gap |
 | Writing the measured prefix as the complete `Ticket prefixes` | The inbox shows one project's issues and hides the rest under a heading claiming nobody planned them | Ask for the whole list; a one-element answer carries the rule's gap |
 | Writing `Ticket prefixes:` with nothing after it | Reads as *this repository has no projects* while behaving exactly like the absent key | Decline writes no key; an empty `ticketPrefixes` is the decline |
 | Choosing a CI system when both signals are present | A wrong `CI:` key sends every build-status lookup to the wrong system | Ask, naming both; refuse the key unattended |

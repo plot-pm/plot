@@ -94,6 +94,42 @@ test('detect: counts the ticket prefix it saw, and does not decide it', () => {
     'one occurrence is reported as one, and the rule decides what that means');
 });
 
+test('detect: counts the ticket prefix it saw in branch names, a different population than commit subjects', () => {
+  // A repository that squash-merges on Bitbucket can carry a Jira key in every
+  // branch name and in none of its commit subjects (the merge commit's subject
+  // is written by the host, not the author) — so this reads refs/heads AND
+  // refs/remotes, never commit subjects, and never decides whether the count
+  // makes a scheme.
+  const r = repoWith({ 'a.txt': 'x' });
+  git(r, 'branch', 'bug/QUACDS-12-fix-thing');
+  git(r, 'branch', 'feature/QUACDS-13-add-thing');
+  git(r, 'branch', 'docs/no-ticket-here');
+  const d = probe(r);
+  assert.equal(d.branch_ticket_prefix, 'QUACDS');
+  assert.equal(d.branch_ticket_prefix_count, 2, 'the count travels with the prefix');
+  assert.equal(d.branches_read, 4, 'main plus the two ticket branches plus the ticket-free one');
+
+  const plain = repoWith({ 'a.txt': 'x' });
+  git(plain, 'branch', 'feature/no-ticket-here');
+  assert.equal(probe(plain).branch_ticket_prefix, '');
+  assert.equal(probe(plain).branch_ticket_prefix_count, 0);
+});
+
+test('detect: counts a pushed branch once, not once per local and remote copy', () => {
+  // One Jira-keyed branch checked out locally AND mirrored on origin is one
+  // branch. Counted per ref it reads as 2, which clears the two-occurrence bar
+  // `proposeTicket` sets for a scheme — so one branch would propose a tracker.
+  const r = repoWith({ 'a.txt': 'x' });
+  git(r, 'branch', 'bug/QUACDS-12-fix-thing');
+  git(r, 'update-ref', 'refs/remotes/origin/bug/QUACDS-12-fix-thing', 'HEAD');
+  git(r, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+  git(r, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+  const d = probe(r);
+  assert.equal(d.branch_ticket_prefix, 'QUACDS');
+  assert.equal(d.branch_ticket_prefix_count, 1, 'the local and origin copies are one branch');
+  assert.equal(d.branches_read, 2, 'main and the ticket branch; origin/HEAD is no branch');
+});
+
 test('detect: lists pre-existing planning systems without judging them', () => {
   const r = repoWith({
     'docs/plans/2026-01-01-old.md': '# old',

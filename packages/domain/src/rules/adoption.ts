@@ -161,6 +161,14 @@ export interface AdoptionAnswers {
   /** The tracker's base URL, or `''` where none was supplied. */
   readonly trackerUrl: string;
   /**
+   * The `Sprint owner` confirmed, or `''` where nobody confirmed one.
+   *
+   * `''` writes no key. `plot` keeps `/plot-sprint` running beside an external
+   * `Tracker`, which is the pair a Bitbucket repository with a Jira key in its
+   * branch names is proposed.
+   */
+  readonly sprintOwner: string;
+  /**
    * The ticket prefixes confirmed, or an empty list where nobody confirmed any.
    *
    * EMPTY IS A DECLINE AND NOT A GAP. The proposal seeded from a measured
@@ -261,14 +269,19 @@ export const ignoreLineFor = (root: string): string =>
  */
 const trackerKey = (input: AdoptionInput): { key: ConfigKey; gap: string } => {
   const { tracker, trackerUrl } = input.answers;
-  const { prefix, matched, outOf } = input.proposal.ticket;
+  const { ticket, branchTicket } = input.proposal;
   if (tracker === '') {
     return {
       key: { key: 'Tracker', value: 'plot', evidence: '' },
       gap: '',
     };
   }
-  const evidence = prefix === null ? '' : `${prefix} in ${matched} of ${outOf} subjects`;
+  const evidence =
+    ticket.prefix !== null
+      ? `${ticket.prefix} in ${ticket.matched} of ${ticket.outOf} subjects`
+      : branchTicket.prefix !== null
+        ? `${branchTicket.prefix} in ${branchTicket.matched} of ${branchTicket.outOf} branch names`
+        : '';
   const value = trackerUrl === '' ? tracker : `${tracker} ${trackerUrl}`;
   return {
     key: { key: 'Tracker', value, evidence },
@@ -509,6 +522,9 @@ export const composeAdoption = (input: AdoptionInput): AdoptionResult => {
     keys.push({ key: 'Git host', value: input.readings.gitHost, evidence: 'the remote' });
   }
   keys.push(tracker.key);
+  if (input.answers.sprintOwner !== '') {
+    keys.push({ key: 'Sprint owner', value: input.answers.sprintOwner, evidence: 'confirmed' });
+  }
   // BESIDE `Tracker:`, WHICH IS THE KEY IT SCOPES. It is not beside `Branch
   // prefixes` despite the shared word — that one holds `idea/, feature/` and is
   // structural, and the config's own docstring answers the collision. Putting

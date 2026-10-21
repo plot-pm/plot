@@ -8,7 +8,7 @@ import {
   type AdoptionInput,
   type AdoptionReadings,
 } from '../src/rules/adoption.js';
-import { proposeCi, proposeStack, type StackProposal } from '../src/rules/stack.js';
+import { proposeCi, proposeStack, proposeTicket, type StackProposal } from '../src/rules/stack.js';
 
 const readings = (over: Partial<AdoptionReadings> = {}): AdoptionReadings => ({
   hasPlotConfig: false,
@@ -22,6 +22,7 @@ const answers = (over: Partial<AdoptionAnswers> = {}): AdoptionAnswers => ({
   definitionOfDone: ['test', 'lint'],
   tracker: '',
   trackerUrl: '',
+  sprintOwner: '',
   ticketPrefixes: [],
   ci: '',
   worktreeRoot: '',
@@ -391,6 +392,47 @@ describe('composeAdoption — the keys', () => {
     expect(result.gaps).toEqual([
       'Tracker: jira carries no base URL — issue operations answer unaskable until one is added',
     ]);
+  });
+});
+
+describe('composeAdoption — a Jira key in branch names only', () => {
+  const branchOnly = (): StackProposal => ({
+    ...showing('jenkins'),
+    branchTicket: proposeTicket('QUACDS', 5, 40),
+  });
+
+  it('writes the tracker with the branch-name evidence and no URL', () => {
+    const result = composeAdoption(
+      input({ proposal: branchOnly(), answers: answers({ tracker: 'jira', sprintOwner: 'plot' }) }),
+    );
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    // NO PLACEHOLDER IN THE VALUE. The parsers take the second word as the base
+    // URL, so `jira <base URL>` would read `<base` as one.
+    expect(valueOf(result, 'Tracker')).toBe('jira');
+    expect(result.keys.find((k) => k.key === 'Tracker')?.evidence)
+      .toBe('QUACDS in 5 of 40 branch names');
+    expect(valueOf(result, 'Sprint owner')).toBe('plot');
+    expect(result.gaps).toEqual([
+      'Tracker: jira carries no base URL — issue operations answer unaskable until one is added',
+    ]);
+  });
+
+  it('writes no Sprint owner key where nobody confirmed one', () => {
+    const result = composeAdoption(input({ proposal: branchOnly(), answers: answers({ tracker: 'jira' }) }));
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(result.keys.find((k) => k.key === 'Sprint owner')).toBeUndefined();
+  });
+
+  it('prefers the commit-subject evidence where both populations recur', () => {
+    const result = composeAdoption(
+      input({
+        proposal: { ...measuring('QUACDS'), branchTicket: proposeTicket('QUACDS', 5, 40) },
+        answers: answers({ tracker: 'jira' }),
+      }),
+    );
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    expect(result.keys.find((k) => k.key === 'Tracker')?.evidence)
+      .toBe('QUACDS in 38 of 80 subjects');
   });
 });
 

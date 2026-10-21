@@ -112,7 +112,8 @@ measurements; which of them clears a threshold is one rule, in
 
 It answers four questions, each carrying its evidence: `node` (the major found,
 the floor pinned, and whether the first meets the second), `commitStyle`,
-`ticket`, and `language`. **The thresholds are not restated here and must not
+`ticket`, and `language`. `branchTicket` is `ticket`'s reading over branch
+names instead of subjects, under the same threshold. **The thresholds are not restated here and must not
 be recomputed** — a threshold written in two places is the second answer this
 seam removes. A missing bundle names its repair (`pnpm build:board`), and since
 all fifteen are tracked in git it can only be missing from a broken install.
@@ -261,6 +262,57 @@ Turn the merged signals into proposals:
   >
   > With a `null` `ticket.prefix` there is nothing to seed: write no key, and
   > disclose nothing — an instance-wide inbox is today's behaviour.
+
+- **`Tracker: plot` already declared, on a Bitbucket remote** — a different
+  shape from the two proposals above, because the repository is not
+  undeclared. `Tracker: plot` (or no `Tracker` key at all, which `issueSource`
+  reads the same way) on a `git_host` of `bitbucket` tells `bb` to list issues,
+  and `bb` has no issue command — the exit-4 refusal `plot-host.sh issue-list`
+  gives today. Where the proposal's `branchTicket.prefix` is not `null` (a Jira
+  project key repeating across branch names: a squash-merge habit can leave
+  commit subjects ticket-free while every branch still carries the key),
+  propose the **move** this repository needs, naming the evidence the way the
+  commit-subject proposal does:
+
+  > Found `QUACDS` in 5 of 40 branch names, and this repository declares
+  > `Tracker: plot` on a Bitbucket remote → propose `Tracker: jira` with
+  > `Sprint owner: plot`.
+
+  **Read `branchTicket.prefix` from the proposal, never the probe's
+  `branch_ticket_prefix`.** `proposeStack` applies the same two-occurrence
+  threshold as for `ticket.prefix`, over branch names instead of subjects;
+  `branchTicket.matched` / `branchTicket.outOf` are the numbers to print. A
+  repository can clear one threshold and not the other, and this branch fires
+  on the branch-name reading alone.
+
+  **This is a move, not a fresh declaration.** `Tracker: plot` is a working
+  configuration that leaves `issue-list` unable to reach Bitbucket. Ask for
+  the base URL, as for the commit-subject proposal — it is nowhere in branch
+  names or commits, so never guess one — and write it beside the key:
+
+  ```markdown
+  - **Tracker:** jira https://acme.atlassian.net
+  - **Sprint owner:** plot
+  ```
+
+  **`Sprint owner: plot` is named unconditionally.** This step cannot see
+  whether the repository runs sprints — that is `/plot-sprint`'s question, not
+  this probe's — so the pair is proposed together every time, matching the
+  exit-4 sentence's own resolution of the same question.
+
+  > **Unattended (`PLOT_UNATTENDED=1`):** the *proposal* survives and the
+  > *question* does not, as for the other tracker proposals. Write
+  > `Tracker: jira` with **no URL** and `Sprint owner: plot`. `<base URL>` is
+  > words for the reader and never a value: the parsers take the second word
+  > of `Tracker` as the URL, so a written placeholder passes the missing-URL
+  > check and every Jira call fails against it. A bare `jira` gets the refusal
+  > that names the missing URL instead. Name the gap:
+  >
+  > `PLOT-UNASKED: Which Jira base URL? — default — wrote Tracker: jira with Sprint owner: plot from QUACDS in 5 of 40 branch names (Tracker: plot could not list issues), URL unset; issue operations stay unavailable until it is added`
+  >
+  > With a `null` `branchTicket.prefix` this branch does not fire and
+  > `Tracker: plot` is left exactly as declared — the refusal above is for a
+  > *measured* signal going unconfirmed, never for the absence of one.
 
 **The CI both-signals rule (Item 1b).** Where `ci.answer` is `ask` — both
 signals present — setup **does not propose**. It asks, naming both:
@@ -416,8 +468,11 @@ failure this whole command is built to avoid.
 
 `Tracker` records which system holds the repo's tickets, confirmed from the
 proposed prefix or answered outright. Write it only when confirmed or proposed
-from a `ticket.prefix` — **never `Tracker: none` from an unanswered question**,
-because absence of a prefix is not absence of a tracker.
+from a `ticket.prefix` or, on Bitbucket, a `branchTicket.prefix` — **never
+`Tracker: none` from an unanswered question**, because absence of a prefix is
+not absence of a tracker. The branch-name move is the one write that replaces
+an existing line: `Tracker: plot` becomes `Tracker: jira`, and `Sprint owner:
+plot` is appended when absent.
 
 `Main branch` is written **only from a confirmed disagreement** — never from
 `agree` (there is nothing to write) and never from `unverified` (nothing was
@@ -607,6 +662,8 @@ nothing about whether a supervisor is loaded.
 | A `null` `ticket.prefix` | Ask which tracker; never propose `Tracker: none` from silence |
 | A measured prefix, for `Ticket prefixes` | Ask for the whole list — the probe reports the most frequent of several; a one-element answer is written with its cost named |
 | No prefix and no answer, for `Ticket prefixes` | Write no key; the inbox stays instance-wide. Never `Ticket prefixes:` empty |
+| `Tracker: plot` already declared, Bitbucket remote, `branchTicket.prefix` not `null` | Propose `Tracker: jira` with `Sprint owner: plot`, naming the branch-name evidence — a move, not a fresh declaration; ask for the base URL |
+| A `Tracker: jira <base URL>` placeholder, unattended | Never write it: the parsers read `<base` as the URL. Write `Tracker: jira` with no URL and name the gap |
 | Both CI signals present | Ask which runs the PRs; do not tie-break on the git host |
 | Tracker unresolved, unattended | Refuse the key; a wrong tracker serves an empty inbox reading as *no tickets* |
 | Tracker has no backend | Write the key with a warning: *recorded; no backend reads this yet* — the inbox will be empty until the backend lands |
