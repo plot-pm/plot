@@ -45,7 +45,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [x] [sprint-to-release-drift-lists-should] Sprint-to-Release drift lists Should and Could items as not in the sprint (#2279)
 - [ ] [release-gate-names-an-unfinished-must] Release gate names an unfinished Must Have with no plan as [] (#2281)
 - [ ] [reconcile-23-tells-a-released-plan] Reconcile §23 tells a Released plan to release, and reads a window of open issues (#2283)
-- [ ] [reconcile-does-not-report-a-plan] Reconcile does not report a plan linked in both active and delivered (#2284)
+- [x] [reconcile-does-not-report-a-plan] Reconcile does not report a plan linked in both active and delivered (#2284)
 - [ ] [reconcile-on-bitbucket-reads-merged-branches] Reconcile on Bitbucket reads merged branches as orphans past 50 merged PRs (#2282)
 - [ ] [jenkins-run-for-sha-on-the] Jenkins run-for-sha on the default branch reports no answer when the branch builds in another job (#2278)
 - [ ] [plot-review-status-sh-exits-1] plot-review-status.sh exits 1 with no output on a sprint item without a plan (#2280)
