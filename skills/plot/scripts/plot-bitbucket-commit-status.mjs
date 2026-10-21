@@ -64,6 +64,45 @@ const repoRoot = () => {
   }
 };
 
+// `.env` is untracked, so it lives only in the MAIN checkout — a fleet desk or
+// a scratch worktree under `Worktree root` has none of its own, and
+// `repoRoot()` there answers with the WORKTREE. Returns `{ path, label }` for
+// a readable candidate (worktree `.env` first, then the main checkout's), or
+// `null` where neither location has one. NO UPWARD WALK past either location.
+//
+// `--git-common-dir`'s parent is the main checkout root only for a standard
+// `git worktree add` checkout; where the command fails, prints nothing, or
+// its parent directory does not exist, this falls through to "no main
+// checkout .env" rather than inventing a path.
+const envFileCandidate = () => {
+  const worktreePath = path.join(repoRoot(), '.env');
+  if (fs.existsSync(worktreePath)) {
+    try {
+      fs.accessSync(worktreePath, fs.constants.R_OK);
+      return { path: worktreePath, label: '.env' };
+    } catch {
+      // fall through to the main-checkout candidate
+    }
+  }
+
+  let common;
+  try {
+    common = execFileSync('git', ['rev-parse', '--git-common-dir'], { encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+  if (!common) return null;
+  const parent = path.dirname(common);
+  if (!fs.existsSync(parent)) return null;
+  const mainPath = path.join(parent, '.env');
+  try {
+    fs.accessSync(mainPath, fs.constants.R_OK);
+  } catch {
+    return null;
+  }
+  return { path: mainPath, label: "the main checkout's .env" };
+};
+
 // `read_env_var`'s shape in JS: first assignment of NAME in the file, quotes
 // and trailing whitespace stripped, an `export ` prefix tolerated.
 const readEnvVar = (name, file) => {
@@ -79,10 +118,11 @@ const readEnvVar = (name, file) => {
 /** Loads BITBUCKET_REVIEW_USER/BITBUCKET_REVIEW_APP_PASSWORD from `.env` only where both are unset. */
 const loadEnvFile = () => {
   if (process.env.BITBUCKET_REVIEW_USER || process.env.BITBUCKET_REVIEW_APP_PASSWORD) return;
-  const envPath = path.join(repoRoot(), '.env');
+  const candidate = envFileCandidate();
+  if (!candidate) return;
   let text;
   try {
-    text = fs.readFileSync(envPath, 'utf8');
+    text = fs.readFileSync(candidate.path, 'utf8');
   } catch {
     return;
   }
@@ -91,7 +131,7 @@ const loadEnvFile = () => {
   if (!user || !password) return; // both or neither — half a Basic credential authenticates nothing
   process.env.BITBUCKET_REVIEW_USER = user;
   process.env.BITBUCKET_REVIEW_APP_PASSWORD = password;
-  process.stderr.write('plot-host: BITBUCKET_REVIEW_USER and BITBUCKET_REVIEW_APP_PASSWORD read from .env\n');
+  process.stderr.write(`plot-host: BITBUCKET_REVIEW_USER and BITBUCKET_REVIEW_APP_PASSWORD read from ${candidate.label}\n`);
 };
 
 /** `{ user, password }`, or exit 4 naming both variables and where to create one. */

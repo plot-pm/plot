@@ -1715,29 +1715,20 @@ jenkins_no_instance() {
 # exist at all — and `resultOf` (`adapters/run-script.ts:211`) maps exit 4 onto
 # `unaskable`, which is the word the build port already answers with.
 # The Jenkins REST credential: JENKINS_USER + JENKINS_API_TOKEN from the
-# environment, then the repository's `.env`, then the macOS keychain where
-# `jen` already stores it.
+# environment, then `plot_env_file`, then the macOS keychain where `jen`
+# already stores it — the environment wins outright, same order and the same
+# both-or-neither rule as `jira_load_env_file`.
 #
 # NOT THE KEYCLOAK BEARER. `jen auth token` prints one and Jenkins answers it
 # with an HTML login redirect — measured 2026-09-10. Jenkins' own API takes
 # BASIC auth with a user and an API token.
 #
-# THE ORDER IS WHAT EACH SOURCE COSTS. A deliberate export is never
-# second-guessed, so the environment wins outright. `.env` is one local read,
-# same shape as `jira_load_env_file`. The keychain is macOS-only, so it is
-# tried last — still the honest last resort where neither export exists.
-#
-# IT PRINTS `user:token` AND NOTHING ELSE, or nothing at all. The caller
-# passes it straight to `curl -u`; no branch echoes it, and no failure path
-# names the value — a source note may name the variable names, never their
-# contents.
-#
-# EMPTY IS THE HONEST ANSWER when no source holds a full pair. A half
-# credential is not a credential; the caller turns an empty answer into
-# exit 4, which is *cannot be asked*.
+# Prints `user:token` and nothing else, or nothing at all — never the value
+# on a failure path. Empty means no source held a full pair; the caller turns
+# that into exit 4, *cannot be asked*.
 jenkins_rest_credential() { # $1 = the bare host
-  local u="${JENKINS_USER:-}" t="${JENKINS_API_TOKEN:-}" env_file src="the environment"
-  [ -n "$u" ] || [ -n "$t" ] || { src=.env; env_file="$(git rev-parse --show-toplevel 2>/dev/null || echo .)/.env"; [ -r "$env_file" ] && u="$(read_env_var JENKINS_USER "$env_file")" && t="$(read_env_var JENKINS_API_TOKEN "$env_file")"; }
+  local u="${JENKINS_USER:-}" t="${JENKINS_API_TOKEN:-}" src="the environment" found env_file
+  [ -n "$u" ] || [ -n "$t" ] || { found="$(plot_env_file)"; [ -n "$found" ] && env_file="${found%|*}" && src="${found#*|}.env" && u="$(read_env_var JENKINS_USER "$env_file")" && t="$(read_env_var JENKINS_API_TOKEN "$env_file")"; }
   [ -n "$u" ] && [ -n "$t" ] && { echo "plot-host: JENKINS_USER and JENKINS_API_TOKEN read from $src" >&2; printf '%s:%s' "$u" "$t"; return 0; }
   command -v security >/dev/null 2>&1 || return 1; u=$(security find-generic-password -s jen -a "jenkins-user:$1" -w 2>/dev/null) || return 1
   t=$(security find-generic-password -s jen -a "jenkins-token:$1" -w 2>/dev/null) || return 1
@@ -2724,6 +2715,25 @@ read_env_var() { # $1=name $2=file → the value, or nothing
           -e 's/[[:space:]]*$//'
 }
 
+# The `.env` candidate for this checkout, and which of two locations it came
+# from. `.env` is untracked, so it lives only in the MAIN checkout — a fleet
+# desk or a scratch worktree under `Worktree root` has none of its own, and
+# `git rev-parse --show-toplevel` there answers with the WORKTREE, which never
+# holds one. Prints "<path>|" (worktree) or "<path>|the main checkout's" on a
+# readable candidate, or nothing when neither location has one.
+#
+# NO UPWARD WALK past either location — the fallback is exactly one more
+# place to look, not a search. `--git-common-dir`'s parent is the main
+# checkout root only for a standard `git worktree add` checkout; where the
+# command fails, prints nothing, or its parent directory does not exist, this
+# falls through to "no main checkout .env" rather than inventing a path.
+plot_env_file() {
+  local root env_file common; root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."; env_file="$root/.env"
+  [ -r "$env_file" ] && { printf '%s|' "$env_file"; return 0; }
+  common="$(git rev-parse --git-common-dir 2>/dev/null)" && [ -n "$common" ] || return 0
+  env_file="$(dirname "$common")/.env"; [ -r "$env_file" ] && printf "%s|the main checkout's " "$env_file"
+}
+
 # The env var scheme for Jira auth. The plan left the EXACT names open, to be
 # confirmed against a real instance; these follow Jira Cloud's documented Basic
 # scheme (email + API token, base64'd into an Authorization header):
@@ -2737,42 +2747,20 @@ read_env_var() { # $1=name $2=file → the value, or nothing
 # `die3` exits the whole script only from there, not from inside a command
 # substitution where it would end only the subshell and leak a second error.
 #
-# WHERE BOTH ARE UNSET, THE REPOSITORY'S `.env` IS READ. The refusal below named
-# two variables without ever looking where a repository puts them, so an
-# operator holding working credentials — measured 2026-09-17, a 200 from
-# `/rest/api/3/myself` with the same pair — was sent to create a second token.
-# "Export it in your shell" does not reach the board either: it is a long-lived
-# process, which is why `plot-fleetctl.sh` bakes an environment into its unit.
-#
-# THE ENVIRONMENT WINS AND NOTHING IS READ WHERE IT ANSWERS. The file is opened
-# only when BOTH are unset, so a deliberate export is never second-guessed and
-# the common path touches no disk.
-#
-# AND THE SOURCE IS NAMED, which is a requirement rather than a nicety: two
-# tokens may exist, and an operator debugging a 401 must be able to tell which
-# one was used. `plot-board-probe.sh` reports `auth` as three words rather than
-# a boolean for the same reason. THE VALUE IS NEVER PRINTED — only the source.
+# WHERE BOTH ARE UNSET, `plot_env_file` IS READ, same order and both-or-neither
+# rule as `jenkins_rest_credential` — measured 2026-09-17, an operator holding
+# a working pair was sent to create a second token before this fallback
+# existed. THE VALUE IS NEVER PRINTED, only the source, so a 401 can be
+# debugged against the right one of two possible tokens.
 jira_load_env_file() {
-  local root env_file email token
+  local found env_file source email token
   [ -z "${JIRA_EMAIL:-}" ] && [ -z "${JIRA_API_TOKEN:-}" ] || return 0
-
-  # The repository root, `plot-config.sh:145`'s idiom. NO UPWARD WALK past it:
-  # a search toward $HOME would read a file the operator did not mean for this
-  # repository.
-  root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="."
-  env_file="$root/.env"
-  [ -r "$env_file" ] || return 0
-
-  email="$(read_env_var JIRA_EMAIL "$env_file")"
-  token="$(read_env_var JIRA_API_TOKEN "$env_file")"
+  found="$(plot_env_file)"; [ -n "$found" ] || return 0; env_file="${found%|*}"; source="${found#*|}"
+  email="$(read_env_var JIRA_EMAIL "$env_file")"; token="$(read_env_var JIRA_API_TOKEN "$env_file")"
   # BOTH OR NEITHER. Half a Basic credential authenticates nothing, and a
   # partial pickup would turn today's honest refusal into a 401 further in.
   [ -n "$email" ] && [ -n "$token" ] || return 0
-
-  JIRA_EMAIL="$email"
-  JIRA_API_TOKEN="$token"
-  export JIRA_EMAIL JIRA_API_TOKEN
-  echo "plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from .env" >&2
+  export JIRA_EMAIL="$email" JIRA_API_TOKEN="$token"; echo "plot-host: JIRA_EMAIL and JIRA_API_TOKEN read from ${source}.env" >&2
 }
 
 jira_require_config() {

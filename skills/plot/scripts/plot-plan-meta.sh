@@ -329,7 +329,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","spike_approved_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","verified_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"ticket":"","malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","spike_approved_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","verified_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -519,7 +519,7 @@ function reset_state() {
   delete branches; n_branches = 0
   delete prs; n_prs = 0; delete dprs; n_dprs = 0
   delete malformed_prs; n_malformed_prs = 0
-  fm_issue = ""; canon_issue = ""
+  fm_issue = ""; canon_issue = ""; fm_ticket = ""
   delete issues; n_issues = 0
   delete wave_names; delete wave_of; delete wave_seq; delete wave_count
   delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; delete spike_of; n_waves = 0
@@ -672,7 +672,10 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
     else
       out = out (i > 1 ? "," : "") sorted_i[i]
   }
-  out = out "],\"malformed_prs\":["
+  # `ticket:` is a frontmatter-only field: there is no canonical `## Status`
+  # body counterpart, unlike `Issue:`. It exists for a Must-have whose plan
+  # names its tracker key only in frontmatter, not on an `Issue:` line.
+  out = out "],\"ticket\":\"" jesc(strip_placeholder(fm_ticket)) "\",\"malformed_prs\":["
   for (i = 1; i <= n_malformed_prs; i++) out = out (i > 1 ? "," : "") "\"" jesc(malformed_prs[i]) "\""
   out = out "]"
   # Document order, never sorted: a changelog is a narrative sequence, and the
@@ -1037,6 +1040,7 @@ in_fm {
   else if (lower ~ /^sprint:/ && fm_sprint == "") fm_sprint = val_after_colon($0)
   else if (lower ~ /^story:/ && fm_story == "") fm_story = val_after_colon($0)
   else if (lower ~ /^issue:/ && fm_issue == "") fm_issue = val_after_colon($0)
+  else if (lower ~ /^ticket:/ && fm_ticket == "") fm_ticket = val_after_colon($0)
   else if (lower ~ /^assignee:/ && fm_assignee == "") fm_assignee = val_after_colon($0)
   else if (lower ~ /^review:/ && fm_review == "") fm_review = val_after_colon($0)
   else if (lower ~ /^impl:/ && fm_impl == "") fm_impl = val_after_colon($0)

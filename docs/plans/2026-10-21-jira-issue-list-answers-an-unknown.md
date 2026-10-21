@@ -47,7 +47,7 @@ Related, not duplicated: `2026-10-21-jira-issue-list-limit-above-one` (#2213, De
 
 ### Unknown version and cut notice
 
-- `bug/jira-issue-list-answers-an-unknown` — refuse an unknown `--fix-version` with `version-not-found`; report a cut `issue-list` result on stderr <!-- builds: issue-list version-not-found refusal, issue-list cut-result notice -->
+- `bug/jira-issue-list-answers-an-unknown` — refuse an unknown `--fix-version` with `version-not-found`; report a cut `issue-list` result on stderr <!-- builds: issue-list version-not-found refusal, issue-list cut-result notice --> → #2272
 
 ## Notes
 

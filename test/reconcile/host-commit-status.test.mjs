@@ -372,6 +372,73 @@ test('commit-status (bitbucket): reads the credential from this repository\'s .e
   assert.equal(write.auth, expected);
 });
 
+/**
+ * A `bbSandbox` extended with a `git worktree add` off the same scratch repo.
+ * `.env` is untracked, so it exists only where `withEnv.dotenv`/`worktreeEnv`
+ * write it — the main root, the worktree, or both.
+ */
+const bbWorktreeSandbox = ({ withEnv = {}, worktreeEnv, remote = 'git@bitbucket.org:myws/myrepo.git' } = {}) => {
+  const box = bbSandbox({ withEnv, remote });
+  execFileSync('git', ['-C', box.root, 'config', 'user.email', 't@t']);
+  execFileSync('git', ['-C', box.root, 'config', 'user.name', 't']);
+  fs.writeFileSync(path.join(box.root, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', box.root, 'add', 'seed.txt']);
+  execFileSync('git', ['-C', box.root, 'commit', '-q', '-m', 'seed']);
+
+  const worktreesParent = scratch('plot-host-commit-status-bb-wt-parent-');
+  const worktree = path.join(worktreesParent, 'wt');
+  execFileSync('git', ['-C', box.root, 'worktree', 'add', '-q', '-b', 'wt-branch', worktree]);
+  if (worktreeEnv !== undefined) fs.writeFileSync(path.join(worktree, '.env'), worktreeEnv);
+
+  return { ...box, worktree };
+};
+
+test('commit-status (bitbucket): a worktree with no .env reads the main checkout\'s, and the source is named', async () => {
+  const box = bbWorktreeSandbox({ withEnv: { dotenv: `BITBUCKET_REVIEW_USER=${BB_CRED.BITBUCKET_REVIEW_USER}\nBITBUCKET_REVIEW_APP_PASSWORD=${BB_CRED.BITBUCKET_REVIEW_APP_PASSWORD}\n` } });
+  const api = await fakeBitbucket();
+  const got = await bbCommitStatus({ ...box, root: box.worktree }, ARGS, api.url, {
+    BITBUCKET_REVIEW_USER: '',
+    BITBUCKET_REVIEW_APP_PASSWORD: '',
+  });
+  assert.equal(got.code, 0, got.err);
+  const write = api.requests[0];
+  const expected = `Basic ${Buffer.from(`${BB_CRED.BITBUCKET_REVIEW_USER}:${BB_CRED.BITBUCKET_REVIEW_APP_PASSWORD}`).toString('base64')}`;
+  assert.equal(write.auth, expected);
+  assert.match(got.err, /read from the main checkout's \.env/);
+});
+
+test('commit-status (bitbucket): the worktree\'s own .env wins over the main checkout\'s', async () => {
+  const worktreeCred = { BITBUCKET_REVIEW_USER: 'worktree-bot', BITBUCKET_REVIEW_APP_PASSWORD: 'worktree-pw-secret' };
+  const box = bbWorktreeSandbox({
+    withEnv: { dotenv: `BITBUCKET_REVIEW_USER=${BB_CRED.BITBUCKET_REVIEW_USER}\nBITBUCKET_REVIEW_APP_PASSWORD=${BB_CRED.BITBUCKET_REVIEW_APP_PASSWORD}\n` },
+    worktreeEnv: `BITBUCKET_REVIEW_USER=${worktreeCred.BITBUCKET_REVIEW_USER}\nBITBUCKET_REVIEW_APP_PASSWORD=${worktreeCred.BITBUCKET_REVIEW_APP_PASSWORD}\n`,
+  });
+  const api = await fakeBitbucket();
+  const got = await bbCommitStatus({ ...box, root: box.worktree }, ARGS, api.url, {
+    BITBUCKET_REVIEW_USER: '',
+    BITBUCKET_REVIEW_APP_PASSWORD: '',
+  });
+  assert.equal(got.code, 0, got.err);
+  const write = api.requests[0];
+  const expected = `Basic ${Buffer.from(`${worktreeCred.BITBUCKET_REVIEW_USER}:${worktreeCred.BITBUCKET_REVIEW_APP_PASSWORD}`).toString('base64')}`;
+  assert.equal(write.auth, expected, 'the worktree\'s own pair wins');
+  assert.match(got.err, /read from \.env/);
+  assert.doesNotMatch(got.err, /read from the main checkout's \.env/);
+});
+
+test('commit-status (bitbucket): neither the worktree nor the main checkout has a credential — exits 4 naming both variables', async () => {
+  const box = bbWorktreeSandbox();
+  const api = await fakeBitbucket();
+  const got = await bbCommitStatus({ ...box, root: box.worktree }, ARGS, api.url, {
+    BITBUCKET_REVIEW_USER: '',
+    BITBUCKET_REVIEW_APP_PASSWORD: '',
+  });
+  assert.equal(got.code, 4);
+  assert.match(got.err, /BITBUCKET_REVIEW_USER/);
+  assert.match(got.err, /BITBUCKET_REVIEW_APP_PASSWORD/);
+  assert.equal(api.requests.length, 0, 'no API call before the refusal');
+});
+
 test('commit-status (bitbucket): never shells out through bb — the write is a direct API call under a dedicated account', async () => {
   // CATCHES routing the write through the already-authenticated `bb` CLI,
   // which the brief explicitly forbids: that would write as whoever is

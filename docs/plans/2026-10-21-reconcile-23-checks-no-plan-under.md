@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2249
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2256 merged
 - **Started:** 2026-10-21, Jan Wloka, `bug/reconcile-23-checks-no-plan-under`
+- **Delivered:** 2026-10-21
 
 ## Changelog
 
@@ -46,7 +47,7 @@ Duplication rule: if §23 keeps a shell-side key reader beside a domain rule, it
 
 ### Jira keys in section 23
 
-- `bug/reconcile-23-checks-no-plan-under` — read each finished plan's Jira key and check it against the tracker in §23; name unchecked plans
+- `bug/reconcile-23-checks-no-plan-under` — read each finished plan's Jira key and check it against the tracker in §23; name unchecked plans → #2266
 
 ## Notes
 
