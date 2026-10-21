@@ -4907,7 +4907,6 @@ case "$op" in
         [ -n "$scope" ] || { echo "plot-host: changed Jira issues need 'Ticket prefixes' declared; an unscoped updated query reads the whole instance" >&2; exit 4; }
         mins="$(jq -nr --arg s "$since" '($s[11:19] | . + "00:00:00"[length:]) as $t | (now - ("\($s[0:10])T\($t)Z" | fromdateiso8601)) / 60 | ceil + 5 | if . < 5 then 5 else . end')"; jql="updated >= \"-${mins}m\"${scope} ORDER BY updated DESC"; fields="$fields,updated,resolutiondate"; paged=1
       fi
-      [ -z "$paged" ] || { max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; }
       # AN UNPAGED READ'S --limit ABOVE ONE PAGE IS REFUSED, NOT CLAMPED. Open
       # and inbox are the only states still unpaged here — closed and changed
       # forced `paged=1` above. Jira caps maxResults at 100 itself, so an
@@ -4920,10 +4919,7 @@ case "$op" in
       # refuses. `-gt`, not `-ge`: a full single page (100) is still one page
       # and must still answer. A non-numeric `--limit` skips this guard and
       # reaches Jira as an invalid `maxResults` instead — not this guard's job.
-      if [ -z "$paged" ] && [[ "$max" =~ ^[0-9]+$ ]] && [ "$max" -gt "$ISSUE_PAGE_ROWS" ]; then
-        echo "plot-host: issue-list: --limit $limit exceeds one Jira page ($ISSUE_PAGE_ROWS); pass --paged to read it a page at a time" >&2
-        exit 2
-      fi
+      if [ -n "$paged" ]; then max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; else [[ "$max" =~ ^[0-9]+$ ]] && [ "$max" -gt "$ISSUE_PAGE_ROWS" ] && { echo "plot-host: issue-list: --limit $limit exceeds one Jira page ($ISSUE_PAGE_ROWS); pass --paged to read it a page at a time" >&2; exit 2; }; fi
       token_args=(); [ -z "$page_token" ] || token_args=(--data-urlencode "nextPageToken=$page_token")
       # jq builds the query string so a JQL with spaces/quotes is encoded once,
       # not hand-escaped. --data-urlencode via curl -G keeps the token out of the
