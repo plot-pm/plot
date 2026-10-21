@@ -91,6 +91,12 @@
 #                                 empty answer sends the reaper to a weaker
 #                                 reading, so only a recognised lookup miss is
 #                                 empty.
+#   pr-merge-dest <branch>          one tab-separated line `number\tbase\tsha`
+#                                 for the first merged PR with this head
+#                                 branch, or EMPTY (exit 0) where none merged.
+#                                 The same query `pr-merge-commit` runs, reading
+#                                 two more fields of the one response. EXIT 3 is
+#                                 the question failing.
 #   pr-review <number>             one JSON line `{"sha","state","bypass"}`: the PR's
 #                                 head sha, the newest `plot/review` status on it
 #                                 (`success|failure|pending|error`, or `absent`),
@@ -3941,6 +3947,53 @@ case "$op" in
         rm -f "$HOST_ERR"
         bb_full_page_lacks "$out" 'any(.[]; .merge_commit.hash != null)' && { echo "plot-host: pr-merge-commit: the branch query for '$ref' returned a full page with no merge commit; cannot prove absence" >&2; exit 3; }
         jq -r 'map(.merge_commit.hash // empty) | first // empty' <<<"$out"
+      else
+        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        miss_or_exit3 "$err"
+      fi
+    fi
+    ;;
+
+  pr-merge-dest)
+    # THE NUMBER, DESTINATION BRANCH AND MERGE COMMIT OF THE FIRST MERGED PR
+    # FOR A HEAD BRANCH — one line, tab-separated, or nothing.
+    #
+    # `plot-reconcile-scan.sh` section 6 asks this once per hop while walking a
+    # chain of merged-into-a-deleted-branch PRs: having resolved one PR's
+    # destination is not the default branch, it asks here for the PR that
+    # carried THAT branch onward. `pr-merge-commit`'s own header is why a
+    # second subcommand exists rather than widening that one: eleven callers
+    # read its one-word contract, and none of them asks about a destination.
+    #
+    # THE SAME QUERY AS `pr-merge-commit`, with two more fields read off the
+    # same payload — no second call, no new cost over what that subcommand
+    # already pays.
+    ref="${1:?pr-merge-dest needs a branch}"; shift || true
+    repo_args=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --repo) repo_args=(-R "${2:?}"); shift 2 ;;
+        *) die "pr-merge-dest: unknown arg $1" ;;
+      esac
+    done
+    if [ "$be" = "github" ]; then
+      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; then
+        rm -f "$HOST_ERR"
+        jq -r 'map(select(.mergedAt != null and .mergeCommit != null))
+               | map([.number, .baseRefName, .mergeCommit.oid] | @tsv) | first // empty' <<<"$out"
+      else
+        err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
+        miss_or_exit3 "$err"
+      fi
+    else
+      bb_require_json
+      # Bitbucket names the destination `destination.branch.name` on the same
+      # raw payload `pr-merge-commit` already reads `merge_commit.hash` from.
+      if out="$(bb_branch_query "$ref" merged ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
+        rm -f "$HOST_ERR"
+        bb_full_page_lacks "$out" 'any(.[]; .merge_commit.hash != null)' && { echo "plot-host: pr-merge-dest: the branch query for '$ref' returned a full page with no merge commit; cannot prove absence" >&2; exit 3; }
+        jq -r 'map(select(.merge_commit.hash != null))
+               | map([.id, .destination.branch.name, .merge_commit.hash] | @tsv) | first // empty' <<<"$out"
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         miss_or_exit3 "$err"

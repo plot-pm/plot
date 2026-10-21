@@ -4290,6 +4290,137 @@ exit 0
   }
 });
 
+// --- A destination branch deleted after its own merge: the chain walk -------
+//
+// #2201 fixed a merge commit this clone lacks because its OWN (source) branch
+// was deleted — `cat-file -e` fails, `git tag --contains` cannot run, and the
+// finding names the sha. This section fixes a DIFFERENT cause with the SAME
+// symptom: the PR's DESTINATION branch — not its source — was deleted after
+// its own merge, so the sha still resolves locally (the merge landed on a ref
+// this clone holds) but `.base` read off `pr-state` is some branch gone from
+// `git branch -r`, so there is nothing to tell the reader "this commit's
+// branch is the one missing, not the plan's PR". The fix follows the chain:
+// ask `plot-host.sh pr-merge-dest <destination>` for the PR that carried that
+// branch onward, repeating until the trail reaches `main`, cycles, or runs out.
+//
+// Each fixture plan's PR merges into a NON-default branch whose own commits
+// still live in `s6Repo` (so `cat-file -e` would otherwise succeed and give no
+// signal at all that a chain is needed) — the stub's `pr list --head <branch>`
+// arm is what supplies the next hop.
+
+/**
+ * Runs the section-6 scan with a `gh` stub that answers both `pr view` (the
+ * plan's own PR) and `pr list --head <branch>` (`pr-merge-dest`, one call per
+ * hop) from a fixed table, `hops`: `{ [branch]: { number, base, sha } }`. A
+ * branch absent from the table answers `pr list` with `[]` — a dead end.
+ */
+function runChainScan(planSha, planBase, hops) {
+  const bin = scratch('plot-scan-s6-chain-');
+  const hopsJson = JSON.stringify(hops);
+  fs.writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env node
+const hops = ${hopsJson};
+const argv = process.argv.slice(2).join(' ');
+if (argv.includes('pr view')) {
+  const n = argv.match(/pr view (\\d+)/)[1];
+  process.stdout.write(JSON.stringify({
+    number: Number(n), state: 'MERGED', isDraft: false, url: 'u',
+    mergeCommit: { oid: ${JSON.stringify(planSha)} }, baseRefName: ${JSON.stringify(planBase)},
+  }));
+} else if (argv.includes('pr list')) {
+  const m = argv.match(/--head (\\S+)/);
+  const branch = m ? m[1] : '';
+  const hop = hops[branch];
+  if (!hop) { process.stdout.write('[]'); process.exit(0); }
+  process.stdout.write(JSON.stringify([{
+    number: hop.number, mergedAt: '2026-03-01T00:00:00Z',
+    mergeCommit: { oid: hop.sha }, baseRefName: hop.base,
+  }]));
+} else {
+  process.stdout.write('[]');
+}
+`);
+  fs.chmodSync(path.join(bin, 'gh'), 0o755);
+  try {
+    return execFileSync('bash', [scan, '--no-fetch'], {
+      encoding: 'utf8',
+      cwd: s6Repo,
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    });
+  } finally {
+    fs.rmSync(bin, { recursive: true, force: true });
+  }
+}
+
+test('scan: a chain resolves through one hop onto the default branch', () => {
+  // The plan's PR merged into `release-train`; `release-train`'s own merged PR
+  // carries it onward to `main` at a sha this clone holds and tags release.
+  const out = runChainScan(s6Sha, 'release-train', {
+    'release-train': { number: 500, base: 'main', sha: s6Sha },
+  });
+  const sections = splitSections(out);
+  assert.match(sections['6'], /2026-03-01-one\.md — shipped in v9\.0\.0 via release-train/,
+    `a one-hop chain must resolve and name the destination it walked through:\n${sections['6']}`);
+});
+
+test('scan: a chain-break names the deleted destination branch, not the plan\'s PR', () => {
+  // `release-train-gone` carries the plan's PR onward to nowhere: no merged PR
+  // has it as a head, so the walk dead-ends. The finding must name THAT
+  // branch — the one actually missing — and must not advise a fetch, because
+  // no fetch brings back a PR that was never merged.
+  const out = runChainScan(s6Sha, 'release-train-gone', {});
+  const sections = splitSections(out);
+  assert.match(sections['6'],
+    /2026-03-01-one\.md — delivered, PR #101 merged into deleted branch 'release-train-gone' → cannot resolve/,
+    `the chain-break finding must name the deleted destination:\n${sections['6']}`);
+  assert.doesNotMatch(sections['6'], /git fetch --tags origin/,
+    `a dead-end chain must not advise a fetch that cannot help:\n${sections['6']}`);
+});
+
+test('scan: a pre-existing source-branch-deleted case still resolves directly, with no walk', () => {
+  // #2201's own case: the plan's PR merges straight onto `main` (so `dest ===
+  // MAIN` and the new chain-walk arm never engages), and the merge commit is
+  // simply one this clone holds. This is the existing, already-passing
+  // `scan: section 6 asks the host once per eligible delivered plan when
+  // online` fixture's own shape, re-run through the SAME stub style used for
+  // the chain fixtures above, to prove the new `dest`-reading code added to
+  // section 6 does not change this path's finding text.
+  const { out } = runSection6Scan();
+  const sections = splitSections(out);
+  assert.match(sections['6'], /2026-03-01-one\.md — shipped in v9\.0\.0/,
+    `the direct-resolve case must still resolve with no walk:\n${sections['6']}`);
+  assert.doesNotMatch(sections['6'], /via /,
+    'a direct resolve names no destination branch — there was no chain to walk');
+});
+
+test('scan: a cyclic chain ends in a named finding, never a shell loop', () => {
+  // `a`'s merged PR carries it to `b`; `b`'s merged PR carries it back to `a`.
+  // The domain's visited-set must end this, not the shell — a shell bug here
+  // would hang the test rather than fail it.
+  const out = runChainScan(s6Sha, 'a', {
+    a: { number: 501, base: 'b', sha: 'aaa1111111111111111111111111111111111aa' },
+    b: { number: 502, base: 'a', sha: 'bbb2222222222222222222222222222222222bb' },
+  });
+  const sections = splitSections(out);
+  assert.match(sections['6'],
+    /2026-03-01-one\.md — delivered, PR #101 merged into deleted branch 'a' → cannot resolve \(cycle at 'a'\)/,
+    `a cycle must end in a named finding, not a hang:\n${sections['6']}`);
+});
+
+test('scan: a chain deeper than the bound ends too-deep, never a shell loop', () => {
+  // Six hops, each carrying the branch one further from `main` and never
+  // reaching it — the domain's depth bound must end this at hop index 5, not
+  // the shell counting forever.
+  const hops = {};
+  for (let i = 0; i < 6; i++) {
+    hops[`chain-${i}`] = { number: 600 + i, base: `chain-${i + 1}`, sha: `${'c'.repeat(39)}${i}` };
+  }
+  const out = runChainScan(s6Sha, 'chain-0', hops);
+  const sections = splitSections(out);
+  assert.match(sections['6'],
+    /2026-03-01-one\.md — delivered, PR #101 merged into deleted branch 'chain-0' → cannot resolve \(too-deep at /,
+    `an over-depth chain must end in a named finding, not a hang:\n${sections['6']}`);
+});
+
 // --- Section 23: a finished plan whose issue is still open ------------------
 //
 // THE FIXTURE NEEDS A TRACKER, so it takes section 20's shape: the scripts are

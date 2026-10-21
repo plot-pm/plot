@@ -3358,8 +3358,9 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   fi
 
   last_pr="${prs##*,}"
-  sha=$("$script_dir/plot-host.sh" pr-state "$last_pr" </dev/null 2>/dev/null \
-        | jq -r '.mergeCommit // empty' 2>/dev/null)
+  pr_state_row=$("$script_dir/plot-host.sh" pr-state "$last_pr" </dev/null 2>/dev/null)
+  sha=$(jq -r '.mergeCommit // empty' <<<"$pr_state_row" 2>/dev/null)
+  dest=$(jq -r '.base // empty' <<<"$pr_state_row" 2>/dev/null)
   # No grep fallback. An earlier draft searched commit messages for "#N", which
   # matched any commit MENTIONING the PR rather than its merge — and reported
   # v2.2.0 for a plan that shipped in v1.7.0. A wrong version in a transition
@@ -3391,6 +3392,53 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   # simply not released yet. Silence, in the one section written so that
   # "cannot tell" and "nothing wrong" cannot look the same.
   #
+  # A DESTINATION THAT IS NOT THE DEFAULT BRANCH, AND WAS ITSELF DELETED AFTER
+  # ITS OWN MERGE, IS THE SAME SYMPTOM AS A DELETED SOURCE BRANCH (#2201) BUT A
+  # DIFFERENT CAUSE: the merge commit named here sits on a ref no clone holds
+  # not because the PR's OWN branch was deleted, but because the branch it
+  # merged INTO was. `git tag --contains` cannot place a commit whose branch
+  # left no trace — the release is still knowable by following that
+  # destination's own merged PR onward, repeating until the trail reaches the
+  # default branch, cycles, or runs out. Checked before `cat-file -e` because a
+  # destination branch's merge commit routinely fails that same check, and
+  # this case has a real answer where the plain "not in this clone" finding
+  # below does not.
+  if [ -n "$dest" ] && [ "$dest" != "$MAIN" ]; then
+    hops=""; walk_branch="$dest"; depth=0
+    while [ "$depth" -lt 6 ]; do
+      row=$("$script_dir/plot-host.sh" pr-merge-dest "$walk_branch" </dev/null 2>/dev/null)
+      if [ -z "$row" ]; then
+        hops+="$walk_branch"$'\t'"not-found"$'\n'
+        break
+      fi
+      IFS=$'\t' read -r hop_num hop_base hop_sha <<<"$row"
+      hops+="$walk_branch"$'\t'"found"$'\t'"$hop_num"$'\t'"$hop_base"$'\t'"$hop_sha"$'\n'
+      [ "$hop_base" = "$MAIN" ] && break
+      walk_branch="$hop_base"
+      depth=$((depth + 1))
+    done
+    chain_result=$(printf '@default %s\n@hops\n%s' "$MAIN" "$hops" \
+                   | node "$script_dir/board/plot-release-chain.mjs" classify 2>/dev/null)
+    IFS=$'\t' read -r chain_outcome chain_a chain_b <<<"$chain_result"
+    if [ "$chain_outcome" = resolved ]; then
+      tag=$(git tag --contains "$chain_a" 2>/dev/null \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | head -1)
+      if [ -n "$tag" ]; then
+        slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+        unrel_out+="  $base — shipped in $tag via $dest, plan still Delivered\n"
+        unrel_out+="    consider: /plot-release (records Phase: Released, ${slug%.md})\n"
+        n_unrel=$((n_unrel + 1))
+        continue
+      fi
+      # The chain resolved onto the default branch but that commit carries no
+      # release tag yet — genuinely not released, nothing to report.
+      continue
+    fi
+    unrel_out+="  $base — delivered, PR #$last_pr merged into deleted branch '$dest' → cannot resolve ($chain_a at '$chain_b')\n"
+    n_unrel=$((n_unrel + 1))
+    continue
+  fi
+
   # `cat-file -e` IS ASKED SEPARATELY because its exit code is readable where
   # the pipeline's is not: 0 when the object store holds the commit, non-zero
   # when it does not. Three populations arrive here — `--no-fetch` with PRs on,
