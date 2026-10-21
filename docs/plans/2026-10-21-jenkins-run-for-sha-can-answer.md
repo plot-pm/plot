@@ -43,7 +43,9 @@ A second defect sits in the same function: the sha match (`plot-host.sh:1809`, `
 
 ## Slices
 
-- `bug/jenkins-run-for-sha-can-answer` — skip `NOT_BUILT` in the sha arms of `jenkins_sha_runs`, with the three single-revision fixtures and the renamed `ABORTED` test
+### Skip builds that never ran (Branch: bug/jenkins-run-for-sha-can-answer)
+
+- Skip `NOT_BUILT` in the sha arms of `jenkins_sha_runs`, with the three single-revision fixtures and the renamed `ABORTED` test
 
 ## Notes
 
