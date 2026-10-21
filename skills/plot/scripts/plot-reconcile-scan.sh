@@ -3003,15 +3003,34 @@ oi_out=""
 # scan for `#NNN`: `issues[]` is a dedicated field precisely because a body
 # cannot tell a signal from a citation, and plans here cite issues constantly.
 oi_claims=""; oi_keyless=""
+# KEY RESOLUTION MIRRORS `resolveItemKey` (packages/domain/src/rules/sprint-release.ts):
+# the first Jira-shaped `issues[]` entry wins; only when none is Jira-shaped
+# does a Jira-shaped `ticket:` frontmatter value stand in. A non-Jira
+# `issues[]` entry (a GitHub `#N`) is untouched by `ticket:` either way — it
+# already has a key to check, and resolving one from `ticket:` on top of it
+# would silently change which tracker's key a GitHub-backed plan is read for.
+oi_jira_key='^[A-Z][A-Z0-9]*-[0-9]+$'
 if [ -n "$plan_json" ]; then
-  oi_claims=$(printf '%s\n' "$plan_json" | jq -r '
+  oi_claims=$(printf '%s\n' "$plan_json" | jq -r --arg re "$oi_jira_key" '
     select(.phase == "delivered" or .phase == "released")
-    | select((.issues // []) | length > 0)
-    | "\(.file)\t\(.phase)\t\(.issues | map(tostring) | join(","))"' 2>/dev/null)
+    | (.issues // []) as $issues
+    | ($issues | map(select(tostring | test($re)))) as $jira_issues
+    | (.ticket // "") as $ticket
+    | (if ($jira_issues | length) > 0 then $issues
+       elif ($ticket | test($re)) then $issues + [$ticket]
+       else $issues end) as $resolved
+    | select(($resolved | length) > 0)
+    | "\(.file)\t\(.phase)\t\($resolved | map(tostring) | join(","))"' 2>/dev/null)
   # THE FINISHED PLANS NAMING NO KEY, by slug. Under a Jira tracker they are
   # plans this section skips, and the section names them rather than letting a
-  # clean result read as a full check.
-  oi_keyless=$(printf '%s\n' "$plan_json" | jq -r 'select((.phase == "delivered" or .phase == "released") and ((.issues // []) | length == 0)) | .file | split("/") | last | sub("\\.md$"; "") | sub("^[0-9]{4}-[0-9]{2}-[0-9]{2}-"; "")' 2>/dev/null | paste -sd, - | sed 's/,/, /g')
+  # clean result read as a full check. A plan whose only key comes from
+  # `ticket:` has already left this population via `oi_claims` above.
+  oi_keyless=$(printf '%s\n' "$plan_json" | jq -r --arg re "$oi_jira_key" '
+    select(.phase == "delivered" or .phase == "released")
+    | (.issues // []) as $issues
+    | (.ticket // "") as $ticket
+    | select(($issues | length) == 0 and (($ticket | test($re)) | not))
+    | .file | split("/") | last | sub("\\.md$"; "") | sub("^[0-9]{4}-[0-9]{2}-[0-9]{2}-"; "")' 2>/dev/null | paste -sd, - | sed 's/,/, /g')
 fi
 oi_plans=$(printf '%s' "$oi_claims" | grep -c . 2>/dev/null) || oi_plans=0
 

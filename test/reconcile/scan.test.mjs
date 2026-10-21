@@ -4886,7 +4886,7 @@ exit 0
  * default GitHub one, with `ticketPrefixes` optional for the scoping-note
  * tests.
  */
-const jiraIssueFixture = (hostBody, scanArgs = ['--no-fetch'], { ticketPrefixes = '', tracker = 'jira', env = {} } = {}) => {
+const jiraIssueFixture = (hostBody, scanArgs = ['--no-fetch'], { ticketPrefixes = '', tracker = 'jira', env = {}, extraPlans = {} } = {}) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-openissue-jira-'));
   const origin = path.join(tmp, 'origin.git');
   const repo = path.join(tmp, 'repo');
@@ -4921,6 +4921,12 @@ ${ticketPrefixes ? `- **Ticket prefixes:** ${ticketPrefixes}\n` : ''}`);
   w('plans/2026-01-03-released-closed.md', `# Released closed\n\n${plan('Released', 'PROJ-103')}`);
   // No key at all (neither `#N` nor `PROJ-NNN`) → unchecked, never silently clean.
   w('plans/2026-01-04-released-nokey.md', `# Released no key\n\n${plan('Released', 'tbd')}`);
+
+  // EXTRA PLANS, keyed by their path under `plans/`, written raw — for fixtures
+  // whose body shape `plan()` above cannot express, such as `ticket:`
+  // frontmatter (a YAML field, not an `## Status` line) or an `Issue:` line
+  // paired with a different `ticket:` value.
+  for (const [rel, content] of Object.entries(extraPlans)) w(`plans/${rel}`, content);
 
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'jira open-issue fixture');
@@ -4987,6 +4993,72 @@ test('section 23 names a finished plan without a parseable key as not checked', 
       fs.rmSync(f.tmp, { recursive: true, force: true });
       fs.rmSync(f.shim, { recursive: true, force: true });
     }
+  }
+});
+
+test('section 23 reads a plan\'s `ticket:` frontmatter when it names no `Issue:` line', () => {
+  // `ticket-only` carries `ticket: PROJ-201` in YAML frontmatter and no
+  // `Issue:` line at all — the case `plot-plan-meta.sh` resolves to a non-empty
+  // `.ticket` and an empty `.issues`, which `oi_claims`'s old `length > 0`
+  // filter dropped before it ever reached this section.
+  const ticketOnly = `---
+ticket: PROJ-201
+---
+# Ticket only
+
+## Status
+
+- **State:** Released
+- **Type:** feature
+`;
+  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101', 'PROJ-201']), ['--no-fetch'], {
+    ticketPrefixes: 'PROJ',
+    extraPlans: { '2026-01-05-ticket-only.md': ticketOnly },
+  });
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /2026-01-05-ticket-only\.md — released, still open: PROJ-201$/m,
+      `a ticket:-only key is read and checked like an Issue: line's key:\n${s}`);
+    assert.doesNotMatch(s, /not checked:.*ticket-only/,
+      `a plan resolved from ticket: must not also appear in the keyless "not checked" line:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 prefers the Issue: line\'s key over a different ticket: value', () => {
+  // `both-keys` names PROJ-101 on its `Issue:` line and a DIFFERENT key,
+  // PROJ-999, in `ticket:` frontmatter. `resolveItemKey`'s fixed order — the
+  // Issue: line, then ticket: — says PROJ-101 must be the one compared. A
+  // naive "use ticket: whenever issues[] looks sparse" implementation would
+  // still get this right only by accident (issues[] is NOT sparse here), so
+  // this fixture is built so the two keys disagree on whether anything is
+  // open: PROJ-101 is open, PROJ-999 is not even in the stub's open list.
+  const bothKeys = `---
+ticket: PROJ-999
+---
+# Both keys
+
+## Status
+
+- **State:** Released
+- **Type:** feature
+- **Issue:** PROJ-101
+
+`;
+  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch'], {
+    ticketPrefixes: 'PROJ',
+    extraPlans: { '2026-01-06-both-keys.md': bothKeys },
+  });
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /2026-01-06-both-keys\.md — released, still open: PROJ-101$/m,
+      `the Issue: line's key wins over a different ticket: value:\n${s}`);
+    assert.doesNotMatch(s, /PROJ-999/, `the ticket: value must not be the one compared:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
   }
 });
 
