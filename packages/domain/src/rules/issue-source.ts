@@ -140,9 +140,11 @@ export const sprintOwner = (declaredSprintOwner: string, declaredTracker: string
  *
  * An empty `declared` (no `Tracker` key) is told to declare one. A `declared`
  * of `plot` — the same value {@link issueSource} reads as "ask the git host"
- * — is told the working pair instead: `Tracker: jira <base URL>` keeps the
- * issue list readable, and `Sprint owner: plot` keeps `/plot-sprint`
+ * — is told the working pair instead: `Tracker: <suggested> <base URL>` keeps
+ * the issue list readable, and `Sprint owner: plot` keeps `/plot-sprint`
  * operating without that pair handing sprints to the newly-declared tracker.
+ * With no `suggested` scheme, it is told to declare one, as an empty
+ * `declared` is.
  * A `declared` naming an external tracker already made that declaration, so
  * neither remedy is added.
  *
@@ -150,15 +152,19 @@ export const sprintOwner = (declaredSprintOwner: string, declaredTracker: string
  * ${version}` ahead of this sentence, so a leading "bb" here would repeat it.
  *
  * @param declared - the `Tracker` key's value, verbatim; `''` where none is declared.
+ * @param suggested - the tracker scheme the pair names, chosen by the caller from the
+ *   connectors it ships; `''` where it suggests none.
  * @returns the sentence `plot-host.sh` appends after `bb ${version}` on stderr before exiting 4.
  */
-export const bbIssueCommandMissing = (declared: string): string => {
+export const bbIssueCommandMissing = (declared: string, suggested: string): string => {
   const base = 'lists no issue command — Quatico bb has none, unlike craftamap/bb — ' +
     "so this repository's issues cannot be read through it";
   const trimmed = declared.trim();
-  if (trimmed === '') return `${base}; declare the issue tracker with the \`Tracker\` config key`;
+  const declareOne = `${base}; declare the issue tracker with the \`Tracker\` config key`;
+  if (trimmed === '') return declareOne;
   const scheme = trimmed.split(/\s+/, 1).join('').toLowerCase();
-  return scheme === NO_EXTERNAL_TRACKER
-    ? `${base}; declare \`Tracker: jira <base URL>\` with \`Sprint owner: plot\``
-    : base;
+  if (scheme !== NO_EXTERNAL_TRACKER) return base;
+  return suggested === ''
+    ? declareOne
+    : `${base}; declare \`Tracker: ${suggested} <base URL>\` with \`Sprint owner: plot\``;
 };

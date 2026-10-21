@@ -53,6 +53,13 @@ import { pathToFileURL } from 'node:url';
  * all*. A non-zero exit here would say the question failed instead.
  */
 
+/**
+ * The tracker scheme the `--bb-issue-missing` sentence suggests: the first
+ * shipped lister that does not need a particular git host, so a Bitbucket
+ * repository is never told to use a tracker only GitHub can list.
+ */
+export const SUGGESTED_TRACKER = TRACKER_LISTERS.find((l) => l.onlyOnHost === undefined)?.scheme ?? '';
+
 /** The exit codes the caller reads. */
 export const EXIT = {
   /** The rule answered: one of `tracker`, `git-host` or `nobody`. */
@@ -80,7 +87,7 @@ export const run = (
   // `Tracker` is declared before it can word its own refusal, and that
   // reads the same `declared` value this entry already takes on stdin.
   if (first === '--bb-issue-missing') {
-    write(`${bbIssueCommandMissing(stdin)}\n`);
+    write(`${bbIssueCommandMissing(stdin, SUGGESTED_TRACKER)}\n`);
     return EXIT.ok;
   }
   const gitHost = first;
