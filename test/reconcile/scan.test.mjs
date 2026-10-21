@@ -4838,20 +4838,46 @@ test('section 23 asks no host when no connector lists the declared tracker', () 
 // Jira shape (`number` is the KEY STRING, matching the adapter's own
 // `number: .key` — see `plot-host.sh`'s jira issue-list arm).
 
-/** A stub answering `issue-list` with the given open Jira keys. */
-const jiraIssueHost = (keys, { marker = '' } = {}) => `#!/usr/bin/env bash
+/**
+ * A stub answering `issue-list` with the given open Jira keys, the way the real
+ * Jira arm answers: an unpaged `--limit` above one page (100) exits 2 before
+ * any row, and a `--paged` read prints one page and then
+ * `{"nextPageToken":"…"}` while another page follows. `keys` is one page of
+ * keys, or an array of pages.
+ */
+const jiraIssueHost = (keys, { marker = '' } = {}) => {
+  const pages = Array.isArray(keys[0]) ? keys : [keys];
+  return `#!/usr/bin/env bash
+${marker ? `printf '%s\\n' "$*" >> '${marker}'` : ''}
 case "$1" in
   backend) echo github ;;
   default-branch) echo main ;;
   issue-list)
-    ${marker ? `printf 'called\\n' >> '${marker}'` : ':'}
-${keys.map((k) => `    echo '{"number":"${k}","title":"t","url":"u"}'`).join('\n')}
+    shift; paged=""; limit=50; token=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --paged) paged=1; shift ;;
+        --limit) limit="$2"; shift 2 ;;
+        --page-token) token="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    if [ -z "$paged" ] && [ "$limit" -gt 100 ]; then
+      echo "plot-host: issue-list: --limit $limit exceeds one Jira page (100); pass --paged to read it a page at a time" >&2
+      exit 2
+    fi
+    case "$token" in
+${pages.map((page, i) => `      ${i === 0 ? "''" : `p${i}`})
+${page.map((k) => `        echo '{"number":"${k}","title":"t","url":"u"}'`).join('\n')}
+        ${i + 1 < pages.length ? `[ -z "$paged" ] || echo '{"nextPageToken":"p${i + 1}"}'` : ':'} ;;`).join('\n')}
+    esac
     ;;
   pr-list) ;;
   *) echo "{}" ;;
 esac
 exit 0
 `;
+};
 
 /**
  * A repository declaring `Tracker: jira`, with plans naming Jira keys instead
@@ -4860,7 +4886,7 @@ exit 0
  * default GitHub one, with `ticketPrefixes` optional for the scoping-note
  * tests.
  */
-const jiraIssueFixture = (hostBody, scanArgs = ['--no-fetch'], { ticketPrefixes = '' } = {}) => {
+const jiraIssueFixture = (hostBody, scanArgs = ['--no-fetch'], { ticketPrefixes = '', tracker = 'jira', env = {} } = {}) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-openissue-jira-'));
   const origin = path.join(tmp, 'origin.git');
   const repo = path.join(tmp, 'repo');
@@ -4886,7 +4912,7 @@ const jiraIssueFixture = (hostBody, scanArgs = ['--no-fetch'], { ticketPrefixes 
 - **Plan directory:** plans/
 - **Active index:** plans/active/
 - **Delivered index:** plans/delivered/
-- **Tracker:** jira
+- **Tracker:** ${tracker}
 ${ticketPrefixes ? `- **Ticket prefixes:** ${ticketPrefixes}\n` : ''}`);
 
   // PROJ-101 open → reported.
@@ -4909,7 +4935,7 @@ ${ticketPrefixes ? `- **Ticket prefixes:** ${ticketPrefixes}\n` : ''}`);
   git(repo, 'remote', 'set-url', 'origin', 'https://github.com/plot-pm/fixture.git');
 
   const report = execFileSync('bash', [path.join(shim, 'scripts', 'plot-reconcile-scan.sh'), ...scanArgs],
-    { encoding: 'utf8', cwd: repo });
+    { encoding: 'utf8', cwd: repo, env: { ...process.env, ...env } });
   return { tmp, repo, shim, report, sections: splitSections(report) };
 };
 
@@ -4917,8 +4943,9 @@ test('section 23 reports a Released plan whose Jira key is still open', () => {
   const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch'], { ticketPrefixes: 'PROJ' });
   try {
     const s = f.sections['23'];
-    assert.match(s, /2026-01-01-released-open\.md — released, still open: #PROJ-101/,
-      `a Jira key matched against the tracker's open list is a finding:\n${s}`);
+    assert.match(s, /2026-01-01-released-open\.md — released, still open: PROJ-101$/m,
+      `a Jira key matched against the tracker's open list is a finding, printed as the key:\n${s}`);
+    assert.match(s, /inspect: plot-host\.sh issue-view PROJ-101$/m, `the inspect command names the key:\n${s}`);
     assert.match(f.report, /open_issues=1/, 'the counter sees the one open Jira key');
   } finally {
     fs.rmSync(f.tmp, { recursive: true, force: true });
@@ -4940,26 +4967,32 @@ test('section 23 is silent about a plan whose Jira key is closed', () => {
   }
 });
 
-test('section 23 counts a finished plan with no parseable key as unchecked, not clean', () => {
-  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch'], { ticketPrefixes: 'PROJ' });
+test('section 23 counts no plan without a parseable key among the plans it checks', () => {
+  // `tbd` parses to no `#N` and no `PROJ-NNN` key, so `oi_claims` must not name
+  // the plan. The offline arm prints the count of plans `oi_claims` names, so a
+  // parser that took `tbd` as a key turns "2" into "3" here, and the online run
+  // would report it as still open, since the stub lists `tbd` as open.
+  const offline = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch', '--no-pr'], { ticketPrefixes: 'PROJ' });
+  const online = jiraIssueFixture(jiraIssueHost(['PROJ-101', 'tbd']), ['--no-fetch'], { ticketPrefixes: 'PROJ' });
   try {
-    const s = f.sections['23'];
-    // `tbd` parses to no `#N` and no `PROJ-NNN` key, so `oi_claims` never
-    // names this plan at all — the plan carries no finding either way, which
-    // is correct: it is unchecked rather than falsely clean. The existing
-    // `oi_plans` count (what plan-meta sees as "names an issue") already
-    // excludes it, so the regression this guards is a parser that invents a
-    // key from `tbd` and reports a bogus finding or a bogus "still open".
-    assert.doesNotMatch(s, /2026-01-04-released-nokey/,
-      `a plan naming no parseable key must not appear as a finding either way:\n${s}`);
+    assert.match(offline.sections['23'], /note: 2 finished plan\(s\) naming an issue went unchecked/,
+      `the two keyed plans are counted and the keyless one is not:\n${offline.sections['23']}`);
+    assert.doesNotMatch(online.sections['23'], /2026-01-04-released-nokey/,
+      `a plan naming no parseable key is not a finding:\n${online.sections['23']}`);
+    assert.match(online.report, /open_issues=1/, 'only the keyed open plan counts');
   } finally {
-    fs.rmSync(f.tmp, { recursive: true, force: true });
-    fs.rmSync(f.shim, { recursive: true, force: true });
+    for (const f of [offline, online]) {
+      fs.rmSync(f.tmp, { recursive: true, force: true });
+      fs.rmSync(f.shim, { recursive: true, force: true });
+    }
   }
 });
 
 test('section 23 warns that an undeclared Ticket prefixes narrows a Jira answer to the caller\'s inbox', () => {
-  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch']);
+  // `jira https://…`, the value with a base URL after the scheme: the whole
+  // value goes to `plot-issue-source.mjs`, and its `tracker\tjira` answer is
+  // what the note reads.
+  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch'], { tracker: 'jira https://example.atlassian.net' });
   try {
     const s = f.sections['23'];
     assert.match(s, /note: Tracker: jira with no 'Ticket prefixes' declared asks only the caller's own open tickets/,
@@ -4979,6 +5012,46 @@ test('section 23 does not warn about Ticket prefixes once it is declared', () =>
   } finally {
     fs.rmSync(f.tmp, { recursive: true, force: true });
     fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 does not warn about Ticket prefixes when an override scopes the Jira read', () => {
+  // `plot-host.sh` scopes the read by `PLOT_TICKET_PREFIXES` ahead of the key,
+  // and `PLOT_JIRA_JQL` replaces the query whole: either one makes the note false.
+  for (const env of [{ PLOT_TICKET_PREFIXES: 'PROJ' }, { PLOT_JIRA_JQL: 'project = PROJ AND resolution = EMPTY' }]) {
+    const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch'], { env });
+    try {
+      assert.doesNotMatch(f.sections['23'], /Ticket prefixes/,
+        `${Object.keys(env)[0]} scopes the read, so no caveat:\n${f.sections['23']}`);
+    } finally {
+      fs.rmSync(f.tmp, { recursive: true, force: true });
+      fs.rmSync(f.shim, { recursive: true, force: true });
+    }
+  }
+});
+
+test('section 23 reads a Jira open list page by page, not as one unpaged read above 100', () => {
+  // THE STUB REFUSES WHAT THE REAL ADAPTER REFUSES: an unpaged `--limit` above
+  // one Jira page exits 2. The default window is 200, so a single unpaged read
+  // prints "not evaluated" here. PROJ-101 sits on the SECOND page, so a read
+  // that stops after one page reports nothing.
+  const marker = markerFile();
+  const f = jiraIssueFixture(jiraIssueHost([['PROJ-900', 'PROJ-901'], ['PROJ-101']], { marker }),
+    ['--no-fetch'], { ticketPrefixes: 'PROJ' });
+  try {
+    const s = f.sections['23'];
+    assert.doesNotMatch(s, /not evaluated/, `the paged read answers:\n${s}`);
+    assert.match(s, /2026-01-01-released-open\.md — released, still open: PROJ-101$/m,
+      `a key on the second page is a finding:\n${s}`);
+    assert.match(s, /window: the 3 open issue\(s\) the tracker returned, limit 200/,
+      `the window counts both pages and no token line:\n${s}`);
+    const reads = callsTo(marker).filter((c) => c.startsWith('issue-list'));
+    assert.deepEqual(reads, ['issue-list --paged --limit 200', 'issue-list --paged --limit 198 --page-token p1'],
+      `each page asks for what remains of the window, and the second passes the token:\n${reads.join('\n')}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+    fs.rmSync(path.dirname(marker), { recursive: true, force: true });
   }
 });
 
