@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2280
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2297 merged
 - **Started:** 2026-10-21, Jan Wloka, `bug/plot-review-status-sh-exits-1`
+- **Delivered:** 2026-10-21
 
 ## Changelog
 
