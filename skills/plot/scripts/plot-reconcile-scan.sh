@@ -3003,25 +3003,19 @@ oi_out=""
 # scan for `#NNN`: `issues[]` is a dedicated field precisely because a body
 # cannot tell a signal from a citation, and plans here cite issues constantly.
 oi_claims=""; oi_keyless=""
-# KEY RESOLUTION MIRRORS `resolveItemKey` (packages/domain/src/rules/sprint-release.ts):
-# the first Jira-shaped `issues[]` entry wins, else a Jira-shaped `ticket:`
-# frontmatter value stands in — never both, so a GitHub-backed plan's `#N` is
-# untouched by `ticket:`. One jq pass tags each finished plan C(laim) or
-# K(eyless); the shell below splits the tagged lines apart.
+# KEY RESOLUTION MIRRORS `resolveItemKey` (sprint-release.ts): the first
+# Jira-shaped `issues[]` entry wins, else a Jira-shaped `ticket:` stands in.
 oi_jira_key='^[A-Z][A-Z0-9]*-[0-9]+$'
 if [ -n "$plan_json" ]; then
   oi_tagged=$(printf '%s\n' "$plan_json" | jq -r --arg re "$oi_jira_key" '
     select(.phase == "delivered" or .phase == "released")
-    | (.issues // []) as $issues
-    | (.ticket // "") as $ticket
+    | (.issues // []) as $issues | (.ticket // "") as $ticket
     | (if ($issues | map(select(tostring | test($re))) | length) > 0 then $issues
-       elif ($ticket | test($re)) then $issues + [$ticket]
-       else $issues end) as $resolved
-    | if ($resolved | length) > 0
-      then "C\t\(.file)\t\(.phase)\t\($resolved | map(tostring) | join(","))"
+       elif ($ticket | test($re)) then $issues + [$ticket] else $issues end) as $r
+    | if ($r | length) > 0 then "C\t\(.file)\t\(.phase)\t\($r | map(tostring) | join(","))"
       else "K\t\(.file | split("/") | last | sub("\\.md$"; "") | sub("^[0-9]{4}-[0-9]{2}-[0-9]{2}-"; ""))" end' 2>/dev/null)
-  oi_claims=$(printf '%s\n' "$oi_tagged" | awk -F'\t' '$1=="C"{print $2"\t"$3"\t"$4}')
-  oi_keyless=$(printf '%s\n' "$oi_tagged" | awk -F'\t' '$1=="K"{print $2}' | paste -sd, - | sed 's/,/, /g')
+  oi_claims=$(printf '%s\n' "$oi_tagged" | sed -n 's/^C\t//p')
+  oi_keyless=$(printf '%s\n' "$oi_tagged" | sed -n 's/^K\t//p' | paste -sd, - | sed 's/,/, /g')
 fi
 oi_plans=$(printf '%s' "$oi_claims" | grep -c . 2>/dev/null) || oi_plans=0
 
