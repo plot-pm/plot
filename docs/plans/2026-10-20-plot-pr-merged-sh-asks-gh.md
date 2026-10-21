@@ -6,6 +6,7 @@
 
 - **State:** Delivered
 - **Type:** bug
+- **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2186
 - **Review:** pr
 - **Impl:** own branches
@@ -63,6 +64,10 @@ The exemption comment records why the 2026-09-06 attempt stopped, and the slices
 ### Route the lookups (Branch: bug/plot-pr-merged-sh-asks-gh, PR: #2206)
 
 - `bug/plot-pr-merged-sh-asks-gh` — route `_plot_merged_lookup` and `_plot_open_lookup` through `plot-host.sh`, delete the gate exemption, and add a Bitbucket test (stub `bb`, no `gh`) proving a merged branch reads as merged.
+
+### The stub answers per branch (Branch: bug/pr-merged-stub-answers-per-branch)
+
+- The Bitbucket `bb` stub in `host.test.mjs` answers the per-branch MERGED query that #2209 introduced. Main failed "a Bitbucket branch with a merged PR reads as merged, with no gh on PATH" on every run from 01a6cf2ad.
 
 ## Notes
 
