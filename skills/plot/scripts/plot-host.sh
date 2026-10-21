@@ -4911,8 +4911,7 @@ case "$op" in
       # question, so a same-named version outside those projects still counts as
       # unknown. A failed list (`|| exit $?`) propagates rather than reading as
       # not-found: absent is not false.
-      if [ "$state" = version ]; then found=""; for p in $projects; do vbody="$(jira_ask "/rest/api/2/project/$p/versions")" || exit $?; [ "$(jq --arg n "$fix_version" 'any(.[]; .name == $n)' <<<"$vbody")" = true ] && found=1; done
-        [ -n "$found" ] || { echo "plot-host: version-not-found: $fix_version" >&2; exit 4; }; fi
+      if [ "$state" = version ]; then found=""; for p in $projects; do vbody="$(jira_ask "/rest/api/2/project/$p/versions")" || exit $?; [ "$(jq --arg n "$fix_version" 'any(.[]; .name == $n)' <<<"$vbody")" = true ] && found=1; done; [ -n "$found" ] || { echo "plot-host: version-not-found: $fix_version" >&2; exit 4; }; fi
       # PLOT_JIRA_JQL STILL WINS OVER BOTH. Teams worked around this bug with
       # their own JQL; an override that stopped overriding would break exactly
       # the people who noticed the problem first.
