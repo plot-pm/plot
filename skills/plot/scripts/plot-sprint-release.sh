@@ -135,14 +135,14 @@ score_items() { # stdin: one `checked\tslug\tdelivered` per line → one state p
 # moves the link, and the link is the cheaper of the two to read; a withdrawal
 # moves nothing, so it has only the phase to be read from.
 plan_delivery() { # $1=slug → "true|false|withdrawn<TAB>raw issues array or []"
-  local f meta phase="" issues="[]" state
+  local f phase="" issues="[]" state
   f=$(ls "$PLAN_DIR"/*-"$1".md 2>/dev/null | head -1)
-  if [ -n "$f" ]; then
-    meta=$(bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null)
-    phase=$(printf '%s' "$meta" | sed -n 's/.*"phase":"\([a-z]*\)".*/\1/p' | head -1)
-    issues=$(printf '%s' "$meta" | grep -oE '"issues":\[[^]]*\]' | head -1 | sed 's/^"issues"://')
-    [ -n "$issues" ] || issues="[]"
-  fi
+  # ONE sed READS BOTH FIELDS: `plot-plan-meta.sh` always emits `"phase"`
+  # ahead of `"issues"` in its fixed key order, so one pass captures both
+  # rather than re-walking the same JSON line twice.
+  [ -n "$f" ] && read -r phase issues < <(bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null |
+    sed -n 's/.*"phase":"\([a-z]*\)".*"issues":\(\[[^]]*\]\).*/\1\t\2/p')
+  issues="${issues:-[]}"
   case "$phase" in rejected|superseded) state=withdrawn ;; *)
     [ -e "$DELIVERED_DIR/$1.md" ] && state=true || state=false ;; esac
   printf '%s\t%s' "$state" "$issues"
