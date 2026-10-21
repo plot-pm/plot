@@ -225,10 +225,12 @@ test('index: a dangling link is still reported, with the target readlink prints'
 test('index: a plan linked from both directories is seen in both', () => {
   // Two separate indexes, one per directory — 83 plans on the real estate are
   // linked from both, and a single merged index would answer one question for
-  // two directories.
+  // two directories. Each index answering for its own directory is what makes
+  // the plan visible to the double-link drift case (#2284) at all: it reads
+  // `in_active` and `in_delivered` as two non-empty answers, one per index.
   const drift = report.slice(report.indexOf('== 1.'), report.indexOf('== 2.'));
-  assert.doesNotMatch(drift, /2026-01-05-both\.md/,
-    `an Approved plan linked from active/ is not in drift:\n${drift}`);
+  assert.match(drift, /2026-01-05-both\.md — phase 'Approved' but linked in both plans\/active\/ and plans\/delivered\//,
+    `an Approved plan linked from both directories is double-link drift:\n${drift}`);
   const idx = report.slice(report.indexOf('== 9.'));
   assert.doesNotMatch(idx, /2026-01-05-both\.md/,
     `a plan linked from both indexes is not unlinked:\n${idx}`);

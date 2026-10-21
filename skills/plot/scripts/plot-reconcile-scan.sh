@@ -1013,35 +1013,38 @@ $base	"
   fi
 
   # --- Drift: phase says one thing, symlink location says another ---
-  case "$st" in
-    delivered|released)
-      if [ -n "$in_active" ] && [ -z "$in_delivered" ]; then
-        slug=${in_active##*/}
-        drift_out+="  $base — phase '$raw_phase' but symlink still in $ACTIVE_DIR/ (half-delivery failure mode)\n"
-        drift_out+="    fix: git rm $in_active && ln -s ../$base $DELIVERED_DIR/$slug && git add -A\n"
-        n_drift=$((n_drift + 1))
-      fi
-      ;;
-    superseded|rejected)
+  # emit_drift <note> [fix-src] [fix-dst-dir]: one line, an optional fix line,
+  # one n_drift count. Folds what each arm below used to repeat on its own.
+  emit_drift() { drift_out+="  $base — $1\n"; [ -n "${2-}" ] && drift_out+="    fix: git rm $2 && ln -s ../$base $3/${2##*/} && git add -A\n"; n_drift=$((n_drift + 1)); }
+  if [ -n "$in_active" ] && [ -n "$in_delivered" ]; then
+    # --- Both links present: the phase names which one is stale (issue #2284).
+    # Each arm below requires exactly one link, so a plan with both matches
+    # none of them — this case must stay exclusive with them, hence `elif`.
+    case "$st" in
+      delivered|released|superseded|rejected)
+        drift_out+="  $base — phase '$raw_phase' but linked in both $ACTIVE_DIR/ and $DELIVERED_DIR/\n"
+        drift_out+="    fix: git rm $in_active && git add -A\n"
+        n_drift=$((n_drift + 1)) ;;
+      draft|approved)
+        drift_out+="  $base — phase '$raw_phase' but linked in both $ACTIVE_DIR/ and $DELIVERED_DIR/\n"
+        drift_out+="    fix: git rm $in_delivered && git add -A\n"
+        n_drift=$((n_drift + 1)) ;;
+      *) drift_out+="  $base — phase '$raw_phase' but linked in both $ACTIVE_DIR/ and $DELIVERED_DIR/\n"
+         n_drift=$((n_drift + 1)) ;;
+    esac
+  elif [ -n "$in_active" ] && [ -z "$in_delivered" ]; then
+    case "$st" in
+      delivered|released) emit_drift "phase '$raw_phase' but symlink still in $ACTIVE_DIR/ (half-delivery failure mode)" "$in_active" "$DELIVERED_DIR" ;;
       # Terminal, non-delivery phases: the symlink belongs in delivered/ too.
       # Previously uncaught — a Superseded/Rejected plan lingering in active/
       # kept showing up as an "active" plan it no longer is.
-      if [ -n "$in_active" ] && [ -z "$in_delivered" ]; then
-        slug=${in_active##*/}
-        drift_out+="  $base — phase '$raw_phase' (terminal) but symlink still in $ACTIVE_DIR/\n"
-        drift_out+="    fix: git rm $in_active && ln -s ../$base $DELIVERED_DIR/$slug && git add -A\n"
-        n_drift=$((n_drift + 1))
-      fi
-      ;;
-    draft|approved)
-      if [ -n "$in_delivered" ] && [ -z "$in_active" ]; then
-        slug=${in_delivered##*/}
-        drift_out+="  $base — phase '$raw_phase' but symlink in $DELIVERED_DIR/\n"
-        drift_out+="    fix: git rm $in_delivered && ln -s ../$base $ACTIVE_DIR/$slug && git add -A\n"
-        n_drift=$((n_drift + 1))
-      fi
-      ;;
-  esac
+      superseded|rejected) emit_drift "phase '$raw_phase' (terminal) but symlink still in $ACTIVE_DIR/" "$in_active" "$DELIVERED_DIR" ;;
+    esac
+  elif [ -n "$in_delivered" ] && [ -z "$in_active" ]; then
+    case "$st" in
+      draft|approved) emit_drift "phase '$raw_phase' but symlink in $DELIVERED_DIR/" "$in_delivered" "$ACTIVE_DIR" ;;
+    esac
+  fi
 done <<< "$plan_rows"
 
 # --- Dangling index symlinks → attention (the severity the unlinked plan lost)
