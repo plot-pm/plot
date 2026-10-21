@@ -5141,11 +5141,10 @@ case "$op" in
       jira_require_config
       body_json="$(jira_ask "/rest/api/2/issue/$num" \
                -G --data-urlencode "fields=summary,description,status")" || exit $?
-      base="$(tracker_base_url)"
       # `state` FOLLOWS issue-list's OWN WORD: `statusCategory.name == "Done"`
       # is closed, same mapping as the list's open/closed reader — a second
       # vocabulary here would drift from the one issue-list already keeps.
-      printf '%s' "$body_json" | jq -c --arg base "$base" '{
+      printf '%s' "$body_json" | jq -c --arg base "$(tracker_base_url)" '{
           number: .key,
           title: (.fields.summary // ""),
           body: (.fields.description // ""),

@@ -2992,8 +2992,7 @@ echo "== 23. A finished plan's issue is still open (a person decides) =="
 # writes nothing the tracker reads as closed), or the issue sits in a tracker
 # status Plot does not own. This section closes nothing either way — a person
 # still decides.
-n_open_issues=0
-n_issue_unread=0
+n_open_issues=0; n_issue_unread=0
 n_unread=0
 n_unread_waits=0
 # The finished plans that name an issue, read from the parse already in memory
@@ -3094,11 +3093,11 @@ else
   # none. A dedicated descriptor is what keeps the two readers apart.
   while IFS=$'\t' read -r oi_file oi_phase oi_keys <&3; do
     [ -n "$oi_file" ] || continue
-    oi_base=$(basename "$oi_file"); oi_hits=""
+    oi_base=$(basename "$oi_file"); oi_hits=""; oi_IFS_saved="$IFS"
     # PER KEY, NOT PER PLAN. A plan naming `935, 940` where only `940` is open
     # must report `940` alone — a whole-plan match would name a closed issue
     # as the finding and send a person to the wrong ticket.
-    oi_IFS_saved="$IFS"; IFS=','
+    IFS=','
     for oi_key in $oi_keys; do
       IFS="$oi_IFS_saved"; [ -n "$oi_key" ] || continue
       oi_view_err_file=""; plot_tmpfile oi_view_err_file reconcile-issue-err || oi_view_err_file=""
