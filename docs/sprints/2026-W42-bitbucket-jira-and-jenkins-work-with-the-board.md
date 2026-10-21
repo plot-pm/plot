@@ -39,7 +39,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [x] [sprint-release-comparison-drops-must-haves] Sprint/Release comparison drops Must Haves whose Jira key is not on an Issue: line (#2248)
 - [x] [reconcile-23-checks-no-plan-under] Reconcile §23 checks no plan under a Jira tracker (#2249)
 - [x] [jira-credentials-are-not-found-in] Jira credentials are not found in a worktree or fleet desk (#2250)
-- [ ] [jira-issue-list-answers-an-unknown] Jira issue-list answers an unknown fix version and a cut result silently (#2251)
+- [x] [jira-issue-list-answers-an-unknown] Jira issue-list answers an unknown fix version and a cut result silently (#2251)
 - [ ] [check-helper-table-sh-misses-a] check-helper-table.sh misses a new bundle on its PR and turns main red after the merge (#2260)
 - [ ] [reconcile-23-ignores-a-plan-s] Reconcile §23 ignores a plan's ticket: frontmatter key (#2269)
 
