@@ -2403,13 +2403,14 @@ test('host: issue-list bitbucket keeps the `Tracker` advice where none is declar
   assert.match(res.stderr, /`Tracker` config key/);
 });
 
-test('host: issue-list bitbucket drops the `Tracker` advice where Tracker: plot is declared', () => {
+test('host: issue-list bitbucket names the working pair where Tracker: plot is declared', () => {
   const stub = makeBbWithoutIssueStub();
   const res = runBb(['issue-list'], stub, { PLOT_TRACKER: 'plot' });
   assert.equal(res.status, 4, res.stderr);
   assert.match(res.stderr, /bb 1\.9\.0 lists no issue command/);
   assert.match(res.stderr, /Quatico bb has none/);
-  assert.doesNotMatch(res.stderr, /`Tracker`/, 'the repository already declared Tracker — the advice would mislead');
+  assert.match(res.stderr, /Tracker: jira <base URL>/, 'names the remedy rather than asking for a key already declared');
+  assert.match(res.stderr, /Sprint owner: plot/);
 });
 
 
@@ -2767,11 +2768,12 @@ test('host: a Jenkins build that was aborted reads unknown on the PR row, bound 
     'Jenkins answered this row — that is a different fact from the pass never asking it');
 });
 
-test('host: a Jenkins build that was never built reads unknown on the PR row, bound to its head sha', () => {
-  // Done-when 3 (gap 10), the other result word the sha-run path already maps
-  // (NOT_BUILT -> unknown). A naive implementation mapping only the happy path
-  // would fall through the colour table's else branch and leave this at the
-  // branch-colour map's stale answer instead.
+test('host: a Jenkins build that was never built reads unknown on the PR row, unbound', () => {
+  // A build that was never built is no run for its sha
+  // (2026-10-21-jenkins-run-for-sha-can-answer.md, Design §1), so the row
+  // reads unknown with no bound sha. A naive implementation mapping only the
+  // happy path would fall through the colour table's else branch and leave
+  // this at the branch-colour map's stale answer (`failing`) instead.
   const repo = makeJenkinsRepo();
   const sha = 'sha-notbuilt';
   const hostStubs = makeStubs({ ghJson: ghRowWithSha('feature/red', sha) });
@@ -2791,7 +2793,7 @@ test('host: a Jenkins build that was never built reads unknown on the PR row, bo
   assert.equal(res.status, 0, res.stderr);
   const rows = rowsByHead(res.stdout);
   assert.equal(rows.get('feature/red').checks, 'unknown');
-  assert.equal(rows.get('feature/red').checksSha, sha);
+  assert.equal(rows.get('feature/red').checksSha, '', 'no run binds the row to a sha');
   assert.deepEqual(rows.get('feature/red').failing_checks, []);
   assert.equal(rows.get('feature/red').checksLookup, undefined,
     'Jenkins answered this row — that is a different fact from the pass never asking it');
@@ -3644,11 +3646,12 @@ test('host: runs on Jenkins keeps a still-building row, which must not be mistak
   assert.deepEqual(rows.map((r) => r.conclusion), ['in_progress'], 'the building row survives, ABORTED does not');
 });
 
-test('host: run-for-sha and runs-for-sha still return a NOT_BUILT or ABORTED build for the exact sha asked', () => {
-  // The filter belongs to `runs` only (the plan's Design §2): a sha-bound
-  // lookup is asking "did sha X run", and a caller that pinned a sha already
-  // knows the answer it wants to see, including a cancelled or not-built
-  // state for that exact sha.
+test('host: run-for-sha and runs-for-sha still return an ABORTED build for the exact sha asked', () => {
+  // `ABORTED` means Jenkins cancelled a build of that exact sha — it did run,
+  // partway. A caller that pinned a sha already knows the answer it wants to
+  // see, including a cancelled state for that exact sha. `NOT_BUILT` has no
+  // such exemption: nothing ran, so there is nothing for a sha-bound lookup
+  // to report either (2026-10-21-jenkins-run-for-sha-can-answer.md, Design §1).
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
@@ -3665,6 +3668,47 @@ test('host: run-for-sha and runs-for-sha still return a NOT_BUILT or ABORTED bui
   const rows = JSON.parse(plural.stdout.trim());
   assert.equal(rows.length, 1);
   assert.equal(rows[0].conclusion, 'ABORTED', 'runs-for-sha still reports the cancelled build');
+});
+
+test('host: run-for-sha and runs-for-sha answer none/empty when the only build for a sha is NOT_BUILT', () => {
+  // Nothing ran: `jenkinsConclusion` maps NOT_BUILT to `unknown` on the
+  // TypeScript side, and no consumer reads a NOT_BUILT row. A sha-bound
+  // lookup must not manufacture a build that never happened.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const builds = jenkinsBuildsFor('sha-not-built', 'NOT_BUILT');
+  const bin = makeJenkinsRestBin(builds);
+  const singular = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'sha-not-built'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(singular.code, 0, singular.stderr);
+  assert.equal(singular.stdout.trim(), '', 'run-for-sha prints nothing for a sha with no surviving build');
+
+  const plural = runJenkinsAllowFail(['runs-for-sha', 'feature/red', 'sha-not-built'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(plural.code, 0, plural.stderr);
+  assert.deepEqual(JSON.parse(plural.stdout.trim()), [], 'runs-for-sha answers empty, not an error');
+});
+
+test('host: run-for-sha answers the older FAILURE when a newer NOT_BUILT build shares the same sha', () => {
+  // The drop must precede `.[0]`: a filter that only hides NOT_BUILT from the
+  // printed output, rather than removing it before the newest-first pick,
+  // would let the newer NOT_BUILT win and hide the FAILURE underneath it.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const builds = JSON.stringify({ builds: [
+    { number: 11, result: 'NOT_BUILT', building: false, timestamp: 1790000300000, url: 'https://ci.test/11/',
+      actions: [{ lastBuiltRevision: { SHA1: 'sha-retried' } }] },
+    { number: 9, result: 'FAILURE', building: false, timestamp: 1790000100000, url: 'https://ci.test/9/',
+      actions: [{ lastBuiltRevision: { SHA1: 'sha-retried' } }] },
+  ] });
+  const bin = makeJenkinsRestBin(builds);
+  const singular = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'sha-retried'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(singular.code, 0, singular.stderr);
+  assert.equal(JSON.parse(singular.stdout.trim()).conclusion, 'FAILURE',
+    'the newer NOT_BUILT must not hide the older FAILURE of the same sha');
 });
 
 test('host: runs on Jenkins carries conclusion host-neutral, raw from .result, matching the GitHub arm\'s convention', () => {
@@ -3889,7 +3933,7 @@ test('host: run-for-sha matches the branch-head entry when it is SECOND, and the
   assert.equal(baseRes.stdout.trim(), '', 'the merge-base sha must not match the branch-head lookup');
 });
 
-for (const result of ['SUCCESS', 'FAILURE', 'NOT_BUILT']) {
+for (const result of ['SUCCESS', 'FAILURE', 'ABORTED']) {
   test(`host: run-for-sha matches the branch-head entry when it is FIRST, and the merge-base sha does not match (${result})`, () => {
     const repo = makeJenkinsRepo();
     const hostStubs = makeStubs({ ghJson: '[]' });
@@ -8989,6 +9033,85 @@ test('host: issue-list jira --state changed without Ticket prefixes exits 4 and 
   assert.ok(!existsSync(stub.argvFile), 'curl must not run');
 });
 
+// --- Jira versions: `version-list` and `issue-list --fix-version` -----------
+//
+// The two shell halves of `Tracker.versionRead`. The adapter decides whether a
+// name is known; these tests pin what the shell sends and prints.
+
+test('host: version-list jira asks one project and prints name, released and releaseDate per version', () => {
+  const body = JSON.stringify([
+    { id: '1', name: 'kus-portal-101', released: true, releaseDate: '2026-09-30' },
+    { id: '2', name: 'kus-portal-102' },
+  ]);
+  const stub = makeJiraCurlStub({ body });
+  const res = runJira(['version-list', 'PROJ'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(res.stdout.trim().split('\n').map((l) => JSON.parse(l)), [
+    { name: 'kus-portal-101', released: true, releaseDate: '2026-09-30' },
+    { name: 'kus-portal-102', released: false, releaseDate: null },
+  ]);
+  assert.ok(readFileSync(stub.argvFile, 'utf8').split('\n').includes('https://acme.atlassian.net/rest/api/2/project/PROJ/versions'));
+});
+
+test('host: version-list jira exits 3 on a 404 and on a 200 that is not JSON, never 0 or 2', () => {
+  for (const [body, status] of [['{"errorMessages":["No project could be found with key \'PROJ\'."]}', 404], ['<html>proxy</html>', 200]]) {
+    const res = runJira(['version-list', 'PROJ'], makeJiraCurlStub({ body, status }));
+    assert.equal(res.status, 3, `${status}: ${res.stderr}`);
+    assert.equal(res.stdout, '');
+  }
+});
+
+test('host: version-list exits 4 where the tracker is not Jira', () => {
+  const stub = makeJiraCurlStub({ body: '[]' });
+  const res = runJira(['version-list', 'PROJ'], stub, { PLOT_TRACKER: 'github-issues' });
+  assert.equal(res.status, 4, res.stderr);
+  assert.ok(!existsSync(stub.argvFile), 'curl must not run');
+});
+
+test('host: issue-list jira --fix-version scopes by project, escapes the name and prints the next token', () => {
+  const body = JSON.stringify({
+    issues: [{ key: 'PROJ-8', fields: { summary: 'In the release', created: 'c', status: { name: 'Done', statusCategory: { name: 'Done' } } } }],
+    nextPageToken: 'tok-2',
+  });
+  const stub = makeJiraCurlStub({ body });
+  const res = runJira(['issue-list', '--fix-version', 'kus "102" \\ x', '--limit', '500'], stub, { PLOT_TICKET_PREFIXES: 'PROJ, OTHER' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(res.stdout.trim().split('\n').map((l) => JSON.parse(l)), [
+    { number: 'PROJ-8', title: 'In the release', url: 'https://acme.atlassian.net/browse/PROJ-8', createdAt: 'c', status: 'Done', statusCategory: 'Done', assignees: [] },
+    { nextPageToken: 'tok-2' },
+  ]);
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  assert.ok(argv.includes('jql=fixVersion = "kus \\"102\\" \\\\ x" AND project IN (PROJ, OTHER) ORDER BY created DESC'), argv.join('\n'));
+  assert.ok(argv.includes('maxResults=100'));
+});
+
+// A shared instance where OTHER also holds a version named `kus-portal-102`.
+// The stub answers like Jira: a query with no project clause matches both
+// projects' issues, and a query scoped to PROJ matches PROJ's alone.
+test('host: issue-list jira --fix-version leaves out a same-named version of a project not in Ticket prefixes', () => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-jira-')));
+  const issue = (key) => ({ key, fields: { summary: key, created: 'c', status: { name: 'Done', statusCategory: { name: 'Done' } } } });
+  const both = Buffer.from(JSON.stringify({ issues: [issue('PROJ-1'), issue('OTHER-1')] })).toString('base64');
+  const own = Buffer.from(JSON.stringify({ issues: [issue('PROJ-1')] })).toString('base64');
+  writeFileSync(path.join(dir, 'curl'), `#!/usr/bin/env bash
+body='${both}'
+for a in "$@"; do case "$a" in jql=*"project IN (PROJ)"*) body='${own}' ;; esac; done
+printf '%s' "$body" | base64 -d; printf '\\n200'
+`);
+  chmodSync(path.join(dir, 'curl'), 0o755);
+  const res = runJira(['issue-list', '--fix-version', 'kus-portal-102'], { dir }, { PLOT_TICKET_PREFIXES: 'PROJ' });
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(res.stdout.trim().split('\n').map((l) => JSON.parse(l).number), ['PROJ-1']);
+});
+
+test('host: issue-list jira --fix-version without Ticket prefixes exits 4 and runs no curl', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list', '--fix-version', 'kus-portal-102'], stub, { PLOT_TICKET_PREFIXES: '' });
+  assert.equal(res.status, 4, res.stderr);
+  assert.match(res.stderr, /Ticket prefixes/);
+  assert.ok(!existsSync(stub.argvFile), 'curl must not run');
+});
+
 test('host: issue-list jira open read is unchanged: no resolutiondate, no token line', () => {
   const body = JSON.stringify({
     issues: [{ key: 'PROJ-1', fields: { summary: 'Open', created: 'c', status: { name: 'To Do', statusCategory: { name: 'To Do' } } } }],
@@ -9022,6 +9145,77 @@ test('host: issue-list jira --paged open read asks 100 a page and prints the nex
   assert.ok(argv.includes('fields=summary,created,status,assignee,issuetype'));
   assert.ok(argv.includes('maxResults=100'));
   assert.ok(argv.includes('nextPageToken=tok-1'));
+});
+
+// --- the unpaged open/inbox read refuses a --limit above one page ----------
+//
+// Jira caps maxResults at 100 itself, so an unpaged `--limit 200` silently
+// returned 100 rows with no sign the other 100 existed (measured 2026-10-21,
+// ewz-kus-portal). The open and inbox reads now refuse before any curl.
+
+test('host: issue-list jira --limit 100 still answers; --limit 101 refuses', () => {
+  // `-gt`, not `-ge`: a guard written the other way would refuse a full
+  // single page, which is still exactly one page.
+  const stub100 = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res100 = runJira(['issue-list', '--limit', '100'], stub100);
+  assert.equal(res100.status, 0, res100.stderr);
+
+  const stub101 = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res101 = runJira(['issue-list', '--limit', '101'], stub101);
+  assert.equal(res101.status, 2, res101.stderr);
+  assert.match(res101.stderr, /--paged/);
+  assert.ok(!existsSync(stub101.argvFile), 'a refused call must not run curl');
+});
+
+test('host: issue-list jira --limit 200 --paged still answers with one page and the token', () => {
+  // The only way a direct caller reads more than one page is --paged; a guard
+  // that refused --paged too would close that path entirely.
+  const body = JSON.stringify({
+    issues: [{ key: 'PROJ-1', fields: { summary: 'Open', created: 'c', status: { name: 'To Do', statusCategory: { name: 'To Do' } } } }],
+    nextPageToken: 'tok-2',
+  });
+  const stub = makeJiraCurlStub({ body });
+  const res = runJira(['issue-list', '--limit', '200', '--paged'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const lines = res.stdout.trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(lines.map((l) => l.number ?? l.nextPageToken), ['PROJ-1', 'tok-2']);
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  assert.ok(argv.includes('maxResults=100'));
+});
+
+test('host: issue-list jira with no --limit still answers (default 50, not refused)', () => {
+  // A guard comparing an empty string against ISSUE_PAGE_ROWS under `set -u`
+  // or bash arithmetic would error; the empty case must skip the guard.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const argv = readFileSync(stub.argvFile, 'utf8');
+  assert.match(argv, /^maxResults=50$/m);
+});
+
+test('host: issue-list jira a non-numeric --limit is not turned into a guard bypass', () => {
+  // `[ "$limit" -gt 100 ]` on `abc` errors arithmetic; the guard must decide
+  // this case deliberately rather than crash past it unbounded. The guard
+  // skips (not its job to validate shape) and the host itself rejects the
+  // non-numeric maxResults.
+  const stub = makeJiraCurlStub({ body: 'invalid maxResults', status: 400 });
+  const res = runJira(['issue-list', '--limit', 'abc'], stub);
+  assert.notEqual(res.status, 0, 'a non-numeric limit must not read as success');
+  assert.notEqual(res.status, 2, 'the above-one-page refusal never fires for a non-numeric limit');
+});
+
+test('host: issue-list jira --state inbox --limit 101 refuses the same as open', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list', '--state', 'inbox', '--limit', '101'], stub);
+  assert.equal(res.status, 2, res.stderr);
+  assert.ok(!existsSync(stub.argvFile), 'a refused call must not run curl');
+});
+
+test('host: issue-list jira --state closed --limit 500 is unaffected: closed forces --paged itself', () => {
+  const repo = makeTicketPrefixRepo('- **Ticket prefixes:** PROJ\n');
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJiraIn(repo, ['issue-list', '--state', 'closed', '--since', '2026-09-01', '--limit', '500'], stub);
+  assert.equal(res.status, 0, res.stderr);
 });
 
 test('host: issue-list github closed records one extra call per 100 rows past the first', () => {
@@ -9308,6 +9502,65 @@ test('host: pr-merge-commit exits 3 on a non-miss failure and on a full page wit
   const fifty = Array.from({ length: 50 }, (_, i) => restPr(2000 + i, branch, 'MERGED'));
   const full = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx': fifty } });
   const resFull = spawnSync('bash', [adapter, 'pr-merge-commit', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${full.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(resFull.status, 3, 'a full page with no merge_commit.hash cannot prove absence');
+  assert.equal(resFull.stdout.trim(), '');
+});
+
+test('host: pr-merge-dest prints number, destination, merge commit and merge time for every merged PR of a branch', () => {
+  const branch = 'feature/ewzkus-3845-contractaccount-bykey-tracer';
+  const row = (id, hash) => ({
+    ...restPr(id, branch, 'MERGED'),
+    destination: { branch: { name: 'develop' } },
+    merge_commit: { hash },
+  });
+  const bb = makeSweepBbStub({
+    prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fewzkus-3845': [row(3644, 'deadbee'), row(3701, 'cafe001')] },
+  });
+  const res = spawnSync('bash', [adapter, 'pr-merge-dest', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(
+    res.stdout.trim(),
+    '3644\tdevelop\tdeadbee\t2026-09-20T12:00:04+00:00\n3701\tdevelop\tcafe001\t2026-09-20T12:00:01+00:00',
+  );
+
+  // `pr-merge-commit` shares the arm and still prints the first sha alone.
+  const one = spawnSync('bash', [adapter, 'pr-merge-commit', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(one.status, 0, one.stderr);
+  assert.equal(one.stdout.trim(), 'deadbee');
+});
+
+test('host: pr-merge-dest prints nothing, exit 0, for a branch the branch query proves has none', () => {
+  const bb = makeSweepBbStub();
+  const res = spawnSync('bash', [adapter, 'pr-merge-dest', 'feature/no-pr-here'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: pr-merge-dest exits 3 on a non-miss failure and on a full page with no merge commit', () => {
+  const failed = makeSweepBbStub({ fail: { pullrequests: { said: 'error: HTTP 500 — server error', code: 1 } } });
+  const resFail = spawnSync('bash', [adapter, 'pr-merge-dest', 'feature/x'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${failed.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(resFail.status, 3, 'a non-miss failure must not print empty and exit 0');
+  assert.equal(resFail.stdout.trim(), '');
+
+  const branch = 'feature/x';
+  const fifty = Array.from({ length: 50 }, (_, i) => restPr(2000 + i, branch, 'MERGED'));
+  const full = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx': fifty } });
+  const resFull = spawnSync('bash', [adapter, 'pr-merge-dest', branch], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${full.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });

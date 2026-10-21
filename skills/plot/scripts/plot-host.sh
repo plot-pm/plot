@@ -91,6 +91,11 @@
 #                                 empty answer sends the reaper to a weaker
 #                                 reading, so only a recognised lookup miss is
 #                                 empty.
+#   pr-merge-dest <branch>          one tab-separated line `number\tbase\tsha\tmergedAt`
+#                                 per merged PR with this head branch, or EMPTY
+#                                 (exit 0) where none merged. The same query
+#                                 `pr-merge-commit` runs. EXIT 3 is the question
+#                                 failing.
 #   pr-review <number>             one JSON line `{"sha","state","bypass"}`: the PR's
 #                                 head sha, the newest `plot/review` status on it
 #                                 (`success|failure|pending|error`, or `absent`),
@@ -302,7 +307,14 @@
 #                                 closed read and an open read given `--paged`
 #                                 print that line, and on Jira ask 100 rows a
 #                                 page; an open read without `--paged` prints
-#                                 issue rows alone. EXIT 4 where the closed read
+#                                 issue rows alone. EXIT 2 on Jira where an open
+#                                 or inbox read's `--limit` exceeds 100 without
+#                                 `--paged`: Jira caps `maxResults` at 100
+#                                 itself, so the unpaged read would otherwise
+#                                 return 100 rows with no sign the rest exist —
+#                                 a usage error naming `--paged`, checked before
+#                                 any curl. `--limit 100` still answers; the
+#                                 guard is `>`, not `>=`. EXIT 4 where the closed read
 #                                 cannot be asked at all: Bitbucket (`bb issue
 #                                 list` prints no closing date) and Jira with no
 #                                 `Ticket prefixes`, both before any bb or curl.
@@ -392,6 +404,19 @@
 #                                 as issue-list. Jira answers 404 for a missing
 #                                 key, which is exit 3 here (the tracker moved),
 #                                 never an empty body.
+#   issue-list --state version --fix-version <name> [--limit N] [--page-token T]
+#                                 (jira only; exit 4 elsewhere) the issues whose
+#                                 fixVersion is <name>, in the `Ticket prefixes`
+#                                 projects, one page of at most 100 with a last
+#                                 `{"nextPageToken":"…"}` line. Exit 4 with no
+#                                 `Ticket prefixes`: an unscoped fixVersion query
+#                                 reads every project on a shared instance.
+#   version-list <project>        (jira only; exit 4 elsewhere) the versions of
+#                                 one project, one JSON line each:
+#                                 {"name":…,"released":bool,"releaseDate":…|null}.
+#                                 It decides nothing: whether a name is known is
+#                                 the Tracker adapter's answer. Exit 3 for any
+#                                 failed request, a 404 on the project included.
 #   issue-comment <number> <marker> <body>          (github)
 #                                 edits the comment holding <marker>, else posts
 #                                 one; an empty <marker> always posts, not idempotent.
@@ -1805,7 +1830,7 @@ jenkins_sha_runs() {
           status: (if .building then "in_progress" else "completed" end),
           conclusion: (if .building then null else (.result // null) end),
           url: (.url // ""),
-          startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ] | (if $sha == "" then map(select(.conclusion != "NOT_BUILT" and .conclusion != "ABORTED")) else . end)
+          startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ] | map(select(.conclusion != "NOT_BUILT")) | (if $sha == "" then map(select(.conclusion != "ABORTED")) else . end)
     | if $sha != "" then map(select(headsha(if $plain == "" then $branch else ($job | split("/") | last) end) as $h | $h == $sha or (($sha | test("^[0-9a-f]{7,}$")) and ($h | startswith($sha))))) elif $plain == "" then .
       else map(select(if (.br | length) > 0 then any(.br[]; . == $branch) else $branch == ($job | split("/") | last) end)) end
     | map(.sha = (if $sha != "" then headsha(if $plain == "" then $branch else ($job | split("/") | last) end) else headsha($branch) end) | del(.shas, .br))' || exit 4
@@ -2824,20 +2849,14 @@ budget_record_jira() {
 # CAN be asked; if it cannot be reached, that is a failure to answer, not a host
 # that structurally has no tracker (the bitbucket-DISABLED case exit 4 is for).
 jira_check() {
-  local raw="$1" curl_rc="$2"
-  local status body
-  if [ "$curl_rc" -ne 0 ]; then
-    echo "plot-host: jira request failed (curl exit $curl_rc) — a network failure is not an empty inbox" >&2
-    return 3
-  fi
+  local raw="$1" curl_rc="$2" status body detail
+  [ "$curl_rc" -eq 0 ] || { echo "plot-host: jira request failed (curl exit $curl_rc) — a network failure is not an empty inbox" >&2; return 3; }
   # The status is the last line; the body is everything before it.
-  status="$(printf '%s' "$raw" | tail -n1)"
-  body="$(printf '%s' "$raw" | sed '$d')"
+  status="$(printf '%s' "$raw" | tail -n1)"; body="$(printf '%s' "$raw" | sed '$d')"
   if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
     # Name the status AND Jira's own errorMessages if it sent any (it returns
     # {"errorMessages":[…],"errors":{…}} on 4xx). 401/403 are the auth failures
     # this story exists to keep out of the inbox; 5xx is an outage. Both are 3.
-    local detail
     detail="$(printf '%s' "$body" | jq -r 'try (.errorMessages | join("; ")) catch empty' 2>/dev/null)"
     echo "plot-host: jira HTTP $status${detail:+ — $detail}" >&2
     return 3
@@ -3889,7 +3908,7 @@ case "$op" in
     fi
     ;;
 
-  pr-merge-commit)
+  pr-merge-commit|pr-merge-dest)
     # THE MERGE COMMIT OF A BRANCH'S MERGED PR, and nothing else.
     #
     # A SECOND SUBCOMMAND RATHER THAN A FIELD ON `pr-merged`, because that one
@@ -3909,22 +3928,29 @@ case "$op" in
     #
     # PRINTS NOTHING AND EXITS 0 where no PR merged — an ANSWER, the same shape
     # `pr-state` gives for a missing PR. Exit 3 is the question failing.
-    ref="${1:?pr-merge-commit needs a branch}"; shift || true
+    #
+    # `pr-merge-dest` RUNS THE SAME QUERY and prints every merged PR instead of
+    # the first sha: one `number<TAB>base<TAB>sha<TAB>mergedAt` line each, read
+    # off the same payload. `plot-release-chain.mjs` asks it once per hop of a
+    # release-chain walk. Bitbucket names no merge time, so `mergedAt` is
+    # `updated_on`, as in `pr-list`.
+    ref="${1:?$op needs a branch}"; shift || true
     repo_args=()
     while [ $# -gt 0 ]; do
       case "$1" in
         --repo) repo_args=(-R "${2:?}"); shift 2 ;;
-        *) die "pr-merge-commit: unknown arg $1" ;;
+        *) die "$op: unknown arg $1" ;;
       esac
     done
+    if [ "$op" = pr-merge-dest ]; then pick='.[] | [.n, .b, .s, .t] | @tsv'; else pick='first.s // empty'; fi
     if [ "$be" = "github" ]; then
-      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt,mergeCommit 2>"$HOST_ERR")"; then
+      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json number,mergedAt,mergeCommit,baseRefName 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
         # The FIRST merged PR carrying a sha. A branch may hold several merged
         # PRs; each names its own merge commit, and any of them is a commit that
         # landed this branch's work.
-        jq -r 'map(select(.mergedAt != null and .mergeCommit != null))
-               | map(.mergeCommit.oid) | first // empty' <<<"$out"
+        jq -r 'map(select(.mergedAt != null and .mergeCommit != null)
+               | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         # A lookup miss is an answer: no PR, so no merge commit. Anything else
@@ -3939,8 +3965,9 @@ case "$op" in
       # `merge_commit.hash` on a merged PR.
       if out="$(bb_branch_query "$ref" merged ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        bb_full_page_lacks "$out" 'any(.[]; .merge_commit.hash != null)' && { echo "plot-host: pr-merge-commit: the branch query for '$ref' returned a full page with no merge commit; cannot prove absence" >&2; exit 3; }
-        jq -r 'map(.merge_commit.hash // empty) | first // empty' <<<"$out"
+        bb_full_page_lacks "$out" 'any(.[]; .merge_commit.hash != null)' && { echo "plot-host: $op: the branch query for '$ref' returned a full page with no merge commit; cannot prove absence" >&2; exit 3; }
+        jq -r 'map(select(.merge_commit.hash != null)
+               | {n: .id, b: (.destination.branch.name // ""), s: .merge_commit.hash, t: (.updated_on // "")}) | '"$pick" <<<"$out"
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
         miss_or_exit3 "$err"
@@ -4796,7 +4823,7 @@ case "$op" in
     # of them reproduces `an-outage-is-not-an-answer` — a board that says "no
     # issues" because it could not reach the tracker is stating a fact it does
     # not have.
-    limit=""; state="open"; since=""; page_token=""; paged=""; label=""
+    limit=""; state="open"; since=""; page_token=""; paged=""; label=""; fix_version=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --limit) limit="${2:?}"; shift 2 ;;
@@ -4805,12 +4832,13 @@ case "$op" in
         --page-token) page_token="${2:?}"; shift 2 ;;
         --paged) paged=1; shift ;;
         --label) label="${2:?}"; shift 2 ;;
+        --fix-version) fix_version="${2:?}"; state=version; shift 2 ;;
         *) die "issue-list: unknown arg $1" ;;
       esac
     done
     # `--since` is spliced into a JQL string and a search qualifier, so its shape
     # is checked here: a value outside it is a usage error, never a query.
-    [[ "$state" =~ ^(open|closed|inbox|changed)$ ]] || die "issue-list: --state is open, closed, inbox or changed, not '$state'"
+    [[ "$state" =~ ^(open|closed|inbox|changed|version)$ ]] || die "issue-list: --state is open, closed, inbox, changed or version, not '$state'"
     [[ "$state" =~ ^(closed|changed)$ ]] && ! [[ "$since" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}[0-9:.]*Z?)?$ ]] && die "issue-list: --state $state needs --since <iso>"
     limit_args=()
     [ -n "$limit" ] && limit_args=(--limit "$limit")
@@ -4823,6 +4851,7 @@ case "$op" in
     # asked at all* — a configuration a person fixes, not a call to retry.
     # NOTHING HAS BEEN SPENT: no `gh`, no `bb`, no curl has run yet.
     [ "${source_said%%$'\t'*}" != nobody ] || { echo "plot-host: ${source_said#*$'\t'}" >&2; exit 4; }
+    [ "$state" != version ] || [ "$source_said" = $'tracker\tjira' ] || { echo "plot-host: only a Jira tracker has fix versions" >&2; exit 4; }
     if [ "$source_said" = $'tracker\tjira' ]; then
       # Jira, resolved through the REST API — DISPATCHED ON `Tracker`, never on
       # `backend()`: a Bitbucket repo tracking in Jira is the normal enterprise
@@ -4858,6 +4887,10 @@ case "$op" in
       # closed reads keep `assignee = currentUser()` only where `$scope` is
       # empty. The inbox read below keeps it unconditionally, and the scope too.
       person=""; [ -n "$scope" ] || person="assignee = currentUser() AND "
+      # THE CLOSED, CHANGED AND VERSION READS REQUIRE `Ticket prefixes`: an
+      # unscoped `resolved >=`, `updated >=` or `fixVersion =` query reads every
+      # project on the instance, the hazard `tracker_projects` measured.
+      [ -n "$scope" ] || ! [[ "$state" =~ ^(closed|changed|version)$ ]] || { echo "plot-host: $state Jira issues need 'Ticket prefixes' declared; an unscoped $state query reads the whole instance" >&2; exit 4; }
       # PLOT_JIRA_JQL STILL WINS OVER BOTH. Teams worked around this bug with
       # their own JQL; an override that stopped overriding would break exactly
       # the people who noticed the problem first.
@@ -4874,14 +4907,13 @@ case "$op" in
         # THE CLOSED READ REQUIRES `Ticket prefixes` AND READS NOT PLOT_JIRA_JQL.
         # An unscoped `resolved >=` query reads the whole instance — the hazard
         # `tracker_projects` measured for the open read — so with none declared
-        # the read exits 4 before any curl. `jira_require_config` follows. The
+        # the read exits 4 before any curl, at the guard above. The
         # closed read is always paged: a page is ISSUE_PAGE_ROWS, and the
         # TypeScript adapter walks the pages, so this arm holds no loop. JQL dates take
         # `yyyy-MM-dd` or `yyyy-MM-dd HH:mm`, so the ISO `since` is cut to the
         # shape it has: a date-only `since` sends the date alone. JQL takes no
         # offset, so Jira reads the time in the reader's profile zone. Its
         # person clause drops with the open read's (D20), same reason.
-        [ -n "$scope" ] || { echo "plot-host: closed Jira issues need 'Ticket prefixes' declared; an unscoped resolved query reads the whole instance" >&2; exit 4; }
         when="${since:0:10} ${since:11:5}"; jql="resolved >= \"${when% }\"${scope} ORDER BY resolved DESC"
         fields="$fields,resolutiondate"; paged=1
       # THE D23 INBOX READ: always person-scoped, and project-scoped by `$scope`
@@ -4897,10 +4929,25 @@ case "$op" in
       # UTC, and a relative time names the same instant in every zone. The 5
       # minutes cover clock skew; the fold drops the rows read twice.
       elif [ "$state" = changed ]; then
-        [ -n "$scope" ] || { echo "plot-host: changed Jira issues need 'Ticket prefixes' declared; an unscoped updated query reads the whole instance" >&2; exit 4; }
         mins="$(jq -nr --arg s "$since" '($s[11:19] | . + "00:00:00"[length:]) as $t | (now - ("\($s[0:10])T\($t)Z" | fromdateiso8601)) / 60 | ceil + 5 | if . < 5 then 5 else . end')"; jql="updated >= \"-${mins}m\"${scope} ORDER BY updated DESC"; fields="$fields,updated,resolutiondate"; paged=1
+      # THE VERSION READ, gated with the closed read above: `fixVersion = "<name>"`
+      # alone matches a same-named version in every project on a shared
+      # instance. The name is escaped for a JQL string literal.
+      elif [ "$state" = version ]; then jql="fixVersion = \"$(printf '%s' "$fix_version" | sed 's/\\/\\\\/g; s/"/\\"/g')\"${scope} ORDER BY created DESC"; paged=1
       fi
-      [ -z "$paged" ] || { max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; }
+      # AN UNPAGED READ'S --limit ABOVE ONE PAGE IS REFUSED, NOT CLAMPED. Open
+      # and inbox are the only states still unpaged here — closed and changed
+      # forced `paged=1` above. Jira caps maxResults at 100 itself, so an
+      # unpaged `--limit 200` silently returned 100 rows with no sign the other
+      # 100 existed (measured 2026-10-21, ewz-kus-portal). Exit 2 is new here —
+      # this arm otherwise uses `die` (1) for usage and 3/4 for host states —
+      # because a stderr warning is lost wherever stderr is discarded, and the
+      # three-outcomes rule above says a partial answer must not look like a
+      # complete one. Checked BEFORE any curl: nothing is spent on a call this
+      # refuses. `-gt`, not `-ge`: a full single page (100) is still one page
+      # and must still answer. A non-numeric `--limit` skips this guard and
+      # reaches Jira as an invalid `maxResults` instead — not this guard's job.
+      if [ -n "$paged" ]; then max="${limit:-$ISSUE_PAGE_ROWS}"; [ "$max" -le "$ISSUE_PAGE_ROWS" ] || max="$ISSUE_PAGE_ROWS"; else [[ "$max" =~ ^[0-9]+$ ]] && [ "$max" -gt "$ISSUE_PAGE_ROWS" ] && { echo "plot-host: issue-list: --limit $limit exceeds one Jira page ($ISSUE_PAGE_ROWS); pass --paged to read it a page at a time" >&2; exit 2; }; fi
       token_args=(); [ -z "$page_token" ] || token_args=(--data-urlencode "nextPageToken=$page_token")
       # jq builds the query string so a JQL with spaces/quotes is encoded once,
       # not hand-escaped. --data-urlencode via curl -G keeps the token out of the
@@ -5238,6 +5285,12 @@ case "$op" in
   # PLOT_TICKET_PREFIXES — the one answer the TypeScript connector asks.
   ticket-projects) tracker_projects ;;
 
+  version-list)
+    # A Jira project's versions, unfiltered — see the usage header.
+    source_said="$(issue_source)" || exit 1; [ "$source_said" = $'tracker\tjira' ] || { echo "plot-host: version-list needs 'Tracker: jira'" >&2; exit 4; }
+    jira_require_config; body="$(jira_ask "/rest/api/2/project/${1:?version-list needs a project key}/versions")" || exit $?
+    printf '%s' "$body" | jq -c '.[] | {name, released: (.released // false), releaseDate: (.releaseDate // null)}' || exit 3 ;;
+
   pr-body)
     num="${1:?pr-body needs a PR number}"; shift
     body=""
@@ -5526,6 +5579,6 @@ case "$op" in
     ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
     ;;
 esac

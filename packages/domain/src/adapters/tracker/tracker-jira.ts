@@ -13,10 +13,33 @@ import type {
   Tracker,
   TrackerConfig,
   TrackerSpender,
+  VersionRead,
 } from '../../ports/tracker.js';
 import { asText, runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
-import { issueOpenOf, trackerReads } from './tracker-shell.js';
+import { issueOpenOf, trackerReads, VERSION_NOT_FOUND, type RawVersion } from './tracker-shell.js';
+
+/**
+ * Folds the same-named versions of several projects into one.
+ *
+ * Each project holds its own copy of a version. The fold is released only
+ * where every copy is, and carries the latest release date any copy states.
+ *
+ * @param name - the version's name.
+ * @param copies - the copies, one per project that holds the name; at least one.
+ * @returns the version's name, released flag and release date.
+ */
+export const versionOf = (
+  name: string,
+  copies: readonly RawVersion[],
+): Pick<VersionRead, 'name' | 'released' | 'releaseDate'> => {
+  const dates = copies.map((copy) => copy.releaseDate ?? null).filter((date): date is string => date !== null && date !== '');
+  return {
+    name,
+    released: copies.every((copy) => copy.released === true),
+    releaseDate: dates.length === 0 ? null : [...dates].sort().at(-1) ?? null,
+  };
+};
 
 /** The scheme `plot-host.sh` knows this connector by. */
 const SCHEME = 'jira';
@@ -159,6 +182,38 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
     },
 
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
+
+    // EVERY `Ticket prefixes` PROJECT IS ASKED, and the issue search is scoped
+    // to the same projects: a same-named version in another project on a
+    // shared instance is not this repository's release.
+    versionRead: async (name: string, limit: number): Promise<PortResult<VersionRead>> => {
+      const projects = await projectsRead();
+      if (!projects.ok) {
+        reads.refuse(projects.why);
+        return failed();
+      }
+      if (projects.projects.length === 0) {
+        reads.refuse(null);
+        return unaskable(`a Jira version read needs '${PROJECTS_KEY}' declared`);
+      }
+      const copies: RawVersion[] = [];
+      for (const project of projects.projects) {
+        const listed = await reads.versionList(project);
+        if (!listed.ok) return listed;
+        copies.push(...listed.value.filter((version) => version.name === name));
+      }
+      if (copies.length === 0) {
+        reads.refuse(null);
+        return unaskable(`${VERSION_NOT_FOUND}: jira has no version named '${name}' in ${projects.projects.join(', ')}`);
+      }
+      const issues = await reads.issueListVersion(name, limit);
+      if (!issues.ok) return issues;
+      return answered<VersionRead>({
+        ...versionOf(name, copies),
+        ...issues.value,
+        pages: issues.value.pages + projects.projects.length,
+      });
+    },
 
     statusWrite: async (write: StatusWrite): Promise<PortResult<StatusOutcome>> => {
       // THE ISSUE A CALLER NAMED WINS OVER ONE MINED FROM THE ADDRESS. It is

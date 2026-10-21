@@ -13,6 +13,7 @@ import type {
   HostRefusal,
   LimitObservation,
   MergedAnswer,
+  MergeDest,
   PrLookup,
   PrReviewReading,
 } from '../../ports/host.js';
@@ -352,6 +353,17 @@ export const hostShell = (context: ShellContext): Host => {
       // Empty stdout is an answer: no PR for this branch merged. Exit 3 is the
       // question failing, and `record` carries it as a failed result.
       ask(['pr-merged-heads', branch], asLines),
+
+    prMergeDests: async (branch): Promise<PortResult<readonly MergeDest[]>> =>
+      // One `number<TAB>base<TAB>sha<TAB>mergedAt` line per merged PR. Empty
+      // stdout is an answer: no PR for this branch merged. Exit 3 is the
+      // question failing, and `record` carries it as a failed result.
+      ask(['pr-merge-dest', branch], (stdout) =>
+        asLines(stdout).map((line): MergeDest => {
+          const [number = '', base = '', mergeCommit = '', mergedAt = ''] = line.split('\t');
+          return { number: Number(number), base, mergeCommit, mergedAt };
+        }),
+      ),
 
     prCreate: async (request): Promise<PortResult<string>> => {
       // THE BODY GOES THROUGH ARGV, not a heredoc or a temp file. It is

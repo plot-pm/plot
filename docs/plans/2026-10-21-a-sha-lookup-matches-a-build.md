@@ -47,7 +47,7 @@ Issue #2229 was read from the code on `main` on 2026-10-21. It was not measured 
 
 ### Branch Head Only
 
-- `bug/a-sha-lookup-matches-a-build` — `jenkins_sha_runs` matches a sha only on the branch-head entry; fixture test with differing merge-base and head shas <!-- builds: branch-head-only sha match in jenkins_sha_runs -->
+- `bug/a-sha-lookup-matches-a-build` — `jenkins_sha_runs` matches a sha only on the branch-head entry; fixture test with differing merge-base and head shas <!-- builds: branch-head-only sha match in jenkins_sha_runs --> → #2240
 
 ## Notes
 

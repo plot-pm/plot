@@ -12,6 +12,7 @@ import type {
   Tracker,
   TrackerConfig,
   TrackerSpender,
+  VersionRead,
 } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
@@ -151,6 +152,11 @@ export const trackerGithub = (context: ShellContext): Tracker => {
       unaskable('the GitHub tracker has no person-scoped read apart from its open read'),
 
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
+
+    // NO FIX-VERSION CONCEPT. GitHub Issues has no version or release this
+    // tracker names; a milestone is a different entity this port does not model.
+    versionRead: async (): Promise<PortResult<VersionRead>> =>
+      unaskable('the GitHub tracker has no version or fixVersion concept'),
 
     statusWrite: async (write: StatusWrite): Promise<PortResult<StatusOutcome>> => {
       // NO PULL REQUEST IS NO SUBJECT. This arm writes a PR's Projects status

@@ -2,7 +2,7 @@ import type { Issue } from '../../entities/issue.js';
 import type { LimitReading } from '../../entities/limit.js';
 import { unaskable, type PortResult } from '../../port-result.js';
 import { issueSource, type IssueSource, type IssueSourceReading } from '../../rules/issue-source.js';
-import type { ClosedIssues, IssueCommentOutcome, IssueOpenOutcome, IssueRead, StatusOutcome, Tracker, TrackerConfig, TrackerSpender } from '../../ports/tracker.js';
+import type { ClosedIssues, IssueCommentOutcome, IssueOpenOutcome, IssueRead, StatusOutcome, Tracker, TrackerConfig, TrackerSpender, VersionRead } from '../../ports/tracker.js';
 import { runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { trackerReads } from './tracker-shell.js';
@@ -108,6 +108,10 @@ export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker 
     issueListInbox: async (): Promise<PortResult<IssueRead>> =>
       unaskable("the git host's issues have no person-scoped read apart from the open read"),
     issueView: (id): Promise<PortResult<Issue>> => reads.issueView(id),
+    // NO FIX-VERSION CONCEPT, for the same reason `trackerGithub` has none:
+    // the git host's own issues carry no version or release this port models.
+    versionRead: async (): Promise<PortResult<VersionRead>> =>
+      unaskable("no Tracker declared; the git host's issues have no version or fixVersion concept"),
     statusWrite: async (): Promise<PortResult<StatusOutcome>> =>
       unaskable("no Tracker declared; the git host's issues are read-only to Plot"),
     issueOpen: async (): Promise<PortResult<IssueOpenOutcome>> =>

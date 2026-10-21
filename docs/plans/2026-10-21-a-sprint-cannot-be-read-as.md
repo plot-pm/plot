@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2217 merged
 - **Started:** 2026-10-21, Jan Wloka, `feature/jira-version-read`
+- **Started:** 2026-10-21, Jan Wloka, `feature/sprint-reads-jira-release`
 
 ## Changelog
 
@@ -56,7 +57,7 @@ Layering follows CLAUDE.md: controller → domain → port ← adapter. A shell 
 
 ### Sprint source
 
-- `feature/sprint-reads-jira-release` — `/plot-sprint` status and `/plot-release` read the Jira Release that the sprint's `Release:` field names when `sprintOwner()` answers `plot` under a Jira tracker, and report drift both ways; `sprintOwner()` gains its caller and the external answer becomes a controller refusal
+- `feature/sprint-reads-jira-release` — `/plot-sprint` status and `/plot-release` read the Jira Release that the sprint's `Release:` field names when `sprintOwner()` answers `plot` under a Jira tracker, and report drift both ways; `sprintOwner()` gains its caller and the external answer becomes a controller refusal → #2243
 
 ## Notes
 
