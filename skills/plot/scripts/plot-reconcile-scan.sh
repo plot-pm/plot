@@ -3002,12 +3002,16 @@ oi_out=""
 # (`plan_json`, one `plot-plan-meta.sh` run for the whole sweep). NOT a body
 # scan for `#NNN`: `issues[]` is a dedicated field precisely because a body
 # cannot tell a signal from a citation, and plans here cite issues constantly.
-oi_claims=""
+oi_claims=""; oi_keyless=""
 if [ -n "$plan_json" ]; then
   oi_claims=$(printf '%s\n' "$plan_json" | jq -r '
     select(.phase == "delivered" or .phase == "released")
     | select((.issues // []) | length > 0)
     | "\(.file)\t\(.phase)\t\(.issues | map(tostring) | join(","))"' 2>/dev/null)
+  # THE FINISHED PLANS NAMING NO KEY, by slug. Under a Jira tracker they are
+  # plans this section skips, and the section names them rather than letting a
+  # clean result read as a full check.
+  oi_keyless=$(printf '%s\n' "$plan_json" | jq -r 'select((.phase == "delivered" or .phase == "released") and ((.issues // []) | length == 0)) | .file | split("/") | last | sub("\\.md$"; "") | sub("^[0-9]{4}-[0-9]{2}-[0-9]{2}-"; "")' 2>/dev/null | paste -sd, - | sed 's/,/, /g')
 fi
 oi_plans=$(printf '%s' "$oi_claims" | grep -c . 2>/dev/null) || oi_plans=0
 
@@ -3078,30 +3082,35 @@ elif [ "$oi_ask" = unaskable ]; then
   # is a list measured against the wrong service.
   echo "  (not evaluated — the tracker source could not be decided: $oi_reason)"
   echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
-elif [ "$oi_ask" = tracker ] && [ "$oi_scheme" = "jira" ]; then
-  # A SILENT CLEAN RESULT IS THE ONE ANSWER THIS MUST NOT GIVE. Numbers cannot
-  # match keys, so every plan would read as clean for a reason that has nothing
-  # to do with its issue.
-  echo "  (not evaluated — plan Issue: numbers cannot be matched to Jira keys)"
-  echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
 else
   oi_err_file=""
   plot_tmpfile oi_err_file reconcile-issue-err || oi_err_file=""
   # SEPARATE call from parse, the shape section 3 uses at `:473`: capture the
   # adapter's own exit status rather than jq's, because a rate limit makes it
   # exit 5 and testing `$?` after a pipe loses that.
-  oi_raw=$(bash "$script_dir/plot-host.sh" issue-list --limit "$ISSUE_LIMIT" </dev/null 2>"${oi_err_file:-/dev/null}")
-  oi_rc=$?
+  #
+  # ONE PAGE PER CALL, through the paging `plot-host.sh` already speaks and
+  # `tracker-shell.ts`'s `walk` drives: `--paged` makes a Jira read ask at most
+  # 100 rows and print `{"nextPageToken":"…"}` last, which goes back as
+  # `--page-token`; GitHub and Bitbucket page inside one call and print no token.
+  # NOT AN UNPAGED `--limit 200`: Jira refuses an unpaged limit above one page
+  # with exit 2, which read as "the tracker question failed" on every Jira repo.
+  # The read stops at `ISSUE_LIMIT` rows, at a page that adds none, or at the
+  # last token. A page that fails fails the read, as in `walk`, because the rows
+  # before it would pass for the end of the list. The token line carries no
+  # `number`, so the parse below drops it.
+  oi_raw=""; oi_token=""; oi_rc=0; oi_n=0
+  while oi_page=$(bash "$script_dir/plot-host.sh" issue-list --paged --limit "$((ISSUE_LIMIT - oi_n))" ${oi_token:+--page-token "$oi_token"} </dev/null 2>"${oi_err_file:-/dev/null}") || { oi_rc=$?; false; }; do
+    oi_raw+="$oi_page"$'\n'; oi_before=$oi_n; oi_n=$(printf '%s' "$oi_raw" | grep -c '"number":')
+    oi_token=$(printf '%s\n' "$oi_page" | jq -r '.nextPageToken // empty' 2>/dev/null | tail -1)
+    [ -n "$oi_token" ] && [ "$oi_n" -gt "$oi_before" ] && [ "$oi_n" -lt "$ISSUE_LIMIT" ] || break
+  done
   oi_err=""
-  [ -n "$oi_err_file" ] && oi_err=$(head -1 "$oi_err_file" 2>/dev/null)
-  [ -n "$oi_err_file" ] && /bin/rm -f "$oi_err_file" 2>/dev/null
+  [ -n "$oi_err_file" ] && oi_err=$(head -1 "$oi_err_file" 2>/dev/null) && /bin/rm -f "$oi_err_file" 2>/dev/null
 
-  if [ "$oi_rc" -eq 4 ]; then
-    # EXIT 4 IS A CONFIGURATION, NOT A FAULT: this host has no tracker to ask.
-    echo "  (not evaluated — this host cannot be asked for issues: ${oi_err:-tracker unavailable})"
-    echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
-  elif [ "$oi_rc" -ne 0 ]; then
-    echo "  (not evaluated — the tracker question failed: ${oi_err:-plot-host.sh exited $oi_rc})"
+  # EXIT 4 IS A CONFIGURATION, NOT A FAULT: this host has no tracker to ask.
+  if [ "$oi_rc" -ne 0 ]; then
+    [ "$oi_rc" -eq 4 ] && echo "  (not evaluated — this host cannot be asked for issues: ${oi_err:-tracker unavailable})" || echo "  (not evaluated — the tracker question failed: ${oi_err:-plot-host.sh exited $oi_rc})"
     echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
   else
     # An empty answer is a VALUE — zero open issues — not a failure. The
@@ -3127,7 +3136,9 @@ else
                  | grep -x -F -f <(printf '%s\n' "$oi_open") 2>/dev/null)
       [ -n "$oi_hits" ] || continue
       oi_first=$(printf '%s\n' "$oi_hits" | head -1)
-      oi_list=$(printf '%s\n' "$oi_hits" | sed 's/^/#/' | paste -sd, - | sed 's/,/, /g')
+      # A NUMBER PRINTS AS `#N` AND A JIRA KEY AS ITSELF: `#PROJ-101` finds
+      # nothing in a Jira search.
+      oi_list=$(printf '%s\n' "$oi_hits" | sed 's/^[0-9]/#&/' | paste -sd, - | sed 's/,/, /g')
 
       oi_base=$(basename "$oi_file")
       oi_out+="  $oi_base — $oi_phase, still open: $oi_list\n"
@@ -3138,13 +3149,24 @@ else
 
     if [ -n "$oi_out" ]; then printf '%b' "$oi_out"; else echo "  (none — every issue a finished plan names is closed)"; fi
     echo "  window: the $oi_count open issue(s) the tracker returned, limit $ISSUE_LIMIT (raise with PLOT_ISSUE_LIMIT)."
-    if [ "$oi_count" -ge "$ISSUE_LIMIT" ]; then
-      # A FULL WINDOW CANNOT CLAIM COMPLETENESS. Absence past the limit says
-      # nothing about an issue's state, so the section says so rather than
-      # letting `(none)` read as a measured clean estate.
-      echo "  note: the tracker returned as many issues as the limit allows — an open"
-      echo "        issue beyond this window would not be seen. Raise PLOT_ISSUE_LIMIT."
-    fi
+    # A FULL WINDOW CANNOT CLAIM COMPLETENESS. Absence past the limit says
+    # nothing about an issue's state, so the section says so rather than
+    # letting `(none)` read as a measured clean estate.
+    [ "$oi_count" -lt "$ISSUE_LIMIT" ] || printf '%s\n' "  note: the tracker returned as many issues as the limit allows — an open" \
+      "        issue beyond this window would not be seen. Raise PLOT_ISSUE_LIMIT."
+    [ "$oi_scheme" != jira ] || [ -z "$oi_keyless" ] || echo "  not checked: $(printf '%s' "$oi_keyless" | awk -F', ' '{print NF}') finished plan(s) name no Jira key — $oi_keyless"
+    # JIRA'S OPEN READ IS AN INBOX, NOT A PROJECT LIST, with no `Ticket
+    # prefixes` declared (`plot-host.sh` issue-list, the jira arm's `scope`/
+    # `person` split): `assignee = currentUser() AND resolution = EMPTY`. A
+    # finished plan's key that is open but assigned to someone else reads
+    # "closed" here — not absent because it closed, but absent because the
+    # list never asked about it. Declaring `Ticket prefixes` widens the read
+    # to every project named there, the scope every other backend has for free.
+    # The note reads what `plot-host.sh` reads: `PLOT_TICKET_PREFIXES` scopes the
+    # read ahead of the key (`tracker_projects`), and `PLOT_JIRA_JQL` replaces
+    # the query whole, so either one makes the note false.
+    [ "$oi_scheme" = jira ] && [ -z "${PLOT_TICKET_PREFIXES:-}${PLOT_JIRA_JQL:-}$(cfg "Ticket prefixes" "" 2>/dev/null)" ] && \
+      echo "  note: Tracker: jira with no 'Ticket prefixes' declared asks only the caller's own open tickets — an issue assigned to someone else reads as closed here."
   fi
 fi
 echo
