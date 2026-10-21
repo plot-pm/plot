@@ -4911,13 +4911,9 @@ case "$op" in
       # question, so a same-named version outside those projects still counts as
       # unknown. A failed list (`|| exit $?`) propagates rather than reading as
       # not-found: absent is not false.
-      if [ "$state" = version ]; then
-        found=""; for p in $projects; do
-          vbody="$(jira_ask "/rest/api/2/project/$p/versions")" || exit $?
-          [ "$(jq --arg n "$fix_version" 'any(.[]; .name == $n)' <<<"$vbody")" = true ] && found=1
-        done
-        [ -n "$found" ] || { echo "plot-host: version-not-found: $fix_version" >&2; exit 4; }
-      fi
+      if [ "$state" = version ]; then found=""; for p in $projects; do
+        vbody="$(jira_ask "/rest/api/2/project/$p/versions")" || exit $?; [ "$(jq --arg n "$fix_version" 'any(.[]; .name == $n)' <<<"$vbody")" = true ] && found=1
+      done; [ -n "$found" ] || { echo "plot-host: version-not-found: $fix_version" >&2; exit 4; }; fi
       # PLOT_JIRA_JQL STILL WINS OVER BOTH. Teams worked around this bug with
       # their own JQL; an override that stopped overriding would break exactly
       # the people who noticed the problem first.
@@ -4990,21 +4986,10 @@ case "$op" in
       # printing it here too would duplicate it (open question 2). So this is
       # the only place that reads the response's own `nextPageToken` for an
       # unpaged read, on stderr, one line, before `$body` is reprojected below.
-      # A CLEANLY ABSENT KEY MEANS "NO MORE PAGES" — Jira's own signal, trusted
-      # as-is even for a full page (50 of 50, no token: not cut). `rows == max`
-      # is the fallback ONLY where the key can't be answered at all (a `$body`
-      # jq itself rejects, e.g. not a JSON object) — not where it is present
-      # and empty, and not where it is simply missing from a well-formed body.
-      if [ -z "$paged" ]; then
-        rows="$(jq '.issues | length' <<<"$body")"
-        cut=""
-        if has="$(jq 'has("nextPageToken")' <<<"$body" 2>/dev/null)"; then
-          if [ "$has" = true ]; then [ "$(jq -r '.nextPageToken // empty' <<<"$body")" != "" ] && cut=1
-          fi
-        elif [ "$rows" -eq "$max" ]; then cut=1
-        fi
-        [ -z "$cut" ] || echo "plot-host: jira issue-list state=$state possibly truncated ($rows rows, requested limit $max)" >&2
-      fi
+      # `// ""` reads a missing key and an empty one alike as "no more pages" —
+      # a full page with no token (50 of 50) is Jira's own answer, not "cut".
+      cut=false; [ -n "$paged" ] || read -r rows cut <<<"$(jq -r '[(.issues|length), ((.nextPageToken // "")!="")] | @tsv' <<<"$body")"
+      [ "$cut" = true ] && echo "plot-host: jira issue-list state=$state possibly truncated ($rows rows, requested limit $max)" >&2
       # `number` is the Jira KEY (PROJ-123), a string — #447 taught the parser to
       # read that form. `url` is built from the base + /browse/<key>; Jira's
       # search payload carries no browse URL, and the base is ours to know
