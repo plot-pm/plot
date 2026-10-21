@@ -8137,6 +8137,20 @@ function makeBbOnlyStub({ mergedBranch = null, openRows = [] } = {}) {
     author: { nickname: 'a' },
     links: { html: { href: 'u' } },
   })));
+  // `pr-merged` asks per branch (`bb_branch_query`): one `api …/pullrequests`
+  // call whose `q=` names the MERGED state and the branch, both URL-encoded.
+  const mergedValues = JSON.stringify(mergedBranch ? [{
+    id: 99,
+    title: 't',
+    state: 'MERGED',
+    source: { branch: { name: mergedBranch }, commit: { hash: 'd'.repeat(40) } },
+    destination: { branch: { name: 'main' } },
+    merge_commit: { hash: 'e'.repeat(40) },
+    updated_on: '2026-01-01T00:00:00Z',
+    author: { nickname: 'a' },
+    links: { html: { href: 'u' } },
+  }] : []);
+  const mergedQuery = mergedBranch ? `*MERGED*${encodeURIComponent(`"${mergedBranch}"`)}*` : '';
   writeFileSync(
     path.join(dir, 'bb'),
     `#!/usr/bin/env bash
@@ -8145,6 +8159,14 @@ if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
 printf '%s\\n' "$@" >> ${JSON.stringify(argvFile)}
 if [[ "$*" == "pr list --state merged --json" ]]; then
   printf '%s' ${JSON.stringify(mergedRows)}
+  exit 0
+fi
+if [[ -n ${JSON.stringify(mergedQuery)} && "$*" == *"api "*"/pullrequests"* && "$*" == ${mergedQuery} ]]; then
+  printf '{"values":%s}' ${JSON.stringify(mergedValues)}
+  exit 0
+fi
+if [[ "$*" == *"api "*"/pullrequests"* && "$*" == *MERGED* ]]; then
+  printf '{"values":[]}'
   exit 0
 fi
 if [[ "$*" == *"api "*"/pullrequests"* ]]; then
