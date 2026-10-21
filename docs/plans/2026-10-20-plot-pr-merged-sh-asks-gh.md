@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #2186
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-20, Jan Wloka, plan-PR #2189 merged
 - **Started:** 2026-10-20, Jan Wloka, `bug/plot-pr-merged-sh-asks-gh`
+- **Delivered:** 2026-10-21
 
 ## Changelog
 
