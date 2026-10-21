@@ -46,7 +46,7 @@ Release 2.28.0 waits on this.
 
 ### Message
 
-- `bug/bitbucket-with-tracker-plot-the-message` — `bbIssueCommandMissing` names the working configuration under `Tracker: plot`; the shell fallback and the issue-source entry test follow
+- `bug/bitbucket-with-tracker-plot-the-message` — `bbIssueCommandMissing` names the working configuration under `Tracker: plot`; the shell fallback and the issue-source entry test follow → #2232
 
 ### Adoption
 
