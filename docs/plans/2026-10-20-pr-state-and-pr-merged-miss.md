@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #2187
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-20, Jan Wloka, plan-PR #2193 merged
 - **Started:** 2026-10-20, Jan Wloka, `bug/pr-state-and-pr-merged-miss`
+- **Delivered:** 2026-10-21
 
 ## Changelog
 
