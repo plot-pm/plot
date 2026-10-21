@@ -1,6 +1,7 @@
 import { TRACKER_VERSION_SCHEMES, trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
 import { runProcess } from '@plot-pm/domain/adapters/run-script';
 import { scriptPath } from '@plot-pm/domain/adapters/scripts';
+import { sprintReleaseFactsShell } from '@plot-pm/domain/adapters/sprint-release';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import { sprintOwner } from '@plot-pm/domain/rules/issue-source';
 import { releaseIsRead, sprintReleaseDrift, type SprintReleaseItem } from '@plot-pm/domain/rules/sprint-release';
@@ -13,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * `Release:` field names, for `/plot-sprint` status and `/plot-release` step 0.
  *
  * ```
- * plot-sprint-release.sh | plot-sprint-release-gate.mjs
+ * plot-sprint-release-gate.mjs [<sprint-slug>]
  * {"sprints":[{"sprint":"test-sprint","release":"2.0.0","verdict":{"checked":true,"missingFromRelease":[],"missingFromSprint":[]}}]}
  * ```
  *
@@ -29,9 +30,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * declared tracker's scheme is in `TRACKER_VERSION_SCHEMES`. Every other
  * repository answers `sprints: []`, asks no tracker, and reports no drift.
  *
- * **THE OWNER CHECK READS NO INPUT.** `{}` on stdin asks only whether Plot owns
- * this repository's sprints: exit 3 or `{"sprints":[]}`. `/plot-sprint` opens
- * with that call, so a broken collector cannot stop `create`.
+ * The bundle runs `plot-sprint-release.sh` with its arguments and reads the
+ * report from its stdout. `--stdin` reads the report from stdin instead and
+ * runs no collector.
+ *
+ * **THE OWNER CHECK READS NO INPUT.** `--stdin` with `{}` asks only whether Plot
+ * owns this repository's sprints: exit 3 or `{"sprints":[]}`. `/plot-sprint`
+ * opens with that call, so a broken collector cannot stop `create`.
  *
  * **EVERY ACTIVE SPRINT, MIRRORING `release-gate.ts`'s `itemsFrom`.** Two teams
  * may share one train, so this reads `report.sprints[]` directly rather than a
@@ -265,9 +270,9 @@ export const shellWorld = (context: ShellContext): GateWorld => ({
 });
 
 /**
- * Reads stdin, answers the gate, prints the verdict.
+ * Reads the collector's report, answers the gate, prints the verdict.
  *
- * @param text - the whole of stdin: the collector's report.
+ * @param text - the collector's report.
  * @param world - the config reader and tracker builder.
  * @param write - where the verdict goes.
  * @param warn - where a refusal's sentence goes.
@@ -308,6 +313,37 @@ export const run = async (
   return EXIT.ok;
 };
 
+/** Runs the collector with the bundle's arguments and returns its report; `''` where it wrote nothing. */
+export type Collect = (args: readonly string[]) => Promise<string>;
+
+/**
+ * Picks where the collector's report comes from, then answers the gate.
+ *
+ * @param argv - the bundle's arguments: `--stdin`, or the collector's own (one sprint slug, or none).
+ * @param collect - runs the collector.
+ * @param readStdin - reads the whole of stdin.
+ * @param world - the config reader and tracker builder.
+ * @param write - where the verdict goes.
+ * @param warn - where a refusal's sentence goes.
+ * @returns the process exit code — 0 checked (or nothing to check), 2 unreadable input, 3 external sprint owner.
+ */
+export const main = async (
+  argv: readonly string[],
+  collect: Collect,
+  readStdin: () => Promise<string>,
+  world: GateWorld,
+  write: (s: string) => void = (s) => process.stdout.write(s),
+  warn: (s: string) => void = (s) => process.stderr.write(s),
+): Promise<number> => {
+  if (argv[0] === '--stdin') return run(await readStdin(), world, write, warn);
+  const facts = await collect(argv);
+  if (facts === '') {
+    warn('plot-sprint-release-gate: plot-sprint-release.sh reported nothing — the sprint estate could not be read.\n');
+    return EXIT.usage;
+  }
+  return run(facts, world, write, warn);
+};
+
 // Only when RUN, never when imported. `pathToFileURL` rather than a template,
 // for the reason `panel.ts` records: `import.meta.url` is realpath-resolved.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
@@ -316,7 +352,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     repoRoot: process.env.PLOT_REPO_ROOT ?? process.cwd(),
     scriptDir: process.env.PLOT_SCRIPTS_DIR ?? path.resolve(here, '..'),
   };
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(await run(Buffer.concat(chunks).toString('utf8'), shellWorld(context)));
+  const readStdin = async (): Promise<string> => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+    return Buffer.concat(chunks).toString('utf8');
+  };
+  const collect: Collect = (args) => sprintReleaseFactsShell(context, args);
+  process.exit(await main(process.argv.slice(2), collect, readStdin, shellWorld(context)));
 }

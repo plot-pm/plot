@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { trackerFixture } from '@plot-pm/domain/adapters';
 import type { Issue } from '@plot-pm/domain/entities/issue';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
-import { EXIT, inputFrom, run, verdict, type GateWorld } from '../../src/server/entry/sprint-release-gate.js';
+import { EXIT, inputFrom, main, run, verdict, type GateWorld } from '../../src/server/entry/sprint-release-gate.js';
 
 /** One sprint block as `plot-sprint-release.sh` writes it. */
 const report = (release: string, must: { text: string; issues: (string | number)[] }[], sprint = 'demo'): string =>
@@ -145,5 +145,48 @@ describe('the Release comparison where Plot owns the sprint under Jira', () => {
       unreachable: true,
       reason: 'the tracker could not be reached',
     });
+  });
+});
+
+describe('main', () => {
+  /** Runs `main` with a collector answering `facts` and stdin holding `stdin`; records the collector's arguments. */
+  const runMain = async (argv: string[], facts: string, stdin: string, w: GateWorld) => {
+    let out = '';
+    let err = '';
+    const asked: (readonly string[])[] = [];
+    const code = await main(
+      argv,
+      async (args) => {
+        asked.push(args);
+        return facts;
+      },
+      async () => stdin,
+      w,
+      (s) => (out += s),
+      (s) => (err += s),
+    );
+    return { code, out, err, asked };
+  };
+
+  it('runs the collector with the sprint slug and answers from its report', async () => {
+    const w = world(jiraOwnedByPlot, releaseHolding('PROJ-1'));
+    const r = await runMain(['demo'], report('2.0.0', [{ text: 'a', issues: ['PROJ-1'] }]), '', w);
+    expect(r.code).toBe(EXIT.ok);
+    expect(r.asked).toEqual([['demo']]);
+    expect(JSON.parse(r.out).sprints[0].verdict.checked).toBe(true);
+  });
+
+  it('exits 2 and names the collector where it reported nothing', async () => {
+    const r = await runMain([], '', '', world(jiraOwnedByPlot));
+    expect(r.code).toBe(EXIT.usage);
+    expect(r.err).toContain('plot-sprint-release.sh reported nothing');
+    expect(r.out).toBe('');
+  });
+
+  it('reads the report from stdin and runs no collector under --stdin', async () => {
+    const r = await runMain(['--stdin'], '', '{}', world(jiraOwnedByPlot));
+    expect(r.code).toBe(EXIT.ok);
+    expect(r.asked).toEqual([]);
+    expect(JSON.parse(r.out)).toEqual({ sprints: [] });
   });
 });

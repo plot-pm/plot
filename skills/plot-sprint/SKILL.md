@@ -18,12 +18,12 @@ compatibility: Designed for Claude Code and Cursor. Requires git. Sprint skeleto
 where plot owns them. The gate bundle asks the domain's `sprintOwner()`
 rule and **exits 3 when an external tracker owns this repository's
 sprints** — a refusal, not a sentence this skill could print and a future
-edit could skip. `{}` on stdin asks the owner check alone: it reads no
-sprint, runs no collector and calls no tracker, so a broken collector
+edit could skip. `--stdin` with `{}` asks the owner check alone: it reads
+no sprint, runs no collector and calls no tracker, so a broken collector
 cannot stop `create`:
 
 ```bash
-printf '{}' | node ../plot/scripts/board/plot-sprint-release-gate.mjs >/dev/null
+printf '{}' | node ../plot/scripts/board/plot-sprint-release-gate.mjs --stdin >/dev/null
 status=$?
 ```
 
