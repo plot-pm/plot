@@ -50,7 +50,7 @@ Location: `skills/plot/scripts/plot-reconcile-scan.sh:3145` prints the `decide:`
 
 ### Hint and lookup
 
-- `bug/reconcile-23-tells-a-released-plan` — phase-aware hint and key-based lookup in section 23, with tests in `test/reconcile/` <!-- builds: section 23 phase-aware hint, key-based issue lookup -->
+- `bug/reconcile-23-tells-a-released-plan` — phase-aware hint and key-based lookup in section 23, with tests in `test/reconcile/` — PR #2302 <!-- builds: section 23 phase-aware hint, key-based issue lookup -->
 
 ## Notes
 
