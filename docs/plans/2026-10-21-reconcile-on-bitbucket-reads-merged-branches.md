@@ -53,7 +53,7 @@ Recommended direction: option 2 for the §3 orphan verdict, because it spends ca
 
 ### Truncation and per-branch ask
 
-- `bug/reconcile-on-bitbucket-reads-merged-branches` — the scan detects a cut merged list on Bitbucket, prints the truncation note in §20, and asks the host per branch before §3 calls a branch an orphan <!-- builds: a Bitbucket-aware truncation signal for the merged-PR list, and a per-branch pr-merged ask in reconcile §3 -->
+- `bug/reconcile-on-bitbucket-reads-merged-branches` — the scan detects a cut merged list on Bitbucket, prints the truncation note in §20, and asks the host per branch before §3 calls a branch an orphan <!-- builds: a Bitbucket-aware truncation signal for the merged-PR list, and a per-branch pr-merged ask in reconcile §3 --> → #2310
 
 ## Notes
 
