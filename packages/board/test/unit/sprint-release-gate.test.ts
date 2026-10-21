@@ -4,12 +4,19 @@ import type { Issue } from '@plot-pm/domain/entities/issue';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import { EXIT, inputFrom, main, run, verdict, type GateWorld } from '../../src/server/entry/sprint-release-gate.js';
 
+/** One sprint item as `plot-sprint-release.sh` writes it, for any tier. */
+type ReportItem = { text: string; issues: (string | number)[]; ticket?: string };
+
 /** One sprint block as `plot-sprint-release.sh` writes it. */
-const report = (
+const report = (release: string, must: ReportItem[], sprint = 'demo'): string =>
+  JSON.stringify({ sprints: [{ sprint, release, must }] });
+
+/** One sprint block carrying all three MoSCoW tiers, as `plot-sprint-release.sh` writes it. */
+const reportWithTiers = (
   release: string,
-  must: { text: string; issues: (string | number)[]; ticket?: string }[],
+  tiers: { must?: ReportItem[]; should?: ReportItem[]; could?: ReportItem[] },
   sprint = 'demo',
-): string => JSON.stringify({ sprints: [{ sprint, release, must }] });
+): string => JSON.stringify({ sprints: [{ sprint, release, ...tiers }] });
 
 /** A Release issue as the fixture answers it. */
 const issue = (id: string): Issue => ({ id }) as Issue;
@@ -97,6 +104,13 @@ describe('unreadable input', () => {
     const r = await runGate('{"sprints":[{"sprint":"demo","release":"2.0.0","must":{}}]}', world(jiraOwnedByPlot));
     expect(r.code).toBe(EXIT.usage);
     expect(r.err).toContain("'demo'");
+  });
+
+  it("exits 2 where a sprint's 'should' is not a list, the same refusal 'must' gets", async () => {
+    const r = await runGate('{"sprints":[{"sprint":"demo","release":"2.0.0","should":{}}]}', world(jiraOwnedByPlot));
+    expect(r.code).toBe(EXIT.usage);
+    expect(r.err).toContain("'demo'");
+    expect(r.err).toContain("'should'");
   });
 });
 
@@ -206,6 +220,33 @@ describe('the Release comparison where Plot owns the sprint under Jira', () => {
     const answered = await verdict(inputFrom(report('9.9.9', [])), releaseHolding());
     expect(answered.sprints[0]?.verdict).toMatchObject({ checked: false, unreachable: true });
     expect(JSON.stringify(answered)).toContain('version-not-found');
+  });
+
+  it('reads should and could tiers into the drift, with Release keys named only by those tiers', async () => {
+    const w = world(jiraOwnedByPlot, releaseHolding('PROJ-1', 'PROJ-2', 'PROJ-3', 'PROJ-9'));
+    const r = await runGate(
+      reportWithTiers('2.0.0', {
+        must: [{ text: 'a', issues: ['PROJ-1'] }],
+        should: [{ text: 'b', issues: ['PROJ-2'] }],
+        could: [{ text: 'c', issues: ['PROJ-3'] }],
+      }),
+      w,
+    );
+    expect(r.code).toBe(EXIT.ok);
+    expect(JSON.parse(r.out)).toEqual({
+      sprints: [
+        {
+          sprint: 'demo',
+          release: '2.0.0',
+          verdict: {
+            checked: true,
+            missingFromRelease: [],
+            missingFromSprint: ['PROJ-9'],
+            notCompared: [],
+          },
+        },
+      ],
+    });
   });
 
   it('says the tracker could not be reached where the read failed', async () => {

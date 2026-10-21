@@ -52,6 +52,20 @@ describe('sprintReleaseDrift', () => {
   it('answers no drift for an empty sprint and an empty Release', () => {
     expect(sprintReleaseDrift([], [])).toEqual({ missingFromRelease: [], missingFromSprint: [], notCompared: [] });
   });
+
+  it('counts a Should-have and a Could-have toward missingFromSprint, each the only name for a Release key', () => {
+    const drift = sprintReleaseDrift(
+      [],
+      ['PROJ-1', 'PROJ-2'],
+      [{ text: 'a should-have', issue: 'PROJ-1' }, { text: 'a could-have', issue: 'PROJ-2' }],
+    );
+    expect(drift.missingFromSprint).toEqual([]);
+  });
+
+  it('never reports a Should-have absent from the Release as missingFromRelease', () => {
+    const drift = sprintReleaseDrift([], [], [{ text: 'a should-have', issue: 'PROJ-1' }]);
+    expect(drift.missingFromRelease).toEqual([]);
+  });
 });
 
 describe('resolveItemKey', () => {
