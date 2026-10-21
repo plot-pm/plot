@@ -3644,11 +3644,12 @@ test('host: runs on Jenkins keeps a still-building row, which must not be mistak
   assert.deepEqual(rows.map((r) => r.conclusion), ['in_progress'], 'the building row survives, ABORTED does not');
 });
 
-test('host: run-for-sha and runs-for-sha still return a NOT_BUILT or ABORTED build for the exact sha asked', () => {
-  // The filter belongs to `runs` only (the plan's Design §2): a sha-bound
-  // lookup is asking "did sha X run", and a caller that pinned a sha already
-  // knows the answer it wants to see, including a cancelled or not-built
-  // state for that exact sha.
+test('host: run-for-sha and runs-for-sha still return an ABORTED build for the exact sha asked', () => {
+  // `ABORTED` means Jenkins cancelled a build of that exact sha — it did run,
+  // partway. A caller that pinned a sha already knows the answer it wants to
+  // see, including a cancelled state for that exact sha. `NOT_BUILT` has no
+  // such exemption: nothing ran, so there is nothing for a sha-bound lookup
+  // to report either (plan's Design §2).
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
@@ -3665,6 +3666,47 @@ test('host: run-for-sha and runs-for-sha still return a NOT_BUILT or ABORTED bui
   const rows = JSON.parse(plural.stdout.trim());
   assert.equal(rows.length, 1);
   assert.equal(rows[0].conclusion, 'ABORTED', 'runs-for-sha still reports the cancelled build');
+});
+
+test('host: run-for-sha and runs-for-sha answer none/empty when the only build for a sha is NOT_BUILT', () => {
+  // Nothing ran: `jenkinsConclusion` maps NOT_BUILT to `unknown` on the
+  // TypeScript side, and no consumer reads a NOT_BUILT row. A sha-bound
+  // lookup must not manufacture a build that never happened.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const builds = jenkinsBuildsFor('sha-not-built', 'NOT_BUILT');
+  const bin = makeJenkinsRestBin(builds);
+  const singular = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'sha-not-built'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(singular.code, 0, singular.stderr);
+  assert.equal(singular.stdout.trim(), '', 'run-for-sha prints nothing for a sha with no surviving build');
+
+  const plural = runJenkinsAllowFail(['runs-for-sha', 'feature/red', 'sha-not-built'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(plural.code, 0, plural.stderr);
+  assert.deepEqual(JSON.parse(plural.stdout.trim()), [], 'runs-for-sha answers empty, not an error');
+});
+
+test('host: run-for-sha answers the older FAILURE when a newer NOT_BUILT build shares the same sha', () => {
+  // The drop must precede `.[0]`: a filter that only hides NOT_BUILT from the
+  // printed output, rather than removing it before the newest-first pick,
+  // would let the newer NOT_BUILT win and hide the FAILURE underneath it.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const builds = JSON.stringify({ builds: [
+    { number: 11, result: 'NOT_BUILT', building: false, timestamp: 1790000300000, url: 'https://ci.test/11/',
+      actions: [{ lastBuiltRevision: { SHA1: 'sha-retried' } }] },
+    { number: 9, result: 'FAILURE', building: false, timestamp: 1790000100000, url: 'https://ci.test/9/',
+      actions: [{ lastBuiltRevision: { SHA1: 'sha-retried' } }] },
+  ] });
+  const bin = makeJenkinsRestBin(builds);
+  const singular = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'sha-retried'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(singular.code, 0, singular.stderr);
+  assert.equal(JSON.parse(singular.stdout.trim()).conclusion, 'FAILURE',
+    'the newer NOT_BUILT must not hide the older FAILURE of the same sha');
 });
 
 test('host: runs on Jenkins carries conclusion host-neutral, raw from .result, matching the GitHub arm\'s convention', () => {
