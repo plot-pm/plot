@@ -3900,40 +3900,75 @@ test('host: run-for-sha matches a sha carried by the second of two lastBuiltRevi
 // matched entry second, a short-hash prefix, `runs-for-sha`'s plural, and
 // `runs`'s branch-head reading with no sha at all.
 
-test('host: run-for-sha reports the matched sha when it is the FIRST of two lastBuiltRevision actions', () => {
+// Two `lastBuiltRevision` actions whose `branch[].name` differ (the shape
+// `jenkins_sha_runs` reads the asked branch's head from since
+// a-sha-lookup-matches-a-build): the merge-base entry names `develop`, the
+// head entry names the asked branch. The merge-base sha must never match,
+// however the two entries are ordered.
+const mergeBeforeBuildBuilds = (result, { developSha, headSha, headBranch = 'feature/red' }) => JSON.stringify({ builds: [
+  { number: 9, result, building: result === null, timestamp: 1790000000000, url: 'https://ci.test/9/',
+    actions: [
+      { lastBuiltRevision: { SHA1: developSha, branch: [{ name: 'origin/develop' }] } },
+      { lastBuiltRevision: { SHA1: headSha, branch: [{ name: `origin/${headBranch}` }] } },
+    ] },
+] });
+
+test('host: run-for-sha matches the branch-head entry when it is SECOND, and the merge-base sha does not match', () => {
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
   const developSha = '1111111111111111111111111111111111aaaa';
   const headSha = '2222222222222222222222222222222222bbbb';
-  const builds = JSON.stringify({ builds: [
-    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
-      actions: [
-        { lastBuiltRevision: { SHA1: developSha } },
-        { lastBuiltRevision: { SHA1: headSha } },
-      ] },
-  ] });
+  const builds = mergeBeforeBuildBuilds('SUCCESS', { developSha, headSha });
   const bin = makeJenkinsRestBin(builds);
-  const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', developSha],
+  const headRes = runJenkinsAllowFail(['run-for-sha', 'feature/red', headSha],
     { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
-  assert.equal(res.code, 0, res.stderr);
-  const row = JSON.parse(res.stdout.trim());
-  assert.equal(row.sha, developSha, 'a fix that swaps first for last would fail this case instead');
+  assert.equal(headRes.code, 0, headRes.stderr);
+  const row = JSON.parse(headRes.stdout.trim());
+  assert.equal(row.sha, headSha, 'the entry whose branch names the asked branch, not the first (merge-base) entry');
+
+  const baseRes = runJenkinsAllowFail(['run-for-sha', 'feature/red', developSha],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(baseRes.code, 0, baseRes.stderr);
+  assert.equal(baseRes.stdout.trim(), '', 'the merge-base sha must not match the branch-head lookup');
 });
 
-test('host: run-for-sha matches a short-hash prefix and reports the full matched sha', () => {
+for (const result of ['SUCCESS', 'FAILURE', 'ABORTED']) {
+  test(`host: run-for-sha matches the branch-head entry when it is FIRST, and the merge-base sha does not match (${result})`, () => {
+    const repo = makeJenkinsRepo();
+    const hostStubs = makeStubs({ ghJson: '[]' });
+    const jen = makeJenStub({ jobsJson: JEN_JOBS });
+    const mergeBaseSha = '3333333333333333333333333333333333cccc';
+    const headSha = '4444444444444444444444444444444444dddd';
+    const builds = JSON.stringify({ builds: [
+      { number: 9, result, building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+        actions: [
+          { lastBuiltRevision: { SHA1: headSha, branch: [{ name: 'origin/feature/red' }] } },
+          { lastBuiltRevision: { SHA1: mergeBaseSha, branch: [{ name: 'origin/develop' }] } },
+        ] },
+    ] });
+    const bin = makeJenkinsRestBin(builds);
+    const headRes = runJenkinsAllowFail(['run-for-sha', 'feature/red', headSha],
+      { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    assert.equal(headRes.code, 0, headRes.stderr);
+    const row = JSON.parse(headRes.stdout.trim());
+    assert.equal(row.sha, headSha, 'the entry whose branch names the asked branch, not the last (merge-base) entry');
+    assert.equal(row.conclusion, result);
+
+    const baseRes = runJenkinsAllowFail(['run-for-sha', 'feature/red', mergeBaseSha],
+      { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+    assert.equal(baseRes.code, 0, baseRes.stderr);
+    assert.equal(baseRes.stdout.trim(), '', `the merge-base sha must not match the branch-head lookup (${result})`);
+  });
+}
+
+test('host: run-for-sha matches a short-hash prefix on the branch-head entry and reports the full matched sha', () => {
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
   const developSha = '1111111111111111111111111111111111aaaa';
   const headSha = '2222222222222222222222222222222222bbbb';
-  const builds = JSON.stringify({ builds: [
-    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
-      actions: [
-        { lastBuiltRevision: { SHA1: developSha } },
-        { lastBuiltRevision: { SHA1: headSha } },
-      ] },
-  ] });
+  const builds = mergeBeforeBuildBuilds('SUCCESS', { developSha, headSha });
   const bin = makeJenkinsRestBin(builds);
   const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', headSha.slice(0, 7)],
     { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
@@ -3948,13 +3983,7 @@ test('host: runs-for-sha reports the matched sha, not the merge-base entry', () 
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
   const developSha = '1111111111111111111111111111111111aaaa';
   const headSha = '2222222222222222222222222222222222bbbb';
-  const builds = JSON.stringify({ builds: [
-    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
-      actions: [
-        { lastBuiltRevision: { SHA1: developSha } },
-        { lastBuiltRevision: { SHA1: headSha } },
-      ] },
-  ] });
+  const builds = mergeBeforeBuildBuilds('SUCCESS', { developSha, headSha });
   const bin = makeJenkinsRestBin(builds);
   const res = runJenkinsAllowFail(['runs-for-sha', 'feature/red', headSha],
     { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
@@ -3962,6 +3991,71 @@ test('host: runs-for-sha reports the matched sha, not the merge-base entry', () 
   const rows = JSON.parse(res.stdout.trim());
   assert.equal(rows.length, 1);
   assert.equal(rows[0].sha, headSha);
+});
+
+test('host: runs-for-sha does not match a build on its merge-base sha', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const developSha = '1111111111111111111111111111111111aaaa';
+  const headSha = '2222222222222222222222222222222222bbbb';
+  const builds = mergeBeforeBuildBuilds('SUCCESS', { developSha, headSha });
+  const bin = makeJenkinsRestBin(builds);
+  const res = runJenkinsAllowFail(['runs-for-sha', 'feature/red', developSha],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  assert.deepEqual(JSON.parse(res.stdout.trim()), [], 'a different branch\'s build must not bind to its merge-base sha');
+});
+
+test('host: runs-for-sha on a plain job matches the job\'s own branch entry and not another branch\'s head', () => {
+  // A plain job applies no branch filter when a sha is asked (`$plain` set,
+  // no multibranch children) — the brief's "plain job" case. The build names
+  // its OWN job's branch on one entry and a different branch on the other;
+  // the sha paired with the job's own branch matches, the other does not.
+  const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
+  const ownSha = '5555555555555555555555555555555555eeee';
+  const otherSha = '6666666666666666666666666666666666ffff';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: otherSha, branch: [{ name: 'origin/feature/other' }] } },
+        { lastBuiltRevision: { SHA1: ownSha, branch: [{ name: 'origin/continuous-deploy' }] } },
+      ] },
+  ] });
+  const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
+  const ownRes = runJenkinsAllowFail(['run-for-sha', 'feature/other', ownSha],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(ownRes.code, 0, ownRes.stderr);
+  const row = JSON.parse(ownRes.stdout.trim());
+  assert.equal(row.sha, ownSha, 'the entry named for the job\'s own branch matches, not the one named for the asked branch');
+
+  const otherRes = runJenkinsAllowFail(['run-for-sha', 'feature/other', otherSha],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(otherRes.code, 0, otherRes.stderr);
+  assert.equal(otherRes.stdout.trim(), '', 'a plain job must not match a sha whose entry names a different branch');
+});
+
+test('host: runs-for-sha on a plain job falls back to the last entry when no action names a branch', () => {
+  const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
+  const developSha = '7777777777777777777777777777777777aaaa';
+  const headSha = '8888888888888888888888888888888888bbbb';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: developSha } },
+        { lastBuiltRevision: { SHA1: headSha } },
+      ] },
+  ] });
+  const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
+  const res = runJenkinsAllowFail(['run-for-sha', 'feature/other', headSha],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  const row = JSON.parse(res.stdout.trim());
+  assert.equal(row.sha, headSha, 'with no branch name on any entry, the last entry stands for the head');
 });
 
 // `run-for-sha`/`runs-for-sha` require a non-empty sha (`${1:?$op needs a
