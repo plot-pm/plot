@@ -46,7 +46,7 @@ The line names the plan, the phase and both links, and prints `fix: git rm <stal
 
 ### Double link
 
-- `bug/reconcile-does-not-report-a-plan` — add the both-linked case to §1 of `plot-reconcile-scan.sh`, with a `test/reconcile/` test that builds a Released plan linked in both directories and a Draft plan linked in both, and asserts the drift line and the fix command for each. <!-- builds: a both-indexes drift case in reconcile scan section 1 -->
+- `bug/reconcile-does-not-report-a-plan` — add the both-linked case to §1 of `plot-reconcile-scan.sh`, with a `test/reconcile/` test that builds a Released plan linked in both directories and a Draft plan linked in both, and asserts the drift line and the fix command for each. <!-- builds: a both-indexes drift case in reconcile scan section 1 --> → #2301
 
 ## Notes
 
