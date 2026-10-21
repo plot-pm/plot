@@ -32,6 +32,10 @@
 #                     if none was seen at all
 #   ticket_prefix_count how many subjects carried it
 #   subjects_read     how many subjects the two counts above were read from
+#   branch_ticket_prefix the most frequent prefix in branch names (local and
+#                     remote-tracking), e.g. QUACDS; "" if none was seen
+#   branch_ticket_prefix_count how many branches carried it
+#   branches_read     how many branch names the two counts above were read from
 #   commit_style_counts {"colon":n,"dash":n,"conventional":n} — how many
 #                     subjects match each notation
 #   existing_systems  planning/doc dirs already present (never judged, only listed)
@@ -168,6 +172,26 @@ ticket_count=$(printf '%s' "$ticket_line" | awk '{ print $1 + 0 }')
 subjects_read=$(git log --format=%s -"$SUBJECT_SAMPLE" 2>/dev/null | grep -c . || true)
 subjects_read=${subjects_read:-0}
 
+# --- ticket prefix in branch names ---------------------------------------
+# THE SAME READING, A DIFFERENT POPULATION. `ticket_prefix` above samples
+# commit SUBJECTS; a repository that already declares `Tracker: plot` (or no
+# `Tracker` at all) and still runs Jira is more reliably seen in its BRANCH
+# names than in its commits, which a Bitbucket squash-merge habit can leave
+# ticket-free. Local and remote-tracking branches both count — a fresh clone
+# before any fetch sees only `refs/heads/`, and this must not read as "no
+# scheme" for that reason alone.
+#
+# MOST FREQUENT, REPORTED RAW, EXACTLY LIKE THE COMMIT-SUBJECT FIELD. Whether
+# one occurrence makes a scheme is the rule's decision, not this script's.
+branch_ticket_line=$(git for-each-ref --format='%(refname:short)' refs/heads/ refs/remotes/ 2>/dev/null \
+  | grep -oE '\b[A-Z][A-Z0-9]{1,9}-[0-9]+' \
+  | sed 's/-[0-9]*$//' | sort | uniq -c | sort -rn | head -1)
+branch_ticket=$(printf '%s' "$branch_ticket_line" | awk '{ print $2 }')
+branch_ticket_count=$(printf '%s' "$branch_ticket_line" | awk '{ print $1 + 0 }')
+[ -n "$branch_ticket_count" ] || branch_ticket_count=0
+branches_read=$(git for-each-ref --format='%(refname:short)' refs/heads/ refs/remotes/ 2>/dev/null | grep -c . || true)
+branches_read=${branches_read:-0}
+
 # --- commit style -------------------------------------------------------
 # Reviewer agents check commit subjects, so an adopted agent aligned to the
 # wrong notation flags correct commits as violations. THE THREE COUNTS ARE
@@ -294,6 +318,9 @@ cat <<JSON
   "ticket_prefix": "$(j "$ticket")",
   "ticket_prefix_count": ${ticket_count:-0},
   "subjects_read": ${subjects_read:-0},
+  "branch_ticket_prefix": "$(j "$branch_ticket")",
+  "branch_ticket_prefix_count": ${branch_ticket_count:-0},
+  "branches_read": ${branches_read:-0},
   "commit_style_counts": {"colon": ${n_colon:-0}, "dash": ${n_dash:-0}, "conventional": ${n_conv:-0}},
   "existing_systems": "$(j "$systems")",
   "hub_docs": "$(j "$hubs")",

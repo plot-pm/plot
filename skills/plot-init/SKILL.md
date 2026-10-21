@@ -242,6 +242,49 @@ project keys and shapes one query.
 > stays empty and no key is written — the inbox is instance-wide, which is
 > today's behaviour and needs no disclosure.
 
+#### `Tracker: plot` already declared, on Bitbucket
+
+**This is the one tracker branch where the repository is not undeclared.**
+The two proposals above fire when `Tracker` is unset; this one fires when it
+already reads `plot` (or carries no `Tracker` key at all — `issueSource` reads
+the two the same way) **and** the git host is Bitbucket. That pair tells `bb`
+to list issues, and `bb` has no issue command: `plot-host.sh issue-list` exits
+4 today, naming the same remedy this proposal makes up front.
+
+**The signal is the branch name, not the commit subject.** A squash-merge
+habit common on Bitbucket can leave every commit subject ticket-free while the
+source branch that produced it still carries the Jira key — so this reads
+`plot-detect-repo.sh`'s `branch_ticket_prefix`, a different population from the
+`ticket_prefix` the two proposals above read. Where it recurs, name it exactly
+like the commit-subject proposal does:
+
+> Found `QUACDS-*` in 5 of 40 branch names, and this repository already
+> declares `Tracker: plot` on a Bitbucket remote → propose
+> `Tracker: jira <base URL>` with `Sprint owner: plot`.
+
+**Propose a move, and say it is one.** `Tracker: plot` is a working
+configuration, not silence — a wrong word nobody chose. The written form
+states both keys, the base URL as the literal placeholder (nowhere in branch
+names or commits, exactly as for the other tracker proposal — never guess
+one), and `Sprint owner: plot` unconditionally, because this step cannot see
+whether the repository runs sprints and the exit-4 sentence resolves the same
+gap the same way:
+
+```markdown
+- **Tracker:** jira <base URL>
+- **Sprint owner:** plot
+```
+
+> **Unattended (`PLOT_UNATTENDED=1`):** the *proposal* survives and the
+> *question* does not, as for the other tracker proposals. Write both keys
+> with the base URL placeholder and name the gap:
+>
+> `PLOT-UNASKED: Which Jira base URL? — default — wrote Tracker: jira <base URL> with Sprint owner: plot from QUACDS in 5 of 40 branch names (Tracker: plot could not list issues); issue operations stay unavailable until the URL is added`
+>
+> Where `branch_ticket_prefix` does not recur, this branch does not fire —
+> `Tracker: plot` is left as declared, and the refusal above is for a
+> *measured* signal going unconfirmed, never for the absence of one.
+
 #### The default branch
 
 **Where the host and this clone disagree about the default branch, propose
@@ -798,6 +841,11 @@ prerequisite is a fact a reader can act on; silence is not.
   the wrong system. Two signals ask.
 - **Never guess the Jira base URL.** It is nowhere in git history. Ask for it,
   or — unattended — write the key without it and say the URL is missing.
+- **Never leave a `Tracker: plot` Bitbucket repository on its silent exit-4
+  path when branch names show a Jira key.** Propose the move to
+  `Tracker: jira <base URL>` with `Sprint owner: plot`, naming the branch-name
+  evidence — the same pair the exit-4 refusal names, offered before the
+  refusal rather than after it.
 - **Never write the measured prefix as the whole of `Ticket prefixes`.** The
   probe reports the most frequent of the prefixes it counted, so a repository
   mapping to three Jira projects seeds one. Ask for the list; a one-element
@@ -845,6 +893,7 @@ prerequisite is a fact a reader can act on; silence is not.
 | Proposing `Tracker: jira` as a bare word | A reader cannot tell a measurement from a guess, so the whole proposal loses trust | Print the evidence: `jira (QUACDS in 38 of 80 subjects)` |
 | Asking which tracker when the prefix already recurs | Interrogates the user about something the probe read | Propose from the signal; ask only for the base URL |
 | Guessing the Jira base URL from the git remote | A wrong URL fails later saying nothing about adoption | Ask; unattended, write the key and name the gap |
+| Leaving `Tracker: plot` on a Bitbucket repo whose branch names carry a Jira key | `issue-list` keeps exiting 4 — the repository adopted Plot and never heard the remedy for a gap its own config created | Propose `Tracker: jira <base URL>` with `Sprint owner: plot` from the branch-name evidence |
 | Writing the measured prefix as the complete `Ticket prefixes` | The inbox shows one project's issues and hides the rest under a heading claiming nobody planned them | Ask for the whole list; a one-element answer carries the rule's gap |
 | Writing `Ticket prefixes:` with nothing after it | Reads as *this repository has no projects* while behaving exactly like the absent key | Decline writes no key; an empty `ticketPrefixes` is the decline |
 | Choosing a CI system when both signals are present | A wrong `CI:` key sends every build-status lookup to the wrong system | Ask, naming both; refuse the key unattended |

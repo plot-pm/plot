@@ -262,6 +262,54 @@ Turn the merged signals into proposals:
   > With a `null` `ticket.prefix` there is nothing to seed: write no key, and
   > disclose nothing — an instance-wide inbox is today's behaviour.
 
+- **`Tracker: plot` already declared, on a Bitbucket remote** — a different
+  shape from the two proposals above, because the repository is not
+  undeclared. `Tracker: plot` (or no `Tracker` key at all, which `issueSource`
+  reads the same way) on a `git_host` of `bitbucket` tells `bb` to list issues,
+  and `bb` has no issue command — the exit-4 refusal `plot-host.sh issue-list`
+  gives today. Where `plot-detect-repo.sh`'s `branch_ticket_prefix` also recurs
+  (a Jira project key repeating across branch names, the signal for this case:
+  a squash-merge habit can leave commit subjects ticket-free while every branch
+  still carries the key), propose the **move** this repository needs, naming
+  the evidence the way the commit-subject proposal does:
+
+  > Found `QUACDS-*` in 5 of 40 branch names, and this repository already
+  > declares `Tracker: plot` on a Bitbucket remote → propose
+  > `Tracker: jira <base URL>` with `Sprint owner: plot`.
+
+  **This is a move, not a fresh declaration, and the written form says so.**
+  Unlike the `null`-prefix case, this repository already has a working
+  configuration — `Tracker: plot` is not silence, it is a choice that happens
+  to leave `issue-list` unable to reach Bitbucket. The base URL is nowhere in
+  branch names or commits, so write the literal placeholder rather than
+  guessing one, exactly as the exit-4 sentence does:
+
+  ```markdown
+  - **Tracker:** jira <base URL>
+  - **Sprint owner:** plot
+  ```
+
+  **`Sprint owner: plot` is named unconditionally.** This step cannot see
+  whether the repository runs sprints — that is `/plot-sprint`'s question, not
+  this probe's — so the pair is proposed together every time, matching the
+  exit-4 sentence's own resolution of the same question.
+
+  **Read `branch_ticket_prefix` from the probe, not from the commit-subject
+  `ticket.prefix`.** The two rules answer different questions over different
+  populations; a repository can clear one threshold and not the other, and
+  this branch fires on the branch-name reading alone.
+
+  > **Unattended (`PLOT_UNATTENDED=1`):** the *proposal* survives and the
+  > *question* does not, as for the other tracker proposals. Write both keys
+  > with the base URL placeholder — a half-configured tracker that names its
+  > own gap beats the exit-4 refusal it replaces:
+  >
+  > `PLOT-UNASKED: Which Jira base URL? — default — wrote Tracker: jira <base URL> with Sprint owner: plot from QUACDS in 5 of 40 branch names (Tracker: plot could not list issues); issue operations stay unavailable until the URL is added`
+  >
+  > Where `branch_ticket_prefix` does not recur, this branch does not fire and
+  > `Tracker: plot` is left exactly as declared — the refusal above is for a
+  > *measured* signal going unconfirmed, never for the absence of one.
+
 **The CI both-signals rule (Item 1b).** Where `ci.answer` is `ask` — both
 signals present — setup **does not propose**. It asks, naming both:
 
@@ -607,6 +655,7 @@ nothing about whether a supervisor is loaded.
 | A `null` `ticket.prefix` | Ask which tracker; never propose `Tracker: none` from silence |
 | A measured prefix, for `Ticket prefixes` | Ask for the whole list — the probe reports the most frequent of several; a one-element answer is written with its cost named |
 | No prefix and no answer, for `Ticket prefixes` | Write no key; the inbox stays instance-wide. Never `Ticket prefixes:` empty |
+| `Tracker: plot` already declared, Bitbucket remote, a Jira key recurs in branch names | Propose `Tracker: jira <base URL>` with `Sprint owner: plot`, naming the branch-name evidence — a move, not a fresh declaration |
 | Both CI signals present | Ask which runs the PRs; do not tie-break on the git host |
 | Tracker unresolved, unattended | Refuse the key; a wrong tracker serves an empty inbox reading as *no tickets* |
 | Tracker has no backend | Write the key with a warning: *recorded; no backend reads this yet* — the inbox will be empty until the backend lands |
