@@ -82,7 +82,7 @@ Run the scanner (it lives in the plot skill's `scripts/` directory, next to the 
 
 It reads `origin/*` refs, the configured plan directory and the repository's worktrees, and emits twenty-three sections, each finding carrying its exact remediating command as copy-paste text. The ones an operator acts on most often:
 
-1. **Phase↔symlink drift** — a plan whose phase disagrees with which index dir (`active/` vs `delivered/`) its symlink lives in. The `Delivered` + still-in-`active/` case is the classic half-delivery failure mode.
+1. **Phase↔symlink drift** — a plan whose phase disagrees with which index dir (`active/` vs `delivered/`) its symlink lives in. The `Delivered` + still-in-`active/` case is the classic half-delivery failure mode. A plan linked in BOTH directories is drift too: the phase names which link is stale.
 2. **Merged-but-not-delivered** — a plan still `Approved` whose impl branch (resolved from the `## Slices` `→ #NNN` links) is already merged to the main branch. Candidate `/plot-deliver`.
 3. **Stale branches** — remote branches under a configured prefix with no open PR: merged into the main branch → deletion candidates; ahead of it → orphans needing judgment, unless the branch is *contained in an open PR* (see below). The main branch and `release/*` are never listed.
 ### Contained in an open PR (inside section 3)
@@ -231,7 +231,7 @@ of `attention=`.
 
 For each finding, decide whether to run the printed command. The scan never runs them; you do, deliberately.
 
-- **Drift (section 1):** almost always safe to fix — run the printed `git rm … && ln -s … && git add -A` (one `git add -A`, so the flip and the symlink move commit together — a per-path `git add` on the removed path aborts staging and ships a half-fix).
+- **Drift (section 1):** almost always safe to fix — run the printed command. Moving a link prints `git rm … && ln -s … && git add -A` (one `git add -A`, so the flip and the symlink move commit together — a per-path `git add` on the removed path aborts staging and ships a half-fix); a plan linked in both directories already has the right link in place, so its fix is `git rm <stale link> && git add -A` with no `ln -s`. A phase outside the drift rules (`design`, for example) prints the finding with no fix command — picking a link to remove would be a guess.
 - **Merged-but-not-delivered:** run `/plot-deliver <slug>` — but first `git fetch` and check section 4's counts; a parallel session may already be delivering it.
 - **Stale branches:** confirm the branch is truly done (no open PR, work landed) before `git push origin --delete`. Orphans (ahead of the main branch) need a real look — `git log` them first; they may be unfinished work, not trash.
 - **Needs attention → dangling symlink:** `readlink` it first. If the plan was renamed, repoint the link; if the plan is gone, `git rm` the link. Never guess — a link is the only remaining record of what the plan was called.
