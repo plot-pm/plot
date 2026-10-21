@@ -3100,8 +3100,7 @@ else
     # as the finding and send a person to the wrong ticket.
     oi_IFS_saved="$IFS"; IFS=','
     for oi_key in $oi_keys; do
-      IFS="$oi_IFS_saved"
-      [ -n "$oi_key" ] || continue
+      IFS="$oi_IFS_saved"; [ -n "$oi_key" ] || continue
       oi_view_err_file=""; plot_tmpfile oi_view_err_file reconcile-issue-err || oi_view_err_file=""
       oi_view=$(bash "$script_dir/plot-host.sh" issue-view "$oi_key" </dev/null 2>"${oi_view_err_file:-/dev/null}"); oi_view_rc=$?
       oi_view_err=""; [ -n "$oi_view_err_file" ] && oi_view_err=$(head -1 "$oi_view_err_file" 2>/dev/null) && /bin/rm -f "$oi_view_err_file" 2>/dev/null
@@ -3109,8 +3108,7 @@ else
         # EXIT 4 IS A CONFIGURATION, NOT A FAULT: this host has no tracker to
         # ask, and it will answer the same for every remaining key — said once.
         [ "$oi_host_failed" -eq 0 ] && { echo "  (not evaluated — this host cannot be asked for issues: ${oi_view_err:-tracker unavailable})"; echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."; }
-        oi_host_failed=1
-        break 2
+        oi_host_failed=1; break 2
       elif [ "$oi_view_rc" -ne 0 ]; then
         # ONE KEY'S LOOKUP FAILING is that key's own failure, not evidence of
         # anything — reported unchecked for this key alone, never dropped and
@@ -3121,12 +3119,10 @@ else
       oi_state=$(printf '%s' "$oi_view" | jq -r '.state // "open"' 2>/dev/null)
       [ "$oi_state" = closed ] && continue || oi_hits+="${oi_hits:+,}$oi_key"
     done
-    IFS="$oi_IFS_saved"
-    [ -n "$oi_hits" ] || continue
-    oi_first=$(printf '%s' "$oi_hits" | cut -d, -f1)
+    IFS="$oi_IFS_saved"; [ -n "$oi_hits" ] || continue
     # A NUMBER PRINTS AS `#N` AND A JIRA KEY AS ITSELF: `#PROJ-101` finds
     # nothing in a Jira search.
-    oi_list=$(printf '%s' "$oi_hits" | tr ',' '\n' | sed 's/^[0-9]/#&/' | paste -sd, - | sed 's/,/, /g')
+    oi_first=$(printf '%s' "$oi_hits" | cut -d, -f1); oi_list=$(printf '%s' "$oi_hits" | tr ',' '\n' | sed 's/^[0-9]/#&/' | paste -sd, - | sed 's/,/, /g')
 
     oi_out+="  $oi_base — $oi_phase, still open: $oi_list\n    inspect: plot-host.sh issue-view $oi_first\n"
     # THE HINT NAMES WHY, NOT A REPAIR THAT CANNOT REPAIR ANYTHING: only a
@@ -3138,8 +3134,7 @@ else
       oi_out+="    decide: no 'Tracker released status' is configured, so releasing this plan again would not move the issue — close it by hand, or record why it stays open\n"
     else
       oi_out+="    decide: the issue waits in a tracker status Plot does not own — it has not reached the declared '$oi_released_status' status — close it by hand, or record why it stays open\n"
-    fi
-    n_open_issues=$((n_open_issues + 1))
+    fi; n_open_issues=$((n_open_issues + 1))
   done 3<<< "$oi_claims"
 
   if [ "$oi_host_failed" -eq 0 ]; then
