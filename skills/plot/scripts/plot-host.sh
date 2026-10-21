@@ -1798,7 +1798,7 @@ jenkins_sha_runs() {
     echo "plot-host: $op — Jenkins did not answer for '$host'" >&2
     exit 4
   fi
-  printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" --arg branch "$branch" --arg plain "$plain" '
+  printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" --arg branch "$branch" --arg plain "$plain" 'def headsha($b): if (.br | length) > 0 then ([.br, .shas] | transpose[] | select(.[0] == $b) | .[1]) // (.shas | last // "") else (.shas | last // "") end;
     [ .builds[]
       | { shas: [ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision.SHA1 ],
           br: [ .actions[]? | .lastBuiltRevision.branch[]?.name // empty | sub("^(refs/remotes/|refs/heads/)"; "") | sub("^origin/"; "") ],
@@ -1806,9 +1806,9 @@ jenkins_sha_runs() {
           conclusion: (if .building then null else (.result // null) end),
           url: (.url // ""),
           startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ] | (if $sha == "" then map(select(.conclusion != "NOT_BUILT" and .conclusion != "ABORTED")) else . end)
-    | if $sha != "" then map(select(any(.shas[]?; . == $sha or (($sha | test("^[0-9a-f]{7,}$")) and (. | startswith($sha)))))) elif $plain == "" then .
+    | if $sha != "" then map(select(headsha(if $plain == "" then $branch else ($job | split("/") | last) end) as $h | $h == $sha or (($sha | test("^[0-9a-f]{7,}$")) and ($h | startswith($sha))))) elif $plain == "" then .
       else map(select(if (.br | length) > 0 then any(.br[]; . == $branch) else $branch == ($job | split("/") | last) end)) end
-    | map(.sha = (if $sha != "" then (.shas[] | select(. == $sha or (($sha | test("^[0-9a-f]{7,}$")) and (startswith($sha))))) else (if (.br | length) > 0 then ([.br, .shas] | transpose[] | select(.[0] == $branch) | .[1]) // (.shas | last // "") else (.shas | last // "") end) end) | del(.shas, .br))' || exit 4
+    | map(.sha = (if $sha != "" then headsha(if $plain == "" then $branch else ($job | split("/") | last) end) else headsha($branch) end) | del(.shas, .br))' || exit 4
 }
 
 # The sha-bound readings of the PR rows $3 whose branch colour in $2 cannot
