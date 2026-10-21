@@ -30,10 +30,8 @@ bundle="$script_dir/board/plot-sprint-release-gate.mjs"
 # between them would be a third place that reads a sprint item, and the two
 # that exist are already one more than the rule needs.
 facts=$(bash "$script_dir/plot-sprint-release.sh" 2>/dev/null)
-if [ -z "$facts" ]; then
-  echo "plot-sprint-release-gate: plot-sprint-release.sh reported nothing — the sprint estate could not be read." >&2
-  exit 2
-fi
+[ -n "$facts" ] \
+  || { echo "plot-sprint-release-gate: plot-sprint-release.sh reported nothing — the sprint estate could not be read." >&2; exit 2; }
 
 # The verdict is JSON on stdout, whole, for a caller that reads each sprint's
 # comparison; the bundle also writes a refusal's own sentence to stderr. ONE
