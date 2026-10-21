@@ -129,19 +129,19 @@ score_items() { # stdin: one `checked\tslug\tdelivered` per line → one state p
 # is deliberate and not an inconsistency. `/plot-deliver` writes the phase and
 # moves the link, and the link is the cheaper of the two to read; a withdrawal
 # moves nothing, so it has only the phase to be read from.
-plan_delivery() { # $1=slug → "true|false|withdrawn<TAB>raw issues array or []"
-  local f phase="" issues="[]" state
+plan_delivery() { # $1=slug → "true|false|withdrawn<TAB>raw issues array or []<TAB>ticket or empty"
+  local f phase="" issues="[]" ticket="" state
   f=$(ls "$PLAN_DIR"/*-"$1".md 2>/dev/null | head -1)
-  # ONE sed READS BOTH FIELDS: `plot-plan-meta.sh` always emits `"phase"`
-  # ahead of `"issues"` in its fixed key order, so one pass captures both.
-  # A SPACE SEPARATES THEM, never `\t`: BSD sed writes a literal `t` for `\t`
-  # in a replacement. `[A-Za-z]` matches `NONE` and `UNKNOWN`, so a plan with
-  # no `State:` keeps its issue keys.
-  [ -n "$f" ] && read -r phase issues < <(bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null |
-    sed -n 's/.*"phase":"\([A-Za-z]*\)".*"issues":\(\[[^]]*\]\).*/\1 \2/p')
+  # ONE sed READS ALL THREE FIELDS: `plot-plan-meta.sh` always emits `"phase"`
+  # ahead of `"issues"` ahead of `"ticket"` in its fixed key order, so one pass
+  # captures all three. SPACES SEPARATE THEM, never `\t`: BSD sed writes a
+  # literal `t` for `\t` in a replacement. `[A-Za-z]` matches `NONE` and
+  # `UNKNOWN`, so a plan with no `State:` keeps its issue keys.
+  [ -n "$f" ] && read -r phase issues ticket < <(bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null |
+    sed -n 's/.*"phase":"\([A-Za-z]*\)".*"issues":\(\[[^]]*\]\).*"ticket":"\([^"]*\)".*/\1 \2 \3/p')
   issues="${issues:-[]}"
   case "$phase" in rejected|superseded) state=withdrawn ;; *) [ -e "$DELIVERED_DIR/$1.md" ] && state=true || state=false ;; esac
-  printf '%s\t%s' "$state" "$issues"
+  printf '%s\t%s\t%s' "$state" "$issues" "$ticket"
 }
 
 # Collapse `a/b/../c` → `a/c` textually. NOT `readlink -f` or `realpath`: the
@@ -233,8 +233,8 @@ status_line() { # $1=file $2=field → value or ""
 # domain returned. The readings are held in arrays rather than re-parsed, so
 # the line the rule scored and the line rendered here are the same line.
 emit_tier() { # $1=file $2=heading regex → JSON array
-  local f="$1" out="[" first=1 line checked slug text delivered issue i n
-  local -a checkeds=() slugs=() texts=() delivereds=() issues=() states=()
+  local f="$1" out="[" first=1 line checked slug text delivered issue ticket i n
+  local -a checkeds=() slugs=() texts=() delivereds=() issues=() tickets=() states=()
   while IFS= read -r line; do
     case "$line" in
       "- [ ] "*) checked=false ;;
@@ -256,8 +256,8 @@ emit_tier() { # $1=file $2=heading regex → JSON array
     # the plan's raw issues array together, so a Should or Could pays the same
     # single call a Must-have does. The gate bundle reads only `must`, so a
     # Should/Could row carrying an array too costs nothing downstream.
-    if [ -n "$slug" ]; then IFS=$'\t' read -r delivered issue <<<"$(plan_delivery "$slug")"; else delivered=none; issue="[]"; fi
-    checkeds+=("$checked"); slugs+=("$slug"); texts+=("$text"); delivereds+=("$delivered"); issues+=("$issue")
+    if [ -n "$slug" ]; then IFS=$'\t' read -r delivered issue ticket <<<"$(plan_delivery "$slug")"; else delivered=none; issue="[]"; ticket=""; fi
+    checkeds+=("$checked"); slugs+=("$slug"); texts+=("$text"); delivereds+=("$delivered"); issues+=("$issue"); tickets+=("$ticket")
   done < <(awk -v want="$2" '
     /^###[ \t]/ { in_t = ($0 ~ want) ? 1 : 0; next }
     /^##[ \t]/  { in_t = 0 }
@@ -292,7 +292,7 @@ emit_tier() { # $1=file $2=heading regex → JSON array
       none|withdrawn) out="$out\"${delivereds[$i]}\"" ;;
       *) out="$out${delivereds[$i]}" ;;
     esac
-    out="$out,\"issues\":${issues[$i]},\"state\":\"${states[$i]}\"}"
+    out="$out,\"issues\":${issues[$i]},\"ticket\":\"$(jesc "${tickets[$i]}")\",\"state\":\"${states[$i]}\"}"
   done
   printf '%s]' "$out"
 }

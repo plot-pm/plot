@@ -5,8 +5,11 @@ import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import { EXIT, inputFrom, main, run, verdict, type GateWorld } from '../../src/server/entry/sprint-release-gate.js';
 
 /** One sprint block as `plot-sprint-release.sh` writes it. */
-const report = (release: string, must: { text: string; issues: (string | number)[] }[], sprint = 'demo'): string =>
-  JSON.stringify({ sprints: [{ sprint, release, must }] });
+const report = (
+  release: string,
+  must: { text: string; issues: (string | number)[]; ticket?: string }[],
+  sprint = 'demo',
+): string => JSON.stringify({ sprints: [{ sprint, release, must }] });
 
 /** A Release issue as the fixture answers it. */
 const issue = (id: string): Issue => ({ id }) as Issue;
@@ -110,6 +113,21 @@ describe('inputFrom', () => {
     ]);
   });
 
+  it('falls back to ticket frontmatter where the Issue line names no Jira key', () => {
+    const input = inputFrom(report('2.0.0', [{ text: 'a', issues: [], ticket: 'PROJ-9' }]));
+    expect(input.releases[0]?.mustHaves).toEqual([{ text: 'a', issue: 'PROJ-9' }]);
+  });
+
+  it('falls back to item text matched against Ticket prefixes where neither other source names a key', () => {
+    const input = inputFrom(report('2.0.0', [{ text: 'Tracer bullet for the thing (PROJ-3858)', issues: [] }]), ['PROJ']);
+    expect(input.releases[0]?.mustHaves).toEqual([{ text: 'Tracer bullet for the thing (PROJ-3858)', issue: 'PROJ-3858' }]);
+  });
+
+  it('leaves a Must-have unresolved where no source and no declared prefix name a key', () => {
+    const input = inputFrom(report('2.0.0', [{ text: 'Tracer bullet for the thing (PROJ-3858)', issues: [] }]));
+    expect(input.releases[0]?.mustHaves).toEqual([{ text: 'Tracer bullet for the thing (PROJ-3858)', issue: '' }]);
+  });
+
   it('reads a page limit of 200 where the report gives none', () => {
     expect(inputFrom('{}').limit).toBe(200);
   });
@@ -125,9 +143,62 @@ describe('the Release comparison where Plot owns the sprint under Jira', () => {
         {
           sprint: 'demo',
           release: '2.0.0',
-          verdict: { checked: true, missingFromRelease: [{ text: 'b', issue: 'PROJ-2' }], missingFromSprint: ['PROJ-9'] },
+          verdict: {
+            checked: true,
+            missingFromRelease: [{ text: 'b', issue: 'PROJ-2' }],
+            missingFromSprint: ['PROJ-9'],
+            notCompared: [],
+          },
         },
       ],
+    });
+  });
+
+  it('reports a Must-have with no resolvable key as notCompared, never as missingFromRelease', async () => {
+    const w = world(jiraOwnedByPlot, releaseHolding('PROJ-1'));
+    const r = await runGate(
+      report('2.0.0', [{ text: 'a', issues: ['PROJ-1'] }, { text: 'ship the other thing', issues: [] }]),
+      w,
+    );
+    expect(r.code).toBe(EXIT.ok);
+    expect(JSON.parse(r.out)).toEqual({
+      sprints: [
+        {
+          sprint: 'demo',
+          release: '2.0.0',
+          verdict: {
+            checked: true,
+            missingFromRelease: [],
+            missingFromSprint: [],
+            notCompared: [{ text: 'ship the other thing', issue: '' }],
+          },
+        },
+      ],
+    });
+  });
+
+  it('resolves a Must-have from item text against the configured Ticket prefixes', async () => {
+    const w = world(
+      { ...jiraOwnedByPlot, 'Ticket prefixes': 'PROJ' },
+      releaseHolding('PROJ-3858'),
+    );
+    const r = await runGate(report('2.0.0', [{ text: 'Tracer bullet for the thing (PROJ-3858)', issues: [] }]), w);
+    expect(JSON.parse(r.out).sprints[0].verdict).toEqual({
+      checked: true,
+      missingFromRelease: [],
+      missingFromSprint: [],
+      notCompared: [],
+    });
+  });
+
+  it('resolves a Must-have from ticket frontmatter where the Issue line names no key', async () => {
+    const w = world(jiraOwnedByPlot, releaseHolding('PROJ-9'));
+    const r = await runGate(report('2.0.0', [{ text: 'a', issues: [], ticket: 'PROJ-9' }]), w);
+    expect(JSON.parse(r.out).sprints[0].verdict).toEqual({
+      checked: true,
+      missingFromRelease: [],
+      missingFromSprint: [],
+      notCompared: [],
     });
   });
 

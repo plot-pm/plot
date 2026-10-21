@@ -55,13 +55,17 @@ function repo({ release, must = [], should = [], could = [], delivered = [], act
       `# ${slug}\n\n## Status\n\n- **State:** ${state}\n- **Type:** bug\n`,
     );
   }
-  // A plan naming an issue: `{ slug, issue, state }`, where an absent `state`
-  // writes no `State:` line and the plan's phase reads `NONE`.
-  for (const { slug, issue, state } of plans) {
+  // A plan naming an issue: `{ slug, issue, state, ticket }`, where an absent
+  // `state` writes no `State:` line and the plan's phase reads `NONE`. `ticket`
+  // is frontmatter-only — it has no canonical `## Status` counterpart, so a
+  // plan testing it omits `issue` to prove the frontmatter path alone resolves
+  // the key.
+  for (const { slug, issue, state, ticket } of plans) {
+    const frontmatter = ticket === undefined ? '' : `---\nticket: ${ticket}\n---\n\n`;
     fs.writeFileSync(
       path.join(w, 'docs/plans', `2026-08-20-${slug}.md`),
-      `# ${slug}\n\n## Status\n\n` + (state === undefined ? '' : `- **State:** ${state}\n`) +
-        `- **Type:** feature\n- **Issue:** ${issue}\n`,
+      frontmatter + `# ${slug}\n\n## Status\n\n` + (state === undefined ? '' : `- **State:** ${state}\n`) +
+        `- **Type:** feature\n` + (issue === undefined ? '' : `- **Issue:** ${issue}\n`),
     );
   }
 
@@ -209,6 +213,26 @@ test('a plan with no State: line keeps its Jira key', () => {
     plans: [{ slug: 'alpha', issue: 'PROJ-3' }],
   });
   assert.deepEqual(run(w).must[0].issues, ['PROJ-3']);
+});
+
+test("a plan's ticket: frontmatter survives the collector even where it names no Issue: line", () => {
+  const w = repo({
+    tracker: 'jira https://example.atlassian.net PROJ',
+    must: ['- [ ] [alpha] Do alpha'],
+    plans: [{ slug: 'alpha', ticket: 'PROJ-42' }],
+  });
+  const r = run(w);
+  assert.deepEqual(r.must[0].issues, [], 'no Issue: line means no issues entry');
+  assert.equal(r.must[0].ticket, 'PROJ-42');
+});
+
+test('a plan with neither an Issue: line nor ticket: frontmatter reports an empty ticket', () => {
+  const w = repo({
+    tracker: 'jira https://example.atlassian.net PROJ',
+    must: ['- [ ] [alpha] Do alpha'],
+    plans: [{ slug: 'alpha', state: 'Approved' }],
+  });
+  assert.equal(run(w).must[0].ticket, '');
 });
 
 test('no sed replacement in the collector writes \\t — BSD sed reads it as a literal t', () => {

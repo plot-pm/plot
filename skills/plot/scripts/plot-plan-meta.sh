@@ -329,7 +329,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","spike_approved_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","verified_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"ticket":"","malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","spike_approved_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","verified_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -520,6 +520,7 @@ function reset_state() {
   delete prs; n_prs = 0; delete dprs; n_dprs = 0
   delete malformed_prs; n_malformed_prs = 0
   fm_issue = ""; canon_issue = ""
+  fm_ticket = ""
   delete issues; n_issues = 0
   delete wave_names; delete wave_of; delete wave_seq; delete wave_count
   delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; delete spike_of; n_waves = 0
@@ -529,7 +530,7 @@ function reset_state() {
   fm_changelog = ""
   delete changelog; n_changelog = 0; changelog_seen = 0; cl_open = 0
 }
-function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, design, approved, delivered, issue, issue2, i, j, k, v, is_dup, out, sorted_b, sorted_p, sorted_i, nb, np, ni, num_issues, str_issues, n_num_i, n_str_i, issue_is_str) {
+function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, design, approved, delivered, issue, issue2, ticket, i, j, k, v, is_dup, out, sorted_b, sorted_p, sorted_i, nb, np, ni, num_issues, str_issues, n_num_i, n_str_i, issue_is_str) {
   # THE PHASE IS READ FROM THE FIELD PLOT WRITES. A canonical `State:`/`Phase:`
   # outranks front matter, because every lifecycle script writes the canonical
   # body and none writes front matter: `plot-approve.sh` holds zero front-matter
@@ -587,6 +588,10 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   #
   # A LIST, because one plan can answer several signals; the plan that
   # introduced this field subsumes three.
+  # `ticket:` is a frontmatter-only field: there is no canonical `## Status`
+  # body counterpart, unlike `Issue:` above. It exists for a Must-have whose
+  # plan names its tracker key only in frontmatter, not on an `Issue:` line.
+  ticket = strip_placeholder(fm_ticket)
   issue = strip_placeholder((fm_issue != "") ? fm_issue : canon_issue)
   # GitHub-style `#N` is parsed everywhere, regardless of tracker.
   while (match(issue, /#[0-9]+/)) {
@@ -672,7 +677,8 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
     else
       out = out (i > 1 ? "," : "") sorted_i[i]
   }
-  out = out "],\"malformed_prs\":["
+  out = out "],\"ticket\":\"" jesc(ticket) "\""
+  out = out ",\"malformed_prs\":["
   for (i = 1; i <= n_malformed_prs; i++) out = out (i > 1 ? "," : "") "\"" jesc(malformed_prs[i]) "\""
   out = out "]"
   # Document order, never sorted: a changelog is a narrative sequence, and the
@@ -1037,6 +1043,7 @@ in_fm {
   else if (lower ~ /^sprint:/ && fm_sprint == "") fm_sprint = val_after_colon($0)
   else if (lower ~ /^story:/ && fm_story == "") fm_story = val_after_colon($0)
   else if (lower ~ /^issue:/ && fm_issue == "") fm_issue = val_after_colon($0)
+  else if (lower ~ /^ticket:/ && fm_ticket == "") fm_ticket = val_after_colon($0)
   else if (lower ~ /^assignee:/ && fm_assignee == "") fm_assignee = val_after_colon($0)
   else if (lower ~ /^review:/ && fm_review == "") fm_review = val_after_colon($0)
   else if (lower ~ /^impl:/ && fm_impl == "") fm_impl = val_after_colon($0)

@@ -4,7 +4,12 @@ import { scriptPath } from '@plot-pm/domain/adapters/scripts';
 import { sprintReleaseFactsShell } from '@plot-pm/domain/adapters/sprint-release';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import { sprintOwner } from '@plot-pm/domain/rules/issue-source';
-import { releaseIsRead, sprintReleaseDrift, type SprintReleaseItem } from '@plot-pm/domain/rules/sprint-release';
+import {
+  releaseIsRead,
+  resolveItemKey,
+  sprintReleaseDrift,
+  type SprintReleaseItem,
+} from '@plot-pm/domain/rules/sprint-release';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -65,25 +70,17 @@ export const EXIT = {
   externalOwner: 3,
 } as const;
 
-/** One Must-have as `plot-sprint-release.sh` reports it, enriched with its plan's raw issues array. */
+/** One Must-have as `plot-sprint-release.sh` reports it, enriched with its plan's raw issues array and `ticket:` frontmatter. */
 interface ReportedMust {
   text?: unknown;
   issues?: unknown;
+  ticket?: unknown;
 }
 
-/** Matches a Jira-shaped key (`PROJ-123`) and nothing else — never a bare GitHub issue number. */
-const JIRA_KEY = /^[A-Z][A-Z0-9]*-[0-9]+$/;
-
-/**
- * The first Jira-shaped key in a plan's `issues` array, read in the sorted
- * order `plot-plan-meta.sh` already produces (GitHub numbers first, Jira keys
- * after) — so this picks the first of the latter rather than guessing from a
- * Must-have's own text. `''` where the plan names no Jira key.
- */
-const firstJiraKey = (issues: unknown): string => {
-  if (!Array.isArray(issues)) return '';
-  const hit = issues.find((v) => typeof v === 'string' && JIRA_KEY.test(v));
-  return typeof hit === 'string' ? hit : '';
+/** An `issues` array entry read as a string, or `''` where it is not one — `resolveItemKey` itself filters for Jira shape. */
+const issueLineKeys = (issues: unknown): readonly string[] => {
+  if (!Array.isArray(issues)) return [];
+  return issues.filter((v): v is string => typeof v === 'string');
 };
 
 /** One sprint's block of the collector's report. */
@@ -114,6 +111,7 @@ export type SprintVerdict =
       readonly checked: true;
       readonly missingFromRelease: readonly SprintReleaseItem[];
       readonly missingFromSprint: readonly string[];
+      readonly notCompared: readonly SprintReleaseItem[];
     }
   | { readonly checked: false; readonly unreachable: true; readonly reason: string };
 
@@ -125,20 +123,27 @@ export interface Verdict {
 /**
  * Reads one sprint block's Must-haves off the collector's JSON.
  *
+ * Each Must-have's key is resolved by {@link resolveItemKey}, never guessed at
+ * here: the `Issue:` line, `ticket:` frontmatter and item text are collected
+ * from the report and handed to the domain, in that fixed order.
+ *
  * @param block - one sprint's object from the report.
  * @param sprint - the sprint's slug, for the error it may throw.
- * @returns the sprint's Must-haves, each carrying the issue key its plan names.
+ * @param ticketPrefixes - this repository's `Ticket prefixes`, for the item-text fallback.
+ * @returns the sprint's Must-haves, each carrying the issue key resolution found.
  * @throws when the block's `must` is not a list or a Must-have is malformed.
  */
-const mustHavesFrom = (block: ReportedSprint, sprint: string): SprintReleaseItem[] => {
+const mustHavesFrom = (block: ReportedSprint, sprint: string, ticketPrefixes: readonly string[]): SprintReleaseItem[] => {
   const mustHaves: SprintReleaseItem[] = [];
   const raw = block.must;
   if (raw === undefined) return mustHaves;
   if (!Array.isArray(raw)) throw new Error(`sprint '${sprint}' has a 'must' that is not a list`);
   for (const entry of raw as ReportedMust[]) {
+    const text = typeof entry.text === 'string' ? entry.text : '';
+    const ticket = typeof entry.ticket === 'string' ? entry.ticket : '';
     mustHaves.push({
-      text: typeof entry.text === 'string' ? entry.text : '',
-      issue: firstJiraKey(entry.issues),
+      text,
+      issue: resolveItemKey(issueLineKeys(entry.issues), ticket, text, ticketPrefixes),
     });
   }
   return mustHaves;
@@ -152,10 +157,11 @@ const mustHavesFrom = (block: ReportedSprint, sprint: string): SprintReleaseItem
  * reports every active sprint rather than picking one.
  *
  * @param text - the collector's report.
+ * @param ticketPrefixes - this repository's `Ticket prefixes`, for each Must-have's key resolution.
  * @returns the gate's input.
  * @throws when the JSON is unreadable or a sprint block is malformed.
  */
-export const inputFrom = (text: string): GateInput => {
+export const inputFrom = (text: string, ticketPrefixes: readonly string[] = []): GateInput => {
   let report: Report;
   try {
     report = JSON.parse(text) as Report;
@@ -172,7 +178,7 @@ export const inputFrom = (text: string): GateInput => {
       // A sprint naming no Release says nothing about one — it contributes no
       // entry rather than one this bundle would have to skip downstream.
       if (release.trim() === '') continue;
-      releases.push({ sprint, release, mustHaves: mustHavesFrom(block, sprint) });
+      releases.push({ sprint, release, mustHaves: mustHavesFrom(block, sprint, ticketPrefixes) });
     }
   }
   return {
@@ -284,17 +290,22 @@ export const run = async (
   write: (s: string) => void = (s) => process.stdout.write(s),
   warn: (s: string) => void = (s) => process.stderr.write(s),
 ): Promise<number> => {
+  const [declaredSprintOwner, declaredTracker, declaredTicketPrefixes] = await Promise.all([
+    world.config('Sprint owner'),
+    world.config('Tracker'),
+    world.config('Ticket prefixes'),
+  ]);
+  const ticketPrefixes = declaredTicketPrefixes
+    .split(',')
+    .map((p) => p.trim())
+    .filter((p) => p !== '');
   let input: GateInput;
   try {
-    input = inputFrom(text);
+    input = inputFrom(text, ticketPrefixes);
   } catch (err) {
     warn(`plot-sprint-release-gate: ${(err as Error).message}\n`);
     return EXIT.usage;
   }
-  const [declaredSprintOwner, declaredTracker] = await Promise.all([
-    world.config('Sprint owner'),
-    world.config('Tracker'),
-  ]);
   const owner = sprintOwner(declaredSprintOwner, declaredTracker);
   if (owner.owns === 'external') {
     warn(
