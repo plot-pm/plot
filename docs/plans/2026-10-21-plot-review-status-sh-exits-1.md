@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2297 merged
+- **Started:** 2026-10-21, Jan Wloka, `bug/plot-review-status-sh-exits-1`
 
 ## Changelog
 
