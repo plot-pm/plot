@@ -166,8 +166,7 @@ fi
 # The most frequent prefix and how often it occurred, both reported raw.
 # Whether one occurrence is a scheme is `proposeTicket`'s decision, and it used
 # to be an `awk '$1 >= 2'` here.
-SUBJECT_SAMPLE=80
-subjects=$(git log --format=%s -"$SUBJECT_SAMPLE" 2>/dev/null)
+subjects=$(git log --format=%s -80 2>/dev/null)
 read -r ticket_count ticket <<<"$(printf '%s\n' "$subjects" | top_prefix)"
 subjects_read=$(printf '%s\n' "$subjects" | grep -c . || true)
 
@@ -180,7 +179,6 @@ subjects_read=$(printf '%s\n' "$subjects" | grep -c . || true)
 # before any fetch sees only `refs/heads/`.
 branch_names=$(git for-each-ref --format='%(refname:short)' refs/heads/ refs/remotes/ 2>/dev/null)
 read -r branch_ticket_count branch_ticket <<<"$(printf '%s\n' "$branch_names" | top_prefix)"
-branches_read=$(printf '%s\n' "$branch_names" | grep -c . || true)
 
 # --- commit style -------------------------------------------------------
 # Reviewer agents check commit subjects, so an adopted agent aligned to the
@@ -310,7 +308,7 @@ cat <<JSON
   "subjects_read": ${subjects_read:-0},
   "branch_ticket_prefix": "$(j "$branch_ticket")",
   "branch_ticket_prefix_count": ${branch_ticket_count:-0},
-  "branches_read": ${branches_read:-0},
+  "branches_read": $(printf '%s\n' "$branch_names" | grep -c . || true),
   "commit_style_counts": {"colon": ${n_colon:-0}, "dash": ${n_dash:-0}, "conventional": ${n_conv:-0}},
   "existing_systems": "$(j "$systems")",
   "hub_docs": "$(j "$hubs")",
