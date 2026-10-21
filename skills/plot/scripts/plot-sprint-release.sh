@@ -117,7 +117,8 @@ score_items() { # stdin: one `checked\tslug\tdelivered` per line → one state p
   node "$HERE/board/plot-sprint-score.mjs" 2>/dev/null
 }
 
-# What the plan estate says about <slug>.
+# What the plan estate says about <slug>: delivery state and, for a Must-have,
+# its Jira issue key — one `plot-plan-meta.sh` read answers both.
 #
 # THE WITHDRAWAL IS ASKED FIRST, because it is the stronger reading: a rejected
 # plan is not in the Delivered index either, so testing delivery first would
@@ -126,43 +127,31 @@ score_items() { # stdin: one `checked\tslug\tdelivered` per line → one state p
 # `plot-plan-meta.sh` IS THE READER, and this script re-parses nothing. It has
 # accepted `rejected` and `superseded` beside the four phases since before this
 # question was asked; the reading existed and this script did not ask for it.
+# The issue key comes from the SAME read: `plot-plan-meta.sh` already parses
+# the plan's `Issue:` field into a sorted `issues` array, gating Jira-key
+# recognition on the repository's own `Tracker` config. MATCHING IS BY ISSUE
+# KEY ONLY — never guessed from the Must-have's own text — and takes the FIRST
+# quoted (Jira-shaped) entry, because `Issue:` may also carry unquoted
+# GitHub-style `#N` signals that are not what this comparison is about. "" when
+# the plan names no Jira key — a Must-have with no match is reported as drift
+# by the domain rule, never guessed at.
 #
 # Delivery stays a DIRECTORY test — file or symlink, either is delivery — which
 # is deliberate and not an inconsistency. `/plot-deliver` writes the phase and
 # moves the link, and the link is the cheaper of the two to read; a withdrawal
 # moves nothing, so it has only the phase to be read from.
-plan_delivery() { # $1=slug → true|false|withdrawn
-  local f phase
+plan_delivery() { # $1=slug → "true|false|withdrawn<TAB>issue key or empty"
+  local f meta phase issue
   f=$(ls "$PLAN_DIR"/*-"$1".md 2>/dev/null | head -1)
-  if [ -n "$f" ]; then
-    phase=$(bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null |
-      sed -n 's/.*"phase":"\([a-z]*\)".*/\1/p' | head -1)
-    case "$phase" in
-      rejected|superseded) printf 'withdrawn'; return 0 ;;
-    esac
-  fi
-  [ -e "$DELIVERED_DIR/$1.md" ] && printf 'true' || printf 'false'
-}
-
-# The Jira issue key a Must-have's plan names, for plot-sprint-release-gate.sh.
-#
-# MATCHING IS BY ISSUE KEY ONLY, read from the plan's `Issue:` field — never
-# guessed from the Must-have's own text. `plot-plan-meta.sh` already parses
-# that field into a sorted `issues` array, gating Jira-key recognition on the
-# repository's own `Tracker` config, so this re-reads nothing: it takes the
-# FIRST quoted (Jira-shaped) entry, because a plan's `Issue:` field may also
-# carry its own GitHub-style `#N` signals, which are printed unquoted and are
-# not what this comparison is about.
-#
-# "" where the plan names no Jira key — a Must-have with no match is reported
-# as drift by the domain rule, never guessed at.
-plan_issue() { # $1=slug → issue key, or ""
-  local f
-  f=$(ls "$PLAN_DIR"/*-"$1".md 2>/dev/null | head -1)
-  [ -n "$f" ] || { printf ''; return 0; }
-  bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null |
-    sed -n 's/.*"issues":\[\([^]]*\)\].*/\1/p' | head -1 |
-    grep -oE '"[A-Z][A-Z0-9]*-[0-9]+"' | head -1 | tr -d '"'
+  [ -n "$f" ] || { printf 'false\t'; return 0; }
+  meta=$(bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null)
+  phase=$(printf '%s' "$meta" | sed -n 's/.*"phase":"\([a-z]*\)".*/\1/p' | head -1)
+  issue=$(printf '%s' "$meta" | sed -n 's/.*"issues":\[\([^]]*\)\].*/\1/p' | head -1 |
+    grep -oE '"[A-Z][A-Z0-9]*-[0-9]+"' | head -1 | tr -d '"')
+  case "$phase" in
+    rejected|superseded) printf 'withdrawn\t%s' "$issue"; return 0 ;;
+  esac
+  if [ -e "$DELIVERED_DIR/$1.md" ]; then printf 'true\t%s' "$issue"; else printf 'false\t%s' "$issue"; fi
 }
 
 # Collapse `a/b/../c` → `a/c` textually. NOT `readlink -f` or `realpath`: the
@@ -273,11 +262,17 @@ emit_tier() { # $1=file $2=heading regex $3=must|should|could → JSON array
     # nothing. The optional `~~` is the whole fix — the anchor stays, so a
     # `[slug]` appearing mid-prose is still not a reference.
     slug=$(printf '%s' "$text" | grep -oE '^(~~)?\[[a-z0-9][a-z0-9-]*\]' | tr -d '[]~' || true)
-    if [ -n "$slug" ]; then delivered=$(plan_delivery "$slug"); else delivered=none; fi
-    # THE ISSUE KEY IS ONLY READ FOR MUST-HAVES — the Jira Release comparison
-    # has no use for a Should or Could's plan, and reading it would pay a
-    # `plot-plan-meta.sh` call per item for a field nothing consumes.
-    if [ "$tier" = "must" ] && [ -n "$slug" ]; then issue=$(plan_issue "$slug"); else issue=""; fi
+    # ONE READ ANSWERS BOTH FIELDS: `plan_delivery` returns delivery state and
+    # issue key together, so a Should or Could pays the same single call a
+    # Must-have does — the issue key is simply dropped where the tier has no
+    # use for it, rather than paying a second `plot-plan-meta.sh` read to avoid
+    # reading a field that costs nothing extra to have in hand.
+    if [ -n "$slug" ]; then
+      IFS=$'\t' read -r delivered issue <<<"$(plan_delivery "$slug")"
+      [ "$tier" = "must" ] || issue=""
+    else
+      delivered=none; issue=""
+    fi
     checkeds+=("$checked"); slugs+=("$slug"); texts+=("$text"); delivereds+=("$delivered"); issues+=("$issue")
   done < <(awk -v want="$2" '
     /^###[ \t]/ { in_t = ($0 ~ want) ? 1 : 0; next }
