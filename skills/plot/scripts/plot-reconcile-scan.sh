@@ -3078,12 +3078,6 @@ elif [ "$oi_ask" = unaskable ]; then
   # is a list measured against the wrong service.
   echo "  (not evaluated — the tracker source could not be decided: $oi_reason)"
   echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
-elif [ "$oi_ask" = tracker ] && [ "$oi_scheme" = "jira" ]; then
-  # A SILENT CLEAN RESULT IS THE ONE ANSWER THIS MUST NOT GIVE. Numbers cannot
-  # match keys, so every plan would read as clean for a reason that has nothing
-  # to do with its issue.
-  echo "  (not evaluated — plan Issue: numbers cannot be matched to Jira keys)"
-  echo "  note: $oi_plans finished plan(s) naming an issue went unchecked."
 else
   oi_err_file=""
   plot_tmpfile oi_err_file reconcile-issue-err || oi_err_file=""
@@ -3145,6 +3139,15 @@ else
       echo "  note: the tracker returned as many issues as the limit allows — an open"
       echo "        issue beyond this window would not be seen. Raise PLOT_ISSUE_LIMIT."
     fi
+    # JIRA'S OPEN READ IS AN INBOX, NOT A PROJECT LIST, with no `Ticket
+    # prefixes` declared (`plot-host.sh` issue-list, the jira arm's `scope`/
+    # `person` split): `assignee = currentUser() AND resolution = EMPTY`. A
+    # finished plan's key that is open but assigned to someone else reads
+    # "closed" here — not absent because it closed, but absent because the
+    # list never asked about it. Declaring `Ticket prefixes` widens the read
+    # to every project named there, the scope every other backend has for free.
+    [ "$oi_scheme" = jira ] && [ -z "$(cfg "Ticket prefixes" "" 2>/dev/null)" ] && \
+      echo "  note: Tracker: jira with no 'Ticket prefixes' declared asks only the caller's own open tickets — an issue assigned to someone else reads as closed here."
   fi
 fi
 echo

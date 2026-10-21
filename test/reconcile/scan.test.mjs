@@ -4827,27 +4827,158 @@ test('section 23 asks no host when no connector lists the declared tracker', () 
   }
 });
 
-test('section 23 keeps the Jira refusal, and the URL after the scheme does not lose it', () => {
-  // THE WHOLE VALUE GOES TO THE ENTRY. An implementation reading only the first
-  // token before asking reproduces the drift this slice removes; `Tracker: jira
-  // https://…` is the shape that catches it, since the key carries a base URL.
-  const marker = markerFile();
-  const f = issueFixture(recordingHost(marker), ['--no-fetch'],
-    { tracker: 'jira https://example.atlassian.net' });
+// --- Section 23 under Jira: keys, not numbers -------------------------------
+//
+// THE REFUSAL IS GONE. `oi_claims` already carries `PROJ-123` keys from
+// `plot-plan-meta.sh`'s own Jira parse (gated on `Tracker: jira`), and the
+// section's membership test (`grep -x -F -f`) is plain fixed-string matching —
+// it needs no second reader for a key any more than it needed one for `#101`.
+// These fixtures build a repository with `Tracker: jira` and plans naming
+// `PROJ-NNN` keys, and a `plot-host.sh` stub whose `issue-list` answers the
+// Jira shape (`number` is the KEY STRING, matching the adapter's own
+// `number: .key` — see `plot-host.sh`'s jira issue-list arm).
+
+/** A stub answering `issue-list` with the given open Jira keys. */
+const jiraIssueHost = (keys, { marker = '' } = {}) => `#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  issue-list)
+    ${marker ? `printf 'called\\n' >> '${marker}'` : ':'}
+${keys.map((k) => `    echo '{"number":"${k}","title":"t","url":"u"}'`).join('\n')}
+    ;;
+  pr-list) ;;
+  *) echo "{}" ;;
+esac
+exit 0
+`;
+
+/**
+ * A repository declaring `Tracker: jira`, with plans naming Jira keys instead
+ * of `#N`. Mirrors `issueFixture`'s shape (same phases, same "one open issue
+ * out of two" case) so the Jira arm is held to the same coverage as the
+ * default GitHub one, with `ticketPrefixes` optional for the scoping-note
+ * tests.
+ */
+const jiraIssueFixture = (hostBody, scanArgs = ['--no-fetch'], { ticketPrefixes = '' } = {}) => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-openissue-jira-'));
+  const origin = path.join(tmp, 'origin.git');
+  const repo = path.join(tmp, 'repo');
+  git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(tmp, 'clone', '-q', origin, repo);
+  git(repo, 'config', 'user.email', 'test@example.invalid');
+  git(repo, 'config', 'user.name', 'Plot Test');
+  git(repo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const p = path.join(repo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+  const plan = (phase, issue) =>
+    `## Status\n\n- **State:** ${phase}\n- **Type:** feature\n- **Issue:** ${issue}\n\n`;
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+- **Tracker:** jira
+${ticketPrefixes ? `- **Ticket prefixes:** ${ticketPrefixes}\n` : ''}`);
+
+  // PROJ-101 open → reported.
+  w('plans/2026-01-01-released-open.md', `# Released open\n\n${plan('Released', 'PROJ-101')}`);
+  // PROJ-103 absent from the stub's open list → closed → silent.
+  w('plans/2026-01-03-released-closed.md', `# Released closed\n\n${plan('Released', 'PROJ-103')}`);
+  // No key at all (neither `#N` nor `PROJ-NNN`) → unchecked, never silently clean.
+  w('plans/2026-01-04-released-nokey.md', `# Released no key\n\n${plan('Released', 'tbd')}`);
+
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'jira open-issue fixture');
+  git(repo, 'push', '-q', 'origin', 'main');
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-openissue-jira-shim-'));
+  shimScripts(shim);
+  const host = path.join(shim, 'scripts', 'plot-host.sh');
+  fs.writeFileSync(host, hostBody);
+  fs.chmodSync(host, 0o755);
+
+  git(repo, 'remote', 'set-url', 'origin', 'https://github.com/plot-pm/fixture.git');
+
+  const report = execFileSync('bash', [path.join(shim, 'scripts', 'plot-reconcile-scan.sh'), ...scanArgs],
+    { encoding: 'utf8', cwd: repo });
+  return { tmp, repo, shim, report, sections: splitSections(report) };
+};
+
+test('section 23 reports a Released plan whose Jira key is still open', () => {
+  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch'], { ticketPrefixes: 'PROJ' });
   try {
     const s = f.sections['23'];
-    assert.match(s, /\(not evaluated — plan Issue: numbers cannot be matched to Jira keys\)/,
-      `the Jira refusal's wording is unchanged:\n${s}`);
-    assert.match(s, /note: 4 finished plan\(s\) naming an issue went unchecked/,
-      `the note counts plans here too:\n${s}`);
-    assert.match(f.report, /open_issues=0/, 'a refused section counts zero findings');
-    const calls = callsTo(marker);
-    assert.ok(!calls.some((c) => c.startsWith('issue-list')),
-      `a Jira tracker is refused before the host is asked:\n${calls.join('\n')}`);
+    assert.match(s, /2026-01-01-released-open\.md — released, still open: #PROJ-101/,
+      `a Jira key matched against the tracker's open list is a finding:\n${s}`);
+    assert.match(f.report, /open_issues=1/, 'the counter sees the one open Jira key');
   } finally {
     fs.rmSync(f.tmp, { recursive: true, force: true });
     fs.rmSync(f.shim, { recursive: true, force: true });
-    fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+  }
+});
+
+test('section 23 is silent about a plan whose Jira key is closed', () => {
+  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch'], { ticketPrefixes: 'PROJ' });
+  try {
+    const s = f.sections['23'];
+    // PROJ-103 is absent from the stub's open list — closed, and silent, same
+    // as the GitHub numeric case.
+    assert.doesNotMatch(s, /2026-01-03-released-closed/,
+      `a closed Jira key is not a finding:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 counts a finished plan with no parseable key as unchecked, not clean', () => {
+  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch'], { ticketPrefixes: 'PROJ' });
+  try {
+    const s = f.sections['23'];
+    // `tbd` parses to no `#N` and no `PROJ-NNN` key, so `oi_claims` never
+    // names this plan at all — the plan carries no finding either way, which
+    // is correct: it is unchecked rather than falsely clean. The existing
+    // `oi_plans` count (what plan-meta sees as "names an issue") already
+    // excludes it, so the regression this guards is a parser that invents a
+    // key from `tbd` and reports a bogus finding or a bogus "still open".
+    assert.doesNotMatch(s, /2026-01-04-released-nokey/,
+      `a plan naming no parseable key must not appear as a finding either way:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 warns that an undeclared Ticket prefixes narrows a Jira answer to the caller\'s inbox', () => {
+  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch']);
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /note: Tracker: jira with no 'Ticket prefixes' declared asks only the caller's own open tickets/,
+      `the inbox-scoping trap must be named, not silently trusted:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 does not warn about Ticket prefixes once it is declared', () => {
+  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101']), ['--no-fetch'], { ticketPrefixes: 'PROJ' });
+  try {
+    const s = f.sections['23'];
+    assert.doesNotMatch(s, /Ticket prefixes/,
+      `a declared scope needs no caveat:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
   }
 });
 
