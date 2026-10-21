@@ -285,8 +285,7 @@ emit_tier() { # $1=file $2=heading regex → JSON array
   for ((i = 0; i < n; i++)); do
     [ $first -eq 1 ] || out="$out,"
     first=0
-    out="$out{\"slug\":\"$(jesc "${slugs[$i]}")\",\"text\":\"$(jesc "${texts[$i]}")\""
-    out="$out,\"checked\":${checkeds[$i]},\"delivered\":"
+    out="$out{\"slug\":\"$(jesc "${slugs[$i]}")\",\"text\":\"$(jesc "${texts[$i]}")\",\"checked\":${checkeds[$i]},\"delivered\":"
     # `true`/`false` are JSON booleans; `none` and `withdrawn` are words, so
     # they are quoted. The wire keeps the shell's own spelling either way — the
     # caller reads what was measured, not a status derived from it.
