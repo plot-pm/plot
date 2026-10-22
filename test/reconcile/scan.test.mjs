@@ -3868,12 +3868,12 @@ test('scan: section 22 counts zero and gates nothing when not evaluated', () => 
   assert.match(footer, /\battention=0\b/, `section 22 must not reach attention=:\n${footer}`);
 });
 
-test('scan: section 22 finds the ewz shape once "Shipped code paths" names it', () => {
-  // THE ROUND-TRIP: the same repo, same merge, but with the config key naming
-  // its own layout. This proves the guard does not just suppress everything —
-  // a repo that DOES keep .changeset/ and configures its own code paths still
-  // gets a real finding.
+// A repository that keeps changesets and names its own layout through the REAL
+// config file: one merge shipping backend code (PR #11), one touching only docs
+// and backend tests (PR #12). Neither carries a changeset. Returns section 22.
+const scanShippedPathsRepo = (shippedPathsValue) => {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nocsrepo2-'));
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nocsrepo2-shim-'));
   try {
     const origin = path.join(t, 'origin.git');
     const repo = path.join(t, 'repo');
@@ -3896,39 +3896,56 @@ test('scan: section 22 finds the ewz shape once "Shipped code paths" names it', 
 - **Plan directory:** plans/
 - **Active index:** plans/active/
 - **Delivered index:** plans/delivered/
-- **Shipped code paths:** ^(backend/.*/src/main/|frontend/)
+- **Shipped code paths:** ${shippedPathsValue}
 `);
     // A changeset seed so the top-level guard does not fire — this repo
-    // DOES keep changesets, it just has none on the merge under test.
+    // DOES keep changesets, it just has none on the merges under test.
     w('.changeset/seed-placeholder.md', "---\n'plot': patch\n---\n\nseed.\n");
     git(repo, 'add', '-A');
     git(repo, 'commit', '-q', '-m', 'configured fixture');
+
+    const mergeToMain = (branch, pr, files) => {
+      git(repo, 'checkout', '-q', '-b', branch, 'main');
+      for (const [rel, body] of Object.entries(files)) w(rel, body);
+      git(repo, 'add', '-A');
+      git(repo, 'commit', '-q', '-m', `work on ${branch}`);
+      git(repo, 'checkout', '-q', 'main');
+      git(repo, 'merge', '-q', '--no-ff', branch, '-m', `Merge pull request #${pr} from plot-pm/${branch}`);
+    };
+    mergeToMain('bug/ewz-shape', 11, { 'backend/app/src/main/java/App.java': 'class App {}\n' });
+    mergeToMain('docs/ewz-guide', 12, {
+      'docs/guide.md': '# Guide\n',
+      'backend/app/src/test/java/AppTest.java': 'class AppTest {}\n',
+    });
     git(repo, 'push', '-q', 'origin', 'main');
 
-    git(repo, 'checkout', '-q', '-b', 'bug/ewz-shape', 'main');
-    w('backend/app/src/main/java/App.java', 'class App {}\n');
-    git(repo, 'add', '-A');
-    git(repo, 'commit', '-q', '-m', 'work on bug/ewz-shape');
-    git(repo, 'checkout', '-q', 'main');
-    git(repo, 'merge', '-q', '--no-ff', 'bug/ewz-shape',
-      '-m', 'Merge pull request #11 from plot-pm/bug/ewz-shape');
-    git(repo, 'push', '-q', 'origin', 'main');
-
-    const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nocsrepo2-shim-'));
-    try {
-      shimScripts(shim);
-      const report = execFileSync('bash', [path.join(shim, 'scripts', 'plot-reconcile-scan.sh'), '--offline'],
-        { encoding: 'utf8', cwd: repo });
-      const sections = splitSections(report);
-      assert.match(sections['22'], /bug\/ewz-shape/,
-        `a named config path must let the guard find a real finding:\n${sections['22']}`);
-      assert.match(sections['22'], /PR #11/, 'the PR number is still lifted from the subject');
-    } finally {
-      fs.rmSync(shim, { recursive: true, force: true });
-    }
+    shimScripts(shim);
+    const report = execFileSync('bash', [path.join(shim, 'scripts', 'plot-reconcile-scan.sh'), '--offline'],
+      { encoding: 'utf8', cwd: repo });
+    return splitSections(report)['22'];
   } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
     fs.rmSync(t, { recursive: true, force: true });
   }
+};
+
+test('scan: section 22 finds the ewz shape once "Shipped code paths" names it', () => {
+  // THE ROUND-TRIP, with SKILL.md's documented example verbatim. The docs-and-
+  // tests merge is what tells the intended regex from a truncated one: `^`
+  // alone (what `plot-config.sh get` made of the value) reports it too.
+  const s22 = scanShippedPathsRepo('^(backend/.*/src/main/|frontend/)');
+  assert.match(s22, /bug\/ewz-shape/,
+    `a named config path must let the guard find a real finding:\n${s22}`);
+  assert.match(s22, /PR #11/, 'the PR number is still lifted from the subject');
+  assert.doesNotMatch(s22, /docs\/ewz-guide|PR #12/,
+    `a docs-and-tests merge ships no code under the configured pattern:\n${s22}`);
+});
+
+test('scan: section 22 says "not evaluated" for an invalid "Shipped code paths" pattern', () => {
+  const s22 = scanShippedPathsRepo('^(backend/');
+  assert.match(s22, /not evaluated — the 'Shipped code paths' pattern is invalid/,
+    `an invalid pattern matches nothing and must not read as clean:\n${s22}`);
+  assert.doesNotMatch(s22, /none — every merge/, 'the false-silent reading this section exists to refuse');
 });
 
 // ---------------------------------------------------------------------------

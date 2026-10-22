@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { mergeSubjectForms } from '../src/adapters/host/merge-subjects.js';
@@ -21,9 +22,9 @@ import { compareField, describingAs, type Disagreement, type Sides } from './com
  *
  * WHAT IS PINNED, AND WHAT IS NOT. The branch-extraction case arm
  * `plot-reconcile-scan.sh` added for Bitbucket's
- * `Merged in <branch> (pull request #<number>)` is reproduced verbatim as a
- * sourceable function so this file calls the real parameter expansion rather
- * than a paraphrase of it. The PR-NUMBER case arm is NOT pinned here:
+ * `Merged in <branch> (pull request #<number>)` is read out of the script's
+ * text and wrapped in a sourceable function, so this file runs the real
+ * parameter expansion and an edit to the script's arm reaches this test. The PR-NUMBER case arm is NOT pinned here:
  * `mergedBySubject` matches `<number>` only to anchor the pattern and never
  * returns it, so the rule names no PR number to compare the shell's `nc_pr`
  * against — a hand-rolled second regex standing in for "the rule" would be the
@@ -40,22 +41,31 @@ import { compareField, describingAs, type Disagreement, type Sides } from './com
 const SIDES: Sides = { left: 'rule', right: 'shell' };
 const report = describingAs(SIDES);
 
+const SCAN = new URL('../../../skills/plot/scripts/plot-reconcile-scan.sh', import.meta.url).pathname;
+
 /**
- * The Bitbucket branch-extraction case arm from `plot-reconcile-scan.sh`,
- * verbatim.
+ * The Bitbucket branch-extraction case arm, read from `plot-reconcile-scan.sh`:
+ * the line holding its `"Merged in "*" (pull request #"*)` pattern through the
+ * first line ending in `;;`, comment lines dropped.
  *
- * Sourced as a function rather than invoking the 3486-line script itself: the
- * script has no other sourceable entry point and running it whole would need a
- * git repository and a changeset-scan context the case arm itself never reads.
+ * @throws when the script holds no such arm, so a renamed or removed arm fails
+ *   here instead of comparing nothing.
  */
+const extractArm = (text: string): string => {
+  const lines = text.split('\n');
+  const from = lines.findIndex((l) => l.trim() === '"Merged in "*" (pull request #"*)');
+  const to = lines.findIndex((l, i) => i > from && l.trimEnd().endsWith(';;'));
+  if (from < 0 || to < 0) throw new Error(`no Bitbucket "Merged in" case arm in ${SCAN}`);
+  return lines.slice(from, to + 1).filter((l) => !l.trim().startsWith('#')).join('\n');
+};
+
+/** The arm wrapped as a function: one subject in, the branch it names (or '') out. */
 const BITBUCKET_BRANCH_ARM = `
 bitbucket_branch() {
   subj=$1
   nc_branch=""
   case "$subj" in
-    "Merged in "*" (pull request #"*)
-      nc_branch=\${subj#"Merged in "}
-      nc_branch=\${nc_branch%" (pull request #"*} ;;
+${extractArm(readFileSync(SCAN, 'utf8'))}
   esac
   printf '%s\\n' "$nc_branch"
 }

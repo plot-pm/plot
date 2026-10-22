@@ -2847,7 +2847,8 @@ CHANGESET_MERGE_WINDOW=${PLOT_CHANGESET_MERGE_WINDOW:-40}
 # THE DEFAULT IS PLOT'S OWN LAYOUT, so an adopting repository with a different
 # layout (ewz-kus-portal: `backend/…/src/main/java`, `frontend/`) names its own
 # paths via `## Plot Config` instead of reading `code=0` on every merge forever.
-nc_code_re=$(cfg "Shipped code paths" '^(packages/[^/]+/src/|skills/)')
+# `get-raw`: the value is a regex, and `get` strips `(...)` as prose.
+nc_code_re=$("$script_dir/plot-config.sh" get-raw "Shipped code paths" '^(packages/[^/]+/src/|skills/)')
 nc_out=""
 nc_ref="origin/$MAIN"
 git rev-parse -q --verify "$nc_ref" >/dev/null 2>&1 || nc_ref="$MAIN"
@@ -2864,6 +2865,10 @@ elif ! git cat-file -e "$nc_ref:.changeset" 2>/dev/null; then
   # working tree, same as the ref check above: a sparse checkout or an
   # uncommitted local .changeset/ must not change this answer.
   echo "  (not evaluated — this repository keeps no changesets)"
+elif nc_re_err=$(grep -E -e "$nc_code_re" 2>&1 </dev/null >/dev/null); [ $? -gt 1 ]; then
+  # AN INVALID PATTERN MATCHES NOTHING, so every merge would read `code=0` and
+  # the walk would print the same false "(none — …)" line as the guard above.
+  echo "  (not evaluated — the 'Shipped code paths' pattern is invalid: ${nc_re_err:-grep refused it})"
 else
   # The delivery spine, read once. Membership of `$m^1` in it is the fourth
   # exclusion, and a single `grep -qx` per merge beats a `rev-list` per merge.
@@ -2906,7 +2911,8 @@ else
       "Merged in "*" (pull request #"*)
         # Bitbucket Cloud's own form — `rules/merge-subject.ts`'s
         # `bitbucket: ['Merged in <branch> (pull request #<number>)']`, pinned
-        # against it by the corpus test rather than imported from it
+        # against it by `merge-subject-bitbucket.corpus.test.ts`, which reads
+        # this arm out of this file, rather than imported from it
         # (`docs/shell-and-domain.md`: a per-operator-command script duplicates
         # a domain rule, declared, rather than calling the bundle).
         nc_branch=${subj#"Merged in "}
@@ -2931,7 +2937,7 @@ else
 
     # Exclusion one: shipped code. A docs, test or fixture merge describes
     # nothing a release note would carry.
-    code=$(git diff --name-only "$base" "$m^2" 2>/dev/null | grep -cE "$nc_code_re")
+    code=$(git diff --name-only "$base" "$m^2" 2>/dev/null | grep -cE -e "$nc_code_re")
     [ "${code:-0}" -gt 0 ] || continue
 
     short=$(git rev-parse --short "$m" 2>/dev/null)
