@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #2148
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-10-20, Jan Wloka, plan-PR #2174 merged
 - **Started:** 2026-10-20, Jan Wloka, `bug/continue-route-increments-relaunches-across-two`
 - **Delivered:** 2026-10-20
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
