@@ -1,0 +1,1 @@
+../2026-10-22-board-hides-a-green-draft-slice.md
