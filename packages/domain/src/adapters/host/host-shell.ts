@@ -450,8 +450,8 @@ export const hostShell = (context: ShellContext): Host => {
     // dedicated Node helper minting separate credentials. Bitbucket has no
     // verified `bb` write for this (see `plot-host.sh`'s usage header) and
     // answers `unaskable`.
-    prComment: async (pr: number, body: string): Promise<PortResult<true>> => {
-      const run = await runProcess('bash', [host, 'pr-comment', String(pr), body], inRepo);
+    prComment: async (pr: number, body: string, marker?: string): Promise<PortResult<true>> => {
+      const run = await runProcess('bash', [host, 'pr-comment', String(pr), body, ...(marker === undefined ? [] : [marker])], inRepo);
       return record(run, () => true as const);
     },
 

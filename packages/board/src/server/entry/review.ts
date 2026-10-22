@@ -338,6 +338,9 @@ const PR_COMMENT_BYTES = 65536;
 
 const utf8Bytes = (text: string): number => Buffer.byteLength(text, 'utf8');
 
+/** The marker one PR's findings comment carries, so a later run edits it instead of posting a second. */
+const findingsMarker = (pr: number): string => `<!-- plot-review-findings pr-${pr} -->`;
+
 /**
  * The PR comment that carries a review's findings, cut to {@link PR_COMMENT_BYTES}.
  *
@@ -477,8 +480,9 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   const issueUrl = followUp?.ok === true ? followUp.url : null;
   if (followUp?.ok === false) {
     lines.push(`plot-review: the follow-up issue was not opened: ${followUp.why}`);
-    const body = prCommentBody((v) => followUpIssue(pr.number, sha, pr.url, counts, v, run).body, verdictText, verdictFile);
-    const posted = await deps.host.prComment(pr.number, body);
+    const marker = findingsMarker(pr.number);
+    const body = prCommentBody((v) => `${marker}\n${followUpIssue(pr.number, sha, pr.url, counts, v, run).body}`, verdictText, verdictFile);
+    const posted = await deps.host.prComment(pr.number, body, marker);
     if (!posted.ok) {
       const why = posted.why === 'unaskable'
         ? posted.reason ?? 'this git host cannot take PR comments'

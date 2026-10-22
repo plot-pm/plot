@@ -71,11 +71,11 @@ export interface HostFixture {
    */
   reviews?: Readonly<Record<number, PrReviewReading>>;
   /**
-   * Where every `prComment` write is recorded, in call order.
+   * The PR comments `prComment` leaves, in post order.
    *
-   * Same reasoning as {@link commitStatuses}: a test proving a comment was
-   * posted with a specific body needs the attempt itself, not just whether it
-   * succeeded.
+   * A call with a `marker` replaces the comment on that PR holding it, so the
+   * array's length proves a repeated call edited rather than stacked. A call
+   * without one appends, as every attempt did before markers.
    */
   prComments?: { pr: number; body: string }[];
   /**
@@ -190,12 +190,15 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
       return reading === undefined ? failed() : answered(reading);
     },
 
-    prComment: async (pr: number, body: string): Promise<PortResult<true>> => {
-      // RECORDED BEFORE IT REFUSES, as `commitStatus` records before failing:
-      // a test proving a second call wrote nothing must still see the attempt.
-      prComments.push({ pr, body });
-      if (fixture.prCommentUnaskable === true) return unaskable();
-      if (fixture.prCommentFails === true) return failed();
+    prComment: async (pr: number, body: string, marker?: string): Promise<PortResult<true>> => {
+      // A refused call is still recorded as an attempt, as `commitStatus` does.
+      if (fixture.prCommentUnaskable === true || fixture.prCommentFails === true) {
+        prComments.push({ pr, body });
+        return fixture.prCommentUnaskable === true ? unaskable() : failed();
+      }
+      const held = marker === undefined || marker === '' ? -1 : prComments.findIndex((c) => c.pr === pr && c.body.includes(marker));
+      if (held >= 0) prComments[held] = { pr, body };
+      else prComments.push({ pr, body });
       return answered(true);
     },
 

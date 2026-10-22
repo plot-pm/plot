@@ -384,6 +384,13 @@ describe('prComment', () => {
     expect(answer).toEqual({ ok: true, value: true });
   });
 
+  it('passes the marker as a third argument only when one is given', async () => {
+    const answer = await hostShell(
+      hostThat('[ "$3" = "b" ] && [ "$4" = "<!-- m -->" ] && [ $# = 4 ] || exit 1'),
+    ).prComment(7, 'b', '<!-- m -->');
+    expect(answer).toEqual({ ok: true, value: true });
+  });
+
   it('reads exit 3 as failed with the host’s words, and exit 4 as unaskable', async () => {
     const failing = hostShell(hostThat('echo "plot-host: HTTP 403" >&2; exit 3'));
     expect(await failing.prComment(7, 'b')).toEqual({ ok: false, why: 'failed' });

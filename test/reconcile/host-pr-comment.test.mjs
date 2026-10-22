@@ -73,3 +73,42 @@ test('pr-comment: Bitbucket exits 4, names the backend, and calls neither CLI', 
   assert.match(got.err, /pr-comment: bitbucket has no verified pr-comment write/);
   assert.doesNotMatch(callLog(box), /^(gh|bb) pr comment/m);
 });
+
+/** A `gh` whose comment list answers `comments` and whose every other call exits 0. */
+const listing = (comments) => ({
+  ghTail: `[ "$1 $2" = "api --paginate" ] && echo '${JSON.stringify(comments)}'; exit 0`,
+});
+
+test('pr-comment: a marker held by an earlier comment edits that comment and posts nothing', async () => {
+  const box = sandbox(listing([{ id: 11, body: 'other' }, { id: 12, body: 'old <!-- m -->' }]));
+  const got = await prComment(box, 'github', ['7', 'new <!-- m -->', '<!-- m -->']);
+  assert.equal(got.code, 0, got.err);
+  assert.match(callLog(box), /^gh api -X PATCH repos\/\{owner\}\/\{repo\}\/issues\/comments\/12 -f body=new <!-- m -->$/m);
+  assert.doesNotMatch(callLog(box), /^gh pr comment/m);
+});
+
+test('pr-comment: a marker no comment holds posts, and so does a PR with no comments', async () => {
+  for (const comments of [[{ id: 11, body: 'other' }], []]) {
+    const box = sandbox(listing(comments));
+    const got = await prComment(box, 'github', ['7', 'first <!-- m -->', '<!-- m -->']);
+    assert.equal(got.code, 0, got.err);
+    assert.match(callLog(box), /^gh pr comment 7 --body first <!-- m -->$/m);
+    assert.doesNotMatch(callLog(box), /PATCH/);
+  }
+});
+
+test('pr-comment: a failed edit exits 3 and posts nothing beside it', async () => {
+  const box = sandbox({
+    ghTail: `[ "$1 $2" = "api --paginate" ] && echo '[{"id":12,"body":"<!-- m -->"}]' && exit 0\n[ "$2" = "-X" ] && { echo "HTTP 403" >&2; exit 1; }\nexit 0`,
+  });
+  const got = await prComment(box, 'github', ['7', 'b <!-- m -->', '<!-- m -->']);
+  assert.equal(got.code, 3);
+  assert.doesNotMatch(callLog(box), /^gh pr comment/m);
+});
+
+test('pr-comment: Bitbucket with a marker still exits 4 and reads nothing', async () => {
+  const box = sandbox();
+  const got = await prComment(box, 'bitbucket', ['7', 'b', '<!-- m -->']);
+  assert.equal(got.code, 4);
+  assert.equal(callLog(box), '');
+});
