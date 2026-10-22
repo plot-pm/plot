@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #1845
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-16, Jan Wloka, `bug/the-settled-walk-survives-a-burst`
 - **Started:** 2026-10-16, Jan Wloka, `bug/the-design-commit-key-matches-a-real-plan`
 - **Delivered:** 2026-10-17
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
