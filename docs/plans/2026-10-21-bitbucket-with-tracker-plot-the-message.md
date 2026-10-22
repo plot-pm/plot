@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2216
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-21, Jan Wloka, `bug/bitbucket-with-tracker-plot-the-message`
 - **Started:** 2026-10-21, Jan Wloka, `bug/bitbucket-with-tracker-plot-adoption`
 - **Delivered:** 2026-10-21
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
