@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2327 merged
+- **Started:** 2026-10-22, Jan Wloka, `bug/release-gate-labels-must-haves-by`
 
 ## Changelog
 
