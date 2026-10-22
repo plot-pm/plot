@@ -154,11 +154,13 @@ test('the test fails against the unfixed script, read as only the first PR of a 
   const broken = tmp('unfixed-multi-pr-script');
   const brokenScript = path.join(broken, 'plot-review-status.sh');
   const original = fs.readFileSync(script, 'utf8');
+  const fixedLine = /PRS=\$\(echo "\$ANNOTATION" \| awk '[^\n]*' \|\| echo ""\)/;
+  assert.match(original, fixedLine, 'the fix line must be present to revert in this test');
   const reverted = original.replace(
-    /PRS=\$\(echo "\$ANNOTATION" \| awk[^\n]*\n\s*PR=\$\(echo "\$PRS" \| head -1\)\n\s*PRS_JSON=\$\(echo "\$PRS" \| jq -R -s 'split\("\\n"\) \| map\(select\(length > 0\)\)'\)/,
-    'PR=$(echo "$ANNOTATION" | grep -oE \'pr: #[0-9]+\' | grep -oE \'[0-9]+\' || echo "")\n  PRS_JSON=$(jq -n --arg pr "${PR:-}" \'if $pr == "" then [] else [$pr] end\')',
+    fixedLine,
+    'PRS=$(echo "$ANNOTATION" | grep -oE \'pr: #[0-9]+\' | grep -oE \'[0-9]+\' || echo "")',
   );
-  assert.notEqual(reverted, original, 'the fix lines must be present to revert in this test');
+  assert.notEqual(reverted, original, 'the fix line must be present to revert in this test');
   fs.writeFileSync(brokenScript, reverted);
   fs.chmodSync(brokenScript, 0o755);
 

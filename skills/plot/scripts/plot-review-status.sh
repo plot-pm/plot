@@ -51,8 +51,6 @@ while IFS= read -r line; do
   # numbers out: a single `#[0-9]+` grep over the whole annotation cannot
   # tell which key a digit belongs to.
   PRS=$(echo "$ANNOTATION" | awk 'BEGIN{RS=","} match($0,/[a-z_]+:/){k=substr($0,RSTART,RLENGTH-1)} k=="pr"{n=$0;while(match(n,/#[0-9]+/)){v=substr(n,RSTART+1,RLENGTH-1);if(!(v in seen)){seen[v]=1;print v};n=substr(n,RSTART+RLENGTH)}}' || echo "")
-  PR=$(echo "$PRS" | head -1)
-  PRS_JSON=$(echo "$PRS" | jq -R -s 'split("\n") | map(select(length > 0))')
   BRANCH=$(echo "$ANNOTATION" | grep -oE 'branch: [^ ,>]+' | sed 's/branch: //' || echo "")
   REVIEWED_AT=$(echo "$ANNOTATION" | grep -oE 'reviewed_at: [^ ,>]+' | sed 's/reviewed_at: //' || echo "")
   REVIEW_SHA=$(echo "$ANNOTATION" | grep -oE 'review_sha: [^ ,>]+' | sed 's/review_sha: //' || echo "")
@@ -73,14 +71,14 @@ while IFS= read -r line; do
 
   RESULT="${RESULT}$(jq -n \
     --arg slug "$ITEM_SLUG" \
-    --arg pr "${PR:-none}" \
-    --argjson prs "$PRS_JSON" \
+    --arg prs_raw "$PRS" \
     --arg branch "$BRANCH" \
     --arg reviewed_at "$REVIEWED_AT" \
     --arg review_sha "$REVIEW_SHA" \
     --arg head_sha "$HEAD_SHA" \
     --argjson needs_review "$NEEDS_REVIEW" \
-    '{slug: $slug, pr: $pr, prs: $prs, branch: $branch, reviewed_at: $reviewed_at, review_sha: $review_sha, head_sha: $head_sha, needs_review: $needs_review}'
+    '($prs_raw | split("\n") | map(select(length > 0))) as $prs
+     | {slug: $slug, pr: ($prs[0] // "none"), prs: $prs, branch: $branch, reviewed_at: $reviewed_at, review_sha: $review_sha, head_sha: $head_sha, needs_review: $needs_review}'
   )"
 done < "$SPRINT_FILE"
 
