@@ -56,6 +56,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [x] [the-ticket-index-updates-incrementally-and] The ticket index updates incrementally and takes Plot's own issue writes at once (#1856)
 - [x] [ticket-rows-show-type-and-owner] Ticket rows show type and owner under one "Assigned to you" sub-header (#1837)
 - [x] [one-review-issue-per-pr-a] Tooling: one review issue per PR, a sprint goal the board reads, and a pid read that waits (#1952: #1881, #1883, #1909)
+- [ ] [board-hides-a-green-draft-slice] Board hides a green draft slice PR that waits for a person to mark it ready (#2319)
 
 ### Could Have
 
@@ -93,3 +94,4 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - 2026-10-21: Added [reconcile-on-bitbucket-reads-merged-branches] as Must by Jan Wloka: the sixth ewz-kus-portal field test found a merged branch reported as an orphan past the first 50 merged PRs (#2282).
 - 2026-10-21: Added [jenkins-run-for-sha-on-the] and [plot-review-status-sh-exits-1] as Must by Jan Wloka: the sixth ewz-kus-portal field test found them (#2278, #2280).
 - 2026-10-22: Added [fleet-work-leaves-the-main-checkout] as Must by Jan Wloka: fleet work left the board's checkout with 22 stale tracked files and a desk's draft, so the board showed delivered plans as in progress (#2311).
+- 2026-10-22: Added [board-hides-a-green-draft-slice] as Should: the board showed no row for draft PR #2310 while its CI was green and it waited only for a person to mark it ready (#2319).
