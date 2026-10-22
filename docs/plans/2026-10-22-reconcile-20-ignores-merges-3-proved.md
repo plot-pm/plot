@@ -48,7 +48,7 @@ Issue: https://github.com/plot-pm/plot/issues/2325. Follow-up to `2026-10-21-rec
 
 ### Shared merge answer and applied limit
 
-- `bug/reconcile-20-ignores-merges-3-proved` — §20 reads the per-branch merge answers §3 bought, and both truncation notes name the limit the host applied <!-- builds: a per-branch merged-answer record shared by reconcile §3 and §20, and an applied-limit signal from plot-host.sh for the merged-PR list -->
+- `bug/reconcile-20-ignores-merges-3-proved` — §20 reads the per-branch merge answers §3 bought, and both truncation notes name the limit the host applied <!-- builds: a per-branch merged-answer record shared by reconcile §3 and §20, and an applied-limit signal from plot-host.sh for the merged-PR list --> → #2339
 
 ## Notes
 
