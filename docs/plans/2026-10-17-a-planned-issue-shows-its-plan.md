@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:**
 - **Issue:** #1979
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1985 merged
 - **Started:** 2026-10-17, Jan Wloka, `feature/issue-plan-state-write`
 - **Delivered:** 2026-10-18
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
