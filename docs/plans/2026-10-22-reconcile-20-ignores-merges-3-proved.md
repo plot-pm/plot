@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2325
@@ -14,6 +14,7 @@
 - **Rounds:**
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2332 merged
 - **Started:** 2026-10-22, Jan Wloka, `bug/reconcile-20-ignores-merges-3-proved`
+- **Delivered:** 2026-10-22
 
 ## Changelog
 
