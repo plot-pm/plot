@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2022
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-18, Jan Wloka, plan-PR #2023 merged
 - **Started:** 2026-10-18, Jan Wloka, `bug/planned-ticket-phase`
 - **Delivered:** 2026-10-18
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
