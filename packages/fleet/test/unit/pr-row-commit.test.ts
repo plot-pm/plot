@@ -209,14 +209,37 @@ describe('the re-ask is bounded by time and covers failing', () => {
     expect(reasks(f)).toHaveLength(PR_PENDING_REASK_LIMIT);
     expect(state.prPendingReaskStreak.get(1)).toBe(PR_PENDING_REASK_LIMIT);
   });
+});
 
-  it('does not re-ask a draft PR', async () => {
+describe('a draft PR is re-asked like any open PR', () => {
+  // THE #2310 SHAPE: stored `pending`, draft, and the host's re-ask says green.
+  // The two arms disagree, so a refresh that never re-asks a draft leaves the
+  // row `pending`.
+  it('replaces a stored pending draft with the host green reading', async () => {
     const clock = { t: T0 };
-    const seed = fake(() => [base(1, { checks: 'pending', draft: true, headSha: SHA })], () => []);
+    const seed = fake(() => [base(1, { draft: true, checks: 'pending', headSha: SHA })], () => []);
     await pass(worldOf(seed, clock), freshPrState());
-    const f = fake(() => [], () => [base(1, { checks: 'pending', draft: true, headSha: SHA })]);
+
+    const f = fake(() => [], () => [base(1, { draft: true, checks: 'green', headSha: SHA })]);
+    const w = worldOf(f, clock);
+    clock.t += 60_000;
+    await pass(w, freshPrState());
+
+    expect(reasks(f)).toHaveLength(1);
+    const row = (await stored(w)).find((r) => r.number === 1)!;
+    expect(row.checks).toBe('green');
+    expect(row.draft).toBe(true);
+  });
+
+  it('does not re-ask a stored green draft', async () => {
+    const clock = { t: T0 };
+    const seed = fake(() => [base(1, { draft: true, checks: 'green', headSha: SHA })], () => []);
+    await pass(worldOf(seed, clock), freshPrState());
+
+    const f = fake(() => [], () => []);
     clock.t += 60_000;
     await pass(worldOf(f, clock), freshPrState());
+
     expect(reasks(f)).toHaveLength(0);
   });
 });

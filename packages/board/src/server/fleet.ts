@@ -60,6 +60,7 @@ import {
   type IssueIndexRow,
   draftPlacement,
   prRowPlacement,
+  awaitsMarkReady,
   prChecksSuppressedByMerge,
   waitingTickets,
   type TicketPlan,
@@ -3715,6 +3716,12 @@ function classifyGroup(
     const placement = prRowPlacement({ mergeable: pr.mergeable, checks: pr.checks });
     // A green draft keeps its fall-through: still the author's, not yours, so
     // nothing returns here and the function reads on to the arms below.
+    //
+    // EXCEPT WHERE NO AGENT IS LIVE: a green draft whose desk finished waits only
+    // for a person to mark it ready, and nothing else on the board shows it.
+    if (awaitsMarkReady({ draft: pr.draft, mergeable: pr.mergeable, checks: pr.checks, worker })) {
+      return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, draft, green — mark ready`, note) };
+    }
     if (!(placement.clause === 'green' && pr.draft)) {
       const sentence =
         placement.clause === 'green' ? `PR #${pr.number} green` : `PR #${pr.number}, ${placement.clause}`;

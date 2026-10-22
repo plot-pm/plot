@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { prRowPlacement, prChecksSuppressedByMerge, type PrRowReadings } from '../src/rules/pr-row.js';
+import { prRowPlacement, prChecksSuppressedByMerge, awaitsMarkReady, type PrRowReadings } from '../src/rules/pr-row.js';
 
 const readings = (over: Partial<PrRowReadings> = {}): PrRowReadings => ({
   mergeable: 'mergeable',
@@ -100,5 +100,35 @@ describe('prChecksSuppressedByMerge', () => {
   it('answers false for an open or closed PR', () => {
     expect(prChecksSuppressedByMerge('OPEN')).toBe(false);
     expect(prChecksSuppressedByMerge('CLOSED')).toBe(false);
+  });
+});
+
+describe('awaitsMarkReady', () => {
+  const shape = { draft: true, mergeable: 'mergeable', checks: 'green', worker: 'finished' };
+
+  it('is true for a green draft whose desk finished — the #2310 shape', () => {
+    expect(awaitsMarkReady(shape)).toBe(true);
+  });
+
+  it('is true when no worker process exists', () => {
+    expect(awaitsMarkReady({ ...shape, worker: 'none' })).toBe(true);
+  });
+
+  it.each(['running', 'waiting', 'failed', 'ended', 'stalled', 'elsewhere'])(
+    'is false while the worker state is %s', (worker) => {
+      expect(awaitsMarkReady({ ...shape, worker })).toBe(false);
+    },
+  );
+
+  it('is false for a ready PR — nothing is left to mark', () => {
+    expect(awaitsMarkReady({ ...shape, draft: false })).toBe(false);
+  });
+
+  it.each(['pending', 'failing', 'none', 'unknown'])('is false for a draft whose checks read %s', (checks) => {
+    expect(awaitsMarkReady({ ...shape, checks })).toBe(false);
+  });
+
+  it('is false for a green draft that conflicts', () => {
+    expect(awaitsMarkReady({ ...shape, mergeable: 'conflicting' })).toBe(false);
   });
 });

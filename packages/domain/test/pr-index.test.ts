@@ -422,8 +422,12 @@ describe('the numbers a delta re-asks about', () => {
     expect(pendingOpenPrNumbers(store([row(1, { state: 'OPEN', checks: 'failing' })]))).toEqual([1]);
   });
 
-  it('does not return a draft PR', () => {
-    expect(pendingOpenPrNumbers(store([row(1, { state: 'OPEN', draft: true, checks: 'pending' })]))).toEqual([]);
+  it('returns a draft PR whose stored checks are pending — the #2310 shape', () => {
+    expect(pendingOpenPrNumbers(store([row(1, { state: 'OPEN', draft: true, checks: 'pending' })]))).toEqual([1]);
+  });
+
+  it('does not return a stored green draft PR', () => {
+    expect(pendingOpenPrNumbers(store([row(1, { state: 'OPEN', draft: true, checks: 'green' })]))).toEqual([]);
   });
 
   it('does not return a stored pending MERGED PR', () => {
