@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Plot helper: read a key from the adopting project's `## Plot Config`.
 # Usage: plot-config.sh get <key> [default]
+#        plot-config.sh get-raw <key> [default]
 # Output: the configured value, or the default (possibly empty). Exit 0 always
 #         for `get` — missing file, missing section, and missing key all fall
 #         back to the default so callers can rely on the output unconditionally.
@@ -19,7 +20,9 @@
 #     - **Plan directory:** `docs/plans/` (with a backticked value + prose note)
 #     - **Branch prefixes:** `idea/` (plans), `feature/`, `bug/`   (list + prose)
 # Backticks (markdown decoration) and `(...)` (human prose) are stripped from
-# the value; no documented key's value legitimately contains either. Lines
+# the value, and a comma gains one following space. `get-raw` strips the
+# backticks only, for a key whose value is a pattern — `Shipped code paths`
+# holds an extended regex, where `(` and `,` are syntax. Lines
 # outside the `## Plot Config` section never match (no prose false positives),
 # and neither do HTML-commented example lines.
 #
@@ -192,6 +195,10 @@
 #                       the project's own vocabulary (`Bug`, `Task`). Absent or
 #                       empty = `Task`. The issue opens in the first project
 #                       `Ticket prefixes` names.
+#   Shipped code paths  an extended regex over repo-relative paths; a merge
+#                       that changes a matching path ships code, and reconcile
+#                       section 22 asks it for a changeset. Read with `get-raw`.
+#                       Default `^(packages/[^/]+/src/|skills/)`, Plot's layout.
 #   Ticket prefixes     the tracker project keys this repository's work lives
 #                       in, comma-separated (`PROJ-A, PROJ-B`). NOT
 #                       `Branch prefixes`, which sits next to it and holds
@@ -253,11 +260,13 @@
 
 set -uo pipefail
 
-cmd="${1:?Usage: plot-config.sh get <key> [default]}"
-key="${2:?Usage: plot-config.sh get <key> [default]}"
+cmd="${1:?Usage: plot-config.sh get|get-raw <key> [default]}"
+key="${2:?Usage: plot-config.sh get|get-raw <key> [default]}"
 default="${3:-}"
 
-[ "$cmd" = "get" ] || { echo "plot-config: unknown subcommand '$cmd' (only 'get' is supported)" >&2; exit 1; }
+# Parenthetical prose, markdown backticks, list separators — in that order.
+prose='s/\([^)]*\)//g; s/`//g; s/[[:space:]]*,[[:space:]]*/, /g;'
+case "$cmd" in get) ;; get-raw) prose='s/`//g;' ;; *) echo "plot-config: unknown subcommand '$cmd' (only 'get' and 'get-raw' are supported)" >&2; exit 1 ;; esac
 
 # THE CALLER'S ROOT IS TAKEN WHERE IT OFFERS ONE. `git rev-parse` is ~5 ms and
 # this script runs once per config key, so a caller reading several keys pays
@@ -291,21 +300,18 @@ if [ -n "$config_file" ]; then
     /^##[[:space:]]/ { in_section = (tolower($0) ~ /^##[[:space:]]+plot config[[:space:]]*$/) ; next }
     in_section { print }
   ' "$config_file")
-  # Value extraction. A documented key's value is a path, a prefix list, or an
-  # owner/number — none of which legitimately contain backticks or parentheses.
-  # So we can uniformly treat backticks as markdown decoration and `(...)` as
-  # human prose, stripping both. This tolerates real-world config written like
+  # Value extraction. `get` treats backticks as markdown decoration and `(...)`
+  # as human prose, stripping both, so real-world config written like
   #     - **Plan directory:** `docs/plans/` (date-prefixed, never moved)
   #     - **Branch prefixes:** `idea/` (plans), `feature/`, `bug/`, `docs/`
-  # without truncating multi-value lists to their first backtick span.
+  # reads without truncating a multi-value list to its first backtick span.
+  # `get-raw` strips only the backticks, so a regex keeps its groups and quantifiers.
   value=$(printf '%s\n' "$section" \
     | grep -m1 -iE "^[[:space:]]*[-*]?[[:space:]]*\**${key}[:*]" \
     | sed -E '
         s/^[^:]*:[[:space:]]*//;               # drop list marker, bold, "key:"
         s/^\**[[:space:]]*//;                   # drop leading bold before value
-        s/\([^)]*\)//g;                         # drop parenthetical prose
-        s/`//g;                                 # drop markdown backticks
-        s/[[:space:]]*,[[:space:]]*/, /g;       # normalize list separators
+        '"$prose"'
         s/[[:space:]]+/ /g;                     # collapse internal whitespace
         s/^[[:space:]]+//; s/[[:space:]]+$//')  # trim ends
 fi

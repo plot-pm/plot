@@ -45,9 +45,7 @@ usage() {
 [ -f "$bundle" ] \
   || { echo "plot-sprint-state: cannot find $bundle — run 'pnpm build:board'." >&2; exit 1; }
 
-if [ "${1:-}" = "--states" ]; then
-  exec node "$bundle" --states
-fi
+[ "${1:-}" = "--states" ] && exec node "$bundle" --states
 
 slug="${1:-}"
 state="${2:-}"
@@ -65,9 +63,7 @@ while [ $# -gt 0 ]; do
 done
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-if [ -z "$sprint_dir" ]; then
-  sprint_dir="$(bash "$script_dir/plot-config.sh" get "Sprint directory" "docs/sprints")"
-fi
+[ -z "$sprint_dir" ] && sprint_dir="$(bash "$script_dir/plot-config.sh" get "Sprint directory" "docs/sprints")"
 case "$sprint_dir" in /*) ;; *) sprint_dir="$repo_root/$sprint_dir" ;; esac
 
 # The slug is the filename without its week prefix — the identity

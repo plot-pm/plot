@@ -113,6 +113,29 @@ test('config: real-world backtick + prose values (cpq-cds style)', () => {
   }
 });
 
+test('config: get-raw keeps a regex value whole, get still strips prose', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-config-raw-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), `# raw
+
+## Plot Config
+
+- **Shipped code paths:** ^(backend/.*/src/main/|frontend/)
+- **Quantified paths:** \`^src/[a-z]{1,3}/(x|y)\`
+- **Branch prefixes:** \`idea/\` (plans), \`feature/\`
+`);
+    const run = (verb, k) =>
+      execFileSync('bash', [accessor, verb, k], { encoding: 'utf8', cwd: dir }).trimEnd();
+    assert.equal(run('get-raw', 'Shipped code paths'), '^(backend/.*/src/main/|frontend/)');
+    assert.equal(run('get-raw', 'Quantified paths'), '^src/[a-z]{1,3}/(x|y)');
+    // `get` is unchanged: the same value loses its group, which is why the scan reads it raw.
+    assert.equal(run('get', 'Shipped code paths'), '^');
+    assert.equal(run('get', 'Branch prefixes'), 'idea/, feature/');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // The `Plan template` key drives /plot-idea's template resolution: a project
 // that declares it uses its own template; otherwise the shipped default is used.
 // This is the whole override mechanism — no bespoke resolver.
