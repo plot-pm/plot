@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2248
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2252 merged
 - **Started:** 2026-10-21, Jan Wloka, `bug/sprint-release-comparison-drops-must-haves`
 - **Delivered:** 2026-10-21
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
