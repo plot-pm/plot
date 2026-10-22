@@ -376,6 +376,22 @@ describe('prReview', () => {
   });
 });
 
+describe('prComment', () => {
+  it('passes the PR number and the body as one argument, and reads exit 0 as written', async () => {
+    const answer = await hostShell(
+      hostThat('[ "$1 $2" = "pr-comment 7" ] && [ "$3" = "two words" ] && [ $# = 3 ] || exit 1'),
+    ).prComment(7, 'two words');
+    expect(answer).toEqual({ ok: true, value: true });
+  });
+
+  it('reads exit 3 as failed with the host’s words, and exit 4 as unaskable', async () => {
+    const failing = hostShell(hostThat('echo "plot-host: HTTP 403" >&2; exit 3'));
+    expect(await failing.prComment(7, 'b')).toEqual({ ok: false, why: 'failed' });
+    expect(failing.lastRefusal()?.said).toBe('plot-host: HTTP 403');
+    expect(await hostShell(hostThat('exit 4')).prComment(7, 'b')).toEqual({ ok: false, why: 'unaskable' });
+  });
+});
+
 describe('the host’s words are read against what the entity allows', () => {
   /** One PR row as the host prints it, with everything the mapper reads. */
   const fullPr = {

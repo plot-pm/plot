@@ -329,6 +329,44 @@ const openFollowUp = async (
 };
 
 /**
+ * The most UTF-8 bytes a PR comment body may hold. GitHub caps a comment at
+ * 65,536 characters, and a character is at least one byte, so a byte cap of the
+ * same number holds under it. It also keeps the body, which reaches `gh` as one
+ * argv string, under Linux's 128 KiB limit for a single argument.
+ */
+const PR_COMMENT_BYTES = 65536;
+
+const utf8Bytes = (text: string): number => Buffer.byteLength(text, 'utf8');
+
+/**
+ * The PR comment that carries a review's findings, cut to {@link PR_COMMENT_BYTES}.
+ *
+ * Only the verdict text is cut, at a code-point boundary, so the counts line
+ * and the closing `run` marker always survive. A cut comment names the verdict
+ * file by its basename: the full path is the reviewing machine's and a PR
+ * reader cannot open it.
+ *
+ * @param text - builds the comment from a (possibly cut) verdict text.
+ * @param verdictText - the reviewer's final answer, verbatim.
+ * @param verdictFile - the local path holding the uncut verdict.
+ * @returns the comment body, at most {@link PR_COMMENT_BYTES} UTF-8 bytes.
+ */
+const prCommentBody = (text: (verdict: string) => string, verdictText: string, verdictFile: string): string => {
+  const whole = text(verdictText);
+  if (utf8Bytes(whole) <= PR_COMMENT_BYTES) return whole;
+  const note = `\n\n…truncated; the full verdict is in ${path.basename(verdictFile)} under the reviewing machine's plot/state/reviews/`;
+  const room = PR_COMMENT_BYTES - utf8Bytes(text('')) - utf8Bytes(note);
+  let kept = '';
+  let used = 0;
+  for (const point of verdictText.trim()) {
+    used += utf8Bytes(point);
+    if (used > room) break;
+    kept += point;
+  }
+  return text(kept + note);
+};
+
+/**
  * Runs one review.
  *
  * @param deps - the ports and file operations.
@@ -437,7 +475,17 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   const state = counts.high === 0 ? 'success' : 'failure';
   const description = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH finding${counts.high === 1 ? '' : 's'}`;
   const issueUrl = followUp?.ok === true ? followUp.url : null;
-  if (followUp?.ok === false) lines.push(`plot-review: the follow-up issue was not opened: ${followUp.why}`);
+  if (followUp?.ok === false) {
+    lines.push(`plot-review: the follow-up issue was not opened: ${followUp.why}`);
+    const body = prCommentBody((v) => followUpIssue(pr.number, sha, pr.url, counts, v, run).body, verdictText, verdictFile);
+    const posted = await deps.host.prComment(pr.number, body);
+    if (!posted.ok) {
+      const why = posted.why === 'unaskable'
+        ? posted.reason ?? 'this git host cannot take PR comments'
+        : deps.host.lastRefusal()?.said ?? 'the host answered failed with no reason';
+      lines.push(`plot-review: the findings were not posted on the PR: ${why}; they are only in ${verdictFile}`);
+    }
+  }
   const uncommented = followUp?.ok === true ? followUp.uncommented : undefined;
   if (uncommented !== undefined) lines.push(`plot-review: the verdict was not commented: ${uncommented.why}`);
   const commented = followUp?.ok === true && followUp.commented;
