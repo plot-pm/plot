@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2084
@@ -15,6 +15,7 @@
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2091 merged
 - **Started:** 2026-10-19, Jan Wloka, `bug/a-click-on-a-plan-story`
 - **Delivered:** 2026-10-19
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
