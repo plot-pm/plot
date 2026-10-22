@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2311
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2312 merged
 - **Started:** 2026-10-22, Jan Wloka, `bug/main-checkout-writers-measured`
 - **Started:** 2026-10-22, Jan Wloka, `bug/main-checkout-stays-clean`
+- **Delivered:** 2026-10-22
 
 ## Changelog
 
