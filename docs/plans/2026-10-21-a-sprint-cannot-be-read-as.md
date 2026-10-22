@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2212
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-21, Jan Wloka, `feature/jira-version-read`
 - **Started:** 2026-10-21, Jan Wloka, `feature/sprint-reads-jira-release`
 - **Delivered:** 2026-10-21
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
