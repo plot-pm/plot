@@ -49,7 +49,7 @@ Issue: https://github.com/plot-pm/plot/issues/2345. Related, Delivered: `2026-09
 
 ### Honest report for repositories without changesets
 
-- `bug/reconcile-22-reports-every-merge-carried` — §22 prints "not evaluated" when the repository keeps no changesets, takes shipped-code paths from the repository, and parses Bitbucket merge subjects <!-- builds: a repository-supplied shipped-code path pattern and a keeps-no-changesets guard for reconcile §22 -->
+- `bug/reconcile-22-reports-every-merge-carried` — §22 prints "not evaluated" when the repository keeps no changesets, takes shipped-code paths from the repository, and parses Bitbucket merge subjects <!-- builds: a repository-supplied shipped-code path pattern and a keeps-no-changesets guard for reconcile §22 --> → #2353
 
 ## Notes
 
