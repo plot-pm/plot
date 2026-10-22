@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2155
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-20, Jan Wloka, plan-PR #2191 merged
 - **Started:** 2026-10-20, Jan Wloka, `bug/merge-commit-not-in-this-clone`
 - **Delivered:** 2026-10-20
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
