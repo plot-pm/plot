@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #1843
 - **Review:** pr
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-18, Jan Wloka, `bug/the-ending-ask-record-stays-bounded`
 - **Started:** 2026-10-18, Jan Wloka, `bug/drop-reads-a-merged-desk-as-finished`
 - **Delivered:** 2026-10-18
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
