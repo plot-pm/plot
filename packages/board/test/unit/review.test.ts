@@ -38,6 +38,7 @@ interface Rig {
   removed: string[];
   written: string[];
   changeBases: string[];
+  prComments: { pr: number; body: string }[];
 }
 
 const RUN = '2026-10-19T16:44:37Z';
@@ -50,7 +51,14 @@ const DIFF_FILE = `${REVIEWS}/7-${HEAD}.diff`;
 
 const rig = (
   verdict: string | null,
-  opts: { prs?: Pr[]; files?: Map<string, string>; headAfter?: string; change?: ReviewChange } = {},
+  opts: {
+    prs?: Pr[];
+    files?: Map<string, string>;
+    headAfter?: string;
+    change?: ReviewChange;
+    prCommentFails?: boolean;
+    prCommentUnaskable?: boolean;
+  } = {},
 ): Rig => {
   const statuses: CommitStatusWrite[] = [];
   const issues: IssueOpen[] = [];
@@ -60,10 +68,17 @@ const rig = (
   const removed: string[] = [];
   const written: string[] = [];
   const changeBases: string[] = [];
+  const prComments: { pr: number; body: string }[] = [];
   const files = opts.files ?? new Map<string, string>();
   let asked = 0;
   const prs = opts.prs ?? [pr()];
-  const hostBase = hostFixture({ prs, commitStatuses: statuses });
+  const hostBase = hostFixture({
+    prs,
+    commitStatuses: statuses,
+    prComments,
+    prCommentFails: opts.prCommentFails,
+    prCommentUnaskable: opts.prCommentUnaskable,
+  });
   const host = {
     ...hostBase,
     // A CALLER-SUPPLIED SHA CANNOT BE THE ONE WRITTEN: the host answers a moved
@@ -103,7 +118,7 @@ const rig = (
     removeFile: (f) => { files.delete(f); },
     now: () => RUN,
   };
-  return { deps, statuses, issues, commented, requests, commands, files, removed, written, changeBases };
+  return { deps, statuses, issues, commented, requests, commands, files, removed, written, changeBases, prComments };
 };
 
 const FINDINGS = '- [HIGH] leaks a token\nFindings: HIGH 2, MEDIUM 1, LOW 0\n';
@@ -583,6 +598,34 @@ describe('one follow-up issue per PR', () => {
     const out = await reviewPr(r.deps, '7');
     expect(out.code).toBe(EXIT.issueNotOpened);
     expect(opened).toHaveLength(0);
+    expect(r.prComments).toHaveLength(1);
+    expect(r.prComments[0]!.pr).toBe(7);
+    expect(r.prComments[0]!.body).toContain('HIGH 0, MEDIUM 0, LOW 1');
+    expect(r.prComments[0]!.body).toContain(`run ${RUN}`);
+  });
+
+  it('reports a failed PR comment without changing the exit code', async () => {
+    const { tracker } = withLabelled([], {
+      issueListLabelled: async () => answered({ issues: [], complete: false, pages: 1 }),
+    });
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n', { prCommentFails: true });
+    r.deps.tracker = tracker;
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.issueNotOpened);
+    expect(r.prComments).toHaveLength(1);
+    expect(out.lines.join('\n')).toContain('could not post findings as a PR comment');
+  });
+
+  it('does not report a host that cannot take PR comments as a failure', async () => {
+    const { tracker } = withLabelled([], {
+      issueListLabelled: async () => answered({ issues: [], complete: false, pages: 1 }),
+    });
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n', { prCommentUnaskable: true });
+    r.deps.tracker = tracker;
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.issueNotOpened);
+    expect(r.prComments).toHaveLength(1);
+    expect(out.lines.join('\n')).not.toContain('could not post findings as a PR comment');
   });
 
   it('a second run on the same head makes no lookup, and comments its verdict again', async () => {

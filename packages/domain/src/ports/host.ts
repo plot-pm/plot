@@ -352,6 +352,22 @@ export interface Host {
   commitStatus(write: CommitStatusWrite): Promise<PortResult<true>>;
 
   /**
+   * Posts one comment on a PR, through the signed-in CLI identity — unlike
+   * {@link commitStatus}, which mints a dedicated App's credentials.
+   *
+   * KEYED BY PR NUMBER, NOT A COMMIT. A PR comment has no sha to attach to —
+   * it is visible on the PR's timeline whichever commit is at its head when a
+   * reader opens it.
+   *
+   * @param pr - the PR number to comment on.
+   * @param body - the comment text, verbatim.
+   * @returns `true` once written; `unaskable` where this host cannot be asked
+   *   to comment on a PR; `failed` otherwise, with the reason in
+   *   {@link lastRefusal}.
+   */
+  prComment(pr: number, body: string): Promise<PortResult<true>>;
+
+  /**
    * What the host holds about a PR's review, read per context and never from
    * the folded checks. A PR whose CI is green and whose `plot/review` is
    * missing answers `absent`, not a pass.

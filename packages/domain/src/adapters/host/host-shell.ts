@@ -444,6 +444,17 @@ export const hostShell = (context: ShellContext): Host => {
       return record(run, () => true as const);
     },
 
+    // UNLIKE `commit-status`, THIS IS NOT APP-GATED IN THE SCRIPT: a PR
+    // comment is an ordinary write the signed-in CLI identity can make, so
+    // `plot-host.sh` dispatches it straight to `gh` rather than through a
+    // dedicated Node helper minting separate credentials. Bitbucket has no
+    // verified `bb` write for this (see `plot-host.sh`'s usage header) and
+    // answers `unaskable`.
+    prComment: async (pr: number, body: string): Promise<PortResult<true>> => {
+      const run = await runProcess('bash', [host, 'pr-comment', String(pr), '--body', body], inRepo);
+      return record(run, () => true as const);
+    },
+
     prReview: (number) =>
       ask(['pr-review', String(number)], (stdout) => asJson<PrReviewReading>(stdout)),
 

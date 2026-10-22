@@ -551,6 +551,22 @@
 #                                 groups repeat statuses on one sha (this
 #                                 estate's caller passes `plot/review`). A call
 #                                 that reaches the API and fails exits 3.
+#   pr-comment <number> <body>    Posts one comment on a PR's timeline, through
+#                                 the signed-in CLI identity — NOT an App's, so
+#                                 unlike commit-status this needs no `Review
+#                                 app` key. KEYED BY PR NUMBER, NOT A SHA: a PR
+#                                 comment has no commit to attach to. On
+#                                 GitHub: `gh pr comment <number> --body
+#                                 <body>`. EXIT 4 on Bitbucket — the bb CLI
+#                                 this script is written against (see the
+#                                 backend-resolution note below) exposes `pr
+#                                 view/create/merge/list/edit/update`, and no
+#                                 version of it documents a `pr comment` or any
+#                                 other write to a PR's comment thread, so this
+#                                 op does not guess at an unverified `bb api`
+#                                 POST against Bitbucket's comments endpoint.
+#                                 A call that reaches the GitHub API and fails
+#                                 exits 3.
 #
 # TRANSPORT IS NOT A CALLER'S CONCERN. Where a host offers a question over more
 # than one transport — GitHub's REST against its GraphQL — the choice is made
@@ -5632,7 +5648,31 @@ case "$op" in
     node "$here/plot-commit-status.mjs" --repo "$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || echo GH_REPO_VIEW_FAILED)" "$@" || exit $?
     ;;
 
+  pr-comment)
+    # KEYED BY PR NUMBER, NOT A SHA — unlike commit-status, this writes through
+    # the signed-in CLI identity, so it needs no App credentials and no Node
+    # helper.
+    num="${1:?pr-comment needs a PR number}"; shift
+    body=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --body) body="${2:?}"; shift 2 ;;
+        *) die "pr-comment: unknown arg $1" ;;
+      esac
+    done
+    [ -n "$body" ] || die "pr-comment needs --body"
+    if [ "$be" = "github" ]; then
+      gh pr comment "$num" --body "$body" >/dev/null 2>"$HOST_ERR" || gh_fail
+      rm -f "$HOST_ERR"
+    else
+      # NO VERIFIED bb PR-COMMENT WRITE EXISTS (see the usage header above) —
+      # exit 4 rather than guess at an API call this script cannot test.
+      echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2
+      exit 4
+    fi
+    ;;
+
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"
     ;;
 esac

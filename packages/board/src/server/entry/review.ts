@@ -328,6 +328,30 @@ const openFollowUp = async (
     : { ok: true, url, commented: false, uncommented };
 };
 
+/** GitHub's own cap on a single comment body (Bitbucket's is not published and is not known to be smaller). */
+const PR_COMMENT_LIMIT = 65536;
+
+/**
+ * Truncates a PR comment body to {@link PR_COMMENT_LIMIT}, naming where the
+ * rest lives.
+ *
+ * MEASURED, NOT GUESSED: 335 verdict files under this estate's own
+ * `plot/state/reviews/` ranged 815–5640 bytes (median 3132), so a real
+ * verdict never approaches the cap in practice. This guard exists for the
+ * reviewer-agent answer that does, someday, run long — and a truncated
+ * comment still names the local file a reader can open for the rest, since
+ * `verdictFile` is already written before this runs.
+ *
+ * @param body - the comment text, verbatim.
+ * @param verdictFile - the local path holding the untruncated verdict.
+ * @returns `body` unchanged if it fits; else a truncated copy naming `verdictFile`.
+ */
+const truncatedComment = (body: string, verdictFile: string): string => {
+  if (body.length <= PR_COMMENT_LIMIT) return body;
+  const note = `\n\n…truncated; the full verdict is at ${verdictFile}`;
+  return body.slice(0, PR_COMMENT_LIMIT - note.length) + note;
+};
+
 /**
  * Runs one review.
  *
@@ -437,7 +461,14 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
   const state = counts.high === 0 ? 'success' : 'failure';
   const description = counts.high === 0 ? 'no HIGH findings' : `${counts.high} HIGH finding${counts.high === 1 ? '' : 's'}`;
   const issueUrl = followUp?.ok === true ? followUp.url : null;
-  if (followUp?.ok === false) lines.push(`plot-review: the follow-up issue was not opened: ${followUp.why}`);
+  if (followUp?.ok === false) {
+    lines.push(`plot-review: the follow-up issue was not opened: ${followUp.why}`);
+    const body = followUpIssue(pr.number, sha, pr.url, counts, verdictText, run).body;
+    const posted = await deps.host.prComment(pr.number, truncatedComment(body, verdictFile));
+    if (!posted.ok && posted.why !== 'unaskable') {
+      lines.push(`plot-review: could not post findings as a PR comment: ${deps.host.lastRefusal()?.said ?? 'the host answered failed with no reason'}`);
+    }
+  }
   const uncommented = followUp?.ok === true ? followUp.uncommented : undefined;
   if (uncommented !== undefined) lines.push(`plot-review: the verdict was not commented: ${uncommented.why}`);
   const commented = followUp?.ok === true && followUp.commented;
