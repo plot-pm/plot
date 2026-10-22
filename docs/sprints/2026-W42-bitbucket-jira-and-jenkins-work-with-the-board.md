@@ -50,6 +50,11 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [x] [jenkins-run-for-sha-on-the] Jenkins run-for-sha on the default branch reports no answer when the branch builds in another job (#2278)
 - [ ] [plot-review-status-sh-exits-1] plot-review-status.sh exits 1 with no output on a sprint item without a plan (#2280)
 - [ ] [fleet-work-leaves-the-main-checkout] Fleet work leaves the main checkout dirty and behind its HEAD (#2311)
+- [ ] [plot-review-status-sh-reads-the] plot-review-status.sh reads the template comment as a sprint item named slug (#2323)
+- [ ] [reconcile-20-ignores-merges-3-proved] Reconcile §20 ignores merges §3 proved and names the wrong truncation limit on Bitbucket (#2325)
+- [ ] [jenkins-runs-lists-every-build-twice] Jenkins runs lists every build twice for a plain job (#2322)
+- [x] [release-gate-labels-must-haves-by] Release gate labels Must Haves by the wrong key and leaves Should and Could labels empty (#2324)
+- [ ] [reconcile-23-tells-a-delivered-plan] Reconcile §23 tells a Delivered plan to release when no released status is configured (#2326)
 
 ### Should Have
 
@@ -57,11 +62,6 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [x] [ticket-rows-show-type-and-owner] Ticket rows show type and owner under one "Assigned to you" sub-header (#1837)
 - [x] [one-review-issue-per-pr-a] Tooling: one review issue per PR, a sprint goal the board reads, and a pid read that waits (#1952: #1881, #1883, #1909)
 - [ ] [board-hides-a-green-draft-slice] Board hides a green draft slice PR that waits for a person to mark it ready (#2319)
-- [ ] [plot-review-status-sh-reads-the] plot-review-status.sh reads the template comment as a sprint item named slug (#2323)
-- [ ] [reconcile-20-ignores-merges-3-proved] Reconcile §20 ignores merges §3 proved and names the wrong truncation limit on Bitbucket (#2325)
-- [ ] [jenkins-runs-lists-every-build-twice] Jenkins runs lists every build twice for a plain job (#2322)
-- [x] [release-gate-labels-must-haves-by] Release gate labels Must Haves by the wrong key and leaves Should and Could labels empty (#2324)
-- [ ] [reconcile-23-tells-a-delivered-plan] Reconcile §23 tells a Delivered plan to release when no released status is configured (#2326)
 - [ ] [plot-review-cannot-open-its-follow] plot-review cannot open its follow-up issue past 200 open issues and loses the findings (#2336)
 
 ### Could Have
@@ -106,3 +106,4 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - 2026-10-22: Added [release-gate-labels-must-haves-by] as Should: a low-severity defect from the seventh ewz-kus-portal field test (#2324).
 - 2026-10-22: Added [reconcile-23-tells-a-delivered-plan] as Should: a low-severity defect from the seventh ewz-kus-portal field test (#2326).
 - 2026-10-22: Added [plot-review-cannot-open-its-follow] as Should: plot-review lost the findings of a HIGH on plan PR #2335 because its follow-up issue lookup stops at 200 open issues (#2336).
+- 2026-10-22: Moved [plot-review-status-sh-reads-the], [reconcile-20-ignores-merges-3-proved], [jenkins-runs-lists-every-build-twice], [release-gate-labels-must-haves-by] and [reconcile-23-tells-a-delivered-plan] from Should to Must by Jan Wloka: 2.28.0 waits for the seventh ewz-kus-portal field test's fixes and a clean eighth test (#2322–#2326).
