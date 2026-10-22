@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
 import { type Refs } from '@plot-pm/domain';
 import { refsGit } from '@plot-pm/domain/adapters';
 import { agentLogPath } from './agent-log.js';
@@ -643,6 +644,9 @@ export async function handleDeliver(
       // merged rather than delivering anyway; setting this makes a skipped
       // check name itself in the log rather than the agent improvising.
       PLOT_UNATTENDED: '1',
+      // /plot-deliver commits a plan's `→ #<number>` annotation in the main
+      // checkout by design, so the `main-checkout` gate allows this run.
+      [MAIN_CHECKOUT_WRITER_ENV]: '1',
       // Reuses `PLOT_IDEA_PROMPT` because this IS the idea binding — the
       // same runner reads the same variable to find its prompt file.
       [IDEA_PROMPT_ENV]: promptPath,

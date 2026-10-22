@@ -525,6 +525,21 @@ test('dispatch: a refused dispatch calls the configured Brief command', () => {
   fs.rmSync(t, { recursive: true, force: true });
 });
 
+test('dispatch: the Brief command runs marked as a main-checkout writer', () => {
+  // The brief agent commits its brief in the main checkout by design, so its
+  // spawn sets PLOT_MAIN_CHECKOUT_WRITER=1 and the `main-checkout` gate allows
+  // it. The stand-in command records the value it was started with.
+  const t = trackTemp(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-briefenv-')));
+  const seen = path.join(t, 'writer');
+  const f = repoForBrief('writer', { briefCommand: `sh -c 'printf %s "$PLOT_MAIN_CHECKOUT_WRITER" > ${seen}' plot-brief` });
+  f.dispatch(['--offline', 'b'], { timeout: 30_000, env: { PLOT_MAIN_CHECKOUT_WRITER: '' } });
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline && !fs.existsSync(seen)) execFileSync('sleep', ['0.1']);
+  assert.equal(fs.readFileSync(seen, 'utf8'), '1', 'the Brief command must see PLOT_MAIN_CHECKOUT_WRITER=1');
+  f.cleanup();
+  fs.rmSync(t, { recursive: true, force: true });
+});
+
 test('dispatch: with no Brief command it refuses by name and calls nothing', () => {
   // The second arm, and the reason `absent` is modelled as a named refusal
   // rather than an error. A project that has never set the key behaves exactly

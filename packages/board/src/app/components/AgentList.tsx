@@ -30,6 +30,7 @@ function fleetControlsOf(fleet: Fleet): { autoDispatch: boolean; parallelAgents:
 import { AutoDispatchSwitch, ParallelAgentsStepper, WorkingCounts, FleetAlert } from './FleetControls.js';
 import { StatusPanel, type BoardStatus } from './StatusPanel.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
+import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
 import { agentRowKey } from '@plot-pm/domain/rules/desk-manifest';
 import { DeliveryFilters } from './DeliveryFilters.js';
 import { activeSprintButton, rowIsSprintExempt, sanitizeSelection, slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
@@ -323,6 +324,7 @@ export function AgentList({
   highlightBranch = '',
   server,
   defaultBranch,
+  checkoutClean,
 }: AgentListProps) {
   // Whether the server is answering at all. Not the same question as
   // `fleet.error`, which is a server that answered to say its scan failed.
@@ -928,6 +930,12 @@ export function AgentList({
   // nothing here.
   const defaultBranchEntry = defaultBranchStatus(defaultBranch ?? null);
   if (defaultBranchEntry) statuses.push(defaultBranchEntry);
+  // THE BOARD'S OWN CHECKOUT, not the repository's CI — #2311 (docs/plans/
+  // 2026-10-21-fleet-work-leaves-the-main-checkout.md). `checkoutHealthStatus`
+  // returns null for a clean or unreadable checkout; a behind checkout is
+  // shown by `PlanSourceLine`, not here.
+  const checkoutEntry = checkoutHealthStatus(checkoutClean ?? null);
+  if (checkoutEntry) statuses.push(checkoutEntry);
 
   return (
     <div className="space-y-4">

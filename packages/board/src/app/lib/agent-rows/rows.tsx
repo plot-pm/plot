@@ -316,6 +316,13 @@ export interface AgentListProps {
    * `defaultBranchStatus` already treats as "not red" rather than "green".
    */
   defaultBranch?: DefaultBranchReading;
+  /**
+   * Whether the board's OWN checkout is clean — `/api/board`'s
+   * `checkoutClean`, carried the same way `defaultBranch` above is. Absent or
+   * null reads as "no reading", which `checkoutHealthStatus` treats as "say
+   * nothing" rather than "clean".
+   */
+  checkoutClean?: boolean | null;
 }
 
 /**

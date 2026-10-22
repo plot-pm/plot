@@ -209,6 +209,11 @@ describe('treesGit: the desks this machine holds', () => {
     expect(await treesWithScripts().isClean(linked)).toEqual({ ok: true, value: false });
   });
 
+  it('answers a failed isClean, never a dirty one, where git status cannot read the path', async () => {
+    const answer = await treesWithScripts().isClean(path.join(linked, 'no-such-dir'));
+    expect(answer).toEqual({ ok: false, why: 'failed' });
+  });
+
   it("drops the watcher's own record, so a quiet tree can be read as quiet", async () => {
     // THE PROPERTY THE FILTER EXISTS FOR. The loop's watcher (and, before
     // `bug/the-loop-reports-idle`, the separate WorkerMonitor process) appends

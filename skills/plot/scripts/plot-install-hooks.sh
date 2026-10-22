@@ -269,8 +269,8 @@ if [ "$verify_only" = 1 ]; then
     printf '%s' "$d"
   }
 
-  # Drive a gate the way Claude Code does: hook JSON on stdin, in a cwd, and
-  # read its exit as a verdict. Exit 2 is a refusal. An exit of 128 or more is a
+  # Drive a gate the way Claude Code does, attended: hook JSON on stdin, in a cwd,
+  # and read its exit as a verdict. Exit 2 is a refusal. An exit of 128 or more is a
   # gate a signal ended before it answered, which one probe cannot tell apart
   # from a crash; the caller probes again. A single such exit proves nothing:
   # CI run 38028514435 (2026-10-10) SIGKILLed plot-brief-name-gate.sh from
@@ -278,7 +278,7 @@ if [ "$verify_only" = 1 ]; then
   # working gate as missing.
   drive_gate() { # $1=gate path $2=cwd $3=command → 0 refused, 1 permitted, 3 exited 128 or more (raw code in $scratch/rc.$$)
     printf '{"tool_input":{"command":%s}}' "$(jq -Rn --arg c "$3" '$c')" \
-      | (cd "$2" && bash "$1") 2>"$scratch/stderr.$$"
+      | (cd "$2" && env -u PLOT_UNATTENDED bash "$1") 2>"$scratch/stderr.$$"
     local rc="${PIPESTATUS[1]}"
     printf '%s' "$rc" >"$scratch/rc.$$"; [ "$rc" = 2 ] && return 0
     [ "$rc" -lt 128 ] && return 1; return 3

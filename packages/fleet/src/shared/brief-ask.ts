@@ -15,6 +15,7 @@
  * in `maybeAutoDispatch`, and `planAutoDispatch` pure.
  */
 import fs from 'node:fs';
+import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
 
 import { readConfig } from './config-reader.js';
 import type { ActOptions } from './action-log.js';
@@ -157,7 +158,9 @@ export const askForBrief = (
       readCfg: (o, key, fallback) => (key === BRIEF_COMMAND_KEY ? command : readConfig(o, key, fallback)),
       tree: opts.repoRoot,
       prompt,
-      env: {},
+      // The brief is committed in the main checkout by design, so the
+      // `main-checkout` gate allows this run.
+      env: { [MAIN_CHECKOUT_WRITER_ENV]: '1' },
       logFile: log,
       statePath: null,
       onStarted: (pid) => recordImplementAgent(opts.repoRoot, slug, held, { pid, startedAt: Date.now() }),

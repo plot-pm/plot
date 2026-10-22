@@ -57,7 +57,8 @@ export interface Trees {
    * visible rather than being silently dropped.
    *
    * @param path - the worktree's absolute path.
-   * @returns false where the tree holds anything unlanded.
+   * @returns false where the tree holds anything unlanded, and a failure
+   *   where git cannot read the tree.
    */
   isClean(path: string): Promise<PortResult<boolean>>;
 

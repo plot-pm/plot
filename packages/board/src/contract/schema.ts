@@ -1460,6 +1460,13 @@ export const BoardSchema = z.object({
    */
   defaultBranch: DefaultBranchReadingSchema.optional(),
   /**
+   * Whether the board's OWN checkout — the one every read above walked — is
+   * clean (`git status --porcelain` empty). `null` where it could not be
+   * read; `.optional()` for an older server that predates this field. Neither
+   * absence means clean: see `checkoutHealthStatus` in `@plot-pm/domain`.
+   */
+  checkoutClean: z.boolean().nullable().optional(),
+  /**
    * The Discovery tab's ticket lanes (Open/In progress/Done), or null before
    * the first issue read, or where the issue source is `nobody`. `.optional()`
    * rather than `.default(null)`: absent means an older server that predates

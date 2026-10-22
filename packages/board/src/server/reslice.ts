@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
 import { agentLogPath } from './agent-log.js';
 import { readConfig, scriptsFor, type BuildBoardOptions } from './board.js';
 import { markBoardRun, readRunState, startBoardRun } from './board-run.js';
@@ -467,6 +468,9 @@ export async function handleReslice(
       // alone; setting this makes that skipped question name itself in the
       // log rather than the agent improvising a slice.
       PLOT_UNATTENDED: '1',
+      // /plot-reslice step 7 commits the plan in the main checkout by design,
+      // so the `main-checkout` gate allows this run.
+      [MAIN_CHECKOUT_WRITER_ENV]: '1',
       // Reuses `PLOT_IDEA_PROMPT` because this IS the idea binding — the
       // same runner reads the same variable to find its prompt file.
       [IDEA_PROMPT_ENV]: promptPath,
