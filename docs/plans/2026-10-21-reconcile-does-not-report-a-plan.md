@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Type:** bug
 - **Issue:** #2284
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2293 merged
 - **Started:** 2026-10-21, Jan Wloka, `bug/reconcile-does-not-report-a-plan`
 - **Delivered:** 2026-10-21
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
