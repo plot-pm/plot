@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #2094
 - **Review:** pr
@@ -13,6 +13,7 @@
 - **Started:** 2026-10-19, Jan Wloka, `bug/a-waits-chain-is-a-cut-slice-sequence`
 - **Started:** 2026-10-20, Jan Wloka, `bug/an-unmerged-waits-target-blocks-eligibility`
 - **Delivered:** 2026-10-20
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
