@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2337 merged
 - **Started:** 2026-10-22, Jan Wloka, `bug/plot-review-looks-up-its-issue-by-pr`
+- **Started:** 2026-10-22, Jan Wloka, `bug/plot-review-publishes-findings-on-the-pr`
 
 ## Changelog
 
