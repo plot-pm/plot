@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { classify } from '../../src/server/fleet.js';
 import type { PrRecord } from '../../src/server/fleet.js';
+import { noteWithoutPr } from '../../src/app/lib/agent-rows/host-notes.js';
 import type { BranchState, WorkerState } from '../../src/contract/schema.js';
 
 // A GREEN DRAFT SLICE PR WITH NO LIVE AGENT WAITS ON A PERSON TO MARK IT READY.
@@ -66,5 +67,12 @@ describe('what the rule leaves alone', () => {
   it('a crashed agent keeps the sentence that names the crash', () => {
     const r = place({ worker: 'failed' });
     expect(r.note).not.toContain('mark ready');
+  });
+});
+
+describe('the row keeps the action after the PR cell takes its clause', () => {
+  it('prints mark ready once the PR clause is taken off the front', () => {
+    const r = place({ worker: 'finished' });
+    expect(noteWithoutPr(r.note, { number: 2310, url: '', draft: true, state: 'green' })).toBe('mark ready');
   });
 });

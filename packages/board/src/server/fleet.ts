@@ -3720,7 +3720,7 @@ function classifyGroup(
     // EXCEPT WHERE NO AGENT IS LIVE: a green draft whose desk finished waits only
     // for a person to mark it ready, and nothing else on the board shows it.
     if (awaitsMarkReady({ draft: pr.draft, mergeable: pr.mergeable, checks: pr.checks, worker })) {
-      return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, draft, green — mark ready`, note) };
+      return { group: 'waiting-on-you', note: withNote(`PR #${pr.number}, draft, green · mark ready`, note) };
     }
     if (!(placement.clause === 'green' && pr.draft)) {
       const sentence =
