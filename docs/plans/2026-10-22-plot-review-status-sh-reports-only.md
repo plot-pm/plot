@@ -42,7 +42,7 @@ Read the whole `pr:` field, then extract every `#<number>` in it. The field runs
 
 ### Multi-PR extraction
 
-- `bug/plot-review-status-sh-reports-only` — extract every PR number from the `pr:` annotation and report them; add a contract test in `test/reconcile/` with a two-PR and a single-PR item
+- `bug/plot-review-status-sh-reports-only` — extract every PR number from the `pr:` annotation and report them; add a contract test in `test/reconcile/` with a two-PR and a single-PR item → #2352
 
 ## Notes
 
