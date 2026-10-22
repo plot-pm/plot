@@ -4951,7 +4951,7 @@ exit 0
  * default GitHub one, with `ticketPrefixes` optional for the scoping-note
  * tests.
  */
-const jiraIssueFixture = (hostBody, scanArgs = ['--no-fetch'], { ticketPrefixes = '', tracker = 'jira', env = {}, extraPlans = {} } = {}) => {
+const jiraIssueFixture = (hostBody, scanArgs = ['--no-fetch'], { ticketPrefixes = '', tracker = 'jira', env = {}, extraPlans = {}, releasedStatus = '' } = {}) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-openissue-jira-'));
   const origin = path.join(tmp, 'origin.git');
   const repo = path.join(tmp, 'repo');
@@ -4978,7 +4978,7 @@ const jiraIssueFixture = (hostBody, scanArgs = ['--no-fetch'], { ticketPrefixes 
 - **Active index:** plans/active/
 - **Delivered index:** plans/delivered/
 - **Tracker:** ${tracker}
-${ticketPrefixes ? `- **Ticket prefixes:** ${ticketPrefixes}\n` : ''}`);
+${ticketPrefixes ? `- **Ticket prefixes:** ${ticketPrefixes}\n` : ''}${releasedStatus ? `- **Tracker released status:** ${releasedStatus}\n` : ''}`);
 
   // PROJ-101 open → reported.
   w('plans/2026-01-01-released-open.md', `# Released open\n\n${plan('Released', 'PROJ-101')}`);
@@ -5191,6 +5191,50 @@ test('section 23 asks Jira per key, never issue-list, so no page or window appli
     fs.rmSync(f.tmp, { recursive: true, force: true });
     fs.rmSync(f.shim, { recursive: true, force: true });
     fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+  }
+});
+
+test('section 23 says a Jira Delivered plan\'s release cannot move the issue when no Tracker released status is configured', () => {
+  // THE OBSERVED FAILURE (ewz-kus-portal, main da789acff, field test round 7,
+  // issue #2326): a Delivered plan on Jira with no `Tracker released status`
+  // was told to "release the plan to close it", which moves nothing — Jira's
+  // planStateWrite returns no-target and writes nothing without that config.
+  const delivered = `# Delivered no status\n\n## Status\n\n- **State:** Delivered\n- **Type:** feature\n- **Issue:** PROJ-201\n\n`;
+  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101', 'PROJ-201']), ['--no-fetch'], {
+    ticketPrefixes: 'PROJ',
+    extraPlans: { '2026-01-07-delivered-nostatus.md': delivered },
+  });
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /2026-01-07-delivered-nostatus\.md — delivered, still open: PROJ-201$/m,
+      `the delivered plan's open key is still a finding:\n${s}`);
+    assert.match(s, /decide: no 'Tracker released status' is configured, so releasing this plan would not move the issue/,
+      `the reader is told the configuration gap, not a release that cannot work:\n${s}`);
+    assert.doesNotMatch(s, /decide: release the plan/,
+      `a naive fixture could satisfy the positive assertion alone via the GitHub path; this must not match the old hint:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
+  }
+});
+
+test('section 23 keeps the release hint for a Jira Delivered plan once Tracker released status is declared', () => {
+  // PROVES THE CONDITION READS THE KEY, NOT THE SCHEME ALONE: with a declared
+  // status, a release writes that word, so releasing this Delivered plan can
+  // still move the issue — the same hint as today.
+  const delivered = `# Delivered with status\n\n## Status\n\n- **State:** Delivered\n- **Type:** feature\n- **Issue:** PROJ-201\n\n`;
+  const f = jiraIssueFixture(jiraIssueHost(['PROJ-101', 'PROJ-201']), ['--no-fetch'], {
+    ticketPrefixes: 'PROJ',
+    releasedStatus: 'Done',
+    extraPlans: { '2026-01-07-delivered-withstatus.md': delivered },
+  });
+  try {
+    const s = f.sections['23'];
+    assert.match(s, /decide: release the plan to close it through the tracker, close it by hand, or record why it stays open/,
+      `a declared status keeps today's release hint, even on Jira:\n${s}`);
+  } finally {
+    fs.rmSync(f.tmp, { recursive: true, force: true });
+    fs.rmSync(f.shim, { recursive: true, force: true });
   }
 });
 

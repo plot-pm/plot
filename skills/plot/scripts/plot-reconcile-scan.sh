@@ -2995,8 +2995,10 @@ echo "== 23. A finished plan's issue is still open (a person decides) =="
 #
 # AND IT NAMES A DECISION, NOT A REPAIR. Plot closes an issue in one place:
 # `/plot-release`, through `Tracker.planStateWrite`, when it releases the plan
-# — and only a DELIVERED plan's release can still move the issue. A RELEASED
-# plan is already past that step, so telling it to "release the plan" names a
+# — and only a DELIVERED plan's release can still move the issue, UNLESS the
+# tracker is Jira with no `Tracker released status` declared, where even that
+# release writes nothing the tracker reads as closed. A RELEASED plan is
+# already past the release step, so telling it to "release the plan" names a
 # repair that cannot repair anything; the hint instead names why the issue
 # outlived its plan: no `Tracker released status` is configured (a release
 # writes nothing the tracker reads as closed), or the issue sits in a tracker
@@ -3133,14 +3135,17 @@ else
 
     oi_out+="  $oi_base — $oi_phase, still open: $oi_list\n    inspect: plot-host.sh issue-view $oi_first\n"
     # THE HINT NAMES WHY, NOT A REPAIR THAT CANNOT REPAIR ANYTHING: only a
-    # DELIVERED plan's release can still move the issue. A RELEASED plan is
-    # already past that step.
-    if [ "$oi_phase" != released ]; then
-      oi_out+="    decide: release the plan to close it through the tracker, close it by hand, or record why it stays open\n"
-    elif [ -z "$oi_released_status" ]; then
-      oi_out+="    decide: no 'Tracker released status' is configured, so releasing this plan again would not move the issue — close it by hand, or record why it stays open\n"
-    else
+    # DELIVERED plan's release can still move the issue — unless Jira declares
+    # no `Tracker released status`, in which case even that release writes
+    # nothing the tracker reads as closed. `oi_again` carries the one word that
+    # differs between a Released and a Delivered no-status hint.
+    if [ "$oi_phase" = released ] && [ -n "$oi_released_status" ]; then
       oi_out+="    decide: the issue waits in a tracker status Plot does not own — it has not reached the declared '$oi_released_status' status — close it by hand, or record why it stays open\n"
+    elif [ "$oi_phase" != released ] && { [ "$oi_scheme" != jira ] || [ -n "$oi_released_status" ]; }; then
+      oi_out+="    decide: release the plan to close it through the tracker, close it by hand, or record why it stays open\n"
+    else
+      oi_again=""; [ "$oi_phase" = released ] && oi_again=" again"
+      oi_out+="    decide: no 'Tracker released status' is configured, so releasing this plan${oi_again} would not move the issue — close it by hand, or record why it stays open\n"
     fi; n_open_issues=$((n_open_issues + 1))
   done 3<<< "$oi_claims"
 
