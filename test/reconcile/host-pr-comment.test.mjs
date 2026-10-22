@@ -1,4 +1,4 @@
-// `plot-host.sh pr-comment <number> --body <body>` — one comment on a PR's
+// `plot-host.sh pr-comment <number> <body>` — one comment on a PR's
 // timeline through the signed-in `gh` identity on GitHub, exit 4 on Bitbucket.
 // The `gh` and `bb` on PATH are stubs that log their argv; nothing reaches a
 // real host.
@@ -54,22 +54,22 @@ const callLog = (box) => (fs.existsSync(box.calls) ? fs.readFileSync(box.calls, 
 
 test('pr-comment: GitHub posts the body through gh pr comment and exits 0', async () => {
   const box = sandbox();
-  const got = await prComment(box, 'github', ['7', '--body', 'HIGH 1, MEDIUM 0, LOW 0']);
+  const got = await prComment(box, 'github', ['7', 'HIGH 1, MEDIUM 0, LOW 0']);
   assert.equal(got.code, 0, got.err);
   assert.match(callLog(box), /^gh pr comment 7 --body HIGH 1, MEDIUM 0, LOW 0$/m);
 });
 
 test('pr-comment: a gh call that fails exits 3 with gh’s own words', async () => {
   const box = sandbox({ ghTail: 'echo "HTTP 403: Resource not accessible" >&2; exit 1' });
-  const got = await prComment(box, 'github', ['7', '--body', 'b']);
+  const got = await prComment(box, 'github', ['7', 'b']);
   assert.equal(got.code, 3);
   assert.match(got.err, /HTTP 403: Resource not accessible/);
 });
 
 test('pr-comment: Bitbucket exits 4, names the backend, and calls neither CLI', async () => {
   const box = sandbox();
-  const got = await prComment(box, 'bitbucket', ['7', '--body', 'b']);
+  const got = await prComment(box, 'bitbucket', ['7', 'b']);
   assert.equal(got.code, 4);
-  assert.match(got.err, /pr-comment: bitbucket has no verified PR-comment write/);
+  assert.match(got.err, /pr-comment: bitbucket has no verified pr-comment write/);
   assert.doesNotMatch(callLog(box), /^(gh|bb) pr comment/m);
 });

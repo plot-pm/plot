@@ -451,7 +451,7 @@ export const hostShell = (context: ShellContext): Host => {
     // verified `bb` write for this (see `plot-host.sh`'s usage header) and
     // answers `unaskable`.
     prComment: async (pr: number, body: string): Promise<PortResult<true>> => {
-      const run = await runProcess('bash', [host, 'pr-comment', String(pr), '--body', body], inRepo);
+      const run = await runProcess('bash', [host, 'pr-comment', String(pr), body], inRepo);
       return record(run, () => true as const);
     },
 

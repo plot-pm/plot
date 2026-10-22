@@ -377,9 +377,9 @@ describe('prReview', () => {
 });
 
 describe('prComment', () => {
-  it('passes the PR number and the body behind --body, and reads exit 0 as written', async () => {
+  it('passes the PR number and the body as one argument, and reads exit 0 as written', async () => {
     const answer = await hostShell(
-      hostThat('[ "$1 $2 $3 $4" = "pr-comment 7 --body two words" ] || exit 1'),
+      hostThat('[ "$1 $2" = "pr-comment 7" ] && [ "$3" = "two words" ] && [ $# = 3 ] || exit 1'),
     ).prComment(7, 'two words');
     expect(answer).toEqual({ ok: true, value: true });
   });

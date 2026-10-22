@@ -551,8 +551,7 @@
 #                                 groups repeat statuses on one sha (this
 #                                 estate's caller passes `plot/review`). A call
 #                                 that reaches the API and fails exits 3.
-#   pr-comment <number> --body <body>
-#                                 Posts one comment on a PR's timeline through
+#   pr-comment <number> <body>    Posts one comment on a PR's timeline through
 #                                 the signed-in CLI identity (`gh pr comment`),
 #                                 so it needs no `Review app` key. Keyed by PR
 #                                 number, not a sha. A call that reaches the
@@ -5643,10 +5642,12 @@ case "$op" in
     ;;
 
   pr-comment)
-    # Bitbucket exits 4: no verified `bb` write to a PR's comment thread exists (usage header).
-    [ "$be" = github ] || { echo "plot-host: pr-comment: $be has no verified PR-comment write" >&2; exit 4; }
-    gh pr comment "${1:?pr-comment needs a PR number}" --body "${3:?pr-comment needs --body <body>}" >/dev/null 2>"$HOST_ERR" || gh_fail; rm -f "$HOST_ERR"
-    ;;
+    # KEYED BY PR NUMBER, NOT A SHA — unlike commit-status, this writes through
+    # the signed-in CLI identity, so it needs no App credentials and no Node
+    # helper.
+    [ "$be" = "github" ] || { echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2; exit 4; }
+    gh pr comment "${1:?pr-comment needs a PR number}" --body "${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail
+    rm -f "$HOST_ERR" ;;
 
   *)
     die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"
