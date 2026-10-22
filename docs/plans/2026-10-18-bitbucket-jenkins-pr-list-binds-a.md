@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2053
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-18, Jan Wloka, plan-PR #2056 merged
 - **Started:** 2026-10-18, Jan Wloka, `bug/bitbucket-jenkins-pr-list-binds-a`
 - **Delivered:** 2026-10-19
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
