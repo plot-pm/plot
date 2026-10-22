@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Type:** bug
 - **Issue:** #2282
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2292 merged
 - **Started:** 2026-10-21, Jan Wloka, `bug/reconcile-on-bitbucket-reads-merged-branches`
+- **Delivered:** 2026-10-22
 
 ## Changelog
 
