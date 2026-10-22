@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #2107
 - **Review:** pr
@@ -13,6 +13,7 @@
 - **Started:** 2026-10-19, Jan Wloka, `bug/a-desk-can-be-continued-once-test`
 - **Started:** 2026-10-20, Jan Wloka, `bug/a-desk-can-be-continued-once-fix`
 - **Delivered:** 2026-10-20
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
