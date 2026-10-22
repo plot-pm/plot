@@ -54,7 +54,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [ ] [reconcile-20-ignores-merges-3-proved] Reconcile §20 ignores merges §3 proved and names the wrong truncation limit on Bitbucket (#2325)
 - [ ] [jenkins-runs-lists-every-build-twice] Jenkins runs lists every build twice for a plain job (#2322)
 - [x] [release-gate-labels-must-haves-by] Release gate labels Must Haves by the wrong key and leaves Should and Could labels empty (#2324)
-- [ ] [reconcile-23-tells-a-delivered-plan] Reconcile §23 tells a Delivered plan to release when no released status is configured (#2326)
+- [x] [reconcile-23-tells-a-delivered-plan] Reconcile §23 tells a Delivered plan to release when no released status is configured (#2326)
 
 ### Should Have
 

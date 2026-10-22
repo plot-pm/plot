@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2326
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2335 merged
 - **Started:** 2026-10-22, Jan Wloka, `bug/reconcile-23-tells-a-delivered-plan`
+- **Delivered:** 2026-10-22
 
 ## Changelog
 
