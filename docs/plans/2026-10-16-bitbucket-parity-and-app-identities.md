@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Type:** feature
 - **Issue:** #1848
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-16, Jan Wloka, `feature/bitbucket-commit-status-parity`
 - **Started:** 2026-10-16, Jan Wloka, `bug/writer-app-push-uses-only-the-app`
 - **Delivered:** 2026-10-16
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
