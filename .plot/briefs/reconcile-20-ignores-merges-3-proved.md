@@ -1,57 +1,141 @@
-## Implementation brief — reconcile-20-ignores-merges-3-proved (wave 1: Shared merge answer and applied limit)
+## Implementation brief — reconcile-20-ignores-merges-3-proved
 
-- **Plan (canonical):** docs/plans/2026-10-22-reconcile-20-ignores-merges-3-proved.md on main
+- **Plan (canonical):** `docs/plans/2026-10-22-reconcile-20-ignores-merges-3-proved.md` on main
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2332 merged
 - **Branch:** `bug/reconcile-20-ignores-merges-3-proved` (base: `main`)
 - **Ends as:** one PR to main
-- **Review of the code:** per repo convention; open the PR through `plot-open-pr.sh`
+- **Review of the code:** repo convention (plan PR required; CI green + `plot/review`)
 
-This is the only slice of the plan. Nothing waits on it.
+The plan's only slice. Nothing waits on it and it waits on nothing.
 
 ### What to build
 
-On ewz-kus-portal (round 7, main `da789acff`) one run printed two answers for one branch. §3 called `bug/ewzkus-3678-sd-rechnungen-rechnungsliste` a deletion candidate because a per-branch `pr-merged` ask returned `merged`. §20 printed "(none — no remote ref outlives its merged PR)". Both sections ask "did this land", and only one of them used the answer the host gave. Two defects follow, both in `skills/plot/scripts/plot-reconcile-scan.sh`.
+On a cut Bitbucket merged-PR list (`MERGED_PR_TRUNCATED=1`), §3 of
+`skills/plot/scripts/plot-reconcile-scan.sh` asks the host per branch
+(`pr-merged`, line 1307) and prints a deletion candidate when the host says
+`merged`. §20 (line 2535) only calls `merged_pr_for_branch`, which searches
+`merged_pr_heads` — the one bundled 50-row page fetched once in
+`load_merged_pr_heads` (line 668). §3's per-branch answer is never folded
+back into `merged_pr_heads`, so a branch §3 just proved merged still reads as
+absent in §20 and the section prints "(none — no remote ref outlives its
+merged PR)" on the same run that §3 called it a deletion candidate.
 
-1. **§20 ignores what §3 bought.** §3 (`:1306`) asks the host per branch when `MERGED_PR_TRUNCATED=1` on Bitbucket, acts on the word `merged`, and drops it. §20 (`:2535`) reads `merged_pr_for_branch` (`:1095`), which searches only `merged_pr_heads`, the list Bitbucket cut at 50 rows. Record the branch in `merged_pr_heads` when §3 gets `merged`, so `merged_pr_for_branch` answers for it from then on.
-2. **Both truncation notes name the wrong limit.** `:1189` and `:2571` print `$MERGED_PR_LIMIT`, which is the requested 500 (`:399`). Bitbucket applied a page of 50. On GitHub the host honours `--limit`, so 500 is right there and stays.
+Fix: when §3's per-branch ask (line 1307) returns `merged`, record
+`<pr_number> <branch>` into `merged_pr_heads` (or an equivalent accumulator
+`merged_pr_for_branch` also reads) before §20 runs. §20 then lists the ref
+with the same evidence §3 already bought, at zero extra host cost.
 
-The plan is canonical; this brief orients.
+Separately, both truncation notes (line 1189 in §2, line 2571 in §20) print
+`"merged-PR list hit its limit of $MERGED_PR_LIMIT"`, and `$MERGED_PR_LIMIT`
+is always 500 (line 399) — the number requested, not the number the host
+actually returned. On Bitbucket the real page is 50
+(`pr_list_report_truncation`, `plot-host.sh:3033`, already writes
+`"possibly truncated ($count rows, requested limit $limit unprovable)"` to
+stderr). Capture `$count` from that line (or a stable marker alongside it)
+when `load_merged_pr_heads` reads `$host_err`, store it next to
+`MERGED_PR_TRUNCATED`, and have both notes print the applied count instead of
+`$MERGED_PR_LIMIT` on Bitbucket. GitHub's truncation is a ceiling it honours
+(it truncates exactly at `--limit`), so its note keeps naming
+`$MERGED_PR_LIMIT` — do not change that arm.
 
-### Settled decisions and leads
+### The decisions the plan settles — do not re-derive them
 
-**The record holds an answer the host gave, never an ancestry verdict.** Carried over from *One Answer To "Did This Land"*: write the row only from a `merged` word. `unknown`, `not-merged` and a failed ask record nothing, and the orphan line stands (`bitbucket-cut-merged-list.test.mjs` pins this for §3, case 3). Do not add an ancestry check to make §20 agree.
+**Share the answer; do not re-ask.** The plan's Open Question recommends
+reuse-only: §20 should NOT make a fresh per-branch `pr-merged` call for every
+ref with no row in the cut list — that is one Bitbucket call per orphan
+candidate against an account with a documented scarce budget (see the
+`my-bitbucket-issues-are-in-the-inbox` brief's note on the account-wide 429
+hit from ~1400 requests in one day). §20 reuses only what §3 already bought.
+A note may still be warranted that refs §3 never asked about (i.e. refs §3's
+loop didn't reach, because they were claims or contained-in-open-PR) can
+still be missed — the plan leaves this as an open question, not a
+requirement; resolve it in the PR description if you decide either way.
 
-**§20 reuses the answers §3 bought and asks nothing new.** This is the plan's recommended answer to its first open question. §20 per ref would cost one `pr-merged` call per remote ref on an account with a scarce Bitbucket budget. Add one line to the §20 note saying a ref §3 never asked about may still be missed. Record the choice in the PR description.
+**The record is an answer, never a verdict.** Per `CLAUDE.md`'s *One Answer
+To "Did This Land"*: what §3's `pr-merged` ask returns is the host's word,
+not ancestry. Fold it into `merged_pr_heads` (or next to it) as a bought
+answer with the same shape `merged_pr_for_branch` already parses (`<pr>
+<head>`), not as a derived boolean. Do not route it through
+`branch_merged`'s ancestry fallback — that fallback exists for branches with
+no PR to read at all, and §3's per-branch ask already found one.
 
-**The applied limit is already on stderr; read it, add no new signal.** `plot-host.sh:3033` prints `plot-host: bitbucket pr-list state=merged possibly truncated (50 rows, requested limit 500 unprovable)`. The scan already greps that file for `possibly truncated` (`:702`). Parse the row count from the same line and keep it in a variable (for example `MERGED_PR_APPLIED`), and print it in both notes. A new stdout marker or exit status would change a contract that `host.test.mjs:1718` and `:5547` pin (`state=merged possibly truncated \(50 rows`) and that `plot-pr-merged.sh:144` reads. The scan may not call `bb` itself (`check-host-cli-callers.sh`), and it does not need to. If the line carries no count, fall back to the old wording rather than print a number that is not there.
+**The row count already exists on stderr — read it, don't recompute it.**
+`pr_list_report_truncation` (`plot-host.sh:3014`) is the one place that
+decides and prints completeness; `load_merged_pr_heads` already redirects to
+`$host_err` and `grep -q 'possibly truncated'` against it (line 702). Add a
+second extraction (e.g. `grep -oE '\([0-9]+ rows' "$host_err" | grep -oE
+'[0-9]+'`) from the same captured file rather than opening a new call path
+into `plot-host.sh`. `scripts/check-host-cli-callers.sh` gates who may call
+the host CLI directly — the scan must not call `bb` itself, only read what
+`plot-host.sh` already wrote to the file it was given.
 
-**`pr-merged` answers with a word, not a number.** `plot-host.sh:3890` prints `merged`, `not-merged` or `unknown`. §20 prints `PR #$pr_num` (`:2540`), and `merged_pr_heads` lines are `<number> <head>`. Do not change what `pr-merged` prints: its callers compare `= merged`, and `plot-pr-merged.sh` is sourced by four scripts. Decide how §20 prints a ref whose number is unknown, and say which you chose in the PR. A row with a placeholder number would make `merged_pr_for_branch` return a wrong PR to the other readers (`:1165`, `:2707`). Whatever you record, keep those two readers correct.
+**GitHub keeps `$MERGED_PR_LIMIT`.** The fix is Bitbucket-only. GitHub's
+`--limit` is honoured by the host (it is the ceiling the caller asked for and
+got), so `$MERGED_PR_LIMIT` is already the true applied number there — do not
+touch that branch of the note.
 
-**§3 runs before §20, and the loop is not a pipeline.** The §3 loop ends `done <<< "$all_branches"` (`:1316`), so an assignment to `merged_pr_heads` inside it survives. Do not move the ask into a `| while` or a `$(...)`, or the record dies with the subshell. §2 (`:1180`) runs before §3 and is unaffected. The readers at `:1165` and `:2707` run after, and now see the recorded merge. That is the same evidence §3 used, and a test should show it.
-
-**Rules carried over unchanged.** Absent is not false: a cut list proves no absence. Read the exit code and the word, never the emptiness. GitHub makes no per-branch call at all (`bitbucket-cut-merged-list.test.mjs`, case 4). Keep that.
-
-**Open question 3 of the plan: `review-bypass`.** `:2592` passes `--limit "$MERGED_PR_LIMIT"` to `board/plot-review-bypass.mjs`, and the bundle asks the host itself. Read the bundle and answer whether it prints a limit, and whether it prints the wrong one on Bitbucket. If it does, fix it in this slice or file the follow-up. If it does not, say so in the PR. Do not leave the question unanswered.
+**§20a (review bypass) is out of scope unless you check it.** The plan's
+third Open Question asks whether `review-bypass.ts --limit "$MERGED_PR_LIMIT"`
+(line 2592) has the same wrong-limit bug on Bitbucket. It is a separate code
+path (`board/plot-review-bypass.mjs`, not `plot-reconcile-scan.sh`'s own
+truncation note) and the plan does not commit to fixing it — note in the PR
+whether you checked it and what you found, but do not expand the slice to
+fix it unless it's a one-line change using the same captured count.
 
 ### Done when
 
-The plan's changelog is the specification: §20 lists a ref whose PR merged when §3 proved that merge with a per-branch `pr-merged` ask, and the truncation note in §2 and §20 names the limit the host applied.
+The plan's `## Done when` is implicit in its Notes — there is no explicit
+`## Done when` list, so the specification is the Motivation's two gaps closed
+plus the Notes' test target:
 
-Assertions a naive implementation passes without:
-- **The branch sits OUTSIDE the 50 rows.** A fixture with the branch inside the page passes before and after. Copy the fixture of `test/reconcile/bitbucket-cut-merged-list.test.mjs`. The test must fail on `main` with §3 naming a deletion candidate while §20 prints "none".
-- **The note names 50, and a 49-row page prints no note.** This catches a hard-coded 50 and the requested-limit regression together. Make the two arms disagree: stub a host whose applied page is not 50 (for example 30) and assert the note names it.
-- **An `unknown` or failed per-branch ask leaves §20 at "none".** It catches a record written on any answer.
-- **GitHub keeps `MERGED_PR_LIMIT` in the note and makes no per-branch call.**
-- **A ref §3 never asked about** (not an orphan candidate) stays unlisted, and the §20 note says it may be missed.
+1. A contract test in `test/reconcile/` with a stubbed Bitbucket host that
+   returns 50 merged rows plus a per-branch `merged` answer (via `pr-merged`)
+   for a branch outside those 50. The test fails on `main` today with §3
+   naming that branch a deletion candidate while §20 prints "(none...)", and
+   passes once §20 lists the ref with the same evidence.
+2. A second assertion in that same test (or a sibling) checks that both
+   truncation notes name 50 (the actual page), not 500 (`$MERGED_PR_LIMIT`).
+3. The GitHub arm's truncation note is unchanged — add or keep a test
+   asserting it still prints `$MERGED_PR_LIMIT` there, so the Bitbucket-only
+   fix doesn't regress the host that already has an honoured ceiling.
 
-Plus: run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints. The suites in the `CI suites` key run in CI, and a failure there returns as a correction. Run the whole `test/reconcile/*.test.mjs` glob that the checks command prints, not only the files you suspect. Add a changeset (description first, `bumps:` block last, package `plot`, skill `plot-reconcile`). Do not commit the rebuilt board bundle.
+Plus the repo's standing gates: no generated board bundle in the diff
+(`scripts/check-no-bundle-diff.sh`), and if this branch grows the shell under
+`skills/`, `scripts/check-shell-lines.sh` requires removing an equal number of
+lines elsewhere in the same change — there is no override.
 
-**Shell gate.** `scripts/check-shell-lines.sh` refuses a PR whose shell under `skills/` is longer than at its merge base, with no number stored and no override. This slice edits `plot-reconcile-scan.sh`, so growth must be paid for in the same change: remove an equal number of shell lines elsewhere, or move a rule into the domain and ask it through a bundle. Count the lines before you start writing, so the budget is a plan and not a surprise at the gate.
+Run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push
+and run what it prints. The suites in the `CI suites` config key (including
+`node --test test/reconcile/*.test.mjs`) run in CI on every PR — do not run
+the full e2e suite locally (see `CLAUDE.md`'s Testing section: it dispatches
+real workers into sandbox repos and is CI's gate, not a local one).
 
 ### Bookkeeping
 
-Open the PR with `../plot/scripts/plot-open-pr.sh` (use `--draft` while work moves). Never run `gh pr create`. When the PR exists, append `→ #<number>` to this branch's line in the plan's `## Slices`. Push the first real commit as soon as it exists. Write test helpers as arrows (CLAUDE.md, *The Domain Package*).
+Open the PR through the controller, never `gh pr create`:
+
+```bash
+skills/plot/scripts/plot-open-pr.sh          # current branch
+skills/plot/scripts/plot-open-pr.sh --draft  # while work is still moving
+```
+
+Push the first real commit as soon as it exists — a branch with nothing
+beyond a `PLOT-BLOCKED` marker carries no bookkeeping duty, but once real work
+lands, push it rather than batching to the end. When the PR is created,
+append `→ #<number>` to this branch's line in the plan's `## Slices` section.
 
 ### Scope guard
 
-This branch owns §2, §3 and §20 of `skills/plot/scripts/plot-reconcile-scan.sh`, the truncation-count read in `load_merged_pr_heads`, `test/reconcile/` tests for them, and the changeset. It does not own `plot-host.sh`'s wording (pinned by `host.test.mjs`) or `plot-pr-merged.sh`. No other branch of this plan is in flight. The delivered plans `2026-10-21-reconcile-on-bitbucket-reads-merged-branches` and `2026-10-21-reconcile-does-not-report-a-plan` share the area and are not open. If you find something the plan did not anticipate, report it rather than improvising outside scope.
+This branch owns `skills/plot/scripts/plot-reconcile-scan.sh` (§2, §3, §20
+and the shared `load_merged_pr_heads`/`merged_pr_for_branch` helpers) and any
+new or extended test file under `test/reconcile/`. It does not touch
+`plot-host.sh`'s truncation detection itself (`pr_list_report_truncation`
+already does the job; this slice only reads its existing stderr line more
+closely) and does not touch `board/plot-review-bypass.mjs` unless the §20a
+check above turns up a trivial shared fix.
+
+No other branch is in flight against this plan — it is a single-slice plan
+with no wave structure, so there is no sibling branch to collide with.
+
+If you find something the plan did not anticipate, report it rather than
+improvising outside scope.
