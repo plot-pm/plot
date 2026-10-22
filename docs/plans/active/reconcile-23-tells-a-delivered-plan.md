@@ -1,0 +1,1 @@
+../2026-10-22-reconcile-23-tells-a-delivered-plan.md
