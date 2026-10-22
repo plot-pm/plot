@@ -77,8 +77,7 @@ while IFS= read -r line; do
     --arg review_sha "$REVIEW_SHA" \
     --arg head_sha "$HEAD_SHA" \
     --argjson needs_review "$NEEDS_REVIEW" \
-    '($prs_raw | split("\n") | map(select(length > 0))) as $prs
-     | {slug: $slug, pr: ($prs[0] // "none"), prs: $prs, branch: $branch, reviewed_at: $reviewed_at, review_sha: $review_sha, head_sha: $head_sha, needs_review: $needs_review}'
+    '($prs_raw | split("\n") | map(select(length > 0))) as $prs | {slug: $slug, pr: ($prs[0] // "none"), prs: $prs, branch: $branch, reviewed_at: $reviewed_at, review_sha: $review_sha, head_sha: $head_sha, needs_review: $needs_review}'
   )"
 done < "$SPRINT_FILE"
 
