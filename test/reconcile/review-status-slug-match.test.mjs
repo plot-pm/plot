@@ -93,6 +93,86 @@ test('a plain item with no [slug] sitting before an annotated item does not abor
   assert.equal(planTwo.needs_review, true);
 });
 
+test('a sprint built from the template produces items: []', () => {
+  const templatePath = path.join(root, 'skills', 'plot', 'templates', 'sprint.md');
+  const templateLine = fs.readFileSync(templatePath, 'utf8')
+    .split('\n')
+    .find((l) => l.includes('Format:') && l.includes('<!--'));
+  assert.ok(templateLine, 'the template must still carry its scope-change format comment line');
+
+  const body = [
+    '# A sprint',
+    '',
+    '## Items',
+    '',
+    templateLine,
+    '',
+  ].join('\n');
+
+  const repo = sandboxRepo(body);
+  const r = run(repo);
+
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.deepEqual(j.items, [], 'the template comment line must never be read as a sprint item');
+});
+
+test('a plan-less item with a pr: annotation appears keyed by its own text, not dropped', () => {
+  const body = [
+    '# A sprint',
+    '',
+    '## Items',
+    '',
+    '- [ ] [plan-two] a plan item with an annotation <!-- pr: #9, branch: feature/plan-two, review_sha: deadbeef -->',
+    '- [ ] EWZKUS-3869 a plan-less item <!-- pr: #3663, branch: feature/ewzkus-3869 -->',
+    '',
+  ].join('\n');
+
+  const repo = sandboxRepo(body);
+  const r = run(repo);
+
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+
+  const planTwo = j.items.find((i) => i.slug === 'plan-two');
+  assert.ok(planTwo, 'a plan item with [slug] and an annotation must still work exactly as before');
+  assert.equal(planTwo.pr, '9');
+  assert.equal(planTwo.branch, 'feature/plan-two');
+  assert.equal(planTwo.needs_review, true);
+
+  const planLess = j.items.find((i) => i.slug === 'EWZKUS-3869 a plan-less item');
+  assert.ok(planLess, 'a plan-less annotated item must appear, keyed by its own key/text');
+  assert.equal(planLess.pr, '3663');
+  assert.equal(planLess.branch, 'feature/ewzkus-3869');
+  assert.equal(planLess.head_sha, 'branch-not-found');
+  assert.equal(planLess.needs_review, true);
+
+  assert.equal(j.items.length, 2, 'no item must be dropped and none merged into another');
+});
+
+test('a non-checklist line carrying bracket characters that look like a slug is never reported as an item', () => {
+  const body = [
+    '# A sprint',
+    '',
+    '## Items',
+    '',
+    'Some prose mentioning [not-a-slug] in passing.',
+    '[not-a-slug] <!-- pr: #1, branch: feature/not-a-slug -->',
+    '- [ ] [plan-two] a plan item with an annotation <!-- pr: #9, branch: feature/plan-two, review_sha: deadbeef -->',
+    '',
+  ].join('\n');
+
+  const repo = sandboxRepo(body);
+  const r = run(repo);
+
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+
+  assert.equal(j.items.some((i) => i.slug === 'not-a-slug'), false,
+    'a non-checklist line must never be read as an item, with or without an HTML comment');
+  assert.equal(j.items.length, 1, 'only the real checklist item must be reported');
+});
+
 test('the test fails against the unfixed script, read as exit code 1 with empty stdout', () => {
   const repo = sandboxRepo(SPRINT_BODY);
 
