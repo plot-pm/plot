@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2075
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-19, Jan Wloka, plan-PR #2099 merged
 - **Started:** 2026-10-19, Jan Wloka, `bug/jenkins-checks-bind-to-the-head`
 - **Delivered:** 2026-10-19
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
