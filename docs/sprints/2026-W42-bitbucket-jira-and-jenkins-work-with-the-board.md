@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Active
+- **State:** Closed
+- **Actual End:** 2026-10-22
 - **Start:** 2026-10-16
 - **End:** 2026-10-23
 - **Release:** 2.28.0
@@ -43,16 +44,16 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [x] [check-helper-table-sh-misses-a] check-helper-table.sh misses a new bundle on its PR and turns main red after the merge (#2260)
 - [x] [reconcile-23-ignores-a-plan-s] Reconcile §23 ignores a plan's ticket: frontmatter key (#2269)
 - [x] [sprint-to-release-drift-lists-should] Sprint-to-Release drift lists Should and Could items as not in the sprint (#2279)
-- [ ] [release-gate-names-an-unfinished-must] Release gate names an unfinished Must Have with no plan as [] (#2281)
-- [ ] [reconcile-23-tells-a-released-plan] Reconcile §23 tells a Released plan to release, and reads a window of open issues (#2283)
+- [x] [release-gate-names-an-unfinished-must] Release gate names an unfinished Must Have with no plan as [] (#2281) <!-- reconciled: released -->
+- [x] [reconcile-23-tells-a-released-plan] Reconcile §23 tells a Released plan to release, and reads a window of open issues (#2283) <!-- reconciled: released -->
 - [x] [reconcile-does-not-report-a-plan] Reconcile does not report a plan linked in both active and delivered (#2284)
 - [x] [reconcile-on-bitbucket-reads-merged-branches] Reconcile on Bitbucket reads merged branches as orphans past 50 merged PRs (#2282)
 - [x] [jenkins-run-for-sha-on-the] Jenkins run-for-sha on the default branch reports no answer when the branch builds in another job (#2278)
-- [ ] [plot-review-status-sh-exits-1] plot-review-status.sh exits 1 with no output on a sprint item without a plan (#2280)
-- [ ] [fleet-work-leaves-the-main-checkout] Fleet work leaves the main checkout dirty and behind its HEAD (#2311)
-- [ ] [plot-review-status-sh-reads-the] plot-review-status.sh reads the template comment as a sprint item named slug (#2323)
-- [ ] [reconcile-20-ignores-merges-3-proved] Reconcile §20 ignores merges §3 proved and names the wrong truncation limit on Bitbucket (#2325)
-- [ ] [jenkins-runs-lists-every-build-twice] Jenkins runs lists every build twice for a plain job (#2322)
+- [x] [plot-review-status-sh-exits-1] plot-review-status.sh exits 1 with no output on a sprint item without a plan (#2280) <!-- reconciled: released -->
+- [x] [fleet-work-leaves-the-main-checkout] Fleet work leaves the main checkout dirty and behind its HEAD (#2311) <!-- reconciled: released -->
+- [x] [plot-review-status-sh-reads-the] plot-review-status.sh reads the template comment as a sprint item named slug (#2323) <!-- reconciled: released -->
+- [x] [reconcile-20-ignores-merges-3-proved] Reconcile §20 ignores merges §3 proved and names the wrong truncation limit on Bitbucket (#2325) <!-- reconciled: released -->
+- [x] [jenkins-runs-lists-every-build-twice] Jenkins runs lists every build twice for a plain job (#2322) <!-- reconciled: released -->
 - [x] [release-gate-labels-must-haves-by] Release gate labels Must Haves by the wrong key and leaves Should and Could labels empty (#2324)
 - [x] [reconcile-23-tells-a-delivered-plan] Reconcile §23 tells a Delivered plan to release when no released status is configured (#2326)
 
@@ -78,7 +79,14 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 
 ## Retrospective
 
-<!-- Filled during /plot-sprint close: What went well / What could improve / Action items -->
+### Metrics
+
+- Must Have: 38/38 complete
+- Should Have: 3/3 complete
+- Could Have: 4/4 complete
+- Deferred: 2 (to bugfix-2-28-1)
+- Release: 2.28.0 cut on 2026-10-22 (v2.28.0, @plot-pm/board 0.22.0)
+- Field tests on ewz-kus-portal: 8 rounds, read-only; round 8 clean
 
 ## Notes
 
