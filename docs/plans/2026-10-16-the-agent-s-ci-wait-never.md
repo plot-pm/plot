@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Type:** bug
 - **Issue:** #1867
@@ -17,6 +17,7 @@
 - **Started:** 2026-10-17, Jan Wloka, `bug/jenkins-runs-history`
 - **Started:** 2026-10-17, Jan Wloka, `feature/bitbucket-pr-state-binds-checks`
 - **Delivered:** 2026-10-18
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 

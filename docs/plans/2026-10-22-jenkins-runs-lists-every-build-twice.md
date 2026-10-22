@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2322
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2331 merged
 - **Started:** 2026-10-22, Jan Wloka, `bug/jenkins-runs-lists-every-build-twice`
 - **Delivered:** 2026-10-22
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 

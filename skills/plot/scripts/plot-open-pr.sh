@@ -249,16 +249,12 @@ closed_prs=$(printf '%s' "$answer" | node -e 'let s="";process.stdin.on("data",d
 # The notice goes to the operator too, not only into the body: a person running
 # this reads their terminal, and the branch they just opened a PR for may be one
 # they meant to finish first.
-if [ "$notice" = "marker-only" ]; then
-  echo "plot-open-pr: '$branch' carries no implementation outside a PLOT-BLOCKED marker — the PR says so." >&2
-fi
+[ "$notice" = "marker-only" ] && echo "plot-open-pr: '$branch' carries no implementation outside a PLOT-BLOCKED marker — the PR says so." >&2
 
 # A CLOSED PR CARRIED THIS BRANCH AND CARRIES IT NO LONGER. The body says so for
 # a later reader; the terminal says so for the person running this, who is the
 # one who can tell an abandoned review from a mistaken close.
-if [ -n "$closed_prs" ]; then
-  echo "plot-open-pr: '$branch' had $closed_prs closed unmerged — opening a new PR" >&2
-fi
+[ -n "$closed_prs" ] && echo "plot-open-pr: '$branch' had $closed_prs closed unmerged — opening a new PR" >&2
 
 if [ "$dry_run" = 1 ]; then
   printf '%s\n' "$answer"

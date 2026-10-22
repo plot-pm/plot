@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2055
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-18, Jan Wloka, plan-PR #2064 merged
 - **Started:** 2026-10-18, Jan Wloka, `bug/an-scp-style-remote-with-a`
 - **Delivered:** 2026-10-19
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
@@ -61,7 +62,7 @@ Board impact: none.
 
 ### Slug parse
 
-- `bug/an-scp-style-remote-with-a` — add the remote-to-slug domain rule with one unit test per remote form, ship it as a bundle, and call it from `plot-host.sh` in place of the sed pipeline <!-- builds: a remote-to-slug rule for Bitbucket remotes -->
+- `bug/an-scp-style-remote-with-a` — add the remote-to-slug domain rule with one unit test per remote form, ship it as a bundle, and call it from `plot-host.sh` in place of the sed pipeline <!-- builds: a remote-to-slug rule for Bitbucket remotes --> → #2068
 
 ## Notes
 

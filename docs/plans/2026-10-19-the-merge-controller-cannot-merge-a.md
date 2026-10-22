@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Story:**
 - **Sprint:**
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-19, Jan Wloka, `bug/the-merge-controller-cannot-merge-a-rule`
 - **Started:** 2026-10-19, Jan Wloka, `bug/the-merge-controller-cannot-merge-a-host`
 - **Delivered:** 2026-10-20
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 

@@ -12,7 +12,7 @@ import type {
   PrLookup,
   PrReviewReading,
 } from '../../ports/host.js';
-import { answered, failed, type PortResult } from '../../port-result.js';
+import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 
 /** The host a fixture answers as. */
 export interface HostFixture {
@@ -70,6 +70,24 @@ export interface HostFixture {
    * failed read, so a test can prove an unreadable PR is named.
    */
   reviews?: Readonly<Record<number, PrReviewReading>>;
+  /**
+   * Where every `prComment` write is recorded, in call order.
+   *
+   * Same reasoning as {@link commitStatuses}: a test proving a comment was
+   * posted with a specific body needs the attempt itself, not just whether it
+   * succeeded.
+   */
+  prComments?: { pr: number; body: string }[];
+  /**
+   * Whether posting a PR comment fails. Default is to succeed.
+   */
+  prCommentFails?: boolean;
+  /**
+   * Whether this host answers `unaskable` for `prComment` — a backend that
+   * cannot take PR comments at all, never a backend that tried and failed.
+   * Default is to succeed.
+   */
+  prCommentUnaskable?: boolean;
 }
 
 /**
@@ -94,6 +112,7 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
   const prs = fixture.prs ?? [];
   const opened = fixture.opened ?? [];
   const commitStatuses = fixture.commitStatuses ?? [];
+  const prComments = fixture.prComments ?? [];
   // Mutable, because the correction rule is behaviour rather than a value and
   // the fixture must be able to show it. A fixture that always answered the
   // literal input could not stand in for an adapter that learns.
@@ -169,6 +188,15 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
     prReview: async (number: number): Promise<PortResult<PrReviewReading>> => {
       const reading = fixture.reviews?.[number];
       return reading === undefined ? failed() : answered(reading);
+    },
+
+    prComment: async (pr: number, body: string): Promise<PortResult<true>> => {
+      // RECORDED BEFORE IT REFUSES, as `commitStatus` records before failing:
+      // a test proving a second call wrote nothing must still see the attempt.
+      prComments.push({ pr, body });
+      if (fixture.prCommentUnaskable === true) return unaskable();
+      if (fixture.prCommentFails === true) return failed();
+      return answered(true);
     },
 
     // ALWAYS NULL, and that is the fixture being honest rather than

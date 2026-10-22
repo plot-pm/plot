@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2324
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2327 merged
 - **Started:** 2026-10-22, Jan Wloka, `bug/release-gate-labels-must-haves-by`
 - **Delivered:** 2026-10-22
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 

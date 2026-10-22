@@ -49,6 +49,12 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
     <!-- Optional: the tracker project keys this repo's work lives in.
          Scopes the issue inbox; absent leaves it unscoped. NOT Branch prefixes. -->
     <!-- - **Ticket prefixes:** PROJ-A, PROJ-B -->
+    <!-- Optional: override the "shipped code" pattern the no-changeset scan
+         (reconcile section 22) uses to decide a merge needs a release note.
+         The value is an extended regex over repo-relative paths, read
+         with `plot-config.sh get-raw` so its ( ) and , survive.
+         Absent, it defaults to Plot's own layout. -->
+    <!-- - **Shipped code paths:** ^(backend/.*/src/main/|frontend/) -->
 
 Helpers read these keys via `scripts/plot-config.sh get <key> [default]` —
 use it instead of grepping `CLAUDE.md`.

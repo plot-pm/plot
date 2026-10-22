@@ -1,1 +1,0 @@
-../2026-W42-bitbucket-jira-and-jenkins-work-with-the-board.md

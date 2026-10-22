@@ -54,9 +54,7 @@ while [ $# -gt 0 ]; do
 done
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-if [ -z "$plan_dir" ]; then
-  plan_dir="$(bash "$script_dir/plot-config.sh" get "Plan directory" "docs/plans")"
-fi
+[ -z "$plan_dir" ] && plan_dir="$(bash "$script_dir/plot-config.sh" get "Plan directory" "docs/plans")"
 case "$plan_dir" in /*) ;; *) plan_dir="$repo_root/$plan_dir" ;; esac
 
 # The slug is the filename without its date prefix. A slug matching more than

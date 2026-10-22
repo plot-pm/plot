@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2214
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2225 merged
 - **Started:** 2026-10-21, Jan Wloka, `bug/jenkins-run-for-sha-can-answer`
 - **Delivered:** 2026-10-21
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
@@ -46,9 +47,9 @@ A second defect sits in the same function: the sha match (`plot-host.sh:1809`, `
 
 ## Slices
 
-### Skip builds that never ran (Branch: bug/jenkins-run-for-sha-can-answer) → #2241
+### Skip builds that never ran
 
-- Skip `NOT_BUILT` in the sha arms of `jenkins_sha_runs`, with the three single-revision fixtures and the renamed `ABORTED` test
+- `bug/jenkins-run-for-sha-can-answer` — skip `NOT_BUILT` in the sha arms of `jenkins_sha_runs`, with the three single-revision fixtures and the renamed `ABORTED` test → #2241
 
 ## Notes
 
