@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Plot helper: Get review status for sprint items
 # Usage: plot-review-status.sh <sprint-slug>
-# Output: JSON array of {slug, pr, branch, reviewed_at, review_sha, head_sha, needs_review}
+# Output: JSON array of {slug, pr, prs, branch, reviewed_at, review_sha, head_sha, needs_review}
+# `pr` is the annotation's first PR number (or "none"); `prs` is every PR
+# number the `pr:` field names, de-duplicated, in order of appearance.
 # Parses sprint file annotations and compares HEAD SHAs via git ls-remote.
 # Designed for small-model consumption: structured JSON output, no interpretation needed.
 
@@ -42,8 +44,13 @@ while IFS= read -r line; do
   ANNOTATION=$(echo "$line" | grep -oE '<!--.*-->' || true)
   [ -z "$ANNOTATION" ] && continue
 
-  # Parse annotation fields
-  PR=$(echo "$ANNOTATION" | grep -oE 'pr: #[0-9]+' | grep -oE '[0-9]+' || echo "")
+  # Walk the annotation comma by comma, tracking which `key:` is active (a
+  # comma-separated chunk with none continues the previous key — needed for
+  # "pr: #1 #2" and a repeated "pr:" key), and collect every `#<number>`
+  # while that key is `pr`. This is what keeps `branch:`/`review_sha:`
+  # numbers out: a single `#[0-9]+` grep over the whole annotation cannot
+  # tell which key a digit belongs to.
+  PRS=$(echo "$ANNOTATION" | awk 'BEGIN{RS=","} match($0,/[a-z_]+:/){k=substr($0,RSTART,RLENGTH-1)} k=="pr"{n=$0;while(match(n,/#[0-9]+/)){v=substr(n,RSTART+1,RLENGTH-1);if(!(v in seen)){seen[v]=1;print v};n=substr(n,RSTART+RLENGTH)}}' || echo "")
   BRANCH=$(echo "$ANNOTATION" | grep -oE 'branch: [^ ,>]+' | sed 's/branch: //' || echo "")
   REVIEWED_AT=$(echo "$ANNOTATION" | grep -oE 'reviewed_at: [^ ,>]+' | sed 's/reviewed_at: //' || echo "")
   REVIEW_SHA=$(echo "$ANNOTATION" | grep -oE 'review_sha: [^ ,>]+' | sed 's/review_sha: //' || echo "")
@@ -64,13 +71,13 @@ while IFS= read -r line; do
 
   RESULT="${RESULT}$(jq -n \
     --arg slug "$ITEM_SLUG" \
-    --arg pr "${PR:-none}" \
+    --arg prs_raw "$PRS" \
     --arg branch "$BRANCH" \
     --arg reviewed_at "$REVIEWED_AT" \
     --arg review_sha "$REVIEW_SHA" \
     --arg head_sha "$HEAD_SHA" \
     --argjson needs_review "$NEEDS_REVIEW" \
-    '{slug: $slug, pr: $pr, branch: $branch, reviewed_at: $reviewed_at, review_sha: $review_sha, head_sha: $head_sha, needs_review: $needs_review}'
+    '($prs_raw | split("\n") | map(select(length > 0))) as $prs | {slug: $slug, pr: ($prs[0] // "none"), prs: $prs, branch: $branch, reviewed_at: $reviewed_at, review_sha: $review_sha, head_sha: $head_sha, needs_review: $needs_review}'
   )"
 done < "$SPRINT_FILE"
 
