@@ -29,17 +29,13 @@ FIRST=true
 
 while IFS= read -r line; do
   # Only a checklist line can be a sprint item — a comment or prose line
-  # (e.g. the template's scope-change format line) never reaches the
-  # extraction below, so it cannot be mistaken for one.
+  # (e.g. the template's scope-change format line) never reaches extraction.
   [[ "$line" =~ ^[[:space:]]*-\ \[[\ xX]\] ]] || continue
 
-  # Extract slug from [slug] pattern; a plan-less item has none
+  # [slug] when present, else the item's own key/text (after the checkbox,
+  # before the first annotation comment, trimmed).
   ITEM_SLUG=$(echo "$line" | grep -oE '\[([a-z0-9-]+)\]' | head -1 | tr -d '[]' || true)
-  if [ -z "$ITEM_SLUG" ]; then
-    # Fall back to the item's own key/text: after the checkbox, before the
-    # first annotation comment, trimmed.
-    ITEM_SLUG=$(echo "$line" | sed -E 's/^[[:space:]]*- \[[ xX]\][[:space:]]*//; s/<!--.*//' | sed -E 's/[[:space:]]+$//')
-  fi
+  [ -z "$ITEM_SLUG" ] && ITEM_SLUG=$(echo "$line" | sed -E 's/^[[:space:]]*- \[[ xX]\][[:space:]]*//; s/<!--.*//; s/[[:space:]]+$//')
   [ -z "$ITEM_SLUG" ] && continue
 
   # Check if item has an annotation comment
@@ -53,14 +49,12 @@ while IFS= read -r line; do
   REVIEW_SHA=$(echo "$ANNOTATION" | grep -oE 'review_sha: [^ ,>]+' | sed 's/review_sha: //' || echo "")
 
   # Determine current HEAD SHA for the branch
-  HEAD_SHA=""
-  NEEDS_REVIEW=true
+  HEAD_SHA=""; NEEDS_REVIEW=true
 
   if [ -n "$BRANCH" ]; then
     HEAD_SHA=$(git ls-remote origin "$BRANCH" 2>/dev/null | cut -f1 || echo "")
     if [ -z "$HEAD_SHA" ]; then
       HEAD_SHA="branch-not-found"
-      NEEDS_REVIEW=true
     elif [ -n "$REVIEW_SHA" ] && [ "$HEAD_SHA" = "$REVIEW_SHA" ]; then
       NEEDS_REVIEW=false
     fi
