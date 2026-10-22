@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #1838
 - **Review:** pr
@@ -13,6 +13,7 @@
 - **Started:** 2026-10-17, Jan Wloka, `bug/deliver-ref-read-canonical-path`
 - **Started:** 2026-10-18, Jan Wloka, `bug/default-branch-writes-take-turns`
 - **Delivered:** 2026-10-18
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
