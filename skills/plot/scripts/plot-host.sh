@@ -1826,8 +1826,7 @@ jenkins_resolve_host() {
 # split the contract already uses so the shape does not fork per connector.
 jenkins_sha_runs() {
   local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain="" default_job root_path
-  instance="$(jenkins_instance)"
-  [ -n "$instance" ] || jenkins_no_instance
+  instance="$(jenkins_instance)"; [ -n "$instance" ] || jenkins_no_instance
   slug="${instance%%/*}"; job="${instance#*/}"; [ "$job" = "$instance" ] && job=""
   default_job=$(bash "$here/plot-config.sh" get "Default branch job" "" 2>/dev/null || true); [ -n "$default_job" ] && [ "$branch" = "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')" ] && job="$default_job"
   [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"; [ -n "$job" ] || { echo "plot-host: $op — the Jenkins instance names no job path; a sha lives in a job's builds, so it must be <slug>/<job/path>, not a bare host" >&2; exit 4; }
@@ -3349,8 +3348,7 @@ budget_record_call() { # $1=connector $2=backend-for-account $3=bucket
   [ -z "${PLOT_BUDGET_OFF:-}" ] || return 0
   local reading account bucket
   account="$(budget_account "${2:-$1}")"
-  bucket="${3:-}"
-  [ -n "$bucket" ] || bucket="$(budget_bucket "$1")"
+  bucket="${3:-}"; [ -n "$bucket" ] || bucket="$(budget_bucket "$1")"
   # A HARVESTED HEADER OUTRANKS EVERYTHING, including the argv's guess at the
   # bucket: `X-RateLimit-Resource` names `code_search` for a search that no
   # reading of the command line would have classified as anything but `core`.
@@ -4256,8 +4254,7 @@ case "$op" in
     jen_map=""
     jen_status=""
     if [ "$ci" = "jenkins" ] && [ "$rich" = 1 ]; then
-      jen_instance="$(jenkins_instance)"
-      [ -n "$jen_instance" ] || jenkins_no_instance
+      jen_instance="$(jenkins_instance)"; [ -n "$jen_instance" ] || jenkins_no_instance
       jen_payload=$(jenkins_build_map "$jen_instance")
       jen_status=$(printf '%s' "$jen_payload" | jq -r '.status // "failed"' 2>/dev/null || echo "failed")
       jen_map=$(printf '%s' "$jen_payload" | jq -c '.map // {}' 2>/dev/null || echo "{}")
@@ -4899,8 +4896,7 @@ case "$op" in
       # the board. `PLOT_JIRA_JQL` overrides it for a team that wants a wider or
       # narrower inbox. ORDER BY created DESC so the newest ticket is first, the
       # same order `createdAt` gives the GitHub arm.
-      [ -z "$label" ] || { echo "plot-host: jira cannot list issues by label" >&2; exit 4; }
-      [ -z "$title_has" ] || { echo "plot-host: jira cannot search issues by title" >&2; exit 4; }
+      { [ -z "$label" ] && [ -z "$title_has" ]; } || { echo "plot-host: jira cannot list issues by label or search by title" >&2; exit 4; }
       jira_require_config
       # `Ticket prefixes` SCOPES THE DEFAULT to this repository's projects. The
       # default alone scopes by person and by state, so on a shared instance it
@@ -5073,8 +5069,7 @@ case "$op" in
       # asked about. Quoted so a PR number with no other digit around it cannot
       # match a longer one; `findOpenReviewIssue` still checks every candidate,
       # since GitHub's search is not an exact title match.
-      elif [ -n "$title_has" ]; then search_args+=(--search "in:title \"$title_has\"")
-      fi
+      elif [ -n "$title_has" ]; then search_args+=(--search "in:title \"$title_has\""); fi
       if out="$(gh issue list --state "$ask_state" ${limit_args[@]+"${limit_args[@]}"} \
                   ${search_args[@]+"${search_args[@]}"} --json "$gh_json" 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
