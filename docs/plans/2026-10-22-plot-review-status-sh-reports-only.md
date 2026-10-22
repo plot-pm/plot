@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** bugfix-2-28-1
 - **Issue:** #2346
@@ -14,6 +14,7 @@
 - **Rounds:**
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2349 merged
 - **Started:** 2026-10-22, Jan Wloka, `bug/plot-review-status-sh-reports-only`
+- **Delivered:** 2026-10-22
 
 ## Changelog
 
