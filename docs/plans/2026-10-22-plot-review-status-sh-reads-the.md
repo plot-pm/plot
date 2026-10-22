@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:**
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2328 merged
+- **Started:** 2026-10-22, Jan Wloka, `bug/plot-review-status-sh-reads-the`
 
 ## Changelog
 
