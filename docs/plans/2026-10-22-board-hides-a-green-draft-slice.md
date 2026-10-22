@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2320 merged
+- **Started:** 2026-10-22, Jan Wloka, `bug/board-hides-a-green-draft-slice`
 
 ## Changelog
 
