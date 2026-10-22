@@ -45,7 +45,7 @@ The tracker side already solves this for issues: `plot-host.sh issue-comment <nu
 
 ### PR comment by marker
 
-- `bug/plot-review-edits-its-findings-comment` — add a marker-keyed PR comment operation (read, edit, else post) to `plot-host.sh` and the host port on GitHub and Bitbucket, and use it for the findings comment, with tests for a second run on the same PR editing the first comment and for a run with no earlier comment posting one <!-- builds: pr-comment, a marker-keyed PR comment edit-or-post on the host connector -->
+- `bug/plot-review-edits-its-findings-comment` — add a marker-keyed PR comment operation (read, edit, else post) to `plot-host.sh` and the host port on GitHub and Bitbucket, and use it for the findings comment, with tests for a second run on the same PR editing the first comment and for a run with no earlier comment posting one <!-- builds: pr-comment, a marker-keyed PR comment edit-or-post on the host connector --> → #2356
 
 ## Notes
 
