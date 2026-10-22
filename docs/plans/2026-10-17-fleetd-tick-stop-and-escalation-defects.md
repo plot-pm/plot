@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #1846
 - **Review:** pr
@@ -16,6 +16,7 @@
 - **Started:** 2026-10-18, Jan Wloka, `bug/fleetd-unit-harness-findings`
 - **Started:** 2026-10-18, Jan Wloka, `bug/refused-hold-names-its-reason`
 - **Delivered:** 2026-10-19
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
