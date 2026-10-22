@@ -5,7 +5,7 @@
 ## Status
 
 - **State:** Approved
-- **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
+- **Sprint:** bugfix-2-28-1
 - **Type:** bug
 - **Issue:** #2319
 - **Review:** pr

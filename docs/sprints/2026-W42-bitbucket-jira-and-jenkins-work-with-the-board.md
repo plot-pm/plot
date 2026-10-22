@@ -61,8 +61,6 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [x] [the-ticket-index-updates-incrementally-and] The ticket index updates incrementally and takes Plot's own issue writes at once (#1856)
 - [x] [ticket-rows-show-type-and-owner] Ticket rows show type and owner under one "Assigned to you" sub-header (#1837)
 - [x] [one-review-issue-per-pr-a] Tooling: one review issue per PR, a sprint goal the board reads, and a pid read that waits (#1952: #1881, #1883, #1909)
-- [ ] [board-hides-a-green-draft-slice] Board hides a green draft slice PR that waits for a person to mark it ready (#2319)
-- [ ] [plot-review-cannot-open-its-follow] plot-review cannot open its follow-up issue past 200 open issues and loses the findings (#2336)
 
 ### Could Have
 
@@ -74,6 +72,9 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 ### Deferred
 
 <!-- Items moved here during sprint when they won't make the timebox -->
+
+- [ ] [board-hides-a-green-draft-slice] Board hides a green draft slice PR that waits for a person to mark it ready (#2319)
+- [ ] [plot-review-cannot-open-its-follow] plot-review cannot open its follow-up issue past 200 open issues and loses the findings (#2336)
 
 ## Retrospective
 
@@ -107,3 +108,4 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - 2026-10-22: Added [reconcile-23-tells-a-delivered-plan] as Should: a low-severity defect from the seventh ewz-kus-portal field test (#2326).
 - 2026-10-22: Added [plot-review-cannot-open-its-follow] as Should: plot-review lost the findings of a HIGH on plan PR #2335 because its follow-up issue lookup stops at 200 open issues (#2336).
 - 2026-10-22: Moved [plot-review-status-sh-reads-the], [reconcile-20-ignores-merges-3-proved], [jenkins-runs-lists-every-build-twice], [release-gate-labels-must-haves-by] and [reconcile-23-tells-a-delivered-plan] from Should to Must by Jan Wloka: 2.28.0 waits for the seventh ewz-kus-portal field test's fixes and a clean eighth test (#2322–#2326).
+- 2026-10-22: Deferred [board-hides-a-green-draft-slice] and [plot-review-cannot-open-its-follow] from Should to the bugfix-2-28-1 sprint: 2.28.0 shipped without them by Jan Wloka's decision.
