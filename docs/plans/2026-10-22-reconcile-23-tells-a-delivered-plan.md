@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2335 merged
+- **Started:** 2026-10-22, Jan Wloka, `bug/reconcile-23-tells-a-delivered-plan`
 
 ## Changelog
 
