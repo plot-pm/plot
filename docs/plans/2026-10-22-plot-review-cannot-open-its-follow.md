@@ -44,9 +44,12 @@ Two defects combine:
 
 ## Slices
 
-### Implementation
+### Issue lookup by PR
 
 - `bug/plot-review-looks-up-its-issue-by-pr` — replace the 200-issue labelled read with a lookup keyed by the PR number, with tests for a backlog above 200 issues → #2344
+
+### Findings on the PR
+
 - `bug/plot-review-publishes-findings-on-the-pr` — on a failed follow-up issue, comment the findings on the PR with the run marker, with tests for the comment and for its own failure → #2343
 
 ## Notes
