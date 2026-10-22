@@ -105,7 +105,18 @@ const stubBb = ({ rows, branchAnswer = 'merged' } = {}) => {
   const branchBody = (() => {
     switch (branchAnswer) {
       case 'merged':
-        return `echo '${envelope([{ state: 'MERGED', source: { branch: { name: 'feature/old-merge' } } }])}'`;
+        // `pr-merge-dest` reads `id`, `merge_commit.hash` and
+        // `destination.branch.name` — not `pr-merged`'s plain `state` check —
+        // so the fixture's "merged" row carries all three, as a real Bitbucket
+        // merged-PR row does.
+        return `echo '${envelope([{
+          id: 4242,
+          state: 'MERGED',
+          source: { branch: { name: 'feature/old-merge' } },
+          destination: { branch: { name: 'main' } },
+          merge_commit: { hash: 'deadbeef' },
+          updated_on: '2026-01-01T00:00:00Z',
+        }])}'`;
       case 'none':
         return `echo '${envelope([])}'`;
       case 'fail':

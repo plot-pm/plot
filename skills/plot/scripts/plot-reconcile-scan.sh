@@ -398,7 +398,13 @@ open_pr_heads=""       # "<number> <head>" lines, same PRs — section 3 names t
 # rather than silent (see MERGED_PR_TRUNCATED below).
 MERGED_PR_LIMIT=500
 merged_pr_heads=""       # "<number> <head>" lines, one per merged PR
-MERGED_PR_TRUNCATED=0    # 1 when the host says the page can't prove completeness
+# The row count a truncated Bitbucket page ACTUALLY returned, read off
+# `plot-host.sh`'s own "possibly truncated (<count> rows, ...)" stderr line
+# (`pr_list_report_truncation`) rather than recomputed — Bitbucket's real page
+# is 50, not `MERGED_PR_LIMIT`'s 500, and the two notes below must say which
+# number was applied. Empty unless a Bitbucket page truncated; GitHub honours
+# `--limit`, so its note keeps naming `MERGED_PR_LIMIT` and never sets this.
+MERGED_PR_TRUNCATED=0; MERGED_PR_TRUNCATED_COUNT=    # 1/count when the host says the page can't prove completeness
 
 # Drop the leading PR number from "<number> <head>" lines. A branch name may
 # contain spaces in principle, so take everything AFTER the first field rather
@@ -699,7 +705,11 @@ load_merged_pr_heads() {
     if [ -n "$host_err" ] && out=$(PLOT_HOST="$MERGED_HOST_ENV" bash "$MERGED_HOST_SCRIPT" pr-list --state merged --limit "$MERGED_PR_LIMIT" $MERGED_REPO_ARGS </dev/null 2>"$host_err"); then
       host_heads=$(printf '%s' "$out" | jq -r 'select(.number != null) | "\(.number) \(.head)"' 2>/dev/null)
     fi
-    [ -n "$host_err" ] && { grep -q 'possibly truncated' "$host_err" 2>/dev/null && MERGED_PR_TRUNCATED=1; rm -f "$host_err"; }
+    # Bitbucket only: GitHub's note keeps naming `MERGED_PR_LIMIT` (its
+    # honoured ceiling), so the count is read only on that backend — off the
+    # same stderr line plot-host.sh already wrote, not a second call.
+    [ -n "$host_err" ] && grep -q 'possibly truncated' "$host_err" 2>/dev/null && { MERGED_PR_TRUNCATED=1; [ "$MERGED_HOST_ENV" = bitbucket ] && MERGED_PR_TRUNCATED_COUNT=$(grep -oE '\([0-9]+ rows' "$host_err" | grep -oE '[0-9]+' | head -1); }
+    rm -f "$host_err"
   fi
 
   merged_pr_heads=$(printf '%s\n%s\n' "$host_heads" "$index_heads" | grep .)
@@ -1186,7 +1196,7 @@ if [ "$pr_reliable" != 1 ]; then
   echo "  note: merged-PR heads not consulted (pr_source=$PR_SOURCE) — plans whose"
   echo "        branch was deleted at merge cannot be detected in this mode."
 elif [ "$MERGED_PR_TRUNCATED" = 1 ]; then
-  echo "  note: merged-PR list hit its limit of $MERGED_PR_LIMIT — older merged PRs were"
+  echo "  note: merged-PR list hit its limit of ${MERGED_PR_TRUNCATED_COUNT:-$MERGED_PR_LIMIT} — older merged PRs were"
   echo "        not examined; a long-hanging plan may still be missed here."
 fi
 echo
@@ -1300,15 +1310,25 @@ while IFS= read -r b; do
     fi
     # Merged list was cut (ewz-kus-portal #2282: PR #3623 sat past the newest
     # 50-row Bitbucket page) — ask about THIS branch before calling it an
-    # orphan. `merged` reclassifies it; `unknown`/a failed ask does not. GitHub
-    # honours `--limit`, so its truncation is its own ceiling, not a page it
-    # cannot widen — Bitbucket only.
+    # orphan. A merged line reclassifies it; an empty or failed ask does not.
+    # GitHub honours `--limit`, so its truncation is its own ceiling, not a
+    # page it cannot widen — Bitbucket only.
+    #
+    # `pr-merge-dest`, NOT `pr-merged`: same one-call query (`pr-merge-dest`'s
+    # own header states it runs `pr-merged`'s query), but it also names the PR
+    # NUMBER — which this ask already bought and section 20 would otherwise
+    # pay a second call to re-learn. An empty line (no PR merged) and exit 3
+    # (the query failing, including Bitbucket's unprovable-full-page case)
+    # both leave `dest` empty, so both fall through to "orphan" exactly as
+    # `not-merged` and `unknown` did before this call's output changed shape.
     if [ "$MERGED_PR_TRUNCATED" = 1 ] && [ "$MERGED_HOST_ENV" = bitbucket ] \
-       && word=$(PLOT_HOST="$MERGED_HOST_ENV" bash "$MERGED_HOST_SCRIPT" pr-merged "$b" $MERGED_REPO_ARGS </dev/null 2>/dev/null) \
-       && [ "$word" = merged ]; then
-      stale_out+="  origin/$b — merged into $MAIN, no open PR → deletion candidate\n"
-      stale_out+="    fix: git push origin --delete $b\n"
-      n_stale=$((n_stale + 1)); continue
+       && pr_num=$(PLOT_HOST="$MERGED_HOST_ENV" bash "$MERGED_HOST_SCRIPT" pr-merge-dest "$b" $MERGED_REPO_ARGS </dev/null 2>/dev/null | awk -F'\t' 'NF { print $1; exit }') \
+       && [ -n "$pr_num" ]; then
+      stale_out+="  origin/$b — merged into $MAIN, no open PR → deletion candidate\n"; stale_out+="    fix: git push origin --delete $b\n"
+      # FOLD THE ANSWER IN, so section 20 reads it rather than re-asking: this
+      # ask already bought the PR number, and `merged_pr_for_branch` reads
+      # `merged_pr_heads` lines shaped exactly `<pr_number> <branch>`.
+      merged_pr_heads=$(printf '%s\n%s %s\n' "$merged_pr_heads" "$pr_num" "$b" | grep .); n_stale=$((n_stale + 1)); continue
     fi
     stale_out+="  origin/$b — ahead of $MAIN, no open PR → orphan (needs judgment)\n"
     stale_out+="    inspect: git log --oneline origin/$MAIN..origin/$b\n"
@@ -2568,7 +2588,7 @@ else
 
   if [ -n "$merged_ref_out" ]; then printf '%b' "$merged_ref_out"; else echo "  (none — no remote ref outlives its merged PR)"; fi
   if [ "$MERGED_PR_TRUNCATED" = 1 ]; then
-    echo "  note: merged-PR list hit its limit of $MERGED_PR_LIMIT — older merged PRs were"
+    echo "  note: merged-PR list hit its limit of ${MERGED_PR_TRUNCATED_COUNT:-$MERGED_PR_LIMIT} — older merged PRs were"
     echo "        not examined; a ref whose PR merged long ago may still be missed here."
   fi
 fi
