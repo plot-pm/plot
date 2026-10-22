@@ -50,7 +50,7 @@ One key rule, scoped to `Ticket prefixes`, labels every tier.
 
 ### Release gate labels
 
-- `bug/release-gate-labels-must-haves-by` — scope `itemLabel` to `Ticket prefixes` and label Should and Could items through it, with unit tests for `AP-2a` text and plan-less Should and Could items
+- `bug/release-gate-labels-must-haves-by` — scope `itemLabel` to `Ticket prefixes` and label Should and Could items through it, with unit tests for `AP-2a` text and plan-less Should and Could items → #2341
 
 ## Notes
 
