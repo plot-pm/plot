@@ -264,6 +264,24 @@ export interface Tracker {
   issueListLabelled(label: string, limit: number): Promise<PortResult<IssueRead>>;
 
   /**
+   * Lists the tracker's open issues that carry `label` and whose title
+   * contains `titleHas`, without their bodies.
+   *
+   * The title match is a tracker-side search, not an exact match: the caller
+   * still checks every returned candidate itself (`findOpenReviewIssue` does
+   * this for a review follow-up issue). This narrows a read whose subject is
+   * one entity named in the title — a PR, say — to a bounded answer that does
+   * not grow with the whole backlog the way {@link issueListLabelled} does.
+   *
+   * @param label - the label to filter by, verbatim.
+   * @param titleHas - the text the title must contain, verbatim.
+   * @param limit - how many issues to read at most.
+   * @returns the issues, and whether the read reached its end; `unaskable`
+   *   where no tracker can be asked or the declared one cannot search by title.
+   */
+  issueListWithTitle(label: string, titleHas: string, limit: number): Promise<PortResult<IssueRead>>;
+
+  /**
    * Lists the issues the tracker closed at or after `since`, without bodies.
    *
    * Newest close first. A read that returns `limit` rows reports

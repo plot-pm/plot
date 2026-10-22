@@ -144,6 +144,7 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
     issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
     issueListOpen: (limit): Promise<PortResult<IssueRead>> => reads.issueListOpen(limit),
     issueListLabelled: async (): Promise<PortResult<IssueRead>> => unaskable('the Jira tracker lists no issues by label'),
+    issueListWithTitle: async (): Promise<PortResult<IssueRead>> => unaskable('the Jira tracker cannot search issues by title'),
 
     // GATED THE SAME WAY `issueListInbox` IS: a changed-since read scoped by
     // project needs a project to scope by, and with none declared there is no

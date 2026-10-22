@@ -195,16 +195,25 @@ type FollowUp =
   | { ok: true; url: string; commented: boolean; uncommented?: { why: string; failed: boolean } }
   | { ok: false; why: string };
 
-/** How many labelled open issues the lookup reads; a read that stops here is not conclusive. */
+/** How many matching open issues the lookup reads; a read that stops here is not conclusive. */
 const LOOKUP_LIMIT = 200;
 
 /**
  * The open follow-up issue of a PR, asked of the tracker.
  *
+ * The search is keyed by the PR's own title text rather than the whole
+ * labelled backlog, so the read stays bounded by the one PR asked about
+ * instead of growing with every AI-created issue in the repository. The
+ * tracker's title search is not an exact match, so every candidate is still
+ * checked against {@link findOpenReviewIssue} — a search naming "PR #1" can
+ * return an issue titled "... on PR #12", and only the exact check tells them
+ * apart.
+ *
  * A failed or truncated read is `ok: false`: not knowing is not the same as
  * no issue existing, and opening on it would recreate the duplicates. A tracker
- * that cannot list by label (`unaskable`, as Jira answers) allows no lookup, so
- * the answer is no issue and the caller opens one, as before the lookup existed.
+ * that cannot search issues by title (`unaskable`, as Jira answers) allows no
+ * lookup, so the answer is no issue and the caller opens one, as before the
+ * lookup existed.
  *
  * @param deps - the tracker.
  * @param pr - the PR number.
@@ -215,7 +224,7 @@ const openIssueOfPr = async (
   deps: ReviewDeps,
   pr: number,
 ): Promise<{ ok: true; issue: Issue | null } | { ok: false; why: string }> => {
-  const listed = await deps.tracker.issueListLabelled(REVIEW_ISSUE_LABEL, LOOKUP_LIMIT);
+  const listed = await deps.tracker.issueListWithTitle(REVIEW_ISSUE_LABEL, `PR #${pr}`, LOOKUP_LIMIT);
   if (!listed.ok && listed.why === 'unaskable') return { ok: true, issue: null };
   if (!listed.ok) {
     const why = deps.tracker.lastRefusal()

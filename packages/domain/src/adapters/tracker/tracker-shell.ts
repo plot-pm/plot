@@ -346,6 +346,22 @@ export const trackerReads = (shell: TrackerShell, env: Readonly<Record<string, s
     issueListLabelled: (label: string, limit: number): Promise<PortResult<IssueRead>> =>
       walk(['issue-list', '--paged', '--label', label], limit),
 
+    /**
+     * Lists the open issues carrying `label` whose title contains `titleHas`:
+     * `issue-list --paged --label <label> --title-has <titleHas>`. See
+     * {@link walk}. Only the GitHub arm of `plot-host.sh` accepts
+     * `--title-has`; the others exit 4, which answers `unaskable` with the
+     * stated reason.
+     *
+     * @param label - the label to filter by.
+     * @param titleHas - the text the title must contain.
+     * @param limit - how many issues to read at most.
+     * @returns the matching open issues, whether the read reached its end,
+     *   and the requests it spent.
+     */
+    issueListWithTitle: (label: string, titleHas: string, limit: number): Promise<PortResult<IssueRead>> =>
+      walk(['issue-list', '--paged', '--label', label, '--title-has', titleHas], limit),
+
     issueListClosed: async (since: string, limit: number): Promise<PortResult<ClosedIssues>> => {
       const read = await walk(['issue-list', '--state', 'closed', '--since', since], limit);
       return read.ok ? answered({ ...read.value, issues: newestCloseFirst(read.value.issues) }) : read;

@@ -435,6 +435,12 @@
 #                                 one; an empty <marker> always posts, not idempotent.
 #   issue-list --label <label>    keeps open issues carrying the label (github
 #                                 only; exit 4 on Bitbucket and on Jira).
+#   issue-list --title-has <text> keeps open issues whose title contains <text>,
+#                                 combinable with --label (github only; exit 4 on
+#                                 Bitbucket and on Jira). GitHub's search is a
+#                                 complete answer within its own result count, so
+#                                 this never pages: `complete` reads false only
+#                                 where the result count reaches --limit.
 #   issue-open <request-json>                       (jira)
 #   issue-open <title> <body> [--label <label>...]  (github-issues)
 #                                 THE SECOND OF TWO WRITES TO A TRACKER: open
@@ -4852,7 +4858,7 @@ case "$op" in
     # of them reproduces `an-outage-is-not-an-answer` — a board that says "no
     # issues" because it could not reach the tracker is stating a fact it does
     # not have.
-    limit=""; state="open"; since=""; page_token=""; paged=""; label=""; fix_version=""
+    limit=""; state="open"; since=""; page_token=""; paged=""; label=""; fix_version=""; title_has=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --limit) limit="${2:?}"; shift 2 ;;
@@ -4862,6 +4868,7 @@ case "$op" in
         --paged) paged=1; shift ;;
         --label) label="${2:?}"; shift 2 ;;
         --fix-version) fix_version="${2:?}"; state=version; shift 2 ;;
+        --title-has) title_has="${2:?}"; shift 2 ;;
         *) die "issue-list: unknown arg $1" ;;
       esac
     done
@@ -4893,6 +4900,7 @@ case "$op" in
       # narrower inbox. ORDER BY created DESC so the newest ticket is first, the
       # same order `createdAt` gives the GitHub arm.
       [ -z "$label" ] || { echo "plot-host: jira cannot list issues by label" >&2; exit 4; }
+      [ -z "$title_has" ] || { echo "plot-host: jira cannot search issues by title" >&2; exit 4; }
       jira_require_config
       # `Ticket prefixes` SCOPES THE DEFAULT to this repository's projects. The
       # default alone scopes by person and by state, so on a shared instance it
@@ -5050,10 +5058,23 @@ case "$op" in
       # rather than from `$gh_state` — the one read here where the issue
       # itself, not the call, says what it is. `updatedAt` rides along so the
       # adapter's fold can compare it the way `foldIssueRows` already does.
+      # `--title-has` IS OPEN-ONLY AND NEEDS NO CHANGED/CLOSED SEARCH TERM
+      # BESIDE IT: `gh` keeps only its LAST `--search` flag rather than ANDing
+      # several, so a state that already uses one here is refused instead of
+      # silently losing the title filter (open issues is the lookup's only use).
+      [ -z "$title_has" ] || [ "$gh_state" = open ] || die "issue-list: --title-has only works with --state open"
       gh_json="number,title,url,createdAt,assignees,issueType"; search_args=(); ask_state="$gh_state"
       [ -z "$label" ] || search_args=(--label "$label")
       if [ "$gh_state" = changed ]; then gh_json+=",updatedAt,state,closedAt"; ask_state=all; search_args+=(--search "updated:>=$since")
-      elif [ "$gh_state" != open ]; then gh_json+=",closedAt"; search_args+=(--search "closed:>=$since"); fi
+      elif [ "$gh_state" != open ]; then gh_json+=",closedAt"; search_args+=(--search "closed:>=$since")
+      # TITLE SEARCH NARROWS, IT DOES NOT REPLACE THE LABEL FILTER: both are
+      # qualifiers `gh` combines in one `--search` string, so a backlog's
+      # label stays the safety net while the title cuts the read to the one PR
+      # asked about. Quoted so a PR number with no other digit around it cannot
+      # match a longer one; `findOpenReviewIssue` still checks every candidate,
+      # since GitHub's search is not an exact title match.
+      elif [ -n "$title_has" ]; then search_args+=(--search "in:title \"$title_has\"")
+      fi
       if out="$(gh issue list --state "$ask_state" ${limit_args[@]+"${limit_args[@]}"} \
                   ${search_args[@]+"${search_args[@]}"} --json "$gh_json" 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
@@ -5084,7 +5105,7 @@ case "$op" in
       # A CLOSED OR CHANGED READ IS EXIT 4: `bb issue list` prints no closing or
       # update date, so there is nothing honest to return for either. It runs
       # before any `bb` command.
-      { [ "$state" = open ] && [ -z "$label" ]; } || { echo "plot-host: bitbucket cannot list closed or changed issues, or issues by label" >&2; exit 4; }
+      { [ "$state" = open ] && [ -z "$label" ] && [ -z "$title_has" ]; } || { echo "plot-host: bitbucket cannot list closed or changed issues, issues by label, or issues by title" >&2; exit 4; }
       bb_assert_issue_version || exit $?
       # `--state new,open` is bb's own default for `issue list` and is what
       # "open tracker issues" means; stated explicitly so a bb default change

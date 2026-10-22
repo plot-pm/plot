@@ -486,13 +486,13 @@ describe('one follow-up issue per PR', () => {
     id, title, url: '', createdAt: null, body: null, status: 'open', statusCategory: 'To Do', closedAt: null,
   } as Issue);
 
-  /** A tracker whose opened issues show up in the labelled list, as on a real host. */
+  /** A tracker whose opened issues show up in the title search, as on a real host. */
   const withLabelled = (listed: Issue[], over: Partial<Tracker> = {}) => {
     const opened: IssueOpen[] = [];
     const commented: { id: string; body: string }[] = [];
     const tracker: Tracker = {
       ...trackerFixture({ scheme: 'github-issues', commented }),
-      issueListLabelled: async () => answered({ issues: listed, complete: true, pages: 1 }),
+      issueListWithTitle: async () => answered({ issues: listed, complete: true, pages: 1 }),
       issueOpen: async (write) => {
         opened.push(write);
         const id = String(100 + opened.length);
@@ -532,22 +532,22 @@ describe('one follow-up issue per PR', () => {
     expect(commented).toHaveLength(0);
   });
 
-  it('asks for the review label, so an issue without it never receives review text', async () => {
-    const asked: string[] = [];
+  it('asks for the review label and the PR title, so an issue without either never receives review text', async () => {
+    const asked: { label: string; titleHas: string }[] = [];
     const { tracker, opened, commented } = withLabelled([], {
-      issueListLabelled: async (label) => { asked.push(label); return answered({ issues: [], complete: true, pages: 1 }); },
+      issueListWithTitle: async (label, titleHas) => { asked.push({ label, titleHas }); return answered({ issues: [], complete: true, pages: 1 }); },
     });
     const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n');
     r.deps.tracker = tracker;
     await reviewPr(r.deps, '7');
-    expect(asked).toEqual(['ai-generated']);
+    expect(asked).toEqual([{ label: 'ai-generated', titleHas: 'PR #7' }]);
     expect(opened).toHaveLength(1);
     expect(commented).toHaveLength(0);
   });
 
   it('opens nothing and comments nothing when the lookup fails', async () => {
     const { tracker, opened, commented } = withLabelled([], {
-      issueListLabelled: async () => ({ ok: false as const, why: 'failed' as const }),
+      issueListWithTitle: async () => ({ ok: false as const, why: 'failed' as const }),
       lastRefusal: () => 'plot-host: HTTP 502',
     });
     const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n');
@@ -561,9 +561,9 @@ describe('one follow-up issue per PR', () => {
     expect(r.statuses).toHaveLength(1);
   });
 
-  it('opens one issue as before when the tracker cannot list by label', async () => {
+  it('opens one issue as before when the tracker cannot search issues by title', async () => {
     const { tracker, opened, commented } = withLabelled([], {
-      issueListLabelled: async () => ({ ok: false as const, why: 'unaskable' as const, reason: 'the Jira tracker lists no issues by label' }),
+      issueListWithTitle: async () => ({ ok: false as const, why: 'unaskable' as const, reason: 'the Jira tracker cannot search issues by title' }),
     });
     const r = rig('Findings: HIGH 1, MEDIUM 0, LOW 0\n');
     r.deps.tracker = tracker;
@@ -576,7 +576,7 @@ describe('one follow-up issue per PR', () => {
 
   it('opens nothing when the lookup stopped at its limit without a match', async () => {
     const { tracker, opened } = withLabelled([], {
-      issueListLabelled: async () => answered({ issues: [], complete: false, pages: 1 }),
+      issueListWithTitle: async () => answered({ issues: [], complete: false, pages: 1 }),
     });
     const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n');
     r.deps.tracker = tracker;
@@ -585,10 +585,31 @@ describe('one follow-up issue per PR', () => {
     expect(opened).toHaveLength(0);
   });
 
+  it('a backlog of 250 labelled issues with the match at row 230 still finds it', async () => {
+    // A BACKLOG OF 250, searched by title the way the real tracker does: only
+    // rows whose title contains the search text come back at all, so a match
+    // at row 230 of the full backlog is still row 0 of the search result —
+    // the old `issueListLabelled` read, which scanned the first 200 backlog
+    // rows unfiltered, would have missed it.
+    const haystack = Array.from({ length: 250 }, (_, i) => issueRow(String(i), `plot-review: findings on PR #${900 + i}`));
+    haystack[230] = issueRow('9', 'plot-review: findings on PR #7');
+    const { tracker, commented } = withLabelled([], {
+      issueListWithTitle: async (_label, titleHas, limit) => {
+        const matching = haystack.filter((issue) => issue.title.includes(titleHas));
+        return answered({ issues: matching.slice(0, limit), complete: matching.length <= limit, pages: 1 });
+      },
+    });
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n');
+    r.deps.tracker = tracker;
+    const out = await reviewPr(r.deps, '7');
+    expect(out.code).toBe(EXIT.ok);
+    expect(commented.map((c) => c.id)).toEqual(['9']);
+  });
+
   it('a second run on the same head makes no lookup, and comments its verdict again', async () => {
     let lookups = 0;
     const { tracker, commented } = withLabelled([issueRow('9', 'plot-review: MEDIUM 0, LOW 1 on PR #7')], {
-      issueListLabelled: async () => { lookups += 1; return answered({ issues: [issueRow('9', 'plot-review: MEDIUM 0, LOW 1 on PR #7')], complete: true, pages: 1 }); },
+      issueListWithTitle: async () => { lookups += 1; return answered({ issues: [issueRow('9', 'plot-review: MEDIUM 0, LOW 1 on PR #7')], complete: true, pages: 1 }); },
     });
     const files = new Map<string, string>();
     for (let i = 0; i < 2; i += 1) {
@@ -635,7 +656,7 @@ describe('one follow-up issue per PR', () => {
 
   it('keeps the recorded issue as the target and exits ok when the tracker takes no comment', async () => {
     const { tracker, opened } = withLabelled([], {
-      issueListLabelled: async () => ({ ok: false as const, why: 'unaskable' as const, reason: 'the Jira tracker lists no issues by label' }),
+      issueListWithTitle: async () => ({ ok: false as const, why: 'unaskable' as const, reason: 'the Jira tracker cannot search issues by title' }),
       issueComment: async () => ({ ok: false as const, why: 'unaskable' as const, reason: 'the Jira tracker does not comment on issues' }),
     });
     const files = new Map<string, string>([[`${REVIEWS}/7-${HEAD}.issue`, '9']]);
@@ -665,7 +686,7 @@ describe('one follow-up issue per PR', () => {
 
   it('trackerNone answers unaskable to the lookup and the comment, with its reason', async () => {
     const none = trackerNone('no Tracker declared');
-    expect(await none.issueListLabelled('ai-generated', 10)).toEqual({ ok: false, why: 'unaskable', reason: 'no Tracker declared' });
+    expect(await none.issueListWithTitle('ai-generated', 'PR #7', 10)).toEqual({ ok: false, why: 'unaskable', reason: 'no Tracker declared' });
     expect(await none.issueComment('1', 'x')).toEqual({ ok: false, why: 'unaskable', reason: 'no Tracker declared' });
   });
 });
