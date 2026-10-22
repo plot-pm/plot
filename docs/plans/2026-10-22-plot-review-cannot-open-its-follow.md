@@ -46,8 +46,8 @@ Two defects combine:
 
 ### Implementation
 
-- `bug/plot-review-looks-up-its-issue-by-pr` — replace the 200-issue labelled read with a lookup keyed by the PR number, with tests for a backlog above 200 issues
-- `bug/plot-review-publishes-findings-on-the-pr` — on a failed follow-up issue, comment the findings on the PR with the run marker, with tests for the comment and for its own failure
+- `bug/plot-review-looks-up-its-issue-by-pr` — replace the 200-issue labelled read with a lookup keyed by the PR number, with tests for a backlog above 200 issues → #2344
+- `bug/plot-review-publishes-findings-on-the-pr` — on a failed follow-up issue, comment the findings on the PR with the run marker, with tests for the comment and for its own failure → #2343
 
 ## Notes
 
