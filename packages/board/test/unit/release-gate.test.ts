@@ -142,19 +142,19 @@ describe('the tiers below Must', () => {
   it('reports an open Should without refusing', () => {
     const answered = answer(report([{ tier: 'should', slug: 'epsilon', state: 'open' }]), []);
     expect(answered.pass).toBe(true);
-    expect(answered.openShoulds).toContain('epsilon');
+    expect(answered.openShoulds).toContain('[epsilon]');
   });
 
   it('reports a disputed Should among the open ones', () => {
     expect(
       answer(report([{ tier: 'should', slug: 'zeta', state: 'disputed' }]), []).openShoulds,
-    ).toContain('zeta');
+    ).toContain('[zeta]');
   });
 
   it('reports an open Could and neither blocks nor prompts', () => {
     const answered = answer(report([{ tier: 'could', slug: 'eta', state: 'open' }]), []);
     expect(answered.pass).toBe(true);
-    expect(answered.openCoulds).toContain('eta');
+    expect(answered.openCoulds).toContain('[eta]');
     expect(answered.openShoulds).toEqual([]);
   });
 
@@ -187,15 +187,26 @@ describe('reading the collector', () => {
     expect(items[0]!.text).toBe('Sync EWZ-123');
   });
 
-  it('names a plan-less open Must by its Jira key in the refusal', () => {
+  it('names a plan-less open Must by its Jira key in the refusal, scoped to Ticket prefixes', () => {
+    const answered = answer(
+      JSON.stringify({
+        sprints: [{ sprint: 's', release: '2.16.0', must: [{ slug: '', text: 'Sync EWZ-123', state: 'open' }] }],
+      }),
+      [],
+      ['EWZ'],
+    );
+    expect(answered.detail).toContain('[EWZ-123]');
+    expect(answered.detail).not.toContain('[]');
+  });
+
+  it('names a plan-less open Must by its full text when no Ticket prefixes are declared', () => {
     const answered = answer(
       JSON.stringify({
         sprints: [{ sprint: 's', release: '2.16.0', must: [{ slug: '', text: 'Sync EWZ-123', state: 'open' }] }],
       }),
       [],
     );
-    expect(answered.detail).toContain('[EWZ-123]');
-    expect(answered.detail).not.toContain('[]');
+    expect(answered.detail).toContain('[Sync EWZ-123]');
   });
 
   it('reads an item whose slug is absent as naming no plan', () => {
@@ -291,6 +302,16 @@ describe('the verdict is asked of the domain', () => {
   it('does not refuse for the version it was never given', () => {
     expect(verdict([], asked).reason).not.toBe('version-underivable');
   });
+
+  it('threads ticketPrefixes into the label of a plan-less open Should', () => {
+    const items = itemsFrom(
+      JSON.stringify({
+        sprints: [{ sprint: 's', release: '2.16.0', should: [{ slug: '', text: 'EWZ-9 open', state: 'open' }] }],
+      }),
+    );
+    expect(verdict(items, asked, ['EWZ']).openShoulds).toEqual(['[EWZ-9]']);
+    expect(verdict(items, asked).openShoulds).toEqual(['[EWZ-9 open]']);
+  });
 });
 
 describe('the process', () => {
@@ -325,5 +346,14 @@ describe('the process', () => {
     expect(run('not json', (s) => out.push(s), [], (s) => err.push(s))).toBe(2);
     expect(out).toEqual([]);
     expect(err.join('')).toContain('plot-release-gate');
+  });
+
+  it('passes ticketPrefixes through to the printed verdict', () => {
+    const out: string[] = [];
+    const text = JSON.stringify({
+      sprints: [{ sprint: 's', release: '2.16.0', should: [{ slug: '', text: 'EWZ-9 open', state: 'open' }] }],
+    });
+    run(text, (s) => out.push(s), [], undefined, ['EWZ']);
+    expect(JSON.parse(out.join('')).openShoulds).toEqual(['[EWZ-9]']);
   });
 });
