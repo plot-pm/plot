@@ -59,6 +59,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [ ] [board-hides-a-green-draft-slice] Board hides a green draft slice PR that waits for a person to mark it ready (#2319)
 - [ ] [plot-review-status-sh-reads-the] plot-review-status.sh reads the template comment as a sprint item named slug (#2323)
 - [ ] [reconcile-20-ignores-merges-3-proved] Reconcile §20 ignores merges §3 proved and names the wrong truncation limit on Bitbucket (#2325)
+- [ ] [jenkins-runs-lists-every-build-twice] Jenkins runs lists every build twice for a plain job (#2322)
 
 ### Could Have
 
@@ -98,3 +99,4 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - 2026-10-22: Added [fleet-work-leaves-the-main-checkout] as Must by Jan Wloka: fleet work left the board's checkout with 22 stale tracked files and a desk's draft, so the board showed delivered plans as in progress (#2311).
 - 2026-10-22: Added [board-hides-a-green-draft-slice] as Should: the board showed no row for draft PR #2310 while its CI was green and it waited only for a person to mark it ready (#2319).
 - 2026-10-22: Added [plot-review-status-sh-reads-the] and [reconcile-20-ignores-merges-3-proved] as Should: low-severity defects from the seventh ewz-kus-portal field test (#2323, #2325); Jan Wloka decides whether 2.28.0 waits for them.
+- 2026-10-22: Added [jenkins-runs-lists-every-build-twice] as Should: a low-severity defect from the seventh ewz-kus-portal field test (#2322).
