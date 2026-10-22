@@ -45,7 +45,7 @@ The comparison corpus in `test/reconcile/host.test.mjs` gets a fixture with a pl
 
 ### Fix
 
-- `bug/jenkins-runs-lists-every-build-twice` — make `headsha` emit one value per build, with a regression fixture
+- `bug/jenkins-runs-lists-every-build-twice` — make `headsha` emit one value per build, with a regression fixture → #2340
 
 ## Notes
 
