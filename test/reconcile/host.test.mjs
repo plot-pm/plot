@@ -3783,6 +3783,34 @@ test('host: runs on a plain Jenkins job reports only the asked branch\'s builds'
   assert.deepEqual(rows.map((r) => r.url), ['https://ci.test/4/'], 'main\'s build and the unnamed build are absent');
 });
 
+// ewz-kus-portal round-7 field test (main da789acff): a plain job's build
+// carries one `lastBuiltRevision` action per branch it was CONSIDERED for, so
+// a build of `develop` can hold two actions both naming `develop`. The old
+// `headsha` generator emitted the sha once per matching action, so
+// `map(.sha = headsha($branch))` doubled the row. Both entries here name the
+// same branch and the same SHA1 — the plan's working assumption for a plain
+// job's duplicate entries — so this pins ONE output line, not two.
+test('host: runs on a plain Jenkins job reports a build once despite two lastBuiltRevision entries for the asked branch', () => {
+  const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
+  const dupSha = 'dup-build-sha';
+  const builds = JSON.stringify({ builds: [
+    { number: 6, result: 'SUCCESS', building: false, timestamp: 1790000300000, url: 'https://ci.test/6/',
+      actions: [
+        { lastBuiltRevision: { SHA1: dupSha, branch: [{ name: 'origin/develop' }] } },
+        { lastBuiltRevision: { SHA1: dupSha, branch: [{ name: 'origin/develop' }] } },
+      ] },
+  ] });
+  const bin = makeJenkinsRestBin(builds, { branchSeg: 'develop', branchAnswer: '<html>404 Not Found</html>' });
+  const res = runJenkinsAllowFail(['runs', 'develop'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(rows.length, 1, 'the build with two matching lastBuiltRevision entries must appear once, not twice');
+  assert.equal(rows[0].url, 'https://ci.test/6/');
+});
+
 test('host: runs on Jenkins reports nothing for a branch the multibranch job has not indexed', () => {
   // The branch URL answers 404 and the multibranch container answers `jobs`
   // and no `builds`: the branch has never run, which is an empty history and
@@ -4186,6 +4214,39 @@ test('host: runs-for-sha on a plain job matches the job\'s own branch entry and 
     { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(otherRes.code, 0, otherRes.stderr);
   assert.equal(otherRes.stdout.trim(), '', 'a plain job must not match a sha whose entry names a different branch');
+});
+
+// The sha-bound path's `select(headsha(...) as $h | $h == $sha or ...)` binds
+// `$h` with `as`, which re-runs the enclosing select once per value the
+// generator emits rather than collapsing to the first — so before the
+// `first(...)` fix in `headsha`, a build with two matching entries for the
+// asked branch surfaced here too, not only on the no-sha `runs` path.
+test('host: runs-for-sha on a plain job matches a build once despite two lastBuiltRevision entries naming the job\'s own branch', () => {
+  // A plain job's headsha lookup keys on the JOB's own last path segment, not
+  // the asked branch (`$plain` set) — so the duplicate-match path needs both
+  // entries to name the job's own branch, `continuous-deploy`, same as the
+  // adjacent "matches the job's own branch entry" fixture above. The plural
+  // `runs-for-sha` is used rather than the singular `run-for-sha`, which takes
+  // `.[0] // empty` of the same array and so cannot show a duplication defect
+  // that still leaves the first entry correct.
+  const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
+  const dupSha = '9999999999999999999999999999999999cccc';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: dupSha, branch: [{ name: 'origin/continuous-deploy' }] } },
+        { lastBuiltRevision: { SHA1: dupSha, branch: [{ name: 'origin/continuous-deploy' }] } },
+      ] },
+  ] });
+  const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
+  const res = runJenkinsAllowFail(['runs-for-sha', 'feature/other', dupSha],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(res.code, 0, res.stderr);
+  const rows = JSON.parse(res.stdout.trim());
+  assert.equal(rows.length, 1, 'a build with two matching lastBuiltRevision entries must match once, not twice');
+  assert.equal(rows[0].sha, dupSha);
 });
 
 test('host: runs-for-sha on a plain job falls back to the last entry when no action names a branch', () => {
