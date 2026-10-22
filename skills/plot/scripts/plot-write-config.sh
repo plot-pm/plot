@@ -199,19 +199,15 @@ printf '%s\n' "$section" >> "$hub"
 # turns every dispatched desk into untracked files, and the operator's next
 # `git add -A` stages a whole checkout. An absolute root lies outside the
 # repository and the domain answers `''` for it, so nothing is written.
-if [ -n "$ignore_line" ]; then
-  if [ -f .gitignore ] && grep -qxF "$ignore_line" .gitignore; then
-    :
-  else
-    [ -f .gitignore ] && [ -n "$(tail -c 1 .gitignore)" ] && printf '\n' >> .gitignore
-    {
-      printf '\n'
-      printf '# The dispatch worktrees, gathered here by the `Worktree root` key rather than\n'
-      printf '# scattered beside the checkout. They are CHECKOUTS — every one is re-creatable\n'
-      printf '# with `git worktree add`, and none of them is content this repo carries.\n'
-      printf '%s\n' "$ignore_line"
-    } >> .gitignore
-  fi
+if [ -n "$ignore_line" ] && { [ ! -f .gitignore ] || ! grep -qxF "$ignore_line" .gitignore; }; then
+  [ -f .gitignore ] && [ -n "$(tail -c 1 .gitignore)" ] && printf '\n' >> .gitignore
+  {
+    printf '\n'
+    printf '# The dispatch worktrees, gathered here by the `Worktree root` key rather than\n'
+    printf '# scattered beside the checkout. They are CHECKOUTS — every one is re-creatable\n'
+    printf '# with `git worktree add`, and none of them is content this repo carries.\n'
+    printf '%s\n' "$ignore_line"
+  } >> .gitignore
 fi
 
 printf '%s\n' "$answer"

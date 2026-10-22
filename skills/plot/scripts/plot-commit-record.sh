@@ -149,9 +149,7 @@ files_json=''
 while IFS=$'\t' read -r f new_blob parent_blob match_commit; do
   [ -n "$f" ] || continue
   origin_blob=''
-  if [ -n "$origin_sha" ]; then
-    origin_blob=$(git rev-parse --verify --quiet "$origin_sha:$f" 2>/dev/null || true)
-  fi
+  [ -n "$origin_sha" ] && origin_blob=$(git rev-parse --verify --quiet "$origin_sha:$f" 2>/dev/null || true)
   entry=$(printf '{"path":"%s","committed":"%s","parent":"%s","heldBy":"%s","origin":"%s"}' \
     "$(esc "$f")" "$new_blob" "$parent_blob" "$match_commit" "$origin_blob")
   if [ -z "$files_json" ]; then files_json="$entry"; else files_json="$files_json,$entry"; fi

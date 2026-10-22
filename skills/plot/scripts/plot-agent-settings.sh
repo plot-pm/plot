@@ -56,9 +56,7 @@ declared="$(bash "$here/plot-config.sh" get "Agent settings" "" 2>/dev/null || e
 
 # ABSENT OR EMPTY IS NOT A REFUSAL. It is the default, and it is exit 0 with no
 # output: a project that configures nothing starts its agents exactly as before.
-if [ -z "$declared" ]; then
-  exit 0
-fi
+[ -z "$declared" ] && exit 0
 
 # A RELATIVE VALUE RESOLVES AGAINST THE MAIN CHECKOUT, the parent of
 # `--git-common-dir`, the rule `Board artifact` already follows

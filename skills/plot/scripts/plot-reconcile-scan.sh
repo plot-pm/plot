@@ -2844,6 +2844,10 @@ n_no_changeset=0
 # it, unlike `MERGED_PR_LIMIT`. Saying the number is the difference between a
 # report that is complete and one that looks complete.
 CHANGESET_MERGE_WINDOW=${PLOT_CHANGESET_MERGE_WINDOW:-40}
+# THE DEFAULT IS PLOT'S OWN LAYOUT, so an adopting repository with a different
+# layout (ewz-kus-portal: `backend/…/src/main/java`, `frontend/`) names its own
+# paths via `## Plot Config` instead of reading `code=0` on every merge forever.
+nc_code_re=$(cfg "Shipped code paths" '^(packages/[^/]+/src/|skills/)')
 nc_out=""
 nc_ref="origin/$MAIN"
 git rev-parse -q --verify "$nc_ref" >/dev/null 2>&1 || nc_ref="$MAIN"
@@ -2852,6 +2856,14 @@ if ! git rev-parse -q --verify "$nc_ref" >/dev/null 2>&1; then
   # is the pattern: silence reads as *nothing drifted*, which is the one
   # direction a drift report must never be lenient in.
   echo "  (not evaluated — neither origin/$MAIN nor $MAIN is readable)"
+elif ! git cat-file -e "$nc_ref:.changeset" 2>/dev/null; then
+  # A REPOSITORY WITH NO .changeset/ AT ALL CAN CARRY NO CHANGESET, EVER. The
+  # per-merge loop below would find `cs=0` on every iteration and print
+  # "every merge … carried a changeset" — the one false-silent reading this
+  # section exists to refuse. Checked against the HISTORY at $nc_ref, not the
+  # working tree, same as the ref check above: a sparse checkout or an
+  # uncommitted local .changeset/ must not change this answer.
+  echo "  (not evaluated — this repository keeps no changesets)"
 else
   # The delivery spine, read once. Membership of `$m^1` in it is the fourth
   # exclusion, and a single `grep -qx` per merge beats a `rev-list` per merge.
@@ -2891,6 +2903,14 @@ else
         nc_branch=${nc_branch%%"'"*}
         nc_branch=${nc_branch#"'"}
         nc_branch=${nc_branch#origin/} ;;
+      "Merged in "*" (pull request #"*)
+        # Bitbucket Cloud's own form — `rules/merge-subject.ts`'s
+        # `bitbucket: ['Merged in <branch> (pull request #<number>)']`, pinned
+        # against it by the corpus test rather than imported from it
+        # (`docs/shell-and-domain.md`: a per-operator-command script duplicates
+        # a domain rule, declared, rather than calling the bundle).
+        nc_branch=${subj#"Merged in "}
+        nc_branch=${nc_branch%" (pull request #"*} ;;
     esac
 
     # Exclusions two and three. Both are measured non-firing once the merge base
@@ -2911,8 +2931,7 @@ else
 
     # Exclusion one: shipped code. A docs, test or fixture merge describes
     # nothing a release note would carry.
-    code=$(git diff --name-only "$base" "$m^2" 2>/dev/null \
-            | grep -cE '^(packages/[^/]+/src/|skills/)')
+    code=$(git diff --name-only "$base" "$m^2" 2>/dev/null | grep -cE "$nc_code_re")
     [ "${code:-0}" -gt 0 ] || continue
 
     short=$(git rev-parse --short "$m" 2>/dev/null)
@@ -2923,6 +2942,9 @@ else
       "Merge pull request #"*)
         nc_pr=${subj#"Merge pull request #"}
         nc_pr=${nc_pr%%" "*} ;;
+      *"(pull request #"*")")
+        nc_pr=${subj#*"(pull request #"}
+        nc_pr=${nc_pr%")"} ;;
     esac
     nc_label="merge $short"
     [ -n "$nc_pr" ] && nc_label="PR #$nc_pr (merge $short)"

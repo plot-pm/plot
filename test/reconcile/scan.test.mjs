@@ -3783,6 +3783,239 @@ test('scan: section 22 needs no host call', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Section 22 on a repository that keeps NO .changeset/ at all (#2348's bug).
+//
+// ewz-kus-portal has no `.changeset/` directory and keeps code under
+// `backend/…/src/main/java` and `frontend/` — neither matches Plot's own
+// hardcoded `^(packages/[^/]+/src/|skills/)`, so `code` was always 0 and 40
+// merges printed "(none — … carried a changeset)", which reads as "nothing
+// drifted" when the honest answer is "this repository cannot carry one".
+let nrTmp, nrRepo, nrShim;
+let nrSections, nrReport;
+
+const buildNoChangesetRepo = () => {
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nocsrepo-'));
+  const origin = path.join(t, 'origin.git');
+  const repo = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(t, 'clone', '-q', origin, repo);
+  git(repo, 'config', 'user.email', 'test@example.invalid');
+  git(repo, 'config', 'user.name', 'Plot Test');
+  git(repo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const p = path.join(repo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+  w('CLAUDE.md', `# Fixture project (no .changeset/)
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+`);
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'no-.changeset fixture');
+  git(repo, 'push', '-q', 'origin', 'main');
+
+  // A merge that ships code under a non-Plot path and carries no changeset —
+  // the exact shape #2348 measured on ewz-kus-portal.
+  git(repo, 'checkout', '-q', '-b', 'bug/ewz-shape', 'main');
+  w('backend/app/src/main/java/App.java', 'class App {}\n');
+  w('frontend/src/App.tsx', 'export const App = () => null;\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'work on bug/ewz-shape');
+  git(repo, 'checkout', '-q', 'main');
+  git(repo, 'merge', '-q', '--no-ff', 'bug/ewz-shape',
+    '-m', 'Merge pull request #9 from plot-pm/bug/ewz-shape');
+  git(repo, 'push', '-q', 'origin', 'main');
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nocsrepo-shim-'));
+  shimScripts(shim);
+  const report = execFileSync('bash', [path.join(shim, 'scripts', 'plot-reconcile-scan.sh'), '--offline'],
+    { encoding: 'utf8', cwd: repo });
+  return { tmp: t, repo, shim, report, sections: splitSections(report) };
+};
+
+before(() => {
+  const built = buildNoChangesetRepo();
+  nrTmp = built.tmp; nrRepo = built.repo; nrShim = built.shim;
+  nrSections = built.sections;
+  nrReport = built.report;
+});
+
+after(() => {
+  if (nrTmp) fs.rmSync(nrTmp, { recursive: true, force: true });
+  if (nrShim) fs.rmSync(nrShim, { recursive: true, force: true });
+});
+
+test('scan: section 22 says "not evaluated" for a repository with no .changeset/', () => {
+  assert.match(nrSections['22'], /not evaluated — this repository keeps no changesets/,
+    `a repo that CANNOT carry a changeset must say so, not print "(none — … carried one)":\n${nrSections['22']}`);
+  assert.doesNotMatch(nrSections['22'], /none — every merge/,
+    'the false-silent reading this section exists to refuse');
+  assert.doesNotMatch(nrSections['22'], /bug\/ewz-shape/,
+    'a repo with no changesets names no per-merge finding — the top-level guard replaces the walk');
+});
+
+test('scan: section 22 counts zero and gates nothing when not evaluated', () => {
+  const footer = nrReport.trim().split('\n').at(-1);
+  assert.match(footer, /\bno_changeset=0\b/,
+    `an unevaluated section counts 0, not a guess:\n${footer}`);
+  assert.match(footer, /\battention=0\b/, `section 22 must not reach attention=:\n${footer}`);
+});
+
+test('scan: section 22 finds the ewz shape once "Shipped code paths" names it', () => {
+  // THE ROUND-TRIP: the same repo, same merge, but with the config key naming
+  // its own layout. This proves the guard does not just suppress everything —
+  // a repo that DOES keep .changeset/ and configures its own code paths still
+  // gets a real finding.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nocsrepo2-'));
+  try {
+    const origin = path.join(t, 'origin.git');
+    const repo = path.join(t, 'repo');
+    git(t, 'init', '--bare', '-q', '-b', 'main', origin);
+    git(t, 'clone', '-q', origin, repo);
+    git(repo, 'config', 'user.email', 'test@example.invalid');
+    git(repo, 'config', 'user.name', 'Plot Test');
+    git(repo, 'config', 'commit.gpgsign', 'false');
+
+    const w = (rel, content) => {
+      const p = path.join(repo, rel);
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, content);
+    };
+    w('CLAUDE.md', `# Fixture project (configured shipped-code paths)
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+- **Shipped code paths:** ^(backend/.*/src/main/|frontend/)
+`);
+    // A changeset seed so the top-level guard does not fire — this repo
+    // DOES keep changesets, it just has none on the merge under test.
+    w('.changeset/seed-placeholder.md', "---\n'plot': patch\n---\n\nseed.\n");
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'configured fixture');
+    git(repo, 'push', '-q', 'origin', 'main');
+
+    git(repo, 'checkout', '-q', '-b', 'bug/ewz-shape', 'main');
+    w('backend/app/src/main/java/App.java', 'class App {}\n');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'work on bug/ewz-shape');
+    git(repo, 'checkout', '-q', 'main');
+    git(repo, 'merge', '-q', '--no-ff', 'bug/ewz-shape',
+      '-m', 'Merge pull request #11 from plot-pm/bug/ewz-shape');
+    git(repo, 'push', '-q', 'origin', 'main');
+
+    const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nocsrepo2-shim-'));
+    try {
+      shimScripts(shim);
+      const report = execFileSync('bash', [path.join(shim, 'scripts', 'plot-reconcile-scan.sh'), '--offline'],
+        { encoding: 'utf8', cwd: repo });
+      const sections = splitSections(report);
+      assert.match(sections['22'], /bug\/ewz-shape/,
+        `a named config path must let the guard find a real finding:\n${sections['22']}`);
+      assert.match(sections['22'], /PR #11/, 'the PR number is still lifted from the subject');
+    } finally {
+      fs.rmSync(shim, { recursive: true, force: true });
+    }
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Section 22 reads Bitbucket's `Merged in <branch> (pull request #N)` subject.
+//
+// Before this fix `nc_branch` stayed empty on Bitbucket (no matching `case`
+// arm), so the `idea/*`/`changeset-release/*` exclusion never fired and
+// `nc_pr` (matched only against `"Merge pull request #"*`) stayed empty too.
+let bbTmp, bbShim, bbSections;
+
+before(() => {
+  bbTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bbsubject-'));
+  const origin = path.join(bbTmp, 'origin.git');
+  const repo = path.join(bbTmp, 'repo');
+  git(bbTmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(bbTmp, 'clone', '-q', origin, repo);
+  git(repo, 'config', 'user.email', 'test@example.invalid');
+  git(repo, 'config', 'user.name', 'Plot Test');
+  git(repo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const p = path.join(repo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+  w('CLAUDE.md', `# Fixture project (Bitbucket subjects)
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+`);
+  w('.changeset/seed-placeholder.md', "---\n'plot': patch\n---\n\nseed.\n");
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-q', '-m', 'bitbucket-subject fixture');
+  git(repo, 'push', '-q', 'origin', 'main');
+
+  const mergeToMain = (branch, pr, files) => {
+    git(repo, 'checkout', '-q', '-b', branch, 'main');
+    for (const [rel, body] of Object.entries(files)) {
+      const p = path.join(repo, rel);
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, body);
+    }
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', `work on ${branch}`);
+    git(repo, 'checkout', '-q', 'main');
+    git(repo, 'merge', '-q', '--no-ff', branch, '-m', `Merged in ${branch} (pull request #${pr})`);
+  };
+
+  // CONTROL — the idea/* exclusion must fire on Bitbucket's own subject form,
+  // same as it does on GitHub's "Merge pull request #N from owner/idea/x".
+  mergeToMain('idea/x', 7, { 'skills/plot/scripts/plan-shaped.sh': '#!/usr/bin/env bash\necho plan\n' });
+
+  // THE FINDING — a merge that ships code and carries no changeset, named by
+  // a Bitbucket subject: both the branch name and the PR number must recover.
+  mergeToMain('bug/y', 9, { 'skills/plot/scripts/quiet.sh': '#!/usr/bin/env bash\necho quiet\n' });
+
+  git(repo, 'push', '-q', 'origin', 'main');
+
+  bbShim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bbsubject-shim-'));
+  shimScripts(bbShim);
+  const report = execFileSync('bash', [path.join(bbShim, 'scripts', 'plot-reconcile-scan.sh'), '--offline'],
+    { encoding: 'utf8', cwd: repo });
+  bbSections = splitSections(report);
+});
+
+after(() => {
+  if (bbTmp) fs.rmSync(bbTmp, { recursive: true, force: true });
+  if (bbShim) fs.rmSync(bbShim, { recursive: true, force: true });
+});
+
+test('scan: section 22 excludes an idea/* merge named by a Bitbucket subject', () => {
+  assert.doesNotMatch(bbSections['22'], /idea\/x/,
+    `the idea/* exclusion must fire on Bitbucket's "Merged in" form too:\n${bbSections['22']}`);
+});
+
+test('scan: section 22 names both branch and PR number from a Bitbucket subject', () => {
+  assert.match(bbSections['22'], /bug\/y/,
+    `the branch name must be recovered from "Merged in <branch> (pull request #N)":\n${bbSections['22']}`);
+  assert.match(bbSections['22'], /PR #9/,
+    `the PR number must be recovered too — fixing the branch alone still drops it:\n${bbSections['22']}`);
+});
+
+// ---------------------------------------------------------------------------
 // Section 6 honours --offline / --no-pr.
 //
 // `--offline` and `--no-pr` both set PR_SOURCE=off and the scan's header

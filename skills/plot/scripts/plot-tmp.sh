@@ -37,9 +37,7 @@
 # the last `trap` wins, and that replacement is the defect this file fixes
 # (`plot-fleet-scan.sh` left one ~955-file cache per run). Use `plot_on_exit`.
 
-if [ "${PLOT_TMP_LOADED:-}" = "$$" ]; then
-  return 0 2>/dev/null || exit 0
-fi
+[ "${PLOT_TMP_LOADED:-}" = "$$" ] && { return 0 2>/dev/null || exit 0; }
 PLOT_TMP_LOADED=$$
 
 # Fixed at first source: a later `TMPDIR` change in the script does not move it.
