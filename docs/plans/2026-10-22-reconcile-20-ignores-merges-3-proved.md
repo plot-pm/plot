@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:**
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2332 merged
+- **Started:** 2026-10-22, Jan Wloka, `bug/reconcile-20-ignores-merges-3-proved`
 
 ## Changelog
 
