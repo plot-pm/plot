@@ -48,11 +48,11 @@ Both rules are domain properties with unit tests. The board row reads the verdic
 
 ### Chain detection
 
-- `bug/a-waits-chain-is-a-cut-slice-sequence` — domain rule for a chained heading; reconcile section 7 and the board `unsliced-wave` state use it → PR #2108
+- `bug/a-waits-chain-is-a-cut-slice-sequence` — domain rule for a chained heading; reconcile section 7 and the board `unsliced-wave` state use it → #2108
 
 ### Eligibility
 
-- `bug/an-unmerged-waits-target-blocks-eligibility` — a branch whose `waits:` target has not merged reads blocked with the target named, in the row and in dispatch; corpus test pairs the scan with the domain <!-- waits: bug/a-waits-chain-is-a-cut-slice-sequence --> → PR #2142
+- `bug/an-unmerged-waits-target-blocks-eligibility` — a branch whose `waits:` target has not merged reads blocked with the target named, in the row and in dispatch; corpus test pairs the scan with the domain <!-- waits: bug/a-waits-chain-is-a-cut-slice-sequence --> → #2142
 
 ## Notes
 

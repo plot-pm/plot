@@ -61,7 +61,7 @@ Board impact: none.
 
 ### Slug parse
 
-- `bug/an-scp-style-remote-with-a` — add the remote-to-slug domain rule with one unit test per remote form, ship it as a bundle, and call it from `plot-host.sh` in place of the sed pipeline <!-- builds: a remote-to-slug rule for Bitbucket remotes -->
+- `bug/an-scp-style-remote-with-a` — add the remote-to-slug domain rule with one unit test per remote form, ship it as a bundle, and call it from `plot-host.sh` in place of the sed pipeline <!-- builds: a remote-to-slug rule for Bitbucket remotes --> → #2068
 
 ## Notes
 

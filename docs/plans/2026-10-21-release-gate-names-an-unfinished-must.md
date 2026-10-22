@@ -48,7 +48,7 @@ The fix carries a label for the item from the wire into the domain and prints it
 
 ### Gate label
 
-- `bug/release-gate-names-an-unfinished-must` — name a plan-less unfinished Must Have by Jira key, else item text, in the `must-haves-open` message, with a domain unit test and a `release-gate.ts` wire test
+- `bug/release-gate-names-an-unfinished-must` — name a plan-less unfinished Must Have by Jira key, else item text, in the `must-haves-open` message, with a domain unit test and a `release-gate.ts` wire test → #2299
 
 ## Notes
 
