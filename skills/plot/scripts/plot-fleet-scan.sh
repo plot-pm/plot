@@ -261,14 +261,7 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$script_dir/plot-tmp.sh"
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
-do_fetch=1
-next_only=0
-list_all=0
-why_nothing=0
-slice_names=0
-loose=0
-log_pulse=0
-as_json=0
+do_fetch=1; next_only=0; list_all=0; why_nothing=0; slice_names=0; loose=0; log_pulse=0; as_json=0
 # Whether the JSON document is ASSEMBLED, which is not the same question as
 # whether it is PRINTED. `--json`/`--stream` need it to print; `--log-pulse`
 # needs it to write the bridge and prints prose. Measured 2026-09-06 on this
