@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #1841
@@ -18,6 +18,7 @@
 - **Started:** 2026-10-19, Jan Wloka, `bug/a-continuation-obeys-the-limits`
 - **Started:** 2026-10-19, Jan Wloka, `bug/an-unstarted-continue-resumes-no-stranger`
 - **Delivered:** 2026-10-19
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
