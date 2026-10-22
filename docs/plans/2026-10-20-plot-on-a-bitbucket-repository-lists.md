@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #2169
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-20, Jan Wloka, `bug/plot-on-a-bitbucket-repository-lists-no-tickets`
 - **Started:** 2026-10-20, Jan Wloka, `feature/sprint-ownership-and-issue-source`
 - **Delivered:** 2026-10-20
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
