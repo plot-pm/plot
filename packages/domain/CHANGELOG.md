@@ -1,5 +1,81 @@
 # @plot-pm/domain
 
+## 0.3.3
+
+### Patch Changes
+
+- [#2198](https://github.com/plot-pm/plot/pull/2198) [`9d04661`](https://github.com/plot-pm/plot/commit/9d04661ed5068f723da54508b4327f450350c087) Thanks [@jwloka](https://github.com/jwloka)! - `pr-list --rich` under `CI: jenkins` now carries `checksLookup: 'skipped'` on a row the pass did not look up, distinct from `checks: 'unknown'` for a row Jenkins genuinely could not answer, and `rowsToBind` rotates its cap across passes using the PR index's stored `checksSha` as memory so every open PR binds within a bounded number of passes instead of the same newest rows winning forever.
+
+  <!--
+  plan: docs/plans/2026-10-20-bitbucket-jenkins-a-pr-list-row.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1884](https://github.com/plot-pm/plot/pull/1884) [`880fbca`](https://github.com/plot-pm/plot/commit/880fbca4dcf8230f446c80df13bb9db627d456d4) Thanks [@jwloka](https://github.com/jwloka)! - A Bitbucket pull-request listing page now reads complete from its own envelope's missing `next` key, for any `bb` CLI version — fixing a false "possibly truncated" report on every version but 1.9.0 ([#1757](https://github.com/plot-pm/plot/issues/1757)).
+
+  <!--
+  plan: docs/plans/2026-10-16-bitbucket-parity-and-app-identities.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1974](https://github.com/plot-pm/plot/pull/1974) [`f50e12d`](https://github.com/plot-pm/plot/commit/f50e12d243eaaa870f52b4171955c0c88659613e) Thanks [@jwloka](https://github.com/jwloka)! - Bitbucket `pr-state` now emits `headSha`, `checks` and `checksSha`. Under `CI: jenkins` it binds the branch colour to the PR head through the sha-run lookup, matching Bitbucket's 12-character short hash as a prefix of Jenkins' 40-character SHA1. A head that no build carries reads `unknown`, never `pending`, on Bitbucket `pr-state` and on GitHub `pr-list` alike; without Jenkins or without a `Jenkins instance`, `checks` reads `unknown` and `pr-state` still answers. Bitbucket `pr-review` no longer exits 4: it reads the `plot/review` commit status and `review-bypass:` comments. Fixes gaps 2, 6 and 8 of [#1867](https://github.com/plot-pm/plot/issues/1867).
+
+  <!--
+  plan: docs/plans/2026-10-16-the-agent-s-ci-wait-never.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1937](https://github.com/plot-pm/plot/pull/1937) [`b2dc829`](https://github.com/plot-pm/plot/commit/b2dc829a3276306e7933060e75538e60d58f9c42) Thanks [@jwloka](https://github.com/jwloka)! - `jenkins_sha_runs` now emits `workflow` as the Jenkins job path, fixing the default-branch red hold never firing on Jenkins: `WorkflowShaRun.workflow` is a required field `declaredRuns` filters on, and a Jenkins run with no `workflow` was filtered out of every `Default branch checks` list, folding to the same `unknown` as a quiet repository. A declared check name that still matches no run is now reported to `plot-fleetd`'s warn log by the new `unmatchedChecks`, so a config typo reads apart from "nothing has run yet".
+
+  <!--
+  plan: docs/plans/2026-10-16-the-agent-s-ci-wait-never.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1959](https://github.com/plot-pm/plot/pull/1959) [`a7483a1`](https://github.com/plot-pm/plot/commit/a7483a144bb6b0067f7eaca191c39b04d322a5f9) Thanks [@jwloka](https://github.com/jwloka)! - `pr-list --rich` under `CI: jenkins` now binds a PR row's `checks` to its own head sha instead of the branch-colour map's last-measured colour — fixing gaps 3, 4 and 10 of [#1867](https://github.com/plot-pm/plot/issues/1867). A row whose colour map entry is `green` or `failing` is checked against Jenkins' REST build history for that exact head: a build of the head gives its own word and `checksSha`, and an answer with no build of the head reads `pending`. A lookup that cannot ask Jenkins — no API credential, no job path, an HTML or empty answer, or a failed bundle — gives no reading, so the row keeps its branch colour with an empty `checksSha`, and the pass asks no further row. One pass reads at most five rows by sha, the most recently updated first, so the Jenkins cost no longer grows with the number of open PRs. A Jenkins build that was `ABORTED` or never built (`NOT_BUILT`) reads `unknown` on the PR row, matching the sha-run path's existing mapping.
+
+  <!--
+  plan: docs/plans/2026-10-16-the-agent-s-ci-wait-never.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1895](https://github.com/plot-pm/plot/pull/1895) [`1faa7da`](https://github.com/plot-pm/plot/commit/1faa7da9b7e7a01f81ae7846179294950ae243f5) Thanks [@jwloka](https://github.com/jwloka)! - `buildJenkins(...).runForSha` now maps Jenkins' `SUCCESS`/`FAILURE`/`ABORTED`/`NOT_BUILT` through `jenkinsConclusion` before returning a `ShaRun`, the same mapping `runsForSha` already applied — fixing a Jenkins fleet agent's CI wait never settling: the raw uppercase word read as unrecognised by `checksFromRuns`, so every build read as still running until the agent timed out at `Checks wait` with no `build passed`/`build failed` finding.
+
+  <!--
+  plan: docs/plans/2026-10-16-the-agent-s-ci-wait-never.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#1924](https://github.com/plot-pm/plot/pull/1924) [`6001faf`](https://github.com/plot-pm/plot/commit/6001faf51732911c0158417bf1772fcfe6e14e20) Thanks [@jwloka](https://github.com/jwloka)! - `IssueIndex.at` is now optional rather than a required string, and a failed issue-index pass with no held index of the same source and connector now writes no `at` at all instead of inventing one from the failed read's own timestamp — fixing [#1845](https://github.com/plot-pm/plot/issues/1845)/finding [#1652](https://github.com/plot-pm/plot/issues/1652). A failed pass still carries the held `at` forward unchanged where the held index answered the same source and connector and itself carried one. Separately, `registryd-main.ts`'s git-host probe now warns and names the failure before assuming `github`, instead of falling back silently and corrupting downstream cadence/connector tracking on a repository whose host probe fails.
+
+  <!--
+  plan: docs/plans/2026-10-16-fleetd-scan-cost-and-read-cadence.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#2112](https://github.com/plot-pm/plot/pull/2112) [`a1a5549`](https://github.com/plot-pm/plot/commit/a1a554974962b62e538dc3a4f74db561f1149f1a) Thanks [@jwloka](https://github.com/jwloka)! - `merge` now compares the PR head and the caller's sha with a new `sameCommit` rule — one is a prefix of the other, at least 7 hex characters, case-insensitive — instead of exact equality, so a Bitbucket repository's 12-character head no longer refuses every merge as `head-moved` against the caller's 40-character sha. `plot-ask.mjs merge <pr> <sha>` now accepts a sha of 7 to 40 hex characters, not only 40.
+
+  <!--
+  plan: docs/plans/2026-10-19-the-merge-controller-cannot-merge-a.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
 ## 0.3.2
 
 ### Patch Changes
