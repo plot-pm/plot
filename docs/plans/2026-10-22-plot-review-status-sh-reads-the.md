@@ -50,7 +50,7 @@ Test: extend `test/reconcile/review-status-slug-match.test.mjs` with a template-
 
 ### Fix
 
-- `bug/plot-review-status-sh-reads-the` — filter to checklist lines, report plan-less annotated items by key or text, and add the contract tests
+- `bug/plot-review-status-sh-reads-the` — filter to checklist lines, report plan-less annotated items by key or text, and add the contract tests → #2338
 
 ## Notes
 
