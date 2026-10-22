@@ -41,13 +41,13 @@ The existing guard test `test/reconcile/scan.test.mjs:4551-4564` (GitHub host st
 
 ### Open Questions
 
-- [ ] Should the two arms share one helper for the "no released status" wording, or keep two literal strings next to each other as they are today?
+- [x] Should the two arms share one helper for the "no released status" wording, or keep two literal strings next to each other as they are today? Resolved in `bug/reconcile-23-tells-a-delivered-plan`: one arm, with `oi_again` carrying the one word (`again` for Released, empty for Delivered) that differs — the net-zero route the shell gate requires.
 
 ## Slices
 
 ### Hint
 
-- `bug/reconcile-23-tells-a-delivered-plan` — non-Released arm of section 23 reads `oi_released_status`; a Jira-scheme fixture in `test/reconcile/scan.test.mjs` covers a Delivered plan with and without the key; the GitHub guard test at `:4551-4564` stays as it is
+- `bug/reconcile-23-tells-a-delivered-plan` — non-Released arm of section 23 reads `oi_released_status`; a Jira-scheme fixture in `test/reconcile/scan.test.mjs` covers a Delivered plan with and without the key; the GitHub guard test at `:4551-4564` stays as it is → #2342
 
 ## Notes
 
