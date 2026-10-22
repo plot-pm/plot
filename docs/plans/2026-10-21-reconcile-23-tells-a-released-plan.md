@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2283
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-21, Jan Wloka, plan-PR #2287 merged
 - **Started:** 2026-10-21, Jan Wloka, `bug/reconcile-23-tells-a-released-plan`
 - **Delivered:** 2026-10-21
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
