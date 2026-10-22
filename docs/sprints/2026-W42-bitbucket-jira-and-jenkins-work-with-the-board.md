@@ -62,6 +62,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - [ ] [jenkins-runs-lists-every-build-twice] Jenkins runs lists every build twice for a plain job (#2322)
 - [ ] [release-gate-labels-must-haves-by] Release gate labels Must Haves by the wrong key and leaves Should and Could labels empty (#2324)
 - [ ] [reconcile-23-tells-a-delivered-plan] Reconcile §23 tells a Delivered plan to release when no released status is configured (#2326)
+- [ ] [plot-review-cannot-open-its-follow] plot-review cannot open its follow-up issue past 200 open issues and loses the findings (#2336)
 
 ### Could Have
 
@@ -104,3 +105,4 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 - 2026-10-22: Added [jenkins-runs-lists-every-build-twice] as Should: a low-severity defect from the seventh ewz-kus-portal field test (#2322).
 - 2026-10-22: Added [release-gate-labels-must-haves-by] as Should: a low-severity defect from the seventh ewz-kus-portal field test (#2324).
 - 2026-10-22: Added [reconcile-23-tells-a-delivered-plan] as Should: a low-severity defect from the seventh ewz-kus-portal field test (#2326).
+- 2026-10-22: Added [plot-review-cannot-open-its-follow] as Should: plot-review lost the findings of a HIGH on plan PR #2335 because its follow-up issue lookup stops at 200 open issues (#2336).
