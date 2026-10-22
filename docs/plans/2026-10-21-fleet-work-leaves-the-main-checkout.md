@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #2311
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-22, Jan Wloka, `bug/main-checkout-writers-measured`
 - **Started:** 2026-10-22, Jan Wloka, `bug/main-checkout-stays-clean`
 - **Delivered:** 2026-10-22
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
