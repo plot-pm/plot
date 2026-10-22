@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #1960
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-17, Jan Wloka, plan-PR #1975 merged
 - **Started:** 2026-10-17, Jan Wloka, `bug/a-long-ticket-title-hides-the`
 - **Delivered:** 2026-10-18
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
