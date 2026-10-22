@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bitbucket-jira-and-jenkins-work-with-the-board
 - **Issue:** #1830
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-16, Jan Wloka, plan-PR #1859 merged
 - **Started:** 2026-10-16, Jan Wloka, `bug/row-placement-quiet-and-wait-bound`
 - **Delivered:** 2026-10-17
+- **Released:** 2026-10-22, v2.28.0
 
 ## Changelog
 
