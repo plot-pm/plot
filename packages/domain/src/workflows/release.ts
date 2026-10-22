@@ -1,5 +1,6 @@
 import type { ItemStatus, MoscowTier } from '../entities/sprint.js';
 import { normalizeVersion } from '../entities/release.js';
+import { keyFromText } from '../rules/sprint-release.js';
 import {
   type Outcome,
   type PlanPhaseWrite,
@@ -44,20 +45,26 @@ export interface ReleaseSprintItem {
   status: ItemStatus;
 }
 
-const JIRA_KEY = /[A-Z][A-Z0-9]+-[0-9]+/;
-
 /**
  * The label a refusal prints for a sprint item.
  *
+ * **Absent is not false.** A missing or empty `ticketPrefixes` means no key is
+ * matched, never "match any" — the bare Jira-shaped match this replaced let a
+ * token like `AP-2a` in the item text win over the real ticket key.
+ *
  * @param item - the item to name.
- * @returns `[<plan>]` for an item with a plan; otherwise `[<key>]` with the first
- * Jira-shaped key in its text, else `[<text>]`, else `[unnamed item]`.
+ * @param ticketPrefixes - this repository's own Jira project prefixes, from `## Plot Config`'s `Ticket prefixes`; `[]` where none is declared.
+ * @returns `[<plan>]` for an item with a plan; otherwise `[<key>]` with the
+ * prefix-scoped key in its text, else `[<text>]`, else `[unnamed item]`.
  */
-export const itemLabel = (item: ReleaseSprintItem): string => {
+export const itemLabel = (
+  item: ReleaseSprintItem,
+  ticketPrefixes: readonly string[] = [],
+): string => {
   if (item.plan !== '') return `[${item.plan}]`;
   const text = (item.text ?? '').trim();
-  const key = JIRA_KEY.exec(text);
-  if (key !== null) return `[${key[0]}]`;
+  const key = keyFromText(text, ticketPrefixes);
+  if (key !== '') return `[${key}]`;
   return text === '' ? '[unnamed item]' : `[${text}]`;
 };
 
@@ -118,6 +125,8 @@ export interface ReleaseInput {
   proceedOverShoulds?: boolean;
   /** The date to record, ISO-8601. */
   on: string;
+  /** This repository's own Jira project prefixes, from `## Plot Config`'s `Ticket prefixes`; absent where none is declared. */
+  ticketPrefixes?: readonly string[];
 }
 
 /** What a release decided, beyond its writes. */
@@ -191,6 +200,8 @@ export const release = (
   const no = (reason: ReleaseRefusal, detail: string) => refuse('release', reason, detail);
   const unasked: string[] = [];
   const candidate = input.candidate === true;
+  const ticketPrefixes = input.ticketPrefixes ?? [];
+  const label = (item: ReleaseSprintItem) => itemLabel(item, ticketPrefixes);
 
   // `withdrawn` IS NOT UNFINISHED. Nothing shipped, so it is not `done` either
   // — but a plan somebody decided against is not work the release is waiting
@@ -207,7 +218,7 @@ export const release = (
   // still a fact the cutter has not been told.
   const withdrawn = readings.sprintItems
     .filter((i) => i.status === 'withdrawn')
-    .map((i) => `${itemLabel(i)} — withdrawn (sprint ${i.sprint})`);
+    .map((i) => `${label(i)} — withdrawn (sprint ${i.sprint})`);
 
   // Step 0 — the sprint gate. Run before anything else, because a release that
   // has been tagged cannot be un-cut and refusing is only cheap while it is
@@ -215,7 +226,7 @@ export const release = (
   const openMusts = unfinished('must');
   if (!candidate && !input.ignoreSprint && openMusts.length > 0) {
     const named = openMusts
-      .map((i) => `${itemLabel(i)} — ${i.status === 'disputed' ? 'checked in the sprint, but the plan is not delivered' : 'not delivered'} (sprint ${i.sprint})`)
+      .map((i) => `${label(i)} — ${i.status === 'disputed' ? 'checked in the sprint, but the plan is not delivered' : 'not delivered'} (sprint ${i.sprint})`)
       .join('; ');
     return no(
       'must-haves-open',
@@ -311,7 +322,7 @@ export const release = (
     for (const sprint of new Set(openMusts.map((i) => i.sprint))) {
       const file = readings.sprintFiles[sprint];
       if (file === undefined || file === '') continue;
-      const items = openMusts.filter((i) => i.sprint === sprint).map(itemLabel).join(', ');
+      const items = openMusts.filter((i) => i.sprint === sprint).map(label).join(', ');
       writes.push({
         kind: 'sprint-note',
         file,
@@ -336,8 +347,8 @@ export const release = (
     version,
     marked,
     notMarked,
-    openShoulds: openShoulds.map((i) => i.plan),
-    openCoulds: unfinished('could').map((i) => i.plan),
+    openShoulds: openShoulds.map(label),
+    openCoulds: unfinished('could').map(label),
     withdrawn,
     unasked,
   });

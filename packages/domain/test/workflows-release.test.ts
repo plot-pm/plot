@@ -3,9 +3,11 @@ import {
   release,
   decided,
   refused,
+  itemLabel,
   type ReleaseReadings,
   type Write,
 } from '../src/workflows/index.js';
+import { keyFromText } from '../src/rules/sprint-release.js';
 
 const ready = (over: Partial<ReleaseReadings> = {}): ReleaseReadings => ({
   sprintItems: [],
@@ -38,10 +40,47 @@ const item = (over: Partial<ReleaseReadings['sprintItems'][number]> = {}) => ({
 describe('release — naming a plan-less item', () => {
   const planless = (text: string, over = {}) => item({ plan: '', text, ...over });
 
-  it('labels a plan-less Must Have with the Jira key in its text', () => {
-    const out = release(ready({ sprintItems: [planless('Sync GP data EWZ-123 with Kafka')] }), on);
+  it('labels a plan-less Must Have with the Jira key in its text, scoped to Ticket prefixes', () => {
+    const out = release(
+      ready({ sprintItems: [planless('Sync GP data EWZ-123 with Kafka')] }),
+      { ...on, ticketPrefixes: ['EWZ'] },
+    );
     expect(refused(out) && out.detail).toContain('[EWZ-123] — not delivered');
     expect(refused(out) && out.detail).not.toContain('[]');
+  });
+
+  it('labels a plan-less Must Have by its text when no Ticket prefixes are declared', () => {
+    const out = release(ready({ sprintItems: [planless('Sync GP data EWZ-123 with Kafka')] }), on);
+    expect(refused(out) && out.detail).toContain('[Sync GP data EWZ-123 with Kafka] — not delivered');
+  });
+
+  it('picks the real ticket over a bare-shape lookalike earlier in the text', () => {
+    const text = 'AP-2a EWZKUS-3861 Jenkins runs list every build twice';
+    expect(itemLabel(planless(text), ['EWZKUS'])).toBe('[EWZKUS-3861]');
+  });
+
+  it('falls back to the full text, lookalike included, when no prefix is declared', () => {
+    const text = 'AP-2a EWZKUS-3861 Jenkins runs list every build twice';
+    expect(itemLabel(planless(text))).toBe(`[${text}]`);
+  });
+
+  it('does not let a regex metacharacter in a prefix match an unrelated key', () => {
+    expect(itemLabel(planless('see AxB-1 for details'), ['A.B'])).toBe('[see AxB-1 for details]');
+  });
+
+  it('agrees with the sprint-release extraction on every ewz-kus-portal item text', () => {
+    const prefixes = ['EWZKUS'];
+    const texts = [
+      'AP-0 EWZKUS-3859 Release gate labels must-haves by key',
+      'AP-1 EWZKUS-3860 Jenkins runs list every build twice',
+      'AP-2 EWZKUS-3861 Jenkins runs list every build twice',
+      'AP-2 EWZKUS-3862 Jenkins runs list every build twice',
+    ];
+    for (const text of texts) {
+      const fromItemLabel = itemLabel(planless(text), prefixes);
+      const fromSprintRelease = keyFromText(text, prefixes);
+      expect(fromItemLabel).toBe(`[${fromSprintRelease}]`);
+    }
   });
 
   it('labels a plan-less Must Have with no key by its raw text', () => {
@@ -65,14 +104,17 @@ describe('release — naming a plan-less item', () => {
   });
 
   it('labels a withdrawn plan-less item in the withdrawn list', () => {
-    const out = release(ready({ sprintItems: [planless('EWZ-7 dropped', { status: 'withdrawn' })] }), on);
+    const out = release(
+      ready({ sprintItems: [planless('EWZ-7 dropped', { status: 'withdrawn' })] }),
+      { ...on, ticketPrefixes: ['EWZ'] },
+    );
     expect(decided(out) && out.detail.withdrawn).toEqual(['[EWZ-7] — withdrawn (sprint a-sprint)']);
   });
 
   it('labels a plan-less item in the --ignore-sprint note', () => {
     const out = release(
       ready({ sprintItems: [planless('EWZ-5 open')], sprintFiles: { 'a-sprint': 'docs/sprints/s.md' } }),
-      { ...on, ignoreSprint: true },
+      { ...on, ignoreSprint: true, ticketPrefixes: ['EWZ'] },
     );
     const note = decided(out) ? out.writes.find((w) => w.kind === 'sprint-note') : undefined;
     expect(note && 'note' in note && note.note).toContain('open: [EWZ-5]');
@@ -188,7 +230,7 @@ describe('release — the sprint gate', () => {
       ...on,
       proceedOverShoulds: true,
     });
-    expect(decided(out) && out.detail.openShoulds).toEqual(['unfinished-plan']);
+    expect(decided(out) && out.detail.openShoulds).toEqual(['[unfinished-plan]']);
   });
 
   it('turns the Should-Have prompt into a warning when nobody is there', () => {
@@ -202,7 +244,23 @@ describe('release — the sprint gate', () => {
 
   it('lets a Could Have neither block nor prompt', () => {
     const out = release(ready({ sprintItems: [item({ tier: 'could' })] }), on);
-    expect(decided(out) && out.detail.openCoulds).toEqual(['unfinished-plan']);
+    expect(decided(out) && out.detail.openCoulds).toEqual(['[unfinished-plan]']);
+  });
+
+  it('labels a plan-less Should Have by its key, never the empty plan slug', () => {
+    const out = release(
+      ready({ sprintItems: [item({ tier: 'should', plan: '', text: 'EWZ-11 open' })] }),
+      { ...on, proceedOverShoulds: true, ticketPrefixes: ['EWZ'] },
+    );
+    expect(decided(out) && out.detail.openShoulds).toEqual(['[EWZ-11]']);
+  });
+
+  it('labels a plan-less Could Have by its key, never the empty plan slug', () => {
+    const out = release(
+      ready({ sprintItems: [item({ tier: 'could', plan: '', text: 'EWZ-12 open' })] }),
+      { ...on, ticketPrefixes: ['EWZ'] },
+    );
+    expect(decided(out) && out.detail.openCoulds).toEqual(['[EWZ-12]']);
   });
 
   it('ignores a done item at every tier', () => {

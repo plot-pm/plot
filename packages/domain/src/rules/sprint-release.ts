@@ -70,6 +70,29 @@ const JIRA_KEY = /[A-Z][A-Z0-9]*-[0-9]+/;
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
+ * Resolves a tracker key from free text, scoped to this repository's declared
+ * `Ticket prefixes`.
+ *
+ * **Absent is not false.** A missing or empty `ticketPrefixes` means no key is
+ * matched, never "match any" — a bare Jira-shaped token in prose would
+ * otherwise win over the real ticket, as `AP-2a` did before this existed.
+ *
+ * @param itemText - the text to search.
+ * @param ticketPrefixes - this repository's own Jira project prefixes, from `## Plot Config`'s `Ticket prefixes`.
+ * @returns the resolved key, or `''` where no prefix is declared or none matches.
+ */
+export const keyFromText = (itemText: string, ticketPrefixes: readonly string[]): string => {
+  const prefixPattern = ticketPrefixes
+    .map((p) => p.trim())
+    .filter((p) => p !== '')
+    .map(escapeRegExp)
+    .join('|');
+  if (prefixPattern === '') return '';
+  const match = new RegExp(`\\b(${prefixPattern})-[0-9]+\\b`).exec(itemText);
+  return match?.[0] ?? '';
+};
+
+/**
  * Resolves one Must-have's tracker key from three sources, first match wins.
  *
  * **The order is fixed:** the plan's `Issue:` line, then its `ticket:`
@@ -96,14 +119,7 @@ export const resolveItemKey = (
   if (fromIssueLine !== undefined) return fromIssueLine;
   const trimmedTicket = ticketFrontmatter.trim();
   if (trimmedTicket !== '' && JIRA_KEY.test(trimmedTicket)) return trimmedTicket;
-  const prefixPattern = ticketPrefixes
-    .map((p) => p.trim())
-    .filter((p) => p !== '')
-    .map(escapeRegExp)
-    .join('|');
-  if (prefixPattern === '') return '';
-  const fromItemText = new RegExp(`\\b(${prefixPattern})-[0-9]+\\b`).exec(itemText);
-  return fromItemText?.[0] ?? '';
+  return keyFromText(itemText, ticketPrefixes);
 };
 
 /**

@@ -1,4 +1,6 @@
 import type { ItemStatus, MoscowTier } from '@plot-pm/domain/entities/sprint';
+import { scriptsShell } from '@plot-pm/domain/adapters';
+import { type ShellContext } from '@plot-pm/domain/adapters/scripts';
 import {
   release,
   type ReleaseDetail,
@@ -6,7 +8,8 @@ import {
 } from '@plot-pm/domain/workflows/release';
 import { refused, type Decision } from '@plot-pm/domain/workflows/decision';
 import { realpathSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
  * The `node` entry point `plot-release-gate.sh` runs, once per release.
@@ -208,11 +211,13 @@ export interface Verdict {
  *
  * @param items - the governing items, across every sprint declaring a target.
  * @param input - how the caller answered the gate's escapes.
+ * @param ticketPrefixes - this repository's own Jira project prefixes, from `## Plot Config`'s `Ticket prefixes`; `[]` where none is declared.
  * @returns the verdict.
  */
 export const verdict = (
   items: readonly ReleaseSprintItem[],
   input: GateInput,
+  ticketPrefixes: readonly string[] = [],
 ): Verdict => {
   const readings = {
     sprintItems: items,
@@ -234,6 +239,7 @@ export const verdict = (
     // `proceedOverShoulds` is therefore never given, so `should-haves-declined`
     // cannot fire here and the open Shoulds are reported instead.
     on: '',
+    ticketPrefixes,
   });
 
   // THE TIER REPORTS COME FROM THE WORKFLOW, not from a second filter here.
@@ -244,7 +250,7 @@ export const verdict = (
   // reports satisfied, so it always decides and the reports are always there.
   const reported = release(
     { ...readings, version: 'v0.0.0', tagExists: true },
-    { candidate: true, on: '' },
+    { candidate: true, on: '', ticketPrefixes },
   ) as Decision<ReleaseDetail>;
   const { openShoulds, openCoulds, withdrawn } = reported.detail;
 
@@ -271,11 +277,15 @@ export const verdict = (
  *
  * @param text - the collector's report.
  * @param argv - the process arguments.
+ * @param ticketPrefixes - this repository's own Jira project prefixes, from `## Plot Config`'s `Ticket prefixes`; `[]` where none is declared.
  * @returns the verdict.
  * @throws when the report is unreadable.
  */
-export const answer = (text: string, argv: readonly string[]): Verdict =>
-  verdict(itemsFrom(text), inputFrom(argv));
+export const answer = (
+  text: string,
+  argv: readonly string[],
+  ticketPrefixes: readonly string[] = [],
+): Verdict => verdict(itemsFrom(text), inputFrom(argv), ticketPrefixes);
 
 /**
  * Read stdin, print the verdict.
@@ -293,6 +303,7 @@ export const answer = (text: string, argv: readonly string[]): Verdict =>
  * @param write - where the verdict goes.
  * @param argv - the process arguments.
  * @param warn - where a refusal's sentence goes.
+ * @param ticketPrefixes - this repository's own Jira project prefixes, from `## Plot Config`'s `Ticket prefixes`; `[]` where none is declared.
  * @returns the process exit code — 0 permitted, 1 refused, 2 unreadable input.
  */
 export const run = (
@@ -300,10 +311,11 @@ export const run = (
   write: (s: string) => void = (s) => process.stdout.write(s),
   argv: readonly string[] = [],
   warn: (s: string) => void = (s) => process.stderr.write(s),
+  ticketPrefixes: readonly string[] = [],
 ): number => {
   let answered: Verdict;
   try {
-    answered = answer(text, argv);
+    answered = answer(text, argv, ticketPrefixes);
   } catch (err) {
     warn(`plot-release-gate: ${(err as Error).message}\n`);
     return 2;
@@ -314,6 +326,19 @@ export const run = (
   return 1;
 };
 
+/**
+ * Reads a `## Plot Config` key through the `Scripts` port's `config` op, the
+ * same op `sprint-release-gate.ts`'s `configShell` reaches via its own call.
+ *
+ * @param context - where the scripts and the repository are.
+ * @param key - the config key's exact name.
+ * @returns the key's value, verbatim; `''` where none is declared or the read failed.
+ */
+const configShell = async (context: ShellContext, key: string): Promise<string> => {
+  const said = await scriptsShell(context).config(key, '');
+  return said.ok ? said.value.trim() : '';
+};
+
 // Only when RUN, never when imported.
 //
 // `pathToFileURL` RATHER THAN A TEMPLATE, for the reason `verdicts.ts` records:
@@ -322,7 +347,19 @@ export const run = (
 // bundle invoked from a sandbox compared two spellings of one path, the block
 // never ran, and the process exited 0 having written nothing.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const context: ShellContext = {
+    repoRoot: process.env.PLOT_REPO_ROOT ?? process.cwd(),
+    scriptDir: process.env.PLOT_SCRIPTS_DIR ?? path.resolve(here, '..'),
+  };
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(run(Buffer.concat(chunks).toString('utf8'), undefined, process.argv));
+  const declaredTicketPrefixes = await configShell(context, 'Ticket prefixes');
+  const ticketPrefixes = declaredTicketPrefixes
+    .split(',')
+    .map((p) => p.trim())
+    .filter((p) => p !== '');
+  process.exit(
+    run(Buffer.concat(chunks).toString('utf8'), undefined, process.argv, undefined, ticketPrefixes),
+  );
 }
