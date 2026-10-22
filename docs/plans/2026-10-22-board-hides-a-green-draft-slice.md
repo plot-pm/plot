@@ -54,7 +54,7 @@ Related earlier work on placement: `2026-10-15-waiting-on-you-lists-a-draft` (a 
 
 ### Show the green draft
 
-- `bug/board-hides-a-green-draft-slice` — place a green draft slice PR with no live agent in Waiting on you with the action "mark ready", and make the payload's checks reading follow the host
+- `bug/board-hides-a-green-draft-slice` — place a green draft slice PR with no live agent in Waiting on you with the action "mark ready", and make the payload's checks reading follow the host → #2358
 
 ## Notes
 
