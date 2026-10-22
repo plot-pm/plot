@@ -5647,14 +5647,9 @@ case "$op" in
     # KEYED BY PR NUMBER, NOT A SHA — unlike commit-status, this writes through
     # the signed-in CLI identity, so it needs no App credentials and no Node
     # helper.
-    [ "$be" = "github" ] || { echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2; exit 4; }
-    # An optional <marker> makes it edit-or-post: a PR is an issue on GitHub, so the
-    # comment holding <marker> is found and PATCHed as `issue-comment` does; none
-    # holds it, or no marker, posts. A failed edit fails — it never posts beside.
-    num="${1:?pr-comment needs a PR number}"; cid=""
+    [ "$be" = "github" ] || { echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2; exit 4; }; num="${1:?pr-comment needs a PR number}"; cid=""
     [ -z "${3-}" ] || cid="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" | jq -rs --arg m "$3" '[.[][] | select(.body | contains($m))][0].id // empty')" || gh_fail
-    if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail
-    else gh pr comment "$num" --body "${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi
+    if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail; else gh pr comment "$num" --body "${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi
     rm -f "$HOST_ERR" ;;
 
   *)
