@@ -498,7 +498,10 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 72 → 73 on 2026-10-20: `delivery-filters.browser.test.ts`, for the Delivery
 // tab's one chip row at desktop width and at 375px (#2080). A plain addition;
 // it serves its state through the catalogue and starts no board.
-const EXPECTED_FILES = 73;
+// 73 → 74 on 2026-10-22: `green-draft-slice-render.browser.test.ts`, for a green
+// draft slice PR showing in Waiting on you with its mark-ready action. A plain
+// addition; it serves its state through the catalogue and starts no board.
+const EXPECTED_FILES = 74;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -765,7 +768,9 @@ const EXPECTED_FILES = 73;
 // reports per ACTIVE SPRINT, never for the whole tab. `delivery-filters.browser.test.ts`
 // adds its own two `it(`, a new file counted in `EXPECTED_FILES` above. Net:
 // −1 − 2 + 2 = −1.
-const EXPECTED_TESTS = 607;
+// 607 → 608 on 2026-10-22: the one `it(` of `green-draft-slice-render.browser.test.ts`,
+// a new file counted in `EXPECTED_FILES` above.
+const EXPECTED_TESTS = 608;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
