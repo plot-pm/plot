@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** bugfix-2-28-1
 - **Issue:** #2345
@@ -14,6 +14,7 @@
 - **Rounds:**
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2348 merged
 - **Delivered:** 2026-10-22
+- **Released:** 2026-10-23, v2.28.1
 
 ## Changelog
 
