@@ -60,3 +60,17 @@ export const ticketPhase = (plans: readonly TicketPlan[]): TicketPhase | null =>
   }
   return best === null ? null : { label: best.placed.label(best.plan), order: best.order };
 };
+
+/**
+ * Whether every plan naming a ticket is `released` — a ticket in this state
+ * has nothing left unfinished and should not keep appearing as waiting work.
+ *
+ * `[]` answers `false`: a ticket no plan names is unplanned, not
+ * released-and-done, and that case belongs to the caller that decides what an
+ * absent plan list means, not to this predicate.
+ *
+ * @param plans - the plans whose `Issue:` field names the ticket.
+ * @returns whether every plan in the list is in the `released` state.
+ */
+export const allReleased = (plans: readonly TicketPlan[]): boolean =>
+  plans.length > 0 && plans.every((plan) => plan.state === 'released');
