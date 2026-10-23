@@ -10,6 +10,7 @@
     { "base": "budget", "glob": "budget-lock-broken.tsv", "bound": "kept on purpose", "writer": "skills/plot/scripts/plot-budget.sh (budget_lock_break)" },
     { "base": "budget", "glob": "memo/*/*", "bound": "removed on exit", "writer": "skills/plot/scripts/plot-budget.sh (budget_rate memo, budget_memo_clear)" },
     { "base": "budget", "glob": "slots/*/*", "bound": "spent", "writer": "skills/plot/scripts/plot-budget.sh (budget_slot_claim and its scratch file, budget_slot_release);packages/domain/src/adapters/slots/slots-file.ts" },
+    { "base": "budget", "glob": "pr-reader/*/owner", "bound": "spent", "writer": "packages/domain/src/adapters/reader-lock/reader-lock-file.ts" },
     { "base": "pr-index", "glob": "*.json", "bound": "overwritten", "writer": "packages/domain/src/adapters/pr-index/pr-index-file.ts" },
     { "base": "pr-index", "glob": "*.json.*.tmp", "bound": "spent", "writer": "packages/domain/src/adapters/pr-index/pr-index-file.ts" },
     { "base": "home/.plot", "glob": "state/board-cache/*.json", "bound": "overwritten", "writer": "skills/plot/scripts/plot-update-board.sh" }
