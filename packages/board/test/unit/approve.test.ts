@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { hostFixture } from '@plot-pm/domain/adapters/host/host-fixture';
 import { planStoreFixture, planRecord } from '@plot-pm/domain/adapters/plan-store/plan-store-fixture';
 import { refsFixture } from '@plot-pm/domain/adapters/refs/refs-fixture';
-import type { CommitStatusWrite } from '@plot-pm/domain/ports/host';
+import type { CommitStatusWrite, Host, HostRefusal } from '@plot-pm/domain/ports/host';
 import type { PortResult } from '@plot-pm/domain';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Trees } from '@plot-pm/domain/ports/trees';
@@ -168,5 +168,135 @@ describe('approve perform — plan-PR merge ordering', () => {
     ).rejects.toThrow(Refused);
 
     expect(calls.filter((args) => args[0] === 'pr-merge')).toEqual([['pr-merge', '42', '--match-head', HEAD, '--delete-branch']]);
+  });
+});
+
+describe('approve perform — a refused open-PR listing is reported as a host refusal', () => {
+  const REFUSAL_429: HostRefusal = { kind: 'failed', said: 'HTTP 429: rate limit exceeded' };
+
+  /** Wraps a `hostFixture` so `prState(idea/<slug>)` answers "no PR", and `prList` refuses — the production report's host answers. */
+  const hostRefusingOpenList = (): Host => {
+    const base = hostFixture({});
+    return {
+      ...base,
+      prState: async (ref) => (String(ref) === `idea/${SLUG}` ? { ok: true, value: null } : base.prState(ref)),
+      prList: async () => ({ ok: false, why: 'failed' }),
+      lastRefusal: (): HostRefusal | null => REFUSAL_429,
+    };
+  };
+
+  /** A plan in the checkout (the idea-worktree shape): `findPlanFile` resolves it locally, so `perform` never reads `origin/<main>`. */
+  const ctxInCheckout = (calls: string[][]): Context => ({
+    repoRoot: '/repo',
+    scriptDir: '/repo/skills/plot/scripts',
+    host: hostRefusingOpenList(),
+    planStore: planStoreFixture({
+      files: { [FILE]: 'placeholder' },
+      plans: [planRecord({
+        file: FILE, phase: 'draft', review: 'pr', impl: 'own-branches', branches: ['feature/one'],
+      })],
+    }),
+    refs: refsFixture(),
+    scripts: scriptsStub(calls),
+    trees: treesStub(),
+  });
+
+  it('reports the host refusal, not "no PR found", when pr-list refuses from the idea-worktree shape', async () => {
+    const calls: string[][] = [];
+    const ctx = ctxInCheckout(calls);
+
+    let message = '';
+    try {
+      await perform(ctx, { dryRun: false, spike: false, who: 'jwloka', slug: SLUG }, () => {}, () => {});
+      expect.fail('expected perform() to throw Refused');
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+      message = (err as Error).message;
+    }
+
+    expect(message).toContain('the host could not list its open PRs');
+    expect(message).toContain('HTTP 429: rate limit exceeded');
+    expect(message).not.toContain('no PR found');
+    expect(message).not.toContain('/plot-idea');
+  });
+
+  /** A plan not in the checkout (the default-branch shape): `findPlanFile` finds nothing locally, so `remotePlanOf` reads `origin/<main>` and, finding no plan there, lists the open PRs — where the refusal fires. */
+  const ctxDefaultBranch = (calls: string[][]): Context => ({
+    repoRoot: '/repo',
+    scriptDir: '/repo/skills/plot/scripts',
+    host: hostRefusingOpenList(),
+    planStore: planStoreFixture({ files: {} }),
+    refs: refsFixture(),
+    scripts: scriptsStub(calls),
+    trees: treesStub(),
+  });
+
+  it('reports the host refusal, not "no plan found", when pr-list refuses from the default-branch-checkout shape', async () => {
+    const calls: string[][] = [];
+    const ctx = ctxDefaultBranch(calls);
+
+    let message = '';
+    try {
+      await perform(ctx, { dryRun: false, spike: false, who: 'jwloka', slug: SLUG }, () => {}, () => {});
+      expect.fail('expected perform() to throw Refused');
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+      message = (err as Error).message;
+    }
+
+    expect(message).toContain('the host could not list its open PRs');
+    expect(message).toContain('HTTP 429: rate limit exceeded');
+    expect(message).not.toContain('no plan found');
+    expect(message).not.toContain('/plot-idea');
+  });
+
+  /**
+   * THE ORDERING DEFECT'S OWN FIXTURE. `approve.ts:990` checks
+   * `verdict.outcome === 'refused'` and throws the domain's refusal text
+   * BEFORE `approve.ts:1000` checks `hostRefusal` — so a domain refusal that
+   * fires while a `hostRefusal` is held silently discards it.
+   *
+   * A plan on `Review: pr`, in the checkout, naming a branch under NO slice
+   * heading: `choosePlanPr`'s `'named'` ask finds no PR for `idea/<slug>`, its
+   * next `'open'` ask refuses (caught by `perform`, `hostRefusal` set, `pr`
+   * substituted to `{ number: 0, state: 'OPEN', draft: false }`), and the
+   * domain's `slice-unnamed` check — which runs ahead of the PR state switch —
+   * refuses on the unnamed branch. `slice-unnamed` is neither `pr-absent` nor
+   * `plan-not-found`, so this is the brief's "some other condition" case.
+   */
+  it('reports the host refusal, not a later domain refusal, when both fire', async () => {
+    const calls: string[][] = [];
+    const ctx: Context = {
+      repoRoot: '/repo',
+      scriptDir: '/repo/skills/plot/scripts',
+      host: hostRefusingOpenList(),
+      planStore: planStoreFixture({
+        files: { [FILE]: 'placeholder' },
+        plans: [planRecord({
+          file: FILE,
+          phase: 'draft',
+          review: 'pr',
+          impl: 'own-branches',
+          branches: ['feature/one'],
+          slices: [{ name: '', branches: [{ branch: 'feature/one' }] }],
+        })],
+      }),
+      refs: refsFixture(),
+      scripts: scriptsStub(calls),
+      trees: treesStub(),
+    };
+
+    let message = '';
+    try {
+      await perform(ctx, { dryRun: false, spike: false, who: 'jwloka', slug: SLUG }, () => {}, () => {});
+      expect.fail('expected perform() to throw Refused');
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+      message = (err as Error).message;
+    }
+
+    expect(message).toContain('the host could not list its open PRs');
+    expect(message).toContain('HTTP 429: rate limit exceeded');
+    expect(message).not.toContain('under no slice heading');
   });
 });
