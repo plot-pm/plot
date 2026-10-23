@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Sprint:** bugfix-2-28-1
 - **Type:** bug
 - **Issue:** #2336
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-22, Jan Wloka, `bug/plot-review-looks-up-its-issue-by-pr`
 - **Started:** 2026-10-22, Jan Wloka, `bug/plot-review-publishes-findings-on-the-pr`
 - **Delivered:** 2026-10-23
+- **Released:** 2026-10-23, v2.28.1
 
 ## Changelog
 
