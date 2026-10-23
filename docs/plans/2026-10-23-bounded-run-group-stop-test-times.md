@@ -5,6 +5,7 @@
 ## Status
 
 - **State:** Approved
+- **Sprint:** bugfix-2-28-1
 - **Type:** bug
 - **Issue:** #2380
 - **Review:** pr
