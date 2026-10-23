@@ -70,3 +70,31 @@ export const prRowPlacement = (readings: PrRowReadings): PrRowPlacement => {
  * @returns true for `'MERGED'`, whatever the PR's checks say.
  */
 export const prChecksSuppressedByMerge = (state: string): boolean => state === 'MERGED';
+
+/** What a draft slice PR's row needs, to answer whether a person should mark it ready. */
+export interface MarkReadyReadings extends PrRowReadings {
+  /** Whether the PR is a draft. */
+  readonly draft: boolean;
+  /** The branch's process state from the pulse, verbatim — `running`, `finished`, `none`, and so on. */
+  readonly worker: string;
+}
+
+/** The process states that mean no Agent is live on the branch. */
+const NO_LIVE_AGENT: readonly string[] = ['finished', 'none'];
+
+/**
+ * Whether a draft slice PR waits only for a person to mark it ready.
+ *
+ * True when the PR is a draft, its checks are green on a mergeable head, and no
+ * Agent is live: the worker state is `finished` or `none`. A `running` or
+ * `waiting` Agent still owns the draft. `failed`, `ended`, `stalled` and
+ * `elsewhere` answer false, so the row keeps the sentence that names the
+ * crash, the stop or the other machine.
+ *
+ * @param readings What the row knows about the PR and the branch's worker.
+ * @returns true when the row belongs in WAITING ON YOU with the action "mark ready".
+ */
+export const awaitsMarkReady = (readings: MarkReadyReadings): boolean =>
+  readings.draft
+  && NO_LIVE_AGENT.includes(readings.worker)
+  && prRowPlacement(readings).clause === 'green';

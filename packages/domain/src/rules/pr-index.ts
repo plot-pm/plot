@@ -287,12 +287,15 @@ const wholenessAfter = (held: PrIndex | null, kind: PrAnswerKind): boolean => {
  * closed row is left exactly as held.
  *
  * @param held - the store as it was read, or null where there was none.
- * @returns the numbers of the open, non-draft rows whose stored `checks` is `pending` or `failing`.
+ * A draft row is re-asked like any other open row; it rides the same `pr-list`
+ * call, so a draft adds a number to the question and no request.
+ *
+ * @returns the numbers of the open rows whose stored `checks` is `pending` or `failing`.
  */
 export const pendingOpenPrNumbers = (held: PrIndex | null): readonly number[] => {
   if (held === null) return [];
   return held.rows
-    .filter((row) => row.state === 'OPEN' && !row.draft
+    .filter((row) => row.state === 'OPEN'
       && (row.checks === 'pending' || row.checks === 'failing'))
     .map((row) => row.number);
 };
