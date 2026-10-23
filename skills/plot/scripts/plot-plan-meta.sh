@@ -426,11 +426,7 @@ function strip_placeholder(s) { return (s ~ /^<!--/) ? "" : s }
 # the text removed. A malformed link ("[text](" with no close, "[]()") is not
 # a link, so it keeps the raw value unreduced — an empty `story` means "no
 # story", and a malformed link is not that.
-function reduce_story_link(s,   text) {
-  if (s !~ /^\[[^]]+\]\([^)]+\)$/) return s
-  text = s; sub(/^\[/, "", text); sub(/\]\([^)]*\)$/, "", text); gsub(/`/, "", text)
-  return text
-}
+function reduce_story_link(s,   t) { if (s !~ /^\[[^]]+\]\([^)]+\)$/) return s; t = s; sub(/^\[/, "", t); sub(/\]\([^)]*\)$/, "", t); gsub(/`/, "", t); return t }
 # Blank out backtick-delimited inline code, so a marker PRINTED as a literal is
 # not read as syntax. Markdown renders `<!--` between backticks as the four
 # characters; this parser used to read it as a comment-open, and because such a
