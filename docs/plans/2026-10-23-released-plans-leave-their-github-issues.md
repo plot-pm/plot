@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Sprint:** bugfix-2-28-1
 - **Type:** bug
 - **Issue:** #2355
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-23, jwloka, `bug/released-plans-close-their-github-issues`
 - **Started:** 2026-10-23, jwloka, `bug/board-hides-released-issues-from-assigned`
 - **Delivered:** 2026-10-23
+- **Released:** 2026-10-23, v2.28.1
 
 ## Changelog
 
