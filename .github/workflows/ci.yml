@@ -328,9 +328,14 @@ jobs:
   # median 542.5 s, p95 600 s, max 606 s over the last 30 `validate` runs.
   board-integration:
     runs-on: ubuntu-latest
-    # The longest legitimate run was measured at 606 s (10.1 min); 15 is the
-    # bound the step already carried before the split, kept rather than
-    # tightened.
+    # The longest legitimate run was measured at 606 s (10.1 min); 15 was the
+    # bound the step already carried before the split. Kept at 15 with the
+    # install step's retry added below: setup (checkout, pnpm install, board
+    # build, cache restore) measured ~45s in the three failed runs this fixes;
+    # the install step's own two-attempt loop is bounded at 2 minutes per
+    # attempt (4 minutes worst case) with a 5-minute step-level backstop; the
+    # `Board integration tests` step after it is measured at 4-8 minutes
+    # green. 45s + 5min (step bound) + 8min ≈ 13.75min, under 15 with margin.
     timeout-minutes: 15
     steps:
       - name: Guard the dispatched run
@@ -369,6 +374,11 @@ jobs:
       - name: Build the board bundles
         run: pnpm run build:board
 
+      - name: Resolve the Playwright version
+        id: playwright-version
+        run: |
+          echo "version=$(pnpm --filter @plot-pm/board exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
       # THE STEP THAT HUNG ELEVEN TIMES IN ONE DAY, and neither half of this is
       # optional. The cache usually removes the download entirely; the timeout
       # decides what happens on the days it does not.
@@ -384,19 +394,53 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('packages/board/package.json') }}
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
           restore-keys: |
             playwright-${{ runner.os }}-
 
-      # THREE MINUTES, against a step that takes ~45 s warm and ~90 s cold.
-      # This is deliberately tight: the failure mode is not a slow CDN, it is a
-      # connection that never completes, and every measured hang sat past 10
-      # minutes with no output. A tight bound turns that into a fast, re-runnable
-      # failure instead of an hour of silence — the difference between a gate and
-      # a thing somebody has to watch.
+      # A CACHE HIT STILL RAN `apt-get` ON EVERY INVOCATION. Measured 2026-10-22
+      # across three failed runs (39827563096, 39813209366, 39806767896): the
+      # cache step hit every time in 3-5s, and `install --with-deps` still timed
+      # out at the 3-minute bound mid-`apt-get`, against a slow
+      # azure.archive.ubuntu.com mirror — 25.9 MB of OS packages fetched
+      # regardless of cache state. The cache only ever covered the browser
+      # binary, not the `apt` packages `--with-deps` always re-fetches.
+      #
+      # So a cache hit now runs `install-deps` alone (OS packages only, no
+      # browser re-fetch) and a miss runs the full `install --with-deps`
+      # (browser + OS packages). Both are wrapped in a two-attempt retry — a
+      # shell loop, since this repo has no step-retry action anywhere in
+      # `.github/workflows/` and the plan's constraint is to add none.
+      #
+      # TWO MINUTES PER ATTEMPT, not three. Tight on purpose: the failure mode
+      # this bound guards against is not a slow CDN, it is a connection that
+      # never completes, and every measured hang before this step existed sat
+      # past 10 minutes with no output. A tight per-attempt bound turns a hang
+      # into a fast, re-runnable failure rather than an hour of silence — the
+      # same reasoning the original 3-minute bound carried, applied to two
+      # shorter attempts instead of one longer one. Two attempts at 2 minutes
+      # is 4 minutes worst case, leaving the `board-integration` job's 15-minute
+      # ceiling with real margin for the ~45s of setup before this step and the
+      # `Board integration tests` step's measured 4-8 minutes after it
+      # (45s + 4min + 8min ≈ 12.75min, under 15 with margin).
       - name: Install Playwright browser
-        timeout-minutes: 3
-        run: pnpm --filter @plot-pm/board exec playwright install --with-deps chromium
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          install_cmd() {
+            if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
+              pnpm --filter @plot-pm/board exec playwright install-deps chromium
+            else
+              pnpm --filter @plot-pm/board exec playwright install --with-deps chromium
+            fi
+          }
+          for attempt in 1 2; do
+            if timeout 2m bash -c "$(declare -f install_cmd); install_cmd"; then
+              exit 0
+            fi
+            echo "::warning::Install Playwright browser attempt ${attempt} failed or timed out"
+          done
+          exit 1
 
       # The longest legitimate step — a real browser against the built artifact.
       # Measured green at 4 to 8 minutes; 15 covers a saturated runner without
