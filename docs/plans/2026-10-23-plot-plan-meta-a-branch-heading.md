@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2403 merged
+- **Started:** 2026-10-23, Jan Wloka, `bug/plot-plan-meta-a-branch-heading`
 
 ## Changelog
 
