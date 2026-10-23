@@ -66,28 +66,21 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=plot-worker-state.sh
 . "$script_dir/plot-worker-state.sh"
 
+git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-fleetctl: not a git repository" >&2; exit 1; }; repo_root=$(git rev-parse --show-toplevel)
+
 # THE LABEL IS OVERRIDABLE, AND THE DEFAULT IS UNCHANGED. `supervisor_loaded`
 # asks launchd about the label, which is MACHINE-GLOBAL: no `HOME` override
 # reaches it, so a sandbox on a machine whose fleet is loaded reads that fleet
-# as its own. Measured here — a test asserting an unloaded supervisor got
-# `supervisor: running` from the operator's live fleetd, and the four-state
-# reading this file exists to add could not be tested at all.
+# as its own — see the migration block below for the renamed default.
 #
-# The brief settles the shape: test "under a different label, never by
-# unloading the running one" — `--stop` ends work in flight and is a person's
-# call. That instruction is unfollowable while the label is a constant.
-#
-# AN OPERATOR SEES NO CHANGE. Unset is the default and the only value any skill
-# passes; the override exists so a test can name a label launchd does not hold.
-# `skills/plot/units/README.md` already documents a second checkout relabelling
-# its own unit, so the variable is that documented case made reachable.
-#
-# THE DEFAULT RENAMED FROM `com.plot-pm.registryd` TO `com.plot-pm.fleetd`, and
-# `--start` migrates an old default-label unit that belongs to this checkout
-# rather than leaving it orphaned — see the migration block below. A CUSTOM
-# label an operator chose under the old prefix is never touched: it is the
-# operator's name, and `unit_name` below keeps mapping it forever.
-LABEL="${PLOT_FLEET_LABEL:-com.plot-pm.fleetd}"
+# PRECEDENCE: `PLOT_FLEET_LABEL` when set and non-empty, else the `Fleet
+# label` config key, else the default. The variable stays first because
+# `test/reconcile/fleetctl.test.mjs` uses it to name a label launchd has
+# never seen; a key that outranked it would read the operator's live fleetd
+# again. A failed or absent key read is not a value — it falls through to
+# the default, same as `plot-boardctl.sh`'s `Board port` read.
+LABEL="${PLOT_FLEET_LABEL:-$(PLOT_REPO_ROOT="$repo_root" "$script_dir/plot-config.sh" get "Fleet label" "com.plot-pm.fleetd" 2>/dev/null)}"
+LABEL="${LABEL:-com.plot-pm.fleetd}"
 UNIT_DIR="$script_dir/../units"
 
 # THE SYSTEMD UNIT'S NAME, DERIVED FROM THE LABEL. launchd keys a job by the
@@ -114,9 +107,6 @@ unit_name() {
   printf '%s-%s' "$prefix" "$(printf '%s' "$rest" | LC_ALL=C tr -c 'A-Za-z0-9:_.-' '-')"
 }
 UNIT_NAME=$(unit_name)
-
-git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-fleetctl: not a git repository" >&2; exit 1; }
-repo_root=$(git rev-parse --show-toplevel)
 
 # THE SUPERVISOR SHIPS BESIDE THIS SCRIPT, NOT IN THE REPOSITORY IT SUPERVISES.
 # `$repo_root` is the consumer's checkout, and a repository that consumes Plot
