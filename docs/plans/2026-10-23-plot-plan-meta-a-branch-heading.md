@@ -74,6 +74,8 @@ Recommendation, for the reader to confirm: repair 1 for the parser, and repair 2
 
 ## Slices
 
+### Same-branch list item
+
 - `bug/plot-plan-meta-a-branch-heading` — read a same-branch list item in the heading shape, and report the one that cannot be attributed
 
 ## Notes
