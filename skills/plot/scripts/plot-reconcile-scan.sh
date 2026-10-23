@@ -15,7 +15,7 @@
 #         below the marker are NOT in printed order — the number is a label and
 #         the marker is the boundary.
 #         The report is terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 open_issues=0 unread_headings=0 unread_waits=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 open_issues=0 unread_headings=0 unread_waits=0 unread_heading_items=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
@@ -236,6 +236,16 @@
 #                                 unreadable, not the slice broken — so it
 #                                 carries `unread_waits=` and stays out of
 #                                 `attention`.
+#  24b. Unread heading items    — a heading-shape wave's list item that reads as
+#                                 a branch claim but names a branch no heading
+#                                 in that wave carries, read from the parser
+#                                 field `unread_heading_items`. A list item
+#                                 naming the branch its own heading already
+#                                 claims is read instead, and is silent here.
+#                                 REPORTS AND NEVER GATES — the item is
+#                                 unattributable, not the slice broken — so it
+#                                 carries `unread_heading_items=` and stays out
+#                                 of `attention`.
 #
 # Configuration is read via plot-config.sh from the adopting project's
 # `## Plot Config` (Plan directory, Active index, Delivered index, Branch
@@ -3055,6 +3065,7 @@ echo "== 23. A finished plan's issue is still open (a person decides) =="
 n_open_issues=0; n_issue_unread=0
 n_unread=0
 n_unread_waits=0
+n_unread_heading_items=0
 # The finished plans that name an issue, read from the parse already in memory
 # (`plan_json`, one `plot-plan-meta.sh` run for the whole sweep). NOT a body
 # scan for `#NNN`: `issues[]` is a dedicated field precisely because a body
@@ -3289,6 +3300,36 @@ fi
 echo
 
 # ---------------------------------------------------------------------------
+# 24b. Unread heading items
+#
+# A heading-shape wave (`### Name (Branch: bug/x)`) whose list item below it IS
+# a branch claim (`branch_claim_re`, the same anchor the list shape uses) but
+# names a branch no heading in that wave carries — read from `unread_heading_items`,
+# the field `plot-plan-meta.sh` fills precisely for this. A list item naming
+# the SAME branch as its heading is read for its `→ #N` and its annotations and
+# never reaches this field; only an unattributable item does.
+#
+# REPORTS AND NEVER GATES. Below `== blocking sections end ==`, out of
+# `attention=`, with its own counter (`unread_heading_items=`), beside
+# `unread_headings=`/`unread_waits=` for the same reason: an item the parser
+# cannot attribute never reaches the scan's verdict either, so the slice holds
+# no annotation at all until a person fixes the value — a legibility gap, not a
+# broken pointer.
+echo "== 24b. Unread heading items (a list item under a heading names a branch no heading claims) =="
+if [ -n "$plan_json" ]; then
+  while IFS="$US" read -r f wave branch; do
+    [ -n "$f" ] || continue
+    printf "  %s — wave '%s' holds a list item naming '%s', a branch no heading in that wave claims\n    rewrite: move the item under its own heading, or give this wave a (Branch: %s) heading\n" \
+      "$(basename "$f")" "$wave" "$branch" "$branch"
+    n_unread_heading_items=$((n_unread_heading_items + 1))
+  done < <(printf '%s\n' "$plan_json" \
+    | jq -r 'select(.phase != "NONE") | .file as $f
+             | .unread_heading_items[]? | [$f, .wave, .branch] | join("")')
+fi
+[ "$n_unread_heading_items" -gt 0 ] || echo "  (none — every heading-shape list item was attributed)"
+echo
+
+# ---------------------------------------------------------------------------
 # 25. Temp paths and ledger locks a killed process left behind.
 #
 # THREE COUNTS, EACH ITS OWN FOOTER KEY. `temp_sweepable=` is what
@@ -3488,5 +3529,5 @@ fi
 echo
 
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs review_bypass=$n_review_bypass desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues issue_unread=$n_issue_unread unread_headings=$n_unread unread_waits=$n_unread_waits temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs review_bypass=$n_review_bypass desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues issue_unread=$n_issue_unread unread_headings=$n_unread unread_waits=$n_unread_waits unread_heading_items=$n_unread_heading_items temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
 exit 0

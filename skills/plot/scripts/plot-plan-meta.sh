@@ -235,6 +235,20 @@
 #                  no branch stays silent, since reporting that would fire on
 #                  every such plan. A marker inside a code span is quoted, not
 #                  written, and is read nowhere. ALWAYS present; [] when none.
+#   unread_heading_items
+#                  `{ wave, branch }` pairs, in document order, for a heading-
+#                  shape wave's list item that reads as a branch claim
+#                  (`branch_claim_re`, the same anchor the old shape uses) but
+#                  names a branch no heading in that wave carries — a report,
+#                  not a refusal. A list item naming its OWN heading's branch is
+#                  read instead: its `→ #N` and its `claimed:`/`deferred:`/
+#                  `waits:`/`builds:`/`agent:` annotations land on that branch,
+#                  same as the old shape. Every other line in a heading-shape
+#                  wave — prose, a list item naming a different branch — stays
+#                  unread, exactly as the comment above the heading handler
+#                  always said. `wave` is the wave NAME (waves[].name), not an
+#                  index. ALWAYS present; [] when every such item was
+#                  attributed.
 #   issues         tracker issue numbers this plan answers, from the `## Status`
 #                  `Issue:` line or front matter `issue:` (sorted, unique).
 #                  A DEDICATED field, never a scan of the body for `#NNN`: a
@@ -329,7 +343,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"ticket":"","malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","spike_approved_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","verified_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"ticket":"","malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"unread_heading_items":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","spike_approved_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","verified_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -530,6 +544,8 @@ function reset_state() {
   delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; delete spike_of; n_waves = 0
   delete branch_heading; delete waits_of; delete waits_set; delete waits_n
   delete unread_waits_branch; delete unread_waits_value; n_unread_waits = 0
+  delete unread_heading_item_wave; delete unread_heading_item_branch; n_unread_heading_items = 0
+  heading_branch = ""; heading_branch_n = 0
   delete builds_of; delete agent_of; delete commits_of; delete started; n_started = 0
   fm_changelog = ""
   delete changelog; n_changelog = 0; changelog_seen = 0; cl_open = 0
@@ -782,6 +798,19 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   for (i = 1; i <= n_unread_waits; i++) {
     out = out (i > 1 ? "," : "") "{\"branch\":\"" jesc(unread_waits_branch[i]) "\"" \
           ",\"value\":\"" jesc(unread_waits_value[i]) "\"}"
+  }
+  out = out "]"
+  # unread_heading_items[]: { wave, branch } pairs, in document order, for a
+  # heading-shape wave list item that IS a branch claim (branch_claim_re) but
+  # names a branch no heading in that wave claims — the parser cannot tell
+  # which slice it belongs to, so it is reported rather than silently dropped
+  # and never read as a second claim on the heading branch. wave is the wave
+  # NAME (waves[].name), not an index, so a consumer needs no second lookup.
+  # ALWAYS present; [] when every such item was attributed.
+  out = out ",\"unread_heading_items\":["
+  for (i = 1; i <= n_unread_heading_items; i++) {
+    out = out (i > 1 ? "," : "") "{\"wave\":\"" jesc(wave_names[unread_heading_item_wave[i]]) "\"" \
+          ",\"branch\":\"" jesc(unread_heading_item_branch[i]) "\"}"
   }
   out = out "]"
   out = out ",\"review_raw\":\"" jesc(review) "\",\"review\":\"" norm_review(review) "\""
@@ -1331,57 +1360,135 @@ section == "slices" && slice_shape != "heading" {
 # old shape produces for the same plan. So this shares every accumulation
 # variable with the branches handler above; only the EXTRACTION differs.
 section == "slices" && slice_shape == "heading" {
-  # Only the `### ` heading carries meta. Body lines are prose — never scanned
-  # for a branch or a PR, which is the whole point of the new shape.
-  if ($0 !~ /^###[ \t]/) next
+  # A `### ` heading carries meta, as before. Below it, ONE line is no longer
+  # prose-only: a list item that is a LIST CLAIM (branch_claim_re, the same
+  # anchor the old shape uses) and names the branch this heading just claimed
+  # is read for its `→ #N` and its annotations — see below. Every other line,
+  # including a list item naming a DIFFERENT branch, stays prose.
+  if ($0 ~ /^###[ \t]/) {
+    # A heading opens a wave whose NAME is the heading text with the
+    # `(Branch: …, PR: …)` parenthetical and any trailing annotation stripped, so
+    # `### Removed (Branch: bug/foo, PR: #300)` names the wave `Removed` — exactly
+    # what the old shape (bare `### Removed`) produced, which is what keeps the two
+    # spellings byte-identical.
+    wname = trim(substr($0, 4))
+    # Drop a trailing HTML comment (claimed/deferred ride the heading line now).
+    sub(/[ \t]*<!--.*$/, "", wname)
+    # Drop the `(Branch: …)` meta parenthetical. Anchored to `(Branch:` so a
+    # parenthetical in a genuine wave name — none exist, but the grammar must not
+    # assume it — is not eaten unless it is the meta block.
+    sub(/[ \t]*\(Branch:.*$/, "", wname)
+    wname = trim(wname)
+    wave_names[++n_waves] = wname
+    note_branch_heading()
 
-  # A heading opens a wave whose NAME is the heading text with the
-  # `(Branch: …, PR: …)` parenthetical and any trailing annotation stripped, so
-  # `### Removed (Branch: bug/foo, PR: #300)` names the wave `Removed` — exactly
-  # what the old shape (bare `### Removed`) produced, which is what keeps the two
-  # spellings byte-identical.
-  wname = trim(substr($0, 4))
-  # Drop a trailing HTML comment (claimed/deferred ride the heading line now).
-  sub(/[ \t]*<!--.*$/, "", wname)
-  # Drop the `(Branch: …)` meta parenthetical. Anchored to `(Branch:` so a
-  # parenthetical in a genuine wave name — none exist, but the grammar must not
-  # assume it — is not eaten unless it is the meta block.
-  sub(/[ \t]*\(Branch:.*$/, "", wname)
-  wname = trim(wname)
-  wave_names[++n_waves] = wname
-  note_branch_heading()
+    # Annotations bind to the line carrying the branch name, which is the heading.
+    read_notes()
 
-  # Annotations bind to the line carrying the branch name, which is the heading.
-  read_notes()
+    # The branch this heading just claimed, so a list item below can be
+    # matched against it. "" until a branch is read below, so a heading with
+    # no readable branch claims nothing for any list item that follows.
+    heading_branch = ""; heading_branch_n = 0
 
-  # The branch is the `Branch:` value, matched against the known prefixes exactly
-  # as the old shape matched the backticked name. Written unquoted in the heading
-  # (`Branch: bug/foo`), so the match is on a bare token, not on backticks. A
-  # heading with no readable branch still opened a wave above — so a `## Waves`
-  # section is never silently empty, which is the failure this plan refuses: a
-  # consumer sees a wave it could not extract a branch from, not an absence.
-  #
-  # THE VALUE MAY BE BACKTICKED. `(Branch: \`bug/foo\`)` is unambiguous, and a
-  # backtick between `Branch:` and the prefix made the anchored match fail, so
-  # the heading opened a wave and yielded nothing. The backticks are optional on
-  # both sides and stripped from the name. Measured 2026-09-28 over 357 plans:
-  # 2 records change, 355 byte-identical.
-  if (match($0, "Branch:[ \t]*`?(" PREFIXES ")/[^ \t,)`]+`?")) {
-    b = substr($0, RSTART, RLENGTH)
-    sub(/^Branch:[ \t]*/, "", b)
-    gsub(/`/, "", b)
-    branches[++n_branches] = b
-    wave_of[n_branches] = n_waves; ++wave_count[n_waves]
-    keep_branch(n_branches, b)
+    # The branch is the `Branch:` value, matched against the known prefixes exactly
+    # as the old shape matched the backticked name. Written unquoted in the heading
+    # (`Branch: bug/foo`), so the match is on a bare token, not on backticks. A
+    # heading with no readable branch still opened a wave above — so a `## Waves`
+    # section is never silently empty, which is the failure this plan refuses: a
+    # consumer sees a wave it could not extract a branch from, not an absence.
+    #
+    # THE VALUE MAY BE BACKTICKED. `(Branch: \`bug/foo\`)` is unambiguous, and a
+    # backtick between `Branch:` and the prefix made the anchored match fail, so
+    # the heading opened a wave and yielded nothing. The backticks are optional on
+    # both sides and stripped from the name. Measured 2026-09-28 over 357 plans:
+    # 2 records change, 355 byte-identical.
+    if (match($0, "Branch:[ \t]*`?(" PREFIXES ")/[^ \t,)`]+`?")) {
+      b = substr($0, RSTART, RLENGTH)
+      sub(/^Branch:[ \t]*/, "", b)
+      gsub(/`/, "", b)
+      branches[++n_branches] = b
+      wave_of[n_branches] = n_waves; ++wave_count[n_waves]
+      keep_branch(n_branches, b)
+      heading_branch = b; heading_branch_n = n_branches
+    }
+
+    # The PR is the `PR: #NNN` value in the heading. Absent PR: contributes
+    # nothing — not "", not 0 — the same rule `Issue:` follows. Only a heading
+    # that carries the field adds to prs.
+    if (match($0, /PR:[ \t]*#[0-9]+/)) {
+      p = substr($0, RSTART, RLENGTH)
+      sub(/^.*#/, "", p)
+      prs[++n_prs] = p; if ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
+    }
+    next
   }
 
-  # The PR is the `PR: #NNN` value in the heading. Absent PR: contributes
-  # nothing — not "", not 0 — the same rule `Issue:` follows. Only a heading
-  # that carries the field adds to prs.
-  if (match($0, /PR:[ \t]*#[0-9]+/)) {
-    p = substr($0, RSTART, RLENGTH)
-    sub(/^.*#/, "", p)
-    prs[++n_prs] = p; if ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
+  # A LIST CLAIM below the heading — same anchor as the old shape
+  # (`branch_claim_re`), so a backticked name in prose stays unread exactly as
+  # it always has. Only a line that IS the claim form is even considered.
+  if (match($0, branch_claim_re)) {
+    claim = substr($0, RSTART, RLENGTH)
+    item_branch = substr(claim, index(claim, "`") + 1)
+    sub(/`$/, "", item_branch)
+    if (heading_branch != "" && item_branch == heading_branch) {
+      # Names the branch the heading above already claimed: its `→ #N` and its
+      # annotations belong to that branch. keep_branch re-reads $0 (this line)
+      # for deferred/spike/claimed, so a list item marker is read in addition to
+      # a heading marker — never instead of it. keep_branch overwrites every
+      # field unconditionally, so a heading-only annotation (a deferral reason
+      # written on the `### ` line, say) would be wiped by a list item that
+      # carries none of its own. MERGE_LIST_ITEM_NOTES below is the fix: it
+      # saves what the heading already stored, lets keep_branch write the list
+      # item reading, then restores a field the list item did not itself set.
+      save_deferred = deferred_of[heading_branch_n]
+      save_deferred_why = deferred_why[heading_branch_n]
+      save_spike = spike_of[heading_branch_n]
+      save_claimed = claimed_of[heading_branch_n]
+      save_builds = builds_of[heading_branch_n]
+      save_agent = agent_of[heading_branch_n]
+      save_waits_set = waits_set[heading_branch_n]
+      save_waits_n = waits_n[heading_branch_n]
+      for (k = 1; k <= save_waits_n; k++) save_waits_of[k] = waits_of[heading_branch_n, k]
+
+      read_notes()
+      keep_branch(heading_branch_n, heading_branch)
+
+      # A field the list item did not itself carry keeps what the heading already
+      # stored, rather than the "false"/"" default keep_branch just wrote for it.
+      if ($0 !~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) {
+        deferred_of[heading_branch_n] = save_deferred
+        deferred_why[heading_branch_n] = save_deferred_why
+      }
+      if ($0 !~ /<!--[ \t]*spike[ \t]*-->/) spike_of[heading_branch_n] = save_spike
+      if (claim_note == "") claimed_of[heading_branch_n] = save_claimed
+      if (builds_note == "") builds_of[heading_branch_n] = save_builds
+      if (agent_note == "") agent_of[heading_branch_n] = save_agent
+      if (!waits_set[heading_branch_n]) {
+        waits_set[heading_branch_n] = save_waits_set
+        waits_n[heading_branch_n] = save_waits_n
+        for (k = 1; k <= save_waits_n; k++) waits_of[heading_branch_n, k] = save_waits_of[k]
+      }
+      delete save_waits_of
+
+      line = $0
+      while (match(line, /→ ([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?#[0-9]+/)) {
+        p = substr(line, RSTART, RLENGTH)
+        sub(/^.*#/, "", p)
+        prs[++n_prs] = p; if ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
+        line = substr(line, RSTART + RLENGTH)
+      }
+      line = $0
+      while (match(line, /→#[0-9]+/)) {
+        malformed_prs[++n_malformed_prs] = substr(line, RSTART, RLENGTH)
+        line = substr(line, RSTART + RLENGTH)
+      }
+    } else {
+      # Names a branch no heading in this wave claims (or there is no current
+      # heading branch at all) — the parser cannot attribute it, so it is
+      # reported rather than silently dropped and never read as a second claim.
+      unread_heading_item_wave[++n_unread_heading_items] = n_waves
+      unread_heading_item_branch[n_unread_heading_items] = item_branch
+    }
   }
   next
 }

@@ -120,3 +120,72 @@ test('plan-meta: a missing file carries an empty unread_branch_headings', () => 
   const out = execFileSync('bash', [parser, path.join(tmpdir(), 'no-such-plan-2026.md')], { encoding: 'utf8' });
   assert.deepEqual(JSON.parse(out).unread_branch_headings, []);
 });
+
+// bug/plot-plan-meta-a-branch-heading: a heading-shape wave's list item that
+// names the SAME branch as its heading is read for its `→ #N` and its
+// annotations; one naming a DIFFERENT branch, or a mere prose citation, stays
+// unread exactly as the comment above the heading handler always said.
+
+test('plan-meta: a list item naming the same branch as its heading gains the PR and its markers', () => {
+  const meta = parseSource(plan('### A (Branch: bug/x)\n\n- `bug/x` — foo → #12\n'));
+  assert.deepEqual(meta.branches, ['bug/x']);
+  assert.deepEqual(meta.prs, [12]);
+  assert.deepEqual(meta.unread_heading_items, []);
+});
+
+test('plan-meta: a list item naming another branch stays unread and is reported, never a second claim', () => {
+  const meta = parseSource(plan('### A (Branch: bug/x)\n\n- `bug/other` — foo → #12\n'));
+  assert.deepEqual(meta.branches, ['bug/x']);
+  assert.deepEqual(meta.prs, [], 'the other branch’s PR is not attributed to bug/x');
+  assert.deepEqual(meta.unread_heading_items, [{ wave: 'A', branch: 'bug/other' }]);
+});
+
+test('plan-meta: a prose line with a backticked branch name stays unread and unreported', () => {
+  const meta = parseSource(plan('### A (Branch: bug/x)\n\nSee also `bug/other` for context.\n'));
+  assert.deepEqual(meta.branches, ['bug/x']);
+  assert.deepEqual(meta.prs, []);
+  assert.deepEqual(meta.unread_heading_items, [], 'a citation in prose is not a claim — branch_claim_re is not loosened');
+});
+
+test('plan-meta: a matching list item with <!-- deferred: ... --> puts its PR in deferred_prs', () => {
+  const meta = parseSource(plan('### A (Branch: bug/x)\n\n- `bug/x` — foo → #12 <!-- deferred: superseded -->\n'));
+  assert.deepEqual(meta.deferred_prs, [12]);
+  assert.equal(meta.waves[0].branches[0].deferred, true);
+  assert.equal(meta.waves[0].branches[0].deferred_reason, 'superseded');
+});
+
+test('plan-meta: a heading-only plan with no list items is byte-identical before and after this repair', () => {
+  const meta = parseSource(plan('### A (Branch: bug/x, PR: #99)\n\nWork, no list item below.\n'));
+  assert.deepEqual(meta.branches, ['bug/x']);
+  assert.deepEqual(meta.prs, [99]);
+  assert.deepEqual(meta.unread_heading_items, []);
+});
+
+test('plan-meta: a heading’s own deferred: annotation survives a matching list item that carries none', () => {
+  // The bug this repair must not reintroduce: keep_branch() is called a second
+  // time for the matching list item, and it unconditionally overwrites
+  // deferred_of/deferred_why/waits_of/etc. A list item with no annotation of
+  // its own must not wipe what the heading already established.
+  const meta = parseSource(plan(
+    '### A (Branch: bug/x) <!-- deferred: a long reason from panel review -->\n\n- `bug/x` — foo → #12\n'
+  ));
+  assert.equal(meta.waves[0].branches[0].deferred, true);
+  assert.equal(meta.waves[0].branches[0].deferred_reason, 'a long reason from panel review');
+  assert.deepEqual(meta.prs, [12]);
+});
+
+test('plan-meta: a heading’s own waits: annotation survives a matching list item that carries none', () => {
+  const meta = parseSource(plan(
+    '### A (Branch: bug/x) <!-- waits: bug/other-branch -->\n\n- `bug/x` — foo → #12\n'
+  ));
+  assert.deepEqual(meta.waves[0].branches[0].waits_on, ['bug/other-branch']);
+  assert.deepEqual(meta.prs, [12]);
+});
+
+test('plan-meta: a matching list item’s own annotation overrides the heading’s, when both set it', () => {
+  const meta = parseSource(plan(
+    '### A (Branch: bug/x) <!-- deferred: heading reason -->\n\n- `bug/x` — foo → #12 <!-- deferred: list item reason -->\n'
+  ));
+  assert.equal(meta.waves[0].branches[0].deferred, true);
+  assert.equal(meta.waves[0].branches[0].deferred_reason, 'list item reason');
+});
