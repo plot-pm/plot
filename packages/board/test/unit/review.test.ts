@@ -607,7 +607,7 @@ describe('one follow-up issue per PR', () => {
 
   it('keys the findings comment by a per-PR marker, so a second review of the PR edits it', async () => {
     const { tracker } = withLabelled([], {
-      issueListLabelled: async () => answered({ issues: [], complete: false, pages: 1 }),
+      issueListWithTitle: async () => answered({ issues: [], complete: false, pages: 1 }),
     });
     const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n');
     r.deps.tracker = tracker;
@@ -620,7 +620,7 @@ describe('one follow-up issue per PR', () => {
 
   it('cuts a long verdict, never the counts or the run marker, and names the file by its basename', async () => {
     const { tracker } = withLabelled([], {
-      issueListLabelled: async () => answered({ issues: [], complete: false, pages: 1 }),
+      issueListWithTitle: async () => answered({ issues: [], complete: false, pages: 1 }),
     });
     // 40,000 four-byte code points: 160,000 UTF-8 bytes, 80,000 UTF-16 units.
     const r = rig(`Findings: HIGH 0, MEDIUM 0, LOW 1\n${'😀'.repeat(40000)}\n`);
@@ -638,7 +638,7 @@ describe('one follow-up issue per PR', () => {
 
   it('reports a failed PR comment without changing the exit code', async () => {
     const { tracker } = withLabelled([], {
-      issueListLabelled: async () => answered({ issues: [], complete: false, pages: 1 }),
+      issueListWithTitle: async () => answered({ issues: [], complete: false, pages: 1 }),
     });
     const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n', { prCommentFails: true });
     r.deps.tracker = tracker;
@@ -650,7 +650,7 @@ describe('one follow-up issue per PR', () => {
 
   it('says the findings reached nobody when the host cannot take PR comments', async () => {
     const { tracker } = withLabelled([], {
-      issueListLabelled: async () => answered({ issues: [], complete: false, pages: 1 }),
+      issueListWithTitle: async () => answered({ issues: [], complete: false, pages: 1 }),
     });
     const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n', { prCommentUnaskable: true });
     r.deps.tracker = tracker;
