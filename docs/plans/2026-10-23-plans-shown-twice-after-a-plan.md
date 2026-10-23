@@ -45,7 +45,7 @@ Fix, in the order the issue asks:
 
 - [ ] Which of the two causes holds on ewz-kus-portal? A fixture with a merged-but-not-deleted idea branch and a warm cache shows it.
 - [ ] Does `Refs` already offer an ancestry operation, or does the slice add one to the port and to `refs-git.ts`?
-- [ ] Should the path de-duplication also key on slug, since the issue allows "path (or slug)"? A rename between branch and default branch gives two paths with one slug.
+- [x] Should the path de-duplication also key on slug, since the issue allows "path (or slug)"? A rename between branch and default branch gives two paths with one slug. **Measured, not assumed** (`branch-plan-cache-tracks-the-default-branch.test.ts`, "a plan renamed between the idea branch and main renders as two cards"): a rename does not produce one slug with two cards. `planSlug` derives the slug from the filename, so a rename changes the slug along with the path — the result is two cards under two *different* slugs, each believing it is the only copy. Neither path-keyed guard can see the two are the same content, and keying de-duplication on slug would not have caught this case either, since the slugs genuinely differ. Fixing the renamed case needs an in-content identity (e.g. the plan's own `## Branches` heading) rather than a path or slug key — left as a follow-up rather than built on this branch.
 
 ## Slices
 
