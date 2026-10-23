@@ -1034,6 +1034,32 @@ export const resolveBackend = async (
 };
 
 /**
+ * The account a reader-election decision keys on, read the same free way
+ * `refreshPrs` itself reads it — `spend-rate`'s own `account` field, which
+ * resolves through `budget_account` rather than `Host.account()`.
+ *
+ * **NOT `Host.account()`.** That port method refuses outright on Bitbucket
+ * (`plot-host.sh account` exits 4: "names no signed-in user without an API
+ * request"), where `budget_account bitbucket` already has a free fallback —
+ * the remote's workspace segment. A reader-election key needs an account on
+ * every backend this board runs against, so it reads the value that already
+ * answers on both.
+ *
+ * **SPENDS NOTHING.** `spend-rate` reads the budget record file; no host is
+ * asked. Called once before a reader-election decision, in addition to
+ * `refreshPrs`'s own read a moment later should this process go on to hold
+ * the lock — the same redundancy `refreshPrs` already carries pass to pass,
+ * since this reading was never cached across calls either.
+ *
+ * @param scripts - asks `plot-host.sh spend-rate`.
+ * @returns the account `spend-rate` named, or `null` where it named none.
+ */
+export const resolveReaderAccount = async (scripts: Scripts): Promise<string | null> => {
+  const rate = await spendRateFor(scripts);
+  return rate?.account ?? null;
+};
+
+/**
  * Records when the PR fetch is next due, and what interval that implies.
  *
  * ONE PLACE, THREE EXITS. `refreshPrs` leaves by a success, an all-unknown

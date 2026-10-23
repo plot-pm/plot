@@ -1,10 +1,10 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { rmTree } from '../helpers.mjs';
-import { fleetStateFile, bridgePath } from '@plot-pm/domain/adapters';
+import { fleetStateFile, bridgePath, readerLockFile, readerLockKey } from '@plot-pm/domain/adapters';
 import type { BridgedPulse } from '@plot-pm/domain/ports/fleet-state';
 import type { FleetReading } from '@plot-pm/domain/entities/fleet';
 
@@ -47,6 +47,7 @@ const bridged = (at: number, prError: string | null = null): BridgedPulse => ({
 });
 
 const temps: string[] = [];
+const children: ChildProcess[] = [];
 
 /** The marks an automatic write leaves under `.plot/state/`; a board that acts leaves one. */
 const autoWrites = (dir: string): string[] => {
@@ -83,6 +84,10 @@ const fixture = (supervisorUp: boolean) => {
   execFileSync('git', ['init', '--quiet'], { cwd: dir });
   fs.mkdirSync(path.join(dir, 'pr-index'));
   vi.stubEnv('PLOT_PR_INDEX_HOME', path.join(dir, 'pr-index'));
+  // Isolates the reader-election lock from the operator's own `~/.plot/state`
+  // and from every other test — a shared lock directory would let two
+  // fixtures elect against the same key and read each other's writes.
+  vi.stubEnv('PLOT_BUDGET_HOME', path.join(dir, 'budget-home'));
   const opts = { repoRoot: dir, scriptsDir: dir };
   const prListed = (): number => (fs.existsSync(hosts) ? fs.readFileSync(hosts, 'utf8').split('\n').filter(Boolean).length : 0);
   const spawned = (): string[] => (fs.existsSync(scans) ? fs.readFileSync(scans, 'utf8').split('\n').filter(Boolean) : []);
@@ -97,6 +102,7 @@ afterEach(() => {
   stopFleetRefresh();
   vi.unstubAllEnvs();
   for (const d of temps.splice(0)) rmTree(d);
+  for (const child of children.splice(0)) child.kill();
 });
 
 describe('the board while a fleet runs', () => {
@@ -183,7 +189,7 @@ describe('the PR side of the board', () => {
     expect(fs.readFileSync(path_).equals(before)).toBe(true);
   });
 
-  it('alone, asks the host and folds in memory without writing the index', async () => {
+  it('alone, asks the host, elects itself, and writes the index', async () => {
     const { dir, opts, prListed } = fixture(false);
     await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
     const entry = freshCacheEntry();
@@ -191,8 +197,54 @@ describe('the PR side of the board', () => {
     await maybeRefreshPrs(opts, entry);
     expect(prListed()).toBeGreaterThan(0);
     expect(entry.prsByNumber?.get(7)?.head).toBe('feature/a');
+    // Alone, no peer holds the reader lock, so this process wins the election
+    // and folds into the REAL store — the fix for the regression the plan
+    // names: a solo fleet-less board is also the first (and only) reader, and
+    // its answer must be published for the next process to converge on.
     const file = await prIndexFile({ cwd: dir }).location('github');
-    expect(fs.existsSync(file.ok ? file.value : '')).toBe(false);
+    expect(fs.existsSync(file.ok ? file.value : '')).toBe(true);
+  });
+
+  it('a losing reader makes no host call and serves what the holder published', async () => {
+    // THE REGRESSION THE PLAN NAMES: before this slice, every fleet-less
+    // process folded into its own `memoryOverlay` and never converged, so two
+    // processes on one machine meant two host calls, forever. Proving that at
+    // this level needs a genuinely SEPARATE pid holding the lock — this
+    // process's own pid would read as a renewal (same holder, come back), not
+    // a second reader — so a real child process holds the lock the way a real
+    // second board process would, while this test calls `maybeRefreshPrs`
+    // directly, the same call a losing process makes.
+    const { dir, opts, prListed } = fixture(false);
+    await fleetStateFile({ repoRoot: dir }).write(bridged(Date.now() - 2_000));
+    const held = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    children.push(held);
+    await new Promise<void>((resolve) => held.once('spawn', () => resolve()));
+    const lock = readerLockFile({ home: path.join(dir, 'budget-home') });
+    const key = readerLockKey('github', 'unknown', path.basename(dir));
+    const claim = { pid: held.pid, startedAt: null, at: Date.now() };
+    const elected = await lock.elect(key, claim);
+    expect(elected.ok && elected.value).toBe('elected');
+
+    // The holder has published nothing yet — the losing reader must say so
+    // rather than invent a result, the same guard a holder's own first pass keeps.
+    const entryBeforePublish = freshCacheEntry();
+    await refresh(opts, entryBeforePublish);
+    await maybeRefreshPrs(opts, entryBeforePublish);
+    expect(prListed()).toBe(0);
+    expect(entryBeforePublish.prError).toBe('no PR reader has published to the store yet');
+
+    // Now the "holder" publishes — standing in for the winner's own refresh
+    // pass completing — and a second losing reader must read that answer
+    // rather than asking the host itself.
+    const index = (await import('@plot-pm/domain/adapters')).prIndexFile({ cwd: dir });
+    const { foldPrIndex } = await vi.importActual<typeof import('@plot-pm/domain')>('@plot-pm/domain');
+    await index.write('github', foldPrIndex(null, { connector: 'github', rows: [heldRow], kind: 'whole', at: new Date().toISOString() }));
+
+    const entry = freshCacheEntry();
+    await refresh(opts, entry);
+    await maybeRefreshPrs(opts, entry);
+    expect(prListed()).toBe(0);
+    expect(entry.prsByNumber?.get(9)?.head).toBe('feature/held');
   });
 });
 
