@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** bug
+- **Sprint:** bugfix-2-28-2
 - **Issue:** #2407
 - **Review:** pr
 - **Impl:** own branches
