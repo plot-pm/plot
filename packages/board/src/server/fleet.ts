@@ -7379,6 +7379,10 @@ export async function buildFleet(
     // implementation of it, and the two drift the first time a state is added.
     stuck: summarizeStuck(rows.map((r) => r.stuck)),
     prAgeSeconds: entry.prAt === null ? null : Math.round((now - entry.prAt) / 1000),
+    // The cadence `prAgeSeconds` is measured against — `entry.prIntervalMs`
+    // rather than the module constant, so a per-entry override (there is none
+    // today) would still be reported truthfully.
+    prIntervalMs: entry.prIntervalMs,
     // The server's own intention, backoff included — never the nominal 60 s.
     // `prNextAt` is the single gate the fetch obeys, so reporting it is
     // reporting the truth rather than a second copy of the cadence that could

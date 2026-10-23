@@ -89,7 +89,7 @@ export interface PrStatusInput {
 
 /**
  * The decision the PR footer renders — level, cause, backoff end and notices,
- * with no wording chosen. `host-notes.ts`'s `prNote` reads this and composes
+ * with no wording chosen. `host-notes.ts`'s `prStatusEntry` reads this and composes
  * the sentence; this says only what is true.
  */
 export interface PrStatus {

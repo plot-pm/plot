@@ -22,7 +22,7 @@ import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_EC
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
 import { GROUPS, elsewhereNote, groupByPlan, planGroupShape, rowsBySection, sectionTally, showPlanHeading, tallyLabel, unfilteredNote, type PlanGroup, type SectionTally, sliceKeyOf, sliceSection, slicesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
 import { countdown } from '../../src/app/lib/agent-rows/actions.js';
-import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord, scanHostNote } from '../../src/app/lib/agent-rows/host-notes.js';
+import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prStateWord, prStatusEntry, scanHostNote } from '../../src/app/lib/agent-rows/host-notes.js';
 import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
 import { groupBySlice, groupedNote, sliceDissent, sliceLabel } from '../../src/app/lib/agent-rows/slices.js';
 // THE ONE GRID, from the component that owns it. It was `ROW_TRACKS` in
@@ -2418,28 +2418,35 @@ describe('hostErrorState — a rate limit is a THIRD state, never an outage', ()
   });
 });
 
-describe('prNote — the PR note distinguishes the two failures', () => {
+describe('prStatusEntry — the PR status distinguishes the two failures', () => {
+  // `prStatusEntry` reads `prStatus`'s classification, which needs an
+  // `intervalSeconds` to compare age against. Pinning `prAgeSeconds` well
+  // under `2 * 60` keeps these outage/limit fixtures at `warning`/`error`
+  // rather than accidentally crossing into the "stale cache" shape — the
+  // interval itself is covered by its own describe block below.
   const at = (over: Partial<Fleet>): Fleet =>
     ({ prError: null, prNextInSeconds: null, prAgeSeconds: null, ...over } as Fleet);
+  const text = (fleet: Fleet) => prStatusEntry(fleet)?.text ?? null;
 
   it('is silent when the host answered', () => {
     // No error, no note. The one banner exists for a failure to explain.
-    expect(prNote(at({ prError: null }))).toBeNull();
+    expect(prStatusEntry(at({ prError: null }))).toBeNull();
   });
 
-  it('keeps TODAY\'S wording for an unreachable host', () => {
-    // The plan pins this verbatim: an outage that named no reset reads exactly
-    // as it did before this branch. Changing it would be re-solving
-    // `an-outage-is-not-an-answer`, which already holds.
-    expect(prNote(at({ prError: 'gh: 503' })))
+  it('keeps TODAY\'S wording for an unreachable host with no data landed', () => {
+    // The plan pins this verbatim: an outage with nothing on screen is `error`
+    // level and reads exactly as it did before this branch. Changing it would
+    // be re-solving `an-outage-is-not-an-answer`, which already holds.
+    expect(text(at({ prError: 'gh: 503' })))
       .toBe('PR data unavailable (gh: 503) — the two groups above that depend on it may be incomplete.');
   });
 
   it('SAYS a rate limit is a rate limit, and NAMES when service returns', () => {
-    // The heart of the branch. A spent budget is not "unavailable" — it is
-    // rate-limited, temporary, and its end is known: `prNextInSeconds` is the
-    // reset the backoff already waits for (backoff included, per the contract).
-    const note = prNote(at({ prError: 'GraphQL: API rate limit already exceeded', prNextInSeconds: 480 }));
+    // The heart of the branch. A spent budget with data already on screen
+    // reads `warning`, not `error` — "paused", not "unavailable" — and its
+    // end is known: `prNextInSeconds` is the reset the backoff already waits
+    // for (backoff included, per the contract).
+    const note = text(at({ prError: 'GraphQL: API rate limit already exceeded', prNextInSeconds: 480, prAgeSeconds: 45 }));
     expect(note).toContain('rate limit');
     expect(note).toContain('8 min');           // 480s named as the reset
     expect(note).not.toContain('unavailable'); // NOT the outage word
@@ -2449,7 +2456,7 @@ describe('prNote — the PR note distinguishes the two failures', () => {
     // An older server sends no `prNextInSeconds`. The state is still knowable
     // from the message, so the note still says RATE LIMIT rather than falling
     // back to the outage wording — it just cannot name the minute.
-    const note = prNote(at({ prError: 'GraphQL: API rate limit already exceeded', prNextInSeconds: null }));
+    const note = text(at({ prError: 'GraphQL: API rate limit already exceeded', prNextInSeconds: null, prAgeSeconds: 45 }));
     expect(note).toContain('rate limit');
     expect(note).not.toContain('unavailable');
   });
@@ -2459,19 +2466,26 @@ describe('prNote — the PR note distinguishes the two failures', () => {
     // The catch keeps the last good map, which leaves a reader looking at data
     // of unknown age — the age phrase turns "something is wrong" into "showing
     // data from 14 min ago".
-    const note = prNote(at({ prError: 'gh: 503', prAgeSeconds: 840 })); // 14 min
+    const note = text(at({ prError: 'gh: 503', prAgeSeconds: 840 })); // 14 min
     expect(note).toContain('showing data from 14 min ago');
+  });
+
+  it('calls an outage with data on screen stale and names the unreachable host', () => {
+    // "paused" names a wait the host asked for; a failed host asked for none.
+    expect(text(at({ prError: 'gh: 503', prAgeSeconds: 840 }))).toBe(
+      'PR data stale — host unreachable (gh: 503) — showing data from 14 min ago — the two groups above that depend on it may be incomplete.',
+    );
   });
 
   it('names the age in seconds when under a minute', () => {
     // The same format resetPhrase uses — seconds below a minute, minutes above.
-    const note = prNote(at({ prError: 'gh: 503', prAgeSeconds: 45 }));
+    const note = text(at({ prError: 'gh: 503', prAgeSeconds: 45 }));
     expect(note).toContain('showing data from 45s ago');
   });
 
   it('names the age for a rate-limit failure too', () => {
     // The retained data's age matters regardless of what caused the outage.
-    const note = prNote(at({
+    const note = text(at({
       prError: 'GraphQL: API rate limit already exceeded',
       prNextInSeconds: 480,
       prAgeSeconds: 840,
@@ -2484,7 +2498,7 @@ describe('prNote — the PR note distinguishes the two failures', () => {
   it('omits the age when there is no retained data', () => {
     // A first fetch that failed has no previous data to age — the note does
     // not invent a time it cannot name.
-    const note = prNote(at({ prError: 'gh: 503', prAgeSeconds: null }));
+    const note = text(at({ prError: 'gh: 503', prAgeSeconds: null }));
     expect(note).not.toContain('showing data');
     expect(note).toBe('PR data unavailable (gh: 503) — the two groups above that depend on it may be incomplete.');
   });
@@ -2495,7 +2509,7 @@ describe('prNote — the PR note distinguishes the two failures', () => {
   // already gone — the opposite of what helps, and what this line did until
   // 2026-09-02.
   it('NEVER prints a reset time for a secondary limit', () => {
-    const note = prNote(at({
+    const note = text(at({
       prError: 'You have exceeded a secondary rate limit. Please wait 60 seconds…',
       prNextInSeconds: 480,
     }));
@@ -2506,7 +2520,7 @@ describe('prNote — the PR note distinguishes the two failures', () => {
   it('says a secondary limit is not a spent budget', () => {
     // A quota refusal and a burst refusal must not read alike: the first is
     // waited out, the second is fixed by running fewer calls at once.
-    const note = prNote(at({
+    const note = text(at({
       prError: 'You have exceeded a secondary rate limit',
       prNextInSeconds: 480,
     }));
@@ -2519,7 +2533,7 @@ describe('prNote — the PR note distinguishes the two failures', () => {
   // banner should say so and name how many, because the fix is closing a board
   // rather than waiting for GitHub."*
   it('names how many spenders the record found', () => {
-    const note = prNote(at({
+    const note = text(at({
       prError: 'You have exceeded a secondary rate limit',
       prSpenders: 3,
     }));
@@ -2527,7 +2541,7 @@ describe('prNote — the PR note distinguishes the two failures', () => {
   });
 
   it('says one SPENDER, not one spenders', () => {
-    const note = prNote(at({
+    const note = text(at({
       prError: 'You have exceeded a secondary rate limit',
       prSpenders: 1,
     }));
@@ -2539,7 +2553,7 @@ describe('prNote — the PR note distinguishes the two failures', () => {
   // and a server that predates the field say the same thing, and the banner
   // names the limit rather than inventing a population.
   it('omits the population where the record could not be read', () => {
-    const note = prNote(at({
+    const note = text(at({
       prError: 'You have exceeded a secondary rate limit',
       prSpenders: null,
     }));
@@ -2551,7 +2565,7 @@ describe('prNote — the PR note distinguishes the two failures', () => {
     // `prSpenders` is CAST rather than parsed on the client, so an older
     // server's payload arrives with the key absent — the `fleetControls`
     // lesson, which a Zod `.default()` does not save.
-    const note = prNote({
+    const note = text({
       prError: 'You have exceeded a secondary rate limit',
       prNextInSeconds: null,
       prAgeSeconds: null,
@@ -2563,7 +2577,7 @@ describe('prNote — the PR note distinguishes the two failures', () => {
   // A QUOTA REFUSAL STILL READS AS ONE. This slice adds a case rather than
   // replacing the one that was already right.
   it('still names the reset for a spent quota, beside the new case', () => {
-    const note = prNote(at({
+    const note = text(at({
       prError: 'GraphQL: API rate limit already exceeded',
       prNextInSeconds: 480,
       prSpenders: 3,
@@ -2574,11 +2588,92 @@ describe('prNote — the PR note distinguishes the two failures', () => {
   });
 
   it('names the age of the retained data for a secondary limit too', () => {
-    const note = prNote(at({
+    const note = text(at({
       prError: 'You have exceeded a secondary rate limit',
       prAgeSeconds: 840,
     }));
     expect(note).toContain('showing data from 14 min ago');
+  });
+
+  it('maps an outage with no data landed to the rose tone', () => {
+    // `error` level — nothing has ever landed — reads as the more urgent tone.
+    expect(prStatusEntry(at({ prError: 'gh: 503' }))?.tone).toBe('rose');
+  });
+
+  it('maps a refusal with data already on screen to the amber tone', () => {
+    // `warning` level — data is retained, the read just failed or is stale.
+    expect(prStatusEntry(at({ prError: 'gh: 503', prAgeSeconds: 45 }))?.tone).toBe('amber');
+  });
+
+  it('carries plot-host\'s own notices separately from the sentence', () => {
+    // bug/the-board-shows-the-pr-level-and-diagnostics: a notice line
+    // (`ignores --limit`, `page complete`) must not appear in the rendered
+    // text — only in the `notices` the disclosure view reads.
+    const entry = prStatusEntry(at({
+      prError: 'gh: 503\nplot-host: github ignores --limit 100; the listing returns one page of 100 per state',
+      prAgeSeconds: 45,
+    }));
+    expect(entry?.text).toContain('gh: 503');
+    expect(entry?.text).not.toContain('ignores --limit');
+    expect(entry?.notices).toEqual([
+      { text: 'github ignores --limit 100; the listing returns one page of 100 per state' },
+    ]);
+  });
+
+  it('is silent on a message made only of notices', () => {
+    // A message with no actual failure — only `plot-host`'s own informational
+    // lines — has no cause and, with data on screen inside the refresh
+    // window, composes no sentence at all.
+    expect(prStatusEntry(at({
+      prError: 'plot-host: github ignores --limit 100; the listing returns one page of 100 per state',
+      prAgeSeconds: 10,
+    }))).toBeNull();
+  });
+
+  it('says no data has landed when a message made only of notices meets a null age', () => {
+    // The banner observed on 2026-10-23: `prAgeSeconds` null and `prError`
+    // holding only `plot-host` notices. The level is `error` with no kind, and
+    // the sentence must not claim data on screen that is older than usual.
+    const entry = prStatusEntry(at({
+      prError: 'plot-host: bitbucket ignores --limit 1000; the listing returns one page of 50 per state '
+        + 'plot-host: bitbucket pr-list state=open page complete (8 rows below requested limit 1000) '
+        + '— this page holds every pull request the host has in this state',
+      prAgeSeconds: null,
+    }));
+    expect(entry?.tone).toBe('rose');
+    expect(entry?.text).toBe(
+      'PR data unavailable — no PR data has landed yet, and the host reported no failure, only the notices under Show details.',
+    );
+    expect(entry?.text).not.toContain('data on screen');
+    expect(entry?.text).not.toContain('plot-host');
+    expect(entry?.notices.length).toBeGreaterThan(0);
+  });
+});
+
+describe('prStatusEntry — the refresh interval decides a stale cache with no refusal', () => {
+  it('is silent for data well inside the refresh window', () => {
+    expect(prStatusEntry({
+      prError: null, prNextInSeconds: null, prAgeSeconds: 30, prIntervalMs: 60_000,
+    } as Fleet)).toBeNull();
+  });
+
+  it('warns on a cache older than twice the refresh interval, with no cause', () => {
+    // Previously invisible: `prNote` returned null whenever `fleet.prError`
+    // was unset, even though `prStatusLevel` already called this `warning`.
+    const entry = prStatusEntry({
+      prError: null, prNextInSeconds: null, prAgeSeconds: 150, prIntervalMs: 60_000,
+    } as Fleet);
+    expect(entry?.tone).toBe('amber');
+    expect(entry?.text).toContain('PR data stale');
+    expect(entry?.text).toContain('showing data from 3 min ago');
+    expect(entry?.text).not.toContain('paused');
+  });
+
+  it('falls back to a 60s interval on a payload that predates prIntervalMs', () => {
+    const entry = prStatusEntry({
+      prError: null, prNextInSeconds: null, prAgeSeconds: 150,
+    } as Fleet);
+    expect(entry?.text).toContain('PR data stale');
   });
 });
 
@@ -2660,7 +2755,7 @@ describe('scanHostNote — the scan says when it could not ask', () => {
     // sentence twice — a reader seeing the same words in two statuses learns
     // nothing from the second.
     const scan = scanHostNote(at('throttled')) ?? '';
-    const pr = prNote({ prError: 'gh: 503', prNextInSeconds: null, prAgeSeconds: null } as Fleet) ?? '';
+    const pr = prStatusEntry({ prError: 'gh: 503', prNextInSeconds: null, prAgeSeconds: null } as Fleet)?.text ?? '';
     expect(scan).not.toBe(pr);
     expect(pr).not.toContain('Fleet scan blind');
   });

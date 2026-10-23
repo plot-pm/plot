@@ -143,6 +143,21 @@ function useArrivals(keys: readonly string[]): {
   return { flashing, arrivalOrder: seen.current };
 }
 
+/**
+ * Whether the shown status's "Show details" disclosure is open.
+ *
+ * The panel records the key of the status whose details the reader opened, not
+ * a bare flag. The disclosure is open only while that same status is shown, so
+ * a status that arrives, flashes to the top, leaves, or is paged to reads as
+ * closed without any reset running first.
+ *
+ * @param openKey - the key of the status whose details were opened, or null.
+ * @param shownKey - the key of the status the panel shows, or null when empty.
+ * @returns true only when both name the same status.
+ */
+export const notesOpenFor = (openKey: string | null, shownKey: string | null): boolean =>
+  openKey !== null && openKey === shownKey;
+
 export interface StatusPanelProps {
   /** Every status currently true, in any order — the panel ranks them. */
   statuses: readonly BoardStatus[];
@@ -152,6 +167,11 @@ export function StatusPanel({ statuses }: StatusPanelProps) {
   const keys = statuses.map((s) => s.key);
   const { flashing, arrivalOrder } = useArrivals(keys);
   const [index, setIndex] = useState(0);
+  // One disclosure for the whole panel, held as the key of the status it was
+  // opened on (`notesOpenFor`). It reads as closed as soon as a different
+  // status is shown, and the effect below clears it, so a status that leaves
+  // and later returns comes back closed.
+  const [notesKey, setNotesKey] = useState<string | null>(null);
 
   const ordered = orderStatuses(statuses, flashing, arrivalOrder);
 
@@ -162,12 +182,19 @@ export function StatusPanel({ statuses }: StatusPanelProps) {
     if (index !== safeIndex) setIndex(safeIndex);
   }, [index, safeIndex]);
 
+  const shownKey = ordered.length === 0 ? null : ordered[safeIndex].key;
+  useEffect(() => {
+    setNotesKey((open) => (notesOpenFor(open, shownKey) ? open : null));
+  }, [shownKey]);
+
   // ABSENT WHEN EMPTY. An empty status box is a claim that the board is watching
   // something; a healthy board is not, so it renders nothing at all.
   if (ordered.length === 0) return null;
 
   const shown = ordered[safeIndex];
   const count = ordered.length;
+  const notices = shown.notices ?? [];
+  const notesOpen = notesOpenFor(notesKey, shown.key);
 
   return (
     <div
@@ -191,7 +218,7 @@ export function StatusPanel({ statuses }: StatusPanelProps) {
               data-status-prev
               aria-label="Previous status"
               className="rounded px-1 leading-none hover:bg-black/5 dark:hover:bg-white/10"
-              onClick={() => setIndex((i) => (i - 1 + count) % count)}
+              onClick={() => setIndex((safeIndex - 1 + count) % count)}
             >
               ‹
             </button>
@@ -203,13 +230,40 @@ export function StatusPanel({ statuses }: StatusPanelProps) {
               data-status-next
               aria-label="Next status"
               className="rounded px-1 leading-none hover:bg-black/5 dark:hover:bg-white/10"
-              onClick={() => setIndex((i) => (i + 1) % count)}
+              onClick={() => setIndex((safeIndex + 1) % count)}
             >
               ›
             </button>
           </div>
         )}
       </div>
+      {/* `plot-host`'s own notices — the lines it prints about what the read
+          found (ignores --limit, page complete) rather than what failed.
+          bug/the-board-shows-the-pr-level-and-diagnostics moves these OUT of
+          `text`, where they used to be spliced verbatim into the sentence
+          alongside the real failure, into a disclosure a reader opens on
+          purpose. Rendered only when the shown status carries any — most
+          statuses never do. */}
+      {notices.length > 0 && (
+        <div className="mt-1">
+          <button
+            type="button"
+            data-status-notices-toggle
+            aria-expanded={notesOpen}
+            onClick={() => setNotesKey(notesOpen ? null : shown.key)}
+            className="text-[11px] underline opacity-80 hover:opacity-100"
+          >
+            {notesOpen ? 'Hide details' : 'Show details'}
+          </button>
+          {notesOpen && (
+            <ul data-status-notices className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] opacity-80">
+              {notices.map((notice, i) => (
+                <li key={i} className="break-words">{notice.text}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }

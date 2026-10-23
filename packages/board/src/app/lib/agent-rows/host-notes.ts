@@ -1,8 +1,20 @@
-import { refusalKind, resetApplies } from '@plot-pm/domain';
+import { refusalKind, resetApplies, prStatus } from '@plot-pm/domain';
+import type { BoardStatus } from '@plot-pm/domain/rules/default-branch';
 import {
   type AgentRow,
   type Fleet,
 } from '../../../contract/schema.js';
+
+/**
+ * The PR refresh cadence `prStatus` measures a reading's age against, when the
+ * server has not reported one.
+ *
+ * `PR_REFRESH_MS` on the server (`fleet.ts`) has been 60 s since the field was
+ * introduced and has never varied — this is that same number, kept as a
+ * fallback for a payload from a server that predates `prIntervalMs` rather
+ * than a guess about a cadence that could change.
+ */
+const DEFAULT_PR_INTERVAL_SECONDS = 60;
 
 /**
  * What the empty WAITING ON A MACHINE section says where the host cannot answer.
@@ -298,76 +310,154 @@ function agePhrase(ageSeconds: number | null): string | null {
 }
 
 /**
- * The PR footer note — one sentence, or null when the host answered.
+ * The PR status panel entry — a `BoardStatus`, or null where `prStatus` reads
+ * `info` (the absent-when-healthy contract `StatusPanel.tsx` states: a healthy
+ * board renders no status at all).
  *
- * THREE shapes for THREE failures, which is the whole branch. An unreachable
- * host keeps the exact wording `an-outage-is-not-an-answer` settled — *PR data
- * unavailable (…) — the two groups above that depend on it may be incomplete.*
- * A spent quota is not unavailable: it says so, and names when service returns.
- * A secondary limit is neither, and it is the case added on 2026-09-02.
+ * CLASSIFICATION IS `prStatus`'S, NOT REDERIVED HERE. This function reads its
+ * `level`, `kind`, `cause`, `backoffInSeconds`, `spenders` and `notices` and
+ * composes the sentence; it runs no regex of its own against `fleet.prError`.
+ * That is `bug/the-pr-status-has-a-level-and-a-cause`'s whole point — the
+ * notices `plot-host` writes (`ignores --limit`, `page complete`) are already
+ * split out of `cause`, so a message made only of notices carries no cause and
+ * composes no sentence about a failure that did not happen.
  *
- * THE RESET IS PRINTED ONLY WHERE IT DESCRIBES THE LIMIT THAT REFUSED. Until
- * 2026-09-02 this printed `service returns in ~${when}` from `prNextInSeconds`
- * whatever the failure was. On a secondary limit that number is about the
- * primary bucket — a different ceiling — and the advice it implies, wait, is
- * the opposite of what helps: the limit clears in seconds while the banner
- * counsels minutes. `resetApplies` is what decides, in the domain.
+ * LEVEL NAMED FIRST, because that is this wave's own Done-when: the banner
+ * must say how urgent the reading is before it says why, rather than leaving
+ * the reader to infer severity from tone alone (the repo's "symbol and word"
+ * rule, applied to a sentence rather than a cell).
  *
- * THE SECONDARY WORDING NAMES THE POPULATION, because that is the lever. The
- * fix for local contention is closing a board, not waiting for GitHub, and a
- * reader told only *too many at once* has nothing to act on. The count comes
- * from the record — `prSpenders` — and is omitted where the record could not be
- * read, rather than guessed.
+ * `error` MAPS TO `rose`, read as a deliberate widening of what `tone`'s doc
+ * comment calls "the whole view being gone" rather than as that phrase
+ * literally: every other row still renders, but `error` means no PR data has
+ * ever landed, which `checkout-health.ts`'s `rose` entry already shows is not
+ * reserved for a dead server. `warning` keeps `amber`.
  *
- * THE BANNER NAMES THE AGE of the data still on screen (Done-when item 10).
- * The catch keeps the last good map rather than blanking it — a deliberate
- * choice — which leaves the reader looking at data of unknown age. The age
- * phrase turns "something is wrong" into "showing data from 14 min ago".
+ * A STALE CACHE WITH NO REFUSAL IS NOW VISIBLE, which it was not before this
+ * wave: `prNote` returned null whenever `fleet.prError` was unset, so a cache
+ * past twice the refresh interval said nothing even though `prStatusLevel`
+ * already called that `warning`. `prStatus`'s own contract is the fix —
+ * `cause` stays null and the sentence below names only the age.
+ *
+ * THE RESET IS PRINTED ONLY WHERE `prStatus` SAYS SO (`backoffInSeconds`
+ * non-null), which already encodes `resetApplies` — a secondary limit or an
+ * outage never gets a reset phrase, because the reset describes a different
+ * ceiling and counsels a wait the limit has already cleared.
+ *
+ * THE SECONDARY WORDING NAMES THE POPULATION, because that is the lever: the
+ * fix for local contention is closing a board, not waiting for GitHub. The
+ * count comes from `prStatus.spenders`, itself null unless the kind is
+ * `secondary` and the record could be read.
+ *
+ * THE BANNER NAMES THE AGE of the data still on screen. The server keeps the
+ * last good map rather than blanking it on a failed refetch, which leaves the
+ * reader looking at data of unknown age; the age phrase turns "something is
+ * wrong" into "showing data from 14 min ago".
+ *
+ * NOTICES WITH NO DATA READ `error` WITH NO KIND. `prStatusLevel` calls a null
+ * age `error` whatever the refusal, so an error made only of notices on a board
+ * with nothing landed reaches the sentence with `kind` null. The sentence says
+ * no PR data has landed and the host reported no failure; the stale-cache
+ * sentence would claim data on screen that does not exist.
+ *
+ * AN OUTAGE WITH DATA ON SCREEN READS "stale", never "paused": "paused" names a
+ * wait the host asked for, and a failed host asked for none. The sentence names
+ * the unreachable host, e.g. *PR data stale — host unreachable (gh: 503)*.
+ *
+ * AN OUTAGE KEEPS THE FULL ERROR TEXT — `cause` already has `plot-host`'s own
+ * notices stripped, so what remains names the failing script or path, which is
+ * what a reader needs to diagnose it. The test "shows the WHOLE PR error,
+ * however long the path in it" asserts this survives notice-stripping intact.
  *
  * Exported for test — the wording is the contract with the reader.
  */
-export function prNote(
-  fleet: Pick<Fleet, 'prError' | 'prNextInSeconds' | 'prAgeSeconds'> & Partial<Pick<Fleet, 'prSpenders'>>,
-): string | null {
-  const refusal = refusalKind(fleet.prError);
-  const kind = hostErrorState(fleet.prError);
-  if (kind === null) return null;
+export function prStatusEntry(
+  fleet: Pick<Fleet, 'prError' | 'prNextInSeconds' | 'prAgeSeconds'> &
+    Partial<Pick<Fleet, 'prSpenders' | 'prIntervalMs'>>,
+): BoardStatus | null {
+  // UNASKED IS NOT AN ERROR. `prStatusLevel` reads a null age as `error`
+  // unconditionally, because for a call that HAS been made that is the right
+  // reading — no data has ever landed. But a board that has simply not made
+  // its first fetch yet also has a null age and no error, and `hostAnswer`
+  // already draws exactly this line (`an-outage-is-not-an-answer`). Checked
+  // here rather than folded into the domain, because "has this call even
+  // been attempted" is the board's own fact, not the status classifier's.
+  if (hostAnswer(fleet) === 'unasked') return null;
+
+  const intervalSeconds =
+    fleet.prIntervalMs == null ? DEFAULT_PR_INTERVAL_SECONDS : fleet.prIntervalMs / 1000;
+  const status = prStatus({
+    error: fleet.prError,
+    ageSeconds: fleet.prAgeSeconds,
+    nextInSeconds: fleet.prNextInSeconds,
+    spenders: fleet.prSpenders ?? null,
+    intervalSeconds,
+  });
+  if (status.level === 'info') return null;
+
   const age = agePhrase(fleet.prAgeSeconds);
   const ageSuffix = age ? ` — showing data from ${age} ago` : '';
-  // ASKED OF THE DOMAIN, ONCE, FOR BOTH BRANCHES. `resetApplies` is what says a
-  // reset describes the limit that refused, and reading it here rather than
-  // inside the quota branch is what makes the rule govern every wording rather
-  // than the one that happens to print a time today.
-  const when = resetApplies(refusal) ? resetPhrase(fleet.prNextInSeconds) : null;
-  if (kind === 'secondary-limit') {
-    // `prSpenders` is CAST rather than parsed on the client, so a payload from
-    // a server that predates the field arrives as `undefined` — the
-    // `fleetControls` lesson from 2026-08-22, which a Zod `.default()` does not
-    // save because it fires only at parse time. An absent count and an
-    // unreadable record say the same thing here, and both omit the clause.
-    const spenders = fleet.prSpenders ?? null;
-    return (
-      'PR data paused: the host refused a burst, not a spent budget' +
-      (spenders === null
-        ? ''
-        : `, and this computer has ${spenders} ${spenders === 1 ? 'spender' : 'spenders'} on the account`) +
-      (when ? `, service returns in ~${when}` : '') +
-      ageSuffix +
-      ' — it clears in seconds; close a board rather than wait.'
-    );
-  }
-  if (kind === 'rate-limited') {
-    return (
-      "PR data paused: the host's rate limit is spent" +
-      (when ? `, service returns in ~${when}` : '') +
-      ageSuffix +
-      ' — the two groups above that depend on it may be incomplete.'
-    );
-  }
-  // Keep the full error message — it names the failing script/path, which is
-  // what a reader needs to diagnose the failure. The test `shows the WHOLE PR
-  // error, however long the path in it` asserts this contract.
-  return `PR data unavailable (${fleet.prError})${ageSuffix} — the two groups above that depend on it may be incomplete.`;
+  const when = status.backoffInSeconds === null ? null : resetPhrase(status.backoffInSeconds);
+  // `error` is always "unavailable" — no data has ever landed. A `warning`
+  // has data on screen and splits by kind: a limit refusal (secondary/quota)
+  // is "paused", because the host asked for a wait; an outage and the
+  // no-refusal aging case are "stale", because the data on screen is old and
+  // nothing announced when it refreshes. The outage sentence then names the
+  // unreachable host and its error, so "stale" never stands alone for a
+  // failed host.
+  const levelWord =
+    status.level === 'error'
+      ? 'PR data unavailable'
+      : status.kind === 'secondary' || status.kind === 'quota'
+        ? 'PR data paused'
+        : 'PR data stale';
+
+  const text = (() => {
+    if (status.kind === 'secondary') {
+      const spenders = status.spenders;
+      return (
+        `${levelWord}: the host refused a burst, not a spent budget` +
+        (spenders === null
+          ? ''
+          : `, and this computer has ${spenders} ${spenders === 1 ? 'spender' : 'spenders'} on the account`) +
+        (when ? `, service returns in ~${when}` : '') +
+        ageSuffix +
+        ' — it clears in seconds; close a board rather than wait.'
+      );
+    }
+    if (status.kind === 'quota') {
+      return (
+        `${levelWord}: the host's rate limit is spent` +
+        (when ? `, service returns in ~${when}` : '') +
+        ageSuffix +
+        ' — the two groups above that depend on it may be incomplete.'
+      );
+    }
+    if (status.kind === 'outage') {
+      // `status.cause` already has `plot-host`'s own notices removed — the
+      // measured defect this wave fixes. Keep it in full: it names the
+      // failing script or path, which is what a reader needs to diagnose it.
+      const cause = status.level === 'error' ? ` (${status.cause})` : ` — host unreachable (${status.cause})`;
+      return `${levelWord}${cause}${ageSuffix} — the two groups above that depend on it may be incomplete.`;
+    }
+    if (status.level === 'error') {
+      // No refusal and no data: the error held only `plot-host`'s notices, so
+      // the host reported no failure and nothing has landed to be old.
+      return `${levelWord} — no PR data has landed yet, and the host reported no failure, only the notices under Show details.`;
+    }
+    // No refusal at all — a stale cache past twice the refresh interval, the
+    // one `warning` shape `prStatus` reports with no `kind`. Previously
+    // invisible: `prNote` returned null whenever `fleet.prError` was unset.
+    return `${levelWord}${ageSuffix} — the fetch has not refused, but the data on screen is older than the usual refresh.`;
+  })();
+
+  return {
+    key: 'pr-error',
+    severity: 10,
+    tone: status.level === 'error' ? 'rose' : 'amber',
+    text,
+    notices: status.notices,
+  };
 }
 
 /**
