@@ -73,7 +73,7 @@ import {
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, tallyLabel, unfilteredNote, showPlanHeading, showsSliceFold, sortByWaiting, planGroupShape, sliceGroupsFor, slicesElsewhere, sliceKeyOf, headSliceNames } from '../lib/agent-rows/sections.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
-import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, prNote, scanHostNote } from '../lib/agent-rows/host-notes.js';
+import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, prStatusEntry, scanHostNote } from '../lib/agent-rows/host-notes.js';
 import { isUnbegun, rowKey } from '../lib/agent-rows/row-identity.js';
 import { SLICE_LINKING_KINDS, groupBySlice, sliceLabel } from '../lib/agent-rows/slices.js';
 // THE ROW ESTATE, in three modules beside this one. `AgentList` is the shell:
@@ -889,25 +889,18 @@ export function AgentList({
       text: shrinkNote(fleet.shrink, fleet.ageSeconds + tick),
     });
   }
-  // `prNote` owns the WORDING — an unreachable host keeps the plain sentence, a
-  // spent rate limit says so and names when service returns (the sibling slice
-  // `bug/the-note-names-the-rate-limit`). The panel owns the FRAME and the
-  // placement. `prNote` is non-null exactly when `prError` is set, so the guard
-  // and the text agree.
-  const prMessage = prNote(fleet);
-  if (prMessage) {
-    statuses.push({
-      key: 'pr-error',
-      severity: 10,
-      tone: 'amber',
-      text: prMessage,
-    });
-  }
+  // `prStatusEntry` owns the WORDING and the LEVEL — the domain's `prStatus`
+  // classifies (bug/the-pr-status-has-a-level-and-a-cause), and this reads the
+  // decision rather than re-deriving it. Null exactly when the level is
+  // `info`, the absent-when-healthy contract this panel states for every
+  // entry.
+  const prEntry = prStatusEntry(fleet);
+  if (prEntry) statuses.push(prEntry);
   // THE SCAN'S OWN HOST, beside the board's — the same category of fact one
   // level up, so it takes the same treatment rather than a second visual
   // language for *we do not know*. `scanHostNote` owns the wording (a spent
   // budget says so and says to wait; an unreachable host says to look); the
-  // panel owns the frame and the placement, exactly as with `prNote`.
+  // panel owns the frame and the placement, exactly as with `prStatusEntry`.
   //
   // BETWEEN a shrink and a spent PR budget, in the gap the severities were
   // spaced to leave. It outranks `pr-error` because the degradation is wider —
@@ -2660,8 +2653,8 @@ export function AgentList({
           contract is to VANISH when there is nothing to say. The PR-failure note
           that once trailed it moved UP into that panel — a reader was meeting
           the incomplete rows before the sentence saying they were incomplete,
-          and `prNote` still chooses its wording (a spent rate limit says so,
-          an outage keeps the plain sentence). */}
+          and `prStatusEntry` still chooses its wording (a spent rate limit
+          says so, an outage keeps the plain sentence). */}
     </div>
   );
 }

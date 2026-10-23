@@ -6,6 +6,7 @@ import type {
   SettledReading,
 } from '../entities/default-branch.js';
 import { reading as stamped, readingAge } from '../entities/identity.js';
+import type { HostNotice } from './pr-status.js';
 
 const RED_CONCLUSIONS: ReadonlySet<string> = new Set(['failure', 'timed_out', 'startup_failure']);
 const PENDING_CONCLUSIONS: ReadonlySet<string> = new Set(['queued', 'in_progress', 'action_required', 'waiting', 'requested', 'pending']);
@@ -284,6 +285,12 @@ export interface BoardStatus {
   text: string;
   /** `rose` for the whole view being gone, `amber` for a lesser state. */
   tone: 'rose' | 'amber';
+  /**
+   * Informational lines that explain the reading without being part of the
+   * cause — rendered in an expandable diagnostics view beside `text`, never
+   * folded into it. Absent or empty where the status carries none.
+   */
+  notices?: HostNotice[];
 }
 
 /**

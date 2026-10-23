@@ -4357,6 +4357,16 @@ export const FleetShape = z.object({
    */
   prAgeSeconds: z.number().nullable(),
   /**
+   * The server's PR refresh cadence, in milliseconds — the clock `prAgeSeconds`
+   * is measured against, not the client's own poll interval.
+   *
+   * Null on an older server, matching every sibling field here
+   * (`prNextInSeconds`, `scanNextInSeconds`): the client then falls back to the
+   * one value this field has ever carried rather than inventing a cadence it
+   * was not told.
+   */
+  prIntervalMs: z.number().nullable().default(null),
+  /**
    * Seconds until the server intends to fetch PR data again — backoff included,
    * because it is read from the one gate the fetch actually obeys.
    *

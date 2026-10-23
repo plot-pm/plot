@@ -3879,14 +3879,21 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // sibling wave taught the fetch to back off to the host's real reset and to
     // carry that reset in `prNextInSeconds`; this branch is what SAYS so to the
     // reader. 480 s is the ~8-minute reset this repo measured on 2026-08-20.
+    //
+    // `prAgeSeconds: 4` rather than `null`: bug/the-board-shows-the-pr-level-
+    // and-diagnostics ties the LEVEL to whether data has landed at all, per
+    // `prStatus`'s own contract — a quota refusal with NO data landed is
+    // `error` level and correctly reads "unavailable" (there is nothing on
+    // screen to call "paused"). This fixture keeps the ORIGINAL claim — a
+    // live rate limit must not read as a generic outage — on the `warning`
+    // case the wording actually governs: data is on screen and the fetch is
+    // refused rather than merely stale.
     const page = await openAgents(fleet({
-      prAgeSeconds: null,
+      prAgeSeconds: 4,
       prError: 'GraphQL: API rate limit already exceeded for user ID 870334',
       prNextInSeconds: 480,
     }));
     try {
-      // The note moved from a footer into the status panel, but its WORDING is
-      // unchanged — `prNote` chooses it and the panel carries it verbatim.
       const banner = page.locator('[data-status-panel]');
       await banner.waitFor({ timeout: 10_000 });
       const text = await banner.textContent();
@@ -3936,9 +3943,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const message =
       'Command failed: bash /Users/someone/Quatico/Agentic-Tools/plot/skills/plot/scripts/plot-host.sh pr-list --rich';
     expect(message.length).toBeGreaterThan(80);
+    // The default scenario carries `prAgeSeconds: 1` — data is already on
+    // screen, so this reads `warning`/"paused" rather than `error`/
+    // "unavailable". bug/the-board-shows-the-pr-level-and-diagnostics: the
+    // level now follows whether data has landed, not just whether the call
+    // failed.
     const page = await openAgents(fleet({ prError: message }));
     try {
-      const warning = page.locator('[data-status-panel]', { hasText: 'PR data unavailable' });
+      const warning = page.locator('[data-status-panel]', { hasText: 'PR data paused' });
       await warning.waitFor({ timeout: 10_000 });
       // The tail is what a slice would have removed, and the script's name is
       // the whole point of reading the message at all.
@@ -3949,6 +3961,105 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       const overflows = await page.evaluate(() =>
         document.documentElement.scrollWidth > document.documentElement.clientWidth);
       expect(overflows).toBe(false);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // ── bug/the-board-shows-the-pr-level-and-diagnostics ──────────────────────
+  //
+  // `prStatus` (already merged, Classification wave) is wired in fully here:
+  // the panel now shows the LEVEL before the cause, and `plot-host`'s own
+  // notices move out of the sentence into an expandable disclosure. One test
+  // per level, plus the two Done-when cases the brief names explicitly.
+
+  it('shows the INFO level as no banner at all — absent when healthy', async () => {
+    // `info` never pushes a status — the panel's own contract, preserved.
+    const page = await openAgents(fleet({ prAgeSeconds: 4, prError: null }));
+    try {
+      expect(await page.locator('[data-status-panel]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows the WARNING level for a stale cache with no refusal at all', async () => {
+    // Newly visible under this wave: `prStatus` already classified a cache
+    // past twice the refresh interval as `warning` even with no error, but
+    // the old `prNote` returned null whenever `fleet.prError` was unset. This
+    // is the only warning case with no `kind` — no "rate limit", no "burst".
+    const page = await openAgents(fleet({ prAgeSeconds: 150, prError: null, prIntervalMs: 60_000 }));
+    try {
+      const banner = page.locator('[data-status-panel]');
+      await banner.waitFor({ timeout: 10_000 });
+      const text = await banner.textContent();
+      expect(text).toContain('PR data stale');
+      expect(text).toContain('showing data from 3 min ago');
+      expect(text).not.toContain('unavailable');
+      expect(text).not.toContain('paused');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows the ERROR level when no PR data has ever landed', async () => {
+    const page = await openAgents(fleet({ prAgeSeconds: null, prError: 'gh: 503' }));
+    try {
+      const banner = page.locator('[data-status-panel]', { hasText: 'PR data unavailable' });
+      await banner.waitFor({ timeout: 10_000 });
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows a cause AND a backoff-end time together for a 429', async () => {
+    // Neither showed in the original Motivation-section example: the sentence
+    // either named the cause or named the reset, never both at once.
+    const page = await openAgents(fleet({
+      prAgeSeconds: 4,
+      prError: 'GraphQL: API rate limit already exceeded for user ID 870334',
+      prNextInSeconds: 480,
+    }));
+    try {
+      const banner = page.locator('[data-status-panel]');
+      await banner.waitFor({ timeout: 10_000 });
+      const text = await banner.textContent();
+      // The CAUSE.
+      expect(text).toMatch(/rate limit is spent/i);
+      // The BACKOFF-END TIME, together with the cause in one sentence.
+      expect(text).toContain('service returns in ~8 min');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('moves plot-host\'s own notices into the disclosure, out of the sentence', async () => {
+    // THE MEASURED BUG this wave fixes: an informational line `plot-host`
+    // writes about its own read (`ignores --limit`, `page complete`) used to
+    // be spliced verbatim into the displayed banner sentence, indistinguishable
+    // from an actual failure.
+    const noticeText =
+      'github ignores --limit 100; the listing returns one page of 100 per state';
+    const page = await openAgents(fleet({
+      prAgeSeconds: 4,
+      prError: `gh: 503\nplot-host: ${noticeText}`,
+    }));
+    try {
+      const statusText = page.locator('[data-status-text]');
+      await statusText.waitFor({ timeout: 10_000 });
+      // The real cause survives in the sentence.
+      expect(await statusText.textContent()).toContain('gh: 503');
+      // The notice does NOT — it is no longer spliced into the sentence.
+      expect(await statusText.textContent()).not.toContain('ignores --limit');
+
+      // It is reachable instead through the disclosure, closed by default.
+      const toggle = page.locator('[data-status-notices-toggle]');
+      await toggle.waitFor({ timeout: 10_000 });
+      expect(await page.locator('[data-status-notices]').count()).toBe(0);
+      await toggle.click();
+      const notices = page.locator('[data-status-notices]');
+      await notices.waitFor({ timeout: 10_000 });
+      expect(await notices.textContent()).toContain(noticeText);
     } finally {
       await page.close();
     }
@@ -4036,10 +4147,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(await text.textContent()).toContain('Last scan failed');
 
       // A spent host arrives — less severe, but NEW, so it flashes to the top.
+      // `warning`/"paused", not `error`/"unavailable": the default scenario
+      // carries `prAgeSeconds: 1`, so data is already on screen — the level
+      // bug/the-board-shows-the-pr-level-and-diagnostics now ties to whether
+      // any data has landed, not just whether the call failed.
       await push(fleet({ error: 'plot-fleet-scan.sh exited 1', prError: 'gh: 503' }));
       await expect
         .poll(async () => (await text.textContent()) ?? '', { timeout: 10_000 })
-        .toContain('PR data unavailable');
+        .toContain('PR data paused');
 
       // After the flash window it sorts back below the more severe scan failure.
       await expect
@@ -4235,8 +4350,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         .toContain('Fleet scan blind');
 
       await page.locator('[data-status-next]').click();
+      // `warning`/"paused", not `error`/"unavailable" — see the comment on
+      // the flash test above for why.
       await expect.poll(async () => (await text.textContent()) ?? '', { timeout: 10_000 })
-        .toContain('PR data unavailable');
+        .toContain('PR data paused');
     } finally {
       await page.close();
     }
