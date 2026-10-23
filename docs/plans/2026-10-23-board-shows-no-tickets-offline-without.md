@@ -47,7 +47,7 @@ When the board owns the read (`fleetOwnsPrs` is false) and `refreshIssues` fails
 
 ### Offline issue rows
 
-- `bug/board-shows-no-tickets-offline-without` — read `issues.json` on a failed issue read when the board holds no rows, and show its age
+- `bug/board-shows-no-tickets-offline-without` — read `issues.json` on a failed issue read when the board holds no rows, and show its age → #2383
 
 ## Notes
 
