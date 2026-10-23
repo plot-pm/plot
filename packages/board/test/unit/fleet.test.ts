@@ -2968,7 +2968,7 @@ describe('rowsFromPulse', () => {
       /* supervision */ undefined, /* tipAt */ null, /* prAt */ null, /* phaseMap */ undefined,
       /* approvedSpikes */ null, fieldsBySlug);
 
-    it('carries the plan\'s assignee and approver onto a branch under that plan', () => {
+    it('copies the plan\'s assignee, author and approver onto a branch under that plan', () => {
       const planned = scan(null).find((r) => r.branch === 'feature/b')!;
       expect(planned.assignee).toBe('ckehl');
       expect(planned.author).toBe('ckehl');

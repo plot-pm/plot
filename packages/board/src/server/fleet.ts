@@ -6606,11 +6606,11 @@ export function rowsFromPulse(
       // null is *the question was never put* — never `worker-alive`.
       supervisionCause: null,
       // THE IDEA PLAN'S OWNER FIELDS, keyed the same way `plan: ideaSlug` above
-      // is. `ownedFromRow` never reads these for this row — every row here
-      // carries a PR, so the `pr` arm always wins — but the plan under review
-      // still has an assignee, author and approver, and leaving the fields
-      // empty here would be the invented observation `ABSENT IS NOT FALSE`
-      // warns against elsewhere on this row.
+      // is. `fieldsBySlug` carries a plan that exists only on its `idea/`
+      // branch, so these name the plan's assignee and approver; `author` is
+      // `''` for such a plan, because `planAuthors` walks the default branch
+      // only. `ownedFromRow` does not read them for this row: every row here
+      // carries a PR, and the `pr` arm wins.
       assignee: fieldsBySlug?.get(ideaSlug)?.assignee ?? '',
       author: fieldsBySlug?.get(ideaSlug)?.author ?? '',
       approver: fieldsBySlug?.get(ideaSlug)?.approver ?? '',

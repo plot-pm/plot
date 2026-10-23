@@ -2614,13 +2614,21 @@ export interface PlanOwnerFields {
 }
 
 /**
- * The working-tree plan estate, parsed once: every plan's status keyed by
- * slug, every plan's owner fields keyed by slug, and every plan at `Draft`
- * with its `rounds`.
+ * The plan estate, parsed once: every plan's status keyed by slug, every
+ * plan's owner fields keyed by slug, and every plan at `Draft` with its
+ * `rounds`.
  *
- * All three answers come from one `plot-plan-meta.sh` parse, so the fleet's
- * sprint counts, its Draft plan list and its rows' owner fields cannot read
- * two versions of one plan.
+ * `statusBySlug`, `draftPlans` and `approvedSpikes` read `origin/<default>`
+ * plus the working tree. `fieldsBySlug` also reads every plan that exists only
+ * on a branch under a configured `Branch prefixes` entry — the population
+ * `buildBoard`'s cards read through `collectBranchPlans`, and served from the
+ * same tip-SHA cache. A branch-only plan has no author, because
+ * `refs.planAuthors` walks the default branch only; the card reads it the same
+ * way.
+ *
+ * All answers come from one `plot-plan-meta.sh` parse, so the fleet's sprint
+ * counts, its Draft plan list and its rows' owner fields cannot read two
+ * versions of one plan.
  */
 export async function planEstate(
   opts: BuildBoardOptions,
@@ -2677,10 +2685,48 @@ export async function planEstate(
       canonicalPath.set(file, src.path);
       files.push(file);
     }
+    // PLANS THAT EXIST ONLY ON A BRANCH, for `fieldsBySlug` alone. A Draft
+    // plan on `idea/<slug>` owns its rows' "no PR" case (#2389), and neither
+    // source above carries it. The same exclusion `buildBoard` applies: a plan
+    // the working tree already supplies is not staged twice.
+    const branchOnly = new Set<string>();
+    const prefixes = (await readConfigAsync(opts, 'Branch prefixes', ''))
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const known = new Set(sources.map((src) => src.path));
+    const branchPlans = prefixes.length === 0
+      ? []
+      : await collectBranchPlans(refs, repoRoot, planDir, prefixes, defaultBranch).catch(() => []);
+    for (const plan of branchPlans) {
+      if (known.has(plan.path)) continue;
+      if (stageDir === null) {
+        stageDir = makeStageDir('plot-board-status-');
+      }
+      const dir = path.join(stageDir, String(canonicalPath.size));
+      const file = path.join(dir, path.basename(plan.path));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(file, plan.content, 'utf8');
+      canonicalPath.set(file, plan.path);
+      branchOnly.add(plan.path);
+      files.push(file);
+    }
     for (const meta of await readPlanMeta(opts, files)) {
       const canonical = canonicalPath.get(meta.file);
       const relPath = canonical ?? path.relative(repoRoot, meta.file);
       const slug = planSlug(relPath);
+      if (branchOnly.has(relPath)) {
+        // Owner fields only: the status, Draft list and spike answers keep the
+        // default-branch-plus-working-tree population their callers count.
+        if (!fieldsBySlug.has(slug)) {
+          fieldsBySlug.set(slug, {
+            assignee: meta.assignee,
+            author: '',
+            approver: approverOf(meta.approved_raw),
+          });
+        }
+        continue;
+      }
       bySlug.set(slug, planStatus(meta, pulse, complete));
       fieldsBySlug.set(slug, {
         assignee: meta.assignee,

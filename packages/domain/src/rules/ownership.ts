@@ -67,7 +67,8 @@ export interface TicketSourceReading {
  * - `ticket` — an issue row; `assignees` is the tracker's assignee list, `[]`
  *   where nobody is assigned; `source` is whose vocabulary the assignees are
  *   written in, `null` where the board could not resolve it.
- * - `other` — a build, or a branch with no PR. None carries an owner.
+ * - `other` — a build, or a branch with no PR and no plan that names an
+ *   owner. None carries an owner.
  */
 export type OwnedRow =
   | { kind: 'pr'; author?: string }
