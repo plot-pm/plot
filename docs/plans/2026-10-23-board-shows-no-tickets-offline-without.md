@@ -7,7 +7,7 @@
 - **State:** Approved
 - **Type:** bug
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2371 merged
-- **Sprint:** <!-- optional, filled when plan is added to a sprint -->
+- **Sprint:** bugfix-2-28-1
 - **Issue:** #2369
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
