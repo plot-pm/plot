@@ -20,6 +20,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STANDIN = path.join(HERE, 'fixtures/bounded-run-group-standin.mjs');
 const LOADER = path.join(HERE, 'fixtures/ts-strip-loader.mjs');
 
+/** Readiness wait (10 s) plus exit wait (5 s) plus headroom: vitest's 5 s default applies around each test that waits on both in sequence. */
+const TEST_TIMEOUT_MS = 20_000;
+
 /**
  * Spawns the stand-in with the flags its own `.ts` imports need: type
  * stripping for the real adapter source, and the resolver hook that maps a
@@ -137,7 +140,7 @@ describe('a group stop reaches boundedRun\'s child and its descendants', () => {
     expect(wrapperGone, `wrapper ${wrapperPid} survived the group stop`).toBe(true);
     expect(promptGone, `prompt ${ready.promptPid} survived the group stop — boundedRun must not detach it`).toBe(true);
     expect(grandchildGone, `grandchild ${ready.grandchildPid} survived the group stop`).toBe(true);
-  });
+  }, TEST_TIMEOUT_MS);
 
   it('ends the prompt and its descendants when the caller process exits normally', async () => {
     outFile = freshOutFile();
@@ -171,7 +174,7 @@ describe('a group stop reaches boundedRun\'s child and its descendants', () => {
     ]);
     expect(promptGone, 'the prompt survived the caller\'s normal exit').toBe(true);
     expect(grandchildGone, 'the grandchild survived the caller\'s normal exit').toBe(true);
-  });
+  }, TEST_TIMEOUT_MS);
 
   it('ends the prompt and its descendants when its own bound fires', async () => {
     outFile = freshOutFile();
@@ -203,7 +206,7 @@ describe('a group stop reaches boundedRun\'s child and its descendants', () => {
     ]);
     expect(promptGone, 'the prompt survived its own bound expiring').toBe(true);
     expect(grandchildGone, 'the grandchild survived the bound — the read-descendants-first order missed it').toBe(true);
-  }, 20_000);
+  }, TEST_TIMEOUT_MS);
 
   for (const [signal, code] of [['SIGTERM', 143], ['SIGINT', 130], ['SIGHUP', 129]] as const) {
     it(`a ${signal} to the caller's pid alone ends the prompt and its child, and the caller exits ${code}`, async () => {
@@ -222,7 +225,7 @@ describe('a group stop reaches boundedRun\'s child and its descendants', () => {
       ]);
       expect(promptGone, `the prompt survived a ${signal} to its caller`).toBe(true);
       expect(grandchildGone, `the grandchild survived a ${signal} to its caller`).toBe(true);
-    });
+    }, TEST_TIMEOUT_MS);
   }
 });
 
