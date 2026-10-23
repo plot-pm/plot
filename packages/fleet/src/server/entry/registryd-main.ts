@@ -65,6 +65,7 @@ import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.j
 import { fleetAutoWrites } from '../../shared/auto-writes.js';
 import { verifyingCount } from '../../shared/auto-verify.js';
 import { specRunningCount } from '../../shared/auto-design.js';
+import { boundSecondsOf } from '../../shared/fleet-run.js';
 import { runDeskRelay } from '../../shared/desk-relay.js';
 import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js';
 import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
@@ -822,6 +823,9 @@ export const queueWorldForRepo = (
     verifying: () => verifyingCount(repoRoot),
     // A GOING SPEC RUN HOLDS AN AGENT SLOT TOO.
     specRunning: () => specRunningCount(repoRoot),
+    // HOW LONG A JUST-LAUNCHED AGENT WITH NO RECORDED PID STILL COUNTS AS
+    // RUNNING (#2409) — the same `Worker bound` a desk's own loop is held to.
+    launchedBoundMs: () => boundSecondsOf({ repoRoot, scriptsDir }, 28800) * 1000,
     // READS THE FILE FLEETD WRITES AND NEVER THE HOST. A missing, unparseable
     // or other-version file is no reading, and no reading holds nothing.
     defaultBranchRed: async () => {

@@ -231,7 +231,13 @@ const scaleUp = (
   // A GOING VERIFY RUN OR SPEC RUN HOLDS A SLOT TOO, and the daemon would
   // otherwise start workers the machine cannot carry beside them.
   const alive = readings.agents.filter((a) => a.reading.state !== 'none').length;
-  const running = alive + (readings.verifying ?? 0) + (readings.specRunning ?? 0);
+  // A LAUNCHED AGENT NOT YET REGISTERED HOLDS A SLOT TOO. `--start` writes its
+  // manifest before the wrapper records a pid, so a tick landing inside that
+  // window reads `state: 'none'` for an agent that is about to come up —
+  // `alive` above already excludes it. The caller bounds which launches still
+  // count (#2409); this rule only adds what it is handed.
+  const running =
+    alive + (readings.launchedUnregistered ?? 0) + (readings.verifying ?? 0) + (readings.specRunning ?? 0);
 
   const answer = fleetSize({
     requested: waiting === 0 ? running : fleet.size,

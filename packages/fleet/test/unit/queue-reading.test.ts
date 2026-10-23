@@ -885,6 +885,76 @@ describe('readQueue — a live manifest closes the gap before the claim push lan
   });
 });
 
+describe('readQueue — launchedUnregistered counts a `--start` the registry has not caught up to (#2409)', () => {
+  // EVERY ENTRY READS `state: 'none'` HERE: `workerAlive` answers false for
+  // every worktree, exactly as it does for a manifest `--start` has just
+  // written, before the wrapper's `.plot-worker.pid` exists.
+  const world = (over: Partial<QueueWorld> = {}): QueueWorld => ({
+    plans: async () => [],
+    claimedBranches: async () => new Set<string>(),
+    mergedBranches: async () => wholeListing([]),
+    prIndexRows: async () => [],
+    viewLanded: async () => 'unknown',
+    briefPresent: async () => true,
+    sliceHasMerged: async () => false,
+    subjectProven: async () => null,
+    queuedHasLanded: async () => 'not-landed',
+    workerAlive: async () => false,
+    blocked: async () => false,
+    refused: async () => false,
+    remoteHead: async () => 'absent',
+    commitSubjects: async () => ({ ok: true, value: [] }),
+    now: () => 0,
+    defaultBranch: async () => 'main',
+    ...over,
+  });
+
+  it('counts a launch whose pid is already alive, though the registry still reads none', async () => {
+    // `process.pid` — a stand-in for a real, live pid `kill(pid, 0)` finds,
+    // since the real `pidAlive` runs here rather than a mock.
+    const entries = [manifest({ session: 's1', branch: '', pid: String(process.pid), state: 'none' })];
+    const readings = await readQueue(entries, world());
+    expect(readings.launchedUnregistered).toBe(1);
+  });
+
+  it('counts a launch with no recorded pid yet, inside the bound', async () => {
+    const entries = [
+      manifest({ session: 's1', branch: '', pid: '', startedAt: '2026-10-23T11:55:00Z', state: 'none' }),
+    ];
+    const readings = await readQueue(
+      entries,
+      world({ now: () => Date.parse('2026-10-23T12:00:00Z'), launchedBoundMs: () => 28800 * 1000 }),
+    );
+    expect(readings.launchedUnregistered).toBe(1);
+  });
+
+  it('adds nothing for a launch whose pid has died', async () => {
+    const entries = [manifest({ session: 's1', branch: '', pid: '999999', state: 'none' })];
+    const readings = await readQueue(entries, world());
+    // THE DEFAULT `alive` CHECK IS THE REAL ONE (`pidAlive`), and `999999` is
+    // not a pid this test process owns — a dead-process stand-in with no mock.
+    expect(readings.launchedUnregistered).toBe(0);
+  });
+
+  it('adds nothing for a launch whose recorded startedAt is older than the bound', async () => {
+    const entries = [
+      manifest({ session: 's1', branch: '', pid: '', startedAt: '2026-10-23T00:00:00Z', state: 'none' }),
+    ];
+    const readings = await readQueue(
+      entries,
+      world({ now: () => Date.parse('2026-10-23T12:00:00Z'), launchedBoundMs: () => 28800 * 1000 }),
+    );
+    expect(readings.launchedUnregistered).toBe(0);
+  });
+
+  it('does not double-count an entry the registry already reads as running', async () => {
+    const entries = [manifest({ session: 's1', branch: '', pid: '4242', state: 'running' })];
+    const readings = await readQueue(entries, world({ workerAlive: async () => true }));
+    expect(readings.agents.find((a) => a.session === 's1')?.reading.state).toBe('running');
+    expect(readings.launchedUnregistered).toBe(0);
+  });
+});
+
 /**
  * THE TICK REPLAY OF THE 2026-10-01 SEQUENCE.
  *
