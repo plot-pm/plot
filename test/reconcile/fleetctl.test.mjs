@@ -1769,6 +1769,52 @@ test('label: an unset override writes the default Label, never an empty one', ()
   assert.equal(label, 'com.plot-pm.fleetd', `the default label did not reach the unit:\n${unit}`);
 });
 
+// ── The label is resolved from config too, and the variable outranks it ───────
+//
+// `#2408`: the default label belongs to whichever checkout happens to be
+// loaded under it, and a repository that declares its own `Fleet label` key
+// in `## Plot Config` was never asked — `LABEL` read only `PLOT_FLEET_LABEL`
+// or the hardcoded default. Each case below names a label distinct from the
+// others and from the hardcoded default, so a wrong precedence disagrees
+// rather than passing by coincidence.
+
+test('label: the Fleet label config key is read when the variable is unset', () => {
+  const { root, box, ctl, guardBin } = sandbox('label-key');
+  fs.writeFileSync(path.join(root, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Fleet label:** com.example.key-only\n');
+  const home = fakeHome(box);
+  const bin = stubPlatform(box, {});
+  const r = run(ctl, ['--start'], root, guardBin, { HOME: home, PATH: withHarness(box, bin, process.env.PATH) });
+  const target = path.join(home, 'Library', 'LaunchAgents', 'com.example.key-only.plist');
+  assert.ok(fs.existsSync(target), `no unit was filled at ${target}:\n${r.out}`);
+  const label = fs.readFileSync(target, 'utf8').match(/<key>Label<\/key>\s*<string>([^<]*)<\/string>/)?.[1];
+  assert.equal(label, 'com.example.key-only', 'the config key did not reach the unit');
+});
+
+test('label: neither the variable nor the key falls back to the hardcoded default', () => {
+  const { root, box, ctl, guardBin } = sandbox('label-neither');
+  const home = fakeHome(box);
+  const bin = stubPlatform(box, {});
+  const r = run(ctl, ['--start'], root, guardBin, { HOME: home, PATH: withHarness(box, bin, process.env.PATH) });
+  const target = path.join(home, 'Library', 'LaunchAgents', 'com.plot-pm.fleetd.plist');
+  assert.ok(fs.existsSync(target), `no unit was filled at ${target}:\n${r.out}`);
+  const label = fs.readFileSync(target, 'utf8').match(/<key>Label<\/key>\s*<string>([^<]*)<\/string>/)?.[1];
+  assert.equal(label, 'com.plot-pm.fleetd', 'an absent variable and key did not fall back to the default');
+});
+
+test('label: the variable outranks the config key when both are set', () => {
+  const { root, box, ctl, guardBin } = sandbox('label-both');
+  fs.writeFileSync(path.join(root, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Fleet label:** com.example.key-loses\n');
+  const home = fakeHome(box);
+  const bin = stubPlatform(box, {});
+  const r = run(ctl, ['--start'], root, guardBin, {
+    HOME: home, PATH: withHarness(box, bin, process.env.PATH), PLOT_FLEET_LABEL: 'com.example.var-wins',
+  });
+  const target = path.join(home, 'Library', 'LaunchAgents', 'com.example.var-wins.plist');
+  assert.ok(fs.existsSync(target), `no unit was filled at ${target}:\n${r.out}`);
+  const label = fs.readFileSync(target, 'utf8').match(/<key>Label<\/key>\s*<string>([^<]*)<\/string>/)?.[1];
+  assert.equal(label, 'com.example.var-wins', 'the config key outranked the variable');
+});
+
 test('label: --dry-run names the label that --start then writes', () => {
   // THE OPERATOR-VISIBLE HALF. `--dry-run` always printed the override; the
   // defect was that the written unit disagreed with it. One value, both ends.
