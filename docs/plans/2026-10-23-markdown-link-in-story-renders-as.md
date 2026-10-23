@@ -50,7 +50,7 @@ Board impact: the `story` field keeps its type and meaning. Only the value for t
 
 ### Story link reduction
 
-- `bug/markdown-link-in-story-renders-as` — reduce a Markdown link in `Story:` to its text in `plot-plan-meta.sh`, with a contract test for the link form, the plain form and an empty value, and a board test that the story filter matches the reduced slug
+- `bug/markdown-link-in-story-renders-as` — reduce a Markdown link in `Story:` to its text in `plot-plan-meta.sh`, with a contract test for the link form, the plain form and an empty value, and a board test that the story filter matches the reduced slug → #2447
 
 ## Notes
 
