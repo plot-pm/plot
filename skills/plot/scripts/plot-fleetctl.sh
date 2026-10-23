@@ -66,8 +66,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=plot-worker-state.sh
 . "$script_dir/plot-worker-state.sh"
 
-git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-fleetctl: not a git repository" >&2; exit 1; }
-repo_root=$(git rev-parse --show-toplevel)
+git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-fleetctl: not a git repository" >&2; exit 1; }; repo_root=$(git rev-parse --show-toplevel)
 
 # THE LABEL IS OVERRIDABLE, AND THE DEFAULT IS UNCHANGED. `supervisor_loaded`
 # asks launchd about the label, which is MACHINE-GLOBAL: no `HOME` override
@@ -81,7 +80,7 @@ repo_root=$(git rev-parse --show-toplevel)
 # again. A failed or absent key read is not a value — it falls through to
 # the default, same as `plot-boardctl.sh`'s `Board port` read.
 LABEL="${PLOT_FLEET_LABEL:-$(PLOT_REPO_ROOT="$repo_root" "$script_dir/plot-config.sh" get "Fleet label" "com.plot-pm.fleetd" 2>/dev/null)}"
-[ -n "$LABEL" ] || LABEL="com.plot-pm.fleetd"
+LABEL="${LABEL:-com.plot-pm.fleetd}"
 UNIT_DIR="$script_dir/../units"
 
 # THE SYSTEMD UNIT'S NAME, DERIVED FROM THE LABEL. launchd keys a job by the
