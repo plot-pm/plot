@@ -65,7 +65,7 @@ Four changes follow, in order:
 
 ### Banner
 
-- `bug/the-board-shows-the-pr-level-and-diagnostics` — the footer prints the level and cause line and renders the diagnostics in an expandable view; one browser test proves each level shows.
+- `bug/the-board-shows-the-pr-level-and-diagnostics` — the footer prints the level and cause line and renders the diagnostics in an expandable view; one browser test proves each level shows. → #2461
 
 ## Notes
 
