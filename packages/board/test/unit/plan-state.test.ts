@@ -19,15 +19,24 @@ describe('the flags a plan-state write takes', () => {
       phase: 'released',
       planLink: 'docs/plans/x.md',
       version: 'v1.2.3',
+      skipIssues: [],
     });
     expect(flagsFrom(['--plan-link', 'https://github.com/o/r/pull/9', '--phase', 'draft'])).toEqual({
       phase: 'draft',
       planLink: 'https://github.com/o/r/pull/9',
+      skipIssues: [],
     });
   });
 
   it('refuses a phase outside the four, rather than owing nothing', () => {
     expect(() => flagsFrom(['--phase', 'release', '--plan-link', 'docs/plans/x.md'])).toThrow("unknown --phase 'release'");
+  });
+
+  it('reads zero or more --skip-issue, defaulting to none', () => {
+    expect(flagsFrom(['--phase', 'released', '--plan-link', 'docs/plans/x.md']).skipIssues).toEqual([]);
+    expect(
+      flagsFrom(['--phase', 'released', '--plan-link', 'docs/plans/x.md', '--skip-issue', '7', '--skip-issue', '8']).skipIssues,
+    ).toEqual(['7', '8']);
   });
 
   it('refuses a missing phase or link, a flag with no value, and an unknown flag', () => {
@@ -67,6 +76,18 @@ describe('each owed write goes through the tracker port', () => {
     );
     expect(outcomes).toEqual(['failed']);
     expect(lines[0]).toMatch(/^#7\tfailed\t/);
+  });
+
+  it('skips a named issue without asking the tracker, and writes every other one', async () => {
+    const planStates: PlanStateWrite[] = [];
+    const { lines, outcomes } = await writePlanStates(
+      { phase: 'released', issues: ['7', '8'], planLink: 'docs/plans/x.md', version: 'v1.0.0' },
+      trackerFixture({ planStates }),
+      new Set(['7']),
+    );
+    expect(planStates).toEqual([{ issue: '8', phase: 'released', planLink: 'docs/plans/x.md', version: 'v1.0.0' }]);
+    expect(lines).toEqual(['7\tskipped\tanother plan unfinished\n', '8\twritten\treleased\n']);
+    expect(outcomes).toEqual(['skipped', 'written']);
   });
 });
 
@@ -109,6 +130,19 @@ describe('a run of the entry', () => {
     const code = await run([file, '--phase', 'approved', '--plan-link', 'docs/plans/p.md'], { repoRoot: root, scriptDir: SCRIPT_DIR }, (s) => out.push(s), () => {});
     expect(code).toBe(EXIT.ok);
     expect(out).toEqual(['summary: tracker=none\n']);
+  });
+
+  it('reports none where every owed issue was skipped — skipped never reaches the summary vocabulary', async () => {
+    const { root, file } = planIn('# P\n\n## Status\n\n- **Phase:** Approved\n- **Issue:** #7\n');
+    const out: string[] = [];
+    const code = await run(
+      [file, '--phase', 'approved', '--plan-link', 'docs/plans/p.md', '--skip-issue', '7'],
+      { repoRoot: root, scriptDir: SCRIPT_DIR },
+      (s) => out.push(s),
+      () => {},
+    );
+    expect(code).toBe(EXIT.ok);
+    expect(out).toEqual(['7\tskipped\tanother plan unfinished\n', 'summary: tracker=none\n']);
   });
 });
 

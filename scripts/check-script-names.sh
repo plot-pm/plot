@@ -128,9 +128,17 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # and inventing one here would be the gate driving the design the header warns
 # against.
 #
+# RAISED TO 19 ON 2026-10-23 for `entry/deliver.ts`'s release arm, which gains
+# its own `plot-issue-status.sh` and `plot-plan-state.sh` sites beside the
+# delivered-phase pair the 2026-10-04 and 2026-10-18 raises already named.
+# Released plans were never telling their tracker at all (`runRelease`
+# hardcoded `tracker=skipped`) — the fix is the same two connector calls the
+# delivered arm already makes, run again at `released`. Same tracker
+# connector, same "no port answers this yet" the two prior raises gave.
+#
 # `ROOTS` names every package with TypeScript source. `registry.ts`, which
 # holds `WORKER_STATE_SCRIPT`, is in packages/fleet/src.
-ALLOWED=17
+ALLOWED=19
 
 ROOTS='packages/board/src packages/domain/src packages/fleet/src'
 
