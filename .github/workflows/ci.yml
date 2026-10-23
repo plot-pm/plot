@@ -328,15 +328,13 @@ jobs:
   # median 542.5 s, p95 600 s, max 606 s over the last 30 `validate` runs.
   board-integration:
     runs-on: ubuntu-latest
-    # The longest legitimate run was measured at 606 s (10.1 min); 15 was the
-    # bound the step already carried before the split. Kept at 15 with the
-    # install step's retry added below: setup (checkout, pnpm install, board
-    # build, cache restore) measured ~45s in the three failed runs this fixes;
-    # the install step's own two-attempt loop is bounded at 2 minutes per
-    # attempt (4 minutes worst case) with a 5-minute step-level backstop; the
-    # `Board integration tests` step after it is measured at 4-8 minutes
-    # green. 45s + 5min (step bound) + 8min ≈ 13.75min, under 15 with margin.
-    timeout-minutes: 15
+    # The longest legitimate run was measured at 606 s (10.1 min). Raised from
+    # 15 to 20 on 2026-10-23 (#2392) for the install steps' step bounds below:
+    # setup (checkout, pnpm install, board build, cache restore) ~45s, system
+    # packages 7 min, the browser download 5 min on a cache miss only, and the
+    # `Board integration tests` step measured at 4-8 minutes green.
+    # 45s + 7min + 8min ≈ 15.75min on a cache hit, 20.75min worst case on a miss.
+    timeout-minutes: 20
     steps:
       - name: Guard the dispatched run
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -398,44 +396,64 @@ jobs:
           restore-keys: |
             playwright-${{ runner.os }}-
 
-      # A CACHE HIT STILL RAN `apt-get` ON EVERY INVOCATION. Measured 2026-10-22
+      # A CACHE HIT STILL RUNS `apt-get` ON EVERY INVOCATION. Measured 2026-10-22
       # across three failed runs (39827563096, 39813209366, 39806767896): the
       # cache step hit every time in 3-5s, and `install --with-deps` still timed
-      # out at the 3-minute bound mid-`apt-get`, against a slow
-      # azure.archive.ubuntu.com mirror — 25.9 MB of OS packages fetched
-      # regardless of cache state. The cache only ever covered the browser
-      # binary, not the `apt` packages `--with-deps` always re-fetches.
+      # out mid-`apt-get` against a slow azure.archive.ubuntu.com mirror. The
+      # runner image lacks 9 of Playwright's packages (fonts) and holds older
+      # versions of 8 more, so `install-deps` fetches 25.9 MB on every run and
+      # `install-deps --dry-run` would report them missing on every run: nothing
+      # to skip on a cache hit.
       #
-      # So a cache hit now runs `install-deps` alone (OS packages only, no
-      # browser re-fetch) and a miss runs the full `install --with-deps`
-      # (browser + OS packages). Both are wrapped in a two-attempt retry — a
-      # shell loop, since this repo has no step-retry action anywhere in
-      # `.github/workflows/` and the plan's constraint is to add none.
+      # THE TIMED-OUT ATTEMPT MUST END ITS `apt-get`. Measured 2026-10-23 on
+      # main (39930184048 for 6c3c8b688, 39930494389 for 3f7e3ed49): attempt 1
+      # timed out after 2 minutes, 4 packages into the download (3.5 MB took
+      # 71s), and attempt 2 exited 100 within 2s on `Could not get lock
+      # /var/lib/dpkg/lock-frontend. It is held by process 2983 (apt-get)`.
+      # Playwright starts `apt-get` through `sudo`; a `timeout` running as the
+      # runner user cannot signal a root process, and `sudo` relays no signal
+      # sent from its own process group. So `timeout` runs as root here, and
+      # Playwright, finding itself root, runs `apt-get` without `sudo` inside
+      # the process group that `timeout` signals and then kills.
       #
-      # TWO MINUTES PER ATTEMPT, not three. Tight on purpose: the failure mode
-      # this bound guards against is not a slow CDN, it is a connection that
-      # never completes, and every measured hang before this step existed sat
-      # past 10 minutes with no output. A tight per-attempt bound turns a hang
-      # into a fast, re-runnable failure rather than an hour of silence — the
-      # same reasoning the original 3-minute bound carried, applied to two
-      # shorter attempts instead of one longer one. Two attempts at 2 minutes
-      # is 4 minutes worst case, leaving the `board-integration` job's 15-minute
-      # ceiling with real margin for the ~45s of setup before this step and the
-      # `Board integration tests` step's measured 4-8 minutes after it
-      # (45s + 4min + 8min ≈ 12.75min, under 15 with margin).
+      # Two more guards for the retry: apt waits up to 60s for the dpkg lock
+      # instead of exiting 100, and `dpkg --configure -a` finishes a killed
+      # unpack. The `.deb` files attempt 1 fetched stay in
+      # /var/cache/apt/archives, so attempt 2 resumes the download.
+      #
+      # THREE MINUTES PER ATTEMPT. Measured 2026-10-23 over the 36 CI runs that
+      # reached the step that day: 27 green install steps took 11-38s, and all
+      # 8 failures were this lock collision at 126-128s. Three minutes is about
+      # five times the slowest green attempt; two attempts and the lock wait
+      # fit the 7-minute step bound.
+      - name: Install Playwright system packages
+        timeout-minutes: 7
+        run: |
+          set -euo pipefail
+          echo 'DPkg::Lock::Timeout "60";' | sudo tee /etc/apt/apt.conf.d/90-plot-lock-timeout >/dev/null
+          pw_cli="$(dirname "$(pnpm --filter @plot-pm/board exec node -p "require.resolve('playwright/package.json')")")/cli.js"
+          node_bin="$(command -v node)"
+          for attempt in 1 2; do
+            if sudo timeout --kill-after=15s 3m "$node_bin" "$pw_cli" install-deps chromium; then
+              exit 0
+            fi
+            echo "::warning::Install Playwright system packages attempt ${attempt} failed or timed out"
+            sudo dpkg --configure -a || true
+          done
+          exit 1
+
+      # The browser download runs only on a cache miss, as the runner user, so
+      # the browser lands in ~/.cache/ms-playwright where the cache step saves
+      # it. It starts no `apt-get`, so `timeout` ends the whole attempt. Two
+      # minutes per attempt is the bound #2367 gave the full install; a hang
+      # here sat past 10 minutes with no output in every measured case.
       - name: Install Playwright browser
+        if: ${{ steps.playwright-cache.outputs.cache-hit != 'true' }}
         timeout-minutes: 5
         run: |
           set -euo pipefail
-          install_cmd() {
-            if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
-              pnpm --filter @plot-pm/board exec playwright install-deps chromium
-            else
-              pnpm --filter @plot-pm/board exec playwright install --with-deps chromium
-            fi
-          }
           for attempt in 1 2; do
-            if timeout 2m bash -c "$(declare -f install_cmd); install_cmd"; then
+            if timeout --kill-after=15s 2m pnpm --filter @plot-pm/board exec playwright install chromium; then
               exit 0
             fi
             echo "::warning::Install Playwright browser attempt ${attempt} failed or timed out"
