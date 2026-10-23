@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ticketPhase, type TicketPlan } from '../src/rules/ticket-phase.js';
+import { allReleased, ticketPhase, type TicketPlan } from '../src/rules/ticket-phase.js';
 
 const plan = (state: string, overrides: Partial<TicketPlan> = {}): TicketPlan => ({ state, total: 0, merged: null, ...overrides });
 
@@ -62,5 +62,23 @@ describe('ticketPhase', () => {
   it('ignores a withdrawn plan', () => {
     expect(ticketPhase([plan('rejected'), plan('superseded')])).toBeNull();
     expect(ticketPhase([plan('rejected'), plan('delivered')])?.label).toBe('delivered');
+  });
+});
+
+describe('allReleased', () => {
+  it('answers false for an empty list — unplanned, not released-and-hidden', () => {
+    expect(allReleased([])).toBe(false);
+  });
+
+  it('answers true when the one plan is released', () => {
+    expect(allReleased([plan('released')])).toBe(true);
+  });
+
+  it('answers true when every plan is released', () => {
+    expect(allReleased([plan('released'), plan('released')])).toBe(true);
+  });
+
+  it('answers false when another plan is still unfinished', () => {
+    expect(allReleased([plan('released'), plan('approved')])).toBe(false);
   });
 });

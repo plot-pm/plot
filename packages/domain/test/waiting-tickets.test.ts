@@ -285,4 +285,31 @@ describe('waitingTickets, planned tickets', () => {
     const result = waitingTickets(rows, undefined, jiraReader, JIRA, true, plans({ 'JIRA-1': [{ state: 'approved', total: 2, merged: 1 }] }));
     expect(result.tickets.map((t) => [t.number, t.status])).toEqual([['JIRA-2', 'To Do'], ['JIRA-1', 'In Progress']]);
   });
+
+  it('excludes a row named only by released plans from tickets and counts it in hidden', () => {
+    const rows = [
+      row('1', { assignees: ['jwloka'], status: 'open' }),
+      row('2', { assignees: ['jwloka'], status: 'closed' }),
+    ];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '2': [{ state: 'released', total: 1, merged: 1 }] }));
+    expect(result.tickets.map((t) => t.number)).toEqual(['1']);
+    expect(result.shown).toBe(1);
+    expect(result.hidden).toBe(1);
+  });
+
+  it('still shows a row named by one released and one unfinished plan, labelled in progress', () => {
+    const rows = [row('3', { assignees: ['jwloka'], status: 'open' })];
+    const result = waitingTickets(
+      rows,
+      undefined,
+      reader,
+      GITHUB,
+      true,
+      plans({ '3': [{ state: 'released', total: 1, merged: 1 }, { state: 'approved', total: 2, merged: 0 }] }),
+    );
+    expect(result.tickets).toHaveLength(1);
+    expect(result.tickets[0].status).toBe('in progress 0/2');
+    expect(result.shown).toBe(1);
+    expect(result.hidden).toBe(0);
+  });
 });
