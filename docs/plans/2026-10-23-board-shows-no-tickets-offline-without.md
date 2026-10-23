@@ -12,6 +12,7 @@
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
+- **Started:** 2026-10-23, Jan Wloka, `bug/board-shows-no-tickets-offline-without`
 
 ## Changelog
 
