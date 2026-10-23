@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2413 merged
+- **Started:** 2026-10-23, jwloka, `bug/this-sprint-selects-a-sprint-subset-rule`
 
 ## Changelog
 
