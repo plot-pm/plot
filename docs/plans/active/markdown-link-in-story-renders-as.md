@@ -1,0 +1,1 @@
+../2026-10-23-markdown-link-in-story-renders-as.md
