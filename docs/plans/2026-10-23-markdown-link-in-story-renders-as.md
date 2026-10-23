@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2432 merged
+- **Started:** 2026-10-23, Jan Wloka, `bug/markdown-link-in-story-renders-as`
 
 ## Changelog
 
