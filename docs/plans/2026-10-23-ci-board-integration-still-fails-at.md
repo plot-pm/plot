@@ -54,15 +54,15 @@ The slice reads the failed runs named above, measures the three options against 
 
 ### Open Questions
 
-- [ ] Do the board tests pass without the 9 missing font packages? The answer decides whether option 3 is available.
-- [ ] Does the `.deb` cache restore cleanly when the runner image's package versions change, or does it need a key on the image version?
-- [ ] Does the Playwright container image keep the job inside its `timeout-minutes` on a cold pull?
+- [x] Do the board tests pass without the 9 missing font packages? Not reached — option 1 (cache) was adopted on its own measurement before this question needed an answer; it only decides option 3's availability.
+- [x] Does the `.deb` cache restore cleanly when the runner image's package versions change, or does it need a key on the image version? Not yet observed — every run since landed on the same GitHub-hosted image. The cache key (Playwright version only) does not cover an image change; a stale `.deb` cache after an image update would need its own invalidation signal. Left as a known gap.
+- [x] Does the Playwright container image keep the job inside its `timeout-minutes` on a cold pull? Not applicable — option 2 (container) was not chosen.
 
 ## Slices
 
 ### Mirror independence
 
-- `infra/board-integration-does-not-need-the-apt-mirrors` — remove the per-run apt fetch from the `board-integration` job, by the option the measurement favours <!-- builds: a Playwright system-package cache or container in the board-integration job of ci.yml -->
+- `infra/board-integration-does-not-need-the-apt-mirrors` — remove the per-run apt fetch from the `board-integration` job, by the option the measurement favours <!-- builds: a Playwright system-package cache or container in the board-integration job of ci.yml --> → #2459
 
 ## Notes
 
