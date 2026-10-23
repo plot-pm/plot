@@ -92,6 +92,63 @@ export const planStateWrites = (reading: PlanStateReading): readonly PlanStateWr
     .map((issue) => ({ issue, phase, planLink: reading.planLink, ...(reading.version === undefined ? {} : { version: reading.version }) }));
 };
 
+/** Why a release left an issue open instead of closing it. */
+export type ReleaseSkipReason = 'another-plan-unfinished' | 'no-target' | 'unaskable' | 'failed';
+
+/** One issue a release either closed, or left open with a reason. */
+export interface ReleaseIssueDecision {
+  /** The issue's identifier, verbatim. */
+  readonly issue: string;
+  /** `null` where the issue closes; the reason it stays open otherwise. */
+  readonly skip: ReleaseSkipReason | null;
+}
+
+/**
+ * Decides which of a released plan's issues to close, ahead of any tracker write.
+ *
+ * An issue also named by a plan that is not yet `released` stays open: it is
+ * shared, and the last plan to release is the one that closes it. Every other
+ * issue is handed to the tracker, which decides `no-target`, `unaskable` or
+ * `failed` on its own terms — this rule never answers those itself.
+ *
+ * @param issues - the issues the released plan names.
+ * @param unfinishedIssues - issues named by any OTHER plan not yet `released`.
+ * @returns one decision per issue, in the order `issues` names them.
+ */
+export const releaseIssueDecisions = (
+  issues: readonly string[],
+  unfinishedIssues: ReadonlySet<string>,
+): readonly ReleaseIssueDecision[] =>
+  issues.map((issue) => ({ issue, skip: unfinishedIssues.has(issue) ? 'another-plan-unfinished' : null }));
+
+/** How many issues a release closed, and how many it left open, with each reason. */
+export interface ReleaseIssueSummary {
+  /** How many issues were closed. */
+  readonly closed: number;
+  /** How many issues were left open, across every reason. */
+  readonly leftOpen: number;
+  /** How many issues were left open for each reason, omitting reasons with zero. */
+  readonly reasons: Readonly<Partial<Record<ReleaseSkipReason, number>>>;
+}
+
+/**
+ * Tallies a release's per-issue outcomes into the counts its summary reports.
+ *
+ * @param outcomes - one per issue the release considered: `'closed'`, or the
+ *   reason it was left open.
+ * @returns the closed and left-open counts, and left-open counts by reason.
+ */
+export const releaseIssueSummary = (outcomes: readonly ('closed' | ReleaseSkipReason)[]): ReleaseIssueSummary => {
+  let closed = 0;
+  const reasons: Partial<Record<ReleaseSkipReason, number>> = {};
+  for (const outcome of outcomes) {
+    if (outcome === 'closed') closed += 1;
+    else reasons[outcome] = (reasons[outcome] ?? 0) + 1;
+  }
+  const leftOpen = outcomes.length - closed;
+  return { closed, leftOpen, reasons };
+};
+
 /** What one owed tracker write came to — a status write or a plan-state write alike. */
 export type TrackerWriteOutcome = 'written' | 'no-target' | 'unaskable' | 'failed';
 

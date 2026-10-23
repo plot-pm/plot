@@ -49,7 +49,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 2B. Release Notes | Mid | Discovery logic, changelog collection |
 | 3. Cross-check Notes | Frontier (orchestrator) + Small (subagents) | Orchestrator compares; small subagents can gather commit messages and plan changelogs in parallel. A merged spike's changeset pairs with its Design plan |
 | 4-5. Hand-off, RC cleanup | Small | Template list, no-ops; step 5's rename is a mechanical `git mv` of any `vnext-checklist.md` |
-| 5b. Record the Release in the Plans | Small | One `plot-deliver.sh --release` call per plan (or `POST /api/release` where a board runs); the script resolves the version and writes the record. Gate on the sweep's real footer. The issue status write is one `plot-issue-status.sh` call per plan, reported and never gating |
+| 5b. Record the Release in the Plans | Small | One `plot-deliver.sh --release` call per plan (or `POST /api/release` where a board runs); the script resolves the version, writes the record, and tells the plan's tracker in the same call, reported and never gating. Gate on the sweep's real footer |
 | 5c. Sprint Override Record | Small | One line into `## Notes`, from facts step 0 already collected |
 | 6. Summary | Small | Formatting |
 
@@ -461,6 +461,16 @@ For each plan currently at `State: Delivered`:
    `transitions/plan.ts`. The escape this step used to reach for
    (`plot-state-receipt.sh --unowned`) is no longer needed for this write.
 
+   **It also tells the plan's tracker — no separate step runs this by hand.**
+   Once the record lands, the same call runs `plot-issue-status.sh` and then
+   `plot-plan-state.sh --phase released` against the issues the released plan
+   names, skipping any issue another still-unfinished plan also names (that
+   issue stays open — it closes only when the LAST plan naming it releases).
+   A write that fails is reported and never undoes or repeats the release
+   record. The summary line's `tracker=<outcome>` vocabulary is unchanged;
+   a second line, `summary: issues closed=<N> left-open=<M> (<reason>=<count> …)`,
+   reports the per-issue outcome.
+
 3. **Four refusals, each on stderr, and each a repair rather than a guess:**
    no `→ #N` annotation or no merge commit (the PR never merged, or the host
    gave no answer — nothing was written, annotate or verify and re-run); no tag
@@ -482,17 +492,6 @@ The script commits and pushes on the default branch itself, through the same
 disposable-branch mechanic `/plot-approve` uses (including its
 branch-protection fallback) — there is nothing left for this step to commit by
 hand.
-
-**Then tell each plan's tracker, once per plan marked Released, after the commit lands:**
-
-```bash
-bash ../plot/scripts/plot-issue-status.sh <plan file>
-bash ../plot/scripts/plot-plan-state.sh <plan file> --phase released --plan-link <plan file> --version <version>
-```
-
-The first script writes the `Tracker released status` word to each issue the plan's `Issue:` line names, through the tracker port, and ends with `summary: tracker=<outcome>`. `none` means no write was owed (no issue, or the key is not set); `unaskable` means the repository declares no `Tracker`. **A `failed` write is reported in the summary and never undoes or repeats the release record.**
-
-The second reflects the plan's `released` phase on the same issues, through `Tracker.planStateWrite`: a `plan:released` label, a comment naming `<version>`, and it closes the issue. Pass `<plan file>` as its repo-relative path on the default branch, the same string the plan's own record links to, and `<version>` as the version just released (e.g. `v2.3.0`). It too ends with `summary: tracker=<outcome>` and reports a `failed` write without undoing or repeating the release record. Skip both for a plan whose commit did not land.
 
 **Then the gate.** This is a multi-file write followed by a push, the shape that
 half-lands — and worse than delivery's, because it touches N plans, so a partial

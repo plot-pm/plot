@@ -4,6 +4,8 @@ import {
   isPlanStatePhase,
   issueStatusWrites,
   planStateWrites,
+  releaseIssueDecisions,
+  releaseIssueSummary,
   trackerReportOf,
   trackerWriteSummary,
   type IssueStatusWords,
@@ -114,6 +116,52 @@ describe('a run’s write outcomes reduce to the one a caller reports', () => {
     expect(trackerWriteSummary(['written', 'no-target'])).toBe('no-target');
     expect(trackerWriteSummary(['no-target', 'unaskable'])).toBe('unaskable');
     expect(trackerWriteSummary(['unaskable', 'failed'])).toBe('failed');
+  });
+});
+
+describe('a release decides which of its issues to close', () => {
+  it('closes every issue no other plan still owes', () => {
+    expect(releaseIssueDecisions(['7', '8'], new Set())).toEqual([
+      { issue: '7', skip: null },
+      { issue: '8', skip: null },
+    ]);
+  });
+
+  it('leaves a shared issue open where another plan has not released yet', () => {
+    expect(releaseIssueDecisions(['7'], new Set(['7']))).toEqual([{ issue: '7', skip: 'another-plan-unfinished' }]);
+  });
+
+  it('decides each issue on its own — one shared, one not', () => {
+    expect(releaseIssueDecisions(['7', '8'], new Set(['7']))).toEqual([
+      { issue: '7', skip: 'another-plan-unfinished' },
+      { issue: '8', skip: null },
+    ]);
+  });
+
+  it('decides nothing where the plan names no issue', () => {
+    expect(releaseIssueDecisions([], new Set(['7']))).toEqual([]);
+  });
+});
+
+describe('a release’s per-issue outcomes tally into a summary', () => {
+  it('reports every issue closed, with no reasons, where none was left open', () => {
+    expect(releaseIssueSummary(['closed', 'closed'])).toEqual({ closed: 2, leftOpen: 0, reasons: {} });
+  });
+
+  it('reports an empty release as nothing closed and nothing left open', () => {
+    expect(releaseIssueSummary([])).toEqual({ closed: 0, leftOpen: 0, reasons: {} });
+  });
+
+  it('counts each left-open reason separately', () => {
+    expect(releaseIssueSummary(['closed', 'another-plan-unfinished', 'another-plan-unfinished', 'failed'])).toEqual({
+      closed: 1,
+      leftOpen: 3,
+      reasons: { 'another-plan-unfinished': 2, failed: 1 },
+    });
+  });
+
+  it('omits a reason that never occurred rather than reporting it as zero', () => {
+    expect(releaseIssueSummary(['closed', 'no-target']).reasons).toEqual({ 'no-target': 1 });
   });
 });
 

@@ -3,7 +3,7 @@
 # `board/plot-plan-state.mjs`, a JS entry point over the domain — see its header
 # for what it does. This resolves it, passes arguments and the exit code
 # through, and decides nothing.
-# Usage: plot-plan-state.sh <plan file> --phase <draft|approved|delivered|released> --plan-link <link> [--version <v>]
+# Usage: plot-plan-state.sh <plan file> --phase <draft|approved|delivered|released> --plan-link <link> [--version <v>] [--skip-issue <id> ...]
 set -uo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bundle="$script_dir/board/plot-plan-state.mjs"

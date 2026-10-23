@@ -33,9 +33,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * name (a spike approval, an in-flight release version) — only the
  * calling command knows either at the moment it calls.
  *
+ * **`--skip-issue <id>` (repeatable)** leaves that issue open: it is reported
+ * `skipped` on its own line and never reaches the tracker. The caller decides
+ * which issues to skip — this entry only honours the list.
+ *
  * **Tab-separated out**, one line per owed write:
- * `<issue>\t<written|no-target|unaskable|failed>\t<reason>`, then
- * `summary: tracker=<none|written|no-target|unaskable|failed>`.
+ * `<issue>\t<written|no-target|unaskable|failed|skipped>\t<reason>`, then
+ * `summary: tracker=<none|written|no-target|unaskable|failed>` — `skipped`
+ * never appears there, so an existing reader's vocabulary is unchanged.
  */
 
 /** The exit codes the caller reads. */
@@ -67,17 +72,21 @@ export const issuesFrom = (text: string): readonly string[] => {
 };
 
 /**
- * Reads `--phase <phase>`, `--plan-link <link>` and an optional `--version <v>`.
+ * Reads `--phase <phase>`, `--plan-link <link>`, an optional `--version <v>`,
+ * and zero or more `--skip-issue <id>`.
  *
  * @param argv - the arguments after the script name.
- * @returns the phase, link and version the caller declared.
+ * @returns the phase, link and version the caller declared, and the issues to skip.
  * @throws on an unknown flag, a flag with no value, a `--phase` outside the
  *   four, or a missing `--phase`/`--plan-link`.
  */
-export const flagsFrom = (argv: readonly string[]): Pick<PlanStateReading, 'phase' | 'planLink' | 'version'> => {
+export const flagsFrom = (
+  argv: readonly string[],
+): Pick<PlanStateReading, 'phase' | 'planLink' | 'version'> & { skipIssues: readonly string[] } => {
   let phase: string | undefined;
   let planLink: string | undefined;
   let version: string | undefined;
+  const skipIssues: string[] = [];
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
     const value = argv[i + 1];
@@ -85,12 +94,13 @@ export const flagsFrom = (argv: readonly string[]): Pick<PlanStateReading, 'phas
     if (flag === '--phase') phase = value;
     else if (flag === '--plan-link') planLink = value;
     else if (flag === '--version') version = value;
+    else if (flag === '--skip-issue') skipIssues.push(value);
     else throw new Error(`unknown argument '${flag}'`);
   }
   if (phase === undefined) throw new Error('--phase is required');
   if (!isPlanStatePhase(phase)) throw new Error(`unknown --phase '${phase}'`);
   if (planLink === undefined) throw new Error('--plan-link is required');
-  return { phase, planLink, ...(version === undefined ? {} : { version }) };
+  return { phase, planLink, skipIssues, ...(version === undefined ? {} : { version }) };
 };
 
 /**
@@ -108,16 +118,28 @@ export const planStateTracker = async (context: ShellContext): Promise<Tracker> 
 };
 
 /**
- * Performs every plan-state write the rule decides a plan owes.
+ * Performs every plan-state write the rule decides a plan owes, skipping an
+ * issue another unfinished plan also names — that issue is reported
+ * `skipped`, never asked of the tracker.
  *
  * @param reading - the plan's phase, issues, link and (at release) version.
  * @param tracker - the connector the repository declared.
+ * @param skipIssues - issues to leave open, each reported `skipped` rather than written.
  * @returns one `<issue>\t<outcome>\t<reason>` line per owed write.
  */
-export const writePlanStates = async (reading: PlanStateReading, tracker: Tracker): Promise<{ lines: string[]; outcomes: TrackerWriteOutcome[] }> => {
+export const writePlanStates = async (
+  reading: PlanStateReading,
+  tracker: Tracker,
+  skipIssues: ReadonlySet<string> = new Set(),
+): Promise<{ lines: string[]; outcomes: (TrackerWriteOutcome | 'skipped')[] }> => {
   const lines: string[] = [];
-  const outcomes: TrackerWriteOutcome[] = [];
+  const outcomes: (TrackerWriteOutcome | 'skipped')[] = [];
   for (const write of planStateWrites(reading)) {
+    if (skipIssues.has(write.issue)) {
+      lines.push(`${write.issue}\tskipped\tanother plan unfinished\n`);
+      outcomes.push('skipped');
+      continue;
+    }
     const result = await tracker.planStateWrite(write);
     const outcome: TrackerWriteOutcome = result.ok ? result.value : result.why;
     const reason = (outcome === 'written' ? write.phase : (tracker.lastRefusal() ?? FALLBACK[outcome])).replace(/\s+/g, ' ').trim();
@@ -144,16 +166,21 @@ export const run = async (
 ): Promise<number> => {
   const [planFile = '', ...flags] = argv;
   let reading: PlanStateReading;
+  let skipIssues: readonly string[];
   try {
     if (planFile === '' || !existsSync(planFile)) throw new Error(`'${planFile}' is not a plan file`);
     const meta = await scriptsShell(context).planMeta([path.resolve(planFile)]);
     if (!meta.ok) throw new Error(`cannot parse '${planFile}'`);
     const line = meta.value.split('\n').map((l) => l.trim()).find(Boolean);
     if (line === undefined) throw new Error(`cannot parse '${planFile}'`);
-    reading = { issues: issuesFrom(line), ...flagsFrom(flags) };
+    const { skipIssues: skip, ...flags2 } = flagsFrom(flags);
+    skipIssues = skip;
+    reading = { issues: issuesFrom(line), ...flags2 };
   } catch (err) {
     warn(`plot-plan-state: ${(err as Error).message}\n`);
-    warn('plot-plan-state: usage: plot-plan-state.sh <plan file> --phase <draft|approved|delivered|released> --plan-link <link> [--version <v>]\n');
+    warn(
+      'plot-plan-state: usage: plot-plan-state.sh <plan file> --phase <draft|approved|delivered|released> --plan-link <link> [--version <v>] [--skip-issue <id> ...]\n',
+    );
     write('summary: tracker=failed\n');
     return EXIT.usage;
   }
@@ -163,9 +190,14 @@ export const run = async (
     return EXIT.ok;
   }
   const tracker = await planStateTracker(context);
-  const { lines, outcomes } = await writePlanStates(reading, tracker);
+  const { lines, outcomes } = await writePlanStates(reading, tracker, new Set(skipIssues));
   for (const line of lines) write(line);
-  write(`summary: tracker=${trackerWriteSummary(outcomes)}\n`);
+  // SKIPPED IS TRANSPARENT TO THIS LINE'S VOCABULARY, which existing readers
+  // parse (`trackerWriteSummary`, the `summary: tracker=` regex in
+  // `issue-status.ts`): a release that skips a shared issue and writes every
+  // other one cleanly still reports `written`, not a fifth word they do not expect.
+  const written = outcomes.filter((outcome): outcome is TrackerWriteOutcome => outcome !== 'skipped');
+  write(`summary: tracker=${written.length > 0 ? trackerWriteSummary(written) : 'none'}\n`);
   return EXIT.ok;
 };
 
