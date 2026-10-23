@@ -454,6 +454,177 @@ describe('a Draft plan PR answers its issue — the inbox reads idea/ branches a
     expect(entry.waiting?.tickets.find((t) => t.number === '1')?.status).toBe('in progress 1/2');
   });
 
+  /**
+   * A fixture wired to the REAL `plot-config.sh` and `plot-plan-meta.sh` (not
+   * the stubs `fixture()` writes, which always answer `Tracker` with `''` and
+   * so never exercise Jira key extraction). `claudeMd` becomes the repo's
+   * `CLAUDE.md`; `openKeys` are the keys `plot-host.sh issue-list` reports
+   * open; `plans` are `docs/plans/<file>` bodies, each free to set its own
+   * `Issue:` line.
+   */
+  const jiraFixture = (opts: {
+    claudeMd: string;
+    openKeys: string[];
+    plans: Record<string, string>;
+    onBranch?: Record<string, string>;
+  }): string => {
+    const dir = fixture({});
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), opts.claudeMd);
+    fs.writeFileSync(path.join(dir, 'plot-config.sh'), `#!/usr/bin/env bash\nexec bash ${JSON.stringify(path.join(REAL_SCRIPTS, 'plot-config.sh'))} "$@"\n`);
+    fs.chmodSync(path.join(dir, 'plot-config.sh'), 0o755);
+    fs.writeFileSync(path.join(dir, 'plot-plan-meta.sh'), `#!/usr/bin/env bash\nexec bash ${JSON.stringify(path.join(REAL_SCRIPTS, 'plot-plan-meta.sh'))} "$@"\n`);
+    fs.chmodSync(path.join(dir, 'plot-plan-meta.sh'), 0o755);
+    const list = opts.openKeys
+      .map((k) => `printf '{"number":"%s","title":"t%s","url":"u","createdAt":"2026-10-01T00:00:00Z","assignees":[]}\\n' ${JSON.stringify(k)} ${JSON.stringify(k)};`)
+      .join(' ');
+    fs.writeFileSync(path.join(dir, 'plot-host.sh'), [
+      '#!/usr/bin/env bash',
+      'case "$1" in',
+      "  account) echo 'jwloka' ;;",
+      '  issue-list)',
+      '    case " $* " in',
+      '      *" --state closed "*) : ;;',
+      `      *) ${list || ':'} ;;`,
+      '    esac ;;',
+      'esac',
+      'exit 0',
+      '',
+    ].join('\n'));
+    fs.chmodSync(path.join(dir, 'plot-host.sh'), 0o755);
+    for (const [file, body] of Object.entries(opts.plans)) {
+      fs.writeFileSync(path.join(dir, 'docs', 'plans', file), body);
+    }
+    // Commit the real-script wrappers to `main` before branching: `git
+    // checkout -b` carries uncommitted changes onto the new branch, but
+    // `checkout main` afterwards reverts them to `main`'s committed state —
+    // without this commit, an `onBranch` plan would be read by the STUB
+    // `plot-plan-meta.sh`, not the real one this fixture exists to exercise.
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'jira overlay');
+    for (const [slug, body] of Object.entries(opts.onBranch ?? {})) {
+      git(dir, 'checkout', '-q', '-b', `idea/${slug}`);
+      fs.writeFileSync(path.join(dir, 'docs', 'plans', `2026-10-17-${slug}.md`), body);
+      git(dir, 'add', '-A');
+      git(dir, 'commit', '-q', '-m', slug);
+      git(dir, 'update-ref', `refs/remotes/origin/idea/${slug}`, 'HEAD');
+      git(dir, 'checkout', '-q', 'main');
+      git(dir, 'branch', '-q', '-D', `idea/${slug}`);
+    }
+    // As in `fixture()` above: checking out main removes a plan directory
+    // the branch alone filled, which must exist for `planMetasOf`'s
+    // `fs.readdirSync` to succeed rather than read the whole set as unreadable.
+    fs.mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
+    return dir;
+  };
+
+  const JIRA_CLAUDE_MD = [
+    '## Plot Config', '',
+    '- **Tracker:** jira',
+    '- **Ticket prefixes:** EWZKUS',
+    '',
+  ].join('\n');
+
+  const planBody = (issueLine: string) => [
+    '# A plan', '', '## Status', '', '- **State:** Approved', `- **Issue:** ${issueLine}`, '',
+    '## Branches', '', '- `feature/one` — first', '',
+  ].join('\n');
+
+  it('a Jira key the real plan parser extracts leaves the inbox', async () => {
+    // The production report: an Approved plan's `Issue: EWZKUS-3893` shows on
+    // the plan card, yet `EWZKUS-3893` stayed in `tickets.open` alongside two
+    // genuinely unplanned siblings. `Tracker: jira` must come from a real
+    // CLAUDE.md read by the real `plot-config.sh` and `plot-plan-meta.sh` —
+    // the other fixtures in this file stub both scripts to answer `Tracker`
+    // with `''`, which never exercises the Jira key-extraction branch at all.
+    const dir = jiraFixture({
+      claudeMd: JIRA_CLAUDE_MD,
+      openKeys: ['EWZKUS-3893', 'EWZKUS-3894', 'EWZKUS-3895'],
+      plans: { 'a.md': planBody('EWZKUS-3893') },
+    });
+    const entry = entryFor([]);
+    entry.backend = 'jira';
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(numbers(entry.issues)).toEqual(['EWZKUS-3894', 'EWZKUS-3895']);
+    expect(numbers(entry.waiting?.tickets ?? [])).toContain('EWZKUS-3893');
+  });
+
+  it('a plan naming several Jira keys on one line takes every one out of the inbox', async () => {
+    const dir = jiraFixture({
+      claudeMd: JIRA_CLAUDE_MD,
+      openKeys: ['EWZKUS-1', 'EWZKUS-2', 'EWZKUS-3'],
+      plans: { 'a.md': planBody('EWZKUS-1, EWZKUS-2') },
+    });
+    const entry = entryFor([]);
+    entry.backend = 'jira';
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(numbers(entry.issues)).toEqual(['EWZKUS-3']);
+    expect(numbers(entry.waiting?.tickets ?? [])).toEqual(
+      expect.arrayContaining(['EWZKUS-1', 'EWZKUS-2']),
+    );
+  });
+
+  it('a key whose prefix is not in Ticket prefixes still leaves the inbox — the parser does not filter by prefix', async () => {
+    // `Ticket prefixes` governs branch-claim matching, not ticket-key
+    // acceptance (see CLAUDE.md's Plot Config); the plan-meta parser's regex
+    // `[A-Z][A-Z0-9]*-[0-9]+` has no prefix allow-list of its own. A key for a
+    // project the config never names still planning-links correctly.
+    const dir = jiraFixture({
+      claudeMd: JIRA_CLAUDE_MD,
+      openKeys: ['OTHER-7', 'EWZKUS-9'],
+      plans: { 'a.md': planBody('OTHER-7') },
+    });
+    const entry = entryFor([]);
+    entry.backend = 'jira';
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(numbers(entry.issues)).toEqual(['EWZKUS-9']);
+    expect(numbers(entry.waiting?.tickets ?? [])).toContain('OTHER-7');
+  });
+
+  it('a Draft plan PR\'s Jira key leaves the inbox the same way an on-disk plan\'s does', async () => {
+    const dir = jiraFixture({
+      claudeMd: JIRA_CLAUDE_MD,
+      openKeys: ['EWZKUS-1', 'EWZKUS-2'],
+      plans: {},
+      onBranch: { alpha: planBody('EWZKUS-2') },
+    });
+    const entry = entryFor(['alpha']);
+    entry.backend = 'jira';
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(numbers(entry.issues)).toEqual(['EWZKUS-1']);
+    expect(numbers(entry.waiting?.tickets ?? [])).toContain('EWZKUS-2');
+  });
+
+  it('a lowercase key is not extracted at all — the parser refuses it on purpose, so the ticket is never linked', async () => {
+    // Brief: "the parser matches uppercase only... Do not widen the parser:
+    // it refuses `WONT-FIX`-shaped words on purpose." This is the decision
+    // record for what that refusal means here: a plan writing a lowercase
+    // key names no ticket the parser can see (`issues:[]`, confirmed by
+    // running the real script directly), so the matching open ticket stays
+    // unplanned — present in both the inbox AND Waiting on you, with no
+    // phase — exactly as an unrelated unplanned ticket would. This is
+    // accepted current behaviour, not a bug this branch fixes.
+    const dir = jiraFixture({
+      claudeMd: JIRA_CLAUDE_MD,
+      openKeys: ['EWZKUS-5'],
+      plans: { 'a.md': planBody('ewzkus-5') },
+    });
+    const entry = entryFor([]);
+    entry.backend = 'jira';
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(numbers(entry.issues)).toEqual(['EWZKUS-5']);
+    expect(entry.waiting?.tickets.find((t) => t.number === 'EWZKUS-5')?.status).toBe('');
+  });
+
   it('no idea branches changes nothing from the directory read', async () => {
     const dir = fixture({ onDisk: { '2026-10-17-a.md': 3 } });
     const entry = entryFor([]);

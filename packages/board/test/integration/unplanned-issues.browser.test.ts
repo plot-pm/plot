@@ -163,6 +163,21 @@ describe('an unplanned issue appears in WAITING ON YOU', () => {
     }
   });
 
+  it('does NOT show a Jira-keyed issue a plan references', async () => {
+    // The GitHub analog above (`does NOT show an issue a plan references`)
+    // only ever passed a numeric key through this path. `entry.issues` is
+    // filtered against `issueKey`, which never coerces a Jira key to a
+    // number — a regression collapsing it through `Number()` would show here
+    // without ever touching a GitHub-shaped fixture.
+    const page = await open(fleet({ issues: [issue({ number: 228, url: '' })] }));
+    try {
+      await expect.poll(() => issueRow(page, 228).count()).toBe(1);
+      await expect.poll(() => issueRow(page, 'EWZKUS-3893').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
   it('renders the inferred name as TEXT, never as an anchor', async () => {
     // Nothing is behind the name yet, and a link to a plan that does not exist
     // is the fabrication this board keeps removing.
