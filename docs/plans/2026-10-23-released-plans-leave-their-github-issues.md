@@ -49,7 +49,7 @@ Every `plot-deliver.sh --release` run ended `tracker=skipped`, and `plot-issue-s
 
 ### Board filter
 
-- `bug/board-hides-released-issues-from-assigned` — the *Assigned to you* rows omit an issue whose plans are all Released <!-- builds: a domain property for an issue's remaining unfinished plans -->
+- `bug/board-hides-released-issues-from-assigned` — the *Assigned to you* rows omit an issue whose plans are all Released <!-- builds: a domain property for an issue's remaining unfinished plans --> → #2377
 
 ## Notes
 
