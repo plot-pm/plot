@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** bugfix-2-28-2
 - **Issue:** #2387
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2426 merged
 - **Started:** 2026-10-23, Jan Wloka, `bug/the-pr-status-has-a-level-and-a-cause`
 - **Started:** 2026-10-23, Jan Wloka, `bug/the-board-shows-the-pr-level-and-diagnostics`
+- **Delivered:** 2026-10-24
 
 ## Changelog
 
