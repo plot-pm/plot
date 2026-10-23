@@ -90,6 +90,7 @@ export * from './rules/concurrency.js';
 export * from './rules/implement-lock.js';
 export * from './rules/continue-lock.js';
 export * from './rules/refusal.js';
+export * from './rules/pr-status.js';
 export * from './rules/sample.js';
 export * from './rules/acting.js';
 export * from './rules/free.js';
