@@ -6,7 +6,7 @@
 
 - **State:** Approved
 - **Type:** bug
-- **Sprint:**
+- **Sprint:** bugfix-2-28-2
 - **Issue:** #2399
 - **Story:** plot-works-in-five-phases
 - **Review:** pr
