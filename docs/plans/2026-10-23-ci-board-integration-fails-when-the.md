@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2362 merged
+- **Started:** 2026-10-23, Jan Wloka, `infra/playwright-install-survives-a-slow-download`
 
 ## Changelog
 
