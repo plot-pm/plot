@@ -779,7 +779,11 @@ const EXPECTED_FILES = 75;
 // 610 → 611 on 2026-10-23: one `it(` in `unplanned-issues.browser.test.ts`,
 // for a Jira-keyed issue a plan references not showing in the inbox. The file
 // already drove a page, so `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 611;
+// 611 → 616 on 2026-10-23: five `it(` in `agents-tab.browser.test.ts`, one per
+// PR status level/case (info absent, warning-stale, error, 429-with-backoff,
+// notices-in-disclosure) for bug/the-board-shows-the-pr-level-and-diagnostics.
+// The file already drove a page, so `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 616;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
