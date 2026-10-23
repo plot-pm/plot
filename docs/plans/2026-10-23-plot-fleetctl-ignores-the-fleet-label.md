@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2418 merged
+- **Started:** 2026-10-23, Jan Wloka, `bug/plot-fleetctl-ignores-the-fleet-label`
 
 ## Changelog
 
