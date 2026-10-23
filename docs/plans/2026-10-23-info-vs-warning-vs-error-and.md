@@ -10,6 +10,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2426 merged
+- **Started:** 2026-10-23, Jan Wloka, `bug/the-pr-status-has-a-level-and-a-cause`
 
 ## Changelog
 
