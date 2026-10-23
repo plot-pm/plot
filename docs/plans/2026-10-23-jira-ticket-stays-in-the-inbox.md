@@ -45,7 +45,7 @@ The related plans [my-jira-tickets-are-in-the-inbox](2026-08-26-my-jira-tickets-
 
 ### Fix
 
-- `bug/jira-key-leaves-the-inbox` — a tracker key in `Issue:` marks the ticket planned, with a domain unit test and one browser test of the inbox
+- `bug/jira-key-leaves-the-inbox` — a tracker key in `Issue:` marks the ticket planned, with a domain unit test and one browser test of the inbox → #2454
 
 ## Notes
 
