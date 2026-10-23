@@ -58,7 +58,7 @@ A label from the config key goes through the same `unit_name` mapping as one fro
 
 ### Resolve the label from config
 
-- `bug/plot-fleetctl-ignores-the-fleet-label` — `plot-fleetctl.sh` resolves the label from the variable, the `Fleet label` key and the default, in that order, with a reconcile test for each source and for the precedence between them; the skill text and units README say where the label comes from.
+- `bug/plot-fleetctl-ignores-the-fleet-label` — `plot-fleetctl.sh` resolves the label from the variable, the `Fleet label` key and the default, in that order, with a reconcile test for each source and for the precedence between them; the skill text and units README say where the label comes from. → #2456
 
 ## Notes
 
