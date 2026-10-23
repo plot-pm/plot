@@ -428,9 +428,7 @@ function strip_placeholder(s) { return (s ~ /^<!--/) ? "" : s }
 # story", and a malformed link is not that.
 function reduce_story_link(s,   text) {
   if (s !~ /^\[[^]]+\]\([^)]+\)$/) return s
-  text = s
-  sub(/^\[/, "", text); sub(/\]\([^)]*\)$/, "", text)
-  gsub(/`/, "", text)
+  text = s; sub(/^\[/, "", text); sub(/\]\([^)]*\)$/, "", text); gsub(/`/, "", text)
   return text
 }
 # Blank out backtick-delimited inline code, so a marker PRINTED as a literal is
