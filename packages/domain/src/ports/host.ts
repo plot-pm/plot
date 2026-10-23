@@ -361,11 +361,15 @@ export interface Host {
    *
    * @param pr - the PR number to comment on.
    * @param body - the comment text, verbatim.
+   * @param marker - when given, the PR comment holding this substring is edited
+   *   to `body`, and a comment is posted only where none holds it — so a repeated
+   *   call with the same marker leaves one comment. A failed edit fails and posts
+   *   nothing. Absent, every call posts.
    * @returns `true` once written; `unaskable` where this host cannot be asked
    *   to comment on a PR; `failed` otherwise, with the reason in
    *   {@link lastRefusal}.
    */
-  prComment(pr: number, body: string): Promise<PortResult<true>>;
+  prComment(pr: number, body: string, marker?: string): Promise<PortResult<true>>;
 
   /**
    * What the host holds about a PR's review, read per context and never from

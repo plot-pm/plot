@@ -551,11 +551,13 @@
 #                                 groups repeat statuses on one sha (this
 #                                 estate's caller passes `plot/review`). A call
 #                                 that reaches the API and fails exits 3.
-#   pr-comment <number> <body>    Posts one comment on a PR's timeline through
+#   pr-comment <number> <body> [marker]
+#                                 Posts one comment on a PR's timeline through
 #                                 the signed-in CLI identity (`gh pr comment`),
 #                                 so it needs no `Review app` key. Keyed by PR
-#                                 number, not a sha. A call that reaches the
-#                                 GitHub API and fails exits 3. EXIT 4 on
+#                                 number, not a sha. With a <marker>, edits the
+#                                 comment holding it, else posts. A call that
+#                                 reaches the GitHub API and fails exits 3. EXIT 4 on
 #                                 Bitbucket: the bb CLI this script is written
 #                                 against documents no write to a PR's comment
 #                                 thread, and this op does not guess at an
@@ -5645,9 +5647,9 @@ case "$op" in
     # KEYED BY PR NUMBER, NOT A SHA — unlike commit-status, this writes through
     # the signed-in CLI identity, so it needs no App credentials and no Node
     # helper.
-    [ "$be" = "github" ] || { echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2; exit 4; }
-    gh pr comment "${1:?pr-comment needs a PR number}" --body "${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail
-    rm -f "$HOST_ERR" ;;
+    [ "$be" = "github" ] || { echo "plot-host: pr-comment: bitbucket has no verified pr-comment write" >&2; exit 4; }; num="${1:?pr-comment needs a PR number}"; cid=""
+    [ -z "${3-}" ] || cid="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" | jq -rs --arg m "$3" '[.[][] | select(.body | contains($m))][0].id // empty')" || gh_fail
+    if [ -n "$cid" ]; then gh api -X PATCH "repos/{owner}/{repo}/issues/comments/$cid" -f body="${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail; else gh pr comment "$num" --body "${2:?pr-comment needs a body}" >/dev/null 2>"$HOST_ERR" || gh_fail; fi; rm -f "$HOST_ERR" ;;
 
   *)
     die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|issue-open|issue-label|issue-comment|issue-close|version-list|pr-body|pr-review|rate-limit|limit|ci-limit|spend-rate|commit-status|pr-comment)"

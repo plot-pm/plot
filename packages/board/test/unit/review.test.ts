@@ -605,6 +605,19 @@ describe('one follow-up issue per PR', () => {
     expect(out.lines.join('\n')).not.toContain('the findings were not posted on the PR');
   });
 
+  it('keys the findings comment by a per-PR marker, so a second review of the PR edits it', async () => {
+    const { tracker } = withLabelled([], {
+      issueListLabelled: async () => answered({ issues: [], complete: false, pages: 1 }),
+    });
+    const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n');
+    r.deps.tracker = tracker;
+    await reviewPr(r.deps, '7');
+    await reviewPr(r.deps, '7');
+    expect(r.prComments).toHaveLength(1);
+    expect(r.prComments[0]!.body.startsWith('<!-- plot-review-findings pr-7 -->\n')).toBe(true);
+    expect(r.prComments[0]!.body).toContain(`run ${RUN}`);
+  });
+
   it('cuts a long verdict, never the counts or the run marker, and names the file by its basename', async () => {
     const { tracker } = withLabelled([], {
       issueListLabelled: async () => answered({ issues: [], complete: false, pages: 1 }),
