@@ -59,7 +59,7 @@ Four changes follow, in order:
 
 ### Classification
 
-- `bug/the-pr-status-has-a-level-and-a-cause` — domain value for the PR status: level (info, warning, error), cause, backoff end, and the notices split off as diagnostics; unit tests for every row of the table above.
+- `bug/the-pr-status-has-a-level-and-a-cause` — domain value for the PR status: level (info, warning, error), cause, backoff end, and the notices split off as diagnostics; unit tests for every row of the table above. → #2437
 
 ### Banner
 
