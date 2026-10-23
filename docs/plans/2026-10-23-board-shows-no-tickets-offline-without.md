@@ -4,11 +4,12 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2371 merged
 - **Sprint:** bugfix-2-28-1
 - **Issue:** #2369
+- **Delivered:** 2026-10-23
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** pr
 - **Impl:** own branches
