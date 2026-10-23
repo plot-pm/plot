@@ -422,6 +422,11 @@ function val_after_colon(s) {
 }
 # Template placeholders like "<!-- optional -->" mean "field absent".
 function strip_placeholder(s) { return (s ~ /^<!--/) ? "" : s }
+# A Markdown link `[text](target)` reduces to `text`, with backticks around
+# the text removed. A malformed link ("[text](" with no close, "[]()") is not
+# a link, so it keeps the raw value unreduced — an empty `story` means "no
+# story", and a malformed link is not that.
+function reduce_story_link(s,   t) { if (s !~ /^\[[^]]+\]\([^)]+\)$/) return s; t = s; sub(/^\[/, "", t); sub(/\]\([^)]*\)$/, "", t); gsub(/`/, "", t); return t }
 # Blank out backtick-delimited inline code, so a marker PRINTED as a literal is
 # not read as syntax. Markdown renders `<!--` between backticks as the four
 # characters; this parser used to read it as a comment-open, and because such a
@@ -521,7 +526,7 @@ function reset_state() {
   delete malformed_prs; n_malformed_prs = 0
   fm_issue = ""; canon_issue = ""; fm_ticket = ""
   delete issues; n_issues = 0
-  delete wave_names; delete wave_of; delete wave_seq; delete wave_count
+  delete wave_names; delete wave_of; delete wave_count
   delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; delete spike_of; n_waves = 0
   delete branch_heading; delete waits_of; delete waits_set; delete waits_n
   delete unread_waits_branch; delete unread_waits_value; n_unread_waits = 0
@@ -1038,7 +1043,7 @@ in_fm {
   else if (lower ~ /^type:/ && fm_type == "") fm_type = val_after_colon($0)
   else if (lower ~ /^title:/ && fm_title == "") fm_title = val_after_colon($0)
   else if (lower ~ /^sprint:/ && fm_sprint == "") fm_sprint = val_after_colon($0)
-  else if (lower ~ /^story:/ && fm_story == "") fm_story = val_after_colon($0)
+  else if (lower ~ /^story:/ && fm_story == "") fm_story = reduce_story_link(val_after_colon($0))
   else if (lower ~ /^issue:/ && fm_issue == "") fm_issue = val_after_colon($0)
   else if (lower ~ /^ticket:/ && fm_ticket == "") fm_ticket = val_after_colon($0)
   else if (lower ~ /^assignee:/ && fm_assignee == "") fm_assignee = val_after_colon($0)
@@ -1153,7 +1158,7 @@ section == "status" {
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**phase[:*]/ && canon_phase == "") canon_phase = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**type[:*]/ && canon_type == "") canon_type = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**sprint[:*]/ && canon_sprint == "") canon_sprint = val_after_colon($0)
-  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**story[:*]/ && canon_story == "") canon_story = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**story[:*]/ && canon_story == "") canon_story = reduce_story_link(val_after_colon($0))
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**issue[:*]/ && canon_issue == "") canon_issue = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**review[:*]/ && canon_review == "") canon_review = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**impl[:*]/ && canon_impl == "") canon_impl = val_after_colon($0)
@@ -1290,8 +1295,7 @@ section == "slices" && slice_shape != "heading" {
     sub(/`$/, "", b)
     branches[++n_branches] = b
     if (n_waves == 0) { wave_names[++n_waves] = "" }
-    wave_of[n_branches] = n_waves
-    wave_seq[n_branches] = ++wave_count[n_waves]
+    wave_of[n_branches] = n_waves; ++wave_count[n_waves]
     keep_branch(n_branches, b)
   }
   line = $0
@@ -1367,8 +1371,7 @@ section == "slices" && slice_shape == "heading" {
     sub(/^Branch:[ \t]*/, "", b)
     gsub(/`/, "", b)
     branches[++n_branches] = b
-    wave_of[n_branches] = n_waves
-    wave_seq[n_branches] = ++wave_count[n_waves]
+    wave_of[n_branches] = n_waves; ++wave_count[n_waves]
     keep_branch(n_branches, b)
   }
 
