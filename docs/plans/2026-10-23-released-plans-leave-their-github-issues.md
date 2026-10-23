@@ -44,7 +44,7 @@ Every `plot-deliver.sh --release` run ended `tracker=skipped`, and `plot-issue-s
 
 ### Close on release
 
-- `bug/released-plans-close-their-github-issues` — the release path closes issues on a GitHub tracker without `Tracker released status`, skips an issue another unfinished plan names, and reports closed and left-open counts in the summary <!-- builds: a rule deciding which issues a release closes, and the closed/left-open summary line -->
+- `bug/released-plans-close-their-github-issues` — the release path closes issues on a GitHub tracker without `Tracker released status`, skips an issue another unfinished plan names, and reports closed and left-open counts in the summary <!-- builds: a rule deciding which issues a release closes, and the closed/left-open summary line --> → #2373
 
 ### Board filter
 
