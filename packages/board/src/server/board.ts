@@ -913,6 +913,13 @@ const readBranchPlans = async (
   // branch would report one plan as several.
   const seen = new Set<string>();
   for (const { branch } of branches) {
+    // plot-ancestry: prefilter — a wrong "no" or "unknown" only costs reading a
+    // tree this branch did not need read; `onDefault` below still drops any path
+    // the default branch already carries. A wrong "yes" would skip a branch
+    // whose tip is genuinely still ahead, which `contains` does not produce: it
+    // answers from real ancestry, never from a squash-merge's rewritten history.
+    const merged = await refs.contains(`origin/${branch}`, `origin/${defaultBranch}`);
+    if (merged.ok && merged.value === 'yes') continue;
     for (const relPath of await planPathsInTree(refs, `origin/${branch}`, planDir)) {
       if (onDefault.has(relPath) || seen.has(relPath)) continue;
       const blob = await refs.showFile(`origin/${branch}`, relPath);
@@ -942,6 +949,17 @@ const readBranchPlans = async (
  * exactly that one call; a moved one re-reads everything. The key covers branch
  * names as well as SHAs, so a branch appearing or disappearing invalidates too.
  *
+ * THE KEY ALSO COVERS THE DEFAULT BRANCH'S TIP, and that is not free the way
+ * the prefixed branches' tips are: `prefixedBranches` gets those from the one
+ * `for-each-ref` call it already makes, but the default branch is excluded from
+ * that listing (`prefixedBranches` filters it out) and `readBranchPlans` reads
+ * it separately, inside the cached call. Without the default branch's tip in
+ * the key, a merge that adds a plan file to the default branch — leaving the
+ * idea branch's own tip untouched — does not change the key, so the cache keeps
+ * serving the list computed while that file was still absent from the default
+ * branch, and the default-branch reader supplies the same path a second time.
+ * That is the defect this cache existed to avoid re-introducing (#2410).
+ *
  * Keyed by repo, because the module is shared and the board takes its root as a
  * parameter — the same reason `fleet.ts` keys its cache that way.
  */
@@ -966,7 +984,15 @@ const collectBranchPlans = async (
     branchPlanCache.delete(repoRoot);
     return [];
   }
-  const key = branches.map((b) => `${b.branch}@${b.sha}`).join(' ');
+  const defaultTip = await refs.resolve(`origin/${defaultBranch}`);
+  const key = `${branches.map((b) => `${b.branch}@${b.sha}`).join(' ')} default@${defaultTip.ok ? defaultTip.value : ''}`;
+  // An unresolved default branch means the key cannot name what the read
+  // depended on, so the answer must not be stored: a later successful read
+  // would otherwise find a cache entry it can never match (the key is always
+  // the same unresolved placeholder) and read fresh forever, which is safe but
+  // pointless — or worse, a second unresolved read WOULD match it and serve an
+  // answer from whatever the default branch was when it failed to resolve.
+  if (!defaultTip.ok) return readBranchPlans(refs, planDir, branches, defaultBranch);
   const cached = branchPlanCache.get(repoRoot);
   if (cached && cached.key === key) return cached.plans;
   const plans = await readBranchPlans(refs, planDir, branches, defaultBranch);
@@ -2006,6 +2032,12 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
   const localOnlyPaths = new Set(
     planSources.filter((src) => src.local).map((src) => src.path),
   );
+  // EVERY PATH `planSources` ALREADY COVERS, ref-read or local — the final
+  // de-duplication guard below needs the whole set, not just the local half.
+  // `planSources` was read fresh this call, so this reflects the default
+  // branch as it is NOW, unlike `branchPlanCache`'s answer, which can still be
+  // serving a path the default branch had not gained when the cache was warmed.
+  const planSourcePaths = new Set(planSources.map((src) => src.path));
 
   // Plans under review are not in the working tree at all: a plan PR keeps its
   // file on its own branch until it merges, so of every plan file on the
@@ -2089,6 +2121,19 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
           // Skipped BEFORE the counter is read, so a skipped plan consumes no
           // staging directory and the numbering stays dense.
           if (localOnlyPaths.has(plan.path)) continue;
+          // THE LAST GUARD, AND IT IS NOT A SUBSTITUTE FOR `readBranchPlans`'s
+          // OWN EXCLUSION. That one runs inside the cached call and can only
+          // compare the paths the cache was built from; it cannot see a path the
+          // default branch gained AFTER the cache was warmed, because the cache
+          // key is what decides whether `readBranchPlans` runs again at all
+          // (#2410: a merge lands a plan on the default branch while the idea
+          // branch's tip — and so the cache key, before this change — stays
+          // put). `planSourcePaths` was read fresh this call, so it reflects the
+          // default branch as it is NOW — the default-branch reading wins,
+          // matching `localOnlyPaths`'s working-tree-wins rule immediately above
+          // for the same reason: both keep the fresher-read source and drop the
+          // one a stale cache could still be holding.
+          if (planSourcePaths.has(plan.path)) continue;
           // Numbered off the same counter as the ref plans above, so the two
           // staged populations cannot collide on a shared basename.
           const dir = path.join(stageDir, String(canonicalPath.size));
