@@ -12,7 +12,7 @@ import { trackerFixture } from '../src/adapters/tracker/tracker-fixture.js';
 import { issueOf } from '../src/adapters/tracker/tracker-shell.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
 import { isAnswered, type PortResult } from '../src/port-result.js';
-import type { StatusOutcome, StatusWrite, Tracker } from '../src/ports/tracker.js';
+import type { IssueRead, StatusOutcome, StatusWrite, Tracker } from '../src/ports/tracker.js';
 import type { Issue } from '../src/entities/issue.js';
 import type { LimitReading } from '../src/entities/limit.js';
 
@@ -234,6 +234,19 @@ describe('a tracker is asked apart from the git host', () => {
       'plot-host.sh': '[ "$*" = "issue-list" ] || exit 1; exit 0',
     });
     expect(await trackerGithub(without).issueList()).toEqual({ ok: true, value: [] });
+  });
+
+  it('issueListWithTitle asks the script for both the label and the title text', async () => {
+    // THE LABEL STAYS THE SAFETY NET: the title narrows the read to one PR, but
+    // the label is still passed so a search whose title qualifier GitHub
+    // ignores does not fall back to reading the whole untyped backlog.
+    const asked = scriptsThat({
+      'plot-host.sh': '[ "$*" = "issue-list --paged --label ai-generated --title-has PR #7 --limit 200" ] || { echo "got: $*" >&2; exit 1; }; exit 0',
+    });
+    expect(await trackerGithub(asked).issueListWithTitle('ai-generated', 'PR #7', 200)).toEqual({
+      ok: true,
+      value: { issues: [], complete: true, pages: 1 },
+    });
   });
 });
 
@@ -546,6 +559,37 @@ describe('the fixture stands in for a tracker that is there', () => {
     // the opposite of what it means to.
     expect(await trackerFixture().issueList()).toEqual({ ok: true, value: [] });
     expect(await trackerNone().issueList()).toEqual({ ok: false, why: 'unaskable' });
+  });
+
+  it('issueListWithTitle filters by label then by title, the way a real search narrows', async () => {
+    const other = { ...issue, id: 'QF-2', title: 'The forge has an issue on PR #12' };
+    const wanted = { ...issue, id: 'QF-3', title: 'The forge has an issue on PR #1' };
+    const tracker = trackerFixture({ titled: { 'ai-generated': [other, wanted] } });
+    const found = answer<IssueRead>(await tracker.issueListWithTitle('ai-generated', 'PR #1', 10));
+    // THE FIXTURE'S OWN FILTER IS A SUBSTRING MATCH, LIKE A REAL TRACKER SEARCH:
+    // it returns both rows naming "PR #1", including "PR #12". The exact check
+    // belongs to the caller (`findOpenReviewIssue`), not to this port.
+    expect(found.issues.map((i) => i.id)).toEqual(['QF-2', 'QF-3']);
+  });
+
+  it('issueListWithTitle reports no match from an absent label, same as issueListLabelled', async () => {
+    const tracker = trackerFixture({ titled: { 'ai-generated': [issue] } });
+    const found = answer<IssueRead>(await tracker.issueListWithTitle('other-label', 'PR #1', 10));
+    expect(found.issues).toEqual([]);
+  });
+
+  it('issueListWithTitle fails outright when told to', async () => {
+    const tracker = trackerFixture({ issueListWithTitleFails: true });
+    expect(await tracker.issueListWithTitle('ai-generated', 'PR #1', 10)).toEqual({ ok: false, why: 'failed' });
+  });
+
+  it('issueListWithTitle answers unaskable when told to, same shape as issueListLabelled', async () => {
+    const tracker = trackerFixture({ issueListWithTitleUnaskable: 'the Jira tracker cannot search issues by title' });
+    expect(await tracker.issueListWithTitle('ai-generated', 'PR #1', 10)).toEqual({
+      ok: false,
+      why: 'unaskable',
+      reason: 'the Jira tracker cannot search issues by title',
+    });
   });
 });
 

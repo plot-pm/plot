@@ -101,6 +101,8 @@ export const trackerGitHost = (gitHost: string, context: ShellContext): Tracker 
     issueListClosed: (since, limit): Promise<PortResult<ClosedIssues>> => reads.issueListClosed(since, limit),
     issueListOpen: (limit): Promise<PortResult<IssueRead>> => reads.issueListOpen(limit),
     issueListLabelled: (label, limit): Promise<PortResult<IssueRead>> => reads.issueListLabelled(label, limit),
+    issueListWithTitle: (label, titleHas, limit): Promise<PortResult<IssueRead>> =>
+      reads.issueListWithTitle(label, titleHas, limit),
     issueListChanged: (since, limit): Promise<PortResult<IssueRead>> => reads.issueListChanged(since, limit),
     // NO PERSON-SCOPED MODE DISTINCT FROM THE OPEN READ, for the same reason
     // `trackerGithub` has none: this connector's open read is never

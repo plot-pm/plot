@@ -56,6 +56,17 @@ export interface TrackerFixture {
   labelled?: Readonly<Record<string, readonly Issue[]>>;
   /** Whether `issueListLabelled` fails outright. */
   issueListLabelledFails?: boolean;
+  /**
+   * The open issues `issueListWithTitle` searches over, per label; a label
+   * absent here reports none. The fixture filters by title substring itself,
+   * the way GitHub's own search is not an exact match, so a test can assert
+   * the caller still runs its own exact check over what the search returns.
+   */
+  titled?: Readonly<Record<string, readonly Issue[]>>;
+  /** Whether `issueListWithTitle` fails outright. */
+  issueListWithTitleFails?: boolean;
+  /** Where `issueListWithTitle` answers `unaskable`, with this reason. */
+  issueListWithTitleUnaskable?: string;
   /** Where every `issueComment` is recorded, in call order, before it can refuse. */
   commented?: { id: string; body: string }[];
   /** Whether a comment write fails outright. */
@@ -175,6 +186,14 @@ export const trackerFixture = (fixture: TrackerFixture = {}): Tracker => {
     issueListLabelled: async (label, limit): Promise<PortResult<IssueRead>> => {
       if (fixture.issueListLabelledFails === true) return failed();
       const found = (fixture.labelled?.[label] ?? []).slice(0, limit);
+      return answered({ issues: found, complete: found.length < limit, pages: pagesOf(found.length) });
+    },
+
+    issueListWithTitle: async (label, titleHas, limit): Promise<PortResult<IssueRead>> => {
+      if (fixture.issueListWithTitleUnaskable !== undefined) return unaskable(fixture.issueListWithTitleUnaskable);
+      if (fixture.issueListWithTitleFails === true) return failed();
+      const matching = (fixture.titled?.[label] ?? []).filter((issue) => issue.title.includes(titleHas));
+      const found = matching.slice(0, limit);
       return answered({ issues: found, complete: found.length < limit, pages: pagesOf(found.length) });
     },
 
