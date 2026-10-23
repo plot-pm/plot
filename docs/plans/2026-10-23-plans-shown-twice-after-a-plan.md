@@ -51,7 +51,7 @@ Fix, in the order the issue asks:
 
 ### Fix
 
-- `bug/plans-shown-twice-after-a-plan` — key the branch-plan cache on the default branch tip, skip branches contained in the default branch, and de-duplicate staged plans by path, with a regression test over a merged branch that remains
+- `bug/plans-shown-twice-after-a-plan` — key the branch-plan cache on the default branch tip, skip branches contained in the default branch, and de-duplicate staged plans by path, with a regression test over a merged branch that remains → #2449
 
 ## Notes
 
