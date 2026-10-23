@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2430 merged
+- **Started:** 2026-10-23, Jan Wloka, `bug/jira-key-leaves-the-inbox`
 
 ## Changelog
 
