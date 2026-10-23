@@ -383,17 +383,25 @@ export function prNote(
  * the same way a spent budget did, so *could not be read* is as wrong here as
  * there; but `prNextInSeconds` is the primary bucket's reset and says nothing
  * about a ceiling on simultaneous calls. `resetApplies` is what decides.
+ *
+ * THE AGE NAMES ROWS READ FROM `issues.json`, the same shape `prNote`'s
+ * `ageSuffix` uses for a stale PR map: `issueAgeSeconds` is set only where the
+ * board fell back to the fleet's last index rather than its own failed read, so
+ * a board with no fleet and nothing to fall back to prints no age.
  */
-export function issueNote(fleet: Pick<Fleet, 'issueError' | 'prNextInSeconds'>): string | null {
+export function issueNote(fleet: Pick<Fleet, 'issueError' | 'prNextInSeconds'> & Partial<Pick<Fleet, 'issueAgeSeconds'>>): string | null {
   const kind = hostErrorState(fleet.issueError);
   if (kind === null) return null;
   const when = resetApplies(refusalKind(fleet.issueError))
     ? resetPhrase(fleet.prNextInSeconds)
     : null;
+  const age = agePhrase(fleet.issueAgeSeconds ?? null);
+  const ageSuffix = age ? ` — showing the fleet's rows from ${age} ago` : '';
   if (kind === 'secondary-limit') {
     return (
       'Open issues paused: the tracker refused a burst, not a spent budget' +
       (when ? `, service returns in ~${when}` : '') +
+      ageSuffix +
       ' — it clears in seconds; this list may be incomplete.'
     );
   }
@@ -401,10 +409,11 @@ export function issueNote(fleet: Pick<Fleet, 'issueError' | 'prNextInSeconds'>):
     return (
       "Open issues paused: the tracker's rate limit is spent" +
       (when ? `, service returns in ~${when}` : '') +
+      ageSuffix +
       ' — this list may be incomplete.'
     );
   }
-  return `Open issues could not be read, so this list may be incomplete — ${fleet.issueError}`;
+  return `Open issues could not be read, so this list may be incomplete — ${fleet.issueError}${ageSuffix}`;
 }
 
 /**
