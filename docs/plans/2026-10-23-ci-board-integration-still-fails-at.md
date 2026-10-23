@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2445 merged
+- **Started:** 2026-10-23, Jan Wloka, `infra/board-integration-does-not-need-the-apt-mirrors`
 
 ## Changelog
 
