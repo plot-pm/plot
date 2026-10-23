@@ -396,21 +396,33 @@ jobs:
           restore-keys: |
             playwright-${{ runner.os }}-
 
-      # THE APT FETCH, NOT ONLY THE BROWSER, NEEDED ITS OWN CACHE. The browser
-      # cache above hit every time and `install --with-deps` still timed out,
-      # because the 25.9 MB it fetches is the OS packages (9 missing fonts, 8
-      # held at an older version on the runner image), not the browser binary.
+      # THE APT FETCH, NOT ONLY THE BROWSER, NEEDED ITS OWN CACHE — AND IT
+      # CANNOT BE /var/cache/apt/archives DIRECTLY. The browser cache above hit
+      # every time and `install --with-deps` still timed out, because the
+      # 25.9 MB it fetches is the OS packages (9 missing fonts, 8 held at an
+      # older version on the runner image), not the browser binary.
       # `apt-get install` skips re-downloading a `.deb` already present and
-      # valid in /var/cache/apt/archives, so caching that directory removes
-      # the mirror fetch on a hit without changing the install command. Keyed
-      # on the resolved Playwright version, like the browser cache: the set of
-      # packages `install-deps` wants follows that version, not the lockfile.
+      # valid in its archive directory, so staging that directory's `.deb`s in
+      # a cache removes the mirror fetch on a hit. But `/var/cache/apt/archives`
+      # itself is root-owned (`sudo apt-get` creates it), and `actions/cache`'s
+      # tar always runs as the unprivileged runner user on BOTH save and
+      # restore. Measured on this branch (40028745673): a cache hit restored
+      # into a user-owned staging directory first, `tar` still failed on every
+      # `.deb` with `Permission denied` when pointed at the real apt directory,
+      # the step read the failure as a miss, and this run's mirror was
+      # genuinely slow — both retried `apt-get` attempts then timed out for
+      # real, the exact failure this plan removes. So the cache below targets
+      # `~/.cache/playwright-apt`, owned by the runner user throughout, and the
+      # two install steps around it `sudo cp` into and out of the real apt
+      # directory. Keyed on the resolved Playwright version, like the browser
+      # cache: the set of packages `install-deps` wants follows that version,
+      # not the lockfile.
       - name: Cache Playwright's apt packages
         timeout-minutes: 10
         id: playwright-apt-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: /var/cache/apt/archives
+          path: ~/.cache/playwright-apt
           key: playwright-apt-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
           restore-keys: |
             playwright-apt-${{ runner.os }}-
@@ -424,7 +436,9 @@ jobs:
       # versions of 8 more, so `install-deps` fetches 25.9 MB on every run and
       # `install-deps --dry-run` would report them missing on every run: there
       # was nothing to skip on a cache hit. There is now: a hit on the apt
-      # cache above puts those `.deb` files in place before this step runs.
+      # cache above is copied into /var/cache/apt/archives before this step
+      # runs, under `sudo` so the copy lands with the ownership `apt-get`
+      # already expects there.
       #
       # THE TIMED-OUT ATTEMPT MUST END ITS `apt-get`. Measured 2026-10-23 on
       # main (39930184048 for 6c3c8b688, 39930494389 for 3f7e3ed49): attempt 1
@@ -451,6 +465,9 @@ jobs:
         timeout-minutes: 7
         run: |
           set -euo pipefail
+          mkdir -p ~/.cache/playwright-apt
+          sudo mkdir -p /var/cache/apt/archives
+          sudo cp -n ~/.cache/playwright-apt/*.deb /var/cache/apt/archives/ 2>/dev/null || true
           echo 'DPkg::Lock::Timeout "60";' | sudo tee /etc/apt/apt.conf.d/90-plot-lock-timeout >/dev/null
           pw_cli="$(dirname "$(pnpm --filter @plot-pm/board exec node -p "require.resolve('playwright/package.json')")")/cli.js"
           node_bin="$(command -v node)"
@@ -463,18 +480,19 @@ jobs:
           done
           exit 1
 
-      # THE CACHE STEP'S POST-JOB SAVE RUNS AS THE RUNNER USER AND NEVER SAW A
-      # SAVED CACHE WITHOUT THIS. Measured on this branch's first run
-      # (40025699645): the apt cache above missed as expected on a first run,
-      # the install above wrote root-owned `lock` and `partial/` entries into
-      # /var/cache/apt/archives as it always has under `sudo`, and the cache
-      # action's own post-job step failed to save with `tar: .../lock: Cannot
-      # open: Permission denied` — a warning, not a job failure, but the cache
-      # key stays empty on every run forever. Neither entry belongs in a
-      # restored cache anyway: `lock` is apt's live lock file and `partial/`
-      # is in-progress download staging, both meaningless once the job ends.
-      - name: Make the cached apt archive readable
-        run: sudo rm -rf /var/cache/apt/archives/lock /var/cache/apt/archives/partial
+      # THE STAGING COPY BACK, FOR THE CACHE STEP'S POST-JOB SAVE TO SEE. The
+      # install above landed fresh `.deb`s in /var/cache/apt/archives, owned by
+      # root as `sudo apt-get` always leaves them; copying them out to the
+      # runner-owned staging directory this cache step ACTUALLY watches is what
+      # lets `actions/cache`'s post-job tar — which never runs as root — read
+      # them. `sudo cp` can read a root-owned source; nothing past this step
+      # touches /var/cache/apt/archives directly again.
+      - name: Stage this run's apt packages for the cache
+        if: always()
+        run: |
+          mkdir -p ~/.cache/playwright-apt
+          sudo cp -n /var/cache/apt/archives/*.deb ~/.cache/playwright-apt/ 2>/dev/null || true
+          sudo chown "$(id -u):$(id -g)" ~/.cache/playwright-apt/*.deb 2>/dev/null || true
 
       # The browser download runs only on a cache miss, as the runner user, so
       # the browser lands in ~/.cache/ms-playwright where the cache step saves
