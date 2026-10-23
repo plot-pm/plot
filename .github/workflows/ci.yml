@@ -463,6 +463,19 @@ jobs:
           done
           exit 1
 
+      # THE CACHE STEP'S POST-JOB SAVE RUNS AS THE RUNNER USER AND NEVER SAW A
+      # SAVED CACHE WITHOUT THIS. Measured on this branch's first run
+      # (40025699645): the apt cache above missed as expected on a first run,
+      # the install above wrote root-owned `lock` and `partial/` entries into
+      # /var/cache/apt/archives as it always has under `sudo`, and the cache
+      # action's own post-job step failed to save with `tar: .../lock: Cannot
+      # open: Permission denied` — a warning, not a job failure, but the cache
+      # key stays empty on every run forever. Neither entry belongs in a
+      # restored cache anyway: `lock` is apt's live lock file and `partial/`
+      # is in-progress download staging, both meaningless once the job ends.
+      - name: Make the cached apt archive readable
+        run: sudo rm -rf /var/cache/apt/archives/lock /var/cache/apt/archives/partial
+
       # The browser download runs only on a cache miss, as the runner user, so
       # the browser lands in ~/.cache/ms-playwright where the cache step saves
       # it. It starts no `apt-get`, so `timeout` ends the whole attempt. Two
