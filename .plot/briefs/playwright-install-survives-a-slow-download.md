@@ -1,54 +1,177 @@
-## Implementation brief — ci-board-integration-fails-when-the (wave 1: Install step)
+## Implementation brief — ci-board-integration-fails-when-the
 
-- **Plan (canonical):** `docs/plans/2026-10-23-ci-board-integration-fails-when-the.md` on `main`
+- **Plan (canonical):** docs/plans/2026-10-23-ci-board-integration-fails-when-the.md on main
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2362 merged
 - **Branch:** `infra/playwright-install-survives-a-slow-download` (base: `main`)
-- **Ends as:** one PR to `main`, opened with `skills/plot/scripts/plot-open-pr.sh`
-- **Review of the code:** per repo convention — the PR is reviewed as code; CI is the authority
-
-One wave, one branch. Nothing waits on it and it waits on nothing.
+- **Ends as:** one PR to `main`
+- **Review of the code:** plot-review (GitHub App), required since 2026-10-15
 
 ### What to build
 
-The `Install Playwright browser` step in the `board-integration` job (`.github/workflows/ci.yml`, near `:397`) carries `timeout-minutes: 3`. On 2026-10-22 it timed out on four PRs (#2348 twice, #2349, #2356, #2358); `validate` then failed on `Require the split jobs` although no test ran, and every rerun passed. Issue #2360 says the step has no cache. That is false: `Cache the Playwright browser` (`:381`) exists. The slice measures which of three causes applies before it edits anything: (1) the cache key hashes `packages/board/package.json` and misses on unrelated edits, (2) `--with-deps` runs `apt-get` on every run, cache hit or not, (3) 3 minutes is below a cold install on a slow day (comment says ~45 s warm, ~90 s cold).
+Edit `.github/workflows/ci.yml`'s `board-integration` job: key the `Cache the
+Playwright browser` step on the resolved Playwright version instead of on
+`packages/board/package.json`, and give `Install Playwright browser` a bound
+that survives a cold or slow run plus one retry.
 
-Read the four failed runs' logs (`gh run view --log`, the step's start and end times) and write the per-run step duration and the named cause into the PR body. Then edit the cache step and the install step. The plan is canonical; this is orientation.
+The cause is settled — don't re-derive it. Pulled directly from the three
+failed runs named in the plan's Motivation (`gh run view <id> --json jobs`
+against runs `39827563096`, `39813209366`, `39806767896`, all 2026-10-22):
 
-### Decisions the plan settles — do not re-derive them
+```
+Cache the Playwright browser: success, 3-5s  (a cache HIT every time)
+Install Playwright browser:   failure, ~3:13 elapsed
+```
 
-**Do not raise one bound.** The comment above the step records that a connection that never completes held a step past 10 minutes eleven times in one day (measured 2026-08-19, commit `95a08ee46`). A single larger bound turns a hang back into a long silence. The retry runs the step twice at a bound near 5 minutes each.
+The install step's own log shows why a cache hit still times out:
+`playwright install --with-deps chromium` runs `apt-get` for system packages
+on every invocation regardless of the `~/.cache/ms-playwright` cache state.
+In all three failures `apt-get` was mid-download against
+`azure.archive.ubuntu.com` — 25.9 MB of packages, several `Get:` lines each
+taking 20-40+ seconds — when the 3-minute bound cut it off. This is the
+plan's cause **#2** ("the cache covers the browser binary and not the OS
+packages, so a slow Ubuntu mirror costs time on a cache hit too"), not #1
+(cache-key churn) or #3 (bound too low for a legitimately cold run — there
+was no cold run in any of the three: the cache hit every time).
 
-**No third-party retry action.** Use a shell loop or a second step guarded by `if: steps.<id>.outcome == 'failure'` with `continue-on-error`. A repository retry mechanism, if one exists, wins; a grep of `ci.yml` for `retry` finds none for this step (the `git-retry` hits at `:1195` concern another test).
+That changes the fix's shape from what the plan's bullet list implies: the
+browser cache is not the thing that was stale, so re-keying it (plan line 39)
+removes a theoretical future failure mode but **does not touch the measured
+one**. The measured one needs the install step itself to stop re-running
+`apt-get` on a cache hit — split the install per the plan's third bullet:
+on a cache hit, `playwright install-deps chromium` alone (browser already
+present, skip the browser fetch and the deps that are already satisfied by
+whatever base image state produced the hit); on a miss, the full
+`install --with-deps`. Do both edits — keying the cache correctly is still
+right per the plan's reasoning about `package.json` churn — but the retry
+and the install split are what fixes the four cited failures, not the key
+alone.
 
-**Key the cache on the resolved Playwright version**, from `pnpm --filter @plot-pm/board exec playwright --version`, not on `package.json`. The existing comment at `:376` already claims this keying; the code does not do it. Fix the code, keep the comment true.
+### The decisions the plan settles — do not re-derive them
 
-**Split the install by cache outcome.** On `steps.playwright-cache.outputs.cache-hit == 'true'` run `playwright install-deps chromium` only; otherwise the full `install --with-deps chromium`.
+**Keep the retry inside the step, not a job-level rerun.** GitHub Actions has
+no built-in step retry; the plan says "the slice keeps the retry mechanism
+the repository already uses, if one exists, and adds no third-party action
+for it." Grepped: this repo has no step-retry action anywhere in
+`.github/workflows/`— the one `retry` hits in `ci.yml` (`git-retry.test.mjs`,
+around line 1195) are Node-level retries around `fs.rmSync` in board/fleet
+tests, an unrelated mechanism for an unrelated failure class. So "the
+mechanism the repo already uses" resolves to **none exists** — write the
+retry as a shell loop inside the `run:` block (e.g. `for i in 1 2; do … &&
+break; done`) rather than reaching for a marketplace action, consistent with
+the plan's "adds no third-party action" constraint.
 
-### The open question that decides the bound
+**The job-level timeout is the binding constraint on how big the retry bound
+can be, and it's tighter than it looks.** `board-integration` itself carries
+`timeout-minutes: 15` (ci.yml:333, split out 2026-10-20 per #2121, measured
+median 542.5s / p95 600s / max 606s before the split). Checkout + pnpm
+install + board build + cache step cost about a minute before the install
+step starts (measured: job `startedAt` to install-step `startedAt` was ~45s
+in all three failed runs). The `Board integration tests` step after it is
+measured at 4-8 minutes normally, up to 15 on its own bound. Two retry
+attempts at ~5 minutes each is 10 minutes — added to the ~1 minute of setup
+before it, that's 11 minutes before the test step even starts, leaving as
+little as 4 minutes for a step the repo's own comment says runs 4-8 minutes
+green. **A straightforward "raise the single bound and add a retry at the
+same bound" will intermittently blow the 15-minute job ceiling on a slow but
+otherwise-fine run.** Either keep both attempts well under 5 minutes each
+(the comment already measures ~90s cold — a 2-3 minute bound per attempt
+still covers a 2x-slow cold install with margin), or raise
+`board-integration`'s own `timeout-minutes` alongside the step retry. The
+plan's second open question ("does a retry stay inside the job's
+timeout-minutes?") is this calculation — it does not, under the
+5-minutes-per-attempt framing the plan's prose used as an example, so pick
+a bound that does and say so in the PR description with the arithmetic above.
 
-The job has `timeout-minutes: 15` (`:333`). Two attempts at 5 minutes use 10 of them, before the 15-minute test step and the build. Answer the plan's second open question with arithmetic from the job's measured median (542.5 s, p95 600 s, max 606 s, per the comment at `:327`): either shrink the per-attempt bound or raise the job ceiling, and say which and why in the comment. A retry that the job ceiling cancels first is not a retry.
+**Don't touch the 3-minute bound's *reasoning*, only its value.** The comment
+above the step (ci.yml:391-396) documents a real, distinct failure mode: a
+connection that never completes, measured past 10 minutes eleven times in
+one day before the bound existed. A retry must not remove that protection —
+each individual attempt still needs a tight-enough bound that a truly hung
+connection fails fast and gets retried, rather than one long attempt that
+silently absorbs the hang. Keep per-attempt bounds short; let the retry count
+cover the legitimate slow-but-progressing case the three measured failures
+show.
+
+**The `restore-keys` prefix matters for the version-keyed cache.** The
+existing cache already has `restore-keys: playwright-${{ runner.os }}-` as a
+fallback. Re-keying on the resolved Playwright version
+(`pnpm --filter @plot-pm/board exec playwright --version`) should keep that
+prefix fallback — it's what lets a Playwright version bump still restore
+*something* (the OS-level `apt` cache state, if the action's cache format
+makes that meaningful) rather than starting from nothing, same rationale the
+current comment gives for having a fallback at all.
 
 ### Done when
 
-The plan's `## Done when` list, if present, and the plan's Approach bullets are the specification. Plus:
+The plan's `## Done when` is informal in this plan (see Design/Open
+Questions — there is no literal `## Done when` heading). Treat these as
+the specification, derived from the Motivation and Design sections:
 
-- The PR body names the cause of each of the four failures with its step duration.
-- The `Install Playwright browser` step cannot hold a job past the job's own ceiling, shown by the arithmetic above.
-- A hung download still fails within about 10 minutes in total, not more.
-- `validate`'s `Require the split jobs` step is untouched.
+- The cache step's `key` hashes the resolved Playwright version, not
+  `packages/board/package.json`.
+- The install step runs `install-deps` only on a cache hit and the full
+  `install --with-deps` on a miss.
+- The install step retries once on timeout or failure, at a per-attempt
+  bound that still fails fast on a genuinely hung connection (keep the
+  existing comment's reasoning, adjust only the number).
+- The total retried-install time plus the rest of the job fits inside
+  `board-integration`'s `timeout-minutes: 15` with real margin for the
+  `Board integration tests` step's normal 4-8 minute runtime — name the
+  arithmetic in the PR body since this is exactly where a plausible-looking
+  fix can still blow the job bound (see above).
+- No new third-party action introduced for the retry.
 
-Gates: one `.changeset/*.md` (package `plot`, description first, `bumps:` block last, `plan:` line inside the block). Run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints; the suites in the `CI suites` key run in CI. The slice touches no `.sh` file, so `scripts/check-shell-lines.sh` has nothing to measure; do not add shell under `skills/`. A workflow change can only be proved by a CI run: say in the PR body which run exercised the new step, and whether it was a cache hit or miss. Do not run `pnpm run test:e2e` locally.
+Plus the repo's standing gates: no `State:` line hand-edited (none expected
+here — this plan has no further transition this branch triggers), changeset
+only if this touches a versioned package (it does not — `.github/workflows/`
+is unversioned infra, so **no changeset**), and
+`scripts/check-shell-lines.sh` is irrelevant here too since no `.sh` file
+under `skills/` changes.
+
+Run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push
+and run what it prints. A CI workflow file matches no path pattern in this
+repo's `Local checks` config (all patterns are under `test/`, `packages/`,
+or `**` script gates), so expect the generic `**` gates to run and nothing
+package-specific. The suites under `CI suites` run in CI on the PR itself —
+do not run `pnpm run test:e2e` locally (it dispatches real workers into
+sandbox repos and is CI's job, not a local one).
 
 ### Bookkeeping
 
-- Push the first real commit as soon as it exists.
-- Open the PR with `skills/plot/scripts/plot-open-pr.sh` (`--draft` while it moves). Never `gh pr create`.
-- When the PR exists, write its number into the slice heading in the plan's `## Slices` section on `main`: `### Install step (Branch: infra/playwright-install-survives-a-slow-download, PR: #N)`. The trailing `→ #N` form parses as no PR for a waves plan.
+Open the PR through the controller once the branch has a commit:
+
+```bash
+skills/plot/scripts/plot-open-pr.sh
+```
+
+It reads the plan, titles the PR from the `### Install step` wave heading,
+and bodies it with the plan and this brief. Do not use `gh pr create`.
+
+When the PR exists, append `→ #<number>` to this branch's line in the
+plan's `## Slices` section (`docs/plans/2026-10-23-ci-board-integration-fails-when-the.md`,
+the `infra/playwright-install-survives-a-slow-download` line). No project
+board is configured in this repo's `## Plot Config`, so skip the "Ready"
+status step.
+
+Push the first real commit as soon as it exists — a branch with nothing but
+a `PLOT-BLOCKED` marker is what `plot-open-pr.sh` specifically refuses.
 
 ### Scope guard
 
-This branch owns `.github/workflows/ci.yml` (the `board-integration` job's cache and install steps, and its `timeout-minutes` if the arithmetic requires it) and one changeset. Not this branch: the `validate` job, the `helper-contracts` job, any board source.
+This branch owns `.github/workflows/ci.yml` only — specifically the
+`Cache the Playwright browser` and `Install Playwright browser` steps inside
+the `board-integration` job (and `board-integration`'s own `timeout-minutes`
+if that needs to move per the arithmetic above). The plan's Changelog note
+says board impact is none; this is infra-only.
 
-No other branch in flight touches `ci.yml` at brief time (`git log` shows no commit on it since `599d970b7`); re-check with `git ls-remote --heads origin` before the first push.
+This plan has one slice total (`### Install step`, the only branch), so
+there is no sibling branch in flight for this plan to collide with. Check
+`/plot-pulse` before starting in case an unrelated plan is touching the same
+workflow file concurrently — `git log --oneline -- .github/workflows/ci.yml`
+is the cheap local check if `/plot-pulse` isn't available.
 
-If you find something the plan did not anticipate, report it rather than improvising outside scope.
+If you find the cause doesn't match what's documented above once you look
+at the file yourself (e.g. the workflow has changed since this brief was
+written), report that rather than silently implementing against a stale
+reading — the measurement above is from runs on 2026-10-22, and the file on
+`main` is the current truth.
