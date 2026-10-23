@@ -178,6 +178,53 @@ describe('each population the rule cannot place answers unknown and stays', () =
   });
 });
 
+describe('a row with no PR is owned by its plan\'s assignee, author or approver', () => {
+  // The reported case: a Delivery row for a branch no PR has yet, whose plan
+  // names `ckehl` (Christian Kehl) as assignee. `ckehl` is not in this
+  // repository's own `People` config, so the fixture declares its own
+  // directory mapping it to a third person, distinct from `reader`.
+  const directory = parsePersonDirectory('jwloka = Jan Wloka; ckehl = Christian Kehl');
+  const jwloka = readerFrom({ hostUser: 'jwloka', people: directory });
+  const ckehl = readerFrom({ hostUser: 'ckehl', people: directory });
+
+  it('hides the reported row from a reader the assignee does not resolve to', () => {
+    const delivery = row({ kind: 'branch', branch: 'feature/ckehl-work', pr: null, assignee: 'ckehl' });
+    expect(ownedFromRow(delivery)).toEqual({ kind: 'plan', assignee: 'ckehl', author: '', approver: '' });
+    expect(rowsForReader([delivery], jwloka, true)).toHaveLength(0);
+  });
+
+  it('shows the same row to the reader the assignee resolves to', () => {
+    const delivery = row({ kind: 'branch', branch: 'feature/ckehl-work', pr: null, assignee: 'ckehl' });
+    expect(rowsForReader([delivery], ckehl, true)).toHaveLength(1);
+  });
+
+  it('keeps a row with no PR whose plan names nobody', () => {
+    const unnamed = row({ kind: 'branch', branch: 'feature/unnamed', pr: null, assignee: '', author: '', approver: '' });
+    expect(ownedFromRow(unnamed)).toEqual({ kind: 'other' });
+    expect(rowsForReader([unnamed], jwloka, true)).toHaveLength(1);
+  });
+
+  it('keeps a PR row whose author is another person hidden, and the reader\'s shown, whatever the plan fields say', () => {
+    const theirs = row({
+      kind: 'branch', branch: 'feature/a-branch', pr: { number: 1, author: 'ckehl' },
+      assignee: 'jwloka', author: 'jwloka', approver: 'jwloka',
+    });
+    const mine = row({
+      kind: 'branch', branch: 'feature/b-branch', pr: { number: 2, author: 'jwloka' },
+      assignee: 'ckehl', author: 'ckehl', approver: 'ckehl',
+    });
+    expect(ownedFromRow(theirs)).toEqual({ kind: 'pr', author: 'ckehl' });
+    expect(ownedFromRow(mine)).toEqual({ kind: 'pr', author: 'jwloka' });
+    expect(rowsForReader([theirs, mine], jwloka, true)).toEqual([mine]);
+  });
+
+  it('keeps a row whose assignee, author and approver are all undefined, as an older payload sends', () => {
+    const legacy = { pr: null, assignee: undefined, author: undefined, approver: undefined };
+    expect(ownedFromRow(legacy)).toEqual({ kind: 'other' });
+    expect(rowsForReader([legacy], jwloka, true)).toHaveLength(1);
+  });
+});
+
 describe('an agent reaches the agent arm through AgentList', () => {
   const store = new Map<string, string>();
 

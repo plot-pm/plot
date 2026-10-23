@@ -3343,6 +3343,46 @@ export const AgentRowSchema = z.object({
     ])
     .nullable()
     .default(null),
+  /**
+   * The plan's `Assignee:` field, for a row with NO PR — `''` where the plan
+   * names nobody, or where this row carries no plan at all.
+   *
+   * SET WHERE THE ROW IS CREATED, from the plan's parsed meta — never derived
+   * in the renderer from `planFile`. `sprint` above states why at length: a
+   * derivation in the client is a guess with a rule attached, and it goes
+   * wrong first on the rows that have no plan. Read by `ownedFromRow`'s `plan`
+   * arm, together with {@link AgentRowSchema.author} and
+   * {@link AgentRowSchema.approver}.
+   *
+   * Defaults to `''` so a pulse from an older server still validates — and the
+   * row then names no owner through this field, same as a plan that names
+   * nobody.
+   */
+  assignee: z.string().default(''),
+  /**
+   * Who wrote the plan this row's branch belongs to, for a row with NO PR —
+   * `''` where the git history has no record, or where this row carries no
+   * plan at all.
+   *
+   * The plan's first committer on the default branch, the same reading
+   * `board.ts`'s `planAuthors` gives the Discovery card's `author` field. Not
+   * the PR author: a row WITH a pr keeps `{ kind: 'pr', author }` from the
+   * host's handle instead, and this field is not consulted.
+   *
+   * Defaults to `''` for the reason {@link AgentRowSchema.assignee} gives.
+   */
+  author: z.string().default(''),
+  /**
+   * Who approved the plan this row's branch belongs to, for a row with NO
+   * PR — `''` where the plan is not yet approved, or where this row carries
+   * no plan at all.
+   *
+   * Read off the plan's `Approved:` line through the domain's `approverOf`,
+   * the same reading the Discovery card's `approver` field uses.
+   *
+   * Defaults to `''` for the reason {@link AgentRowSchema.assignee} gives.
+   */
+  approver: z.string().default(''),
 });
 export type AgentRow = z.infer<typeof AgentRowSchema>;
 

@@ -2649,17 +2649,42 @@ export const draftPlanOf = (meta: PlanMeta, relPath: string): DraftPlan | null =
     : null;
 
 /**
- * The working-tree plan estate, parsed once: every plan's status keyed by slug,
- * and every plan at `Draft` with its `rounds`.
+ * A plan's assignee, author and approver — the fields an `AgentRow` with no PR
+ * needs to answer whose it is. See `AgentRowSchema.assignee`.
+ */
+export interface PlanOwnerFields {
+  assignee: string;
+  author: string;
+  approver: string;
+}
+
+/**
+ * The plan estate, parsed once: every plan's status keyed by slug, every
+ * plan's owner fields keyed by slug, and every plan at `Draft` with its
+ * `rounds`.
  *
- * Both answers come from one `plot-plan-meta.sh` parse, so the fleet's sprint
- * counts and its Draft plan list cannot read two versions of one plan.
+ * `statusBySlug`, `draftPlans` and `approvedSpikes` read `origin/<default>`
+ * plus the working tree. `fieldsBySlug` also reads every plan that exists only
+ * on a branch under a configured `Branch prefixes` entry — the population
+ * `buildBoard`'s cards read through `collectBranchPlans`, and served from the
+ * same tip-SHA cache. A branch-only plan has no author, because
+ * `refs.planAuthors` walks the default branch only; the card reads it the same
+ * way.
+ *
+ * All answers come from one `plot-plan-meta.sh` parse, so the fleet's sprint
+ * counts, its Draft plan list and its rows' owner fields cannot read two
+ * versions of one plan.
  */
 export async function planEstate(
   opts: BuildBoardOptions,
   pulse: FleetReading | null,
   complete: boolean,
-): Promise<{ statusBySlug: Map<string, PlanStatus>; draftPlans: DraftPlan[]; approvedSpikes: Set<string> }> {
+): Promise<{
+  statusBySlug: Map<string, PlanStatus>;
+  fieldsBySlug: Map<string, PlanOwnerFields>;
+  draftPlans: DraftPlan[];
+  approvedSpikes: Set<string>;
+}> {
   const refs = refsFor(opts);
   const planDir = await readConfigAsync(opts, 'Plan directory', 'docs/plans/');
   const repoRoot = resolvedRepoRoot(opts);
@@ -2668,10 +2693,19 @@ export async function planEstate(
   // cards read a ref is how one row came to hold two answers of different ages
   // — the defect, in the one place whose wrongness is a refused button rather
   // than a stale label.
-  const { sources } = await collectPlanSources(
-    refs, repoRoot, planDir, `origin/${await defaultBranchOf(opts, refs)}`,
-  );
+  const defaultBranch = await defaultBranchOf(opts, refs);
+  const { sources } = await collectPlanSources(refs, repoRoot, planDir, `origin/${defaultBranch}`);
+  // EACH PLAN'S AUTHOR, read the same way the Discovery card's `author` field
+  // is: one batched `git log` walk over the default branch, keyed by the
+  // repository-relative path `planAuthors` returns — the same key `relPath`
+  // below produces. A plan not yet on that ref is absent from the map, and
+  // gets no author, same as the card.
+  const planAuthors = await (async () => {
+    const read = await refs.planAuthors(`origin/${defaultBranch}`, planDir);
+    return read.ok ? read.value : new Map<string, string>();
+  })();
   const bySlug = new Map<string, PlanStatus>();
+  const fieldsBySlug = new Map<string, PlanOwnerFields>();
   const draftPlans: DraftPlan[] = [];
   const approvedSpikes = new Set<string>();
   // Ref-read plans have no file, so the parse needs a scratch copy — the same
@@ -2696,10 +2730,54 @@ export async function planEstate(
       canonicalPath.set(file, src.path);
       files.push(file);
     }
+    // PLANS THAT EXIST ONLY ON A BRANCH, for `fieldsBySlug` alone. A Draft
+    // plan on `idea/<slug>` owns its rows' "no PR" case (#2389), and neither
+    // source above carries it. The same exclusion `buildBoard` applies: a plan
+    // the working tree already supplies is not staged twice.
+    const branchOnly = new Set<string>();
+    const prefixes = (await readConfigAsync(opts, 'Branch prefixes', ''))
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const known = new Set(sources.map((src) => src.path));
+    const branchPlans = prefixes.length === 0
+      ? []
+      : await collectBranchPlans(refs, repoRoot, planDir, prefixes, defaultBranch).catch(() => []);
+    for (const plan of branchPlans) {
+      if (known.has(plan.path)) continue;
+      if (stageDir === null) {
+        stageDir = makeStageDir('plot-board-status-');
+      }
+      const dir = path.join(stageDir, String(canonicalPath.size));
+      const file = path.join(dir, path.basename(plan.path));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(file, plan.content, 'utf8');
+      canonicalPath.set(file, plan.path);
+      branchOnly.add(plan.path);
+      files.push(file);
+    }
     for (const meta of await readPlanMeta(opts, files)) {
       const canonical = canonicalPath.get(meta.file);
       const relPath = canonical ?? path.relative(repoRoot, meta.file);
-      bySlug.set(planSlug(relPath), planStatus(meta, pulse, complete));
+      const slug = planSlug(relPath);
+      if (branchOnly.has(relPath)) {
+        // Owner fields only: the status, Draft list and spike answers keep the
+        // default-branch-plus-working-tree population their callers count.
+        if (!fieldsBySlug.has(slug)) {
+          fieldsBySlug.set(slug, {
+            assignee: meta.assignee,
+            author: '',
+            approver: approverOf(meta.approved_raw),
+          });
+        }
+        continue;
+      }
+      bySlug.set(slug, planStatus(meta, pulse, complete));
+      fieldsBySlug.set(slug, {
+        assignee: meta.assignee,
+        author: planAuthors.get(relPath) ?? '',
+        approver: approverOf(meta.approved_raw),
+      });
       const draft = draftPlanOf(meta, relPath);
       if (draft) draftPlans.push(draft);
       const spike = approvedSpikeOf(meta);
@@ -2711,7 +2789,7 @@ export async function planEstate(
     // and it also awaits the parser before reaching this line.
     if (stageDir) removeStageDir(stageDir);
   }
-  return { statusBySlug: bySlug, draftPlans, approvedSpikes };
+  return { statusBySlug: bySlug, fieldsBySlug, draftPlans, approvedSpikes };
 }
 
 // ─── Plan viewer: render a single plan file to HTML ──────────────────────────

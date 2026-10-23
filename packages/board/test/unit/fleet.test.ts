@@ -24,7 +24,8 @@ import {
 } from '../../src/contract/schema.js';
 import { showsWorkerLog } from '../../src/app/components/AgentList.js';
 import type { PrRecord } from '../../src/server/fleet.js';
-import { parsePhaseMap, prRowPlacement } from '@plot-pm/domain';
+import { parsePhaseMap, prRowPlacement, parsePersonDirectory } from '@plot-pm/domain';
+import { rowsForReader, readerFrom } from '../../src/app/lib/agent-rows/mine-filter.js';
 
 // The classifier is where the tab's judgments live: which group a branch lands
 // in IS the answer to "what should I do next". Tested as pure functions rather
@@ -2942,6 +2943,55 @@ describe('rowsFromPulse', () => {
       // client-side cast would never apply.
       const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
       expect(rows.every((r) => r.sprint === '')).toBe(true);
+    });
+  });
+
+  describe('fieldsBySlug carries a plan\'s owner fields onto its branch row', () => {
+    // #967-style fixture: the reported case was three Delivery rows staying
+    // under WAITING ON YOU for a reader the plan's assignee does not name,
+    // because the row had no PR and nothing on it said whose plan it was.
+    const directory = parsePersonDirectory('jwloka = Jan Wloka; ckehl = Christian Kehl');
+    const jwloka = readerFrom({ hostUser: 'jwloka', people: directory });
+    const ckehl = readerFrom({ hostUser: 'ckehl', people: directory });
+    const fieldsBySlug = new Map([
+      ['example-plan', { assignee: 'ckehl', author: 'ckehl', approver: '' }],
+    ]);
+
+    // Every positional argument `rowsFromPulse` takes between `quietMinutes`
+    // and `fieldsBySlug`, named so a reader can tell which is which without
+    // counting commas — `prs` and `fieldsBySlug` are each test's own two.
+    const scan = (prs: Map<string, PrRecord> | null) => rowsFromPulse(
+      pulse, ages, 'plot', QUIET,
+      prs, /* urlBase */ '', /* approvedAt */ null, /* now */ Date.now(),
+      /* ideaPlans */ null, /* versions */ null, /* runs */ null, /* questions */ null,
+      /* prsByHeadMap */ null, /* repoRoot */ '', /* sprintOf */ null, /* unmerged */ null,
+      /* supervision */ undefined, /* tipAt */ null, /* prAt */ null, /* phaseMap */ undefined,
+      /* approvedSpikes */ null, fieldsBySlug);
+
+    it('copies the plan\'s assignee, author and approver onto a branch under that plan', () => {
+      const planned = scan(null).find((r) => r.branch === 'feature/b')!;
+      expect(planned.assignee).toBe('ckehl');
+      expect(planned.author).toBe('ckehl');
+      expect(planned.approver).toBe('');
+    });
+
+    it('leaves a branch no plan names with empty owner fields', () => {
+      const prs = new Map([['changeset-release/main', pr({ head: 'changeset-release/main' })]]);
+      const loose = scan(prs).find((r) => r.branch === 'changeset-release/main')!;
+      expect(loose.assignee).toBe('');
+      expect(loose.author).toBe('');
+      expect(loose.approver).toBe('');
+    });
+
+    it('hides the planned row from the reader the assignee does not resolve to, and shows it to the one it does', () => {
+      const planned = scan(null).filter((r) => r.branch === 'feature/b');
+      expect(rowsForReader(planned, jwloka, true)).toHaveLength(0);
+      expect(rowsForReader(planned, ckehl, true)).toHaveLength(1);
+    });
+
+    it('leaves every existing caller unchanged — no map means empty owner fields', () => {
+      const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
+      expect(rows.every((r) => r.assignee === '' && r.author === '' && r.approver === '')).toBe(true);
     });
   });
 });

@@ -38,7 +38,7 @@ import {
   type SprintCounts,
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
-import { workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, fleetStateFor, treesFor, hostFor, buildPortFor, type BuildBoardOptions } from './board.js';
+import { workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, fleetStateFor, treesFor, hostFor, buildPortFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
 import type { BuildPort } from '@plot-pm/domain';
 // The cadence division is a DOMAIN rule, not a board decision: `CLAUDE.md`
 // settles that every rendered or wired state is a domain property, and this one
@@ -5662,6 +5662,18 @@ export function rowsFromPulse(
    * approved plan. Absent reads as none.
    */
   approvedSpikes?: ReadonlySet<string> | null,
+  /**
+   * Each plan's assignee, author and approver, keyed by slug — `planEstate`'s
+   * `fieldsBySlug`. Read onto a branch-under-a-plan row so `ownedFromRow` can
+   * answer whose it is without a PR; absent where no plan names this slug, or
+   * where the caller has not looked.
+   *
+   * Last in the parameter list because it is the newest, so every existing
+   * caller is unchanged: a caller passing nothing leaves every row's
+   * `assignee`, `author` and `approver` empty, exactly the board that
+   * predates the fields.
+   */
+  fieldsBySlug?: Map<string, PlanOwnerFields> | null,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   // WHETHER THE HOST WAS ASKED AT ALL, read once for the whole pulse because
@@ -6341,6 +6353,14 @@ export function rowsFromPulse(
             { at: supervision.at, cause: supervision.causes.get(b.branch) ?? null },
             now,
           ),
+          // THE PLAN'S OWNER FIELDS, for `ownedFromRow` to read when this row
+          // carries no PR — see `AgentRowSchema.assignee`. Keyed on the same
+          // `planSlug` the row's own `plan` and `sprint` fields read a few
+          // lines up, from `planEstate`'s `fieldsBySlug`. "" on every field
+          // where the plan names nobody, or where no map was passed.
+          assignee: fieldsBySlug?.get(planSlug)?.assignee ?? '',
+          author: fieldsBySlug?.get(planSlug)?.author ?? '',
+          approver: fieldsBySlug?.get(planSlug)?.approver ?? '',
         });
       }
     }
@@ -6585,6 +6605,15 @@ export function rowsFromPulse(
       // from the PR map; no worktree was inspected and no agent holds it, so
       // null is *the question was never put* — never `worker-alive`.
       supervisionCause: null,
+      // THE IDEA PLAN'S OWNER FIELDS, keyed the same way `plan: ideaSlug` above
+      // is. `fieldsBySlug` carries a plan that exists only on its `idea/`
+      // branch, so these name the plan's assignee and approver; `author` is
+      // `''` for such a plan, because `planAuthors` walks the default branch
+      // only. `ownedFromRow` does not read them for this row: every row here
+      // carries a PR, and the `pr` arm wins.
+      assignee: fieldsBySlug?.get(ideaSlug)?.assignee ?? '',
+      author: fieldsBySlug?.get(ideaSlug)?.author ?? '',
+      approver: fieldsBySlug?.get(ideaSlug)?.approver ?? '',
     });
   }
 
@@ -6862,6 +6891,14 @@ export function rowsFromPulse(
       // parsing it: a Zod default never runs there, so a field the server omits
       // is `undefined` in the renderer.
       supervisionCause: null,
+      // NO PLAN NAMES THIS BRANCH — see `plan: ''` above — so there is no
+      // assignee, author or approver to read. Empty, not absent: the client
+      // casts rather than parses, and an omitted field would read `undefined`
+      // exactly as these three read `''`, but emitting it here keeps every row
+      // this loop produces carrying the same shape as the ones above.
+      assignee: '',
+      author: '',
+      approver: '',
     });
     // Guards the ONE-ROW-PER-BRANCH rule against the set itself: a duplicate ref
     // name cannot produce a second row. `unmerged` is a Set so this cannot fire
@@ -7181,7 +7218,7 @@ export async function buildFleet(
   // THE PLAN ESTATE IS PARSED ONCE, and three answers read it: the sprint
   // counts, the estate totals and the Draft plans WAITING ON YOU names.
   const estate = planEstate(opts, entry.pulse, entry.pulseComplete);
-  const [sprints, totals, masterAgentBranch, membership, settings, { draftPlans, approvedSpikes }, supervision, phasesValue] =
+  const [sprints, totals, masterAgentBranch, membership, settings, { draftPlans, approvedSpikes, fieldsBySlug }, supervision, phasesValue] =
     await Promise.all([
       estate.then((e) => activeSprints(opts, entry.pulse, entry.pulseComplete, e.statusBySlug)),
       estate.then((e) => estateTotals(opts, entry.pulse, entry.pulseComplete, e.statusBySlug)),
@@ -7242,7 +7279,10 @@ export async function buildFleet(
       // stamps `prAt`.
       entry.tipAt, entry.prAt, phaseMap,
       // EACH DESIGN PLAN'S APPROVED SPIKE, from the plan estate parsed above.
-      approvedSpikes), entry.agents)
+      approvedSpikes,
+      // EACH PLAN'S ASSIGNEE, AUTHOR AND APPROVER, from the same parse — so
+      // `ownedFromRow` can answer whose a no-PR row is. See `PlanOwnerFields`.
+      fieldsBySlug), entry.agents)
     : [];
 
   // THE SECTIONS, REMEMBERED OR CARRIED FORWARD — the whole of this fix, in the

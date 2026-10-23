@@ -73,19 +73,32 @@ export const writeMineOnly = (on: boolean, storage?: Pick<Storage, 'setItem'>): 
 /**
  * A branch row as the ownership rule reads it.
  *
- * A row with a PR is a `pr` row and matches on the author's handle; a row
- * without one names no owner at all. That includes a `build` row: a build of
- * `main` belongs to nobody in particular, and a build of a branch is owned by
- * whoever owns the branch, which no fact on the row says. **The branch name is deliberately not
- * consulted** — `feature/jw-something` looks like a claim of ownership and is
- * not one, and guessing from it would invent an owner the row never carried.
+ * A row with a PR is a `pr` row and matches on the author's handle, whatever
+ * its plan fields say — the PR author is a host handle compared exactly, the
+ * plan fields are free text resolved through `People`, and the two arms are
+ * deliberately not merged. A row without a PR but with a plan naming an
+ * assignee, author or approver is a `plan` row, resolved the same way the
+ * Discovery card's `assignee`/`author`/`approver` fields are. A row with
+ * neither — including a `build` row: a build of `main` belongs to nobody in
+ * particular, and a build of a branch is owned by whoever owns the branch,
+ * which no fact on the row says — names no owner at all. **The branch name is
+ * deliberately not consulted** — `feature/jw-something` looks like a claim of
+ * ownership and is not one, and guessing from it would invent an owner the
+ * row never carried; a row without a PR and without a plan owner still names
+ * none.
  *
- * `author` is `''` where the host did not answer and `undefined` on a payload
- * the client cast from an older server. Both reach {@link isMine} as unknown,
- * which shows the row.
+ * Every field here is `''` where the plan (or the host, for `pr.author`) did
+ * not answer, and `undefined` on a payload the client cast from an older
+ * server. Both reach {@link isMine} as unknown, which shows the row — so the
+ * values are passed through here rather than normalised, the way
+ * {@link ownedFromCard} already does.
  */
-export const ownedFromRow = (row: Pick<AgentRow, 'pr'>): OwnedRow =>
-  row.pr ? { kind: 'pr', author: row.pr.author } : { kind: 'other' };
+export const ownedFromRow = (row: Pick<AgentRow, 'pr' | 'assignee' | 'author' | 'approver'>): OwnedRow => {
+  if (row.pr) return { kind: 'pr', author: row.pr.author };
+  return row.assignee || row.author || row.approver
+    ? { kind: 'plan', assignee: row.assignee, author: row.author, approver: row.approver }
+    : { kind: 'other' };
+};
 
 /**
  * A registry agent as the ownership rule reads it.
@@ -139,7 +152,7 @@ export { readerIsKnown };
  * stays, so an unconfigured identity (`hostUser: ''`) hides nothing rather than
  * emptying the board.
  */
-export const rowsForReader = <T extends Pick<AgentRow, 'pr'>>(
+export const rowsForReader = <T extends Pick<AgentRow, 'pr' | 'assignee' | 'author' | 'approver'>>(
   rows: T[],
   reader: Reader,
   on: boolean,
