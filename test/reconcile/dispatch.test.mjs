@@ -3782,6 +3782,19 @@ test('dispatch: --start defaults to three free agents', () => {
   }
 });
 
+test('dispatch: a freshly started desk is named desk-<id>, not free-<id>', () => {
+  const { root, checkout } = repoForStart('deskname');
+  try {
+    const out = runDetached(['--start', '1'], checkout);
+    assert.match(out, /summary: agents=1 /, out);
+    const desks = fs.readdirSync(path.join(checkout, '.worktrees'));
+    assert.equal(desks.length, 1, `one desk, found ${desks.join(', ')}`);
+    assert.match(desks[0], /^desk-[0-9a-f]{8}$/, desks[0]);
+  } finally {
+    removeSandbox(root);
+  }
+});
+
 test('dispatch: with no Worktree root, a desk goes under <repo>/.worktrees and the parent is untouched', () => {
   // The desk root's default, end to end. The parent's listing is read before
   // and after, because a dispatch can create the new desk and still drop a log

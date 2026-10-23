@@ -2563,7 +2563,7 @@ if [ "$mode" = "start" ]; then
     if [ -n "${PLOT_START_DESK:-}" ]; then
       start_wt="$PLOT_START_DESK"
     else
-      start_wt="$wt_root/${wt_prefix}free-$(plot_session_id | cut -c1-8)"
+      start_wt="$wt_root/${wt_prefix}desk-$(plot_session_id | cut -c1-8)"
     fi
     if [ -e "$start_wt" ]; then
       echo "  skipped $start_wt — a desk of that name already exists"
