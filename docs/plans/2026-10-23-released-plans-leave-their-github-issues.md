@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2361 merged
 - **Started:** 2026-10-23, jwloka, `bug/released-plans-close-their-github-issues`
+- **Started:** 2026-10-23, jwloka, `bug/board-hides-released-issues-from-assigned`
 
 ## Changelog
 
