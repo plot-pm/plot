@@ -251,20 +251,14 @@ describe('approve perform — a refused open-PR listing is reported as a host re
   });
 
   /**
-   * THE ORDERING DEFECT'S OWN FIXTURE. `approve.ts:990` checks
-   * `verdict.outcome === 'refused'` and throws the domain's refusal text
-   * BEFORE `approve.ts:1000` checks `hostRefusal` — so a domain refusal that
-   * fires while a `hostRefusal` is held silently discards it.
-   *
-   * A plan on `Review: pr`, in the checkout, naming a branch under NO slice
-   * heading: `choosePlanPr`'s `'named'` ask finds no PR for `idea/<slug>`, its
-   * next `'open'` ask refuses (caught by `perform`, `hostRefusal` set, `pr`
-   * substituted to `{ number: 0, state: 'OPEN', draft: false }`), and the
-   * domain's `slice-unnamed` check — which runs ahead of the PR state switch —
-   * refuses on the unnamed branch. `slice-unnamed` is neither `pr-absent` nor
-   * `plan-not-found`, so this is the brief's "some other condition" case.
+   * A domain refusal reached from the plan ITSELF — never from the
+   * placeholder `pr` reading a held host refusal substitutes — keeps its
+   * precedence. `slice-unnamed` runs ahead of the PR-state switch and is
+   * computed from `readings.slices`, not `readings.pr`, so it must still
+   * surface even while `hostRefusal` is held: the plan carries this one
+   * true reason, independent of what the host could or couldn't answer.
    */
-  it('reports the host refusal, not a later domain refusal, when both fire', async () => {
+  it('reports slice-unnamed, not a held host refusal, when a plan fact refuses first', async () => {
     const calls: string[][] = [];
     const ctx: Context = {
       repoRoot: '/repo',
@@ -295,8 +289,7 @@ describe('approve perform — a refused open-PR listing is reported as a host re
       message = (err as Error).message;
     }
 
-    expect(message).toContain('the host could not list its open PRs');
-    expect(message).toContain('HTTP 429: rate limit exceeded');
-    expect(message).not.toContain('under no slice heading');
+    expect(message).toContain('under no slice heading');
+    expect(message).not.toContain('the host could not list its open PRs');
   });
 });
