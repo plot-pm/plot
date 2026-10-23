@@ -58,7 +58,7 @@ Domain-package style applies to anything written: arrow functions, factual comme
 
 ### Group-stop test timeout
 
-- `bug/bounded-run-group-stop-test-times` — reproduce the timeout under load, then give `bounded-run-group-stop.test.ts` a stated per-test timeout and exit-based waits, keeping the detached-prompt mutation failing
+- `bug/bounded-run-group-stop-test-times` — reproduce the timeout under load, then give `bounded-run-group-stop.test.ts` a stated per-test timeout and exit-based waits, keeping the detached-prompt mutation failing → #2390
 
 ## Notes
 
