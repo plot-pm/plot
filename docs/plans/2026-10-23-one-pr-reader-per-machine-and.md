@@ -59,7 +59,7 @@ Constraints from `CLAUDE.md` that Design must settle:
 
 ### Shared reader
 
-- `feature/one-pr-reader-per-machine-and` — one locked reader per host account and repository, with a cache every other process reads
+- `feature/one-pr-reader-per-machine-and` → #2436 — one locked reader per host account and repository, with a cache every other process reads
 
 ## Notes
 
