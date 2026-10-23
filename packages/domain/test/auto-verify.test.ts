@@ -12,6 +12,8 @@ import {
   verifyStart,
   verifyRetryVerdict,
   type HeldSlice,
+  type QueueAgent,
+  type QueuedSlice,
   type VerifyStartInput,
   type VerifyStore,
 } from '../src/index.js';
@@ -278,5 +280,51 @@ describe('scaleUp counts a going spec run', () => {
   it('adds a verify run and a spec run together', () => {
     const both = assign({ slices: [], agents: [], verifying: 1, specRunning: 1 }, { fleet }).detail.scaling;
     expect(both?.running).toBe(2);
+  });
+});
+
+describe('scaleUp counts a launched-but-unregistered agent (#2409)', () => {
+  const fleet = { size: 3, headroom: 'clear' as const, spawnCostMs: 5, desks: ['d1', 'd2', 'd3'] };
+  const slice = (branch: string): QueuedSlice => ({
+    branch,
+    slug: 'ship-it',
+    briefPresent: true,
+    claimable: true,
+    unnamed: false,
+    landed: 'not-landed',
+    priorUnknown: false,
+    assignedTo: '',
+    refused: false,
+    waitsOn: [],
+    waitHeld: '',
+  });
+  const agent = (session: string): QueueAgent => ({
+    session,
+    worktree: `/desks/${session}`,
+    reading: { state: 'running', branch: '', sliceHasMerged: false },
+  });
+
+  it('reproduces #2409: three launched, zero registered, holds the queue — start is 0, not 2', () => {
+    // Before the fix, `--start 3` followed by an immediate tick read
+    // `agents=0`, held the queue's slice as `no-free-agent`, and asked for
+    // three MORE agents — five running where the operator asked for three.
+    const decision = assign(
+      { slices: [slice('feature/a')], agents: [], launchedUnregistered: 3 },
+      { fleet },
+    );
+    expect(decision.detail.scaling?.start).toBe(0);
+  });
+
+  it('adds it to running beside a registered agent, not instead of one', () => {
+    const decision = assign(
+      { slices: [slice('feature/a'), slice('feature/b')], agents: [agent('s1')], launchedUnregistered: 1 },
+      { fleet },
+    );
+    expect(decision.detail.scaling?.running).toBe(2);
+  });
+
+  it('adds nothing when absent, like verifying and specRunning', () => {
+    const none = assign({ slices: [], agents: [] }, { fleet }).detail.scaling;
+    expect(none?.running).toBe(0);
   });
 });

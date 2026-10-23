@@ -191,6 +191,14 @@ export interface QueueReadings {
   /** Every registered agent, in registry order. */
   agents: readonly QueueAgent[];
   /**
+   * How many agents a `--start` launched that are not yet counted in
+   * {@link QueueReadings.agents}, bounded to those still within reach — the
+   * caller's job, not this rule's. Each holds a process slot beside the
+   * agents, so `scaleUp` counts it as running; {@link matchQueue} never reads
+   * it. Absent means none.
+   */
+  launchedUnregistered?: number;
+  /**
    * How many verify runs are going. Each holds a process slot beside the
    * agents, so `scaleUp` counts it as running; {@link matchQueue} never reads it.
    * Absent means none.
