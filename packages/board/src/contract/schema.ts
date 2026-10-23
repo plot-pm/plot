@@ -4472,6 +4472,13 @@ export const FleetShape = z.object({
    */
   issueAbsence: z.string().nullable().default(null),
   /**
+   * How old the rows in `issues` are, where they came from `issues.json`
+   * rather than a live read — the fleet's own `at` on the index, not the
+   * moment this board read the file. Null where the rows are fresh (a live
+   * answer, or none shown), and on an older server, which sends nothing here.
+   */
+  issueAgeSeconds: z.number().nullable().default(null),
+  /**
    * Which unplanned open tickets WAITING ON YOU shows, decided on the server
    * by the domain's `waitingTickets` over every unplanned open row the read
    * holds — not only the 50 `issues` sends.

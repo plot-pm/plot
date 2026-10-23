@@ -40,8 +40,8 @@ When the board owns the read (`fleetOwnsPrs` is false) and `refreshIssues` fails
 
 ### Open Questions
 
-- [ ] Should the fallback also apply when `refreshIssues` fails and memory holds older rows than the file? Proposal: keep the in-memory rows, since they are at least as new as the file's `at` unless another process wrote it.
-- [ ] Which field carries the age: the file's `at`, or the last successful `askedAt`?
+- [x] Should the fallback also apply when `refreshIssues` fails and memory holds older rows than the file? **Settled: no — memory always wins.** The brief fixed this during interrogation: in-memory rows are at least as new as the file's `at` unless another process wrote it, so `offlineIssueRows` (`packages/domain/src/rules/issue-offline-fallback.ts`) only reads the file where `memoryRows` is `null`.
+- [x] Which field carries the age: the file's `at`, or the last successful `askedAt`? **Settled: the file's `at`.** It needs no new state beyond what `issues.json` already carries, it answers "how old is this data" honestly even when the fleet process that wrote the file ran on another machine or clock than this board, and it mirrors the existing `prAt`/`prAgeSeconds` precedent for PR staleness in the same file. A separately-tracked "last successful `askedAt`" would mean a board that has never once answered live still has no age to report, which is exactly the cold-start case this plan exists to fix.
 
 ## Slices
 

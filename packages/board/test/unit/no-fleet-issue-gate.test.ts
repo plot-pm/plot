@@ -2,6 +2,8 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { issueIndexFile } from '@plot-pm/domain/adapters';
+import { ISSUE_INDEX_VERSION, type IssueIndex } from '@plot-pm/domain';
 import { rmTree } from '../helpers.mjs';
 
 const rates = vi.hoisted(() => ({ calls: [] as Array<{ gate: unknown; result: unknown }> }));
@@ -171,5 +173,91 @@ describe('the no-fleet read keeps the fold\'s rows', () => {
     expect(entry.issueSets?.closed).toEqual(before?.closed);
     expect(entry.issueSets?.at).toBe(before?.at);
     expect(entry.issueRequests).toBe(1);
+  });
+});
+
+describe('a cold cache falls back to the fleet\'s issue index (#2369)', () => {
+  /** An answered index of `n` open issues numbered from 1, written for `source`. */
+  const indexOf = (n: number, source: IssueIndex['source'] = 'git-host'): IssueIndex => ({
+    v: ISSUE_INDEX_VERSION,
+    source,
+    connector: 'github',
+    account: ACCOUNT,
+    requests: 1,
+    nextAt: Date.now() + 120_000,
+    backoffUntil: null,
+    at: '2026-10-20T00:00:00.000Z',
+    answer: 'answered',
+    rows: Array.from({ length: n }, (_, i) => ({ number: String(i + 1), title: `issue ${i + 1}`, url: `u${i + 1}` })),
+    complete: true,
+  });
+
+  it('shows the index\'s rows under the failure line, and writes nothing', async () => {
+    const dir = fixture({ openCode: 1 });
+    const indexHome = path.join(dir, 'issue-index');
+    fs.mkdirSync(indexHome, { recursive: true });
+    vi.stubEnv('PLOT_ISSUE_INDEX_HOME', indexHome);
+    await issueIndexFile({ home: indexHome }).write(indexOf(3));
+    const before = fs.readFileSync(path.join(indexHome, 'issues.json'), 'utf8');
+    const entry = freshCacheEntry();
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(entry.issueAnswer).toBe('failed');
+    expect(entry.issueError).toBe('boom');
+    expect(entry.issues.map((i) => i.number)).toEqual(['1', '2', '3']);
+    expect(entry.issueAt).not.toBeNull();
+    expect(fs.readFileSync(path.join(indexHome, 'issues.json'), 'utf8')).toBe(before);
+    vi.unstubAllEnvs();
+  });
+
+  it('still asks the host on the next poll — failed, never answered', async () => {
+    const dir = fixture({ openCode: 1 });
+    const indexHome = path.join(dir, 'issue-index');
+    fs.mkdirSync(indexHome, { recursive: true });
+    vi.stubEnv('PLOT_ISSUE_INDEX_HOME', indexHome);
+    await issueIndexFile({ home: indexHome }).write(indexOf(2));
+    const entry = freshCacheEntry();
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(entry.issueAnswer).toBe('failed');
+    expect(entry.issueNextAt).toBeGreaterThan(0);
+    vi.unstubAllEnvs();
+  });
+
+  it('ignores an index written for another source', async () => {
+    const dir = fixture({ openCode: 1 });
+    const indexHome = path.join(dir, 'issue-index');
+    fs.mkdirSync(indexHome, { recursive: true });
+    vi.stubEnv('PLOT_ISSUE_INDEX_HOME', indexHome);
+    await issueIndexFile({ home: indexHome }).write(indexOf(3, 'tracker'));
+    const entry = freshCacheEntry();
+
+    await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
+
+    expect(entry.issueAnswer).toBe('failed');
+    expect(entry.issues).toEqual([]);
+    expect(entry.issueAt).toBeNull();
+    vi.unstubAllEnvs();
+  });
+
+  it('prefers in-memory rows over the file when both exist', async () => {
+    const answered = fixture({ open: 5, closed: 0 });
+    const entry = freshCacheEntry();
+    await refreshIssues({ repoRoot: answered, scriptsDir: answered }, entry);
+    const memoryRows = entry.issues.map((i) => i.number);
+
+    const failing = fixture({ openCode: 1 });
+    const indexHome = path.join(failing, 'issue-index');
+    fs.mkdirSync(indexHome, { recursive: true });
+    vi.stubEnv('PLOT_ISSUE_INDEX_HOME', indexHome);
+    await issueIndexFile({ home: indexHome }).write(indexOf(9));
+
+    await refreshIssues({ repoRoot: failing, scriptsDir: failing }, entry);
+
+    expect(entry.issues.map((i) => i.number)).toEqual(memoryRows);
+    expect(entry.issueAt).toBeNull();
+    vi.unstubAllEnvs();
   });
 });

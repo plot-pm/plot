@@ -2705,6 +2705,27 @@ describe('issueNote — the note never claims a check it did not run', () => {
     expect(note).not.toContain('8 min');
     expect(note).not.toContain('service returns');
   });
+
+  it('names the age of rows read from the fleet\'s issue index', () => {
+    // #2369: a failed live read can still show rows the fleet already knows
+    // about. The age names where they came from, the same way `prNote` names
+    // the age of a retained PR map.
+    const note = issueNote(at({ issueError: 'gh: 503', issueAgeSeconds: 840 })); // 14 min
+    expect(note).toContain('showing the fleet\'s rows from 14 min ago');
+  });
+
+  it('omits the age when the failure has nothing to fall back to', () => {
+    // No fleet, no index file: `issueAgeSeconds` is null and the note prints no
+    // age rather than inventing one.
+    const note = issueNote(at({ issueError: 'gh: 503', issueAgeSeconds: null }));
+    expect(note).not.toContain('showing');
+    expect(note).toBe('Open issues could not be read, so this list may be incomplete — gh: 503');
+  });
+
+  it('omits the age on a payload that predates the field', () => {
+    const note = issueNote({ issueError: 'gh: 503', prNextInSeconds: null } as Fleet);
+    expect(note).not.toContain('showing');
+  });
 });
 
 describe('rowKey', () => {

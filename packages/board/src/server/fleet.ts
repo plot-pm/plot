@@ -55,6 +55,7 @@ import {
   issueAbsence,
   issueIntervalMs,
   issueSource,
+  offlineIssueRows,
   ISSUE_INDEX_OPEN_LIMIT,
   type IssueIndex,
   type IssueIndexRow,
@@ -808,6 +809,18 @@ export interface CacheEntry {
    * or the index holds another source.
    */
   issueSets: IssueSets | null;
+  /**
+   * Epoch ms the rows in `entry.issues` were last known good, or null where
+   * they are not aged.
+   *
+   * Set only where `refreshIssues` falls back to `issues.json` with no
+   * in-memory rows of its own (`offlineIssueRowsInto`) — the file's own `at`,
+   * not the moment this process read the file, since the fleet pass that wrote
+   * it may have run on another machine. Cleared on every other outcome: an
+   * answered read, a read served from memory, or an `unsupported`/`nobody`
+   * source each have no file age to show.
+   */
+  issueAt: number | null;
 }
 
 /** The two issue sets one read leaves, in the issue index's own shape. */
@@ -1935,6 +1948,10 @@ const waitingOf = async (
  * a row vanishing on a fetch error looks like someone planned the issue.
  */
 export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
+  // Cleared on every call and set again only by `offlineIssueRowsInto`, below —
+  // every other outcome (answered, memory-served, unsupported, nobody) has no
+  // file age to show.
+  entry.issueAt = null;
   // A DECLARED TRACKER IS NEVER ANSWERED BY THE GIT HOST IN ITS PLACE, and the
   // domain decides which source answers. `plot-host.sh issue-list` reaches
   // Jira itself where Jira is declared; a tracker no connector lists is not
@@ -1991,6 +2008,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     entry.issueError = message; // `entry.issues` keeps its last good value on purpose
     // The kept rows, `complete`, `at` and closed set stay; the failure is recorded beside them.
     entry.issueSets = { ...(kept ?? { at: stamp }), answer: 'failed', failedAt: stamp, reason: message };
+    await offlineIssueRowsInto(opts, entry, kept, source.ask);
     entry.waiting = null;
     // The issue poll is the neighbour the PR refresh's backoff never reached.
     // A rate limit HERE must push the PR gate (`prNextAt`) out too — otherwise
@@ -2086,6 +2104,45 @@ const issueStoreFor = (repoRoot: string): IssueIndexStore => {
   const created = issueIndexFile({ cwd: repoRoot });
   issueStores.set(repoRoot, created);
   return created;
+};
+
+/**
+ * On a failed live issue read with no in-memory rows, loads `entry.issues`
+ * from `issues.json` — the gap #2369 reports: a board started cold after an
+ * outage shows an empty inbox while the fleet's index still holds the last
+ * open-issue list.
+ *
+ * Reads only; `refreshIssueIndex` stays the one writer (CLAUDE.md, *A Decision
+ * Reads The Index*). `issueAnswer` and `issueError` are left exactly as the
+ * caller already set them — `failed`, so the next poll still asks the host —
+ * and only `entry.issues`, `entry.waiting` and `entry.issueAt` move here.
+ *
+ * `kept` carrying rows means a prior read already answered in this process:
+ * {@link offlineIssueRows} keeps those over the file, which may be older or
+ * from a process that has since restarted.
+ *
+ * @param opts - the board's repo root and scripts directory.
+ * @param entry - the cache entry a failed `refreshIssues` call is updating.
+ * @param kept - the in-memory issue sets carried into this read, or `null`
+ *   where none has ever answered.
+ * @param ownSource - this repository's own `issueSource` reading (`'tracker'`
+ *   or `'git-host'`), compared against the index file's `source`.
+ */
+const offlineIssueRowsInto = async (
+  opts: BuildBoardOptions,
+  entry: CacheEntry,
+  kept: IssueSets | null,
+  ownSource: 'tracker' | 'git-host',
+): Promise<void> => {
+  const held = await issueStoreFor(opts.repoRoot).read();
+  const index = held.ok ? held.value : null;
+  const decision = offlineIssueRows({ memoryRows: kept?.rows ?? null, index, ownSource });
+  if (decision.from !== 'index') return;
+  entry.issueAt = Date.parse(decision.at);
+  if (Number.isNaN(entry.issueAt)) entry.issueAt = null;
+  const plans = await ticketPlansOf(opts, entry);
+  if (plans === null) return; // `issueAnswer` already reads `failed`; `entry.issues` is left as it was.
+  entry.issues = inboxOf(decision.rows, new Set(plans.keys()), Date.now());
 };
 
 /**
@@ -2601,7 +2658,7 @@ export function freshCacheEntry(): CacheEntry {
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false, prIntervalMs: PR_REFRESH_MS,
     issueNextAt: 0, issueNextIsBackoff: false, issueRequests: 0, issueBackoffUntil: null, issueConnector: null, issueAccount: null,
-    issueSets: null,
+    issueSets: null, issueAt: null,
     // Null, never 'github': "not yet asked" and "asked, and it is GitHub" are
     // different answers, and `resolveBackend` distinguishes them to ask once.
     backend: null,
@@ -7348,6 +7405,10 @@ export async function buildFleet(
       : undefined,
     issueError: entry.issueError,
     issueAbsence: entry.issueAbsence,
+    // Set only where `entry.issues` came from `issues.json` rather than a live
+    // read — null means the rows are either fresh or not aged at all (an
+    // `unsupported` source, or no read has happened yet).
+    issueAgeSeconds: entry.issueAt === null ? null : Math.round((now - entry.issueAt) / 1000),
     // The two fleet controls, read fresh from `.plot/state/` on this render
     // clock — NOT off the cached pulse — so a write through /api/fleet-controls
     // is visible on the very next poll. Read here, unconditionally, because the
