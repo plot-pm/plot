@@ -107,6 +107,17 @@ export {
 
 export { slotsFile, SLOTS_HOME_ENV, type SlotsFileOptions } from './slots/slots-file.js';
 
+// THE SHARED PR READER'S LOCK, one directory per `(connector, account, repo)`
+// under the SAME per-machine home `slotsFile` and `budgetFile` already use —
+// the lock one process holds while it is the machine's PR reader for that key.
+export {
+  readerLockFile,
+  readerLockKey,
+  READER_LOCK_HOME_ENV,
+  type ReaderLockFileOptions,
+} from './reader-lock/reader-lock-file.js';
+export { readerLockFixture, type ReaderLockFixture } from './reader-lock/reader-lock-fixture.js';
+
 // THE PR STORE'S FILE ADAPTER. One file per connector under the COMMON git
 // dir's `.plot/state/index/`, so every dispatch worktree of one repository
 // reads the store the reaper cannot delete.
