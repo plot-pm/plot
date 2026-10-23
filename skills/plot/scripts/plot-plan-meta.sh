@@ -526,7 +526,7 @@ function reset_state() {
   delete malformed_prs; n_malformed_prs = 0
   fm_issue = ""; canon_issue = ""; fm_ticket = ""
   delete issues; n_issues = 0
-  delete wave_names; delete wave_of; delete wave_seq; delete wave_count
+  delete wave_names; delete wave_of; delete wave_count
   delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; delete spike_of; n_waves = 0
   delete branch_heading; delete waits_of; delete waits_set; delete waits_n
   delete unread_waits_branch; delete unread_waits_value; n_unread_waits = 0
@@ -1295,8 +1295,7 @@ section == "slices" && slice_shape != "heading" {
     sub(/`$/, "", b)
     branches[++n_branches] = b
     if (n_waves == 0) { wave_names[++n_waves] = "" }
-    wave_of[n_branches] = n_waves
-    wave_seq[n_branches] = ++wave_count[n_waves]
+    wave_of[n_branches] = n_waves; ++wave_count[n_waves]
     keep_branch(n_branches, b)
   }
   line = $0
@@ -1372,8 +1371,7 @@ section == "slices" && slice_shape == "heading" {
     sub(/^Branch:[ \t]*/, "", b)
     gsub(/`/, "", b)
     branches[++n_branches] = b
-    wave_of[n_branches] = n_waves
-    wave_seq[n_branches] = ++wave_count[n_waves]
+    wave_of[n_branches] = n_waves; ++wave_count[n_waves]
     keep_branch(n_branches, b)
   }
 
