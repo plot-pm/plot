@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Sprint:** bugfix-2-28-1
 - **Type:** bug
 - **Issue:** #2319
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2320 merged
 - **Started:** 2026-10-22, Jan Wloka, `bug/board-hides-a-green-draft-slice`
+- **Delivered:** 2026-10-23
 
 ## Changelog
 

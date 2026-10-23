@@ -74,7 +74,7 @@ The board and the fleet were built against GitHub, GitHub issues and GitHub Acti
 
 <!-- Items moved here during sprint when they won't make the timebox -->
 
-- [ ] [board-hides-a-green-draft-slice] Board hides a green draft slice PR that waits for a person to mark it ready (#2319)
+- [x] [board-hides-a-green-draft-slice] Board hides a green draft slice PR that waits for a person to mark it ready (#2319)
 - [ ] [plot-review-cannot-open-its-follow] plot-review cannot open its follow-up issue past 200 open issues and loses the findings (#2336)
 
 ## Retrospective
