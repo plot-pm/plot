@@ -56,7 +56,7 @@ A launched agent whose process died before it registered must not count forever.
 
 ### Count launched agents
 
-- `bug/first-tick-after-start-counts-agents` — the tick counts agents `--start` launched that are not registered yet, with a test that reproduces `agents=0 … started=2` after `--start 3`.
+- `bug/first-tick-after-start-counts-agents` — the tick counts agents `--start` launched that are not registered yet, with a test that reproduces `agents=0 … started=2` after `--start 3`. → #2458
 
 ## Notes
 
