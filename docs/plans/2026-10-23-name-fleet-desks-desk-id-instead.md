@@ -47,7 +47,7 @@ The issue reports that no reader matches the prefix: the reaper, reconcile and t
 
 ### Rename
 
-- `infra/name-fleet-desks-desk-id-instead` — name new desks `desk-<id>` in `plot-dispatch.sh`, keep `free-<id>` desks recognised, add a test for the new name
+- `infra/name-fleet-desks-desk-id-instead` — name new desks `desk-<id>` in `plot-dispatch.sh`, keep `free-<id>` desks recognised, add a test for the new name → #2388
 
 ## Notes
 
