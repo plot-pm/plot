@@ -6,7 +6,7 @@
 
 - **State:** Approved
 - **Type:** infra
-- **Sprint:**
+- **Sprint:** bugfix-2-28-2
 - **Issue:** #2444
 - **Story:**
 - **Review:** pr
