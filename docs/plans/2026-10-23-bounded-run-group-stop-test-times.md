@@ -31,7 +31,7 @@ The test file shows where the 5000 ms goes. The test sets no timeout of its own,
 2. It sends the group `SIGTERM`.
 3. It polls three pids for exit (`waitForExit`, default 5000 ms each, in parallel).
 
-The inner waits add up to more than the outer bound, so the outer bound fires first whenever Node start-up, the loader or the kill is slow. The sibling test "ends the prompt and its descendants when its own bound fires" already carries `20_000` and says why its own bound is 4 s; the group-stop test has no such statement. The five signal tests below it (`SIGTERM`, `SIGINT`, `SIGHUP`) share the same shape and the same default.
+The inner waits add up to more than the outer bound, so the outer bound fires first whenever Node start-up, the loader or the kill is slow. The sibling test "ends the prompt and its descendants when its own bound fires" already carries `20_000` and says why its own bound is 4 s; the group-stop test has no such statement. The three signal tests below it (`SIGTERM`, `SIGINT`, `SIGHUP`) share the same shape and the same default.
 
 The cause is read from the code, not reproduced. The slice starts by reproducing it under load.
 
@@ -42,7 +42,7 @@ The cause is read from the code, not reproduced. The slice starts by reproducing
 1. **Reproduce.** Run the file with the machine loaded (for example parallel `node --test` or `vitest` processes) and confirm the timeout fires in the group-stop test, and in which of the three steps above.
 2. **Set a timeout that covers a loaded runner.** Give the group-stop test, and the tests that share its shape, a per-test timeout above the sum of their inner bounds (readiness 10 s + exit wait), written once as a named constant with a comment stating why.
 3. **Wait on exit, not on the clock.** Where a step can wait on an event, wait on it: the wrapper's `exit` event for the wrapper, `waitForExit` for the descendants. The 5000 ms poll limit stays a bound that fails with a message naming the surviving pid, not the thing that ends the test.
-4. **Keep the proof.** The test must still fail when `boundedRun` detaches the prompt. Mutate the adapter to `detached: true`, confirm the test fails, restore the adapter (see *Mutation-test a gate before believing its tests*).
+4. **Keep the proof.** The test must still fail when `boundedRun` detaches the prompt. Mutate the adapter to `detached: true`, confirm the test fails, restore the adapter.
 
 Domain-package style applies to anything written: arrow functions, factual comments.
 
