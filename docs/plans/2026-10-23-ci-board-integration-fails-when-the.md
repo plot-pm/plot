@@ -52,7 +52,7 @@ The slice keeps the retry mechanism the repository already uses, if one exists, 
 
 ### Install step
 
-- `infra/playwright-install-survives-a-slow-download` — key the browser cache on the Playwright version and give the install step a retry <!-- builds: a version-keyed Playwright cache and a retried install step in ci.yml -->
+- `infra/playwright-install-survives-a-slow-download` — key the browser cache on the Playwright version and give the install step a retry <!-- builds: a version-keyed Playwright cache and a retried install step in ci.yml --> → #2367
 
 ## Notes
 
