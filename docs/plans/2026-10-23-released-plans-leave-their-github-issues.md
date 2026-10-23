@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Sprint:** bugfix-2-28-1
 - **Type:** bug
 - **Issue:** #2355
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2361 merged
 - **Started:** 2026-10-23, jwloka, `bug/released-plans-close-their-github-issues`
 - **Started:** 2026-10-23, jwloka, `bug/board-hides-released-issues-from-assigned`
+- **Delivered:** 2026-10-23
 
 ## Changelog
 
