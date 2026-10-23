@@ -396,14 +396,35 @@ jobs:
           restore-keys: |
             playwright-${{ runner.os }}-
 
-      # A CACHE HIT STILL RUNS `apt-get` ON EVERY INVOCATION. Measured 2026-10-22
-      # across three failed runs (39827563096, 39813209366, 39806767896): the
-      # cache step hit every time in 3-5s, and `install --with-deps` still timed
-      # out mid-`apt-get` against a slow azure.archive.ubuntu.com mirror. The
-      # runner image lacks 9 of Playwright's packages (fonts) and holds older
+      # THE APT FETCH, NOT ONLY THE BROWSER, NEEDED ITS OWN CACHE. The browser
+      # cache above hit every time and `install --with-deps` still timed out,
+      # because the 25.9 MB it fetches is the OS packages (9 missing fonts, 8
+      # held at an older version on the runner image), not the browser binary.
+      # `apt-get install` skips re-downloading a `.deb` already present and
+      # valid in /var/cache/apt/archives, so caching that directory removes
+      # the mirror fetch on a hit without changing the install command. Keyed
+      # on the resolved Playwright version, like the browser cache: the set of
+      # packages `install-deps` wants follows that version, not the lockfile.
+      - name: Cache Playwright's apt packages
+        timeout-minutes: 10
+        id: playwright-apt-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /var/cache/apt/archives
+          key: playwright-apt-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          restore-keys: |
+            playwright-apt-${{ runner.os }}-
+
+      # A CACHE HIT STILL RAN `apt-get` ON EVERY INVOCATION, before the apt
+      # cache above existed. Measured 2026-10-22 across three failed runs
+      # (39827563096, 39813209366, 39806767896): the browser cache step hit
+      # every time in 3-5s, and `install --with-deps` still timed out mid-
+      # `apt-get` against a slow azure.archive.ubuntu.com mirror. The runner
+      # image lacks 9 of Playwright's packages (fonts) and holds older
       # versions of 8 more, so `install-deps` fetches 25.9 MB on every run and
-      # `install-deps --dry-run` would report them missing on every run: nothing
-      # to skip on a cache hit.
+      # `install-deps --dry-run` would report them missing on every run: there
+      # was nothing to skip on a cache hit. There is now: a hit on the apt
+      # cache above puts those `.deb` files in place before this step runs.
       #
       # THE TIMED-OUT ATTEMPT MUST END ITS `apt-get`. Measured 2026-10-23 on
       # main (39930184048 for 6c3c8b688, 39930494389 for 3f7e3ed49): attempt 1
