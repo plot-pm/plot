@@ -43,13 +43,13 @@ A payload cast from an older server delivers `undefined` for the new fields. Abs
 ### Open Questions
 
 - [ ] Optional, from the issue: should a Draft plan awaiting approval be *waiting on* its approver or author instead of on whoever reads the board? This changes what *Waiting on you* means, not only who sees a row. The plan treats it as out of scope unless the reader decides otherwise.
-- [ ] Which field wins when `assignee` resolves to one person and `approver` to another? The plan assumes the order assignee, author, approver, taken from `ownedFromCard`. Confirm that `isMine` already encodes this order.
+- [x] Which field wins when `assignee` resolves to one person and `approver` to another? Not an ordering question: `planOwnership` (`packages/domain/src/rules/ownership.ts`) answers `mine` if ANY of the three fields resolves to the reader, with no precedence among them. #2451.
 
 ## Slices
 
 ### Row ownership
 
-- `bug/only-my-work-waiting-on-you` — a row with no PR carries its plan's owner fields, and `ownedFromRow` reads them <!-- builds: the plan owner fields on AgentRow, and the plan arm of ownedFromRow -->
+- `bug/only-my-work-waiting-on-you` — a row with no PR carries its plan's owner fields, and `ownedFromRow` reads them <!-- builds: the plan owner fields on AgentRow, and the plan arm of ownedFromRow --> → #2451
 
 ## Notes
 
