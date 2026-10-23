@@ -54,7 +54,7 @@ The slice starts with a failing test: a host stub whose `pr-state` finds no PR f
 
 ### Refused listing is named
 
-- `bug/plot-approve-reports-no-pr-found` — approve reports «could not ask» with the host's reason when the open-PR listing was refused, from both checkouts.
+- `bug/plot-approve-reports-no-pr-found` — approve reports «could not ask» with the host's reason when the open-PR listing was refused, from both checkouts. → #2442
 
 ## Notes
 
