@@ -80,10 +80,7 @@ repo_root=$(git rev-parse --show-toplevel)
 # never seen; a key that outranked it would read the operator's live fleetd
 # again. A failed or absent key read is not a value — it falls through to
 # the default, same as `plot-boardctl.sh`'s `Board port` read.
-LABEL="${PLOT_FLEET_LABEL:-}"
-if [ -z "$LABEL" ]; then
-  LABEL=$(PLOT_REPO_ROOT="$repo_root" "$script_dir/plot-config.sh" get "Fleet label" "" 2>/dev/null) || LABEL=""
-fi
+LABEL="${PLOT_FLEET_LABEL:-$(PLOT_REPO_ROOT="$repo_root" "$script_dir/plot-config.sh" get "Fleet label" "com.plot-pm.fleetd" 2>/dev/null)}"
 [ -n "$LABEL" ] || LABEL="com.plot-pm.fleetd"
 UNIT_DIR="$script_dir/../units"
 
