@@ -70,6 +70,29 @@ const SPEC = [
     title: 'Canonical plan with sprint, story, and assignee',
     sprint: 'alpha-week', story: 'kanban-board', assignee: 'octocat',
   }],
+  // A Markdown link in `Story:` reduces to its text — issue #2411. Both read
+  // sites (canonical Status line and front-matter line) get their own
+  // fixture, because a fix at only one site passes one and fails the other.
+  ['canonical-story-link.md', {
+    format: 'canonical', phase: 'approved', type: 'feature',
+    story: 'EWZKUS-3845-gpsync-abloesen',
+  }],
+  ['frontmatter-story-link.md', {
+    format: 'frontmatter', phase: 'draft', type: 'docs',
+    story: 'docs-overhaul',
+  }],
+  ['canonical-story-malformed-link.md', {
+    // An unparseable link ("[text](" with no close) is not a link, so it
+    // keeps the raw value — an empty `story` means "no story".
+    format: 'canonical', phase: 'approved', type: 'feature',
+    story: '[text](',
+  }],
+  ['canonical-story-slug-digits.md', {
+    // A plain slug passes through byte-identical, including one ending in a
+    // hyphen and digits, so the reduction cannot touch a non-link value.
+    format: 'canonical', phase: 'approved', type: 'feature',
+    story: 'bugfix-sprint-2-28',
+  }],
   ['canonical-status-assignee.md', {
     // Both templates offer `## Status` and neither offers `## Approval`.
     format: 'canonical', phase: 'draft', type: 'bug', assignee: 'octocat',
@@ -131,6 +154,24 @@ for (const [name, expected] of SPEC) {
     }
   });
 }
+
+test('plan-meta: a story link with empty text keeps the raw value, not an empty string', () => {
+  // `[]()` is not a link with no text — it is malformed, the same as
+  // "[text](" with no close. An empty `story` means "no story" and moves the
+  // card to the no-story lane, so a malformed link must never reduce to it.
+  const dir = scratch('plot-parser-story-empty-link-');
+  const f = path.join(dir, '2026-01-01-empty-link.md');
+  writeFileSync(f, `# A plan with an empty-bracket story link
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+- **Story:** []()
+`);
+  const meta = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }).trim());
+  assert.equal(meta.story, '[]()', 'malformed link keeps the raw value, never reduces to empty');
+});
 
 test('plan-meta: only the first ## Branches heading contributes branches', () => {
   // A plan documenting the plan format quotes a `## Branches` section in prose.

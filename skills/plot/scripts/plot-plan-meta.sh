@@ -422,6 +422,17 @@ function val_after_colon(s) {
 }
 # Template placeholders like "<!-- optional -->" mean "field absent".
 function strip_placeholder(s) { return (s ~ /^<!--/) ? "" : s }
+# A Markdown link `[text](target)` reduces to `text`, with backticks around
+# the text removed. A malformed link ("[text](" with no close, "[]()") is not
+# a link, so it keeps the raw value unreduced — an empty `story` means "no
+# story", and a malformed link is not that.
+function reduce_story_link(s,   text) {
+  if (s !~ /^\[[^]]+\]\([^)]+\)$/) return s
+  text = s
+  sub(/^\[/, "", text); sub(/\]\([^)]*\)$/, "", text)
+  gsub(/`/, "", text)
+  return text
+}
 # Blank out backtick-delimited inline code, so a marker PRINTED as a literal is
 # not read as syntax. Markdown renders `<!--` between backticks as the four
 # characters; this parser used to read it as a comment-open, and because such a
@@ -1038,7 +1049,7 @@ in_fm {
   else if (lower ~ /^type:/ && fm_type == "") fm_type = val_after_colon($0)
   else if (lower ~ /^title:/ && fm_title == "") fm_title = val_after_colon($0)
   else if (lower ~ /^sprint:/ && fm_sprint == "") fm_sprint = val_after_colon($0)
-  else if (lower ~ /^story:/ && fm_story == "") fm_story = val_after_colon($0)
+  else if (lower ~ /^story:/ && fm_story == "") fm_story = reduce_story_link(val_after_colon($0))
   else if (lower ~ /^issue:/ && fm_issue == "") fm_issue = val_after_colon($0)
   else if (lower ~ /^ticket:/ && fm_ticket == "") fm_ticket = val_after_colon($0)
   else if (lower ~ /^assignee:/ && fm_assignee == "") fm_assignee = val_after_colon($0)
@@ -1153,7 +1164,7 @@ section == "status" {
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**phase[:*]/ && canon_phase == "") canon_phase = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**type[:*]/ && canon_type == "") canon_type = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**sprint[:*]/ && canon_sprint == "") canon_sprint = val_after_colon($0)
-  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**story[:*]/ && canon_story == "") canon_story = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**story[:*]/ && canon_story == "") canon_story = reduce_story_link(val_after_colon($0))
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**issue[:*]/ && canon_issue == "") canon_issue = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**review[:*]/ && canon_review == "") canon_review = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**impl[:*]/ && canon_impl == "") canon_impl = val_after_colon($0)
