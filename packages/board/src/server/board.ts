@@ -2604,17 +2604,34 @@ export const draftPlanOf = (meta: PlanMeta, relPath: string): DraftPlan | null =
     : null;
 
 /**
- * The working-tree plan estate, parsed once: every plan's status keyed by slug,
- * and every plan at `Draft` with its `rounds`.
+ * A plan's assignee, author and approver — the fields an `AgentRow` with no PR
+ * needs to answer whose it is. See `AgentRowSchema.assignee`.
+ */
+export interface PlanOwnerFields {
+  assignee: string;
+  author: string;
+  approver: string;
+}
+
+/**
+ * The working-tree plan estate, parsed once: every plan's status keyed by
+ * slug, every plan's owner fields keyed by slug, and every plan at `Draft`
+ * with its `rounds`.
  *
- * Both answers come from one `plot-plan-meta.sh` parse, so the fleet's sprint
- * counts and its Draft plan list cannot read two versions of one plan.
+ * All three answers come from one `plot-plan-meta.sh` parse, so the fleet's
+ * sprint counts, its Draft plan list and its rows' owner fields cannot read
+ * two versions of one plan.
  */
 export async function planEstate(
   opts: BuildBoardOptions,
   pulse: FleetReading | null,
   complete: boolean,
-): Promise<{ statusBySlug: Map<string, PlanStatus>; draftPlans: DraftPlan[]; approvedSpikes: Set<string> }> {
+): Promise<{
+  statusBySlug: Map<string, PlanStatus>;
+  fieldsBySlug: Map<string, PlanOwnerFields>;
+  draftPlans: DraftPlan[];
+  approvedSpikes: Set<string>;
+}> {
   const refs = refsFor(opts);
   const planDir = await readConfigAsync(opts, 'Plan directory', 'docs/plans/');
   const repoRoot = resolvedRepoRoot(opts);
@@ -2623,10 +2640,19 @@ export async function planEstate(
   // cards read a ref is how one row came to hold two answers of different ages
   // — the defect, in the one place whose wrongness is a refused button rather
   // than a stale label.
-  const { sources } = await collectPlanSources(
-    refs, repoRoot, planDir, `origin/${await defaultBranchOf(opts, refs)}`,
-  );
+  const defaultBranch = await defaultBranchOf(opts, refs);
+  const { sources } = await collectPlanSources(refs, repoRoot, planDir, `origin/${defaultBranch}`);
+  // EACH PLAN'S AUTHOR, read the same way the Discovery card's `author` field
+  // is: one batched `git log` walk over the default branch, keyed by the
+  // repository-relative path `planAuthors` returns — the same key `relPath`
+  // below produces. A plan not yet on that ref is absent from the map, and
+  // gets no author, same as the card.
+  const planAuthors = await (async () => {
+    const read = await refs.planAuthors(`origin/${defaultBranch}`, planDir);
+    return read.ok ? read.value : new Map<string, string>();
+  })();
   const bySlug = new Map<string, PlanStatus>();
+  const fieldsBySlug = new Map<string, PlanOwnerFields>();
   const draftPlans: DraftPlan[] = [];
   const approvedSpikes = new Set<string>();
   // Ref-read plans have no file, so the parse needs a scratch copy — the same
@@ -2654,7 +2680,13 @@ export async function planEstate(
     for (const meta of await readPlanMeta(opts, files)) {
       const canonical = canonicalPath.get(meta.file);
       const relPath = canonical ?? path.relative(repoRoot, meta.file);
-      bySlug.set(planSlug(relPath), planStatus(meta, pulse, complete));
+      const slug = planSlug(relPath);
+      bySlug.set(slug, planStatus(meta, pulse, complete));
+      fieldsBySlug.set(slug, {
+        assignee: meta.assignee,
+        author: planAuthors.get(relPath) ?? '',
+        approver: approverOf(meta.approved_raw),
+      });
       const draft = draftPlanOf(meta, relPath);
       if (draft) draftPlans.push(draft);
       const spike = approvedSpikeOf(meta);
@@ -2666,7 +2698,7 @@ export async function planEstate(
     // and it also awaits the parser before reaching this line.
     if (stageDir) removeStageDir(stageDir);
   }
-  return { statusBySlug: bySlug, draftPlans, approvedSpikes };
+  return { statusBySlug: bySlug, fieldsBySlug, draftPlans, approvedSpikes };
 }
 
 // ─── Plan viewer: render a single plan file to HTML ──────────────────────────
