@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Sprint:** bugfix-2-28-1
 - **Type:** bug
 - **Issue:** #2380
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2381 merged
 - **Started:** 2026-10-23, Jan Wloka, `bug/bounded-run-group-stop-test-times`
+- **Delivered:** 2026-10-23
 
 ## Changelog
 
