@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Sprint:** bugfix-2-28-1
 - **Type:** bug
 - **Issue:** #2336
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-22, Jan Wloka, plan-PR #2337 merged
 - **Started:** 2026-10-22, Jan Wloka, `bug/plot-review-looks-up-its-issue-by-pr`
 - **Started:** 2026-10-22, Jan Wloka, `bug/plot-review-publishes-findings-on-the-pr`
+- **Delivered:** 2026-10-23
 
 ## Changelog
 
