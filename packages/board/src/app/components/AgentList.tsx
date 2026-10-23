@@ -2654,7 +2654,8 @@ export function AgentList({
           that once trailed it moved UP into that panel — a reader was meeting
           the incomplete rows before the sentence saying they were incomplete,
           and `prStatusEntry` still chooses its wording (a spent rate limit
-          says so, an outage keeps the plain sentence). */}
+          says so, an outage with data on screen reads *stale* and names the
+          unreachable host). */}
     </div>
   );
 }

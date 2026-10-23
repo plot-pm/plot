@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { orderStatuses, type BoardStatus } from '../../src/app/components/StatusPanel.js';
+import { notesOpenFor, orderStatuses, type BoardStatus } from '../../src/app/components/StatusPanel.js';
 
 // bug/a-degraded-view-says-so-at-the-top, corrected: every board status lives in
 // ONE panel, ordered most-severe-first with a just-arrived status flashing at
@@ -71,5 +71,22 @@ describe('orderStatuses — a new arrival flashes at the top', () => {
       ['scan-failed', 'pr-error'],
       [['stale', 1], ['scan-failed', 2], ['pr-error', 3]],
     )).toEqual(['pr-error', 'scan-failed', 'stale']);
+  });
+});
+
+describe('notesOpenFor — the details disclosure belongs to one status', () => {
+  it('is open while the status it was opened on is shown', () => {
+    expect(notesOpenFor('pr-error', 'pr-error')).toBe(true);
+  });
+
+  it('reads as closed when a different status is shown, without a click', () => {
+    // A status that arrives and flashes to the top replaces the shown one.
+    expect(notesOpenFor('pr-error', 'scan-failed')).toBe(false);
+  });
+
+  it('reads as closed when nothing was opened or the panel is empty', () => {
+    expect(notesOpenFor(null, 'pr-error')).toBe(false);
+    expect(notesOpenFor('pr-error', null)).toBe(false);
+    expect(notesOpenFor(null, null)).toBe(false);
   });
 });

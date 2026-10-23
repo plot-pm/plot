@@ -3944,13 +3944,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       'Command failed: bash /Users/someone/Quatico/Agentic-Tools/plot/skills/plot/scripts/plot-host.sh pr-list --rich';
     expect(message.length).toBeGreaterThan(80);
     // The default scenario carries `prAgeSeconds: 1` — data is already on
-    // screen, so this reads `warning`/"paused" rather than `error`/
+    // screen, so this reads `warning`/"stale" rather than `error`/
     // "unavailable". bug/the-board-shows-the-pr-level-and-diagnostics: the
     // level now follows whether data has landed, not just whether the call
-    // failed.
+    // failed, and an outage is "stale" rather than the limits' "paused".
     const page = await openAgents(fleet({ prError: message }));
     try {
-      const warning = page.locator('[data-status-panel]', { hasText: 'PR data paused' });
+      const warning = page.locator('[data-status-panel]', { hasText: 'PR data stale' });
       await warning.waitFor({ timeout: 10_000 });
       // The tail is what a slice would have removed, and the script's name is
       // the whole point of reading the message at all.
@@ -4147,14 +4147,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(await text.textContent()).toContain('Last scan failed');
 
       // A spent host arrives — less severe, but NEW, so it flashes to the top.
-      // `warning`/"paused", not `error`/"unavailable": the default scenario
+      // `warning`/"stale", not `error`/"unavailable": the default scenario
       // carries `prAgeSeconds: 1`, so data is already on screen — the level
       // bug/the-board-shows-the-pr-level-and-diagnostics now ties to whether
       // any data has landed, not just whether the call failed.
       await push(fleet({ error: 'plot-fleet-scan.sh exited 1', prError: 'gh: 503' }));
       await expect
         .poll(async () => (await text.textContent()) ?? '', { timeout: 10_000 })
-        .toContain('PR data paused');
+        .toContain('PR data stale');
 
       // After the flash window it sorts back below the more severe scan failure.
       await expect
@@ -4350,10 +4350,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         .toContain('Fleet scan blind');
 
       await page.locator('[data-status-next]').click();
-      // `warning`/"paused", not `error`/"unavailable" — see the comment on
+      // `warning`/"stale", not `error`/"unavailable" — see the comment on
       // the flash test above for why.
       await expect.poll(async () => (await text.textContent()) ?? '', { timeout: 10_000 })
-        .toContain('PR data paused');
+        .toContain('PR data stale');
     } finally {
       await page.close();
     }

@@ -2470,6 +2470,13 @@ describe('prStatusEntry — the PR status distinguishes the two failures', () =>
     expect(note).toContain('showing data from 14 min ago');
   });
 
+  it('calls an outage with data on screen stale and names the unreachable host', () => {
+    // "paused" names a wait the host asked for; a failed host asked for none.
+    expect(text(at({ prError: 'gh: 503', prAgeSeconds: 840 }))).toBe(
+      'PR data stale — host unreachable (gh: 503) — showing data from 14 min ago — the two groups above that depend on it may be incomplete.',
+    );
+  });
+
   it('names the age in seconds when under a minute', () => {
     // The same format resetPhrase uses — seconds below a minute, minutes above.
     const note = text(at({ prError: 'gh: 503', prAgeSeconds: 45 }));
@@ -2621,6 +2628,25 @@ describe('prStatusEntry — the PR status distinguishes the two failures', () =>
       prError: 'plot-host: github ignores --limit 100; the listing returns one page of 100 per state',
       prAgeSeconds: 10,
     }))).toBeNull();
+  });
+
+  it('says no data has landed when a message made only of notices meets a null age', () => {
+    // The banner observed on 2026-10-23: `prAgeSeconds` null and `prError`
+    // holding only `plot-host` notices. The level is `error` with no kind, and
+    // the sentence must not claim data on screen that is older than usual.
+    const entry = prStatusEntry(at({
+      prError: 'plot-host: bitbucket ignores --limit 1000; the listing returns one page of 50 per state '
+        + 'plot-host: bitbucket pr-list state=open page complete (8 rows below requested limit 1000) '
+        + '— this page holds every pull request the host has in this state',
+      prAgeSeconds: null,
+    }));
+    expect(entry?.tone).toBe('rose');
+    expect(entry?.text).toBe(
+      'PR data unavailable — no PR data has landed yet, and the host reported no failure, only the notices under Show details.',
+    );
+    expect(entry?.text).not.toContain('data on screen');
+    expect(entry?.text).not.toContain('plot-host');
+    expect(entry?.notices.length).toBeGreaterThan(0);
   });
 });
 

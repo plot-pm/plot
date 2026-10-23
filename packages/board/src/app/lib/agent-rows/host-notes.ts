@@ -354,6 +354,16 @@ function agePhrase(ageSeconds: number | null): string | null {
  * reader looking at data of unknown age; the age phrase turns "something is
  * wrong" into "showing data from 14 min ago".
  *
+ * NOTICES WITH NO DATA READ `error` WITH NO KIND. `prStatusLevel` calls a null
+ * age `error` whatever the refusal, so an error made only of notices on a board
+ * with nothing landed reaches the sentence with `kind` null. The sentence says
+ * no PR data has landed and the host reported no failure; the stale-cache
+ * sentence would claim data on screen that does not exist.
+ *
+ * AN OUTAGE WITH DATA ON SCREEN READS "stale", never "paused": "paused" names a
+ * wait the host asked for, and a failed host asked for none. The sentence names
+ * the unreachable host, e.g. *PR data stale — host unreachable (gh: 503)*.
+ *
  * AN OUTAGE KEEPS THE FULL ERROR TEXT — `cause` already has `plot-host`'s own
  * notices stripped, so what remains names the failing script or path, which is
  * what a reader needs to diagnose it. The test "shows the WHOLE PR error,
@@ -389,11 +399,18 @@ export function prStatusEntry(
   const ageSuffix = age ? ` — showing data from ${age} ago` : '';
   const when = status.backoffInSeconds === null ? null : resetPhrase(status.backoffInSeconds);
   // `error` is always "unavailable" — no data has ever landed. A `warning`
-  // splits further: an ACTIVE refusal (secondary/quota) is "paused" — today's
-  // wording, kept verbatim — and the no-refusal aging case, newly visible
-  // under this wave, is "stale": nothing was refused, the data is just old.
+  // has data on screen and splits by kind: a limit refusal (secondary/quota)
+  // is "paused", because the host asked for a wait; an outage and the
+  // no-refusal aging case are "stale", because the data on screen is old and
+  // nothing announced when it refreshes. The outage sentence then names the
+  // unreachable host and its error, so "stale" never stands alone for a
+  // failed host.
   const levelWord =
-    status.level === 'error' ? 'PR data unavailable' : status.kind === null ? 'PR data stale' : 'PR data paused';
+    status.level === 'error'
+      ? 'PR data unavailable'
+      : status.kind === 'secondary' || status.kind === 'quota'
+        ? 'PR data paused'
+        : 'PR data stale';
 
   const text = (() => {
     if (status.kind === 'secondary') {
@@ -420,7 +437,13 @@ export function prStatusEntry(
       // `status.cause` already has `plot-host`'s own notices removed — the
       // measured defect this wave fixes. Keep it in full: it names the
       // failing script or path, which is what a reader needs to diagnose it.
-      return `${levelWord} (${status.cause})${ageSuffix} — the two groups above that depend on it may be incomplete.`;
+      const cause = status.level === 'error' ? ` (${status.cause})` : ` — host unreachable (${status.cause})`;
+      return `${levelWord}${cause}${ageSuffix} — the two groups above that depend on it may be incomplete.`;
+    }
+    if (status.level === 'error') {
+      // No refusal and no data: the error held only `plot-host`'s notices, so
+      // the host reported no failure and nothing has landed to be old.
+      return `${levelWord} — no PR data has landed yet, and the host reported no failure, only the notices under Show details.`;
     }
     // No refusal at all — a stale cache past twice the refresh interval, the
     // one `warning` shape `prStatus` reports with no `kind`. Previously
