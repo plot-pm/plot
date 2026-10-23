@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** bugfix-2-28-2
 - **Issue:** #2408
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2418 merged
 - **Started:** 2026-10-23, Jan Wloka, `bug/plot-fleetctl-ignores-the-fleet-label`
+- **Delivered:** 2026-10-24
 
 ## Changelog
 
