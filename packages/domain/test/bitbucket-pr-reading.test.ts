@@ -58,6 +58,38 @@ describe('bitbucketPrState', () => {
       mergeCommit: 'm1',
     });
   });
+
+  it('reads unknown with checksLookup set where a named row has no bound entry', () => {
+    const colours = { 'feature/a': { checks: 'green', job: 'j' } };
+    expect(bitbucketPrState(pr(), colours, null, true)).toMatchObject({
+      checks: 'unknown',
+      checksSha: '',
+      checksLookup: 'broken',
+    });
+  });
+
+  it('is unaffected by wasNamed once a bound entry exists', () => {
+    const colours = { 'feature/a': { checks: 'green', job: 'j' } };
+    const bound = { 'feature/a': { checks: 'failing' as const, job: 'j', checksSha: 'sha-head' } };
+    const row = bitbucketPrState(pr(), colours, bound, true);
+    expect(row.checks).toBe('failing');
+    expect(row.checksSha).toBe('sha-head');
+    expect(row.checksLookup).toBeUndefined();
+  });
+
+  it('is unaffected by wasNamed where the colour is not ambiguous', () => {
+    const colours = { 'feature/a': { checks: 'none', job: 'j' } };
+    const row = bitbucketPrState(pr(), colours, null, true);
+    expect(row.checks).toBe('none');
+    expect(row.checksLookup).toBeUndefined();
+  });
+
+  it('defaults wasNamed to false, so an unbound ambiguous colour still stands', () => {
+    const colours = { 'feature/a': { checks: 'green', job: 'j' } };
+    const row = bitbucketPrState(pr(), colours, null);
+    expect(row.checks).toBe('green');
+    expect(row.checksLookup).toBeUndefined();
+  });
 });
 
 describe('bitbucketReview', () => {

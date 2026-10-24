@@ -2977,7 +2977,7 @@ const BB_RED_PR = {
 };
 
 test('host: pr-state bitbucket under jenkins reads unknown for a head no build carries, by number', () => {
-  const out = bbJenkinsPrState(['5'], {
+  const out = bbJenkinsPrState(['5', '--with-checks'], {
     build: jenkinsBuildsFor('sha-older-head', 'FAILURE'),
     bbJson: JSON.stringify(BB_RED_PR),
   });
@@ -2987,7 +2987,7 @@ test('host: pr-state bitbucket under jenkins reads unknown for a head no build c
 });
 
 test('host: pr-state bitbucket under jenkins reads unknown for a head no build carries, by branch', () => {
-  const out = bbJenkinsPrState(['feature/red'], {
+  const out = bbJenkinsPrState(['feature/red', '--with-checks'], {
     build: jenkinsBuildsFor('sha-older-head', 'FAILURE'),
     bbJson: JSON.stringify([BB_RED_PR]),
   });
@@ -2996,7 +2996,7 @@ test('host: pr-state bitbucket under jenkins reads unknown for a head no build c
 });
 
 test('host: pr-state bitbucket under jenkins reads the build of the head, bound to it', () => {
-  const out = bbJenkinsPrState(['5'], {
+  const out = bbJenkinsPrState(['5', '--with-checks'], {
     build: jenkinsBuildsFor('sha-new-head', 'SUCCESS'),
     bbJson: JSON.stringify(BB_RED_PR),
   });
@@ -3013,7 +3013,7 @@ const BB_SHORT_PR = { ...BB_RED_PR, source: { branch: { name: 'feature/red' }, c
 test('host: pr-state bitbucket under jenkins binds a short head hash to the full Jenkins sha it begins', () => {
   assert.equal(BB_SHORT.length, 12);
   assert.equal(JENKINS_FULL.length, 40);
-  const out = bbJenkinsPrState(['5'], { build: jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS'), bbJson: JSON.stringify(BB_SHORT_PR) });
+  const out = bbJenkinsPrState(['5', '--with-checks'], { build: jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS'), bbJson: JSON.stringify(BB_SHORT_PR) });
   assert.equal(out.headSha, BB_SHORT);
   assert.equal(out.checks, 'green', 'the build of this head says SUCCESS, and the colour says red');
   assert.equal(out.checksSha, BB_SHORT, 'bound to the head the row names');
@@ -3021,13 +3021,13 @@ test('host: pr-state bitbucket under jenkins binds a short head hash to the full
 
 test('host: pr-state bitbucket under jenkins does not bind a short head hash to a full sha it does not begin', () => {
   const other = `0${JENKINS_FULL.slice(1)}`;
-  const out = bbJenkinsPrState(['5'], { build: jenkinsBuildsFor(other, 'SUCCESS'), bbJson: JSON.stringify(BB_SHORT_PR) });
+  const out = bbJenkinsPrState(['5', '--with-checks'], { build: jenkinsBuildsFor(other, 'SUCCESS'), bbJson: JSON.stringify(BB_SHORT_PR) });
   assert.equal(out.checks, 'unknown', 'no build carries this head, so the red colour cannot bind to it');
   assert.equal(out.checksSha, '');
 });
 
 test('host: pr-state bitbucket under jenkins with no Jenkins instance answers, reading checks unknown', () => {
-  const out = bbJenkinsPrState(['5'], { build: jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS'), bbJson: JSON.stringify(BB_SHORT_PR), instance: '' });
+  const out = bbJenkinsPrState(['5', '--with-checks'], { build: jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS'), bbJson: JSON.stringify(BB_SHORT_PR), instance: '' });
   assert.equal(out.state, 'OPEN', 'the pull request state does not depend on the CI');
   assert.equal(out.headSha, BB_SHORT);
   assert.equal(out.checks, 'unknown');
@@ -3157,6 +3157,175 @@ test('host: pr-list bitbucket under jenkins still reads a row inside the cap by 
   const out = rowsByHead(res.stdout);
   assert.equal(out.get('feature/c1').checks, 'green', 'a row inside the cap, bound to its own sha, still reads its colour');
   assert.equal(out.get('feature/c1').checksSha, 'sha-c1');
+});
+
+// --- pr-state without --with-checks never reaches Jenkins (bitbucket-checks-lookups-bounded) ---
+
+test('host: pr-state bitbucket without --with-checks makes zero Jenkins calls', () => {
+  // `bb_state_row`'s default `want` is 0: a caller that does not ask for
+  // checks must not pay for `jenkins_instance`/`jenkins_build_map`/
+  // `jenkins_bind_rows` — none of them may run, so no `curl` reaches Jenkins
+  // and no `jen` call is made either.
+  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-head', 'SUCCESS'));
+  const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
+  delete env.JENKINS_INSTANCE;
+  const hostStubs = makeStubs({
+    bbJson: JSON.stringify(BB_RED_PR),
+  });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const res = spawnSync('bash', [adapter, 'pr-state', '5'], { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const out = JSON.parse(res.stdout);
+  assert.equal(out.checks, 'unknown', 'no checks asked for, so no checks answered');
+  assert.deepEqual(curlCalls(rest.argvFile), [], 'checks not asked for: zero Jenkins REST calls');
+  assert.deepEqual(callsOf(jen.callsFile), [], 'checks not asked for: zero jen CLI calls');
+});
+
+test('host: pr-state bitbucket with --with-checks reads the same bound checks as before', () => {
+  // The flag's positive case: naming --with-checks must still reach Jenkins
+  // and bind the head's own sha, exactly as pr-state did before the flag
+  // existed — this guards against the default flipping the wrong way.
+  const out = bbJenkinsPrState(['5', '--with-checks'], {
+    build: jenkinsBuildsFor('sha-new-head', 'SUCCESS'),
+    bbJson: JSON.stringify(BB_RED_PR),
+  });
+  assert.equal(out.checks, 'green', 'the colour says red, and the build of this head says SUCCESS');
+  assert.equal(out.checksSha, 'sha-new-head');
+  assert.ok(out.curls > 0, 'asking for checks does reach Jenkins');
+});
+
+// --- the merge re-read never asks Jenkins, and head-moved still fires correctly ---
+
+test('host: pr-merge bitbucket re-read makes no Jenkins call either way', () => {
+  // The re-read ahead of a Bitbucket merge calls `bb_state_row` with no second
+  // argument, so it always takes the no-checks path — it reads only
+  // `.headSha`, and a Jenkins outage or a slow Jenkins must never affect
+  // whether a merge proceeds. Both the matching and the moved-head case are
+  // asserted here, because only one of them stops short of the merge call.
+  const matchSha = 'a'.repeat(40);
+  const movedSha = 'b'.repeat(40);
+  const rest = makeCurlAnswering(jenkinsBuildsFor('whatever', 'SUCCESS'));
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const hostStubs = makeStubs({
+    bbJson: `{"id":5,"state":"OPEN","source":{"branch":{"name":"feature/x"},"commit":{"hash":"${matchSha}"}},"destination":{"branch":{"name":"main"}},"links":{"html":{"href":"https://example.test/pr/5"}}}`,
+  });
+  const env = {
+    ...process.env, PLOT_HOST: 'bitbucket', PLOT_BB_SKIP_CAP_CHECK: '1',
+    PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
+  };
+  const matched = spawnSync('bash', [adapter, 'pr-merge', '5', '--match-head', matchSha], { encoding: 'utf8', env });
+  assert.equal(matched.status, 0, matched.stderr);
+  assert.deepEqual(argvOf(hostStubs.bbArgv), ['pr', 'merge', '5']);
+  assert.deepEqual(curlCalls(rest.argvFile), [], 'a matching head still makes no Jenkins REST call');
+  assert.deepEqual(callsOf(jen.callsFile), [], 'a matching head still makes no jen CLI call');
+
+  const refused = spawnSync('bash', [adapter, 'pr-merge', '5', '--match-head', movedSha], { encoding: 'utf8', env });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /head-moved/, 'a moved head is still caught with checks never asked for');
+  assert.deepEqual(curlCalls(rest.argvFile), [], 'a moved head still makes no Jenkins REST call');
+});
+
+// --- --state all shares one Jenkins budget across open/merged/declined -----
+
+test('host: pr-list --state all binds at most five rows total across open, merged and declined, never per state', () => {
+  // Each state carries three ambiguous (ready-to-bind) rows with its own head
+  // sha — nine total, three per state. A per-state cap of 5 would make up to
+  // 15 Jenkins calls; the shared `_BB_JEN_BOUND` budget must cap the WHOLE
+  // `--state all` refresh at 5, and MERGED/DECLINED rows must never be bound
+  // regardless of budget (the next test pins that half on its own).
+  const open = bbRowsFor([
+    { id: 1, head: 'o0', sha: 'sha-o0', updatedAt: '2026-10-17T09:00:00Z' },
+    { id: 2, head: 'o1', sha: 'sha-o1', updatedAt: '2026-10-17T08:00:00Z' },
+    { id: 3, head: 'o2', sha: 'sha-o2', updatedAt: '2026-10-17T07:00:00Z' },
+  ]);
+  const merged = bbRowsFor([
+    { id: 4, head: 'm0', sha: 'sha-m0', state: 'MERGED', updatedAt: '2026-10-17T06:00:00Z' },
+  ]);
+  const declined = bbRowsFor([
+    { id: 5, head: 'd0', sha: 'sha-d0', state: 'DECLINED', updatedAt: '2026-10-17T05:00:00Z' },
+  ]);
+  const bb = makeStrictBbStub({ perState: { open, merged, declined } });
+  const jobs = JSON.stringify(['o0', 'o1', 'o2', 'm0', 'd0'].map((name) =>
+    ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
+  const jen = makeJenStub({ jobsJson: jobs });
+  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-o0', 'SUCCESS'));
+  const env = {
+    ...process.env, PLOT_HOST: 'bitbucket', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok',
+    PATH: `${rest.dir}:${jen.dir}:${bb.dir}:${process.env.PATH}`,
+  };
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all'],
+    { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const asked = curlCalls(rest.argvFile);
+  assert.equal(asked.length, 3, `three OPEN rows, all inside the shared cap of 5:\n${asked.join('\n')}`);
+  const rows = rowsByHead(res.stdout);
+  for (const head of ['o0', 'o1', 'o2']) {
+    assert.notEqual(rows.get(head).checksLookup, 'skipped', `${head} is well inside the shared budget`);
+  }
+});
+
+test('host: pr-list --state all never binds a MERGED or DECLINED row, however ambiguous its colour', () => {
+  const open = bbRowsFor([{ id: 1, head: 'o0', sha: 'sha-o0', updatedAt: '2026-10-17T09:00:00Z' }]);
+  const merged = bbRowsFor([{ id: 4, head: 'm0', sha: 'sha-m0', state: 'MERGED', updatedAt: '2026-10-17T06:00:00Z' }]);
+  const declined = bbRowsFor([{ id: 5, head: 'd0', sha: 'sha-d0', state: 'DECLINED', updatedAt: '2026-10-17T05:00:00Z' }]);
+  const bb = makeStrictBbStub({ perState: { open, merged, declined } });
+  const jobs = JSON.stringify(['o0', 'm0', 'd0'].map((name) =>
+    ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
+  const jen = makeJenStub({ jobsJson: jobs });
+  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-o0', 'SUCCESS'));
+  const env = {
+    ...process.env, PLOT_HOST: 'bitbucket', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok',
+    PATH: `${rest.dir}:${jen.dir}:${bb.dir}:${process.env.PATH}`,
+  };
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all'],
+    { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const rows = rowsByHead(res.stdout);
+  const asked = curlCalls(rest.argvFile);
+  assert.ok(!asked.some((u) => u.includes('/job/m0/') || u.includes('/job/d0/')), `MERGED/DECLINED never asked by sha:\n${asked.join('\n')}`);
+  assert.equal(rows.get('m0').checks, 'green', 'a MERGED row stands on its raw branch colour, unbound');
+  assert.equal(rows.get('m0').checksLookup, undefined, 'never skipped or broken: it was never a candidate');
+  assert.equal(rows.get('d0').checks, 'green', 'a DECLINED row stands on its raw branch colour, unbound');
+  assert.equal(rows.get('d0').checksLookup, undefined);
+});
+
+// --- a named row whose Jenkins ask breaks reads 'broken', not a stale colour ---
+
+test('host: pr-state bitbucket reads unknown with checksLookup broken where a named row\'s ask fails mid-pass', () => {
+  // feature/red is ambiguous (ask away) and its build request answers HTML,
+  // which breaks the lookup before it can answer. It was named for this pass
+  // (`jenkins_bind_rows`'s named-file side-channel), so the row must read
+  // 'broken' — never 'skipped' (cap never reached) and never the stale red
+  // colour standing in for the current head's checks.
+  const out = bbJenkinsPrState(['5', '--with-checks'], {
+    build: '<html><body>Authentication required</body></html>',
+    bbJson: JSON.stringify(BB_RED_PR),
+  });
+  assert.equal(out.checks, 'unknown');
+  assert.equal(out.checksSha, '');
+  assert.equal(out.checksLookup, 'broken', 'named this pass, and the ask broke — distinct from skipped');
+});
+
+test('host: pr-list bitbucket under jenkins reads checksLookup broken for a named row whose ask fails, distinct from skipped', () => {
+  // The pr-list counterpart: one ambiguous row, well inside the cap, so it is
+  // named — and its Jenkins REST call answers HTML, breaking the ask. The row
+  // must read 'broken', never 'skipped' (which means "never named").
+  const rows = [{ id: 30, head: 'feature/broken', sha: 'sha-broken', updatedAt: '2026-10-17T09:00:00Z' }];
+  const rest = makeCurlAnswering('<html><body>Authentication required</body></html>');
+  const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
+  delete env.JENKINS_INSTANCE;
+  const hostStubs = makeStubs({ bbJson: bbRowsFor(rows) });
+  const jen = makeJenStub({ jobsJson: JSON.stringify([
+    { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: 'feature/broken', color: 'red' },
+  ]) });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich'], { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const out = rowsByHead(res.stdout);
+  assert.equal(out.get('feature/broken').checks, 'unknown');
+  assert.equal(out.get('feature/broken').checksSha, '');
+  assert.equal(out.get('feature/broken').checksLookup, 'broken', 'named, and the ask broke — not the same fact as a cap-skipped row');
 });
 
 test('host: a refresh reads at most five rows by sha, the most recently updated first', () => {

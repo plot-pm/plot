@@ -80,12 +80,20 @@ export const PrIndexRowSchema = z
     /** When the host merged the PR, as the host spelled it; absent on a PR it has not merged. */
     mergedAt: z.string().optional(),
     /**
-     * `'skipped'` where a Jenkins-backed pass did not look this row up this
-     * pass — the cap (`SHA_LOOKUPS_PER_PASS`), or an ask that broke early —
-     * never where Jenkins itself answered. Absent everywhere else, including
-     * every non-Jenkins adapter; never a value that collides with `checks`.
+     * `'skipped'` where the cap (`SHA_LOOKUPS_PER_PASS`) left this row out —
+     * never named for a sha lookup this pass. `'broken'` where the row WAS
+     * named and the lookup then broke early (Jenkins unreachable mid-pass) —
+     * a different fact: the colour may belong to a commit this PR no longer
+     * carries, same as `'skipped'`, but for a different reason, so the two
+     * are not collapsed. Neither is where Jenkins itself answered. Absent
+     * everywhere else, including every non-Jenkins adapter; never a value
+     * that collides with `checks`.
      */
-    checksLookup: z.string().optional(),
+    // plot-state: reading — what one pass's Jenkins lookup did with this row,
+    //                       not an order either value passes through. Re-read
+    //                       fresh every pass; a row named 'broken' this pass
+    //                       may be 'skipped' or absent the next.
+    checksLookup: z.enum(['skipped', 'broken']).optional(),
   })
   .strict();
 

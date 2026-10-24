@@ -354,16 +354,21 @@ export const CardPrSchema = z.object({
    */
   checksSha: z.string().optional(),
   /**
-   * `'skipped'` where a Jenkins-backed pass did not look this PR's checks up
-   * this pass — the lookup cap, or an ask that broke early — rather than
-   * Jenkins itself having answered. See `ChecksReadings.checksLookup` in the
-   * domain.
+   * `'skipped'` where the lookup cap left this row out — never named for a
+   * sha lookup this pass. `'broken'` where the row WAS named and the lookup
+   * then broke early (Jenkins unreachable mid-pass) — a different fact, kept
+   * distinct rather than collapsed into `'skipped'`. Neither is where Jenkins
+   * itself answered. See `PrIndexRowSchema.checksLookup` in the domain.
    *
    * `.optional()` for the same reason as `checksSha`: absent means *no such
    * signal was reported* (every host before v5 wrote no such field; GitHub
    * and Bitbucket without Jenkins never will), never *Jenkins answered*.
    */
-  checksLookup: z.string().optional(),
+  // plot-state: reading — what one pass's Jenkins lookup did with this row,
+  //                       not an order either value passes through. Re-read
+  //                       fresh every pass; a row named 'broken' this pass may
+  //                       be 'skipped' or absent the next.
+  checksLookup: z.enum(['skipped', 'broken']).optional(),
 });
 export type CardPr = z.infer<typeof CardPrSchema>;
 

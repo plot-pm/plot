@@ -424,11 +424,14 @@ export interface PrRecord {
   /** The commit `checks` was computed for; the rollup arm only. */
   checksSha?: string;
   /**
-   * `'skipped'` where a Jenkins-backed pass did not look this row up this
-   * pass — the cap, or an ask that broke early — never where Jenkins itself
-   * answered. Absent everywhere else; never a value `checks` already reports.
+   * `'skipped'` where the cap left this row out — never named for a sha
+   * lookup this pass. `'broken'` where the row WAS named and the lookup then
+   * broke early (Jenkins unreachable mid-pass) — a different fact, kept
+   * distinct rather than collapsed into `'skipped'`. Neither is where Jenkins
+   * itself answered. Absent everywhere else; never a value `checks` already
+   * reports.
    */
-  checksLookup?: string;
+  checksLookup?: 'skipped' | 'broken';
   /** The host's merge time; absent on an open PR. */
   mergedAt?: string;
 }
@@ -1114,7 +1117,7 @@ const storeRow = (
   if (typeof pr.updatedAt === 'string' && pr.updatedAt !== '') row.updatedAt = pr.updatedAt;
   if (typeof pr.author === 'string' && pr.author !== '') row.author = pr.author;
   if (typeof pr.checksSha === 'string' && pr.checksSha !== '') row.checksSha = pr.checksSha;
-  if (typeof pr.checksLookup === 'string' && pr.checksLookup !== '') row.checksLookup = pr.checksLookup;
+  if (pr.checksLookup === 'skipped' || pr.checksLookup === 'broken') row.checksLookup = pr.checksLookup;
   // A MERGED row is terminal: while the host answers MERGED, the first stored
   // `mergedAt` stands. Bitbucket reads it from `updated_on`, which moves on
   // every later comment, so a merged row with no stored predecessor takes the

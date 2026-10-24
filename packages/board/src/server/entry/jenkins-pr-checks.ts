@@ -15,7 +15,7 @@ import { pathToFileURL } from 'node:url';
  * `bindChecks` reached from `plot-host.sh`, once per `pr-list` pass.
  *
  * ```
- * { jq -c . <<<"$colours"; jq -c . <<<"$rows"; jq -c . <<<"${bound:-null}"; } | plot-jenkins-pr-checks.mjs rows
+ * { jq -c . <<<"$colours"; jq -c . <<<"$rows"; jq -c . <<<"${bound:-null}"; jq -c . <<<"${limit:-null}"; } | plot-jenkins-pr-checks.mjs rows
  * <branch>\t<sha>\t<job>                      # one row to read by sha
  * printf '<branch>\t<sha>\t<job>\t<runs json>\n' | plot-jenkins-pr-checks.mjs bind
  * {"<branch>":{"checks":"green","job":"<job>","checksSha":"<sha>"}}
@@ -24,12 +24,14 @@ import { pathToFileURL } from 'node:url';
  * `rows`'s third stdin line is the caller's PR index, read-only: branch ->
  * the `checksSha` already on record there. Absent (`null` or no line) where
  * the caller holds no index — every row then sorts exactly as it always has.
- * See `rowsToBind`'s rotation note.
+ * See `rowsToBind`'s rotation note. Its fourth stdin line overrides the cap
+ * (`SHA_LOOKUPS_PER_PASS` otherwise) — a caller sharing one budget across
+ * several calls passes down what remains of it.
  *
  * Two more verbs fold what the shell read for Bitbucket (`pr-state`, `pr-review`):
  *
  * ```
- * printf '<pr json|null>\n<colours json|null>\n<bound json|null>\n' | plot-jenkins-pr-checks.mjs state
+ * printf '<pr json|null>\n<colours json|null>\n<bound json|null>\n<wasNamed bool>\n' | plot-jenkins-pr-checks.mjs state
  * printf '<sha>\n<statuses json>\n<comments json>\n' | plot-jenkins-pr-checks.mjs review
  * ```
  *
@@ -80,7 +82,8 @@ export const run = (
   const lines = stdin.split('\n').filter((l) => l !== '');
   if (verb === 'state') {
     const [pr, colours, bound] = [0, 1, 2].map((i) => parseLine(lines[i] ?? ''));
-    write(`${JSON.stringify(bitbucketPrState(pr as never, colours as never, bound as never))}\n`);
+    const wasNamed = parseLine(lines[3] ?? '') === true;
+    write(`${JSON.stringify(bitbucketPrState(pr as never, colours as never, bound as never, wasNamed))}\n`);
     return EXIT.ok;
   }
   if (verb === 'review') {
@@ -96,9 +99,11 @@ export const run = (
     const bound = parsedBound !== null && typeof parsedBound === 'object'
       ? (parsedBound as Record<string, string>)
       : {};
+    const parsedLimit = parseLine(lines[3] ?? '');
+    const limit = typeof parsedLimit === 'number' ? parsedLimit : SHA_LOOKUPS_PER_PASS;
     for (const r of rowsToBind(
       rows as PrRowHead[], colours as Record<string, { checks?: string; job?: string }>,
-      SHA_LOOKUPS_PER_PASS, bound,
+      limit, bound,
     )) {
       write(`${r.branch}\t${r.sha}\t${r.job}\n`);
     }
