@@ -179,13 +179,14 @@ const jobSteps = (yaml, name) => {
 // with `corpus` unguarded — and `corpus` being skipped on a dispatched run
 // would make that pass by accident rather than by design.
 //
-// `validate` carries one step ahead of the guard: the check on the split
-// jobs' results, which checks nothing out. Every other job starts with it.
+// `validate`'s own split-job check now runs LAST, not ahead of the guard
+// (moved 2026-10-24 so a failing split job does not hide every other
+// `validate` gate), so every job starts with the guard alike.
 for (const [job, skip] of [
   ['corpus', 0],
   ['helper-contracts', 0],
   ['board-integration', 0],
-  ['validate', 1],
+  ['validate', 0],
 ]) {
   test(`ci.yml's ${job} job runs the dispatch guard before any checkout`, () => {
     const steps = jobSteps(CI, job);
@@ -219,30 +220,39 @@ for (const [job, skip] of [
 
 // A FAILED `needs:` SKIPS THE DEPENDENT JOB, and the ruleset accepts a skipped
 // required check. So `validate` must run unless the run was cancelled, and its
-// first step must fail unless both split jobs ended `success`.
+// last step must fail unless both split jobs ended `success`.
 test("ci.yml's validate needs both split jobs and runs unless cancelled", () => {
   const head = jobBlock(CI, 'validate').split('\n    steps:')[0];
   assert.match(head, /^ {4}needs: \[helper-contracts, board-integration\]$/m);
   assert.match(head, /^ {4}if: \$\{\{ !cancelled\(\) \}\}$/m);
 });
 
-test("ci.yml's validate starts with a step that fails unless both split jobs succeeded", () => {
-  const first = jobSteps(CI, 'validate')[0];
+// LAST, NOT FIRST (moved 2026-10-24): a step after a failed step is skipped
+// by default, so this step must carry its own `if: !cancelled()` or it would
+// silently stop requiring the split jobs after any earlier `validate` step
+// fails for an unrelated reason.
+test("ci.yml's validate ends with a step that fails unless both split jobs succeeded", () => {
+  const steps = jobSteps(CI, 'validate');
+  const last = steps[steps.length - 1];
   for (const job of ['helper-contracts', 'board-integration']) {
     const key = job.replace('-', '_').toUpperCase();
     assert.match(
-      first,
+      last,
       new RegExp(`${key}: \\$\\{\\{ needs\\.${job}\\.result \\}\\}`),
-      `the first step must read needs.${job}.result`,
+      `the last step must read needs.${job}.result`,
     );
     assert.match(
-      first,
+      last,
       new RegExp(`if \\[ "\\$${key}" != "success" \\]`),
-      `the first step must compare ${job}'s result with success`,
+      `the last step must compare ${job}'s result with success`,
     );
   }
-  assert.match(first, /exit 1/, 'the first step must exit 1 on a result other than success');
-  assert.doesNotMatch(first, /^\s*if: /m, 'the first step must run on every event');
+  assert.match(last, /exit 1/, 'the last step must exit 1 on a result other than success');
+  assert.match(
+    last,
+    /^\s*if: \$\{\{ !cancelled\(\) \}\}/m,
+    'the last step must carry its own if: !cancelled() to survive an earlier failed step',
+  );
 });
 
 // ── release.yml: the dispatch job ────────────────────────────────────────────

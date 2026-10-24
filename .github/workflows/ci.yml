@@ -201,10 +201,21 @@ jobs:
   # would clone an unpinned ref before anything refused.
   helper-contracts:
     runs-on: ubuntu-latest
-    # 12 minutes, same as the step carried before the split: p95 was 547.6 s
-    # (9.1 min) and max was 554 s (9.2 min) over 30 runs, so 12 keeps the
-    # margin the step already had rather than tightening it.
-    timeout-minutes: 12
+    # THE JOB CAP EXCEEDS THE STEP CAP, so a wedged test step ends `failure`
+    # and reaches the diagnostic step below rather than ending `cancelled` at
+    # the same instant the job cap fires. Equal caps hid that step entirely:
+    # the step's own 12-minute `timeout-minutes` and this job's 12-minute
+    # `timeout-minutes` fired together, the job read `cancelled`, and
+    # `if: failure()` never ran.
+    #
+    # 14 minutes: the test step's 12-minute cap, plus a margin for everything
+    # the step cap does not cover — checkout, `pnpm install`, the board build,
+    # and the diagnostic step itself. Measured 2026-10-24 over the last 30
+    # `helper-contracts` runs, checkout through "Build the board bundles" was
+    # p95 33 s, max 34 s; the diagnostic step is a few `ps`/`find`/`tail`
+    # calls with no file to wait on. 2 minutes covers both with room to
+    # spare.
+    timeout-minutes: 14
     steps:
       - name: Guard the dispatched run
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -334,7 +345,21 @@ jobs:
     # packages 7 min, the browser download 5 min on a cache miss only, and the
     # `Board integration tests` step measured at 4-8 minutes green.
     # 45s + 7min + 8min ≈ 15.75min on a cache hit, 20.75min worst case on a miss.
-    timeout-minutes: 20
+    #
+    # THE JOB CAP SAT BELOW ITS OWN WORST CASE: 20 against the 20.75 min
+    # figure directly above, so a worst-case cache miss could end `cancelled`
+    # before the install steps ever got to report `failure`. The step caps
+    # stay — their sum is 47 min (10+10+7+5+15), not the right bound, because
+    # the apt- and browser-cache steps' 10-minute caps are restore timeouts,
+    # not the minutes a hit (the common case) or even a typical miss actually
+    # takes; the 20.75 min figure above already uses the measured worst-case
+    # durations instead. 22 minutes: the 20.75 min worst case rounded up, plus
+    # a margin for the setup steps the figure estimates at ~45 s. Measured
+    # 2026-10-24 over the last 30 `board-integration` runs, checkout through
+    # "Build the board bundles" was p95 43 s, max 52 s — consistent with the
+    # ~45 s estimate, so a 1.25-minute margin above 20.75 covers the gap
+    # without reopening the "sum plus margin" mistake.
+    timeout-minutes: 22
     steps:
       - name: Guard the dispatched run
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -529,16 +554,31 @@ jobs:
     # `needs:` ALONE DOES NOT FAIL THIS JOB. When a needed job fails, GitHub
     # SKIPS the dependent job, and the ruleset accepts a `skipped` required
     # check. So `validate` runs whenever the run was not cancelled
-    # (`if: !cancelled()`), and its first step exits 1 unless both split jobs
+    # (`if: !cancelled()`), and its last step exits 1 unless both split jobs
     # ended `success`. A red split job then makes `validate` read `failure`,
-    # and a cancelled run still reads `cancelled`.
+    # and a cancelled run still reads `cancelled` — measured below.
     #
     # The edge orders the jobs: the two split jobs run in parallel with each
-    # other, and `validate` starts after both end. When a split job fails,
-    # `validate`'s own steps after the first do not run in that run. The
-    # alternative, named in the plan's Open Questions, is a ruleset change
-    # that adds both job names as their own required contexts; that is a
-    # settings change a person makes, reported rather than made here.
+    # other, and `validate` starts after both end. The alternative, named in
+    # the plan's Open Questions, is a ruleset change that adds both job names
+    # as their own required contexts; that is a settings change a person
+    # makes, reported rather than made here.
+    #
+    # THE CANCELLED-RUN CLAIM, MEASURED: run 40099050055 (`workflow_dispatch`
+    # on `changeset-release/main`, created 2026-10-24T13:39:05Z) was
+    # cancelled, superseded by a later dispatch in the same concurrency
+    # group. `gh api repos/plot-pm/plot/actions/runs/40099050055/jobs -q
+    # '.jobs[] | select(.name=="validate")'` reads `status completed,
+    # conclusion cancelled` for `validate` itself — not `failure`, though its
+    # `needs: [helper-contracts, board-integration]` and `if: !cancelled()`
+    # were already in place. A cancellation ends the run before any job's
+    # `if:` is evaluated, so `!cancelled()` never gets a chance to turn it
+    # into something else; the condition exists for the ordinary case, a red
+    # split job, not for this one. Recorded here rather than added as a
+    # self-cancelling workflow-dispatch job (open question (b)): that job
+    # would need its own `timeout-minutes` and dispatch guard to measure a
+    # fact that does not change per-commit, paying a CI job for no
+    # corresponding gate.
     needs: [helper-contracts, board-integration]
     if: ${{ !cancelled() }}
     # A CEILING, not a target. GitHub's default is 360 minutes, which is not a
@@ -562,35 +602,12 @@ jobs:
     # slower of the three: at the step p95s, max(547.6 s, 600 s) + 376.65 s
     # = 976.65 s (16.3 min), plus each job's checkout, install and build. Each
     # job's `timeout-minutes` counts only its own steps, never the wait on
-    # `needs:`, so each job stays under its own cap: `helper-contracts` 12 min
-    # (p95 9.1 min), `board-integration` 15 min (p95 10.0 min), `validate`
-    # 25 min (p95 6.3 min).
+    # `needs:`, so each job stays under its own cap: `helper-contracts` 14 min
+    # (p95 9.1 min test step, plus the margin above its cap comment),
+    # `board-integration` 22 min (p95 10.0 min test step, plus its own
+    # margin), `validate` 25 min (p95 6.3 min).
     timeout-minutes: 25
     steps:
-      # FIRST STEP: the split jobs' results. `if: !cancelled()` above lets this
-      # job run after a split job failed, so this step turns that failure into
-      # this job's `failure` rather than a `skipped` the ruleset accepts. It
-      # checks nothing out, so it runs safely ahead of the dispatch guard.
-      - name: Require the split jobs
-        env:
-          HELPER_CONTRACTS: ${{ needs.helper-contracts.result }}
-          BOARD_INTEGRATION: ${{ needs.board-integration.result }}
-        run: |
-          set -euo pipefail
-          failed=0
-          if [ "$HELPER_CONTRACTS" != "success" ]; then
-            echo "::error::helper-contracts ended '$HELPER_CONTRACTS', not 'success'"
-            failed=1
-          fi
-          if [ "$BOARD_INTEGRATION" != "success" ]; then
-            echo "::error::board-integration ended '$BOARD_INTEGRATION', not 'success'"
-            failed=1
-          fi
-          if [ "$failed" -ne 0 ]; then
-            exit 1
-          fi
-          echo "helper-contracts and board-integration both ended success"
-
       # The dispatch guard, ahead of any checkout for the reason the `corpus`
       # copy states: a checkout ahead of it would clone an unpinned ref before
       # anything refused. The two refusals are the ref and the head SHA.
@@ -1702,3 +1719,40 @@ jobs:
           done
 
           echo "All changeset bumps references are valid."
+
+      # LAST STEP: the split jobs' results. Moved here (2026-10-24) so every
+      # other `validate` gate reports before a failing split job ends the
+      # run — first meant every later `validate` step was skipped once a
+      # split job failed, even though those steps check things unrelated to
+      # `helper-contracts` or `board-integration`, and the skip hid every one
+      # of them from that run's output.
+      #
+      # `if: !cancelled()` ON THE STEP, NOT ONLY THE JOB. `validate`'s own
+      # `if: !cancelled()` governs whether the JOB starts; a step after a
+      # FAILED step is skipped by default regardless of the job condition,
+      # so without a condition here this step would stop running the moment
+      # any earlier `validate` step failed — the naive cut-and-paste that
+      # looks right on a green run and silently stops requiring the split
+      # jobs on every other kind of failure. With the condition, a red split
+      # job and an unrelated red `validate` step both still reach this step
+      # and both still name the split-job result.
+      - name: Require the split jobs
+        if: ${{ !cancelled() }}
+        env:
+          HELPER_CONTRACTS: ${{ needs.helper-contracts.result }}
+          BOARD_INTEGRATION: ${{ needs.board-integration.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+          if [ "$HELPER_CONTRACTS" != "success" ]; then
+            echo "::error::helper-contracts ended '$HELPER_CONTRACTS', not 'success'"
+            failed=1
+          fi
+          if [ "$BOARD_INTEGRATION" != "success" ]; then
+            echo "::error::board-integration ended '$BOARD_INTEGRATION', not 'success'"
+            failed=1
+          fi
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+          echo "helper-contracts and board-integration both ended success"
