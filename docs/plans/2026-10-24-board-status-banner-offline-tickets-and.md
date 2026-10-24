@@ -70,7 +70,7 @@ The slices touch disjoint files except `fleet.ts` (slices 1 and 2). Slice 2 ther
 
 ### Board client
 
-- `bug/board-client-fetch-bound-and-click` — fetch bound, immediate feedback on an unreachable board and click tests (#2088, #2113)
+- `bug/board-client-fetch-bound-and-click` — fetch bound, immediate feedback on an unreachable board and click tests (#2088, #2113) → #2641
 
 ## Notes
 
