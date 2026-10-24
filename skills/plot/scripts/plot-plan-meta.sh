@@ -237,18 +237,11 @@
 #                  written, and is read nowhere. ALWAYS present; [] when none.
 #   unread_heading_items
 #                  `{ wave, branch }` pairs, in document order, for a heading-
-#                  shape wave's list item that reads as a branch claim
-#                  (`branch_claim_re`, the same anchor the old shape uses) but
-#                  names a branch no heading in that wave carries — a report,
-#                  not a refusal. A list item naming its OWN heading's branch is
-#                  read instead: its `→ #N` and its `claimed:`/`deferred:`/
-#                  `waits:`/`builds:`/`agent:` annotations land on that branch,
-#                  same as the old shape. Every other line in a heading-shape
-#                  wave — prose, a list item naming a different branch — stays
-#                  unread, exactly as the comment above the heading handler
-#                  always said. `wave` is the wave NAME (waves[].name), not an
-#                  index. ALWAYS present; [] when every such item was
-#                  attributed.
+#                  shape list item claiming a branch no heading in that wave
+#                  carries — a report, not a refusal. A claim on its OWN
+#                  heading's branch is read instead (see the heading handler).
+#                  `wave` is the wave NAME, not an index. ALWAYS present; []
+#                  when every such item was attributed.
 #   issues         tracker issue numbers this plan answers, from the `## Status`
 #                  `Issue:` line or front matter `issue:` (sorted, unique).
 #                  A DEDICATED field, never a scan of the body for `#NNN`: a
@@ -800,13 +793,6 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
           ",\"value\":\"" jesc(unread_waits_value[i]) "\"}"
   }
   out = out "]"
-  # unread_heading_items[]: { wave, branch } pairs, in document order, for a
-  # heading-shape wave list item that IS a branch claim (branch_claim_re) but
-  # names a branch no heading in that wave claims — the parser cannot tell
-  # which slice it belongs to, so it is reported rather than silently dropped
-  # and never read as a second claim on the heading branch. wave is the wave
-  # NAME (waves[].name), not an index, so a consumer needs no second lookup.
-  # ALWAYS present; [] when every such item was attributed.
   out = out ",\"unread_heading_items\":["
   for (i = 1; i <= n_unread_heading_items; i++) {
     out = out (i > 1 ? "," : "") "{\"wave\":\"" jesc(wave_names[unread_heading_item_wave[i]]) "\"" \
@@ -1032,6 +1018,29 @@ function keep_branch(n, b) {
     agent_of[n] = agent_note
     ordered_b[n] = b
   commits_of[n] = commit_list($0)
+}
+# `→ #N` and `→ owner/repo#N` are both annotations: /plot-deliver instructs
+# implementers to write the second for `Impl: other repo` plans, and a parser
+# that dropped it reported `prs: []` for a plan whose only PR was written
+# exactly as documented. The repo part is matched but not retained — callers
+# ask which PRs are the evidence, and plot-host.sh resolves where each lives.
+# A near-miss is REPORTED, never silently dropped. `→#44` (no space) is the
+# obvious hand-typo, and treating it as absence makes the sweep advise adding
+# an annotation the plan already carries. Accepting it would widen the
+# contract on a guess; reporting it leaves the judgement with a person.
+function extract_prs(raw,   line, p) {
+  line = raw
+  while (match(line, /→ ([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?#[0-9]+/)) {
+    p = substr(line, RSTART, RLENGTH)
+    sub(/^.*#/, "", p)
+    prs[++n_prs] = p; if (raw ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
+    line = substr(line, RSTART + RLENGTH)
+  }
+  line = raw
+  while (match(line, /→#[0-9]+/)) {
+    malformed_prs[++n_malformed_prs] = substr(line, RSTART, RLENGTH)
+    line = substr(line, RSTART + RLENGTH)
+  }
 }
 # The longest wave name that still reads as a label, not prose. A JUDGEMENT, not
 # a measurement: the longest legitimate name in the estate is `Offered first`
@@ -1327,27 +1336,7 @@ section == "slices" && slice_shape != "heading" {
     wave_of[n_branches] = n_waves; ++wave_count[n_waves]
     keep_branch(n_branches, b)
   }
-  line = $0
-  # `→ #N` and `→ owner/repo#N` are both annotations: /plot-deliver instructs
-  # implementers to write the second for `Impl: other repo` plans, and a parser
-  # that dropped it reported `prs: []` for a plan whose only PR was written
-  # exactly as documented. The repo part is matched but not retained — callers
-  # ask which PRs are the evidence, and plot-host.sh resolves where each lives.
-  while (match(line, /→ ([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?#[0-9]+/)) {
-    p = substr(line, RSTART, RLENGTH)
-    sub(/^.*#/, "", p)
-    prs[++n_prs] = p; if ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
-    line = substr(line, RSTART + RLENGTH)
-  }
-  # A near-miss is REPORTED, never silently dropped. `→#44` (no space) is the
-  # obvious hand-typo, and treating it as absence makes the sweep advise adding
-  # an annotation the plan already carries. Accepting it would widen the
-  # contract on a guess; reporting it leaves the judgement with a person.
-  line = $0
-  while (match(line, /→#[0-9]+/)) {
-    malformed_prs[++n_malformed_prs] = substr(line, RSTART, RLENGTH)
-    line = substr(line, RSTART + RLENGTH)
-  }
+  extract_prs($0)
   next
 }
 # `## Waves` — the new spelling. The `### ` heading carries the meta (which
@@ -1432,56 +1421,24 @@ section == "slices" && slice_shape == "heading" {
     sub(/`$/, "", item_branch)
     if (heading_branch != "" && item_branch == heading_branch) {
       # Names the branch the heading above already claimed: its `→ #N` and its
-      # annotations belong to that branch. keep_branch re-reads $0 (this line)
-      # for deferred/spike/claimed, so a list item marker is read in addition to
-      # a heading marker — never instead of it. keep_branch overwrites every
-      # field unconditionally, so a heading-only annotation (a deferral reason
-      # written on the `### ` line, say) would be wiped by a list item that
-      # carries none of its own. MERGE_LIST_ITEM_NOTES below is the fix: it
-      # saves what the heading already stored, lets keep_branch write the list
-      # item reading, then restores a field the list item did not itself set.
-      save_deferred = deferred_of[heading_branch_n]
-      save_deferred_why = deferred_why[heading_branch_n]
-      save_spike = spike_of[heading_branch_n]
-      save_claimed = claimed_of[heading_branch_n]
-      save_builds = builds_of[heading_branch_n]
-      save_agent = agent_of[heading_branch_n]
-      save_waits_set = waits_set[heading_branch_n]
-      save_waits_n = waits_n[heading_branch_n]
-      for (k = 1; k <= save_waits_n; k++) save_waits_of[k] = waits_of[heading_branch_n, k]
-
+      # annotations belong to that branch. read_notes() reads $0 (this line), so
+      # a list item marker is read IN ADDITION TO a heading marker, never
+      # instead of it — and only a field this line itself carries overwrites
+      # what the heading already stored, so a heading-only annotation (a
+      # deferral reason written on the `### ` line, say) survives a list item
+      # that carries none of its own.
       read_notes()
-      keep_branch(heading_branch_n, heading_branch)
+      if ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) {
+        deferred_of[heading_branch_n] = "true"
+        deferred_why[heading_branch_n] = defer_note
+      }
+      if ($0 ~ /<!--[ \t]*spike[ \t]*-->/) spike_of[heading_branch_n] = 1
+      if (claim_note != "") claimed_of[heading_branch_n] = claim_note
+      if (builds_note != "") builds_of[heading_branch_n] = builds_note
+      if (agent_note != "") agent_of[heading_branch_n] = agent_note
+      if (!waits_set[heading_branch_n]) store_waits(heading_branch_n, heading_branch)
 
-      # A field the list item did not itself carry keeps what the heading already
-      # stored, rather than the "false"/"" default keep_branch just wrote for it.
-      if ($0 !~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) {
-        deferred_of[heading_branch_n] = save_deferred
-        deferred_why[heading_branch_n] = save_deferred_why
-      }
-      if ($0 !~ /<!--[ \t]*spike[ \t]*-->/) spike_of[heading_branch_n] = save_spike
-      if (claim_note == "") claimed_of[heading_branch_n] = save_claimed
-      if (builds_note == "") builds_of[heading_branch_n] = save_builds
-      if (agent_note == "") agent_of[heading_branch_n] = save_agent
-      if (!waits_set[heading_branch_n]) {
-        waits_set[heading_branch_n] = save_waits_set
-        waits_n[heading_branch_n] = save_waits_n
-        for (k = 1; k <= save_waits_n; k++) waits_of[heading_branch_n, k] = save_waits_of[k]
-      }
-      delete save_waits_of
-
-      line = $0
-      while (match(line, /→ ([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?#[0-9]+/)) {
-        p = substr(line, RSTART, RLENGTH)
-        sub(/^.*#/, "", p)
-        prs[++n_prs] = p; if ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
-        line = substr(line, RSTART + RLENGTH)
-      }
-      line = $0
-      while (match(line, /→#[0-9]+/)) {
-        malformed_prs[++n_malformed_prs] = substr(line, RSTART, RLENGTH)
-        line = substr(line, RSTART + RLENGTH)
-      }
+      extract_prs($0)
     } else {
       # Names a branch no heading in this wave claims (or there is no current
       # heading branch at all) — the parser cannot attribute it, so it is
