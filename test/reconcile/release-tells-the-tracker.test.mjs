@@ -20,7 +20,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
 const deliver = path.join(SCRIPTS, 'plot-deliver.sh');
 
-let tmp, origin, repo, stubDir, issueCalls;
+let tmp, origin, repo, stubDir, issueCalls, repoLabelsFile, issueLabelsFile;
 
 function git(cwd, ...args) {
   return execFileSync('git', args, { encoding: 'utf8', cwd });
@@ -33,6 +33,8 @@ function run(args, { cwd = repo, expectFail = false } = {}) {
       PATH: `${stubDir}:${process.env.PATH}`,
       PLOT_HOST: 'github',
       ISSUE_CALLS: issueCalls,
+      REPO_LABELS: repoLabelsFile,
+      ISSUE_LABELS: issueLabelsFile,
     };
     delete childEnv.PLOT_UNATTENDED;
     const out = execFileSync('bash', [deliver, ...args], {
@@ -57,9 +59,18 @@ exec node "${stubDir}/gh.mjs" "$@"
   fs.chmodSync(path.join(stubDir, 'gh'), 0o755);
   // `issue edit`/`comment`/`close` each append one line to ISSUE_CALLS and
   // exit 0, unless GH_STUB_ISSUE_RC says otherwise for that issue number.
+  //
+  // REPO_LABELS and ISSUE_LABELS are files holding the repo's label set and
+  // the asked issue's carried labels, comma-separated — real `gh issue edit`
+  // rejects the WHOLE call when any `--remove-label` name is not a repo
+  // label, so this stub does the same, rather than accepting any string.
   fs.writeFileSync(path.join(stubDir, 'gh.mjs'), `
 import fs from 'node:fs';
 const argv = process.argv.slice(2);
+const repoLabels = () => (process.env.REPO_LABELS && fs.existsSync(process.env.REPO_LABELS))
+  ? fs.readFileSync(process.env.REPO_LABELS, 'utf8').split(',').filter(Boolean) : [];
+const issueLabels = () => (process.env.ISSUE_LABELS && fs.existsSync(process.env.ISSUE_LABELS))
+  ? fs.readFileSync(process.env.ISSUE_LABELS, 'utf8').split(',').filter(Boolean) : [];
 if (argv[0] === 'pr' && argv[1] === 'view') {
   const closed = (process.env.GH_STUB_CLOSED || '').split(',').includes(argv[2]);
   const sha = closed ? '' : process.env.GH_STUB_SHA || '';
@@ -70,12 +81,38 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
   }));
 } else if (argv[0] === 'repo' && argv[1] === 'view') {
   process.stdout.write('main');
+} else if (argv[0] === 'label' && argv[1] === 'create') {
+  const name = argv[2];
+  if (repoLabels().includes(name)) { process.stderr.write('label already exists\\n'); process.exit(1); }
+  if (process.env.GH_STUB_LABEL_CREATE_RC) { process.stderr.write('stub: label create refused\\n'); process.exit(1); }
+  if (process.env.REPO_LABELS) fs.appendFileSync(process.env.REPO_LABELS, (repoLabels().length ? ',' : '') + name);
 } else if (argv[0] === 'issue' && ['edit', 'comment', 'close', 'view'].includes(argv[1])) {
   const num = argv[2];
-  if (argv[1] === 'view') { process.stdout.write(JSON.stringify({ comments: [] })); process.exit(0); }
+  if (argv[1] === 'view') {
+    if (argv.includes('--json') && argv[argv.indexOf('--json') + 1] === 'labels') {
+      if (argv.includes('-q')) process.stdout.write(issueLabels().map((name) => name + '\\n').join(''));
+      else process.stdout.write(JSON.stringify({ labels: issueLabels().map((name) => ({ name })) }));
+    } else {
+      process.stdout.write(JSON.stringify({ comments: [] }));
+    }
+    process.exit(0);
+  }
   const failing = (process.env.GH_STUB_ISSUE_FAIL || '').split(',').includes(num);
+  if (argv[1] === 'edit' && argv.includes('--remove-label')) {
+    const drop = argv[argv.indexOf('--remove-label') + 1].split(',');
+    const unknown = drop.find((l) => !repoLabels().includes(l));
+    if (unknown) { process.stderr.write("label '" + unknown + "' not found\\n"); process.exit(1); }
+  }
   if (process.env.ISSUE_CALLS) fs.appendFileSync(process.env.ISSUE_CALLS, argv[1] + ' ' + num + '\\n');
   if (failing) { process.stderr.write('stub: issue op refused\\n'); process.exit(1); }
+  if (argv[1] === 'edit' && process.env.ISSUE_LABELS) {
+    let labels = issueLabels();
+    const addIdx = argv.indexOf('--add-label');
+    if (addIdx !== -1) labels = labels.filter((l) => l !== argv[addIdx + 1]).concat(argv[addIdx + 1]);
+    const dropIdx = argv.indexOf('--remove-label');
+    if (dropIdx !== -1) { const drop = argv[dropIdx + 1].split(','); labels = labels.filter((l) => !drop.includes(l)); }
+    fs.writeFileSync(process.env.ISSUE_LABELS, labels.join(','));
+  }
 } else {
   process.stdout.write('{}');
 }
@@ -125,6 +162,8 @@ function makeRepo(planBody = PLAN({ issue: '#7' }), { otherPlan } = {}) {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-release-tracker-'));
   issueCalls = path.join(tmp, 'issue.calls');
+  repoLabelsFile = path.join(tmp, 'repo.labels');
+  issueLabelsFile = path.join(tmp, 'issue.labels');
   origin = path.join(tmp, 'origin.git');
   repo = path.join(tmp, 'repo');
   git(tmp, 'init', '--bare', '-q', '-b', 'main', origin);
@@ -162,10 +201,22 @@ function issueCallLines() {
   return fs.existsSync(issueCalls) ? fs.readFileSync(issueCalls, 'utf8').trim().split('\n').filter(Boolean) : [];
 }
 
+/** The current label set a file tracks, comma-joined by the stub; [] once no file is seeded. */
+function labelSet(file) {
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split(',').filter(Boolean) : [];
+}
+
+/** Seeds the repo's label set and one issue's carried labels before a run. */
+function seedLabels(repoLabels, issueLabels) {
+  fs.writeFileSync(repoLabelsFile, repoLabels.join(','));
+  fs.writeFileSync(issueLabelsFile, issueLabels.join(','));
+}
+
 beforeEach(() => {
   delete process.env.GH_STUB_SHA;
   delete process.env.GH_STUB_CLOSED;
   delete process.env.GH_STUB_ISSUE_FAIL;
+  delete process.env.GH_STUB_LABEL_CREATE_RC;
 });
 
 test('release: closes the issue it names, with no other plan in the way', () => {
@@ -219,4 +270,51 @@ test('release: a failed tracker write is reported and the release still succeeds
   refreshMain();
   assert.match(git(repo, 'show', 'origin/main:docs/plans/2026-09-01-release-me.md'), /Phase:\*\* Released/,
     'the release record must land even where the tracker write failed');
+});
+
+// Regression coverage for #2054/#2055: the repo carried `plan:draft`,
+// `plan:approved` and `plan:delivered` but never `plan:released`, so
+// `issue-label`'s single `gh issue edit --add-label --remove-label a,b,c,d`
+// failed outright on the missing label — and on #2054 the add had already
+// landed, leaving the issue carrying two `plan:*` labels at once.
+test('release: creates the missing plan:released label before setting it, on a repo that never had it', () => {
+  const { shippedSha } = makeRepo(PLAN({ issue: '#7' }));
+  process.env.GH_STUB_SHA = shippedSha;
+  seedLabels(['plan:draft', 'plan:approved', 'plan:delivered'], ['plan:delivered']);
+  execFileSync('git', ['tag', '-a', 'v1.0.0', '-m', 'v1.0.0', shippedSha], { cwd: repo });
+  git(repo, 'push', '-q', 'origin', 'v1.0.0');
+
+  const r = run(['--release', '1.0.0', 'release-me']);
+  assert.equal(r.code, 0, `should succeed:\n${r.out}\n${r.err}`);
+  assert.deepEqual(labelSet(issueLabelsFile), ['plan:released'],
+    'the issue must end up carrying exactly the released label, not the label it started with');
+  assert.ok(labelSet(repoLabelsFile).includes('plan:released'), 'the repo must gain the label the write needed');
+});
+
+test('release: a next write drops both labels from an issue already carrying two plan:* labels', () => {
+  const { shippedSha } = makeRepo(PLAN({ issue: '#7' }));
+  process.env.GH_STUB_SHA = shippedSha;
+  seedLabels(['plan:draft', 'plan:approved', 'plan:delivered', 'plan:released'], ['plan:draft', 'plan:approved']);
+  execFileSync('git', ['tag', '-a', 'v1.0.0', '-m', 'v1.0.0', shippedSha], { cwd: repo });
+  git(repo, 'push', '-q', 'origin', 'v1.0.0');
+
+  const r = run(['--release', '1.0.0', 'release-me']);
+  assert.equal(r.code, 0, `should succeed:\n${r.out}\n${r.err}`);
+  assert.deepEqual(labelSet(issueLabelsFile), ['plan:released'],
+    'the repair case: an issue holding two phase labels must end the write holding exactly one');
+});
+
+test('release: a gh label create failure that is not "already exists" fails the whole write', () => {
+  const { shippedSha } = makeRepo(PLAN({ issue: '#7' }));
+  process.env.GH_STUB_SHA = shippedSha;
+  process.env.GH_STUB_LABEL_CREATE_RC = '1';
+  seedLabels(['plan:draft', 'plan:approved', 'plan:delivered'], ['plan:delivered']);
+  execFileSync('git', ['tag', '-a', 'v1.0.0', '-m', 'v1.0.0', shippedSha], { cwd: repo });
+  git(repo, 'push', '-q', 'origin', 'v1.0.0');
+
+  const r = run(['--release', '1.0.0', 'release-me']);
+  assert.equal(r.code, 0, `a tracker failure must not fail the release itself:\n${r.out}\n${r.err}`);
+  assert.match(r.out, /summary: issues closed=0 left-open=1 \(failed=1\)\n/, r.out);
+  assert.deepEqual(labelSet(issueLabelsFile), ['plan:delivered'],
+    'a label-create failure other than "already exists" must leave the issue untouched');
 });
