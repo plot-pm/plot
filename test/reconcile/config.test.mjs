@@ -123,11 +123,15 @@ test('config: get-raw keeps a regex value whole, get still strips prose', () => 
 - **Shipped code paths:** ^(backend/.*/src/main/|frontend/)
 - **Quantified paths:** \`^src/[a-z]{1,3}/(x|y)\`
 - **Branch prefixes:** \`idea/\` (plans), \`feature/\`
+- **Annotated regex:** \`^(packages/[^/]+/src/|skills/)\` (the code a plan ships)
 `);
     const run = (verb, k) =>
       execFileSync('bash', [accessor, verb, k], { encoding: 'utf8', cwd: dir }).trimEnd();
     assert.equal(run('get-raw', 'Shipped code paths'), '^(backend/.*/src/main/|frontend/)');
     assert.equal(run('get-raw', 'Quantified paths'), '^src/[a-z]{1,3}/(x|y)');
+    // A backticked value followed by trailing prose: get-raw returns only the backtick
+    // span. The old code's prose was `s/`//g` alone, which left the prose note attached.
+    assert.equal(run('get-raw', 'Annotated regex'), '^(packages/[^/]+/src/|skills/)');
     // `get` is unchanged: the same value loses its group, which is why the scan reads it raw.
     assert.equal(run('get', 'Shipped code paths'), '^');
     assert.equal(run('get', 'Branch prefixes'), 'idea/, feature/');
