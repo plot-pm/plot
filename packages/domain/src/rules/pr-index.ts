@@ -417,6 +417,8 @@ export const prWindowFor = (
 export interface ChecksCarry {
   checks: string;
   checksSha?: string;
+  /** The stored failing job names, present only where the stored colour carries. */
+  failing_checks?: string[];
 }
 
 /** The fields of one host answer that decide whether a stored colour carries. */
@@ -426,6 +428,15 @@ export interface ChecksAnswer {
   checksLookup?: string;
   headSha?: string;
 }
+
+/**
+ * Whether a host answer says this pass's Jenkins lookup did not reach the row.
+ *
+ * @param checksLookup - the answer's or the stored row's `checksLookup`.
+ * @returns true for `skipped` and `broken`.
+ */
+const unreached = (checksLookup: string | undefined): boolean =>
+  checksLookup === 'skipped' || checksLookup === 'broken';
 
 /**
  * The checks colour a row shows after this pass: the host's answer, or the
@@ -439,20 +450,64 @@ export interface ChecksAnswer {
  * is `unknown` for such a row: the stored colour belongs to a commit the PR no
  * longer carries.
  *
+ * A carried colour brings the predecessor's `failing_checks` with it where the
+ * predecessor holds that list, so the colour and the job names come from one
+ * reading. An unreached answer carries `failing_checks: []`, which would drop
+ * the names a carried `failing` explains.
+ *
  * @param answer - the host's answer for the row.
  * @param predecessor - the stored row with the same number, if any.
- * @returns the colour to store and show, with `checksSha` only where it is non-empty.
+ * @returns the colour to store and show, with `checksSha` only where it is
+ *   non-empty and `failing_checks` only where the stored colour carries.
  */
 export const carriedChecks = (
   answer: ChecksAnswer, predecessor: PrIndexRow | undefined,
 ): ChecksCarry => {
-  const unreached = answer.checksLookup === 'skipped' || answer.checksLookup === 'broken';
-  const sha = predecessor?.checksSha;
-  if (unreached && predecessor !== undefined && typeof sha === 'string' && sha !== ''
-    && sha === answer.headSha) {
-    return { checks: predecessor.checks, checksSha: sha };
+  if (unreached(answer.checksLookup) && predecessor?.checksSha
+    && predecessor.checksSha === answer.headSha) {
+    const carry: ChecksCarry = { checks: predecessor.checks, checksSha: predecessor.checksSha };
+    if (Array.isArray(predecessor.failing_checks)) carry.failing_checks = predecessor.failing_checks;
+    return carry;
   }
   return typeof answer.checksSha === 'string' && answer.checksSha !== ''
     ? { checks: answer.checks, checksSha: answer.checksSha }
     : { checks: answer.checks };
+};
+
+/**
+ * The `--bound-shas` map a Jenkins-backed `pr-list` ranks its capped lookups by:
+ * each open branch's sha, where the store holds a colour for that branch's head
+ * that a further lookup would only confirm.
+ *
+ * `rowsToBind` reads a branch absent from the map, or one whose head moved past
+ * the sha the map names, before a branch bound to its current head. A row whose
+ * stored `checksLookup` is `skipped` or `broken` holds a CARRIED colour
+ * (`carriedChecks`): its `checksSha` names the head, but no lookup read it on
+ * the pass that stored it. A carried `green` stays listed, because a build of
+ * that head already passed. A carried `pending` or `failing` is left out: a
+ * running build concludes and a failed build is re-run on the same head, so the
+ * row ranks with the unbound rows and the next lookup reads it again. A row the
+ * last lookup did read stays listed whatever its colour, so it ranks last.
+ *
+ * `ask` narrows the lookups to some rows, as the delta's re-ask of pending and
+ * failing rows does: every other open row is listed as bound to its stored
+ * `headSha`, so it ranks last and the capped lookups go to the asked rows first.
+ *
+ * @param held - the stored index, or null where none exists.
+ * @param ask - the numbers the lookups are for, or undefined for every row.
+ * @returns the map keyed by branch, empty where no row qualifies.
+ */
+export const boundShasFor = (
+  held: PrIndex | null, ask?: ReadonlySet<number>,
+): Record<string, string> => {
+  const bound: Record<string, string> = {};
+  for (const row of held?.rows ?? []) {
+    if (row.state !== 'OPEN' || row.head === '') continue;
+    if (ask !== undefined && !ask.has(row.number)) {
+      if (row.headSha) bound[row.head] = row.headSha;
+    } else if (row.checksSha && (row.checks === 'green' || !unreached(row.checksLookup))) {
+      bound[row.head] = row.checksSha;
+    }
+  }
+  return bound;
 };

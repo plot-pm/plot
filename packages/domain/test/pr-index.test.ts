@@ -8,7 +8,7 @@ import {
   type PrIndexRow,
 } from '../src/entities/pr-index.js';
 import {
-  answerKind, carriedChecks, foldPrIndex, pendingOpenPrNumbers, prWindowFor, watermarkOf,
+  answerKind, boundShasFor, carriedChecks, foldPrIndex, pendingOpenPrNumbers, prWindowFor, watermarkOf,
 } from '../src/rules/pr-index.js';
 
 /**
@@ -908,9 +908,56 @@ describe('a stored checks colour carries only for the same head', () => {
       .toEqual({ checks: 'pending', checksSha: MOVED });
   });
 
+  it('carries the stored failing jobs with a carried failing', () => {
+    const failing = row(1, { checks: 'failing', headSha: HEAD, checksSha: HEAD, failing_checks: ['build'] });
+    expect(carriedChecks({ checks: 'unknown', checksLookup: 'skipped', headSha: HEAD }, failing))
+      .toEqual({ checks: 'failing', checksSha: HEAD, failing_checks: ['build'] });
+  });
+
+  it('carries no failing jobs where the colour does not carry', () => {
+    const failing = row(1, { checks: 'failing', headSha: HEAD, checksSha: HEAD, failing_checks: ['build'] });
+    expect(carriedChecks({ checks: 'unknown', checksLookup: 'skipped', headSha: MOVED }, failing))
+      .toEqual({ checks: 'unknown' });
+  });
+
   it('reads the host answer where no predecessor or no stored checksSha exists', () => {
     const answer = { checks: 'unknown', checksLookup: 'skipped', headSha: HEAD };
     expect(carriedChecks(answer, undefined)).toEqual({ checks: 'unknown' });
     expect(carriedChecks(answer, row(1, { headSha: HEAD }))).toEqual({ checks: 'unknown' });
+  });
+});
+
+describe('the bound map leaves out a carried colour a lookup can still change', () => {
+  const HEAD = 'a1'.repeat(20);
+  const OTHER = 'c3'.repeat(20);
+
+  it('lists read rows and a carried green, and leaves out a carried pending or failing', () => {
+    const held = store([
+      row(1, { headSha: HEAD, checksSha: HEAD, checks: 'pending' }),
+      row(2, { headSha: HEAD, checksSha: HEAD, checksLookup: 'skipped' }),
+      row(3, { headSha: HEAD, checksSha: HEAD, checks: 'pending', checksLookup: 'skipped' }),
+      row(4, { headSha: HEAD, checksSha: HEAD, checks: 'failing', checksLookup: 'broken' }),
+      row(5, { headSha: HEAD }),
+      row(6, { headSha: HEAD, checksSha: HEAD, state: 'MERGED' }),
+      row(7, { head: '', headSha: HEAD, checksSha: HEAD }),
+    ]);
+    expect(boundShasFor(held)).toEqual({ 'feature/b1': HEAD, 'feature/b2': HEAD });
+  });
+
+  it('answers an empty map with no store', () => {
+    expect(boundShasFor(null)).toEqual({});
+  });
+
+  it('binds every row outside the asked set to its head, so the asked rows rank first', () => {
+    const held = store([
+      row(1, { headSha: HEAD, checksSha: HEAD, checks: 'pending' }),
+      row(2, { headSha: HEAD, checksSha: HEAD, checks: 'pending', checksLookup: 'skipped' }),
+      row(3, { headSha: OTHER }),
+      row(4, { headSha: HEAD, checksSha: HEAD, checks: 'failing', checksLookup: 'skipped' }),
+      row(5),
+    ]);
+    expect(boundShasFor(held, new Set([1, 2]))).toEqual({
+      'feature/b1': HEAD, 'feature/b3': OTHER, 'feature/b4': HEAD,
+    });
   });
 });
