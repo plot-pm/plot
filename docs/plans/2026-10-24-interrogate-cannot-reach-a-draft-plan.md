@@ -54,7 +54,7 @@ The route still decides nothing about the plan. The layering rule holds: the con
 
 ### Push the artifacts
 
-- `bug/interrogate-pushes-to-the-plan-pr` — the round's `Rounds:`, Open Points and metadata block reach the plan PR branch
+- `bug/interrogate-pushes-to-the-plan-pr` — the round's `Rounds:`, Open Points and metadata block reach the plan PR branch → #2648
 
 ## Notes
 
