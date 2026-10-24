@@ -123,7 +123,7 @@ const frontMatterKeyOf = (line: string): 'status' | 'phase' | null => {
  * @returns the edited content, and whether a line was changed.
  */
 export const flipFrontMatterPhase = (content: string, from: string, to: string): EditResult => {
-  if (!isFrontMatterFence(content.split('\n')[0] ?? '')) return { changed: false, content };
+  if (!isFrontMatterFence(content.split('\n')[0])) return { changed: false, content };
 
   const lines = content.split('\n');
   const fromRe = new RegExp(from, 'i');
