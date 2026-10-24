@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2498 merged
+- **Started:** 2026-10-24, Jan Wloka, `bug/board-status-banner-states`
 
 ## Changelog
 
