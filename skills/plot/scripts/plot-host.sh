@@ -1139,8 +1139,7 @@ bb_branch_sweep() { # global bb args… --state <s> --json → one JSON array
   # re-parses of a growing accumulator: the old shape re-read every row it had
   # already seen once per branch, so eleven branches parsed the first branch's
   # payload eleven times.
-  local _spool
-  plot_tmpfile _spool host-sweep || return 3
+  local _spool; plot_tmpfile _spool host-sweep || return 3
   for _br in $PR_LIST_BRANCHES; do
     # RETURN, NOT EXIT. This runs inside the command substitution
     # `pr_list_call` wraps the sweep in, so the code must travel back as this
@@ -1237,8 +1236,7 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
   # pages and arrive twice.
   _rows="$(jq -c -s 'add // [] | unique_by(.id)' < "$_spool")" || { rm -f "$_spool"; return 3; }
   rm -f "$_spool"
-  local _got
-  _got="$(jq 'length' <<<"$_rows")" || return 3
+  local _got; _got="$(jq 'length' <<<"$_rows")" || return 3
   if [ "$_got" -lt "$_size" ] 2>/dev/null; then
     echo "bitbucket window state=$_st is short ($_got of $_size matches after $_pages pages); refusing it rather than printing it as whole" >&2
     return 3
@@ -2474,8 +2472,7 @@ bb_assert_issue_version() {
 # it answers *not proven* (1) and the caller keeps its exit-3 refusal: guessing
 # 4 from unreadable help would turn a broken bb into *no issue tracker*.
 bb_lacks_issue_command() {
-  local help
-  help="$(bb --help 2>&1 | bb_strip_ansi)" || return 1
+  local help; help="$(bb --help 2>&1 | bb_strip_ansi)" || return 1
   grep -qE '^[[:space:]]+pr([[:space:]]|$)' <<<"$help" || return 1
   ! grep -qE '^[[:space:]]+issues?([[:space:]]|$)' <<<"$help"
 }
@@ -2523,8 +2520,7 @@ bb_identify() {
   }
   ver_stripped="$(bb_strip_ansi <<<"$ver_out")"
 
-  local version
-  version="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$ver_stripped" | head -1)"
+  local version; version="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$ver_stripped" | head -1)"
   [ -z "$version" ] && version="unknown"
 
   # craftamap/bb includes a git sha in parentheses: `bb version 0.6.0 (abc1234)`
@@ -2560,8 +2556,7 @@ bb_test_json_support() {
   # reader can reproduce — rather than a provenance verdict `bb_identify`
   # cannot determine. A message that guesses wrong costs more than one that
   # says less.
-  BB_CAP_PROBE_RC="$rc"
-  BB_CAP_PROBE_MATCH=""
+  BB_CAP_PROBE_RC="$rc"; BB_CAP_PROBE_MATCH=""
 
   # THE MEASUREMENT ANSWERS FIRST, AND THE TEXT ONLY WHEN IT IS ABSENT.
   #
@@ -2920,8 +2915,7 @@ jira_curl() {
 jira_budget_account() {
   local raw="${JIRA_EMAIL:-}"
   [ -n "$raw" ] || { printf 'unknown\n'; return 0; }
-  local h
-  h="$(printf '%s' "$raw" | shasum -a 256 2>/dev/null | awk '{print $1}')"
+  local h; h="$(printf '%s' "$raw" | shasum -a 256 2>/dev/null | awk '{print $1}')"
   # No hasher, no guess: a raw email must never be the fallback, so an
   # unhashable account degrades to the same word an absent one uses.
   [ -n "$h" ] || { printf 'unknown\n'; return 0; }
@@ -3141,8 +3135,7 @@ backend_declared() {
     printf '%s\n' "$PLOT_HOST" | tr '[:upper:]' '[:lower:]'
     return
   fi
-  local v
-  v="$(bash "$here/plot-config.sh" get "Git host" "" | tr '[:upper:]' '[:lower:]')"
+  local v; v="$(bash "$here/plot-config.sh" get "Git host" "" | tr '[:upper:]' '[:lower:]')"
   case "$v" in
     bb) echo "bitbucket"; return ;;
     "") : ;;
@@ -3158,8 +3151,7 @@ backend_declared() {
   # THE REMOTE IS EVIDENCE AND THE KEY IS A DECLARATION, so the key still wins
   # above. What changes is only the case where nobody said: a hostname in the
   # remote is a reading, and no remote is no reading.
-  local url
-  url="$(git config --get remote.origin.url 2>/dev/null || true)"
+  local url; url="$(git config --get remote.origin.url 2>/dev/null || true)"
   case "$url" in
     *github.com*)    echo "github";    return ;;
     *bitbucket.org*) echo "bitbucket"; return ;;
@@ -3414,8 +3406,7 @@ budget_record_call() { # $1=connector $2=backend-for-account $3=bucket
   # bucket: `X-RateLimit-Resource` names `code_search` for a search that no
   # reading of the command line would have classified as anything but `core`.
   if [ -n "${PLOT_BUDGET_HARVEST:-}" ]; then
-    IFS=$'\t' read -r _hbkt _blim _brem _brst <<<"$PLOT_BUDGET_HARVEST"
-    PLOT_BUDGET_HARVEST=""
+    IFS=$'\t' read -r _hbkt _blim _brem _brst <<<"$PLOT_BUDGET_HARVEST"; PLOT_BUDGET_HARVEST=""
     [ -z "$_hbkt" ] || bucket="$_hbkt"
     # `actual` is the one basis a caller is entitled to trust, and a harvested
     # header is the only thing in this script that earns it: the connector said
@@ -3599,13 +3590,11 @@ host_concurrency_bound() { # $1=connector $2=account
 # the cadence degrade. The cost of one extra simultaneous call is a secondary
 # refusal that lowers the bound — evidence, through the mechanism this slice is
 # built on.
-PLOT_SLOT_WAIT_MAX_S=30
-PLOT_SLOT_POLL_S=1
+PLOT_SLOT_WAIT_MAX_S=30; PLOT_SLOT_POLL_S=1
 
 # The slot this process holds, so the wrappers can give it back. Empty where
 # none was taken — an unbounded connector, or a wait that ran out.
-PLOT_SLOT_INDEX=''
-PLOT_SLOT_ACCOUNT=''
+PLOT_SLOT_INDEX=''; PLOT_SLOT_ACCOUNT=''
 
 # Claims a slot for the call about to be made, waiting where the account is
 # busy. Never refuses: at worst it proceeds unbounded, which is what every
@@ -3965,8 +3954,7 @@ case "$op" in
   # deciding whether to remove something. Exit 3 is still reserved for the call
   # itself failing in a way this adapter does not recognise as a miss.
   pr-merged)
-    ref="${1:?pr-merged needs a branch}"; shift || true
-    repo_args=()
+    ref="${1:?pr-merged needs a branch}"; shift || true; repo_args=()
     while [ $# -gt 0 ]; do
       case "$1" in
         --repo) repo_args=(-R "${2:?}"); shift 2 ;;
@@ -4092,8 +4080,7 @@ case "$op" in
     # A FAILURE WITH NO MESSAGE IS A FAILURE HERE, unlike `pr-state`: an empty
     # answer makes the caller fall back to a patch-id reading, so silence must
     # not stand in for *no merged head*. Only a recognised lookup miss is empty.
-    ref="${1:?pr-merged-heads needs a branch}"; shift || true
-    repo_args=()
+    ref="${1:?pr-merged-heads needs a branch}"; shift || true; repo_args=()
     while [ $# -gt 0 ]; do
       case "$1" in
         --repo) repo_args=(-R "${2:?}"); shift 2 ;;
@@ -4210,8 +4197,7 @@ case "$op" in
     ;;
 
   pr-list)
-    state="open"
-    rich=0
+    state="open"; rich=0
     # Whether the rich fields are asked of the OPEN pull requests only. Set by
     # `--rich-open`, which also sets `rich`: the flag narrows what is ASKED and
     # never what is emitted.
@@ -4729,8 +4715,7 @@ case "$op" in
     # for a repository whose CI is not GitHub Actions. `CI` and `Git host` are
     # independent `## Plot Config` keys, and this is the op that reads the
     # first of them.
-    branch="${1:?runs needs a branch}"; shift
-    limit=10
+    branch="${1:?runs needs a branch}"; shift; limit=10
     while [ $# -gt 0 ]; do
       case "$1" in
         --limit) limit="${2:?}"; shift 2 ;;
@@ -5192,8 +5177,7 @@ case "$op" in
       count=0
       while IFS= read -r line; do
         [[ "$line" =~ ^#0*([0-9]+)[[:space:]]+(.*)$ ]] || continue
-        num="${BASH_REMATCH[1]}"
-        rest="${BASH_REMATCH[2]}"
+        num="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
         # Lift the leading state badge word (NEW/OPEN/RESOLVED/…), then strip
         # it and its padding; the title starts after it. The badge was parsed
         # here before and THROWN AWAY to recover the title — it is captured
@@ -5202,8 +5186,7 @@ case "$op" in
         # that drifts from the one that strips.
         state=""
         if [[ "$rest" =~ ^(NEW|OPEN|ON\ HOLD|INVALID|RESOLVED|DUPLICATE|WONTFIX|CLOSED)[[:space:]]+(.*)$ ]]; then
-          state="${BASH_REMATCH[1]}"
-          rest="${BASH_REMATCH[2]}"
+          state="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
         fi
         # Map the badge onto the three-value category the board groups on.
         # NEW/OPEN are unstarted; RESOLVED/CLOSED are finished. The rest —
@@ -5435,8 +5418,7 @@ case "$op" in
     printf '%s' "$body" | jq -c '.[] | {name, released: (.released // false), releaseDate: (.releaseDate // null)}' || exit 3 ;;
 
   pr-body)
-    num="${1:?pr-body needs a PR number}"; shift
-    body=""
+    num="${1:?pr-body needs a PR number}"; shift; body=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --body) body="${2:?}"; shift 2 ;;
