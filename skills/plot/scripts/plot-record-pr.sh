@@ -56,8 +56,7 @@ MAIN=$(bash "$script_dir/plot-config.sh" get "Main branch"); [ -n "$MAIN" ] || M
 
 git -C "$repo_root" fetch -q origin "$MAIN" 2>/dev/null
 
-wt_root=$(plot_desk_root "$repo_root") || exit 3
-plot_exclude_desk_root "$repo_root"
+wt_root=$(plot_desk_root "$repo_root") || exit 3; plot_exclude_desk_root "$repo_root"
 
 slug_part="${branch##*/}"; bookbr="plot/record-pr-$slug_part"; tmpwt="$wt_root/.plot-record-pr-$slug_part.$$"
 
