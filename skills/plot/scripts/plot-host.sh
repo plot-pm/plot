@@ -4367,12 +4367,8 @@ case "$op" in
     # travel to GitHub as part of the term and match nothing.
     search_args=()
     [ -n "$since" ] && search_args=(--search "updated:>$since")
-    # ONE NAMED BRANCH IS ASKED AS ONE BRANCH on the three non-rich GitHub arms:
-    # `--head` filters on `headRefName` server-side at the cost of the same
-    # single list call, so a repository past `--limit` open PRs cannot push the
-    # branch's own PR off the page. Several branches stay unfiltered here.
-    head_args=()
-    [ "$(wc -w <<<"$branches")" -eq 1 ] && head_args=(--head "$branches")
+    # One named branch is asked as one: `--head` filters server-side in the same single list call.
+    head_args=(); [ "$(wc -w <<<"$branches")" -eq 1 ] && head_args=(--head "$branches")
 
     # --- Jenkins CI integration (orthogonal to Git host) ---
     # When `CI: jenkins` is configured, build status comes from Jenkins rather
