@@ -67,6 +67,7 @@ skills/plot/scripts/board/plot-fleet-size.mjs -merge
 skills/plot/scripts/board/plot-fleetd.mjs -merge
 skills/plot/scripts/board/plot-issue-source.mjs -merge
 skills/plot/scripts/board/plot-issue-status.mjs -merge
+skills/plot/scripts/board/plot-plan-for-branch.mjs -merge
 skills/plot/scripts/board/plot-plan-state.mjs -merge
 skills/plot/scripts/board/plot-jenkins-pr-checks.mjs -merge
 skills/plot/scripts/board/plot-landed.mjs -merge

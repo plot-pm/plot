@@ -12,13 +12,13 @@ import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { PlanStore } from '@plot-pm/domain';
 import { deskRoot, deskRootPlacement } from '@plot-pm/domain/rules/desk-root';
-import { planForBranch, plansMentioning } from '@plot-pm/domain/rules/plan-for-branch';
 import { annotateSlicePr } from '@plot-pm/domain/rules/slice-pr-annotation';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { commitAndPush, Refused, type LadderContext, type Printer } from './ladder.js';
+import { findPlanForBranch } from './plan-lookup.js';
 
 const USAGE = 'usage: plot-record-pr.sh <branch> <pr-number>';
 
@@ -64,17 +64,9 @@ const resolveMain = async (ctx: RecordPrContext): Promise<string> => {
   return local.ok && local.value.trim() !== '' ? local.value.trim() : 'main';
 };
 
-/** The plan file in `tmpwt` whose slices name `branch`, relative to `tmpwt`, or a refusal. */
+/** The plan file in `tmpwt` whose slices name `branch`, as `planDir` spells it, or a refusal. */
 const findPlan = async (store: PlanStore, planDir: string, branch: string): Promise<string> => {
-  const listed = await store.listDir(planDir);
-  const files = (listed.ok ? listed.value : []).filter((name) => name.endsWith('.md')).map((name) => path.join(planDir, name));
-  const texts = [];
-  for (const file of files) {
-    const read = await store.readText(file);
-    if (read.ok && read.value !== null) texts.push({ file, text: read.value });
-  }
-  const parsed = await store.readPlans(plansMentioning(texts, branch));
-  const found = planForBranch(parsed.ok ? parsed.value : [], branch);
+  const found = await findPlanForBranch(store, planDir, branch);
   if (found === undefined) throw new Refused(`no plan in ${planDir} names branch '${branch}'`);
   return found.file;
 };
