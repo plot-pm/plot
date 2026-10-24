@@ -374,6 +374,13 @@ function jesc(s) {
   return s
 }
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+# Renders `n` `{"k1":"...","k2":"..."}` objects, reading arr1[i]/arr2[i] for
+# i=1..n — the shape unread_waits and unread_heading_items both emit.
+function emit_pairs(n, k1, arr1, k2, arr2,   i, out) {
+  for (i = 1; i <= n; i++)
+    out = out (i > 1 ? "," : "") "{\"" k1 "\":\"" jesc(arr1[i]) "\",\"" k2 "\":\"" jesc(arr2[i]) "\"}"
+  return out
+}
 # Every `<!-- waits: … -->` marker on a line, each value split on commas, in
 # the line order with duplicates removed, written into outArr/outN (outN is
 # outArr[0] — awk scalars are pass-by-value, so a count returned through a
@@ -787,18 +794,8 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   # report, not a refusal. Filled by store_waits() as each branch is matched;
   # a `waits:` syntax example on a PROSE line (no branch claim) never reaches
   # store_waits(), so it stays silent, as today.
-  out = out ",\"unread_waits\":["
-  for (i = 1; i <= n_unread_waits; i++) {
-    out = out (i > 1 ? "," : "") "{\"branch\":\"" jesc(unread_waits_branch[i]) "\"" \
-          ",\"value\":\"" jesc(unread_waits_value[i]) "\"}"
-  }
-  out = out "]"
-  out = out ",\"unread_heading_items\":["
-  for (i = 1; i <= n_unread_heading_items; i++) {
-    out = out (i > 1 ? "," : "") "{\"wave\":\"" jesc(wave_names[unread_heading_item_wave[i]]) "\"" \
-          ",\"branch\":\"" jesc(unread_heading_item_branch[i]) "\"}"
-  }
-  out = out "]"
+  out = out ",\"unread_waits\":[" emit_pairs(n_unread_waits, "branch", unread_waits_branch, "value", unread_waits_value) "]"
+  out = out ",\"unread_heading_items\":[" emit_pairs(n_unread_heading_items, "wave", unread_heading_item_wave, "branch", unread_heading_item_branch) "]"
   out = out ",\"review_raw\":\"" jesc(review) "\",\"review\":\"" norm_review(review) "\""
   out = out ",\"impl_raw\":\"" jesc(impl) "\",\"impl\":\"" norm_impl(impl) "\""
   out = out ",\"design_raw\":\"" jesc(design) "\""
@@ -1443,7 +1440,7 @@ section == "slices" && slice_shape == "heading" {
       # Names a branch no heading in this wave claims (or there is no current
       # heading branch at all) — the parser cannot attribute it, so it is
       # reported rather than silently dropped and never read as a second claim.
-      unread_heading_item_wave[++n_unread_heading_items] = n_waves
+      unread_heading_item_wave[++n_unread_heading_items] = wave_names[n_waves]
       unread_heading_item_branch[n_unread_heading_items] = item_branch
     }
   }
