@@ -467,13 +467,14 @@
 #                                 credentials and through a different API — the
 #                                 reason the tracker port has two connectors.
 #                                 Prints `written` where the transition was
-#                                 performed. Where none matches, reads the
-#                                 issue's current status and prints `already`
-#                                 where it already holds the wanted one (the
-#                                 same status twice is the same status) or
-#                                 `unreachable` — naming the current status and
-#                                 the available transitions — where the status
-#                                 exists but no transition reaches it.
+#                                 performed. Where none matches, prints
+#                                 `no-match<TAB>current<TAB>available`: the
+#                                 issue's current status and the names of the
+#                                 transitions offered from it, both read in the
+#                                 same lookup. The connector decides from them
+#                                 whether the issue already holds the status or
+#                                 no transition reaches it; this op decides
+#                                 nothing.
 #                                 The transition id is LOOKED UP, never guessed:
 #                                 ids are per workflow and per issue, so a
 #                                 hardcoded one writes to the wrong column.
@@ -5419,7 +5420,8 @@ case "$op" in
     # and Jira answers a transition to the state an issue already holds by
     # naming no such transition. A no-match also covers the other case — the
     # status exists but the workflow has no transition to it from here — so the
-    # two are told apart below rather than both reported as one word.
+    # no-match line carries the facts that tell the two apart, and the
+    # connector (`tracker-jira.ts`) tells them apart.
     key="${1:?issue-status needs an issue key}"; want="${2:?issue-status needs a status}"
     [ "$(tracker_scheme)" = "jira" ] || exit 4
     jira_require_config
@@ -5427,7 +5429,10 @@ case "$op" in
     # workflow and per issue: the id for "In Progress" differs between projects
     # and the transition may not be available from the issue's current state at
     # all. A hardcoded id writes a status to the wrong column silently.
-    body_json="$(jira_ask "/rest/api/2/issue/$key/transitions")" || exit $?
+    # ONE READ, TWO FACTS. The issue read with `expand=transitions` answers the
+    # same transitions as `/transitions` and the current status beside them, so
+    # a no-match costs no second call.
+    body_json="$(jira_ask "/rest/api/2/issue/$key?fields=status&expand=transitions")" || exit $?
     tid="$(printf '%s' "$body_json" | jq -r --arg want "$want" \
       '[.transitions[]? | select((.name // "" | ascii_downcase) == ($want | ascii_downcase)
                                  or ((.to.name // "" | ascii_downcase) == ($want | ascii_downcase)))]
@@ -5435,17 +5440,11 @@ case "$op" in
     if [ -z "$tid" ]; then
       # NO MATCH IS NOT YET AN ANSWER. It covers two different facts — the
       # issue already holds the status (harmless), or the status exists but no
-      # transition from here reaches it (the tracker is behind) — so read the
-      # issue's current status, on this path only, and tell them apart. A
-      # successful write above never pays for this extra call.
-      cur_json="$(jira_ask "/rest/api/2/issue/$key?fields=status")" || exit $?
-      # ABSENT IS NOT FALSE. A status GET with no name read is neither fact —
-      # `-e` exits 1 on jq's own null/empty result, read below as this op's own `exit 3`.
-      printf '%s' "$cur_json" | jq -re --argjson transitions "$body_json" --arg want "$want" '
-        .fields.status.name as $cur | select($cur != null) | if ($cur | ascii_downcase) == ($want | ascii_downcase) then "already"
-          else "unreachable\t\($cur)\t\([$transitions.transitions[]?.name] | join(", "))" end
-      ' && exit 0
-      echo "plot-host: issue-status: the status read named no current status" >&2; exit 3
+      # transition from here reaches it (the tracker is behind). The current
+      # status and the offered transitions are printed as read; an absent
+      # status prints as an empty field, which the connector reads as a failure.
+      printf '%s' "$body_json" | jq -r '"no-match\t\(.fields.status.name // "")\t\([.transitions[]?.name] | join(", "))"'
+      exit 0
     fi
     jira_ask "/rest/api/2/issue/$key/transitions" \
       -X POST -H 'Content-Type: application/json' \

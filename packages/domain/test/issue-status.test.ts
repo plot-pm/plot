@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isPlanStatePhase,
   issueStatusWrites,
+  noTransitionOutcome,
   parsePlanSiblingLine,
   planStateWrites,
   releaseIssueDecisions,
@@ -124,6 +125,17 @@ describe('a run’s write outcomes reduce to the one a caller reports', () => {
 
   it('reports unreachable over no-target — the tracker being behind outranks having no board at all', () => {
     expect(trackerWriteSummary(['written', 'unreachable', 'no-target'])).toBe('unreachable');
+  });
+});
+
+describe('a status write that found no transition reads the issue’s current status', () => {
+  it('answers already where the issue holds the wanted status, compared without regard to case', () => {
+    expect(noTransitionOutcome('Done', 'Done')).toBe('already');
+    expect(noTransitionOutcome('CANCELLED', 'cancelled')).toBe('already');
+  });
+
+  it('answers unreachable where the issue holds a different status', () => {
+    expect(noTransitionOutcome('Ready for Design', 'Approving')).toBe('unreachable');
   });
 });
 

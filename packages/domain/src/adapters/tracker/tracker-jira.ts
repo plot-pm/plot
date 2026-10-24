@@ -17,6 +17,7 @@ import type {
 } from '../../ports/tracker.js';
 import { asText, runProcess } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
+import { noTransitionOutcome } from '../../rules/issue-status.js';
 import { issueOpenOf, trackerReads, VERSION_NOT_FOUND, type RawVersion } from './tracker-shell.js';
 
 /**
@@ -240,18 +241,24 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
         reads.refuse(said.stderr.trim() || said.stdout.trim() || `plot-host.sh exited ${said.code}`);
         return failed();
       }
-      // THE WORD, NOT THE EXIT CODE. `written`, `already` and `unreachable`
-      // are all clean exits, and collapsing them would report a status the
-      // workflow refused as one it recorded. `unreachable` carries two more
-      // fields — the current status and the available transitions — which
-      // become the refusal detail a caller without a sentence of its own reads.
+      // THE WORD, NOT THE EXIT CODE. `written` and `no-match` are both clean
+      // exits, and collapsing them would report a status the workflow refused
+      // as one it recorded. `no-match` carries the issue's current status and
+      // the transitions offered from it; `noTransitionOutcome` decides from
+      // them, and the detail becomes the refusal a caller without a sentence
+      // of its own reads.
       const [word, current, available] = asText(said.stdout).split('\t');
-      if (word === 'unreachable') {
-        reads.refuse(`the issue holds '${current}'; available transitions: ${available || '(none)'}`);
-        return answered<StatusOutcome>('unreachable');
+      if (word === 'written') {
+        reads.refuse(null);
+        return answered<StatusOutcome>('written');
       }
-      reads.refuse(null);
-      return answered<StatusOutcome>(word === 'already' || word === 'no-target' ? word : 'written');
+      if (word !== 'no-match' || !current) {
+        reads.refuse(`plot-host.sh issue-status named no current status: ${asText(said.stdout) || '(empty)'}`);
+        return failed();
+      }
+      const outcome = noTransitionOutcome(current, write.status);
+      reads.refuse(outcome === 'unreachable' ? `the issue holds '${current}'; available transitions: ${available || '(none)'}` : null);
+      return answered<StatusOutcome>(outcome);
     },
 
     issueOpen: async (write: IssueOpen): Promise<PortResult<IssueOpenOutcome>> => {

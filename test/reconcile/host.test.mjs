@@ -7354,8 +7354,9 @@ printf '\\n%s' "\${1##*:}"
   return { dir, argvFile };
 }
 
-/** The transitions payload Jira answers a lookup with. */
+/** The issue read, with its transitions expanded, that Jira answers a lookup with. */
 const JIRA_TRANSITIONS = JSON.stringify({
+  fields: { status: { name: 'Ready for Design' } },
   transitions: [
     { id: '11', name: 'To Do', to: { name: 'To Do' } },
     { id: '21', name: 'Start Progress', to: { name: 'In Progress' } },
@@ -7399,72 +7400,28 @@ test('host: issue-status looks the transition id up rather than guessing it', ()
   assert.match(calls[1], /"id":"907"/);
 });
 
-test('host: issue-status answers already where the issue already holds the wanted status', () => {
+test('host: issue-status prints the current status and the offered transitions where none matches', () => {
   // A REPEATED WRITE IS THE ORDINARY CASE, and Jira answers it by naming no
-  // such transition — an issue already in the state has no transition to it.
-  // That is harmless, and distinct from a status unreachable from here.
-  const stub = makeJiraSequenceStub([
-    { body: JIRA_TRANSITIONS },
-    { body: JSON.stringify({ fields: { status: { name: 'Cancelled' } } }) },
-  ]);
-  const res = runJira(['issue-status', 'PROJ-123', 'Cancelled'], stub);
-  assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout.trim(), 'already');
-  const calls = readFileSync(stub.argvFile, 'utf8').split('--- call').filter(Boolean);
-  assert.equal(calls.length, 2, 'the no-match path reads the current status once');
-  // THE READ, NOT A WRITE. The status GET must not carry a method or a body.
-  for (const write of ['-X', '--request', '-d', '--data']) {
-    assert.ok(!calls[1].split('\n').includes(write), `the status read must not send ${write}`);
-  }
-});
-
-test('host: issue-status matches already case-insensitively, as the transition lookup does', () => {
-  const stub = makeJiraSequenceStub([
-    { body: JIRA_TRANSITIONS },
-    { body: JSON.stringify({ fields: { status: { name: 'CANCELLED' } } }) },
-  ]);
-  const res = runJira(['issue-status', 'PROJ-123', 'cancelled'], stub);
-  assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout.trim(), 'already');
-});
-
-test('host: issue-status answers unreachable where the status exists but no transition reaches it', () => {
-  // THE TRACKER IS BEHIND THE PLAN, and this is the case `no-target` used to
-  // hide: the issue holds a DIFFERENT status, and nothing offered reaches the
-  // wanted one. The message names both so a person can act on it.
-  const stub = makeJiraSequenceStub([
-    { body: JIRA_TRANSITIONS },
-    { body: JSON.stringify({ fields: { status: { name: 'Ready for Design' } } }) },
-  ]);
+  // such transition. So does a status no transition reaches from here. The op
+  // prints the facts that tell the two apart, and the connector tells them.
+  const stub = makeJiraSequenceStub([{ body: JIRA_TRANSITIONS }]);
   const res = runJira(['issue-status', 'PROJ-123', 'Approving'], stub);
   assert.equal(res.status, 0, res.stderr);
   const [word, current, available] = res.stdout.trim().split('\t');
-  assert.equal(word, 'unreachable');
+  assert.equal(word, 'no-match');
   assert.equal(current, 'Ready for Design');
   assert.equal(available, 'To Do, Start Progress, Done');
-});
-
-test('host: issue-status makes no status GET on a successful write', () => {
-  // A SUCCESSFUL WRITE COSTS NO EXTRA CALL. The read is placed strictly after
-  // the lookup finds no match — never ahead of it.
-  const stub = makeJiraSequenceStub([
-    { body: JIRA_TRANSITIONS },
-    { body: '', status: 204 },
-  ]);
-  runJira(['issue-status', 'PROJ-123', 'Done'], stub);
   const calls = readFileSync(stub.argvFile, 'utf8').split('--- call').filter(Boolean);
-  assert.equal(calls.length, 2, 'lookup then write — no status read');
-  for (const call of calls) assert.ok(!call.includes('fields=status'), 'a successful write must not read the current status');
+  assert.equal(calls.length, 1, 'one read answers both the transitions and the current status');
+  assert.match(calls[0], /fields=status&expand=transitions/);
 });
 
-test('host: issue-status reports a failing status read as a failure, never as already or unreachable', () => {
-  const stub = makeJiraSequenceStub([
-    { body: JIRA_TRANSITIONS },
-    { body: '{}', status: 500 },
-  ]);
-  const res = runJira(['issue-status', 'PROJ-123', 'Cancelled'], stub);
-  assert.notEqual(res.status, 0);
-  assert.equal(res.stdout.trim(), '');
+test('host: issue-status prints an empty current status where the read named none', () => {
+  // ABSENT IS NOT FALSE. The empty field is the connector's to refuse.
+  const stub = makeJiraSequenceStub([{ body: JSON.stringify({ transitions: [] }) }]);
+  const res = runJira(['issue-status', 'PROJ-123', 'Done'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.replace(/\n$/, ''), 'no-match\t\t');
 });
 
 test('host: issue-status exits 4 where the declared tracker is not this one', () => {

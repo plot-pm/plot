@@ -215,6 +215,18 @@ export const releaseIssueSummary = (outcomes: readonly ('closed' | ReleaseSkipRe
   return { closed, leftOpen, reasons };
 };
 
+/**
+ * What a status write came to where the tracker offered no transition to the
+ * wanted status.
+ *
+ * @param current - the issue's status before the write, as the tracker names it.
+ * @param want - the status the write asked for.
+ * @returns `already` where the issue holds the wanted status, compared without
+ *   regard to case as the transition lookup compares; `unreachable` otherwise.
+ */
+export const noTransitionOutcome = (current: string, want: string): 'already' | 'unreachable' =>
+  current.toLowerCase() === want.toLowerCase() ? 'already' : 'unreachable';
+
 /** What one owed tracker write came to — a status write or a plan-state write alike. */
 export type TrackerWriteOutcome = 'written' | 'already' | 'no-target' | 'unreachable' | 'unaskable' | 'failed';
 
