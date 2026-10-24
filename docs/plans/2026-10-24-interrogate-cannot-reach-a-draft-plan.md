@@ -49,7 +49,7 @@ The route still decides nothing about the plan. The layering rule holds: the con
 
 ### Resolve from the plan PR
 
-- `bug/interrogate-reads-the-plan-pr` — the route resolves a Draft plan from its open plan PR's head and runs the panel in a worktree of that branch
+- `bug/interrogate-reads-the-plan-pr` — the route resolves a Draft plan from its open plan PR's head and runs the panel in a worktree of that branch → #2556
 
 ### Push the artifacts
 
