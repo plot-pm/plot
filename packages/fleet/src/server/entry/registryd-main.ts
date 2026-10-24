@@ -65,7 +65,7 @@ import { fleetPrs, fleetScan, startFleetClock } from '../../shared/fleet-clock.j
 import { fleetAutoWrites } from '../../shared/auto-writes.js';
 import { verifyingCount } from '../../shared/auto-verify.js';
 import { specRunningCount } from '../../shared/auto-design.js';
-import { boundSecondsOf } from '../../shared/fleet-run.js';
+import { boundSecondsOfKey, pidAlive } from '../../shared/fleet-run.js';
 import { runDeskRelay } from '../../shared/desk-relay.js';
 import { runIndexMonitor, sliceBranchesOf } from '../../shared/index-monitor.js';
 import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
@@ -824,8 +824,15 @@ export const queueWorldForRepo = (
     // A GOING SPEC RUN HOLDS AN AGENT SLOT TOO.
     specRunning: () => specRunningCount(repoRoot),
     // HOW LONG A JUST-LAUNCHED AGENT WITH NO RECORDED PID STILL COUNTS AS
-    // RUNNING (#2409) — the same `Worker bound` a desk's own loop is held to.
-    launchedBoundMs: () => boundSecondsOf({ repoRoot, scriptsDir }, 28800) * 1000,
+    // RUNNING (#2409) — a short grace against the wrapper's own fork-and-stamp
+    // delay, never `Worker bound`'s working day (#2486).
+    launchGraceMs: () => 30 * 1000,
+    // HOW LONG A LAUNCH WITH A STAMPED, LIVE PID STILL COUNTS AS RUNNING
+    // (#2486) — its own `Launched pid bound` key, not `Worker bound`: that key
+    // bounds a hung agent's own run, this one bounds how long a stale pid may
+    // age in a manifest nobody cleared.
+    pidLivenessBoundMs: () => boundSecondsOfKey({ repoRoot, scriptsDir }, 'Launched pid bound', 28800) * 1000,
+    alive: (pid) => pidAlive(Number(pid)),
     // READS THE FILE FLEETD WRITES AND NEVER THE HOST. A missing, unparseable
     // or other-version file is no reading, and no reading holds nothing.
     defaultBranchRed: async () => {
