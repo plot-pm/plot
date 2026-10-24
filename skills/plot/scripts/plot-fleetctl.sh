@@ -650,8 +650,7 @@ retire_old_label() {
 default_label_checkout() {
   [ "$LABEL" != com.plot-pm.fleetd ] || return 0
   local LABEL=com.plot-pm.fleetd UNIT_NAME=plot-fleetd
-  supervisor_loaded || return 0
-  supervisor_checkout
+  supervisor_loaded && supervisor_checkout
 }
 
 # THE TWO READINGS, RESOLVED TOGETHER — which is what settles the fresh-clone
@@ -1109,25 +1108,14 @@ if [ "$mode" = "start" ]; then
   # reuses the `this \*` arm rather than writing a second refusal shape.
   refuse_label() { # $1=the label this refusal names $2=supervisor_checkout's answer for it
     case "$2" in
-      this\ *)
-        printf "plot-fleetctl: '%s' is already loaded, serving THIS repository (%s)\n  The fleet is already supervised here. See it: /plot-fleet --status\n  To restart it: /plot-fleet --stop, then /plot-fleet --start\n" "$1" "${2#this }" >&2
-        ;;
-      another\ *)
-        printf "plot-fleetctl: '%s' is already loaded, serving ANOTHER checkout (%s)\n  This repository is %s. That supervisor is not yours to stop.\n  Give this checkout its own label — skills/plot/units/README.md\n" "$1" "${2#another }" "$repo_root" >&2
-        ;;
-      *)
-        printf "plot-fleetctl: '%s' is already loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it may be another checkout's.\n  Read it before stopping it: %s\n  Or, for a second checkout, give it its own label — skills/plot/units/README.md\n" "$1" "$plat" "$(read_cmd)" >&2
-        ;;
+      this\ *) printf "plot-fleetctl: '%s' is already loaded, serving THIS repository (%s)\n  The fleet is already supervised here. See it: /plot-fleet --status\n  To restart it: /plot-fleet --stop, then /plot-fleet --start\n" "$1" "${2#this }" >&2 ;;
+      another\ *) printf "plot-fleetctl: '%s' is already loaded, serving ANOTHER checkout (%s)\n  This repository is %s. That supervisor is not yours to stop.\n  Give this checkout its own label — skills/plot/units/README.md\n" "$1" "${2#another }" "$repo_root" >&2 ;;
+      *) printf "plot-fleetctl: '%s' is already loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it may be another checkout's.\n  Read it before stopping it: %s\n  Or, for a second checkout, give it its own label — skills/plot/units/README.md\n" "$1" "$plat" "$(read_cmd)" >&2 ;;
     esac
   }
-  if supervisor_loaded; then
-    refuse_label "$LABEL" "$(supervisor_checkout)"
-    exit 1
-  fi
+  if supervisor_loaded; then refuse_label "$LABEL" "$(supervisor_checkout)"; exit 1; fi
   default_served=$(default_label_checkout)
-  case "$default_served" in
-    this\ *) refuse_label com.plot-pm.fleetd "$default_served"; exit 1 ;;
-  esac
+  case "$default_served" in this\ *) refuse_label com.plot-pm.fleetd "$default_served"; exit 1 ;; esac
 
   if [ "$dry_run" = 1 ]; then
     printf "state: %s\nwould fill and load %s (%s)\n  node:      %s (major %s, pinned %s)\n  harness:   %s (on the unit's PATH after node's directory: %s)\n  fleetd:    %s\n  repo:      %s\nwould then start agents: plot-dispatch.sh --start %s\n" "$(fleet_install_state)" "$LABEL" "$plat" "$node_bin" "$have" "$want" "$harness_bin" "$harness_dir" "$fleetd" "$repo_root" "${start_count:-(default)}"
