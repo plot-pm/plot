@@ -1002,11 +1002,10 @@ function keep_branch(n, b, overlay,   is_deferred) {
   # `deferred:` only, so `<!-- deferred -->` — the annotation with nothing
   # after it — read as NOT deferred at all: the strongest statement a plan can
   # make about a branch, dropped for want of a colon. The parser now hears it.
-  if (!overlay || is_deferred) deferred_of[n] = is_deferred ? "true" : "false"
   # The reason travels with the flag, empty for a non-deferred branch and
   # equally empty for a bare `<!-- deferred -->` with no reason recorded — a
   # different statement from a reason of "".
-  if (!overlay || is_deferred) deferred_why[n] = defer_note
+  if (!overlay || is_deferred) { deferred_of[n] = is_deferred ? "true" : "false"; deferred_why[n] = defer_note }
   if (!overlay || $0 ~ /<!--[ \t]*spike[ \t]*-->/) spike_of[n] = ($0 ~ /<!--[ \t]*spike[ \t]*-->/) ? 1 : 0
   # Claim reflection, written by the worker after its ref push succeeds. This
   # is a reflection, not the claim: git refs remain authoritative.
@@ -1436,8 +1435,7 @@ section == "slices" && slice_shape == "heading" {
       # Names a branch no heading in this wave claims (or there is no current
       # heading branch at all) — the parser cannot attribute it, so it is
       # reported rather than silently dropped and never read as a second claim.
-      unread_heading_item_wave[++n_unread_heading_items] = wave_names[n_waves]
-      unread_heading_item_branch[n_unread_heading_items] = item_branch
+      unread_heading_item_wave[++n_unread_heading_items] = wave_names[n_waves]; unread_heading_item_branch[n_unread_heading_items] = item_branch
     }
   }
   next
