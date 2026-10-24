@@ -54,7 +54,7 @@ This is a regression. `AgentList.tsx:566` still holds `sprintFilter: Set<string>
 
 ### Board UI
 
-- `bug/this-sprint-selects-a-sprint-subset-ui` — per-sprint toggle chips, the URL parameter, the chip label and the row slug in `@plot-pm/board`. The slice covers every reader of the selection: `workersHiddenByFilter` (`AgentList.tsx:738`), the per-section hidden counts (`:1031`, `:1245`), `unfilteredSectionedRows` and the exempt mark (`:2321`). URL parse and the stale-slug case are unit tests; one browser test restores the subset test #2137 removed <!-- waits: bug/this-sprint-selects-a-sprint-subset-rule -->
+- `bug/this-sprint-selects-a-sprint-subset-ui` — per-sprint toggle chips, the URL parameter, the chip label and the row slug in `@plot-pm/board`. The slice covers every reader of the selection: `workersHiddenByFilter` (`AgentList.tsx:738`), the per-section hidden counts (`:1031`, `:1245`), `unfilteredSectionedRows` and the exempt mark (`:2321`). URL parse and the stale-slug case are unit tests; one browser test restores the subset test #2137 removed → #2469 <!-- waits: bug/this-sprint-selects-a-sprint-subset-rule -->
 
 ## Notes
 
