@@ -69,8 +69,7 @@ git -C "$repo_root" worktree add -q -B "$bookbr" "$tmpwt" "origin/$MAIN" 2>/dev/
 # checkout might be holding.
 plan_dir=$(cd -- "$tmpwt" && bash "$script_dir/plot-config.sh" get "Plan directory" "docs/plans/")
 
-found=$(plot_plan_for_branch "$tmpwt" "$plan_dir" "$branch") || { echo "plot-record-pr: no plan in $plan_dir names branch '$branch'" >&2; exit 1; }
-plan_file="${found%%$'\t'*}"
+found=$(plot_plan_for_branch "$tmpwt" "$plan_dir" "$branch") || { echo "plot-record-pr: no plan in $plan_dir names branch '$branch'" >&2; exit 1; }; plan_file="${found%%$'\t'*}"
 
 # APPEND ` → #<number>` TO THE BRANCH'S OWN BULLET LINE — the pure transform
 # lives in packages/domain/src/rules/slice-pr-annotation.ts and is asked
