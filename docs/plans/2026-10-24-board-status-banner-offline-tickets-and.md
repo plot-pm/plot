@@ -51,7 +51,7 @@ The slices touch disjoint files except `fleet.ts` (slices 1 and 2). Slice 2 ther
 
 ### PR status
 
-- `bug/board-status-banner-states` — PR status rule, notice pattern and host-notes wording (#2441, #2463)
+- `bug/board-status-banner-states` — PR status rule, notice pattern and host-notes wording (#2441, #2463) → #2550
 
 ### Offline tickets
 
