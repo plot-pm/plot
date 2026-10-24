@@ -1226,6 +1226,51 @@ describe('continueOnDesk obeys Slice max runs and Slice max spend — #1381', ()
     assert.equal(result.kind, 'started');
     spawned.add(wt);
   });
+
+  // #2475 finding 1 — `positiveOr` used to read `Slice max runs` through bare
+  // `Number()`, which accepts numeric-literal forms (`1e1`, `0x5`) the worker
+  // loop's own `/^\d+$/`-based `positive`/`count` reject. A value the loop
+  // would fall back on must fall back here too, or a fresh dispatch and a
+  // continuation enforce the same config key differently.
+  it('falls back to DEFAULT_SLICE_MAX_RUNS for a Slice max runs the loop\'s own grammar would reject', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    // 12 runs already started: at DEFAULT_SLICE_MAX_RUNS (12), the next run refuses.
+    const { dir } = manifestWithRuns(wt, 12);
+    for (const malformed of ['1e1', '0x5', '5.0', ' ']) {
+      const result = await continueOnDesk(inputWith(wt, dir, cfgWith({ 'Slice max runs': malformed })));
+      assert.equal(result.kind, 'refused', `"${malformed}" must fall back to the default, which 12 runs has already reached`);
+      assert.equal(result.kind === 'refused' ? result.reason : '', 'run-limit', `"${malformed}"`);
+    }
+  });
+
+  it('accepts a plain-digits Slice max runs the loop\'s own grammar would also accept', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir } = manifestWithRuns(wt, 3);
+    const result = await continueOnDesk(inputWith(wt, dir, cfgWith({ 'Slice max runs': '5' })));
+    assert.equal(result.kind, 'started');
+    spawned.add(wt);
+  });
+
+  // #2475 finding 2 — `dollarsOr` used to take a nullable fallback, so a
+  // present-but-malformed `Slice max spend` (`abc`, `0`, a negative number)
+  // fell back to `null` — "no limit" — exactly as if the key were absent.
+  // `dollarsOrUnset`'s three-way reading distinguishes "absent" from "present
+  // and unreadable"; the continuation must refuse the latter rather than
+  // silently grant unlimited spend.
+  it('refuses a present-but-malformed Slice max spend rather than reading it as no limit', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    const { dir } = manifestWithRuns(wt, 0);
+    const file = path.join(wt, CONTINUATION_NAME);
+    for (const malformed of ['abc', '0', '-5']) {
+      const result = await continueOnDesk(inputWith(wt, dir, cfgWith({ 'Slice max spend': malformed })));
+      assert.equal(result.kind, 'refused', `"${malformed}" must refuse rather than run unlimited`);
+      assert.equal(result.kind === 'refused' ? result.reason : '', 'spend-limit', `"${malformed}"`);
+      assert.equal(fs.existsSync(file), false);
+    }
+  });
 });
 
 describe('two concurrent continuations on one desk — #1357', () => {
@@ -1668,6 +1713,75 @@ describe('a desk continued twice, once per NEEDS_PERSON_ENDINGS reason — #2107
       assert.equal(fs.readFileSync(path.join(wt, CONTINUATION_NAME), 'utf8'), promptBefore);
       assert.equal(fs.readFileSync(path.join(wt, '.plot-worker.exit'), 'utf8'), '0');
     });
+  });
+});
+
+// #2475 finding 3 — `continueTarget`'s `write` outcome fires when no manifest
+// names the desk at all, so the continuation writes a brand-new one. That
+// manifest used to carry no `sliceRuns`, so every later read of it saw `0` —
+// a write-path continuation never counted against `Slice max runs`, no matter
+// how many times it ran. `writeDeskManifest` now seeds `sliceRuns: 1` (this
+// continuation counts as run 1), so a *second* write-path continuation on the
+// same branch, with a low enough `Slice max runs`, must see run 1 already
+// recorded and refuse.
+describe('a write-path continuation seeds sliceRuns, counted by the next continue — #2475', () => {
+  const writeEnding = (wt: string, reason: string): void => {
+    fs.writeFileSync(
+      path.join(wt, ENDING_FILENAME),
+      JSON.stringify({ reason, actor: 'agent', branch: BRANCH, detail: '' }),
+    );
+  };
+
+  const writeMarker = (wt: string, name = 'PLOT-BLOCKED-again.md'): void => {
+    fs.writeFileSync(path.join(wt, name), 'PLOT-BLOCKED: a new question from the continued run');
+  };
+
+  const input = (wt: string, dir: string, values: Record<string, string> = {}) => ({
+    opts: { ...opts, manifestDir: dir },
+    readCfg: (_o: unknown, key: string, fallback: string) => (key === 'Worker command' ? 'true' : values[key] ?? fallback),
+    branch: BRANCH,
+    worktree: wt,
+    main: 'main',
+    previousPid: '',
+    answer: 'the composed answer',
+  });
+
+  it('refuses the second of two write-path continuations once Slice max runs is reached', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    writeEnding(wt, 'blocked');
+    const manifestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-write-runs-'));
+    manifestDirs.push(manifestDir);
+
+    // No manifest names this desk yet — `continueTarget` answers `write`.
+    assert.equal(deskManifestFor('/tmp', wt, { manifestDir }).kind, 'unnamed');
+
+    const first = await continueOnDesk(input(wt, manifestDir, { 'Slice max runs': '1' }));
+    assert.equal(first.kind, 'started', 'the first write-path continuation must succeed');
+    spawned.add(wt);
+    await settle(wt);
+
+    // The loop ended without removing the manifest this time — exactly the
+    // case `sliceRunsFromManifest` must now carry forward: the SAME manifest,
+    // seeded with run 1, must be what the second continue reads.
+    writeEnding(wt, 'blocked');
+    writeMarker(wt);
+
+    const second = await continueOnDesk(input(wt, manifestDir, { 'Slice max runs': '1' }));
+    assert.equal(second.kind, 'refused', 'run 1 was already seeded by the first write; a limit of 1 must refuse the second');
+    assert.equal(second.kind === 'refused' ? second.reason : '', 'run-limit');
+  });
+
+  it('control: a write-path continuation starts when Slice max runs has not yet been reached', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    writeEnding(wt, 'blocked');
+    const manifestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-write-runs-control-'));
+    manifestDirs.push(manifestDir);
+
+    const result = await continueOnDesk(input(wt, manifestDir, { 'Slice max runs': '2' }));
+    assert.equal(result.kind, 'started');
+    spawned.add(wt);
   });
 });
 

@@ -393,6 +393,20 @@ export interface DeskManifestFields {
    * when none exists or a fresh session was asked for.
    */
   resumeId: string;
+  /**
+   * The runs already started on `branch`, counting the continuation this
+   * write is for as the first of them.
+   *
+   * A `write`-path continuation has no previous manifest to carry a
+   * `sliceRuns` count forward from — the whole reason this write happens is
+   * that none names the desk yet. Seeding `1` here, rather than leaving the
+   * field absent (which `sliceRunsOf`/`sliceRunsFromManifest` both read as
+   * `0`), is what lets `Slice max runs` see this continuation as a real run:
+   * the loop's own `raiseSliceRuns` increments whatever it finds on the next
+   * run it starts, so a manifest written with no count would let every
+   * `write`-path continuation look like run zero forever.
+   */
+  sliceRuns: number;
 }
 
 /**
@@ -436,6 +450,7 @@ export const writeDeskManifest = (dir: string, fields: DeskManifestFields): stri
     pid: '',
     attempts: 0,
     startedAt: new Date().toISOString(),
+    sliceRuns: { branch: fields.branch, runs: fields.sliceRuns },
   };
   try {
     fs.mkdirSync(dir, { recursive: true });

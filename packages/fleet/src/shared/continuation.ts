@@ -562,21 +562,34 @@ const sliceRunsFromManifest = (text: string | null, branch: string): number => {
   }
 };
 
-/** A config value read as a positive integer, or `fallback` where it is not one. */
+/**
+ * A config value read as a positive integer, or `fallback` where it is not
+ * one — digits only, as `worker-loop.ts`'s `positive`/`count` read `/^\d+$/`.
+ * Duplicated for the reason {@link sliceRunsFromManifest} gives: a bare
+ * `Number()` would also accept `1e1`, `0x5`, and other numeric-literal forms
+ * the loop's regex rejects, so the two readers must share the same grammar or
+ * a value the loop falls back on is accepted here as real.
+ */
 const positiveOr = (raw: string, fallback: number): number => {
-  const n = Number(raw.trim());
-  return Number.isInteger(n) && n > 0 ? n : fallback;
+  const trimmed = raw.trim();
+  return /^\d+$/.test(trimmed) && Number(trimmed) > 0 ? Number(trimmed) : fallback;
 };
 
 /**
- * A config value read as a dollar amount, or `fallback` where it names none.
- * The same pattern as `worker-loop.ts`'s `dollarsOrUnset`, duplicated for the
- * reason {@link sliceRunsFromManifest} gives.
+ * A config value read as a dollar amount: `unset` where the key is absent or
+ * blank (no limit), `value` for a positive amount, `unreadable` for anything
+ * else present. The same three-way shape as `worker-loop.ts`'s
+ * `dollarsOrUnset`, duplicated for the reason {@link sliceRunsFromManifest}
+ * gives — a present-but-malformed value (`abc`, `0`, a negative number) must
+ * refuse the continuation rather than read as "no limit".
  */
-const dollarsOr = (raw: string, fallback: number | null): number | null => {
+export type DollarsReading = { readonly kind: 'unset' } | { readonly kind: 'value'; readonly amount: number } | { readonly kind: 'unreadable' };
+
+const dollarsOr = (raw: string): DollarsReading => {
+  if (raw.trim() === '') return { kind: 'unset' };
   const match = /^\s*\$?\s*(-?\d+(?:\.\d+)?)\s*(?:usd)?\s*$/i.exec(raw);
   const n = match ? Number(match[1]) : NaN;
-  return Number.isFinite(n) && n > 0 ? n : fallback;
+  return Number.isFinite(n) && n > 0 ? { kind: 'value', amount: n } : { kind: 'unreadable' };
 };
 
 /**
@@ -796,17 +809,26 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // stop and before the first write: a refusal leaves a free-waiting loop
     // running. A person's answer does not override either limit. The run count
     // comes from the `stamp` target's manifest; a `write` target has no
-    // manifest to read, so only the spend limit holds there.
+    // PREVIOUS manifest to read — nothing names the desk yet, which is why this
+    // is the `write` path — so it reads `0` here and is refused only once this
+    // continuation's own write (below) has seeded the count a later call reads.
     const runs = sliceRunsFromManifest(manifestBeforeStop, branch);
     const runLimit = positiveOr(readCfg(opts, 'Slice max runs', ''), DEFAULT_SLICE_MAX_RUNS);
     if (runLimitRefusal(runs, runLimit)) {
       return refused(409, 'run-limit', `the slice started ${runs} runs, the Slice max runs limit of ${runLimit}`);
     }
-    const spendLimit = dollarsOr(readCfg(opts, 'Slice max spend', ''), null);
-    if (spendLimit !== null) {
+    const spendReading = dollarsOr(readCfg(opts, 'Slice max spend', ''));
+    if (spendReading.kind === 'unreadable') {
+      return refused(
+        409,
+        'spend-limit',
+        'Slice max spend is set but could not be read as a dollar amount; the continuation is refused rather than run unlimited',
+      );
+    }
+    if (spendReading.kind === 'value') {
       const spend = await readSliceSpend(sliceSpendFile({ cwd: worktree }), branch);
-      if (sliceSpendRefusal({ costUsd: spend.costUsd }, spendLimit)) {
-        return refused(409, 'spend-limit', `the slice's recorded cost reached the Slice max spend limit of ${spendLimit}`);
+      if (sliceSpendRefusal({ costUsd: spend.costUsd }, spendReading.amount)) {
+        return refused(409, 'spend-limit', `the slice's recorded cost reached the Slice max spend limit of ${spendReading.amount}`);
       }
     }
 
@@ -916,6 +938,11 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
         branch,
         command: cmd,
         resumeId: recorded !== '' ? recorded : resumeIdFromTranscript(worktree),
+        // THIS CONTINUATION IS RUN 1 — see DeskManifestFields.sliceRuns. With no
+        // previous manifest to carry a count forward from, leaving the field
+        // absent would read as `0` forever and this path would never count
+        // against `Slice max runs`.
+        sliceRuns: 1,
       });
       if (written === null) {
         fs.closeSync(out);
