@@ -15,9 +15,11 @@
 #   check-decision-count.sh push <before> HEAD against <before>, the CI event's `before` SHA
 #
 # THE EVIDENCE RULE. A row whose Kind is new, or changes, to one of the three
-# uncounted kinds must carry the proof in its Replaced by cell, or the label
-# flip lowers the count without moving a rule. Every path named there must
-# hold in the HEAD tree, and at least one of each required kind is named:
+# kinds below must carry the proof in its Replaced by cell, or the label flip
+# lowers the count without moving a rule. Only `launcher` is uncounted;
+# `readings` and `paired` still count, and the evidence proves the Kind label
+# rather than exempting the row. Every path named there must hold in the HEAD
+# tree, and at least one of each required kind is named:
 #   launcher  a `.mjs` bundle (see BUNDLE EVIDENCE)
 #   readings  a `.mjs` bundle (see BUNDLE EVIDENCE)
 #   paired    a `rules/*.ts` file, read as packages/domain/src/rules/<file>, and
@@ -195,7 +197,7 @@ report() { # <label> <before-rev> <before-desc>
   if [ "$after" -gt "$before" ]; then
     echo "check-decision-count: $((after - before)) more than at $3 ($4)." >&2
     echo "  The shell that decides may shrink and may not grow. Write the rule in packages/domain and ask it through a bundle (docs/shell-and-domain.md)," >&2
-    echo "  or convert a row of the same count to launcher, readings or paired with its evidence." >&2
+    echo "  or convert a row of the same count to launcher with its evidence; only launcher lowers the count — a readings or paired row still counts like any other." >&2
     return 1
   fi
 }
