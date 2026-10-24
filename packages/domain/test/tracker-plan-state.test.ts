@@ -108,6 +108,14 @@ describe('a plan-state write reflects the phase on a GitHub issue', () => {
     expect(host.labels()).toEqual(['plan:delivered']);
   });
 
+  it('leaves exactly one plan label at released, where the issue already carries two phase labels', async () => {
+    const host = issueHost();
+    writeFileSync(join(host.context.repoRoot, 'labels'), 'plan:draft\nplan:approved\n');
+    const tracker = trackerGithub(host.context);
+    await tracker.planStateWrite(write('released', { version: 'v1' }));
+    expect(host.labels()).toEqual(['plan:released']);
+  });
+
   it('closes the issue and names the version at released, and not before', async () => {
     const host = issueHost();
     const tracker = trackerGithub(host.context);
@@ -168,6 +176,10 @@ describe('the other trackers', () => {
 describe('the label and comment text', () => {
   it('removes every plan label except the one set', () => {
     expect(planStateLabelsToRemove('approved')).toBe('plan:draft,plan:delivered,plan:released');
+  });
+
+  it('names plan:released among the labels a released write asks to remove, even where the repo never created it', () => {
+    expect(planStateLabelsToRemove('released')).toBe('plan:draft,plan:approved,plan:delivered');
   });
 
   it('keys the comment on one marker, so the draft PR link and the later plan path share it', () => {
