@@ -534,11 +534,12 @@ export interface ControllerReadings {
  * (`dispatch`, `approve`, `deliver`, `release`) without the controller's
  * receipt, and a `gh pr merge` or `pr-merge` with no head pin.
  *
- * `ask` runs in order: the single-quoted heredoc strip, then the
- * message-sink strip ({@link withoutMessageSinks} — a `git commit
- * -m`/`--message` value, a `git commit -F -` heredoc body, and a
- * `plot-state-receipt.sh --unowned-action` reason are message text a process
- * never runs); two text tests that read no git — the per-word prefilter, and
+ * `ask` runs in order: the single-quoted heredoc blank, then the
+ * message-sink blank ({@link withoutMessageSinks} — a `git commit
+ * -m`/`--message` value, the body of a heredoc the `git commit -F -` command
+ * itself opens, and a `plot-state-receipt.sh --unowned-action` reason are
+ * message text a process never runs, and a span that holds a substitution
+ * stays); two text tests that read no git — the per-word prefilter, and
  * for an unattended agent
  * (`PLOT_UNATTENDED=1`) whether the working directory or one above it holds
  * `.plot-worker.pid` or `.plot-verify.pid`; when both answer no, the call is

@@ -750,6 +750,43 @@ test('controller gate: an unquoted heredoc feeding a command other than git comm
   assert.equal(run(dir, cmd).status, 2, 'a heredoc feeding cat is not a commit message');
 });
 
+// Each command below runs a gated script or an unpinned merge, and each was
+// allowed by the first message-sink strip (#2544). The strip may blank only
+// text the shell never runs.
+const SINK_BYPASSES = [
+  ['a $( ) in a -m value', `git commit -m "$(bash ${D} slug)"`],
+  ['a backtick in a -m value', `git commit -m "\`bash ${D} slug\`"`],
+  ['a $( ) in a receipt reason', `bash skills/plot/scripts/plot-state-receipt.sh --unowned-action dispatch s "$(${D} x)"`],
+  ['an unpinned merge in a -m value', 'git commit -m "$(gh pr merge 12)"'],
+  ['a heredoc fed to sh, piped into git commit -F -', ['sh <<EOF | git commit -F -', `bash ${D} slug`, 'EOF'].join('\n')],
+  ['a heredoc fed to bash beside git commit -F -', ['bash <<A && git commit -F - <<B', `bash ${D} slug`, 'A', 'msg', 'B'].join('\n')],
+  ['a here-string read as a heredoc tag', ['git commit -F - <<< "x"', `bash ${D} slug`].join('\n')],
+  ['a << inside quotes read as a heredoc tag', ['echo "<<EOF" | git commit -F -', `bash ${D} slug`].join('\n')],
+  ['an unterminated heredoc', ['git commit -F - <<EOF', `bash ${D} slug`].join('\n')],
+  ['an unpinned merge after an unterminated heredoc', ['git commit -F - <<EOF', 'gh pr merge 12'].join('\n')],
+  ['the receipt name as an argument of bash -c', `bash -c '"\${@:4}"' plot-state-receipt.sh --unowned-action a b bash ${D} slug`],
+  ["a here-string before the call, on main's line reader too", ["git log <<< 'x'", `bash ${D} slug`].join('\n')],
+];
+
+test('controller gate: no message-sink strip hides a command the shell runs (#2544)', () => {
+  const dir = repo();
+  const allowed = SINK_BYPASSES.filter(([, cmd]) => run(dir, cmd).status !== 2);
+  assert.deepEqual(allowed.map(([label]) => label), [], 'each of these runs a gated script or an unpinned merge');
+});
+
+test('controller gate: the commit forms agents use may name a script in the message (#2440)', () => {
+  const dir = repo();
+  const forms = [
+    ['a ; inside the quoted value', `git commit -m "${D}: fix; retry"`],
+    ['a multi-line value', ['git commit -m "plot: record', '', `${D} flipped the field"`].join('\n')],
+    ['-am', `git commit -am "${D} flipped the field"`],
+    ['git -C <dir> commit', `git -C . commit -m "${D} flipped the field"`],
+    ['the $(cat <<\'EOF\') form', ['git commit -m "$(cat <<\'EOF\'', `${D} flipped the field`, 'EOF', ')"'].join('\n')],
+  ];
+  const refused = forms.filter(([, cmd]) => run(dir, cmd).status !== 0);
+  assert.deepEqual(refused.map(([label]) => label), [], 'a message is data in each of these forms');
+});
+
 test('controller gate: a heredoc body cannot smuggle a real invocation past the gate', () => {
   // The strip removes a BODY, never a command line. A dispatch sharing the
   // command with a heredoc still refuses — otherwise the fix would have opened
