@@ -65,7 +65,7 @@ The slices touch disjoint files except `fleet.ts` (slices 1 and 2). Slice 2 ther
 
 ### Estate cost
 
-- `bug/board-estate-runs-once-per-head` — `--no-optional-locks`, no untracked files, once-per-head plan estate and pinned ancestry tests (#2318, #2450, #2453)
+- `bug/board-estate-runs-once-per-head` — `--no-optional-locks`, no untracked files, once-per-head plan estate and pinned ancestry tests (#2318, #2450, #2453) → #2626
 
 ### Board client
 
