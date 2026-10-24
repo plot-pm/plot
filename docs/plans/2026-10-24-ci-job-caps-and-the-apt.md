@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2534 merged
+- **Started:** 2026-10-24, Claude, `infra/ci-job-caps-exceed-their-step-caps`
 
 ## Changelog
 
