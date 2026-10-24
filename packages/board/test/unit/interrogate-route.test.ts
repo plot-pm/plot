@@ -22,6 +22,7 @@ import {
   interrogateStatus,
   type InterrogateDeps,
   type InterrogateRefusal,
+  type PlanPrLookup,
 } from '../../src/server/interrogate.js';
 import { agentLogPath } from '../../src/server/agent-log.js';
 import { boardRunsSettled, endHeldRuns } from '../../src/server/board-run.js';
@@ -89,13 +90,21 @@ const response = (): { res: http.ServerResponse; got: Captured } => {
   return { res, got };
 };
 
-/** Run the handler; `command` defaults to `true`, `phase` to `draft`. */
+/**
+ * Run the handler; `command` defaults to `true`, `phase` to `draft`.
+ *
+ * `resolvePlanPr` defaults to `{kind: 'none'}` — no open plan PR — so every
+ * test that does not ask about the plan-PR path exercises the main-checkout
+ * fallback exactly as before that path existed.
+ */
 const post = async (opts: {
   repoRoot: string;
   body?: unknown;
   command?: string;
   phase?: () => string | null;
   runner?: string;
+  resolvePlanPr?: () => Promise<PlanPrLookup>;
+  prepareWorktree?: () => Promise<string | null>;
 }): Promise<Captured> => {
   const { res, got } = response();
   const deps: InterrogateDeps = {
@@ -106,6 +115,8 @@ const post = async (opts: {
           ? opts.runner
           : fallback,
     phase: () => (opts.phase ? opts.phase() : 'draft'),
+    resolvePlanPr: opts.resolvePlanPr ? () => opts.resolvePlanPr!() : async () => ({ kind: 'none' }),
+    prepareWorktree: opts.prepareWorktree ? () => opts.prepareWorktree!() : async () => null,
   };
   await handleInterrogate(
     request(opts.body ?? { slug: SLUG }),
@@ -209,6 +220,77 @@ describe('the four refusals', () => {
     const remote = interrogateAvailability('0.0.0.0', opts(configured));
     assert.equal(remote.available, false);
     assert.ok(remote.reason.length > 0, 'the binding refusal carries a sentence');
+  });
+});
+
+describe('resolving the plan PR', () => {
+  it('runs in the worktree a found plan PR resolves to, not the main checkout', async () => {
+    const dir = repo();
+    // No plan on the main checkout at all: a worktree-only plan still runs.
+    const worktree = repo();
+    draftPlan(worktree);
+    const got = await post({
+      repoRoot: dir,
+      resolvePlanPr: async () => ({ kind: 'found', head: 'idea/' + SLUG }),
+      prepareWorktree: async () => worktree,
+    });
+    assert.equal(got.status, 202);
+    const prompt = fs.readFileSync(interrogatePromptPath(dir, SLUG), 'utf8');
+    assert.match(prompt, new RegExp(`^/challenge-the-plan docs/plans/${PLAN_NAME.replace(/\./g, '\\.')}$`, 'm'));
+    await boardRunsSettled();
+  });
+
+  it('refuses plan-unreadable naming the host\'s reason when the host cannot answer', async () => {
+    const dir = repo();
+    draftPlan(dir);
+    const got = await post({
+      repoRoot: dir,
+      resolvePlanPr: async () => ({ kind: 'refused', detail: 'the host rate-limited this call' }),
+    });
+    assert.equal(got.status, 409);
+    assert.equal(refusal(got), 'plan-unreadable');
+    assert.match(String(got.body.detail), /the host rate-limited this call/);
+    assert.equal(fs.existsSync(interrogatePromptPath(dir, SLUG)), false, 'nothing is written on a refusal');
+  });
+
+  it('refuses plan-unreadable when a found PR\'s worktree could not be prepared', async () => {
+    const dir = repo();
+    draftPlan(dir);
+    const got = await post({
+      repoRoot: dir,
+      resolvePlanPr: async () => ({ kind: 'found', head: 'idea/' + SLUG }),
+      prepareWorktree: async () => null,
+    });
+    assert.equal(got.status, 409);
+    assert.equal(refusal(got), 'plan-unreadable');
+    assert.match(String(got.body.detail), /idea\//);
+  });
+
+  it('falls back to the main checkout when the host answers no open plan PR', async () => {
+    const dir = repo();
+    draftPlan(dir);
+    const got = await post({ repoRoot: dir, resolvePlanPr: async () => ({ kind: 'none' }) });
+    assert.equal(got.status, 202);
+    const prompt = fs.readFileSync(interrogatePromptPath(dir, SLUG), 'utf8');
+    assert.match(prompt, new RegExp(`^/challenge-the-plan docs/plans/${PLAN_NAME.replace(/\./g, '\\.')}$`, 'm'));
+    await boardRunsSettled();
+  });
+
+  it('refuses a second POST as already-running even when the first resolves through a found plan PR', async () => {
+    const dir = repo();
+    const worktree = repo();
+    draftPlan(worktree);
+    const first = await post({
+      repoRoot: dir,
+      command: `sh -c 'sleep 1' _`,
+      resolvePlanPr: async () => ({ kind: 'found', head: 'idea/' + SLUG }),
+      prepareWorktree: async () => worktree,
+    });
+    assert.equal(first.status, 202);
+    const second = await post({ repoRoot: dir, command: `sh -c 'sleep 1' _` });
+    assert.equal(second.status, 409);
+    assert.equal(refusal(second), 'already-running');
+    await boardRunsSettled();
   });
 });
 

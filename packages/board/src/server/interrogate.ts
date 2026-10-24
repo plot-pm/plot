@@ -1,12 +1,14 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
+import { deskRoot } from '@plot-pm/domain/rules/desk-root';
 import { agentLogPath } from './agent-log.js';
-import { readConfig, type BuildBoardOptions } from './board.js';
+import { hostFor, readConfig, treesFor, type BuildBoardOptions } from './board.js';
 import { markBoardRun, readRunState, startBoardRun, STOPPED_RECORD } from './board-run.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
-import { readPhase } from './transition.js';
 import { ideaAvailability, lastLines, usableCommand, type IdeaState } from './idea.js';
+import { PlanMetaSchema } from '../contract/schema.js';
 
 /**
  * Interrogating a Draft plan: `POST /api/interrogate` runs the configured
@@ -17,11 +19,20 @@ import { ideaAvailability, lastLines, usableCommand, type IdeaState } from './id
  * read-back. The guards are imported from `dispatch.ts` and `idea.ts`, not
  * copied.
  *
- * The route decides nothing. The skill writes five artifacts: the verdict
- * files, `panel.md`, the plan's `Rounds:` increment, the Open Points section in
- * the plan body, and the `CHALLENGE-THE-PLAN-METADATA` block beside `Rounds:`.
- * This module writes only the prompt, the log and the state file, all outside
- * the repository.
+ * Under `Plan PRs: required` a Draft plan exists only on its `idea/<slug>`
+ * branch until that PR merges, so the route asks the `host` port for it
+ * first. Found, it runs the command in a worktree of the PR's head; absent —
+ * an answered "no open plan PR" — it falls back to `opts.repoRoot` as before.
+ * A host that cannot answer refuses `plan-unreadable` naming its reason,
+ * never silently falling back. This is the read half only: the worktree and
+ * its branch are left behind for a later wave to push the panel's artifacts
+ * from, and this module decides nothing about when or whether that happens.
+ *
+ * The route decides nothing about the plan either. The skill writes five
+ * artifacts: the verdict files, `panel.md`, the plan's `Rounds:` increment,
+ * the Open Points section in the plan body, and the
+ * `CHALLENGE-THE-PLAN-METADATA` block beside `Rounds:`. This module writes
+ * only the prompt, the log and the state file, all outside the repository.
  */
 
 /** The `## Plot Config` key naming the runner. REQUIRED: no script can run a panel. */
@@ -86,25 +97,86 @@ export interface InterrogateOptions extends BuildBoardOptions {
 }
 
 /**
- * The plan file a slug names: the active index first, then the date-prefixed
- * file in the plan directory. The same two candidates, in the same order, as
- * `transition.ts`'s `readPhase`, so the phase read and the prompt name one file.
+ * The plan file a slug names under `root`: the active index first, then the
+ * date-prefixed file in the plan directory. The same two candidates, in the
+ * same order, as `transition.ts`'s `readPhase` — but parameterized by the root
+ * to read, which `readPhase` is not. `root` is `opts.repoRoot` on the fallback
+ * path and a plan-PR worktree otherwise, so this cannot reuse `readPhase`
+ * unmodified without widening it for every other caller, which the brief
+ * forbids. The phase check and the prompt below both call this, so they name
+ * one file.
  */
-const resolvePlanBySlug = (opts: BuildBoardOptions, slug: string): string | null => {
+const resolvePlanInRoot = (opts: BuildBoardOptions, root: string, slug: string): string | null => {
   const planDir = readConfig(opts, 'Plan directory', 'docs/plans/');
   const activeDir = readConfig(opts, 'Active index', 'docs/plans/active/');
 
-  const active = path.join(opts.repoRoot, activeDir, `${slug}.md`);
+  const active = path.join(root, activeDir, `${slug}.md`);
   if (fs.existsSync(active)) return active;
 
   let entries: string[];
   try {
-    entries = fs.readdirSync(path.join(opts.repoRoot, planDir));
+    entries = fs.readdirSync(path.join(root, planDir));
   } catch {
     return null;
   }
   const hit = entries.find((e) => e.endsWith(`${slug}.md`));
-  return hit ? path.join(opts.repoRoot, planDir, hit) : null;
+  return hit ? path.join(root, planDir, hit) : null;
+};
+
+/**
+ * The plan's phase at `file`, read through `root`'s own `plot-plan-meta.sh` —
+ * never `opts.repoRoot`'s, so a plan read from a worktree is parsed by the
+ * copy of the parser checked out there. Null where the file cannot be found
+ * or parsed.
+ */
+const readPhaseAt = (opts: BuildBoardOptions, root: string, file: string): string | null => {
+  try {
+    const answer = scriptsShell({ repoRoot: root, scriptDir: opts.scriptsDir }).planMetaSync([file], {
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    if (!answer.ok) return null;
+    const line = answer.value.split('\n').map((l) => l.trim()).find(Boolean);
+    if (!line) return null;
+    return PlanMetaSchema.parse(JSON.parse(line)).phase || null;
+  } catch {
+    return null;
+  }
+};
+
+/** Where the slug's open plan PR was found, or why it was not used. */
+export type PlanPrLookup =
+  /** An open PR named `idea/<slug>` exists; the route reads its head. */
+  | { kind: 'found'; head: string }
+  /** The host answered: no open plan PR. Fall back to the main checkout. */
+  | { kind: 'none' }
+  /** The host could not be asked. Refuse rather than guess. */
+  | { kind: 'refused'; detail: string };
+
+/**
+ * Asks the host for the slug's plan PR — `idea/<slug>`, open, and nothing
+ * else: the Draft-plan case this wave covers never needs the merged-PR trace
+ * `planPrOf` in `plan-pr.ts` performs for a plan already on the default
+ * branch, because a Draft plan under `Plan PRs: required` has no other
+ * candidate. An open PR whose head is not `idea/<slug>` is not a plan PR.
+ *
+ * Reads `host.lastRefusal()` from the SAME instance that made the call —
+ * `hostFor` builds a fresh adapter per call, so a second call would not see
+ * the first's refusal.
+ */
+const resolveInterrogatePlanPr = async (opts: BuildBoardOptions, slug: string): Promise<PlanPrLookup> => {
+  const host = hostFor(opts);
+  const branch = `idea/${slug}`;
+  const lookup = await host.prState(branch);
+  if (!lookup.ok) {
+    const said = host.lastRefusal()?.said ?? '';
+    return {
+      kind: 'refused',
+      detail: `the host could not be asked for the PR of '${branch}' (plot-host.sh pr-state refused the call).${said ? ` ${said}` : ''}`,
+    };
+  }
+  const pr = lookup.value;
+  if (pr !== null && pr.state === 'OPEN') return { kind: 'found', head: branch };
+  return { kind: 'none' };
 };
 
 /**
@@ -167,12 +239,47 @@ export const interrogateStatus = (opts: BuildBoardOptions, slug: string): Interr
   };
 };
 
+/** Where the route found the plan to read and run against. */
+interface InterrogateTarget {
+  /** The checkout to read the plan from, and to run the command in: `opts.repoRoot`, or a worktree of the plan PR's head. */
+  root: string;
+  /** The plan PR's head branch, where one was used; empty on the main-checkout fallback. */
+  head: string;
+}
+
+/**
+ * Prepares a worktree of `head`'s remote branch at `path`, fetching first.
+ *
+ * Left behind on return, uncleaned: wave 2 pushes the panel's artifacts from
+ * it, and cleaning it up here would remove what that wave needs to find.
+ *
+ * @returns the worktree path on success, or null naming no further detail —
+ *   the caller refuses `plan-unreadable` either way.
+ */
+const prepareInterrogateWorktree = async (
+  opts: BuildBoardOptions,
+  slug: string,
+  head: string,
+): Promise<string | null> => {
+  const trees = treesFor(opts);
+  const fetched = await trees.fetch(opts.repoRoot, head);
+  if (!fetched.ok) return null;
+  const root = deskRoot({ configured: readConfig(opts, 'Worktree root', ''), repoRoot: opts.repoRoot });
+  const tree = path.join(root, `.plot-interrogate-${slug}.${process.pid}`);
+  const added = await trees.addBranch(tree, head, `origin/${head}`);
+  return added.ok ? tree : null;
+};
+
 /** The facts this route reads from outside itself, injectable for test. */
 export interface InterrogateDeps {
   /** Reads a `## Plot Config` key. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
   /** The plan's current phase, or null when it cannot be read. */
   phase?: (opts: BuildBoardOptions, slug: string) => string | null;
+  /** The slug's open plan PR, or why none was used. */
+  resolvePlanPr?: (opts: BuildBoardOptions, slug: string) => Promise<PlanPrLookup>;
+  /** Builds the worktree a found plan PR is read and run from. */
+  prepareWorktree?: (opts: BuildBoardOptions, slug: string, head: string) => Promise<string | null>;
 }
 
 /**
@@ -200,7 +307,8 @@ export const handleInterrogate = async (
   deps: InterrogateDeps = {},
 ): Promise<void> => {
   const readCfg = deps.config ?? readConfig;
-  const readPh = deps.phase ?? readPhase;
+  const resolvePlanPr = deps.resolvePlanPr ?? resolveInterrogatePlanPr;
+  const prepareWorktree = deps.prepareWorktree ?? prepareInterrogateWorktree;
   const json = (status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(body));
@@ -238,6 +346,57 @@ export const handleInterrogate = async (
     return;
   }
 
+  // One panel per plan: two panels writing one subject directory interleave
+  // their verdict files, and the moderator reads a mixture. Keyed by slug and
+  // `opts.repoRoot` alone — a run resolving to a worktree still shares one
+  // log and state path with a run resolving to the main checkout, so a second
+  // POST while the first is still choosing its root is still caught.
+  if (interrogateStatus(opts, slug).state === 'running') {
+    refuse(
+      'already-running',
+      slug,
+      `a panel for \`${slug}\` is already running — wait for it to finish; see ${interrogateLogPath(opts.repoRoot, slug)}`,
+    );
+    return;
+  }
+
+  // THE PLAN PR'S HEAD IS THE SOURCE, NOT THE MAIN CHECKOUT. A Draft plan
+  // under `Plan PRs: required` exists only on `idea/<slug>` until that PR
+  // merges — the main checkout cannot hold it. Absent is not false: a host
+  // that cannot answer refuses here, naming its reason, rather than being
+  // read as "no plan PR" and falling back to a stale or missing file.
+  const lookup = await resolvePlanPr(opts, slug);
+  if (lookup.kind === 'refused') {
+    refuse('plan-unreadable', slug, lookup.detail);
+    return;
+  }
+  let target: InterrogateTarget;
+  if (lookup.kind === 'found') {
+    const tree = await prepareWorktree(opts, slug, lookup.head);
+    if (tree === null) {
+      refuse(
+        'plan-unreadable',
+        slug,
+        `plan \`${slug}\`'s PR branch '${lookup.head}' could not be checked out into a worktree — refusing rather than interrogating a plan that could not be read from its own branch`,
+      );
+      return;
+    }
+    target = { root: tree, head: lookup.head };
+  } else {
+    target = { root: opts.repoRoot, head: '' };
+  }
+
+  // The phase read and the prompt below both resolve the plan through
+  // `target.root` — never a mix of the worktree for one and the main checkout
+  // for the other. `deps.phase` overrides the whole lookup (file + phase)
+  // only on the fallback root, matching its existing test contract.
+  const readPh = deps.phase !== undefined && target.head === ''
+    ? deps.phase
+    : (o: BuildBoardOptions, s: string): string | null => {
+      const file = resolvePlanInRoot(o, target.root, s);
+      return file === null ? null : readPhaseAt(o, target.root, file);
+    };
+
   const phase = readPh(opts, slug);
   if (phase === null) {
     refuse(
@@ -256,18 +415,7 @@ export const handleInterrogate = async (
     return;
   }
 
-  // One panel per plan: two panels writing one subject directory interleave
-  // their verdict files, and the moderator reads a mixture.
-  if (interrogateStatus(opts, slug).state === 'running') {
-    refuse(
-      'already-running',
-      slug,
-      `a panel for \`${slug}\` is already running — wait for it to finish; see ${interrogateLogPath(opts.repoRoot, slug)}`,
-    );
-    return;
-  }
-
-  const planFile = resolvePlanBySlug(opts, slug);
+  const planFile = resolvePlanInRoot(opts, target.root, slug);
   if (!planFile) {
     refuse(
       'plan-unreadable',
@@ -277,7 +425,7 @@ export const handleInterrogate = async (
     return;
   }
 
-  const prompt = composeInterrogatePrompt(path.relative(opts.repoRoot, planFile));
+  const prompt = composeInterrogatePrompt(path.relative(target.root, planFile));
   const promptPath = interrogatePromptPath(opts.repoRoot, slug);
   try {
     fs.mkdirSync(path.dirname(promptPath), { recursive: true });
@@ -305,12 +453,15 @@ export const handleInterrogate = async (
   // THROUGH THE `agentRun` PORT, in the board's process group; the run is not
   // awaited before the 202. `Interrogate command` is a shell fragment, and
   // nothing from the request is interpolated into it: the prompt travels as a
-  // file, its path as one argument and in the environment.
+  // file, its path as one argument and in the environment. `tree` is the
+  // worktree a found plan PR resolved to, or `opts.repoRoot` on the fallback
+  // — never the other way around, so `/challenge-the-plan` edits the plan
+  // where it was read.
   await startBoardRun(opts, {
     role: 'interrogate',
     fragmentKey: INTERROGATE_COMMAND_KEY,
     readCfg,
-    tree: opts.repoRoot,
+    tree: target.root,
     prompt: `Read ${promptPath} and follow it.`,
     env: {
       PLOT_UNATTENDED: '1',
