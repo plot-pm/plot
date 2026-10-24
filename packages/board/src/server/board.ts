@@ -1460,8 +1460,9 @@ export function parseSprintContent(content: string, name: string): SprintCard | 
   const start = startMatch ? startMatch[1].trim() : '';
   const endMatch = statusBody.match(/^- \*\*End:\*\* (.+)$/m);
   const end = endMatch ? endMatch[1].trim() : '';
-  // Sprint goal — the domain reads the `> ` line under the title first, then
-  // the first prose paragraph of `## Sprint Goal`, and never a `<…>` slot.
+  // Sprint goal — the domain reads a bold label opening a paragraph under
+  // `## Sprint Goal` first, then the `> ` line under the title, then that
+  // section's first prose paragraph, and never a `<…>` slot.
   const goal = sprintGoal(content);
   // The timebox is NOT decided here: this parse has no clock, and reading one
   // would make the answer untestable. `collectSprints` stamps it against one
