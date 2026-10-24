@@ -245,11 +245,11 @@ const openIssueOfPr = async (
  * The issue file holds `pending` while the tracker is asked, then the issue id.
  * A refusal that starts with {@link ISSUE_MAY_EXIST} keeps `pending`, so no
  * later run opens a second issue; any other refusal removes the file — except
- * a comment on an already-recorded id, where the id is still the right issue
- * and removing it would make the next run look up or open another. A comment
- * on a recorded id that the tracker does not take (`unaskable`, as Jira
- * answers) or that fails still answers the recorded issue's URL, with
- * `uncommented` naming why.
+ * a comment on an issue that is known to exist, whether recorded or found by
+ * lookup, where the id is still the right issue and removing it would make
+ * the next run look up or open another. A comment on such an issue that the
+ * tracker does not take (`unaskable`, as Jira answers) or that fails still
+ * answers that issue's URL, with `uncommented` naming why.
  *
  * @param deps - the tracker and file operations.
  * @param issueFile - the issue file for this PR and head.
@@ -295,17 +295,17 @@ const openFollowUp = async (
       return { ok: false, why: existing.why };
     }
     if (existing.issue !== null) {
-      const commented = await deps.tracker.issueComment(existing.issue.id, followUp.body);
-      if (!commented.ok) {
-        deps.removeFile(issueFile);
+      issueId = existing.issue.id;
+      deps.writeText(issueFile, issueId);
+      const commented = await deps.tracker.issueComment(issueId, followUp.body);
+      if (commented.ok) {
+        didComment = true;
+      } else {
         const why = (commented.why === 'unaskable' ? commented.reason : undefined)
           ?? deps.tracker.lastRefusal()
           ?? `the tracker answered ${commented.why} with no reason`;
-        return { ok: false, why: `could not comment on issue ${existing.issue.id}: ${why}` };
+        uncommented = { why: `could not comment on issue ${issueId}: ${why}`, failed: commented.why !== 'unaskable' };
       }
-      issueId = existing.issue.id;
-      deps.writeText(issueFile, issueId);
-      didComment = true;
     } else {
       const opened = await deps.tracker.issueOpen({ ...followUp, labels: [REVIEW_ISSUE_LABEL] });
       if (!opened.ok) {
@@ -317,6 +317,7 @@ const openFollowUp = async (
       }
       issueId = opened.value.id;
       deps.writeText(issueFile, issueId);
+      didComment = true;
       if (deps.issueWrites !== undefined) {
         const { scheme, baseUrl } = deps.tracker.config();
         await handOffIssueWrite(deps.tracker, deps.issueWrites, {
@@ -508,9 +509,9 @@ export const reviewPr = async (deps: ReviewDeps, ref: string): Promise<ReviewOut
     context: REVIEW_CONTEXT,
     description: followUp?.ok === false
       ? `${description}; follow-up issue not opened`
-      : uncommented?.failed === true ? `${description}; verdict not commented`
+      : uncommented !== undefined ? `${description}; verdict not commented`
       : commented ? `${description}; run ${run}` : description,
-    targetUrl: issueUrl ?? pr.url,
+    targetUrl: uncommented?.failed === false ? pr.url : (issueUrl ?? pr.url),
   });
   if (!written.ok) {
     return { code: EXIT.refused, lines: [...lines, `plot-review: the host did not accept the status on ${sha}`] };
