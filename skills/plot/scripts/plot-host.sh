@@ -1073,8 +1073,7 @@ url_encode() { # $1=raw → percent-encoded on stdout
 # loop lives once. $1=first path $2=truncation label $3=truncation detail;
 # rest=global bb args → combined values[] on stdout.
 _bb_paged_walk() {
-  local _path="$1" _label="$2" _detail="$3"; shift 3
-  local _out _spool _next _page=0
+  local _path="$1" _label="$2" _detail="$3" _out _spool _next _page=0; shift 3
   # `plot_tmpfile` registers `_spool` for removal at process exit — no manual
   # `rm` on an early return; the walk only ever runs a handful of times per
   # process, so the file outliving one call costs nothing a caller can see.
@@ -1100,8 +1099,7 @@ _bb_paged_walk() {
 }
 
 bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values[]
-  local _br="$1" _st="$2"; shift 2
-  local _q _path
+  local _br="$1" _st="$2" _q _path; shift 2
   _q="state=$(url_encode "\"$(bb_query_state "$_st")\"") AND source.branch.name=$(url_encode "\"$_br\"")"
   # THE WINDOW COMPOSES WITH THE STATE FILTER AND NEVER REPLACES IT. Bitbucket
   # takes ONE `q=` parameter, so a second one would silently win or lose
