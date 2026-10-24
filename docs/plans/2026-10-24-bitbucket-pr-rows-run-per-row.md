@@ -72,7 +72,7 @@ The merge path in step 2 changes what a merge reads. A head read without Jenkins
 
 ### Tests and wording
 
-- `bug/bitbucket-bind-coverage-and-docs` — tests for `--bound-shas` wiring, several states, a broken ask and a real `merge-tree` count; corrections to the LOW findings below `<!-- waits: bug/pr-refresh-rotation-keeps-green -->`
+- `bug/bitbucket-bind-coverage-and-docs` — tests for `--bound-shas` wiring, several states, a broken ask and a real `merge-tree` count; corrections to the LOW findings below `<!-- waits: bug/pr-refresh-rotation-keeps-green -->` → #2653
 - `docs/one-pr-reader-plan-figures` — plan `one-pr-reader-per-machine-and` names one reader scope, one proposal and spender figures that add up
 
 LOW findings carried by the last two slices:
