@@ -11,6 +11,7 @@
 - **Issue:** #2484
 - **Review:** pr
 - **Impl:** own branches
+- **Started:** 2026-10-24, jwloka, `bug/bitbucket-listings-follow-next`
 
 ## Changelog
 
