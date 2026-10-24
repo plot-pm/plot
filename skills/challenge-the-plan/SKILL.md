@@ -248,6 +248,10 @@ This phase then does what an interview round does, and **nothing more**:
    the section this skill already owns. A `reject` is recorded with the lens that
    holds it, because that is what a later round must clear.
 2. **Phase 5b, unchanged** — one round, recorded by exactly the rule below.
+3. **Phase 7b, unchanged** — the panel never runs Phase 6 or 7 (there is no
+   interview loop to complete), but it owes the same push: if this run's plan
+   file is a detached checkout of a plan PR's head, the round is lost the
+   moment this run ends unless Phase 7b carries it back to that branch.
 
 **A panel round that changed nothing is still a round.** Absent and `0` are
 deliberately different: absent means nobody looked.
@@ -406,6 +410,101 @@ If not complete, return to Phase 3 with adaptive depth.
 ### Phase 7: Open Points Review (before completion)
 
 Re-ask all deferred questions for final validation. Remove resolved items from the Open Points section.
+
+### Phase 7b: Push to a plan PR branch
+
+**Runs once, after the plan file's last write for this run — after Phase 7
+on the interview path, after Phase 5b on the panel path (which never reaches
+Phase 6 or 7) — and only when that worktree has no branch of its own to
+commit to.** A plan read from the `## Plot Config` checkout — the normal
+case, the one almost every round uses — already commits locally there; this
+phase changes nothing about that path.
+
+A plan resolved from an open plan PR's head is read in a worktree checked
+out **detached** at that branch's tip (`prepareInterrogateWorktree` in
+`packages/board/src/server/interrogate.ts`). Detached HEAD has no branch to
+commit to, so Phase 5b's and Phase 7's writes land only in that worktree's
+working tree and are discarded when the run ends — unless this phase pushes
+them back to the branch they came from.
+
+**Detect which case this is before doing anything else:**
+
+```bash
+git symbolic-ref -q HEAD >/dev/null 2>&1 && echo attached || echo detached
+```
+
+- **attached** → an ordinary branch checkout (the `## Plot Config` fallback,
+  or a Draft plan already on the default branch). Commit locally as this
+  skill always has. Nothing below applies.
+- **detached** → find which remote branch HEAD came from:
+
+  ```bash
+  BRANCH=$(git for-each-ref --points-at=HEAD --format='%(refname:short)' refs/remotes/origin/ | sed 's#^origin/##' | head -1)
+  ```
+
+  An empty result means HEAD matches no remote branch tip — stop and report
+  it rather than guessing a target; this should not happen for a worktree
+  `prepareInterrogateWorktree` just created, and a guess here risks pushing
+  to the wrong branch.
+
+**Then commit and push, mirroring `bookOnPlanPr`
+(`packages/board/src/server/entry/needs-design.ts:501-543`) — the one place
+this repo already pushes a write onto an open plan PR's branch. That
+function uses the `Trees` domain port because it is board TypeScript code;
+this phase is markdown run by an agent, so it runs the same steps as plain
+`git`:**
+
+1. **Refuse if the branch moved underneath this run.** Fetch and compare the
+   remote tip to the commit this worktree started from (its merge base with
+   `origin/<branch>`, or simply its own pre-round `HEAD` if that was recorded
+   — the point is: did someone else push to `<branch>` while this round ran?):
+
+   ```bash
+   git fetch -q origin "$BRANCH"
+   STARTED_AT=$(git merge-base HEAD "refs/remotes/origin/$BRANCH")
+   REMOTE_NOW=$(git rev-parse "refs/remotes/origin/$BRANCH")
+   ```
+
+   If `origin/$BRANCH` advanced to a commit this worktree's `HEAD` does not
+   already contain as an ancestor, **refuse by name**: do not rebase, do not
+   retry, do not overwrite. Leave the worktree's uncommitted plan edits and
+   the remote branch exactly as they are, and report
+   `plan-pr-branch-moved: origin/$BRANCH advanced during this round; the
+   round's edits are uncommitted in <worktree path> for a person to
+   reconcile.` This matches `bookOnPlanPr`'s own guard
+   (`needs-design.ts:512-514`): a branch holding someone else's work is not
+   this skill's to discard.
+
+2. **Stage and check for an empty diff** — the existing idiom for "nothing to
+   commit" (`hasStagedChanges` in `bookOnPlanPr`):
+
+   ```bash
+   git add -- "$PLAN_FILE"
+   git diff --cached --quiet && echo nothing-to-commit
+   ```
+
+   This should not fire in practice: Phase 5b always increments `Rounds:`,
+   even on a round that changed no decision, so the round count itself is
+   always part of the staged diff. Treat it as a defensive no-op, not the
+   normal path — if it fires, skip the commit and push and report that
+   nothing changed, rather than committing an empty change.
+
+3. **Commit and push:**
+
+   ```bash
+   git commit -q -m "challenge-the-plan: round <N>"
+   git push origin "HEAD:refs/heads/$BRANCH"
+   ```
+
+   Pushing `HEAD:refs/heads/<branch>` works from a detached HEAD without
+   creating a local branch — there is nothing to clean up afterward. A
+   rejected push (the branch moved between the fetch above and this push)
+   is the same refusal as step 1: report it by name, do not retry.
+
+**One commit carries all three artifacts**, because Phase 5b's `Rounds:` and
+metadata-block writes and Phase 7's Open Points edits all land in the same
+plan file before this phase ever runs — there is exactly one staged diff to
+commit, not three.
 
 ## Open Points Tracking
 
