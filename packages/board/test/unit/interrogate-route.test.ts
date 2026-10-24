@@ -11,7 +11,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
-import { spawn as spawnProcess } from 'node:child_process';
+import { execFileSync, spawn as spawnProcess } from 'node:child_process';
 import {
   INTERROGATE_COMMAND_KEY,
   composeInterrogatePrompt,
@@ -20,6 +20,7 @@ import {
   interrogateLogPath,
   interrogatePromptPath,
   interrogateStatus,
+  prepareInterrogateWorktree,
   type InterrogateDeps,
   type InterrogateRefusal,
   type PlanPrLookup,
@@ -495,5 +496,73 @@ describe('a run records one round, and the board writes none', () => {
     assert.match(after, /^- \*\*Rounds:\*\* 3$/m, 'one round, recorded by the runner');
     assert.equal(after, before.replace('- **Rounds:** 2', '- **Rounds:** 3'),
       'the plan changed by exactly the runner\'s one line — no board-side counter');
+  });
+});
+
+describe('the plan-PR worktree', () => {
+  const HEAD = `idea/${SLUG}`;
+  const git = (cwd: string, ...args: string[]): string =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' }).trim();
+
+  /** A clone of a bare origin whose `idea/<slug>` branch holds the Draft plan. */
+  const cloned = (): { dir: string; parent: string } => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-interrogate-tree-'));
+    made.push(parent);
+    const origin = path.join(parent, 'origin.git');
+    git(parent, 'init', '-q', '--bare', '-b', 'main', origin);
+    const dir = path.join(parent, 'repo');
+    git(parent, 'clone', '-q', origin, dir);
+    fs.writeFileSync(path.join(dir, 'README.md'), 'x\n', 'utf8');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'init');
+    git(dir, 'push', '-q', 'origin', 'HEAD:main');
+    git(dir, 'checkout', '-q', '-b', HEAD);
+    fs.mkdirSync(path.join(dir, 'docs/plans'), { recursive: true });
+    draftPlan(dir);
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'plan');
+    git(dir, 'push', '-q', 'origin', HEAD);
+    git(dir, 'checkout', '-q', 'main');
+    git(dir, 'branch', '-q', '-D', HEAD);
+    return { dir, parent };
+  };
+
+  const opts = (dir: string) => ({ repoRoot: dir, scriptsDir: SCRIPTS });
+
+  it('prepares the tree again for a second run on the same slug', async () => {
+    const { dir } = cloned();
+    const first = await prepareInterrogateWorktree(opts(dir), SLUG, HEAD);
+    assert.ok(first, 'the first run gets a tree');
+    fs.writeFileSync(path.join(first, 'leftover.txt'), 'from the first run\n', 'utf8');
+    const second = await prepareInterrogateWorktree(opts(dir), SLUG, HEAD);
+    assert.equal(second, first, 'one path per slug');
+    assert.ok(fs.existsSync(path.join(second, 'docs/plans', PLAN_NAME)), 'the plan is read from the PR branch');
+    assert.equal(fs.existsSync(path.join(second, 'leftover.txt')), false, 'the earlier run\'s tree was replaced');
+    const trees = git(dir, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ') && l.includes('.plot-interrogate-'));
+    assert.equal(trees.length, 1, 'one interrogation tree, not one per run');
+  });
+
+  it('prepares the tree while the branch is checked out in another worktree', async () => {
+    const { dir, parent } = cloned();
+    const author = path.join(parent, 'author-desk');
+    git(dir, 'worktree', 'add', '-q', author, HEAD);
+    const tree = await prepareInterrogateWorktree(opts(dir), SLUG, HEAD);
+    assert.ok(tree, 'a branch checked out elsewhere does not refuse the run');
+    assert.equal(git(tree, 'rev-parse', 'HEAD'), git(dir, 'rev-parse', `origin/${HEAD}`));
+    assert.equal(git(author, 'branch', '--show-current'), HEAD, 'the author\'s desk is untouched');
+  });
+
+  it('leaves a local branch with unpushed commits where it is', async () => {
+    const { dir } = cloned();
+    git(dir, 'branch', '-q', HEAD, `origin/${HEAD}`);
+    git(dir, 'checkout', '-q', HEAD);
+    fs.writeFileSync(path.join(dir, 'unpushed.txt'), 'local\n', 'utf8');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'unpushed');
+    const local = git(dir, 'rev-parse', HEAD);
+    git(dir, 'checkout', '-q', 'main');
+    const tree = await prepareInterrogateWorktree(opts(dir), SLUG, HEAD);
+    assert.ok(tree);
+    assert.equal(git(dir, 'rev-parse', HEAD), local, 'the local branch was not reset to origin');
   });
 });

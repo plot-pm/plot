@@ -21,12 +21,12 @@ import { PlanMetaSchema } from '../contract/schema.js';
  *
  * Under `Plan PRs: required` a Draft plan exists only on its `idea/<slug>`
  * branch until that PR merges, so the route asks the `host` port for it
- * first. Found, it runs the command in a worktree of the PR's head; absent —
- * an answered "no open plan PR" — it falls back to `opts.repoRoot` as before.
- * A host that cannot answer refuses `plan-unreadable` naming its reason,
- * never silently falling back. This is the read half only: the worktree and
- * its branch are left behind for a later wave to push the panel's artifacts
- * from, and this module decides nothing about when or whether that happens.
+ * first. Found, it runs the command in a detached worktree at the PR head's
+ * remote branch; absent — an answered "no open plan PR" — it falls back to
+ * `opts.repoRoot` as before. A host that cannot answer refuses
+ * `plan-unreadable` naming its reason, never silently falling back. This is
+ * the read half only: the worktree stays in place after the run, and this
+ * module pushes nothing from it.
  *
  * The route decides nothing about the plan either. The skill writes five
  * artifacts: the verdict files, `panel.md`, the plan's `Rounds:` increment,
@@ -248,15 +248,31 @@ interface InterrogateTarget {
 }
 
 /**
- * Prepares a worktree of `head`'s remote branch at `path`, fetching first.
+ * Where a slug's interrogation worktree lives: one path per slug under the
+ * desk root, the same for every run and every board process.
+ */
+export const interrogateWorktreePath = (opts: BuildBoardOptions, slug: string): string =>
+  path.join(
+    deskRoot({ configured: readConfig(opts, 'Worktree root', ''), repoRoot: opts.repoRoot }),
+    `.plot-interrogate-${slug}`,
+  );
+
+/**
+ * Prepares a DETACHED worktree at `origin/<head>`, fetching first, at
+ * {@link interrogateWorktreePath}.
  *
- * Left behind on return, uncleaned: wave 2 pushes the panel's artifacts from
- * it, and cleaning it up here would remove what that wave needs to find.
+ * Detached, so a branch checked out in another worktree (the author's
+ * `/plot-idea` desk) does not refuse it, and no local `<head>` branch is
+ * created, moved or reset. A tree left at the path by an earlier run is
+ * removed first, with what it holds: each run reads the plan as the remote
+ * branch holds it now. The caller's `already-running` guard keeps this from
+ * removing the tree of a run still in progress. The new tree stays in place
+ * after the run.
  *
  * @returns the worktree path on success, or null naming no further detail —
  *   the caller refuses `plan-unreadable` either way.
  */
-const prepareInterrogateWorktree = async (
+export const prepareInterrogateWorktree = async (
   opts: BuildBoardOptions,
   slug: string,
   head: string,
@@ -264,9 +280,13 @@ const prepareInterrogateWorktree = async (
   const trees = treesFor(opts);
   const fetched = await trees.fetch(opts.repoRoot, head);
   if (!fetched.ok) return null;
-  const root = deskRoot({ configured: readConfig(opts, 'Worktree root', ''), repoRoot: opts.repoRoot });
-  const tree = path.join(root, `.plot-interrogate-${slug}.${process.pid}`);
-  const added = await trees.addBranch(tree, head, `origin/${head}`);
+  const tree = interrogateWorktreePath(opts, slug);
+  await trees.prune();
+  if (fs.existsSync(tree)) {
+    await trees.removeOnly(tree);
+    if (fs.existsSync(tree)) return null;
+  }
+  const added = await trees.add(tree, `origin/${head}`);
   return added.ok ? tree : null;
 };
 
