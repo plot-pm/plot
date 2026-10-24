@@ -60,7 +60,7 @@ The issue's LOW findings on `DeliveryFilters.tsx:163` (the dropped exempt count 
 
 ### Waiting on you
 
-- `bug/waiting-on-you-counts-visible-rows` — waitingTickets and the unknown-phase ticket count only what the view renders
+- `bug/waiting-on-you-counts-visible-rows` — waitingTickets and the unknown-phase ticket count only what the view renders → #2638
 
 ### Tests and text
 
