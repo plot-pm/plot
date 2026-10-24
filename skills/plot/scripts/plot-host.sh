@@ -1835,8 +1835,32 @@ jenkins_resolve_host() {
 # WITH A SHA, ONLY THAT SHA'S BUILDS, never another's. `result` is null while a build
 # runs, Jenkins' own word for *in flight*, mapped to the `status`/`conclusion`
 # split the contract already uses so the shape does not fork per connector.
+#
+# THE BRANCH AND ITS SHA COME FROM THE SAME ACTION. Each `actions[]` entry
+# with a `lastBuiltRevision` becomes one `{sha, branches}` record, read off
+# that one entry — never a flat list of every action's sha paired by position
+# with a flat list of every action's branch names, which can only agree by
+# luck once an action carries zero or several branches. A build is searched
+# record by record for the one whose `branches` names the ASKED BRANCH, on a
+# plain job same as a multibranch one — the job's last path segment names a
+# job, not a branch, and is never the key. A record naming no branch never
+# matches a named branch, and the build falls back to its LAST record only
+# when none of its records name any branch at all.
+#
+# JENKINS' `tree=` PARAMETER SELECTS FIELDS, NEVER VALUES: there is no syntax
+# for "only where result != NOT_BUILT", so the `NOT_BUILT`/`ABORTED` filter can
+# only run after the fetch, in jq. `{0,$limit}` on the Jenkins side must
+# therefore ask for MORE than `$limit` builds, or a build filtered out after
+# the cut silently shrinks the answer — `runs --limit 3` over five builds where
+# two are `NOT_BUILT` returning 1 row instead of 3. The over-fetch factor is
+# fixed at 3x, uncapped: it costs response BYTES, never an extra round trip or
+# rate-budget slot (`host_slot_take`/`budget_record_call` below run once per
+# path regardless of `limit`), and a single multibranch job's full history is
+# small enough that 3x of any realistic `--limit` stays well under what one
+# `tree=` query already returns today (measured 2026-09-10: 4855 bytes for
+# five builds).
 jenkins_sha_runs() {
-  local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain="" default_job root_path
+  local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain="" default_job root_path fetch
   instance="$(jenkins_instance)"; [ -n "$instance" ] || jenkins_no_instance
   slug="${instance%%/*}"; job="${instance#*/}"; [ "$job" = "$instance" ] && job=""
   default_job=$(bash "$here/plot-config.sh" get "Default branch job" "" 2>/dev/null || true); [ -n "$default_job" ] && [ "$branch" = "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')" ] && job="$default_job"
@@ -1849,7 +1873,8 @@ jenkins_sha_runs() {
     echo "  Jenkins' REST API takes basic auth with an API token, which \`jen auth login\` stores in the login keychain. The Keycloak bearer from \`jen auth token\` is NOT it." >&2
     exit 4
   }
-  tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,$limit%7D"
+  fetch=$((limit * 3))
+  tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,$fetch%7D"
   body=""; root_path="$(jenkins_job_url_path "$job" "")"
   for path in "$(jenkins_job_url_path "$job" "$branch")" "$root_path"; do
     host_slot_take jenkins ''
@@ -1871,17 +1896,19 @@ jenkins_sha_runs() {
     echo "plot-host: $op — Jenkins did not answer for '$host'" >&2
     exit 4
   fi
-  printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" --arg branch "$branch" --arg plain "$plain" 'def headsha($b): if (.br | length) > 0 then (first([.br, .shas] | transpose[] | select(.[0] == $b) | .[1]) // (.shas | last // "")) else (.shas | last // "") end;
+  printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" --arg branch "$branch" --arg plain "$plain" --argjson limit "$limit" 'def headsha($records): ($records | map(select(any(.branches[]; . == $branch))) | first.sha) // ($records | last.sha // "");
     [ .builds[]
-      | { shas: [ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision.SHA1 ],
-          br: [ .actions[]? | .lastBuiltRevision.branch[]?.name // empty | sub("^(refs/remotes/|refs/heads/)"; "") | sub("^origin/"; "") ],
+      | { records: [ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision
+            | { sha: .SHA1, branches: [ .branch[]?.name // empty | sub("^(refs/remotes/|refs/heads/)"; "") | sub("^origin/"; "") ] } ],
           status: (if .building then "in_progress" else "completed" end),
           conclusion: (if .building then null else (.result // null) end),
           url: (.url // ""),
           startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ] | map(select(.conclusion != "NOT_BUILT")) | (if $sha == "" then map(select(.conclusion != "ABORTED")) else . end)
-    | if $sha != "" then map(select(headsha(if $plain == "" then $branch else ($job | split("/") | last) end) as $h | $h == $sha or (($sha | test("^[0-9a-f]{7,}$")) and ($h | startswith($sha))))) elif $plain == "" then .
-      else map(select(if (.br | length) > 0 then any(.br[]; . == $branch) else $branch == ($job | split("/") | last) end)) end
-    | map(.sha = (if $sha != "" then headsha(if $plain == "" then $branch else ($job | split("/") | last) end) else headsha($branch) end) | del(.shas, .br))' || exit 4
+    | if $sha != "" then map(select(headsha(.records) as $h | $h == $sha or (($sha | test("^[0-9a-f]{7,}$")) and ($h | startswith($sha)))))
+      elif $plain == "" then .
+      else map(select(any(.records[].branches[]; . == $branch))) end
+    | map(.sha = headsha(.records) | del(.records))
+    | .[0:$limit]' || exit 4
 }
 
 # The sha-bound readings of the PR rows $3 whose branch colour in $2 cannot
