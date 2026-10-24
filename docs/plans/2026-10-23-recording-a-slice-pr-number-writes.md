@@ -47,7 +47,7 @@ Whether the #2311 gate should also see plain file writes into the main checkout 
 
 ### Fix
 
-- `bug/recording-a-slice-pr-number-writes` — find the writer and make it write only in the tree it commits from
+- `bug/recording-a-slice-pr-number-writes` — find the writer and make it write only in the tree it commits from → #2468
 
 ## Notes
 
