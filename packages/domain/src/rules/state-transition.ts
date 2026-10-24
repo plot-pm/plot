@@ -220,11 +220,21 @@ export const renamedFromOf = (
  * copy that cannot be read and an unchanged value pass. A `HEAD` version and a
  * working copy that both hold no value pass.
  *
+ * On a merge, `working` equal to one of `otherParentTexts` also passes: that
+ * parent's own commit already passed the gate, so the text arrives with proof
+ * of provenance rather than by hand. The comparison is on the whole file, not
+ * on the extracted value — a merge that also hand-edits the line matches no
+ * parent and keeps requiring a receipt. A removal is never cleared this way:
+ * no command removes the line, so no parent's commit could have passed the
+ * gate carrying one.
+ *
  * @param path - the repository-relative path.
  * @param kind - the file's kind.
  * @param head - the file's text in `HEAD`, or `null` when `HEAD` holds no such file.
  * @param working - the file's text being committed, or `null` when unreadable.
  * @param renamed - the same-slug file the commit deletes, or `null`.
+ * @param otherParentTexts - the file's text in each parent other than `HEAD`;
+ *   empty for a non-merge commit.
  */
 export const stateTransitionOf = (
   path: string,
@@ -232,6 +242,7 @@ export const stateTransitionOf = (
   head: string | null,
   working: string | null,
   renamed: DeletedFile | null = null,
+  otherParentTexts: readonly string[] = [],
 ): StateTransition | null => {
   if (working === null) return null;
   const source = head ?? renamed?.head ?? null;
@@ -239,6 +250,7 @@ export const stateTransitionOf = (
   const before = statusStateOf(source);
   const after = statusStateOf(working);
   if (before === after) return null;
+  if (after !== '' && otherParentTexts.includes(working)) return null;
   return {
     path,
     kind,
@@ -256,13 +268,16 @@ export const stateTransitionOf = (
  * plan with no `HEAD` version and no same-slug deletion reads its `before` as
  * `''`: a new plan file that arrives holding the record is an addition, since
  * the record opens dispatch and `/plot-idea` never writes one. Only a plan can
- * carry the record.
+ * carry the record. The merge-equality bypass is the same, and a removal is
+ * never cleared by it for the same reason.
  *
  * @param path - the repository-relative path.
  * @param kind - the file's kind.
  * @param head - the file's text in `HEAD`, or `null` when `HEAD` holds no such file.
  * @param working - the file's text being committed, or `null` when unreadable.
  * @param renamed - the same-slug file the commit deletes, or `null`.
+ * @param otherParentTexts - the file's text in each parent other than `HEAD`;
+ *   empty for a non-merge commit.
  */
 export const spikeTransitionOf = (
   path: string,
@@ -270,12 +285,14 @@ export const spikeTransitionOf = (
   head: string | null,
   working: string | null,
   renamed: DeletedFile | null = null,
+  otherParentTexts: readonly string[] = [],
 ): StateTransition | null => {
   if (kind !== 'plan' || working === null) return null;
   const source = head ?? renamed?.head ?? null;
   const before = source === null ? '' : spikeApprovalOf(source);
   const after = spikeApprovalOf(working);
   if (before === after) return null;
+  if (after !== '' && otherParentTexts.includes(working)) return null;
   return {
     path,
     kind,
@@ -306,6 +323,12 @@ export interface LifecycleReading {
   head: FileVersion | null;
   /** The version the commit takes, or `null` when the commit deletes the path or it is unreadable. */
   committed: FileVersion | null;
+  /**
+   * The version in each parent other than `HEAD`, one per merge parent.
+   * Empty for a non-merge commit, which is a `MERGE_HEAD` reading rather than
+   * a property of the path.
+   */
+  otherParents?: readonly (FileVersion | null)[];
 }
 
 /**
@@ -317,7 +340,9 @@ export interface LifecycleReading {
  * a `HEAD` version and no committed one is a deletion, and is the rename source
  * {@link renamedFromOf} searches for a path with no `HEAD` version. Each path
  * is then judged by {@link stateTransitionOf} and, for a plan, by
- * {@link spikeTransitionOf}.
+ * {@link spikeTransitionOf} — both take `otherParents`' texts as an extra
+ * reading, a symbolic link among them reading as no text the same way `head`
+ * and `committed` do.
  *
  * @param readings - every lifecycle path the commit carries, plus the old path
  *   of each rename git paired.
@@ -331,20 +356,24 @@ export const stateTransitionsOf = (
 ): readonly StateTransition[] => {
   const textOf = (version: FileVersion | null): string | null =>
     version === null || version.link ? null : version.text;
-  const files = readings.map(({ path, kind, head, committed }) => ({
+  const files = readings.map(({ path, kind, head, committed, otherParents }) => ({
     path,
     kind,
     head: textOf(head),
     committed: textOf(committed),
+    otherParentTexts: (otherParents ?? []).flatMap((version) => {
+      const text = textOf(version);
+      return text === null ? [] : [text];
+    }),
   }));
   const deleted = files.flatMap(({ path, head, committed }) =>
     committed === null && head !== null ? [{ path, head }] : [],
   );
-  return files.flatMap(({ path, kind, head, committed }) => {
+  return files.flatMap(({ path, kind, head, committed, otherParentTexts }) => {
     const renamed = head === null ? renamedFromOf(path, kind, deleted, planDir, sprintDir) : null;
     const transitions = [
-      stateTransitionOf(path, kind, head, committed, renamed),
-      spikeTransitionOf(path, kind, head, committed, renamed),
+      stateTransitionOf(path, kind, head, committed, renamed, otherParentTexts),
+      spikeTransitionOf(path, kind, head, committed, renamed, otherParentTexts),
     ];
     return transitions.filter((transition): transition is StateTransition => transition !== null);
   });

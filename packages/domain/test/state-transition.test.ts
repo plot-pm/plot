@@ -157,6 +157,51 @@ describe('stateTransitionOf', () => {
   it('finds a value no lifecycle admits', () => {
     expect(at(doc('Draft'), doc('Planned'))?.after).toBe('Planned');
   });
+
+  it('passes a merge whose staged text equals another parent that already passed the gate', () => {
+    expect(
+      stateTransitionOf('docs/plans/2026-01-01-x.md', 'plan', doc('Approved'), doc('Delivered'), null, [
+        doc('Delivered'),
+      ]),
+    ).toBeNull();
+  });
+
+  it('matches any one of several other parents, not only the first', () => {
+    expect(
+      stateTransitionOf('docs/plans/2026-01-01-x.md', 'plan', doc('Approved'), doc('Delivered'), null, [
+        doc('Approved'),
+        doc('Delivered'),
+      ]),
+    ).toBeNull();
+  });
+
+  it('keeps requiring a receipt when the staged text matches no other parent', () => {
+    expect(
+      stateTransitionOf('docs/plans/2026-01-01-x.md', 'plan', doc('Approved'), doc('Delivered'), null, [
+        doc('Approved'),
+      ]),
+    ).toMatchObject({ before: 'Approved', after: 'Delivered' });
+  });
+
+  it('still refuses a merge whose staged text differs from the other parent by a non-State line, with the State value also changed', () => {
+    const otherParent = `${doc('Delivered')}\n## Notes\n\noriginal\n`;
+    const staged = `${doc('Delivered')}\n## Notes\n\nhand-edited\n`;
+    expect(stateTransitionOf('docs/plans/2026-01-01-x.md', 'plan', doc('Approved'), staged, null, [otherParent])).toMatchObject({
+      before: 'Approved',
+      after: 'Delivered',
+    });
+  });
+
+  it('never clears a removal via the merge-equality bypass', () => {
+    const noState = '# P\n\n## Status\n';
+    expect(
+      stateTransitionOf('docs/plans/2026-01-01-x.md', 'plan', doc('Draft'), noState, null, [noState]),
+    ).toMatchObject({ before: 'Draft', after: '' });
+  });
+
+  it('reads HEAD-only equality as no transition, spending no receipt', () => {
+    expect(stateTransitionOf('docs/plans/2026-01-01-x.md', 'plan', doc('Approved'), doc('Approved'), null, [])).toBeNull();
+  });
 });
 
 describe('renamedFromOf', () => {
@@ -186,7 +231,8 @@ describe('stateTransitionsOf', () => {
     path: string,
     head: { text: string; link: boolean } | null,
     committed: { text: string; link: boolean } | null,
-  ) => ({ path, kind: 'plan' as const, head, committed });
+    otherParents?: ({ text: string; link: boolean } | null)[],
+  ) => ({ path, kind: 'plan' as const, head, committed, otherParents });
   const of = (...readings: ReturnType<typeof read>[]) => stateTransitionsOf(readings, 'docs/plans/', 'docs/sprints/');
 
   it('finds a changed value', () => {
@@ -241,6 +287,41 @@ describe('stateTransitionsOf', () => {
 
   it('reads a symlink that replaces a plan as a deletion', () => {
     expect(of(read('docs/plans/2026-01-01-x.md', file(doc('Draft')), link('elsewhere.md')))).toEqual([]);
+  });
+
+  it('passes a merge commit whose staged text equals a non-HEAD parent that already passed the gate', () => {
+    expect(
+      of(
+        read('docs/plans/2026-01-01-x.md', file(doc('Approved')), file(doc('Delivered')), [file(doc('Delivered'))]),
+      ),
+    ).toEqual([]);
+  });
+
+  it('matches the second of several other parents in an octopus merge', () => {
+    expect(
+      of(
+        read('docs/plans/2026-01-01-x.md', file(doc('Approved')), file(doc('Delivered')), [
+          file(doc('Approved')),
+          file(doc('Delivered')),
+        ]),
+      ),
+    ).toEqual([]);
+  });
+
+  it('keeps requiring a receipt when no other parent is readable or matching', () => {
+    expect(
+      of(read('docs/plans/2026-01-01-x.md', file(doc('Approved')), file(doc('Delivered')), [null])),
+    ).toEqual([{ path: 'docs/plans/2026-01-01-x.md', kind: 'plan', before: 'Approved', after: 'Delivered' }]);
+  });
+
+  it('reads a symlink among the other parents as no text, same as head and committed', () => {
+    expect(
+      of(
+        read('docs/plans/2026-01-01-x.md', file(doc('Approved')), file(doc('Delivered')), [
+          link(doc('Delivered')),
+        ]),
+      ),
+    ).toEqual([{ path: 'docs/plans/2026-01-01-x.md', kind: 'plan', before: 'Approved', after: 'Delivered' }]);
   });
 });
 
