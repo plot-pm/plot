@@ -450,9 +450,9 @@ jobs:
       # never saves again, so a key that tracked the Playwright version alone
       # froze the `.deb`s at whatever Ubuntu published the day it was first
       # saved. `install-deps --dry-run` simulates through `apt-get -s`, which
-      # reads the runner's local package lists and fetches nothing: its `Inst`
-      # lines name each package and version the install would unpack. The key
-      # hashes those lines, so a changed package set misses and saves anew.
+      # reads the runner's local package lists and fetches nothing: its output
+      # names the packages the install would unpack. The key hashes it, so a
+      # changed package set misses and saves anew.
       # There is no `restore-keys`: the install step copies a restored cache
       # in only on an exact hit, so a near-miss restore would download for
       # nothing.
@@ -461,8 +461,9 @@ jobs:
         run: |
           set -euo pipefail
           pw_cli="$(dirname "$(pnpm --filter @plot-pm/board exec node -p "require.resolve('playwright/package.json')")")/cli.js"
-          plan="$(node "$pw_cli" install-deps --dry-run chromium 2>&1 | grep '^Inst ' || true)"
-          [ -n "$plan" ] || { echo "::error::install-deps --dry-run planned no packages"; exit 1; }
+          plan="$(node "$pw_cli" install-deps --dry-run chromium 2>&1 || true)"
+          printf '%s\n' "$plan"
+          [ -n "$plan" ] || { echo "::error::install-deps --dry-run printed nothing"; exit 1; }
           echo "hash=$(printf '%s' "$plan" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright's apt packages
