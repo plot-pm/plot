@@ -58,7 +58,7 @@ Trade-offs to settle in review:
 
 ### Reproduction
 
-- `bug/plot-deliver-and-plot-impl-status-repro` — a failing test: a Bitbucket plan repository with a cross-repo GitHub reference, host CLIs stubbed, asserting `plot-impl-status.sh` lists the PR and `plot-deliver.sh` accepts it
+- `bug/plot-deliver-and-plot-impl-status-repro` — a failing test: a Bitbucket plan repository with a cross-repo GitHub reference, host CLIs stubbed, asserting `plot-impl-status.sh` lists the PR and `plot-deliver.sh` accepts it → #2552
 
 ### Resolution
 
