@@ -39,14 +39,14 @@ Issue #2488 collects follow-up findings from `plot-review` runs on #2135, #2357 
 
 ### Open Questions
 
-- [ ] Should a failed comment on a found issue exit non-zero? Today a failed comment on a newly opened issue exits 0 with a printed line; consistency says the same here.
+- [x] Should a failed comment on a found issue exit non-zero? Confirmed in PR #2567: the found-issue arm now returns through the shared `uncommented` field, so it takes the same branch at `review.ts`'s exit-code line as the recorded-id and newly-opened arms — `failed: true` (the tracker refused) exits `EXIT.issueNotOpened`, `failed: false` (`unaskable`) exits 0.
 - [ ] Does the review App's login come from config or from the authenticated user of the connector? The slice names the source before it filters.
 
 ## Slices
 
 ### Issue and status
 
-- `bug/plot-review-keeps-an-issue-when-its-comment-fails` — keep the issue record and report the issue as opened on a failed comment; name an unaskable comment in the status and point `target_url` at the PR; put the run marker in the first run's description; tests prove the second run reached the host <!-- builds: a status description that names an uncommented verdict -->
+- `bug/plot-review-keeps-an-issue-when-its-comment-fails` — keep the issue record and report the issue as opened on a failed comment; name an unaskable comment in the status and point `target_url` at the PR; put the run marker in the first run's description; tests prove the second run reached the host <!-- builds: a status description that names an uncommented verdict --> → #2567
 
 ### Marker lookup
 
