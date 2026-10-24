@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2485
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2534 merged
 - **Started:** 2026-10-24, Claude, `infra/ci-job-caps-exceed-their-step-caps`
 - **Started:** 2026-10-24, Jan Wloka, `infra/ci-comments-state-current-behaviour`
+- **Delivered:** 2026-10-24
 
 ## Changelog
 
