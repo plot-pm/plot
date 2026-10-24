@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** bug
+- **Sprint:** follow-ups-2-28-3
 - **Issue:** #2477
 - **Review:** pr
 - **Impl:** own branches
