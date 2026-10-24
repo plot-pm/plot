@@ -21,6 +21,7 @@ import { runLimitRefusal, DEFAULT_SLICE_MAX_RUNS } from '@plot-pm/domain/rules/r
 import { sliceSpendRefusal } from '@plot-pm/domain/rules/slice-spend-refusal';
 import { readSliceSpend } from '@plot-pm/domain/workflows/slice-spend';
 import { sliceSpendFile } from '@plot-pm/domain/adapters';
+import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
 
 /**
  * Starting a continuation on one desk — the non-HTTP half of `/api/continue`.
@@ -1042,6 +1043,12 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
           stdio: ['ignore', out, out],
           env: {
             ...process.env,
+            // CLEARED EVEN THOUGH THE PARENT MAY CARRY IT: a continued desk
+            // resumes a desk session, not the main-checkout bookkeeping a
+            // brief/implement/deliver/reslice/story run does, so it must not
+            // inherit that run's writer marker through the `...process.env`
+            // spread above.
+            [MAIN_CHECKOUT_WRITER_ENV]: '',
             PLOT_BRANCH: branch,
             PLOT_WORKTREE: worktree,
             PLOT_EXIT_FILE: exitFile,

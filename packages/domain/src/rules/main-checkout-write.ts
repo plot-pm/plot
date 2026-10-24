@@ -53,6 +53,10 @@ const MUTATING_GIT_SUBCOMMANDS: ReadonlySet<string> = new Set([
   'switch',
   'rm',
   'mv',
+  'tag',
+  'notes',
+  'clean',
+  'fetch',
 ]);
 
 /** The git global options whose value is the next word. */
@@ -81,12 +85,28 @@ const BRANCH_WRITE_OPTIONS: ReadonlySet<string> = new Set([
 const BRANCH_LIST_OPTIONS: ReadonlySet<string> = new Set(['-a', '--all', '-r', '--remotes', '-l', '--list', '--show-current']);
 
 /**
+ * Whether a short-option word (`-n`, `-fd`, `-fx`, …) carries the one-letter
+ * flag `letter` among the letters it combines.
+ */
+const hasShortFlag = (word: string, letter: string): boolean =>
+  /^-[a-zA-Z]+$/.test(word) && word.slice(1).includes(letter);
+
+/**
  * Whether a mutating subcommand's arguments ask only for a read:
- * `git stash list|show`, and `git branch` with no write option that has no
- * argument, a list option, or `--show-current`.
+ * `git stash list|show`; `git branch` with no write option that has no
+ * argument, a list option, or `--show-current`; `git tag -l`/`--list`; `git
+ * notes list|show`; `git clean -n`/`--dry-run` (a dry run mutates nothing,
+ * even combined with `-f` as `-nf`); and `git fetch` whose refspec arguments
+ * hold no `:` (no local ref is named to update).
  */
 const readsOnly = (sub: string, args: readonly string[]): boolean => {
-  if (sub === 'stash') return args[0] === 'list' || args[0] === 'show';
+  if (sub === 'stash' || sub === 'notes') return args[0] === 'list' || args[0] === 'show';
+  if (sub === 'tag') return args.some((word) => word === '-l' || word === '--list' || hasShortFlag(word, 'l'));
+  if (sub === 'clean') {
+    if (args.some((word) => word === '-n' || word === '--dry-run' || hasShortFlag(word, 'n'))) return true;
+    return !args.some((word) => word === '-f' || word === '--force' || hasShortFlag(word, 'f'));
+  }
+  if (sub === 'fetch') return !args.some((word) => !word.startsWith('-') && word.includes(':'));
   if (sub !== 'branch') return false;
   const options = args.filter((word) => word.startsWith('-')).map((word) => word.split('=')[0]);
   if (options.some((option) => BRANCH_WRITE_OPTIONS.has(option))) return false;
@@ -125,6 +145,29 @@ const cdOf = (words: readonly string[], base: string | null | undefined): string
 };
 
 /**
+ * The shell keywords a git call can follow in the same simple command: an
+ * `if`/`elif`/`while`/`until` test, a `for` loop's `do`, a `{` brace group, a
+ * `!` negation, and a `time` prefix. One is stripped at a time, so `! time
+ * git …` is read after two strips.
+ */
+const LEADING_KEYWORDS: ReadonlySet<string> = new Set(['if', 'elif', 'while', 'until', 'do', '{', '!', 'time']);
+
+/**
+ * `words` with every leading shell keyword removed, so a git call named right
+ * after one is read the same as a bare call. Keeps stripping while the first
+ * word is a keyword, so `! time git commit` and `{ ! git commit` both reach
+ * `git` as word 0.
+ *
+ * @param words - one simple command, split on whitespace.
+ * @returns `words` with its leading keyword run removed.
+ */
+const withoutLeadingKeywords = (words: readonly string[]): readonly string[] => {
+  let i = 0;
+  while (i < words.length && LEADING_KEYWORDS.has(words[i])) i += 1;
+  return words.slice(i);
+};
+
+/**
  * The directory a mutating git call in one simple command runs in.
  *
  * @param words - one simple command, split on whitespace, quotes already removed.
@@ -135,7 +178,7 @@ const cdOf = (words: readonly string[], base: string | null | undefined): string
  *   from the text. An absolute `-C` path places the call whatever came before it.
  */
 const writeDirOf = (words: readonly string[], base: string | null | undefined): string | null | undefined => {
-  const program = programWords(words);
+  const program = programWords(withoutLeadingKeywords(words));
   if (program.length === 0 || wordBasename(program[0]) !== 'git') return undefined;
   let i = 1;
   let dir = base;
@@ -154,15 +197,59 @@ const writeDirOf = (words: readonly string[], base: string | null | undefined): 
   return dir;
 };
 
-/** The separators between simple commands; the capture keeps them in the split. */
-const SEPARATORS = /(&&|\|\||\$\(|[;|\n`()])/;
+/**
+ * `command` with the body of every unquoted heredoc (`<<EOF`, `<<-EOF`,
+ * `<<'EOF'`, `<<"EOF"`) blanked out, so a git call written there is not read
+ * as a command. The opener line and the delimiter line that ends it are kept;
+ * only the lines between become empty. A `<<-` opener allows the delimiter
+ * line to carry leading tabs or spaces.
+ *
+ * @param command - the command line.
+ * @returns `command` with each heredoc body replaced by blank lines.
+ */
+const withoutHeredocBodies = (command: string): string => {
+  const lines = command.split('\n');
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    out.push(line);
+    const opener = line.match(/<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/);
+    i += 1;
+    if (!opener) continue;
+    const indented = line.includes('<<-');
+    const delimiter = opener[2];
+    while (i < lines.length) {
+      const body = lines[i];
+      const read = indented ? body.replace(/^[\t ]+/, '') : body;
+      if (read === delimiter) {
+        out.push(body);
+        i += 1;
+        break;
+      }
+      out.push('');
+      i += 1;
+    }
+  }
+  return out.join('\n');
+};
+
+/**
+ * The separators between simple commands; the capture keeps them in the
+ * split. `&&` is tried before the single-`&` alternative, so a backgrounding
+ * `&` never splits a `&&` it is part of.
+ */
+const SEPARATORS = /(&&|\|\||\$\(|[;|\n`()]|&)/;
 
 /**
  * The directory of each git call in a command that mutates `HEAD`, the index,
- * or a ref. Quoted text and `#` comments are not read. Each simple command,
- * split on `&&`, `||`, `;`, `|`, new lines, `$(`, backticks and parentheses,
- * is tested on its own. Git global options before the subcommand are skipped,
- * and successive `-C` paths are joined the way git joins them.
+ * or a ref. The body of an unquoted heredoc is not read ({@link
+ * withoutHeredocBodies}), nor are quoted text and `#` comments. Each simple
+ * command, split on `&&`, `||`, `;`, `|`, a single `&`, new lines, `$(`,
+ * backticks and parentheses, is tested on its own, with a leading shell
+ * keyword ({@link LEADING_KEYWORDS}) stripped first. Git global options
+ * before the subcommand are skipped, and successive `-C` paths are joined
+ * the way git joins them.
  *
  * A `cd` or `pushd` with a literal argument moves the directory every later
  * call is judged in, and `-C` paths join onto it. Its effect ends at the `)`
@@ -185,7 +272,7 @@ const SEPARATORS = /(&&|\|\||\$\(|[;|\n`()])/;
  *   to the working directory).
  */
 export const gitWriteDirs = (command: string): readonly (string | null)[] => {
-  const parts = withoutQuotes(withoutComments(command)).split(SEPARATORS);
+  const parts = withoutQuotes(withoutComments(withoutHeredocBodies(command))).split(SEPARATORS);
   const outer: (string | null | undefined)[] = [];
   const dirs: (string | null)[] = [];
   let here: string | null | undefined = null;
