@@ -458,6 +458,14 @@ export const refsGit = (context: ShellContext): Refs => {
         inRepo,
       ),
 
+    mergeParents: () =>
+      runScript(
+        'bash',
+        ['-c', 'cat "$(git rev-parse --git-path MERGE_HEAD)" 2>/dev/null || true'],
+        asLines,
+        inRepo,
+      ),
+
     filesNaming: async (term, globs) => {
       if (globs.length === 0) return answered<readonly string[]>([]);
       // `git grep` exits 1 when nothing matches, which is an answer, not a failure.

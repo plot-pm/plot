@@ -194,11 +194,15 @@ const briefNameGate: Gate = {
  * runs after this hook). For each path under the plan or sprint directory, and
  * for the old path of each rename git paired, it reads `HEAD`'s version and
  * the version the commit takes, each with whether it is a symbolic link (the
- * mode git holds, or `lstat` for a working copy, which is never followed);
- * `stateTransitionsOf` finds the transitions, and only then is a path's
- * receipt spent. A failed config read
- * throws, which `onError: 'allow'` reports as UNVERIFIED; an unreadable `HEAD`
- * or index allows. A transition seen with no clearing receipt refuses.
+ * mode git holds, or `lstat` for a working copy, which is never followed).
+ * It also reads `MERGE_HEAD` (worktree-aware, octopus included) and, for each
+ * path, every other parent's version the same way; a plain commit reads
+ * `MERGE_HEAD` as absent and so reads no other parents. `stateTransitionsOf`
+ * finds the transitions — a merge whose staged text equals another parent's
+ * clears with no receipt — and only then is a path's receipt spent. A failed
+ * config read throws, which `onError: 'allow'` reports as UNVERIFIED; an
+ * unreadable `HEAD` or index allows. A transition seen with no clearing
+ * receipt refuses.
  */
 const stateGate: Gate = {
   name: 'state',
@@ -239,13 +243,20 @@ const stateGate: Gate = {
     // `ls-tree` reads its pathspec against the cwd, so `HEAD`'s mode is read
     // from the repository root.
     const atRoot = refsGit({ repoRoot: root.value, scriptDir });
-    const headOf = async (path: string) => {
-      const text = await refs.showFile('HEAD', path);
+    const versionAt = async (ref: string, path: string) => {
+      const text = await refs.showFile(ref, path);
       if (!text.ok) return null;
-      const blobs = await atRoot.listBlobs('HEAD', path);
+      const blobs = await atRoot.listBlobs(ref, path);
       const link = blobs.ok && blobs.value.some((blob) => blob.path === path && blob.mode === SYMLINK_MODE);
       return { text: text.value, link };
     };
+    const headOf = (path: string) => versionAt('HEAD', path);
+    // `MERGE_HEAD` exists only between a merge that did not fast-forward and
+    // the commit that completes it, so a plain commit reads no other parents.
+    const mergeParents = await refs.mergeParents();
+    const otherParentShas = mergeParents.ok ? mergeParents.value : [];
+    const otherParentsOf = async (path: string) =>
+      Promise.all(otherParentShas.map((sha) => versionAt(sha, path)));
     const indexModes = new Map(staged.value.map((entry) => [entry.path, entry.indexMode]));
     const readings = [];
     for (const { path, carries } of carried) {
@@ -265,14 +276,22 @@ const stateGate: Gate = {
         const index = await refs.showFile(':0', path);
         if (index.ok) committed = { text: index.value, link: indexModes.get(path) === SYMLINK_MODE };
       }
-      readings.push({ path, kind, head: await headOf(path), committed });
+      readings.push({ path, kind, head: await headOf(path), committed, otherParents: await otherParentsOf(path) });
     }
     // Git pairs a staged rename into one entry under its new path, so the
     // path it left is read here.
     for (const entry of staged.value) {
       if (entry.from === undefined || readings.some((reading) => reading.path === entry.from)) continue;
       const kind = lifecycleKindOf(entry.from, planDir.value.trim(), sprintDir.value.trim());
-      if (kind !== null) readings.push({ path: entry.from, kind, head: await headOf(entry.from), committed: null });
+      if (kind !== null) {
+        readings.push({
+          path: entry.from,
+          kind,
+          head: await headOf(entry.from),
+          committed: null,
+          otherParents: await otherParentsOf(entry.from),
+        });
+      }
     }
 
     const receipts = stateReceiptsFile(root.value, gitBlobOid);
