@@ -7,7 +7,7 @@
 - **State:** Approved
 - **Type:** bug
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2522 merged
-- **Sprint:** <!-- optional -->
+- **Sprint:** follow-ups-2-28-3
 - **Issue:** #2484
 - **Review:** pr
 - **Impl:** own branches

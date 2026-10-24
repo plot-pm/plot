@@ -6,7 +6,7 @@
 
 - **State:** Approved
 - **Type:** infra
-- **Sprint:**
+- **Sprint:** follow-ups-2-28-3
 - **Issue:** #2485
 - **Story:**
 - **Review:** pr
