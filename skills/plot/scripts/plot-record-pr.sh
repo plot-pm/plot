@@ -45,8 +45,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$script_dir/plot-tmp.sh"
 . "$script_dir/plot-default-branch.sh"
 
-branch="${1:-}"
-pr="${2:-}"
+branch="${1:-}"; pr="${2:-}"
 [ -n "$branch" ] && [ -n "$pr" ] || { echo "usage: plot-record-pr.sh <branch> <pr-number>" >&2; exit 2; }
 case "$pr" in *[!0-9]*|'') echo "plot-record-pr: <pr-number> must be numeric, got '$pr'" >&2; exit 2 ;; esac
 
