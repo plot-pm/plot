@@ -20,6 +20,19 @@ export type PidStatus = 'alive' | 'dead' | 'unrecorded';
 export type CommitReading = 'yes' | 'no' | 'unanswerable';
 
 /**
+ * Whether a run's tool calls were refused.
+ *
+ * `unanswerable` is distinct from `no` for the same reason {@link
+ * CommitReading} keeps them apart: the SDK's structured result carries
+ * `permission_denials` and can answer `yes` or `no`; a `command` runner's
+ * free-text output carries no such field, so it can only say the question was
+ * never put. `'unanswerable'` takes the same arm as `'no'` wherever this
+ * reading gates a classification — a runner that cannot observe denials must
+ * never be read as having found none.
+ */
+export type PermissionDenialReading = 'yes' | 'no' | 'unanswerable';
+
+/**
  * What one pass of the watcher found.
  *
  * `silent` is not a finding and is published nowhere. The distinction is the

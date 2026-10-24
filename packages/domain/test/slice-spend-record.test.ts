@@ -77,6 +77,7 @@ const runResult = (over: Partial<AgentRunResult> = {}): AgentRunResult => ({
   turns: 3,
   limitReadings: [],
   account: null,
+  permissionDenials: 'unanswerable',
   ...over,
 });
 

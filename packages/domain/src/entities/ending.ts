@@ -104,6 +104,16 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   freed the loop but never released it. The loop ends here and writes no
  *   seal; the supervisor's tick is the one that may release the claim, since
  *   `releaseClaim` refuses a live peer the loop cannot see from inside itself.
+ * - `permission-denied` — a turn ended with the harness reporting a tool call
+ *   refused and no commit beyond the claim. `nothing-done` already covers a
+ *   turn that ran cleanly to an empty result; this is kept apart because the
+ *   repair differs — a fresh session meets the same refused permissions
+ *   rather than an agent that simply found nothing to do, which is the same
+ *   reasoning `spend-limit` already settles for a limit a retry cannot clear.
+ *   A turn with a denial that still committed real work beyond the claim does
+ *   not end here; it ends wherever that work's own reading takes it, because a
+ *   refusal beside landed work is not the same finding as a refusal with
+ *   nothing to show for it.
  * - `stopped` — a person stopped the worker through `plot-dispatch.sh --stop`.
  *   The stop keeps the desk and the claim, and the supervisor's tick leaves
  *   the desk alone: the person who stopped it decides what happens next. Its
@@ -111,11 +121,11 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *
  * `unstarted`, `limited`, `unregistered`, `holding-work`, `blocked`,
  * `checks-unanswered`, `corrections-spent`, `turn-limit`, `run-limit`,
- * `spend-limit` AND `nothing-done` ARE THE REASONS NO WATCHER PRODUCED. The
- * other four are the floor firing or the monitor publishing; these eleven are
- * the agent's own loop reporting what it found, which is why their actor is
- * `agent`. `stopped` is a person's act, written by `plot-dispatch.sh --stop`
- * with actor `operator`.
+ * `spend-limit`, `nothing-done` AND `permission-denied` ARE THE REASONS NO
+ * WATCHER PRODUCED. The other four are the floor firing or the monitor
+ * publishing; these twelve are the agent's own loop reporting what it found,
+ * which is why their actor is `agent`. `stopped` is a person's act, written by
+ * `plot-dispatch.sh --stop` with actor `operator`.
  *
  * **THEY ARE KEPT APART BECAUSE THE REPAIR DIFFERS.** Both are a non-zero
  * prompt exit, and collapsing them is exactly what #1141 reported: `unstarted`
@@ -147,6 +157,7 @@ export const EndingReasonSchema = z.enum([
   'run-limit',
   'spend-limit',
   'nothing-done',
+  'permission-denied',
   'stopped',
 ]);
 export type EndingReason = z.infer<typeof EndingReasonSchema>;

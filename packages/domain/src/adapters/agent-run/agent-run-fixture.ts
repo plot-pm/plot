@@ -61,6 +61,7 @@ export const agentRunFixture = (
           turns: 0,
           limitReadings: [],
           account: null,
+          permissionDenials: 'unanswerable',
         });
       }
       return answered(answer(request));

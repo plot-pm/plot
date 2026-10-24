@@ -139,6 +139,9 @@ const unasked = (request: AgentRunRequest, end: AgentRunResult['end']): AgentRun
   limitReadings: [],
   // UNASKABLE, AS ABOVE: a `command` run has no connector to ask.
   account: null,
+  // UNANSWERABLE, NOT `no`: a shell fragment's free-text stdout carries no
+  // structured denial record, so the question was never put.
+  permissionDenials: 'unanswerable',
 });
 
 /**

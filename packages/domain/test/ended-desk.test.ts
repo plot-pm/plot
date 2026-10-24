@@ -21,7 +21,7 @@ const freeWaitRanOut: AgentLoopReadings = {
   maxStartRetries: 2, markerWritten: false, markerText: '', handBack: null, checksResumeId: '',
   handBackSummary: '', localChecks: null, sliceRuns: 0, sliceMaxRuns: 12, backgroundDropResumed: false,
   sliceCostUsd: null, sliceMaxSpendUsd: null, resetRefusals: [], deskBranch: '', pushed: false, prOpen: false,
-  commitBeyondClaim: 'unanswerable', checks: null, checksPassed: null, tip: 'pushed', correctionAttempts: 0,
+  commitBeyondClaim: 'unanswerable', permissionDenials: 'unanswerable', checks: null, checksPassed: null, tip: 'pushed', correctionAttempts: 0,
   correctionBudget: 2, pr: null, mergeable: null, mergeConflictAtEntry: false, correctionText: '', resumeId: '', passAt: '2026-10-15T08:40:00.000Z',
   worktree: '/estate/.worktrees/free-04e1f562', session: 'free-04e1f562',
 };
@@ -117,6 +117,26 @@ describe('endedDeskPlacement', () => {
     expect(boundEnd).toMatchObject({ reason: 'bound' });
     const bound = readEnding(JSON.stringify(boundEnd));
     expect(endedDeskPlacement({ ending: bound, exit: '124', merged: true, dirty: false, unlanded: false, blockedQuestion: false, boundSeconds: 28800 }).owesPerson).toBe(true);
+  });
+
+  it('names a permission-denied ending rather than falling back to the board\'s generic note', () => {
+    const deniedEnd = agentLoop({
+      ...freeWaitRanOut,
+      assignedBranch: BRANCH,
+      deskBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: false,
+      commitBeyondClaim: 'no',
+      permissionDenials: 'yes',
+    }).writes.find((w) => w.kind === 'loop-end');
+    expect(deniedEnd).toMatchObject({ reason: 'permission-denied' });
+    const denied = readEnding(JSON.stringify(deniedEnd));
+    expect(endedDeskPlacement({ ending: denied, exit: null, merged: true, dirty: false, unlanded: false, blockedQuestion: false, boundSeconds: 28800 })).toEqual({
+      section: 'waiting-on-you',
+      owesPerson: true,
+      note: 'agent was refused every write — check the worker command\'s permissions',
+    });
   });
 
   it('keeps an unreadable record with a person', () => {
