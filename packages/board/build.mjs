@@ -1448,6 +1448,30 @@ await esbuild.build({
 fs.copyFileSync(slicePrAnnotationArtifact, shippedSlicePrAnnotation);
 fs.chmodSync(shippedSlicePrAnnotation, 0o755);
 
+// Which plan names a branch, and under which wave — shared by
+// `plot-open-pr.sh` and `plot-record-pr.sh`'s `plot_plan_for_branch` (in
+// plot-desk-root.sh). Reads one JSON request from stdin (branch + each
+// candidate's parsed plot-plan-meta.sh output) and prints the match, per
+// docs/shell-and-domain.md: the grep that finds candidate files stays in
+// shell, only the decision moves here.
+const planForBranchArtifact = path.join(here, 'dist/plot-plan-for-branch.mjs');
+const shippedPlanForBranch = path.join(here, '../../skills/plot/scripts/board/plot-plan-for-branch.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/plan-for-branch.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: planForBranchArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(planForBranchArtifact, shippedPlanForBranch);
+fs.chmodSync(shippedPlanForBranch, 0o755);
+
 // `plot-deliver.sh`'s mechanical half — the ranking's confirmed first
 // operator-command script (the-shell-shrinks-into-the-domain, slice 4). Not a
 // readings-in/decision-out bundle like the others above: this one creates the
@@ -1716,6 +1740,7 @@ const reapKb = (fs.statSync(shippedReap).size / 1024).toFixed(1);
 const gateKb = (fs.statSync(shippedGate).size / 1024).toFixed(1);
 const bitbucketMergeableKb = (fs.statSync(shippedBitbucketMergeable).size / 1024).toFixed(1);
 const slicePrAnnotationKb = (fs.statSync(shippedSlicePrAnnotation).size / 1024).toFixed(1);
+const planForBranchKb = (fs.statSync(shippedPlanForBranch).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1761,4 +1786,5 @@ console.log(`Built plot-reap.mjs (${reapKb} KB) → skills/plot/scripts/board/`)
 console.log(`Built plot-gate.mjs (${gateKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-bitbucket-mergeable.mjs (${bitbucketMergeableKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-slice-pr-annotation.mjs (${slicePrAnnotationKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-plan-for-branch.mjs (${planForBranchKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

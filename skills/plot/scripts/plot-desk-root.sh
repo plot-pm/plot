@@ -135,16 +135,17 @@ plot_exclude_desk_root() {
 # measured 2026-09-09, parsing all plans took 103s against 0.6s for grep
 # first), then parse only those with plot-plan-meta.sh. <plan-dir-config-value>
 # is absolutized against <base-dir> when it is relative, so each caller need
-# not repeat that case statement itself.
+# not repeat that case statement itself. The decision — which candidate names
+# the branch, under which wave — is asked through plot-plan-for-branch.mjs
+# (packages/domain/src/rules/plan-for-branch.ts) rather than duplicated here.
 plot_plan_for_branch() {
-  local base_dir=$1 plan_dir=$2 branch=$3 script_dir link found
+  local base_dir=$1 plan_dir=$2 branch=$3 script_dir link metas=""
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   case "$plan_dir" in /*) ;; *) plan_dir="$base_dir/$plan_dir" ;; esac
   for link in $(grep -lF "$branch" "$plan_dir"*.md 2>/dev/null || true); do
-    [ -e "$link" ] || continue
-    found=$(bash "$script_dir/plot-plan-meta.sh" "$link" 2>/dev/null \
-      | PLOT_BRANCH="$branch" node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const m=JSON.parse(s);for(const w of m.waves??[])for(const b of w.branches??[])if(b.branch===process.env.PLOT_BRANCH)return console.log([m.file??"",w.name??""].join("\t"));}catch{}})') || found=""
-    [ -z "$found" ] || { printf '%s\n' "$found"; return 0; }
+    [ -e "$link" ] && metas="${metas}$(bash "$script_dir/plot-plan-meta.sh" "$link" 2>/dev/null),"
   done
-  return 1
+  [ -n "$metas" ] || return 1
+  PLOT_BRANCH="$branch" PLOT_METAS="$metas" node -e 'process.stdout.write(JSON.stringify({branch:process.env.PLOT_BRANCH,candidates:JSON.parse("["+process.env.PLOT_METAS.replace(/,$/,"")+"]")}))' \
+    | node "$script_dir/board/plot-plan-for-branch.mjs"
 }
