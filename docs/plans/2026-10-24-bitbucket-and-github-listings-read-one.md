@@ -54,7 +54,7 @@ The layering rule holds: every change stays in `plot-host.sh`, `plot-pr-merged.s
 
 ### Bitbucket paging
 
-- `bug/bitbucket-listings-follow-next` — `bb_branch_query`, `pr-merged-heads` and the `pr-review` arm follow `next` or report truncation; the dead full-page guards and the `pr-state` usage header are corrected. <!-- builds: bb_branch_query paging -->
+- `bug/bitbucket-listings-follow-next` — `bb_branch_query`, `pr-merged-heads` and the `pr-review` arm follow `next` or report truncation; the dead full-page guards and the `pr-state` usage header are corrected. <!-- builds: bb_branch_query paging --> → #2573
 
 ### GitHub open lookup
 
