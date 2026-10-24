@@ -171,9 +171,9 @@ export const runWasNotAcquired = (run: ShaRun): boolean => {
  * Measured 2026-10-20: three superseded jobs were cancelled 53–91 s after
  * they started (run `39363175090`), and two `timeout-minutes: 25` runs each
  * ran ~25 minutes before GitHub cut them off (runs `39357335917` and
- * `39357617553`). The repo's lowest job-level `timeout-minutes` is 10
- * (`.github/workflows/ci.yml`). Five minutes sits above every measured
- * supersession and below every configured cap.
+ * `39357617553`). The repo's lowest job-level `timeout-minutes` is 14
+ * (`helper-contracts`, `.github/workflows/ci.yml`). Five minutes sits above
+ * every measured supersession and below every configured cap.
  *
  * A job a person cancels by hand after five minutes or more reads as a
  * timeout: `gh run view --json jobs` reports no job's `timeout-minutes`, so

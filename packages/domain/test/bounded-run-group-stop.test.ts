@@ -20,7 +20,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STANDIN = path.join(HERE, 'fixtures/bounded-run-group-standin.mjs');
 const LOADER = path.join(HERE, 'fixtures/ts-strip-loader.mjs');
 
-/** Readiness wait (10 s) plus exit wait (5 s) plus headroom: vitest's 5 s default applies around each test that waits on both in sequence. */
+/** Readiness wait (10 s) plus exit wait: 5 s by default, but the bound-fires test below waits 10 s for both the prompt and the grandchild to exit, so its own worst case is 10 s + 10 s with no headroom left over. */
 const TEST_TIMEOUT_MS = 20_000;
 
 /**

@@ -4971,7 +4971,10 @@ case "$op" in
     # ONE MORE CALL, ONLY FOR A CONCLUDED FAILURE (#1295): `gh run view --json
     # jobs` is the only place a 0-step job (no runner ever picked up the run)
     # shows up, apart from a real failure. A run still going or that
-    # succeeded costs no extra call.
+    # succeeded costs no extra call. A second consumer reads the same `jobs`
+    # field since 2026-10-20: `checks-verdict.ts`'s `runWasNotAcquired` and its
+    # cancellation-fingerprint logic tell a genuine timeout from a near-instant
+    # supersession by reading these same per-job step conclusions.
     _gh_db_id=$(printf '%s' "$_gh_match" | jq -r 'if (.conclusion == "failure" or .conclusion == "cancelled") then .databaseId else "" end')
     _gh_match=$(printf '%s' "$_gh_match" | jq -c 'del(.databaseId)') || exit 4
     [ -z "$_gh_db_id" ] && { printf '%s' "$_gh_match"; exit 0; }
