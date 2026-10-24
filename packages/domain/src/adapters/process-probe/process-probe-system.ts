@@ -19,7 +19,8 @@ const signalZero = (target: number): boolean | null => {
 
 /**
  * The real {@link ProcessProbe}: `kill(pid, 0)` for liveness, `kill(-pgid, 0)`
- * for a group, and `ps -o lstart=` for a start time.
+ * for a group, `ps -o lstart=` for a start time, and `ps -o ppid=` for a
+ * parent.
  *
  * @returns the {@link ProcessProbe} port.
  */
@@ -42,6 +43,14 @@ export const processProbeSystem = (): ProcessProbe => {
       if (run.status !== 0) return null;
       const started = Date.parse(run.stdout.trim());
       return Number.isNaN(started) ? null : started;
+    },
+    parentPid: (pid) => {
+      if (!Number.isInteger(pid) || pid <= 0) return null;
+      const run = spawnSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' });
+      if (run.status !== 0) return null;
+      const text = run.stdout.trim();
+      const parent = Number(text);
+      return text !== '' && Number.isInteger(parent) && parent >= 0 ? parent : null;
     },
     self: (): OwnProcess => ({
       pid: process.pid,

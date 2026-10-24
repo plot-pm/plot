@@ -2049,6 +2049,32 @@ describe('a free-waiting loop is stopped, then the continuation starts — #1373
     answer: 'the composed answer',
   });
 
+  /**
+   * A wrapper and the loop it started, the way the dispatcher launches them:
+   * the loop is the wrapper's child, and the wrapper works in `cwd`.
+   */
+  const startWrapperWithLoop = async (cwd: string): Promise<{ wrapperPid: number; loopPid: number }> => {
+    const wrapper = spawn('sh', ['-c', 'sleep 30 & echo $!; wait'], { stdio: ['ignore', 'pipe', 'ignore'], cwd });
+    const wrapperPid = wrapper.pid;
+    assert.ok(wrapperPid !== undefined, 'the fixture itself must spawn the wrapper successfully');
+    liveProcesses.push(wrapperPid);
+    record(wrapperPid);
+    const line = await new Promise<string>((resolve, reject) => {
+      let text = '';
+      wrapper.stdout!.on('data', (chunk: Buffer) => {
+        text += chunk.toString('utf8');
+        if (text.includes('\n')) resolve(text.trim());
+      });
+      wrapper.on('error', reject);
+      wrapper.on('exit', () => reject(new Error(`the wrapper exited before it named its loop: ${text}`)));
+    });
+    const loopPid = Number(line);
+    assert.ok(Number.isInteger(loopPid) && loopPid > 0, `the wrapper named no loop pid: ${line}`);
+    liveProcesses.push(loopPid);
+    record(loopPid);
+    return { wrapperPid, loopPid };
+  };
+
   /** A manifest naming `wt`, with `pid` set as given. */
   function manifestWithPid(wt: string, pid: string): string {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-freewait-'));
@@ -2212,14 +2238,13 @@ describe('a free-waiting loop is stopped, then the continuation starts — #1373
   });
 
   it('also waits for the manifest\'s wrapperPid to exit, not only the loop pid — #1379', async () => {
-    const livePid = startRealProcess();
-    const wrapper = spawn('sleep', ['30'], { stdio: 'ignore' });
-    const wrapperPid = wrapper.pid;
-    assert.ok(wrapperPid !== undefined, 'the fixture itself must spawn the wrapper successfully');
-    liveProcesses.push(wrapperPid);
-    record(wrapperPid);
-    const wt = worktree({ pid: String(livePid) });
+    const wt = worktree();
     dirs.push(wt);
+    // THE DISPATCHER STARTS ITS WRAPPER IN THE WORKTREE, and the loop descends
+    // from the wrapper, which is what the ownership check before the wrapper's
+    // stop reads.
+    const { wrapperPid, loopPid: livePid } = await startWrapperWithLoop(wt);
+    fs.writeFileSync(path.join(wt, '.plot-worker.pid'), String(livePid));
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-freewait-wrapper-'));
     manifestDirs.push(dir);
     fs.writeFileSync(
@@ -2253,6 +2278,140 @@ describe('a free-waiting loop is stopped, then the continuation starts — #1373
       [String(livePid), String(wrapperPid)],
       'the manifest wrapperPid is waited for too, and only after the loop pid',
     );
+  });
+
+  it('stops a hopped desk\'s wrapper, which still works in the launch worktree, and continues', async () => {
+    // THE HOP: the dispatcher started the wrapper in worktree A; the loop then
+    // hopped to worktree B, and the manifest and the free-wait record name B
+    // while the wrapper's working directory stays A.
+    const launched = worktree();
+    dirs.push(launched);
+    const { wrapperPid, loopPid } = await startWrapperWithLoop(launched);
+    const hopped = worktree({ pid: String(loopPid) });
+    dirs.push(hopped);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-hopped-'));
+    manifestDirs.push(dir);
+    fs.writeFileSync(
+      path.join(dir, 'sess.json'),
+      `${JSON.stringify(
+        { session: 'sess', branch: BRANCH, worktree: hopped, pid: String(loopPid), wrapperPid: String(wrapperPid) },
+        null,
+        2,
+      )}\n`,
+    );
+    fs.writeFileSync(path.join(hopped, '.plot-worker.freewait'), `${loopPid}\n`);
+
+    const stoppedPids: string[] = [];
+    const result = await continueOnDesk({
+      ...input(hopped, dir),
+      stopLoop: async (pid) => {
+        stoppedPids.push(pid);
+        return { ok: true };
+      },
+    });
+
+    assert.equal(result.kind, 'started', JSON.stringify(result));
+    if (result.kind === 'started') spawned.add(hopped);
+    assert.deepEqual(stoppedPids, [String(loopPid), String(wrapperPid)], 'both the loop and its wrapper are stopped');
+  });
+
+  /** A free-waiting loop and a manifest naming `wt`, with `wrapperPid` as given. */
+  function freeWaitingDesk(wrapperPid: string, loopPid?: number): { wt: string; dir: string; manifestFile: string; text: string; livePid: number } {
+    const livePid = loopPid ?? startRealProcess();
+    const wt = worktree({ pid: String(livePid) });
+    dirs.push(wt);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-failed-stop-'));
+    manifestDirs.push(dir);
+    const manifestFile = path.join(dir, 'sess.json');
+    fs.writeFileSync(
+      manifestFile,
+      `${JSON.stringify({ session: 'sess', branch: BRANCH, worktree: wt, pid: String(livePid), wrapperPid }, null, 2)}\n`,
+    );
+    fs.writeFileSync(path.join(wt, '.plot-worker.freewait'), `${livePid}\n`);
+    return { wt, dir, manifestFile, text: fs.readFileSync(manifestFile, 'utf8'), livePid };
+  }
+
+  it('restores the manifest the loop removed when the loop stop fails', async () => {
+    const { wt, dir, manifestFile, text } = freeWaitingDesk('');
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      stopLoop: async (pid) => {
+        // THE LOOP'S OWN SIGTERM HANDLER REMOVES ITS MANIFEST before the stop gives up.
+        fs.rmSync(manifestFile, { force: true });
+        return { ok: false, why: `pid ${pid} did not exit within 10s of SIGTERM` };
+      },
+    });
+
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'loop-alive');
+    assert.equal(fs.readFileSync(manifestFile, 'utf8'), text, 'the manifest reads as it did before the stop');
+    assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false);
+  });
+
+  it('restores the manifest the loop removed when the wrapper stop fails', async () => {
+    const { wrapperPid, loopPid } = await startWrapperWithLoop(os.tmpdir());
+    const { wt, dir, manifestFile, text, livePid } = freeWaitingDesk('', loopPid);
+    const withWrapper = text.replace('"wrapperPid": ""', `"wrapperPid": "${wrapperPid}"`);
+    fs.writeFileSync(manifestFile, withWrapper);
+
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      stopLoop: async (pid) => {
+        if (pid === String(livePid)) {
+          fs.rmSync(manifestFile, { force: true });
+          return { ok: true };
+        }
+        return { ok: false, why: `pid ${pid} did not exit within 10s of SIGTERM` };
+      },
+    });
+
+    assert.equal(result.kind, 'refused');
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'loop-alive');
+    assert.equal(fs.readFileSync(manifestFile, 'utf8'), withWrapper, 'the manifest reads as it did before the stop');
+  });
+
+  it('signals nothing when the manifest wrapperPid is no ancestor of the loop — a recycled pid', async () => {
+    // THE STRANGER IS NO PARENT OF THE LOOP: a pid the wrapper held before it
+    // exited, now held by an unrelated process.
+    const stranger = spawn('sleep', ['30'], { stdio: 'ignore' });
+    const strangerPid = stranger.pid as number;
+    liveProcesses.push(strangerPid);
+    record(strangerPid);
+    const { wt, dir, manifestFile, text } = freeWaitingDesk(String(strangerPid));
+    const stopped: string[] = [];
+
+    const result = await continueOnDesk({
+      ...input(wt, dir),
+      stopLoop: async (pid) => {
+        stopped.push(pid);
+        return { ok: true };
+      },
+    });
+
+    assert.equal(result.kind, 'refused');
+    assert.ok(result.kind === 'refused' && result.detail.includes(`wrapper pid ${strangerPid} is no ancestor of loop pid`), JSON.stringify(result));
+    assert.deepEqual(stopped, [], 'neither the loop nor the stranger is signalled');
+    assert.doesNotThrow(() => process.kill(strangerPid, 0));
+    assert.equal(fs.readFileSync(manifestFile, 'utf8'), text);
+  });
+
+  // ROOT IGNORES `chmod 0o555`, so the write this test needs to fail succeeds.
+  it.skipIf(process.getuid?.() === 0)('removes the prompt it wrote when the manifest for a write target cannot be written', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    fs.writeFileSync(path.join(wt, ENDING_FILENAME), JSON.stringify({ reason: 'blocked', actor: 'agent', branch: BRANCH, detail: '' }));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-nowrite-'));
+    manifestDirs.push(dir);
+    // NO MANIFEST NAMES THE DESK, so `continueTarget` answers `write`; the
+    // directory is read-only, so `writeDeskManifest` answers null AFTER the prompt.
+    fs.chmodSync(dir, 0o555);
+    try {
+      const result = await continueOnDesk(input(wt, dir));
+      assert.equal(result.kind, 'failed', JSON.stringify(result));
+      assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false, 'a failed run leaves no prompt');
+    } finally {
+      fs.chmodSync(dir, 0o755);
+    }
   });
 
   it('carries a warning naming the manifest when the post-start stamp fails to write — #1379', async () => {

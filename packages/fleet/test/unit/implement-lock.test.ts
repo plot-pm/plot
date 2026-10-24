@@ -58,6 +58,7 @@ const probeOver = (table: Table, self: number, leadsGroup = false): ProcessProbe
   alive: (pid) => table.procs.has(pid),
   groupAlive: (pgid) => table.groups.has(pgid),
   startedAt: (pid) => table.procs.get(pid) ?? null,
+  parentPid: () => null,
   self: () => ({ pid: self, startedAt: self * 10, leadsGroup }),
 });
 
