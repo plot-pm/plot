@@ -1968,11 +1968,7 @@ bb_fold_mergeable() {
   jq -e '.state == "OPEN"' >/dev/null 2>&1 <<<"$row" || { printf '%s\n' "$row"; return 0; }
   if [ -n "$wantrepo" ]; then
     localrepo="$(node "$here/board/plot-bitbucket-slug.mjs" "$(git config --get remote.origin.url 2>/dev/null)" 2>/dev/null)"
-    if [ "$localrepo" != "$wantrepo" ]; then
-      reason="this checkout's origin is ${localrepo:-unrecognised}, not $wantrepo — cannot fold mergeable against the wrong clone"
-      jq -c --arg reason "$reason" '. + {mergeable:"unknown", mergeableReason:$reason}' <<<"$row"
-      return 0
-    fi
+    [ "$localrepo" = "$wantrepo" ] || { reason="this checkout's origin is ${localrepo:-unrecognised}, not $wantrepo — cannot fold mergeable against the wrong clone"; jq -c --arg reason "$reason" '. + {mergeable:"unknown", mergeableReason:$reason}' <<<"$row"; return 0; }
   fi
   IFS=$'\x1f' read -r head base < <(jq -r '[(.headSha // ""), (.base // "")] | join("\u001f")' <<<"$row" 2>/dev/null)
   if [ -n "$head" ] && [ -n "$base" ]; then
