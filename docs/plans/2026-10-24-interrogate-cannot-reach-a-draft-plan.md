@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2424
@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2517 merged
 - **Started:** 2026-10-24, Claude, `bug/interrogate-reads-the-plan-pr`
 - **Started:** 2026-10-25, Jan Wloka, `bug/interrogate-pushes-to-the-plan-pr`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
