@@ -62,7 +62,7 @@ Three slices, split by file and by risk, so a reviewer reads each diff against o
 
 ### Comments and gates
 
-- `infra/ci-comments-state-current-behaviour` — CI, `checks-verdict.ts`, `plot-host.sh` and `check-helper-table.sh` comments and messages state current behaviour; the helper-table gate reads one source
+- `infra/ci-comments-state-current-behaviour` — CI, `checks-verdict.ts`, `plot-host.sh` and `check-helper-table.sh` comments and messages state current behaviour; the helper-table gate reads one source → #2629
 
 ## Notes
 
