@@ -195,10 +195,8 @@ request=$(PLOT_BRANCH="$branch" PLOT_BASE="$base" PLOT_SLUG="$plan_slug" \
     }));
   ')
 
-err_file=""
-plot_tmpfile err_file open-pr-err || { echo "plot-open-pr: no temp file could be made" >&2; exit 2; }
-answer=$(printf '%s' "$request" | node "$bundle" 2>"$err_file")
-rc=$?
+err_file=""; plot_tmpfile err_file open-pr-err || { echo "plot-open-pr: no temp file could be made" >&2; exit 2; }
+answer=$(printf '%s' "$request" | node "$bundle" 2>"$err_file"); rc=$?
 err=$(cat "$err_file" 2>/dev/null || true)
 
 # Exit 1 is the domain's refusal: the rule that fired, a tab, and its sentence.
