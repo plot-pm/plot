@@ -49,7 +49,7 @@ This is a regression. `AgentList.tsx:566` still holds `sprintFilter: Set<string>
 
 ### Selection rule
 
-- `bug/this-sprint-selects-a-sprint-subset-rule` — move `slugPassesSprintFilter`, `rowIsSprintExempt` and `sanitizeSelection` into `@plot-pm/domain`, add the row-membership rule and the row-slug property, with unit tests for 0, 1 and 2 Active sprints, a subset of two, and a stale selected slug; the board imports the moved rules with no behaviour change <!-- builds: sprint selection in chipRow -->
+- `bug/this-sprint-selects-a-sprint-subset-rule` — move `slugPassesSprintFilter`, `rowIsSprintExempt` and `sanitizeSelection` into `@plot-pm/domain`, add the row-membership rule and the row-slug property, with unit tests for 0, 1 and 2 Active sprints, a subset of two, and a stale selected slug; the board imports the moved rules with no behaviour change → #2466 <!-- builds: sprint selection in chipRow -->
 
 ### Board UI
 
