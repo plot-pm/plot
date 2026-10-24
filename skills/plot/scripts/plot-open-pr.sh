@@ -94,8 +94,7 @@ plan_dir=$(cfg "Plan directory" "docs/plans/")
 plan_slug=""; plan_file=""; slice_name=""
 found=$(plot_plan_for_branch "$repo_root" "$plan_dir" "$branch") || found=""
 if [ -n "$found" ]; then
-  plan_file=$(printf '%s' "$found" | cut -f1)
-  slice_name=$(printf '%s' "$found" | cut -f2)
+  plan_file=$(printf '%s' "$found" | cut -f1); slice_name=$(printf '%s' "$found" | cut -f2)
   plan_slug=$(basename "$plan_file" .md | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
 fi
 
