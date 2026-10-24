@@ -210,7 +210,14 @@ export const treesGit = (context: ShellContext): Trees => {
   };
 
   const isClean = async (path: string): Promise<PortResult<boolean>> => {
-    const run = await runProcess('git', ['-C', path, 'status', '--porcelain'], inRepo);
+    // `--untracked-files=no` is deliberate and differs from `changedUnder`'s `=all`: an
+    // untracked scratch file does not make a checkout unclean here. `--no-optional-locks`
+    // keeps concurrent fleet reads off git's index lock.
+    const run = await runProcess(
+      'git',
+      ['--no-optional-locks', '-C', path, 'status', '--porcelain', '--untracked-files=no'],
+      inRepo,
+    );
     return run.code === 0 ? answered(run.stdout.trim().length === 0) : failed();
   };
 
