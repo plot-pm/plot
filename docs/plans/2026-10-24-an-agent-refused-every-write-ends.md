@@ -52,7 +52,7 @@ Slices 1 and 2 stay inside the layering rule (controller → domain → port ←
 
 ### Classify
 
-- `bug/refused-writes-end-as-permission-denied` — end as `permission-denied` and render it on the board <!-- builds: permission-denied ending reason -->
+- `bug/refused-writes-end-as-permission-denied` — end as `permission-denied` and render it on the board <!-- builds: permission-denied ending reason --> → #2545
 
 ### Blocker
 
