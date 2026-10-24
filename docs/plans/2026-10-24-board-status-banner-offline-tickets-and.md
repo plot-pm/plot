@@ -55,7 +55,7 @@ The slices touch disjoint files except `fleet.ts` (slices 1 and 2). Slice 2 ther
 
 ### Offline tickets
 
-- `bug/board-offline-tickets-age-and-rows` — issue age, failed-poll clearing and typed fallback, plus the CLAUDE.md and comment corrections (#2384, #2372) <!-- waits: bug/board-status-banner-states -->
+- `bug/board-offline-tickets-age-and-rows` — issue age, failed-poll clearing and typed fallback, plus the CLAUDE.md and comment corrections (#2384, #2372) → #2610 <!-- waits: bug/board-status-banner-states -->
 
 ### Shared build
 
