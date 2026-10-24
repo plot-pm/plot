@@ -55,7 +55,7 @@ Each slice answers one group above and keeps the finding list in its own PR desc
 
 ### Shared issues
 
-- `bug/shared-issue-close-reads-every-sibling` — release closes an issue only after reading Active and Delivered siblings, applies the skip list to the Jira status write, and reports a failed or unparseable read after the push without failing the release
+- `bug/shared-issue-close-reads-every-sibling` — release closes an issue only after reading Active and Delivered siblings, applies the skip list to the Jira status write, and reports a failed or unparseable read after the push without failing the release → #2578
 
 ### Release chain
 
