@@ -259,18 +259,21 @@ test('host: a failed fetch with a stale origin/<base> still present reads unknow
   assert.equal(row.mergeableReason, 'fetching origin/main failed, so the local base may be stale');
 });
 
-// A `git` ahead of the real one on PATH that counts `fetch` calls, and refuses
-// every fetch where `failFetch` is set.
+// A `git` ahead of the real one on PATH that counts `fetch` and `merge-tree`
+// calls separately, and refuses every fetch where `failFetch` is set.
 function makeGitSpy({ failFetch = false } = {}) {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-mt-gitspy-')));
   const log = path.join(dir, 'fetch.log');
+  const mergeTreeLog = path.join(dir, 'merge-tree.log');
   writeFileSync(path.join(dir, 'git'), `#!/usr/bin/env bash
 if [ "\$1" = fetch ]; then echo "\$*" >> "${log}"; ${failFetch ? 'exit 1' : ':'}; fi
+if [ "\$1" = merge-tree ]; then echo "\$*" >> "${mergeTreeLog}"; fi
 exec /usr/bin/env PATH="${process.env.PATH}" git "$@"
 `);
   chmodSync(path.join(dir, 'git'), 0o755);
   const fetches = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : []);
-  return { dir, fetches };
+  const mergeTreeCalls = () => (existsSync(mergeTreeLog) ? readFileSync(mergeTreeLog, 'utf8').trim().split('\n').filter(Boolean) : []);
+  return { dir, fetches, mergeTreeCalls };
 }
 
 test('host: pr-list --rich fetches each distinct base once, however many rows name it', () => {
@@ -341,11 +344,13 @@ test('host: MERGED rows keep mergeable unknown and run no git merge-tree call', 
   const sandbox = makeSandboxRepo();
   const { dir } = makeCountingBbStub(prRow({ id: 30, state: 'MERGED', branch: 'clean-branch', headSha: sandbox.cleanSha }));
   const before = gitStatus(sandbox.workDir);
-  const out = runInRepo(['pr-state', '30'], { repo: sandbox.workDir, stubDir: dir });
+  const spy = makeGitSpy();
+  const out = runInRepo(['pr-state', '30'], { repo: sandbox.workDir, stubDir: dir, env: { PATH: `${spy.dir}:${dir}:${process.env.PATH}` } });
   assert.equal(out.code, 0, out.stderr);
   const row = JSON.parse(out.stdout);
   assert.equal(row.mergeable, 'unknown');
   assert.equal(gitStatus(sandbox.workDir), before);
+  assert.deepEqual(spy.mergeTreeCalls(), [], 'bb_fold_mergeable must not run git merge-tree for a MERGED row');
 });
 
 test('host: NONE rows (no pull request) carry no mergeable key at all', () => {

@@ -1988,7 +1988,9 @@ jenkins_sha_runs() {
 # where the caller holds no index — every row then sorts exactly as before.
 # `jenkins_sha_runs` reads each named row by sha, the bundle binds them. A
 # lookup that cannot ask Jenkins ends the pass, and the rows it did not reach
-# get no bound entry.
+# get no bound entry. A failing `rows` call itself (the bundle crashes or
+# prints nothing) empties $4 and returns with no stdout at all, so every
+# ambiguous row this pass reads unknown rather than some subset of them.
 jenkins_bind_rows() {
   local _named; _named="$({ jq -c . <<<"$2"; jq -c . <<<"$3"; jq -c . <<<"${5:-null}"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null)"
   : >"${4:-/dev/null}"; [ -z "$_named" ] && return; cut -f1 <<<"$_named" >"${4:-/dev/null}"
@@ -4588,7 +4590,12 @@ case "$op" in
           plot_tmpfile _named_file host-prlist-named; _sha_map=$(jenkins_bind_rows pr-list "$jen_map" "$_gh_raw" "$_named_file" "$_bound_shas"); _named=$(jq -R -c -s 'split("\n") | map(select(length > 0))' <"$_named_file")
           printf '%s' "$_gh_raw" \
             | jq -c --argjson jmap "$jen_map" --argjson shamap "${_sha_map:-null}" --argjson named "${_named:-[]}" --arg jstatus "$jen_status" "$MERGEABLE_OF"'.[] |
-              ($jmap[.headRefName]) as $colour | (($colour.checks == "green" or $colour.checks == "failing")) as $ambiguous | (.headRefName) as $head | ((.headRefOid // "") != "") as $hasSha | (($named | index($head)) != null) as $wasNamed | ($shamap[.headRefName] // (if ($ambiguous and $hasSha and ($wasNamed | not)) then null else $colour end) // null) as $eff |
+              ($jmap[.headRefName]) as $colour |
+              (($colour.checks == "green" or $colour.checks == "failing")) as $ambiguous |
+              (.headRefName) as $head |
+              ((.headRefOid // "") != "") as $hasSha |
+              (($named | index($head)) != null) as $wasNamed |
+              ($shamap[.headRefName] // (if ($ambiguous and $hasSha and ($wasNamed | not)) then null else $colour end) // null) as $eff |
               # A ROW `$eff == null` WITH `$ambiguous` NEVER GOT A JENKINS ANSWER
               # THIS PASS — past the cap, or a lookup that broke early. That is a
               # different fact from Jenkins NAMING "unknown", so it carries its
@@ -4768,7 +4775,15 @@ case "$op" in
           _bb_jen_bind() { local s n named_file; plot_tmpfile named_file host-bbprlist-named; s="$(jenkins_bind_rows pr-list "$jen_map" "$(jq -c '[.[] | select(.state == "OPEN") | {headRefName:.source.branch.name,headRefOid:.source.commit.hash,updatedAt:.updated_on}]' <<<"$1")" "$named_file" "$_bound_shas")"; n="$(jq -R -c -s 'split("\n") | map(select(length > 0))' <"$named_file")"; PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status" --argjson shamap "${s:-null}" --argjson named "${n:-[]}"); } # $1 = this state's raw Bitbucket rows
           PR_LIST_BIND_FN=_bb_jen_bind
           pr_list_states bitbucket "$limit" "$bb_states" '.[] |
-                (.state == "OPEN") as $open | ($jmap[.source.branch.name]) as $colour | (($colour.checks == "green" or $colour.checks == "failing")) as $ambiguous | (.source.branch.name) as $head | ((.source.commit.hash // "") != "") as $hasSha | (($named | index($head)) != null) as $wasNamed | ($open and $ambiguous and $hasSha and ($wasNamed | not)) as $capped | ($open and $ambiguous and $wasNamed and ($shamap[.source.branch.name] == null)) as $broken | ($shamap[.source.branch.name] // (if ($capped or $broken) then null else $colour end) // null) as $jentry |
+                (.state == "OPEN") as $open |
+                ($jmap[.source.branch.name]) as $colour |
+                (($colour.checks == "green" or $colour.checks == "failing")) as $ambiguous |
+                (.source.branch.name) as $head |
+                ((.source.commit.hash // "") != "") as $hasSha |
+                (($named | index($head)) != null) as $wasNamed |
+                ($open and $ambiguous and $hasSha and ($wasNamed | not)) as $capped |
+                ($open and $ambiguous and $wasNamed and ($shamap[.source.branch.name] == null)) as $broken |
+                ($shamap[.source.branch.name] // (if ($capped or $broken) then null else $colour end) // null) as $jentry |
                 # A ROW `$jentry == null` WITH `$ambiguous` NEVER GOT A JENKINS
                 # ANSWER THIS PASS — `$capped` (past the cap, never named this
                 # pass) or `$broken` (named, but `jenkins_sha_runs` broke early

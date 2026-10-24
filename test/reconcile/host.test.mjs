@@ -3358,6 +3358,36 @@ test('host: pr-list bitbucket under jenkins reads checksLookup broken for a name
   assert.equal(out.get('feature/broken').checksLookup, 'broken', 'named, and the ask broke — not the same fact as a cap-skipped row');
 });
 
+test('host: pr-list --state all reads checksLookup broken for a named OPEN row whose ask fails, across several states in the same pass', () => {
+  // `--state all` runs one bind call per state, and only the OPEN call ever
+  // names an ambiguous row. A broken ask on that named row must read 'broken'
+  // in the same pass where MERGED/DECLINED rows are never asked at all —
+  // proving the two states do not share one verdict.
+  const open = bbRowsFor([{ id: 1, head: 'feature/broken', sha: 'sha-broken', updatedAt: '2026-10-17T09:00:00Z' }]);
+  const merged = bbRowsFor([{ id: 2, head: 'm0', sha: 'sha-m0', state: 'MERGED', updatedAt: '2026-10-17T08:00:00Z' }]);
+  const declined = bbRowsFor([{ id: 3, head: 'd0', sha: 'sha-d0', state: 'DECLINED', updatedAt: '2026-10-17T07:00:00Z' }]);
+  const bb = makeStrictBbStub({ perState: { open, merged, declined } });
+  const jobs = JSON.stringify(['feature/broken', 'm0', 'd0'].map((name) =>
+    ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
+  const jen = makeJenStub({ jobsJson: jobs });
+  const rest = makeCurlAnswering('<html><body>Authentication required</body></html>');
+  const env = {
+    ...process.env, PLOT_HOST: 'bitbucket', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok',
+    PATH: `${rest.dir}:${jen.dir}:${bb.dir}:${process.env.PATH}`,
+  };
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all'],
+    { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const asked = curlCalls(rest.argvFile);
+  assert.ok(!asked.some((u) => u.includes('/job/m0/') || u.includes('/job/d0/')), `settled rows are never asked:\n${asked.join('\n')}`);
+  const rows = rowsByHead(res.stdout);
+  assert.equal(rows.get('feature/broken').checks, 'unknown');
+  assert.equal(rows.get('feature/broken').checksSha, '');
+  assert.equal(rows.get('feature/broken').checksLookup, 'broken', 'named for this pass, and the ask broke — distinct from skipped');
+  assert.equal(rows.get('m0').checksLookup, undefined, 'a MERGED row is never a candidate, broken ask or not');
+  assert.equal(rows.get('d0').checksLookup, undefined, 'a DECLINED row is never a candidate, broken ask or not');
+});
+
 test('host: a refresh reads at most five rows by sha, the most recently updated first', () => {
   // The sha lookup costs one Jenkins call per row; the cap bounds a pass against
   // Jenkins' predicted limit of 60 whatever the number of open PRs.
@@ -3384,6 +3414,46 @@ test('host: a refresh reads at most five rows by sha, the most recently updated 
   assert.equal(rows.get('b1').checks, 'unknown', 'same for the other row past the cap');
   assert.equal(rows.get('b1').checksSha, '');
   assert.equal(rows.get('b1').checksLookup, 'skipped');
+});
+
+test('host: --bound-shas rotates past rows already bound to their current head, even when they are newest', () => {
+  // Traces the chain `pr-refresh.ts` builds: `boundShasFor(stored)` names every
+  // OPEN row's stored checksSha, `--bound-shas <json>` carries it to this
+  // adapter, `jenkins_bind_rows`'s fifth argument forwards it, and
+  // `rowsToBind`'s ROTATION sorts a row already bound to its current head
+  // last. Seven green rows, newest (b6) to oldest (b0) by updatedAt; b2..b6
+  // are already bound to their current head via --bound-shas, so with a cap
+  // of five the two NEVER-bound rows (b0, b1) must win slots over b5 and b6,
+  // which the plain newest-first order (tested above) would pick instead.
+  const heads = Array.from({ length: 7 }, (_, i) => `b${i}`);
+  const pairs = heads.map((head, i) => [head, `sha-${i}`, `2026-10-17T0${i}:00:00Z`]);
+  const jobs = JSON.stringify(heads.map((name) =>
+    ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
+  const rest = makeCurlAnswering(jenkinsBuildsFor('sha-0', 'SUCCESS'));
+  const env = { ...process.env, PLOT_HOST: '', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
+  const hostStubs = makeStubs({ ghJson: ghRowsWithSha(pairs) });
+  const jen = makeJenStub({ jobsJson: jobs });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  // b2..b6 already read their current head's sha last pass; b0 and b1 never
+  // did. With a cap of five, rotation fills b0 and b1's slots first (the two
+  // never-bound rows), then the three remaining slots go to the newest of the
+  // bound group (b6, b5, b4) — leaving b2 and b3 (the two OLDEST bound rows)
+  // the ones skipped, not b0/b1 as plain newest-first order would skip.
+  const boundShas = JSON.stringify({ b2: 'sha-2', b3: 'sha-3', b4: 'sha-4', b5: 'sha-5', b6: 'sha-6' });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--bound-shas', boundShas],
+    { cwd: makeJenkinsRepo(), encoding: 'utf8', env });
+  assert.equal(res.status, 0, res.stderr);
+  const asked = curlCalls(rest.argvFile);
+  assert.equal(asked.length, 5, `rotation still spends the same cap of five:\n${asked.join('\n')}`);
+  assert.ok(asked.some((u) => u.includes('/job/b0/')), 'b0 was never bound, so rotation asks it ahead of a bound row');
+  assert.ok(asked.some((u) => u.includes('/job/b1/')), 'b1 was never bound, so rotation asks it ahead of a bound row');
+  assert.ok(!asked.some((u) => u.includes('/job/b2/')), 'b2 is already bound and the oldest of the bound group — loses its slot');
+  assert.ok(!asked.some((u) => u.includes('/job/b3/')), 'b3 is already bound and the second-oldest of the bound group — loses its slot');
+  const rows = rowsByHead(res.stdout);
+  assert.notEqual(rows.get('b0').checksLookup, 'skipped', 'b0 was asked this pass, rotated ahead of the bound rows');
+  assert.notEqual(rows.get('b1').checksLookup, 'skipped', 'b1 was asked this pass, rotated ahead of the bound rows');
+  assert.equal(rows.get('b2').checksLookup, 'skipped', 'b2 lost its slot to the never-bound rows despite being bound and newer than b0/b1');
+  assert.equal(rows.get('b3').checksLookup, 'skipped', 'b3 lost its slot to the never-bound rows despite being bound and newer than b0/b1');
 });
 
 test('host: a Jenkins refresh costs a fixed number of calls, whatever the branch count', () => {
