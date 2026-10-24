@@ -112,8 +112,9 @@ const tierFrom = (
       tier,
       // A lightweight task names no plan and the collector writes `""`. It is
       // carried through rather than dropped: an unfinished item with no plan is
-      // still a promise the sprint made, and the gate names it by its text
-      // (below) rather than by not appearing at all.
+      // still a promise the sprint made, and `itemLabel` (release.ts) names it
+      // by a key found in its text, or by the text itself, rather than by not
+      // appearing at all.
       plan: typeof entry.slug === 'string' ? entry.slug : '',
       text: typeof entry.text === 'string' ? entry.text : '',
       status: status as ItemStatus,
@@ -328,7 +329,8 @@ export const run = (
 
 /**
  * Reads a `## Plot Config` key through the `Scripts` port's `config` op, the
- * same op `sprint-release-gate.ts`'s `configShell` reaches via its own call.
+ * same op `sprint-release-gate.ts`'s `configShell` reaches via its own, now
+ * identical, call.
  *
  * @param context - where the scripts and the repository are.
  * @param key - the config key's exact name.

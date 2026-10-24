@@ -120,14 +120,6 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # same "no port answers this yet" the 2026-10-04 raise named for its sibling.
 # Inventing one here would be the gate driving the design once more.
 #
-# RAISED TO 17 ON 2026-10-21 for `entry/sprint-release-gate.ts`'s `configShell`,
-# which reads a `## Plot Config` key through `plot-config.sh` the same way
-# `adapters/tracker/tracker-resolve.ts`'s `trackerShell` already does for
-# `Tracker` — but for `Sprint owner`, which that adapter has no reason to read.
-# No config port exists yet to answer "what does this key say" from an entry,
-# and inventing one here would be the gate driving the design the header warns
-# against.
-#
 # RAISED TO 19 ON 2026-10-23 for `entry/deliver.ts`'s release arm, which gains
 # its own `plot-issue-status.sh` and `plot-plan-state.sh` sites beside the
 # delivered-phase pair the 2026-10-04 and 2026-10-18 raises already named.
@@ -142,9 +134,16 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # string to decide whether its reason argument is message text, and never
 # spawns, sources or shells to `plot-state-receipt.sh` itself.
 #
+# LOWERED TO 19 ON 2026-10-24: `entry/sprint-release-gate.ts`'s `configShell`
+# named `plot-config.sh` directly through `runProcess`/`scriptPath`, the gap
+# the 2026-10-21 raise recorded because no config port existed yet for an
+# entry to call. One now does — `Scripts.config`, already reached by
+# `entry/release-gate.ts`'s own `configShell` — so this file's version was
+# switched to the same port call and its site dropped out of the count.
+#
 # `ROOTS` names every package with TypeScript source. `registry.ts`, which
 # holds `WORKER_STATE_SCRIPT`, is in packages/fleet/src.
-ALLOWED=20
+ALLOWED=19
 
 ROOTS='packages/board/src packages/domain/src packages/fleet/src'
 

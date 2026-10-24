@@ -1,7 +1,6 @@
-import { TRACKER_VERSION_SCHEMES, trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
-import { runProcess } from '@plot-pm/domain/adapters/run-script';
-import { scriptPath } from '@plot-pm/domain/adapters/scripts';
+import { TRACKER_VERSION_SCHEMES, scriptsShell, trackerShell, type ShellContext } from '@plot-pm/domain/adapters';
 import { sprintReleaseFactsShell } from '@plot-pm/domain/adapters/sprint-release';
+import type { ItemStatus } from '@plot-pm/domain/entities/sprint';
 import type { Tracker } from '@plot-pm/domain/ports/tracker';
 import { sprintOwner } from '@plot-pm/domain/rules/issue-source';
 import {
@@ -75,13 +74,20 @@ interface ReportedMust {
   text?: unknown;
   issues?: unknown;
   ticket?: unknown;
+  state?: unknown;
 }
 
-/** An `issues` array entry read as a string, or `''` where it is not one — `resolveItemKey` itself filters for Jira shape. */
+/** Every string entry of an `issues` array; `resolveItemKey` itself filters the Jira-shaped ones out of these. */
 const issueLineKeys = (issues: unknown): readonly string[] => {
   if (!Array.isArray(issues)) return [];
   return issues.filter((v): v is string => typeof v === 'string');
 };
+
+/** The four words the collector may write; anything else reads as `'open'` rather than stopping the comparison. */
+const STATES: readonly ItemStatus[] = ['done', 'open', 'disputed', 'withdrawn'];
+
+/** One item's state as the collector wrote it, or `'open'` where it wrote none this gate recognizes. */
+const stateOf = (state: unknown): ItemStatus => (typeof state === 'string' && STATES.includes(state as ItemStatus) ? (state as ItemStatus) : 'open');
 
 /** One sprint's block of the collector's report. */
 interface ReportedSprint {
@@ -95,7 +101,6 @@ interface ReportedSprint {
 /** The collector's whole report, as `plot-sprint-release.sh` writes it. */
 interface Report {
   sprints?: unknown;
-  limit?: unknown;
 }
 
 /** What the caller asked this bundle to check. */
@@ -113,7 +118,6 @@ export interface GateInput {
 
 /** One sprint's verdict. */
 export type SprintVerdict =
-  | { readonly checked: false }
   | {
       readonly checked: true;
       readonly missingFromRelease: readonly SprintReleaseItem[];
@@ -157,6 +161,7 @@ const tierItemsFrom = (
     items.push({
       text,
       issue: resolveItemKey(issueLineKeys(entry.issues), ticket, text, ticketPrefixes),
+      state: stateOf(entry.state),
     });
   }
   return items;
@@ -200,27 +205,24 @@ export const inputFrom = (text: string, ticketPrefixes: readonly string[] = []):
       releases.push({ sprint, release, mustHaves, otherTiers });
     }
   }
-  return {
-    releases,
-    limit: typeof report.limit === 'number' && report.limit > 0 ? report.limit : 200,
-  };
+  // 200: the connector's own page, and no collector writes a smaller one to
+  // ask for — `limit` exists on `GateInput` only to reach `versionRead`.
+  return { releases, limit: 200 };
 };
 
 /**
- * Reads a `## Plot Config` key through `plot-config.sh`, the same call
- * `trackerShell` already makes for `Tracker` — mirrored here for `Sprint
- * owner` rather than threading it through the collector's JSON, which would
- * read the key from shell AND from here.
+ * Reads a `## Plot Config` key through the `Scripts` port's `config` op, the
+ * same op `release-gate.ts`'s `configShell` reaches via its own call —
+ * mirrored here for `Sprint owner` rather than threading it through the
+ * collector's JSON, which would read the key from shell AND from here.
  *
  * @param context - where the scripts and the repository are.
  * @param key - the config key's exact name.
  * @returns the key's value, verbatim; `''` where none is declared or the read failed.
  */
 const configShell = async (context: ShellContext, key: string): Promise<string> => {
-  const said = await runProcess('bash', [scriptPath(context, 'plot-config.sh'), 'get', key, ''], {
-    cwd: context.repoRoot,
-  });
-  return said.code === 0 ? said.stdout.trim() : '';
+  const said = await scriptsShell(context).config(key, '');
+  return said.ok ? said.value.trim() : '';
 };
 
 /**
@@ -249,6 +251,16 @@ const sprintVerdict = async (
         ? (read.reason ?? 'the tracker cannot answer a version read')
         : 'the tracker could not be reached';
     return { checked: false, unreachable: true, reason };
+  }
+  // NOT CHECKED, NEVER PARTIAL DRIFT. A read that stopped at its limit has not
+  // told the caller what the Release lacks — comparing against a truncated
+  // list would report false drift for every issue past the cut.
+  if (!read.value.complete) {
+    return {
+      checked: false,
+      unreachable: true,
+      reason: `the Release read was cut at ${limit} issues — too many to compare`,
+    };
   }
   const drift = sprintReleaseDrift(mustHaves, read.value.issues.map((i) => i.id), otherTiers);
   return { checked: true, ...drift };
