@@ -185,6 +185,18 @@ describe('a guarded reader parses one plot-plan-meta.sh line', () => {
   it('reads null where phase is not a string', () => {
     expect(parsePlanSiblingLine('{"phase":7,"issues":[]}')).toBeNull();
   });
+
+  it('reads null where the parsed JSON is not an object', () => {
+    expect(parsePlanSiblingLine('"approved"')).toBeNull();
+  });
+
+  it('reads null where the parsed JSON is the literal null', () => {
+    expect(parsePlanSiblingLine('null')).toBeNull();
+  });
+
+  it('reads null where an issue is neither a string nor a number', () => {
+    expect(parsePlanSiblingLine('{"phase":"approved","issues":[null]}')).toBeNull();
+  });
 });
 
 describe('a release reads every unreleased sibling for the issues it still owes', () => {
