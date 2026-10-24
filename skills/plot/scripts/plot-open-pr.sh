@@ -36,6 +36,7 @@ set -uo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$script_dir/plot-tmp.sh"
 . "$script_dir/plot-desk-root.sh"
+. "$script_dir/plot-default-branch.sh"
 bundle="$script_dir/board/plot-slice-pr.mjs"
 
 usage() {
@@ -72,8 +73,7 @@ git rev-parse --git-dir >/dev/null 2>&1 \
 repo_root="$(git rev-parse --show-toplevel)"
 cfg() { bash "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
-[ -n "$base" ] || base=$(bash "$script_dir/plot-host.sh" default-branch 2>/dev/null || echo main)
-[ -n "$base" ] || base=main
+[ -n "$base" ] || base=$(default_branch "$repo_root")
 
 # WHICH PLAN NAMES THIS BRANCH, AND UNDER WHICH HEADING. `plot-plan-meta.sh` is
 # the plan-format contract and answers both — the wave name is the title and the

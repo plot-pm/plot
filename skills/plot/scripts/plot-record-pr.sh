@@ -43,6 +43,7 @@ set -uo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$script_dir/plot-desk-root.sh"
 . "$script_dir/plot-tmp.sh"
+. "$script_dir/plot-default-branch.sh"
 
 branch="${1:-}"
 pr="${2:-}"
@@ -53,8 +54,7 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-record-pr: not a git rep
 
 repo_root=$(plot_repo_root)
 MAIN=$(bash "$script_dir/plot-config.sh" get "Main branch")
-[ -n "$MAIN" ] || MAIN=$(bash "$script_dir/plot-host.sh" default-branch 2>/dev/null)
-[ -n "$MAIN" ] || MAIN=main
+[ -n "$MAIN" ] || MAIN=$(default_branch "$repo_root")
 
 git -C "$repo_root" fetch -q origin "$MAIN" 2>/dev/null
 
