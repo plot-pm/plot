@@ -64,7 +64,7 @@ The `agent-loop.ts:584` refusal reason needs the worker loop to read the claim f
 
 ### Independent
 
-- `bug/drop-reads-the-boards-branch` — `deskBranchMerged` reads the checked-out branch
+- `bug/drop-reads-the-boards-branch` — `deskBranchMerged` reads the checked-out branch → #2612
 - `bug/mergeability-uses-the-prs-own-base` — PR base, re-read during the Checks wait, honest conflict correction
 
 ### Tests and comments
