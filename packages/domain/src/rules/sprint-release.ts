@@ -1,3 +1,4 @@
+import type { ItemStatus } from '../entities/sprint.js';
 import type { SprintOwner } from './issue-source.js';
 
 /**
@@ -15,6 +16,8 @@ export interface SprintReleaseItem {
   text: string;
   /** The tracker issue key the item's plan names; `''` where it names none. */
   issue: string;
+  /** The collector's own state for the item (`done | open | disputed | withdrawn`); `'open'` where the caller carries none. */
+  state?: ItemStatus;
 }
 
 /** What the comparison found, in both directions, plus what named no key at all. */
@@ -42,7 +45,14 @@ export interface SprintReleaseDrift {
  * a Release issue is accounted for if any tier names its key, regardless of
  * priority.
  *
- * @param mustHaves - the sprint's Must-have items, each with the issue key its plan names, or `''`.
+ * **A withdrawn Must-have is not a missing one.** Only a Must-have the sprint
+ * still stands behind is required to ship in the Release, so a `withdrawn`
+ * item is excluded from both `missingFromRelease` and `notCompared` — the
+ * sprint dropped the promise rather than broke it. `missingFromSprint` still
+ * reads every tier regardless of state, so a withdrawn item's key still
+ * accounts for a Release issue that names it.
+ *
+ * @param mustHaves - the sprint's Must-have items, each with the issue key its plan names, or `''`, and the collector's own state.
  * @param releaseIssueKeys - the Jira keys `Tracker.versionRead` answered for the Release.
  * @param otherTiers - the sprint's Should-have and Could-have items, each with the issue key its plan names, or `''`; counted only toward `missingFromSprint`.
  * @returns the drift in both directions, plus the Must-haves no source named a key for.
@@ -56,10 +66,11 @@ export const sprintReleaseDrift = (
   const namedKeys = new Set(
     [...mustHaves, ...otherTiers].map((item) => item.issue).filter((issue) => issue !== ''),
   );
+  const standingMustHaves = mustHaves.filter((item) => item.state !== 'withdrawn');
   return {
-    missingFromRelease: mustHaves.filter((item) => item.issue !== '' && !releaseKeys.has(item.issue)),
+    missingFromRelease: standingMustHaves.filter((item) => item.issue !== '' && !releaseKeys.has(item.issue)),
     missingFromSprint: releaseIssueKeys.filter((key) => !namedKeys.has(key)),
-    notCompared: mustHaves.filter((item) => item.issue === ''),
+    notCompared: standingMustHaves.filter((item) => item.issue === ''),
   };
 };
 
@@ -118,7 +129,8 @@ export const resolveItemKey = (
   const fromIssueLine = issueLineKeys.find((key) => JIRA_KEY.test(key));
   if (fromIssueLine !== undefined) return fromIssueLine;
   const trimmedTicket = ticketFrontmatter.trim();
-  if (trimmedTicket !== '' && JIRA_KEY.test(trimmedTicket)) return trimmedTicket;
+  const ticketMatch = JIRA_KEY.exec(trimmedTicket);
+  if (ticketMatch !== null) return ticketMatch[0];
   return keyFromText(itemText, ticketPrefixes);
 };
 
