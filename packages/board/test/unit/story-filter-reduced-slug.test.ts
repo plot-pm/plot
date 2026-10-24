@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { passesFilter } from '../../src/app/lib/filters.js';
 import { buildLanes } from '../../src/app/components/Swimlanes.js';
 import { board, card, story } from '../catalogue/build.js';
+import { SCRIPTS_DIR } from '../helpers.mjs';
 
 /**
  * Issue #2411: `plot-plan-meta.sh` reduces a `Story:` Markdown link to its
@@ -14,6 +19,23 @@ import { board, card, story } from '../catalogue/build.js';
  */
 describe('story filter and lanes over a reduced slug', () => {
   const SLUG = 'kanban-board';
+
+  it('the parser reduces a Markdown-link Story: field to its text', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-story-reduce-'));
+    const plan = path.join(dir, '2026-08-24-a-plan.md');
+    fs.writeFileSync(plan, [
+      '# A plan', '', '## Status', '',
+      '- **Phase:** Draft',
+      `- **Story:** [${SLUG}](docs/stories/${SLUG}/STORY-${SLUG}.md)`,
+      '', '## Changelog', '', '- a plan', '',
+    ].join('\n'), 'utf8');
+    const out = execFileSync('bash', [path.join(SCRIPTS_DIR, 'plot-plan-meta.sh'), plan], {
+      encoding: 'utf8',
+    });
+    const meta = JSON.parse(out.trim()) as { story: string };
+    expect(meta.story).toBe(SLUG);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 
   it('the story filter selects a card whose story is the reduced slug', () => {
     const b = board({

@@ -106,7 +106,8 @@
 #                  front matter `sprint:`); "" if absent or an HTML-comment
 #                  placeholder
 #   story          story slug the plan belongs to (`## Status` `Story:` or
-#                  front matter `story:`); "" if absent or a placeholder
+#                  front matter `story:`), reduced from Markdown link form
+#                  via reduce_story_link(); "" if absent or a placeholder
 #   assignee       github handle from front matter `assignee:`, else the
 #                  `## Approval` `Assignee:` line, else the `## Status`
 #                  `Assignee:` line; "" if absent or a placeholder

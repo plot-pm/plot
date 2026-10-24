@@ -22,7 +22,7 @@ after(() => {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const lint = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-story-lint.sh');
 
-function estate(stories) {
+function estate(stories, plans = {}) {
   const dir = scratch('plot-lint-');
   const sh = (c) => execSync(c, { cwd: dir, stdio: 'pipe' });
   sh('git init -q -b main && git config user.email t@t && git config user.name t && git config commit.gpgsign false');
@@ -32,9 +32,20 @@ function estate(stories) {
     mkdirSync(path.dirname(full), { recursive: true });
     writeFileSync(full, content);
   }
+  for (const [p, content] of Object.entries(plans)) {
+    const full = path.join(dir, 'docs/plans', p);
+    mkdirSync(path.dirname(full), { recursive: true });
+    writeFileSync(full, content);
+  }
   sh('git add -A && git commit -qm init');
   return dir;
 }
+
+// A plan whose `Story:` names `slug`, in Markdown-link form unless `plain`.
+const plan = (slug, state, { plain = false } = {}) => {
+  const story = plain ? slug : `[${slug}](docs/stories/${slug}/STORY-${slug}.md)`;
+  return `# x\n\n## Status\n\n- **Story:** ${story}\n- **State:** ${state}\n`;
+};
 
 function run(dir) {
   try {
@@ -128,4 +139,31 @@ test('story-lint: S4 active story missing from index', () => {
   });
   const r = run(dir);
   assert.match(r.out, /S4 .*hidden/);
+});
+
+test('story-lint: S5 finds drift for a Story: written as a Markdown link', () => {
+  const dir = estate(
+    { 'docs/stories/good/STORY-good.md': fm('draft') },
+    { 'a-plan.md': plan('good', 'Released') },
+  );
+  const r = run(dir);
+  assert.match(r.out, /S5 .*good.*status draft but All plans released/);
+});
+
+test('story-lint: S5 still works for a Story: written as a plain slug', () => {
+  const dir = estate(
+    { 'docs/stories/good/STORY-good.md': fm('draft') },
+    { 'a-plan.md': plan('good', 'Released', { plain: true }) },
+  );
+  const r = run(dir);
+  assert.match(r.out, /S5 .*good.*status draft but All plans released/);
+});
+
+test('story-lint: S5 leaves a malformed Story: link unreduced, so it matches no story and reports nothing', () => {
+  const dir = estate(
+    { 'docs/stories/good/STORY-good.md': fm('draft') },
+    { 'a-plan.md': '# x\n\n## Status\n\n- **Story:** [good](\n- **State:** Released\n' },
+  );
+  const r = run(dir);
+  assert.doesNotMatch(r.out, /S5/);
 });
