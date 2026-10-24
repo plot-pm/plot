@@ -2,7 +2,7 @@ import type { IssueIndexRow } from '../entities/issue-index.js';
 import { declaresSpelling, resolvePerson, type PersonDirectory } from '../entities/person.js';
 import { ownership, type OwnedRow, type Reader, type TicketSource } from './ownership.js';
 import { ownerOf, typeOf } from './ticket-lanes.js';
-import { allReleased, ticketPhase, type TicketPlan } from './ticket-phase.js';
+import { allReleased, allUnplaceable, ticketPhase, type TicketPlan } from './ticket-phase.js';
 
 /** One open ticket, shaped for the client — the fields `IssueRow` carries. */
 export interface WaitingTicket {
@@ -127,9 +127,13 @@ const ISSUE_LIMIT = 50;
  * caller holds the `ISSUE_LIMIT` cap. A row that a plan in `plans` names shows
  * {@link ticketPhase}'s label as its `status` — except on a `tracker-account` source, whose
  * rows keep the tracker's own state — and the rendered rows list the
- * unplanned ones first, then the planned ones, each newest first. A row whose
- * plans are all {@link allReleased} is excluded from `tickets` and counted in
- * `hidden`, the same as a row `ownership` didn't match.
+ * unplanned ones first, then the planned ones, each newest first. "Unplanned"
+ * means `plans` names no plan at all for the row — a row every one of whose
+ * plans is {@link allReleased} or {@link allUnplaceable} (e.g. every naming
+ * plan is `rejected`/`superseded`) is excluded from `tickets` and counted in
+ * `hidden` instead, the same as a row `ownership` didn't match; it is never
+ * sorted into the unplanned bucket merely because {@link ticketPhase}
+ * returns `null` for it.
  *
  * @param rows - every open row the read holds.
  * @param inbox - the rows of the reader's own tracker-account read, where one exists.
@@ -153,12 +157,19 @@ export const waitingTickets = (
   const keepsTrackerState = source?.match === 'tracker-account';
 
   const render = (selected: readonly IssueIndexRow[], notice: string | null): WaitingTickets => {
-    const unfinished = selected.filter((row) => !allReleased(plans.get(row.number) ?? []));
-    const phased = unfinished.map((row) => ({ row, phase: ticketPhase(plans.get(row.number) ?? []) }));
+    const unfinished = selected.filter((row) => {
+      const rowPlans = plans.get(row.number) ?? [];
+      return !allReleased(rowPlans) && !allUnplaceable(rowPlans);
+    });
+    const phased = unfinished.map((row) => ({
+      row,
+      unplanned: (plans.get(row.number) ?? []).length === 0,
+      phase: ticketPhase(plans.get(row.number) ?? []),
+    }));
     return {
       tickets: [
-        ...phased.filter(({ phase }) => phase === null),
-        ...phased.filter(({ phase }) => phase !== null),
+        ...phased.filter(({ unplanned }) => unplanned),
+        ...phased.filter(({ unplanned }) => !unplanned),
       ]
         .slice(0, ISSUE_LIMIT)
         .map(({ row, phase }) => toWaitingTicket(row, now, { source, directory: reader.directory }, keepsTrackerState ? null : phase?.label ?? null)),

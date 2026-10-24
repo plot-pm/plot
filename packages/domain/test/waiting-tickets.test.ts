@@ -312,4 +312,60 @@ describe('waitingTickets, planned tickets', () => {
     expect(result.shown).toBe(1);
     expect(result.hidden).toBe(0);
   });
+
+  it('excludes a row named only by a rejected-state plan from tickets and counts it in hidden, same as an allReleased row', () => {
+    const rows = [
+      row('1', { assignees: ['jwloka'], status: 'open' }),
+      row('2', { assignees: ['jwloka'], status: 'closed' }),
+    ];
+    const result = waitingTickets(rows, undefined, reader, GITHUB, true, plans({ '2': [{ state: 'rejected', total: 1, merged: null }] }));
+    expect(result.tickets.map((t) => t.number)).toEqual(['1']);
+    expect(result.shown).toBe(1);
+    expect(result.hidden).toBe(1);
+  });
+
+  it('does not sort a row named only by a superseded plan into the unplanned bucket ahead of a genuinely unplanned row', () => {
+    const rows = [
+      row('unplanned', { assignees: ['jwloka'], status: 'open', createdAt: '2026-01-01T00:00:00.000Z' }),
+      row('superseded-only', { assignees: ['jwloka'], status: 'open', createdAt: '2026-02-01T00:00:00.000Z' }),
+      row('approved', { assignees: ['jwloka'], status: 'open', createdAt: '2026-03-01T00:00:00.000Z' }),
+    ];
+    const result = waitingTickets(
+      rows,
+      undefined,
+      reader,
+      GITHUB,
+      true,
+      plans({
+        'superseded-only': [{ state: 'superseded', total: 1, merged: null }],
+        approved: [{ state: 'approved', total: 2, merged: 1 }],
+      }),
+    );
+    expect(result.tickets.map((t) => t.number)).toEqual(['unplanned', 'approved']);
+    expect(result.shown).toBe(2);
+    expect(result.hidden).toBe(1);
+  });
+});
+
+describe('waitingTickets, host-login and tracker-account readers agree on planned-ness', () => {
+  it('a tracker-account inbox row keeps its own state but is still excluded from shown/hidden the same way a host-login reader excludes it', () => {
+    const plans = (entries: Record<string, TicketPlan[]>): Map<string, TicketPlan[]> => new Map(Object.entries(entries));
+    const rejectedOnly = plans({ shared: [{ state: 'rejected', total: 1, merged: null }] });
+
+    const hostReader: Reader = { hostUser: 'jwloka' };
+    const hostRows = [row('shared', { assignees: ['jwloka'], status: 'open' })];
+    const hostResult = waitingTickets(hostRows, undefined, hostReader, GITHUB, true, rejectedOnly);
+
+    const jiraReader: Reader = { hostUser: 'jwloka', directory: { 'jira:jan.wloka@quatico.com': 'jwloka' } };
+    const inboxRow = row('shared', { assignees: ['jan.wloka@quatico.com'], status: 'In Progress' });
+    const jiraResult = waitingTickets([inboxRow], [inboxRow], jiraReader, JIRA, true, rejectedOnly);
+
+    expect(hostResult.shown).toBe(0);
+    expect(hostResult.hidden).toBe(1);
+    expect(hostResult.tickets).toHaveLength(0);
+
+    expect(jiraResult.shown).toBe(0);
+    expect(jiraResult.hidden).toBe(1);
+    expect(jiraResult.tickets).toHaveLength(0);
+  });
 });
