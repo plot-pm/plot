@@ -1033,16 +1033,12 @@ function keep_branch(n, b, overlay,   is_deferred) {
 function extract_prs(raw,   line, p) {
   line = raw
   while (match(line, /→ ([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?#[0-9]+/)) {
-    p = substr(line, RSTART, RLENGTH)
-    sub(/^.*#/, "", p)
+    p = substr(line, RSTART, RLENGTH); sub(/^.*#/, "", p)
     prs[++n_prs] = p; if (raw ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
     line = substr(line, RSTART + RLENGTH)
   }
   line = raw
-  while (match(line, /→#[0-9]+/)) {
-    malformed_prs[++n_malformed_prs] = substr(line, RSTART, RLENGTH)
-    line = substr(line, RSTART + RLENGTH)
-  }
+  while (match(line, /→#[0-9]+/)) { malformed_prs[++n_malformed_prs] = substr(line, RSTART, RLENGTH); line = substr(line, RSTART + RLENGTH) }
 }
 # The longest wave name that still reads as a label, not prose. A JUDGEMENT, not
 # a measurement: the longest legitimate name in the estate is `Offered first`
