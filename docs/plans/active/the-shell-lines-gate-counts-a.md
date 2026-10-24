@@ -1,0 +1,1 @@
+../2026-10-24-the-shell-lines-gate-counts-a.md
