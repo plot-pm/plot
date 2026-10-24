@@ -1302,3 +1302,63 @@ describe('a branch-line `waits:` holds the slice through the parser', () => {
     expect(whyNotReady(slice)).toBe('not-claimable');
   });
 });
+
+/**
+ * `deadClaims` NAMES A REF WITH ONLY A STARTED-RECORD COMMIT AND NO LIVE
+ * AGENT, REUSING THE SAME PER-BRANCH READ `orphanedClaims` ALREADY MAKES.
+ *
+ * No new git call: both lists are built from the one `remoteHead` /
+ * `commitSubjects` pass `claimReadingsOf` already runs for `orphanedClaims`.
+ */
+describe('deadClaims names a dead claim from the same per-branch read orphanedClaims uses', () => {
+  const STARTED_RECORD_SUBJECT = 'plot: claim bug/dead-one';
+
+  const world = (over: Partial<QueueWorld> = {}): QueueWorld => ({
+    plans: async () => [plan([['bug/dead-one']])],
+    claimedBranches: async () => new Set(['bug/dead-one']),
+    mergedBranches: async () => wholeListing([]),
+    prIndexRows: async () => [],
+    viewLanded: async () => 'unknown',
+    briefPresent: async () => true,
+    sliceHasMerged: async () => false,
+    subjectProven: async () => null,
+    queuedHasLanded: async () => 'not-landed',
+    workerAlive: async () => true,
+    blocked: async () => false,
+    refused: async () => false,
+    remoteHead: async () => 'present',
+    commitSubjects: async () => ({
+      ok: true,
+      value: [{ subject: STARTED_RECORD_SUBJECT, at: 0, tree: 't1', parentTree: 't1' }],
+    }),
+    now: () => 0,
+    defaultBranch: async () => 'main',
+    ...over,
+  });
+
+  it('names a Started-record-only branch with no live agent as a dead claim', async () => {
+    const readings = await readQueue([], world());
+    expect(readings.deadClaims).toEqual(['bug/dead-one']);
+  });
+
+  it('does not name the same branch dead once a running agent holds it', async () => {
+    const readings = await readQueue(
+      [manifest({ branch: 'bug/dead-one', state: 'running' })],
+      world(),
+    );
+    expect(readings.deadClaims).toEqual([]);
+  });
+
+  it('does not name a branch dead that carries real work beyond the default branch', async () => {
+    const readings = await readQueue(
+      [],
+      world({
+        commitSubjects: async () => ({
+          ok: true,
+          value: [{ subject: 'implement the thing', at: 0, tree: 't2', parentTree: 't1' }],
+        }),
+      }),
+    );
+    expect(readings.deadClaims).toEqual([]);
+  });
+});

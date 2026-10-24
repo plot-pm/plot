@@ -563,6 +563,11 @@ export const tickLine = (report: TickReport): string => {
     // TESTED LOOSELY, LIKE `mergedSet` ABOVE: the field is declared
     // non-optional, and a report assembled by hand can still omit it.
     if (queue.orphanedClaims != null) fields.push(`orphaned-claims=${queue.orphanedClaims.length}`);
+    // `dead-claims=` NAMES THE SAME SHAPE WITH NO AGE TEST, so it can name a
+    // branch before `orphaned-claims` counts it — the two overlap on purpose,
+    // documented at `claimReadingsOf`. Omitted and tested loosely for the
+    // same reason as `orphaned-claims` above.
+    if (queue.deadClaims != null) fields.push(`dead-claims=${queue.deadClaims.length}`);
   }
 
   // `unclaimed=` IS OMITTED AT ZERO, and it is the one field here that is. The

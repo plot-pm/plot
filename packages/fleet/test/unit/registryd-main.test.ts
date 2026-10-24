@@ -558,6 +558,62 @@ describe('where a tick’s report goes', () => {
     expect(out.join('')).not.toContain('orphaned-claims=');
   });
 
+  it('names a dead claim and its release command, and reports the count', () => {
+    const held: TickReport = {
+      ...completed(),
+      handOver: {
+        outcome: 'decided',
+        workflow: 'assign',
+        writes: [],
+        detail: {
+          assignments: [],
+          held: [],
+          idle: [],
+          scaling: null,
+          orphanedClaims: [],
+          deadClaims: ['bug/dead-one'],
+        },
+      },
+    };
+    const out: string[] = [];
+    reportTick(held, (s) => out.push(s), () => {});
+    const text = out.join('');
+    expect(text).toContain('dead-claims=1');
+    expect(text).toContain(
+      '  bug/dead-one: dead claim, no agent — plot-dispatch.sh --release bug/dead-one',
+    );
+  });
+
+  it('does not name a dead claim twice where orphanedClaims already named it this tick', () => {
+    const held: TickReport = {
+      ...completed(),
+      handOver: {
+        outcome: 'decided',
+        workflow: 'assign',
+        writes: [],
+        detail: {
+          assignments: [],
+          held: [],
+          idle: [],
+          scaling: null,
+          orphanedClaims: ['bug/stale-claim'],
+          deadClaims: ['bug/stale-claim'],
+        },
+      },
+    };
+    const out: string[] = [];
+    reportTick(held, (s) => out.push(s), () => {});
+    const text = out.join('');
+    expect(text.match(/^ {2}bug\/stale-claim:/gm)).toHaveLength(1);
+    expect(text).not.toContain('dead claim, no agent');
+  });
+
+  it('omits `dead-claims=` when nobody asked', () => {
+    const out: string[] = [];
+    reportTick(refused(), (s) => out.push(s), () => {});
+    expect(out.join('')).not.toContain('dead-claims=');
+  });
+
   it('omits a hold that refused nothing, where the summary line prints its zero', () => {
     // THE TWO PATHS DIFFER ON PURPOSE. A zero is a measurement on the counted
     // line and noise in a list of names — there are no slices to name.
