@@ -87,7 +87,7 @@ test('scan: section 24b names the wave and the unattributable branch', () => {
   assert.match(report,
     /2026-10-03-unattributed-item\.md — wave 'Stray' holds a list item naming 'bug\/other', a branch no heading in that wave claims/,
     report);
-  assert.match(report, /rewrite: move the item under its own heading, or give this wave a \(Branch: bug\/other\) heading/, report);
+  assert.match(report, /rewrite: move the item under its own heading, or give that heading this \(Branch: …\) value/, report);
 });
 
 test('scan: section 24b is silent for a list item the parser attributed', () => {
