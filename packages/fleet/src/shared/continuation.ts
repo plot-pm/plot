@@ -621,14 +621,26 @@ const restoreManifest = (file: string, text: string): boolean => {
   }
 };
 
-/** Whether `found` names the same directory as `expected`, symlinks resolved; `null` names none. */
-const sameDirectory = (found: string | null, expected: string): boolean => {
-  if (found === null) return false;
-  try {
-    return fs.realpathSync(found) === fs.realpathSync(expected);
-  } catch {
-    return found === expected;
+/** How many parents {@link descendsFrom} reads before it answers `false`. */
+const ANCESTRY_STEPS_MAX = 32;
+
+/**
+ * Whether `ancestor` is a parent, or a parent's parent, of `pid`.
+ *
+ * @param probe - the process table.
+ * @param pid - the process to start from.
+ * @param ancestor - the process to look for among its ancestors.
+ * @returns `true` where a walk of at most {@link ANCESTRY_STEPS_MAX} parents
+ *   reaches `ancestor`; `false` where it reaches pid 1 or below, a parent
+ *   cannot be read, or the walk runs out of steps.
+ */
+const descendsFrom = (probe: ProcessProbe, pid: number, ancestor: number): boolean => {
+  let current: number | null = pid;
+  for (let step = 0; step < ANCESTRY_STEPS_MAX && current !== null && current > 1; step += 1) {
+    current = probe.parentPid(current);
+    if (current === ancestor) return true;
   }
+  return false;
 };
 
 /** Appends one line to the desk's log, or to the board's stderr when the log cannot take it. */
@@ -875,19 +887,21 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
         }
       })();
       // THE WRAPPER PID IS CHECKED BEFORE THE LOOP IS SIGNALLED, so a refusal
-      // leaves the desk as found. The dispatcher starts the wrapper with the
-      // worktree as its working directory; a live process at the recorded pid
-      // that works elsewhere is a recycled pid and is not signalled. A pid that
-      // holds no process needs no stop.
+      // leaves the desk as found. The dispatcher's wrapper starts the agent as
+      // its child, so the live loop descends from it. A live process at the
+      // recorded pid that is no ancestor of the loop is a recycled pid and is
+      // not signalled. A pid that holds no process needs no stop. The working
+      // directory is no test: a hop moves the manifest and the free-wait record
+      // to a new worktree, and the wrapper keeps the launch worktree as its cwd.
       if (wrapperPid !== '') {
         const probe = input.probe ?? processProbeSystem();
         if (probe.alive(Number(wrapperPid)) === false) {
           wrapperPid = '';
-        } else if (!sameDirectory(probe.workingDirectory(Number(wrapperPid)), worktree)) {
+        } else if (!descendsFrom(probe, Number(pid), Number(wrapperPid))) {
           return refused(
             409,
             'loop-alive',
-            `wrapper pid ${wrapperPid} does not work in ${worktree}; it is not signalled, and the desk is left as found`,
+            `wrapper pid ${wrapperPid} is no ancestor of loop pid ${pid}; it is not signalled, and the desk is left as found`,
           );
         }
       }
@@ -950,7 +964,11 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // every `failed` return below this line wrote the file itself, so each
     // removes it. The write failure above created none.
     const failed = (error: string): DeskContinuation => {
-      fs.rmSync(promptPath, { force: true });
+      try {
+        fs.rmSync(promptPath, { force: true });
+      } catch {
+        /* the failure being reported outranks a prompt that could not be removed */
+      }
       return { kind: 'failed', error };
     };
 
