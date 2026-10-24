@@ -54,7 +54,7 @@ The slices group the findings by the code they touch, so each branch has one rev
 
 ### Liveness
 
-- `bug/fleet-supervisor-liveness-bounds` — bound the pid-less launch hold and the stamped-pid count, and give `readQueue` an `alive` reading
+- `bug/fleet-supervisor-liveness-bounds` — bound the pid-less launch hold and the stamped-pid count, and give `readQueue` an `alive` reading → #2564
 
 ### Label
 
