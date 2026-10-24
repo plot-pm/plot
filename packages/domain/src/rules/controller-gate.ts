@@ -34,6 +34,134 @@ export const withoutQuotedHeredocs = (command: string): string => {
   return kept.join('\n');
 };
 
+/** A quoted argument, or a single unquoted word — what follows a flag that takes a value. */
+const ARGUMENT = /'[^']*'|"(?:[^"\\]|\\.)*"|\S+/;
+
+/**
+ * Blanks the message argument of `git commit -m`/`--message` within a simple
+ * command, everywhere that flag appears in `segment` — `-m` may repeat to
+ * build a multi-paragraph message. Leaves the flag itself so the command
+ * still reads as a `git commit` invocation; blanks only its value.
+ *
+ * @param segment - one simple command (already isolated from `&&`/`;`/`|`/newline neighbours).
+ * @returns the segment with each `-m`/`--message` value replaced by an equal-length run of spaces.
+ */
+const withoutCommitMessageFlags = (segment: string): string => {
+  const pattern = new RegExp(`(^|\\s)(-m|--message)(=|\\s+)(${ARGUMENT.source})`, 'g');
+  return segment.replace(pattern, (_whole, lead, flag, sep, value) => `${lead}${flag}${sep}${' '.repeat(value.length)}`);
+};
+
+/**
+ * Blanks the reason argument of `plot-state-receipt.sh --unowned-action
+ * <action> <slug> <reason...>` within a simple command — everything after the
+ * slug to the end of the segment, which is the shell script's `"$*"`. Leaves
+ * the action and slug words so the segment still reads as that invocation.
+ *
+ * @param segment - one simple command.
+ * @returns the segment with the reason text replaced by an equal-length run of spaces.
+ */
+const withoutUnownedActionReason = (segment: string): string => {
+  const pattern = /(--unowned-action\s+\S+\s+\S+\s+)(.+)$/;
+  return segment.replace(pattern, (_whole, head: string, reason: string) => `${head}${' '.repeat(reason.length)}`);
+};
+
+// Named once, the same reason ci-suite.ts names DISPATCH_SH/APPROVE_SH/
+// DELIVER_SH: `check-script-names.sh` counts a quoted literal as a
+// dependency, and this reading classifies a command string — it never
+// spawns, sources or shells to the script it names.
+const STATE_RECEIPT_SH = 'plot-state-receipt.sh';
+
+/** Whether a word's basename is `plot-state-receipt.sh`. */
+const isUnownedActionReceipt = (words: readonly string[]): boolean =>
+  words.some((word) => wordBasename(word) === STATE_RECEIPT_SH) && words.includes('--unowned-action');
+
+/** Whether a simple command's program is `git commit`. */
+const isGitCommit = (words: readonly string[]): boolean => {
+  const program = programWords(words);
+  return wordBasename(program[0] ?? '') === 'git' && program[1] === 'commit';
+};
+
+/**
+ * Whether a `git commit` simple command reads its message from stdin via
+ * `-F -`/`--file -` — the shape a following heredoc feeds.
+ */
+const readsMessageFromStdin = (words: readonly string[]): boolean =>
+  words.some((word, i) => (word === '-F' || word === '--file') && words[i + 1] === '-');
+
+/**
+ * Removes the two kinds of message-carrying DATA a controller-owned script's
+ * name can sit inside with no process ever reading it as a command: a `git
+ * commit -m`/`--message` value, the reason argument of `plot-state-receipt.sh
+ * --unowned-action`, and — only when the commit reads its message from stdin
+ * (`git commit -F -`) — the body of a heredoc that feeds it, same as
+ * {@link withoutQuotedHeredocs} but for the unquoted/double-quoted form that
+ * function leaves alone.
+ *
+ * The strip is sink-aware, not position-aware: it names the specific programs
+ * whose argument is text they never execute, the same way `READERS` names
+ * programs that never run their operand. A program that RUNS its quoted text
+ * (`sh -c`, `bash <script>`, `xargs`) is untouched — the quoted span there is
+ * the command.
+ *
+ * A heredoc body is stripped only when it holds no `$(`, backtick or `<(`/`>(`
+ * — any of those can invoke a gated script by substitution, so that body stays
+ * tokenised. A plain unquoted heredoc feeding a command other than `git commit
+ * -F -` is untouched for the same reason {@link withoutQuotedHeredocs} leaves
+ * it: this function does not decide what every heredoc means, only the one
+ * shape that is provably a commit message.
+ *
+ * @param command - the command line, with any single-quoted heredoc body
+ *   already stripped by {@link withoutQuotedHeredocs}.
+ * @returns the command with those data spans blanked to equal-length runs of
+ *   spaces, so word boundaries and line numbers are unchanged.
+ */
+export const withoutMessageSinks = (command: string): string => {
+  const lines = command.split('\n');
+  const out: string[] = [];
+  let tag: string | null = null;
+  let body: string[] | null = null; // collecting a candidate stdin-commit body; null when not in one
+  const flushBody = () => {
+    if (body === null) return;
+    const strippable = !body.some((line) => /\$\(|`|[<>]\(/.test(line));
+    out.push(...body.map((line) => (strippable ? ' '.repeat(line.length) : line)));
+    body = null;
+  };
+  for (const line of lines) {
+    if (tag !== null) {
+      const atTerminator = line.replace(/^\t+/, '') === tag;
+      if (atTerminator) tag = null;
+      if (body !== null) {
+        if (atTerminator) flushBody();
+        else body.push(line);
+      }
+      if (atTerminator || body === null) out.push(line);
+      continue;
+    }
+    const heredoc = /<<-?[ \t]*(?:"([^"]*)"|([A-Za-z_]\w*))/.exec(line);
+    // Captured so the delimiters rejoin unchanged; only a segment's own text is ever rewritten.
+    const parts = line.split(/(&&|\|\||[;|])/);
+    let opensStdinCommit = false;
+    const processed = parts
+      .map((part, i) => {
+        if (i % 2 === 1) return part; // a delimiter, not a segment
+        const words = part.trim().split(/\s+/).filter((w) => w !== '');
+        if (words.length === 0) return part;
+        let segment = part;
+        if (isGitCommit(words)) segment = withoutCommitMessageFlags(segment);
+        if (isUnownedActionReceipt(words)) segment = withoutUnownedActionReason(segment);
+        if (isGitCommit(words) && readsMessageFromStdin(words)) opensStdinCommit = true;
+        return segment;
+      })
+      .join('');
+    out.push(processed);
+    if (heredoc) {
+      tag = heredoc[1] ?? heredoc[2] ?? null;
+      if (opensStdinCommit) body = [];
+    }
+  }
+  return out.join('\n');
+};
+
 /**
  * Whether a command could name a controller-owned script or merge a pull
  * request. A word passes when it contains `plot-dispatch`, `plot-approve` or

@@ -12,6 +12,7 @@ import {
   UNPINNABLE_NOTE,
   unpinnedMergeRefusal,
   unpinnedMerges,
+  withoutMessageSinks,
   withoutQuotedHeredocs,
 } from '@plot-pm/domain/rules/controller-gate';
 import { gatesMainCheckout, gitWriteDirs, mainCheckoutWriteRefusal, mutatesGitState } from '@plot-pm/domain/rules/main-checkout-write';
@@ -533,8 +534,12 @@ export interface ControllerReadings {
  * (`dispatch`, `approve`, `deliver`, `release`) without the controller's
  * receipt, and a `gh pr merge` or `pr-merge` with no head pin.
  *
- * `ask` runs in order: the single-quoted heredoc strip; two text tests that
- * read no git — the per-word prefilter, and for an unattended agent
+ * `ask` runs in order: the single-quoted heredoc strip, then the
+ * message-sink strip ({@link withoutMessageSinks} — a `git commit
+ * -m`/`--message` value, a `git commit -F -` heredoc body, and a
+ * `plot-state-receipt.sh --unowned-action` reason are message text a process
+ * never runs); two text tests that read no git — the per-word prefilter, and
+ * for an unattended agent
  * (`PLOT_UNATTENDED=1`) whether the working directory or one above it holds
  * `.plot-worker.pid` or `.plot-verify.pid`; when both answer no, the call is
  * allowed here. Then git is read once: the repository root and whether it is a
@@ -555,7 +560,7 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
   name: 'controller',
   wants: (command) => (process.env.PLOT_UNATTENDED === '1' && command !== '') || mayRunController(command),
   ask: async (command) => {
-    const stripped = withoutQuotedHeredocs(command);
+    const stripped = withoutMessageSinks(withoutQuotedHeredocs(command));
     const cwd = process.cwd();
     const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
     const named = mayRunController(stripped);

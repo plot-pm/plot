@@ -6,6 +6,7 @@ import {
   UNPINNABLE_NOTE,
   unpinnedMerges,
   unpinnedMergeRefusal,
+  withoutMessageSinks,
   withoutQuotedHeredocs,
 } from '../src/rules/controller-gate.js';
 import { controllerInvocation } from '../src/rules/ci-suite.js';
@@ -25,6 +26,57 @@ describe('withoutQuotedHeredocs', () => {
     expect(withoutQuotedHeredocs(unquoted)).toBe(unquoted);
     const double = 'cat <<"EOF"\nplot-deliver.sh x\nEOF';
     expect(withoutQuotedHeredocs(double)).toBe(double);
+  });
+});
+
+describe('withoutMessageSinks', () => {
+  // Issue #2440: the gate refused a commit message that only names a gated
+  // script, never runs one — `controllerInvocation` reads this output, so
+  // these pin the reading through that function, the same as the heredoc strip above.
+  it('blanks a git commit -m value naming a gated script', () => {
+    const command = 'git commit -m "plot-deliver.sh flipped only the Status block"';
+    expect(controllerInvocation(withoutMessageSinks(command))).toBeNull();
+  });
+
+  it('blanks a git commit --message value naming a gated script', () => {
+    const command = 'git commit --message "plot-deliver.sh flipped only the Status block"';
+    expect(controllerInvocation(withoutMessageSinks(command))).toBeNull();
+  });
+
+  it('blanks an unquoted git commit -F - heredoc body naming a gated script', () => {
+    const command = ['git commit -F - <<EOF', 'plot-deliver.sh flipped only the Status block', 'EOF'].join('\n');
+    expect(controllerInvocation(withoutMessageSinks(withoutQuotedHeredocs(command)))).toBeNull();
+  });
+
+  it('blanks the reason argument of plot-state-receipt.sh --unowned-action', () => {
+    const command = 'plot-state-receipt.sh --unowned-action deliver some-slug "plot-deliver.sh flipped only the Status block"';
+    expect(controllerInvocation(withoutMessageSinks(command))).toBeNull();
+  });
+
+  it('never blanks a heredoc body holding a $( ) substitution — it can still invoke a gated script', () => {
+    const command = ['git commit -F - <<EOF', 'written by $(plot-deliver.sh --note)', 'EOF'].join('\n');
+    expect(controllerInvocation(withoutMessageSinks(withoutQuotedHeredocs(command)))).toBe('deliver');
+  });
+
+  it('never blanks a heredoc body holding a backtick substitution', () => {
+    const body = 'written by `plot-deliver.sh --note`';
+    const command = ['git commit -F - <<EOF', body, 'EOF'].join('\n');
+    expect(withoutMessageSinks(withoutQuotedHeredocs(command))).toContain(body);
+  });
+
+  it('does not touch a heredoc feeding a command other than git commit -F -', () => {
+    const command = ['cat <<EOF', 'plot-deliver.sh x', 'EOF'].join('\n');
+    expect(withoutMessageSinks(command)).toBe(command);
+  });
+
+  it('does not blank a quoted -m value with no gated script, leaving the rest of the command readable', () => {
+    const command = 'git commit -m "unrelated text" && bash plot-dispatch.sh slug';
+    expect(controllerInvocation(withoutMessageSinks(command))).toBe('dispatch');
+  });
+
+  it('a real invocation beside a stripped commit message still refuses', () => {
+    const command = ['plot-dispatch.sh slug && git commit -F - <<EOF', 'and we recorded it', 'EOF'].join('\n');
+    expect(controllerInvocation(withoutMessageSinks(withoutQuotedHeredocs(command)))).toBe('dispatch');
   });
 });
 
