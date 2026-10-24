@@ -53,7 +53,7 @@ Step 1 changes a rule the gate and the shell share. A duplicated rule joins the 
 
 ### Gate
 
-- `bug/the-main-checkout-write-gate-misses` — scanner, mutating set, heredoc handling, failed-read behaviour and the continuation env, with domain and board tests <!-- builds: the shell-keyword prefix scanner in main-checkout-write.ts -->
+- `bug/the-main-checkout-write-gate-misses` — scanner, mutating set, heredoc handling, failed-read behaviour and the continuation env, with domain and board tests → #2579 <!-- builds: the shell-keyword prefix scanner in main-checkout-write.ts -->
 
 ### Writers
 
