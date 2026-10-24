@@ -78,6 +78,16 @@ describe('withoutMessageSinks', () => {
     const command = ['plot-dispatch.sh slug && git commit -F - <<EOF', 'and we recorded it', 'EOF'].join('\n');
     expect(controllerInvocation(withoutMessageSinks(withoutQuotedHeredocs(command)))).toBe('dispatch');
   });
+
+  it('does not treat git push as git commit', () => {
+    const command = 'git push origin plot-deliver.sh-notes';
+    expect(withoutMessageSinks(command)).toBe(command);
+  });
+
+  it('leaves an empty segment from a doubled delimiter untouched', () => {
+    const command = 'git commit -m "plot-deliver.sh flipped only the Status block" && && ls';
+    expect(controllerInvocation(withoutMessageSinks(command))).toBeNull();
+  });
 });
 
 describe('mayRunController', () => {

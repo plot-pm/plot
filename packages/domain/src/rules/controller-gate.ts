@@ -75,10 +75,10 @@ const STATE_RECEIPT_SH = 'plot-state-receipt.sh';
 const isUnownedActionReceipt = (words: readonly string[]): boolean =>
   words.some((word) => wordBasename(word) === STATE_RECEIPT_SH) && words.includes('--unowned-action');
 
-/** Whether a simple command's program is `git commit`. */
+/** Whether a simple command's program is `git commit`. Callers only pass non-empty words. */
 const isGitCommit = (words: readonly string[]): boolean => {
   const program = programWords(words);
-  return wordBasename(program[0] ?? '') === 'git' && program[1] === 'commit';
+  return wordBasename(program[0]) === 'git' && program[1] === 'commit';
 };
 
 /**
@@ -120,10 +120,10 @@ export const withoutMessageSinks = (command: string): string => {
   const out: string[] = [];
   let tag: string | null = null;
   let body: string[] | null = null; // collecting a candidate stdin-commit body; null when not in one
-  const flushBody = () => {
-    if (body === null) return;
-    const strippable = !body.some((line) => /\$\(|`|[<>]\(/.test(line));
-    out.push(...body.map((line) => (strippable ? ' '.repeat(line.length) : line)));
+  // Only called where `body` is already known non-null — the caller holds that check.
+  const flushBody = (toFlush: string[]) => {
+    const strippable = !toFlush.some((line) => /\$\(|`|[<>]\(/.test(line));
+    out.push(...toFlush.map((line) => (strippable ? ' '.repeat(line.length) : line)));
     body = null;
   };
   for (const line of lines) {
@@ -131,7 +131,7 @@ export const withoutMessageSinks = (command: string): string => {
       const atTerminator = line.replace(/^\t+/, '') === tag;
       if (atTerminator) tag = null;
       if (body !== null) {
-        if (atTerminator) flushBody();
+        if (atTerminator) flushBody(body);
         else body.push(line);
       }
       if (atTerminator || body === null) out.push(line);
@@ -155,7 +155,8 @@ export const withoutMessageSinks = (command: string): string => {
       .join('');
     out.push(processed);
     if (heredoc) {
-      tag = heredoc[1] ?? heredoc[2] ?? null;
+      // One of the two groups always matched when the regex matched at all.
+      tag = (heredoc[1] ?? heredoc[2]) as string;
       if (opensStdinCommit) body = [];
     }
   }
