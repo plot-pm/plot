@@ -1661,6 +1661,7 @@ export function Row({
   section,
   sliceName = null,
   sprintExempt = false,
+  showSprintSlug = false,
   onRevealBranch,
   highlighted = false,
 }: {
@@ -1670,6 +1671,13 @@ export function Row({
    * see `rowIsSprintExempt`. Renders a `no plan` mark beside the branch name.
    */
   sprintExempt?: boolean;
+  /**
+   * More than one sprint is Active and the reader's selection does not single
+   * one out — see `showsSprintSlug`. Renders `row.sprint` beside the branch
+   * name so a row says which sprint it belongs to; empty where the row names
+   * none.
+   */
+  showSprintSlug?: boolean;
   onOpenPlan?: AgentListProps['onOpenPlan'];
   /** Reveal a branch's row — forwarded to the agent panel's BRANCH fact. */
   onRevealBranch?: AgentListProps['onRevealBranch'];
@@ -2078,6 +2086,20 @@ export function Row({
               title="Not in the sprint — shown under Sprint only because it names no plan"
             >
               no plan
+            </span>
+          )}
+          {/* THE ROW'S OWN SPRINT, shown only while more than one sprint is
+              Active and the selection does not already single one out —
+              `showsSprintSlug`. With exactly one sprint selected the chip row
+              already says which sprint every visible row belongs to, so the
+              mark would repeat what the reader just picked. */}
+          {showSprintSlug && row.sprint && (
+            <span
+              data-row-sprint={row.sprint}
+              className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              title={`Sprint ${row.sprint} — shown because more than one sprint is Active`}
+            >
+              {row.sprint}
             </span>
           )}
           {/* `deferred` — BESIDE the state, never instead of it, the same shape

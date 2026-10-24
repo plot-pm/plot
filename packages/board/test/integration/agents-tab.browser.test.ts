@@ -4561,6 +4561,141 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  // THE SUBSET SELECTION — restores what #2137 removed (see the comment
+  // above `activeSprint`): a per-sprint chip narrows the view to ONE Active
+  // sprint, not all of them, and the row it hides says which sprint it
+  // belongs to while more than one is on screen.
+  describe('per-sprint chips — a true subset selection', () => {
+    const sprintChipFor = (page: Page, slug: string) => page.locator(`[data-chip="sprint:${slug}"]`);
+
+    // `activeSprint` above defaults `members: []`, which matches no plan at
+    // all — not what a subset-selection test needs. Each sprint here owns
+    // exactly its own row's plan, mirroring the brief's own example (two
+    // Active sprints sharing no plan).
+    const sprintOf = (slug: string, title: string, planSlug: string): FleetSprint => ({
+      ...activeSprint(slug, title),
+      members: [{ slug: planSlug, text: '', tier: 'must', checked: false, known: true }],
+    });
+
+    function twoSprintPayload() {
+      return fleet({
+        sprints: [sprintOf('sprint-a', 'Sprint A', 'plan-a'), sprintOf('sprint-b', 'Sprint B', 'plan-b')],
+        // `group: 'not-started'`, not `'working'` — WORKING renders from the
+        // agent registry rather than from `rows`/`filteredRows`
+        // (`AgentList.tsx`: "WORKING RENDERS FROM THE REGISTRY... not the
+        // branch rows `rows` holds for it"), so a `working` row would stay
+        // visible after a sprint filter hid it and the test would not be
+        // exercising the filter at all.
+        rows: [
+          row({
+            branch: 'feature/in-a', plan: 'plan-a', planFile: '2026-10-20-plan-a.md',
+            sprint: 'sprint-a', group: 'not-started',
+          }),
+          row({
+            branch: 'feature/in-b', plan: 'plan-b', planFile: '2026-10-20-plan-b.md',
+            sprint: 'sprint-b', group: 'not-started',
+          }),
+        ],
+      });
+    }
+
+    it('one Active sprint renders no per-sprint chips, and the This sprint chip is unchanged', async () => {
+      const page = await openAgents(fleet({ sprints: [activeSprint('sprint-a', 'Sprint A')] }));
+      try {
+        // Catches an implementation that always renders N chips, including N=1.
+        expect(await page.locator('[data-chip^="sprint:"]').count()).toBe(0);
+        expect(await sprintChip(page).isDisabled()).toBe(false);
+      } finally {
+        await page.close();
+      }
+    });
+
+    it('two Active sprints, one selected via its own chip: the other sprint\'s rows hide and the This sprint chip names the selection', async () => {
+      const page = await openAgents(twoSprintPayload());
+      try {
+        await sprintChipFor(page, 'sprint-a').click();
+
+        await expect.poll(() => sprintChipFor(page, 'sprint-a').getAttribute('data-chip-on')).toBe('1');
+        expect(await sprintChipFor(page, 'sprint-b').getAttribute('data-chip-on')).toBe('0');
+
+        // THE OTHER SPRINT'S ROW IS HIDDEN. A naive per-sprint toggle that
+        // forgets to route through `rowInSprintSelection` would filter rows
+        // correctly but leave a stale hidden count or an unfiltered row list.
+        await expect.poll(() => page.locator('[data-branch="feature/in-a"]').count()).toBe(1);
+        expect(await page.locator('[data-branch="feature/in-b"]').count()).toBe(0);
+
+        // `data-chip="This sprint"` STILL RESOLVES after the label changes —
+        // catches an implementation that derives the selector from the label
+        // text instead of keeping it a fixed attribute.
+        const thisSprint = sprintChip(page);
+        expect(await thisSprint.count()).toBe(1);
+        expect(await thisSprint.textContent()).toContain('Sprint A');
+      } finally {
+        await page.close();
+      }
+    });
+
+    it('a row in exactly one Active sprint, with that sprint the only one selected, shows no sprint slug', async () => {
+      const page = await openAgents(twoSprintPayload());
+      try {
+        await sprintChipFor(page, 'sprint-a').click();
+        await expect.poll(() => sprintChipFor(page, 'sprint-a').getAttribute('data-chip-on')).toBe('1');
+
+        // `showsSprintSlug`'s `selected.length !== 1` arm — catches a naive
+        // implementation keyed only off the Active sprint count.
+        const visibleRow = page.locator('[data-branch="feature/in-a"]');
+        await expect.poll(() => visibleRow.count()).toBe(1);
+        expect(await visibleRow.locator('[data-row-sprint]').count()).toBe(0);
+      } finally {
+        await page.close();
+      }
+    });
+
+    it('reload with a selection in the URL restores the same rows hidden', async () => {
+      const page = await openAgents(twoSprintPayload());
+      try {
+        await sprintChipFor(page, 'sprint-a').click();
+        await expect.poll(() => sprintChipFor(page, 'sprint-a').getAttribute('data-chip-on')).toBe('1');
+
+        // THE READ PATH AND THE WRITE PATH AGREE ON THE PARAMETER NAME AND
+        // FORMAT — a reload with no further click re-derives the same
+        // selection purely from the URL `writeList` already set.
+        await page.reload();
+        await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+        await expandAgentFolds(page);
+        await expandPlans(page);
+
+        await expect.poll(() => sprintChipFor(page, 'sprint-a').getAttribute('data-chip-on')).toBe('1');
+        await expect.poll(() => page.locator('[data-branch="feature/in-a"]').count()).toBe(1);
+        expect(await page.locator('[data-branch="feature/in-b"]').count()).toBe(0);
+      } finally {
+        await page.close();
+      }
+    });
+
+    it('a stale ?deliverySprint= slug on load reads as "all Active sprints", not "zero rows"', async () => {
+      const payload = twoSprintPayload();
+      const page = await cat.browser.newPage();
+      try {
+        await page.route('**/api/fleet', (route) =>
+          route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
+        await page.goto(`${cat.mock.baseURL}?tab=agents&deliverySprint=closed-sprint`);
+        await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+        await expandAgentFolds(page);
+        await expandPlans(page);
+
+        // Neither per-sprint chip reads on, and both sprints' rows are shown —
+        // the stale slug collapsed to "no filter" rather than "nothing matches".
+        expect(await sprintChipFor(page, 'sprint-a').getAttribute('data-chip-on')).toBe('0');
+        expect(await sprintChipFor(page, 'sprint-b').getAttribute('data-chip-on')).toBe('0');
+        await expect.poll(() => page.locator('[data-branch="feature/in-a"]').count()).toBe(1);
+        expect(await page.locator('[data-branch="feature/in-b"]').count()).toBe(1);
+      } finally {
+        await page.close();
+      }
+    });
+  });
+
   // THE BOARD ROW (H7) — issue #1640. The Acceptance payload: one failed row,
   // one running plan and `halted: true`, with no row carrying `fleetHalted`, so
   // the halted line shows. Each count is read against the same payload without

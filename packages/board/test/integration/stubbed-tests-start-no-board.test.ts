@@ -783,7 +783,13 @@ const EXPECTED_FILES = 75;
 // PR status level/case (info absent, warning-stale, error, 429-with-backoff,
 // notices-in-disclosure) for bug/the-board-shows-the-pr-level-and-diagnostics.
 // The file already drove a page, so `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 616;
+// 616 → 621 on 2026-10-24: five `it(` in `agents-tab.browser.test.ts`, the
+// subset-selection coverage #2137 removed (one Active sprint renders no
+// per-sprint chips, a per-sprint chip narrows to that sprint, a row in the
+// one selected sprint shows no slug, a reload restores the selection, a
+// stale slug reads as "all") for bug/this-sprint-selects-a-sprint-subset-ui.
+// The file already drove a page, so `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 621;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

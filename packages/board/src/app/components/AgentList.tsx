@@ -33,8 +33,14 @@ import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
 import { agentRowKey } from '@plot-pm/domain/rules/desk-manifest';
 import { DeliveryFilters } from './DeliveryFilters.js';
-import { activeSprintButton, sprintMembershipLookup } from '../lib/filters.js';
-import { rowIsSprintExempt, sanitizeSelection, slugPassesSprintFilter } from '@plot-pm/domain/rules/sprint-selection';
+import { activeSprintButton, readList, sprintMembershipLookup, writeList } from '../lib/filters.js';
+import {
+  rowInSprintSelection,
+  rowIsSprintExempt,
+  sanitizeSelection,
+  showsSprintSlug,
+  slugPassesSprintFilter,
+} from '@plot-pm/domain/rules/sprint-selection';
 import type { ChipRowReadings } from '@plot-pm/domain/rules/chip-row';
 // THE BOARD'S ONE AGE DIALECT, borrowed rather than reimplemented. A second
 // formatter would drift from this one the first time either changed — the same
@@ -554,22 +560,43 @@ export function AgentList({
   // SPRINT FILTER — which active sprints to show. A set of slugs; empty means
   // no filter (show all). Plan-less rows (`row.sprint === ''`) always pass.
   //
-  // NOT PERSISTED: this is a momentary focus (what am I working on right now)
-  // rather than a standing preference. Persisting it would restore a filter
-  // that no longer matched the reader's task, which is worse than the work of
-  // clicking it again.
+  // NOT PERSISTED IN localStorage: this is a momentary focus (what am I
+  // working on right now) rather than a standing preference.
   //
-  // NOT SYNCED TO URL: sprint filters are typically a quick toggle for the
-  // current session, and URL state would require sanitization against stale
-  // slugs. The Board tab's sprint filter is URL-synced because multiple sprints
-  // can appear in the dropdown; this tab typically has one or two Active sprints
-  // and the toggle is immediate.
-  const [sprintFilter, setSprintFilter] = useState<Set<string>>(() => new Set());
-  // SELECT EVERY ACTIVE SPRINT, or none — the `This sprint` chip's whole
-  // vocabulary. The per-sprint checkboxes this chip replaced each called a
-  // per-slug toggle; the chip is all-or-nothing, so only the all-or-nothing
-  // setter survives.
-  const selectAllSprints = (slugs: string[]) => setSprintFilter(new Set(slugs));
+  // SYNCED TO THE URL, under its OWN parameter — `deliverySprint`, not the
+  // Planning tab's `sprint` (`App.tsx:284`/`:1040`). The two tabs read
+  // different membership (this one joins on `fleet.sprints`, the Planning tab
+  // on `board.sprints`) and a reader narrowing one tab's view has given no
+  // sign they want the other tab's view to move with it — sharing the
+  // parameter would make that coupling accidental rather than argued. Read
+  // once at mount (`readList`); every change writes back through `writeList`,
+  // the same pair the Planning tab already uses (`lib/filters.ts`).
+  const DELIVERY_SPRINT_PARAM = 'deliverySprint';
+  const [sprintFilter, setSprintFilter] = useState<Set<string>>(
+    () => new Set(readList(DELIVERY_SPRINT_PARAM)),
+  );
+  // THE ONE SETTER EVERY CHIP CLICK GOES THROUGH — the per-sprint chips and
+  // the «This sprint» chip alike — so the stored `Set` and the URL can never
+  // drift apart by one of two code paths forgetting to write one of them.
+  const setSelection = (slugs: string[]) => {
+    const next = new Set(slugs);
+    setSprintFilter(next);
+    writeList(DELIVERY_SPRINT_PARAM, [...next]);
+  };
+  // SELECT EVERY ACTIVE SPRINT, or none — the «This sprint» chip's meaning
+  // while it acts alone (one Active sprint) or as an all-or-nothing toggle
+  // (several Active sprints, Decision "Sprint line as control or chip row").
+  const selectAllSprints = (slugs: string[]) => setSelection(slugs);
+  // TOGGLE ONE SPRINT IN THE SELECTION — a per-sprint chip's whole vocabulary.
+  // Goes through `setSelection` like every other setter here, so a per-sprint
+  // click and the «This sprint» click cannot leave the URL and the `Set`
+  // disagreeing about which sprints are selected.
+  const toggleSprintSlug = (slug: string) => {
+    const next = new Set(sprintFilter);
+    if (next.has(slug)) next.delete(slug);
+    else next.add(slug);
+    setSelection([...next]);
+  };
 
   // The fleet's active sprints, guarded for payloads predating the field.
   // Zod's `.default([])` only fires at PARSE time; the client CASTS, so
@@ -631,12 +658,14 @@ export function AgentList({
   // `sprintFilter.size` read would turn the filter on for a slug that no longer
   // filters anything, which is the defect wearing a different number.
   const sprintFilterOn = selectedSprints.length > 0;
+  // Should a row name its own sprint? Only while more than one is Active and
+  // the selection does not already single one out — see `showsSprintSlug`.
+  const showSprintSlug = showsSprintSlug(activeSprints.length, selectedSprints);
 
-  // THE `This sprint` CHIP — one chip, all-or-nothing against every Active
-  // sprint. `chipRow`'s `SprintChipReadings.on` is a single boolean, and the
-  // per-sprint checkboxes this chip replaces are gone, so there is no selected
-  // SUBSET to read back: `sprintFilterOn` already means "every row not in an
-  // Active sprint is hidden", which is what turning the chip on means too.
+  // THE «This sprint» CHIP'S OWN CLICK keeps its pre-subset meaning — off
+  // means every Active sprint, on means none — while a per-sprint chip
+  // (`toggleSprintSlug`) sets a true subset. Both go through `setSelection`,
+  // so the stored `Set` and the URL cannot drift between the two paths.
   const toggleThisSprintChip = () => selectAllSprints(sprintFilterOn ? [] : sprintSelectAll.selection);
 
   // PRUNE THE STORED SELECTION, so a dropped sprint cannot come back. A branch
@@ -653,15 +682,14 @@ export function AgentList({
   // comes back unchanged on the next one.
   useEffect(() => {
     if (activeSprints.length === 0) return;
-    setSprintFilter((prev) => {
-      if (selectedSprints.length >= prev.size) return prev;
-      return new Set(selectedSprints);
-    });
+    // THROUGH `setSelection`, not the raw `setSprintFilter` — a prune that
+    // skipped it would update the in-memory `Set` and leave a stale slug on
+    // screen in the URL, the exact drift `setSelection` exists to prevent.
+    if (selectedSprints.length < sprintFilter.size) setSelection(selectedSprints);
   }, [activeSprints, selectedSprints]);
   const filteredRows = !sprintFilterOn
     ? fleet.rows
-    : fleet.rows.filter((r) =>
-      rowIsSprintExempt(r) || slugPassesSprintFilter(r.plan, selectedSprints, membership));
+    : fleet.rows.filter((r) => rowInSprintSelection(r, selectedSprints, membership));
   // THE ROWS THIS READER ASKED FOR. Applied AFTER the sprint filter and BEFORE
   // `rowsBySection`, for the reason the sprint filter states about itself: both
   // answer *which rows does this reader want*, and the sections answer *where do
@@ -685,9 +713,12 @@ export function AgentList({
   //
   // `sprint.visibleRows` reads `fleet.rows` — the rows BEFORE the sprint
   // filter's own effect, per `SprintChipReadings.visibleRows`'s contract —
-  // each mapped through the same `rowIsSprintExempt`/`slugPassesSprintFilter`
-  // pair the filter itself uses, against EVERY active sprint slug (the chip is
-  // all-or-nothing, matching `toggleThisSprintChip` above).
+  // each mapped through `rowInSprintSelection` against EVERY active sprint
+  // slug, not the current (possibly narrower) selection: the «This sprint»
+  // chip's OWN click is still all-or-nothing (`toggleThisSprintChip` above),
+  // so its hidden count answers what THAT click would hide, the same question
+  // it has always answered. A per-sprint chip's own hidden count — what ITS
+  // click would hide — is computed where that chip renders, not here.
   //
   // `mine.visibleRows` reads `filteredRows` — after the sprint filter, before
   // the `Mine` chip's own effect — each mapped through `ownedFromRow`, the same
@@ -698,7 +729,7 @@ export function AgentList({
       hasActiveSprint: activeSprints.length > 0,
       on: sprintFilterOn,
       visibleRows: fleet.rows.map((r) => ({
-        inSprint: rowIsSprintExempt(r) || slugPassesSprintFilter(r.plan, allSprintSlugs, membership),
+        inSprint: rowInSprintSelection(r, allSprintSlugs, membership),
       })),
     },
     mine: {
@@ -952,6 +983,8 @@ export function AgentList({
         onToggleSprint={toggleThisSprintChip}
         onToggleMine={toggleMineOnly}
         sprints={activeSprints}
+        selectedSprints={selectedSprints}
+        onToggleSprintSlug={toggleSprintSlug}
         mineBoardAnswered={server !== undefined}
         estateTotals={fleet.estateTotals}
       />
@@ -1865,6 +1898,7 @@ export function AgentList({
                                           // slice removes.
                                           onRevealBranch={onRevealBranch}
                                           highlighted={r.branch === highlightBranch}
+                                          showSprintSlug={showSprintSlug}
                                         />
                                       ))}
                                     </ul>
@@ -1895,6 +1929,7 @@ export function AgentList({
                                 agent={agentByBranch.get(r.branch) ?? null}
                                 onRevealBranch={onRevealBranch}
                                 highlighted={r.branch === highlightBranch}
+                                showSprintSlug={showSprintSlug}
                               />
                             ))}
                           </ul>
@@ -2245,6 +2280,7 @@ export function AgentList({
                                     agent={agentByBranch.get(r.branch) ?? null}
                                     onRevealBranch={onRevealBranch}
                                     highlighted={r.branch === highlightBranch}
+                                    showSprintSlug={showSprintSlug}
                                   />
                                 ))}
                               </ul>
@@ -2366,6 +2402,7 @@ export function AgentList({
                           sliceName={SLICE_LINKING_KINDS.has(r.kind) ? null : sliceLabel(r)}
                           onRevealBranch={onRevealBranch}
                           highlighted={r.branch === highlightBranch}
+                          showSprintSlug={showSprintSlug}
                         />
                         )
                       )}
