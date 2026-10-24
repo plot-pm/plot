@@ -134,6 +134,31 @@ const refresh = async (
   return entry;
 };
 
+/**
+ * `refresh`, with the pass's clock pinned to `now` (epoch ms).
+ *
+ * The streak bound and the slow-path gate both read elapsed time off this
+ * clock (`startedAt - headSince`, `startedAt - prReaskAt`), so a test proving
+ * what happens after the bound is spent must move the clock itself rather
+ * than wait — `refresh` always reads `Date.now()`.
+ */
+const refreshAt = async (
+  now: number, scriptsDir: string, home: string, entry: PrState = freshPrState(),
+): Promise<PrState> => {
+  process.env.PLOT_PR_INDEX_HOME = home;
+  process.env.PLOT_BUDGET_HOME = home;
+  entry.backend = 'github';
+  const context = { repoRoot: scriptsDir, scriptDir: scriptsDir };
+  await refreshPrs(
+    {
+      scripts: scriptsShell(context), host: hostShell(context),
+      store: prIndexFile({ cwd: scriptsDir }), now: () => now,
+    },
+    entry,
+  );
+  return entry;
+};
+
 /** The store as it sits on disk, or null where there is none. */
 const onDisk = (home: string): PrIndex | null => {
   const file = path.join(home, 'github.json');
@@ -1070,4 +1095,64 @@ describe('a pending check is asked again (#1277)', () => {
     expect(lastCalls).toHaveLength(1);
     expect(lastCalls[0]).not.toBe(reaskArgv);
   });
+
+  it(
+    'a long-open PR past the streak bound still settles once checks go green (#2560)',
+    async () => {
+      // THE MEASURED SHAPE, PR #2550: a draft whose checks finished green while
+      // its `updatedAt` stayed put, open long enough that `headSince` already
+      // exceeds `Checks wait` by the time the streak is spent. Before the fix,
+      // the slow path also gated on `headSince` being younger than `Checks
+      // wait`; once both the streak limit AND that age gate were closed, the
+      // filter at `askable` dropped the number for good — no more host calls
+      // ask about it, ever, however long it keeps being asked about on every
+      // later delta, and the row settles only on the next whole read (up to
+      // 24h). The fix drops the age gate: the slow cadence keeps running.
+      const home = storeHome();
+      const t0 = 1_700_000_000_000;
+      const checksWaitMs = 3_600_000; // `Checks wait`, 1h.
+      const headSha = 'b4d003b51';
+
+      // Seed: a full read at t0 stores #9 OPEN+pending, headSince = t0.
+      await refreshAt(t0, host([line({
+        number: 9, head: 'feature/nine', state: 'OPEN', checks: 'pending',
+        updatedAt: '2026-09-20T12:00:00Z', headSha,
+      })]), home);
+      expect(onDisk(home)?.rows.find((r) => r.number === 9)?.headSince)
+        .toBe(new Date(t0).toISOString());
+
+      // Five deltas, one per minute, each re-asked and each answering
+      // STILL pending with the same updatedAt/headSha — no progress each
+      // time, so the streak reaches PR_PENDING_REASK_LIMIT (5).
+      const stillPending = [line({
+        number: 9, head: 'feature/nine', state: 'OPEN', checks: 'pending',
+        updatedAt: '2026-09-20T12:00:00Z', headSha,
+      })];
+      let entry = freshPrState();
+      const scriptDirs: string[] = [];
+      for (let i = 1; i <= 5; i += 1) {
+        const scripts = twoFacedHost([], stillPending);
+        scriptDirs.push(scripts);
+        // eslint-disable-next-line no-await-in-loop -- each pass depends on the entry the previous one produced.
+        entry = await refreshAt(t0 + i * 60_000, scripts, home, entry);
+      }
+      expect(onDisk(home)?.rows.find((r) => r.number === 9)?.checks).toBe('pending');
+
+      // One hour and one minute after the head was first seen — past `Checks
+      // wait` — and spent past the streak limit. The host now answers green,
+      // same head.
+      const tPastBound = t0 + checksWaitMs + 60_000;
+      const scriptsGreenHost = twoFacedHost([], [line({
+        number: 9, head: 'feature/nine', state: 'OPEN', checks: 'green', headSha,
+      })]);
+      await refreshAt(tPastBound, scriptsGreenHost, home, entry);
+
+      // THE FIX: the re-ask still fires past the age gate, and the row settles
+      // to green on disk.
+      const calls = argvOf(scriptsGreenHost).filter((l) => l.startsWith('pr-list'));
+      expect(calls).toHaveLength(2);
+      expect(calls[1]).toBe(reaskArgv);
+      expect(onDisk(home)?.rows.find((r) => r.number === 9)?.checks).toBe('green');
+    },
+  );
 });

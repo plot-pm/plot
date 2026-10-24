@@ -49,9 +49,8 @@ afterEach(() => {
   rmTree(home);
 });
 
-const worldOf = (f: Fake, clock: { t: number }, checksWaitMs?: number): PrWorld => ({
+const worldOf = (f: Fake, clock: { t: number }): PrWorld => ({
   scripts: f.scripts, host: hostFake, store: prIndexFile({ cwd: home }), now: () => clock.t,
-  ...(checksWaitMs === undefined ? {} : { checksWaitMs }),
 });
 
 const stored = async (w: PrWorld) => {
@@ -151,19 +150,19 @@ describe('the fold stores the commit fields each arm answers', () => {
 });
 
 describe('the re-ask is bounded by time and covers failing', () => {
-  const seeded = async (checks: string, checksWaitMs = 3_600_000) => {
+  const seeded = async (checks: string) => {
     const clock = { t: T0 };
     const f = fake(() => [], () => [base(1, { checks, headSha: SHA })]);
     // Seed the store with one open PR of this colour, then switch the primary
     // listing to a quiet delta.
     const seed = fake(() => [base(1, { checks, headSha: SHA })], () => []);
-    const w0 = worldOf(seed, clock, checksWaitMs);
+    const w0 = worldOf(seed, clock);
     await pass(w0, freshPrState());
-    const w = worldOf(f, clock, checksWaitMs);
+    const w = worldOf(f, clock);
     return { clock, f, w, state: freshPrState() };
   };
 
-  it('re-asks a pending PR past the count while its head is younger than Checks wait', async () => {
+  it('re-asks a pending PR past the count, however old its head', async () => {
     const { clock, f, w, state } = await seeded('pending');
     for (let i = 0; i < PR_PENDING_REASK_LIMIT; i += 1) {
       clock.t += 60_000;
@@ -193,12 +192,18 @@ describe('the re-ask is bounded by time and covers failing', () => {
     expect(reasks(f)).toHaveLength(after + 1);
   });
 
-  it('stops re-asking once headSince is older than Checks wait', async () => {
-    const { clock, f, w, state } = await seeded('pending', 600_000);
+  it('keeps re-asking at the slow cadence once headSince is older than Checks wait (#2560)', async () => {
+    // THE #2560 SHAPE: a PR open long enough that its head predates `Checks
+    // wait` by the time the streak alone is spent. The old slow path also
+    // gated on `headSince` being younger than `Checks wait`, so a long-open
+    // PR whose checks finished without moving `updatedAt` stopped being
+    // re-asked for good, falling back to the next whole read (up to 24h).
+    // The slow cadence must keep running regardless of head age.
+    const { clock, f, w, state } = await seeded('pending');
     for (let i = 0; i < PR_PENDING_REASK_LIMIT; i += 1) { clock.t += 60_000; await pass(w, state); }
-    clock.t = T0 + 600_000 + PR_PENDING_REASK_SLOW_MS;
+    clock.t = T0 + 3_600_000 + PR_PENDING_REASK_SLOW_MS;
     await pass(w, state);
-    expect(reasks(f)).toHaveLength(PR_PENDING_REASK_LIMIT);
+    expect(reasks(f)).toHaveLength(PR_PENDING_REASK_LIMIT + 1);
   });
 
   it('grows the streak for a failing PR so it is not re-asked on every refresh', async () => {

@@ -131,8 +131,6 @@ export interface PrWorld {
   store: PrIndexStore;
   /** Runs after a pass the host answered, with the open PRs that pass listed. */
   afterAnswer?: (open: Map<string, PrRecord>) => Promise<void>;
-  /** The `Checks wait` bound in ms; defaults to `PR_CHECKS_WAIT_MS`. */
-  checksWaitMs?: number;
   /**
    * Reads the issue gate's last cadence reading, or null where there is none.
    * Absent entirely where no issue gate runs alongside this PR pass.
@@ -251,20 +249,17 @@ export const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
 
 /**
  * How many consecutive re-asks a stuck-`pending` open PR survives before the
- * delta stops asking about it by number.
+ * delta slows down to asking about it by number once per
+ * `PR_PENDING_REASK_SLOW_MS` instead of every delta.
  *
  * A check queue that never runs would otherwise be re-asked every delta
  * forever — one more request per refresh with no answer ever arriving. 5
  * consecutive no-progress answers, at the GitHub cadence this table prices
  * above (one delta roughly every 60 s), is on the order of five minutes of
- * asking before the bound gives up; the PR falls back to being caught by the
- * next full read, the same ceiling every OPEN PR already had before this
- * slice.
+ * asking before the cadence slows; the PR is still asked, just at the slower
+ * rate, however long it stays open (#2560).
  */
 export const PR_PENDING_REASK_LIMIT = 5;
-
-/** The `Checks wait` default, in ms — `plot-config.sh get "Checks wait"` is 3600 s. */
-export const PR_CHECKS_WAIT_MS = 3_600_000;
 
 /** The shortest gap between re-asks once `PR_PENDING_REASK_LIMIT` is spent, in ms. */
 export const PR_PENDING_REASK_SLOW_MS = 300_000;
@@ -1580,21 +1575,24 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
     if (window.since !== null) {
       const pending = pendingOpenPrNumbers(stored);
       // STUCK-PENDING BOUND: a PR whose check queue never runs would be
-      // re-asked every delta forever. A number is asked again only while its
-      // streak of "still pending, same updatedAt" answers is under the limit;
-      // re-asked only while its streak (below) is under the limit.
+      // re-asked every delta forever. A number is asked again every delta
+      // while its streak of "still pending, same updatedAt" answers is under
+      // the limit.
       //
-      // AFTER THE COUNT IS SPENT, TIME BOUNDS IT: a PR whose head is younger than
-      // `Checks wait` is re-asked at most once per `PR_PENDING_REASK_SLOW_MS`,
-      // because CI outlasts five minutes. `failing` is included — a re-run can
-      // turn it green.
-      const waitMs = world.checksWaitMs ?? PR_CHECKS_WAIT_MS;
-      const askable = pending.filter((n) => {
-        if ((entry.prPendingReaskStreak.get(n) ?? 0) < PR_PENDING_REASK_LIMIT) return true;
-        const since = Date.parse(storedByNumber.get(n)?.headSince ?? '');
-        return Number.isFinite(since) && startedAt - since < waitMs
-          && startedAt - (entry.prReaskAt.get(n) ?? 0) >= PR_PENDING_REASK_SLOW_MS;
-      });
+      // AFTER THE COUNT IS SPENT, THE CADENCE SLOWS BUT DOES NOT STOP: a PR is
+      // re-asked at most once per `PR_PENDING_REASK_SLOW_MS`, with no cutoff on
+      // how long it has been open. `Checks wait` used to end the slow path once
+      // the PR's HEAD outaged that bound, which answers "is this branch old?"
+      // rather than "are its checks still running?" — unrelated questions a
+      // long-open PR with a just-finished check run (#2560) conflated: its
+      // `headSince` was older than `Checks wait` by the time the streak alone
+      // was spent, so the slow path never got to run at all, and the row sat
+      // `pending` until the next full read, as long as `PR_FULL_READ_MS` (24h).
+      // `failing` is included — a re-run can turn it green.
+      const askable = pending.filter((n) => (
+        (entry.prPendingReaskStreak.get(n) ?? 0) < PR_PENDING_REASK_LIMIT
+        || startedAt - (entry.prReaskAt.get(n) ?? 0) >= PR_PENDING_REASK_SLOW_MS
+      ));
       if (askable.length > 0) {
         try {
           for (const n of askable) entry.prReaskAt.set(n, startedAt);
