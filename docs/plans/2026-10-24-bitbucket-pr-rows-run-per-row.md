@@ -57,7 +57,7 @@ The merge path in step 2 changes what a merge reads. A head read without Jenkins
 
 ### Mergeable fold
 
-- `bug/bitbucket-mergeable-fold-open-rows` — `bb_fold_mergeable` runs for OPEN rows only, honours `--repo`, bounds each `git fetch`, and `pr-state` keeps the exit status of `bb_state_row`
+- `bug/bitbucket-mergeable-fold-open-rows` — `bb_fold_mergeable` runs for OPEN rows only, honours `--repo`, bounds each `git fetch`, and `pr-state` keeps the exit status of `bb_state_row` → #2546
 
 ### Checks lookups
 
