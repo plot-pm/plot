@@ -248,3 +248,61 @@ describe('a draft PR is re-asked like any open PR', () => {
     expect(reasks(f)).toHaveLength(0);
   });
 });
+
+describe('a lookup that did not reach a row carries the stored colour only for the same head', () => {
+  /** Ages the store's `wholeAt` so the next pass is a full read. */
+  const ageWhole = async (w: PrWorld) => {
+    const held = await w.store.read('github');
+    if (!held.ok || held.value === null) throw new Error('no store to age');
+    await w.store.write('github', { ...held.value, wholeAt: '2026-01-01T00:00:00Z' });
+  };
+
+  it('shows the carried green on the board after a full read', async () => {
+    const clock = { t: T0 };
+    let answer: Record<string, unknown> = { checks: 'green', headSha: SHA, checksSha: SHA };
+    const f = fake(() => [base(1, answer)], () => []);
+    const w = worldOf(f, clock);
+    const state = freshPrState();
+    await pass(w, state);
+    answer = { checks: 'unknown', headSha: SHA, checksLookup: 'skipped' };
+    await ageWhole(w);
+    clock.t = T0 + 120_000;
+    await pass(w, state);
+    expect((await stored(w))[0]).toMatchObject({ checks: 'green', checksSha: SHA });
+    expect(state.prsByNumber?.get(1)?.checks).toBe('green');
+    expect(state.prs?.get('feature/p1')?.checks).toBe('green');
+    expect(state.prsByHead?.get('feature/p1')?.checksSha).toBe(SHA);
+  });
+
+  for (const lookup of ['skipped', 'broken'] as const) {
+    it(`reads unknown for a ${lookup} lookup on a moved head`, async () => {
+      const clock = { t: T0 };
+      let answer: Record<string, unknown> = { checks: 'green', headSha: SHA, checksSha: SHA };
+      const f = fake(() => [base(1, answer)], () => []);
+      const w = worldOf(f, clock);
+      const state = freshPrState();
+      await pass(w, state);
+      answer = { checks: 'unknown', headSha: SHA2, checksLookup: lookup };
+      clock.t = T0 + 120_000;
+      await pass(w, state);
+      const row = (await stored(w))[0];
+      expect(row.checks).toBe('unknown');
+      expect('checksSha' in row).toBe(false);
+      expect(state.prsByNumber?.get(1)?.checks).toBe('unknown');
+    });
+
+    it(`carries the stored colour for a ${lookup} lookup on an unmoved head`, async () => {
+      const clock = { t: T0 };
+      let answer: Record<string, unknown> = { checks: 'failing', headSha: SHA, checksSha: SHA };
+      const f = fake(() => [base(1, answer)], () => []);
+      const w = worldOf(f, clock);
+      const state = freshPrState();
+      await pass(w, state);
+      answer = { checks: 'unknown', headSha: SHA, checksLookup: lookup };
+      clock.t = T0 + 120_000;
+      await pass(w, state);
+      expect((await stored(w))[0]).toMatchObject({ checks: 'failing', checksSha: SHA });
+      expect(state.prsByNumber?.get(1)?.checks).toBe('failing');
+    });
+  }
+});

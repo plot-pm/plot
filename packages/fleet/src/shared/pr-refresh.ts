@@ -3,6 +3,7 @@ import {
   answerKind,
   boundFromLimit,
   cadenceRateOf,
+  carriedChecks,
   concurrencyBound,
   foldPrIndex,
   heldSlots,
@@ -1116,15 +1117,13 @@ const storeRow = (
   if (Array.isArray(pr.failing_checks)) row.failing_checks = pr.failing_checks;
   if (typeof pr.updatedAt === 'string' && pr.updatedAt !== '') row.updatedAt = pr.updatedAt;
   if (typeof pr.author === 'string' && pr.author !== '') row.author = pr.author;
-  // A row this pass's Jenkins lookup never reached ('skipped' past the cap, or
-  // 'broken' before it got there) carries no fresh answer — rotation extends
-  // the predecessor's stable reading rather than collapsing it to 'unknown'.
-  // Only where there IS a predecessor checksSha to extend; never fabricated.
-  if ((pr.checksLookup === 'skipped' || pr.checksLookup === 'broken')
-    && typeof predecessor?.checksSha === 'string' && predecessor.checksSha !== '') {
-    row.checksSha = predecessor.checksSha;
-    row.checks = predecessor.checks;
-  } else if (typeof pr.checksSha === 'string' && pr.checksSha !== '') row.checksSha = pr.checksSha;
+  // `carriedChecks` decides the colour: the host's answer, or the stored one
+  // where this pass's Jenkins lookup did not reach the row and the head has
+  // not moved. Idempotent, so a `pr` that `withCarriedChecks` already carried
+  // stores the same reading.
+  const reading = carriedChecks(pr, predecessor);
+  row.checks = reading.checks;
+  if (reading.checksSha !== undefined) row.checksSha = reading.checksSha;
   if (pr.checksLookup === 'skipped' || pr.checksLookup === 'broken') row.checksLookup = pr.checksLookup;
   // A MERGED row is terminal: while the host answers MERGED, the first stored
   // `mergedAt` stands. Bitbucket reads it from `updated_on`, which moves on
@@ -1142,6 +1141,19 @@ const storeRow = (
       : new Date(now).toISOString();
   }
   return row;
+};
+
+/**
+ * Applies `carriedChecks` to a host record before it enters the board's maps,
+ * so the maps and the store show the same colour on every kind of pass.
+ *
+ * @param pr - the normalized host record; its `checks` and `checksSha` change in place.
+ * @param predecessor - the stored row with the same number, if any.
+ */
+const withCarriedChecks = (pr: PrRecord, predecessor: PrIndexRow | undefined): void => {
+  const reading = carriedChecks(pr, predecessor);
+  pr.checks = reading.checks;
+  if (reading.checksSha !== undefined) pr.checksSha = reading.checksSha;
 };
 
 /**
@@ -1548,6 +1560,9 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // Its absent value is "", the one `url` has: an unknown owner. The store
       // keeps no "" — `storeRow` omits it — so a stored row stays unanswered.
       if (typeof pr.author !== 'string') pr.author = '';
+      // BEFORE THE MAPS: a full read serves `map`/`byNumber`/`byHead` directly,
+      // so a colour carried only into the store would not reach the board.
+      withCarriedChecks(pr, storedByNumber.get(pr.number));
       // A merged or declined PR must NOT reach `classify` by head: it would
       // answer for a branch whose git state has already answered, and reopen a
       // question the merge closed. Numbers are indexed regardless — a link to a
@@ -1625,6 +1640,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
               if (typeof pr.mergeable !== 'string' || !pr.mergeable) pr.mergeable = 'unknown';
               if (!Array.isArray(pr.failing_checks)) pr.failing_checks = [];
               if (typeof pr.author !== 'string') pr.author = '';
+              withCarriedChecks(pr, storedByNumber.get(pr.number));
               if (pr.head && pr.state === 'OPEN') map.set(pr.head, pr);
               byNumber.set(pr.number, pr);
               rows.push(storeRow(pr, storedByNumber.get(pr.number), clock()));

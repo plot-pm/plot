@@ -8,7 +8,7 @@ import {
   type PrIndexRow,
 } from '../src/entities/pr-index.js';
 import {
-  answerKind, foldPrIndex, pendingOpenPrNumbers, prWindowFor, watermarkOf,
+  answerKind, carriedChecks, foldPrIndex, pendingOpenPrNumbers, prWindowFor, watermarkOf,
 } from '../src/rules/pr-index.js';
 
 /**
@@ -864,5 +864,53 @@ describe('a terminal row takes the verdicts the store already holds', () => {
       rows: [plainTerminal(8, 'MERGED')],
     });
     expect(folded.rows.map((r) => r.number)).toEqual([8]);
+  });
+});
+
+describe('a stored checks colour carries only for the same head', () => {
+  const HEAD = 'a1'.repeat(20);
+  const MOVED = 'b2'.repeat(20);
+  const held = row(1, { checks: 'green', headSha: HEAD, checksSha: HEAD });
+
+  it('carries the stored colour for a skipped lookup on an unmoved head', () => {
+    expect(carriedChecks({ checks: 'unknown', checksLookup: 'skipped', headSha: HEAD }, held))
+      .toEqual({ checks: 'green', checksSha: HEAD });
+  });
+
+  it('carries the stored colour for a broken lookup on an unmoved head', () => {
+    expect(carriedChecks({ checks: 'unknown', checksLookup: 'broken', headSha: HEAD }, held))
+      .toEqual({ checks: 'green', checksSha: HEAD });
+  });
+
+  it('reads unknown for a skipped lookup on a moved head', () => {
+    expect(carriedChecks({ checks: 'unknown', checksLookup: 'skipped', headSha: MOVED }, held))
+      .toEqual({ checks: 'unknown' });
+  });
+
+  it('reads unknown for a broken lookup on a moved head', () => {
+    expect(carriedChecks({ checks: 'unknown', checksLookup: 'broken', headSha: MOVED }, held))
+      .toEqual({ checks: 'unknown' });
+  });
+
+  it('reads unknown where the answer names no head', () => {
+    expect(carriedChecks({ checks: 'unknown', checksLookup: 'skipped' }, held))
+      .toEqual({ checks: 'unknown' });
+  });
+
+  it('keeps a stored failing off a moved head', () => {
+    const failing = row(1, { checks: 'failing', headSha: HEAD, checksSha: HEAD });
+    expect(carriedChecks({ checks: 'unknown', checksLookup: 'broken', headSha: MOVED }, failing))
+      .toEqual({ checks: 'unknown' });
+  });
+
+  it('reads the host answer where the lookup reached the row', () => {
+    expect(carriedChecks({ checks: 'pending', checksSha: MOVED, headSha: MOVED }, held))
+      .toEqual({ checks: 'pending', checksSha: MOVED });
+  });
+
+  it('reads the host answer where no predecessor or no stored checksSha exists', () => {
+    const answer = { checks: 'unknown', checksLookup: 'skipped', headSha: HEAD };
+    expect(carriedChecks(answer, undefined)).toEqual({ checks: 'unknown' });
+    expect(carriedChecks(answer, row(1, { headSha: HEAD }))).toEqual({ checks: 'unknown' });
   });
 });

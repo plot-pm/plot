@@ -412,3 +412,47 @@ export const prWindowFor = (
   }
   return { since: held.watermark, kind: 'delta' };
 };
+
+/** A checks colour and the commit it was read for, where one is known. */
+export interface ChecksCarry {
+  checks: string;
+  checksSha?: string;
+}
+
+/** The fields of one host answer that decide whether a stored colour carries. */
+export interface ChecksAnswer {
+  checks: string;
+  checksSha?: string;
+  checksLookup?: string;
+  headSha?: string;
+}
+
+/**
+ * The checks colour a row shows after this pass: the host's answer, or the
+ * stored predecessor's colour where this pass's Jenkins lookup did not reach
+ * the row.
+ *
+ * The predecessor's `checks` and `checksSha` carry only where all three hold:
+ * the answer's `checksLookup` is `skipped` or `broken`, the predecessor has a
+ * non-empty `checksSha`, and that `checksSha` equals the answer's `headSha`.
+ * A head that moved since the stored reading keeps the host's answer, which
+ * is `unknown` for such a row: the stored colour belongs to a commit the PR no
+ * longer carries.
+ *
+ * @param answer - the host's answer for the row.
+ * @param predecessor - the stored row with the same number, if any.
+ * @returns the colour to store and show, with `checksSha` only where it is non-empty.
+ */
+export const carriedChecks = (
+  answer: ChecksAnswer, predecessor: PrIndexRow | undefined,
+): ChecksCarry => {
+  const unreached = answer.checksLookup === 'skipped' || answer.checksLookup === 'broken';
+  const sha = predecessor?.checksSha;
+  if (unreached && predecessor !== undefined && typeof sha === 'string' && sha !== ''
+    && sha === answer.headSha) {
+    return { checks: predecessor.checks, checksSha: sha };
+  }
+  return typeof answer.checksSha === 'string' && answer.checksSha !== ''
+    ? { checks: answer.checks, checksSha: answer.checksSha }
+    : { checks: answer.checks };
+};
