@@ -42,7 +42,7 @@ The route still decides nothing about the plan. The layering rule holds: the con
 
 ### Open Questions
 
-- [ ] Does the push go through the agent (the skill commits and pushes) or through the route after the run ends? A route-side push needs a controller receipt; an agent-side push needs the worktree's credentials.
+- [x] Does the push go through the agent (the skill commits and pushes) or through the route after the run ends? **Agent-side.** `handleInterrogate` hands off to the configured `Interrogate command` through the `agentRun` port and answers 202 before the round runs — nothing in `interrogate.ts` is still running when the round ends to catch the skill's output or push on its behalf. A route-side push would need a poll-or-block shape the route does not have; the agent-side push fits the existing hand-off unchanged. `skills/challenge-the-plan/SKILL.md`'s Phase 7b detects a detached worktree from git state alone (`git symbolic-ref -q HEAD`, then `git for-each-ref --points-at=HEAD refs/remotes/origin/` to find the branch) and pushes with plain git — no new `interrogate.ts` env var or control-flow change.
 - [ ] Should the route also serve an Approved plan that the operator takes back for interrogation, or does that stay with `needs-design`? The issue names the gap and asks only for the Draft case.
 - [ ] A plan PR branch that moved during the run: refuse the push, or rebase and retry?
 
