@@ -62,7 +62,7 @@ Four slices, grouped by the code each touches, so each PR stays reviewable and n
 
 ### Release gate
 
-- `bug/sprint-release-gate-ignores-withdrawn-and-partial-reads` — Keep item state in the Jira Release drift gate, report an incomplete Release read as not checked, and make `resolveItemKey` return only the key.
+- `bug/sprint-release-gate-ignores-withdrawn-and-partial-reads` → #2576 — Keep item state in the Jira Release drift gate, report an incomplete Release read as not checked, and make `resolveItemKey` return only the key.
 
 ### Sprint readers
 
