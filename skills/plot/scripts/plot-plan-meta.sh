@@ -374,6 +374,15 @@ function jesc(s) {
   return s
 }
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+# Inserts v into arr[1..n], kept sorted and free of duplicates, and returns the
+# new count. A numeric v compares numerically and a string v as a string, so
+# the caller decides the order by the type it passes. Portable: no gawk asort.
+function sorted_insert(arr, n, v,   j) {
+  for (j = 1; j <= n; j++) if (arr[j] == v) return n
+  for (j = n; j >= 1 && arr[j] > v; j--) arr[j+1] = arr[j]
+  arr[j+1] = v
+  return n + 1
+}
 # Renders `n` `{"k1":"...","k2":"..."}` objects, reading arr1[i]/arr2[i] for
 # i=1..n — the shape unread_waits and unread_heading_items both emit.
 function emit_pairs(n, k1, arr1, k2, arr2,   i, out) {
@@ -630,43 +639,15 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
       issue2 = substr(issue2, RSTART + RLENGTH)
     }
   }
-  # Insertion sort + dedupe (portable: no gawk asort).
-  nb = 0
-  for (i = 1; i <= n_branches; i++) {
-    for (j = 1; j <= nb && sorted_b[j] != branches[i]; j++) ;
-    if (j <= nb) continue
-    for (j = nb; j >= 1 && sorted_b[j] > branches[i]; j--) sorted_b[j+1] = sorted_b[j]
-    sorted_b[j+1] = branches[i]; nb++
-  }
-  np = 0
-  for (i = 1; i <= n_prs; i++) {
-    for (j = 1; j <= np && sorted_p[j] != prs[i]+0; j++) ;
-    if (j <= np) continue
-    for (j = np; j >= 1 && sorted_p[j] > prs[i]+0; j--) sorted_p[j+1] = sorted_p[j]
-    sorted_p[j+1] = prs[i]+0; np++
-  }
+  nb = 0; for (i = 1; i <= n_branches; i++) nb = sorted_insert(sorted_b, nb, branches[i])
+  np = 0; for (i = 1; i <= n_prs; i++) np = sorted_insert(sorted_p, np, prs[i] + 0)
   # Issues: sort numeric (GitHub) issues first, then string (Jira) keys.
   # Separate into two arrays, sort each, then concatenate.
   n_num_i = 0; n_str_i = 0
   for (i = 1; i <= n_issues; i++) {
     v = issues[i]
-    if (v ~ /^[0-9]+$/) {
-      # Numeric: check for duplicate, then insert sorted.
-      is_dup = 0
-      for (j = 1; j <= n_num_i; j++) if (num_issues[j] == v + 0) { is_dup = 1; break }
-      if (!is_dup) {
-        for (j = n_num_i; j >= 1 && num_issues[j] > v + 0; j--) num_issues[j+1] = num_issues[j]
-        num_issues[j+1] = v + 0; n_num_i++
-      }
-    } else {
-      # String (Jira key): check for duplicate, then insert sorted.
-      is_dup = 0
-      for (j = 1; j <= n_str_i; j++) if (str_issues[j] == v) { is_dup = 1; break }
-      if (!is_dup) {
-        for (j = n_str_i; j >= 1 && str_issues[j] > v; j--) str_issues[j+1] = str_issues[j]
-        str_issues[j+1] = v; n_str_i++
-      }
-    }
+    if (v ~ /^[0-9]+$/) n_num_i = sorted_insert(num_issues, n_num_i, v + 0)
+    else n_str_i = sorted_insert(str_issues, n_str_i, v "")
   }
   # Concatenate: numeric first, then string (matches the field ordering the
   # board expects — GitHub issues before Jira keys when both are present).

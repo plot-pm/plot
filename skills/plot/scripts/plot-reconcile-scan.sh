@@ -1663,38 +1663,16 @@ while IFS="$US" read -r f _st _raw _alt _alt_raw _branches _prs _ptype psprint; 
   plan_phase_map="$plan_phase_map$pslug"$'\t'"$_st"$'\n'
 done <<< "$plan_rows"
 
-# Lookup a plan's phase from the map. $1 = slug; prints the phase (draft,
-# approved, delivered, released, …) or nothing. Returns 0 if the slug names a
-# known plan, 1 otherwise — an item whose slug resolves to no plan is not this
-# section's finding (the brief: bare prose lines carry no phase to read).
-lookup_plan_phase() {
-  local result
-  result=$(printf '%s' "$plan_phase_map" | awk -F'\t' -v s="$1" '$1 == s { print $2; exit }')
-  # A here-string, not a pipe: `grep -q` exits on the first match, and under
-  # pipefail a map larger than the pipe buffer (64 KB; 417 plans filled 18 KB)
-  # fails its writer with SIGPIPE and reads a known slug as unknown.
-  if grep -q "^$1"$'\t' <<< "$plan_phase_map"; then
-    printf '%s' "$result"
-    return 0
-  fi
-  return 1
-}
-
-# Lookup a plan's sprint field from the map.
-# $1 = slug; prints the sprint field value (may be empty)
-# Returns 0 if found, 1 if not found.
-lookup_plan_sprint() {
-  local result
-  result=$(printf '%s' "$plan_sprint_map" | awk -F'\t' -v s="$1" '$1 == s { print $2; exit }')
-  # A here-string, not a pipe: `grep -q` exits on the first match, and under
-  # pipefail a map larger than the pipe buffer (64 KB; 417 plans filled 18 KB)
-  # fails its writer with SIGPIPE and reads a known slug as unknown.
-  if grep -q "^$1"$'\t' <<< "$plan_sprint_map"; then
-    printf '%s' "$result"
-    return 0
-  fi
-  return 1
-}
+# Looks a slug up in a slug<TAB>value map. $1 = map, $2 = slug; prints the
+# value (may be empty) and returns 0 if the slug names a known plan, 1
+# otherwise — an item whose slug resolves to no plan is not a finding of the
+# sections that ask (bare prose lines carry no phase to read). A here-string,
+# not a pipe: a reader that exits on the first match fails a writer under
+# pipefail once the map outgrows the pipe buffer (64 KB; 417 plans filled
+# 18 KB), and reads a known slug as unknown.
+lookup_in_map() { awk -F'\t' -v s="$2" '$1 == s { printf "%s", $2; f = 1; exit } END { exit !f }' <<< "$1"; }
+lookup_plan_phase() { lookup_in_map "$plan_phase_map" "$1"; }
+lookup_plan_sprint() { lookup_in_map "$plan_sprint_map" "$1"; }
 
 # Parse each sprint file and check its members. Walk ALL sprint files (not just
 # active/) because a closed sprint's membership is still subject to drift.
@@ -1823,20 +1801,9 @@ if [ -d "$SPRINT_DIR" ]; then
     # Parse member lines: `- [ ] [slug]` or `- [x] [slug]` — same regex as
     # board.ts and the sprint-membership sections. Only UNCHECKED items matter here.
     while IFS= read -r line; do
-      # Extract check state and slug.
-      local_checked=""
-      local_slug=""
-      if [[ "$line" =~ ^-\ \[\ \]\ \[([^\]]+)\] ]]; then
-        local_checked=false
-        local_slug="${BASH_REMATCH[1]}"
-      elif [[ "$line" =~ ^-\ \[[xX]\]\ \[([^\]]+)\] ]]; then
-        local_checked=true
-        local_slug="${BASH_REMATCH[1]}"
-      else
-        continue
-      fi
-      # Only unchecked items are candidates.
-      [ "$local_checked" = false ] || continue
+      # Only an unchecked item is a candidate; a checked one or any other line is skipped.
+      [[ "$line" =~ ^-\ \[\ \]\ \[([^\]]+)\] ]] || continue
+      local_slug="${BASH_REMATCH[1]}"
       # Dedupe: a plan with multiple waves appears multiple times.
       case "$seen_stale_in_sprint" in
         *"$local_slug"*) continue ;;
@@ -1845,9 +1812,7 @@ if [ -d "$SPRINT_DIR" ]; then
 
       # Does this slug name a plan we know about? An unresolvable item is not
       # this section's finding — skip silently (see comment above).
-      if ! plan_phase=$(lookup_plan_phase "$local_slug"); then
-        continue
-      fi
+      plan_phase=$(lookup_plan_phase "$local_slug") || continue
       # Is the plan delivered or released? Only those are stale.
       case "$plan_phase" in
         delivered|released)
