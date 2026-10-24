@@ -33,7 +33,6 @@ set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 plan_file="${1:-}"
-shift || true
 bundle="$script_dir/board/plot-issue-status.mjs"
 
 fail_as() { echo "plot-issue-status: $1" >&2; echo "summary: tracker=failed"; exit 2; }
@@ -48,6 +47,6 @@ released=$(bash "$script_dir/plot-config.sh" get "Tracker released status" '' 2>
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null); [ -n "$repo_root" ] || repo_root=$(pwd)
 out=$(printf '%s' "$meta" | PLOT_SCRIPTS_DIR="$script_dir" PLOT_REPO_ROOT="$repo_root" \
-  node "$bundle" --approved "$approved" --delivered "$delivered" --released "$released" "$@") || { [ -z "$out" ] || printf '%s\n' "$out"; fail_as "the bundle failed"; }
+  node "$bundle" --approved "$approved" --delivered "$delivered" --released "$released" "${@:2}") || { [ -z "$out" ] || printf '%s\n' "$out"; fail_as "the bundle failed"; }
 printf '%s\n' "$out"
 exit 0
