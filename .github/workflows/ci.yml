@@ -400,7 +400,10 @@ jobs:
       - name: Resolve the Playwright version
         id: playwright-version
         run: |
-          echo "version=$(pnpm --filter @plot-pm/board exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          version="$(pnpm --filter @plot-pm/board exec playwright --version | awk '{print $2}')"
+          [ -n "$version" ] || { echo "::error::empty Playwright version"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       # THE STEP THAT HUNG ELEVEN TIMES IN ONE DAY, and neither half of this is
       # optional. The cache usually removes the download entirely; the timeout
@@ -442,15 +445,33 @@ jobs:
       # directory. Keyed on the resolved Playwright version, like the browser
       # cache: the set of packages `install-deps` wants follows that version,
       # not the lockfile.
+      #
+      # THE KEY NAMES THE PACKAGE SET, NOT ONLY THE VERSION. An exact-key hit
+      # never saves again, so a key that tracked the Playwright version alone
+      # froze the `.deb`s at whatever Ubuntu published the day it was first
+      # saved. `install-deps --dry-run` simulates through `apt-get -s`, which
+      # reads the runner's local package lists and fetches nothing: its `Inst`
+      # lines name each package and version the install would unpack. The key
+      # hashes those lines, so a changed package set misses and saves anew.
+      # There is no `restore-keys`: the install step copies a restored cache
+      # in only on an exact hit, so a near-miss restore would download for
+      # nothing.
+      - name: Resolve the apt package set
+        id: playwright-apt-set
+        run: |
+          set -euo pipefail
+          pw_cli="$(dirname "$(pnpm --filter @plot-pm/board exec node -p "require.resolve('playwright/package.json')")")/cli.js"
+          plan="$(node "$pw_cli" install-deps --dry-run chromium 2>&1 | grep '^Inst ' || true)"
+          [ -n "$plan" ] || { echo "::error::install-deps --dry-run planned no packages"; exit 1; }
+          echo "hash=$(printf '%s' "$plan" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
       - name: Cache Playwright's apt packages
         timeout-minutes: 10
         id: playwright-apt-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/playwright-apt
-          key: playwright-apt-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
-          restore-keys: |
-            playwright-apt-${{ runner.os }}-
+          key: playwright-apt-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}-${{ steps.playwright-apt-set.outputs.hash }}
 
       # A CACHE HIT STILL RAN `apt-get` ON EVERY INVOCATION, before the apt
       # cache above existed. Measured 2026-10-22 across three failed runs
@@ -488,11 +509,13 @@ jobs:
       # fit the 7-minute step bound.
       - name: Install Playwright system packages
         timeout-minutes: 7
+        env:
+          APT_CACHE_HIT: ${{ steps.playwright-apt-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
           mkdir -p ~/.cache/playwright-apt
           sudo mkdir -p /var/cache/apt/archives
-          sudo cp -n ~/.cache/playwright-apt/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+          if [ "$APT_CACHE_HIT" = true ]; then sudo cp -n ~/.cache/playwright-apt/*.deb /var/cache/apt/archives/ 2>/dev/null || true; fi
           echo 'DPkg::Lock::Timeout "60";' | sudo tee /etc/apt/apt.conf.d/90-plot-lock-timeout >/dev/null
           pw_cli="$(dirname "$(pnpm --filter @plot-pm/board exec node -p "require.resolve('playwright/package.json')")")/cli.js"
           node_bin="$(command -v node)"
@@ -511,11 +534,15 @@ jobs:
       # runner-owned staging directory this cache step ACTUALLY watches is what
       # lets `actions/cache`'s post-job tar — which never runs as root — read
       # them. `sudo cp` can read a root-owned source; nothing past this step
-      # touches /var/cache/apt/archives directly again.
+      # touches /var/cache/apt/archives directly again. The staging directory
+      # is emptied first: the archive holds only what this run fetched (the
+      # restored cache is copied in on an exact hit alone), so what is saved
+      # carries no `.deb` from another package generation.
       - name: Stage this run's apt packages for the cache
         if: always()
         run: |
           mkdir -p ~/.cache/playwright-apt
+          rm -f ~/.cache/playwright-apt/*.deb
           sudo cp -n /var/cache/apt/archives/*.deb ~/.cache/playwright-apt/ 2>/dev/null || true
           sudo chown "$(id -u):$(id -g)" ~/.cache/playwright-apt/*.deb 2>/dev/null || true
 
