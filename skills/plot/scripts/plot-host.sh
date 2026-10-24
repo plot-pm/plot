@@ -1860,7 +1860,7 @@ jenkins_resolve_host() {
 # `tree=` query already returns today (measured 2026-09-10: 4855 bytes for
 # five builds).
 jenkins_sha_runs() {
-  local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain="" default_job root_path fetch
+  local op="$1" branch="$2" limit="$3" sha="$4" instance slug host job cred tree body try path plain="" default_job root_path
   instance="$(jenkins_instance)"; [ -n "$instance" ] || jenkins_no_instance
   slug="${instance%%/*}"; job="${instance#*/}"; [ "$job" = "$instance" ] && job=""
   default_job=$(bash "$here/plot-config.sh" get "Default branch job" "" 2>/dev/null || true); [ -n "$default_job" ] && [ "$branch" = "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')" ] && job="$default_job"
@@ -1873,8 +1873,7 @@ jenkins_sha_runs() {
     echo "  Jenkins' REST API takes basic auth with an API token, which \`jen auth login\` stores in the login keychain. The Keycloak bearer from \`jen auth token\` is NOT it." >&2
     exit 4
   }
-  fetch=$((limit * 3))
-  tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,$fetch%7D"
+  tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,$((limit * 3))%7D"
   body=""; root_path="$(jenkins_job_url_path "$job" "")"
   for path in "$(jenkins_job_url_path "$job" "$branch")" "$root_path"; do
     host_slot_take jenkins ''
@@ -1896,7 +1895,7 @@ jenkins_sha_runs() {
     echo "plot-host: $op — Jenkins did not answer for '$host'" >&2
     exit 4
   fi
-  printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" --arg branch "$branch" --arg plain "$plain" --argjson limit "$limit" 'def headsha($records): ($records | map(select(any(.branches[]; . == $branch))) | first.sha) // ($records | last.sha // "");
+  printf '%s' "$body" | jq -c --arg sha "$sha" --arg job "$job" --arg branch "$branch" --arg plain "$plain" --argjson limit "$limit" 'def headsha($records): ($records | map(select(any(.branches[]; . == $branch))) | first.sha) // (if [$records[].branches[]] | length == 0 then $records | last.sha // "" else "" end);
     [ .builds[]
       | { records: [ .actions[]? | select(.lastBuiltRevision) | .lastBuiltRevision
             | { sha: .SHA1, branches: [ .branch[]?.name // empty | sub("^(refs/remotes/|refs/heads/)"; "") | sub("^origin/"; "") ] } ],
@@ -1905,10 +1904,8 @@ jenkins_sha_runs() {
           url: (.url // ""),
           startedAt: (if .timestamp then (.timestamp / 1000 | todate) else "" end), workflow: $job } ] | map(select(.conclusion != "NOT_BUILT")) | (if $sha == "" then map(select(.conclusion != "ABORTED")) else . end)
     | if $sha != "" then map(select(headsha(.records) as $h | $h == $sha or (($sha | test("^[0-9a-f]{7,}$")) and ($h | startswith($sha)))))
-      elif $plain == "" then .
-      else map(select(any(.records[].branches[]; . == $branch))) end
-    | map(.sha = headsha(.records) | del(.records))
-    | .[0:$limit]' || exit 4
+      elif $plain == "" then . else map(select(any(.records[].branches[]; . == $branch))) end
+    | map(.sha = headsha(.records) | del(.records)) | .[0:$limit]' || exit 4
 }
 
 # The sha-bound readings of the PR rows $3 whose branch colour in $2 cannot

@@ -4299,6 +4299,38 @@ test('host: runs-for-sha on a plain job falls back to the last entry when no act
   assert.equal(row.sha, headSha, 'with no branch name on any entry, the last entry stands for the head');
 });
 
+// Catches a fallback to the last record whenever no record names the ASKED
+// branch: a build whose records name other branches belongs to those
+// branches, and its last record must not bind it to the asked one.
+test('host: runs-for-sha on a plain job does not fall back to the last record when any record names another branch', () => {
+  const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
+  const otherSha = '5555555555555555555555555555555555eeee';
+  const developSha = '6666666666666666666666666666666666ffff';
+  const ask = (actions, sha) => {
+    const builds = JSON.stringify({ builds: [
+      { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/', actions },
+    ] });
+    const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
+    return runJenkinsAllowFail(['run-for-sha', 'feature/other', sha],
+      { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  };
+  const merge = ask([
+    { lastBuiltRevision: { SHA1: otherSha, branch: [{ name: 'origin/feature/x' }] } },
+    { lastBuiltRevision: { SHA1: developSha, branch: [{ name: 'origin/develop' }] } },
+  ], developSha);
+  assert.equal(merge.code, 0, merge.stderr);
+  assert.equal(merge.stdout.trim(), '', 'a build naming only other branches must not bind to the asked branch at its last record');
+
+  const trailing = ask([
+    { lastBuiltRevision: { SHA1: developSha, branch: [{ name: 'origin/develop' }] } },
+    { lastBuiltRevision: { SHA1: otherSha } },
+  ], otherSha);
+  assert.equal(trailing.code, 0, trailing.stderr);
+  assert.equal(trailing.stdout.trim(), '', 'a trailing record with no branch must not bind the build when another record names a branch');
+});
+
 // Open question from the plan (2026-10-24-jenkins-sha-lookups-in-plot-host.md,
 // Design §Open Questions): a merge build can hold several `lastBuiltRevision`
 // records that all name the asked branch, and the fix for #2322 assumed they
