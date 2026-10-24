@@ -228,3 +228,87 @@ test('the gate passes on this repository and says its count', () => {
   assert.equal(out.status, 0, out.out);
   assert.match(out.out, /\d{5} lines now/);
 });
+
+/** Writes `text` as the whole content of `file`, so a case controls the exact shape of each line. */
+const writeRaw = (work, file, text) => {
+  mkdirSync(path.dirname(path.join(work, file)), { recursive: true });
+  writeFileSync(path.join(work, file), text);
+};
+
+const C = 'skills/x/c.sh';
+const echoes = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => `echo ${from + i}`);
+
+/** Puts `base` on main as c.sh, branches, and returns the repo ready for the branch's rewrite. */
+const withBase = (work, base) => {
+  writeRaw(work, C, base.join('\n') + '\n');
+  commit(work, 'add c.sh');
+  git(work, 'push', '-q', 'origin', 'HEAD:refs/heads/main');
+  git(work, 'fetch', '-q', '--no-tags', 'origin', 'main:refs/remotes/origin/main');
+  git(work, 'checkout', '-q', '-b', 'feature');
+};
+
+test('pr: joining statements with ; and adding shell does not pay for the growth', withFixture(({ work }) => {
+  withBase(work, echoes(1, 6));
+  writeRaw(work, C, ['echo 1; echo 2', 'echo 3; echo 4', 'echo 5; echo 6', ...echoes(7, 9)].join('\n') + '\n');
+  commit(work, 'join and grow');
+  const r = run(work, ['pr']);
+  assert.notEqual(r.status, 0, r.out);
+  assert.match(r.out, /3 lines over/);
+  assert.match(r.out, /joining[^\n]*not a payment/i);
+}));
+
+test('pr: joining statements with && and adding shell does not pay for the growth', withFixture(({ work }) => {
+  withBase(work, echoes(1, 6));
+  writeRaw(work, C, ['echo 1 && echo 2', 'echo 3 && echo 4', 'echo 5 || echo 6', ...echoes(7, 9)].join('\n') + '\n');
+  commit(work, 'join and grow');
+  const r = run(work, ['pr']);
+  assert.notEqual(r.status, 0, r.out);
+  assert.match(r.out, /3 lines over/);
+}));
+
+test('pr: folding then/fi onto one line and adding shell does not pay for the growth', withFixture(({ work }) => {
+  const block = (n) => [`if test ${n}; then`, `  echo ${n}`, 'fi'];
+  withBase(work, [1, 2, 3].flatMap(block));
+  writeRaw(work, C, [...[1, 2, 3].map((n) => `if test ${n}; then echo ${n}; fi`), ...echoes(7, 12)].join('\n') + '\n');
+  commit(work, 'fold and grow');
+  const r = run(work, ['pr']);
+  assert.notEqual(r.status, 0, r.out);
+  assert.match(r.out, /6 lines over/);
+}));
+
+test('pr: folding a case arm onto one line and adding shell does not pay for the growth', withFixture(({ work }) => {
+  withBase(work, ['case "$1" in', '  a)', '    echo a', '    ;;', '  b)', '    echo b', '    ;;', 'esac']);
+  writeRaw(work, C, ['case "$1" in', '  a) echo a ;;', '  b) echo b ;;', 'esac', ...echoes(1, 4)].join('\n') + '\n');
+  commit(work, 'fold and grow');
+  const r = run(work, ['pr']);
+  assert.notEqual(r.status, 0, r.out);
+  assert.match(r.out, /4 lines over/);
+}));
+
+test('pr: a separator inside quotes or after a backslash is not a second command', withFixture(({ work }) => {
+  withBase(work, ['echo a', 'echo b', 'find . -name x -exec rm {} +']);
+  writeRaw(work, C, ['echo "a; b && c || d"', "echo 'x; y'", 'find . -name x -exec echo {} \; # one; two'].join('\n') + '\n');
+  commit(work, 'quote the separators');
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 0, r.out);
+}));
+
+test('pr: splitting a joined line is a neutral change', withFixture(({ work }) => {
+  withBase(work, ['echo 1; echo 2', 'echo 3 && echo 4']);
+  writeRaw(work, C, ['echo 1', 'echo 2', 'echo 3', 'echo 4'].join('\n') + '\n');
+  commit(work, 'split');
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 0, r.out);
+}));
+
+test('--per-file total equals the count the gate compares', withFixture(({ work }) => {
+  withBase(work, echoes(1, 3));
+  writeRaw(work, C, ['echo 1; echo 2', 'if x; then echo y; fi', 'case $1 in a) echo a ;; esac', 'echo "q; r"'].join('\n') + '\n');
+  commit(work, 'mixed shapes');
+  const gate = run(work, ['pr']).out.match(/pr: (\d+) lines now/);
+  const perFile = run(work, ['--per-file']).out;
+  assert.ok(gate, 'the gate prints its count');
+  assert.match(perFile, new RegExp(`total: ${gate[1]} lines`));
+  const listed = perFile.split('\n').filter((l) => /^\s+\d+ skills\//.test(l)).reduce((s, l) => s + Number(l.trim().split(/\s+/)[0]), 0);
+  assert.equal(listed, Number(gate[1]));
+}));
