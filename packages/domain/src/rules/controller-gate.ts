@@ -64,7 +64,7 @@ type Span = readonly [number, number];
 
 /** The last path segment of a word's value, or `null` when the word is absent or its value is unknown. */
 const basename = (word: ShellWord | undefined): string | null =>
-  word === undefined || word.value === null ? null : (word.value.split('/').pop() ?? null);
+  word === undefined || word.value === null ? null : word.value.slice(word.value.lastIndexOf('/') + 1);
 
 /** The span of a whole word, or none when the word is absent or can run something. */
 const wholeWord = (word: ShellWord | undefined): Span[] => (word === undefined || word.executes ? [] : [[word.start, word.end]]);

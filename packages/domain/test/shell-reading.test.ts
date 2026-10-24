@@ -52,8 +52,46 @@ describe('readShell', () => {
     expect(values('(a; (b)) && x=$((1 + 2))')).toEqual([['a'], ['b'], ['1', '+', '2'], [null]]);
   });
 
+  it('keeps a backslash inside double quotes only before a character it does not escape', () => {
+    expect(values('x "a\\"b" "c\\qd" "e$"')).toEqual([['x', 'a"b', 'c\\qd', 'e$']]);
+  });
+
+  it('marks a word joined by a backslash-newline as executing and keeps its value', () => {
+    const word = readShell('x a\\\nb')?.commands[0].words[1];
+    expect([word?.value, word?.executes]).toEqual(['ab', true]);
+  });
+
+  it('gives a special parameter, a $"…" string and a word after an expansion no value', () => {
+    const words = readShell('x $1 $?y $"msg" $X\'a\'')?.commands[0].words ?? [];
+    expect(words.map((word) => [word.value, word.executes])).toEqual([
+      ['x', false],
+      [null, false],
+      [null, false],
+      [null, false],
+      [null, false],
+    ]);
+  });
+
+  it('skips an escaped backtick inside backticks and an escaped quote inside $\'…\'', () => {
+    const words = readShell("x `a\\`b` $'c\\'d' y")?.commands[0].words ?? [];
+    expect(words.map((word) => [word.value, word.executes])).toEqual([
+      ['x', false],
+      [null, true],
+      [null, true],
+      ['y', false],
+    ]);
+  });
+
+  it('reads <&, <> and &> as redirections that take a target', () => {
+    expect(values('a <&3 <>f &>out b')).toEqual([['a', 'b']]);
+  });
+
   it.each([
     ['an unterminated single quote', "a 'b"],
+    ['an unterminated $\'…\'', "a $'b"],
+    ['a trailing backslash inside double quotes', 'a "b\\'],
+    ['a ;; outside case', 'a;; b'],
+    ['a ;& outside case', 'a;& b'],
     ['an unterminated double quote', 'a "b'],
     ['an unterminated $( )', 'a $(b'],
     ['an unterminated backtick', 'a `b'],

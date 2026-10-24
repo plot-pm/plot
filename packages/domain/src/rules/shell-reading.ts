@@ -60,7 +60,7 @@ export interface ShellReading {
   readonly heredocs: readonly ShellHeredoc[];
 }
 
-/** Thrown inside {@link readShell} to unwind on input it cannot read; never escapes it. */
+/** Thrown inside {@link readShell} to unwind on input it cannot read; `readShell` catches it and returns `null`. */
 const UNREADABLE = new Error('unreadable shell input');
 
 /** The deepest nesting of `$( )`, `<( )` and `>( )` the reading follows. */
@@ -138,7 +138,11 @@ export const readShell = (src: string): ShellReading | null => {
     pos = i + 1;
   };
 
-  /** Reads one word starting at `pos`. */
+  /**
+   * Reads one word starting at `pos`. Every caller holds `pos` at a character
+   * outside `WORD_END`, and every step of the loop consumes input or fails, so
+   * the word is never empty.
+   */
   const readWord = (depth: number): ShellWord => {
     const start = pos;
     let value: string | null = '';
@@ -244,7 +248,6 @@ export const readShell = (src: string): ShellReading | null => {
         pos += 1;
       }
     }
-    if (pos === start) fail();
     return { start, end: pos, raw: src.slice(start, pos), value, executes };
   };
 
@@ -369,9 +372,8 @@ export const readShell = (src: string): ShellReading | null => {
   try {
     parseList(false, 0);
     if (pending.length > 0) fail();
-  } catch (error) {
-    if (error === UNREADABLE) return null;
-    throw error;
+  } catch {
+    return null;
   }
   return { commands, heredocs };
 };

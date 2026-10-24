@@ -183,6 +183,33 @@ describe('withoutMessageSinks reads the commit forms agents use (#2440)', () => 
   });
 });
 
+describe('withoutMessageSinks reads each git commit option form', () => {
+  const heredoc = (opener: string): string => [opener, 'plot-deliver.sh flipped it', 'EOF'].join('\n');
+
+  it.each([
+    ['an unquoted --message= value', 'git commit --message=plot-deliver.sh'],
+    ['a --message= value quoted as a whole word', 'git commit "--message=plot-deliver.sh flipped"'],
+    ['a flag-only global option before commit', 'git --no-pager commit -m "plot-deliver.sh flipped"'],
+    ['--file=- with a heredoc', heredoc('git commit --file=- <<EOF')],
+    ['-F - closing a cluster', heredoc('git commit -aF - <<EOF')],
+    ['-F- closing a cluster', heredoc('git commit -aF- <<EOF')],
+    ['a -m after a path, an unknown short option and -C in both forms', 'git commit --amend -uno -CHEAD -C HEAD file.txt -m "plot-deliver.sh flipped"'],
+  ])('blanks %s', (_label, command) => {
+    expect(controllerInvocation(withoutMessageSinks(command))).toBeNull();
+  });
+
+  it.each([
+    ['a word before commit with an unknown value', 'git $SUB commit -m "plot-deliver.sh flipped"'],
+    ['git with global options and no subcommand', 'git --no-pager -C plot-deliver.sh'],
+    ['a -m after --', 'git commit -- -m plot-deliver.sh'],
+    ['a --message= value joined by a backslash-newline', 'git commit --message=plot-deliver.sh\\\nx'],
+    ['a heredoc beside -F <file>', heredoc('git commit -F msg.txt <<EOF')],
+    ['a heredoc beside -F <file> closing a cluster', heredoc('git commit -aF msg.txt <<EOF')],
+  ])('leaves %s unchanged', (_label, command) => {
+    expect(withoutMessageSinks(command)).toBe(command);
+  });
+});
+
 describe('mayRunController', () => {
   it.each(['bash plot-deliver.sh x', 'node board/plot-approve.mjs x', 'bash *.sh', 'node b/plot-appro?e.mjs', 'gh pr merge 1', 'plot-host.sh pr-merge 1'])(
     'passes %s',
@@ -220,6 +247,7 @@ describe('unpinnedMerges', () => {
     'FOO=1',
     'command',
     'echo ok # gh pr merge 12',
+    'case x in a) b;; esac',
   ])('allows %s', (command) => expect(unpinnedMerges(command)).toEqual([]));
 
   it('leaves controllerInvocation null for a merge', () => {
