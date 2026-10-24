@@ -450,7 +450,16 @@ export interface Where {
   readonly linked: boolean;
 }
 
-/** Reads {@link Where} through the refs port: `--show-toplevel`, then `--absolute-git-dir` against `--git-common-dir`. */
+/**
+ * Reads {@link Where} through the refs port: `--show-toplevel`, then
+ * `--absolute-git-dir` against `--git-common-dir`.
+ *
+ * A failed `linkedWorktree()` read reads as `linked: false`, the same as a
+ * confirmed main checkout: with `root.ok`, the gate cannot tell a broken read
+ * from the main checkout, and refusing is the safer default. A failed
+ * `repoRoot()` read is the one case that allows — without a root, the gate
+ * cannot place the command in any checkout at all.
+ */
 const gitWhere = async (cwd: string, scriptDir: string): Promise<Where> => {
   const { refsGit } = await import('@plot-pm/domain/adapters/refs/refs-git');
   const refs = refsGit({ repoRoot: cwd, scriptDir });
@@ -478,7 +487,9 @@ export interface MainCheckoutReadings {
  * command never reads git. `ask` reads, for each mutating call, the directory
  * its `cd` and `-C` arguments name (or the working directory) and refuses where that is
  * not a linked worktree. A root read that fails allows: without git this gate
- * cannot tell a desk from the main checkout.
+ * cannot tell a desk from the main checkout. A linked-worktree read that fails
+ * refuses instead ({@link gitWhere}): with a root, passing a broken read would
+ * hide it behind a silent allow.
  */
 export const mainCheckoutGateOf = (readings: MainCheckoutReadings): Gate => ({
   name: 'main-checkout',

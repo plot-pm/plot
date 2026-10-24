@@ -86,6 +86,78 @@ describe('mutatesGitState', () => {
     'echo `git commit`',
     '(git commit -m y)',
   ])('reads a git call inside a substitution or subshell: %s', (command) => expect(mutatesGitState(command)).toBe(true));
+
+  it.each([
+    'if git commit -m x; then echo ok; fi',
+    'for i in a b; do git checkout $i; done',
+    '{ git reset --hard; }',
+    '! git commit -m x',
+    'time git commit -m x',
+    '! time git commit -m x',
+    'a & git commit -m x',
+  ])('reads a git call behind a leading shell keyword or a backgrounding &: %s', (command) =>
+    expect(mutatesGitState(command)).toBe(true));
+
+  it.each([
+    'if git status; then echo ok; fi',
+    'for i in a b; do git status; done',
+    '{ git status; }',
+    '! git status',
+    'time git status',
+  ])('reads a read-only call behind a leading shell keyword as a non-mutating read: %s', (command) =>
+    expect(mutatesGitState(command)).toBe(false));
+
+  it('splits a single & as a separator without breaking && splitting', () => {
+    expect(mutatesGitState('echo a && echo b & git commit -m x')).toBe(true);
+    expect(mutatesGitState('echo a & git commit -m x')).toBe(true);
+  });
+
+  it.each([
+    'git tag -l',
+    'git tag --list',
+    'git notes list',
+    'git notes show abc123',
+    'git clean -n',
+    'git clean --dry-run',
+    'git fetch origin main',
+    'git fetch origin',
+    'git fetch',
+  ])('reads %s as a non-mutating read', (command) => expect(mutatesGitState(command)).toBe(false));
+
+  it.each([
+    'git tag v1.0',
+    'git tag -d v1.0',
+    'git notes add -m x',
+    'git notes remove abc123',
+    'git clean -f',
+    'git clean -fd',
+    'git clean -fx',
+    'git fetch origin src:dst',
+    'git fetch src:dst',
+  ])('reads %s as mutating', (command) => expect(mutatesGitState(command)).toBe(true));
+
+  it('reads a dry-run clean as a non-mutating read even combined with a force flag', () => {
+    expect(mutatesGitState('git clean -nf')).toBe(false);
+    expect(mutatesGitState('git clean -fn')).toBe(false);
+  });
+
+  it('does not read a mutating git call written into an unquoted heredoc body', () => {
+    expect(mutatesGitState('cat <<EOF\ngit checkout x\nEOF')).toBe(false);
+  });
+
+  it('reads a mutating git call on the line right after the heredoc terminator', () => {
+    expect(mutatesGitState('cat <<EOF\ngit checkout x\nEOF\ngit commit -m y')).toBe(true);
+  });
+
+  it.each([
+    "cat <<'EOF'\ngit checkout x\nEOF",
+    'cat <<"EOF"\ngit checkout x\nEOF',
+  ])('does not read a mutating git call inside a quoted heredoc delimiter: %s', (command) =>
+    expect(mutatesGitState(command)).toBe(false));
+
+  it('does not read a mutating git call inside an indented (<<-) heredoc body', () => {
+    expect(mutatesGitState('cat <<-EOF\n  git checkout x\n  EOF')).toBe(false);
+  });
 });
 
 describe('gitWriteDirs', () => {
