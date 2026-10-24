@@ -232,15 +232,18 @@ assumptions drifting since approval; this fetch is about the checkout's own
 the point it can bite: the commit. `git fetch origin "$DEFAULT_BRANCH"`,
 then compare against the `HEAD` you are about to commit on.
 
-**If `origin/<default branch>` already holds a brief at this target path,
-write no second commit for this slug.** Check after the fetch, before
-writing anything: a brief already on the remote means some other run
-finished this step first, and a second commit for the same slug is the
-exact defect this paragraph exists to prevent (`origin/main` held a brief
-for a slug at 22:09; a second one for the *same* slug, committed on a
-`HEAD` 8 commits behind, followed six minutes later because nothing had
-fetched first). Finding the brief already there is success, not failure —
-stop, and let step 5 proceed on the existing commit.
+**Check after the fetch, before writing anything: if `origin/<default
+branch>` already holds a brief at `.plot/briefs/<branch-suffix>.md` (the
+same path named above), write no second commit for this slug.** A check
+run before the fetch would read a stale ref and miss a brief another run
+just pushed — the exact gap this paragraph exists to close. A brief
+already on the remote means some other run finished this step first, and
+a second commit for the same slug is the exact defect this paragraph
+exists to prevent (`origin/main` held a brief for a slug at 22:09; a
+second one for the *same* slug, committed on a `HEAD` 8 commits behind,
+followed six minutes later because nothing had fetched first). Finding
+the brief already there is success, not failure — stop, and let step 5
+proceed on the existing commit.
 
 **A rejected push is recovered by re-cutting in a disposable worktree,
 never by a `git reset`.** If `HEAD` was stale, the push after this commit

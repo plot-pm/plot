@@ -30,6 +30,11 @@ const step4and5 = skill.slice(skill.indexOf('### 4. Hand-off Brief'), skill.inde
 test('step 4/5 fetch origin/<default> immediately before committing, not only at step 2 staleness', () => {
   assert.match(
     step4and5,
+    /immediately before this commit/i,
+    'the brief/Started commit mechanics must fetch origin/<default> right before committing, not merely mention fetch somewhere in the step',
+  );
+  assert.match(
+    step4and5,
     /git fetch origin ["$]/i,
     'the brief/Started commit mechanics must fetch origin/<default> right before committing',
   );
@@ -56,8 +61,8 @@ test('step 4/5 recover from a rejected push by re-cutting in a disposable worktr
   );
   assert.match(
     step4and5,
-    /never\b.*reset|reset\b.*never|does not reset|not (a |by )?(a )?(mixed )?reset/i,
-    'the recovery path must rule out a git reset as the recovery mechanism',
+    /\bnever\b\s*(—|-|,)?\s*(recover|by\b)[^.]*\breset(ting)?\b/i,
+    'the recovery path must say "never" directly rules out resetting as the recovery, not merely co-occur with the word "reset" in the same sentence',
   );
 });
 
