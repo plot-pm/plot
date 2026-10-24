@@ -1424,6 +1424,30 @@ await esbuild.build({
 fs.copyFileSync(bitbucketMergeableArtifact, shippedBitbucketMergeable);
 fs.chmodSync(shippedBitbucketMergeable, 0o755);
 
+// `plot-record-pr.sh`'s plan-line edit: appends `→ #<number>` to the branch's
+// own bulleted line, or refuses — the pure half of recording a slice's PR
+// number, the way plan-record-edit.ts is the pure half of a Started/Delivered
+// record. Reads and writes the plan file itself (an argument, not stdin),
+// because this entry point's input is a whole file rather than one line per
+// loop iteration.
+const slicePrAnnotationArtifact = path.join(here, 'dist/plot-slice-pr-annotation.mjs');
+const shippedSlicePrAnnotation = path.join(here, '../../skills/plot/scripts/board/plot-slice-pr-annotation.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/slice-pr-annotation.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: slicePrAnnotationArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(slicePrAnnotationArtifact, shippedSlicePrAnnotation);
+fs.chmodSync(shippedSlicePrAnnotation, 0o755);
+
 // `plot-deliver.sh`'s mechanical half — the ranking's confirmed first
 // operator-command script (the-shell-shrinks-into-the-domain, slice 4). Not a
 // readings-in/decision-out bundle like the others above: this one creates the
@@ -1691,6 +1715,7 @@ const claimAnswerKb = (fs.statSync(shippedClaimAnswer).size / 1024).toFixed(1);
 const reapKb = (fs.statSync(shippedReap).size / 1024).toFixed(1);
 const gateKb = (fs.statSync(shippedGate).size / 1024).toFixed(1);
 const bitbucketMergeableKb = (fs.statSync(shippedBitbucketMergeable).size / 1024).toFixed(1);
+const slicePrAnnotationKb = (fs.statSync(shippedSlicePrAnnotation).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -1735,4 +1760,5 @@ console.log(`Built plot-claim-answer.mjs (${claimAnswerKb} KB) → skills/plot/s
 console.log(`Built plot-reap.mjs (${reapKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-gate.mjs (${gateKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-bitbucket-mergeable.mjs (${bitbucketMergeableKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-slice-pr-annotation.mjs (${slicePrAnnotationKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

@@ -125,3 +125,26 @@ plot_exclude_desk_root() {
   fi
   return 0
 }
+
+# plot_plan_for_branch <base-dir> <plan-dir-config-value> <branch>
+# Prints "<plan-file>\t<wave-name>" for the plan under <plan-dir> whose
+# waves[].branches[].branch names <branch>, or nothing if none does. Shared by
+# plot-open-pr.sh and plot-record-pr.sh, which both need to answer "which plan
+# names this branch" the same way: grep candidates by literal branch name (a
+# branch is a literal string, so a plan not containing it cannot name it —
+# measured 2026-09-09, parsing all plans took 103s against 0.6s for grep
+# first), then parse only those with plot-plan-meta.sh. <plan-dir-config-value>
+# is absolutized against <base-dir> when it is relative, so each caller need
+# not repeat that case statement itself.
+plot_plan_for_branch() {
+  local base_dir=$1 plan_dir=$2 branch=$3 script_dir link found
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  case "$plan_dir" in /*) ;; *) plan_dir="$base_dir/$plan_dir" ;; esac
+  for link in $(grep -lF "$branch" "$plan_dir"*.md 2>/dev/null || true); do
+    [ -e "$link" ] || continue
+    found=$(bash "$script_dir/plot-plan-meta.sh" "$link" 2>/dev/null \
+      | PLOT_BRANCH="$branch" node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const m=JSON.parse(s);for(const w of m.waves??[])for(const b of w.branches??[])if(b.branch===process.env.PLOT_BRANCH)return console.log([m.file??"",w.name??""].join("\t"));}catch{}})') || found=""
+    [ -z "$found" ] || { printf '%s\n' "$found"; return 0; }
+  done
+  return 1
+}

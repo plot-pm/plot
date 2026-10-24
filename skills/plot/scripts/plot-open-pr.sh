@@ -35,6 +35,7 @@ set -uo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$script_dir/plot-tmp.sh"
+. "$script_dir/plot-desk-root.sh"
 bundle="$script_dir/board/plot-slice-pr.mjs"
 
 usage() {
@@ -86,7 +87,6 @@ cfg() { bash "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 # same point — since the phase grouping became derived, a missing link is a
 # browsing gap and gates nothing.
 plan_dir=$(cfg "Plan directory" "docs/plans/")
-case "$plan_dir" in /*) ;; *) plan_dir="$repo_root/$plan_dir" ;; esac
 
 #
 # THE CANDIDATES ARE GREPPED AND ONLY THEY ARE PARSED. Measured 2026-09-09:
@@ -97,32 +97,12 @@ case "$plan_dir" in /*) ;; *) plan_dir="$repo_root/$plan_dir" ;; esac
 plan_slug=""
 plan_file=""
 slice_name=""
-candidates=$(grep -lF "$branch" "$plan_dir"*.md 2>/dev/null || true)
-for link in $candidates; do
-  [ -e "$link" ] || continue
-  found=$(bash "$script_dir/plot-plan-meta.sh" "$link" 2>/dev/null \
-    | PLOT_BRANCH="$branch" node -e '
-      let s = "";
-      process.stdin.on("data", (d) => (s += d)).on("end", () => {
-        let meta;
-        try { meta = JSON.parse(s); } catch { return; }
-        const want = process.env.PLOT_BRANCH;
-        for (const wave of meta.waves ?? []) {
-          for (const b of wave.branches ?? []) {
-            // The wave heading is the title, so a plan naming the branch under
-            // no heading yields an empty name and the rule refuses on it.
-            if (b.branch === want) { console.log([meta.file ?? "", wave.name ?? ""].join("\t")); return; }
-          }
-        }
-      });
-    ') || found=""
-  if [ -n "$found" ]; then
-    plan_file=$(printf '%s' "$found" | cut -f1)
-    slice_name=$(printf '%s' "$found" | cut -f2)
-    plan_slug=$(basename "$plan_file" .md | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
-    break
-  fi
-done
+found=$(plot_plan_for_branch "$repo_root" "$plan_dir" "$branch") || found=""
+if [ -n "$found" ]; then
+  plan_file=$(printf '%s' "$found" | cut -f1)
+  slice_name=$(printf '%s' "$found" | cut -f2)
+  plan_slug=$(basename "$plan_file" .md | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+fi
 
 # The brief, where the slice has one. Named for the branch's last segment, the
 # spelling plot-dispatch.sh writes and the worker prompt reads.
