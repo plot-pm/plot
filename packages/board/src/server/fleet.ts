@@ -7380,8 +7380,9 @@ export async function buildFleet(
     stuck: summarizeStuck(rows.map((r) => r.stuck)),
     prAgeSeconds: entry.prAt === null ? null : Math.round((now - entry.prAt) / 1000),
     // The cadence `prAgeSeconds` is measured against — `entry.prIntervalMs`
-    // rather than the module constant, so a per-entry override (there is none
-    // today) would still be reported truthfully.
+    // rather than the module constant, because `scheduleNextPr` stretches it
+    // per entry (`prRefreshMsFor` multiplies `PR_REFRESH_MS` by the backend's
+    // per-refresh request cost, e.g. 180s on Bitbucket's three-request list).
     prIntervalMs: entry.prIntervalMs,
     // The server's own intention, backoff included — never the nominal 60 s.
     // `prNextAt` is the single gate the fetch obeys, so reporting it is

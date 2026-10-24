@@ -4360,10 +4360,12 @@ export const FleetShape = z.object({
    * The server's PR refresh cadence, in milliseconds — the clock `prAgeSeconds`
    * is measured against, not the client's own poll interval.
    *
+   * `scheduleNextPr` stretches this per entry by the backend's per-refresh
+   * request cost (`prRefreshMsFor`), so it is not one constant across a fleet.
+   *
    * Null on an older server, matching every sibling field here
-   * (`prNextInSeconds`, `scanNextInSeconds`): the client then falls back to the
-   * one value this field has ever carried rather than inventing a cadence it
-   * was not told.
+   * (`prNextInSeconds`, `scanNextInSeconds`): the client then falls back to its
+   * own default cadence rather than inventing a value it was not told.
    */
   prIntervalMs: z.number().nullable().default(null),
   /**
