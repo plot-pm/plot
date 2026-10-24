@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2492 merged
+- **Started:** 2026-10-24, Jan Wloka, `bug/deliver-flips-the-status-block-but`
 
 ## Changelog
 
