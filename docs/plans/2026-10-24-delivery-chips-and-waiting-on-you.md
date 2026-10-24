@@ -55,7 +55,7 @@ The issue's LOW findings on `DeliveryFilters.tsx:163` (the dropped exempt count 
 
 ### Chips
 
-- `bug/delivery-chips-decided-in-the-domain` — chipRow decides state, label and hidden count for every chip; the empty-selection and Mine-identity rules follow the TSDoc
+- `bug/delivery-chips-decided-in-the-domain` — chipRow decides state, label and hidden count for every chip; the empty-selection and Mine-identity rules follow the TSDoc → #2521
 
 ### Waiting on you
 
