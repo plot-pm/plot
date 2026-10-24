@@ -5413,7 +5413,7 @@ case "$op" in
   issue-label|issue-comment|issue-close)
     # THE PLAN-STATE WRITES, and one-way: Plot sets a `plan:*` label, keeps one
     # comment per issue and closes the issue at release; nothing reads any back.
-    #   issue-label   <n> <add> [<remove,...>]  adds one label, removes the rest
+    #   issue-label   <n> <add> [<remove,...>]  adds one label, creating it first where the repo lacks it, and removes only the listed ones the issue carries, in one `gh issue edit`
     #   issue-comment <n> <marker> <body>       edits the comment holding <marker>, else posts; an empty <marker> always posts
     #   issue-close   <n>
     # GitHub issues only, dispatched on `issue_source` like issue-open. Exit 4,
@@ -5421,7 +5421,7 @@ case "$op" in
     num="${1:?$op needs an issue number}"; source_said="$(issue_source)" || exit 1
     [ "$be" = github ] && { [ "$source_said" = git-host ] || [ "$source_said" = $'tracker\tgithub-issues' ]; } || { echo "plot-host: $op: ${source_said#*$'\t'}" >&2; exit 4; }
     case "$op" in
-      issue-label) gh issue edit "$num" --add-label "${2:?issue-label needs a label}" ${3:+--remove-label "$3"} >/dev/null 2>"$HOST_ERR" || gh_fail ;;
+      issue-label) add="${2:?issue-label needs a label}"; carried="$(gh issue view "$num" --json labels -q '.labels[].name' 2>"$HOST_ERR")" || gh_fail; keep="$(comm -12 <(printf '%s\n' "${3-}" | tr , '\n' | sort) <(printf '%s\n' "$carried" | sort) | paste -sd, -)"; gh label create "$add" --color ededed --description "Plot plan phase: ${add#plan:}" >/dev/null 2>"$HOST_ERR" || grep -qi 'already exists' "$HOST_ERR" || gh_fail; gh issue edit "$num" --add-label "$add" ${keep:+--remove-label "$keep"} >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-close) gh issue close "$num" >/dev/null 2>"$HOST_ERR" || gh_fail ;;
       issue-comment)
         cid=""; [ -z "${2-}" ] || cid="$(gh api --paginate "repos/{owner}/{repo}/issues/$num/comments" 2>"$HOST_ERR" | jq -rs --arg m "$2" '[.[][] | select(.body | contains($m))][0].id // empty')" || gh_fail
