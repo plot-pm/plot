@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2498 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/board-status-banner-states`
 - **Started:** 2026-10-24, Jan Wloka, `bug/board-build-joins-honour-opts`
+- **Started:** 2026-10-24, Jan Wloka, `bug/board-estate-runs-once-per-head`
 
 ## Changelog
 
