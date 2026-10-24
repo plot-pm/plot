@@ -5439,14 +5439,13 @@ case "$op" in
       # issue's current status, on this path only, and tell them apart. A
       # successful write above never pays for this extra call.
       cur_json="$(jira_ask "/rest/api/2/issue/$key?fields=status")" || exit $?
-      cur="$(printf '%s' "$cur_json" | jq -r '.fields.status.name // ""')"
       # ABSENT IS NOT FALSE. A status GET with no name read is neither fact —
-      # exit with jira_ask's own failure code rather than guessing one.
-      [ -n "$cur" ] || { echo "plot-host: issue-status: the status read named no current status" >&2; exit 3; }
-      jq -rn --argjson transitions "$body_json" --arg cur "$cur" --arg want "$want" \
-        'if ($cur | ascii_downcase) == ($want | ascii_downcase) then "already"
-         else "unreachable\t\($cur)\t\([$transitions.transitions[]?.name] | join(", "))" end'
-      exit 0
+      # `-e` exits 1 on jq's own null/empty result, read below as this op's own `exit 3`.
+      printf '%s' "$cur_json" | jq -re --argjson transitions "$body_json" --arg want "$want" '
+        .fields.status.name as $cur | select($cur != null) | if ($cur | ascii_downcase) == ($want | ascii_downcase) then "already"
+          else "unreachable\t\($cur)\t\([$transitions.transitions[]?.name] | join(", "))" end
+      ' && exit 0
+      echo "plot-host: issue-status: the status read named no current status" >&2; exit 3
     fi
     jira_ask "/rest/api/2/issue/$key/transitions" \
       -X POST -H 'Content-Type: application/json' \
