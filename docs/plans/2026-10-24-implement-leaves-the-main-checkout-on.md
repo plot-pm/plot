@@ -58,7 +58,7 @@ Files likely touched: `packages/fleet/src/shared/implement-run.ts`, `packages/bo
 
 ### Release
 
-- `bug/dead-claim-releases` — a claim with no agent and no commits beyond the default branch is released by the fleet or offered on the row <!-- builds: a domain rule naming an empty claim ref releasable -->
+- `bug/dead-claim-releases` — a claim with no agent and no commits beyond the default branch is released by the fleet or offered on the row <!-- builds: a domain rule naming an empty claim ref releasable --> → #2657
 
 ## Notes
 
