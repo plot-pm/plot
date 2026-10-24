@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2522 merged
 - **Sprint:** follow-ups-2-28-3
@@ -14,6 +14,7 @@
 - **Started:** 2026-10-24, jwloka, `bug/bitbucket-listings-follow-next`
 - **Started:** 2026-10-24, Jan Wloka, `bug/github-open-lookup-asks-per-branch`
 - **Started:** 2026-10-24, Jan Wloka, `bug/bitbucket-stubs-and-listing-plan`
+- **Delivered:** 2026-10-24
 
 ## Changelog
 
