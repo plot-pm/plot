@@ -60,9 +60,7 @@ git -C "$repo_root" fetch -q origin "$MAIN" 2>/dev/null
 wt_root=$(plot_desk_root "$repo_root") || exit 3
 plot_exclude_desk_root "$repo_root"
 
-slug_part="${branch##*/}"
-bookbr="plot/record-pr-$slug_part"
-tmpwt="$wt_root/.plot-record-pr-$slug_part.$$"
+slug_part="${branch##*/}"; bookbr="plot/record-pr-$slug_part"; tmpwt="$wt_root/.plot-record-pr-$slug_part.$$"
 
 plot_on_exit "git -C '$repo_root' worktree remove --force '$tmpwt' 2>/dev/null; git -C '$repo_root' branch -D '$bookbr' >/dev/null 2>&1; true"
 
