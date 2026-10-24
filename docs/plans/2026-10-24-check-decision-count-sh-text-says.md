@@ -47,7 +47,7 @@ The refusal text is tested if `test/reconcile/` asserts on it. The slice greps f
 
 ### Gate text
 
-- `bug/check-decision-count-sh-text-says` — correct the header and the refusal text in `scripts/check-decision-count.sh`
+- `bug/check-decision-count-sh-text-says` — correct the header and the refusal text in `scripts/check-decision-count.sh` → #2583
 
 ## Notes
 
