@@ -58,7 +58,7 @@ The fix follows the finding. The expected behaviour stays as the issue states: a
 
 ### Reproduce and fix
 
-- `bug/the-pr-index-keeps-checks-pending` — reproduce the stuck `pending` row in a test over `refreshPrs` with a held store (no I/O), identify which cause holds, and fix it so the row settles on the next incremental refresh
+- `bug/the-pr-index-keeps-checks-pending` — reproduce the stuck `pending` row in a test over `refreshPrs` with a held store (no I/O), identify which cause holds, and fix it so the row settles on the next incremental refresh → #2586
 
 ## Notes
 
