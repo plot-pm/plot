@@ -85,6 +85,8 @@ const KNOWN_UNCARRIED = [
   'unread_branch_headings',
   // Read by reconcile's section 24a from the shell; no domain rule decides on it.
   'unread_waits',
+  // Read by reconcile's section 24b from the shell; no domain rule decides on it.
+  'unread_heading_items',
   'rounds',
   'waves',
   'slices',

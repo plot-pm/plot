@@ -15,7 +15,7 @@
 #         below the marker are NOT in printed order — the number is a label and
 #         the marker is the boundary.
 #         The report is terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 open_issues=0 unread_headings=0 unread_waits=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 uncut_slices=0 prose_slice_names=0 unplanned_members=0 sprint_unset=0 sprint_mismatch=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 merged_refs=0 desks=0 no_changeset=0 open_issues=0 unread_headings=0 unread_waits=0 unread_heading_items=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
@@ -236,6 +236,16 @@
 #                                 unreadable, not the slice broken — so it
 #                                 carries `unread_waits=` and stays out of
 #                                 `attention`.
+#  24b. Unread heading items    — a heading-shape wave's list item that reads as
+#                                 a branch claim but names a branch no heading
+#                                 in that wave carries, read from the parser
+#                                 field `unread_heading_items`. A list item
+#                                 naming the branch its own heading already
+#                                 claims is read instead, and is silent here.
+#                                 REPORTS AND NEVER GATES — the item is
+#                                 unattributable, not the slice broken — so it
+#                                 carries `unread_heading_items=` and stays out
+#                                 of `attention`.
 #
 # Configuration is read via plot-config.sh from the adopting project's
 # `## Plot Config` (Plan directory, Active index, Delivered index, Branch
@@ -272,6 +282,29 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # Every temp path this scan creates, and its only EXIT/INT/TERM traps.
 . "$script_dir/plot-tmp.sh"
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
+
+# Prints one line (+ a rewrite hint) per `{k1,k2}` pair a `plot-plan-meta.sh`
+# field reports, and sets REPORT_UNREAD_PAIRS_N to the count. $1=field name,
+# $2=jq keys "k1,k2", $3=printf format (gets basename, k1, k2 and a fourth
+# argument, in that order), $4=none-message, $5=the fourth argument (k2 when
+# absent). Every value is an argument: none is read as a printf directive.
+# Shared by 24a (unread_waits) and 24b (unread_heading_items) — same shape, different field and wording. Sets a global rather than
+# returning the count on stdout: the per-item lines ARE this function's
+# printed report, so a caller cannot capture the count with $(...) without
+# swallowing them too.
+report_unread_pairs() {
+  local field=$1 keys=$2 fmt=$3 none_msg=$4 f k1 k2
+  REPORT_UNREAD_PAIRS_N=0
+  if [ -n "$plan_json" ]; then
+    while IFS="$US" read -r f k1 k2; do
+      [ -n "$f" ] || continue
+      printf "$fmt" "$(basename "$f")" "$k1" "$k2" "${5-$k2}"
+      REPORT_UNREAD_PAIRS_N=$((REPORT_UNREAD_PAIRS_N + 1))
+    done < <(printf '%s\n' "$plan_json" \
+      | jq -r "select(.phase != \"NONE\") | .file as \$f | .$field[]? | [\$f, $keys] | join(\"\")")
+  fi
+  [ "$REPORT_UNREAD_PAIRS_N" -gt 0 ] || echo "  $none_msg"
+}
 
 # jq is required: the plan-metadata rows are read through a jq pipe below.
 # Without it that pipe yields nothing and every plan-derived section (1, 2,
@@ -1630,38 +1663,16 @@ while IFS="$US" read -r f _st _raw _alt _alt_raw _branches _prs _ptype psprint; 
   plan_phase_map="$plan_phase_map$pslug"$'\t'"$_st"$'\n'
 done <<< "$plan_rows"
 
-# Lookup a plan's phase from the map. $1 = slug; prints the phase (draft,
-# approved, delivered, released, …) or nothing. Returns 0 if the slug names a
-# known plan, 1 otherwise — an item whose slug resolves to no plan is not this
-# section's finding (the brief: bare prose lines carry no phase to read).
-lookup_plan_phase() {
-  local result
-  result=$(printf '%s' "$plan_phase_map" | awk -F'\t' -v s="$1" '$1 == s { print $2; exit }')
-  # A here-string, not a pipe: `grep -q` exits on the first match, and under
-  # pipefail a map larger than the pipe buffer (64 KB; 417 plans filled 18 KB)
-  # fails its writer with SIGPIPE and reads a known slug as unknown.
-  if grep -q "^$1"$'\t' <<< "$plan_phase_map"; then
-    printf '%s' "$result"
-    return 0
-  fi
-  return 1
-}
-
-# Lookup a plan's sprint field from the map.
-# $1 = slug; prints the sprint field value (may be empty)
-# Returns 0 if found, 1 if not found.
-lookup_plan_sprint() {
-  local result
-  result=$(printf '%s' "$plan_sprint_map" | awk -F'\t' -v s="$1" '$1 == s { print $2; exit }')
-  # A here-string, not a pipe: `grep -q` exits on the first match, and under
-  # pipefail a map larger than the pipe buffer (64 KB; 417 plans filled 18 KB)
-  # fails its writer with SIGPIPE and reads a known slug as unknown.
-  if grep -q "^$1"$'\t' <<< "$plan_sprint_map"; then
-    printf '%s' "$result"
-    return 0
-  fi
-  return 1
-}
+# Looks a slug up in a slug<TAB>value map. $1 = map, $2 = slug; prints the
+# value (may be empty) and returns 0 if the slug names a known plan, 1
+# otherwise — an item whose slug resolves to no plan is not a finding of the
+# sections that ask (bare prose lines carry no phase to read). A here-string,
+# not a pipe: a reader that exits on the first match fails a writer under
+# pipefail once the map outgrows the pipe buffer (64 KB; 417 plans filled
+# 18 KB), and reads a known slug as unknown.
+lookup_in_map() { awk -F'\t' -v s="$2" '$1 == s { printf "%s", $2; f = 1; exit } END { exit !f }' <<< "$1"; }
+lookup_plan_phase() { lookup_in_map "$plan_phase_map" "$1"; }
+lookup_plan_sprint() { lookup_in_map "$plan_sprint_map" "$1"; }
 
 # Parse each sprint file and check its members. Walk ALL sprint files (not just
 # active/) because a closed sprint's membership is still subject to drift.
@@ -1790,20 +1801,9 @@ if [ -d "$SPRINT_DIR" ]; then
     # Parse member lines: `- [ ] [slug]` or `- [x] [slug]` — same regex as
     # board.ts and the sprint-membership sections. Only UNCHECKED items matter here.
     while IFS= read -r line; do
-      # Extract check state and slug.
-      local_checked=""
-      local_slug=""
-      if [[ "$line" =~ ^-\ \[\ \]\ \[([^\]]+)\] ]]; then
-        local_checked=false
-        local_slug="${BASH_REMATCH[1]}"
-      elif [[ "$line" =~ ^-\ \[[xX]\]\ \[([^\]]+)\] ]]; then
-        local_checked=true
-        local_slug="${BASH_REMATCH[1]}"
-      else
-        continue
-      fi
-      # Only unchecked items are candidates.
-      [ "$local_checked" = false ] || continue
+      # Only an unchecked item is a candidate; a checked one or any other line is skipped.
+      [[ "$line" =~ ^-\ \[\ \]\ \[([^\]]+)\] ]] || continue
+      local_slug="${BASH_REMATCH[1]}"
       # Dedupe: a plan with multiple waves appears multiple times.
       case "$seen_stale_in_sprint" in
         *"$local_slug"*) continue ;;
@@ -1812,9 +1812,7 @@ if [ -d "$SPRINT_DIR" ]; then
 
       # Does this slug name a plan we know about? An unresolvable item is not
       # this section's finding — skip silently (see comment above).
-      if ! plan_phase=$(lookup_plan_phase "$local_slug"); then
-        continue
-      fi
+      plan_phase=$(lookup_plan_phase "$local_slug") || continue
       # Is the plan delivered or released? Only those are stale.
       case "$plan_phase" in
         delivered|released)
@@ -3055,6 +3053,7 @@ echo "== 23. A finished plan's issue is still open (a person decides) =="
 n_open_issues=0; n_issue_unread=0
 n_unread=0
 n_unread_waits=0
+n_unread_heading_items=0
 # The finished plans that name an issue, read from the parse already in memory
 # (`plan_json`, one `plot-plan-meta.sh` run for the whole sweep). NOT a body
 # scan for `#NNN`: `issues[]` is a dedicated field precisely because a body
@@ -3256,36 +3255,32 @@ if [ -n "$unread_out" ]; then printf '%b' "$unread_out"; else echo "  (none — 
 echo
 
 # ---------------------------------------------------------------------------
-# 24a. Unread waits
+# 24a/24b. Unread waits, unread heading items.
 #
-# A `<!-- waits: … -->` marker on a line that names a branch, whose VALUE the
-# parser could not read as a branch — read from `unread_waits[]`, the field
-# `plot-plan-meta.sh` fills precisely for this: a prerequisite is reported, not
-# dropped, when it fails the branch-prefix shape check (a typo, or a syntax
-# example written on the branch's own line rather than in surrounding prose).
+# Both read a `plot-plan-meta.sh` field filled for a value on a branch-claim
+# line the parser could not place: 24a a `<!-- waits: … -->` value that fails
+# the branch-prefix shape (typo, or a syntax example on the branch's own
+# line); 24b a heading-shape list item naming a branch no heading in that wave
+# carries (a same-branch item is read for its PR and annotations and never
+# reaches this field). Both stay silent for the prose case — a marker or
+# claim-like text outside a branch-claim line is not this field's concern.
 #
-# A MARKER ON A PROSE LINE STAYS SILENT, as it always has: `unread_waits` is
-# filled only when a line both carries the marker AND claims a branch, so a
-# plan documenting the annotation in its narrative text — the shape most plans
-# that mention `waits:` use — reports nothing here.
-#
-# REPORTS AND NEVER GATES. Below `== blocking sections end ==`, out of
-# `attention=`, with its own counter (`unread_waits=`), beside `unread_headings=`
-# for the same reason: a wait the parser cannot read never reaches the scan's
-# verdict either, so the slice holds no annotation at all until a person fixes
-# the value — a legibility gap, not a broken pointer.
+# REPORTS AND NEVER GATE. Below `== blocking sections end ==`, out of
+# `attention=`, each with its own counter: the value the parser could not read
+# never reaches the scan's verdict either, so the slice holds no annotation at
+# all until a person fixes it — a legibility gap, not a broken pointer.
 echo "== 24a. Unread waits (a waits: marker on a branch line the parser could not read) =="
-if [ -n "$plan_json" ]; then
-  while IFS="$US" read -r f branch value; do
-    [ -n "$f" ] || continue
-    printf "  %s — branch '%s' names a waits: value the parser could not read: '%s'\n    rewrite: the value as a branch name, with a configured prefix (%s)\n" \
-      "$(basename "$f")" "$branch" "$value" "$PREFIX_RE"
-    n_unread_waits=$((n_unread_waits + 1))
-  done < <(printf '%s\n' "$plan_json" \
-    | jq -r 'select(.phase != "NONE") | .file as $f
-             | .unread_waits[]? | [$f, .branch, .value] | join("\u001f")')
-fi
-[ "$n_unread_waits" -gt 0 ] || echo "  (none — every waits: marker on a branch line was read)"
+report_unread_pairs unread_waits '.branch, .value' \
+  "  %s — branch '%s' names a waits: value the parser could not read: '%s'\n    rewrite: the value as a branch name, with a configured prefix (%s)\n" \
+  "(none — every waits: marker on a branch line was read)" "$PREFIX_RE"
+n_unread_waits=$REPORT_UNREAD_PAIRS_N
+echo
+
+echo "== 24b. Unread heading items (a list item under a heading names a branch no heading claims) =="
+report_unread_pairs unread_heading_items '.wave, .branch' \
+  "  %s — wave '%s' holds a list item naming '%s', a branch no heading in that wave claims\n    rewrite: move the item under its own heading, or give this wave a (Branch: %s) heading\n" \
+  "(none — every heading-shape list item was attributed)"
+n_unread_heading_items=$REPORT_UNREAD_PAIRS_N
 echo
 
 # ---------------------------------------------------------------------------
@@ -3488,5 +3483,5 @@ fi
 echo
 
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs review_bypass=$n_review_bypass desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues issue_unread=$n_issue_unread unread_headings=$n_unread unread_waits=$n_unread_waits temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose unplanned_members=$n_unplanned_members sprint_unset=$n_sprint_unset sprint_mismatch=$n_sprint_mismatch stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed merged_refs=$n_merged_refs review_bypass=$n_review_bypass desks=$n_desks no_changeset=$n_no_changeset open_issues=$n_open_issues issue_unread=$n_issue_unread unread_headings=$n_unread unread_waits=$n_unread_waits unread_heading_items=$n_unread_heading_items temp_sweepable=$n_temp_sweepable legacy_tmp_caches=$n_legacy_tmp broken_locks=$n_broken_locks pr_source=$PR_SOURCE main=$MAIN"
 exit 0

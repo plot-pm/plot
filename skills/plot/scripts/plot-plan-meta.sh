@@ -235,6 +235,13 @@
 #                  no branch stays silent, since reporting that would fire on
 #                  every such plan. A marker inside a code span is quoted, not
 #                  written, and is read nowhere. ALWAYS present; [] when none.
+#   unread_heading_items
+#                  `{ wave, branch }` pairs, in document order, for a heading-
+#                  shape list item claiming a branch no heading in that wave
+#                  carries — a report, not a refusal. A claim on its OWN
+#                  heading's branch is read instead (see the heading handler).
+#                  `wave` is the wave NAME, not an index. ALWAYS present; []
+#                  when every such item was attributed.
 #   issues         tracker issue numbers this plan answers, from the `## Status`
 #                  `Issue:` line or front matter `issue:` (sorted, unique).
 #                  A DEDICATED field, never a scan of the body for `#NNN`: a
@@ -329,7 +336,7 @@ if [ ${#files[@]} -eq 0 ] && [ ${#missing[@]} -eq 0 ]; then
 fi
 
 for f in ${missing[@]+"${missing[@]}"}; do
-  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"ticket":"","malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","spike_approved_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","verified_raw":"","started_raw":[]}\n' \
+  printf '{"file":"%s","format":"none","error":"file not found","phase_raw":"","phase":"NONE","phase_alt_raw":"","phase_alt":"NONE","type":"","title":"","sprint":"","story":"","assignee":"","branches":[],"prs":[],"deferred_prs":[],"issues":[],"ticket":"","malformed_prs":[],"changelog":[],"long_wave_names":[],"unread_branch_headings":[],"unread_waits":[],"unread_heading_items":[],"review_raw":"","review":"NONE","impl_raw":"","impl":"NONE","design_raw":"","spike_approved_raw":"","approved_raw":"","released_raw":"","delivered_raw":"","verified_raw":"","started_raw":[]}\n' \
     "$(printf '%s' "$f" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 done
 
@@ -367,6 +374,22 @@ function jesc(s) {
   return s
 }
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+# Inserts v into arr[1..n], kept sorted and free of duplicates, and returns the
+# new count. A numeric v compares numerically and a string v as a string, so
+# the caller decides the order by the type it passes. Portable: no gawk asort.
+function sorted_insert(arr, n, v,   j) {
+  for (j = 1; j <= n; j++) if (arr[j] == v) return n
+  for (j = n; j >= 1 && arr[j] > v; j--) arr[j+1] = arr[j]
+  arr[j+1] = v
+  return n + 1
+}
+# Renders `n` `{"k1":"...","k2":"..."}` objects, reading arr1[i]/arr2[i] for
+# i=1..n — the shape unread_waits and unread_heading_items both emit.
+function emit_pairs(n, k1, arr1, k2, arr2,   i, out) {
+  for (i = 1; i <= n; i++)
+    out = out (i > 1 ? "," : "") "{\"" k1 "\":\"" jesc(arr1[i]) "\",\"" k2 "\":\"" jesc(arr2[i]) "\"}"
+  return out
+}
 # Every `<!-- waits: … -->` marker on a line, each value split on commas, in
 # the line order with duplicates removed, written into outArr/outN (outN is
 # outArr[0] — awk scalars are pass-by-value, so a count returned through a
@@ -530,6 +553,8 @@ function reset_state() {
   delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; delete spike_of; n_waves = 0
   delete branch_heading; delete waits_of; delete waits_set; delete waits_n
   delete unread_waits_branch; delete unread_waits_value; n_unread_waits = 0
+  delete unread_heading_item_wave; delete unread_heading_item_branch; n_unread_heading_items = 0
+  heading_branch = ""; heading_branch_n = 0
   delete builds_of; delete agent_of; delete commits_of; delete started; n_started = 0
   fm_changelog = ""
   delete changelog; n_changelog = 0; changelog_seen = 0; cl_open = 0
@@ -614,43 +639,15 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
       issue2 = substr(issue2, RSTART + RLENGTH)
     }
   }
-  # Insertion sort + dedupe (portable: no gawk asort).
-  nb = 0
-  for (i = 1; i <= n_branches; i++) {
-    for (j = 1; j <= nb && sorted_b[j] != branches[i]; j++) ;
-    if (j <= nb) continue
-    for (j = nb; j >= 1 && sorted_b[j] > branches[i]; j--) sorted_b[j+1] = sorted_b[j]
-    sorted_b[j+1] = branches[i]; nb++
-  }
-  np = 0
-  for (i = 1; i <= n_prs; i++) {
-    for (j = 1; j <= np && sorted_p[j] != prs[i]+0; j++) ;
-    if (j <= np) continue
-    for (j = np; j >= 1 && sorted_p[j] > prs[i]+0; j--) sorted_p[j+1] = sorted_p[j]
-    sorted_p[j+1] = prs[i]+0; np++
-  }
+  nb = 0; for (i = 1; i <= n_branches; i++) nb = sorted_insert(sorted_b, nb, branches[i])
+  np = 0; for (i = 1; i <= n_prs; i++) np = sorted_insert(sorted_p, np, prs[i] + 0)
   # Issues: sort numeric (GitHub) issues first, then string (Jira) keys.
   # Separate into two arrays, sort each, then concatenate.
   n_num_i = 0; n_str_i = 0
   for (i = 1; i <= n_issues; i++) {
     v = issues[i]
-    if (v ~ /^[0-9]+$/) {
-      # Numeric: check for duplicate, then insert sorted.
-      is_dup = 0
-      for (j = 1; j <= n_num_i; j++) if (num_issues[j] == v + 0) { is_dup = 1; break }
-      if (!is_dup) {
-        for (j = n_num_i; j >= 1 && num_issues[j] > v + 0; j--) num_issues[j+1] = num_issues[j]
-        num_issues[j+1] = v + 0; n_num_i++
-      }
-    } else {
-      # String (Jira key): check for duplicate, then insert sorted.
-      is_dup = 0
-      for (j = 1; j <= n_str_i; j++) if (str_issues[j] == v) { is_dup = 1; break }
-      if (!is_dup) {
-        for (j = n_str_i; j >= 1 && str_issues[j] > v; j--) str_issues[j+1] = str_issues[j]
-        str_issues[j+1] = v; n_str_i++
-      }
-    }
+    if (v ~ /^[0-9]+$/) n_num_i = sorted_insert(num_issues, n_num_i, v + 0)
+    else n_str_i = sorted_insert(str_issues, n_str_i, v "")
   }
   # Concatenate: numeric first, then string (matches the field ordering the
   # board expects — GitHub issues before Jira keys when both are present).
@@ -778,12 +775,8 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   # report, not a refusal. Filled by store_waits() as each branch is matched;
   # a `waits:` syntax example on a PROSE line (no branch claim) never reaches
   # store_waits(), so it stays silent, as today.
-  out = out ",\"unread_waits\":["
-  for (i = 1; i <= n_unread_waits; i++) {
-    out = out (i > 1 ? "," : "") "{\"branch\":\"" jesc(unread_waits_branch[i]) "\"" \
-          ",\"value\":\"" jesc(unread_waits_value[i]) "\"}"
-  }
-  out = out "]"
+  out = out ",\"unread_waits\":[" emit_pairs(n_unread_waits, "branch", unread_waits_branch, "value", unread_waits_value) "]"
+  out = out ",\"unread_heading_items\":[" emit_pairs(n_unread_heading_items, "wave", unread_heading_item_wave, "branch", unread_heading_item_branch) "]"
   out = out ",\"review_raw\":\"" jesc(review) "\",\"review\":\"" norm_review(review) "\""
   out = out ",\"impl_raw\":\"" jesc(impl) "\",\"impl\":\"" norm_impl(impl) "\""
   out = out ",\"design_raw\":\"" jesc(design) "\""
@@ -826,9 +819,16 @@ function note_branch_heading(   h) {
 # slice dialects at the moment each claims a branch, so a `waits:` syntax
 # example on a line with NO branch claim never drains the queue and stays
 # silent — the same rule the old single-value reading followed.
-function store_waits(n, b,   k) {
-  waits_n[n] = line_waits[0] + 0
-  for (k = 1; k <= waits_n[n]; k++) waits_of[n, k] = line_waits[k]
+#
+# OVERLAY (a heading-shape list item naming the branch of its heading) keeps what
+# the heading stored and adds the values of this line it lacks: the union, so a
+# prerequisite on either line holds the slice. The unread values drain either way.
+function store_waits(n, b, overlay,   k, j, dup) {
+  if (!overlay) waits_n[n] = 0
+  for (k = 1; k <= line_waits[0]; k++) {
+    dup = 0; for (j = 1; j <= waits_n[n]; j++) if (waits_of[n, j] == line_waits[k]) dup = 1
+    if (!dup) waits_of[n, ++waits_n[n]] = line_waits[k]
+  }
   waits_set[n] = (waits_n[n] > 0) ? 1 : 0
   for (k = 1; k <= pending_unread_n; k++) {
     unread_waits_branch[++n_unread_waits] = b
@@ -974,35 +974,64 @@ function commit_list(s,   out, m, h) {
   return out
 }
 # Stores the annotations read_notes() found, and the commits the line names,
-# against branch n (named b), at the moment either dialect claims it.
-function keep_branch(n, b) {
-    # THE FLAG accepts the bare form as well as the annotated one.
-    #
-    # It matched `deferred:` only, so `<!-- deferred -->` — the annotation with
-    # nothing after it — read as NOT deferred at all: the strongest statement a
-    # plan can make about a branch, dropped for want of a colon. A reader
-    # writing the shorter form has said the branch will not be built; the
-    # parser now hears it.
-    deferred_of[n] = ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) ? "true" : "false"
-    # The reason travels with the flag. Empty on every non-deferred branch, and
-    # empty is also the honest answer for the bare form: the branch IS deferred
-    # and no reason was recorded, which is a different statement from a reason
-    # of "".
-    deferred_why[n] = defer_note
-    spike_of[n] = ($0 ~ /<!--[ \t]*spike[ \t]*-->/) ? 1 : 0
-    # Claim reflection, written by the worker after its ref push succeeds. This
-    # is a reflection, not the claim: git refs remain authoritative.
-    claimed_of[n] = claim_note
-    # The prerequisites travel with the branch, flattened as waits_of[n,1..k]
-    # since this awk has no nested arrays. Presence is tracked separately so a
-    # branch that declares none emits no key.
-    store_waits(n, b)
-    builds_of[n] = builds_note
-    # The kind travels with the branch, presence tracked separately so a slice
-    # declaring none emits no key.
-    agent_of[n] = agent_note
-    ordered_b[n] = b
-  commits_of[n] = commit_list($0)
+# against branch n (named b).
+#
+# OVERLAY decides whether a field this line does NOT carry erases what is
+# already stored. False (the old list shape, and a heading line itself): this
+# is the first and only line that can claim n, so every field is written
+# outright -- unconditionally false reads as "false", not "unknown". True (a
+# heading-shape list item naming the branch its heading already claimed): the
+# heading line claimed n first via read_notes() on itself, so only a field
+# THIS line carries may overwrite -- a deferral reason written on the heading
+# must survive a list item that carries none of its own.
+function keep_branch(n, b, overlay,   is_deferred, c) {
+  is_deferred = ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/)
+  # THE FLAG accepts the bare form as well as the annotated one. It matched
+  # `deferred:` only, so `<!-- deferred -->` — the annotation with nothing
+  # after it — read as NOT deferred at all: the strongest statement a plan can
+  # make about a branch, dropped for want of a colon. The parser now hears it.
+  # The reason travels with the flag, empty for a non-deferred branch and
+  # equally empty for a bare `<!-- deferred -->` with no reason recorded — a
+  # different statement from a reason of "".
+  if (!overlay || is_deferred) { deferred_of[n] = is_deferred ? "true" : "false"; deferred_why[n] = defer_note }
+  if (!overlay || $0 ~ /<!--[ \t]*spike[ \t]*-->/) spike_of[n] = ($0 ~ /<!--[ \t]*spike[ \t]*-->/) ? 1 : 0
+  # Claim reflection, written by the worker after its ref push succeeds. This
+  # is a reflection, not the claim: git refs remain authoritative.
+  if (!overlay || claim_note != "") claimed_of[n] = claim_note
+  # The prerequisites travel with the branch, flattened as waits_of[n,1..k]
+  # since this awk has no nested arrays. Presence is tracked separately so a
+  # branch that declares none emits no key.
+  store_waits(n, b, overlay)
+  if (!overlay || builds_note != "") builds_of[n] = builds_note
+  # The kind travels with the branch, presence tracked separately so a slice
+  # declaring none emits no key.
+  if (!overlay || agent_note != "") agent_of[n] = agent_note
+  ordered_b[n] = b
+  # Commits merge like waits: a list item adds its own to those of the heading.
+  c = commit_list($0)
+  commits_of[n] = (overlay && commits_of[n] != "") ? commits_of[n] (c != "" ? "," c : "") : c
+}
+# `→ #N` and `→ owner/repo#N` are both annotations: /plot-deliver instructs
+# implementers to write the second for `Impl: other repo` plans, and a parser
+# that dropped it reported `prs: []` for a plan whose only PR was written
+# exactly as documented. The repo part is matched but not retained — callers
+# ask which PRs are the evidence, and plot-host.sh resolves where each lives.
+# A near-miss is REPORTED, never silently dropped. `→#44` (no space) is the
+# obvious hand-typo, and treating it as absence makes the sweep advise adding
+# an annotation the plan already carries. Accepting it would widen the
+# contract on a guess; reporting it leaves the judgement with a person.
+#
+# DEFER (optional) files every PR on this line as deferred: a heading-shape list
+# item passes the deferral of its branch, which the heading line may carry alone.
+function extract_prs(raw, defer,   line, p) {
+  line = raw
+  while (match(line, /→ ([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?#[0-9]+/)) {
+    p = substr(line, RSTART, RLENGTH); sub(/^.*#/, "", p)
+    prs[++n_prs] = p; if (defer || raw ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
+    line = substr(line, RSTART + RLENGTH)
+  }
+  line = raw
+  while (match(line, /→#[0-9]+/)) { malformed_prs[++n_malformed_prs] = substr(line, RSTART, RLENGTH); line = substr(line, RSTART + RLENGTH) }
 }
 # The longest wave name that still reads as a label, not prose. A JUDGEMENT, not
 # a measurement: the longest legitimate name in the estate is `Offered first`
@@ -1296,29 +1325,9 @@ section == "slices" && slice_shape != "heading" {
     branches[++n_branches] = b
     if (n_waves == 0) { wave_names[++n_waves] = "" }
     wave_of[n_branches] = n_waves; ++wave_count[n_waves]
-    keep_branch(n_branches, b)
+    keep_branch(n_branches, b, 0)
   }
-  line = $0
-  # `→ #N` and `→ owner/repo#N` are both annotations: /plot-deliver instructs
-  # implementers to write the second for `Impl: other repo` plans, and a parser
-  # that dropped it reported `prs: []` for a plan whose only PR was written
-  # exactly as documented. The repo part is matched but not retained — callers
-  # ask which PRs are the evidence, and plot-host.sh resolves where each lives.
-  while (match(line, /→ ([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?#[0-9]+/)) {
-    p = substr(line, RSTART, RLENGTH)
-    sub(/^.*#/, "", p)
-    prs[++n_prs] = p; if ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
-    line = substr(line, RSTART + RLENGTH)
-  }
-  # A near-miss is REPORTED, never silently dropped. `→#44` (no space) is the
-  # obvious hand-typo, and treating it as absence makes the sweep advise adding
-  # an annotation the plan already carries. Accepting it would widen the
-  # contract on a guess; reporting it leaves the judgement with a person.
-  line = $0
-  while (match(line, /→#[0-9]+/)) {
-    malformed_prs[++n_malformed_prs] = substr(line, RSTART, RLENGTH)
-    line = substr(line, RSTART + RLENGTH)
-  }
+  extract_prs($0)
   next
 }
 # `## Waves` — the new spelling. The `### ` heading carries the meta (which
@@ -1331,57 +1340,96 @@ section == "slices" && slice_shape != "heading" {
 # old shape produces for the same plan. So this shares every accumulation
 # variable with the branches handler above; only the EXTRACTION differs.
 section == "slices" && slice_shape == "heading" {
-  # Only the `### ` heading carries meta. Body lines are prose — never scanned
-  # for a branch or a PR, which is the whole point of the new shape.
-  if ($0 !~ /^###[ \t]/) next
+  # A `### ` heading carries meta, as before. Below it, ONE line is no longer
+  # prose-only: a list item that is a LIST CLAIM (branch_claim_re, the same
+  # anchor the old shape uses) and names the branch this heading just claimed
+  # is read for its `→ #N` and its annotations — see below. Every other line,
+  # including a list item naming a DIFFERENT branch, stays prose.
+  if ($0 ~ /^###[ \t]/) {
+    # A heading opens a wave whose NAME is the heading text with the
+    # `(Branch: …, PR: …)` parenthetical and any trailing annotation stripped, so
+    # `### Removed (Branch: bug/foo, PR: #300)` names the wave `Removed` — exactly
+    # what the old shape (bare `### Removed`) produced, which is what keeps the two
+    # spellings byte-identical.
+    wname = trim(substr($0, 4))
+    # Drop a trailing HTML comment (claimed/deferred ride the heading line now).
+    sub(/[ \t]*<!--.*$/, "", wname)
+    # Drop the `(Branch: …)` meta parenthetical. Anchored to `(Branch:` so a
+    # parenthetical in a genuine wave name — none exist, but the grammar must not
+    # assume it — is not eaten unless it is the meta block.
+    sub(/[ \t]*\(Branch:.*$/, "", wname)
+    wname = trim(wname)
+    wave_names[++n_waves] = wname
+    note_branch_heading()
 
-  # A heading opens a wave whose NAME is the heading text with the
-  # `(Branch: …, PR: …)` parenthetical and any trailing annotation stripped, so
-  # `### Removed (Branch: bug/foo, PR: #300)` names the wave `Removed` — exactly
-  # what the old shape (bare `### Removed`) produced, which is what keeps the two
-  # spellings byte-identical.
-  wname = trim(substr($0, 4))
-  # Drop a trailing HTML comment (claimed/deferred ride the heading line now).
-  sub(/[ \t]*<!--.*$/, "", wname)
-  # Drop the `(Branch: …)` meta parenthetical. Anchored to `(Branch:` so a
-  # parenthetical in a genuine wave name — none exist, but the grammar must not
-  # assume it — is not eaten unless it is the meta block.
-  sub(/[ \t]*\(Branch:.*$/, "", wname)
-  wname = trim(wname)
-  wave_names[++n_waves] = wname
-  note_branch_heading()
+    # Annotations bind to the line carrying the branch name, which is the heading.
+    read_notes()
 
-  # Annotations bind to the line carrying the branch name, which is the heading.
-  read_notes()
+    # The branch this heading just claimed, so a list item below can be
+    # matched against it. "" until a branch is read below, so a heading with
+    # no readable branch claims nothing for any list item that follows.
+    heading_branch = ""; heading_branch_n = 0; heading_pr = ""
 
-  # The branch is the `Branch:` value, matched against the known prefixes exactly
-  # as the old shape matched the backticked name. Written unquoted in the heading
-  # (`Branch: bug/foo`), so the match is on a bare token, not on backticks. A
-  # heading with no readable branch still opened a wave above — so a `## Waves`
-  # section is never silently empty, which is the failure this plan refuses: a
-  # consumer sees a wave it could not extract a branch from, not an absence.
-  #
-  # THE VALUE MAY BE BACKTICKED. `(Branch: \`bug/foo\`)` is unambiguous, and a
-  # backtick between `Branch:` and the prefix made the anchored match fail, so
-  # the heading opened a wave and yielded nothing. The backticks are optional on
-  # both sides and stripped from the name. Measured 2026-09-28 over 357 plans:
-  # 2 records change, 355 byte-identical.
-  if (match($0, "Branch:[ \t]*`?(" PREFIXES ")/[^ \t,)`]+`?")) {
-    b = substr($0, RSTART, RLENGTH)
-    sub(/^Branch:[ \t]*/, "", b)
-    gsub(/`/, "", b)
-    branches[++n_branches] = b
-    wave_of[n_branches] = n_waves; ++wave_count[n_waves]
-    keep_branch(n_branches, b)
+    # The branch is the `Branch:` value, matched against the known prefixes exactly
+    # as the old shape matched the backticked name. Written unquoted in the heading
+    # (`Branch: bug/foo`), so the match is on a bare token, not on backticks. A
+    # heading with no readable branch still opened a wave above — so a `## Waves`
+    # section is never silently empty, which is the failure this plan refuses: a
+    # consumer sees a wave it could not extract a branch from, not an absence.
+    #
+    # THE VALUE MAY BE BACKTICKED. `(Branch: \`bug/foo\`)` is unambiguous, and a
+    # backtick between `Branch:` and the prefix made the anchored match fail, so
+    # the heading opened a wave and yielded nothing. The backticks are optional on
+    # both sides and stripped from the name. Measured 2026-09-28 over 357 plans:
+    # 2 records change, 355 byte-identical.
+    if (match($0, "Branch:[ \t]*`?(" PREFIXES ")/[^ \t,)`]+`?")) {
+      b = substr($0, RSTART, RLENGTH)
+      sub(/^Branch:[ \t]*/, "", b)
+      gsub(/`/, "", b)
+      branches[++n_branches] = b
+      wave_of[n_branches] = n_waves; ++wave_count[n_waves]
+      keep_branch(n_branches, b, 0)
+      heading_branch = b; heading_branch_n = n_branches
+    }
+
+    # The PR is the `PR: #NNN` value in the heading. Absent PR: contributes
+    # nothing — not "", not 0 — the same rule `Issue:` follows. Only a heading
+    # that carries the field adds to prs.
+    if (match($0, /PR:[ \t]*#[0-9]+/)) {
+      p = substr($0, RSTART, RLENGTH)
+      sub(/^.*#/, "", p)
+      prs[++n_prs] = heading_pr = p; if ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
+    }
+    next
   }
 
-  # The PR is the `PR: #NNN` value in the heading. Absent PR: contributes
-  # nothing — not "", not 0 — the same rule `Issue:` follows. Only a heading
-  # that carries the field adds to prs.
-  if (match($0, /PR:[ \t]*#[0-9]+/)) {
-    p = substr($0, RSTART, RLENGTH)
-    sub(/^.*#/, "", p)
-    prs[++n_prs] = p; if ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
+  # A LIST CLAIM below the heading — same anchor as the old shape
+  # (`branch_claim_re`), so a backticked name in prose stays unread exactly as
+  # it always has. Only a line that IS the claim form is even considered.
+  if (match($0, branch_claim_re)) {
+    claim = substr($0, RSTART, RLENGTH)
+    item_branch = substr(claim, index(claim, "`") + 1)
+    sub(/`$/, "", item_branch)
+    if (heading_branch != "" && item_branch == heading_branch) {
+      # Names the branch the heading above already claimed: its `→ #N` and its
+      # annotations belong to that branch. read_notes() reads $0 (this line), so
+      # a list item marker is read IN ADDITION TO a heading marker, never
+      # instead of it — the overlay=1 arm of keep_branch then leaves a field
+      # this line does not carry (a deferral reason written on the `### `
+      # line, say) exactly as the heading already stored it.
+      # Deferral is decided per BRANCH once both lines are read: a deferral on
+      # either line files the PR of the heading and the PRs of this line as deferred.
+      was_deferred = deferred_of[heading_branch_n]
+      read_notes()
+      keep_branch(heading_branch_n, heading_branch, 1)
+      if (was_deferred != "true" && deferred_of[heading_branch_n] == "true" && heading_pr != "") dprs[++n_dprs] = heading_pr
+      extract_prs($0, deferred_of[heading_branch_n] == "true")
+    } else {
+      # Names a branch no heading in this wave claims (or there is no current
+      # heading branch at all) — the parser cannot attribute it, so it is
+      # reported rather than silently dropped and never read as a second claim.
+      unread_heading_item_wave[++n_unread_heading_items] = wave_names[n_waves]; unread_heading_item_branch[n_unread_heading_items] = item_branch
+    }
   }
   next
 }
