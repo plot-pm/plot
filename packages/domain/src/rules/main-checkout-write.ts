@@ -173,11 +173,16 @@ const withoutLeadingKeywords = (words: readonly string[]): readonly string[] => 
  * @param words - one simple command, split on whitespace, quotes already removed.
  * @param base - the directory an earlier `cd` moved to: `null` for the working
  *   directory, `undefined` where the text does not give it.
+ * @param accepts - narrows which mutating calls count; receives the subcommand and its arguments.
  * @returns `base` joined with the path the `-C` options name, or `undefined`
- *   where the command is no mutating git call or its directory cannot be read
+ *   where the command is no mutating git call, `accepts` refuses it, or its directory cannot be read
  *   from the text. An absolute `-C` path places the call whatever came before it.
  */
-const writeDirOf = (words: readonly string[], base: string | null | undefined): string | null | undefined => {
+const writeDirOf = (
+  words: readonly string[],
+  base: string | null | undefined,
+  accepts: (sub: string, args: readonly string[]) => boolean = () => true,
+): string | null | undefined => {
   const program = programWords(withoutLeadingKeywords(words));
   if (program.length === 0 || wordBasename(program[0]) !== 'git') return undefined;
   let i = 1;
@@ -194,7 +199,7 @@ const writeDirOf = (words: readonly string[], base: string | null | undefined): 
   }
   const sub = program[i];
   if (sub === undefined || !MUTATING_GIT_SUBCOMMANDS.has(sub) || readsOnly(sub, program.slice(i + 1))) return undefined;
-  return dir;
+  return accepts(sub, program.slice(i + 1)) ? dir : undefined;
 };
 
 /**
@@ -271,7 +276,13 @@ const SEPARATORS = /(&&|\|\||\$\(|[;|\n`()]|&)/;
  *   otherwise the path its `cd` and `-C` arguments name (absolute, or relative
  *   to the working directory).
  */
-export const gitWriteDirs = (command: string): readonly (string | null)[] => {
+export const gitWriteDirs = (command: string): readonly (string | null)[] => writeDirsWhere(command);
+
+/** {@link gitWriteDirs} over the mutating calls `accepts` keeps. */
+const writeDirsWhere = (
+  command: string,
+  accepts?: (sub: string, args: readonly string[]) => boolean,
+): readonly (string | null)[] => {
   const parts = withoutQuotes(withoutComments(withoutHeredocBodies(command))).split(SEPARATORS);
   const outer: (string | null | undefined)[] = [];
   const dirs: (string | null)[] = [];
@@ -290,12 +301,54 @@ export const gitWriteDirs = (command: string): readonly (string | null)[] => {
     const next = parts[index + 1];
     const runsOn = (next === '$(' || (next === '`' && !inBacktick)) && /\S$/.test(part);
     const words = `${part}${runsOn ? '$' : ''}`.trim().split(/\s+/).filter((word) => word !== '');
-    const dir = writeDirOf(words, here);
+    const dir = writeDirOf(words, here, accepts);
     if (dir !== undefined) dirs.push(dir);
     here = cdOf(words, here);
   }
   return dirs;
 };
+
+/** The `git reset` modes that update the working tree with the index, or leave both as they were. */
+const TREE_CONSISTENT_RESET_FLAGS: ReadonlySet<string> = new Set(['--hard', '--soft', '--keep', '--merge']);
+
+/**
+ * Whether `git reset` arguments leave the index out of step with the working
+ * tree. Mixed is git's default, so the test is the absence of a tree-consistent
+ * flag: `--hard`, `--soft`, `--keep` and `--merge` are consistent; `--mixed`,
+ * `-q`, a commit alone and `-- <path>` are not.
+ */
+const stranding = (sub: string, args: readonly string[]): boolean =>
+  sub === 'reset' && !args.some((word) => TREE_CONSISTENT_RESET_FLAGS.has(word));
+
+/**
+ * The directory of each `git reset` in a command that moves the index without
+ * the working tree (a mixed reset, including `git reset -- <path>`). Reads the
+ * command the way {@link gitWriteDirs} does.
+ *
+ * @param command - the command line.
+ * @returns one entry per such call: `null` for the working directory, else the
+ *   path its `cd` and `-C` arguments name.
+ */
+export const treeStrandingResetDirs = (command: string): readonly (string | null)[] => writeDirsWhere(command, stranding);
+
+/**
+ * Whether a command line runs a mixed `git reset`. See {@link treeStrandingResetDirs}.
+ *
+ * @param command - the command line.
+ * @returns whether any simple command is such a call.
+ */
+export const strandsTree = (command: string): boolean => treeStrandingResetDirs(command).length > 0;
+
+/**
+ * Whether the tree-stranding reset check applies to a process with this
+ * environment: any unattended agent (`PLOT_UNATTENDED=1`), including one its
+ * spawn marked as a main-checkout writer. The marker lets that agent commit
+ * there; it does not let it leave the working tree behind `HEAD`.
+ *
+ * @param env - the environment of the gate's process.
+ * @returns whether a mixed reset in the main checkout is refused.
+ */
+export const gatesStrandingReset = (env: Readonly<Record<string, string | undefined>>): boolean => env.PLOT_UNATTENDED === '1';
 
 /**
  * Whether a command line runs a git call that mutates `HEAD`, the index, or a
@@ -322,6 +375,10 @@ export const mainCheckoutWriteRefusal = (scriptDir: string): string =>
     '',
     `  Resolve the desk worktree first: . "${scriptDir}/plot-desk-root.sh"; plot_desk_root`,
     '  then run this command with that path as the working directory (or `git -C <desk> ...`).',
+    '',
+    '  A mixed `git reset` (no --hard/--soft) moves HEAD and leaves the working tree behind it, so a later',
+    '  `git add -A` commits the reverse of the commits it skipped. Allowed: `git reset --hard <ref>` on files',
+    '  you own, or a re-cut in a disposable worktree.',
     '',
     '  If this really is bookkeeping that belongs on the main checkout (e.g. advancing a shared ref), route it',
     '  through a disposable worktree the way plot-dispatch.sh books its Started record, rather than writing here.',

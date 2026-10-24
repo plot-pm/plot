@@ -123,3 +123,42 @@ describe('the main-checkout gate, for an attended session', () => {
     expect(asked).toEqual([]);
   });
 });
+
+describe('the main-checkout gate, for a mixed reset', () => {
+  beforeEach(() => {
+    process.env.PLOT_UNATTENDED = '1';
+  });
+
+  it.each(['git reset', 'git reset origin/main', 'git reset -- file.txt', 'git -C /nowhere/repo reset', 'cd /nowhere/repo && git reset'])(
+    'refuses %s in the main checkout even for a marked writer',
+    async (command) => {
+      process.env.PLOT_MAIN_CHECKOUT_WRITER = '1';
+      expect((await ask(readings(MAIN), command)).code).toBe(EXIT.refuse);
+    },
+  );
+
+  it('allows a reset in a linked worktree', async () => {
+    process.env.PLOT_MAIN_CHECKOUT_WRITER = '1';
+    expect((await ask(readings(DESK), 'git reset')).code).toBe(EXIT.allow);
+  });
+
+  it.each(['git reset --hard origin/main', 'git reset --soft HEAD~1'])('allows %s for a marked writer', async (command) => {
+    process.env.PLOT_MAIN_CHECKOUT_WRITER = '1';
+    expect((await ask(readings(MAIN), command)).code).toBe(EXIT.allow);
+  });
+
+  it('still allows a marked writer to commit in the main checkout', async () => {
+    process.env.PLOT_MAIN_CHECKOUT_WRITER = '1';
+    expect((await ask(readings(MAIN), 'git commit -m x')).code).toBe(EXIT.allow);
+  });
+
+  it('leaves an attended session free', async () => {
+    delete process.env.PLOT_UNATTENDED;
+    expect((await ask(readings(MAIN), 'git reset')).code).toBe(EXIT.allow);
+  });
+
+  it('allows when the root cannot be read', async () => {
+    process.env.PLOT_MAIN_CHECKOUT_WRITER = '1';
+    expect((await ask(readings(NO_ROOT), 'git reset')).code).toBe(EXIT.allow);
+  });
+});

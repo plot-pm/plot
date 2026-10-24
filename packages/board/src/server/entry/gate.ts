@@ -15,7 +15,15 @@ import {
   withoutMessageSinks,
   withoutQuotedHeredocs,
 } from '@plot-pm/domain/rules/controller-gate';
-import { gatesMainCheckout, gitWriteDirs, mainCheckoutWriteRefusal, mutatesGitState } from '@plot-pm/domain/rules/main-checkout-write';
+import {
+  gatesMainCheckout,
+  gatesStrandingReset,
+  gitWriteDirs,
+  mainCheckoutWriteRefusal,
+  mutatesGitState,
+  strandsTree,
+  treeStrandingResetDirs,
+} from '@plot-pm/domain/rules/main-checkout-write';
 
 /**
  * The `node` entry point `plot-gates.sh` launches: one PreToolUse hook that
@@ -509,14 +517,21 @@ export interface MainCheckoutReadings {
  * cannot tell a desk from the main checkout. A linked-worktree read that fails
  * refuses instead ({@link gitWhere}): with a root, passing a broken read would
  * hide it behind a silent allow.
+ *
+ * A second arm ignores the marker: a mixed `git reset` in the main checkout is
+ * refused for every unattended caller ({@link gatesStrandingReset}), because it
+ * leaves the working tree behind `HEAD`.
  */
 export const mainCheckoutGateOf = (readings: MainCheckoutReadings): Gate => ({
   name: 'main-checkout',
-  wants: (command) => gatesMainCheckout(process.env) && mutatesGitState(command),
+  wants: (command) =>
+    (gatesMainCheckout(process.env) && mutatesGitState(command)) || (gatesStrandingReset(process.env) && strandsTree(command)),
   ask: async (command) => {
     const cwd = process.cwd();
     const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-    for (const dir of gitWriteDirs(command)) {
+    // A marked writer is exempt from the gate but not from the mixed-reset refusal.
+    const dirs = gatesMainCheckout(process.env) ? gitWriteDirs(command) : treeStrandingResetDirs(command);
+    for (const dir of dirs) {
       const where = await readings.where(dir === null ? cwd : resolve(cwd, dir), scriptDir);
       if (where.root.ok && !where.linked) return mainCheckoutWriteRefusal(scriptDir);
     }

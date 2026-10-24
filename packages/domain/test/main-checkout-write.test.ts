@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   gatesMainCheckout,
+  gatesStrandingReset,
   gitWriteDirs,
   MAIN_CHECKOUT_WRITER_ENV,
   mainCheckoutWriteRefusal,
   mutatesGitState,
+  strandsTree,
+  treeStrandingResetDirs,
 } from '../src/rules/main-checkout-write.js';
 
 describe('mutatesGitState', () => {
@@ -286,5 +289,43 @@ describe('mainCheckoutWriteRefusal', () => {
   it('names the main checkout and PLOT_UNATTENDED as the reasons', () => {
     expect(text).toContain('MAIN checkout');
     expect(text).toContain('PLOT_UNATTENDED=1');
+  });
+});
+
+describe('treeStrandingResetDirs', () => {
+  it.each([
+    'git reset',
+    'git reset origin/main',
+    'git reset -q',
+    'git reset --mixed HEAD~1',
+    'git reset -- file.txt',
+    'git reset origin/main -- file.txt',
+  ])('reads %s as stranding', (command) => expect(strandsTree(command)).toBe(true));
+
+  it.each(['git reset --hard', 'git reset --hard origin/main', 'git reset --soft HEAD~1', 'git reset --keep HEAD~1', 'git reset --merge'])(
+    'reads %s as tree-consistent',
+    (command) => expect(strandsTree(command)).toBe(false),
+  );
+
+  it('ignores other mutating calls and reads', () => {
+    expect(strandsTree('git commit -m x')).toBe(false);
+    expect(strandsTree('git status')).toBe(false);
+  });
+
+  it('places the call by -C and cd', () => {
+    expect(treeStrandingResetDirs('git -C /abs/main reset')).toEqual(['/abs/main']);
+    expect(treeStrandingResetDirs('cd /abs/main && git reset')).toEqual(['/abs/main']);
+    expect(treeStrandingResetDirs('cd "$desk" && git reset')).toEqual([]);
+  });
+});
+
+describe('gatesStrandingReset', () => {
+  it('applies to an unattended agent, marked as a writer or not', () => {
+    expect(gatesStrandingReset({ PLOT_UNATTENDED: '1' })).toBe(true);
+    expect(gatesStrandingReset({ PLOT_UNATTENDED: '1', [MAIN_CHECKOUT_WRITER_ENV]: '1' })).toBe(true);
+  });
+
+  it('leaves an attended session free', () => {
+    expect(gatesStrandingReset({})).toBe(false);
   });
 });
