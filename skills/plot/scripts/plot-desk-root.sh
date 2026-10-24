@@ -48,8 +48,16 @@ plot_repo_root() {
 # Resolved ONCE at source time, the way `plot-pr-merged.sh:105` resolves its
 # own bundle. Computing it inside a function reads `BASH_SOURCE[0]` at call
 # time, which is the caller's file once the function has been exported.
+#
+# THE `.mjs` PATHS ARE BUILT DIRECTLY FROM `BASH_SOURCE`, ON THEIR OWN LINES —
+# never through `_plot_desk_root_dir` — because `check-bundle-resolution.sh`
+# only recognises `$script_dir`/`$here`/`$HERE` or a `BASH_SOURCE` command
+# substitution as a bundle's anchor, and a private variable of any other name
+# is invisible to it.
 _plot_desk_root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-_plot_desk_root_mjs="$_plot_desk_root_dir/board/plot-desk-root.mjs"; _plot_desk_root_config="$_plot_desk_root_dir/plot-config.sh"
+_plot_desk_root_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-desk-root.mjs"
+_plot_desk_root_config="$_plot_desk_root_dir/plot-config.sh"
+_plot_plan_for_branch_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-plan-for-branch.mjs"
 
 # The desk root for a repository, or exit 3 with the reason on stderr.
 #
@@ -144,5 +152,5 @@ plot_plan_for_branch() {
   for link in $(grep -lF "$branch" "$plan_dir"*.md 2>/dev/null || true); do
     [ -e "$link" ] && metas="${metas}$(bash "$_plot_desk_root_dir/plot-plan-meta.sh" "$link" 2>/dev/null)"$'\n'
   done
-  [ -n "$metas" ] || return 1; printf '%s' "$metas" | node "$_plot_desk_root_dir/board/plot-plan-for-branch.mjs" "$branch"
+  [ -n "$metas" ] || return 1; printf '%s' "$metas" | node "$_plot_plan_for_branch_mjs" "$branch"
 }
