@@ -82,15 +82,35 @@ test('pr-review exits 3 and prints no JSON when a read fails', () => {
   }
 });
 
-/** A `bb` answering the three Bitbucket reads; `failOn` makes the call whose argv contains it exit 1. */
+/**
+ * A `bb` answering the three Bitbucket reads; `failOn` makes the call whose
+ * argv contains it exit 1. `comments` may instead be `{pages: [...]}` — each
+ * array served in turn, every page but the last carrying a `next` link to a
+ * synthetic second-page path this same stub recognises, so a test can prove a
+ * `review-bypass:` comment on page 2 is read rather than missed.
+ */
 const bbStub = ({ pr = { source: { commit: { hash: 'abc123' } } }, statuses = { values: [] }, comments = { values: [] }, failOn = null }) => {
   const dir = tmp('pr-review-bb');
+  const commentPages = comments.pages ?? [comments.values ?? []];
+  const nextPath = '/repositories/{ws}/{repo}/pullrequests/7/comments-page-2';
+  // THE SECOND PAGE'S ARM COMES FIRST: its synthetic path contains the
+  // substring "/comments" too, so a case statement checking page 1's pattern
+  // first would match every page as page 1 forever and loop on the page cap.
+  const commentArms = commentPages.map((values, i) => {
+    const page = i + 1;
+    const isLast = page === commentPages.length;
+    const next = isLast ? '' : `,"next":"https://api.bitbucket.org/2.0${nextPath}"`;
+    const match = page === 1 ? '*"/pullrequests/7/comments"*' : `*"${nextPath}"*`;
+    return `  ${match}) printf '{"values":%s${next}}' ${JSON.stringify(JSON.stringify(values))} ;;`;
+  });
+  commentArms.reverse();
+  const commentArmsText = commentArms.join('\n');
   const body = `#!/usr/bin/env bash
 case "$*" in
   *--version*) echo "bb version 1.9.0" ;;
   *${failOn ?? 'NEVER-MATCHES'}*) echo "HTTP 502" >&2; exit 1 ;;
   *"/commit/abc123/statuses"*) printf '%s' ${JSON.stringify(JSON.stringify(statuses))} ;;
-  *"/pullrequests/7/comments"*) printf '%s' ${JSON.stringify(JSON.stringify(comments))} ;;
+${commentArmsText}
   *"/pullrequests/7") printf '%s' ${JSON.stringify(JSON.stringify(pr))} ;;
   *) exit 9 ;;
 esac
@@ -124,6 +144,21 @@ test('pr-review on Bitbucket reports a comment starting review-bypass:', () => {
   }));
   assert.equal(r.status, 0, r.stderr);
   assert.equal(JSON.parse(r.stdout).bypass, true);
+});
+
+test('pr-review on Bitbucket finds a review-bypass: comment that exists only on the second page', () => {
+  // The brief's fourth required scenario: a single-page read of `/comments`
+  // sees only page 1 and reports `bypass: false`; following `next` finds it.
+  const r = bbPrReview(bbStub({
+    comments: {
+      pages: [
+        [{ content: { raw: 'looks fine' } }],
+        [{ content: { raw: 'review-bypass: reviewer stuck — jwloka' } }],
+      ],
+    },
+  }));
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).bypass, true, 'a single-page read of /comments would report false');
 });
 
 test('pr-review on Bitbucket exits 3 and prints no JSON when a read fails', () => {
