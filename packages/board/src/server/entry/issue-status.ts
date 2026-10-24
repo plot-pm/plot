@@ -71,7 +71,21 @@ export const planFrom = (text: string): Pick<IssueStatusReading, 'phase' | 'issu
  * @throws on an unknown flag or a flag with no value.
  */
 export const wordsFrom = (argv: readonly string[]): IssueStatusWords => {
+  const { approved, delivered, released } = flagsFrom(argv);
+  return { approved, delivered, released };
+};
+
+/**
+ * Reads `--approved <word>`, `--delivered <word>`, `--released <word>` and
+ * zero or more `--skip-issue <id>`; an absent word flag is `''`.
+ *
+ * @param argv - the arguments after the script name.
+ * @returns the configured words and the issues to skip.
+ * @throws on an unknown flag or a flag with no value.
+ */
+export const flagsFrom = (argv: readonly string[]): IssueStatusWords & { skipIssues: readonly string[] } => {
   const words = { approved: '', delivered: '', released: '' };
+  const skipIssues: string[] = [];
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
     const value = argv[i + 1];
@@ -79,27 +93,37 @@ export const wordsFrom = (argv: readonly string[]): IssueStatusWords => {
     if (flag === '--approved') words.approved = value;
     else if (flag === '--delivered') words.delivered = value;
     else if (flag === '--released') words.released = value;
+    else if (flag === '--skip-issue') skipIssues.push(value);
     else throw new Error(`unknown argument '${flag}'`);
   }
-  return words;
+  return { ...words, skipIssues };
 };
 
 /**
- * Performs every write the rule decides a plan owes.
+ * Performs every write the rule decides a plan owes, skipping an issue
+ * another unfinished plan also names — that issue is reported `skipped`,
+ * never asked of the tracker.
  *
  * @param reading - the plan and the configured words.
  * @param tracker - the connector the repository declared.
+ * @param skipIssues - issues to leave open, each reported `skipped` rather than written.
  * @param issueWrites - where each status the tracker took is handed to the issue index; absent hands nothing.
  * @returns one `<issue>\t<outcome>\t<reason>` line per owed write.
  */
 export const writeStatuses = async (
   reading: IssueStatusReading,
   tracker: Tracker,
+  skipIssues: ReadonlySet<string> = new Set(),
   issueWrites?: IssueWriteSpool,
-): Promise<{ lines: string[]; outcomes: TrackerWriteOutcome[] }> => {
+): Promise<{ lines: string[]; outcomes: (TrackerWriteOutcome | 'skipped')[] }> => {
   const lines: string[] = [];
-  const outcomes: TrackerWriteOutcome[] = [];
+  const outcomes: (TrackerWriteOutcome | 'skipped')[] = [];
   for (const { issue, status } of issueStatusWrites(reading)) {
+    if (skipIssues.has(issue)) {
+      lines.push(`${issue}\tskipped\tanother plan unfinished\n`);
+      outcomes.push('skipped');
+      continue;
+    }
     const result = await tracker.statusWrite({ prUrl: '', issue, status });
     const outcome: TrackerWriteOutcome = result.ok ? result.value : result.why;
     if (outcome === 'written' && issueWrites !== undefined) {
@@ -130,12 +154,15 @@ export const run = async (
   write: (s: string) => void = (s) => process.stdout.write(s),
 ): Promise<number> => {
   let reading: IssueStatusReading;
+  let skipIssues: readonly string[];
   try {
-    reading = { ...planFrom(stdin), words: wordsFrom(argv) };
+    const { skipIssues: skip, ...words } = flagsFrom(argv);
+    skipIssues = skip;
+    reading = { ...planFrom(stdin), words };
   } catch (err) {
     process.stderr.write(`plot-issue-status: ${(err as Error).message}\n`);
     process.stderr.write(
-      'plot-issue-status: usage: plot-plan-meta.sh <plan> | plot-issue-status.mjs [--approved <word>] [--delivered <word>] [--released <word>]\n',
+      'plot-issue-status: usage: plot-plan-meta.sh <plan> | plot-issue-status.mjs [--approved <word>] [--delivered <word>] [--released <word>] [--skip-issue <id> ...]\n',
     );
     return EXIT.usage;
   }
@@ -146,9 +173,18 @@ export const run = async (
     return EXIT.ok;
   }
   const tracker = await trackerShell(context);
-  const { lines, outcomes } = await writeStatuses(reading, tracker, issueWriteSpoolFile({ cwd: context.repoRoot }));
+  const { lines, outcomes } = await writeStatuses(
+    reading,
+    tracker,
+    new Set(skipIssues),
+    issueWriteSpoolFile({ cwd: context.repoRoot }),
+  );
   for (const line of lines) write(line);
-  write(`summary: tracker=${trackerWriteSummary(outcomes)}\n`);
+  // SKIPPED IS TRANSPARENT TO THIS LINE'S VOCABULARY, for the reason
+  // `plan-state.ts` gives: an existing reader's `summary: tracker=` regex
+  // parses none of the five outcomes as `skipped`.
+  const written = outcomes.filter((outcome): outcome is TrackerWriteOutcome => outcome !== 'skipped');
+  write(`summary: tracker=${written.length > 0 ? trackerWriteSummary(written) : 'none'}\n`);
   return EXIT.ok;
 };
 
