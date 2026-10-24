@@ -784,4 +784,20 @@ export interface Refs {
    *   branch.
    */
   remoteSha(branch: string): Promise<PortResult<RemoteShaReading>>;
+
+  /**
+   * The parents of an in-progress merge, from `MERGE_HEAD`.
+   *
+   * **ONE LINE PER PARENT, OCTOPUS INCLUDED.** `git rev-parse MERGE_HEAD`
+   * resolves only the first line of an octopus merge's `MERGE_HEAD`, which is
+   * why this reads the file rather than resolving the ref. `--git-path` finds
+   * it worktree-aware, the same way {@link Refs.linkedWorktree} does.
+   *
+   * `MERGE_HEAD` exists only between a merge that did not fast-forward and the
+   * commit that completes it — precisely the window a commit gate runs in.
+   *
+   * @returns each parent's full sha, oldest first as the file lists them;
+   *   empty where no merge is in progress.
+   */
+  mergeParents(): Promise<PortResult<readonly string[]>>;
 }
