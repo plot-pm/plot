@@ -3626,6 +3626,34 @@ test('host: runs on Jenkins omits NOT_BUILT and ABORTED builds, keeping the ones
     'NOT_BUILT and ABORTED are absent; the builds that ran survive, newest first');
 });
 
+// Catches the limit still applying before the filter: Jenkins' `tree=` query
+// selects FIELDS, never values, so `{0,$limit}` on the Jenkins side cannot
+// itself drop NOT_BUILT/ABORTED — the fetch must over-fetch, or a build
+// dropped after the cut silently shrinks the answer below `--limit`.
+test('host: runs --limit 3 over five builds where two are NOT_BUILT still returns 3 rows', () => {
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const builds = JSON.stringify({ builds: [
+    { number: 14, result: 'NOT_BUILT', building: false, timestamp: 1790000500000, url: 'https://ci.test/14/',
+      actions: [{ lastBuiltRevision: { SHA1: 'sha-14' } }] },
+    { number: 13, result: 'SUCCESS', building: false, timestamp: 1790000400000, url: 'https://ci.test/13/',
+      actions: [{ lastBuiltRevision: { SHA1: 'sha-13' } }] },
+    { number: 12, result: 'NOT_BUILT', building: false, timestamp: 1790000300000, url: 'https://ci.test/12/',
+      actions: [{ lastBuiltRevision: { SHA1: 'sha-12' } }] },
+    { number: 11, result: 'FAILURE', building: false, timestamp: 1790000200000, url: 'https://ci.test/11/',
+      actions: [{ lastBuiltRevision: { SHA1: 'sha-11' } }] },
+    { number: 10, result: 'SUCCESS', building: false, timestamp: 1790000100000, url: 'https://ci.test/10/',
+      actions: [{ lastBuiltRevision: { SHA1: 'sha-10' } }] },
+  ] });
+  const bin = makeJenkinsRestBin(builds);
+  const out = runJenkins(['runs', 'feature/red', '--limit', '3'],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  const rows = out.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(rows.length, 3, 'three surviving builds exist, so the limit must not return fewer');
+  assert.deepEqual(rows.map((r) => r.conclusion), ['SUCCESS', 'FAILURE', 'SUCCESS'], 'newest surviving three, newest first');
+});
+
 test('host: runs on Jenkins keeps a still-building row, which must not be mistaken for NOT_BUILT or ABORTED', () => {
   // A filter written as `select(.conclusion != null)` would wrongly drop an
   // in-progress build: its `conclusion` is null while building, which reads
@@ -4186,11 +4214,13 @@ test('host: runs-for-sha does not match a build on its merge-base sha', () => {
   assert.deepEqual(JSON.parse(res.stdout.trim()), [], 'a different branch\'s build must not bind to its merge-base sha');
 });
 
-test('host: runs-for-sha on a plain job matches the job\'s own branch entry and not another branch\'s head', () => {
+test('host: runs-for-sha on a plain job matches the asked branch\'s entry and not the job\'s own last segment', () => {
   // A plain job applies no branch filter when a sha is asked (`$plain` set,
   // no multibranch children) — the brief's "plain job" case. The build names
-  // its OWN job's branch on one entry and a different branch on the other;
-  // the sha paired with the job's own branch matches, the other does not.
+  // the job's own last path segment on one entry and the asked branch on the
+  // other; the sha paired with the ASKED BRANCH matches — the job's own last
+  // segment names a job, not a branch, and stops being a key
+  // (2026-10-24-jenkins-sha-lookups-in-plot-host.md).
   const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
@@ -4204,16 +4234,16 @@ test('host: runs-for-sha on a plain job matches the job\'s own branch entry and 
       ] },
   ] });
   const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
-  const ownRes = runJenkinsAllowFail(['run-for-sha', 'feature/other', ownSha],
-    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
-  assert.equal(ownRes.code, 0, ownRes.stderr);
-  const row = JSON.parse(ownRes.stdout.trim());
-  assert.equal(row.sha, ownSha, 'the entry named for the job\'s own branch matches, not the one named for the asked branch');
-
   const otherRes = runJenkinsAllowFail(['run-for-sha', 'feature/other', otherSha],
     { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
   assert.equal(otherRes.code, 0, otherRes.stderr);
-  assert.equal(otherRes.stdout.trim(), '', 'a plain job must not match a sha whose entry names a different branch');
+  const row = JSON.parse(otherRes.stdout.trim());
+  assert.equal(row.sha, otherSha, 'the entry named for the asked branch matches');
+
+  const ownRes = runJenkinsAllowFail(['run-for-sha', 'feature/other', ownSha],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(ownRes.code, 0, ownRes.stderr);
+  assert.equal(ownRes.stdout.trim(), '', 'a plain job must not match a sha whose entry names only the job\'s own last segment');
 });
 
 // The sha-bound path's `select(headsha(...) as $h | $h == $sha or ...)` binds
@@ -4221,14 +4251,13 @@ test('host: runs-for-sha on a plain job matches the job\'s own branch entry and 
 // generator emits rather than collapsing to the first — so before the
 // `first(...)` fix in `headsha`, a build with two matching entries for the
 // asked branch surfaced here too, not only on the no-sha `runs` path.
-test('host: runs-for-sha on a plain job matches a build once despite two lastBuiltRevision entries naming the job\'s own branch', () => {
-  // A plain job's headsha lookup keys on the JOB's own last path segment, not
-  // the asked branch (`$plain` set) — so the duplicate-match path needs both
-  // entries to name the job's own branch, `continuous-deploy`, same as the
-  // adjacent "matches the job's own branch entry" fixture above. The plural
-  // `runs-for-sha` is used rather than the singular `run-for-sha`, which takes
-  // `.[0] // empty` of the same array and so cannot show a duplication defect
-  // that still leaves the first entry correct.
+test('host: runs-for-sha on a plain job matches a build once despite two lastBuiltRevision entries naming the asked branch', () => {
+  // A plain job's headsha lookup keys on the ASKED BRANCH, not the job's own
+  // last path segment — so the duplicate-match path needs both entries to
+  // name the asked branch, `feature/other`. The plural `runs-for-sha` is used
+  // rather than the singular `run-for-sha`, which takes `.[0] // empty` of the
+  // same array and so cannot show a duplication defect that still leaves the
+  // first entry correct.
   const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
   const hostStubs = makeStubs({ ghJson: '[]' });
   const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
@@ -4236,8 +4265,8 @@ test('host: runs-for-sha on a plain job matches a build once despite two lastBui
   const builds = JSON.stringify({ builds: [
     { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
       actions: [
-        { lastBuiltRevision: { SHA1: dupSha, branch: [{ name: 'origin/continuous-deploy' }] } },
-        { lastBuiltRevision: { SHA1: dupSha, branch: [{ name: 'origin/continuous-deploy' }] } },
+        { lastBuiltRevision: { SHA1: dupSha, branch: [{ name: 'origin/feature/other' }] } },
+        { lastBuiltRevision: { SHA1: dupSha, branch: [{ name: 'origin/feature/other' }] } },
       ] },
   ] });
   const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
@@ -4268,6 +4297,70 @@ test('host: runs-for-sha on a plain job falls back to the last entry when no act
   assert.equal(res.code, 0, res.stderr);
   const row = JSON.parse(res.stdout.trim());
   assert.equal(row.sha, headSha, 'with no branch name on any entry, the last entry stands for the head');
+});
+
+// Catches a fallback to the last record whenever no record names the ASKED
+// branch: a build whose records name other branches belongs to those
+// branches, and its last record must not bind it to the asked one.
+test('host: runs-for-sha on a plain job does not fall back to the last record when any record names another branch', () => {
+  const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
+  const otherSha = '5555555555555555555555555555555555eeee';
+  const developSha = '6666666666666666666666666666666666ffff';
+  const ask = (actions, sha) => {
+    const builds = JSON.stringify({ builds: [
+      { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/', actions },
+    ] });
+    const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
+    return runJenkinsAllowFail(['run-for-sha', 'feature/other', sha],
+      { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  };
+  const merge = ask([
+    { lastBuiltRevision: { SHA1: otherSha, branch: [{ name: 'origin/feature/x' }] } },
+    { lastBuiltRevision: { SHA1: developSha, branch: [{ name: 'origin/develop' }] } },
+  ], developSha);
+  assert.equal(merge.code, 0, merge.stderr);
+  assert.equal(merge.stdout.trim(), '', 'a build naming only other branches must not bind to the asked branch at its last record');
+
+  const trailing = ask([
+    { lastBuiltRevision: { SHA1: developSha, branch: [{ name: 'origin/develop' }] } },
+    { lastBuiltRevision: { SHA1: otherSha } },
+  ], otherSha);
+  assert.equal(trailing.code, 0, trailing.stderr);
+  assert.equal(trailing.stdout.trim(), '', 'a trailing record with no branch must not bind the build when another record names a branch');
+});
+
+// Open question from the plan (2026-10-24-jenkins-sha-lookups-in-plot-host.md,
+// Design §Open Questions): a merge build can hold several `lastBuiltRevision`
+// records that all name the asked branch, and the fix for #2322 assumed they
+// agree. Decided here: the FIRST matching record binds the build's sha, same
+// convention `headsha`'s branch-match already used for a single match — so a
+// build whose own re-run recorded two revisions for the same branch cannot
+// silently prefer the later one over the one Jenkins actually built first.
+test('host: runs-for-sha on a plain job binds the first record naming the branch when two disagree', () => {
+  const repo = makeJenkinsRepo({ instance: 'ci.test/quaweb/continuous-deploy' });
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: 'null', viewJson: JEN_VIEW_PLAIN });
+  const firstSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1111';
+  const secondSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2222';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: firstSha, branch: [{ name: 'origin/feature/other' }] } },
+        { lastBuiltRevision: { SHA1: secondSha, branch: [{ name: 'origin/feature/other' }] } },
+      ] },
+  ] });
+  const bin = makeJenkinsRestBin(builds, { branchSeg: 'feature%2Fother', branchAnswer: '<html>404 Not Found</html>' });
+  const firstRes = runJenkinsAllowFail(['run-for-sha', 'feature/other', firstSha],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(firstRes.code, 0, firstRes.stderr);
+  assert.equal(JSON.parse(firstRes.stdout.trim()).sha, firstSha, 'the first record naming the branch binds the build');
+
+  const secondRes = runJenkinsAllowFail(['run-for-sha', 'feature/other', secondSha],
+    { repo, hostStubs, jen, extraEnv: { PATH: `${bin}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}` } });
+  assert.equal(secondRes.code, 0, secondRes.stderr);
+  assert.equal(secondRes.stdout.trim(), '', 'the second, disagreeing record does not bind the build');
 });
 
 // `run-for-sha`/`runs-for-sha` require a non-empty sha (`${1:?$op needs a
@@ -4321,6 +4414,26 @@ test('host: the no-sha branch-head arm of jenkins_sha_runs falls back to the las
   assert.equal(res.code, 0, res.stderr);
   const [row] = JSON.parse(res.stdout.trim());
   assert.equal(row.sha, headSha, 'with no branch name on any entry, the last entry stands for the head');
+});
+
+// Catches a fix that only reorders the flat `br`/`shas` lists rather than
+// reading the pair from one action: the FIRST revision names no branch at
+// all (so a positional read would treat its sha as the head when nothing
+// else outranks it) and the SECOND names the asked branch.
+test('host: the no-sha branch-head arm of jenkins_sha_runs binds the second record\'s sha when the first names no branch', () => {
+  const unnamedSha = '3333333333333333333333333333333333cccc';
+  const headSha = '4444444444444444444444444444444444dddd';
+  const builds = JSON.stringify({ builds: [
+    { number: 9, result: 'SUCCESS', building: false, timestamp: 1790000000000, url: 'https://ci.test/9/',
+      actions: [
+        { lastBuiltRevision: { SHA1: unnamedSha } },
+        { lastBuiltRevision: { SHA1: headSha, branch: [{ name: 'origin/feature/red' }] } },
+      ] },
+  ] });
+  const res = sourcedJenkinsShaRuns('feature/red', builds);
+  assert.equal(res.code, 0, res.stderr);
+  const [row] = JSON.parse(res.stdout.trim());
+  assert.equal(row.sha, headSha, 'the second record names the asked branch and binds the build, not the unnamed first record');
 });
 
 // --- a failed sha lookup is visible, never silently swallowed ------------
