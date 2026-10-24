@@ -116,25 +116,14 @@ decided_state="$(printf '%s' "${decided_state:0:1}" | tr '[:lower:]' '[:upper:]'
 # that is adaptation -- the same split plot-approve.sh draws.
 tmp="$file.plot-undeliver"
 awk -v want="$decided_state" -v record="$decided_record" '
-  NR == 1 { in_fm = ($0 ~ /^---[ \t]*$/) ? 1 : 0; print; next }
+  NR == 1 { in_fm = ($0 ~ /^---[ \t]*$/); print; next }
   in_fm && /^---[ \t]*$/ { in_fm = 0; print; next }
-  # #2439: front matter is a second writer the scan reads independently of
-  # the block, so it is flipped alongside it when it still names the state
-  # being left -- the first status: or phase: line only, matching
+  # #2439: front matter is a second writer the scan reads independently of the
+  # block, so the first status:/phase: line is flipped alongside it, matching
   # flipFrontMatterPhase in plan-record-edit.ts.
-  in_fm && !fm_done && tolower($0) ~ /^(status|phase):[ \t]*\**delivered/ {
-    sub(/:.*$/, ": " want)
-    fm_done = 1
-    print
-    next
-  }
+  in_fm && !fm_done && tolower($0) ~ /^(status|phase):[ \t]*\**delivered/ { sub(/:.*$/, ": " want); fm_done = 1; print; next }
   /^## / { section = ($0 ~ /^## Status/) ? "status" : "" }
-  section == "status" && !done && tolower($0) ~ /^[ \t]*[-*][ \t]*\**state[:*]/ {
-    sub(/State:\*\*[ \t]*.*$/, "State:** " want)
-    done = 1
-    print
-    next
-  }
+  section == "status" && !done && tolower($0) ~ /^[ \t]*[-*][ \t]*\**state[:*]/ { sub(/State:\*\*[ \t]*.*$/, "State:** " want); done = 1; print; next }
   # The reason, recorded beside the state. An existing line is replaced so
   # re-running writes one record rather than a second.
   section == "status" && tolower($0) ~ /^[ \t]*[-*][ \t]*\**rejected[:*]/ {
