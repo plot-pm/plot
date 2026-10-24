@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import type { BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
-import { KNOWN_STATES, defaultPrIndex, deskPidAlive, parseManifest, resolveManifestDir, rowState, type AgentEntry, type LivenessResolver, type PidLiveness, type PrIndexReader } from '@plot-pm/fleet/shared/registry';
+import { KNOWN_STATES, defaultPrIndex, deskPidAlive, gitWorktrees, parseManifest, resolveManifestDir, rowState, type AgentEntry, type LivenessResolver, type PidLiveness, type PrIndexReader, type WorktreeLister } from '@plot-pm/fleet/shared/registry';
 import { deskBranchMerged, mergedDeskState } from '@plot-pm/domain/rules/merged-desk';
 import { LIVE_STATES } from '../contract/schema.js';
 import { localCapability } from './controllers/caller.js';
@@ -73,6 +73,14 @@ export interface DropOptions extends BuildBoardOptions {
    * merged".
    */
   prIndex?: PrIndexReader;
+  /**
+   * Enumerate the repo's worktrees, to resolve the branch actually checked out
+   * at `entry.worktree` — the same reading `registry.ts`'s `branchOf` builds —
+   * before asking {@link deskBranchMerged}. Injected in tests; in production
+   * the default is {@link gitWorktrees}. When it throws or lists nothing for
+   * this worktree, the manifest's own `entry.branch` is used instead.
+   */
+  worktrees?: WorktreeLister;
 }
 
 /** What the drop can say, on both success and refusal. */
@@ -144,6 +152,25 @@ function worktreeIsGone(entry: AgentEntry): boolean {
 }
 
 /**
+ * The branch actually checked out at `entry.worktree`, per `git worktree
+ * list` — falling back to the manifest's own `entry.branch` only when the
+ * listing throws or names no worktree at that path. Mirrors `registry.ts`'s
+ * `branchOf`, without that module's realpath fallback: a drop target is
+ * addressed by the exact path its own manifest recorded, so a second form of
+ * the same path is not a case this endpoint needs to match.
+ */
+async function resolveCheckedOutBranch(entry: AgentEntry, worktrees: WorktreeLister): Promise<string> {
+  try {
+    const list = await worktrees();
+    const found = list.find((wt) => wt.path === entry.worktree);
+    if (found && found.branch !== '') return found.branch;
+  } catch {
+    // Listing failed — fall back to the manifest's own branch below.
+  }
+  return entry.branch;
+}
+
+/**
  * Classify one entry's state, reusing the injected liveness resolver.
  *
  * A batch-oriented resolver is overkill for one entry, but it is the same
@@ -165,6 +192,15 @@ function worktreeIsGone(entry: AgentEntry): boolean {
  * worker had already exited stayed `waiting` forever and {@link LIVE_STATES}
  * refused the drop with "the agent is still running".
  *
+ * THE BRANCH ASKED ABOUT IS THE WORKTREE'S, NOT THE MANIFEST'S. A desk that is
+ * still `waiting` but whose assignment was already cleared has
+ * `entry.branch === ''` — `clearAssignment` writes that once a desk is freed —
+ * and `deskBranchMerged(index, '')` is `false` by construction, never mind
+ * what the PR index says. `registry.ts`'s `branchOf` reads the branch
+ * `git worktree list` actually reports for the desk and falls back to
+ * `entry.branch` only when no worktree is listed for that path; this mirrors
+ * that resolution rather than inventing a second one.
+ *
  * Awaited because {@link LivenessResolver} became awaitable when the registry
  * moved off the event loop. This is a WRITE route, so the await buys it
  * nothing it needed — it is the shared resolver's shape, followed rather than
@@ -176,6 +212,7 @@ async function classifyState(
   liveness: LivenessResolver | undefined,
   pidAlive: PidLiveness,
   prIndex: PrIndexReader,
+  worktrees: WorktreeLister,
 ): Promise<AgentEntry['state']> {
   if (!entry.worktree) return 'unknown';
   if (!liveness) return 'unknown';
@@ -185,7 +222,8 @@ async function classifyState(
     const state = answer as AgentEntry['state'];
     if (state === 'waiting') {
       try {
-        const merged = deskBranchMerged(await prIndex(), entry.branch);
+        const branch = await resolveCheckedOutBranch(entry, worktrees);
+        const merged = deskBranchMerged(await prIndex(), branch);
         if (!merged) return state;
         return mergedDeskState({ state, merged, workerAlive: await pidAlive(entry.worktree) });
       } catch {
@@ -271,6 +309,7 @@ export async function handleDrop(
     opts.liveness,
     opts.pidAlive ?? deskPidAlive,
     opts.prIndex ?? defaultPrIndex(opts.repoRoot, opts.scriptsDir),
+    opts.worktrees ?? (() => gitWorktrees(opts.repoRoot)),
   );
   if (LIVE_STATES.has(state)) {
     json(200, {
