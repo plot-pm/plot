@@ -1139,8 +1139,7 @@ bb_branch_sweep() { # global bb args… --state <s> --json → one JSON array
   # re-parses of a growing accumulator: the old shape re-read every row it had
   # already seen once per branch, so eleven branches parsed the first branch's
   # payload eleven times.
-  local _spool
-  plot_tmpfile _spool host-sweep || return 3
+  local _spool; plot_tmpfile _spool host-sweep || return 3
   for _br in $PR_LIST_BRANCHES; do
     # RETURN, NOT EXIT. This runs inside the command substitution
     # `pr_list_call` wraps the sweep in, so the code must travel back as this
@@ -1237,8 +1236,7 @@ bb_window_listing() { # global bb args… --state <s> --json → one JSON array
   # pages and arrive twice.
   _rows="$(jq -c -s 'add // [] | unique_by(.id)' < "$_spool")" || { rm -f "$_spool"; return 3; }
   rm -f "$_spool"
-  local _got
-  _got="$(jq 'length' <<<"$_rows")" || return 3
+  local _got; _got="$(jq 'length' <<<"$_rows")" || return 3
   if [ "$_got" -lt "$_size" ] 2>/dev/null; then
     echo "bitbucket window state=$_st is short ($_got of $_size matches after $_pages pages); refusing it rather than printing it as whole" >&2
     return 3
@@ -1906,35 +1904,85 @@ jenkins_bind_rows() {
     done | node "$here/board/plot-jenkins-pr-checks.mjs" bind 2>/dev/null
 }
 
+# Seconds `bb_fold_mergeable` allows one `git fetch` of the base before
+# treating it as failed. `Checks wait` (3600s) is sized for a CI poll, not one
+# fetch; this is its own, much smaller bound. No config key is read nearby
+# this call site, so a constant stands, per the plan.
+readonly BB_FETCH_BOUND_S=10
+
+# Runs `git fetch -q origin "+refs/heads/$1:refs/remotes/origin/$1"` and kills
+# it if it outruns `BB_FETCH_BOUND_S`, so a stalled SSH prompt (`git fetch` has
+# no built-in timeout) cannot hang `pr-state`/`pr-list` on one row. A timed-out
+# fetch exits non-zero, same as any other failed fetch — the caller cannot and
+# need not tell the two apart (#2481).
+bb_fetch_base_bounded() {
+  local base="$1" pid watcher rc was_m
+  # `git fetch` can itself spawn a child (an askpass helper, ssh, a credential
+  # helper) that inherits this function's stdout/stderr. Killing only $pid
+  # leaves that child orphaned and still holding the pipe open, so a caller
+  # waiting on the pipe to close (not just on $pid to exit) stays blocked for
+  # the full hang rather than the bound — measured against a stub `git fetch`
+  # that forks a long-running child: `kill -TERM "$pid"` alone left the run
+  # waiting the full duration even though `bb_fetch_base_bounded` itself had
+  # already returned. `set -m` makes the backgrounded `git fetch` the leader
+  # of its own process group, so `kill -TERM "-$pid"` (the negative pid) signals
+  # the whole group — fetch and any child it spawned — not just the leader.
+  case $- in *m*) was_m=yes ;; *) was_m=no ;; esac; set -m
+  GIT_TERMINAL_PROMPT=0 git fetch -q origin "+refs/heads/$base:refs/remotes/origin/$base" 2>/dev/null & pid=$!
+  ( sleep "$BB_FETCH_BOUND_S"; kill -TERM "-$pid" 2>/dev/null ) & watcher=$!
+  wait "$pid" 2>/dev/null; rc=$?
+  kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null; [ "$was_m" = yes ] || set +m
+  return "$rc"
+}
+
 # Overlays the `mergeable` reading on a Bitbucket `pr-state`/`pr-list` row ($1,
 # carrying `state`, `headSha` and `base`) from a local `git merge-tree
 # --write-tree` check; Bitbucket Cloud's REST API has no conflict field (see
-# `bitbucket-pr-reading.ts`). The bundle folds the reading into an OPEN row and
-# returns every other row unchanged, so git runs for OPEN rows only.
+# `bitbucket-pr-reading.ts`). A row that is not `OPEN` is printed unchanged
+# before any `jq`, `git` or `node` runs for it — MERGED and CLOSED rows are
+# settled, and a NONE row has no PR, so none of that work is theirs to pay for
+# (#2481).
+#
+# $2 = the repo slug (`owner/repo`) the caller resolved the row against, via
+# `--repo`; empty where the caller passed none. The fold runs `git` in the
+# CURRENT directory against ITS `origin` — a row from another repository would
+# be folded against the wrong base, silently. So a non-empty $2 that does not
+# match the local clone's `origin` slug (read through `plot-bitbucket-slug.mjs`,
+# the same bundle the Bitbucket build-status write resolves `origin` with)
+# answers `unknown` naming the mismatch, and never guesses by running git
+# anyway. A clone whose `origin` resolves to no slug cannot be compared either,
+# and also answers `unknown` rather than assume a match.
 #
 # The base is fetched ALONE, once per distinct base per invocation
-# (`BB_FETCHED`), and a failed fetch reads `unknown`: a fetch that names the
-# head too fails whole on Bitbucket's short hash, and the stale `origin/<base>`
-# it leaves behind answers wrongly with confidence (#2208). The head is never
-# fetched; a head commit absent from the clone reads `unknown` with its sha.
-# `git fetch` is a git read, not a host CLI call, so the host stays unasked.
-# A bundle that cannot answer prints the unchanged row.
+# (`BB_FETCHED`), bounded by `bb_fetch_base_bounded`, and a failed or timed-out
+# fetch reads `unknown`: a fetch that names the head too fails whole on
+# Bitbucket's short hash, and the stale `origin/<base>` it leaves behind
+# answers wrongly with confidence (#2208). The head is never fetched; a head
+# commit absent from the clone reads `unknown` with its sha. `git fetch` is a
+# git read, not a host CLI call, so the host stays unasked. A bundle that
+# cannot answer prints the unchanged row.
 bb_fold_mergeable() {
-  local row="$1" state head base fetch="" in_clone="" mt_code="" mt_err=""
-  IFS=$'\x1f' read -r state head base < <(jq -r '[.state, (.headSha // ""), (.base // "")] | join("\u001f")' <<<"$row" 2>/dev/null)
-  if [ "$state" = OPEN ] && [ -n "$head" ] && [ -n "$base" ]; then
-    case " ${BB_FETCHED:-} " in *" $base=ok "*) fetch=ok ;; *" $base=failed "*) fetch=failed ;; *) GIT_TERMINAL_PROMPT=0 git fetch -q origin "+refs/heads/$base:refs/remotes/origin/$base" 2>/dev/null && fetch=ok || fetch=failed; BB_FETCHED="${BB_FETCHED:-} $base=$fetch" ;; esac
+  local row="$1" wantrepo="${2:-}" head base fetch="" in_clone="" mt_code="" mt_err="" localrepo reason
+  jq -e '.state == "OPEN"' >/dev/null 2>&1 <<<"$row" || { printf '%s\n' "$row"; return 0; }
+  if [ -n "$wantrepo" ]; then
+    localrepo="$(node "$here/board/plot-bitbucket-slug.mjs" "$(git config --get remote.origin.url 2>/dev/null)" 2>/dev/null)"
+    [ "$localrepo" = "$wantrepo" ] || { reason="this checkout's origin is ${localrepo:-unrecognised}, not $wantrepo — cannot fold mergeable against the wrong clone"; jq -c --arg reason "$reason" '. + {mergeable:"unknown", mergeableReason:$reason}' <<<"$row"; return 0; }
+  fi
+  IFS=$'\x1f' read -r head base < <(jq -r '[(.headSha // ""), (.base // "")] | join("\u001f")' <<<"$row" 2>/dev/null)
+  if [ -n "$head" ] && [ -n "$base" ]; then
+    case " ${BB_FETCHED:-} " in *" $base=ok "*) fetch=ok ;; *" $base=failed "*) fetch=failed ;; *) bb_fetch_base_bounded "$base" && fetch=ok || fetch=failed; BB_FETCHED="${BB_FETCHED:-} $base=$fetch" ;; esac
     git cat-file -e "$head^{commit}" 2>/dev/null && in_clone=yes || in_clone=no
     [ "$fetch$in_clone" = okyes ] && { mt_err="$(git merge-tree --write-tree "origin/$base" "$head" 2>&1 >/dev/null)"; mt_code=$?; }
   fi
   printf '%s\n' "$row" "$head" "${base:+origin/$base}" "$(git --version 2>/dev/null)" "$fetch" "$in_clone" "$mt_code" "$mt_err" | node "$here/board/plot-bitbucket-mergeable.mjs" 2>/dev/null || printf '%s\n' "$row"
 }
 
-# `pr-list --rich`'s per-line fold. Each row carries a `base` key only for
+# `pr-list --rich`'s per-line fold. $1 = the repo slug (see `bb_fold_mergeable`),
+# threaded onto every row. Each row carries a `base` key only for
 # `bb_fold_mergeable`, and this removes it again; an OPEN row whose reading is
 # `unknown` gains `mergeableReason`. The loop runs in one shell, so
 # `BB_FETCHED` holds across its rows.
-bb_fold_mergeable_stream() { local line; while IFS= read -r line; do [ -z "$line" ] || bb_fold_mergeable "$line"; done | jq -c 'del(.base)'; }
+bb_fold_mergeable_stream() { local wantrepo="${1:-}" line; while IFS= read -r line; do [ -z "$line" ] || bb_fold_mergeable "$line" "$wantrepo"; done | jq -c 'del(.base)'; }
 
 # Prints the `pr-state` row of the Bitbucket PR payload $1 (`null` for no PR).
 #
@@ -2424,8 +2472,7 @@ bb_assert_issue_version() {
 # it answers *not proven* (1) and the caller keeps its exit-3 refusal: guessing
 # 4 from unreadable help would turn a broken bb into *no issue tracker*.
 bb_lacks_issue_command() {
-  local help
-  help="$(bb --help 2>&1 | bb_strip_ansi)" || return 1
+  local help; help="$(bb --help 2>&1 | bb_strip_ansi)" || return 1
   grep -qE '^[[:space:]]+pr([[:space:]]|$)' <<<"$help" || return 1
   ! grep -qE '^[[:space:]]+issues?([[:space:]]|$)' <<<"$help"
 }
@@ -2473,8 +2520,7 @@ bb_identify() {
   }
   ver_stripped="$(bb_strip_ansi <<<"$ver_out")"
 
-  local version
-  version="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$ver_stripped" | head -1)"
+  local version; version="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$ver_stripped" | head -1)"
   [ -z "$version" ] && version="unknown"
 
   # craftamap/bb includes a git sha in parentheses: `bb version 0.6.0 (abc1234)`
@@ -2510,8 +2556,7 @@ bb_test_json_support() {
   # reader can reproduce — rather than a provenance verdict `bb_identify`
   # cannot determine. A message that guesses wrong costs more than one that
   # says less.
-  BB_CAP_PROBE_RC="$rc"
-  BB_CAP_PROBE_MATCH=""
+  BB_CAP_PROBE_RC="$rc"; BB_CAP_PROBE_MATCH=""
 
   # THE MEASUREMENT ANSWERS FIRST, AND THE TEXT ONLY WHEN IT IS ABSENT.
   #
@@ -2870,8 +2915,7 @@ jira_curl() {
 jira_budget_account() {
   local raw="${JIRA_EMAIL:-}"
   [ -n "$raw" ] || { printf 'unknown\n'; return 0; }
-  local h
-  h="$(printf '%s' "$raw" | shasum -a 256 2>/dev/null | awk '{print $1}')"
+  local h; h="$(printf '%s' "$raw" | shasum -a 256 2>/dev/null | awk '{print $1}')"
   # No hasher, no guess: a raw email must never be the fallback, so an
   # unhashable account degrades to the same word an absent one uses.
   [ -n "$h" ] || { printf 'unknown\n'; return 0; }
@@ -3091,8 +3135,7 @@ backend_declared() {
     printf '%s\n' "$PLOT_HOST" | tr '[:upper:]' '[:lower:]'
     return
   fi
-  local v
-  v="$(bash "$here/plot-config.sh" get "Git host" "" | tr '[:upper:]' '[:lower:]')"
+  local v; v="$(bash "$here/plot-config.sh" get "Git host" "" | tr '[:upper:]' '[:lower:]')"
   case "$v" in
     bb) echo "bitbucket"; return ;;
     "") : ;;
@@ -3108,8 +3151,7 @@ backend_declared() {
   # THE REMOTE IS EVIDENCE AND THE KEY IS A DECLARATION, so the key still wins
   # above. What changes is only the case where nobody said: a hostname in the
   # remote is a reading, and no remote is no reading.
-  local url
-  url="$(git config --get remote.origin.url 2>/dev/null || true)"
+  local url; url="$(git config --get remote.origin.url 2>/dev/null || true)"
   case "$url" in
     *github.com*)    echo "github";    return ;;
     *bitbucket.org*) echo "bitbucket"; return ;;
@@ -3364,8 +3406,7 @@ budget_record_call() { # $1=connector $2=backend-for-account $3=bucket
   # bucket: `X-RateLimit-Resource` names `code_search` for a search that no
   # reading of the command line would have classified as anything but `core`.
   if [ -n "${PLOT_BUDGET_HARVEST:-}" ]; then
-    IFS=$'\t' read -r _hbkt _blim _brem _brst <<<"$PLOT_BUDGET_HARVEST"
-    PLOT_BUDGET_HARVEST=""
+    IFS=$'\t' read -r _hbkt _blim _brem _brst <<<"$PLOT_BUDGET_HARVEST"; PLOT_BUDGET_HARVEST=""
     [ -z "$_hbkt" ] || bucket="$_hbkt"
     # `actual` is the one basis a caller is entitled to trust, and a harvested
     # header is the only thing in this script that earns it: the connector said
@@ -3549,13 +3590,11 @@ host_concurrency_bound() { # $1=connector $2=account
 # the cadence degrade. The cost of one extra simultaneous call is a secondary
 # refusal that lowers the bound — evidence, through the mechanism this slice is
 # built on.
-PLOT_SLOT_WAIT_MAX_S=30
-PLOT_SLOT_POLL_S=1
+PLOT_SLOT_WAIT_MAX_S=30; PLOT_SLOT_POLL_S=1
 
 # The slot this process holds, so the wrappers can give it back. Empty where
 # none was taken — an unbounded connector, or a wait that ran out.
-PLOT_SLOT_INDEX=''
-PLOT_SLOT_ACCOUNT=''
+PLOT_SLOT_INDEX=''; PLOT_SLOT_ACCOUNT=''
 
 # Claims a slot for the call about to be made, waiting where the account is
 # busy. Never refuses: at worst it proceeds unbounded, which is what every
@@ -3728,10 +3767,10 @@ case "$op" in
 
   pr-state)
     ref="${1:?pr-state needs a PR number or branch}"; shift || true
-    repo_args=()
+    repo_args=(); repo_slug=""
     while [ $# -gt 0 ]; do
       case "$1" in
-        --repo) repo_args=(-R "${2:?}"); shift 2 ;;
+        --repo) repo_args=(-R "${2:?}"); repo_slug="${2:?}"; shift 2 ;;
         *) die "pr-state: unknown arg $1" ;;
       esac
     done
@@ -3822,7 +3861,14 @@ case "$op" in
       if [[ "$ref" =~ ^[0-9]+$ ]]; then
         if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json 2>"$HOST_ERR")"; then
           rm -f "$HOST_ERR"
-          bb_fold_mergeable "$(bb_state_row "$out")"
+          # `$(bb_state_row ...)` RUNS IN A SUBSHELL, so a failure inside it
+          # (a bad Jenkins answer, an unreadable row) was lost the moment its
+          # stdout was captured — `bb_fold_mergeable` always saw success. The
+          # row is captured first and the exit status read immediately after,
+          # before `bb_fold_mergeable` (which cannot fail this op) can reset it.
+          state_row="$(bb_state_row "$out")"; state_rc=$?
+          [ "$state_rc" -eq 0 ] || exit "$state_rc"
+          bb_fold_mergeable "$state_row" "$repo_slug"
         else
           err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
@@ -3881,7 +3927,12 @@ case "$op" in
           # The hash rides on the page the branch query already fetched, so this
           # costs no extra call. `bb_branch_query` already filtered to the
           # branch, so every row in `out` already matches it.
-          bb_fold_mergeable "$(bb_state_row "$(jq -c '.[0] // null' <<<"$out")")"
+          #
+          # The exit status is kept through the command substitution the same
+          # way the numeric-ref arm above does — see its comment.
+          state_row="$(bb_state_row "$(jq -c '.[0] // null' <<<"$out")")"; state_rc=$?
+          [ "$state_rc" -eq 0 ] || exit "$state_rc"
+          bb_fold_mergeable "$state_row" "$repo_slug"
         else
           err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
@@ -3903,8 +3954,7 @@ case "$op" in
   # deciding whether to remove something. Exit 3 is still reserved for the call
   # itself failing in a way this adapter does not recognise as a miss.
   pr-merged)
-    ref="${1:?pr-merged needs a branch}"; shift || true
-    repo_args=()
+    ref="${1:?pr-merged needs a branch}"; shift || true; repo_args=()
     while [ $# -gt 0 ]; do
       case "$1" in
         --repo) repo_args=(-R "${2:?}"); shift 2 ;;
@@ -3978,8 +4028,7 @@ case "$op" in
     # off the same payload. `plot-release-chain.mjs` asks it once per hop of a
     # release-chain walk. Bitbucket names no merge time, so `mergedAt` is
     # `updated_on`, as in `pr-list`.
-    ref="${1:?$op needs a branch}"; shift || true
-    repo_args=()
+    ref="${1:?$op needs a branch}"; shift || true; repo_args=()
     while [ $# -gt 0 ]; do
       case "$1" in
         --repo) repo_args=(-R "${2:?}"); shift 2 ;;
@@ -4030,8 +4079,7 @@ case "$op" in
     # A FAILURE WITH NO MESSAGE IS A FAILURE HERE, unlike `pr-state`: an empty
     # answer makes the caller fall back to a patch-id reading, so silence must
     # not stand in for *no merged head*. Only a recognised lookup miss is empty.
-    ref="${1:?pr-merged-heads needs a branch}"; shift || true
-    repo_args=()
+    ref="${1:?pr-merged-heads needs a branch}"; shift || true; repo_args=()
     while [ $# -gt 0 ]; do
       case "$1" in
         --repo) repo_args=(-R "${2:?}"); shift 2 ;;
@@ -4148,8 +4196,7 @@ case "$op" in
     ;;
 
   pr-list)
-    state="open"
-    rich=0
+    state="open"; rich=0
     # Whether the rich fields are asked of the OPEN pull requests only. Set by
     # `--rich-open`, which also sets `rich`: the flag narrows what is ASKED and
     # never what is emitted.
@@ -4160,7 +4207,7 @@ case "$op" in
     # — so a caller comparing `origin/*` refs would join its refs against
     # another repository's PRs and report every branch as having none. The
     # caller knows which remote its refs came from; this op cannot guess it.
-    repo_args=()
+    repo_args=(); repo_slug=""
     # `gh pr list` and `bb pr list` both cap at 30 by default. That is invisible
     # with --state open (few repos have 30 open PRs) and bites immediately with
     # --state all, where the newest 30 crowd out every older merged PR. A caller
@@ -4193,7 +4240,7 @@ case "$op" in
         # With `--state open` asked, both calls would list the same PRs and the
         # second would be waste, so this collapses to plain `--rich` there.
         --rich-open) rich=1; rich_open=1; shift ;;
-        --repo) repo_args=(-R "${2:?}"); shift 2 ;;
+        --repo) repo_args=(-R "${2:?}"); repo_slug="${2:?}"; shift 2 ;;
         # `${2:?}` REFUSES AN EMPTY VALUE, and that is the point rather than
         # boilerplate. `--since ""` would reach GitHub as `--search "updated:>"`,
         # a syntax error the host may answer with everything or with nothing —
@@ -4625,13 +4672,13 @@ case "$op" in
                   updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),checksSha:($jentry.checksSha // ""),
                   author:(.author.nickname // ""),
                   failing_checks:(if $jentry != null and $jentry.checks == "failing" then [$jentry.job] else [] end), base:(.destination.branch.name // "")
-                } + (if $jstatus == "ok" and $ambiguous and $jentry == null then {checksLookup:"skipped"} else {} end)' "${bb_cmd[@]}" | bb_fold_mergeable_stream || exit $?
+                } + (if $jstatus == "ok" and $ambiguous and $jentry == null then {checksLookup:"skipped"} else {} end)' "${bb_cmd[@]}" | bb_fold_mergeable_stream "$repo_slug" || exit $?
           PR_LIST_BIND_FN=""
         else
           # Bitbucket without Jenkins: checks remain unknown
           pr_list_states bitbucket "$limit" "$bb_states" \
             '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),author:(.author.nickname // ""),failing_checks:[],base:(.destination.branch.name // "")}' \
-            "${bb_cmd[@]}" | bb_fold_mergeable_stream || exit $?
+            "${bb_cmd[@]}" | bb_fold_mergeable_stream "$repo_slug" || exit $?
         fi
       else
         pr_list_states bitbucket "$limit" "$bb_states" \
@@ -4667,8 +4714,7 @@ case "$op" in
     # for a repository whose CI is not GitHub Actions. `CI` and `Git host` are
     # independent `## Plot Config` keys, and this is the op that reads the
     # first of them.
-    branch="${1:?runs needs a branch}"; shift
-    limit=10
+    branch="${1:?runs needs a branch}"; shift; limit=10
     while [ $# -gt 0 ]; do
       case "$1" in
         --limit) limit="${2:?}"; shift 2 ;;
@@ -5130,8 +5176,7 @@ case "$op" in
       count=0
       while IFS= read -r line; do
         [[ "$line" =~ ^#0*([0-9]+)[[:space:]]+(.*)$ ]] || continue
-        num="${BASH_REMATCH[1]}"
-        rest="${BASH_REMATCH[2]}"
+        num="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
         # Lift the leading state badge word (NEW/OPEN/RESOLVED/…), then strip
         # it and its padding; the title starts after it. The badge was parsed
         # here before and THROWN AWAY to recover the title — it is captured
@@ -5140,8 +5185,7 @@ case "$op" in
         # that drifts from the one that strips.
         state=""
         if [[ "$rest" =~ ^(NEW|OPEN|ON\ HOLD|INVALID|RESOLVED|DUPLICATE|WONTFIX|CLOSED)[[:space:]]+(.*)$ ]]; then
-          state="${BASH_REMATCH[1]}"
-          rest="${BASH_REMATCH[2]}"
+          state="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
         fi
         # Map the badge onto the three-value category the board groups on.
         # NEW/OPEN are unstarted; RESOLVED/CLOSED are finished. The rest —
@@ -5373,8 +5417,7 @@ case "$op" in
     printf '%s' "$body" | jq -c '.[] | {name, released: (.released // false), releaseDate: (.releaseDate // null)}' || exit 3 ;;
 
   pr-body)
-    num="${1:?pr-body needs a PR number}"; shift
-    body=""
+    num="${1:?pr-body needs a PR number}"; shift; body=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --body) body="${2:?}"; shift 2 ;;

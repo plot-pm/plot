@@ -377,3 +377,97 @@ test('host: pr-state and pr-list --rich leave a sandbox index and working tree u
   runInRepo(['pr-list', '--rich'], { repo: sandbox.workDir, stubDir: dir });
   assert.equal(gitStatus(sandbox.workDir), before);
 });
+
+// #2481 (a): a MERGED row must skip the fold's own jq/git/node work entirely —
+// not just carry an unchanged `mergeable` key, which the test above already
+// covers. A `git` ahead of the real one that fails if invoked at all proves
+// the row never reaches a single fetch, cat-file or merge-tree call.
+test('host: a MERGED row makes zero git calls — bb_fold_mergeable skips it entirely', () => {
+  const sandbox = makeSandboxRepo();
+  const { dir } = makeCountingBbStub(prRow({ id: 31, state: 'MERGED', branch: 'clean-branch', headSha: sandbox.cleanSha }));
+  const noGitDir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-mt-nogit-')));
+  writeFileSync(path.join(noGitDir, 'git'), `#!/usr/bin/env bash\necho "git must not run for a non-OPEN row: $*" >&2\nexit 1\n`);
+  chmodSync(path.join(noGitDir, 'git'), 0o755);
+  const out = runInRepo(['pr-state', '31'], { repo: sandbox.workDir, stubDir: dir, env: { PATH: `${noGitDir}:${dir}:${process.env.PATH}` } });
+  assert.equal(out.code, 0, out.stderr);
+  const row = JSON.parse(out.stdout);
+  assert.equal(row.mergeable, 'unknown');
+});
+
+// #2481 (b): `--repo` names a repository other than the local clone's origin.
+// The fold must answer `unknown` with a reason and never run `merge-tree`
+// against the wrong checkout — proved the same way, with a `git` stub that
+// fails the test if invoked for fetch/merge-tree.
+test('host: pr-state --repo naming another repository never runs merge-tree locally', () => {
+  const sandbox = makeSandboxRepo();
+  const { dir } = makeCountingBbStub(prRow({ id: 32, branch: 'clean-branch', headSha: sandbox.cleanSha }));
+  const spy = makeGitSpy();
+  const out = runInRepo(['pr-state', '32', '--repo', 'someone-else/other-repo'], {
+    repo: sandbox.workDir,
+    stubDir: dir,
+    env: { PATH: `${spy.dir}:${dir}:${process.env.PATH}` },
+  });
+  assert.equal(out.code, 0, out.stderr);
+  const row = JSON.parse(out.stdout);
+  assert.equal(row.mergeable, 'unknown');
+  assert.match(row.mergeableReason, /someone-else\/other-repo/);
+  assert.deepEqual(spy.fetches(), [], 'a repo mismatch must never fetch the local origin');
+});
+
+// #2481 (c): a `git fetch` that outruns `BB_FETCH_BOUND_S` must be killed and
+// read as a failed fetch (`unknown`), not left to hang `pr-state` indefinitely.
+// `BB_FETCH_BOUND_S` is `readonly` in plot-host.sh, so it cannot be shortened
+// from the environment — this test runs against its real 10s bound and sleeps
+// 60s on fetch, asserting the run finishes well under that, not at the bound.
+test('host: a git fetch that outruns the bound reads unknown, never hangs', () => {
+  const sandbox = makeSandboxRepo();
+  const { dir } = makeCountingBbStub(prRow({ id: 33, branch: 'clean-branch', headSha: sandbox.cleanSha }));
+  const slowGitDir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-mt-slowgit-')));
+  writeFileSync(path.join(slowGitDir, 'git'), `#!/usr/bin/env bash
+if [ "\$1" = fetch ]; then sleep 60; exit 0; fi
+exec /usr/bin/env PATH="${process.env.PATH}" git "$@"
+`);
+  chmodSync(path.join(slowGitDir, 'git'), 0o755);
+  const start = Date.now();
+  const out = runInRepo(['pr-state', '33'], {
+    repo: sandbox.workDir,
+    stubDir: dir,
+    env: { PATH: `${slowGitDir}:${dir}:${process.env.PATH}` },
+  });
+  const elapsed = Date.now() - start;
+  assert.equal(out.code, 0, out.stderr);
+  const row = JSON.parse(out.stdout);
+  assert.equal(row.mergeable, 'unknown');
+  assert.ok(elapsed < 55_000, `expected the bound to cut the 60s sleep short, took ${elapsed}ms`);
+});
+
+// #2481 (d): `bb_state_row`'s exit status must survive the `$(...)` capture in
+// `pr-state`, both the numeric-ref and branch-name arms. A `node` stub that
+// fails only `plot-jenkins-pr-checks.mjs state` — the command `bb_state_row`
+// pipes into last — makes the whole op exit non-zero instead of silently
+// printing the pre-fold row.
+function makeBrokenStateRowNode() {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-mt-staterow-node-')));
+  writeFileSync(path.join(dir, 'node'), `#!/usr/bin/env bash
+case "\$*" in *plot-jenkins-pr-checks.mjs\\ state*) exit 7 ;; esac
+exec /usr/bin/env PATH="${process.env.PATH}" node "$@"
+`);
+  chmodSync(path.join(dir, 'node'), 0o755);
+  return dir;
+}
+
+test('host: pr-state by number exits non-zero when bb_state_row fails', () => {
+  const sandbox = makeSandboxRepo();
+  const { dir } = makeCountingBbStub(prRow({ id: 34, branch: 'clean-branch', headSha: sandbox.cleanSha }));
+  const env = { PATH: `${makeBrokenStateRowNode()}:${dir}:${process.env.PATH}` };
+  const out = runInRepo(['pr-state', '34'], { repo: sandbox.workDir, stubDir: dir, env });
+  assert.notEqual(out.code, 0, 'a failing bb_state_row must not be swallowed by the command substitution');
+});
+
+test('host: pr-state by branch name exits non-zero when bb_state_row fails', () => {
+  const sandbox = makeSandboxRepo();
+  const { dir } = makeCountingBbStub(`[${prRow({ id: 35, branch: 'clean-branch', headSha: sandbox.cleanSha })}]`);
+  const env = { PATH: `${makeBrokenStateRowNode()}:${dir}:${process.env.PATH}` };
+  const out = runInRepo(['pr-state', 'clean-branch'], { repo: sandbox.workDir, stubDir: dir, env });
+  assert.notEqual(out.code, 0, 'a failing bb_state_row must not be swallowed by the command substitution');
+});
