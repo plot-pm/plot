@@ -1,4 +1,5 @@
-import { isMine, type OwnedRow, type Reader } from './ownership.js';
+import { comparableLogin, isMine, type OwnedRow, type Reader } from './ownership.js';
+import { rowInSprintSelection } from './sprint-selection.js';
 
 /**
  * One toggle chip on the Delivery tab's filter row.
@@ -20,21 +21,41 @@ export interface Chip {
   readonly disabledReason: string | null;
 }
 
-/** The three chips, in the row's fixed order. */
+/** The chip row: the three fixed chips, plus one per Active sprint. */
 export interface ChipRow {
   readonly thisSprint: Chip;
   readonly mine: Chip;
   readonly waitingOnMe: Chip;
+  /** One chip per Active sprint, in `readings.sprint.sprints`' order. */
+  readonly perSprint: readonly Chip[];
 }
 
-/** What `chipRow` reads for the `This sprint` chip. */
+/** One Active sprint, as its chip names it. */
+export interface ActiveSprintReading {
+  /** The sprint's slug, as `selected` and `membership` key it. */
+  readonly slug: string;
+  /** The sprint's title, shown as its chip's label. */
+  readonly title: string;
+}
+
+/**
+ * What `chipRow` reads for `This sprint` and for every per-sprint chip.
+ *
+ * Every sprint chip's on/off and hidden count is decided from these four
+ * readings, so each chip answers from the same current selection.
+ */
 export interface SprintChipReadings {
-  /** Whether a sprint is active to filter by. */
-  readonly hasActiveSprint: boolean;
-  /** Whether the sprint filter is currently on. */
-  readonly on: boolean;
-  /** Rows not already hidden by another filter, before this chip's own effect. */
-  readonly visibleRows: readonly { readonly inSprint: boolean }[];
+  /** The Active sprints, in display order. Empty when no sprint is Active. */
+  readonly sprints: readonly ActiveSprintReading[];
+  /**
+   * The reader's current selection, sanitized against `sprints`
+   * (`sanitizeSelection`). Empty means the sprint filter is off.
+   */
+  readonly selected: readonly string[];
+  /** Sprint slug to the set of plan slugs it contains. */
+  readonly membership: Map<string, Set<string>>;
+  /** Rows not hidden by another filter, before any sprint filter applies. */
+  readonly rows: readonly { readonly kind: string; readonly plan: string }[];
 }
 
 /** What `chipRow` reads for the `Mine` chip. */
@@ -53,55 +74,95 @@ export interface WaitingOnMeChipReadings {
   readonly on: boolean;
 }
 
-/** Everything `chipRow` reads, one block per chip. */
+/** Everything `chipRow` reads, one block per chip kind. */
 export interface ChipRowReadings {
+  /** Read by `This sprint` and by every per-sprint chip. */
   readonly sprint: SprintChipReadings;
   readonly mine: MineChipReadings;
   readonly waitingOnMe: WaitingOnMeChipReadings;
 }
 
 /**
- * The reader's identity as the `Mine` chip's label names it: `hostUser`,
- * falling back to `gitEmail`. `''` where the reader carries neither — the
- * caller reads that as "no identity" and disables the chip.
+ * How many of `readings.rows` a sprint selection hides.
  *
- * @param reader - who is reading.
- * @returns the identity text, or `''` where none can be read.
+ * @param readings - the rows and the membership they are asked against.
+ * @param selection - the sprint slugs to ask against; empty means every Active sprint.
+ * @returns the count of rows `rowInSprintSelection` excludes.
  */
-const identityOf = (reader: Reader): string =>
-  reader.hostUser?.trim() || reader.gitEmail?.trim() || '';
+const hiddenBySelection = (readings: SprintChipReadings, selection: readonly string[]): number =>
+  readings.rows.filter((row) => !rowInSprintSelection(row, [...selection], readings.membership)).length;
 
 /**
- * The `This sprint` chip: on/off against the active sprint, disabled with no
- * sprint to filter by.
+ * The `This sprint` chip: on while any sprint is selected, disabled with no
+ * sprint Active.
  *
- * @param readings - whether a sprint is active, the chip's state, and the rows it would act on.
+ * On, its hidden count is the rows the current selection hides. Off, it is the
+ * rows its click would hide: the click selects every Active sprint, and an
+ * empty selection reads as every Active sprint.
+ *
+ * @param readings - the Active sprints, the selection, the membership and the rows.
  * @returns the chip.
  */
 const sprintChip = (readings: SprintChipReadings): Chip => {
-  if (!readings.hasActiveSprint) {
+  if (readings.sprints.length === 0) {
     return { label: 'This sprint', on: false, hiddenCount: 0, disabledReason: 'No sprint is Active.' };
   }
-  const hiddenCount = readings.visibleRows.filter((row) => !row.inSprint).length;
-  return { label: 'This sprint', on: readings.on, hiddenCount, disabledReason: null };
+  const hiddenCount = hiddenBySelection(readings, readings.selected);
+  return { label: 'This sprint', on: readings.selected.length > 0, hiddenCount, disabledReason: null };
 };
 
 /**
- * The `Mine` chip: carries the reader's identity in its label, disabled with
- * no identity to match.
+ * One Active sprint's own chip: on while the sprint is in the selection, never
+ * disabled.
+ *
+ * Its hidden count is the rows the selection hides with this sprint added to
+ * it. On, that is the current selection, so the count equals the rows hidden
+ * on screen and every chip that is on shows the same number. Off, it is the
+ * rows still hidden after its click adds the sprint.
+ *
+ * @param readings - the Active sprints, the selection, the membership and the rows.
+ * @param sprint - the sprint this chip toggles.
+ * @returns the chip.
+ */
+const perSprintChip = (readings: SprintChipReadings, sprint: ActiveSprintReading): Chip => {
+  const on = readings.selected.includes(sprint.slug);
+  const selection = on ? readings.selected : [...readings.selected, sprint.slug];
+  return { label: sprint.title, on, hiddenCount: hiddenBySelection(readings, selection), disabledReason: null };
+};
+
+/**
+ * Why the `Mine` chip is disabled, naming `hostUser` as the fix.
+ *
+ * @param reader - a reader with no comparable host login.
+ * @returns the reason for an email-shaped `hostUser`, for a `gitEmail`-only
+ *   reader, or for a reader with neither.
+ */
+const mineDisabledReason = (reader: Reader): string => {
+  if (reader.hostUser?.trim()) {
+    return 'hostUser is an email, not a host login — set hostUser to the host login.';
+  }
+  if (reader.gitEmail?.trim()) {
+    return 'No host login configured — gitEmail cannot be matched to a PR or ticket author; set hostUser.';
+  }
+  return 'No identity configured — set hostUser.';
+};
+
+/**
+ * The `Mine` chip: carries the reader's host login in its label, disabled
+ * where no comparable host login exists.
+ *
+ * The label reads `comparableLogin`, the login `isMine` matches against, so a
+ * blank `hostUser`, an email-shaped `hostUser` and a `gitEmail`-only reader all
+ * disable the chip: `isMine` can match none of them to a row's owner. Each
+ * reason names `hostUser` as the fix.
  *
  * @param readings - who is reading, the chip's state, and the rows it would act on.
  * @returns the chip.
  */
 const mineChip = (readings: MineChipReadings): Chip => {
-  const identity = identityOf(readings.reader);
+  const identity = comparableLogin(readings.reader);
   if (identity === '') {
-    return {
-      label: 'Mine',
-      on: false,
-      hiddenCount: 0,
-      disabledReason: 'No identity configured — set hostUser or gitEmail.',
-    };
+    return { label: 'Mine', on: false, hiddenCount: 0, disabledReason: mineDisabledReason(readings.reader) };
   }
   const label = `Mine (${identity})`;
   const hiddenCount = readings.visibleRows.filter((row) => !isMine(row, readings.reader)).length;
@@ -130,14 +191,16 @@ const waitingOnMeChip = (_readings: WaitingOnMeChipReadings): Chip => ({
 
 /**
  * The Delivery tab's chip row: one chip each for `This sprint`, `Mine` and
- * `Waiting on me`, decided from readings rather than rendered live by the
- * component (root `CLAUDE.md`, "Every rendered state is a domain property").
+ * `Waiting on me`, plus one per Active sprint — decided from readings rather
+ * than rendered live by the component (root `CLAUDE.md`, "Every rendered
+ * state is a domain property").
  *
- * @param readings - what each chip needs, grouped per chip.
- * @returns the three chips, in display order.
+ * @param readings - what each chip needs, grouped per chip kind.
+ * @returns the fixed chips and the per-sprint chips, in display order.
  */
 export const chipRow = (readings: ChipRowReadings): ChipRow => ({
   thisSprint: sprintChip(readings.sprint),
   mine: mineChip(readings.mine),
   waitingOnMe: waitingOnMeChip(readings.waitingOnMe),
+  perSprint: readings.sprint.sprints.map((sprint) => perSprintChip(readings.sprint, sprint)),
 });

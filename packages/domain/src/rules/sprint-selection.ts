@@ -84,6 +84,20 @@ export const rowIsSprintExempt = (row: { kind: string; plan: string }): boolean 
   row.kind === 'release' || (row.kind === 'pr' && row.plan === '');
 
 /**
+ * Is a plan slug a member of any Active sprint?
+ *
+ * @param planSlug - the plan's slug to look up.
+ * @param membership - sprint slug to the set of plan slugs it contains.
+ * @returns true when some sprint's membership set contains the slug.
+ */
+const inAnyActiveSprint = (planSlug: string, membership: Map<string, Set<string>>): boolean => {
+  for (const members of membership.values()) {
+    if (members.has(planSlug)) return true;
+  }
+  return false;
+};
+
+/**
  * Is this row a member of the reader's current sprint selection?
  *
  * True when the selection is empty (every Active sprint counts) and the row
@@ -104,7 +118,13 @@ export const rowInSprintSelection = (
   row: { kind: string; plan: string },
   selected: string[],
   membership: Map<string, Set<string>>,
-): boolean => rowIsSprintExempt(row) || slugPassesSprintFilter(row.plan, selected, membership);
+): boolean => {
+  if (rowIsSprintExempt(row)) return true;
+  if (selected.length === 0) {
+    return membership.size === 0 || inAnyActiveSprint(row.plan, membership);
+  }
+  return slugPassesSprintFilter(row.plan, selected, membership);
+};
 
 /**
  * Should a row show which sprint it belongs to?

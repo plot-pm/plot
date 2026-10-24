@@ -120,19 +120,25 @@ export function DeliveryFilters({
   // one is Active (Decision "Sprint line as control or chip row": the chip
   // row stays the one control surface, #2080). With one Active sprint this
   // renders nothing and the «This sprint» chip behaves exactly as before.
-  const perSprintChips = sprints.length > 1 ? sprints : [];
+  //
+  // EACH CHIP COMES FROM `chipRow()`, not from an object built here (root
+  // `CLAUDE.md`, "Every rendered state is a domain property"). Matched to
+  // `sprints` by ARRAY POSITION: `chipRow()` returns one chip per entry of
+  // `readings.sprint.sprints`, which `chipReadings` builds from the SAME
+  // `activeSprints` array `AgentList.tsx` passes as this `sprints` prop.
+  const perSprintChips = sprints.length > 1 ? chips.perSprint : [];
 
   return (
     <div data-delivery-filters className="space-y-1">
       <div className="flex flex-wrap items-center gap-2">
         <ChipView chip={thisSprintChip} dataChip="This sprint" onToggle={onToggleSprint} />
-        {perSprintChips.map((sprint) => {
-          const on = selectedSprints.includes(sprint.slug);
+        {perSprintChips.map((chip, index) => {
+          const sprint = sprints[index];
           return (
             <ChipView
               key={sprint.slug}
               dataChip={`sprint:${sprint.slug}`}
-              chip={{ label: sprint.title, on, hiddenCount: 0, disabledReason: null }}
+              chip={chip}
               onToggle={() => onToggleSprintSlug(sprint.slug)}
             />
           );

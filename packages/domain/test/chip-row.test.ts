@@ -1,15 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { chipRow, type ChipRowReadings } from '../src/rules/chip-row.js';
+import { chipRow, type ChipRowReadings, type SprintChipReadings } from '../src/rules/chip-row.js';
 import { parsePersonDirectory } from '../src/entities/person.js';
 
 const directory = parsePersonDirectory('jwloka = Jan Wloka; eins78 = Max Albrecht');
 
+// Fixture: alpha holds plan-a1 and plan-a2, beta holds plan-b1..plan-b3,
+// gamma holds plan-g1, and plan-z is in no sprint.
+const membership = new Map([
+  ['alpha', new Set(['plan-a1', 'plan-a2'])],
+  ['beta', new Set(['plan-b1', 'plan-b2', 'plan-b3'])],
+  ['gamma', new Set(['plan-g1'])],
+]);
+const planRow = (plan: string) => ({ kind: 'plan', plan });
+const allRows = ['plan-a1', 'plan-a2', 'plan-b1', 'plan-b2', 'plan-b3', 'plan-g1', 'plan-z'].map(planRow);
+const sprints = [
+  { slug: 'alpha', title: 'Alpha' },
+  { slug: 'beta', title: 'Beta' },
+  { slug: 'gamma', title: 'Gamma' },
+];
+
+const sprintReadings = (selected: string[], overrides: Partial<SprintChipReadings> = {}): SprintChipReadings => ({
+  sprints, selected, membership, rows: allRows, ...overrides,
+});
+
 const base = (overrides: Partial<ChipRowReadings> = {}): ChipRowReadings => ({
-  sprint: {
-    hasActiveSprint: true,
-    on: false,
-    visibleRows: [{ inSprint: true }, { inSprint: false }, { inSprint: false }],
-  },
+  sprint: sprintReadings([]),
   mine: {
     reader: { hostUser: 'jwloka', directory },
     on: false,
@@ -20,29 +35,31 @@ const base = (overrides: Partial<ChipRowReadings> = {}): ChipRowReadings => ({
 });
 
 describe('chipRow — This sprint', () => {
-  it('is enabled and counts non-sprint rows as hidden when off', () => {
+  it('is off with no selection, and counts the rows in no Active sprint as hidden', () => {
     const actual = chipRow(base());
     expect(actual.thisSprint).toEqual({
-      label: 'This sprint', on: false, hiddenCount: 2, disabledReason: null,
+      label: 'This sprint', on: false, hiddenCount: 1, disabledReason: null,
     });
   });
 
-  it('reports the same hidden count once the filter is on', () => {
-    const off = chipRow(base()).thisSprint;
-    const actual = chipRow(base({
-      sprint: { hasActiveSprint: true, on: true, visibleRows: base().sprint.visibleRows },
-    })).thisSprint;
-    expect(actual.hiddenCount).toBe(2);
-    expect(actual.hiddenCount).toBe(off.hiddenCount);
+  it('is on with every Active sprint selected, and reports the same hidden count', () => {
+    const actual = chipRow(base({ sprint: sprintReadings(['alpha', 'beta', 'gamma']) })).thisSprint;
     expect(actual.on).toBe(true);
+    expect(actual.hiddenCount).toBe(chipRow(base()).thisSprint.hiddenCount);
+  });
+
+  it('counts against the current selection once it narrows', () => {
+    const actual = chipRow(base({ sprint: sprintReadings(['beta']) })).thisSprint;
+    expect(actual.on).toBe(true);
+    // alpha's 2, gamma's 1 and the row in no sprint.
+    expect(actual.hiddenCount).toBe(4);
   });
 
   it('is disabled with no active sprint, and never reports a hidden count', () => {
-    const actual = chipRow(base({
-      sprint: { hasActiveSprint: false, on: false, visibleRows: [{ inSprint: false }] },
-    }));
+    const actual = chipRow(base({ sprint: sprintReadings([], { sprints: [], membership: new Map() }) }));
     expect(actual.thisSprint.disabledReason).toBe('No sprint is Active.');
     expect(actual.thisSprint.hiddenCount).toBe(0);
+    expect(actual.perSprint).toEqual([]);
   });
 });
 
@@ -62,29 +79,49 @@ describe('chipRow — Mine', () => {
     expect(actual.mine.disabledReason).toBeNull();
   });
 
-  it('falls back to gitEmail where hostUser is absent', () => {
-    const actual = chipRow(base({
-      mine: { reader: { gitEmail: 'jan.wloka@quatico.com' }, on: false, visibleRows: [] },
-    }));
-    expect(actual.mine.label).toBe('Mine (jan.wloka@quatico.com)');
-    expect(actual.mine.disabledReason).toBeNull();
-  });
-
   it('is disabled with an empty identity, and never reports a hidden count', () => {
     const actual = chipRow(base({
       mine: { reader: {}, on: false, visibleRows: [{ kind: 'pr', author: 'eins78' }] },
     }));
-    expect(actual.mine.disabledReason).toBe('No identity configured — set hostUser or gitEmail.');
+    expect(actual.mine.disabledReason).toBe('No identity configured — set hostUser.');
     expect(actual.mine.hiddenCount).toBe(0);
     expect(actual.mine.on).toBe(false);
   });
 
-  it('is enabled with only gitEmail set — the inverse of the #2079 defect', () => {
+  // ISSUE #2476: `isMine`'s ownership match never compares a host login to an
+  // email (`ownership.ts`'s `comparableLogin`), so a `gitEmail`-only identity
+  // can never match a row's author. Before this fix the chip enabled on
+  // `gitEmail` and reported a `hiddenCount` that could never move — "Mine" on
+  // looked actionable but filtered nothing. Now it disables with a reason
+  // naming WHY, distinct from "nothing configured at all".
+  it('is disabled with only gitEmail set — isMine can never match an email', () => {
     const actual = chipRow(base({
       mine: { reader: { gitEmail: 'jan.wloka@quatico.com' }, on: true, visibleRows: [] },
     }));
-    expect(actual.mine.disabledReason).toBeNull();
-    expect(actual.mine.on).toBe(true);
+    expect(actual.mine.label).toBe('Mine');
+    expect(actual.mine.disabledReason)
+      .toBe('No host login configured — gitEmail cannot be matched to a PR or ticket author; set hostUser.');
+    expect(actual.mine.on).toBe(false);
+    expect(actual.mine.hiddenCount).toBe(0);
+  });
+
+  // ISSUE #2526: `comparableLogin` reads an email-shaped `hostUser` as no
+  // login, so `isMine` never answers `theirs` for it. The chip must not enable
+  // on it and report a count it cannot act on.
+  it('is disabled with an email-shaped hostUser, naming hostUser as the fix', () => {
+    const actual = chipRow(base({
+      mine: {
+        reader: { hostUser: 'jan.wloka@quatico.com', directory },
+        on: true,
+        visibleRows: [{ kind: 'pr', author: 'eins78' }],
+      },
+    }));
+    expect(actual.mine).toEqual({
+      label: 'Mine',
+      on: false,
+      hiddenCount: 0,
+      disabledReason: 'hostUser is an email, not a host login — set hostUser to the host login.',
+    });
   });
 
   it('reports the same hidden count once the filter is on', () => {
@@ -93,6 +130,97 @@ describe('chipRow — Mine', () => {
     }));
     expect(actual.mine.hiddenCount).toBe(1);
     expect(actual.mine.hiddenCount).toBe(chipRow(base()).mine.hiddenCount);
+  });
+
+  // ISSUE #2476's TEST-COVERAGE FINDING: every prior `mine.visibleRows`
+  // fixture names an author the directory or hostUser resolves. A row whose
+  // owner cannot be determined at all (no author) must stay — the same
+  // "unowned and unknown both stay" contract `rowsForReader` documents
+  // (`AgentList.tsx`'s own comment on `mine-filter.ts`) — rather than being
+  // treated as somebody else's and hidden.
+  it('keeps a row whose owner cannot be determined, same as an unowned row', () => {
+    const actual = chipRow(base({
+      mine: {
+        reader: { hostUser: 'jwloka', directory },
+        on: true,
+        visibleRows: [
+          { kind: 'pr', author: 'jwloka' },
+          { kind: 'pr', author: 'eins78' },
+          { kind: 'pr', author: undefined },
+          { kind: 'other' },
+        ],
+      },
+    }));
+    // Only the row that resolves to someone else is hidden; the unresolvable
+    // PR author and the ownerless `other` row both stay, same as `jwloka`'s own.
+    expect(actual.mine.hiddenCount).toBe(1);
+  });
+});
+
+describe('chipRow — per-sprint chips', () => {
+  it('returns one chip per Active sprint; with no selection each counts what its click would hide', () => {
+    const actual = chipRow(base());
+    expect(actual.perSprint).toEqual([
+      { label: 'Alpha', on: false, hiddenCount: 5, disabledReason: null },
+      { label: 'Beta', on: false, hiddenCount: 4, disabledReason: null },
+      { label: 'Gamma', on: false, hiddenCount: 6, disabledReason: null },
+    ]);
+  });
+
+  // ISSUE #2526's HIGH: «This sprint» selects every Active sprint, so every
+  // per-sprint chip turns on. Each one that is on must report the rows the
+  // screen hides — counted against its own slug alone, alpha's chip would
+  // count beta's and gamma's visible rows as hidden.
+  it('with every sprint selected, each chip that is on reports the rows the screen hides', () => {
+    const actual = chipRow(base({ sprint: sprintReadings(['alpha', 'beta', 'gamma']) }));
+    expect(actual.thisSprint.hiddenCount).toBe(1);
+    expect(actual.perSprint.map((chip) => [chip.on, chip.hiddenCount])).toEqual([
+      [true, 1], [true, 1], [true, 1],
+    ]);
+  });
+
+  it('with two Active sprints both selected, each chip reports the one row in neither', () => {
+    const twoSprints = sprintReadings(['alpha', 'beta'], {
+      sprints: sprints.slice(0, 2),
+      membership: new Map([...membership].slice(0, 2)),
+      rows: allRows.filter((row) => row.plan !== 'plan-g1'),
+    });
+    const actual = chipRow(base({ sprint: twoSprints }));
+    expect(actual.thisSprint.hiddenCount).toBe(1);
+    expect(actual.perSprint).toEqual([
+      { label: 'Alpha', on: true, hiddenCount: 1, disabledReason: null },
+      { label: 'Beta', on: true, hiddenCount: 1, disabledReason: null },
+    ]);
+  });
+
+  // Three Active sprints, alpha and beta selected: the screen hides gamma's
+  // row and the row in no sprint. Gamma's chip is off; its click would add
+  // gamma, leaving only the row in no sprint hidden.
+  it('with three Active sprints and two selected, the chips that are on match the screen', () => {
+    const actual = chipRow(base({ sprint: sprintReadings(['alpha', 'beta']) }));
+    expect(actual.thisSprint.hiddenCount).toBe(2);
+    expect(actual.perSprint).toEqual([
+      { label: 'Alpha', on: true, hiddenCount: 2, disabledReason: null },
+      { label: 'Beta', on: true, hiddenCount: 2, disabledReason: null },
+      { label: 'Gamma', on: false, hiddenCount: 1, disabledReason: null },
+    ]);
+  });
+
+  it('with one of three selected, the chips that are off count the selection with their sprint added', () => {
+    const actual = chipRow(base({ sprint: sprintReadings(['beta']) }));
+    expect(actual.thisSprint.hiddenCount).toBe(4);
+    expect(actual.perSprint).toEqual([
+      { label: 'Alpha', on: false, hiddenCount: 2, disabledReason: null },
+      { label: 'Beta', on: true, hiddenCount: 4, disabledReason: null },
+      { label: 'Gamma', on: false, hiddenCount: 3, disabledReason: null },
+    ]);
+  });
+
+  it('never hides an exempt row', () => {
+    const rows = [...allRows, { kind: 'release', plan: '' }, { kind: 'pr', plan: '' }];
+    const actual = chipRow(base({ sprint: sprintReadings(['alpha'], { rows }) }));
+    expect(actual.thisSprint.hiddenCount).toBe(5);
+    expect(actual.perSprint[0].hiddenCount).toBe(5);
   });
 });
 

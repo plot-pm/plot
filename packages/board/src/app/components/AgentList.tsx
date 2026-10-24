@@ -41,7 +41,7 @@ import {
   showsSprintSlug,
   slugPassesSprintFilter,
 } from '@plot-pm/domain/rules/sprint-selection';
-import type { ChipRowReadings } from '@plot-pm/domain/rules/chip-row';
+import { chipReadings } from '../lib/agent-rows/chip-readings.js';
 // THE BOARD'S ONE AGE DIALECT, borrowed rather than reimplemented. A second
 // formatter would drift from this one the first time either changed — the same
 // reason `ageLabel` was split out of `age` so an issue row and a branch row
@@ -71,7 +71,6 @@ import { isCollapsible, readCollapsed, writeCollapsed } from '../lib/agent-rows/
 import {
   readMineOnly,
   agentsForReader,
-  ownedFromRow,
   readerFrom,
   rowsForReader,
   ticketsForReader,
@@ -708,37 +707,21 @@ export function AgentList({
   const visibleRows = rowsForReader(filteredRows, reader, mineOnly);
 
   // THE CHIP ROW'S READINGS — `chipRow()` (`@plot-pm/domain`) decides every
-  // chip's label, on/off, hidden count and disabled reason from these; this
-  // component reads its answer rather than computing any of the three itself.
-  //
-  // `sprint.visibleRows` reads `fleet.rows` — the rows BEFORE the sprint
-  // filter's own effect, per `SprintChipReadings.visibleRows`'s contract —
-  // each mapped through `rowInSprintSelection` against EVERY active sprint
-  // slug, not the current (possibly narrower) selection: the «This sprint»
-  // chip's OWN click is still all-or-nothing (`toggleThisSprintChip` above),
-  // so its hidden count answers what THAT click would hide, the same question
-  // it has always answered. A per-sprint chip's own hidden count — what ITS
-  // click would hide — is computed where that chip renders, not here.
-  //
-  // `mine.visibleRows` reads `filteredRows` — after the sprint filter, before
-  // the `Mine` chip's own effect — each mapped through `ownedFromRow`, the same
-  // adapter `rowsForReader` uses.
-  const allSprintSlugs = useMemo(() => activeSprints.map((s) => s.slug), [activeSprints]);
-  const chipRowReadings: ChipRowReadings = {
-    sprint: {
-      hasActiveSprint: activeSprints.length > 0,
-      on: sprintFilterOn,
-      visibleRows: fleet.rows.map((r) => ({
-        inSprint: rowInSprintSelection(r, allSprintSlugs, membership),
-      })),
-    },
-    mine: {
-      reader,
-      on: mineOnly,
-      visibleRows: filteredRows.map((r) => ownedFromRow(r)),
-    },
-    waitingOnMe: { on: false },
-  };
+  // chip's label, on/off, hidden count and disabled reason from these;
+  // `chipReadings` only gathers them. Every sprint chip, «This sprint» and
+  // each per-sprint chip, reads `fleet.rows` before the sprint filter against
+  // the CURRENT selection, so a chip that is on reports the rows the screen
+  // hides. The `Mine` chip reads `filteredRows`: after the sprint filter,
+  // before its own effect.
+  const chipRowReadings = chipReadings({
+    rows: fleet.rows,
+    sprintFilteredRows: filteredRows,
+    activeSprints,
+    selectedSprints,
+    membership,
+    reader,
+    mineOnly,
+  });
 
   // THE FILTERED ISSUES. Like rows, issues stay visible when no filter applies.
   // Issue rows have no sprint field, so they always pass the sprint filter.
