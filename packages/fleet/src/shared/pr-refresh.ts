@@ -1116,7 +1116,15 @@ const storeRow = (
   if (Array.isArray(pr.failing_checks)) row.failing_checks = pr.failing_checks;
   if (typeof pr.updatedAt === 'string' && pr.updatedAt !== '') row.updatedAt = pr.updatedAt;
   if (typeof pr.author === 'string' && pr.author !== '') row.author = pr.author;
-  if (typeof pr.checksSha === 'string' && pr.checksSha !== '') row.checksSha = pr.checksSha;
+  // A row this pass's Jenkins lookup never reached ('skipped' past the cap, or
+  // 'broken' before it got there) carries no fresh answer — rotation extends
+  // the predecessor's stable reading rather than collapsing it to 'unknown'.
+  // Only where there IS a predecessor checksSha to extend; never fabricated.
+  if ((pr.checksLookup === 'skipped' || pr.checksLookup === 'broken')
+    && typeof predecessor?.checksSha === 'string' && predecessor.checksSha !== '') {
+    row.checksSha = predecessor.checksSha;
+    row.checks = predecessor.checks;
+  } else if (typeof pr.checksSha === 'string' && pr.checksSha !== '') row.checksSha = pr.checksSha;
   if (pr.checksLookup === 'skipped' || pr.checksLookup === 'broken') row.checksLookup = pr.checksLookup;
   // A MERGED row is terminal: while the host answers MERGED, the first stored
   // `mergedAt` stands. Bitbucket reads it from `updated_on`, which moves on
