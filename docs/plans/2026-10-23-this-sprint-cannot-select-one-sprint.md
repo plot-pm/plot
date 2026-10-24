@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2413 merged
 - **Started:** 2026-10-23, jwloka, `bug/this-sprint-selects-a-sprint-subset-rule`
+- **Started:** 2026-10-24, Jan Wloka, `bug/this-sprint-selects-a-sprint-subset-ui`
 
 ## Changelog
 
