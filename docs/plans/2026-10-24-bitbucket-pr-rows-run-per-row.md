@@ -16,6 +16,7 @@
 - **Started:** 2026-10-24, Jan Wloka, `bug/bitbucket-checks-lookups-bounded`
 - **Started:** 2026-10-24, Jan Wloka, `bug/pr-refresh-rotation-keeps-green`
 - **Started:** 2026-10-25, Jan Wloka, `bug/bitbucket-bind-coverage-and-docs`
+- **Started:** 2026-10-25, Jan Wloka, `docs/one-pr-reader-plan-figures`
 
 ## Changelog
 
