@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2514 merged
+- **Started:** 2026-10-24, jwloka, `bug/bitbucket-mergeable-fold-open-rows`
 
 ## Changelog
 
