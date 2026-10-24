@@ -2127,4 +2127,40 @@ describe('runWorkerLoop on the command runner — a continuation resumes the blo
     expect(atSecondStart).toHaveLength(1);
     expect(atSecondStart[0]).toContain('use undici instead');
   });
+
+  it('does not re-append an identical second answer in the same slice — correctionHasContinuation de-dups by heading', async () => {
+    const r = rig(
+      { ...ASSIGNED, resumeId: 'h-1' },
+      [{ status: 1 }, { status: 1 }, {}],
+      { config: { ...rigConfig(), maxStartRetries: 1 } },
+    );
+    const baseDesk = r.ports.desk;
+    Object.assign(r.ports, {
+      trees: treesFixture({ quiet: { [r.wt]: 5000 }, commits: { [r.wt]: 'no' }, branches: { [r.wt]: BRANCH } }),
+      desk: {
+        ...baseDesk,
+        appendCorrection: async (worktree: string, correction: string) => {
+          fs.appendFileSync(path.join(worktree, 'PLOT-CORRECTION.md'), `${correction}\n`);
+          return baseDesk.appendCorrection(worktree, correction);
+        },
+      },
+    });
+    r.deps = { ...r.deps, idle: { ...r.deps.idle, transcript: transcriptFixture({ spoken: [`${r.wt}\th-1`] }) } };
+    const file = path.join(r.wt, '.plot-worker.continue.md');
+    fs.writeFileSync(file, 'use fetch');
+
+    expect(await runWorkerLoop(r.deps)).toBe(1);
+    expect(r.deskCalls.appendedCorrections).toEqual([{ worktree: r.wt, correction: continuationEntry('use fetch') }]);
+
+    // The same text again — `PLOT-CORRECTION.md` already carries this heading,
+    // so `correctionHasContinuation` must skip the append rather than
+    // duplicating it.
+    fs.writeFileSync(file, 'use fetch');
+    r.write({ ...r.read(), attempts: 0 });
+    r.runs.length = 0;
+
+    await runWorkerLoop(r.deps);
+
+    expect(r.deskCalls.appendedCorrections).toEqual([{ worktree: r.wt, correction: continuationEntry('use fetch') }]);
+  });
 });

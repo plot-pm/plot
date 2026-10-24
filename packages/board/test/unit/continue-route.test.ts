@@ -1442,6 +1442,21 @@ describe('the ending record routes an answer when no manifest names the desk', (
     assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false);
   });
 
+  it('refuses no-manifest when the ending record is unreadable JSON — unreadable is a refusal, not a guess', async () => {
+    const wt = worktree();
+    dirs.push(wt);
+    fs.writeFileSync(path.join(wt, ENDING_FILENAME), 'not json{{{');
+    const emptyManifestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-ending-unreadable-'));
+    manifestDirs.push(emptyManifestDir);
+    const before = fs.readdirSync(emptyManifestDir);
+
+    const result = await continueOnDesk(input(wt, emptyManifestDir));
+    assert.equal(result.kind, 'refused', JSON.stringify(result));
+    assert.equal(result.kind === 'refused' ? result.reason : '', 'no-manifest');
+    assert.deepEqual(fs.readdirSync(emptyManifestDir), before);
+    assert.equal(fs.existsSync(path.join(wt, CONTINUATION_NAME)), false);
+  });
+
   it('refuses a blocked ending with no unanswered marker, as no-question', async () => {
     const wt = worktree({ marker: false });
     dirs.push(wt);

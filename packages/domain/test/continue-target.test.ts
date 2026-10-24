@@ -23,6 +23,21 @@ const holdingWork = (branch: string): EndingReading => ({
   ending: { reason: 'holding-work', actor: 'agent', branch, detail: '', refusedAssignment: '', resumeId: '' },
 });
 
+const spendLimit = (branch: string): EndingReading => ({
+  read: 'ended',
+  ending: { reason: 'spend-limit', actor: 'agent', branch, detail: '', refusedAssignment: '', resumeId: '' },
+});
+
+const runLimit = (branch: string): EndingReading => ({
+  read: 'ended',
+  ending: { reason: 'run-limit', actor: 'agent', branch, detail: '', refusedAssignment: '', resumeId: '' },
+});
+
+const checksUnanswered = (branch: string): EndingReading => ({
+  read: 'ended',
+  ending: { reason: 'checks-unanswered', actor: 'agent', branch, detail: '', refusedAssignment: '', resumeId: '' },
+});
+
 const reading = (overrides: Partial<ContinueTargetReading>): ContinueTargetReading => ({
   branch: 'feature/x',
   manifest: UNNAMED,
@@ -72,6 +87,21 @@ describe('continueTarget', () => {
   it('refuses no-manifest when the ending reads holding-work for a different branch', () => {
     const r = reading({ manifest: UNNAMED, ending: holdingWork('bug/other-branch') });
     expect(continueTarget(r)).toEqual({ kind: 'refused', reason: 'no-manifest' });
+  });
+
+  it('continues by writing a manifest when unnamed but the ending reads spend-limit for this branch, marker present', () => {
+    const r = reading({ manifest: UNNAMED, ending: spendLimit('feature/x'), question: true });
+    expect(continueTarget(r)).toEqual({ kind: 'continue', manifest: 'write' });
+  });
+
+  it('continues by writing a manifest when unnamed but the ending reads run-limit for this branch, marker present', () => {
+    const r = reading({ manifest: UNNAMED, ending: runLimit('feature/x'), question: true });
+    expect(continueTarget(r)).toEqual({ kind: 'continue', manifest: 'write' });
+  });
+
+  it('continues by writing a manifest when unnamed but the ending reads checks-unanswered for this branch, marker present', () => {
+    const r = reading({ manifest: UNNAMED, ending: checksUnanswered('feature/x'), question: true });
+    expect(continueTarget(r)).toEqual({ kind: 'continue', manifest: 'write' });
   });
 
   it('refuses no-manifest when unnamed and there is no usable ending', () => {
