@@ -71,7 +71,7 @@ The `agent-loop.ts:584` refusal reason needs the worker loop to read the claim f
 
 ### Tests and comments
 
-- `bug/continuation-tests-assert-their-names` — test fixes and comments that state current behaviour <!-- waits: bug/a-failed-continuation-leaves-the-desk-as-found, bug/mergeability-uses-the-prs-own-base -->
+- `bug/continuation-tests-assert-their-names` — test fixes and comments that state current behaviour → #2627 <!-- waits: bug/a-failed-continuation-leaves-the-desk-as-found, bug/mergeability-uses-the-prs-own-base -->
 
 ## Notes
 
