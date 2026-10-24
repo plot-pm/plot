@@ -55,8 +55,7 @@ plot_repo_root() {
 # substitution as a bundle's anchor, and a private variable of any other name
 # is invisible to it.
 _plot_desk_root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-_plot_desk_root_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-desk-root.mjs"
-_plot_desk_root_config="$_plot_desk_root_dir/plot-config.sh"
+_plot_desk_root_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-desk-root.mjs"; _plot_desk_root_config="$_plot_desk_root_dir/plot-config.sh"
 _plot_plan_for_branch_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-plan-for-branch.mjs"
 
 # The desk root for a repository, or exit 3 with the reason on stderr.
