@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2490 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/delivery-chips-decided-in-the-domain`
+- **Started:** 2026-10-24, Jan Wloka, `bug/waiting-on-you-counts-visible-rows`
 
 ## Changelog
 
