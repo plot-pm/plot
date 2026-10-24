@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2560
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2570 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/the-pr-index-keeps-checks-pending`
+- **Delivered:** 2026-10-24
 
 ## Changelog
 
