@@ -53,7 +53,7 @@ Three slices, split by file and by risk, so a reviewer reads each diff against o
 
 ### Caps and gate order
 
-- `infra/ci-job-caps-exceed-their-step-caps` — job caps exceed their step caps, `Require the split jobs` runs last, the cancelled-run claim is measured
+- `infra/ci-job-caps-exceed-their-step-caps` — job caps exceed their step caps, `Require the split jobs` runs last, the cancelled-run claim is measured → #2557
 
 ### Apt cache
 
