@@ -67,7 +67,7 @@ The merge path in step 2 changes what a merge reads. A head read without Jenkins
 
 ### Rotation
 
-- `bug/pr-refresh-rotation-keeps-green` — an unnamed row keeps its prior `checksSha` and stable reading `<!-- waits: bug/bitbucket-checks-lookups-bounded -->`
+- `bug/pr-refresh-rotation-keeps-green` — an unnamed row keeps its prior `checksSha` and stable reading `<!-- waits: bug/bitbucket-checks-lookups-bounded -->` → #2634
 
 ### Tests and wording
 
