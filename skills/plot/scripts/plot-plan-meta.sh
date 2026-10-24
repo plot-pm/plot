@@ -968,8 +968,7 @@ function commit_list(s,   out, m, h) {
   h = "[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]+"
   while (match(s, "→ (commit " h "(, ?" h ")*|[A-Za-z0-9._-]+/[A-Za-z0-9._-]+@" h ")")) {
     m = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH)
-    sub(/^→ (commit )?/, "", m); gsub(/, ?/, ",", m)
-    out = out (out == "" ? "" : ",") m
+    sub(/^→ (commit )?/, "", m); gsub(/, ?/, ",", m); out = out (out == "" ? "" : ",") m
   }
   return out
 }
@@ -1011,8 +1010,7 @@ function keep_branch(n, b, overlay,   is_deferred, c, parts, j, m) {
   # Commits merge like waits: a list item adds its own to those of the heading,
   # minus any ref both lines already name, in first-seen order.
   c = commit_list($0)
-  if (overlay && commits_of[n] != "") { m = split(c, parts, ","); for (j = 1; j <= m; j++) if (parts[j] != "" && index("," commits_of[n] ",", "," parts[j] ",") == 0) commits_of[n] = commits_of[n] "," parts[j] }
-  else commits_of[n] = c
+  if (overlay && commits_of[n] != "") { m = split(c, parts, ","); for (j = 1; j <= m; j++) if (parts[j] != "" && index("," commits_of[n] ",", "," parts[j] ",") == 0) commits_of[n] = commits_of[n] "," parts[j] } else commits_of[n] = c
 }
 # `→ #N` and `→ owner/repo#N` are both annotations: /plot-deliver instructs
 # implementers to write the second for `Impl: other repo` plans, and a parser
