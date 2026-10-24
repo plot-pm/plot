@@ -65,6 +65,10 @@ const fixture = (tracker = '') => {
   for (const sub of ['pr-index', 'issue-index']) fs.mkdirSync(path.join(dir, sub));
   vi.stubEnv('PLOT_PR_INDEX_HOME', path.join(dir, 'pr-index'));
   vi.stubEnv('PLOT_ISSUE_INDEX_HOME', path.join(dir, 'issue-index'));
+  // Isolates the reader-election lock `maybeRefreshPrs` now takes on every
+  // fleet-less call — without this it falls back to the operator's own
+  // `~/.plot/state`.
+  vi.stubEnv('PLOT_BUDGET_HOME', path.join(dir, 'budget-home'));
   const issueListed = (): number =>
     fs.existsSync(hosts) ? fs.readFileSync(hosts, 'utf8').split('\n').filter((l) => l === 'issue-list').length : 0;
   return { dir, opts: { repoRoot: dir, scriptsDir: dir }, issueListed };

@@ -79,7 +79,7 @@ import {
 // one would bound only itself, which is the failure the port's own comment
 // names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
 // it, exactly as `budgetFile` is.
-import { issueIndexFile, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { issueIndexFile, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues, readerLockFile, readerLockKey } from '@plot-pm/domain/adapters';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
 import { isChainedHeading } from '@plot-pm/domain/rules/slice-chain';
@@ -96,12 +96,14 @@ import {
   prStoreFor,
   refreshPrs as refreshPrsWith,
   resolveBackend,
+  resolveReaderAccount,
   waitOf,
   withHostSlot,
   type PrRecord,
   type PrWorld,
 } from '@plot-pm/fleet/shared/pr-refresh';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
+import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
 import { closedOutcomeOf, closedSince, issueIndexRowOf } from '@plot-pm/fleet/shared/issue-refresh';
 // The PR reader moved to the fleet package; these names stay importable from
 // here because the board's tests and its payload assembly read them.
@@ -2296,6 +2298,90 @@ export const refreshPrs = async (
 };
 
 /**
+ * One `ReaderLock` for the whole process, never per repository or per entry.
+ *
+ * The lock's own key already carries `(connector, account, repo)` — see
+ * {@link readerLockKey} — so one instance correctly serves every repository
+ * this board scans; a second instance would only add a redundant directory
+ * listing per key with no isolation it does not already have.
+ */
+const readerLock = readerLockFile();
+
+/**
+ * This process's claim, built once and renewed on every election: the pid and
+ * start time never change for the process's life, only `at` does.
+ */
+const readerSelf = processProbeSystem().self();
+
+/**
+ * Asks the host for pull requests ONLY WHERE THIS PROCESS WON THE ELECTION for
+ * `(backend, account, repo)`; every other fleet-less process on the machine
+ * reads the real store a winner just published into instead.
+ *
+ * **THIS IS THE FIX FOR THE REGRESSION THE PLAN NAMES.** Before this function,
+ * every fleet-less process folded the host's answer into its own
+ * {@link memoryOverlay}, whose `write` never reaches the file
+ * {@link prStoreFor} backs — so N fleet-less processes asked the host
+ * independently forever, with no possible convergence. A winner here folds
+ * into the REAL store instead, which is what makes a loser's read meaningful.
+ *
+ * **ELECTION, NOT A SECOND HOST CALL TO DECIDE.** `backend` and `account` are
+ * both read the same free, local way `refreshPrs` itself already reads them —
+ * neither call touches the network — so asking "may I read?" costs nothing
+ * close to what the PR fetch itself costs.
+ *
+ * **AN UNANSWERABLE LOCK DEGRADES TO TODAY'S BEHAVIOUR, NEVER BLOCKS.** A lock
+ * directory that cannot be read or written answers `failed`, and a failed
+ * election falls back to the overlay this board used before the lock existed
+ * — still isolated, still correct, just not converged with its peers. A board
+ * must not go dark on PRs because a lock file could not be created.
+ */
+const refreshPrsAsSharedReader = async (opts: BuildBoardOptions, entry: CacheEntry): Promise<void> => {
+  const host = hostFor(opts);
+  const backend = await resolveBackend(entry, host);
+  const account = await resolveReaderAccount(scriptsFor(opts));
+  const key = readerLockKey(backend, account ?? '', path.basename(opts.repoRoot));
+  const claim = { pid: readerSelf.pid, startedAt: readerSelf.startedAt, at: Date.now() };
+  const verdict = await readerLock.elect(key, claim);
+
+  if (!verdict.ok) {
+    // UNREADABLE LOCK: the safe degrade, not a hang. Isolated per-process, the
+    // same as every fleet-less board before this slice.
+    await refreshPrs(opts, entry, overlayFor(opts, entry));
+    return;
+  }
+
+  if (verdict.value === 'elected') {
+    // WON: fold into the real store, so a follower's read below is reading
+    // something a peer actually published this pass.
+    await refreshPrs(opts, entry, prStoreFor(opts.repoRoot));
+    return;
+  }
+
+  // FOLLOWING: another live process holds this key, so the host is asked by
+  // exactly one reader and this one serves what that reader last published —
+  // no host call, same shape `readPrsFromStore` reads the fleet's writes with.
+  const startedAt = Date.now();
+  const held = await prStoreFor(opts.repoRoot).read(backend);
+  if (!held.ok || held.value === null) {
+    // NOTHING PUBLISHED YET: the holder has not completed its first pass, or
+    // the store could not be read. Say so only where nothing has ever been
+    // served — the same guard `readPrsFromStore` keeps, so a transient read
+    // failure does not overwrite a map this process already has something in.
+    if (entry.prAt === null) entry.prError = 'no PR reader has published to the store yet';
+  } else {
+    const maps = mapsOfRows(held.value.rows);
+    applyPrMaps(entry, maps);
+    const at = Date.parse(held.value.at);
+    entry.prAt = Number.isNaN(at) ? startedAt : at;
+    entry.prError = null;
+    await refreshRuns(opts, entry, maps.prs, await buildPortFor(opts));
+  }
+  entry.prNextAt = startedAt + PR_REFRESH_MS;
+  entry.prNextIsBackoff = false;
+};
+
+/**
  * Fetch PRs if the cadence gate allows it. Called from the PR timer and once at
  * start-up; the gate (`prNextAt`) is what turns a rate-limit into a wait rather
  * than a tighter loop, so nothing may bypass it.
@@ -2314,10 +2400,10 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
       await readIssuesFromStore(opts, entry);
       return;
     }
-    // NO FLEET RUNS: the board asks the host itself and folds the answer in
-    // memory, so the store stays the fleet's to write. Inferred from the pulse
-    // answer, which is the only liveness signal the board reads.
-    await refreshPrs(opts, entry, overlayFor(opts, entry));
+    // NO FLEET RUNS: at most one process on this machine asks the host for
+    // this (backend, account, repo); every other process reads what that one
+    // published. See `refreshPrsAsSharedReader`.
+    await refreshPrsAsSharedReader(opts, entry);
     // Inside the PR tick, behind the issue read's own gate (`issueNextAt`,
     // `issueIntervalMs`), whose spend `refreshPrs` subtracts through
     // `issueGate`. A rate limit either read names holds both gates. Sequential
