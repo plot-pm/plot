@@ -36,7 +36,8 @@ distinction.
 - **The brief names the shell gate.** `scripts/check-shell-lines.sh` fails a
   pull request whose shell under `skills/` is longer than at its merge base,
   so a brief that lists the repo gates says to offset new shell lines in the
-  same change. Step 4's tier is unchanged: the paragraph is template text.
+  same change. The gate counts commands, so joining statements is not an
+  offset. Step 4's tier is unchanged: the paragraph is template text.
 - **`--brief-only` stops at the brief.** The flag runs the preflight, the
   brief and the `Started:` record, and skips step 3 completely: no
   checkout, no claim push, no worktree. It is what the board asks for on

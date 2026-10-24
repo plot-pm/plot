@@ -285,7 +285,9 @@ Name the shell gate in the same paragraph: `scripts/check-shell-lines.sh`
 refuses a pull request whose shell under `skills/` is longer than at its
 merge base. When the slice touches a `.sh` file, say that growth is paid for
 in the same change — remove shell elsewhere, or write the rule in the domain
-and ask it through a bundle. The gate stores no number and has no override.
+and ask it through a bundle. The gate counts commands, not lines: joining
+statements with `;` or `&&`, or folding `fi` or `done` onto the line before, is
+not a payment. The gate stores no number and has no override.
 
 ### Bookkeeping
 
