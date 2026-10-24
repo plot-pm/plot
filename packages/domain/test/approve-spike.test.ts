@@ -229,6 +229,32 @@ describe('the Spike approved gate', () => {
     expect(text).toContain("No command removes a 'Spike approved:' line");
     expect(text).not.toContain('--spike <slug>');
   });
+
+  it('passes a merge whose staged record equals another parent that already passed the gate', () => {
+    expect(
+      spikeTransitionOf(path, 'plan', plan(''), plan('d, w, c'), null, [plan('d, w, c')]),
+    ).toBeNull();
+  });
+
+  it('matches any one of several other parents, not only the first', () => {
+    expect(
+      spikeTransitionOf(path, 'plan', plan(''), plan('d, w, c'), null, [plan('a, b, c'), plan('d, w, c')]),
+    ).toBeNull();
+  });
+
+  it('keeps requiring a receipt when the staged record matches no other parent', () => {
+    expect(
+      spikeTransitionOf(path, 'plan', plan(''), plan('d, w, c'), null, [plan('a, b, c')]),
+    ).toMatchObject({ before: '', after: 'd, w, c' });
+  });
+
+  it('never clears a removal via the merge-equality bypass', () => {
+    const noRecord = plan('');
+    expect(spikeTransitionOf(path, 'plan', plan('d, w, c'), noRecord, null, [noRecord])).toMatchObject({
+      before: 'd, w, c',
+      after: '',
+    });
+  });
 });
 
 describe('the controller gate and the card', () => {
