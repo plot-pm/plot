@@ -48,8 +48,9 @@ plot_repo_root() {
 # Resolved ONCE at source time, the way `plot-pr-merged.sh:105` resolves its
 # own bundle. Computing it inside a function reads `BASH_SOURCE[0]` at call
 # time, which is the caller's file once the function has been exported.
-_plot_desk_root_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-desk-root.mjs"
-_plot_desk_root_config="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/plot-config.sh"
+_plot_desk_root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+_plot_desk_root_mjs="$_plot_desk_root_dir/board/plot-desk-root.mjs"
+_plot_desk_root_config="$_plot_desk_root_dir/plot-config.sh"
 
 # The desk root for a repository, or exit 3 with the reason on stderr.
 #
@@ -139,13 +140,12 @@ plot_exclude_desk_root() {
 # the branch, under which wave — is asked through plot-plan-for-branch.mjs
 # (packages/domain/src/rules/plan-for-branch.ts) rather than duplicated here.
 plot_plan_for_branch() {
-  local base_dir=$1 plan_dir=$2 branch=$3 script_dir link metas=""
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local base_dir=$1 plan_dir=$2 branch=$3 link metas=""
   case "$plan_dir" in /*) ;; *) plan_dir="$base_dir/$plan_dir" ;; esac
   for link in $(grep -lF "$branch" "$plan_dir"*.md 2>/dev/null || true); do
-    [ -e "$link" ] && metas="${metas}$(bash "$script_dir/plot-plan-meta.sh" "$link" 2>/dev/null),"
+    [ -e "$link" ] && metas="${metas}$(bash "$_plot_desk_root_dir/plot-plan-meta.sh" "$link" 2>/dev/null)
+"
   done
   [ -n "$metas" ] || return 1
-  PLOT_BRANCH="$branch" PLOT_METAS="$metas" node -e 'process.stdout.write(JSON.stringify({branch:process.env.PLOT_BRANCH,candidates:JSON.parse("["+process.env.PLOT_METAS.replace(/,$/,"")+"]")}))' \
-    | node "$script_dir/board/plot-plan-for-branch.mjs"
+  printf '%s' "$metas" | node "$_plot_desk_root_dir/board/plot-plan-for-branch.mjs" "$branch"
 }
