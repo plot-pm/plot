@@ -238,7 +238,7 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
     commitBeyondClaim: async (path) =>
       answered<CommitReading>(fixture.claimCommits?.[path] ?? 'unanswerable'),
 
-    mergeConflict: async (path) =>
+    mergeConflict: async (path, _base) =>
       answered<Mergeability>(fixture.mergeConflicts?.[path] ?? 'unknown'),
 
     currentBranch: async (path) => {

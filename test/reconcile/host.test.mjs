@@ -860,11 +860,8 @@ test('host: pr-state bitbucket does not infer mergeable from state or merge_comm
 
 // The three keys a merge reads — the head and the checks read for it — are
 // carried only where the host names a head. Bitbucket cannot pin a merge, so its
-// arm leaves them out and a reader takes absent as not known. `mergeable` is
-// excluded for a different reason: both backends always carry the key, but
-// Bitbucket's value is always the literal `unknown` while GitHub's is a real
-// fold, so the two are not comparable key-for-key the way the others are.
-const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha', 'mergeable']);
+// arm leaves them out and a reader takes absent as not known.
+const MERGE_KEYS = new Set(['headSha', 'checks', 'checksSha']);
 const keysOf = (json) => Object.keys(JSON.parse(json)).filter((k) => !MERGE_KEYS.has(k)).sort();
 
 test('host: pr-state returns the same key set on both backends — merged PR', () => {
