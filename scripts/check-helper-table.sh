@@ -129,10 +129,17 @@ sed -n 's/^|[[:space:]]*`\([^`]*\)`.*/\1/p' "$readme" | sort -u > "$rows_tmp"
 
 # THE SHIPPED POPULATION: top-level `.sh` helpers, the tracked `board/*.mjs`
 # bundles, and the bundles `build.mjs` declares. All are what a skill or a loop
-# invokes by name. Nothing else in the directory ships — and every one of the 35
-# tracked bundles is marked `-merge` in `.gitattributes`, so the sets need no
-# by-name exceptions. A tracked bundle `build.mjs` no longer declares still
+# invokes by name. Nothing else in the directory ships — and every tracked
+# `board/*.mjs` bundle is marked `-merge` in `.gitattributes`, so the sets need
+# no by-name exceptions. A tracked bundle `build.mjs` no longer declares still
 # counts. An unreadable `build.mjs` fails: the declarations are the input.
+#
+# TWO DIFFERENT TREES, on purpose and not yet closed. `git ls-files` below
+# reads the INDEX — a staged-but-uncommitted new `.sh` or `board/*.mjs` file
+# is counted. `read_declared_bundles` reads `build.mjs` at HEAD, so a staged
+# edit that adds or removes a declared bundle is not. The asymmetry only
+# matters between staging a change and committing it; by the time a PR is
+# reviewed, index and HEAD agree.
 declared="$(read_declared_bundles "$root" fail_unreadable)" || exit 1
 {
   {

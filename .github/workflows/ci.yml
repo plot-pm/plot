@@ -431,20 +431,18 @@ jobs:
       # older version on the runner image), not the browser binary.
       # `apt-get install` skips re-downloading a `.deb` already present and
       # valid in its archive directory, so staging that directory's `.deb`s in
-      # a cache removes the mirror fetch on a hit. But `/var/cache/apt/archives`
-      # itself is root-owned (`sudo apt-get` creates it), and `actions/cache`'s
-      # tar always runs as the unprivileged runner user on BOTH save and
-      # restore. Measured on this branch (40028745673): a cache hit restored
-      # into a user-owned staging directory first, `tar` still failed on every
-      # `.deb` with `Permission denied` when pointed at the real apt directory,
-      # the step read the failure as a miss, and this run's mirror was
-      # genuinely slow — both retried `apt-get` attempts then timed out for
-      # real, the exact failure this plan removes. So the cache below targets
-      # `~/.cache/playwright-apt`, owned by the runner user throughout, and the
-      # two install steps around it `sudo cp` into and out of the real apt
-      # directory. Keyed on the resolved Playwright version, like the browser
-      # cache: the set of packages `install-deps` wants follows that version,
-      # not the lockfile.
+      # a cache removes the re-download on a hit — `apt-get update` still
+      # contacts the mirror either way; what the cache removes is only the
+      # package fetch that follows. But `/var/cache/apt/archives` itself is
+      # root-owned (`sudo apt-get` creates it), and `actions/cache`'s tar
+      # always runs as the unprivileged runner user on BOTH save and restore.
+      # A cache hit restores into a user-owned staging directory first, and the
+      # "Install Playwright system packages" step below `sudo cp`s it into and
+      # back out of the real apt directory, because `tar` cannot write there
+      # directly. So the cache here targets `~/.cache/playwright-apt`, owned by
+      # the runner user throughout. Keyed on the resolved Playwright version,
+      # like the browser cache: the set of packages `install-deps` wants
+      # follows that version, not the lockfile.
       #
       # THE KEY NAMES THE PACKAGE SET, NOT ONLY THE VERSION. An exact-key hit
       # never saves again, so a key that tracked the Playwright version alone
@@ -699,9 +697,12 @@ jobs:
 
       # THE CHECKOUT HOLDS main'S BUILD, NOT A PR'S OWN. A PR's diff no longer
       # carries the generated board bundles (`check-no-bundle-diff.sh` above),
-      # so every test below that loads one — three corpus tests and 14 files
-      # under `test/` — needs this step to have run first, on every event this
-      # workflow handles, not only on `pull_request`.
+      # so this job needs its own copy before any step below can rely on one.
+      # `helper-contracts` and `board-integration` now run this same step for
+      # their own test:contracts and board-integration suites; what this copy
+      # serves is the systemd steps further down, which fill a unit template
+      # with the path to the generated `plot-fleetd.mjs`. Runs on every event
+      # this workflow handles, not only on `pull_request`.
       - name: Build the board bundles
         run: pnpm run build:board
 
