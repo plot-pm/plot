@@ -70,10 +70,13 @@ function flush() {
 END { print total + 0 }
 AWK
 
+# LC_ALL=C: a byte that is not valid UTF-8 aborts BSD awk mid-file and lowers the count.
+count_stdin() { LC_ALL=C awk "$COUNT_AWK"; }
+
 count_rev() {
   local rev=$1 f c total=0
   while IFS= read -r f; do
-    c=$(git show "$rev:$f" | awk "$COUNT_AWK")
+    c=$(git show "$rev:$f" | count_stdin)
     total=$((total + c))
   done < <(git ls-tree -r --name-only "$rev" -- skills | grep '\.sh$' || true)
   echo "$total"
@@ -123,11 +126,11 @@ mode=${1:-}
 case "$mode" in
   --per-file)
     while IFS= read -r f; do
-      c=$(awk "$COUNT_AWK" "$f")
+      c=$(count_stdin < "$f")
       printf '%6d %s\n' "$c" "$f"
     done < <(git ls-files 'skills/*.sh') | sort -rn
-    echo "total: $(git ls-files 'skills/*.sh' | xargs cat | awk "$COUNT_AWK") lines"
-    echo "scripts/*.sh (CI and local tooling, not counted above): $(git ls-files 'scripts/*.sh' | xargs cat | awk "$COUNT_AWK") lines"
+    echo "total: $(git ls-files 'skills/*.sh' | xargs cat | count_stdin) lines"
+    echo "scripts/*.sh (CI and local tooling, not counted above): $(git ls-files 'scripts/*.sh' | xargs cat | count_stdin) lines"
     ;;
   pr)
     ref=$(default_ref)
