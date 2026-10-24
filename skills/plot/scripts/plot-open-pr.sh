@@ -35,6 +35,8 @@ set -uo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$script_dir/plot-tmp.sh"
+. "$script_dir/plot-desk-root.sh"
+. "$script_dir/plot-default-branch.sh"
 bundle="$script_dir/board/plot-slice-pr.mjs"
 
 usage() {
@@ -46,10 +48,7 @@ usage() {
 [ -f "$bundle" ] \
   || { echo "plot-open-pr: cannot find $bundle — run 'pnpm build:board'." >&2; exit 1; }
 
-branch=""
-base=""
-draft=0
-dry_run=0
+branch=""; base=""; draft=0; dry_run=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --draft) draft=1; shift ;;
@@ -71,8 +70,7 @@ git rev-parse --git-dir >/dev/null 2>&1 \
 repo_root="$(git rev-parse --show-toplevel)"
 cfg() { bash "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
-[ -n "$base" ] || base=$(bash "$script_dir/plot-host.sh" default-branch 2>/dev/null || echo main)
-[ -n "$base" ] || base=main
+[ -n "$base" ] || base=$(default_branch "$repo_root")
 
 # WHICH PLAN NAMES THIS BRANCH, AND UNDER WHICH HEADING. `plot-plan-meta.sh` is
 # the plan-format contract and answers both — the wave name is the title and the
@@ -86,7 +84,6 @@ cfg() { bash "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 # same point — since the phase grouping became derived, a missing link is a
 # browsing gap and gates nothing.
 plan_dir=$(cfg "Plan directory" "docs/plans/")
-case "$plan_dir" in /*) ;; *) plan_dir="$repo_root/$plan_dir" ;; esac
 
 #
 # THE CANDIDATES ARE GREPPED AND ONLY THEY ARE PARSED. Measured 2026-09-09:
@@ -94,40 +91,16 @@ case "$plan_dir" in /*) ;; *) plan_dir="$repo_root/$plan_dir" ;; esac
 # the directory and a parse of what it named. A branch name is a literal string
 # and a plan that does not contain it cannot name it, so the filter cannot
 # change the answer — only how many files are read to reach it.
-plan_slug=""
-plan_file=""
-slice_name=""
-candidates=$(grep -lF "$branch" "$plan_dir"*.md 2>/dev/null || true)
-for link in $candidates; do
-  [ -e "$link" ] || continue
-  found=$(bash "$script_dir/plot-plan-meta.sh" "$link" 2>/dev/null \
-    | PLOT_BRANCH="$branch" node -e '
-      let s = "";
-      process.stdin.on("data", (d) => (s += d)).on("end", () => {
-        let meta;
-        try { meta = JSON.parse(s); } catch { return; }
-        const want = process.env.PLOT_BRANCH;
-        for (const wave of meta.waves ?? []) {
-          for (const b of wave.branches ?? []) {
-            // The wave heading is the title, so a plan naming the branch under
-            // no heading yields an empty name and the rule refuses on it.
-            if (b.branch === want) { console.log([meta.file ?? "", wave.name ?? ""].join("\t")); return; }
-          }
-        }
-      });
-    ') || found=""
-  if [ -n "$found" ]; then
-    plan_file=$(printf '%s' "$found" | cut -f1)
-    slice_name=$(printf '%s' "$found" | cut -f2)
-    plan_slug=$(basename "$plan_file" .md | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
-    break
-  fi
-done
+plan_slug=""; plan_file=""; slice_name=""
+found=$(plot_plan_for_branch "$repo_root" "$plan_dir" "$branch") || found=""
+if [ -n "$found" ]; then
+  plan_file=$(printf '%s' "$found" | cut -f1); slice_name=$(printf '%s' "$found" | cut -f2)
+  plan_slug=$(basename "$plan_file" .md | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+fi
 
 # The brief, where the slice has one. Named for the branch's last segment, the
 # spelling plot-dispatch.sh writes and the worker prompt reads.
-brief="${branch##*/}"
-brief_file=".plot/briefs/${brief}.md"
+brief="${branch##*/}"; brief_file=".plot/briefs/${brief}.md"
 [ -f "$repo_root/$brief_file" ] || brief_file=""
 
 # WHICH PRs HAVE CARRIED THIS BRANCH? Asked of the host through the adapter, in
@@ -163,8 +136,7 @@ fi
 base_ref="origin/$base"
 git rev-parse --verify --quiet "$base_ref" >/dev/null 2>&1 || base_ref="$base"
 
-commits=0
-carried_work='"unknown"'
+commits=0; carried_work='"unknown"'
 if git rev-parse --verify --quiet "$branch" >/dev/null 2>&1 \
   && git rev-parse --verify --quiet "$base_ref" >/dev/null 2>&1; then
   commits=$(git rev-list --count "$base_ref..$branch" 2>/dev/null || echo 0)
@@ -223,10 +195,8 @@ request=$(PLOT_BRANCH="$branch" PLOT_BASE="$base" PLOT_SLUG="$plan_slug" \
     }));
   ')
 
-err_file=""
-plot_tmpfile err_file open-pr-err || { echo "plot-open-pr: no temp file could be made" >&2; exit 2; }
-answer=$(printf '%s' "$request" | node "$bundle" 2>"$err_file")
-rc=$?
+err_file=""; plot_tmpfile err_file open-pr-err || { echo "plot-open-pr: no temp file could be made" >&2; exit 2; }
+answer=$(printf '%s' "$request" | node "$bundle" 2>"$err_file"); rc=$?
 err=$(cat "$err_file" 2>/dev/null || true)
 
 # Exit 1 is the domain's refusal: the rule that fired, a tab, and its sentence.
