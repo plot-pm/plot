@@ -1929,15 +1929,11 @@ bb_fetch_base_bounded() {
   # already returned. `set -m` makes the backgrounded `git fetch` the leader
   # of its own process group, so `kill -TERM "-$pid"` (the negative pid) signals
   # the whole group — fetch and any child it spawned — not just the leader.
-  case $- in *m*) was_m=yes ;; *) was_m=no ;; esac
-  set -m
-  GIT_TERMINAL_PROMPT=0 git fetch -q origin "+refs/heads/$base:refs/remotes/origin/$base" 2>/dev/null &
-  pid=$!
-  ( sleep "$BB_FETCH_BOUND_S"; kill -TERM "-$pid" 2>/dev/null ) &
-  watcher=$!
+  case $- in *m*) was_m=yes ;; *) was_m=no ;; esac; set -m
+  GIT_TERMINAL_PROMPT=0 git fetch -q origin "+refs/heads/$base:refs/remotes/origin/$base" 2>/dev/null & pid=$!
+  ( sleep "$BB_FETCH_BOUND_S"; kill -TERM "-$pid" 2>/dev/null ) & watcher=$!
   wait "$pid" 2>/dev/null; rc=$?
-  kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
-  [ "$was_m" = yes ] || set +m
+  kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null; [ "$was_m" = yes ] || set +m
   return "$rc"
 }
 
