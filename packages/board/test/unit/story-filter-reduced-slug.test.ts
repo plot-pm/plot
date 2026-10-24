@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { passesFilter } from '../../src/app/lib/filters.js';
 import { buildLanes } from '../../src/app/components/Swimlanes.js';
 import { board, card, story } from '../catalogue/build.js';
-import { SCRIPTS_DIR } from '../helpers.mjs';
+import { SCRIPTS_DIR, rmTree } from '../helpers.mjs';
 
 /**
  * Issue #2411: `plot-plan-meta.sh` reduces a `Story:` Markdown link to its
@@ -34,7 +34,7 @@ describe('story filter and lanes over a reduced slug', () => {
     });
     const meta = JSON.parse(out.trim()) as { story: string };
     expect(meta.story).toBe(SLUG);
-    fs.rmSync(dir, { recursive: true, force: true });
+    rmTree(dir);
   });
 
   it('the story filter selects a card whose story is the reduced slug', () => {
