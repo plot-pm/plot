@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2066
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2502 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/plan-state-write-fails-when-a`
+- **Delivered:** 2026-10-24
 
 ## Changelog
 
