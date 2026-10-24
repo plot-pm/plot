@@ -10512,3 +10512,33 @@ test('host: pr-state by branch request carries exactly one q= with both state an
     assert.match(calls[i], /source\.branch\.name=%22feature%2Fki-anwendungen-unter-angebote%22/);
   }
 });
+
+// A repository with more open PRs than one page: the repo-wide listing is a
+// full page of OTHER branches, so only a `--head` ask can see `feature/x`.
+// The stub answers like `gh`: `--head` filters on the branch, no `--head`
+// returns the full page that omits it.
+test('plot-pr-merged: an open PR is found past a full repository-wide page', () => {
+  const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-prmerged-gh-')));
+  const argvFile = path.join(dir, 'gh.argv');
+  const row = (head) => `{"number":5,"title":"t","state":"OPEN","headRefName":"${head}","isDraft":false,"url":"u","updatedAt":"x","author":{"login":"a"},"headRefOid":"${'c'.repeat(40)}","mergedAt":null}`;
+  const page = JSON.stringify(Array.from({ length: 100 }, (_, i) => JSON.parse(row(`other/${i}`))));
+  writeFileSync(
+    path.join(dir, 'gh'),
+    `#!/usr/bin/env bash
+printf '%s\\n' "$@" >> ${JSON.stringify(argvFile)}
+if [[ "$*" == *"--head feature/x"* ]]; then
+  printf '%s' '[${row('feature/x')}]'
+else
+  printf '%s' '${page}'
+fi
+`,
+  );
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  const env = { PLOT_HOST: 'github' };
+  assert.equal(sourcedPrMerged('_plot_open_lookup feature/x', dir, env).stdout.trim(), 'found',
+    'the branch own PR is found although the repository-wide page omits it');
+  assert.ok(readFileSync(argvFile, 'utf8').includes('--head'), 'the branch is asked as --head');
+  // A branch with no PR reads none from a whole one-branch answer, never unaskable.
+  const none = sourcedPrMerged('_plot_open_lookup feature/y', dir, env);
+  assert.equal(none.stdout.trim(), 'unaskable', 'a full unfiltered page stays unaskable');
+});

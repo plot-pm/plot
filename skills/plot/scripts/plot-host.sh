@@ -4367,6 +4367,12 @@ case "$op" in
     # travel to GitHub as part of the term and match nothing.
     search_args=()
     [ -n "$since" ] && search_args=(--search "updated:>$since")
+    # ONE NAMED BRANCH IS ASKED AS ONE BRANCH on the three non-rich GitHub arms:
+    # `--head` filters on `headRefName` server-side at the cost of the same
+    # single list call, so a repository past `--limit` open PRs cannot push the
+    # branch's own PR off the page. Several branches stay unfiltered here.
+    head_args=()
+    [ "$(wc -w <<<"$branches")" -eq 1 ] && head_args=(--head "$branches")
 
     # --- Jenkins CI integration (orthogonal to Git host) ---
     # When `CI: jenkins` is configured, build status comes from Jenkins rather
@@ -4534,7 +4540,7 @@ case "$op" in
           #   $jstatus != "ok"  → Jenkins could not answer; every row `unknown`.
           #   $jentry == null   → the branch has no Jenkins job; `none`.
           #   otherwise         → the joined colour's `checks`, job named on fail.
-          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} \
+          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
             --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
@@ -4579,7 +4585,7 @@ case "$op" in
               } + (if $jstatus == "ok" and $ambiguous and $eff == null then {checksLookup:"skipped"} else {} end)'
         else
           # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
-          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} \
+          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
             --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
@@ -4611,7 +4617,7 @@ case "$op" in
         # advances its watermark by. Without it a split full read would leave
         # the store unable to narrow and the daily full read would never fall
         # due against anything but a cold window.
-        _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} \
+        _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} ${search_args[@]+"${search_args[@]}"} ${head_args[@]+"${head_args[@]}"} \
           --json number,title,state,headRefName,isDraft,url,updatedAt,author,headRefOid,mergedAt)" || exit $?
         pr_list_report_truncation github "$limit" "$state" \
           "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
