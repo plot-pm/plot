@@ -85,8 +85,11 @@ const NO_DESK_HERE: readonly string[] = ['elsewhere', 'unknown'];
  * The reader's host login, or `''` where it cannot be compared: absent, empty,
  * or shaped like an email. An email and a login are two spellings of one
  * person, and nothing here bridges them.
+ *
+ * @param reader - who is reading.
+ * @returns the trimmed `hostUser`, or `''` where no ownership rule can match it.
  */
-const comparableLogin = (reader: Reader): string => {
+export const comparableLogin = (reader: Reader): string => {
   const login = reader.hostUser?.trim() ?? '';
   return login.includes('@') ? '' : login;
 };

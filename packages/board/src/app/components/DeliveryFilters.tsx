@@ -121,13 +121,11 @@ export function DeliveryFilters({
   // row stays the one control surface, #2080). With one Active sprint this
   // renders nothing and the «This sprint» chip behaves exactly as before.
   //
-  // EACH CHIP COMES FROM `chipRow()` — `readings.perSprint`'s own hidden
-  // count, not a `{ ..., hiddenCount: 0 }` object built here (root `CLAUDE.md`,
-  // "Every rendered state is a domain property"). Matched to `sprints` by
-  // ARRAY POSITION: `AgentList.tsx` builds `readings.perSprint` with
-  // `activeSprints.map(...)` and passes that SAME `activeSprints` array as
-  // this `sprints` prop, so the two stay in the same order with no
-  // reordering or filtering between them.
+  // EACH CHIP COMES FROM `chipRow()`, not from an object built here (root
+  // `CLAUDE.md`, "Every rendered state is a domain property"). Matched to
+  // `sprints` by ARRAY POSITION: `chipRow()` returns one chip per entry of
+  // `readings.sprint.sprints`, which `chipReadings` builds from the SAME
+  // `activeSprints` array `AgentList.tsx` passes as this `sprints` prop.
   const perSprintChips = sprints.length > 1 ? chips.perSprint : [];
 
   return (

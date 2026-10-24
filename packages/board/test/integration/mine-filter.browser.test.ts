@@ -298,7 +298,7 @@ describe('the board filters to my work', () => {
       // AND IT SAYS WHY it can do nothing, rather than silently doing
       // nothing — which reads as a broken filter.
       expect(await chip(page).getAttribute('disabled')).not.toBeNull();
-      expect(await chip(page).getAttribute('title')).toBe('No identity configured — set hostUser or gitEmail.');
+      expect(await chip(page).getAttribute('title')).toBe('No identity configured — set hostUser.');
     } finally {
       await page.close();
     }
