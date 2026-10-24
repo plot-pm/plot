@@ -58,7 +58,7 @@ The slices group the findings by the code they touch, so each branch has one rev
 
 ### Label
 
-- `bug/fleetctl-start-checks-configured-label` — `--start` checks the default and the configured label, and the fleetctl tests share one helper
+- `bug/fleetctl-start-checks-configured-label` — `--start` checks the default and the configured label, and the fleetctl tests share one helper → #2642
 
 ### Log and wording
 
