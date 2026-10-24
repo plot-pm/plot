@@ -3289,24 +3289,20 @@ if [ -n "$unread_out" ]; then printf '%b' "$unread_out"; else echo "  (none — 
 echo
 
 # ---------------------------------------------------------------------------
-# 24a. Unread waits
+# 24a/24b. Unread waits, unread heading items.
 #
-# A `<!-- waits: … -->` marker on a line that names a branch, whose VALUE the
-# parser could not read as a branch — read from `unread_waits[]`, the field
-# `plot-plan-meta.sh` fills precisely for this: a prerequisite is reported, not
-# dropped, when it fails the branch-prefix shape check (a typo, or a syntax
-# example written on the branch's own line rather than in surrounding prose).
+# Both read a `plot-plan-meta.sh` field filled for a value on a branch-claim
+# line the parser could not place: 24a a `<!-- waits: … -->` value that fails
+# the branch-prefix shape (typo, or a syntax example on the branch's own
+# line); 24b a heading-shape list item naming a branch no heading in that wave
+# carries (a same-branch item is read for its PR and annotations and never
+# reaches this field). Both stay silent for the prose case — a marker or
+# claim-like text outside a branch-claim line is not this field's concern.
 #
-# A MARKER ON A PROSE LINE STAYS SILENT, as it always has: `unread_waits` is
-# filled only when a line both carries the marker AND claims a branch, so a
-# plan documenting the annotation in its narrative text — the shape most plans
-# that mention `waits:` use — reports nothing here.
-#
-# REPORTS AND NEVER GATES. Below `== blocking sections end ==`, out of
-# `attention=`, with its own counter (`unread_waits=`), beside `unread_headings=`
-# for the same reason: a wait the parser cannot read never reaches the scan's
-# verdict either, so the slice holds no annotation at all until a person fixes
-# the value — a legibility gap, not a broken pointer.
+# REPORTS AND NEVER GATE. Below `== blocking sections end ==`, out of
+# `attention=`, each with its own counter: the value the parser could not read
+# never reaches the scan's verdict either, so the slice holds no annotation at
+# all until a person fixes it — a legibility gap, not a broken pointer.
 echo "== 24a. Unread waits (a waits: marker on a branch line the parser could not read) =="
 report_unread_pairs unread_waits '.branch, .value' \
   "  %s — branch '%s' names a waits: value the parser could not read: '%s'\n    rewrite: the value as a branch name, with a configured prefix ('"$PREFIX_RE"')\n" \
@@ -3314,22 +3310,6 @@ report_unread_pairs unread_waits '.branch, .value' \
 n_unread_waits=$REPORT_UNREAD_PAIRS_N
 echo
 
-# ---------------------------------------------------------------------------
-# 24b. Unread heading items
-#
-# A heading-shape wave (`### Name (Branch: bug/x)`) whose list item below it IS
-# a branch claim (`branch_claim_re`, the same anchor the list shape uses) but
-# names a branch no heading in that wave carries — read from `unread_heading_items`,
-# the field `plot-plan-meta.sh` fills precisely for this. A list item naming
-# the SAME branch as its heading is read for its `→ #N` and its annotations and
-# never reaches this field; only an unattributable item does.
-#
-# REPORTS AND NEVER GATES. Below `== blocking sections end ==`, out of
-# `attention=`, with its own counter (`unread_heading_items=`), beside
-# `unread_headings=`/`unread_waits=` for the same reason: an item the parser
-# cannot attribute never reaches the scan's verdict either, so the slice holds
-# no annotation at all until a person fixes the value — a legibility gap, not a
-# broken pointer.
 echo "== 24b. Unread heading items (a list item under a heading names a branch no heading claims) =="
 report_unread_pairs unread_heading_items '.wave, .branch' \
   "  %s — wave '%s' holds a list item naming '%s', a branch no heading in that wave claims\n    rewrite: move the item under its own heading, or give that heading this (Branch: …) value\n" \
