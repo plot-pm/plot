@@ -59,6 +59,8 @@ const freeLoop: AgentLoopReadings = {
   pr: null,
   mergeable: null,
   mergeConflictAtEntry: false,
+  prDraft: null,
+  lastPushSha: '',
   correctionText: '',
   resumeId: '',
   passAt: '2026-10-05T10:00:00.000Z',
@@ -1149,6 +1151,76 @@ describe('agentLoop — row 13: checks pass', () => {
     const agent = agentFor(BRANCH, { workerAlive: true });
     const result = supervise({ agents: [agent] });
     expect(result.detail.left).toEqual([BRANCH]);
+  });
+
+  it('adds a pr-ready write when the open draft PR head matches the last push', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: 'settled',
+      checksPassed: true,
+      pr: 2550,
+      prDraft: true,
+      prHeadSha: 'abc1234',
+      lastPushSha: 'abc1234',
+    });
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'slice-spend', 'pr-ready', 'assignment-clear']);
+    const prReady = result.writes.find((w) => w.kind === 'pr-ready');
+    expect(prReady).toMatchObject({ pr: 2550 });
+  });
+
+  it('performs no pr-ready write for an already-ready (non-draft) PR', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: 'settled',
+      checksPassed: true,
+      pr: 2550,
+      prDraft: false,
+      prHeadSha: 'abc1234',
+      lastPushSha: 'abc1234',
+    });
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'slice-spend', 'assignment-clear']);
+  });
+
+  it('performs no pr-ready write when the PR head moved past the last push', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: 'settled',
+      checksPassed: true,
+      pr: 2550,
+      prDraft: true,
+      prHeadSha: 'moved-on',
+      lastPushSha: 'abc1234',
+    });
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'slice-spend', 'assignment-clear']);
+  });
+
+  it('performs no pr-ready write when the PR draft flag could not be read', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: true,
+      checks: 'settled',
+      checksPassed: true,
+      pr: 2550,
+      prDraft: null,
+      prHeadSha: 'abc1234',
+      lastPushSha: 'abc1234',
+    });
+    expect(kindsOf(result.writes)).toEqual(['declaration', 'slice-spend', 'assignment-clear']);
   });
 });
 

@@ -2,6 +2,7 @@ import type {
   Agents,
   BoundedRun,
   Desk,
+  Host,
   PortResult,
   Processes,
   Refs,
@@ -35,7 +36,8 @@ export type LoopWrite = Extract<
       | 'refused-slice'
       | 'assignment-clear'
       | 'loop-end'
-      | 'worker-finding';
+      | 'worker-finding'
+      | 'pr-ready';
   }
 >;
 
@@ -49,6 +51,8 @@ export interface LoopWritePorts {
   boundedRun: BoundedRun;
   /** Where a refused take-up records its branch, for the queue's `refused` hold. */
   refusedSlices: RefusedSliceRecord;
+  /** Where a `pr-ready` write lands — the only host call this applier makes. */
+  host: Pick<Host, 'prReady'>;
 }
 
 /** What one applied write answered, paired with the write it came from. */
@@ -81,7 +85,9 @@ const TAKE_UP: ReadonlySet<LoopWrite['kind']> = new Set(['desk-reset', 'commit',
  * `push` or `prompt-run` write fails, no later write is applied, and the
  * failed write is the last entry of the result. Every other write kind is
  * independent of the others' outcome: a failed `declaration` still lets the
- * `loop-end` after it land.
+ * `loop-end` after it land. `pr-ready` is one of these — a host refusal is
+ * returned in the result for the caller to log, and never stops the pass or
+ * changes the loop's exit code.
  *
  * **`agent-attempt` AND `correction-count` CARRY THE NEW VALUE, NEVER AN
  * INCREMENT.** Both arms write exactly the number the decision already
@@ -215,6 +221,9 @@ const landOne = async (
         since: write.since,
         evidence: write.evidence,
       });
+
+    case 'pr-ready':
+      return ports.host.prReady(write.pr);
 
     /* v8 ignore next 2 -- unreachable by construction: every `LoopWrite` kind
        has its own case above, so this only fires if a kind is ADDED to the

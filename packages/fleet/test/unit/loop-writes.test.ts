@@ -6,6 +6,7 @@ import {
   agentsFixture,
   deskFixture,
   deskFixtureCalls,
+  hostFixture,
   refsFixture,
   treesFixture,
   type AgentsFixture,
@@ -39,6 +40,7 @@ const ports = (over: Partial<LoopWritePorts> = {}): LoopWritePorts => ({
   processes: noProcesses,
   boundedRun: noBoundedRun,
   refusedSlices: refusedSlicesFixture(),
+  host: hostFixture(),
   ...over,
 });
 
@@ -257,6 +259,18 @@ describe('performLoopWrites — one arm per write kind', () => {
   // `packages/board/test/unit/loop-writes-finding.test.ts`: fleet does not
   // depend on `@plot-pm/board`, and board's own `findingsInLog`/`MONITOR_LOGS`
   // reader is what proves the board can parse the line this write lands.
+
+  it('pr-ready takes the PR out of draft, through Host', async () => {
+    const readied: number[] = [];
+    const [{ result }] = await apply({ kind: 'pr-ready', pr: 2550 }, { host: hostFixture({ readied }) });
+    expect(result.ok).toBe(true);
+    expect(readied).toEqual([2550]);
+  });
+
+  it('pr-ready reports the host refusal, carrying no destructive fallback', async () => {
+    const [{ result }] = await apply({ kind: 'pr-ready', pr: 2550 }, { host: hostFixture({ prReadyFails: true }) });
+    expect(result.ok).toBe(false);
+  });
 });
 
 describe('performLoopWrites — ordering and failure', () => {
@@ -299,6 +313,21 @@ describe('performLoopWrites — ordering and failure', () => {
     );
     expect(applied.map((a) => a.result.ok)).toEqual([false, true]);
     expect(calls.endings).toHaveLength(1);
+  });
+
+  it('a failed pr-ready still lets the assignment-clear after it land', async () => {
+    const calls: AgentsFixture['calls'] = { attempts: [], corrections: [], clearedAssignments: [] };
+    const writes: readonly LoopWrite[] = [
+      { kind: 'pr-ready', pr: 2550 },
+      { kind: 'assignment-clear', session: 'sess-1' },
+    ];
+    const applied = await performLoopWrites(
+      writes,
+      ports({ host: hostFixture({ prReadyFails: true }), agents: agentsFixture({ calls }) }),
+      WORKTREE,
+    );
+    expect(applied.map((a) => a.result.ok)).toEqual([false, true]);
+    expect(calls.clearedAssignments).toEqual(['sess-1']);
   });
 });
 

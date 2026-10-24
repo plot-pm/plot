@@ -321,6 +321,11 @@ export const hostShell = (context: ShellContext): Host => {
       return answer;
     },
 
+    prReady: async (pr): Promise<PortResult<void>> => {
+      const run = await runProcess('bash', [host, 'pr-ready', String(pr)], inRepo);
+      return record(run, () => undefined);
+    },
+
     prMerged: async (branch): Promise<PortResult<MergedAnswer>> => {
       const run = await runProcess('bash', [host, 'pr-merged', branch], inRepo);
       if (run.code === 3) {
