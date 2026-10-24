@@ -59,7 +59,6 @@ const freeLoop: AgentLoopReadings = {
   correctionBudget: 2,
   pr: null,
   mergeable: null,
-  mergeConflictAtEntry: false,
   correctionText: '',
   resumeId: '',
   passAt: '2026-10-05T10:00:00.000Z',
@@ -1017,7 +1016,7 @@ describe('agentLoop — row 12a applies before the CI wait only', () => {
   });
 });
 
-describe("agentLoop — row 12a': the PR conflicts with the default branch at wait entry", () => {
+describe("agentLoop — row 12a': the PR conflicts with its base at wait entry", () => {
   it('resumes the agent with a merge-main-and-push correction and raises correctionAttempts, never entering the wait', () => {
     const result = agentLoop({
       ...freeLoop,
@@ -1026,7 +1025,7 @@ describe("agentLoop — row 12a': the PR conflicts with the default branch at wa
       pushed: true,
       prOpen: true,
       checks: null,
-      mergeConflictAtEntry: true,
+      mergeable: 'conflicting',
       correctionAttempts: 0,
       correctionBudget: 2,
       resumeId: 'resume-abc',
@@ -1049,7 +1048,7 @@ describe("agentLoop — row 12a': the PR conflicts with the default branch at wa
       pushed: true,
       prOpen: true,
       checks: null,
-      mergeConflictAtEntry: true,
+      mergeable: 'conflicting',
       correctionAttempts: 2,
       correctionBudget: 2,
       pr: 1249,
@@ -1071,7 +1070,7 @@ describe("agentLoop — row 12a': the PR conflicts with the default branch at wa
       pushed: true,
       prOpen: true,
       checks: null,
-      mergeConflictAtEntry: true,
+      mergeable: 'conflicting',
       correctionAttempts: 2,
       correctionBudget: 2,
       pr: null,
@@ -1088,7 +1087,7 @@ describe("agentLoop — row 12a': the PR conflicts with the default branch at wa
       pushed: true,
       prOpen: true,
       checks: null,
-      mergeConflictAtEntry: true,
+      mergeable: 'conflicting',
       correctionAttempts: 0,
       correctionBudget: 2,
       sliceRuns: 12,
@@ -1108,7 +1107,7 @@ describe("agentLoop — row 12a': the PR conflicts with the default branch at wa
       pushed: true,
       prOpen: true,
       checks: null,
-      mergeConflictAtEntry: true,
+      mergeable: 'conflicting',
       correctionAttempts: 0,
       correctionBudget: 2,
       sliceCostUsd: 5,
@@ -1128,7 +1127,7 @@ describe("agentLoop — row 12a': the PR conflicts with the default branch at wa
       pushed: true,
       prOpen: true,
       checks: null,
-      mergeConflictAtEntry: true,
+      mergeable: 'conflicting',
       correctionAttempts: 0,
       correctionBudget: 2,
     });
@@ -1144,7 +1143,6 @@ describe("agentLoop — row 12a': the PR conflicts with the default branch at wa
         pushed: true,
         prOpen: true,
         checks: null,
-        mergeConflictAtEntry: false,
         mergeable,
       });
       expect(result.writes).toEqual([]);

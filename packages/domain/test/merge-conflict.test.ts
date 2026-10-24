@@ -8,17 +8,15 @@ describe('mergeConflictCorrection', () => {
     const text = mergeConflictCorrection(BRANCH);
     expect(text.startsWith(`${MERGE_CONFLICT_HEADING}\n\n`)).toBe(true);
     expect(text).toContain(`\`${BRANCH}\``);
-    expect(text).toContain('Merge the default branch');
+    expect(text).toContain('Merge that branch');
   });
 
-  it('carries CLAUDE.md\'s board-artifact procedure: restore from merge base, never commit a rebuild', () => {
+  it('carries no estate-specific text: the wording names no project path or procedure', () => {
     const text = mergeConflictCorrection(BRANCH);
-    expect(text).toContain('board-server.mjs');
-    expect(text).toContain('-merge');
-    expect(text).toContain('.gitattributes');
-    expect(text).toContain('Restore every conflicting generated path from the merge base against `origin/main`');
-    expect(text).toContain('do not commit a rebuild');
-    expect(text).toContain('take ours');
+    expect(text).not.toContain('origin/main');
+    expect(text).not.toContain('board-server.mjs');
+    expect(text).not.toContain('pnpm build:board');
+    expect(text).not.toContain('default branch');
   });
 
   it('names the bounded retry: a reading after the correction budget is spent ends the slice for a person', () => {
