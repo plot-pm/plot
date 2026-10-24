@@ -62,7 +62,7 @@ The merge path in step 2 changes what a merge reads. A head read without Jenkins
 
 ### Checks lookups
 
-- `bug/bitbucket-checks-lookups-bounded` — `pr-state` and the merge re-read run no Jenkins lookup unless the caller reads checks; one `--state all` refresh spends one bind budget; a named row with a failed ask reads unknown `<!-- waits: bug/bitbucket-mergeable-fold-open-rows -->`
+- `bug/bitbucket-checks-lookups-bounded` — `pr-state` and the merge re-read run no Jenkins lookup unless the caller reads checks; one `--state all` refresh spends one bind budget; a named row with a failed ask reads unknown → #2617 `<!-- waits: bug/bitbucket-mergeable-fold-open-rows -->`
 
 ### Rotation
 
