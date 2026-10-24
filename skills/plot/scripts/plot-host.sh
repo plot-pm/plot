@@ -4028,8 +4028,7 @@ case "$op" in
     # off the same payload. `plot-release-chain.mjs` asks it once per hop of a
     # release-chain walk. Bitbucket names no merge time, so `mergedAt` is
     # `updated_on`, as in `pr-list`.
-    ref="${1:?$op needs a branch}"; shift || true
-    repo_args=()
+    ref="${1:?$op needs a branch}"; shift || true; repo_args=()
     while [ $# -gt 0 ]; do
       case "$1" in
         --repo) repo_args=(-R "${2:?}"); shift 2 ;;
