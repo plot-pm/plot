@@ -20,11 +20,13 @@ export interface Chip {
   readonly disabledReason: string | null;
 }
 
-/** The three chips, in the row's fixed order. */
+/** The chip row: the three fixed chips, plus one per Active sprint. */
 export interface ChipRow {
   readonly thisSprint: Chip;
   readonly mine: Chip;
   readonly waitingOnMe: Chip;
+  /** One chip per Active sprint, in `readings.perSprint`'s order. */
+  readonly perSprint: readonly Chip[];
 }
 
 /** What `chipRow` reads for the `This sprint` chip. */
@@ -53,23 +55,44 @@ export interface WaitingOnMeChipReadings {
   readonly on: boolean;
 }
 
+/** What `chipRow` reads for one Active sprint's own chip. */
+export interface PerSprintChipReadings {
+  /** The sprint's slug, carried through for the caller to key its click handler on. */
+  readonly slug: string;
+  /** The sprint's title, shown as the chip's label. */
+  readonly title: string;
+  /** Whether this sprint is currently in the reader's selection. */
+  readonly on: boolean;
+  /**
+   * Rows not already hidden by another filter, before this sprint's own
+   * effect — the same base `This sprint`'s `visibleRows` reads, each marked
+   * for whether it belongs to THIS sprint rather than to any Active sprint.
+   */
+  readonly visibleRows: readonly { readonly inSprint: boolean }[];
+}
+
 /** Everything `chipRow` reads, one block per chip. */
 export interface ChipRowReadings {
   readonly sprint: SprintChipReadings;
   readonly mine: MineChipReadings;
   readonly waitingOnMe: WaitingOnMeChipReadings;
+  /** One entry per Active sprint, for `perSprintChips`. */
+  readonly perSprint: readonly PerSprintChipReadings[];
 }
 
 /**
- * The reader's identity as the `Mine` chip's label names it: `hostUser`,
- * falling back to `gitEmail`. `''` where the reader carries neither — the
- * caller reads that as "no identity" and disables the chip.
+ * The reader's identity as the `Mine` chip's label names it: `hostUser` only.
+ *
+ * `gitEmail` is deliberately not a fallback here: `isMine`'s ownership match
+ * (`ownership.ts`'s `comparableLogin`) never compares a host login to an
+ * email, by design — "two spellings of one person, and nothing here bridges
+ * them". A label built from `gitEmail` would name an identity `hiddenCount`
+ * can never match against, so the chip would enable while filtering nothing.
  *
  * @param reader - who is reading.
- * @returns the identity text, or `''` where none can be read.
+ * @returns the identity text, or `''` where `hostUser` is absent or blank.
  */
-const identityOf = (reader: Reader): string =>
-  reader.hostUser?.trim() || reader.gitEmail?.trim() || '';
+const identityOf = (reader: Reader): string => reader.hostUser?.trim() || '';
 
 /**
  * The `This sprint` chip: on/off against the active sprint, disabled with no
@@ -88,7 +111,13 @@ const sprintChip = (readings: SprintChipReadings): Chip => {
 
 /**
  * The `Mine` chip: carries the reader's identity in its label, disabled with
- * no identity to match.
+ * no `hostUser` to match against.
+ *
+ * A reader carrying only `gitEmail` is still reported as having no identity
+ * here — `identityOf` reads `hostUser` alone, for the reason `isMine` never
+ * matches an email. The reason names that case specifically where it applies,
+ * rather than reusing the "nothing configured" wording for a reader the board
+ * does in fact know something about.
  *
  * @param readings - who is reading, the chip's state, and the rows it would act on.
  * @returns the chip.
@@ -96,12 +125,10 @@ const sprintChip = (readings: SprintChipReadings): Chip => {
 const mineChip = (readings: MineChipReadings): Chip => {
   const identity = identityOf(readings.reader);
   if (identity === '') {
-    return {
-      label: 'Mine',
-      on: false,
-      hiddenCount: 0,
-      disabledReason: 'No identity configured — set hostUser or gitEmail.',
-    };
+    const disabledReason = readings.reader.gitEmail?.trim()
+      ? 'No host login configured — gitEmail cannot be matched to a PR or ticket author.'
+      : 'No identity configured — set hostUser or gitEmail.';
+    return { label: 'Mine', on: false, hiddenCount: 0, disabledReason };
   }
   const label = `Mine (${identity})`;
   const hiddenCount = readings.visibleRows.filter((row) => !isMine(row, readings.reader)).length;
@@ -129,15 +156,30 @@ const waitingOnMeChip = (_readings: WaitingOnMeChipReadings): Chip => ({
 });
 
 /**
+ * One Active sprint's own chip: on when selected, its hidden count answering
+ * what toggling THIS sprint alone would hide or show — never disabled, since
+ * an Active sprint is always available to filter by.
+ *
+ * @param readings - the sprint's identity, selection state, and the rows it would act on.
+ * @returns the chip.
+ */
+const perSprintChip = (readings: PerSprintChipReadings): Chip => {
+  const hiddenCount = readings.visibleRows.filter((row) => !row.inSprint).length;
+  return { label: readings.title, on: readings.on, hiddenCount, disabledReason: null };
+};
+
+/**
  * The Delivery tab's chip row: one chip each for `This sprint`, `Mine` and
- * `Waiting on me`, decided from readings rather than rendered live by the
- * component (root `CLAUDE.md`, "Every rendered state is a domain property").
+ * `Waiting on me`, plus one per Active sprint — decided from readings rather
+ * than rendered live by the component (root `CLAUDE.md`, "Every rendered
+ * state is a domain property").
  *
  * @param readings - what each chip needs, grouped per chip.
- * @returns the three chips, in display order.
+ * @returns the fixed chips and the per-sprint chips, in display order.
  */
 export const chipRow = (readings: ChipRowReadings): ChipRow => ({
   thisSprint: sprintChip(readings.sprint),
   mine: mineChip(readings.mine),
   waitingOnMe: waitingOnMeChip(readings.waitingOnMe),
+  perSprint: readings.perSprint.map(perSprintChip),
 });

@@ -96,10 +96,19 @@ describe('rowInSprintSelection', () => {
     expect(rowInSprintSelection({ kind: 'branch', plan: 'plan-z' }, [], new Map())).toBe(true);
   });
 
-  it('1 Active sprint, no selection: empty selection is no filter, so every row is in', () => {
+  it('1 Active sprint, no selection: a member of that sprint is in', () => {
     const oneSprint = new Map([['alpha', new Set(['plan-a'])]]);
     expect(rowInSprintSelection({ kind: 'branch', plan: 'plan-a' }, [], oneSprint)).toBe(true);
-    expect(rowInSprintSelection({ kind: 'branch', plan: 'plan-z' }, [], oneSprint)).toBe(true);
+  });
+
+  // A ROW IN NO ACTIVE SPRINT, SELECTION EMPTY: the TSDoc says an empty
+  // selection means "every Active sprint counts", not "every row counts" —
+  // a row whose plan is a member of none of them is excluded. A rule that
+  // reads only `selected.length === 0 → true` passes this test's sibling
+  // above and fails here.
+  it('1 Active sprint, no selection: a row in no Active sprint is excluded', () => {
+    const oneSprint = new Map([['alpha', new Set(['plan-a'])]]);
+    expect(rowInSprintSelection({ kind: 'branch', plan: 'plan-z' }, [], oneSprint)).toBe(false);
   });
 
   // TWO ACTIVE SPRINTS, SELECTION OF ONE: rows of the other sprint have

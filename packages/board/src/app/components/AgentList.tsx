@@ -713,23 +713,29 @@ export function AgentList({
   //
   // `sprint.visibleRows` reads `fleet.rows` — the rows BEFORE the sprint
   // filter's own effect, per `SprintChipReadings.visibleRows`'s contract —
-  // each mapped through `rowInSprintSelection` against EVERY active sprint
-  // slug, not the current (possibly narrower) selection: the «This sprint»
-  // chip's OWN click is still all-or-nothing (`toggleThisSprintChip` above),
-  // so its hidden count answers what THAT click would hide, the same question
-  // it has always answered. A per-sprint chip's own hidden count — what ITS
-  // click would hide — is computed where that chip renders, not here.
+  // each mapped through `rowInSprintSelection` against the CURRENT selection,
+  // not every Active sprint slug. `DeliveryFilters.tsx:135`'s own defect
+  // report names this: the filter already uses the current selection, so the
+  // «This sprint» chip's hidden count should answer the same question the
+  // filter answers, not "what would an all-or-nothing toggle hide". With no
+  // narrowing (`selectedSprints` empty) this reads identically to the old
+  // all-sprints-slugs behaviour.
   //
   // `mine.visibleRows` reads `filteredRows` — after the sprint filter, before
   // the `Mine` chip's own effect — each mapped through `ownedFromRow`, the same
   // adapter `rowsForReader` uses.
-  const allSprintSlugs = useMemo(() => activeSprints.map((s) => s.slug), [activeSprints]);
+  //
+  // `perSprint` — one entry per Active sprint, each asking `rowInSprintSelection`
+  // against ONLY that sprint's own slug (never the reader's current selection):
+  // a per-sprint chip's own hidden count answers what clicking THAT chip alone
+  // would hide, the same question `This sprint`'s count answers for its own
+  // all-or-nothing click.
   const chipRowReadings: ChipRowReadings = {
     sprint: {
       hasActiveSprint: activeSprints.length > 0,
       on: sprintFilterOn,
       visibleRows: fleet.rows.map((r) => ({
-        inSprint: rowInSprintSelection(r, allSprintSlugs, membership),
+        inSprint: rowInSprintSelection(r, selectedSprints, membership),
       })),
     },
     mine: {
@@ -738,6 +744,14 @@ export function AgentList({
       visibleRows: filteredRows.map((r) => ownedFromRow(r)),
     },
     waitingOnMe: { on: false },
+    perSprint: activeSprints.map((sprint) => ({
+      slug: sprint.slug,
+      title: sprint.title,
+      on: selectedSprints.includes(sprint.slug),
+      visibleRows: fleet.rows.map((r) => ({
+        inSprint: rowInSprintSelection(r, [sprint.slug], membership),
+      })),
+    })),
   };
 
   // THE FILTERED ISSUES. Like rows, issues stay visible when no filter applies.
