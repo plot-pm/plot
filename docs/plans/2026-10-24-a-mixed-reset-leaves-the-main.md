@@ -62,7 +62,7 @@ Design direction, per the layering rule in `CLAUDE.md` (a gate over a rule):
 
 ### Gate
 
-- `bug/a-mixed-reset-leaves-the-main-gate` — refuse a mixed `git reset` in the main checkout for every caller, with a corpus of the command forms (`reset`, `reset --hard`, `reset --soft`, `reset origin/main`, `reset -- <path>`) <!-- builds: a reset classifier in main-checkout-write.ts -->
+- `bug/a-mixed-reset-leaves-the-main-gate` — refuse a mixed `git reset` in the main checkout for every caller, with a corpus of the command forms (`reset`, `reset --hard`, `reset --soft`, `reset origin/main`, `reset -- <path>`) <!-- builds: a reset classifier in main-checkout-write.ts --> → #2640
 
 ### Brief step
 
