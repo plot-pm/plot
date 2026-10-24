@@ -179,8 +179,16 @@ export const activeSprintButton = (sprints: FleetSprint[]): ActiveSprintButton =
         sentence: `Select all ${sprints.length} Active sprints.`,
       };
 
-/** Read a comma-separated multi-value filter from the URL query. */
+/**
+ * Read a comma-separated multi-value filter from the URL query.
+ *
+ * Returns `[]` with no `window` — a mount-time read of this kind runs during
+ * server rendering too (`AgentList`'s own unit suite renders it with
+ * `renderToStaticMarkup`), where there is no URL to read and "no filter" is
+ * the correct answer regardless.
+ */
 export function readList(param: string): string[] {
+  if (typeof window === 'undefined') return [];
   const raw = new URLSearchParams(window.location.search).get(param);
   return raw
     ? raw.split(',').map((s) => s.trim()).filter(Boolean)

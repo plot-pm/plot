@@ -22,6 +22,14 @@ interface DeliveryFiltersProps {
   /** The active sprints, for the sprint line beneath the chip row. Empty renders no line. */
   sprints: FleetSprint[];
   /**
+   * The reader's current sprint selection — sanitized, so it never names a
+   * sprint absent from `sprints`. Empty means every Active sprint. Decides
+   * the per-sprint chips' own `on` state and the «This sprint» chip's label.
+   */
+  selectedSprints: string[];
+  /** Toggle one sprint in the selection — a per-sprint chip's own click. */
+  onToggleSprintSlug: (slug: string) => void;
+  /**
    * Whether the board has answered the `Mine` chip's identity question yet.
    * `chipRow`'s `disabledReason` does not distinguish "asked, found nobody"
    * from "not asked yet" — `server` arrives on a separate, slower fetch than
@@ -45,13 +53,24 @@ function formatCounts(counts: SprintCounts, unit: string): string {
     + ` · ${counts.done} done · ${counts.withdrawn} withdrawn`;
 }
 
-/** One chip: filled when on, outlined when off, dimmed with a tooltip when disabled. */
-function ChipView({ chip, onToggle, showDisabledReason = true }: { chip: Chip; onToggle: () => void; showDisabledReason?: boolean }) {
+/**
+ * One chip: filled when on, outlined when off, dimmed with a tooltip when
+ * disabled.
+ *
+ * `dataChip` and `label` are separate: the «This sprint» chip's `data-chip`
+ * stays `"This sprint"` even once its visible label names a sprint, so the
+ * four browser test files selecting `[data-chip="This sprint"]` keep working
+ * unmodified. Every other chip leaves `dataChip` unset and the attribute
+ * falls back to the label, as it always has.
+ */
+function ChipView({
+  chip, dataChip, onToggle, showDisabledReason = true,
+}: { chip: Chip; dataChip?: string; onToggle: () => void; showDisabledReason?: boolean }) {
   const disabled = chip.disabledReason !== null;
   return (
     <button
       type="button"
-      data-chip={chip.label}
+      data-chip={dataChip ?? chip.label}
       data-chip-on={chip.on ? '1' : '0'}
       disabled={disabled}
       onClick={onToggle}
@@ -79,15 +98,45 @@ export function DeliveryFilters({
   onToggleSprint,
   onToggleMine,
   sprints,
+  selectedSprints,
+  onToggleSprintSlug,
   mineBoardAnswered,
   estateTotals,
 }: DeliveryFiltersProps) {
   const chips = chipRow(readings);
 
+  // THE «This sprint» CHIP NAMES THE SPRINT when exactly one is selected —
+  // the rest of its label (on/off, hidden count) is still `chipRow()`'s
+  // answer; only the text that says WHICH sprint is decided here, from the
+  // selection the component already carries for the per-sprint chips below.
+  const selectedOne = selectedSprints.length === 1
+    ? sprints.find((s) => s.slug === selectedSprints[0])
+    : undefined;
+  const thisSprintChip = selectedOne
+    ? { ...chips.thisSprint, label: `This sprint: ${selectedOne.title}` }
+    : chips.thisSprint;
+
+  // ONE CHIP PER ACTIVE SPRINT, BESIDE «This sprint» — only while more than
+  // one is Active (Decision "Sprint line as control or chip row": the chip
+  // row stays the one control surface, #2080). With one Active sprint this
+  // renders nothing and the «This sprint» chip behaves exactly as before.
+  const perSprintChips = sprints.length > 1 ? sprints : [];
+
   return (
     <div data-delivery-filters className="space-y-1">
       <div className="flex flex-wrap items-center gap-2">
-        <ChipView chip={chips.thisSprint} onToggle={onToggleSprint} />
+        <ChipView chip={thisSprintChip} dataChip="This sprint" onToggle={onToggleSprint} />
+        {perSprintChips.map((sprint) => {
+          const on = selectedSprints.includes(sprint.slug);
+          return (
+            <ChipView
+              key={sprint.slug}
+              dataChip={`sprint:${sprint.slug}`}
+              chip={{ label: sprint.title, on, hiddenCount: 0, disabledReason: null }}
+              onToggle={() => onToggleSprintSlug(sprint.slug)}
+            />
+          );
+        })}
         <ChipView chip={chips.mine} onToggle={onToggleMine} showDisabledReason={mineBoardAnswered} />
         <ChipView chip={chips.waitingOnMe} onToggle={() => {}} />
         {estateTotals && (

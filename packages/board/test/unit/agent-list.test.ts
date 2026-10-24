@@ -25,6 +25,8 @@ import { countdown } from '../../src/app/lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prStateWord, prStatusEntry, scanHostNote } from '../../src/app/lib/agent-rows/host-notes.js';
 import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
 import { groupBySlice, groupedNote, sliceDissent, sliceLabel } from '../../src/app/lib/agent-rows/slices.js';
+import { readList, writeList } from '../../src/app/lib/filters.js';
+import { sanitizeSelection, showsSprintSlug } from '@plot-pm/domain/rules/sprint-selection';
 // THE ONE GRID, from the component that owns it. It was `ROW_TRACKS` in
 // `AgentList.tsx` beside a second grid; `one-component-renders-every-row`
 // collapsed both into this.
@@ -4368,5 +4370,102 @@ describe('rowsForReader — what the filter hides, and what it must not', () => 
       pr: { number: 4, url: 'u', draft: false, state: 'green', author: 'somebody-else' } as never,
     });
     expect(rowsForReader([named], me, true)).toHaveLength(0);
+  });
+});
+
+describe('deliverySprint — the URL parameter the Delivery tab reads and writes', () => {
+  const DELIVERY_SPRINT_PARAM = 'deliverySprint';
+
+  /**
+   * A `window`/`history` stand-in, so the test states the URL rather than the
+   * DOM — this file runs with `environment: 'node'` (no jsdom), the same
+   * reason `readMineOnly`/`writeMineOnly` above take a storage argument
+   * instead of touching `localStorage` directly. `readList`/`writeList`
+   * (`lib/filters.ts`) reach `window.location`/`history` as globals rather
+   * than taking them as arguments, so the stand-in is installed on
+   * `globalThis` for the duration of each test and removed after.
+   */
+  function withUrl(search: string, run: () => void) {
+    const url = { href: `https://board.example${search}`, search };
+    const previousWindow = (globalThis as { window?: unknown }).window;
+    const previousHistory = (globalThis as { history?: unknown }).history;
+    (globalThis as { window?: unknown }).window = { location: url };
+    (globalThis as { history?: unknown }).history = {
+      replaceState: (_state: unknown, _title: string, href: string) => {
+        url.href = href;
+        url.search = new URL(href).search;
+      },
+    };
+    try {
+      run();
+    } finally {
+      (globalThis as { window?: unknown }).window = previousWindow;
+      (globalThis as { history?: unknown }).history = previousHistory;
+    }
+  }
+
+  it('reads a comma-separated selection under its own parameter name', () => {
+    withUrl(`?${DELIVERY_SPRINT_PARAM}=w35,w36&sprint=w1`, () => {
+      // Reads ITS OWN param, not the Planning tab's `sprint` — the two tabs
+      // join sprint membership against different sources (`fleet.sprints` vs
+      // `board.sprints`), so sharing one key would couple them without either
+      // side arguing for it.
+      expect(readList(DELIVERY_SPRINT_PARAM)).toEqual(['w35', 'w36']);
+    });
+  });
+
+  it('writes a selection back under its own parameter, leaving `sprint` untouched', () => {
+    withUrl(`?sprint=w1`, () => {
+      writeList(DELIVERY_SPRINT_PARAM, ['w35']);
+      expect(readList(DELIVERY_SPRINT_PARAM)).toEqual(['w35']);
+      expect(readList('sprint')).toEqual(['w1']);
+    });
+  });
+
+  it('clears the parameter when the selection collapses to empty', () => {
+    withUrl(`?${DELIVERY_SPRINT_PARAM}=w35`, () => {
+      writeList(DELIVERY_SPRINT_PARAM, []);
+      expect(readList(DELIVERY_SPRINT_PARAM)).toEqual([]);
+    });
+  });
+
+  it('a stale slug on load reads as "all Active sprints", not "zero rows"', () => {
+    // `sanitizeSelection` is wave 1's existing contract: an unknown slug must
+    // collapse the WHOLE selection to empty ("no filter"), never leave a
+    // selection naming nothing a row could match. Exercised here on the
+    // URL-sourced value specifically, the way `AgentList.tsx` composes it —
+    // not just on an in-memory `Set` a reader built by clicking.
+    withUrl(`?${DELIVERY_SPRINT_PARAM}=closed-sprint`, () => {
+      const fromUrl = readList(DELIVERY_SPRINT_PARAM);
+      const activeSprints = [{ value: 'w35', label: 'W35' }, { value: 'w36', label: 'W36' }];
+      expect(sanitizeSelection(fromUrl, activeSprints)).toEqual([]);
+    });
+  });
+
+  it('keeps the surviving slugs when only one of several is stale', () => {
+    withUrl(`?${DELIVERY_SPRINT_PARAM}=w35,closed-sprint`, () => {
+      const fromUrl = readList(DELIVERY_SPRINT_PARAM);
+      const activeSprints = [{ value: 'w35', label: 'W35' }];
+      expect(sanitizeSelection(fromUrl, activeSprints)).toEqual(['w35']);
+    });
+  });
+});
+
+describe('showsSprintSlug — when a row names its own sprint', () => {
+  it('stays false with one Active sprint, whatever the selection', () => {
+    expect(showsSprintSlug(1, [])).toBe(false);
+    expect(showsSprintSlug(1, ['w35'])).toBe(false);
+  });
+
+  it('is true with several Active sprints and no single sprint selected', () => {
+    expect(showsSprintSlug(2, [])).toBe(true);
+    expect(showsSprintSlug(2, ['w35', 'w36'])).toBe(true);
+  });
+
+  it('a row in exactly one Active sprint, with that sprint the only one selected, shows no slug', () => {
+    // The `selected.length !== 1` arm — catches an implementation keyed only
+    // off `activeSprintCount`, which would keep showing the slug after a
+    // reader narrows down to the one sprint it names.
+    expect(showsSprintSlug(2, ['w35'])).toBe(false);
   });
 });
