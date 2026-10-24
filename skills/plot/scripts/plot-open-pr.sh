@@ -136,8 +136,7 @@ fi
 base_ref="origin/$base"
 git rev-parse --verify --quiet "$base_ref" >/dev/null 2>&1 || base_ref="$base"
 
-commits=0
-carried_work='"unknown"'
+commits=0; carried_work='"unknown"'
 if git rev-parse --verify --quiet "$branch" >/dev/null 2>&1 \
   && git rev-parse --verify --quiet "$base_ref" >/dev/null 2>&1; then
   commits=$(git rev-list --count "$base_ref..$branch" 2>/dev/null || echo 0)
