@@ -97,6 +97,7 @@ describe('agentRunCommand', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.end).toEqual({ answer: 'ran', handBack: null });
+    expect(result.value.permissionDenials).toBe('unanswerable');
   });
 
   it('runs the command with the background gate, and answers dropped for a run that printed the termination line', async () => {

@@ -50,6 +50,7 @@ const freeLoop: AgentLoopReadings = {
   pushed: false,
   prOpen: false,
   commitBeyondClaim: 'unanswerable',
+  permissionDenials: 'unanswerable',
   checks: null,
   checksPassed: null,
   tip: 'pushed',
@@ -886,6 +887,38 @@ describe('agentLoop — row 12a: prompt exit ran, nothing pushed or no PR open',
     expect(end?.actor).toBe('agent');
     expect(end?.branch).toBe(BRANCH);
     expect(declarationWrite(result.writes)).toBeUndefined();
+  });
+
+  it('ends permission-denied when every write was refused and only the claim was pushed', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: false,
+      commitBeyondClaim: 'no',
+      permissionDenials: 'yes',
+    });
+    expect(kindsOf(result.writes)).toEqual(['loop-end']);
+    const end = endWrite(result.writes);
+    expect(end?.reason).toBe('permission-denied');
+    expect(end?.actor).toBe('agent');
+    expect(end?.branch).toBe(BRANCH);
+    expect(declarationWrite(result.writes)).toBeUndefined();
+  });
+
+  it('does not end permission-denied when a denial is beside a commit beyond the claim', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      exit: { answer: 'ran' },
+      pushed: true,
+      prOpen: false,
+      commitBeyondClaim: 'yes',
+      permissionDenials: 'yes',
+    });
+    expect(endWrite(result.writes)?.reason).not.toBe('permission-denied');
+    expect(result.detail.note).toBe('no PR open, no checks wait');
   });
 
   it('still ends holding-work first when the desk holds unlanded work', () => {

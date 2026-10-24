@@ -79,6 +79,10 @@ describe('endingAction', () => {
     expect(endingAction(readings({ ending: 'corrections-spent' }))).toBe('start-fresh');
   });
 
+  it('asks a person outright on permission-denied — never the leave fall-through', () => {
+    expect(endingAction(readings({ ending: 'permission-denied' }))).toBe('needs-a-person');
+  });
+
   it('asks a person on a second corrections-spent ending for the same slice', () => {
     expect(endingAction(readings({ ending: 'corrections-spent', priorFreshSessions: 1 }))).toBe('needs-a-person');
   });
@@ -98,9 +102,9 @@ describe('endingAction', () => {
     expect(endingAction(readings({ ending: 'holding-work', branch: 'infra/prior', priorFreshSessions: 1 }))).toBe('needs-a-person');
   });
 
-  const NEEDS_PERSON_OUTRIGHT = ['blocked', 'spend-limit', 'unstarted', 'run-limit', 'checks-unanswered'];
+  const NEEDS_PERSON_OUTRIGHT = ['blocked', 'spend-limit', 'unstarted', 'run-limit', 'checks-unanswered', 'permission-denied'];
 
-  it('leaves every ending but nothing-done, corrections-spent, turn-limit, holding-work, bound, unreadable, quiet and the five outright needs-a-person reasons alone', () => {
+  it('leaves every ending but nothing-done, corrections-spent, turn-limit, holding-work, bound, unreadable, quiet and the six outright needs-a-person reasons alone', () => {
     const handled = new Set([
       'nothing-done',
       'corrections-spent',
@@ -316,7 +320,7 @@ describe('needsPersonMarker', () => {
   });
 
   it('composes non-empty text naming the branch for every reason in NEEDS_PERSON_ENDINGS', () => {
-    expect(NEEDS_PERSON_ENDINGS.size).toBe(5);
+    expect(NEEDS_PERSON_ENDINGS.size).toBe(6);
     for (const reason of NEEDS_PERSON_ENDINGS) {
       const text = needsPersonMarker(reason, 'infra/x', 'd');
       expect(text).toContain('infra/x');
@@ -342,7 +346,7 @@ describe('needsPersonMarker', () => {
     }
   });
 
-  it('refuses to compose for an ending outside its eleven', () => {
+  it('refuses to compose for an ending outside its twelve', () => {
     expect(() => needsPersonMarker('nothing-done', 'infra/x', '')).toThrow();
   });
 

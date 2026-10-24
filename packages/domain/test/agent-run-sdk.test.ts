@@ -313,6 +313,7 @@ describe('agentRunSdk: how a run ends', () => {
       turns: 2,
       limitReadings: [],
       account: null,
+      permissionDenials: 'unanswerable',
     });
     expect(await readFile(join(dir, 'out.log'), 'utf8')).toContain('"type":"result"');
   });
@@ -381,6 +382,21 @@ describe('agentRunSdk: how a run ends', () => {
     const run = await ended();
     expect(run.end.answer).toBe('unstarted');
     expect(await readFile(join(dir, 'out.log'), 'utf8')).toContain('spawn claude ENOENT');
+  });
+
+  it('reads the result\'s permission_denials as yes, never as a free-text parse', async () => {
+    captured.messages = [resultMessage({ permission_denials: [{ tool_name: 'Bash', tool_use_id: 'x' }] })];
+    expect((await ended()).permissionDenials).toBe('yes');
+  });
+
+  it('reads an empty permission_denials as no', async () => {
+    captured.messages = [resultMessage({ permission_denials: [] })];
+    expect((await ended()).permissionDenials).toBe('no');
+  });
+
+  it('answers unanswerable when no result message named permission_denials at all', async () => {
+    captured.messages = [resultMessage()];
+    expect((await ended()).permissionDenials).toBe('unanswerable');
   });
 
   it('carries a result with no structured output as ran with no hand-back', async () => {

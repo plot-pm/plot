@@ -199,16 +199,20 @@ const boundBranchHoldsWork = (readings: EndingActionReadings): boolean =>
   readings.commitBeyondClaim !== 'no' || readings.prOpen !== false || readings.dirtyTree !== 'no';
 
 /**
- * The five ending reasons that go straight to a person, never a fresh
+ * The six ending reasons that go straight to a person, never a fresh
  * session.
  *
  * Unlike {@link FRESH_SESSION_ENDINGS}, none of these draws on
  * {@link EndingActionReadings.priorFreshSessions} — a broken invocation
  * (`unstarted`), a budget already spent (`spend-limit`, `run-limit`), an
- * unanswered build (`checks-unanswered`), or an agent that already said it
- * could not proceed (`blocked`) is not made right by starting the slice over,
- * so the first tick that sees one of these asks a person rather than
- * spending a fresh session on it.
+ * unanswered build (`checks-unanswered`), an agent that already said it
+ * could not proceed (`blocked`), or a worker refused every write it tried
+ * (`permission-denied`) is not made right by starting the slice over, so the
+ * first tick that sees one of these asks a person rather than spending a
+ * fresh session on it. `permission-denied` joins this set rather than
+ * {@link FRESH_SESSION_ENDINGS} for the reason `spend-limit` already
+ * settles: a fresh session meets the same refused permissions, so retrying
+ * spends a session without changing the answer.
  */
 export const NEEDS_PERSON_ENDINGS: ReadonlySet<EndingReason> = new Set<EndingReason>([
   'blocked',
@@ -216,15 +220,17 @@ export const NEEDS_PERSON_ENDINGS: ReadonlySet<EndingReason> = new Set<EndingRea
   'unstarted',
   'run-limit',
   'checks-unanswered',
+  'permission-denied',
 ]);
 
 /**
- * Whether an ending is one of the five {@link NEEDS_PERSON_ENDINGS}, whose
+ * Whether an ending is one of the six {@link NEEDS_PERSON_ENDINGS}, whose
  * `needs-a-person` answer reads {@link EndingActionReadings.prMerged}.
  *
  * @param ending - the desk's ending reason, or `null` where none was read.
- * @returns true for `blocked`, `spend-limit`, `unstarted`, `run-limit` and
- *   `checks-unanswered`; false for every other reason and for `null`.
+ * @returns true for `blocked`, `spend-limit`, `unstarted`, `run-limit`,
+ *   `checks-unanswered` and `permission-denied`; false for every other reason
+ *   and for `null`.
  */
 export const endingAsksPersonOutright = (ending: EndingReason | null): boolean =>
   ending !== null && NEEDS_PERSON_ENDINGS.has(ending);
@@ -512,6 +518,11 @@ export const needsPersonMarker = (ending: EndingReason, branch: string, detail: 
       return (
         `The worker on \`${branch}\` never ran a slice: its command exited before doing any work ` +
         `(${detail || 'no detail was recorded'}). Decide: fix the prompt or command this worker launches, then restart it.`
+      );
+    case 'permission-denied':
+      return (
+        `The worker on \`${branch}\` was refused every write it tried (${detail || 'no detail was recorded'}). ` +
+        `A fresh session would meet the same refusals. Decide: fix the worker command's permissions, then restart it.`
       );
     case 'spend-limit':
       return (

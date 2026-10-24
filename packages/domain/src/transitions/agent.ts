@@ -424,6 +424,13 @@ export interface EndingAttributionInput {
  * count is what ended it, the same shape `unstarted` and `limited` already
  * establish for a non-zero prompt exit and a harness's own usage limit.
  *
+ * **`permission-denied` IS THE TWELFTH.** A turn ended with the harness
+ * reporting a tool call refused and no commit beyond the claim — the loop's
+ * own reading of the run's permission denials, not a clock or a monitor. It is
+ * kept apart from `nothing-done` because the repair differs: a fresh session
+ * meets the same refused permissions rather than an agent that found nothing
+ * to do.
+ *
  * **`nothing-done` IS THE ELEVENTH.** A turn exited `ran` with the claim
  * commit still its only commit, no PR open and no marker — the loop's own
  * ROW 12a reading, not a clock or a monitor. `#1274` is the ending this value
@@ -457,12 +464,13 @@ export const endingIsAttributable = (
     input.reason !== 'turn-limit' &&
     input.reason !== 'run-limit' &&
     input.reason !== 'spend-limit' &&
-    input.reason !== 'nothing-done'
+    input.reason !== 'nothing-done' &&
+    input.reason !== 'permission-denied'
   ) {
     return refuse(
       session,
       'ending-self-attributed',
-      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted', 'limited', 'unregistered', 'holding-work', 'blocked', 'checks-unanswered', 'corrections-spent', 'turn-limit', 'run-limit', 'spend-limit' or 'nothing-done' ending names the agent, because no watcher produces those.`,
+      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted', 'limited', 'unregistered', 'holding-work', 'blocked', 'checks-unanswered', 'corrections-spent', 'turn-limit', 'run-limit', 'spend-limit', 'nothing-done' or 'permission-denied' ending names the agent, because no watcher produces those.`,
     );
   }
 

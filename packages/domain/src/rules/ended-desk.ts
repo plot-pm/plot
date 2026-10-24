@@ -69,6 +69,9 @@ export const freeWaitEnded = (ending: EndingReading, exit: string | null): boole
   ending.ending.actor === 'supervisor' &&
   exit?.trim() === FREE_WAIT_EXIT;
 
+/** The row text for a desk whose every write the harness refused. */
+const PERMISSION_DENIED_NOTE = 'agent was refused every write — check the worker command\'s permissions';
+
 /**
  * Where an ended desk belongs.
  *
@@ -79,13 +82,18 @@ export const freeWaitEnded = (ending: EndingReading, exit: string | null): boole
  * {@link freeWaitEnded} desk among those still NAMES itself (#1917): the work
  * `endingAction` now reads `leave` for belongs to the slice this desk held
  * BEFORE the free wait began, not to this ending, so the row says that rather
- * than printing no note at all.
+ * than printing no note at all. A `permission-denied` ending names itself the
+ * same way, so the row never falls back to the board's generic *worker
+ * finished* wording.
  *
  * @param readings - what was measured of the desk.
  * @returns whether a person is owed, and the row text.
  */
 export const endedDeskPlacement = (readings: EndedDeskReadings): EndedDeskPlacement => {
   const owed: EndedDeskPlacement = { section: 'waiting-on-you', owesPerson: true, note: '' };
+  if (readings.ending.read === 'ended' && readings.ending.ending.reason === 'permission-denied') {
+    return { ...owed, note: PERMISSION_DENIED_NOTE };
+  }
   if (!freeWaitEnded(readings.ending, readings.exit)) return owed;
   if (
     readings.merged !== true ||

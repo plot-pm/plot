@@ -4,7 +4,7 @@ import type { LoopRegistration } from '../rules/desk-manifest.js';
 import type { Mergeability } from '../entities/pr.js';
 import type { PromptExit } from '../rules/prompt-exit.js';
 import type { ResetRefusal } from '../rules/reapable.js';
-import type { CommitReading, MonitorVerdict } from '../rules/sample.js';
+import type { CommitReading, MonitorVerdict, PermissionDenialReading } from '../rules/sample.js';
 import { backgroundDropCorrection } from '../rules/background-drop.js';
 import { mergeConflictCorrection } from '../rules/merge-conflict.js';
 import { runLimitRefusal } from '../rules/run-limit.js';
@@ -199,6 +199,15 @@ export interface AgentLoopReadings {
    * `rules/ending-action.ts`'s own rule for an unreadable commit count.
    */
   readonly commitBeyondClaim: CommitReading;
+  /**
+   * Whether this turn's run had a tool call refused, read only where
+   * {@link exit}`.answer` is `ran`. The SDK's own structured result carries
+   * `permission_denials` and answers `yes` or `no`; a `command` runner's
+   * free-text output cannot observe this, so it answers `unanswerable` —
+   * which ROW 12a treats as `no`, never as a denial, since a runner that
+   * cannot see denials must not manufacture one.
+   */
+  readonly permissionDenials: PermissionDenialReading;
 
   /**
    * What the build connector and the tip reading answer for the pushed
@@ -839,6 +848,13 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
   // ref stuck (`#1274`). A branch with real commits and no PR still seals
   // exactly as before: releasing that claim would delete a ref other work
   // depends on.
+  //
+  // THE CLAIM-ONLY ARM SPLITS AGAIN ON DENIALS. A turn refused every write it
+  // tried and still landed nothing beyond the claim ends `permission-denied`
+  // rather than `nothing-done` — the repair differs, since a fresh session
+  // meets the same refused permissions. BOTH conditions are required: a
+  // denial beside a commit beyond the claim is not this row at all, and a
+  // claim-only turn with no denial is still `nothing-done`.
   if (
     exit !== null &&
     exit.answer === 'ran' &&
@@ -847,7 +863,9 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
     !readings.prOpen &&
     readings.commitBeyondClaim === 'no'
   ) {
-    return end(worktree, branch, 'nothing-done', 'agent', 'the claim is pushed, nothing else is, no checks wait', 0);
+    return readings.permissionDenials === 'yes'
+      ? end(worktree, branch, 'permission-denied', 'agent', 'the claim is pushed, nothing else is, every write was refused', 0)
+      : end(worktree, branch, 'nothing-done', 'agent', 'the claim is pushed, nothing else is, no checks wait', 0);
   }
   if (
     exit !== null &&

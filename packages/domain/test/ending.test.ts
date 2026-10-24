@@ -41,7 +41,7 @@ describe('the ending sits beside the exit code', () => {
 });
 
 describe('a bound expiry and a context exhaustion are different endings', () => {
-  it('reads the sixteen reasons apart', () => {
+  it('reads the seventeen reasons apart', () => {
     expect(EndingReasonSchema.options).toEqual([
       'bound',
       'quiet',
@@ -58,8 +58,24 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
       'run-limit',
       'spend-limit',
       'nothing-done',
+      'permission-denied',
       'stopped',
     ]);
+  });
+
+  it('parses an ending with reason permission-denied and actor agent', () => {
+    const reading = readEnding(ended({ reason: 'permission-denied', actor: 'agent' }));
+    expect(reading).toEqual({
+      read: 'ended',
+      ending: {
+        reason: 'permission-denied',
+        actor: 'agent',
+        branch: 'feature/x',
+        detail: 'exceeded the 28800s bound',
+        refusedAssignment: '',
+        resumeId: '',
+      },
+    });
   });
 
   it('keeps a usage limit apart from a prompt that never started', () => {

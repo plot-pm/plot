@@ -397,6 +397,7 @@ describe('an SDK run’s records, through the file adapters', () => {
       { status: 'rejected', resetsAt: 1791475200, rateLimitType: 'seven_day', utilization: 0.66 },
     ],
     account: 'jan@example.com',
+    permissionDenials: 'unanswerable',
   });
 
   it('appends one run line per run, read back from the main checkout', async () => {

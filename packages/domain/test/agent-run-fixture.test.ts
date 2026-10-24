@@ -54,6 +54,7 @@ const freeLoop: AgentLoopReadings = {
   pushed: false,
   prOpen: false,
   commitBeyondClaim: 'unanswerable',
+  permissionDenials: 'unanswerable',
   checks: null,
   checksPassed: null,
   tip: 'pushed',
@@ -122,6 +123,7 @@ describe('agentRunFixture — a worker that hands back checks then pushed', () =
           turns: 12,
           limitReadings: [],
           account: null,
+          permissionDenials: 'unanswerable',
         }),
         (resumed): AgentRunResult => {
           // The agent's second run pushes and opens its PR.
@@ -136,6 +138,7 @@ describe('agentRunFixture — a worker that hands back checks then pushed', () =
             turns: 3,
             limitReadings: [],
             account: null,
+            permissionDenials: 'unanswerable',
           };
         },
       ],

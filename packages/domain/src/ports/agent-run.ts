@@ -1,5 +1,6 @@
 import type { PortResult } from '../port-result.js';
 import type { TokenCountsRecord } from '../entities/slice-spend.js';
+import type { PermissionDenialReading } from '../rules/sample.js';
 
 /**
  * One agent run — the connector a fleet agent starts from TypeScript.
@@ -188,4 +189,13 @@ export interface AgentRunResult {
    * log during this run. Absent where the connector read none.
    */
   readonly finalText?: string;
+  /**
+   * Whether this run had a tool call refused.
+   *
+   * The SDK reports `result.permission_denials`, so `agentRunSdk` answers
+   * `yes` or `no`. The `command` runner reads a shell fragment's free-text
+   * stdout, which carries no such field, so it answers `unanswerable` —
+   * a reading the question was never put, never evidence of none.
+   */
+  readonly permissionDenials: PermissionDenialReading;
 }

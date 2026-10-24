@@ -49,6 +49,7 @@ import {
   type SettingsEnvReading,
 } from '../../rules/agent-run-env.js';
 import { pollRefusal } from '../../rules/poll-refusal.js';
+import type { PermissionDenialReading } from '../../rules/sample.js';
 import { asBoardHandBack, sdkRunExit, type SdkBoardHandBack, type SdkHandBack, type SdkRunReading } from '../../rules/sdk-run-exit.js';
 import { killTree, killTreeSync } from '../bounded-run/bounded-run-process.js';
 
@@ -306,6 +307,7 @@ const unstarted = (request: AgentRunRequest, detail: string): PortResult<AgentRu
     turns: 0,
     limitReadings: [],
     account: null,
+    permissionDenials: 'unanswerable',
   });
 
 /** The signals that end the caller; each ends the run's tree, then the caller exits `128 + n`. */
@@ -335,6 +337,21 @@ type StreamReading = {
     | 'abortedOnBound'
     | 'structuredOutput']: SdkRunReading[K];
 };
+
+/**
+ * Whether the result message's `permission_denials` names a refused tool
+ * call.
+ *
+ * The SDK's doc comment on `SDKPermissionDeniedMessage` calls the result's
+ * array "the authoritative record" — it covers both an interactive deny and
+ * the bare `-p` / no-`canUseTool` case, where an 'ask' decision is terminal
+ * and this is the only signal either shape leaves. `undefined` (no result
+ * message arrived at all) answers `unanswerable`, same as the `command`
+ * runner: a run this adapter never saw a result for is a question never put,
+ * not a question answered `no`.
+ */
+const permissionDenialsOf = (denials: readonly unknown[] | undefined): PermissionDenialReading =>
+  denials === undefined ? 'unanswerable' : denials.length > 0 ? 'yes' : 'no';
 
 /**
  * An `AgentRun` that runs the request through the Claude Agent SDK.
@@ -420,7 +437,13 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
       abortedOnBound: false,
       structuredOutput: undefined,
     };
-    const seen = { sessionId: request.resumeId, costUsd: null as number | null, turns: 0, finalText: undefined as string | undefined };
+    const seen = {
+      sessionId: request.resumeId,
+      costUsd: null as number | null,
+      turns: 0,
+      finalText: undefined as string | undefined,
+      permissionDenials: undefined as readonly unknown[] | undefined,
+    };
     let usageByModel: Record<string, AgentRunUsage> = {};
     let costUsdByModel: Record<string, number> = {};
     const limitReadings: AgentRunLimitReading[] = [];
@@ -465,6 +488,7 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
           reading.terminalReason = message.terminal_reason ?? null;
           reading.subtype = message.subtype;
           seen.costUsd = message.total_cost_usd;
+          seen.permissionDenials = message.permission_denials;
           usageByModel = Object.fromEntries(
             Object.entries(message.modelUsage ?? {}).map(([model, usage]) => [model, usageOf(usage)]),
           );
@@ -528,6 +552,7 @@ export const agentRunSdk = (deps: AgentRunSdkDeps): AgentRun => ({
       turns: seen.turns,
       limitReadings,
       account,
+      permissionDenials: permissionDenialsOf(seen.permissionDenials),
       ...(seen.finalText === undefined ? {} : { finalText: seen.finalText }),
     });
   },
