@@ -64,8 +64,7 @@ slug_part="${branch##*/}"
 bookbr="plot/record-pr-$slug_part"
 tmpwt="$wt_root/.plot-record-pr-$slug_part.$$"
 
-plot_record_pr_cleanup() { git -C "$repo_root" worktree remove --force "$tmpwt" 2>/dev/null || true; git -C "$repo_root" branch -D "$bookbr" >/dev/null 2>&1 || true; }
-plot_on_exit plot_record_pr_cleanup
+plot_on_exit "git -C '$repo_root' worktree remove --force '$tmpwt' 2>/dev/null; git -C '$repo_root' branch -D '$bookbr' >/dev/null 2>&1; true"
 
 git -C "$repo_root" worktree add -q -B "$bookbr" "$tmpwt" "origin/$MAIN" 2>/dev/null || { echo "plot-record-pr: could not prepare a booking worktree at $tmpwt" >&2; exit 1; }
 
