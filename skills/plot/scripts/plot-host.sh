@@ -1068,10 +1068,10 @@ url_encode() { # $1=raw → percent-encoded on stdout
 # carries it too, but a state-filtered count racing concurrent merges is not
 # the guard this slice adds), so the cap is the only bound on the walk.
 #
-# SHARED BY `bb_branch_query` AND `bb_paged_values`: the same walk, cap and
-# failure rule serve a branch-filtered query and a bare path alike, so the
-# loop lives once. $1=first path $2=truncation label $3=truncation detail;
-# rest=global bb args → combined values[] on stdout.
+# SHARED BY `bb_branch_query` AND `pr-review`'s statuses/comments reads: the
+# same walk, cap and failure rule serve a branch-filtered query and a bare
+# path alike, so the loop lives once. $1=first path $2=truncation label
+# $3=truncation detail; rest=global bb args → combined values[] on stdout.
 _bb_paged_walk() {
   local _path="$1" _label="$2" _detail="$3" _out _spool _next _page=0; shift 3
   # `plot_tmpfile` registers `_spool` for removal at process exit — no manual
@@ -4193,20 +4193,13 @@ case "$op" in
   pr-review)
     if [ "$be" != "github" ]; then
       pr="/repositories/{ws}/{repo}/pullrequests/${1:?pr-review needs a PR number}"
-      # `_bb_paged_walk` walks `next` for both reads — a `review-bypass:`
-      # comment or a status recorded only on a later page must not be missed
-      # the way one page at a time missed it (#2484). Each call's own exit
-      # code travels out unclassified and stops the whole arm; the node
-      # script downstream reads `.values`, so each combined array is wrapped
-      # in the shape it already expects from a single-page envelope. THE WRAP
-      # GOES THROUGH STDIN, NOT `--argjson`: that flag passes its value through
+      # `_bb_paged_walk` (its own header has the cap/failure rule) follows
+      # `next` for both reads, so a `review-bypass:` comment or a status
+      # recorded only on a later page is not missed (#2484). THE WRAP GOES
+      # THROUGH STDIN, NOT `--argjson`: that flag passes its value through
       # argv, which Linux caps at 128 KB (`MAX_ARG_STRLEN`) — a large enough
-      # comments or statuses page would die silently and read as "no rows" on
-      # CI while passing on macOS, the exact fabricated-absence bug this slice
-      # exists to remove. SAME CAP, SAME FAILURE RULE AS `bb_branch_query`'s
-      # walk — a status or comment list has no narrower precedent to measure
-      # against, and inventing a second cap for the same shape of problem is
-      # the thing `BB_BRANCH_QUERY_PAGE_CAP`'s own header argues against.
+      # page would die silently and read as "no rows" on CI while passing on
+      # macOS, the exact fabricated-absence bug this slice removes.
       bypass_detail="a bypass or check recorded only on a later page would be missed"
       out="$(bb api "$pr")" && sha="$(jq -re '.source.commit.hash' <<<"$out")" \
         && st="$(_bb_paged_walk "/repositories/{ws}/{repo}/commit/$sha/statuses?sort=-created_on&pagelen=50" "bitbucket pr-review" "$bypass_detail" | jq -c '{values: .}')" \
