@@ -258,14 +258,19 @@ export const interrogateWorktreePath = (opts: BuildBoardOptions, slug: string): 
   );
 
 /**
- * Prepares a DETACHED worktree at `origin/<head>`, fetching first, at
+ * Prepares a DETACHED worktree at `origin/<head>` at
  * {@link interrogateWorktreePath}.
+ *
+ * Reads `origin/<head>` from the local mirror and fetches nothing: the fleet
+ * scan fetches every `refs/heads/*` on its own timer, and the request path
+ * stays off the network (`no-network.test.ts`). A plan PR the scan has not
+ * fetched yet has no `origin/<head>`, so the add fails and the caller refuses.
  *
  * Detached, so a branch checked out in another worktree (the author's
  * `/plot-idea` desk) does not refuse it, and no local `<head>` branch is
  * created, moved or reset. A tree left at the path by an earlier run is
- * removed first, with what it holds: each run reads the plan as the remote
- * branch holds it now. The caller's `already-running` guard keeps this from
+ * removed first, with what it holds: each run reads the plan as the mirror's
+ * `origin/<head>` holds it now. The caller's `already-running` guard keeps this from
  * removing the tree of a run still in progress. The new tree stays in place
  * after the run.
  *
@@ -278,8 +283,6 @@ export const prepareInterrogateWorktree = async (
   head: string,
 ): Promise<string | null> => {
   const trees = treesFor(opts);
-  const fetched = await trees.fetch(opts.repoRoot, head);
-  if (!fetched.ok) return null;
   const tree = interrogateWorktreePath(opts, slug);
   await trees.prune();
   if (fs.existsSync(tree)) {
@@ -397,7 +400,7 @@ export const handleInterrogate = async (
       refuse(
         'plan-unreadable',
         slug,
-        `plan \`${slug}\`'s PR branch '${lookup.head}' could not be checked out into a worktree — refusing rather than interrogating a plan that could not be read from its own branch`,
+        `plan \`${slug}\`'s PR branch '${lookup.head}' could not be checked out into a worktree from \`origin/${lookup.head}\` — if the PR is new, the next fleet scan fetches it; refusing rather than interrogating a plan that could not be read from its own branch`,
       );
       return;
     }

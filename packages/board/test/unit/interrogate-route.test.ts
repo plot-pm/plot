@@ -552,6 +552,14 @@ describe('the plan-PR worktree', () => {
     assert.equal(git(author, 'branch', '--show-current'), HEAD, 'the author\'s desk is untouched');
   });
 
+  it('fetches nothing: a branch the mirror lacks refuses rather than reaching origin', async () => {
+    const { dir } = cloned();
+    git(dir, 'update-ref', '-d', `refs/remotes/origin/${HEAD}`);
+    const tree = await prepareInterrogateWorktree(opts(dir), SLUG, HEAD);
+    assert.equal(tree, null, 'no tree from a ref the local mirror does not hold');
+    assert.throws(() => git(dir, 'rev-parse', '--verify', '-q', `refs/remotes/origin/${HEAD}`), 'the route fetched nothing');
+  });
+
   it('leaves a local branch with unpushed commits where it is', async () => {
     const { dir } = cloned();
     git(dir, 'branch', '-q', HEAD, `origin/${HEAD}`);
