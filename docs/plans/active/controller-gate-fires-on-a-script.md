@@ -1,0 +1,1 @@
+../2026-10-24-controller-gate-fires-on-a-script.md
