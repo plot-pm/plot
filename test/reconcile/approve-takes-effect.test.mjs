@@ -193,11 +193,12 @@ test('an approval on a two-record plan is visible to the scan', () => {
   assert.notEqual(waveOf(r.before).verdict, 'eligible',
     'a Draft plan must not be eligible — otherwise this proves nothing');
 
-  // THE WRITER WROTE THE CANONICAL FIELD AND ONLY IT. Front matter is left at
-  // `Draft`, which is precisely the disagreement the parser now resolves the
-  // other way.
+  // #2439: THE WRITER NOW FLIPS BOTH FIELDS, so the two formats agree rather
+  // than merely letting the parser's block-first precedence paper over a
+  // front matter nobody updated — the reconcile scan reads them independently
+  // and names the disagreement this fix removes.
   assert.match(r.onMain, /- \*\*State:\*\* Approved/, 'the approval did not write State:');
-  assert.match(r.onMain, /^status: Draft$/m, 'front matter should be untouched by the writer');
+  assert.match(r.onMain, /^status: Approved$/m, 'the front matter should be flipped alongside the block');
 
   // AND AN INDEPENDENT READER SEES IT.
   assert.equal(waveOf(r.after).verdict, 'eligible',

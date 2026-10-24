@@ -17,10 +17,15 @@
  *   invisible to the parser. It fills an empty `- **Field:**` placeholder
  *   first, and otherwise appends after the last list item before the comment
  *   (or before the next `## ` heading, or at the section's end).
+ * - {@link flipFrontMatterPhase} changes the value on a leading front-matter
+ *   block's `status:` and/or `phase:` lines — whichever are present — to keep
+ *   a plan carrying both formats from reading two different phases after a
+ *   transition. It writes only a key the file already has; it never adds one
+ *   (#2439).
  *
- * BOTH RUN AGAINST THE WHOLE FILE AND RETURN A NEW ONE; neither writes
- * anything. The caller decides whether the write took effect — by re-parsing
- * the result, never by trusting that a line changed — because a `## Status`
+ * ALL RUN AGAINST THE WHOLE FILE AND RETURN A NEW ONE; none writes anything.
+ * The caller decides whether the write took effect — by re-parsing the
+ * result, never by trusting that a line changed — because a `## Status`
  * section split across front matter and a block is a shape where "the regex
  * matched" and "the parser will read this" can disagree (#924, #933).
  *
@@ -81,6 +86,61 @@ export const flipStatusValue = (content: string, from: string, to: string): Edit
     }
     if (inStatus && !done && isStateField(line) && fromRe.test(line)) {
       done = true;
+      changed = true;
+      return line.replace(fromRe, to);
+    }
+    return line;
+  });
+
+  return { changed, content: changed ? out.join('\n') : content };
+};
+
+/** Whether a line opens a leading front-matter block (the file's first line only). */
+const isFrontMatterFence = (line: string): boolean => /^---[ \t]*$/.test(line);
+
+/** Whether a line is a `status:` or `phase:` key in front matter. */
+const frontMatterKeyOf = (line: string): 'status' | 'phase' | null => {
+  if (/^status:/i.test(line)) return 'status';
+  if (/^phase:/i.test(line)) return 'phase';
+  return null;
+};
+
+/**
+ * Flips the value on a leading front-matter block's `status:` and/or
+ * `phase:` lines, where either currently names `from` (case-insensitively),
+ * to `to`.
+ *
+ * Writes only a key the file already carries — a plan with a `## Status`
+ * block and no front matter is untouched, matching "absent is not false".
+ * Where both `status:` and `phase:` are present, only the FIRST occurrence of
+ * each is touched, matching how {@link frontMatterPhaseOf} in `phase-gate.ts`
+ * reads them back; a key naming a different value than `from` (already
+ * flipped, or never matching) is left alone.
+ *
+ * @param content - the whole plan file.
+ * @param from - the value to look for, matched case-insensitively as a substring.
+ * @param to - the replacement word.
+ * @returns the edited content, and whether a line was changed.
+ */
+export const flipFrontMatterPhase = (content: string, from: string, to: string): EditResult => {
+  if (!isFrontMatterFence(content.split('\n')[0] ?? '')) return { changed: false, content };
+
+  const lines = content.split('\n');
+  const fromRe = new RegExp(from, 'i');
+  const done = { status: false, phase: false };
+  let changed = false;
+  let closed = false;
+
+  const out = lines.map((line, i) => {
+    if (i === 0) return line;
+    if (closed) return line;
+    if (isFrontMatterFence(line)) {
+      closed = true;
+      return line;
+    }
+    const key = frontMatterKeyOf(line);
+    if (key && !done[key] && fromRe.test(line)) {
+      done[key] = true;
       changed = true;
       return line.replace(fromRe, to);
     }
