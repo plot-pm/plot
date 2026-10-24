@@ -60,14 +60,14 @@ Findings by slice:
 ### Open Questions
 
 - [ ] The `slice-chain.corpus.test.ts:76` finding says two corpus tests depend on the current plans holding uncut headings. Does the fix use a fixture plan, or does it skip the plans that were resliced? The slice picks the fixture unless the corpus has a reason to read live plans.
-- [ ] `plot-config.sh get-raw` strips prose after a closing backtick. Does any other caller rely on the prose staying? The slice greps the callers before changing it.
+- [x] `plot-config.sh get-raw` strips prose after a closing backtick. Does any other caller rely on the prose staying? The slice greps the callers before changing it. Answered in #2575: `get-raw`'s one real caller is `plot-reconcile-scan.sh:2849`; no other caller relies on the prose staying.
 - [ ] Section 3067 lists "not checked" plans. Does "names an issue" mean any `Issue:` line, or only one whose tracker the scan can read? The slice follows the section 23 definition of a checkable plan.
 
 ## Slices
 
 ### Fixes that touch no scan code
 
-- `bug/reconcile-config-and-plan-meta` — fix `get-raw` and the two `plot-plan-meta.sh` findings
+- `bug/reconcile-config-and-plan-meta` — fix `get-raw` and the two `plot-plan-meta.sh` findings → #2575
 - `bug/reconcile-corpus-and-scan-tests` — make the corpus and double-link tests reach the code they name
 
 ### Scan sections
