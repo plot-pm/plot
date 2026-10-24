@@ -1906,35 +1906,93 @@ jenkins_bind_rows() {
     done | node "$here/board/plot-jenkins-pr-checks.mjs" bind 2>/dev/null
 }
 
+# Seconds `bb_fold_mergeable` allows one `git fetch` of the base before
+# treating it as failed. `Checks wait` (3600s) is sized for a CI poll, not one
+# fetch; this is its own, much smaller bound. No config key is read nearby
+# this call site, so a constant stands, per the plan.
+readonly BB_FETCH_BOUND_S=10
+
+# Runs `git fetch -q origin "+refs/heads/$1:refs/remotes/origin/$1"` and kills
+# it if it outruns `BB_FETCH_BOUND_S`, so a stalled SSH prompt (`git fetch` has
+# no built-in timeout) cannot hang `pr-state`/`pr-list` on one row. A timed-out
+# fetch exits non-zero, same as any other failed fetch — the caller cannot and
+# need not tell the two apart (#2481).
+bb_fetch_base_bounded() {
+  local base="$1" pid watcher rc was_m
+  # `git fetch` can itself spawn a child (an askpass helper, ssh, a credential
+  # helper) that inherits this function's stdout/stderr. Killing only $pid
+  # leaves that child orphaned and still holding the pipe open, so a caller
+  # waiting on the pipe to close (not just on $pid to exit) stays blocked for
+  # the full hang rather than the bound — measured against a stub `git fetch`
+  # that forks a long-running child: `kill -TERM "$pid"` alone left the run
+  # waiting the full duration even though `bb_fetch_base_bounded` itself had
+  # already returned. `set -m` makes the backgrounded `git fetch` the leader
+  # of its own process group, so `kill -TERM "-$pid"` (the negative pid) signals
+  # the whole group — fetch and any child it spawned — not just the leader.
+  case $- in *m*) was_m=yes ;; *) was_m=no ;; esac
+  set -m
+  GIT_TERMINAL_PROMPT=0 git fetch -q origin "+refs/heads/$base:refs/remotes/origin/$base" 2>/dev/null &
+  pid=$!
+  ( sleep "$BB_FETCH_BOUND_S"; kill -TERM "-$pid" 2>/dev/null ) &
+  watcher=$!
+  wait "$pid" 2>/dev/null; rc=$?
+  kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
+  [ "$was_m" = yes ] || set +m
+  return "$rc"
+}
+
 # Overlays the `mergeable` reading on a Bitbucket `pr-state`/`pr-list` row ($1,
 # carrying `state`, `headSha` and `base`) from a local `git merge-tree
 # --write-tree` check; Bitbucket Cloud's REST API has no conflict field (see
-# `bitbucket-pr-reading.ts`). The bundle folds the reading into an OPEN row and
-# returns every other row unchanged, so git runs for OPEN rows only.
+# `bitbucket-pr-reading.ts`). A row that is not `OPEN` is printed unchanged
+# before any `jq`, `git` or `node` runs for it — MERGED and CLOSED rows are
+# settled, and a NONE row has no PR, so none of that work is theirs to pay for
+# (#2481).
+#
+# $2 = the repo slug (`owner/repo`) the caller resolved the row against, via
+# `--repo`; empty where the caller passed none. The fold runs `git` in the
+# CURRENT directory against ITS `origin` — a row from another repository would
+# be folded against the wrong base, silently. So a non-empty $2 that does not
+# match the local clone's `origin` slug (read through `plot-bitbucket-slug.mjs`,
+# the same bundle the Bitbucket build-status write resolves `origin` with)
+# answers `unknown` naming the mismatch, and never guesses by running git
+# anyway. A clone whose `origin` resolves to no slug cannot be compared either,
+# and also answers `unknown` rather than assume a match.
 #
 # The base is fetched ALONE, once per distinct base per invocation
-# (`BB_FETCHED`), and a failed fetch reads `unknown`: a fetch that names the
-# head too fails whole on Bitbucket's short hash, and the stale `origin/<base>`
-# it leaves behind answers wrongly with confidence (#2208). The head is never
-# fetched; a head commit absent from the clone reads `unknown` with its sha.
-# `git fetch` is a git read, not a host CLI call, so the host stays unasked.
-# A bundle that cannot answer prints the unchanged row.
+# (`BB_FETCHED`), bounded by `bb_fetch_base_bounded`, and a failed or timed-out
+# fetch reads `unknown`: a fetch that names the head too fails whole on
+# Bitbucket's short hash, and the stale `origin/<base>` it leaves behind
+# answers wrongly with confidence (#2208). The head is never fetched; a head
+# commit absent from the clone reads `unknown` with its sha. `git fetch` is a
+# git read, not a host CLI call, so the host stays unasked. A bundle that
+# cannot answer prints the unchanged row.
 bb_fold_mergeable() {
-  local row="$1" state head base fetch="" in_clone="" mt_code="" mt_err=""
-  IFS=$'\x1f' read -r state head base < <(jq -r '[.state, (.headSha // ""), (.base // "")] | join("\u001f")' <<<"$row" 2>/dev/null)
-  if [ "$state" = OPEN ] && [ -n "$head" ] && [ -n "$base" ]; then
-    case " ${BB_FETCHED:-} " in *" $base=ok "*) fetch=ok ;; *" $base=failed "*) fetch=failed ;; *) GIT_TERMINAL_PROMPT=0 git fetch -q origin "+refs/heads/$base:refs/remotes/origin/$base" 2>/dev/null && fetch=ok || fetch=failed; BB_FETCHED="${BB_FETCHED:-} $base=$fetch" ;; esac
+  local row="$1" wantrepo="${2:-}" head base fetch="" in_clone="" mt_code="" mt_err="" localrepo reason
+  jq -e '.state == "OPEN"' >/dev/null 2>&1 <<<"$row" || { printf '%s\n' "$row"; return 0; }
+  if [ -n "$wantrepo" ]; then
+    localrepo="$(node "$here/board/plot-bitbucket-slug.mjs" "$(git config --get remote.origin.url 2>/dev/null)" 2>/dev/null)"
+    if [ "$localrepo" != "$wantrepo" ]; then
+      reason="this checkout's origin is ${localrepo:-unrecognised}, not $wantrepo — cannot fold mergeable against the wrong clone"
+      jq -c --arg reason "$reason" '. + {mergeable:"unknown", mergeableReason:$reason}' <<<"$row"
+      return 0
+    fi
+  fi
+  IFS=$'\x1f' read -r head base < <(jq -r '[(.headSha // ""), (.base // "")] | join("\u001f")' <<<"$row" 2>/dev/null)
+  if [ -n "$head" ] && [ -n "$base" ]; then
+    case " ${BB_FETCHED:-} " in *" $base=ok "*) fetch=ok ;; *" $base=failed "*) fetch=failed ;; *) bb_fetch_base_bounded "$base" && fetch=ok || fetch=failed; BB_FETCHED="${BB_FETCHED:-} $base=$fetch" ;; esac
     git cat-file -e "$head^{commit}" 2>/dev/null && in_clone=yes || in_clone=no
     [ "$fetch$in_clone" = okyes ] && { mt_err="$(git merge-tree --write-tree "origin/$base" "$head" 2>&1 >/dev/null)"; mt_code=$?; }
   fi
   printf '%s\n' "$row" "$head" "${base:+origin/$base}" "$(git --version 2>/dev/null)" "$fetch" "$in_clone" "$mt_code" "$mt_err" | node "$here/board/plot-bitbucket-mergeable.mjs" 2>/dev/null || printf '%s\n' "$row"
 }
 
-# `pr-list --rich`'s per-line fold. Each row carries a `base` key only for
+# `pr-list --rich`'s per-line fold. $1 = the repo slug (see `bb_fold_mergeable`),
+# threaded onto every row. Each row carries a `base` key only for
 # `bb_fold_mergeable`, and this removes it again; an OPEN row whose reading is
 # `unknown` gains `mergeableReason`. The loop runs in one shell, so
 # `BB_FETCHED` holds across its rows.
-bb_fold_mergeable_stream() { local line; while IFS= read -r line; do [ -z "$line" ] || bb_fold_mergeable "$line"; done | jq -c 'del(.base)'; }
+bb_fold_mergeable_stream() { local wantrepo="${1:-}" line; while IFS= read -r line; do [ -z "$line" ] || bb_fold_mergeable "$line" "$wantrepo"; done | jq -c 'del(.base)'; }
 
 # Prints the `pr-state` row of the Bitbucket PR payload $1 (`null` for no PR).
 #
@@ -3728,10 +3786,10 @@ case "$op" in
 
   pr-state)
     ref="${1:?pr-state needs a PR number or branch}"; shift || true
-    repo_args=()
+    repo_args=(); repo_slug=""
     while [ $# -gt 0 ]; do
       case "$1" in
-        --repo) repo_args=(-R "${2:?}"); shift 2 ;;
+        --repo) repo_args=(-R "${2:?}"); repo_slug="${2:?}"; shift 2 ;;
         *) die "pr-state: unknown arg $1" ;;
       esac
     done
@@ -3822,7 +3880,14 @@ case "$op" in
       if [[ "$ref" =~ ^[0-9]+$ ]]; then
         if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json 2>"$HOST_ERR")"; then
           rm -f "$HOST_ERR"
-          bb_fold_mergeable "$(bb_state_row "$out")"
+          # `$(bb_state_row ...)` RUNS IN A SUBSHELL, so a failure inside it
+          # (a bad Jenkins answer, an unreadable row) was lost the moment its
+          # stdout was captured — `bb_fold_mergeable` always saw success. The
+          # row is captured first and the exit status read immediately after,
+          # before `bb_fold_mergeable` (which cannot fail this op) can reset it.
+          state_row="$(bb_state_row "$out")"; state_rc=$?
+          [ "$state_rc" -eq 0 ] || exit "$state_rc"
+          bb_fold_mergeable "$state_row" "$repo_slug"
         else
           err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
@@ -3881,7 +3946,12 @@ case "$op" in
           # The hash rides on the page the branch query already fetched, so this
           # costs no extra call. `bb_branch_query` already filtered to the
           # branch, so every row in `out` already matches it.
-          bb_fold_mergeable "$(bb_state_row "$(jq -c '.[0] // null' <<<"$out")")"
+          #
+          # The exit status is kept through the command substitution the same
+          # way the numeric-ref arm above does — see its comment.
+          state_row="$(bb_state_row "$(jq -c '.[0] // null' <<<"$out")")"; state_rc=$?
+          [ "$state_rc" -eq 0 ] || exit "$state_rc"
+          bb_fold_mergeable "$state_row" "$repo_slug"
         else
           err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
@@ -4160,7 +4230,7 @@ case "$op" in
     # — so a caller comparing `origin/*` refs would join its refs against
     # another repository's PRs and report every branch as having none. The
     # caller knows which remote its refs came from; this op cannot guess it.
-    repo_args=()
+    repo_args=(); repo_slug=""
     # `gh pr list` and `bb pr list` both cap at 30 by default. That is invisible
     # with --state open (few repos have 30 open PRs) and bites immediately with
     # --state all, where the newest 30 crowd out every older merged PR. A caller
@@ -4193,7 +4263,7 @@ case "$op" in
         # With `--state open` asked, both calls would list the same PRs and the
         # second would be waste, so this collapses to plain `--rich` there.
         --rich-open) rich=1; rich_open=1; shift ;;
-        --repo) repo_args=(-R "${2:?}"); shift 2 ;;
+        --repo) repo_args=(-R "${2:?}"); repo_slug="${2:?}"; shift 2 ;;
         # `${2:?}` REFUSES AN EMPTY VALUE, and that is the point rather than
         # boilerplate. `--since ""` would reach GitHub as `--search "updated:>"`,
         # a syntax error the host may answer with everything or with nothing —
@@ -4625,13 +4695,13 @@ case "$op" in
                   updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),checksSha:($jentry.checksSha // ""),
                   author:(.author.nickname // ""),
                   failing_checks:(if $jentry != null and $jentry.checks == "failing" then [$jentry.job] else [] end), base:(.destination.branch.name // "")
-                } + (if $jstatus == "ok" and $ambiguous and $jentry == null then {checksLookup:"skipped"} else {} end)' "${bb_cmd[@]}" | bb_fold_mergeable_stream || exit $?
+                } + (if $jstatus == "ok" and $ambiguous and $jentry == null then {checksLookup:"skipped"} else {} end)' "${bb_cmd[@]}" | bb_fold_mergeable_stream "$repo_slug" || exit $?
           PR_LIST_BIND_FN=""
         else
           # Bitbucket without Jenkins: checks remain unknown
           pr_list_states bitbucket "$limit" "$bb_states" \
             '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),updatedAt:(.updated_on // ""),headSha:(.source.commit.hash // ""),mergedAt:(if .state=="MERGED" then (.updated_on // "") else "" end),author:(.author.nickname // ""),failing_checks:[],base:(.destination.branch.name // "")}' \
-            "${bb_cmd[@]}" | bb_fold_mergeable_stream || exit $?
+            "${bb_cmd[@]}" | bb_fold_mergeable_stream "$repo_slug" || exit $?
         fi
       else
         pr_list_states bitbucket "$limit" "$bb_states" \
