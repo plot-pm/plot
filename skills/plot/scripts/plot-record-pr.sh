@@ -53,8 +53,7 @@ case "$pr" in *[!0-9]*|'') echo "plot-record-pr: <pr-number> must be numeric, go
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-record-pr: not a git repository" >&2; exit 1; }
 
 repo_root=$(plot_repo_root)
-MAIN=$(bash "$script_dir/plot-config.sh" get "Main branch")
-[ -n "$MAIN" ] || MAIN=$(default_branch "$repo_root")
+MAIN=$(bash "$script_dir/plot-config.sh" get "Main branch"); [ -n "$MAIN" ] || MAIN=$(default_branch "$repo_root")
 
 git -C "$repo_root" fetch -q origin "$MAIN" 2>/dev/null
 
@@ -84,8 +83,7 @@ plan_file="${found%%$'\t'*}"
 # Asks The Domain": this script runs once per PR, not once per agent per pass.
 node "$script_dir/board/plot-slice-pr-annotation.mjs" "$plan_file" "$branch" "$pr" || exit 1
 
-rel="${plan_file#"$tmpwt"/}"
-git -C "$tmpwt" add -- "$rel" 2>/dev/null
+rel="${plan_file#"$tmpwt"/}"; git -C "$tmpwt" add -- "$rel" 2>/dev/null
 git -C "$tmpwt" commit -q -m "plot: record PR #$pr for $slug_part" 2>/dev/null || { echo "plot-record-pr: nothing to commit in $tmpwt — $rel may already carry PR #$pr" >&2; exit 1; }
 
 "$script_dir/plot-push-main.sh" "$bookbr" "$MAIN"
