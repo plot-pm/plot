@@ -17,7 +17,7 @@ import {
   type TransitionPlan,
 } from '@plot-pm/domain/transitions/plan';
 import { releasePr, releaseTag } from '@plot-pm/domain/rules/release-tag';
-import { flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
+import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { tickSprintItem } from '@plot-pm/domain/rules/sprint-tick';
 import { indexSymlinkPlacement } from '@plot-pm/domain/rules/index-symlink';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
@@ -310,12 +310,13 @@ export const bookDelivery = async (
   } else {
     const recorded = scratchPlan.deliveredRecord.trim() !== '';
     const flip = flipStatusValue(fileContent, 'approved', 'Delivered');
+    const frontMatter = flipFrontMatterPhase(flip.content, 'approved', 'Delivered');
     let landed: string;
     if (recorded) {
-      landed = flip.content;
+      landed = frontMatter.content;
       record = 'already';
     } else {
-      const inserted = insertStatusRecord(flip.content, 'Delivered', decision.record);
+      const inserted = insertStatusRecord(frontMatter.content, 'Delivered', decision.record);
       if (!inserted.changed) {
         return { refused: `${rel} has no '## Status' section — nowhere to record the delivery.\n  Nothing was written: the phase is not flipped either, because a phase\n  with no record is invisible to the scan. Fix the section and re-run.` };
       }
@@ -736,12 +737,13 @@ export const bookRelease = async (
     record = 'already';
   } else {
     const flip = flipStatusValue(present.value, 'delivered', 'Released');
+    const frontMatter = flipFrontMatterPhase(flip.content, 'delivered', 'Released');
     let landed: string;
     if (scratchPlan.releasedRecord.trim() !== '') {
-      landed = flip.content;
+      landed = frontMatter.content;
       record = 'already';
     } else {
-      const inserted = insertStatusRecord(flip.content, 'Released', decision.record);
+      const inserted = insertStatusRecord(frontMatter.content, 'Released', decision.record);
       if (!inserted.changed) {
         return { refused: `${rel} has no '## Status' section — nowhere to record the release.\n  Nothing was written: the phase is not flipped either, because a phase\n  with no record is invisible to the scan. Fix the section and re-run.` };
       }

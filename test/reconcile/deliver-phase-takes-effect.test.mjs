@@ -205,19 +205,25 @@ test('a plan holding two phase records DELIVERS, because writer and parser now a
   assert.match(r.out, /phase=flipped/);
 });
 
-test('the front matter is left behind, and the parser reports it as the alternate', () => {
-  // WHAT KEEPS THIS FROM HIDING THE DRIFT IT STOPS CAUSING. No lifecycle script
-  // writes front matter, so a delivered two-record plan still carries a stale
-  // `status: Approved`. The parser reports it in `phase_alt` rather than
-  // dropping it, so a reader — and any later gate — can still see the
-  // disagreement that is now resolved rather than merely ignored.
+test('the front matter is flipped alongside the block, so the two formats agree (#2439)', () => {
+  // #2439: `flip_phase` matched only inside `## Status`, so a delivery on a
+  // two-record plan wrote `Delivered` into the block, reported `phase=flipped`,
+  // and left `status: Approved` behind. The reconcile scan then read the two
+  // fields independently and named the disagreement — the write succeeded and
+  // the outcome did not, same shape #924 found at the parser.
+  //
+  // THE FIX IS FLIP-BOTH, NOT REFUSE: the front matter is a field Plot itself
+  // writes at delivery (not a third party's extension this repo should leave
+  // alone), so repairing it needs no person and does not turn an until-now
+  // successful delivery into one the operator must hand-edit around — which is
+  // exactly what the reporter did before this fix existed.
   const r = deliverPlan(TWO_RECORDS);
 
-  assert.match(r.onMain, /^status: Approved$/m,
-    'front matter should be untouched — a second writer is the defect, not the fix');
+  assert.match(r.onMain, /^status: Delivered$/m,
+    'the front matter should carry the delivery too — a second writer landed');
   assert.equal(r.parsed.phase, 'delivered');
-  assert.equal(r.parsed.phase_alt, 'approved',
-    'the loser was dropped instead of reported');
+  assert.equal(r.parsed.phase_alt, 'delivered',
+    'the alternate reading should agree with the machine-read phase');
 });
 
 test('a second run on a delivered two-record plan is a no-op, not a second delivery', () => {

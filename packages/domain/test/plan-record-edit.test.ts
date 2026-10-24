@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { flipStatusValue, insertStatusRecord } from '../src/rules/plan-record-edit.js';
+import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '../src/rules/plan-record-edit.js';
 
 describe('flipStatusValue', () => {
   it('flips State: Approved to Delivered inside ## Status', () => {
@@ -40,6 +40,75 @@ describe('flipStatusValue', () => {
     const content = ['## Status', '- **State:** Delivered'].join('\n');
     const result = flipStatusValue(content, 'approved', 'Delivered');
     expect(result.changed).toBe(false);
+  });
+});
+
+describe('flipFrontMatterPhase', () => {
+  it('flips both status: and phase: when both are present (#2439)', () => {
+    const content = ['---', 'status: Approved', 'phase: Approved', '---', '', '# A plan'].join('\n');
+    const result = flipFrontMatterPhase(content, 'approved', 'Delivered');
+    expect(result.changed).toBe(true);
+    expect(result.content).toContain('status: Delivered');
+    expect(result.content).toContain('phase: Delivered');
+  });
+
+  it('flips status: alone when phase: is absent', () => {
+    const content = ['---', 'status: Approved', '---', '', '# A plan'].join('\n');
+    const result = flipFrontMatterPhase(content, 'approved', 'Delivered');
+    expect(result.changed).toBe(true);
+    expect(result.content).toContain('status: Delivered');
+  });
+
+  it('flips phase: alone when status: is absent', () => {
+    const content = ['---', 'phase: Approved', '---', '', '# A plan'].join('\n');
+    const result = flipFrontMatterPhase(content, 'approved', 'Delivered');
+    expect(result.changed).toBe(true);
+    expect(result.content).toContain('phase: Delivered');
+  });
+
+  it('leaves the file untouched when there is no front matter (absent is not false)', () => {
+    const content = ['# A plan', '', '## Status', '- **State:** Approved'].join('\n');
+    const result = flipFrontMatterPhase(content, 'approved', 'Delivered');
+    expect(result.changed).toBe(false);
+    expect(result.content).toBe(content);
+  });
+
+  it('does not touch a status:/phase: line outside the leading front-matter block', () => {
+    const content = [
+      '# A plan',
+      '',
+      'status: Approved',
+      '',
+      '## Status',
+      '- **State:** Approved',
+    ].join('\n');
+    const result = flipFrontMatterPhase(content, 'approved', 'Delivered');
+    expect(result.changed).toBe(false);
+    expect(result.content).toBe(content);
+  });
+
+  it('is idempotent: front matter already at the target value flips nothing', () => {
+    const content = ['---', 'status: Delivered', '---', '', '# A plan'].join('\n');
+    const result = flipFrontMatterPhase(content, 'approved', 'Delivered');
+    expect(result.changed).toBe(false);
+    expect(result.content).toBe(content);
+  });
+
+  it('touches only the first occurrence of each key', () => {
+    const content = ['---', 'status: Approved', 'status: Approved', '---', '', '# A plan'].join('\n');
+    const result = flipFrontMatterPhase(content, 'approved', 'Delivered');
+    const lines = result.content.split('\n');
+    expect(lines[1]).toBe('status: Delivered');
+    expect(lines[2]).toBe('status: Approved');
+  });
+
+  it('skips a front-matter line that is neither status: nor phase:', () => {
+    const content = ['---', 'type: bug', 'status: Approved', '---', '', '# A plan'].join('\n');
+    const result = flipFrontMatterPhase(content, 'approved', 'Delivered');
+    expect(result.changed).toBe(true);
+    const lines = result.content.split('\n');
+    expect(lines[1]).toBe('type: bug');
+    expect(lines[2]).toBe('status: Delivered');
   });
 });
 

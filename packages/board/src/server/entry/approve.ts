@@ -11,7 +11,7 @@ import { approve as approveWorkflow, approveSpike as approveSpikeWorkflow, type 
 import { planStateOf } from '@plot-pm/domain/entities/plan';
 import { spikeOf } from '@plot-pm/domain/rules/spike';
 import { slicesPushedOf } from '@plot-pm/domain/rules/spike-confirm';
-import { flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
+import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { SPIKE_APPROVED_FIELD, spikeReceiptKey } from '@plot-pm/domain/rules/state-transition';
 import { clearHolds } from '@plot-pm/domain/rules/hold-clear';
 import {
@@ -633,12 +633,14 @@ const applyLocalWrites = async (ctx: Context, request: WriteRequest): Promise<Wr
     const content = present.value;
     const fromDraft = flipStatusValue(content, 'draft', 'Approved');
     const flip = fromDraft.changed ? fromDraft : flipStatusValue(content, 'design', 'Approved');
+    const fromDraftFm = flipFrontMatterPhase(flip.content, 'draft', 'Approved');
+    const frontMatter = fromDraftFm.changed ? fromDraftFm : flipFrontMatterPhase(flip.content, 'design', 'Approved');
     let landed: string;
     if (scratchPlan.approvedRecord.trim() !== '') {
-      landed = flip.content;
+      landed = frontMatter.content;
       record = 'already';
     } else {
-      const inserted = insertStatusRecord(flip.content, 'Approved', decision.record);
+      const inserted = insertStatusRecord(frontMatter.content, 'Approved', decision.record);
       if (!inserted.changed) {
         throw new Refused(`${rel} has no '## Status' section — nowhere to record the approval.\n  Nothing was written: the phase is not flipped either, because a phase\n  with no record is invisible to the scan. Fix the section and re-run.`);
       }
