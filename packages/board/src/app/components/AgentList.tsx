@@ -33,7 +33,8 @@ import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
 import { agentRowKey } from '@plot-pm/domain/rules/desk-manifest';
 import { DeliveryFilters } from './DeliveryFilters.js';
-import { activeSprintButton, rowIsSprintExempt, sanitizeSelection, slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
+import { activeSprintButton, sprintMembershipLookup } from '../lib/filters.js';
+import { rowIsSprintExempt, sanitizeSelection, slugPassesSprintFilter } from '@plot-pm/domain/rules/sprint-selection';
 import type { ChipRowReadings } from '@plot-pm/domain/rules/chip-row';
 // THE BOARD'S ONE AGE DIALECT, borrowed rather than reimplemented. A second
 // formatter would drift from this one the first time either changed — the same

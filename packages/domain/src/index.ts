@@ -593,3 +593,4 @@ export * from './rules/auto-deliver.js';
 export * from './rules/fleet-run.js';
 export * from './rules/auto-verify.js';
 export * from './rules/design-work.js';
+export * from './rules/sprint-selection.js';

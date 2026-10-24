@@ -3,8 +3,6 @@ import {
   NO_SPRINT,
   activeSprintButton,
   passesFilter,
-  rowIsSprintExempt,
-  sanitizeSelection,
   sprintFilterOptions,
   withCounts,
 } from '../../src/app/lib/filters';
@@ -100,54 +98,6 @@ describe('withCounts', () => {
   });
 });
 
-describe('sanitizeSelection', () => {
-  const options = [
-    { value: NO_SPRINT, label: 'No sprint' },
-    { value: 'alpha', label: 'alpha' },
-    { value: 'beta', label: 'beta' },
-  ];
-
-  it('keeps known slugs and the none sentinel, drops unknown ones', () => {
-    expect(sanitizeSelection(['alpha', 'typo', NO_SPRINT], options)).toEqual(['alpha', NO_SPRINT]);
-  });
-
-  it('collapses an all-unknown selection to empty (→ no filter)', () => {
-    expect(sanitizeSelection(['typo', 'stale'], options)).toEqual([]);
-  });
-
-  it('is a no-op when every selection is valid', () => {
-    expect(sanitizeSelection(['beta', 'alpha'], options)).toEqual(['beta', 'alpha']);
-  });
-
-  // THE AGENTS TAB'S SHAPE — #1145. Its «Sprint only» selection is an in-memory
-  // Set of sprint slugs, and its options are the ACTIVE sprints of the moment.
-  // When one selected sprint closes it leaves `fleet.sprints`, and the selection
-  // must keep filtering on the sprint that is still active rather than on both.
-  // The generic cases above prove the kept/dropped arms; this one states the
-  // option shape `AgentList` builds, so a change to it fails here.
-  it('keeps the still-active sprint when a second selected one closes', () => {
-    const active = [{ slug: 'alpha', title: 'Alpha' }];
-    const stillFilters = sanitizeSelection(
-      ['alpha', 'beta'],
-      active.map((s) => ({ value: s.slug, label: s.title })),
-    );
-    expect(stillFilters).toEqual(['alpha']);
-  });
-
-  // The regression this guards (council c006 / plan "validated against known
-  // slugs"): a URL like ?sprint=typo must NOT blank the board. Sanitizing to []
-  // makes passesFilter treat it as "no filter" and every card shows.
-  it('an unknown URL slug no longer hides every card', () => {
-    const cards = mkBoard(['alpha', 'beta', undefined]).columns[0].cards;
-    const raw = ['typo']; // what readList would return for ?sprint=typo
-    // Without sanitizing, nothing passes:
-    expect(cards.filter((c) => passesFilter(c, raw, 'sprint', NO_SPRINT))).toHaveLength(0);
-    // After sanitizing, the invalid filter falls away and all cards pass:
-    const clean = sanitizeSelection(raw, options);
-    expect(cards.filter((c) => passesFilter(c, clean, 'sprint', NO_SPRINT))).toHaveLength(3);
-  });
-});
-
 describe('activeSprintButton', () => {
   const sprintA = { slug: 'a-slug', title: 'Sprint A' } as unknown as FleetSprint;
   const sprintB = { slug: 'b-slug', title: 'Sprint B' } as unknown as FleetSprint;
@@ -166,22 +116,5 @@ describe('activeSprintButton', () => {
       disabled: false,
       sentence: 'Select all 2 Active sprints.',
     });
-  });
-});
-
-describe('rowIsSprintExempt', () => {
-  it('exempts the release row and a PR row that names no plan', () => {
-    expect(rowIsSprintExempt({ kind: 'release', plan: '' })).toBe(true);
-    expect(rowIsSprintExempt({ kind: 'pr', plan: '' })).toBe(true);
-  });
-
-  it('asks membership of a PR row that names a plan', () => {
-    expect(rowIsSprintExempt({ kind: 'pr', plan: 'a-plan' })).toBe(false);
-  });
-
-  it('does not exempt a plan-less row of any other kind', () => {
-    for (const kind of ['branch', 'plan', 'wave', 'ticket', 'build', 'agent'] as const) {
-      expect(rowIsSprintExempt({ kind, plan: '' })).toBe(false);
-    }
   });
 });
