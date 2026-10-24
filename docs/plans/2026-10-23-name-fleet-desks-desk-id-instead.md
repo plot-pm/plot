@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Sprint:** bugfix-2-28-1
 - **Issue:** #2375
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2376 merged
 - **Started:** 2026-10-23, Jan Wloka, `infra/name-fleet-desks-desk-id-instead`
 - **Delivered:** 2026-10-23
+- **Released:** 2026-10-23, v2.28.1
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
