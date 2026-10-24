@@ -69,7 +69,6 @@ git rev-parse --git-dir >/dev/null 2>&1 \
   || { echo "plot-open-pr: no branch given and HEAD is detached — name the branch" >&2; exit 1; }
 
 repo_root="$(git rev-parse --show-toplevel)"
-cfg() { bash "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
 [ -n "$base" ] || base=$(bash "$script_dir/plot-host.sh" default-branch 2>/dev/null || echo main)
 [ -n "$base" ] || base=main
@@ -85,44 +84,20 @@ cfg() { bash "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 # refused a branch its plan names in full. `plot-reconcile-scan.sh` settled the
 # same point — since the phase grouping became derived, a missing link is a
 # browsing gap and gates nothing.
-plan_dir=$(cfg "Plan directory" "docs/plans/")
-case "$plan_dir" in /*) ;; *) plan_dir="$repo_root/$plan_dir" ;; esac
-
 #
-# THE CANDIDATES ARE GREPPED AND ONLY THEY ARE PARSED. Measured 2026-09-09:
-# parsing all 253 plans here took 103 s, against 0.6 s for one `grep -l` over
-# the directory and a parse of what it named. A branch name is a literal string
-# and a plan that does not contain it cannot name it, so the filter cannot
-# change the answer — only how many files are read to reach it.
+# THE CANDIDATES ARE SEARCHED AND ONLY THEY ARE PARSED, inside the bundle:
+# measured 2026-09-09, parsing all 253 plans here took 103 s against 0.6 s for
+# a text search first. A plan that does not contain the branch name cannot
+# name it, so the filter changes only how many files are read.
 plan_slug=""
 plan_file=""
 slice_name=""
-candidates=$(grep -lF "$branch" "$plan_dir"*.md 2>/dev/null || true)
-for link in $candidates; do
-  [ -e "$link" ] || continue
-  found=$(bash "$script_dir/plot-plan-meta.sh" "$link" 2>/dev/null \
-    | PLOT_BRANCH="$branch" node -e '
-      let s = "";
-      process.stdin.on("data", (d) => (s += d)).on("end", () => {
-        let meta;
-        try { meta = JSON.parse(s); } catch { return; }
-        const want = process.env.PLOT_BRANCH;
-        for (const wave of meta.waves ?? []) {
-          for (const b of wave.branches ?? []) {
-            // The wave heading is the title, so a plan naming the branch under
-            // no heading yields an empty name and the rule refuses on it.
-            if (b.branch === want) { console.log([meta.file ?? "", wave.name ?? ""].join("\t")); return; }
-          }
-        }
-      });
-    ') || found=""
-  if [ -n "$found" ]; then
-    plan_file=$(printf '%s' "$found" | cut -f1)
-    slice_name=$(printf '%s' "$found" | cut -f2)
-    plan_slug=$(basename "$plan_file" .md | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
-    break
-  fi
-done
+found=$(node "$script_dir/board/plot-plan-for-branch.mjs" "$branch" 2>/dev/null) || found=""
+if [ -n "$found" ]; then
+  plan_file=$(printf '%s' "$found" | cut -f1)
+  slice_name=$(printf '%s' "$found" | cut -f2)
+  plan_slug=$(basename "$plan_file" .md | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
+fi
 
 # The brief, where the slice has one. Named for the branch's last segment, the
 # spelling plot-dispatch.sh writes and the worker prompt reads.
