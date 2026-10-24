@@ -207,9 +207,12 @@ export interface Host {
    * Reads one PR, by number or by branch.
    *
    * @param ref - a PR number, or the branch a PR would belong to.
+   * @param opts - `withChecks: true` reads the PR's `checks` as well. A
+   *   Bitbucket host under `CI: jenkins` asks Jenkins for them only then and
+   *   otherwise answers `checks: 'unknown'`; GitHub reads them either way.
    * @returns the PR, or null where the host holds none for this ref.
    */
-  prState(ref: string | number): Promise<PortResult<PrLookup>>;
+  prState(ref: string | number, opts?: { withChecks?: boolean }): Promise<PortResult<PrLookup>>;
 
   /**
    * Whether the host merged ANY PR for this branch.
