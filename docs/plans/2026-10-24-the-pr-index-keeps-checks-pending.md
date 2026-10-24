@@ -50,9 +50,9 @@ The fix follows the finding. The expected behaviour stays as the issue states: a
 
 ### Open Questions
 
-- [ ] Which of the four causes above holds for PR #2550? The answer decides the fix; the reproduction is the first slice.
-- [ ] If the bound is the cause: should a `pending` row whose head is older than `Checks wait` still be re-asked at a slower cadence, or is a whole refresh the right backstop?
-- [ ] Should a whole refresh be forced when any stored `OPEN` row has been `pending` for longer than `Checks wait`?
+- [x] Which of the four causes above holds for PR #2550? **Cause 3.** A reproduction test over `refreshPrs` with a held store proved it: `pendingOpenPrNumbers` matched the row and the delta ran, but once `entry.prPendingReaskStreak` reached `PR_PENDING_REASK_LIMIT` (5), the slow path's own filter required `headSince` to still be younger than `Checks wait` — and PR #2550 had been open long enough that its head already exceeded that bound by the time the streak alone was spent. Both gates closed at once, so the row stopped being re-asked for good and could settle only on the next whole read, up to `PR_FULL_READ_MS` (24h) away — the measured 21-hour-stuck symptom.
+- [x] If the bound is the cause: should a `pending` row whose head is older than `Checks wait` still be re-asked at a slower cadence, or is a whole refresh the right backstop? **Slower cadence, unconditionally.** The `Checks wait` age gate answered "is this branch old?" rather than "are its checks still running?" — two unrelated questions a long-open PR with a just-finished check run conflated. The fix drops the age gate from the slow path's filter, leaving only the `PR_PENDING_REASK_SLOW_MS` (300s) cadence: a stuck row is re-asked every 5 minutes forever, bounded in cost exactly as the original design comment already argued ("one request every 5 minutes" rather than "one more request per refresh").
+- [x] Should a whole refresh be forced when any stored `OPEN` row has been `pending` for longer than `Checks wait`? **No.** The slow-cadence fix alone settles a stuck row within one `PR_PENDING_REASK_SLOW_MS` window once the host actually has a new answer; forcing a whole refresh would duplicate that bound at a far higher cost (one `pr-list --rich-open` listing of every PR instead of one number) for no earlier a settlement.
 
 ## Slices
 
