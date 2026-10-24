@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2536 merged
+- **Started:** 2026-10-24, Claude, `bug/fleet-supervisor-liveness-bounds`
 
 ## Changelog
 
