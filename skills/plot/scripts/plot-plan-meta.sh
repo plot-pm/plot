@@ -973,12 +973,6 @@ function commit_list(s,   out, m, h) {
   }
   return out
 }
-# Appends the refs of b to those of a, dropping a ref already present in a —
-# a heading and its list item can name the same commit. First-seen order kept.
-function merge_commits(a, b,   out, parts, i, n) {
-  out = a; n = split(b, parts, ","); for (i = 1; i <= n; i++) if (parts[i] != "" && index("," a ",", "," parts[i] ",") == 0) out = out (out == "" ? "" : ",") parts[i]
-  return out
-}
 # Stores the annotations read_notes() found, and the commits the line names,
 # against branch n (named b).
 #
@@ -990,7 +984,7 @@ function merge_commits(a, b,   out, parts, i, n) {
 # heading line claimed n first via read_notes() on itself, so only a field
 # THIS line carries may overwrite -- a deferral reason written on the heading
 # must survive a list item that carries none of its own.
-function keep_branch(n, b, overlay,   is_deferred, c) {
+function keep_branch(n, b, overlay,   is_deferred, c, parts, j, m) {
   is_deferred = ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/)
   # THE FLAG accepts the bare form as well as the annotated one: `deferred:`
   # and the bare `<!-- deferred -->` both set it true. The reason travels with
@@ -1016,7 +1010,9 @@ function keep_branch(n, b, overlay,   is_deferred, c) {
   ordered_b[n] = b
   # Commits merge like waits: a list item adds its own to those of the heading,
   # minus any ref both lines already name, in first-seen order.
-  c = commit_list($0); commits_of[n] = (overlay && commits_of[n] != "") ? merge_commits(commits_of[n], c) : c
+  c = commit_list($0)
+  if (overlay && commits_of[n] != "") { m = split(c, parts, ","); for (j = 1; j <= m; j++) if (parts[j] != "" && index("," commits_of[n] ",", "," parts[j] ",") == 0) commits_of[n] = commits_of[n] "," parts[j] }
+  else commits_of[n] = c
 }
 # `→ #N` and `→ owner/repo#N` are both annotations: /plot-deliver instructs
 # implementers to write the second for `Impl: other repo` plans, and a parser
