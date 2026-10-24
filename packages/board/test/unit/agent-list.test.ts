@@ -2505,18 +2505,18 @@ describe('prStatusEntry — the PR status distinguishes the two failures', () =>
     expect(note).toBe('PR data unavailable (gh: 503) — the two groups above that depend on it may be incomplete.');
   });
 
-  // THE DONE-WHEN OF THIS SLICE. `prNextInSeconds` is the PRIMARY bucket's
-  // reset, and a secondary limit is a different ceiling that clears in seconds.
-  // Printing that number here counsels minutes of waiting for a limit that has
-  // already gone — the opposite of what helps, and what this line did until
-  // 2026-09-02.
-  it('NEVER prints a reset time for a secondary limit', () => {
+  // #2441: `prStatus.backoffInSeconds` now reads `prNextInSeconds` for a
+  // secondary refusal too — the gate's OWN backoff end, a different number
+  // from the primary bucket's reset `resetApplies` still gates for `quota`
+  // alone. A secondary limit clears in seconds, so the banner names that
+  // short end rather than staying silent about when service returns.
+  it('names a secondary limit\'s own backoff end, not the primary bucket\'s reset', () => {
     const note = text(at({
       prError: 'You have exceeded a secondary rate limit. Please wait 60 seconds…',
-      prNextInSeconds: 480,
+      prNextInSeconds: 45,
     }));
-    expect(note).not.toContain('8 min');
-    expect(note).not.toContain('service returns');
+    expect(note).toContain('45s');
+    expect(note).toContain('service returns');
   });
 
   it('says a secondary limit is not a spent budget', () => {
@@ -2636,18 +2636,27 @@ describe('prStatusEntry — the PR status distinguishes the two failures', () =>
     // The banner observed on 2026-10-23: `prAgeSeconds` null and `prError`
     // holding only `plot-host` notices. The level is `error` with no kind, and
     // the sentence must not claim data on screen that is older than usual.
-    const entry = prStatusEntry(at({
+    //
+    // #2441/#2463: this `prError` is non-null, so `hostAnswer` reads
+    // `unreachable` for this same fleet — the sentence must not also claim
+    // "the host reported no failure", which read as a flat contradiction of
+    // that other state. It says what the LAST READ's text shows instead: no
+    // failure named, only notices.
+    const fleet = at({
       prError: 'plot-host: bitbucket ignores --limit 1000; the listing returns one page of 50 per state '
         + 'plot-host: bitbucket pr-list state=open page complete (8 rows below requested limit 1000) '
         + '— this page holds every pull request the host has in this state',
       prAgeSeconds: null,
-    }));
+    });
+    expect(hostAnswer(fleet)).toBe('unreachable');
+    const entry = prStatusEntry(fleet);
     expect(entry?.tone).toBe('rose');
     expect(entry?.text).toBe(
-      'PR data unavailable — no PR data has landed yet, and the host reported no failure, only the notices under Show details.',
+      'PR data unavailable — no PR data has landed yet; the last read named no failure, only the notices under Show details.',
     );
     expect(entry?.text).not.toContain('data on screen');
     expect(entry?.text).not.toContain('plot-host');
+    expect(entry?.text).not.toContain('the host reported no failure');
     expect(entry?.notices.length).toBeGreaterThan(0);
   });
 });

@@ -9,10 +9,12 @@ import {
  * The PR refresh cadence `prStatus` measures a reading's age against, when the
  * server has not reported one.
  *
- * `PR_REFRESH_MS` on the server (`fleet.ts`) has been 60 s since the field was
- * introduced and has never varied — this is that same number, kept as a
- * fallback for a payload from a server that predates `prIntervalMs` rather
- * than a guess about a cadence that could change.
+ * `PR_REFRESH_MS` on the server is 60 s, the UNSTRETCHED cadence a fresh entry
+ * starts at — `scheduleNextPr` stretches the real per-entry value by the
+ * backend's request cost (`prRefreshMsFor`), so a Bitbucket board's own
+ * `prIntervalMs` runs longer. This constant is a fallback for a payload from a
+ * server that predates `prIntervalMs` entirely, not a claim that the cadence
+ * never varies.
  */
 const DEFAULT_PR_INTERVAL_SECONDS = 60;
 
@@ -442,8 +444,10 @@ export function prStatusEntry(
     }
     if (status.level === 'error') {
       // No refusal and no data: the error held only `plot-host`'s notices, so
-      // the host reported no failure and nothing has landed to be old.
-      return `${levelWord} — no PR data has landed yet, and the host reported no failure, only the notices under Show details.`;
+      // the LAST READ carried no failure — distinct from `hostAnswer` calling
+      // this `unreachable`, which answers a different question (did a call
+      // land at all), not whether that call's text named a failure.
+      return `${levelWord} — no PR data has landed yet; the last read named no failure, only the notices under Show details.`;
     }
     // No refusal at all — a stale cache past twice the refresh interval, the
     // one `warning` shape `prStatus` reports with no `kind`. Previously

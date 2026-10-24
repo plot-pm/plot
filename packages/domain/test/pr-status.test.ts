@@ -83,6 +83,42 @@ describe('extractHostNotices — plot-host notices split from the real failure t
   it('answers no notices and no remainder where nothing failed', () => {
     expect(extractHostNotices(null)).toEqual({ notices: [], remainder: null });
   });
+
+  /**
+   * The regression this covers: `read from \S+` stopped after "the" and left
+   * "environment" behind in the remainder as a false outage cause.
+   */
+  it('matches the credential-source notice to the end of its sentence, not just the first word', () => {
+    const { notices, remainder } = extractHostNotices(
+      'plot-host: JENKINS_USER and JENKINS_API_TOKEN read from the environment',
+    );
+    expect(notices).toEqual([
+      { text: 'JENKINS_USER and JENKINS_API_TOKEN read from the environment' },
+    ]);
+    expect(remainder).toBeNull();
+  });
+
+  it('keeps a real failure on the next line after a credential-source notice', () => {
+    const { notices, remainder } = extractHostNotices(
+      'plot-host: JENKINS_USER and JENKINS_API_TOKEN read from the environment\nplot-host: pr-list: host throttled — bb: HTTP 429 Too Many Requests',
+    );
+    expect(notices).toEqual([
+      { text: 'JENKINS_USER and JENKINS_API_TOKEN read from the environment' },
+    ]);
+    expect(remainder).toBe(THROTTLED_FAILURE);
+  });
+
+  it('extracts the BITBUCKET_REVIEW_USER credential-source notice in full', () => {
+    const { notices, remainder } = extractHostNotices(
+      "plot-host: BITBUCKET_REVIEW_USER and BITBUCKET_REVIEW_APP_PASSWORD read from the main checkout's .env",
+    );
+    expect(notices).toEqual([
+      {
+        text: "BITBUCKET_REVIEW_USER and BITBUCKET_REVIEW_APP_PASSWORD read from the main checkout's .env",
+      },
+    ]);
+    expect(remainder).toBeNull();
+  });
 });
 
 describe('prStatusLevel — the plan\'s three-level table', () => {
@@ -222,10 +258,7 @@ describe('prStatus — the composed decision', () => {
     expect(status.cause).toBe(OUTAGE_ERROR);
   });
 
-  /**
-   * A quota refusal's backoff end survives into the value only where
-   * `resetApplies` says it applies to this refusal — reused, not re-decided.
-   */
+  /** A quota refusal's backoff end survives into the value unchanged. */
   it('a spent quota carries its backoff end through unchanged', () => {
     const status = prStatus({
       error: QUOTA_ERROR,
@@ -240,16 +273,22 @@ describe('prStatus — the composed decision', () => {
     expect(status.cause).toBe(QUOTA_ERROR);
   });
 
-  it('a secondary limit never shows the primary bucket\'s backoff', () => {
+  /**
+   * A secondary limit's own gate ends in seconds, same as a spent quota's —
+   * the plan calls for its backoff end too, unlike the PRINTED reset time
+   * `resetApplies` still gates (that is a different field, not asserted
+   * here).
+   */
+  it('a secondary refusal reports its own backoff end', () => {
     const status = prStatus({
       error: SECONDARY_ERROR,
       ageSeconds: 10,
-      nextInSeconds: 840,
+      nextInSeconds: 30,
       spenders: 3,
       intervalSeconds: INTERVAL_S,
     });
     expect(status.kind).toBe('secondary');
-    expect(status.backoffInSeconds).toBeNull();
+    expect(status.backoffInSeconds).toBe(30);
     expect(status.spenders).toBe(3);
   });
 
@@ -287,6 +326,23 @@ describe('prStatus — the composed decision', () => {
     expect(status.level).toBe('error');
     expect(status.kind).toBe('outage');
     expect(status.backoffInSeconds).toBeNull();
+  });
+
+  /**
+   * The plan table calls missing credentials `error` whether or not data is
+   * on screen — unlike every other refusal kind, which only reaches `error`
+   * with no data landed.
+   */
+  it('error row: missing credentials reads error even with data on screen', () => {
+    const status = prStatus({
+      error: 'gh: authentication required',
+      ageSeconds: 10,
+      nextInSeconds: null,
+      spenders: null,
+      intervalSeconds: INTERVAL_S,
+    });
+    expect(status.level).toBe('error');
+    expect(status.kind).toBe('outage');
   });
 
   it('error row: no data at all, no refusal either', () => {

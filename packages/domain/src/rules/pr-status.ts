@@ -1,4 +1,20 @@
-import { refusalKind, resetApplies, type RefusalKind } from './refusal.js';
+import { refusalKind, type RefusalKind } from './refusal.js';
+
+/**
+ * Whether a refusal names missing credentials rather than a limit or an
+ * outage. `RefusalKind` stays closed over `quota`/`secondary`/`outage` — the
+ * issue footer reads it too — so this is read from the message text directly,
+ * the same way `refusalKind` itself is.
+ *
+ * `gh`'s own wording for a signed-out CLI: `gh: authentication required`. Read
+ * off the wording for the reason `refusalKind`'s own doc gives: the exit code
+ * is the same 1 a spent quota or a 503 exits with.
+ *
+ * @param message - the host CLI's stderr, or null where nothing failed.
+ * @returns true where the message names missing credentials.
+ */
+const missingCredentials = (message: string | null): boolean =>
+  message !== null && /authentication required/i.test(message);
 
 /**
  * The three severities the PR footer may show — a display axis, not a failure
@@ -15,12 +31,16 @@ export type PrStatusLevel = 'info' | 'warning' | 'error';
 /**
  * One `plot-host` notice extracted from a combined error string.
  *
- * A notice is one of the informational lines `skills/plot/scripts/plot-host.sh`
- * writes to stderr: `<backend> ignores --limit`, `<backend> pr-list state=<s>
- * page complete`, `pr-list sweep complete`, and the `… read from <source>`
- * credential-source lines. Each reports something true about the read and
- * never a failure. `plot-host` writes its failures with the same `plot-host: `
- * prefix, so the prefix alone does not make a line a notice.
+ * A notice is one of the informational lines written to stderr with the
+ * `plot-host: ` prefix: `<backend> ignores --limit`, `<backend> pr-list
+ * state=<s> page complete`, `pr-list sweep complete`, and the `… read from
+ * <source>` credential-source lines — the JENKINS_USER/JENKINS_API_TOKEN and
+ * JIRA_EMAIL/JIRA_API_TOKEN pairs from `skills/plot/scripts/plot-host.sh`, and
+ * the BITBUCKET_REVIEW_USER/BITBUCKET_REVIEW_APP_PASSWORD pair from
+ * `skills/plot/scripts/plot-bitbucket-commit-status.mjs`. Each reports
+ * something true about the read and never a failure. A failure carries the
+ * same `plot-host: ` prefix, so the prefix alone does not make a line a
+ * notice.
  */
 export interface HostNotice {
   /** The notice text, with the `plot-host: ` prefix removed. */
@@ -36,7 +56,13 @@ const NOTICE_PATTERNS = [
   /\S+ ignores --limit \d+; the listing returns one page of \d+ per state/,
   /\S+ pr-list state=\S+ page complete \([^)\n]*\) — this page holds every pull request the host has in this state/,
   /pr-list sweep complete \([^)\n]*\) — every tracked branch was asked and each answered/,
-  /(?:JENKINS_USER and JENKINS_API_TOKEN|JIRA_EMAIL and JIRA_API_TOKEN) read from \S+/,
+  // `read from the environment`, `read from .env`, or `read from the main
+  // checkout's .env` — the three source labels `plot-host.sh`'s
+  // `plot_env_file` and `plot-bitbucket-commit-status.mjs`'s
+  // `envFileCandidate` print. Matched to the end of the sentence rather than
+  // `\S+`, which stopped after "the" and left "environment" in the remainder
+  // as a false outage cause.
+  /(?:JENKINS_USER and JENKINS_API_TOKEN|JIRA_EMAIL and JIRA_API_TOKEN|BITBUCKET_REVIEW_USER and BITBUCKET_REVIEW_APP_PASSWORD) read from (?:the environment|\.env|the main checkout's \.env)/,
 ] as const;
 
 const NOTICE = new RegExp(
@@ -119,13 +145,17 @@ export interface PrStatus {
  * no effect on the level.
  *
  * The level follows the data. With no data landed (`ageSeconds === null`) it
- * is `error`, whatever the refusal. With data on screen, any refusal — a spent
- * quota, a secondary limit, or an outage — is `warning`, and so is a cache
- * older than twice the refresh interval. Everything else is `info`.
+ * is `error`, whatever the refusal, and so it is where the refusal names
+ * missing credentials, whether or not data is on screen. With data on screen
+ * and no missing credentials, any other refusal — a spent quota, a secondary
+ * limit, or an outage — is `warning`, and so is a cache older than twice the
+ * refresh interval. Everything else is `info`.
  *
- * `resetApplies` decides whether `nextInSeconds` describes the refusal, so a
- * secondary limit's or an outage's backoff field is null even where a number
- * is available.
+ * `backoffInSeconds` reads `input.nextInSeconds` for every refusal kind — a
+ * secondary limit's gate ends in seconds, same as a spent quota's, and the
+ * caller has computed one number for whichever gate actually refused.
+ * `resetApplies` answers a different question (whether a PRINTED reset time
+ * describes the refusal) and is not consulted here.
  *
  * @param input - what the board already has about one PR read.
  * @returns the level, cause, backoff end, spenders and notices.
@@ -134,11 +164,10 @@ export const prStatus = (input: PrStatusInput): PrStatus => {
   const { notices, remainder } = extractHostNotices(input.error);
   const kind = refusalKind(remainder);
 
-  const backoffInSeconds =
-    kind !== null && resetApplies(kind) ? input.nextInSeconds : null;
+  const backoffInSeconds = kind === null ? null : input.nextInSeconds;
 
   return {
-    level: prStatusLevel(kind, input.ageSeconds, input.intervalSeconds),
+    level: prStatusLevel(kind, input.ageSeconds, input.intervalSeconds, missingCredentials(remainder)),
     kind,
     cause: kind === null ? null : remainder,
     backoffInSeconds,
@@ -154,16 +183,21 @@ export const prStatus = (input: PrStatusInput): PrStatus => {
  * @param ageSeconds - seconds since the data on screen was read, or null where
  *   no PR data has landed.
  * @param intervalSeconds - the refresh interval the age is measured against.
- * @returns `error` where no data has landed; `warning` where data is on screen
- *   and a refusal is present or the age exceeds twice the interval; `info`
- *   otherwise.
+ * @param credentialsMissing - whether the refusal names missing credentials.
+ *   The plan table calls this `error` whether or not data is on screen, unlike
+ *   every other refusal kind.
+ * @returns `error` where no data has landed, or credentials are missing;
+ *   `warning` where data is on screen and a refusal is present or the age
+ *   exceeds twice the interval; `info` otherwise.
  */
 export const prStatusLevel = (
   kind: RefusalKind | null,
   ageSeconds: number | null,
   intervalSeconds: number,
+  credentialsMissing = false,
 ): PrStatusLevel => {
   if (ageSeconds === null) return 'error';
+  if (credentialsMissing) return 'error';
   if (kind !== null) return 'warning';
   if (intervalSeconds > 0 && ageSeconds > intervalSeconds * 2) return 'warning';
   return 'info';
