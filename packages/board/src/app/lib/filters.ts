@@ -1,7 +1,8 @@
-import type { AgentRow, Board, Card, FleetSprint, SprintCard } from '../../contract/schema.js';
+import type { Board, Card, FleetSprint, SprintCard } from '../../contract/schema.js';
+import { NO_SPRINT } from '@plot-pm/domain';
 
-/** Sentinels for "plans with no sprint / no story assigned". */
-export const NO_SPRINT = '__no_sprint__';
+export { NO_SPRINT };
+/** Sentinel for "plans with no story assigned". */
 export const NO_STORY = '__no_story__';
 
 /**
@@ -152,21 +153,6 @@ export function sprintFilterOptions(board: Board | null): FilterOption[] {
     .sort((a, b) => a.value.localeCompare(b.value));
 }
 
-/**
- * Keep only selections that correspond to a currently-valid option. URL filter
- * state (`?sprint=a,b`) is arbitrary user input: a stale or mistyped slug that
- * matches no option would otherwise make `passesFilter` hide every card,
- * leaving a mysteriously empty board. Dropping unknown values means an
- * all-invalid selection collapses to "no filter" (show all) — the plan's
- * promised "validated against known slugs" behavior, done by pure derivation
- * so there is no state/URL churn on every render or poll. Sentinels
- * (`__no_sprint__`, `__no_story__`) are themselves options, so they survive.
- */
-export function sanitizeSelection(selected: string[], options: FilterOption[]): string[] {
-  const valid = new Set(options.map((o) => o.value));
-  return selected.filter((v) => valid.has(v));
-}
-
 /** What the *Active sprint* button offers: a selection, and whether it can act. */
 export interface ActiveSprintButton {
   /** Every slug of `sprints` — the full selection a click would set. */
@@ -282,75 +268,3 @@ export function passesSprintFilter(
   }
   return false;
 }
-
-/**
- * Does a plan slug pass the sprint filter? The GENERALIZED predicate.
- *
- * Empty selection = no filter (show all). A slug passes if it belongs to ANY
- * selected sprint. The NO_SPRINT sentinel matches slugs that belong to NO
- * sprint.
- *
- * This is the core logic shared by the Board tab's `passesSprintFilter` and
- * the Delivery tab's sprint filter. A `Card` joins on `card.slug`; an `AgentRow`
- * joins on `row.plan`. One predicate, one answer — so the three tabs cannot
- * drift into disagreeing about membership.
- *
- * The plan "the-sprint-filter-says-what-it-filters" measured: the Delivery tab
- * filtered on `r.sprint === '' || sprintFilter.has(r.sprint)`, which admitted
- * 53 plan rows (slices/branches with empty sprint fields) alongside the 2
- * genuine plan-less rows. This function joins on the sprint file's membership
- * list instead.
- *
- * @param planSlug - the plan's slug (e.g. "done-means-delivered"); "" for
- *   plan-less rows
- * @param selected - the sprint slugs selected by the user; empty = no filter
- * @param membership - the lookup built by {@link sprintMembershipLookup}
- */
-export function slugPassesSprintFilter(
-  planSlug: string,
-  selected: string[],
-  membership: Map<string, Set<string>>,
-): boolean {
-  if (selected.length === 0) return true;
-
-  // Is this slug a member of any sprint at all?
-  let inAnySprint = false;
-  for (const members of membership.values()) {
-    if (members.has(planSlug)) {
-      inAnySprint = true;
-      break;
-    }
-  }
-
-  // Check each selected sprint
-  for (const sprintSlug of selected) {
-    if (sprintSlug === NO_SPRINT) {
-      // The "No sprint" selection matches slugs NOT in any sprint
-      if (!inAnySprint) return true;
-    } else {
-      // Check if the sprint has this plan in its membership
-      const members = membership.get(sprintSlug);
-      if (members?.has(planSlug)) return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Does the Delivery tab's sprint filter let this row through without asking about
- * membership?
- *
- * Two kinds of row are exempt: the release row (`kind: 'release'`) and a PR row
- * that names no plan (`kind: 'pr'` with `plan === ''`). Every other row is
- * decided by {@link slugPassesSprintFilter} on its `plan`. A plan-less row of
- * any other kind — a loose `branch`, for example — is not exempt, and against a
- * selected sprint it is hidden.
- *
- * The row's mark and the control's count both read this predicate, so the two
- * cannot disagree about which rows were exempted.
- *
- * @param row - the row's kind and plan slug
- * @returns true when the filter passes the row unconditionally
- */
-export const rowIsSprintExempt = (row: Pick<AgentRow, 'kind' | 'plan'>): boolean =>
-  row.kind === 'release' || (row.kind === 'pr' && row.plan === '');

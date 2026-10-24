@@ -9,6 +9,7 @@ import { boardTabOf, type BoardTab } from '@plot-pm/domain/rules/board-tab';
 import { planLinkClick } from '@plot-pm/domain/rules/plan-link-click';
 import { revealsReleased } from '@plot-pm/domain/rules/workflow-phases';
 import type { DiscoveryShow } from '@plot-pm/domain';
+import { sanitizeSelection } from '@plot-pm/domain/rules/sprint-selection';
 import { StoriesTab } from './components/StoriesTab.js';
 import { StoryModal } from './components/StoryModal.js';
 import { BLOCKED_REASON, UnreachableOverlay } from './components/UnreachableOverlay.js';
@@ -23,7 +24,6 @@ import {
   NO_SPRINT,
   NO_STORY,
   readList,
-  sanitizeSelection,
   sprintFilterOptions,
   sprintMembershipLookup,
   withCounts,
