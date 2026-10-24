@@ -1,5 +1,28 @@
 # @plot-pm/domain
 
+## 0.3.4
+
+### Patch Changes
+
+- [#2564](https://github.com/plot-pm/plot/pull/2564) [`a94a7ab`](https://github.com/plot-pm/plot/commit/a94a7ab52ddc3bcb0a2650b232dd3084cce432d3) Thanks [@jwloka](https://github.com/jwloka)! - Bounded the two ways `scaleUp` could hold a scale-up slot forever ([#2486](https://github.com/plot-pm/plot/issues/2486)). A `--start` launch with no recorded pid yet now counts for only `launchGraceMs` (30 s) past its own `startedAt`, not `Worker bound`'s 8 h — a launch whose agent never starts now frees its slot within the daemon's own tick rather than holding it for a working day. A launch WITH a stamped, live pid now ages out too, through a new `Launched pid bound` `## Plot Config` key (default 28800 s): a reused pid left in an old manifest no longer inflates the running count forever. `launchedUnregisteredCount` moved from the fleet package into `@plot-pm/domain`'s `rules/queue.ts` as a pure function taking `alive` and `now` as readings, and `queue-reading.ts`'s `readQueue` now requires its caller to supply `alive` explicitly rather than defaulting to the real process table.
+
+  <!--
+  plan: docs/plans/2026-10-24-fleet-supervisor-holds-scale-slots-too.md
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#2538](https://github.com/plot-pm/plot/pull/2538) [`f2bc395`](https://github.com/plot-pm/plot/commit/f2bc395ac79e61c72fed506cf8ca65367da46021) Thanks [@jwloka](https://github.com/jwloka)! - `startImplement` captures the main checkout's branch before running `/plot-implement` and restores it once the run ends — on success, on a failed run, and on the `IMPLEMENT_TIMEOUT_MS` bound kill alike. A checkout left on a slice branch by a prior `/api/implement` run, as happened on 2026-10-20, previously stayed there until a person intervened; a second run could then commit its own brief onto that stranded branch. The restore reads and checks out the branch through two new `Trees` port methods, `currentBranchSync` and `checkoutSync`, rather than calling `git` directly from `packages/fleet/src/shared/implement-run.ts` — the direct calls tripped CI's "One place reaches a process" ratchet, which only adapter code may cross.
+
+  <!--
+  plan: docs/plans/2026-10-24-implement-leaves-the-main-checkout-on.md
+  bumps:
+    skills:
+      plot: patch
+      plot-implement: patch
+  -->
+
 ## 0.3.3
 
 ### Patch Changes
