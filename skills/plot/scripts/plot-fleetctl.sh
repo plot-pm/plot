@@ -639,6 +639,21 @@ retire_old_label() {
   echo "  unloaded and removed"
 }
 
+# Which checkout a supervisor loaded under the DEFAULT label serves, asked only
+# when `$LABEL` has been overridden away from that default — same shape as
+# `retire_old_label`'s shadow, and the same reason: every `supervisor_*`
+# function reads the global `$LABEL` rather than taking a parameter, so asking
+# about a label other than the resolved one means shadowing it in a
+# function-local scope rather than passing it through. Prints `supervisor_
+# checkout`'s three-way answer (`this <dir>` / `another <dir>` / `unknown`), or
+# nothing when `$LABEL` already IS the default — there is nothing extra to ask.
+default_label_checkout() {
+  [ "$LABEL" != com.plot-pm.fleetd ] || return 0
+  local LABEL=com.plot-pm.fleetd UNIT_NAME=plot-fleetd
+  supervisor_loaded || return 0
+  supervisor_checkout
+}
+
 # THE TWO READINGS, RESOLVED TOGETHER — which is what settles the fresh-clone
 # case. `.plot/state/` is machine-local and gitignored, so a machine that never
 # ran `--start` has no marker either; the marker ALONE cannot tell that machine
@@ -1080,21 +1095,39 @@ if [ "$mode" = "start" ]; then
   #
   # THE REFUSAL NAMES WHOSE SUPERVISOR HOLDS THE LABEL, and it refuses on all
   # three answers. Only the text differs; nothing is unloaded or written.
-  if supervisor_loaded; then
-    served=$(supervisor_checkout)
-    case "$served" in
+  #
+  # THE DEFAULT LABEL IS CHECKED TOO, when a configured `Fleet label` resolved
+  # `$LABEL` away from it. A checkout that declared the key but still has a
+  # supervisor loaded under the default — e.g. right after the key was added
+  # but before anything unloaded that unit — is invisible to a check that only
+  # asks about `$LABEL`: `--start` would load a SECOND supervisor, and two
+  # supervisors now watch one estate's queue concurrently.
+  #
+  # ONLY `this <dir>` REFUSES HERE. The default label serving another checkout,
+  # or nobody, is not this checkout's problem — same reasoning `supervisor_
+  # checkout`'s three-way split already carries for `$LABEL` itself; this just
+  # reuses the `this \*` arm rather than writing a second refusal shape.
+  refuse_label() { # $1=the label this refusal names $2=supervisor_checkout's answer for it
+    case "$2" in
       this\ *)
-        printf "plot-fleetctl: '%s' is already loaded, serving THIS repository (%s)\n  The fleet is already supervised here. See it: /plot-fleet --status\n  To restart it: /plot-fleet --stop, then /plot-fleet --start\n" "$LABEL" "${served#this }" >&2
+        printf "plot-fleetctl: '%s' is already loaded, serving THIS repository (%s)\n  The fleet is already supervised here. See it: /plot-fleet --status\n  To restart it: /plot-fleet --stop, then /plot-fleet --start\n" "$1" "${2#this }" >&2
         ;;
       another\ *)
-        printf "plot-fleetctl: '%s' is already loaded, serving ANOTHER checkout (%s)\n  This repository is %s. That supervisor is not yours to stop.\n  Give this checkout its own label — skills/plot/units/README.md\n" "$LABEL" "${served#another }" "$repo_root" >&2
+        printf "plot-fleetctl: '%s' is already loaded, serving ANOTHER checkout (%s)\n  This repository is %s. That supervisor is not yours to stop.\n  Give this checkout its own label — skills/plot/units/README.md\n" "$1" "${2#another }" "$repo_root" >&2
         ;;
       *)
-        printf "plot-fleetctl: '%s' is already loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it may be another checkout's.\n  Read it before stopping it: %s\n  Or, for a second checkout, give it its own label — skills/plot/units/README.md\n" "$LABEL" "$plat" "$(read_cmd)" >&2
+        printf "plot-fleetctl: '%s' is already loaded, and which checkout it serves cannot be determined\n  %s names no working directory for it, so it may be another checkout's.\n  Read it before stopping it: %s\n  Or, for a second checkout, give it its own label — skills/plot/units/README.md\n" "$1" "$plat" "$(read_cmd)" >&2
         ;;
     esac
+  }
+  if supervisor_loaded; then
+    refuse_label "$LABEL" "$(supervisor_checkout)"
     exit 1
   fi
+  default_served=$(default_label_checkout)
+  case "$default_served" in
+    this\ *) refuse_label com.plot-pm.fleetd "$default_served"; exit 1 ;;
+  esac
 
   if [ "$dry_run" = 1 ]; then
     printf "state: %s\nwould fill and load %s (%s)\n  node:      %s (major %s, pinned %s)\n  harness:   %s (on the unit's PATH after node's directory: %s)\n  fleetd:    %s\n  repo:      %s\nwould then start agents: plot-dispatch.sh --start %s\n" "$(fleet_install_state)" "$LABEL" "$plat" "$node_bin" "$have" "$want" "$harness_bin" "$harness_dir" "$fleetd" "$repo_root" "${start_count:-(default)}"

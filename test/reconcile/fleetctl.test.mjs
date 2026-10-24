@@ -1243,6 +1243,16 @@ test('--status reports its install state ON the summary line, in every state', (
  * @param opts.loaded - `false` not loaded, `true` loaded with a live pid, `'no-pid'` loaded with none
  * @returns the directory to prepend to `PATH`
  */
+/**
+ * @param opts.loaded - `true`/`'no-pid'` answers loaded for WHATEVER label is
+ *   asked, as every pre-existing caller needs (none of them key by label).
+ *   `{ label, workdir }` answers loaded, with that working directory line,
+ *   ONLY for that one label — every other label still gets launchd's real 113
+ *   — which is what a test needs when two labels are in play: the resolved
+ *   `$LABEL` and the default `com.plot-pm.fleetd` it was overridden away
+ *   from. `workdir` of `null` omits the working-directory line (the "cannot
+ *   determine" case `supervisor_checkout` reads as `unknown`).
+ */
 function stubPlatform(box, { kernel = 'Darwin', loaded = false } = {}) {
   const bin = path.join(box, 'stub-bin');
   fs.mkdirSync(bin, { recursive: true });
@@ -1264,13 +1274,28 @@ function stubPlatform(box, { kernel = 'Darwin', loaded = false } = {}) {
   // `list` ANSWERS FROM THE FIXTURE, for the second block's label reading,
   // which finds a supervisor's row by its pid. Every other subcommand is
   // unchanged.
-  write('launchctl', `[ "$1" = list ] && { cat "\${PLOT_TEST_PROCS:-/nonexistent}/launchctl-list" 2>/dev/null; exit 0; }\n${loaded
-    ? `[ "$1" = print ] && [ "${loaded === 'no-pid' ? 'no' : 'yes'}" = yes ] && echo "	pid = 4242"\nexit 0`
-    : 'exit 113'}`);
+  const keyedByLabel = loaded && typeof loaded === 'object';
+  write('launchctl', `[ "$1" = list ] && { cat "\${PLOT_TEST_PROCS:-/nonexistent}/launchctl-list" 2>/dev/null; exit 0; }\n${
+    keyedByLabel
+      ? [
+        '[ "$1" = print ] || exit 113',
+        'case "$2" in',
+        `  */${loaded.label}) ${[
+          'printf \'\\tpid = 4242\\n\'',
+          ...(loaded.workdir === null ? [] : [`printf '\\tworking directory = ${loaded.workdir}\\n'`]),
+          'exit 0',
+        ].join('; ')} ;;`,
+        '  *) exit 113 ;;',
+        'esac',
+      ].join('\n')
+      : loaded
+        ? `[ "$1" = print ] && [ "${loaded === 'no-pid' ? 'no' : 'yes'}" = yes ] && echo "	pid = 4242"\nexit 0`
+        : 'exit 113'
+  }`);
   // `systemctl show -p MainPID --value` answers 0 for a unit with no process,
   // and `supervisor_pid` greps that zero out. So the dead-but-loaded case is
   // the init system's own way of saying the same thing launchd's `-` does.
-  write('systemctl', loaded
+  write('systemctl', loaded && !keyedByLabel
     ? `[ "$1" = show ] && echo ${loaded === 'no-pid' ? 0 : 4242}\nexit 0`
     : 'exit 3');
   writeProcStubs(bin);
@@ -1744,12 +1769,32 @@ test('--dry-run reports the state it would act on, and writes nothing', () => {
 // before anything reaches an init system.
 
 /** Runs `--start` under a Darwin stub and returns the filled plist's `Label`. */
-const startAndReadLabel = (label, env) => {
+/**
+ * @param opts.plotConfig - written as this sandbox's `CLAUDE.md`, for a
+ *   configured `Fleet label` key
+ * @param opts.defaultLoaded - a `{ workdir }` passed through to `stubPlatform`
+ *   as `loaded: { label: 'com.plot-pm.fleetd', workdir }`, so `launchctl
+ *   print` answers LOADED only for the bare default label and absent for the
+ *   resolved `$LABEL` — the two-label case this slice adds. `workdir` may be
+ *   a function receiving the sandbox's own `root`, for "serves this
+ *   checkout". Omitted keeps the flat `stubPlatform` stub, where no label is
+ *   ever loaded.
+ * @param opts.expectRefusal - when true, `--start` is expected to refuse
+ *   before filling a unit, so no plist is asserted into existence.
+ * @param opts.writtenLabel - the label the unit is expected to be filled
+ *   under, when it differs from `PLOT_FLEET_LABEL` (e.g. resolved from a
+ *   `Fleet label` config key instead of the variable).
+ */
+const startAndReadLabel = (label, env, opts = {}) => {
   const { root, box, ctl, guardBin } = sandbox(label);
+  if (opts.plotConfig) fs.writeFileSync(path.join(root, 'CLAUDE.md'), opts.plotConfig);
   const home = fakeHome(box);
-  const bin = stubPlatform(box, {});
+  const bin = stubPlatform(box, opts.defaultLoaded
+    ? { loaded: { label: 'com.plot-pm.fleetd', workdir: typeof opts.defaultLoaded.workdir === 'function' ? opts.defaultLoaded.workdir(root) : opts.defaultLoaded.workdir } }
+    : {});
   const r = run(ctl, ['--start'], root, guardBin, { HOME: home, PATH: withHarness(box, bin, process.env.PATH), ...env });
-  const unitName = `${env.PLOT_FLEET_LABEL ?? 'com.plot-pm.fleetd'}.plist`;
+  if (opts.expectRefusal) return { r };
+  const unitName = `${opts.writtenLabel ?? env.PLOT_FLEET_LABEL ?? 'com.plot-pm.fleetd'}.plist`;
   const target = path.join(home, 'Library', 'LaunchAgents', unitName);
   assert.ok(fs.existsSync(target), `no unit was filled at ${target}:\n${r.out}`);
   const unit = fs.readFileSync(target, 'utf8');
@@ -1790,17 +1835,6 @@ test('label: the Fleet label config key is read when the variable is unset', () 
   assert.equal(label, 'com.example.key-only', 'the config key did not reach the unit');
 });
 
-test('label: neither the variable nor the key falls back to the hardcoded default', () => {
-  const { root, box, ctl, guardBin } = sandbox('label-neither');
-  const home = fakeHome(box);
-  const bin = stubPlatform(box, {});
-  const r = run(ctl, ['--start'], root, guardBin, { HOME: home, PATH: withHarness(box, bin, process.env.PATH) });
-  const target = path.join(home, 'Library', 'LaunchAgents', 'com.plot-pm.fleetd.plist');
-  assert.ok(fs.existsSync(target), `no unit was filled at ${target}:\n${r.out}`);
-  const label = fs.readFileSync(target, 'utf8').match(/<key>Label<\/key>\s*<string>([^<]*)<\/string>/)?.[1];
-  assert.equal(label, 'com.plot-pm.fleetd', 'an absent variable and key did not fall back to the default');
-});
-
 test('label: the variable outranks the config key when both are set', () => {
   const { root, box, ctl, guardBin } = sandbox('label-both');
   fs.writeFileSync(path.join(root, 'CLAUDE.md'), '# t\n\n## Plot Config\n\n- **Fleet label:** com.example.key-loses\n');
@@ -1830,6 +1864,59 @@ test('label: --dry-run names the label that --start then writes', () => {
 
   const { label } = startAndReadLabel('label-dry-written', { PLOT_FLEET_LABEL: override });
   assert.equal(label, reported, 'the written Label is not the one --dry-run reported');
+});
+
+// ── A configured label does not hide a default-label supervisor (#2536) ───────
+//
+// `$LABEL` is the only label refusal 4 ever asked about, by name. A checkout
+// that declares its own `Fleet label` key but still has a supervisor loaded
+// under the OLD default `com.plot-pm.fleetd` — e.g. right after the key was
+// added but before anything unloaded that unit — was invisible to that check:
+// `--start` would load a SECOND supervisor under the configured label, and
+// two supervisors now watch one estate's queue concurrently.
+
+const CONFIGURED_LABEL = '# t\n\n## Plot Config\n\n- **Fleet label:** com.example.configured\n';
+
+test('label: a default-label supervisor serving this checkout refuses --start under a configured label', () => {
+  const { r } = startAndReadLabel('label-default-this', {}, {
+    plotConfig: CONFIGURED_LABEL,
+    defaultLoaded: { workdir: (root) => root },
+    expectRefusal: true,
+  });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /'com\.plot-pm\.fleetd' is already loaded, serving THIS repository/, r.out);
+});
+
+test('label: a default-label supervisor serving another checkout does not block --start under a configured label', () => {
+  const other = fs.realpathSync(scratch('plot-fleetctl-other-'));
+  const { label } = startAndReadLabel('label-default-other', {}, {
+    plotConfig: CONFIGURED_LABEL,
+    defaultLoaded: { workdir: other },
+    writtenLabel: 'com.example.configured',
+  });
+  assert.equal(label, 'com.example.configured', 'the configured label did not reach the unit');
+});
+
+test('label: a default-label supervisor cannot be determined and does not block --start under a configured label', () => {
+  const { label } = startAndReadLabel('label-default-unknown', {}, {
+    plotConfig: CONFIGURED_LABEL,
+    defaultLoaded: { workdir: null },
+    writtenLabel: 'com.example.configured',
+  });
+  assert.equal(label, 'com.example.configured', 'the configured label did not reach the unit');
+});
+
+test('label: with no configured Fleet label, a default-label supervisor elsewhere still refuses under ordinary refusal 4', () => {
+  // THE ORDINARY SINGLE-LABEL PATH MUST NOT REGRESS: with no `Fleet label` key,
+  // `$LABEL` already IS `com.plot-pm.fleetd`, so this slice's new check never
+  // runs (`default_label_checkout`'s own guard) — the refusal below is
+  // refusal 4's EXISTING branch, asking about `$LABEL` itself, not the new one.
+  const { r } = startAndReadLabel('label-default-no-key', {}, {
+    defaultLoaded: { workdir: (root) => root },
+    expectRefusal: true,
+  });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /'com\.plot-pm\.fleetd' is already loaded, serving THIS repository/, r.out);
 });
 
 // ── A consumer repository: Plot installed somewhere else (#969) ───────────────
