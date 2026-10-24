@@ -1,0 +1,1 @@
+../2026-10-24-interrogate-cannot-reach-a-draft-plan.md
