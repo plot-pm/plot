@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** infra
 - **Sprint:** bugfix-2-28-1
 - **Issue:** #2360
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-23, Jan Wloka, plan-PR #2362 merged
 - **Started:** 2026-10-23, Jan Wloka, `infra/playwright-install-survives-a-slow-download`
 - **Delivered:** 2026-10-23
+- **Released:** 2026-10-23, v2.28.1
 
 ## Changelog
 
