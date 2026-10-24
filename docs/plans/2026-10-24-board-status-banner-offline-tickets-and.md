@@ -60,7 +60,7 @@ The slices touch disjoint files except `fleet.ts` (slices 1 and 2). Slice 2 ther
 
 ### Shared build
 
-- `bug/board-build-joins-honour-opts` — opts-keyed shared build, post-change start and failed-build rejection (#2097)
+- `bug/board-build-joins-honour-opts` — opts-keyed shared build, post-change start and failed-build rejection (#2097) → #2615
 
 ### Estate cost
 
