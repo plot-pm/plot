@@ -53,7 +53,7 @@ The acceptance test is what the scan reports after a delivery, never whether a l
 
 ### Delivery writes both formats
 
-- `bug/deliver-flips-the-status-block-but` — reproduce on the reporter's fixture, then make `plot-deliver` leave front matter and `## Status` block in agreement or refuse, with a test that asserts the reconcile scan's answer after the delivery.
+- `bug/deliver-flips-the-status-block-but` — reproduce on the reporter's fixture, then make `plot-deliver` leave front matter and `## Status` block in agreement or refuse, with a test that asserts the reconcile scan's answer after the delivery. → #2520
 
 ## Notes
 
