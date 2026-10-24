@@ -56,8 +56,8 @@ The defects fall into five groups.
 
 ### Open Questions
 
-- [ ] Can the Jenkins `tree` query filter `result` server-side, or must `runs` over-fetch? What over-fetch factor bounds the cost against the Jenkins rate budget?
-- [ ] A build whose actions hold several `lastBuiltRevision` records for the asked branch (a merge build): does the first, the last or any record bind the build's sha? The fix for #2322 assumed the entries agree.
+- [x] Can the Jenkins `tree` query filter `result` server-side, or must `runs` over-fetch? What over-fetch factor bounds the cost against the Jenkins rate budget? **Decided (#2548):** the `tree` query selects fields, never values — there is no syntax for `result != NOT_BUILT`. `runs` over-fetches at a fixed **3x** the requested limit and filters `NOT_BUILT`/`ABORTED` client-side in jq before applying the limit. The factor costs response bytes only, never an extra round trip or rate-budget slot: `host_slot_take`/`budget_record_call` charge once per URL path attempt regardless of the `tree=` row count, and a job's full build history is already small (measured: 4855 bytes for five builds).
+- [x] A build whose actions hold several `lastBuiltRevision` records for the asked branch (a merge build): does the first, the last or any record bind the build's sha? The fix for #2322 assumed the entries agree. **Decided (#2548):** the first matching record binds the build's sha, proved by a test where two records both name the asked branch and disagree on sha.
 - [ ] Is an `Instance` line with no host a refusal at `jenkins_resolve_host` or at its callers?
 - [ ] Does fleetd have a hold reason for a refusal from a missing multibranch branch, or does the refusal need one added?
 
@@ -65,7 +65,7 @@ The defects fall into five groups.
 
 ### Sha binding
 
-- `bug/jenkins-sha-runs-bind-by-action` — read branch and sha from the same `lastBuiltRevision` action; key the plain-job match on the asked branch; filter `NOT_BUILT` and `ABORTED` before the limit; rewrite the doc comments <!-- builds: a per-action branch/sha match in jenkins_sha_runs -->
+- `bug/jenkins-sha-runs-bind-by-action` — read branch and sha from the same `lastBuiltRevision` action; key the plain-job match on the asked branch; filter `NOT_BUILT` and `ABORTED` before the limit; rewrite the doc comments <!-- builds: a per-action branch/sha match in jenkins_sha_runs --> → #2548
 
 ### Refusals and credentials
 
