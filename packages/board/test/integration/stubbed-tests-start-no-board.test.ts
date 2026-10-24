@@ -793,7 +793,12 @@ const EXPECTED_FILES = 75;
 // proving the parser reduces a Markdown-link `Story:` field to its text
 // (bug/story-lint-reduces-link-form-story). The file already drove a page via
 // its `../catalogue/build.js` import, so `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 622;
+// 622 → 623 on 2026-10-24: one `it(` in `plan-link-click.browser.test.ts`,
+// for a remembered click whose board later lands without the card, proving
+// the new board-unreachable signal resolves it early (bug/board-client-fetch-
+// bound-and-click). The file already drove a page, so `EXPECTED_FILES` is
+// unchanged.
+const EXPECTED_TESTS = 623;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
