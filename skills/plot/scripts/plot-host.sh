@@ -1081,10 +1081,8 @@ _bb_paged_walk() {
   plot_tmpfile _spool host-paged-walk || return 3
   while [ -n "$_path" ]; do
     _page=$((_page + 1))
-    if [ "$_page" -gt "$BB_BRANCH_QUERY_PAGE_CAP" ]; then
-      echo "plot-host: $_label possibly truncated ($(jq -c -s 'add // [] | length' < "$_spool") rows, page cap $BB_BRANCH_QUERY_PAGE_CAP reached) — $_detail" >&2
-      return 3
-    fi
+    [ "$_page" -le "$BB_BRANCH_QUERY_PAGE_CAP" ] \
+      || { echo "plot-host: $_label possibly truncated ($(jq -c -s 'add // [] | length' < "$_spool") rows, page cap $BB_BRANCH_QUERY_PAGE_CAP reached) — $_detail" >&2; return 3; }
     # `jq` is applied only to a SUCCESSFUL payload. Piping a failed call into it
     # would turn the host's exit code into jq's, and a parse error and a spent
     # quota are not the same fact. A failure on page 2+ returns the same raw
@@ -1092,16 +1090,11 @@ _bb_paged_walk() {
     _out="$(bb "$@" api "$_path")" || return $?
     printf '%s\n' "$_out" | jq -c '.values // []' >> "$_spool" || return 3
     _next="$(printf '%s' "$_out" | jq -r '.next // empty')" || return 3
-    _path=""
-    if [ -n "$_next" ]; then
-      case "$_next" in
-        "$BB_API_BASE"/*) _path="${_next#"$BB_API_BASE"}" ;;
-        *)
-          echo "plot-host: $_label: next page '$_next' is outside $BB_API_BASE; refusing to read past it" >&2
-          return 3
-          ;;
-      esac
-    fi
+    case "$_next" in
+      '') _path="" ;;
+      "$BB_API_BASE"/*) _path="${_next#"$BB_API_BASE"}" ;;
+      *) echo "plot-host: $_label: next page '$_next' is outside $BB_API_BASE; refusing to read past it" >&2; return 3 ;;
+    esac
   done
   jq -c -s 'add // []' < "$_spool"
 }
