@@ -118,8 +118,7 @@ plot_exclude_desk_root() {
   # Already ignored, by a `.gitignore` line /plot-init wrote or by an earlier
   # run. A second rule for a path already ignored is noise in a file people read.
   ( cd -- "$repo" 2>/dev/null && git check-ignore -q ".$line" ) && return 0
-  common=$(cd -- "$repo" 2>/dev/null && git rev-parse --git-common-dir 2>/dev/null) || return 0
-  [ -n "$common" ] || return 0
+  common=$(cd -- "$repo" 2>/dev/null && git rev-parse --git-common-dir 2>/dev/null) || return 0; [ -n "$common" ] || return 0
   case "$common" in /*) ;; *) common="$repo/$common" ;; esac
   exclude="$common/info/exclude"
   if [ -f "$exclude" ] && grep -qxF "$line" "$exclude" 2>/dev/null; then return 0; fi
