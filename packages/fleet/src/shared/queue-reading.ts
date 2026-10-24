@@ -1,7 +1,9 @@
 import {
   behindUnknownLanding,
+  launchedUnregisteredCount,
   planQueue,
   settled,
+  type LaunchedEntry,
   type QueuedBranch,
   type PlanOrderedSlice,
   type QueueAgent,
@@ -24,7 +26,6 @@ import type { PlanRecord, PlanRecordSlice, PortResult } from '@plot-pm/domain';
 import type { SliceRefusal } from '@plot-pm/domain/ports/refused-slices';
 import type { CommitSubject, RemoteHeadAnswer } from '@plot-pm/domain/ports/refs';
 
-import { pidAlive } from './fleet-run.js';
 import type { AgentEntry } from './registry.js';
 
 /**
@@ -45,11 +46,26 @@ export interface QueueWorld {
   /** How many spec runs are going; absent for none. They hold an agent slot, exactly as a verify run does. */
   specRunning?(): number;
   /**
-   * `Worker bound`, in milliseconds — how long a launch with no live pid still
-   * counts as an agent on its way up. Absent falls back to
-   * {@link DEFAULT_LAUNCHED_BOUND_MS}.
+   * How long a launch with NO recorded pid yet still counts as an agent on
+   * its way up, in milliseconds — a short grace against the wrapper's own
+   * fork-and-stamp delay (#2409), never `Worker bound`'s working day (#2486).
+   * Absent falls back to {@link DEFAULT_LAUNCH_GRACE_MS}.
    */
-  launchedBoundMs?(): number;
+  launchGraceMs?(): number;
+  /**
+   * How long a launch WITH a recorded, live pid still counts as an agent,
+   * measured from its own `startedAt`, in milliseconds — a reused pid left in
+   * an old manifest must age out rather than counting forever (#2486). Absent
+   * falls back to {@link DEFAULT_PID_LIVENESS_BOUND_MS}.
+   */
+  pidLivenessBoundMs?(): number;
+  /**
+   * Whether a pid is alive — a reading, never the real process table read
+   * directly: {@link readQueue} never defaults this to {@link pidAlive}
+   * itself, so a test that omits it fails rather than silently reading this
+   * machine's own processes.
+   */
+  alive(pid: string): boolean;
   /** Every plan on the estate, as the plan store parses them. */
   plans(): Promise<readonly PlanRecord[]>;
   /** The remote branches that exist — a ref IS a claim. */
@@ -417,10 +433,10 @@ export const readQueue = async (
     verifying: world.verifying ? world.verifying() : 0,
     specRunning: world.specRunning ? world.specRunning() : 0,
     launchedUnregistered: launchedUnregisteredCount(
-      entries,
-      states,
-      world.launchedBoundMs ? world.launchedBoundMs() : DEFAULT_LAUNCHED_BOUND_MS,
-      undefined,
+      entries.map((entry, at): LaunchedEntry => ({ state: states[at], pid: entry.pid, startedAt: entry.startedAt })),
+      world.launchGraceMs ? world.launchGraceMs() : DEFAULT_LAUNCH_GRACE_MS,
+      world.pidLivenessBoundMs ? world.pidLivenessBoundMs() : DEFAULT_PID_LIVENESS_BOUND_MS,
+      world.alive,
       world.now(),
     ),
   };
@@ -617,37 +633,19 @@ const stateOf = async (entry: AgentEntry, world: QueueWorld): Promise<string> =>
   return (await world.blocked(entry.worktree)) ? 'waiting' : 'running';
 };
 
-/** `Worker bound`'s own default, in milliseconds, where a world answers none. */
-const DEFAULT_LAUNCHED_BOUND_MS = 8 * 60 * 60 * 1000;
+/**
+ * How long a launch with no recorded pid yet still counts, where a world
+ * answers none — generous against the wrapper's fork-and-stamp delay (tens of
+ * milliseconds, measured) and the daemon's own 60 s tick, far short of
+ * `Worker bound`'s working day.
+ */
+const DEFAULT_LAUNCH_GRACE_MS = 30_000;
 
 /**
- * How many registry entries read `state: 'none'` yet are still within reach of
- * their own launch — a `--start` manifest whose wrapper has not yet written a
- * live pid (#2409).
- *
- * **BOUNDED THE SAME WAY `runGoing` BOUNDS A FLEET RUN**: a recorded pid must
- * answer alive; an unrecorded one counts only inside `boundMs` of `startedAt`.
- * An entry already counted in {@link QueueAgent} (any state but `none`) is
- * never read here, so a registered agent is never counted twice.
- *
- * @param entries - the registry's manifests.
- * @param states - each entry's state, in the same order, as {@link stateOf} answered.
- * @param boundMs - how long an unrecorded pid still counts as launching.
- * @param alive - whether a pid is alive; a parameter so a test can pin it.
- * @param now - epoch milliseconds; a parameter so a test can pin it.
- * @returns how many launches still count toward a running total.
+ * How long a launch WITH a recorded, live pid still counts, where a world
+ * answers none — its own `## Plot Config` key rather than `Worker bound`,
+ * because the two answer different questions (#2486): one bounds a hung
+ * agent's own run, this one bounds how long a stamped pid may age in a
+ * manifest before it stops reading as a running agent.
  */
-const launchedUnregisteredCount = (
-  entries: readonly AgentEntry[],
-  states: readonly string[],
-  boundMs: number,
-  alive: (pid: number) => boolean = pidAlive,
-  now: number = Date.now(),
-): number =>
-  entries.filter((entry, at) => {
-    if (states[at] !== 'none') return false;
-    const pid = Number(entry.pid);
-    if (Number.isInteger(pid) && pid > 0) return alive(pid);
-    const startedAt = Date.parse(entry.startedAt);
-    return Number.isFinite(startedAt) && now - startedAt < boundMs;
-  }).length;
+const DEFAULT_PID_LIVENESS_BOUND_MS = 8 * 60 * 60 * 1000;

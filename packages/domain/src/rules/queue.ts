@@ -192,10 +192,10 @@ export interface QueueReadings {
   agents: readonly QueueAgent[];
   /**
    * How many agents a `--start` launched that are not yet counted in
-   * {@link QueueReadings.agents}, bounded to those still within reach — the
-   * caller's job, not this rule's. Each holds a process slot beside the
-   * agents, so `scaleUp` counts it as running; {@link matchQueue} never reads
-   * it. Absent means none.
+   * {@link QueueReadings.agents}, bounded by {@link launchedUnregisteredCount}
+   * to those still within reach of their own launch. Each holds a process
+   * slot beside the agents, so `scaleUp` counts it as running; {@link
+   * matchQueue} never reads it. Absent means none.
    */
   launchedUnregistered?: number;
   /**
@@ -244,6 +244,68 @@ export interface QueueReadings {
    */
   defaultBranchRed?: boolean;
 }
+
+/**
+ * One registry entry, as {@link launchedUnregisteredCount} needs to read it —
+ * the fields {@link QueueAgent}'s own state answer does not already cover.
+ */
+export interface LaunchedEntry {
+  /** The state {@link QueueAgent}'s own reading already gave this entry. */
+  state: string;
+  /** The manifest's recorded pid, `''` where the wrapper has not stamped one yet. */
+  pid: string;
+  /** The manifest's recorded start time, as written — an ISO string, not epoch millis. */
+  startedAt: string;
+}
+
+/**
+ * How many registry entries still count toward a running total though
+ * {@link LaunchedEntry.state} already reads `none` — a launch `scaleUp` must
+ * not forget about between the moment it starts and the moment its own state
+ * catches up (#2409), and a launch or a pid that should stop counting long
+ * before `scaleUp` would otherwise believe (#2486).
+ *
+ * **TWO SEPARATE BOUNDS, FOR TWO SEPARATE RISKS.** A launch with no recorded
+ * pid yet counts only inside `graceMs` of its own `startedAt` — long enough
+ * that a wrapper's fork-and-stamp (tens of milliseconds, measured) is never
+ * mistaken for a launch that failed, short enough that a launch whose agent
+ * never starts frees its slot in the same tick cycle rather than holding it
+ * for a working day. A launch that DOES have a stamped pid counts only while
+ * `alive` answers true AND its `startedAt` is inside `pidBoundMs` — a reused
+ * pid in a manifest nobody cleared must age out rather than counting forever.
+ *
+ * **ABSENT IS NOT FALSE.** An unparseable `startedAt` (`Number.isFinite`
+ * guard) counts as not launching, the same reading {@link settled} and
+ * {@link planQueue} give an unanswered question elsewhere in this file.
+ *
+ * **READINGS AS VALUES, NOT PORTS.** `alive` and `now` are parameters, never
+ * read from the process table or the clock here — this function does no I/O,
+ * so a test pins both and never touches the real machine.
+ *
+ * @param entries - the registry's own entries, carrying only the fields this
+ *   rule reads.
+ * @param graceMs - how long a launch with no recorded pid still counts,
+ *   measured from its own `startedAt`.
+ * @param pidBoundMs - how long a launch WITH a recorded, live pid still
+ *   counts, measured from the same `startedAt`.
+ * @param alive - whether a pid is alive; the caller's `kill -0` or equivalent.
+ * @param now - epoch milliseconds; a parameter so a test can pin it.
+ * @returns how many entries still count toward a running total.
+ */
+export const launchedUnregisteredCount = (
+  entries: readonly LaunchedEntry[],
+  graceMs: number,
+  pidBoundMs: number,
+  alive: (pid: string) => boolean,
+  now: number,
+): number =>
+  entries.filter((entry) => {
+    if (entry.state !== 'none') return false;
+    const startedAt = Date.parse(entry.startedAt);
+    if (!Number.isFinite(startedAt)) return false;
+    if (entry.pid !== '') return alive(entry.pid) && now - startedAt < pidBoundMs;
+    return now - startedAt < graceMs;
+  }).length;
 
 /** One slice, handed to one agent. */
 export interface Assignment {

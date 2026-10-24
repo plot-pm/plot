@@ -72,6 +72,21 @@ export const boundSecondsOf = (opts: ConfigReadOptions, defaultSeconds: number):
 };
 
 /**
+ * One `## Plot Config` key's seconds, or `defaultSeconds` where the key is
+ * absent or not a positive whole number — {@link boundSecondsOf} generalised
+ * to a caller-named key, for a bound that is not `Worker bound`.
+ *
+ * @param opts - the repository and scripts directory to read through.
+ * @param key - the `## Plot Config` key.
+ * @param defaultSeconds - what to answer when the key is absent or does not parse.
+ * @returns the bound, in seconds.
+ */
+export const boundSecondsOfKey = (opts: ConfigReadOptions, key: string, defaultSeconds: number): number => {
+  const value = Number(readConfig(opts, key, String(defaultSeconds)));
+  return Number.isInteger(value) && value > 0 ? value : defaultSeconds;
+};
+
+/**
  * Reads a run-kind's state file as JSON, falling back to `empty` where no
  * file exists.
  *
