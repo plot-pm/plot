@@ -54,7 +54,7 @@ The refusal text in `report()` and the places that tell a desk how to pay for gr
 
 ### Count
 
-- `bug/the-shell-lines-gate-counts-a` — change the unit in `scripts/check-shell-lines.sh` (`count_rev`, `--per-file`) so joining does not lower it; update `test/reconcile/shell-lines.test.mjs` with a joined-line case that fails before the change and passes after, and update the refusal text and the desk-facing instructions to name joining as not a payment <!-- builds: a joining-proof size unit in check-shell-lines.sh -->
+- `bug/the-shell-lines-gate-counts-a` — change the unit in `scripts/check-shell-lines.sh` (`count_rev`, `--per-file`) so joining does not lower it; update `test/reconcile/shell-lines.test.mjs` with a joined-line case that fails before the change and passes after, and update the refusal text and the desk-facing instructions to name joining as not a payment <!-- builds: a joining-proof size unit in check-shell-lines.sh --> → #2636
 
 ## Notes
 
