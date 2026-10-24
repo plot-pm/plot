@@ -21,7 +21,7 @@ const freeWaitRanOut: AgentLoopReadings = {
   maxStartRetries: 2, markerWritten: false, markerText: '', handBack: null, checksResumeId: '',
   handBackSummary: '', localChecks: null, sliceRuns: 0, sliceMaxRuns: 12, backgroundDropResumed: false,
   sliceCostUsd: null, sliceMaxSpendUsd: null, resetRefusals: [], deskBranch: '', pushed: false, prOpen: false,
-  commitBeyondClaim: 'unanswerable', permissionDenials: 'unanswerable', checks: null, checksPassed: null, tip: 'pushed', correctionAttempts: 0,
+  commitBeyondClaim: 'unanswerable', permissionDenials: 'unanswerable', finalText: '', checks: null, checksPassed: null, tip: 'pushed', correctionAttempts: 0,
   correctionBudget: 2, pr: null, mergeable: null, mergeConflictAtEntry: false, correctionText: '', resumeId: '', passAt: '2026-10-15T08:40:00.000Z',
   worktree: '/estate/.worktrees/free-04e1f562', session: 'free-04e1f562',
 };

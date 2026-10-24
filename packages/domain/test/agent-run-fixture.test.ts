@@ -55,6 +55,7 @@ const freeLoop: AgentLoopReadings = {
   prOpen: false,
   commitBeyondClaim: 'unanswerable',
   permissionDenials: 'unanswerable',
+  finalText: '',
   checks: null,
   checksPassed: null,
   tip: 'pushed',
