@@ -43,15 +43,15 @@ The change stays inside `plot-host.sh`, the one place that talks to the host CLI
 
 ### Open Questions
 
-- [ ] Create a missing label on add, or fail with a named refusal? Creating writes to the repository's label set, which the issue's expected-behaviour text allows ("or creates a missing phase label before it adds it"). The colour and description of a created label need a decision.
-- [ ] Read-then-edit costs one extra host call per write. Does the write read the labels from the issue-index file (`.plot/state/index/issues.json`) instead, and does that file carry labels?
-- [ ] Does an existing issue with two phase labels (as #2054 had) get repaired by the next write? The candidate approach removes all other phase labels the issue carries, so yes.
+- [x] Create a missing label on add, or fail with a named refusal? Creating it. The created label takes one fixed colour, `ededed`, and a description of the form `Plot plan phase: <phase>` — neither is a config key.
+- [x] Read-then-edit costs one extra host call per write. Does the write read the labels from the issue-index file (`.plot/state/index/issues.json`) instead, and does that file carry labels? No — confirmed via `grep -n labels packages/fleet/src/shared/issue-refresh.ts` (no match): the index carries no label field, and *A Decision Reads The Index* rules out a stale reading deciding a write in any case. The write reads the issue's labels live, through `gh issue view`.
+- [x] Does an existing issue with two phase labels (as #2054 had) get repaired by the next write? Yes — confirmed by test: an issue seeded with `plan:draft` and `plan:approved` ends a `released` write carrying exactly `plan:released`.
 
 ## Slices
 
 ### Label write
 
-- `bug/plan-state-write-fails-when-a` — `issue-label` removes only carried labels, creates a missing label before the add, and applies both in one edit; tests cover a repository missing `plan:design` and `plan:released`
+- `bug/plan-state-write-fails-when-a` — `issue-label` removes only carried labels, creates a missing label before the add, and applies both in one edit; tests cover a repository missing `plan:design` and `plan:released` → #2553
 
 ## Notes
 
