@@ -67,7 +67,7 @@ Four slices, grouped by the code each touches, so each PR stays reviewable and n
 
 ### Sprint readers
 
-- `bug/sprint-readers-misread-goal-and-slug` — `sprintGoal` reads the typed `>` goal first; `plot-review-status.sh` handles an unknown slug and the `[x]` checkbox.
+- `bug/sprint-readers-misread-goal-and-slug` → #2596 — `plot-review-status.sh` handles an unknown slug and the `[x]` checkbox. Does not change `sprintGoal`'s order: `sprint-goal.test.ts` pins bold-before-quote on purpose (PR #2043's re-review, 16 of 20 sprint files read motivation in the `>` block), so this line's original "reads the typed `>` goal first" was stale and was not implemented.
 
 ### Story lint
 
