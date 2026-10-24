@@ -5263,16 +5263,15 @@ case "$op" in
       # the board. jira_check turns that 404 into exit 3 with empty stdout.
       jira_require_config
       body_json="$(jira_ask "/rest/api/2/issue/$num" \
-               -G --data-urlencode "fields=summary,description,status")" || exit $?
-      # `state` FOLLOWS issue-list's OWN WORD: `statusCategory.name == "Done"`
-      # is closed, same mapping as the list's open/closed reader — a second
-      # vocabulary here would drift from the one issue-list already keeps.
+               -G --data-urlencode "fields=summary,description,status,resolution")" || exit $?
+      # `state`: closed when `statusCategory.key` is `done` (`name` is localised)
+      # or a resolution is set; absent is open.
       printf '%s' "$body_json" | jq -c --arg base "$(tracker_base_url)" '{
           number: .key,
           title: (.fields.summary // ""),
           body: (.fields.description // ""),
           url: ($base + "/browse/" + .key),
-          state: (if .fields.status.statusCategory.name == "Done" then "closed" else "open" end)
+          state: (if .fields.status.statusCategory.key == "done" or .fields.resolution != null then "closed" else "open" end)
         }'
     elif [ "$be" = "github" ]; then
       if out="$(gh issue view "$num" --json number,title,body,url,state 2>"$HOST_ERR")"; then
@@ -5314,11 +5313,10 @@ case "$op" in
       url="$(grep -oE 'https?://[^[:space:]]+' <<<"$(grep -F 'View this issue on Bitbucket' <<<"$raw")" | head -1)"
       # Line 2 is `<STATE> • <reporter> opened <createdOn>` — the same badge
       # word `issue-list` strips from its own row, read here instead of
-      # discarded. RESOLVED/CLOSED close it; everything else (including states
-      # this vocabulary has no word for) stays open, the same default
-      # issue-list's mapping leaves for an unmapped badge.
-      bb_state="$(sed -n '2p' <<<"$raw" | sed -E 's/^([A-Z ]+)[[:space:]]*•.*$/\1/; s/[[:space:]]+$//')"
-      case "$bb_state" in RESOLVED|CLOSED) state=closed ;; *) state=open ;; esac
+      # discarded. The five finished words close it; ON HOLD, NEW, OPEN and any
+      # state this vocabulary has no word for stay open, as issue-list leaves them.
+      bb_state="$(sed -n '2p' <<<"$raw" | sed -E 's/^[[:space:]]*([A-Z ]+)[[:space:]]*•.*$/\1/; s/[[:space:]]+$//')"
+      case "$bb_state" in RESOLVED|CLOSED|INVALID|DUPLICATE|WONTFIX) state=closed ;; *) state=open ;; esac
       # Body is the block between the metadata head and the footer. The head is
       # the title + the two fixed meta lines (state, Type:) plus an optional
       # Component/Milestone/Version line; the tail is the footer. This is the
