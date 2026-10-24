@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Started:** 2026-10-24, jwloka, `bug/bitbucket-listings-follow-next`
+- **Started:** 2026-10-24, Jan Wloka, `bug/github-open-lookup-asks-per-branch`
 
 ## Changelog
 
