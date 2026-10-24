@@ -5443,12 +5443,9 @@ case "$op" in
       # ABSENT IS NOT FALSE. A status GET with no name read is neither fact —
       # exit with jira_ask's own failure code rather than guessing one.
       [ -n "$cur" ] || { echo "plot-host: issue-status: the status read named no current status" >&2; exit 3; }
-      if [ "$(tr '[:upper:]' '[:lower:]' <<<"$cur")" = "$(tr '[:upper:]' '[:lower:]' <<<"$want")" ]; then
-        printf '%s\n' 'already'
-      else
-        avail="$(printf '%s' "$body_json" | jq -r '[.transitions[]?.name] | join(", ")')"
-        printf 'unreachable\t%s\t%s\n' "$cur" "$avail"
-      fi
+      jq -rn --argjson transitions "$body_json" --arg cur "$cur" --arg want "$want" \
+        'if ($cur | ascii_downcase) == ($want | ascii_downcase) then "already"
+         else "unreachable\t\($cur)\t\([$transitions.transitions[]?.name] | join(", "))" end'
       exit 0
     fi
     jira_ask "/rest/api/2/issue/$key/transitions" \
