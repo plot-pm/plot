@@ -24,7 +24,7 @@
 
 Follow-up findings from plot-review on ten merged PRs (#2117, #2166, #2180, #2199, #2231, #2244, #2255, #2264, #2288, #2309), checked against `origin/main` at `84b1638e4` on 2026-10-24, are collected in issue #2478: 12 MEDIUM and 9 LOW, 20 of them in `skills/plot/scripts/plot-host.sh` (lines 1737–2818) and 3 in `test/reconcile/host.test.mjs`.
 
-The defects fall into four groups.
+The defects fall into five groups.
 
 - **Positional pairing.** `jenkins_sha_runs` builds `br` and `shas` as two flat lists and joins them with `[.br, .shas] | transpose`. A revision with zero or several branches shifts every later pair, so the asked branch can bind the merge-base sha. The plan an implementer reads then tells them to reuse that sha (#2231, #2244, #2180).
 - **Wrong key on a plain job.** When `Default branch job` routes the default branch to a plain job, the match keys on the last segment of the job path, not on the asked branch (#2244, #2309).
