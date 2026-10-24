@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2477
@@ -15,6 +15,7 @@
 - **Started:** 2026-10-24, Jan Wloka, `bug/board-build-joins-honour-opts`
 - **Started:** 2026-10-24, Jan Wloka, `bug/board-estate-runs-once-per-head`
 - **Started:** 2026-10-24, Jan Wloka, `bug/board-client-fetch-bound-and-click`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 

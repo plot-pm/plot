@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Board, Card, Fleet, SprintCard, StoryCard } from '../contract/schema.js';
 import { AgentList } from './components/AgentList.js';
 import { BoardView } from './components/Board.js';
@@ -17,7 +17,7 @@ import { MultiSelect } from './components/ui/MultiSelect.js';
 import { listenForEvents } from './lib/event-listener.js';
 import { synthesizedSprintMembers } from './lib/sprint.js';
 import { boardForReader, readMineOnly, readerFrom, writeMineOnly } from './lib/agent-rows/mine-filter.js';
-import { planFileForSlug } from './lib/agent-rows/plan-level-row.js';
+import { planFileForSlug, planFileFromFleet } from './lib/agent-rows/plan-level-row.js';
 import { archivedOn, boardPath, withArchived } from './lib/archived-toggle.js';
 import { showOf, withShow } from './lib/show-toggle.js';
 import {
@@ -147,10 +147,13 @@ const PENDING_PLAN_TIMEOUT_MS = 30_000;
  *
  * 12 s is about 2.5x the worst `node --watch` restart measured for
  * `POLL_TIMEOUT_MS` above (9.1 s) — a restart still counts as a failure well
- * before the next 30 s poll — and leaves 18 s of slack before the board's own
- * cadence fires again, which is what keeps at most one board request live at
- * a time: a poll that is still outstanding at 12 s is abandoned and counted
- * as a failure before its successor at 30 s could ever overtake it.
+ * before the next 30 s poll.
+ *
+ * This bound alone does NOT keep at most one board request live: the 4 s
+ * starting-poll (`STARTING_POLL_MS`) and a channel-triggered refetch
+ * (`listenForEvents`) can both fire well inside 12 s. What keeps the overlap
+ * from happening is `boardLoadInFlight` below — a request already outstanding
+ * makes `load()` skip starting a second one rather than merely racing it.
  */
 const BOARD_POLL_TIMEOUT_MS = 12_000;
 
@@ -343,6 +346,24 @@ export function App() {
   const [boardFailures, setBoardFailures] = useState(0);
   const [fleetFailures, setFleetFailures] = useState(0);
 
+  // Whether a `/api/board` request has failed to reach the server at all —
+  // the BOARD's own signal, counted on the board's own cadence, and distinct
+  // from `fleetUnreachable` for the reason `boardFailures`/`fleetFailures`
+  // are two counters rather than one: a board poll that has not answered YET
+  // is not the same fact as a board poll that has FAILED, and only the
+  // pending-click path below needs the latter without waiting for
+  // `DIM_AFTER_FAILURES` consecutive misses.
+  const [boardUnreachable, setBoardUnreachable] = useState(false);
+
+  // Whether a `/api/board` request is currently outstanding. A ref rather
+  // than state: `load()` reads and writes it synchronously inside its own
+  // body, and a `useCallback` with an empty dependency array would otherwise
+  // close over a stale value from the render that created it. This is what
+  // stops the 4 s starting-poll or a channel refetch from starting a SECOND
+  // request while the first has not yet answered — the overlap
+  // `BOARD_POLL_TIMEOUT_MS`'s comment above warns about.
+  const boardLoadInFlight = useRef(false);
+
   /**
    * Whether a fetch failure means the SERVER IS NOT THERE.
    *
@@ -359,6 +380,13 @@ export function App() {
    * see it.
    */
   const load = useCallback(async () => {
+    // The guard the comment on `BOARD_POLL_TIMEOUT_MS` promises: a request
+    // already outstanding makes every caller — the resting poll, the 4 s
+    // starting-poll, and a channel refetch alike — skip starting a second
+    // one, rather than letting two land out of order and show older data
+    // than the screen already has.
+    if (boardLoadInFlight.current) return;
+    boardLoadInFlight.current = true;
     let reached = true;
     try {
       let res: Response;
@@ -387,13 +415,20 @@ export function App() {
       setBoard(data);
       setError(null);
       setBoardFailures(0);
+      setBoardUnreachable(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       // A bad answer resets the silence count: the server is there. Without
       // this a 500 would creep the page toward an overlay that would then tell
       // the reader to restart something already running.
       setBoardFailures((n) => (reached ? 0 : n + 1));
+      // The FIRST failure is enough, same reasoning as `fleetUnreachable`:
+      // what a false alarm costs here is a pending click that resolves to
+      // navigation instead of waiting out `PENDING_PLAN_TIMEOUT_MS` for an
+      // answer that was only ever a poll cycle away.
+      setBoardUnreachable(!reached);
     } finally {
+      boardLoadInFlight.current = false;
       // Bumped even on a failed poll: the button is counting attempts to learn
       // the outcome, and an attempt that failed still did not confirm anything.
       // Without this a dropped poll would leave the button spinning forever.
@@ -858,12 +893,11 @@ export function App() {
   const onOpenPlanFile = useCallback(
     (planFile: string): boolean => {
       const card = cardForPlanFile(planFile);
-      const decision = planLinkClick(board !== null, card !== null);
-      if (decision === 'open') {
-        setOpenPlan(card as Card);
+      if (card) {
+        setOpenPlan(card);
         return true;
       }
-      if (decision === 'wait') {
+      if (planLinkClick(board !== null, false) === 'wait') {
         setPendingPlan(planFile);
         return true;
       }
@@ -881,8 +915,8 @@ export function App() {
     const card = cardForPlanFile(pendingPlan);
     const file = pendingPlan;
     setPendingPlan('');
-    if (planLinkClick(true, card !== null) === 'open') {
-      setOpenPlan(card as Card);
+    if (card) {
+      setOpenPlan(card);
     } else {
       location.assign(`/plan/${encodeURIComponent(file)}`);
     }
@@ -901,6 +935,19 @@ export function App() {
     }, PENDING_PLAN_TIMEOUT_MS);
     return () => clearTimeout(id);
   }, [pendingPlan]);
+
+  // The board's OWN unreachable signal, not the fleet's — `boardUnreachable`
+  // is counted on the board's own poll, so it can go true well before the
+  // deadline above fires. A click remembered while the board is already known
+  // unreachable (or that becomes so while waiting) has no reason to sit out
+  // the rest of `PENDING_PLAN_TIMEOUT_MS`: nothing is coming, so the fallback
+  // navigation can run as soon as that is known rather than merely assumed.
+  useEffect(() => {
+    if (!pendingPlan || !boardUnreachable) return;
+    const file = pendingPlan;
+    setPendingPlan('');
+    location.assign(`/plan/${encodeURIComponent(file)}`);
+  }, [pendingPlan, boardUnreachable]);
 
   /**
    * Close the modal, switch to the board, filter to the plan's story, and land
@@ -1488,15 +1535,23 @@ export function App() {
           onClose={() => setOpenSprint(null)}
           onOpenPlan={(slug) => {
             const card = allCards.find((c) => c.slug === slug) ?? null;
-            if (planLinkClick(true, card !== null) === 'open') {
+            if (card) {
               setOpenSprint(null);
-              setOpenPlan(card as Card);
+              setOpenPlan(card);
               return;
             }
-            // No card for this slug — the sprint member names a plan the
-            // board does not hold a card for; there is no `/plan/<file>` path
-            // to fall back to (only the slug, not the file), so the modal
-            // stays open rather than navigating nowhere.
+            // No card for this slug. The fleet's own payload may still name
+            // a plan file for it (a branch row or a draft plan) independent
+            // of whether the board has a card — the same lookup a plan-level
+            // row already uses. Falling back there is better than staying on
+            // a slug the modal cannot otherwise do anything with.
+            const file = fleet ? planFileFromFleet(slug, fleet.rows, fleet.draftPlans) : '';
+            if (file) {
+              setOpenSprint(null);
+              location.assign(`/plan/${encodeURIComponent(file)}`);
+            }
+            // Neither a card nor a fleet-named file exists for this slug —
+            // the modal stays open rather than navigating nowhere.
           }}
         />
       )}

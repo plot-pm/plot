@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2630
@@ -14,6 +14,7 @@
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2631 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/a-mixed-reset-leaves-the-main-gate`
 - **Started:** 2026-10-25, Jan Wloka, `bug/a-mixed-reset-leaves-the-main-brief`
+- **Delivered:** 2026-10-25
 
 ## Changelog
 
@@ -67,7 +68,7 @@ Design direction, per the layering rule in `CLAUDE.md` (a gate over a rule):
 
 ### Brief step
 
-- `bug/a-mixed-reset-leaves-the-main-brief` — the brief and implement steps fetch before committing, skip the commit when `origin/main` holds the brief, and re-cut in a disposable worktree after a rejected push <!-- waits: bug/a-mixed-reset-leaves-the-main-gate -->
+- `bug/a-mixed-reset-leaves-the-main-brief` — the brief and implement steps fetch before committing, skip the commit when `origin/main` holds the brief, and re-cut in a disposable worktree after a rejected push <!-- waits: bug/a-mixed-reset-leaves-the-main-gate --> → #2651
 
 ## Notes
 

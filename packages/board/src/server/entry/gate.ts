@@ -15,6 +15,7 @@ import {
   withoutMessageSinks,
   withoutQuotedHeredocs,
 } from '@plot-pm/domain/rules/controller-gate';
+import { briefPushRefusal, gatesBriefPush, pushesBriefBranch } from '@plot-pm/domain/rules/brief-push';
 import {
   gatesMainCheckout,
   gatesStrandingReset,
@@ -542,6 +543,40 @@ export const mainCheckoutGateOf = (readings: MainCheckoutReadings): Gate => ({
 
 const mainCheckoutGate = mainCheckoutGateOf({ where: gitWhere });
 
+/** What the brief-push gate reads from the world, so a test can replace it. */
+export interface BriefPushReadings {
+  readonly currentBranch: (cwd: string, scriptDir: string) => Promise<string>;
+}
+
+/** The branch `cwd` is on, `''` where git does not answer or HEAD is detached. */
+const gitCurrentBranch = async (cwd: string, scriptDir: string): Promise<string> => {
+  const { treesGit } = await import('@plot-pm/domain/adapters/trees/trees-git');
+  const read = treesGit({ repoRoot: cwd, scriptDir }).currentBranchSync(cwd);
+  return read.ok ? read.value : '';
+};
+
+/**
+ * `brief-push`: refuses a `git push` that writes the branch a `--brief-only`
+ * implement run briefs (`PLOT_BRIEF_ONLY=1`, `PLOT_BRIEF_BRANCH`). A remote
+ * branch is a claim, so the push holds the slice with no agent behind it.
+ *
+ * Outside a brief-only run, or with no brief branch named, it allows and reads
+ * nothing. `ask` reads the current branch only where the push names no branch.
+ */
+export const briefPushGateOf = (readings: BriefPushReadings): Gate => ({
+  name: 'brief-push',
+  wants: (command) => gatesBriefPush(process.env) && !!process.env.PLOT_BRIEF_BRANCH && /\bpush\b/.test(command),
+  ask: async (command) => {
+    const branch = process.env.PLOT_BRIEF_BRANCH ?? '';
+    const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    const current = await readings.currentBranch(process.cwd(), scriptDir);
+    return pushesBriefBranch(command, branch, current) ? briefPushRefusal(branch) : null;
+  },
+  onError: 'allow',
+});
+
+const briefPushGate = briefPushGateOf({ currentBranch: gitCurrentBranch });
+
 /** The backend `plot-host.sh` resolves, or `''` where it does not answer. */
 const hostBackend = async (cwd: string, scriptDir: string): Promise<string> => {
   const { hostShell } = await import('@plot-pm/domain/adapters/host/host-shell');
@@ -669,7 +704,7 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
 const controllerGate = controllerGateOf({ desk: underDesk, where: gitWhere, backend: hostBackend });
 
 /** The registered gates. */
-export const GATES: readonly Gate[] = [bundleCommitGate, briefNameGate, stateGate, controllerGate, phaseGate, mainCheckoutGate];
+export const GATES: readonly Gate[] = [bundleCommitGate, briefNameGate, stateGate, controllerGate, phaseGate, mainCheckoutGate, briefPushGate];
 
 /** The exit codes the hook contract reads. */
 export const EXIT = { allow: 0, refuse: 2 } as const;

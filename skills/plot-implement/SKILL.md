@@ -225,6 +225,42 @@ session's scrollback dies with that session; an agent that is resumed,
 replaced or restarted reads the file instead of asking a human to
 reconstruct it.
 
+**Fetch `origin/<default branch>` immediately before this commit, not only
+back at step 2.** Step 2's staleness preflight is about the *plan's*
+assumptions drifting since approval; this fetch is about the checkout's own
+`HEAD` drifting during this run — a different kind of staleness, checked at
+the point it can bite: the commit. `git fetch origin "$DEFAULT_BRANCH"`,
+then compare against the `HEAD` you are about to commit on.
+
+**Check after the fetch, before writing anything: if `origin/<default
+branch>` already holds a brief at `.plot/briefs/<branch-suffix>.md` (the
+same path named above), write no second commit for this slug.** A check
+run before the fetch would read a stale ref and miss a brief another run
+just pushed — the exact gap this paragraph exists to close. A brief
+already on the remote means some other run finished this step first, and
+a second commit for the same slug is the exact defect this paragraph
+exists to prevent (`origin/main` held a brief for a slug at 22:09; a
+second one for the *same* slug, committed on a `HEAD` 8 commits behind,
+followed six minutes later because nothing had fetched first). Finding
+the brief already there is success, not failure — stop, and let step 5
+proceed on the existing commit.
+
+**A rejected push is recovered by re-cutting in a disposable worktree,
+never by a `git reset`.** If `HEAD` was stale, the push after this commit
+is rejected (non-fast-forward) rather than silently stranding anything —
+but the recovery still matters: re-fetch `origin/<default branch>`, then
+redo the commit in a fresh disposable worktree cut from the new tip
+(`git worktree add -q -B <throwaway-branch> <path> "origin/$DEFAULT_BRANCH"`,
+write and commit the brief there, push, then remove the worktree and the
+throwaway branch) — the same shape `plot-dispatch.sh`'s
+`write_started_record` already uses to book a `Started:` record. **Never**
+recover with a bare `git reset`: a mixed reset (the default, with neither
+`--hard` nor `--soft`) moves `HEAD` without moving the working tree, so a
+later `git add -A` in that checkout would commit the reversal of every
+commit the reset skipped past. The main-checkout gate refuses that reset
+outright; the point here is to never need the refusal, by recovering a way
+that was always going to work.
+
 **The brief is interpretation, not extraction.** A summary of the plan is
 worth nothing to a reader who can open the plan. What the brief adds is
 the decisions that are *settled* — each with the alternative it rejected
@@ -357,8 +393,15 @@ Add one line to the plan's `## Status` per started branch:
 Commit it where the plan lives (same branch in `same-branch` flow;
 default branch in direct flows — see `/plot-approve` step 4 for the
 exact push mechanics and the branch-protection fallback; the plan's
-branch otherwise). The board derives **Ready** (approved, no `Started:`)
+branch otherwise). **Under `--brief-only` the record goes on the default branch, never on the slice branch,** and the `brief-push` gate refuses a `git push` of the branch the run briefs. The board derives **Ready** (approved, no `Started:`)
 vs **In progress** from exactly this record.
+
+**This commit follows step 4's fetch-first and rejected-push mechanics
+too.** Fetch `origin/<default branch>` immediately before writing this
+commit, the same as the brief's; a `Started:` record is written to the
+same checkout the brief just was, and a `HEAD` that went stale between
+the two steps strands it exactly the same way. Recover a rejected push by
+re-cutting in a disposable worktree — never by resetting.
 
 If `## Plot Config` includes a project board (`owner/number`), set each
 started branch's PR to "Ready" once it exists:

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { type Page } from 'playwright';
+import { type Page, type Route } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
 import {
   openCatalogue, scenario, board, card, column, fleet as buildFleet, row as buildRow, sprint,
@@ -8,17 +8,19 @@ import {
 import { ELIGIBLE_NOTE, type Fleet } from '../../src/contract/schema.js';
 
 /**
- * A CLICK ON A PLAN NAME, reproduced and then fixed — `a-click-on-a-plan-story`.
+ * A CLICK ON A PLAN NAME — `a-click-on-a-plan-story`, and the fetch-bound
+ * slice that followed it (#2088, #2113).
  *
- * On 2026-10-19 a click on a WAITING ON YOU plan-level row did not open the
- * plan, even though the board's payload held the card. `onOpenPlanFile`
- * remembered the click while `board` was still `null`, and the deferred
- * effect that later tries to resolve it dropped the click silently if the
- * board, once loaded, still had no matching card — the aborted-poll path
- * (#2083) leaves `board` null indefinitely, so the remembered click never
- * resolves. `planLinkClick` (`@plot-pm/domain`) is the fix: a pending click
- * that cannot resolve a card now falls back to `/plan/<file>` instead of
- * going nowhere.
+ * `onOpenPlanFile` remembers a click as `pendingPlan` while the board has not
+ * loaded. Once the board arrives, a deferred effect resolves it: the modal
+ * opens if a matching card exists, or the click falls back to
+ * `/plan/<file>` navigation — `planLinkClick` (`@plot-pm/domain`) decides
+ * which. Two more paths close the loop: a hard deadline
+ * (`PENDING_PLAN_TIMEOUT_MS`) falls back on its own if the board never
+ * answers at all, and a click already waiting when the board's OWN
+ * unreachable signal turns true (not the fleet's — the two are counted on
+ * different cadences) resolves to navigation immediately rather than sitting
+ * out the rest of that deadline.
  */
 const PLAN = 'only-my-work-says-no-identity';
 const PLAN_FILE = '2026-10-19-only-my-work-says-no-identity.md';
@@ -93,21 +95,30 @@ describe('tiny-garden: a click on a plan name in Waiting on you', () => {
   });
 
   it('a click remembered while the board is still loading opens once the board lands', async () => {
-    // The board's FIRST answer is delayed, so the click lands while `board`
-    // is still `null` — `onOpenPlanFile`'s `wait` branch. Once the delayed
-    // response arrives, the remembered click must resolve to the modal
-    // rather than sitting there having done nothing.
-    let release: (() => void) | undefined;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
+    // The board's FIRST answer is held back, so the click lands while `board`
+    // is still `null` — `onOpenPlanFile`'s `wait` branch. Once the handler is
+    // told to stop holding and the board's own poll comes back around, the
+    // remembered click must resolve to the modal rather than sitting there
+    // having done nothing.
+    //
+    // The route callback stays SYNCHRONOUS throughout — it never awaits
+    // `route.fetch()` — because the board polls on timers, and an awaited
+    // pass-through still in flight when `page.close()` runs rejects with
+    // "Request context disposed" as an unhandled rejection vitest blames on
+    // the file. Holding the `Route` itself (rather than a mutable boolean
+    // read per-poll) answers THIS SAME request once released, instead of
+    // leaving it hanging while a later poll's request answers in its place.
+    //
+    // Held back means PENDING, never ABORTED: an abort is a reached-nothing
+    // failure that sets the board's own unreachable signal (the fix this
+    // slice adds) and would make the pending click resolve to navigation
+    // before this test ever releases it.
+    let held: Route | undefined;
     const page = await cat.open('ten-rows-one-kind-each', {
       tab: 'agents',
-      over: { board: boardWithCard(), fleet: fleetWithWaitingDesignRow() },
+      over: { fleet: fleetWithWaitingDesignRow() },
       route: {
-        '**/api/board': async (route) => {
-          await gate;
-          const res = await route.fetch();
-          return route.fulfill({ response: res });
-        },
+        '**/api/board': (route) => { held = route; },
       },
     });
     try {
@@ -120,7 +131,7 @@ describe('tiny-garden: a click on a plan name in Waiting on you', () => {
       // Nothing has resolved yet — the board has not answered. The click must
       // not have navigated away in the meantime.
       expect(page.url()).not.toContain(`/plan/${PLAN_FILE}`);
-      release?.();
+      await held?.fulfill({ json: boardWithCard() });
       const dialog = page.getByRole('dialog', { name: 'Plan: Only my work says no identity' });
       await dialog.waitFor({ state: 'visible', timeout: 10_000 });
     } finally {
@@ -134,6 +145,14 @@ describe('tiny-garden: a click on a plan name in Waiting on you', () => {
     // `/api/fleet`, which this test leaves answering normally), so the row
     // renders and is clickable — the click must still end in navigation, not
     // silence.
+    //
+    // This now resolves fast rather than waiting the full
+    // `PENDING_PLAN_TIMEOUT_MS`: the very first failed `/api/board` poll
+    // sets the board's own unreachable signal, and the pending click reads
+    // it directly instead of sitting out the 30 s deadline. A short timeout
+    // here is itself part of the assertion — proving the early-exit path
+    // actually fires rather than merely happening to finish before a longer
+    // one would have.
     const page = await cat.open('ten-rows-one-kind-each', {
       tab: 'agents',
       over: { fleet: fleetWithWaitingDesignRow() },
@@ -148,11 +167,50 @@ describe('tiny-garden: a click on a plan name in Waiting on you', () => {
       const planRow = waiting.locator(`[data-plan-level-row="${PLAN}"]`);
       await expect.poll(() => planRow.count()).toBe(1);
       await planRow.getByRole('link', { name: PLAN }).click();
-      await page.waitForURL(`**/plan/${PLAN_FILE}`, { timeout: 35_000 });
+      await page.waitForURL(`**/plan/${PLAN_FILE}`, { timeout: 10_000 });
     } finally {
       await page.close();
     }
-  }, 45_000);
+  });
+
+  it('a click remembered then the board answers, late, with no card for this slug', async () => {
+    // The gap the plan names explicitly: the board is not unreachable and it
+    // is not instant either — it answers AFTER the click, and when it does
+    // it holds no card for this slug. That is neither "opens the modal" nor
+    // "falls back because the board never answers" — it is `planLinkClick`'s
+    // `navigate` branch reached through the deferred effect rather than the
+    // unreachable-signal or hard-deadline paths the other tests cover.
+    //
+    // The route is HELD, never ABORTED, for the same reason as the test
+    // above: an abort sets the board's own unreachable signal and this test
+    // would then (silently, and for the wrong reason) take that early-exit
+    // path instead of the deferred effect's `navigate` branch its own name
+    // promises to exercise.
+    let held: Route | undefined;
+    const page = await cat.open('ten-rows-one-kind-each', {
+      tab: 'agents',
+      over: { fleet: fleetWithWaitingDesignRow() },
+      route: {
+        '**/api/board': (route) => { held = route; },
+      },
+    });
+    try {
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await expandAgentFolds(page);
+      const waiting = group(page, 'Waiting on you');
+      const planRow = waiting.locator(`[data-plan-level-row="${PLAN}"]`);
+      await expect.poll(() => planRow.count()).toBe(1);
+      await planRow.getByRole('link', { name: PLAN }).click();
+      // The click is remembered, not yet resolved — the board has not
+      // answered at all yet, let alone with a cardless payload.
+      expect(page.url()).not.toContain(`/plan/${PLAN_FILE}`);
+      await held?.fulfill({ json: board() });
+      await page.waitForURL(`**/plan/${PLAN_FILE}`, { timeout: 10_000 });
+      expect(await page.getByRole('dialog').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
 
   it('a modified click still follows the browser default, board loaded or not', async () => {
     const page = await cat.open('ten-rows-one-kind-each', {

@@ -15,6 +15,8 @@
 - **Started:** 2026-10-24, jwloka, `bug/bitbucket-mergeable-fold-open-rows`
 - **Started:** 2026-10-24, Jan Wloka, `bug/bitbucket-checks-lookups-bounded`
 - **Started:** 2026-10-24, Jan Wloka, `bug/pr-refresh-rotation-keeps-green`
+- **Started:** 2026-10-25, Jan Wloka, `bug/bitbucket-bind-coverage-and-docs`
+- **Started:** 2026-10-25, Jan Wloka, `docs/one-pr-reader-plan-figures`
 
 ## Changelog
 
@@ -71,8 +73,8 @@ The merge path in step 2 changes what a merge reads. A head read without Jenkins
 
 ### Tests and wording
 
-- `bug/bitbucket-bind-coverage-and-docs` — tests for `--bound-shas` wiring, several states, a broken ask and a real `merge-tree` count; corrections to the LOW findings below `<!-- waits: bug/pr-refresh-rotation-keeps-green -->`
-- `docs/one-pr-reader-plan-figures` — plan `one-pr-reader-per-machine-and` names one reader scope, one proposal and spender figures that add up
+- `bug/bitbucket-bind-coverage-and-docs` — tests for `--bound-shas` wiring, several states, a broken ask and a real `merge-tree` count; corrections to the LOW findings below `<!-- waits: bug/pr-refresh-rotation-keeps-green -->` → #2653
+- `docs/one-pr-reader-plan-figures` — plan `one-pr-reader-per-machine-and` names one reader scope, one proposal and spender figures that add up → #2655
 
 LOW findings carried by the last two slices:
 
