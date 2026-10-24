@@ -12,6 +12,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2523 merged
+- **Started:** 2026-10-24, Jan Wloka, `feature/tracker-arms-issue-view-state`
 
 ## Changelog
 
