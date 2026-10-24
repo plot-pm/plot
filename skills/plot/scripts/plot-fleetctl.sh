@@ -129,8 +129,7 @@ plot_nvmrc="$plot_root/.nvmrc"
 # Which init system supervises a user process here. `none` is a refusal rather
 # than a fallback: there is no unit to fill, and inventing a `nohup` path would
 # be Plot supervising a supervisor — the regress the OS terminates.
-platform() {
-  case "$(uname -s)" in
+platform() { case "$(uname -s)" in
     Darwin) command -v launchctl >/dev/null 2>&1 && { echo launchd; return; } ;;
     Linux)  command -v systemctl >/dev/null 2>&1 && { echo systemd; return; } ;;
   esac
@@ -171,8 +170,7 @@ running_major() {
 # and 113 for others, so the bug was reachable only from a label this machine
 # had never held — which is exactly the shape a test must use, and why it
 # survived until the label became overridable.
-supervisor_loaded() {
-  case "$(platform)" in
+supervisor_loaded() { case "$(platform)" in
     launchd) launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 && return 0 ;;
     systemd) systemctl --user is-active --quiet "$UNIT_NAME" && return 0 ;;
   esac
@@ -181,8 +179,7 @@ supervisor_loaded() {
 
 # The supervisor's pid, or empty. Asked separately from liveness because a
 # loaded-but-not-running job is a real state and the two answers differ.
-supervisor_pid() {
-  case "$(platform)" in
+supervisor_pid() { case "$(platform)" in
     launchd) launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null \
                | sed -n 's/^[[:space:]]*pid = \([0-9]*\).*/\1/p' | head -1 ;;
     systemd) systemctl --user show "$UNIT_NAME" -p MainPID --value 2>/dev/null \
@@ -205,8 +202,7 @@ supervisor_pid() {
 #
 # Exit status is always 0. The pipeline ends in `head`, and the trailing
 # `return 0` keeps launchctl's 113 from reaching a caller.
-supervisor_workdir() {
-  case "$(platform)" in
+supervisor_workdir() { case "$(platform)" in
     launchd) launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null \
                | sed -n 's/^[[:space:]]*working directory = \(.*\)$/\1/p' | head -1 ;;
     systemd) systemctl --user show "$UNIT_NAME" -p WorkingDirectory --value 2>/dev/null \
@@ -220,8 +216,7 @@ supervisor_workdir() {
 # reason `supervisor_workdir` reads the loaded job: a plist may not be what is
 # bootstrapped, and this answers what IS running, which is what a migration or
 # a missing-bundle report must act on.
-supervisor_bundle_path() {
-  case "$(platform)" in
+supervisor_bundle_path() { case "$(platform)" in
     launchd) launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null \
                | awk '/^\targuments = \{/{f=1; next} f && /\.mjs$/{bundle=$0; sub(/^[ \t]+/, "", bundle); print bundle; exit} /^\t\}/{f=0}' ;;
     systemd) systemctl --user show "$UNIT_NAME" -p ExecStart --value 2>/dev/null \
