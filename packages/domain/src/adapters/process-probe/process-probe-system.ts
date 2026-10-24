@@ -1,3 +1,4 @@
+import { readlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import type { OwnProcess, ProcessProbe } from '../../ports/process-probe.js';
 
@@ -19,7 +20,8 @@ const signalZero = (target: number): boolean | null => {
 
 /**
  * The real {@link ProcessProbe}: `kill(pid, 0)` for liveness, `kill(-pgid, 0)`
- * for a group, and `ps -o lstart=` for a start time.
+ * for a group, `ps -o lstart=` for a start time, and `/proc/<pid>/cwd` or
+ * `lsof` for a working directory.
  *
  * @returns the {@link ProcessProbe} port.
  */
@@ -42,6 +44,18 @@ export const processProbeSystem = (): ProcessProbe => {
       if (run.status !== 0) return null;
       const started = Date.parse(run.stdout.trim());
       return Number.isNaN(started) ? null : started;
+    },
+    workingDirectory: (pid) => {
+      if (!Number.isInteger(pid) || pid <= 0) return null;
+      try {
+        return readlinkSync(`/proc/${pid}/cwd`);
+      } catch {
+        /* no procfs here; ask lsof */
+      }
+      const run = spawnSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { encoding: 'utf8' });
+      if (run.status !== 0) return null;
+      const line = run.stdout.split('\n').find((l) => l.startsWith('n'));
+      return line === undefined ? null : line.slice(1);
     },
     self: (): OwnProcess => ({
       pid: process.pid,

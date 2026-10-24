@@ -43,6 +43,15 @@ export interface ProcessProbe {
   startedAt(pid: number): number | null;
 
   /**
+   * The directory the process holding the pid works in.
+   *
+   * @param pid - the process id to ask about.
+   * @returns an absolute path; `null` where no process holds the pid or its
+   *   working directory cannot be read.
+   */
+  workingDirectory(pid: number): string | null;
+
+  /**
    * This process's pid, start time and group leadership.
    *
    * @returns the reading.

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { realpathSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 
 import { processProbeSystem } from '../src/adapters/process-probe/process-probe-system.js';
@@ -35,6 +36,12 @@ describe('processProbeSystem', () => {
   it('reads no start time for an exited or invalid pid', () => {
     expect(probe.startedAt(deadPid())).toBeNull();
     expect(probe.startedAt(-3)).toBeNull();
+  });
+
+  it('reads this process\'s working directory, and none for an exited or invalid pid', () => {
+    expect(realpathSync(probe.workingDirectory(process.pid) as string)).toBe(realpathSync(process.cwd()));
+    expect(probe.workingDirectory(deadPid())).toBeNull();
+    expect(probe.workingDirectory(-3)).toBeNull();
   });
 
   it('answers a group question only for a group id above 1', () => {

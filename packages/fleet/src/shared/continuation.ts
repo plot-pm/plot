@@ -8,13 +8,14 @@ import { markerIn } from './worker-question.js';
 import { deskManifestFor, assignEmptyManifestBranch, writeDeskManifest, writeManifestStamp, writeResumeId } from './manifest-stamp.js';
 import { briefPath } from './brief-path.js';
 import { deskMonitorsShell, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
-import type { DeskMonitors, MonitoredDesk, MonitorPids } from '@plot-pm/domain';
+import type { DeskMonitors, MonitoredDesk, MonitorPids, ProcessProbe } from '@plot-pm/domain';
 import { deskWaitsFree, FREE_WAIT_FILENAME } from '@plot-pm/domain/rules/desk-loop-alive';
 import { deskFreeWait, readDeskLoop } from './desk-loop.js';
 import { continueTarget } from '@plot-pm/domain/rules/continue-target';
 import { readEnding, ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { endingAsksFreshStart } from '@plot-pm/domain/rules/ending-action';
 import { readDeskPid, resolveManifestDir } from './registry.js';
+import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
 import { takeContinueLock, releaseContinueLock } from './continue-lock.js';
 import { CONTINUATION_NAME } from './continuation-name.js';
 import { runLimitRefusal, DEFAULT_SLICE_MAX_RUNS } from '@plot-pm/domain/rules/run-limit';
@@ -401,6 +402,11 @@ export interface DeskContinuationInput {
    */
   stopLoop?: (pid: string) => Promise<LoopStop>;
   /**
+   * The process table the wrapper pid is checked against before it is
+   * signalled; {@link processProbeSystem} where absent.
+   */
+  probe?: ProcessProbe;
+  /**
    * Called once {@link continueOnDesk} has taken the per-desk continue lock,
    * before any other read or write. A test uses this to force a second call
    * to reach its own lock-take while the first is held, so the race #1357
@@ -612,6 +618,16 @@ const restoreManifest = (file: string, text: string): boolean => {
       /* nothing to clean up */
     }
     return false;
+  }
+};
+
+/** Whether `found` names the same directory as `expected`, symlinks resolved; `null` names none. */
+const sameDirectory = (found: string | null, expected: string): boolean => {
+  if (found === null) return false;
+  try {
+    return fs.realpathSync(found) === fs.realpathSync(expected);
+  } catch {
+    return found === expected;
   }
 };
 
@@ -850,7 +866,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       // path's own spawn. `manifestBeforeStop` is read-only text at this point,
       // never JSON-parsed elsewhere in this function, so reading it here costs
       // nothing new.
-      const wrapperPid = (() => {
+      let wrapperPid = (() => {
         try {
           const m = JSON.parse(manifestBeforeStop ?? '{}') as Record<string, unknown>;
           return typeof m.wrapperPid === 'string' ? m.wrapperPid : '';
@@ -858,13 +874,39 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
           return '';
         }
       })();
+      // THE WRAPPER PID IS CHECKED BEFORE THE LOOP IS SIGNALLED, so a refusal
+      // leaves the desk as found. The dispatcher starts the wrapper with the
+      // worktree as its working directory; a live process at the recorded pid
+      // that works elsewhere is a recycled pid and is not signalled. A pid that
+      // holds no process needs no stop.
+      if (wrapperPid !== '') {
+        const probe = input.probe ?? processProbeSystem();
+        if (probe.alive(Number(wrapperPid)) === false) {
+          wrapperPid = '';
+        } else if (!sameDirectory(probe.workingDirectory(Number(wrapperPid)), worktree)) {
+          return refused(
+            409,
+            'loop-alive',
+            `wrapper pid ${wrapperPid} does not work in ${worktree}; it is not signalled, and the desk is left as found`,
+          );
+        }
+      }
+      // A STOP THAT FAILS LEAVES NO LOOP BEHIND ITS MANIFEST. The loop's own
+      // `SIGTERM` handler removed `PLOT_MANIFEST_FILE` by the time a stop reports
+      // failure, so every refusal after the signal puts it back first.
+      const stopRefusal = (why: string): DeskContinuation => {
+        if (stampPath !== '' && manifestBeforeStop !== null && !restoreManifest(stampPath, manifestBeforeStop)) {
+          return { kind: 'failed', error: `pid ${pid} was signalled and ${stampPath} could not be written back; ${why}` };
+        }
+        return refused(409, 'loop-alive', why);
+      };
       const stop = input.stopLoop ?? stopAndAwaitExit;
       const stopped = await stop(pid);
-      if (!stopped.ok) return refused(409, 'loop-alive', stopped.why);
+      if (!stopped.ok) return stopRefusal(stopped.why);
       if (wrapperPid !== '') {
         const wrapperStop = input.stopLoop ?? stopAndAwaitExit;
         const wrapperStopped = await wrapperStop(wrapperPid);
-        if (!wrapperStopped.ok) return refused(409, 'loop-alive', wrapperStopped.why);
+        if (!wrapperStopped.ok) return stopRefusal(wrapperStopped.why);
       }
       // THE FREEWAIT RECORD NAMED THE STOPPED PID, so it is stale the moment the
       // new run starts — left in place, `deskWaitsFree` would read the NEW pid's
@@ -874,7 +916,9 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       } catch {
         /* a missing freewait record is the normal case */
       }
-      if (stampPath !== '' && (manifestBeforeStop === null || !restoreManifest(stampPath, manifestBeforeStop))) {
+      // `manifestBeforeStop` is never null for a `stampPath` here: the refusal
+      // above the limit checks returns on that pair before any signal is sent.
+      if (stampPath !== '' && !restoreManifest(stampPath, manifestBeforeStop as string)) {
         return { kind: 'failed', error: `pid ${pid} stopped and removed ${stampPath}, which could not be written back` };
       }
     }
@@ -901,6 +945,15 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       };
     }
 
+    // A FAILED RUN LEAVES NO PROMPT. A later loop on this worktree reads
+    // `PLOT_CONTINUATION` and would resume with an answer this run never started;
+    // every `failed` return below this line wrote the file itself, so each
+    // removes it. The write failure above created none.
+    const failed = (error: string): DeskContinuation => {
+      fs.rmSync(promptPath, { force: true });
+      return { kind: 'failed', error };
+    };
+
     const log = path.join(worktree, '.plot-worker.log');
     let out: number;
     try {
@@ -909,10 +962,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       // context a reader needs to judge whether the answer was the right one.
       out = fs.openSync(log, 'a');
     } catch (err) {
-      return {
-        kind: 'failed',
-        error: `cannot open ${log}: ${err instanceof Error ? err.message : String(err)}`,
-      };
+      return failed(`cannot open ${log}: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     // THE MANIFEST THIS RUN USES, FROM HERE ON — either the one `continueTarget`
@@ -946,7 +996,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
       });
       if (written === null) {
         fs.closeSync(out);
-        return { kind: 'failed', error: `cannot write a manifest naming ${worktree}; a start now would run unregistered` };
+        return failed(`cannot write a manifest naming ${worktree}; a start now would run unregistered`);
       }
       manifestPath = written;
     }
@@ -956,7 +1006,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // the start.
     if (target.manifest === 'stamp' && !assignEmptyManifestBranch(manifestPath, branch)) {
       fs.closeSync(out);
-      return { kind: 'failed', error: `cannot write the branch into ${manifestPath}; a start now would wait free` };
+      return failed(`cannot write the branch into ${manifestPath}; a start now would wait free`);
     }
 
     // A FRESH SESSION IS DECIDED BEFORE ANY WRITE TO THE DESK. The loop resumes
@@ -966,10 +1016,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     // the start does not happen.
     if (input.fresh === true && !writeResumeId(manifestPath, randomUUID())) {
       fs.closeSync(out);
-      return {
-        kind: 'failed',
-        error: `cannot replace the resume id in ${manifestPath}; a start now would resume the previous session`,
-      };
+      return failed(`cannot replace the resume id in ${manifestPath}; a start now would resume the previous session`);
     }
 
     // A NEW RUN, and every part of this says so. The previous `.plot-worker.exit`
@@ -1065,7 +1112,7 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
     });
     if (spawnResult.kind === 'error') {
       fs.closeSync(out);
-      return { kind: 'failed', error: `continuation failed to spawn: ${spawnResult.err.message}` };
+      return failed(`continuation failed to spawn: ${spawnResult.err.message}`);
     }
     // AWAITED, NOT UNREF'D YET. The outer shell only backgrounds the real
     // command and writes a pid file — no `wait` in its own body — so it exits
