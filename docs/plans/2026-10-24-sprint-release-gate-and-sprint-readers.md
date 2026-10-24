@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2513 merged
 - **Started:** 2026-10-24, jwloka, `bug/sprint-release-gate-ignores-withdrawn-and-partial-reads`
+- **Started:** 2026-10-24, jwloka, `bug/sprint-readers-misread-goal-and-slug`
 
 ## Changelog
 
