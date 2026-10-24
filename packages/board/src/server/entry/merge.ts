@@ -22,7 +22,7 @@ export type MergeResult =
 /**
  * Merges a PR at the head commit the caller read, or refuses.
  *
- * Re-asks the host through `pr-state` and never the PR index: the index decides
+ * Re-asks the host through `pr-state --with-checks` and never the PR index: the index decides
  * only whether to try, and a merge cannot be undone. On a pass the merge goes
  * through `plot-host.sh pr-merge --match-head <sha>`, so a push between the
  * reading and the merge fails at the host; a host that cannot pin merges with no
@@ -37,7 +37,7 @@ export type MergeResult =
  *   the host's own words.
  */
 export const mergeAt = async (ports: MergePorts, pr: number, sha: string): Promise<MergeResult> => {
-  const lookup = await ports.host.prState(pr);
+  const lookup = await ports.host.prState(pr, { withChecks: true });
   const reading = await ports.defaultBranch.read();
   const outcome = merge(
     {

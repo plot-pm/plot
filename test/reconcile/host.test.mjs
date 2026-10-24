@@ -3195,6 +3195,31 @@ test('host: pr-state bitbucket with --with-checks reads the same bound checks as
   assert.ok(out.curls > 0, 'asking for checks does reach Jenkins');
 });
 
+// --- the merge controller asks pr-state for checks ---------------------------
+
+test('host: plot-ask merge on bitbucket under jenkins reads the bound green check and merges', () => {
+  // `mergeAt` refuses unless `checks` reads `green`, and `pr-state` reads
+  // Bitbucket checks only under `--with-checks`. Without the flag from the
+  // `Host.prState` adapter every Bitbucket + Jenkins merge refused
+  // `checks-not-green` (#2619).
+  const rest = makeCurlAnswering(jenkinsBuildsFor(JENKINS_FULL, 'SUCCESS'));
+  const env = { ...process.env, PLOT_HOST: '', PLOT_BB_SKIP_CAP_CHECK: '1', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok' };
+  delete env.JENKINS_INSTANCE;
+  delete env.PLOT_SCRIPTS_DIR;
+  const hostStubs = makeStubs({ bbJson: JSON.stringify(BB_SHORT_PR) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  env.PATH = `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`;
+  const ask = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'board', 'plot-ask.mjs');
+  const res = spawnSync('node', [ask, 'merge', '5', BB_SHORT],
+    { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
+  assert.notEqual(res.stdout.trim(), '', res.stderr);
+  const out = JSON.parse(res.stdout.trim().split('\n').pop());
+  assert.equal(out.merged, true, `the bound check is green, so the merge goes through:\n${res.stdout}\n${res.stderr}`);
+  assert.equal(res.status, 0, res.stderr);
+  assert.deepEqual(argvOf(hostStubs.bbArgv).slice(0, 3), ['pr', 'merge', '5']);
+  assert.ok(curlCalls(rest.argvFile).length > 0, 'the merge path asked Jenkins for the head');
+});
+
 // --- the merge re-read never asks Jenkins, and head-moved still fires correctly ---
 
 test('host: pr-merge bitbucket re-read makes no Jenkins call either way', () => {
@@ -3211,42 +3236,43 @@ test('host: pr-merge bitbucket re-read makes no Jenkins call either way', () => 
     bbJson: `{"id":5,"state":"OPEN","source":{"branch":{"name":"feature/x"},"commit":{"hash":"${matchSha}"}},"destination":{"branch":{"name":"main"}},"links":{"html":{"href":"https://example.test/pr/5"}}}`,
   });
   const env = {
-    ...process.env, PLOT_HOST: 'bitbucket', PLOT_BB_SKIP_CAP_CHECK: '1',
+    ...process.env, PLOT_HOST: 'bitbucket', PLOT_BB_SKIP_CAP_CHECK: '1', JENKINS_USER: 'env-user', JENKINS_API_TOKEN: 'env-tok',
     PATH: `${rest.dir}:${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
   };
-  const matched = spawnSync('bash', [adapter, 'pr-merge', '5', '--match-head', matchSha], { encoding: 'utf8', env });
+  delete env.JENKINS_INSTANCE;
+  // A `CI: jenkins` repository with credentials set, so a Jenkins call would
+  // succeed if the re-read made one: zero calls then proves the re-read skips it.
+  const cwd = makeJenkinsRepo({ gitHost: 'bitbucket' });
+  const matched = spawnSync('bash', [adapter, 'pr-merge', '5', '--match-head', matchSha], { cwd, encoding: 'utf8', env });
   assert.equal(matched.status, 0, matched.stderr);
   assert.deepEqual(argvOf(hostStubs.bbArgv), ['pr', 'merge', '5']);
   assert.deepEqual(curlCalls(rest.argvFile), [], 'a matching head still makes no Jenkins REST call');
   assert.deepEqual(callsOf(jen.callsFile), [], 'a matching head still makes no jen CLI call');
 
-  const refused = spawnSync('bash', [adapter, 'pr-merge', '5', '--match-head', movedSha], { encoding: 'utf8', env });
+  const refused = spawnSync('bash', [adapter, 'pr-merge', '5', '--match-head', movedSha], { cwd, encoding: 'utf8', env });
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /head-moved/, 'a moved head is still caught with checks never asked for');
   assert.deepEqual(curlCalls(rest.argvFile), [], 'a moved head still makes no Jenkins REST call');
 });
 
-// --- --state all shares one Jenkins budget across open/merged/declined -----
+// --- --state all spends one cap of five, on OPEN rows only ------------------
 
-test('host: pr-list --state all binds at most five rows total across open, merged and declined, never per state', () => {
-  // Each state carries three ambiguous (ready-to-bind) rows with its own head
-  // sha — nine total, three per state. A per-state cap of 5 would make up to
-  // 15 Jenkins calls; the shared `_BB_JEN_BOUND` budget must cap the WHOLE
-  // `--state all` refresh at 5, and MERGED/DECLINED rows must never be bound
-  // regardless of budget (the next test pins that half on its own).
-  const open = bbRowsFor([
-    { id: 1, head: 'o0', sha: 'sha-o0', updatedAt: '2026-10-17T09:00:00Z' },
-    { id: 2, head: 'o1', sha: 'sha-o1', updatedAt: '2026-10-17T08:00:00Z' },
-    { id: 3, head: 'o2', sha: 'sha-o2', updatedAt: '2026-10-17T07:00:00Z' },
-  ]);
+test('host: pr-list --state all binds at most five rows in the whole pass, all of them OPEN', () => {
+  // Seven ambiguous OPEN rows, plus an ambiguous MERGED and DECLINED row. Each
+  // state is its own bind call, and only the open call holds OPEN rows, so the
+  // pass asks Jenkins five times: the five newest OPEN rows. The two oldest
+  // OPEN rows read `skipped`, and the settled rows are never asked.
+  const openHeads = ['o0', 'o1', 'o2', 'o3', 'o4', 'o5', 'o6'];
+  const open = bbRowsFor(openHeads.map((head, i) =>
+    ({ id: i + 1, head, sha: `sha-${head}`, updatedAt: `2026-10-17T${String(20 - i).padStart(2, '0')}:00:00Z` })));
   const merged = bbRowsFor([
-    { id: 4, head: 'm0', sha: 'sha-m0', state: 'MERGED', updatedAt: '2026-10-17T06:00:00Z' },
+    { id: 8, head: 'm0', sha: 'sha-m0', state: 'MERGED', updatedAt: '2026-10-17T23:00:00Z' },
   ]);
   const declined = bbRowsFor([
-    { id: 5, head: 'd0', sha: 'sha-d0', state: 'DECLINED', updatedAt: '2026-10-17T05:00:00Z' },
+    { id: 9, head: 'd0', sha: 'sha-d0', state: 'DECLINED', updatedAt: '2026-10-17T23:00:00Z' },
   ]);
   const bb = makeStrictBbStub({ perState: { open, merged, declined } });
-  const jobs = JSON.stringify(['o0', 'o1', 'o2', 'm0', 'd0'].map((name) =>
+  const jobs = JSON.stringify([...openHeads, 'm0', 'd0'].map((name) =>
     ({ _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name, color: 'blue' })));
   const jen = makeJenStub({ jobsJson: jobs });
   const rest = makeCurlAnswering(jenkinsBuildsFor('sha-o0', 'SUCCESS'));
@@ -3258,10 +3284,14 @@ test('host: pr-list --state all binds at most five rows total across open, merge
     { cwd: makeJenkinsRepo({ gitHost: 'bitbucket' }), encoding: 'utf8', env });
   assert.equal(res.status, 0, res.stderr);
   const asked = curlCalls(rest.argvFile);
-  assert.equal(asked.length, 3, `three OPEN rows, all inside the shared cap of 5:\n${asked.join('\n')}`);
+  assert.equal(asked.length, 5, `one cap of five for the whole --state all pass:\n${asked.join('\n')}`);
+  assert.ok(!asked.some((u) => u.includes('/job/m0/') || u.includes('/job/d0/')), 'settled rows are never asked');
   const rows = rowsByHead(res.stdout);
-  for (const head of ['o0', 'o1', 'o2']) {
-    assert.notEqual(rows.get(head).checksLookup, 'skipped', `${head} is well inside the shared budget`);
+  for (const head of ['o0', 'o1', 'o2', 'o3', 'o4']) {
+    assert.notEqual(rows.get(head).checksLookup, 'skipped', `${head} is one of the five newest OPEN rows`);
+  }
+  for (const head of ['o5', 'o6']) {
+    assert.equal(rows.get(head).checksLookup, 'skipped', `${head} is past the cap`);
   }
 });
 

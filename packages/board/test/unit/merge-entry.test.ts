@@ -53,6 +53,18 @@ describe('mergeAt', () => {
     expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD]]);
   });
 
+  it('asks the host for checks, which Bitbucket reads only when asked', async () => {
+    const { p, calls } = ports(pr(), 'answered', { ok: true, value: null }, 'bitbucket');
+    const asked: unknown[] = [];
+    (p.host as { prState: unknown }).prState = async (_ref: number, opts?: { withChecks?: boolean }) => {
+      asked.push(opts);
+      return { ok: true, value: pr({ checks: opts?.withChecks === true ? 'green' : 'unknown' }) };
+    };
+    expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: true, pr: 7, sha: HEAD });
+    expect(asked).toEqual([{ withChecks: true }]);
+    expect(calls).toEqual([['pr-merge', '7', '--match-head', HEAD]]);
+  });
+
   it('pins on bitbucket too, which now honours --match-head via a re-read', async () => {
     const { p, calls } = ports(pr(), 'answered', { ok: true, value: null }, 'bitbucket');
     expect(await mergeAt(p, 7, HEAD)).toMatchObject({ merged: true, pr: 7, sha: HEAD, unpinned: false });

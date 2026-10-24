@@ -36,14 +36,16 @@
 #                                   {"number":N,"state":"OPEN|MERGED|CLOSED|NONE",
 #                                    "draft":true|false,"url":"...",
 #                                    "mergeable":"mergeable|conflicting|unknown"}
-#                                 `checks` and the Jenkins lookup it costs on
-#                                 Bitbucket are run ONLY with `--with-checks`.
-#                                 No caller under skills/plot/scripts/ reads
-#                                 `.checks` from this op today — surveyed
-#                                 2026-10-24 (#2481) — so the default is the
-#                                 cheap read and a caller that wants checks
-#                                 names it. Without the flag, `checks` is
-#                                 absent from the answer rather than a guess.
+#                                 ON BITBUCKET, `checks` and the Jenkins lookup
+#                                 it costs are read ONLY with `--with-checks`;
+#                                 without the flag `checks` reads `unknown`
+#                                 and no Jenkins call is made. GitHub reads
+#                                 `checks` either way. No caller under
+#                                 skills/plot/scripts/ reads `.checks` from
+#                                 this op (surveyed 2026-10-24, #2481); the
+#                                 merge controller (`mergeAt`) passes the
+#                                 flag, because it refuses unless `checks`
+#                                 reads `green`.
 #                                 Bitbucket Cloud's REST API has no field or
 #                                 endpoint that reports merge-conflict status
 #                                 for a pull request (measured 2026-10-20), so
@@ -1974,23 +1976,21 @@ jenkins_sha_runs() {
 # settle the head: a JSON object keyed by branch, or nothing where no lookup
 # was needed. $1 = the op's name, $4 = optional path to also receive the
 # branches `rowsToBind` named this pass (one per line), so a caller can tell
-# "named but the ask broke early" (the colour must still stand, per "absent is
-# not false") from "never named because the row is past the cap" (the colour
-# must not stand) without a second, duplicate run of the same `rows` verb.
+# "named but the ask broke early" from "never named because the row is past
+# the cap" without a second, duplicate run of the same `rows` verb. A row past
+# the cap never stands on its colour. A named row whose ask broke stands on it
+# in GitHub's `pr-list`, and reads `checksLookup: broken` in Bitbucket's
+# `pr-list` and `pr-state`.
 # $5 = optional JSON object, branch -> the checksSha the caller's PR index
 # already has on record; a branch bound there to its CURRENT head costs the
 # pass nothing to re-confirm, so `rowsToBind` (rotation) spends the cap's
 # lookups on branches that are absent or stale there first. Absent entirely
 # where the caller holds no index — every row then sorts exactly as before.
-# $6 = optional remaining-lookups count for THIS call, replacing
-# `SHA_LOOKUPS_PER_PASS` as the cap; a caller sharing one budget across
-# several calls (`--state all`'s three states) passes down what is left
-# rather than letting each call start a fresh five. Absent means the
-# default cap, same as before this parameter existed.
 # `jenkins_sha_runs` reads each named row by sha, the bundle binds them. A
-# lookup that cannot ask Jenkins ends the pass, and the colour stands.
+# lookup that cannot ask Jenkins ends the pass, and the rows it did not reach
+# get no bound entry.
 jenkins_bind_rows() {
-  local _named; _named="$({ jq -c . <<<"$2"; jq -c . <<<"$3"; jq -c . <<<"${5:-null}"; jq -c . <<<"${6:-null}"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null)"
+  local _named; _named="$({ jq -c . <<<"$2"; jq -c . <<<"$3"; jq -c . <<<"${5:-null}"; } | node "$here/board/plot-jenkins-pr-checks.mjs" rows 2>/dev/null)"
   : >"${4:-/dev/null}"; [ -z "$_named" ] && return; cut -f1 <<<"$_named" >"${4:-/dev/null}"
   printf '%s\n' "$_named" | while IFS=$'\t' read -r _b _s _j; do
       _r=$(jenkins_sha_runs "$1" "$_b" 20 "$_s" </dev/null) || break; printf '%s\t%s\t%s\t%s\n' "$_b" "$_s" "$_j" "$_r"
@@ -2082,9 +2082,8 @@ bb_fold_mergeable_stream() { local wantrepo="${1:-}" line; while IFS= read -r li
 # $2 = "1" to ask Jenkins for the check at all; anything else (including
 # absent) skips `jenkins_instance`/`jenkins_build_map`/`jenkins_bind_rows`
 # entirely and reads `checks: unknown` with no Jenkins call made — the shell
-# side of `pr-state --with-checks`. No caller of this op read `.checks`
-# without the flag (surveyed 2026-10-24, #2481), so the cheap path is the
-# default and a caller that wants the check names it.
+# side of `pr-state --with-checks`. The merge controller passes the flag;
+# `pr-merge`'s head re-read does not, because it reads only `headSha`.
 #
 # Without `CI: jenkins` the check is `unknown`, absent and not false, as in
 # `pr-list`'s plain Bitbucket arm. Under it the branch colour from
@@ -2095,25 +2094,18 @@ bb_fold_mergeable_stream() { local wantrepo="${1:-}" line; while IFS= read -r li
 # `mergeable` is `unknown` here; `pr-state` folds the real reading on top with
 # `bb_fold_mergeable`, and `pr-merge --match-head` reads only `headSha`.
 #
-# `wasNamed` (the fourth stdin line to the `state` verb) tells
-# `bitbucketPrState` whether THIS row was the one `jenkins_bind_rows` picked
-# for a sha lookup. A picked row whose `jenkins_sha_runs` call then broke
-# early (Jenkins unreachable mid-pass) must not stand on its stale branch
-# colour — `$named` (`jenkins_bind_rows`'s own 4th-arg named-file) is read back
-# to tell "named but the ask broke" from "never named", same distinction
-# `_bb_jen_bind` already draws for `pr-list`.
+# A row `rowsToBind` names for a sha lookup whose `jenkins_sha_runs` call then
+# broke early (Jenkins unreachable mid-pass) must not stand on its stale branch
+# colour. The `state` verb asks `rowsToBind` itself whether this one row was
+# named, from the same colours, and reads it `checksLookup: broken`.
 bb_state_row() {
-  local want="${2:-0}" colours=null bound=null inst named_file named wasNamed=false
-  if [ "$want" = 1 ] && jq -e '.id' >/dev/null 2>&1 <<<"$1" && [ "$(ci_scheme)" = "jenkins" ]; then
+  local colours=null bound=null inst
+  if [ "${2:-0}" = 1 ] && jq -e '.id' >/dev/null 2>&1 <<<"$1" && [ "$(ci_scheme)" = "jenkins" ]; then
     inst="$(jenkins_instance)"
     [ -z "$inst" ] || colours="$(jenkins_build_map "$inst" | jq -c 'if .status == "ok" then (.map // {}) else null end' 2>/dev/null)" || colours=null
-    if [ "$colours" != null ]; then
-      plot_tmpfile named_file host-prstate-named
-      bound="$(jenkins_bind_rows pr-state "$colours" "$(jq -c '[{headRefName:.source.branch.name,headRefOid:.source.commit.hash}]' <<<"$1")" "$named_file")"
-      named="$(cut -f1 <"$named_file" 2>/dev/null)"; [ -z "$named" ] || wasNamed=true
-    fi
+    [ "$colours" = null ] || bound="$(jenkins_bind_rows pr-state "$colours" "$(jq -c '[{headRefName:.source.branch.name,headRefOid:.source.commit.hash}]' <<<"$1")")"
   fi
-  printf '%s\n%s\n%s\n%s\n' "$(jq -c . <<<"$1")" "$colours" "${bound:-null}" "$wasNamed" | node "$here/board/plot-jenkins-pr-checks.mjs" state
+  printf '%s\n%s\n%s\n' "$(jq -c . <<<"$1")" "$colours" "${bound:-null}" | node "$here/board/plot-jenkins-pr-checks.mjs" state
 }
 
 ci_unaskable() { # $1 = the op's name, $2 = the CI word (may be empty)
@@ -3977,10 +3969,9 @@ case "$op" in
           # `$(bb_state_row ...)` RUNS IN A SUBSHELL, so a failure inside it
           # (a bad Jenkins answer, an unreadable row) was lost the moment its
           # stdout was captured — `bb_fold_mergeable` always saw success. The
-          # row is captured first and the exit status read immediately after,
-          # before `bb_fold_mergeable` (which cannot fail this op) can reset it.
-          state_row="$(bb_state_row "$out" "$with_checks")"; state_rc=$?
-          [ "$state_rc" -eq 0 ] || exit "$state_rc"
+          # assignment's status is the substitution's, so `|| exit $?` ends the
+          # op with it before `bb_fold_mergeable` (which cannot fail) runs.
+          state_row="$(bb_state_row "$out" "$with_checks")" || exit $?
           bb_fold_mergeable "$state_row" "$repo_slug"
         else
           err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
@@ -4043,8 +4034,7 @@ case "$op" in
           #
           # The exit status is kept through the command substitution the same
           # way the numeric-ref arm above does — see its comment.
-          state_row="$(bb_state_row "$(jq -c '.[0] // null' <<<"$out")" "$with_checks")"; state_rc=$?
-          [ "$state_rc" -eq 0 ] || exit "$state_rc"
+          state_row="$(bb_state_row "$(jq -c '.[0] // null' <<<"$out")" "$with_checks")" || exit $?
           bb_fold_mergeable "$state_row" "$repo_slug"
         else
           err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
@@ -4758,8 +4748,8 @@ case "$op" in
           # `unknown`: its colour may belong to a commit this PR no longer
           # carries. A row `$named` lists but `$shamap` has no entry for is one
           # `jenkins_sha_runs` never reached because an earlier ask in the same
-          # pass broke early — "a lookup that cannot ask is not an answer",
-          # carried over unchanged from #2053/#2075, so its colour stands.
+          # pass broke early. It reads `unknown` with `checksLookup: broken`
+          # for the same reason: its colour may belong to an older commit.
           # `updatedAt` travels too: `rowsToBind` sorts by it to pick the most
           # recently updated rows, and a row list that never carries it sorts
           # as a no-op, leaving the cap keyed on array order instead.
@@ -4770,22 +4760,12 @@ case "$op" in
           # either — a settled row reads its plain colour, never `skipped` or
           # `broken`.
           #
-          # `_BB_JEN_BOUND` IS THE SHARED BUDGET ACROSS STATES. `pr_list_states`
-          # calls `$PR_LIST_BIND_FN` once per state in its loop (open, merged,
-          # declined for `--state all`); without a counter carried between
-          # those calls each state would hand `jenkins_bind_rows` a fresh
-          # `SHA_LOOKUPS_PER_PASS`, and `--state all` would spend 15 lookups
-          # instead of 5. `_BB_JEN_BOUND` starts at 0 once, outside the loop
-          # (below), and this function both reads it as the remaining limit
-          # and adds back how many it just spent. `SHA_LOOKUPS_PER_PASS` has no
-          # shell binding of its own — `_BB_SHA_LOOKUPS_PER_PASS` below is a
-          # declared duplicate of the TypeScript rule's constant
-          # (`jenkins-pr-checks.ts`), per the shell/domain duplication
-          # contract (`docs/shell-and-domain.md`): the two sides are free to
-          # drift, and nothing here checks that they agree.
-          _bb_jen_bind() { local s n named_file remaining open_rows; remaining=$((_BB_SHA_LOOKUPS_PER_PASS - _BB_JEN_BOUND)); open_rows="$(jq -c '[.[] | select(.state == "OPEN")]' <<<"$1")"; if [ "$remaining" -le 0 ]; then PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status" --argjson shamap null --argjson named '[]'); return; fi; plot_tmpfile named_file host-bbprlist-named; s="$(jenkins_bind_rows pr-list "$jen_map" "$(jq -c '[.[] | {headRefName:.source.branch.name,headRefOid:.source.commit.hash,updatedAt:.updated_on}]' <<<"$open_rows")" "$named_file" "$_bound_shas" "$remaining")"; n="$(jq -R -c -s 'split("\n") | map(select(length > 0))' <"$named_file")"; _BB_JEN_BOUND=$((_BB_JEN_BOUND + $(jq 'length' <<<"$n" 2>/dev/null || echo 0))); PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status" --argjson shamap "${s:-null}" --argjson named "${n:-[]}"); } # $1 = this state's raw Bitbucket rows
-          readonly _BB_SHA_LOOKUPS_PER_PASS=5
-          _BB_JEN_BOUND=0
+          # ONE CAP COVERS `--state all`. `pr_list_states` calls
+          # `$PR_LIST_BIND_FN` once per state (open, merged, declined), and
+          # each call starts at `SHA_LOOKUPS_PER_PASS`. Bitbucket's `state=`
+          # filter returns only rows of that state, so only the open call holds
+          # OPEN rows and only it can name any: the pass spends at most 5.
+          _bb_jen_bind() { local s n named_file; plot_tmpfile named_file host-bbprlist-named; s="$(jenkins_bind_rows pr-list "$jen_map" "$(jq -c '[.[] | select(.state == "OPEN") | {headRefName:.source.branch.name,headRefOid:.source.commit.hash,updatedAt:.updated_on}]' <<<"$1")" "$named_file" "$_bound_shas")"; n="$(jq -R -c -s 'split("\n") | map(select(length > 0))' <"$named_file")"; PR_LIST_JQ_ARGS=(--argjson jmap "$jen_map" --arg jstatus "$jen_status" --argjson shamap "${s:-null}" --argjson named "${n:-[]}"); } # $1 = this state's raw Bitbucket rows
           PR_LIST_BIND_FN=_bb_jen_bind
           pr_list_states bitbucket "$limit" "$bb_states" '.[] |
                 (.state == "OPEN") as $open | ($jmap[.source.branch.name]) as $colour | (($colour.checks == "green" or $colour.checks == "failing")) as $ambiguous | (.source.branch.name) as $head | ((.source.commit.hash // "") != "") as $hasSha | (($named | index($head)) != null) as $wasNamed | ($open and $ambiguous and $hasSha and ($wasNamed | not)) as $capped | ($open and $ambiguous and $wasNamed and ($shamap[.source.branch.name] == null)) as $broken | ($shamap[.source.branch.name] // (if ($capped or $broken) then null else $colour end) // null) as $jentry |

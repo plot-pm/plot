@@ -15,7 +15,7 @@ import { pathToFileURL } from 'node:url';
  * `bindChecks` reached from `plot-host.sh`, once per `pr-list` pass.
  *
  * ```
- * { jq -c . <<<"$colours"; jq -c . <<<"$rows"; jq -c . <<<"${bound:-null}"; jq -c . <<<"${limit:-null}"; } | plot-jenkins-pr-checks.mjs rows
+ * { jq -c . <<<"$colours"; jq -c . <<<"$rows"; jq -c . <<<"${bound:-null}"; } | plot-jenkins-pr-checks.mjs rows
  * <branch>\t<sha>\t<job>                      # one row to read by sha
  * printf '<branch>\t<sha>\t<job>\t<runs json>\n' | plot-jenkins-pr-checks.mjs bind
  * {"<branch>":{"checks":"green","job":"<job>","checksSha":"<sha>"}}
@@ -24,23 +24,25 @@ import { pathToFileURL } from 'node:url';
  * `rows`'s third stdin line is the caller's PR index, read-only: branch ->
  * the `checksSha` already on record there. Absent (`null` or no line) where
  * the caller holds no index — every row then sorts exactly as it always has.
- * See `rowsToBind`'s rotation note. Its fourth stdin line overrides the cap
- * (`SHA_LOOKUPS_PER_PASS` otherwise) — a caller sharing one budget across
- * several calls passes down what remains of it.
+ * See `rowsToBind`'s rotation note.
  *
  * Two more verbs fold what the shell read for Bitbucket (`pr-state`, `pr-review`):
  *
  * ```
- * printf '<pr json|null>\n<colours json|null>\n<bound json|null>\n<wasNamed bool>\n' | plot-jenkins-pr-checks.mjs state
+ * printf '<pr json|null>\n<colours json|null>\n<bound json|null>\n' | plot-jenkins-pr-checks.mjs state
  * printf '<sha>\n<statuses json>\n<comments json>\n' | plot-jenkins-pr-checks.mjs review
  * ```
+ *
+ * `state` reads the row as named for a sha lookup where `rowsToBind` names it
+ * from `colours` alone — the same answer `rows` gave the shell for this one
+ * row — so a named row with no `bound` entry reads `checksLookup: 'broken'`.
  *
  * The shell keeps the transport: it makes the Jenkins call per listed row and
  * the branch-colour map. This entry reads stdin only and spawns nothing.
  *
  * `bind` answers only the rows whose `<runs json>` is a JSON array. A row whose
- * lookup could not ask Jenkins is left out or carries anything else, and the
- * branch colour stands for it.
+ * lookup could not ask Jenkins is left out or carries anything else, and gets
+ * no bound entry; the caller decides what that row reads.
  */
 
 /** The exit codes the caller reads. */
@@ -82,7 +84,12 @@ export const run = (
   const lines = stdin.split('\n').filter((l) => l !== '');
   if (verb === 'state') {
     const [pr, colours, bound] = [0, 1, 2].map((i) => parseLine(lines[i] ?? ''));
-    const wasNamed = parseLine(lines[3] ?? '') === true;
+    const head = pr as { source?: { branch?: { name?: string }; commit?: { hash?: string } } } | null;
+    const wasNamed = head !== null && colours !== null && typeof colours === 'object'
+      && rowsToBind(
+        [{ headRefName: head.source?.branch?.name ?? '', headRefOid: head.source?.commit?.hash ?? '' }],
+        colours as Record<string, { checks?: string; job?: string }>,
+      ).length > 0;
     write(`${JSON.stringify(bitbucketPrState(pr as never, colours as never, bound as never, wasNamed))}\n`);
     return EXIT.ok;
   }
@@ -99,11 +106,9 @@ export const run = (
     const bound = parsedBound !== null && typeof parsedBound === 'object'
       ? (parsedBound as Record<string, string>)
       : {};
-    const parsedLimit = parseLine(lines[3] ?? '');
-    const limit = typeof parsedLimit === 'number' ? parsedLimit : SHA_LOOKUPS_PER_PASS;
     for (const r of rowsToBind(
       rows as PrRowHead[], colours as Record<string, { checks?: string; job?: string }>,
-      limit, bound,
+      SHA_LOOKUPS_PER_PASS, bound,
     )) {
       write(`${r.branch}\t${r.sha}\t${r.job}\n`);
     }

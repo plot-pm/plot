@@ -271,6 +271,15 @@ describe('a host that answers', () => {
     });
   });
 
+  it('passes --with-checks to pr-state only when the caller asks for checks', async () => {
+    const host = hostShell(hostThat(
+      'case " $* " in *" --with-checks "*) c=green ;; *) c=unknown ;; esac\n'
+      + 'printf \'{"number":7,"state":"OPEN","isDraft":false,"url":"u","checks":"%s"}\' "$c"',
+    ));
+    expect(await host.prState(7, { withChecks: true })).toMatchObject({ ok: true, value: { checks: 'green' } });
+    expect(await host.prState(7)).toMatchObject({ ok: true, value: { checks: 'unknown' } });
+  });
+
   it('answers the merged question with each of its three words', async () => {
     for (const word of ['merged', 'not-merged', 'unknown'] as const) {
       const answer = await hostShell(hostThat(`echo ${word}`)).prMerged('some/branch');
