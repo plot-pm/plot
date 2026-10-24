@@ -7754,6 +7754,14 @@ test('host: the same account keys the same way across calls', () => {
 // envelope shape. A branch absent from the map answers `size: 0` — an honest
 // absence — and a branch named in `fail` refuses with a chosen message and code.
 //
+// A `prs` VALUE MAY NAME SEVERAL PAGES, for the `next`-walk this stub now
+// has to simulate: `[rows]` (a plain array, every existing caller's shape)
+// serves one page with no `next`; `{pages: [rowsA, rowsB, ...]}` serves each
+// array in order, each page's `next` pointing at a synthetic path this same
+// stub recognises and the walk strips `$BB_API_BASE` off of, and `{pages,
+// failAt}` fails page `failAt` (1-based) instead of serving it, so a test can
+// prove the walk propagates page 2+'s raw error with nothing partial printed.
+//
 // EACH PAYLOAD IS WRITTEN TO A FILE AND `cat`ed, NEVER EMBEDDED AS A TOKEN.
 // Linux caps a single argument at `MAX_ARG_STRLEN` (128 KB) and macOS does not,
 // so the 886-row payload the cost test needs — 148 KB once quoted — ran here
@@ -7763,11 +7771,33 @@ test('host: the same account keys the same way across calls', () => {
 function makeSweepBbStub({ prs = {}, fail = {} } = {}) {
   const dir = trackTemp(mkdtempSync(path.join(tmpdir(), 'plot-host-sweep-')));
   const callsFile = path.join(dir, 'bb.calls');
-  const payloadFor = (key, rows) => {
-    const f = path.join(dir, `payload-${Buffer.from(key).toString('hex').slice(0, 40)}.json`);
-    writeFileSync(f, JSON.stringify({ size: rows.length, values: rows }));
+  const nextPathFor = (key, page) => `/repositories/{ws}/{repo}/pullrequests/page-${Buffer.from(key).toString('hex').slice(0, 24)}-${page}`;
+  const payloadFor = (key, page, rows, next) => {
+    const f = path.join(dir, `payload-${Buffer.from(key).toString('hex').slice(0, 40)}-${page}.json`);
+    writeFileSync(f, JSON.stringify({ size: rows.length, values: rows, ...(next ? { next: `https://api.bitbucket.org/2.0${next}` } : {}) }));
     return f;
   };
+  // One `if` arm per page of every multi-page key, keyed by the exact
+  // synthetic `next` path so the real `next`-walk — not a substring match on
+  // the first page's key — is what reaches page 2+.
+  const pageArms = [];
+  const firstArms = [];
+  for (const [key, spec] of Object.entries(prs)) {
+    const { pages, failAt } = Array.isArray(spec) ? { pages: [spec] } : spec;
+    pages.forEach((rows, i) => {
+      const page = i + 1;
+      const isLast = page === pages.length;
+      const next = isLast ? null : nextPathFor(key, page + 1);
+      if (failAt === page) {
+        const arm = `if [[ "$path" == *${JSON.stringify(page === 1 ? key : nextPathFor(key, page))}* ]]; then echo ${JSON.stringify(spec.said ?? 'error: HTTP 500 — server error')} >&2; exit ${spec.code ?? 1}; fi`;
+        (page === 1 ? firstArms : pageArms).push(arm);
+        return;
+      }
+      const f = payloadFor(key, page, rows, next);
+      const arm = `if [[ "$path" == *${JSON.stringify(page === 1 ? key : nextPathFor(key, page))}* ]]; then cat ${JSON.stringify(f)}; exit 0; fi`;
+      (page === 1 ? firstArms : pageArms).push(arm);
+    });
+  }
   const body = `#!/usr/bin/env bash
 if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
 if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
@@ -7777,8 +7807,8 @@ if [ "$1" != "api" ]; then echo "stub: bb pr list must not be called on a sweep"
 path="$2"
 ${Object.entries(fail).map(([frag, v]) =>
   `if [[ "$path" == *${JSON.stringify(frag)}* ]]; then echo ${JSON.stringify(v.said ?? 'error: HTTP 500')} >&2; exit ${v.code ?? 1}; fi`).join('\n')}
-${Object.entries(prs).map(([key, rows]) =>
-  `if [[ "$path" == *${JSON.stringify(key)}* ]]; then cat ${JSON.stringify(payloadFor(key, rows))}; exit 0; fi`).join('\n')}
+${pageArms.join('\n')}
+${firstArms.join('\n')}
 printf '%s' '{"size":0,"values":[]}'
 `;
   writeFileSync(path.join(dir, 'bb'), body);
@@ -10107,12 +10137,12 @@ test('host: pr-merged answers unknown when bb is absent from PATH', () => {
   assert.equal(res.stdout.trim(), 'unknown', 'an absent CLI is not a lookup miss');
 });
 
-test('host: pr-merged answers unknown on a full page with no merged row for the branch', () => {
-  // 50 rows, none for the asked branch — the branch query's own ceiling, and
-  // the one case a page-based fix cannot even express: the page IS already
-  // the per-branch answer, so a full one with no match cannot be ruled out as
-  // truncated. `pr-merged`'s not-merged default would be an unsafe RESULT: a
-  // caller reads it as proof nothing merged.
+test('host: pr-merged reads a full 50-row page with no next as complete, not truncated', () => {
+  // A single, exactly-full page with no `next` is the brief's done-when #5: the
+  // server-side state filter makes every row a true match, so a full page with
+  // none still MERGED (all overridden to OPEN here) is an honest `not-merged`,
+  // and the walk's own truncation message — which fires only when the page cap
+  // is hit, never on size alone — must stay silent.
   const branch = 'feature/x';
   const fifty = Array.from({ length: 50 }, (_, i) => restPr(2000 + i, branch, 'MERGED'));
   const bb = makeSweepBbStub({ prs: { 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx': fifty.map((r) => ({ ...r, state: 'OPEN' })) } });
@@ -10121,8 +10151,25 @@ test('host: pr-merged answers unknown on a full page with no merged row for the 
     env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout.trim(), 'unknown', 'a full page with no MERGED row cannot prove absence');
-  assert.match(res.stderr, /cannot prove absence/);
+  assert.equal(res.stdout.trim(), 'not-merged', 'a complete 50-row page with no MERGED row is a true answer');
+  assert.doesNotMatch(res.stderr, /truncated/, 'a size-only guard would wrongly flag this as truncated');
+});
+
+test('host: pr-merged finds a branch merged only on a second page', () => {
+  // The brief's first required scenario, read through `pr-merged`: 51 merged
+  // PRs across two pages, the match on page 2 — a single-page implementation
+  // serves only page 1's 50 rows and never sees it.
+  const branch = 'feature/x';
+  const key = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx';
+  const pageOne = Array.from({ length: 50 }, (_, i) => restPr(3000 + i, branch, 'OPEN'));
+  const pageTwo = [restPr(3644, branch, 'MERGED')];
+  const bb = makeSweepBbStub({ prs: { [key]: { pages: [pageOne, pageTwo] } } });
+  const res = spawnSync('bash', [adapter, 'pr-merged', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'merged', 'the match on page 2 is not visible to a single-page read');
 });
 
 test('host: pr-merged request carries exactly one q= with both state and the branch, encoded', () => {
@@ -10178,8 +10225,22 @@ test('host: pr-merge-commit exits 3 on a non-miss failure and on a full page wit
     encoding: 'utf8',
     env: { ...process.env, PATH: `${full.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
-  assert.equal(resFull.status, 3, 'a full page with no merge_commit.hash cannot prove absence');
+  // A full 50-row page with no `next` is complete, not truncated — the branch
+  // query's own server-side filter makes every row a real match, and none of
+  // these carries a merge_commit.hash, so the honest answer is nothing, exit 0.
+  assert.equal(resFull.status, 0, resFull.stderr);
   assert.equal(resFull.stdout.trim(), '');
+
+  const branch2 = 'feature/y';
+  const key2 = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fy';
+  const pageOne = Array.from({ length: 50 }, (_, i) => restPr(4000 + i, branch2, 'MERGED'));
+  const failed2 = makeSweepBbStub({ prs: { [key2]: { pages: [pageOne, []], failAt: 2, said: 'error: HTTP 429 — rate limited', code: 1 } } });
+  const resFailPage2 = spawnSync('bash', [adapter, 'pr-merge-commit', branch2], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${failed2.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(resFailPage2.status, 3, 'a second page that fails must not print a partial first-page answer');
+  assert.equal(resFailPage2.stdout.trim(), '');
 });
 
 test('host: pr-merge-dest prints number, destination, merge commit and merge time for every merged PR of a branch', () => {
@@ -10237,8 +10298,21 @@ test('host: pr-merge-dest exits 3 on a non-miss failure and on a full page with 
     encoding: 'utf8',
     env: { ...process.env, PATH: `${full.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
-  assert.equal(resFull.status, 3, 'a full page with no merge_commit.hash cannot prove absence');
+  // Same reasoning as `pr-merge-commit`: a full, un-paginated 50-row page is
+  // complete, so no merge commit among real matches is an honest empty answer.
+  assert.equal(resFull.status, 0, resFull.stderr);
   assert.equal(resFull.stdout.trim(), '');
+
+  const branch2 = 'feature/y';
+  const key2 = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fy';
+  const pageOne = Array.from({ length: 50 }, (_, i) => restPr(4000 + i, branch2, 'MERGED'));
+  const failed2 = makeSweepBbStub({ prs: { [key2]: { pages: [pageOne, []], failAt: 2, said: 'error: HTTP 429 — rate limited', code: 1 } } });
+  const resFailPage2 = spawnSync('bash', [adapter, 'pr-merge-dest', branch2], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${failed2.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(resFailPage2.status, 3, 'a second page that fails must not print a partial first-page answer');
+  assert.equal(resFailPage2.stdout.trim(), '');
 });
 
 test('host: pr-merged-heads prints the head for a branch merged past the first page', () => {
@@ -10279,8 +10353,63 @@ test('host: pr-merged-heads exits 3 on a non-miss failure and on a full page wit
     encoding: 'utf8',
     env: { ...process.env, PATH: `${full.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
   });
-  assert.equal(resFull.status, 3, 'a full page with no source.commit.hash cannot prove absence');
+  // A full, un-paginated 50-row page is complete — every row already matches
+  // the branch filter, so no row carrying a source.commit.hash is an honest
+  // "no merged head", not a truncated read.
+  assert.equal(resFull.status, 0, resFull.stderr);
   assert.equal(resFull.stdout.trim(), '');
+
+  const branch2 = 'feature/y';
+  const key2 = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fy';
+  const pageOne = Array.from({ length: 50 }, (_, i) => restPr(5000 + i, branch2, 'MERGED'));
+  const failed2 = makeSweepBbStub({ prs: { [key2]: { pages: [pageOne, []], failAt: 2, said: 'error: HTTP 429 — rate limited', code: 1 } } });
+  const resFailPage2 = spawnSync('bash', [adapter, 'pr-merged-heads', branch2], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${failed2.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(resFailPage2.status, 3, 'a second page that fails must not print partial heads');
+  assert.equal(resFailPage2.stdout.trim(), '', 'no partial heads on stdout when page 2 fails');
+});
+
+test('host: pr-merged-heads prints all 51 heads across two pages, not just the first 50', () => {
+  // The brief's first required scenario, verbatim: a single-page implementation
+  // prints 50 and exits 0; the fix must follow `next` and print 51.
+  const branch = 'feature/x';
+  const key = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx';
+  const headFor = (id) => ({ ...restPr(id, branch, 'MERGED'), source: { branch: { name: branch }, commit: { hash: `sha${id}` } } });
+  const pageOne = Array.from({ length: 50 }, (_, i) => headFor(6000 + i));
+  const pageTwo = [headFor(6050)];
+  const bb = makeSweepBbStub({ prs: { [key]: { pages: [pageOne, pageTwo] } } });
+  const res = spawnSync('bash', [adapter, 'pr-merged-heads', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const heads = res.stdout.trim().split('\n').filter(Boolean);
+  assert.equal(heads.length, 51, 'a single-page implementation would print 50 and stop here');
+  assert.equal(heads[0], 'sha6000');
+  assert.equal(heads[50], 'sha6050', 'the 51st head, on page 2, is not visible to a single-page read');
+});
+
+test('host: pr-merged-heads reports possibly truncated and exits non-zero when the walk hits the page cap', () => {
+  // The brief's second required scenario: a walk long enough to hit
+  // `BB_BRANCH_QUERY_PAGE_CAP` (20) must report truncation on stderr and exit
+  // non-zero — never return the prefix it already read with exit 0.
+  const branch = 'feature/x';
+  const key = 'MERGED%22%20AND%20source.branch.name=%22feature%2Fx';
+  const headFor = (id) => ({ ...restPr(id, branch, 'MERGED'), source: { branch: { name: branch }, commit: { hash: `sha${id}` } } });
+  // 21 full 50-row pages: the cap (20) stops the walk before a 21st page, which
+  // never needs to exist, so no `next` is given on page 20.
+  const pages = Array.from({ length: 21 }, (_, p) => Array.from({ length: 50 }, (_, i) => headFor(7000 + p * 100 + i)));
+  const bb = makeSweepBbStub({ prs: { [key]: { pages } } });
+  const res = spawnSync('bash', [adapter, 'pr-merged-heads', branch], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.notEqual(res.status, 0, 'an implementation that returns the prefix exits 0 — this must not');
+  assert.equal(res.stdout.trim(), '', 'no partial heads once the walk refuses to guess at the rest');
+  assert.match(res.stderr, /possibly truncated/);
+  assert.match(res.stderr, /page cap 20/);
 });
 
 test('host: pr-state by branch finds a PR merged past the first page', () => {

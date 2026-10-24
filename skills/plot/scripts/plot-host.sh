@@ -50,9 +50,13 @@
 #                                 PER BRANCH (`bb_branch_query`'s `q=` filter),
 #                                 never a repository-wide page — a PR merged
 #                                 before a page's newest 50 used to read as
-#                                 NONE. A page full at that filter's own
-#                                 ceiling without a match exits 3, the same as
-#                                 any other unanswerable question.
+#                                 NONE. `bb_branch_query` follows `next`, so a
+#                                 branch with more than 50 matches is still
+#                                 read whole; only a refused call or a walk the
+#                                 page cap stopped exits 3 — not an empty match
+#                                 on a full page, which this arm's own branch
+#                                 filter makes impossible (every row already
+#                                 matches, so a short answer is a true NONE).
 #   pr-merged <branch>            has ANY PR for this branch merged? prints one
 #                                 word: merged|not-merged|unknown
 #                                 READS `mergedAt`, NEVER `state`: a merged PR
@@ -1008,11 +1012,12 @@ url_encode() { # $1=raw → percent-encoded on stdout
   printf '%s' "$_out"
 }
 
-# Ask Bitbucket about ONE branch in ONE state, and print the `values` array.
+# Ask Bitbucket about ONE branch in ONE state, and print the combined `values`
+# array across every page the host offers.
 #
-# WHAT IT PRINTS is the endpoint's `values` — a JSON array of 0 or 1 pull
-# request objects, in the SAME shape `bb pr list --json` emits, which is what
-# lets the existing jq programs consume it unchanged. The `--rich` field set
+# WHAT IT PRINTS is the endpoint's `values` — a JSON array of pull request
+# objects, in the SAME shape `bb pr list --json` emits, which is what lets the
+# existing jq programs consume it unchanged. The `--rich` field set
 # (`plot-host.sh:3247`) reads `.id`, `.title`, `.state`, `.source.branch.name`,
 # `.draft` and `.links.html.href`; the REST object carries all six.
 #
@@ -1024,12 +1029,24 @@ url_encode() { # $1=raw → percent-encoded on stdout
 # happening from the other side: a host exiting 0 while printing nothing once
 # read as "this repo has no PRs".
 #
-# `pagelen=50` rather than 1. A branch may legitimately carry several pull
-# requests in one state — a merged attempt and a merged successor — and the
-# consumers rank them (`fleet.ts`'s `prOutranks`, the scan's OPEN-before-MERGED
-# sort). Asking for one would silently hand them whichever the host listed
-# first, which no adapter promises. Fifty is the endpoint's ceiling and costs
-# the same as one.
+# THE QUERY FILTERS ON STATE, SO A FULL PAGE IS NEVER A SHORT NON-MATCH. Every
+# row this walk reads already matches `$_st` — Bitbucket filters server-side —
+# so a branch carrying more than 50 pull requests in one state (#2484) used to
+# truncate silently at the first page. This now follows `next` until the host
+# stops offering one, or until `BB_BRANCH_QUERY_PAGE_CAP` pages have been read,
+# whichever comes first — see that constant for why no narrower cap exists to
+# reuse.
+#
+# A STOPPED WALK REPORTS ITSELF, ON STDERR, IN `pr_list_report_truncation`'s
+# OWN WORDING ("possibly truncated") — `plot-host.sh:3093` is the precedent
+# this follows rather than inventing a second phrase for the same fact — and
+# RETURNS EXIT 3, the code `pr-merged`, `pr-merge-commit`/`pr-merge-dest` and
+# `pr-merged-heads` already read as "the question failed, not merely empty".
+# A caller reading the exit code sees one vocabulary for "the answer may be
+# short" whether the cause is a refused call or a walk the cap stopped.
+#
+# `pagelen=50` rather than 1 — the endpoint's ceiling, and the same per-page
+# cost whether this reads one page or several.
 # THE HOST'S OWN FAILURE TEXT LEAVES HERE UNCLASSIFIED, and that is the whole
 # reason this does not call `pr_list_call`. That wrapper classifies a failure
 # ONCE — throttled, burst, or everything else — and composes the sentence a
@@ -1038,12 +1055,43 @@ url_encode() { # $1=raw → percent-encoded on stdout
 # message: measured here, a `429` became *"the host failed the request and said
 # nothing"* because `Rate limit … exceeded` was no longer in the text being
 # matched. So the raw stderr and the raw exit code travel out of this function
-# untouched, and the single `pr_list_call` that `pr_list_states` already wraps
-# the whole sweep in does the one classification — exactly the layering
-# `bb pr list` has always had.
+# untouched on the FIRST page; a later page's failure returns the same raw code
+# with no partial array printed — a caller cannot tell "zero rows" from "the
+# walk broke before it saw any", so printing a prefix here would manufacture an
+# answer this function never had.
+#
+# THE SAME `next`-WALK SHAPE AS `bb_window_listing` (`:1200`), which strips
+# `BB_API_BASE` from an absolute `next` URL to keep asking `bb api` with a
+# relative path — `bb api` concatenates `${BB_API}${path}` itself. That helper
+# has no page cap because its own completeness check is the server's `size`
+# field; this one has no `size` to check against (the endpoint's envelope here
+# carries it too, but a state-filtered count racing concurrent merges is not
+# the guard this slice adds), so the cap is the only bound on the walk.
+#
+# SHARED BY `bb_branch_query` AND `pr-review`'s statuses/comments reads: the
+# same walk, cap and failure rule serve a branch-filtered query and a bare
+# path alike, so the loop lives once. $1=first path $2=truncation label
+# $3=truncation detail; rest=global bb args → combined values[] on stdout.
+_bb_paged_walk() {
+  local _path="$1" _label="$2" _detail="$3" _out _spool _next _page=0; shift 3
+  # `plot_tmpfile` registers `_spool` for removal at process exit — no manual
+  # `rm` on an early return; the walk only ever runs a handful of times per
+  # process, so the file outliving one call costs nothing a caller can see.
+  plot_tmpfile _spool host-paged-walk || return 3; while [ -n "$_path" ]; do
+    [ "$((++_page))" -le "$BB_BRANCH_QUERY_PAGE_CAP" ] || { echo "plot-host: $_label possibly truncated ($(jq -c -s 'add // [] | length' < "$_spool") rows, page cap $BB_BRANCH_QUERY_PAGE_CAP reached) — $_detail" >&2; return 3; }
+    # `jq` is applied only to a SUCCESSFUL payload. Piping a failed call into it
+    # would turn the host's exit code into jq's, and a parse error and a spent
+    # quota are not the same fact. A failure on page 2+ returns the same raw
+    # code the first page would have — see the header above.
+    _out="$(bb "$@" api "$_path")" || return $?
+    printf '%s\n' "$_out" | jq -c '.values // []' >> "$_spool" && _next="$(jq -r '.next // empty' <<<"$_out")" || return 3
+    if [ -z "$_next" ]; then _path=""; elif [[ "$_next" == "$BB_API_BASE"/* ]]; then _path="${_next#"$BB_API_BASE"}"
+    else echo "plot-host: $_label: next page '$_next' is outside $BB_API_BASE; refusing to read past it" >&2; return 3; fi
+  done; jq -c -s 'add // []' < "$_spool"
+}
+
 bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values[]
-  local _br="$1" _st="$2"; shift 2
-  local _q _path _out _rc
+  local _br="$1" _st="$2" _q; shift 2
   _q="state=$(url_encode "\"$(bb_query_state "$_st")\"") AND source.branch.name=$(url_encode "\"$_br\"")"
   # THE WINDOW COMPOSES WITH THE STATE FILTER AND NEVER REPLACES IT. Bitbucket
   # takes ONE `q=` parameter, so a second one would silently win or lose
@@ -1061,27 +1109,31 @@ bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values
   # so an exclusive comparison against a truncated stamp would drop a PR updated
   # inside the same second. Re-reading one row the caller already holds costs a
   # row; missing one costs a change nobody ever sees again.
-  [ -n "$PR_LIST_SINCE" ] \
-    && _q="$_q AND updated_on>=$(url_encode "\"$PR_LIST_SINCE\"")"
-  # The space between the two terms is encoded too; `bb api` passes the path to
-  # curl verbatim and an unencoded space would truncate the request line.
-  _q="${_q// /%20}"
-  # THE LEADING SLASH. See the block header — without it this is a 403 that
-  # reads as a scope error.
-  _path="/repositories/{ws}/{repo}/pullrequests?q=${_q}&pagelen=50"
-  # `jq` is applied only to a SUCCESSFUL payload. Piping a failed call into it
-  # would turn the host's exit code into jq's, and a parse error and a spent
-  # quota are not the same fact.
-  _out="$(bb "$@" api "$_path")" || return $?
-  printf '%s' "$_out" | jq -c '.values // []'
+  [ -n "$PR_LIST_SINCE" ] && _q="$_q AND updated_on>=$(url_encode "\"$PR_LIST_SINCE\"")"
+  # The space between the two terms is encoded too, inline below; `bb api`
+  # passes the path to curl verbatim and an unencoded space would truncate the
+  # request line. THE LEADING SLASH on the path: see the block header above —
+  # without it this is a 403 that reads as a scope error.
+  _bb_paged_walk "/repositories/{ws}/{repo}/pullrequests?q=${_q// /%20}&pagelen=50" "bitbucket pr-list state=$_st" "a join against this page may read older branches as 'no PR' (#333)" "$@"
 }
 
-# A FULL `bb_branch_query` PAGE WITH NO MATCHING ROW CANNOT PROVE ABSENCE.
-# $1=the JSON array, $2=a jq `any(.[]; …)` predicate naming the field that
-# would carry the answer. True only at the 50-row ceiling with the predicate
-# finding nothing — the one condition `pr-merged`, `pr-merge-commit` and
-# `pr-merged-heads` each guard against before reading silence as a negative.
-bb_full_page_lacks() { [ "$(jq 'length' <<<"$1")" -ge 50 ] && ! jq -e "$2" >/dev/null 2>&1 <<<"$1"; }
+# HOW MANY PAGES `bb_branch_query` WILL WALK BEFORE REPORTING "possibly
+# truncated" AND REFUSING TO GUESS AT THE REST.
+#
+# THERE WAS NO EXISTING CAP TO REUSE. `bb_window_listing` (`:1200`) walks
+# `next` with no cap at all — its own completeness proof is the server's
+# `size` field, read once the whole walk finishes — and nothing else in this
+# file bounds a `next`-walk by page count. The plan that commissioned this
+# change ("bounded by the existing page cap") named one that does not exist;
+# this constant is new, not reused, and that is reported in the branch's PR.
+#
+# 20, CHOSEN RATHER THAN MEASURED: at `pagelen=50` it reaches 1000 pull
+# requests for one branch in one state, an order of magnitude past the
+# largest number of pull requests measured for any single tracked branch on
+# this estate (`a-pr-list-reads-every-page.md`: 886 MERGED pull requests
+# across an entire repository, not one branch). A branch that still exceeds
+# it gets the truncation report rather than a silent prefix.
+BB_BRANCH_QUERY_PAGE_CAP=20
 
 # Ask about EVERY tracked branch in one state, printing one combined array.
 #
@@ -4010,14 +4062,9 @@ case "$op" in
         # ceiling (see `bb_branch_sweep`'s header).
         if out="$(bb_branch_query "$ref" merged ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
           rm -f "$HOST_ERR"
-          # A FULL PAGE CANNOT PROVE ABSENCE. `bb_branch_query` asks pagelen=50,
-          # and a branch carrying more than 50 merged PRs could hide a MERGED row
-          # past it — so 50 rows with none matching answers `unknown`, not
-          # `not-merged`, the same rule a failed call follows below.
-          if jq -e 'any(.[]; .state == "MERGED")' >/dev/null 2>&1 <<<"$out"; then echo "merged"
-          elif bb_full_page_lacks "$out" 'any(.[]; .state == "MERGED")'; then echo "plot-host: pr-merged: the branch query for '$ref' returned a full page with no merged PR; cannot prove absence" >&2; echo "unknown"
-          else echo "not-merged"
-          fi
+          # `bb_branch_query` now follows every page, so a row's absence here is
+          # the host's own answer rather than a page boundary (#2484).
+          jq -e 'any(.[]; .state == "MERGED")' >/dev/null 2>&1 <<<"$out" && echo "merged" || echo "not-merged"
         else
           err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
           miss_or_unknown "$err"
@@ -4082,7 +4129,6 @@ case "$op" in
       # `merge_commit.hash` on a merged PR.
       if out="$(bb_branch_query "$ref" merged ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        bb_full_page_lacks "$out" 'any(.[]; .merge_commit.hash != null)' && { echo "plot-host: $op: the branch query for '$ref' returned a full page with no merge commit; cannot prove absence" >&2; exit 3; }
         jq -r 'map(select(.merge_commit.hash != null)
                | {n: .id, b: (.destination.branch.name // ""), s: .merge_commit.hash, t: (.updated_on // "")}) | '"$pick" <<<"$out"
       else
@@ -4125,7 +4171,6 @@ case "$op" in
       # `source.commit.hash`.
       if out="$(bb_branch_query "$ref" merged ${repo_args[@]+"${repo_args[@]}"} 2>"$HOST_ERR")"; then
         rm -f "$HOST_ERR"
-        bb_full_page_lacks "$out" 'any(.[]; .source.commit.hash != null)' && { echo "plot-host: pr-merged-heads: the branch query for '$ref' returned a full page with no merged head; cannot prove absence" >&2; exit 3; }
         jq -r '.[] | (.source.commit.hash // empty)' <<<"$out" || exit 3
       else
         err="$(cat "$HOST_ERR" 2>/dev/null)"; rm -f "$HOST_ERR"
@@ -4136,13 +4181,20 @@ case "$op" in
 
   pr-review)
     if [ "$be" != "github" ]; then
-      pr="/repositories/{ws}/{repo}/pullrequests/${1:?pr-review needs a PR number}"
+      pr="/repositories/{ws}/{repo}/pullrequests/${1:?pr-review needs a PR number}"; detail="a bypass or check recorded only on a later page would be missed"
+      # `_bb_paged_walk` (its own header has the cap/failure rule) follows
+      # `next` for both reads, so a `review-bypass:` comment or a status
+      # recorded only on a later page is not missed (#2484). THE WRAP GOES
+      # THROUGH STDIN, NOT `--argjson`: that flag passes its value through
+      # argv, which Linux caps at 128 KB (`MAX_ARG_STRLEN`) — a large enough
+      # page would die silently and read as "no rows" on CI while passing on
+      # macOS, the exact fabricated-absence bug this slice removes.
       out="$(bb api "$pr")" && sha="$(jq -re '.source.commit.hash' <<<"$out")" \
-        && st="$(bb api "/repositories/{ws}/{repo}/commit/$sha/statuses?sort=-created_on&pagelen=50")" && cm="$(bb api "$pr/comments?pagelen=100")" \
-        && printf '%s\n%s\n%s\n' "$sha" "$(jq -c . <<<"$st")" "$(jq -c . <<<"$cm")" | node "$here/board/plot-jenkins-pr-checks.mjs" review \
+        && st="$(_bb_paged_walk "/repositories/{ws}/{repo}/commit/$sha/statuses?sort=-created_on&pagelen=50" "bitbucket pr-review" "$detail" | jq -c '{values: .}')" \
+        && cm="$(_bb_paged_walk "$pr/comments?pagelen=100" "bitbucket pr-review" "$detail" | jq -c '{values: .}')" \
+        && printf '%s\n%s\n%s\n' "$sha" "$st" "$cm" | node "$here/board/plot-jenkins-pr-checks.mjs" review \
         || { echo "plot-host: pr-review: the read failed" >&2; exit 3; }
-      exit 0
-    fi
+      exit 0; fi
     out="$(gh pr view "${1:?pr-review needs a PR number}" --json headRefOid,comments)" && st="$(gh api "repos/{owner}/{repo}/commits/$(jq -r .headRefOid <<<"$out")/statuses")" \
       && jq -c --argjson st "$st" '{sha: .headRefOid, state: ([$st[] | select(.context == "plot/review")][0].state // "absent"), bypass: any(.comments[]?; .body | startswith("review-bypass:"))}' <<<"$out" \
       || { echo "plot-host: pr-review: the read failed" >&2; exit 3; } ;;
