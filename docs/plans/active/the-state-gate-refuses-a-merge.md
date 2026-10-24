@@ -1,0 +1,1 @@
+../2026-10-24-the-state-gate-refuses-a-merge.md
