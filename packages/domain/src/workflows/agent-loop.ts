@@ -208,6 +208,15 @@ export interface AgentLoopReadings {
    * cannot see denials must not manufacture one.
    */
   readonly permissionDenials: PermissionDenialReading;
+  /**
+   * The run's own final text, read only where {@link permissionDenials} is
+   * `'yes'` — the one ending this reaches with no agent-written marker and no
+   * hand-back to carry a summary. `''` where the harness answered none:
+   * `AgentRun.finalText` is absent on every SDK result subtype but `success`,
+   * so a run that ended on an API error mid-denial carries no text here even
+   * though it carries a denial.
+   */
+  readonly finalText: string;
 
   /**
    * What the build connector and the tip reading answer for the pushed
@@ -863,9 +872,15 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
     !readings.prOpen &&
     readings.commitBeyondClaim === 'no'
   ) {
-    return readings.permissionDenials === 'yes'
-      ? end(worktree, branch, 'permission-denied', 'agent', 'the claim is pushed, nothing else is, every write was refused', 0)
-      : end(worktree, branch, 'nothing-done', 'agent', 'the claim is pushed, nothing else is, no checks wait', 0);
+    if (readings.permissionDenials === 'yes') {
+      const summary = readings.finalText || 'the claim is pushed, nothing else is, every write was refused';
+      const question = `PLOT-BLOCKED: the worker on \`${branch}\` was refused every write it tried (${summary}) — a person decides what to fix.`;
+      return end(worktree, branch, 'permission-denied', 'agent', summary, 0, [
+        { kind: 'blocked-marker', worktree, branch, question },
+        blockedDeclaration(worktree, branch, summary),
+      ]);
+    }
+    return end(worktree, branch, 'nothing-done', 'agent', 'the claim is pushed, nothing else is, no checks wait', 0);
   }
   if (
     exit !== null &&
