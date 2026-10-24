@@ -47,9 +47,9 @@
 # `not-merged` → `none`, `unknown` or a non-zero exit → `unaskable`.
 #
 # `_plot_open_lookup` asks `pr-list --state open --branch <br>` and reads its
-# rows for one whose `head` equals the branch asked about. The `--branch` flag
-# narrows the Bitbucket arm to a per-branch sweep; GitHub's arm does not filter
-# on it at all, so the match here is load-bearing on that backend. A page
+# rows for one whose `head` equals the branch asked about. `--branch` narrows
+# the Bitbucket arm to a per-branch sweep and the GitHub arm to `gh pr list
+# --head <br>`, so neither answers from a slice of a repository-wide page. A page
 # `plot-host.sh` could not prove complete says so on stderr
 # ("possibly truncated") — a caller that read `none` past that warning could
 # miss its own branch's open PR behind a fuller page, so it reads `unaskable`
@@ -131,18 +131,15 @@ _plot_merged_lookup() {
 
 # What the host says about an OPEN PR on this branch: found / none / unaskable.
 #
-# `--branch` narrows the Bitbucket arm to a true per-branch sweep, but the
-# GitHub arm never filters its `gh pr list` call on it — so the row match
-# below is what actually answers "this branch" on that backend. A page
-# `plot-host.sh` could not prove complete says so on stderr, and that is read
-# as `unaskable` rather than trusting a `none` that might be hiding behind a
-# fuller page.
+# `--branch` narrows both hosts to the one branch asked about (Bitbucket: a
+# per-branch query; GitHub: `gh pr list --head`). A page `plot-host.sh` could
+# not prove complete says so on stderr and reads `unaskable`, not `none`. One
+# capture holds both streams, so the lookup creates no temp path.
 _plot_open_lookup() {
-  local br="$1" out ok=1 err="${TMPDIR:-/tmp}/plot-pr-open-err.$$.$RANDOM"
+  local br="$1" out ok=1
   [ -n "$br" ] && [ -f "$_plot_host_sh" ] || { echo unaskable; return; }
-  out=$(bash "$_plot_host_sh" pr-list --state open --branch "$br" --limit 100 2>"$err") || ok=0
-  grep -q 'possibly truncated' "$err" 2>/dev/null && ok=0
-  rm -f -- "$err" 2>/dev/null
+  out=$(bash "$_plot_host_sh" pr-list --state open --branch "$br" --limit 100 2>&1) || ok=0
+  case "$out" in *'possibly truncated'*) ok=0 ;; esac
   [ "$ok" -eq 1 ] || { echo unaskable; return; }
   case "$out" in *"\"head\":\"$br\""*) echo found ;; *) echo none ;; esac
 }
