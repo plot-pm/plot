@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   gatesMainCheckout,
   gatesStrandingReset,
+  gitPushCalls,
   gitWriteDirs,
   MAIN_CHECKOUT_WRITER_ENV,
   mainCheckoutWriteRefusal,
@@ -316,6 +317,37 @@ describe('treeStrandingResetDirs', () => {
     expect(treeStrandingResetDirs('git -C /abs/main reset')).toEqual(['/abs/main']);
     expect(treeStrandingResetDirs('cd /abs/main && git reset')).toEqual(['/abs/main']);
     expect(treeStrandingResetDirs('cd "$desk" && git reset')).toEqual([]);
+  });
+});
+
+describe('gitPushCalls', () => {
+  it('reads a push with no leading option', () => {
+    expect(gitPushCalls('git push origin main')).toEqual([['origin', 'main']]);
+  });
+
+  it('skips a value-taking global option (value as the next word) before push', () => {
+    expect(gitPushCalls('git -C /repo push origin main')).toEqual([['origin', 'main']]);
+    expect(gitPushCalls('git --git-dir /repo/.git push origin main')).toEqual([['origin', 'main']]);
+  });
+
+  it('skips a boolean global option, and a value-taking one given as --opt=value, before push', () => {
+    expect(gitPushCalls('git --no-pager push origin main')).toEqual([['origin', 'main']]);
+    expect(gitPushCalls('git --git-dir=/repo/.git push origin main')).toEqual([['origin', 'main']]);
+  });
+
+  it('answers no calls for a git command with no push', () => {
+    expect(gitPushCalls('git commit -m x')).toEqual([]);
+  });
+
+  it('answers no calls for a non-git command', () => {
+    expect(gitPushCalls('pnpm test')).toEqual([]);
+  });
+
+  it('reads one entry per push across a chained command', () => {
+    expect(gitPushCalls('git push origin main && git push origin --tags')).toEqual([
+      ['origin', 'main'],
+      ['origin', '--tags'],
+    ]);
   });
 });
 

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { BRIEF_ONLY_ENV } from '@plot-pm/domain/rules/brief-push';
 import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
 import path from 'node:path';
 import {
@@ -614,6 +615,8 @@ export const startImplement = (
         // The brief and the `Started:` record are committed in the main
         // checkout by design, so the `main-checkout` gate allows this run.
         [MAIN_CHECKOUT_WRITER_ENV]: '1',
+        // Read by the `brief-push` gate: this run pushes no slice branch.
+        [BRIEF_ONLY_ENV]: '1',
         PLOT_PLAN_SLUG: slug,
         ...(branch === null ? {} : { PLOT_BRIEF_BRANCH: branch }),
       },

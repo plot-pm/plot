@@ -360,6 +360,27 @@ export const gatesStrandingReset = (env: Readonly<Record<string, string | undefi
 export const mutatesGitState = (command: string): boolean => gitWriteDirs(command).length > 0;
 
 /**
+ * The arguments of every `git push` in a command, after the word `push`. The
+ * command is split the way {@link gitWriteDirs} splits it: heredoc bodies,
+ * quoted text and comments are not read, and a leading shell keyword is
+ * stripped.
+ *
+ * @param command - the command line.
+ * @returns one entry per `git push` call, options and operands in order.
+ */
+export const gitPushCalls = (command: string): readonly (readonly string[])[] => {
+  const calls: string[][] = [];
+  for (const part of withoutQuotes(withoutComments(withoutHeredocBodies(command))).split(SEPARATORS)) {
+    const program = programWords(withoutLeadingKeywords(part.trim().split(/\s+/).filter((word) => word !== '')));
+    if (program.length === 0 || wordBasename(program[0]) !== 'git') continue;
+    let i = 1;
+    while (i < program.length && program[i].startsWith('-')) i += GLOBAL_VALUE_OPTIONS.has(program[i]) ? 2 : 1;
+    if (program[i] === 'push') calls.push(program.slice(i + 1));
+  }
+  return calls;
+};
+
+/**
  * The refusal text for a mutating git call an unattended agent
  * (`PLOT_UNATTENDED=1`) ran against the main checkout.
  *
