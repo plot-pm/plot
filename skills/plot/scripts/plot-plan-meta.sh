@@ -986,35 +986,41 @@ function commit_list(s,   out, m, h) {
   return out
 }
 # Stores the annotations read_notes() found, and the commits the line names,
-# against branch n (named b), at the moment either dialect claims it.
-function keep_branch(n, b) {
-    # THE FLAG accepts the bare form as well as the annotated one.
-    #
-    # It matched `deferred:` only, so `<!-- deferred -->` — the annotation with
-    # nothing after it — read as NOT deferred at all: the strongest statement a
-    # plan can make about a branch, dropped for want of a colon. A reader
-    # writing the shorter form has said the branch will not be built; the
-    # parser now hears it.
-    deferred_of[n] = ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) ? "true" : "false"
-    # The reason travels with the flag. Empty on every non-deferred branch, and
-    # empty is also the honest answer for the bare form: the branch IS deferred
-    # and no reason was recorded, which is a different statement from a reason
-    # of "".
-    deferred_why[n] = defer_note
-    spike_of[n] = ($0 ~ /<!--[ \t]*spike[ \t]*-->/) ? 1 : 0
-    # Claim reflection, written by the worker after its ref push succeeds. This
-    # is a reflection, not the claim: git refs remain authoritative.
-    claimed_of[n] = claim_note
-    # The prerequisites travel with the branch, flattened as waits_of[n,1..k]
-    # since this awk has no nested arrays. Presence is tracked separately so a
-    # branch that declares none emits no key.
-    store_waits(n, b)
-    builds_of[n] = builds_note
-    # The kind travels with the branch, presence tracked separately so a slice
-    # declaring none emits no key.
-    agent_of[n] = agent_note
-    ordered_b[n] = b
-  commits_of[n] = commit_list($0)
+# against branch n (named b).
+#
+# OVERLAY decides whether a field this line does NOT carry erases what is
+# already stored. False (the old list shape, and a heading line itself): this
+# is the first and only line that can claim n, so every field is written
+# outright -- unconditionally false reads as "false", not "unknown". True (a
+# heading-shape list item naming the branch its heading already claimed): the
+# heading line claimed n first via read_notes() on itself, so only a field
+# THIS line carries may overwrite -- a deferral reason written on the heading
+# must survive a list item that carries none of its own.
+function keep_branch(n, b, overlay,   is_deferred) {
+  is_deferred = ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/)
+  # THE FLAG accepts the bare form as well as the annotated one. It matched
+  # `deferred:` only, so `<!-- deferred -->` — the annotation with nothing
+  # after it — read as NOT deferred at all: the strongest statement a plan can
+  # make about a branch, dropped for want of a colon. The parser now hears it.
+  if (!overlay || is_deferred) deferred_of[n] = is_deferred ? "true" : "false"
+  # The reason travels with the flag, empty for a non-deferred branch and
+  # equally empty for a bare `<!-- deferred -->` with no reason recorded — a
+  # different statement from a reason of "".
+  if (!overlay || is_deferred) deferred_why[n] = defer_note
+  if (!overlay || $0 ~ /<!--[ \t]*spike[ \t]*-->/) spike_of[n] = ($0 ~ /<!--[ \t]*spike[ \t]*-->/) ? 1 : 0
+  # Claim reflection, written by the worker after its ref push succeeds. This
+  # is a reflection, not the claim: git refs remain authoritative.
+  if (!overlay || claim_note != "") claimed_of[n] = claim_note
+  # The prerequisites travel with the branch, flattened as waits_of[n,1..k]
+  # since this awk has no nested arrays. Presence is tracked separately so a
+  # branch that declares none emits no key.
+  if (!overlay || !waits_set[n]) store_waits(n, b)
+  if (!overlay || builds_note != "") builds_of[n] = builds_note
+  # The kind travels with the branch, presence tracked separately so a slice
+  # declaring none emits no key.
+  if (!overlay || agent_note != "") agent_of[n] = agent_note
+  ordered_b[n] = b
+  if (!overlay) commits_of[n] = commit_list($0)
 }
 # `→ #N` and `→ owner/repo#N` are both annotations: /plot-deliver instructs
 # implementers to write the second for `Impl: other repo` plans, and a parser
@@ -1331,7 +1337,7 @@ section == "slices" && slice_shape != "heading" {
     branches[++n_branches] = b
     if (n_waves == 0) { wave_names[++n_waves] = "" }
     wave_of[n_branches] = n_waves; ++wave_count[n_waves]
-    keep_branch(n_branches, b)
+    keep_branch(n_branches, b, 0)
   }
   extract_prs($0)
   next
@@ -1394,7 +1400,7 @@ section == "slices" && slice_shape == "heading" {
       gsub(/`/, "", b)
       branches[++n_branches] = b
       wave_of[n_branches] = n_waves; ++wave_count[n_waves]
-      keep_branch(n_branches, b)
+      keep_branch(n_branches, b, 0)
       heading_branch = b; heading_branch_n = n_branches
     }
 
@@ -1420,21 +1426,11 @@ section == "slices" && slice_shape == "heading" {
       # Names the branch the heading above already claimed: its `→ #N` and its
       # annotations belong to that branch. read_notes() reads $0 (this line), so
       # a list item marker is read IN ADDITION TO a heading marker, never
-      # instead of it — and only a field this line itself carries overwrites
-      # what the heading already stored, so a heading-only annotation (a
-      # deferral reason written on the `### ` line, say) survives a list item
-      # that carries none of its own.
+      # instead of it — the overlay=1 arm of keep_branch then leaves a field
+      # this line does not carry (a deferral reason written on the `### `
+      # line, say) exactly as the heading already stored it.
       read_notes()
-      if ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) {
-        deferred_of[heading_branch_n] = "true"
-        deferred_why[heading_branch_n] = defer_note
-      }
-      if ($0 ~ /<!--[ \t]*spike[ \t]*-->/) spike_of[heading_branch_n] = 1
-      if (claim_note != "") claimed_of[heading_branch_n] = claim_note
-      if (builds_note != "") builds_of[heading_branch_n] = builds_note
-      if (agent_note != "") agent_of[heading_branch_n] = agent_note
-      if (!waits_set[heading_branch_n]) store_waits(heading_branch_n, heading_branch)
-
+      keep_branch(heading_branch_n, heading_branch, 1)
       extract_prs($0)
     } else {
       # Names a branch no heading in this wave claims (or there is no current

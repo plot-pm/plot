@@ -283,6 +283,28 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$script_dir/plot-tmp.sh"
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
+# Prints one line (+ a rewrite hint) per `{k1,k2}` pair a `plot-plan-meta.sh`
+# field reports, and sets REPORT_UNREAD_PAIRS_N to the count. $1=field name,
+# $2=jq keys "k1,k2", $3=printf format (gets basename, k1, k2 in that order),
+# $4=none-message. Shared by 24a (unread_waits) and 24b (unread_heading_items)
+# — same shape, different field and wording. Sets a global rather than
+# returning the count on stdout: the per-item lines ARE this function's
+# printed report, so a caller cannot capture the count with $(...) without
+# swallowing them too.
+report_unread_pairs() {
+  local field=$1 keys=$2 fmt=$3 none_msg=$4 f k1 k2
+  REPORT_UNREAD_PAIRS_N=0
+  if [ -n "$plan_json" ]; then
+    while IFS="$US" read -r f k1 k2; do
+      [ -n "$f" ] || continue
+      printf "$fmt" "$(basename "$f")" "$k1" "$k2"
+      REPORT_UNREAD_PAIRS_N=$((REPORT_UNREAD_PAIRS_N + 1))
+    done < <(printf '%s\n' "$plan_json" \
+      | jq -r "select(.phase != \"NONE\") | .file as \$f | .$field[]? | [\$f, $keys] | join(\"\")")
+  fi
+  [ "$REPORT_UNREAD_PAIRS_N" -gt 0 ] || echo "  $none_msg"
+}
+
 # jq is required: the plan-metadata rows are read through a jq pipe below.
 # Without it that pipe yields nothing and every plan-derived section (1, 2,
 # 4, 5) would silently report empty — a false "drift=0" clean. Fail loudly
@@ -3286,17 +3308,10 @@ echo
 # verdict either, so the slice holds no annotation at all until a person fixes
 # the value — a legibility gap, not a broken pointer.
 echo "== 24a. Unread waits (a waits: marker on a branch line the parser could not read) =="
-if [ -n "$plan_json" ]; then
-  while IFS="$US" read -r f branch value; do
-    [ -n "$f" ] || continue
-    printf "  %s — branch '%s' names a waits: value the parser could not read: '%s'\n    rewrite: the value as a branch name, with a configured prefix (%s)\n" \
-      "$(basename "$f")" "$branch" "$value" "$PREFIX_RE"
-    n_unread_waits=$((n_unread_waits + 1))
-  done < <(printf '%s\n' "$plan_json" \
-    | jq -r 'select(.phase != "NONE") | .file as $f
-             | .unread_waits[]? | [$f, .branch, .value] | join("\u001f")')
-fi
-[ "$n_unread_waits" -gt 0 ] || echo "  (none — every waits: marker on a branch line was read)"
+report_unread_pairs unread_waits '.branch, .value' \
+  "  %s — branch '%s' names a waits: value the parser could not read: '%s'\n    rewrite: the value as a branch name, with a configured prefix ('"$PREFIX_RE"')\n" \
+  "(none — every waits: marker on a branch line was read)"
+n_unread_waits=$REPORT_UNREAD_PAIRS_N
 echo
 
 # ---------------------------------------------------------------------------
@@ -3316,17 +3331,10 @@ echo
 # no annotation at all until a person fixes the value — a legibility gap, not a
 # broken pointer.
 echo "== 24b. Unread heading items (a list item under a heading names a branch no heading claims) =="
-if [ -n "$plan_json" ]; then
-  while IFS="$US" read -r f wave branch; do
-    [ -n "$f" ] || continue
-    printf "  %s — wave '%s' holds a list item naming '%s', a branch no heading in that wave claims\n    rewrite: move the item under its own heading, or give this wave a (Branch: %s) heading\n" \
-      "$(basename "$f")" "$wave" "$branch" "$branch"
-    n_unread_heading_items=$((n_unread_heading_items + 1))
-  done < <(printf '%s\n' "$plan_json" \
-    | jq -r 'select(.phase != "NONE") | .file as $f
-             | .unread_heading_items[]? | [$f, .wave, .branch] | join("")')
-fi
-[ "$n_unread_heading_items" -gt 0 ] || echo "  (none — every heading-shape list item was attributed)"
+report_unread_pairs unread_heading_items '.wave, .branch' \
+  "  %s — wave '%s' holds a list item naming '%s', a branch no heading in that wave claims\n    rewrite: move the item under its own heading, or give that heading this (Branch: …) value\n" \
+  "(none — every heading-shape list item was attributed)"
+n_unread_heading_items=$REPORT_UNREAD_PAIRS_N
 echo
 
 # ---------------------------------------------------------------------------
