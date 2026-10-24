@@ -2140,6 +2140,17 @@ test('host: issue-view returns one issue object, body included', () => {
   }
 });
 
+for (const [ghState, want] of [['CLOSED', 'closed'], ['OPEN', 'open']]) {
+  test(`host: issue-view github maps state ${ghState} to ${want}`, () => {
+    const gh = makeStubs({ ghJson: JSON.stringify({ number: 4, title: 't', body: 'b', url: 'u', state: ghState }) });
+    const out = JSON.parse(execFileSync('bash', [adapter, 'issue-view', '4'], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${gh.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+    }));
+    assert.equal(out.state, want);
+  });
+}
+
 test('host: issue-view fills absent fields rather than emitting null', () => {
   // An issue with no body is a real case — a title-only issue — and it must
   // arrive as "" so a consumer renders nothing rather than the word "null".
@@ -2428,6 +2439,18 @@ test('host: issue-view bitbucket returns {number,title,body,url} from bb view te
   // does not.
   assert.equal(out.url, 'https://bitbucket.org/acme/widget/issues/3');
 });
+
+for (const [badge, want] of [
+  ['RESOLVED', 'closed'], ['CLOSED', 'closed'], ['INVALID', 'closed'], ['DUPLICATE', 'closed'], ['WONTFIX', 'closed'],
+  ['ON HOLD', 'open'], ['NEW', 'open'], ['OPEN', 'open'],
+]) {
+  test(`host: issue-view bitbucket maps badge ${badge} to ${want}`, () => {
+    const out = BB_VIEW_ANSI.replace(' OPEN ', ` ${badge} `);
+    const res = runBb(['issue-view', '3'], makeBbIssueStub({ out }));
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(JSON.parse(res.stdout).state, want);
+  });
+}
 
 test('host: issue-view bitbucket exits 4 when the tracker is disabled', () => {
   const stub = makeBbIssueStub({ out: bbError('404 Not Found'), code: 1 });
@@ -5429,6 +5452,29 @@ test('host: issue-view jira returns {number,title,body,url} with a plain-string 
   // The URL argument targets the v2 issue endpoint keyed by the Jira key.
   const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
   assert.ok(argv.includes('https://acme.atlassian.net/rest/api/2/issue/PROJ-123'));
+});
+
+for (const [label, status, resolution, want] of [
+  ['a done category key whose localised name is not "Done"', { statusCategory: { key: 'done', name: 'Erledigt' } }, null, 'closed'],
+  ['a resolution under a To Do category', { statusCategory: { key: 'new', name: 'To Do' } }, { name: 'Fixed' }, 'closed'],
+  ['a done category with resolution null', { statusCategory: { key: 'done', name: 'Done' } }, null, 'closed'],
+  ['an open category and no resolution', { statusCategory: { key: 'indeterminate', name: 'In Progress' } }, null, 'open'],
+  ['neither statusCategory nor resolution', {}, undefined, 'open'],
+]) {
+  test(`host: issue-view jira maps ${label} to ${want}`, () => {
+    const stub = makeJiraCurlStub({
+      body: JSON.stringify({ key: 'PROJ-8', fields: { summary: 's', description: 'd', status, resolution } }),
+    });
+    const res = runJira(['issue-view', 'PROJ-8'], stub);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(JSON.parse(res.stdout).state, want);
+  });
+}
+
+test('host: issue-view jira asks for the resolution field', () => {
+  const stub = makeJiraCurlStub({ body: JSON.stringify({ key: 'PROJ-8', fields: {} }) });
+  runJira(['issue-view', 'PROJ-8'], stub);
+  assert.match(readFileSync(stub.argvFile, 'utf8'), /^fields=.*\bresolution\b/m);
 });
 
 test('host: issue-view jira fills a null description as "" rather than the word null', () => {
