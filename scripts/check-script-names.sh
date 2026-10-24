@@ -136,9 +136,15 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 # delivered arm already makes, run again at `released`. Same tracker
 # connector, same "no port answers this yet" the two prior raises gave.
 #
+# RAISED TO 20 ON 2026-10-24 for `controller-gate.ts`'s `STATE_RECEIPT_SH`,
+# the same kind of site the 2026-10-04 raise named for `DISPATCH_SH`/
+# `APPROVE_SH`/`DELIVER_SH`: `isUnownedActionReceipt` classifies a command
+# string to decide whether its reason argument is message text, and never
+# spawns, sources or shells to `plot-state-receipt.sh` itself.
+#
 # `ROOTS` names every package with TypeScript source. `registry.ts`, which
 # holds `WORKER_STATE_SCRIPT`, is in packages/fleet/src.
-ALLOWED=19
+ALLOWED=20
 
 ROOTS='packages/board/src packages/domain/src packages/fleet/src'
 

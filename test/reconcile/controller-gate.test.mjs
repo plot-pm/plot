@@ -687,13 +687,104 @@ test('controller gate: the body is data wherever the name sits in the line', () 
   }
 });
 
-test('controller gate: an UNQUOTED heredoc body is still tokenised', () => {
-  // `<<EOF` interpolates, so its body can carry a substitution that is a
-  // command. Only the quoted form's contents are provably data, and that is the
-  // whole licence for this change.
+test('controller gate: a git commit -m value naming a script is data, not a command (#2440)', () => {
+  // THE CASE THE ISSUE REPORTED, VERBATIM: `git commit -m "plot-deliver.sh
+  // flipped only the Status block"` was refused though the command runs no
+  // script at all — the name appears solely inside the commit message text.
+  const dir = repo();
+  const cmd = `git commit -m "${D} flipped only the Status block"`;
+  assert.equal(run(dir, cmd).status, 0, 'a -m value may name the script that performed a write');
+});
+
+test('controller gate: a git commit --message value naming a script is data, not a command', () => {
+  const dir = repo();
+  const cmd = `git commit --message "${D} flipped only the Status block"`;
+  assert.equal(run(dir, cmd).status, 0, 'a --message value may name the script that performed a write');
+});
+
+test('controller gate: the reason argument of plot-state-receipt.sh --unowned-action is data, not a command (#2440)', () => {
+  // The third shape #2440 named: an operator explaining, in the reason the
+  // escape itself requires, which script the gate had wrongly refused.
+  const dir = repo();
+  const cmd = `bash skills/plot/scripts/plot-state-receipt.sh --unowned-action deliver some-slug "${D} flipped only the Status block"`;
+  assert.equal(run(dir, cmd).status, 0, 'the reason text may name the script the escape is about');
+});
+
+test('controller gate: a real invocation is still refused beside a stripped -m value', () => {
+  // The strip removes a VALUE, never a command. A real call sharing the line
+  // with a message mentioning the same script still refuses.
+  const dir = repo();
+  const cmd = `${D} slug && git commit -m "${D} flipped only the Status block"`;
+  assert.equal(run(dir, cmd).status, 2, 'a real call beside a stripped message is still a real call');
+});
+
+test('controller gate: an unquoted git commit -F - heredoc body naming a script is data, not a command (#2440)', () => {
+  // Issue #2440: `git commit -m "plot-deliver.sh flipped only the Status
+  // block"` was refused though the command runs no script — the name sits
+  // solely in text `git commit` never executes. `-F -` reads the same message
+  // from stdin via a heredoc, and until this fix only the SINGLE-quoted form
+  // of that heredoc was recognised as data (`a-gate-matches-an-invocation`,
+  // #935). This is the sink-aware strip that closes the unquoted form too —
+  // scoped to `git commit -F -` specifically, not to every heredoc.
   const dir = repo();
   const cmd = ['git commit -F - <<EOF', 'plot: record', '', `written by ${D}`, 'EOF'].join('\n');
-  assert.equal(run(dir, cmd).status, 2, 'an interpolating body keeps being read as commands');
+  assert.equal(run(dir, cmd).status, 0, 'a commit message read from stdin may still name the script that wrote a field');
+});
+
+test('controller gate: a $( ) substitution in a git commit -F - heredoc body still refuses', () => {
+  // THE INVARIANT THIS FIX MUST NOT BREAK: an unquoted heredoc body can carry a
+  // command substitution, and that substitution can itself invoke a gated
+  // script. A body holding `$(` or a backtick is never treated as data,
+  // regardless of which sink feeds from it.
+  const dir = repo();
+  const cmd = ['git commit -F - <<EOF', 'plot: record', '', `written by $(${D})`, 'EOF'].join('\n');
+  assert.equal(run(dir, cmd).status, 2, 'a $( ) substitution can still invoke the script, so the body stays tokenised');
+});
+
+test('controller gate: an unquoted heredoc feeding a command other than git commit -F - is still tokenised', () => {
+  // The strip is sink-aware, not "every heredoc is data now" — a heredoc body
+  // feeding anything other than the one provably-a-commit-message shape stays
+  // read as commands, same as before this fix.
+  const dir = repo();
+  const cmd = ['cat <<EOF', `written by ${D}`, 'EOF'].join('\n');
+  assert.equal(run(dir, cmd).status, 2, 'a heredoc feeding cat is not a commit message');
+});
+
+// Each command below runs a gated script or an unpinned merge, and each was
+// allowed by the first message-sink strip (#2544). The strip may blank only
+// text the shell never runs.
+const SINK_BYPASSES = [
+  ['a $( ) in a -m value', `git commit -m "$(bash ${D} slug)"`],
+  ['a backtick in a -m value', `git commit -m "\`bash ${D} slug\`"`],
+  ['a $( ) in a receipt reason', `bash skills/plot/scripts/plot-state-receipt.sh --unowned-action dispatch s "$(${D} x)"`],
+  ['an unpinned merge in a -m value', 'git commit -m "$(gh pr merge 12)"'],
+  ['a heredoc fed to sh, piped into git commit -F -', ['sh <<EOF | git commit -F -', `bash ${D} slug`, 'EOF'].join('\n')],
+  ['a heredoc fed to bash beside git commit -F -', ['bash <<A && git commit -F - <<B', `bash ${D} slug`, 'A', 'msg', 'B'].join('\n')],
+  ['a here-string read as a heredoc tag', ['git commit -F - <<< "x"', `bash ${D} slug`].join('\n')],
+  ['a << inside quotes read as a heredoc tag', ['echo "<<EOF" | git commit -F -', `bash ${D} slug`].join('\n')],
+  ['an unterminated heredoc', ['git commit -F - <<EOF', `bash ${D} slug`].join('\n')],
+  ['an unpinned merge after an unterminated heredoc', ['git commit -F - <<EOF', 'gh pr merge 12'].join('\n')],
+  ['the receipt name as an argument of bash -c', `bash -c '"\${@:4}"' plot-state-receipt.sh --unowned-action a b bash ${D} slug`],
+  ["a here-string before the call, on main's line reader too", ["git log <<< 'x'", `bash ${D} slug`].join('\n')],
+];
+
+test('controller gate: no message-sink strip hides a command the shell runs (#2544)', () => {
+  const dir = repo();
+  const allowed = SINK_BYPASSES.filter(([, cmd]) => run(dir, cmd).status !== 2);
+  assert.deepEqual(allowed.map(([label]) => label), [], 'each of these runs a gated script or an unpinned merge');
+});
+
+test('controller gate: the commit forms agents use may name a script in the message (#2440)', () => {
+  const dir = repo();
+  const forms = [
+    ['a ; inside the quoted value', `git commit -m "${D}: fix; retry"`],
+    ['a multi-line value', ['git commit -m "plot: record', '', `${D} flipped the field"`].join('\n')],
+    ['-am', `git commit -am "${D} flipped the field"`],
+    ['git -C <dir> commit', `git -C . commit -m "${D} flipped the field"`],
+    ['the $(cat <<\'EOF\') form', ['git commit -m "$(cat <<\'EOF\'', `${D} flipped the field`, 'EOF', ')"'].join('\n')],
+  ];
+  const refused = forms.filter(([, cmd]) => run(dir, cmd).status !== 0);
+  assert.deepEqual(refused.map(([label]) => label), [], 'a message is data in each of these forms');
 });
 
 test('controller gate: a heredoc body cannot smuggle a real invocation past the gate', () => {
