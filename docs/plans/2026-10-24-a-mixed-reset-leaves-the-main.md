@@ -67,7 +67,7 @@ Design direction, per the layering rule in `CLAUDE.md` (a gate over a rule):
 
 ### Brief step
 
-- `bug/a-mixed-reset-leaves-the-main-brief` — the brief and implement steps fetch before committing, skip the commit when `origin/main` holds the brief, and re-cut in a disposable worktree after a rejected push <!-- waits: bug/a-mixed-reset-leaves-the-main-gate -->
+- `bug/a-mixed-reset-leaves-the-main-brief` — the brief and implement steps fetch before committing, skip the commit when `origin/main` holds the brief, and re-cut in a disposable worktree after a rejected push <!-- waits: bug/a-mixed-reset-leaves-the-main-gate --> → #2651
 
 ## Notes
 
