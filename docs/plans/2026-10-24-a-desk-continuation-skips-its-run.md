@@ -13,6 +13,7 @@
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2491 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/continuation-reads-the-loops-run-limits`
 - **Started:** 2026-10-24, Jan Wloka, `bug/a-failed-continuation-leaves-the-desk-as-found`
+- **Started:** 2026-10-24, Jan Wloka, `bug/drop-reads-the-boards-branch`
 
 ## Changelog
 
