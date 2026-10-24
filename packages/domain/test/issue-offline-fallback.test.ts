@@ -63,15 +63,15 @@ describe('offlineIssueRows', () => {
     });
   });
 
-  it('shows nothing where the memory is empty but present (an answered empty inbox)', () => {
+  it('keeps an empty-but-present memory array over the index (an answered empty inbox)', () => {
     expect(offlineIssueRows(reading({ memoryRows: [], index: index() }))).toEqual({ from: 'memory', rows: [] });
   });
 
-  it('falls back to an empty age where the index carries rows but no `at`', () => {
+  it('falls back to a null age where the index carries rows but no `at`', () => {
     expect(offlineIssueRows(reading({ index: index({ at: undefined }) }))).toEqual({
       from: 'index',
       rows: [row()],
-      at: '',
+      at: null,
     });
   });
 });
