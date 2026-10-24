@@ -57,7 +57,7 @@ Slices 1 and 2 stay inside the layering rule (controller → domain → port ←
 
 ### Blocker
 
-- `bug/loop-writes-blocker-for-refused-agent` — the loop writes `PLOT-BLOCKED.md` from the agent's final message <!-- waits: bug/refused-writes-end-as-permission-denied -->
+- `bug/loop-writes-blocker-for-refused-agent` — the loop writes `PLOT-BLOCKED.md` from the agent's final message <!-- waits: bug/refused-writes-end-as-permission-denied --> → #2599
 
 ### Probe
 
