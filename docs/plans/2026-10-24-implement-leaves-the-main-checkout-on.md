@@ -50,7 +50,7 @@ Files likely touched: `packages/fleet/src/shared/implement-run.ts`, `packages/bo
 
 ### Checkout
 
-- `bug/implement-restores-the-checkout` — `/api/implement` returns the operator's checkout to the branch it found, on success and on failure
+- `bug/implement-restores-the-checkout` — `/api/implement` returns the operator's checkout to the branch it found, on success and on failure → #2538
 
 ### Ref
 
