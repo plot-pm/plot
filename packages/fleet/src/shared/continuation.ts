@@ -825,10 +825,10 @@ export const continueOnDesk = async (input: DeskContinuationInput): Promise<Desk
 
     // SAVE-THEN-SIGNAL (#1379): a `stamp` target with no readable manifest
     // refuses `no-manifest` HERE, before the loop is ever signalled. Checking
-    // this only after the stop (as the code used to) would have already sent
-    // `SIGTERM` and removed the freewait record for a manifest this run could
-    // never restore — a stop with no way back. The desk is left exactly as
-    // found: nothing signalled, nothing removed.
+    // this only after the stop would already have sent `SIGTERM` and removed
+    // the freewait record for a manifest this run could never restore — a
+    // stop with no way back. The desk is left exactly as found: nothing
+    // signalled, nothing removed.
     if (stampPath !== '' && manifestBeforeStop === null) {
       return refused(409, 'no-manifest', `${stampPath} could not be read before the stop; the desk is left running`);
     }
