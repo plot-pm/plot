@@ -6,11 +6,11 @@
 
 - **State:** Approved
 - **Type:** bug
-- **Sprint:** follow-ups-2-28-3
 - **Issue:** #2428
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2509 merged
+- **Started:** 2026-10-24, Jan Wloka, `bug/refused-writes-end-as-permission-denied`
 
 ## Changelog
 
