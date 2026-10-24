@@ -86,11 +86,10 @@ skills/plot/scripts/board/plot-pr-index-lookup.mjs -merge
 skills/plot/scripts/board/plot-gate.mjs -merge
 skills/plot/scripts/board/plot-reap.mjs -merge
 skills/plot/scripts/board/plot-reconcile.mjs -merge
+skills/plot/scripts/board/plot-record-pr.mjs -merge
 skills/plot/scripts/board/plot-release-gate.mjs -merge
 skills/plot/scripts/board/plot-slice-chain.mjs -merge
 skills/plot/scripts/board/plot-slice-pr.mjs -merge
-skills/plot/scripts/board/plot-slice-pr-annotation.mjs -merge
-skills/plot/scripts/board/plot-plan-for-branch.mjs -merge
 skills/plot/scripts/board/plot-slice-spend.mjs -merge
 skills/plot/scripts/board/plot-sprint-release-gate.mjs -merge
 skills/plot/scripts/board/plot-sprint-score.mjs -merge

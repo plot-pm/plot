@@ -13,7 +13,9 @@
 //
 // `plot-record-pr.sh` replaces the prose with a disposable-worktree write —
 // modeled on `write_started_record` in plot-dispatch.sh — so the file write
-// and the commit happen in the SAME tree by construction. The first test
+// and the commit happen in the SAME tree by construction. The script is a
+// launcher over `board/plot-record-pr.mjs`, so these tests need a built
+// board (`pnpm build:board`). The first test
 // below reproduces the OLD failure mode directly (a write into the main
 // checkout with no commit there); the rest prove the new script's behaviour.
 import { test, after } from 'node:test';
@@ -147,9 +149,9 @@ test('plot-record-pr.sh: refuses when no plan names the given branch', () => {
   }, /no plan in .* names branch/);
 });
 
-test('plot-record-pr.sh: the booking worktree is distinct from the repo root, mirroring write_started_record', () => {
+test('plot-record-pr.sh: a launcher that execs its bundle and decides nothing', () => {
   const text = fs.readFileSync(recordPr, 'utf8');
-  assert.match(text, /tmpwt="\$wt_root\/\.plot-record-pr-\$slug_part\.\$\$"/, 'the booking worktree must be a path distinct from the repo root');
-  assert.match(text, /git -C "\$tmpwt"/, 'the plan edit must be committed against the booking worktree, not the main checkout');
-  assert.doesNotMatch(text, /git -C "\$repo_root" (add|commit|reset)/, 'plot-record-pr.sh must never write or commit directly in the main checkout');
+  assert.match(text, /bundle="\$script_dir\/board\/plot-record-pr\.mjs"/, 'the launcher must resolve board/plot-record-pr.mjs');
+  assert.match(text, /^exec node "\$bundle" "\$@"$/m, 'the launcher must exec the bundle with its arguments');
+  assert.doesNotMatch(text, /^\s*git /m, 'the launcher must run no git command of its own');
 });

@@ -48,15 +48,8 @@ plot_repo_root() {
 # Resolved ONCE at source time, the way `plot-pr-merged.sh:105` resolves its
 # own bundle. Computing it inside a function reads `BASH_SOURCE[0]` at call
 # time, which is the caller's file once the function has been exported.
-#
-# THE `.mjs` PATHS ARE BUILT DIRECTLY FROM `BASH_SOURCE`, ON THEIR OWN LINES —
-# never through `_plot_desk_root_dir` — because `check-bundle-resolution.sh`
-# only recognises `$script_dir`/`$here`/`$HERE` or a `BASH_SOURCE` command
-# substitution as a bundle's anchor, and a private variable of any other name
-# is invisible to it.
-_plot_desk_root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-_plot_desk_root_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-desk-root.mjs"; _plot_desk_root_config="$_plot_desk_root_dir/plot-config.sh"
-_plot_plan_for_branch_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-plan-for-branch.mjs"
+_plot_desk_root_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-desk-root.mjs"
+_plot_desk_root_config="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/plot-config.sh"
 
 # The desk root for a repository, or exit 3 with the reason on stderr.
 #
@@ -118,7 +111,8 @@ plot_exclude_desk_root() {
   # Already ignored, by a `.gitignore` line /plot-init wrote or by an earlier
   # run. A second rule for a path already ignored is noise in a file people read.
   ( cd -- "$repo" 2>/dev/null && git check-ignore -q ".$line" ) && return 0
-  common=$(cd -- "$repo" 2>/dev/null && git rev-parse --git-common-dir 2>/dev/null) || return 0; [ -n "$common" ] || return 0
+  common=$(cd -- "$repo" 2>/dev/null && git rev-parse --git-common-dir 2>/dev/null) || return 0
+  [ -n "$common" ] || return 0
   case "$common" in /*) ;; *) common="$repo/$common" ;; esac
   exclude="$common/info/exclude"
   if [ -f "$exclude" ] && grep -qxF "$line" "$exclude" 2>/dev/null; then return 0; fi
@@ -130,25 +124,4 @@ plot_exclude_desk_root() {
     printf '%s\n' "$line" >> "$exclude" 2>/dev/null || true
   fi
   return 0
-}
-
-# plot_plan_for_branch <base-dir> <plan-dir-config-value> <branch>
-# Prints "<plan-file>\t<wave-name>" for the plan under <plan-dir> whose
-# waves[].branches[].branch names <branch>, or nothing if none does. Shared by
-# plot-open-pr.sh and plot-record-pr.sh, which both need to answer "which plan
-# names this branch" the same way: grep candidates by literal branch name (a
-# branch is a literal string, so a plan not containing it cannot name it —
-# measured 2026-09-09, parsing all plans took 103s against 0.6s for grep
-# first), then parse only those with plot-plan-meta.sh. <plan-dir-config-value>
-# is absolutized against <base-dir> when it is relative, so each caller need
-# not repeat that case statement itself. The decision — which candidate names
-# the branch, under which wave — is asked through plot-plan-for-branch.mjs
-# (packages/domain/src/rules/plan-for-branch.ts) rather than duplicated here.
-plot_plan_for_branch() {
-  local base_dir=$1 plan_dir=$2 branch=$3 link metas=""
-  case "$plan_dir" in /*) ;; *) plan_dir="$base_dir/$plan_dir" ;; esac
-  for link in $(grep -lF "$branch" "$plan_dir"*.md 2>/dev/null || true); do
-    [ -e "$link" ] && metas="${metas}$(bash "$_plot_desk_root_dir/plot-plan-meta.sh" "$link" 2>/dev/null)"$'\n'
-  done
-  [ -n "$metas" ] || return 1; printf '%s' "$metas" | node "$_plot_plan_for_branch_mjs" "$branch"
 }
