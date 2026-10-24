@@ -94,9 +94,7 @@ plan_dir=$(cfg "Plan directory" "docs/plans/")
 # the directory and a parse of what it named. A branch name is a literal string
 # and a plan that does not contain it cannot name it, so the filter cannot
 # change the answer — only how many files are read to reach it.
-plan_slug=""
-plan_file=""
-slice_name=""
+plan_slug=""; plan_file=""; slice_name=""
 found=$(plot_plan_for_branch "$repo_root" "$plan_dir" "$branch") || found=""
 if [ -n "$found" ]; then
   plan_file=$(printf '%s' "$found" | cut -f1)
@@ -106,8 +104,7 @@ fi
 
 # The brief, where the slice has one. Named for the branch's last segment, the
 # spelling plot-dispatch.sh writes and the worker prompt reads.
-brief="${branch##*/}"
-brief_file=".plot/briefs/${brief}.md"
+brief="${branch##*/}"; brief_file=".plot/briefs/${brief}.md"
 [ -f "$repo_root/$brief_file" ] || brief_file=""
 
 # WHICH PRs HAVE CARRIED THIS BRANCH? Asked of the host through the adapter, in
