@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2517 merged
 - **Started:** 2026-10-24, Claude, `bug/interrogate-reads-the-plan-pr`
+- **Started:** 2026-10-25, Jan Wloka, `bug/interrogate-pushes-to-the-plan-pr`
 
 ## Changelog
 
