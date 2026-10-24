@@ -224,6 +224,19 @@ export interface Trees {
   currentBranch(path: string): Promise<PortResult<string>>;
 
   /**
+   * Names the branch a checkout is on, read on the CALLING THREAD.
+   *
+   * The synchronous twin of {@link Trees.currentBranch}, for a caller that
+   * must read the branch from inside a synchronous callback — a board run's
+   * `onEnd`, for instance, which cannot `await` without widening every
+   * caller between it and the process exit it is reporting.
+   *
+   * @param path - the checkout's absolute path.
+   * @returns the branch name, or `''` where HEAD is detached.
+   */
+  currentBranchSync(path: string): PortResult<string>;
+
+  /**
    * Names the email git commits under in a checkout — its `user.email`.
    *
    * Asked by path because git resolves the value per checkout: an
@@ -313,6 +326,27 @@ export interface Trees {
    * @returns nothing; a failure means git refused the checkout.
    */
   resetBranch(path: string, branch: string, start: string): Promise<PortResult<void>>;
+
+  /**
+   * Checks an EXISTING branch out in a checkout, read on the CALLING THREAD,
+   * touching nothing else.
+   *
+   * `git -C <path> checkout -q <branch>`. Deliberately not {@link
+   * Trees.resetBranch}: that call's `-f -B` discards uncommitted changes and
+   * force-moves the branch's tip, which is right for re-cutting a booking
+   * worktree's branch and wrong for returning a checkout to a branch it was
+   * already on — a caller restoring the pre-run branch must not silently drop
+   * whatever the run left uncommitted, and must not move the branch at all.
+   *
+   * Synchronous for the same reason as {@link Trees.currentBranchSync}: a
+   * caller inside a synchronous `onEnd` cannot `await` this.
+   *
+   * @param path - the checkout to check the branch out in, absolute.
+   * @param branch - the branch to check out; must already exist.
+   * @returns nothing; a failure means git refused the checkout (an unborn or
+   *   unknown branch, or a conflicting uncommitted change).
+   */
+  checkoutSync(path: string, branch: string): PortResult<void>;
 
   /**
    * Removes a worktree and the branch it was checked out on.

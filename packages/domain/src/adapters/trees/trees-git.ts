@@ -238,6 +238,9 @@ export const treesGit = (context: ShellContext): Trees => {
     currentBranch: (path) =>
       runScript('git', ['-C', path, 'branch', '--show-current'], asText, inRepo),
 
+    currentBranchSync: (path) =>
+      runScriptSync('git', ['-C', path, 'branch', '--show-current'], asText, inRepo),
+
     // No upstream makes git exit non-zero, which is the `failed` answer.
     aheadOfUpstream: (path) =>
       runScript(
@@ -442,6 +445,11 @@ export const treesGit = (context: ShellContext): Trees => {
       const run = await runProcess('git', ['-C', path, 'checkout', '-q', '-f', '-B', branch, start], inRepo);
       return run.code === 0 ? answered(undefined) : failed<void>();
     },
+
+    // No `-f`, no `-B`: this checks an EXISTING branch out and nothing else,
+    // unlike resetBranch above.
+    checkoutSync: (path, branch) =>
+      runScriptSync('git', ['-C', path, 'checkout', '-q', branch], () => undefined, inRepo),
 
     // BEST-EFFORT, MATCHING THE SHELL'S `cleanup()`. Both commands run
     // regardless of the other's result, and the operation always answers —

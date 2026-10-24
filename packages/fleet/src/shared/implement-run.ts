@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
 import path from 'node:path';
@@ -15,6 +14,7 @@ import {
   type ProcessSighting,
 } from '@plot-pm/domain';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
+import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { agentLogPath, agentLogPathReadOnly } from './agent-log.js';
 import { markBoardRun, startBoardRun, writeState, type BoardConfigReader } from './board-run.js';
 import { readConfig, type ConfigReadOptions } from './config-reader.js';
@@ -468,14 +468,12 @@ export const implementLockRefusal = (
  * detached HEAD, which is a real answer, not a failure.
  *
  * @param tree - the checkout to read.
+ * @param scriptDir - the scripts directory the `Trees` port reads through.
  * @returns the branch name, or `null` where git could not answer at all.
  */
-const checkedOutBranch = (tree: string): string | null => {
-  try {
-    return execFileSync('git', ['-C', tree, 'branch', '--show-current'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  } catch {
-    return null;
-  }
+const checkedOutBranch = (tree: string, scriptDir: string): string | null => {
+  const read = treesGit({ repoRoot: tree, scriptDir }).currentBranchSync(tree);
+  return read.ok ? read.value : null;
 };
 
 /**
@@ -490,14 +488,12 @@ const checkedOutBranch = (tree: string): string | null => {
  *
  * @param tree - the checkout to restore.
  * @param branch - what {@link checkedOutBranch} answered before the run.
+ * @param scriptDir - the scripts directory the `Trees` port reads through.
  */
-const restoreCheckedOutBranch = (tree: string, branch: string | null): void => {
+const restoreCheckedOutBranch = (tree: string, branch: string | null, scriptDir: string): void => {
   if (branch === null || branch === '') return;
-  try {
-    execFileSync('git', ['-C', tree, 'checkout', '-q', branch], { stdio: ['ignore', 'pipe', 'pipe'] });
-  } catch (err) {
-    console.error(`could not restore ${tree} to ${branch}: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  const result = treesGit({ repoRoot: tree, scriptDir }).checkoutSync(tree, branch);
+  if (!result.ok) console.error(`could not restore ${tree} to ${branch}`);
 };
 
 /** What {@link startImplement} could not do before the child existed. */
@@ -597,7 +593,7 @@ export const startImplement = (
   // back to whatever it was on when this call started, not to the plan's
   // default branch or to `branch`. A detached HEAD reads as `''`, which is
   // left alone by {@link restoreCheckedOutBranch}.
-  const startedOn = checkedOutBranch(opts.repoRoot);
+  const startedOn = checkedOutBranch(opts.repoRoot, opts.scriptsDir);
 
   // NOTHING from the request is interpolated into a shell string: the prompt
   // names the slug, which is `SLUG_RE`-bounded, and travels as ONE argument.
@@ -631,7 +627,7 @@ export const startImplement = (
       // failure, and the `IMPLEMENT_TIMEOUT_MS` kill all end here — and
       // before `release()`, so a second run that was waiting on the lock
       // sees the tree already back where it started.
-      restoreCheckedOutBranch(opts.repoRoot, startedOn);
+      restoreCheckedOutBranch(opts.repoRoot, startedOn, opts.scriptsDir);
       // The plan-keyed state file already records the end; the branch-keyed
       // one and the lock follow before anything that can throw.
       writeState(branchStatePath, record.code);
