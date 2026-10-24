@@ -14,6 +14,7 @@ import {
   type ProcessSighting,
 } from '@plot-pm/domain';
 import { processProbeSystem } from '@plot-pm/domain/adapters/process-probe/process-probe-system';
+import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { agentLogPath, agentLogPathReadOnly } from './agent-log.js';
 import { markBoardRun, startBoardRun, writeState, type BoardConfigReader } from './board-run.js';
 import { readConfig, type ConfigReadOptions } from './config-reader.js';
@@ -462,6 +463,39 @@ export const implementLockRefusal = (
   return { holder: kind, detail, log };
 };
 
+/**
+ * `tree`'s current branch, by the same read `git status` uses — empty for a
+ * detached HEAD, which is a real answer, not a failure.
+ *
+ * @param tree - the checkout to read.
+ * @param scriptDir - the scripts directory the `Trees` port reads through.
+ * @returns the branch name, or `null` where git could not answer at all.
+ */
+const checkedOutBranch = (tree: string, scriptDir: string): string | null => {
+  const read = treesGit({ repoRoot: tree, scriptDir }).currentBranchSync(tree);
+  return read.ok ? read.value : null;
+};
+
+/**
+ * Returns `tree` to `branch`, left where {@link checkedOutBranch} found it
+ * before the run started. A detached HEAD (`branch === ''`) is left alone:
+ * nothing in this file ever detaches it, so there is nothing to undo.
+ *
+ * Only ever called on the SAME tree {@link checkedOutBranch} just read, so a
+ * plain `git checkout` is enough — the agent process writes no uncommitted
+ * change of its own here, by the `main-checkout` gate's own contract, and a
+ * commit it DID make stays on `branch`'s history rather than being discarded.
+ *
+ * @param tree - the checkout to restore.
+ * @param branch - what {@link checkedOutBranch} answered before the run.
+ * @param scriptDir - the scripts directory the `Trees` port reads through.
+ */
+const restoreCheckedOutBranch = (tree: string, branch: string | null, scriptDir: string): void => {
+  if (branch === null || branch === '') return;
+  const result = treesGit({ repoRoot: tree, scriptDir }).checkoutSync(tree, branch);
+  if (!result.ok) console.error(`could not restore ${tree} to ${branch}`);
+};
+
 /** What {@link startImplement} could not do before the child existed. */
 export interface ImplementStartFailure {
   /** The message to report, already suitable for an operator. */
@@ -553,6 +587,14 @@ export const startImplement = (
     return cannotOpen(err);
   }
 
+  // Captured before the agent runs, so a compliant `--brief-only` run (which
+  // should touch no branch at all) and a non-compliant one that checks out a
+  // slice branch anyway are both restored the same way: the checkout goes
+  // back to whatever it was on when this call started, not to the plan's
+  // default branch or to `branch`. A detached HEAD reads as `''`, which is
+  // left alone by {@link restoreCheckedOutBranch}.
+  const startedOn = checkedOutBranch(opts.repoRoot, opts.scriptsDir);
+
   // NOTHING from the request is interpolated into a shell string: the prompt
   // names the slug, which is `SLUG_RE`-bounded, and travels as ONE argument.
   void startBoardRun(
@@ -581,6 +623,11 @@ export const startImplement = (
       onStarted: (pid) => recordImplementAgent(opts.repoRoot, slug, held, { pid, startedAt: Date.now() }),
     },
     (record) => {
+      // Restored on every exit this callback sees — success, an agent
+      // failure, and the `IMPLEMENT_TIMEOUT_MS` kill all end here — and
+      // before `release()`, so a second run that was waiting on the lock
+      // sees the tree already back where it started.
+      restoreCheckedOutBranch(opts.repoRoot, startedOn, opts.scriptsDir);
       // The plan-keyed state file already records the end; the branch-keyed
       // one and the lock follow before anything that can throw.
       writeState(branchStatePath, record.code);

@@ -126,6 +126,14 @@ later handed it finds its own ref already there and logs
 `REGISTRY LOCK VIOLATION`. Measured 2026-10-01, three slices sat with no
 worker until a person released their refs.
 
+`/api/implement` runs this skill's agent directly in the operator's main
+checkout, with no worktree of its own. `startImplement` restores whatever
+branch that checkout was on before the run once the run ends, so a
+checkout this step should never touch does not stay moved if it is. That
+restore is a backstop for a run that deviates from this step, not
+licence to check out a branch under `--brief-only` — the step above still
+means skip it entirely.
+
 **Without the flag, this step runs as before.** A person who runs
 `/plot-implement` by hand is about to work the branch, so the claim is
 legitimate — and **that claim belongs to the session that pushed it. A

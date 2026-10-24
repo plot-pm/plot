@@ -109,6 +109,8 @@ export interface TreesFixture {
   resetRefusedAt?: readonly string[];
   /** Paths where `resetBranch` refuses — the checkout-failure case. */
   resetBranchRefusedAt?: readonly string[];
+  /** Paths where `checkoutSync` refuses — the checkout-failure case. */
+  checkoutRefusedAt?: readonly string[];
   /** Paths where `removeOnly` refuses — the git-level removal failure case. */
   removeRefusedAt?: readonly string[];
   /** Branches where `deleteBranch` refuses. */
@@ -165,6 +167,8 @@ export interface TreesFixture {
     excludes?: { path: string; line: string }[];
     /** Every `deleteRemoteBranch` call received. */
     deletesRemote?: { branch: string; expectedTip: string }[];
+    /** Every `checkoutSync` call received. */
+    checkouts?: { path: string; branch: string }[];
   };
 }
 
@@ -242,6 +246,11 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
       return branch === undefined ? failed<string>() : answered(branch);
     },
 
+    currentBranchSync: (path) => {
+      const branch = branches[path];
+      return branch === undefined ? failed<string>() : answered(branch);
+    },
+
     aheadOfUpstream: async (path) => {
       const count = fixture.ahead?.[path];
       return count === undefined ? failed<number>() : answered(count);
@@ -263,6 +272,11 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
 
     resetBranch: async (path): Promise<PortResult<void>> =>
       (fixture.resetBranchRefusedAt ?? []).includes(path) ? failed<void>() : answered(undefined),
+
+    checkoutSync: (path, branch): PortResult<void> => {
+      fixture.calls?.checkouts?.push({ path, branch });
+      return (fixture.checkoutRefusedAt ?? []).includes(path) ? failed<void>() : answered(undefined);
+    },
 
     removeWithBranch: async () => answered(undefined),
 
