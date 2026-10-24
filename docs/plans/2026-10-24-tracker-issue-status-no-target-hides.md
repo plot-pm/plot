@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** follow-ups-2-28-3
 - **Issue:** #2438
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2499 merged
 - **Started:** 2026-10-24, jwloka, `feature/tracker-issue-status-no-target-hides`
+- **Delivered:** 2026-10-24
 
 ## Changelog
 
