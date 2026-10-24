@@ -319,6 +319,29 @@ describe('a status reaches the tracker it was told about', () => {
     expect(answer<StatusOutcome>(result)).toBe('no-target');
   });
 
+  it('reports already where the issue already held the wanted status', async () => {
+    // THE HARMLESS CASE: a repeated write finds no transition because the
+    // issue is already there. `no-target` used to cover this and the case
+    // below alike; this one now names itself.
+    const already = scriptsThat({ 'plot-host.sh': 'echo already' });
+    const result = await trackerJira(already).statusWrite({ prUrl: 'PROJ-1', status: 'Done' });
+    expect(answer<StatusOutcome>(result)).toBe('already');
+  });
+
+  it('reports unreachable with the current status and transitions in the refusal', async () => {
+    // THE TRACKER-IS-BEHIND CASE: the status exists but nothing from the
+    // issue's current state reaches it. The detail travels as the refusal a
+    // caller without its own sentence reads.
+    const unreachable = scriptsThat({
+      'plot-host.sh': String.raw`printf 'unreachable\tReady for Design\tAccept Issue, Reject\n'`,
+    });
+    const tracker = trackerJira(unreachable);
+    const result = await tracker.statusWrite({ prUrl: 'PROJ-1', status: 'Approving' });
+    expect(answer<StatusOutcome>(result)).toBe('unreachable');
+    expect(tracker.lastRefusal()).toContain('Ready for Design');
+    expect(tracker.lastRefusal()).toContain('Accept Issue, Reject');
+  });
+
   it('answers no-target for a pull request naming no issue, never a failure', async () => {
     // A pull request that names no issue is the ordinary case for work nobody
     // ticketed. The tracker was reachable; there was simply nothing to write

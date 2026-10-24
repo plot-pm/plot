@@ -52,7 +52,7 @@ export const EXIT = {
 } as const;
 
 /** The reason printed where the connector left no sentence of its own. */
-const FALLBACK: Record<Exclude<TrackerWriteOutcome, 'written'>, string> = {
+const FALLBACK: Record<Exclude<TrackerWriteOutcome, 'written' | 'already' | 'unreachable'>, string> = {
   'no-target': 'the tracker holds nowhere to put this write',
   unaskable: 'no tracker declared',
   failed: 'the write failed',
@@ -141,7 +141,7 @@ export const writePlanStates = async (
       continue;
     }
     const result = await tracker.planStateWrite(write);
-    const outcome: TrackerWriteOutcome = result.ok ? result.value : result.why;
+    const outcome: Exclude<TrackerWriteOutcome, 'already' | 'unreachable'> = result.ok ? result.value : result.why;
     const reason = (outcome === 'written' ? write.phase : (tracker.lastRefusal() ?? FALLBACK[outcome])).replace(/\s+/g, ' ').trim();
     lines.push(`${write.issue}\t${outcome}\t${reason}\n`);
     outcomes.push(outcome);

@@ -48,9 +48,9 @@ Naming the current status and transitions in the output makes the message action
 
 ### Open Questions
 
-- [ ] Does `unreachable` fail the delivery summary's exit code, or stay a reported outcome like `no-target`?
-- [ ] Should the one extra `GET` run only on the no-match path (proposed), so a successful write costs no additional call?
-- [ ] Do the board and approve/deliver endpoints need a rendering for the new words?
+- [x] Does `unreachable` fail the delivery summary's exit code, or stay a reported outcome like `no-target`? **Stays a reported outcome.** `plot-issue-status.mjs` returns `EXIT.ok` regardless of per-issue outcome today (`no-target`, `unaskable` and `failed` all do), and `unreachable` joins that set rather than becoming the first outcome to flip the exit code.
+- [x] Should the one extra `GET` run only on the no-match path (proposed), so a successful write costs no additional call? **Yes, no-match only** — implemented in `plot-host.sh issue-status`.
+- [x] Do the board and approve/deliver endpoints need a rendering for the new words? **No new rendering beyond the two entry scripts.** `packages/board/src/server/entry/issue-status.ts`'s `FALLBACK` table gained `already` and `unreachable` sentences (the live detail comes through `tracker.lastRefusal()`); nothing else in `packages/board` switches on `StatusOutcome` or `TrackerWriteOutcome` words — `plan-state.ts` handles `planStateWrite`'s separate, unchanged `no-target`.
 
 ## Slices
 

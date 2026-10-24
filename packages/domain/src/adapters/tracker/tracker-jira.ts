@@ -240,11 +240,18 @@ export const trackerJira = (context: ShellContext, baseUrl = ''): Tracker => {
         reads.refuse(said.stderr.trim() || said.stdout.trim() || `plot-host.sh exited ${said.code}`);
         return failed();
       }
+      // THE WORD, NOT THE EXIT CODE. `written`, `already` and `unreachable`
+      // are all clean exits, and collapsing them would report a status the
+      // workflow refused as one it recorded. `unreachable` carries two more
+      // fields — the current status and the available transitions — which
+      // become the refusal detail a caller without a sentence of its own reads.
+      const [word, current, available] = asText(said.stdout).split('\t');
+      if (word === 'unreachable') {
+        reads.refuse(`the issue holds '${current}'; available transitions: ${available || '(none)'}`);
+        return answered<StatusOutcome>('unreachable');
+      }
       reads.refuse(null);
-      // THE WORD, NOT THE EXIT CODE. `no-target` and `written` are both clean
-      // exits, and collapsing them would report a status the workflow refused
-      // as one it recorded.
-      return answered<StatusOutcome>(asText(said.stdout) === 'written' ? 'written' : 'no-target');
+      return answered<StatusOutcome>(word === 'already' || word === 'no-target' ? word : 'written');
     },
 
     issueOpen: async (write: IssueOpen): Promise<PortResult<IssueOpenOutcome>> => {

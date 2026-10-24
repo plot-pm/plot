@@ -7399,16 +7399,72 @@ test('host: issue-status looks the transition id up rather than guessing it', ()
   assert.match(calls[1], /"id":"907"/);
 });
 
-test('host: issue-status answers no-target where the workflow offers no such move', () => {
+test('host: issue-status answers already where the issue already holds the wanted status', () => {
   // A REPEATED WRITE IS THE ORDINARY CASE, and Jira answers it by naming no
   // such transition — an issue already in the state has no transition to it.
-  // Reporting that as a failure would make idempotence look like an outage.
-  const stub = makeJiraSequenceStub([{ body: JIRA_TRANSITIONS }]);
+  // That is harmless, and distinct from a status unreachable from here.
+  const stub = makeJiraSequenceStub([
+    { body: JIRA_TRANSITIONS },
+    { body: JSON.stringify({ fields: { status: { name: 'Cancelled' } } }) },
+  ]);
   const res = runJira(['issue-status', 'PROJ-123', 'Cancelled'], stub);
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout.trim(), 'no-target');
+  assert.equal(res.stdout.trim(), 'already');
   const calls = readFileSync(stub.argvFile, 'utf8').split('--- call').filter(Boolean);
-  assert.equal(calls.length, 1, 'nothing is written when there is nowhere to write it');
+  assert.equal(calls.length, 2, 'the no-match path reads the current status once');
+  // THE READ, NOT A WRITE. The status GET must not carry a method or a body.
+  for (const write of ['-X', '--request', '-d', '--data']) {
+    assert.ok(!calls[1].split('\n').includes(write), `the status read must not send ${write}`);
+  }
+});
+
+test('host: issue-status matches already case-insensitively, as the transition lookup does', () => {
+  const stub = makeJiraSequenceStub([
+    { body: JIRA_TRANSITIONS },
+    { body: JSON.stringify({ fields: { status: { name: 'CANCELLED' } } }) },
+  ]);
+  const res = runJira(['issue-status', 'PROJ-123', 'cancelled'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'already');
+});
+
+test('host: issue-status answers unreachable where the status exists but no transition reaches it', () => {
+  // THE TRACKER IS BEHIND THE PLAN, and this is the case `no-target` used to
+  // hide: the issue holds a DIFFERENT status, and nothing offered reaches the
+  // wanted one. The message names both so a person can act on it.
+  const stub = makeJiraSequenceStub([
+    { body: JIRA_TRANSITIONS },
+    { body: JSON.stringify({ fields: { status: { name: 'Ready for Design' } } }) },
+  ]);
+  const res = runJira(['issue-status', 'PROJ-123', 'Approving'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const [word, current, available] = res.stdout.trim().split('\t');
+  assert.equal(word, 'unreachable');
+  assert.equal(current, 'Ready for Design');
+  assert.equal(available, 'To Do, Start Progress, Done');
+});
+
+test('host: issue-status makes no status GET on a successful write', () => {
+  // A SUCCESSFUL WRITE COSTS NO EXTRA CALL. The read is placed strictly after
+  // the lookup finds no match — never ahead of it.
+  const stub = makeJiraSequenceStub([
+    { body: JIRA_TRANSITIONS },
+    { body: '', status: 204 },
+  ]);
+  runJira(['issue-status', 'PROJ-123', 'Done'], stub);
+  const calls = readFileSync(stub.argvFile, 'utf8').split('--- call').filter(Boolean);
+  assert.equal(calls.length, 2, 'lookup then write — no status read');
+  for (const call of calls) assert.ok(!call.includes('fields=status'), 'a successful write must not read the current status');
+});
+
+test('host: issue-status reports a failing status read as a failure, never as already or unreachable', () => {
+  const stub = makeJiraSequenceStub([
+    { body: JIRA_TRANSITIONS },
+    { body: '{}', status: 500 },
+  ]);
+  const res = runJira(['issue-status', 'PROJ-123', 'Cancelled'], stub);
+  assert.notEqual(res.status, 0);
+  assert.equal(res.stdout.trim(), '');
 });
 
 test('host: issue-status exits 4 where the declared tracker is not this one', () => {

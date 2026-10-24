@@ -114,10 +114,16 @@ describe('a run’s write outcomes reduce to the one a caller reports', () => {
     expect(trackerWriteSummary(['failed', 'written'])).toBe('failed');
   });
 
-  it('ranks every pair worst-first: written < no-target < unaskable < failed', () => {
-    expect(trackerWriteSummary(['written', 'no-target'])).toBe('no-target');
-    expect(trackerWriteSummary(['no-target', 'unaskable'])).toBe('unaskable');
+  it('ranks every pair worst-first: written < already < no-target < unreachable < unaskable < failed', () => {
+    expect(trackerWriteSummary(['written', 'already'])).toBe('already');
+    expect(trackerWriteSummary(['already', 'no-target'])).toBe('no-target');
+    expect(trackerWriteSummary(['no-target', 'unreachable'])).toBe('unreachable');
+    expect(trackerWriteSummary(['unreachable', 'unaskable'])).toBe('unaskable');
     expect(trackerWriteSummary(['unaskable', 'failed'])).toBe('failed');
+  });
+
+  it('reports unreachable over no-target — the tracker being behind outranks having no board at all', () => {
+    expect(trackerWriteSummary(['written', 'unreachable', 'no-target'])).toBe('unreachable');
   });
 });
 
