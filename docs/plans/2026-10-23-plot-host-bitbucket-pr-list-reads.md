@@ -34,17 +34,17 @@ The fix depends on quatico-solutions/agent-skills#98 (`bb pr list` pagination, `
 Once agent-skills#98 ships:
 
 1. `bb_state_listing` calls `bb pr list --state <s> --all --json`, or `--limit <n>` when the caller passes one, so the listing follows every page.
-2. The `$PR_LIST_SINCE` window passes `--updated-since` to `bb pr list` instead of building `updated_on>=` in `q=` by hand. Both bounds are inclusive.
+2. The `$PR_LIST_SINCE` window passes `--updated-since` to `bb pr list` instead of building `updated_on>=` in `q=` by hand. Both bounds are inclusive. This replaces `bb_window_listing`, which today reads every page with `bb api` and refuses a window shorter than the server's `size` count (exit 3). `bb pr list --json` returns rows with no envelope, so the `size` completeness check has no source after the switch, and the `pagelen=50` request saving of `bb api` is lost: measured 2026-09-30 on `quatico/quaweb-website`, the three states cost 8 requests through `bb pr list` and 3 through `bb api`. The slice either keeps `bb api` for the window and the plain listing, or states that it accepts both losses.
 3. The stale "refuses --limit" comment and the `bitbucket ignores --limit` notice go once the listing honours the flag.
-4. A capability gate on the `bb` version, in the way `bb_require_json` gates on `--json` support, keeps today's single-page behaviour and its notice for an older `bb`.
+4. A capability gate on the `bb` version, in the way `bb_require_json` gates on a probe of `bb pr list --help` for `--json` (`bb_test_json_support`), keeps today's single-page behaviour and its notice for an older `bb`.
 
 agent-skills#98 also adds a retry on HTTP 429 (up to 3 per page, honouring `Retry-After`) and a stderr warning when a listing without `--limit` is cut at 50 rows.
 
-Places that hold the one-page assumption and need a read before the change:
+Places that need a read before the change (only `bb_state_listing` holds the one-page assumption):
 
 - `bb_state_listing` and the `BB_LIST_NEXT_FILE` envelope reading, which exist because `bb api` returns the raw envelope. `bb pr list --json` returns rows, so the `next` signal changes source.
 - `pr_list_report_truncation`, `BB_LIST_PAGELEN` and `BB_LIST_PAGE_VERSIONS`, plus the mirror in `packages/domain/src/adapters/host/listing-paging.ts` (`listingPagingFor`, `envelopeNextFor`). A listing that follows every page is complete by construction, and the completeness report changes with it.
-- `bb_branch_query` and `bb_window_listing`, which compose `$PR_LIST_SINCE` into `q=`.
+- `bb_window_listing`, which composes `$PR_LIST_SINCE` into `q=` and is replaced by step 2. It already reads every page, so it holds no one-page assumption, and neither does `bb_branch_query`, which follows `next` since PR #2573.
 
 The layering rule holds: the change stays in `plot-host.sh` and the host adapter. No controller or rule gains a Bitbucket branch.
 
