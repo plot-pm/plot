@@ -72,7 +72,7 @@ Four slices, grouped by the code each touches, so each PR stays reviewable and n
 
 ### Story lint
 
-- `bug/story-lint-reduces-link-form-story` — `plot-story-lint.sh` reduces a Markdown link in `Story:` so check S5 covers link-form plans.
+- `bug/story-lint-reduces-link-form-story` → #2602 — `plot-story-lint.sh` reduces a Markdown link in `Story:` so check S5 covers link-form plans.
 
 ### Sprint skill
 
