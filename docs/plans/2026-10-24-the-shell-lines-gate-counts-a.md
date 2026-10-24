@@ -46,9 +46,9 @@ The refusal text in `report()` and the places that tell a desk how to pay for gr
 
 ### Open Questions
 
-- [ ] Which unit: commands (option 1) or a refusal of joined lines (option 2)? Option 1 changes the baseline for every file once, so a change that is neutral today could read as growth or shrinkage across the switch. Measure `check-shell-lines.sh pr` on the last 20 merged shell changes under both definitions before choosing.
-- [ ] Does the count need a shell tokenizer, or does a conservative splitter that over-counts on ambiguous lines suffice? An over-count refuses honest changes; an under-count keeps the hole.
-- [ ] Where does the correction template that tells a desk how to pay live, and does it quote the gate's refusal or restate it?
+- [x] Which unit: commands (option 1) or a refusal of joined lines (option 2)? **Commands.** Measured 2026-10-24 on the 20 newest first-parent commits touching `skills/*.sh`: the line count (12,093 to 12,064) read all 20 as not growing; the command count (18,378 to 18,456 at the same commits) flags 11 as growth. The 11 include commits that joined statements by hand (`local _spool; plot_tmpfile …` in b60c36ea6, `instance=…; [ -n … ]` in 474f7dfd2, a one-line awk function in c3724a2a6), and none is a change that joined nothing and moved. Option 2 would compare added with removed lines per hunk and needs a rule for what a hunk replaces; option 1 is one number per tree, which keeps `reverted_commit` and both modes unchanged.
+- [x] Does the count need a shell tokenizer, or does a conservative splitter that over-counts on ambiguous lines suffice? **A splitter.** `bash -n` exposes no token stream and CI installs no shell parser. The splitter is one awk program (`COUNT_AWK`) that skips quoted and backslashed separators, counts `;;`, and counts a body keyword (`then`, `do`, `else`, `{`) or case pattern with a command after it as one more. It resets quote state per line, so a heredoc body or a multi-line quote errs high. Not counted: a backslash continuation and a pipeline split over lines.
+- [x] Where does the correction template that tells a desk how to pay live, and does it quote the gate's refusal or restate it? **Both, in two places.** The correction text quotes `report()` verbatim (the build failure is written into `PLOT-CORRECTION.md` unchanged), so it follows the script. The brief paragraph in `skills/plot-implement/SKILL.md` step 4 restates the gate and was edited with its README line and `docs/shell-and-domain.md:48`.
 
 ## Slices
 
