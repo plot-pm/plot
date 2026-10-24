@@ -154,8 +154,7 @@ for home in $homes; do
     # The duplication that mattered was the VOCABULARY — six statuses declared
     # twice and a seventh derived against a `string` type. This check names no
     # status but `done`, so it cannot drift by gaining one.
-    if [ "${status_lc%% *}" = "done" ] && [ "$in_archived" = 0 ] \
-       && ! grep -qi '^archived:' "$story"; then
+    if [ "${status_lc%% *}" = "done" ] && [ "$in_archived" = 0 ] && ! grep -qi '^archived:' "$story"; then
       gate "S3 $story — status done but not archived (no archived/ location, no archived: date)"
     fi
     home_index="$(index_for_home "$home")"

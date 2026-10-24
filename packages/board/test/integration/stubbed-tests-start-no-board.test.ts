@@ -789,7 +789,11 @@ const EXPECTED_FILES = 75;
 // one selected sprint shows no slug, a reload restores the selection, a
 // stale slug reads as "all") for bug/this-sprint-selects-a-sprint-subset-ui.
 // The file already drove a page, so `EXPECTED_FILES` is unchanged.
-const EXPECTED_TESTS = 621;
+// 621 → 622 on 2026-10-24: one `it(` in `story-filter-reduced-slug.test.ts`,
+// proving the parser reduces a Markdown-link `Story:` field to its text
+// (bug/story-lint-reduces-link-form-story). The file already drove a page via
+// its `../catalogue/build.js` import, so `EXPECTED_FILES` is unchanged.
+const EXPECTED_TESTS = 622;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
