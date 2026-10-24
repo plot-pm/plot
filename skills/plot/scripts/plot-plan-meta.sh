@@ -973,6 +973,16 @@ function commit_list(s,   out, m, h) {
   }
   return out
 }
+# Appends the refs of b to those of a, dropping a ref already present in a —
+# a heading and its list item can name the same commit. First-seen order kept.
+function merge_commits(a, b,   out, seen, parts, i, n) {
+  out = a
+  n = split(a, parts, ",")
+  for (i = 1; i <= n; i++) seen[parts[i]] = 1
+  n = split(b, parts, ",")
+  for (i = 1; i <= n; i++) if (parts[i] != "" && !(parts[i] in seen)) { seen[parts[i]] = 1; out = out (out == "" ? "" : ",") parts[i] }
+  return out
+}
 # Stores the annotations read_notes() found, and the commits the line names,
 # against branch n (named b).
 #
@@ -986,14 +996,15 @@ function commit_list(s,   out, m, h) {
 # must survive a list item that carries none of its own.
 function keep_branch(n, b, overlay,   is_deferred, c) {
   is_deferred = ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/)
-  # THE FLAG accepts the bare form as well as the annotated one. It matched
-  # `deferred:` only, so `<!-- deferred -->` — the annotation with nothing
-  # after it — read as NOT deferred at all: the strongest statement a plan can
-  # make about a branch, dropped for want of a colon. The parser now hears it.
-  # The reason travels with the flag, empty for a non-deferred branch and
-  # equally empty for a bare `<!-- deferred -->` with no reason recorded — a
-  # different statement from a reason of "".
-  if (!overlay || is_deferred) { deferred_of[n] = is_deferred ? "true" : "false"; deferred_why[n] = defer_note }
+  # THE FLAG accepts the bare form as well as the annotated one: `deferred:`
+  # and the bare `<!-- deferred -->` both set it true. The reason travels with
+  # the flag, empty for a non-deferred branch and equally empty for a bare
+  # marker with no reason recorded — a different statement from a reason of
+  # "". In OVERLAY mode a bare list-item marker must not blank a reason the
+  # heading already wrote: the flag is set whenever this line claims
+  # deferred, but the reason is overwritten only when this line carries one.
+  if (!overlay || is_deferred) deferred_of[n] = is_deferred ? "true" : "false"
+  if (!overlay || defer_note != "") deferred_why[n] = defer_note
   if (!overlay || $0 ~ /<!--[ \t]*spike[ \t]*-->/) spike_of[n] = ($0 ~ /<!--[ \t]*spike[ \t]*-->/) ? 1 : 0
   # Claim reflection, written by the worker after its ref push succeeds. This
   # is a reflection, not the claim: git refs remain authoritative.
@@ -1007,9 +1018,10 @@ function keep_branch(n, b, overlay,   is_deferred, c) {
   # declaring none emits no key.
   if (!overlay || agent_note != "") agent_of[n] = agent_note
   ordered_b[n] = b
-  # Commits merge like waits: a list item adds its own to those of the heading.
+  # Commits merge like waits: a list item adds its own to those of the heading,
+  # minus any ref both lines already name, in first-seen order.
   c = commit_list($0)
-  commits_of[n] = (overlay && commits_of[n] != "") ? commits_of[n] (c != "" ? "," c : "") : c
+  commits_of[n] = (overlay && commits_of[n] != "") ? merge_commits(commits_of[n], c) : c
 }
 # `→ #N` and `→ owner/repo#N` are both annotations: /plot-deliver instructs
 # implementers to write the second for `Impl: other repo` plans, and a parser
