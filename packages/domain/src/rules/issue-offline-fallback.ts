@@ -7,13 +7,13 @@ export interface OfflineIssueReading {
   /** The decoded index file, or `null` where it is missing, unparseable or another version. */
   readonly index: IssueIndex | null;
   /** This repository's own `issueSource` reading, compared against the index's `source`. */
-  readonly ownSource: string;
+  readonly ownSource: 'tracker' | 'git-host';
 }
 
 /** The rows a failed live read should show, and where they came from. */
 export type OfflineIssueRows =
   | { readonly from: 'memory'; readonly rows: readonly IssueIndexRow[] }
-  | { readonly from: 'index'; readonly rows: readonly IssueIndexRow[]; readonly at: string }
+  | { readonly from: 'index'; readonly rows: readonly IssueIndexRow[]; readonly at: string | null }
   | { readonly from: 'none' };
 
 /**
@@ -40,5 +40,5 @@ export const offlineIssueRows = (reading: OfflineIssueReading): OfflineIssueRows
   if (reading.memoryRows !== null) return { from: 'memory', rows: reading.memoryRows };
   const index = reading.index;
   if (index === null || index.source !== reading.ownSource || index.rows === undefined) return { from: 'none' };
-  return { from: 'index', rows: index.rows, at: index.at ?? '' };
+  return { from: 'index', rows: index.rows, at: index.at ?? null };
 };

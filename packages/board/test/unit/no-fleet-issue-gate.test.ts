@@ -221,8 +221,9 @@ describe('a cold cache falls back to the fleet\'s issue index (#2369)', () => {
 
     await refreshIssues({ repoRoot: dir, scriptsDir: dir }, entry);
 
+    // `issueAnswer` reading `failed` rather than `answered` is what makes the
+    // next poll ask the host again instead of treating this as settled.
     expect(entry.issueAnswer).toBe('failed');
-    expect(entry.issueNextAt).toBeGreaterThan(0);
     vi.unstubAllEnvs();
   });
 

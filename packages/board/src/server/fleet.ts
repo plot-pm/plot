@@ -56,6 +56,7 @@ import {
   issueIntervalMs,
   issueSource,
   offlineIssueRows,
+  type OfflineIssueRows,
   ISSUE_INDEX_OPEN_LIMIT,
   type IssueIndex,
   type IssueIndexRow,
@@ -2008,7 +2009,16 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     entry.issueError = message; // `entry.issues` keeps its last good value on purpose
     // The kept rows, `complete`, `at` and closed set stay; the failure is recorded beside them.
     entry.issueSets = { ...(kept ?? { at: stamp }), answer: 'failed', failedAt: stamp, reason: message };
-    await offlineIssueRowsInto(opts, entry, kept, source.ask);
+    const from = await offlineIssueRowsInto(opts, entry, kept, source.ask);
+    // A failed poll clears the age and the rows together where the fallback
+    // lands on neither memory nor the index — otherwise stale rows from an
+    // earlier poll would sit under no age, or under an age from a source
+    // that no longer matches. `'memory'` means `entry.issues` already holds
+    // the right rows and is left alone; `'index'` just set both.
+    if (from === 'none') {
+      entry.issues = [];
+      entry.issueAt = null;
+    }
     entry.waiting = null;
     // The issue poll is the neighbour the PR refresh's backoff never reached.
     // A rate limit HERE must push the PR gate (`prNextAt`) out too — otherwise
@@ -2115,11 +2125,16 @@ const issueStoreFor = (repoRoot: string): IssueIndexStore => {
  * Reads only; `refreshIssueIndex` stays the one writer (CLAUDE.md, *A Decision
  * Reads The Index*). `issueAnswer` and `issueError` are left exactly as the
  * caller already set them — `failed`, so the next poll still asks the host —
- * and only `entry.issues`, `entry.waiting` and `entry.issueAt` move here.
+ * and only `entry.issues` and `entry.issueAt` move here, together: `issueAt`
+ * is set only once `issues` actually holds the rows it describes, so the two
+ * never show a mismatched age and row set.
  *
  * `kept` carrying rows means a prior read already answered in this process:
  * {@link offlineIssueRows} keeps those over the file, which may be older or
- * from a process that has since restarted.
+ * from a process that has since restarted. On a `'memory'` decision,
+ * `entry.issues` already holds those rows from the read that populated `kept`
+ * — this function has nothing to move and reports `'memory'` so the caller
+ * leaves `entry.issues` alone rather than clearing a value that is correct.
  *
  * @param opts - the board's repo root and scripts directory.
  * @param entry - the cache entry a failed `refreshIssues` call is updating.
@@ -2127,22 +2142,27 @@ const issueStoreFor = (repoRoot: string): IssueIndexStore => {
  *   where none has ever answered.
  * @param ownSource - this repository's own `issueSource` reading (`'tracker'`
  *   or `'git-host'`), compared against the index file's `source`.
+ * @returns `'index'` where `entry.issues` and `entry.issueAt` were just set
+ *   from the file; `'memory'` where they were already correct and untouched;
+ *   `'none'` where the caller should clear both, because neither this read
+ *   nor an earlier one has any rows to show.
  */
 const offlineIssueRowsInto = async (
   opts: BuildBoardOptions,
   entry: CacheEntry,
   kept: IssueSets | null,
   ownSource: 'tracker' | 'git-host',
-): Promise<void> => {
+): Promise<OfflineIssueRows['from']> => {
   const held = await issueStoreFor(opts.repoRoot).read();
   const index = held.ok ? held.value : null;
   const decision = offlineIssueRows({ memoryRows: kept?.rows ?? null, index, ownSource });
-  if (decision.from !== 'index') return;
-  entry.issueAt = Date.parse(decision.at);
-  if (Number.isNaN(entry.issueAt)) entry.issueAt = null;
+  if (decision.from !== 'index') return decision.from;
   const plans = await ticketPlansOf(opts, entry);
-  if (plans === null) return; // `issueAnswer` already reads `failed`; `entry.issues` is left as it was.
+  if (plans === null) return 'memory'; // `issueAnswer` already reads `failed`; `entry.issues` is left as it was.
   entry.issues = inboxOf(decision.rows, new Set(plans.keys()), Date.now());
+  const parsed = decision.at === null ? NaN : Date.parse(decision.at);
+  entry.issueAt = Number.isNaN(parsed) ? null : parsed;
+  return 'index';
 };
 
 /**
