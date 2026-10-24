@@ -1077,29 +1077,21 @@ _bb_paged_walk() {
   # `plot_tmpfile` registers `_spool` for removal at process exit — no manual
   # `rm` on an early return; the walk only ever runs a handful of times per
   # process, so the file outliving one call costs nothing a caller can see.
-  plot_tmpfile _spool host-paged-walk || return 3
-  while [ -n "$_path" ]; do
-    _page=$((_page + 1))
-    [ "$_page" -le "$BB_BRANCH_QUERY_PAGE_CAP" ] \
-      || { echo "plot-host: $_label possibly truncated ($(jq -c -s 'add // [] | length' < "$_spool") rows, page cap $BB_BRANCH_QUERY_PAGE_CAP reached) — $_detail" >&2; return 3; }
+  plot_tmpfile _spool host-paged-walk || return 3; while [ -n "$_path" ]; do
+    [ "$((++_page))" -le "$BB_BRANCH_QUERY_PAGE_CAP" ] || { echo "plot-host: $_label possibly truncated ($(jq -c -s 'add // [] | length' < "$_spool") rows, page cap $BB_BRANCH_QUERY_PAGE_CAP reached) — $_detail" >&2; return 3; }
     # `jq` is applied only to a SUCCESSFUL payload. Piping a failed call into it
     # would turn the host's exit code into jq's, and a parse error and a spent
     # quota are not the same fact. A failure on page 2+ returns the same raw
     # code the first page would have — see the header above.
     _out="$(bb "$@" api "$_path")" || return $?
-    printf '%s\n' "$_out" | jq -c '.values // []' >> "$_spool" || return 3
-    _next="$(printf '%s' "$_out" | jq -r '.next // empty')" || return 3
-    case "$_next" in
-      '') _path="" ;;
-      "$BB_API_BASE"/*) _path="${_next#"$BB_API_BASE"}" ;;
-      *) echo "plot-host: $_label: next page '$_next' is outside $BB_API_BASE; refusing to read past it" >&2; return 3 ;;
-    esac
-  done
-  jq -c -s 'add // []' < "$_spool"
+    printf '%s\n' "$_out" | jq -c '.values // []' >> "$_spool" && _next="$(jq -r '.next // empty' <<<"$_out")" || return 3
+    if [ -z "$_next" ]; then _path=""; elif [[ "$_next" == "$BB_API_BASE"/* ]]; then _path="${_next#"$BB_API_BASE"}"
+    else echo "plot-host: $_label: next page '$_next' is outside $BB_API_BASE; refusing to read past it" >&2; return 3; fi
+  done; jq -c -s 'add // []' < "$_spool"
 }
 
 bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values[]
-  local _br="$1" _st="$2" _q _path; shift 2
+  local _br="$1" _st="$2" _q; shift 2
   _q="state=$(url_encode "\"$(bb_query_state "$_st")\"") AND source.branch.name=$(url_encode "\"$_br\"")"
   # THE WINDOW COMPOSES WITH THE STATE FILTER AND NEVER REPLACES IT. Bitbucket
   # takes ONE `q=` parameter, so a second one would silently win or lose
@@ -1117,15 +1109,12 @@ bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values
   # so an exclusive comparison against a truncated stamp would drop a PR updated
   # inside the same second. Re-reading one row the caller already holds costs a
   # row; missing one costs a change nobody ever sees again.
-  [ -n "$PR_LIST_SINCE" ] \
-    && _q="$_q AND updated_on>=$(url_encode "\"$PR_LIST_SINCE\"")"
-  # The space between the two terms is encoded too; `bb api` passes the path to
-  # curl verbatim and an unencoded space would truncate the request line.
-  _q="${_q// /%20}"
-  # THE LEADING SLASH. See the block header — without it this is a 403 that
-  # reads as a scope error.
-  _path="/repositories/{ws}/{repo}/pullrequests?q=${_q}&pagelen=50"
-  _bb_paged_walk "$_path" "bitbucket pr-list state=$_st" "a join against this page may read older branches as 'no PR' (#333)" "$@"
+  [ -n "$PR_LIST_SINCE" ] && _q="$_q AND updated_on>=$(url_encode "\"$PR_LIST_SINCE\"")"
+  # The space between the two terms is encoded too, inline below; `bb api`
+  # passes the path to curl verbatim and an unencoded space would truncate the
+  # request line. THE LEADING SLASH on the path: see the block header above —
+  # without it this is a 403 that reads as a scope error.
+  _bb_paged_walk "/repositories/{ws}/{repo}/pullrequests?q=${_q// /%20}&pagelen=50" "bitbucket pr-list state=$_st" "a join against this page may read older branches as 'no PR' (#333)" "$@"
 }
 
 # HOW MANY PAGES `bb_branch_query` WILL WALK BEFORE REPORTING "possibly
@@ -4192,7 +4181,7 @@ case "$op" in
 
   pr-review)
     if [ "$be" != "github" ]; then
-      pr="/repositories/{ws}/{repo}/pullrequests/${1:?pr-review needs a PR number}"
+      pr="/repositories/{ws}/{repo}/pullrequests/${1:?pr-review needs a PR number}"; detail="a bypass or check recorded only on a later page would be missed"
       # `_bb_paged_walk` (its own header has the cap/failure rule) follows
       # `next` for both reads, so a `review-bypass:` comment or a status
       # recorded only on a later page is not missed (#2484). THE WRAP GOES
@@ -4200,14 +4189,12 @@ case "$op" in
       # argv, which Linux caps at 128 KB (`MAX_ARG_STRLEN`) — a large enough
       # page would die silently and read as "no rows" on CI while passing on
       # macOS, the exact fabricated-absence bug this slice removes.
-      bypass_detail="a bypass or check recorded only on a later page would be missed"
       out="$(bb api "$pr")" && sha="$(jq -re '.source.commit.hash' <<<"$out")" \
-        && st="$(_bb_paged_walk "/repositories/{ws}/{repo}/commit/$sha/statuses?sort=-created_on&pagelen=50" "bitbucket pr-review" "$bypass_detail" | jq -c '{values: .}')" \
-        && cm="$(_bb_paged_walk "$pr/comments?pagelen=100" "bitbucket pr-review" "$bypass_detail" | jq -c '{values: .}')" \
+        && st="$(_bb_paged_walk "/repositories/{ws}/{repo}/commit/$sha/statuses?sort=-created_on&pagelen=50" "bitbucket pr-review" "$detail" | jq -c '{values: .}')" \
+        && cm="$(_bb_paged_walk "$pr/comments?pagelen=100" "bitbucket pr-review" "$detail" | jq -c '{values: .}')" \
         && printf '%s\n%s\n%s\n' "$sha" "$st" "$cm" | node "$here/board/plot-jenkins-pr-checks.mjs" review \
         || { echo "plot-host: pr-review: the read failed" >&2; exit 3; }
-      exit 0
-    fi
+      exit 0; fi
     out="$(gh pr view "${1:?pr-review needs a PR number}" --json headRefOid,comments)" && st="$(gh api "repos/{owner}/{repo}/commits/$(jq -r .headRefOid <<<"$out")/statuses")" \
       && jq -c --argjson st "$st" '{sha: .headRefOid, state: ([$st[] | select(.context == "plot/review")][0].state // "absent"), bypass: any(.comments[]?; .body | startswith("review-bypass:"))}' <<<"$out" \
       || { echo "plot-host: pr-review: the read failed" >&2; exit 3; } ;;
