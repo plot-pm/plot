@@ -199,14 +199,15 @@ describe('treesGit: the desks this machine holds', () => {
     }
   });
 
-  it('lists the dirty paths, where isClean only says whether there are any', async () => {
+  it('lists the dirty paths, where isClean only says whether tracked files differ', async () => {
     // The reading `monitor_tree_fingerprint` needs and `isClean` throws away.
-    // Both run the same `git status --porcelain`; only one returns the paths,
-    // and a fingerprint built from a boolean cannot see a rename at all.
+    // `dirtyPaths` lists untracked files; `isClean` ignores them, so a new file
+    // is dirty to the first and clean to the second. A fingerprint built from a
+    // boolean cannot see a rename at all.
     fs.writeFileSync(path.join(linked, 'work.ts'), 'export const x = 1;\n');
     const answer = await treesWithScripts().dirtyPaths(linked);
     expect(answer).toEqual({ ok: true, value: ['work.ts'] });
-    expect(await treesWithScripts().isClean(linked)).toEqual({ ok: true, value: false });
+    expect(await treesWithScripts().isClean(linked)).toEqual({ ok: true, value: true });
   });
 
   it('answers a failed isClean, never a dirty one, where git status cannot read the path', async () => {
