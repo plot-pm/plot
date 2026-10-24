@@ -739,6 +739,8 @@ export interface PromptState {
   readonly running: { readonly verdict: 'gone' | 'idle' | 'silent'; readonly transcriptReadable: boolean } | null;
   /** The prompt's last exit, once it is no longer running; `null` otherwise. */
   readonly exit: AgentLoopReadings['exit'];
+  /** Whether the harness refused every write this pass's prompt attempted; `unanswerable` on the `command` runner, which sees no structured result. */
+  readonly permissionDenials: AgentLoopReadings['permissionDenials'];
   /**
    * The commit pushed for this pass's claim, once the desk has pushed —
    * `''` before a push has happened this slice. The caller holds this because
@@ -817,6 +819,7 @@ export const readPass = async (
     continuation: null,
     running: prompt.running,
     exit: prompt.exit,
+    permissionDenials: prompt.permissionDenials,
     startRetries: manifest.attempts,
     maxStartRetries: config.maxStartRetries,
     markerWritten: false,
@@ -1368,6 +1371,8 @@ export const localChecksRunner =
 /** What the loop holds across passes: the prompt's own state, and the wait it came back from. */
 interface Held {
   exit: AgentLoopReadings['exit'];
+  /** Whether the last prompt's harness refused every write; `unanswerable` on the `command` runner. */
+  permissionDenials: AgentLoopReadings['permissionDenials'];
   pushedSha: string;
   afterWait: boolean;
   aheadAtWait: number;
@@ -1385,6 +1390,7 @@ interface Held {
 
 const FRESH: Held = {
   exit: null,
+  permissionDenials: 'unanswerable',
   pushedSha: '',
   afterWait: false,
   aheadAtWait: 0,
@@ -1403,6 +1409,7 @@ type RunOutcome =
       ended: 'exit';
       status: number;
       exit: NonNullable<AgentLoopReadings['exit']>;
+      permissionDenials: AgentLoopReadings['permissionDenials'];
       handBack: AgentHandBack | null;
       sessionId: string;
     };
@@ -1471,7 +1478,7 @@ const runPrompt = async (
   // needs the prompt file the resolution names.
   if (verb === 'refused' || (file === '' && sdk === undefined)) {
     deps.log(`plot-worker-loop: refusing to launch — ${why ?? 'no prompt'}`);
-    return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, handBack: null, sessionId: '' };
+    return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, permissionDenials: 'unanswerable', handBack: null, sessionId: '' };
   }
 
   const manifest = await readManifestFields(deps.manifestFile);
@@ -1487,7 +1494,7 @@ const runPrompt = async (
   // the start-retry budget bounds it instead of nothing.
   if ((await raiseSliceRuns(deps.manifestFile)) === null) {
     deps.log(`plot-worker-loop: could not count this run in ${deps.manifestFile}; Slice max runs cannot hold, so no run starts`);
-    return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, handBack: null, sessionId: handle };
+    return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, permissionDenials: 'unanswerable', handBack: null, sessionId: handle };
   }
   const spoken = await deps.idle.transcript.spoken(worktree, handle);
   const env: Record<string, string> = {
@@ -1556,7 +1563,7 @@ const runPrompt = async (
       return { ended: 'idle' };
     }
     ended = true;
-    if (!raced.run.ok) return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, handBack: null, sessionId: handle };
+    if (!raced.run.ok) return { ended: 'exit', status: 1, exit: { answer: 'unstarted' }, permissionDenials: 'unanswerable', handBack: null, sessionId: handle };
     const result = raced.run.value;
     if (result.end.answer !== 'unstarted') await consumeContinuation(resume, worktree);
     await recordRunRecords(deps, worktree, manifest.branch, result);
@@ -1568,6 +1575,7 @@ const runPrompt = async (
       ended: 'exit',
       status: outcome.exit.answer === 'unstarted' ? 1 : 0,
       exit: outcome.exit,
+      permissionDenials: result.permissionDenials,
       handBack: outcome.handBack,
       sessionId: result.sessionId || handle,
     };
@@ -1626,7 +1634,7 @@ const runPrompt = async (
     HARNESS_LIMIT_LINES[deps.harness],
   );
   if (exit.answer !== 'unstarted') await consumeContinuation(resume, worktree);
-  return { ended: 'exit', status, handBack: null, sessionId: handle, exit };
+  return { ended: 'exit', status, permissionDenials: 'unanswerable', handBack: null, sessionId: handle, exit };
 };
 
 /**
@@ -1663,6 +1671,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     const prompt: PromptState = {
       running: null,
       exit: held.exit,
+      permissionDenials: held.permissionDenials,
       pushedSha: held.pushedSha,
       handBack: held.handBack,
       sessionId: held.sessionId,
@@ -1885,6 +1894,7 @@ export const runWorkerLoop = async (deps: LoopDeps): Promise<number> => {
     held = {
       ...held,
       exit: ran.exit,
+      permissionDenials: ran.permissionDenials,
       status: ran.status,
       pushedSha: head.ok ? head.value : held.pushedSha,
       handBack: ran.handBack,
