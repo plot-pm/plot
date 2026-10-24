@@ -56,7 +56,7 @@ The `agent-loop.ts:584` refusal reason needs the worker loop to read the claim f
 
 ### Continuation
 
-- `bug/continuation-reads-the-loops-run-limits` — one limit parser, limits refused before any write on every path <!-- builds: a shared Slice max runs / Slice max spend parser -->
+- `bug/continuation-reads-the-loops-run-limits` — one limit parser, limits refused before any write on every path <!-- builds: a shared Slice max runs / Slice max spend parser --> → #2511
 - `bug/a-failed-continuation-leaves-the-desk-as-found` — prompt removed, manifest restored, wrapper pid verified before SIGTERM <!-- waits: bug/continuation-reads-the-loops-run-limits -->
 
 ### Independent
