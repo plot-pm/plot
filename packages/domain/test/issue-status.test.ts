@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isPlanStatePhase,
   issueStatusWrites,
+  noTransitionOutcome,
   parsePlanSiblingLine,
   planStateWrites,
   releaseIssueDecisions,
@@ -114,10 +115,27 @@ describe('a run’s write outcomes reduce to the one a caller reports', () => {
     expect(trackerWriteSummary(['failed', 'written'])).toBe('failed');
   });
 
-  it('ranks every pair worst-first: written < no-target < unaskable < failed', () => {
-    expect(trackerWriteSummary(['written', 'no-target'])).toBe('no-target');
-    expect(trackerWriteSummary(['no-target', 'unaskable'])).toBe('unaskable');
+  it('ranks every pair worst-first: written < already < no-target < unreachable < unaskable < failed', () => {
+    expect(trackerWriteSummary(['written', 'already'])).toBe('already');
+    expect(trackerWriteSummary(['already', 'no-target'])).toBe('no-target');
+    expect(trackerWriteSummary(['no-target', 'unreachable'])).toBe('unreachable');
+    expect(trackerWriteSummary(['unreachable', 'unaskable'])).toBe('unaskable');
     expect(trackerWriteSummary(['unaskable', 'failed'])).toBe('failed');
+  });
+
+  it('reports unreachable over no-target — the tracker being behind outranks having no board at all', () => {
+    expect(trackerWriteSummary(['written', 'unreachable', 'no-target'])).toBe('unreachable');
+  });
+});
+
+describe('a status write that found no transition reads the issue’s current status', () => {
+  it('answers already where the issue holds the wanted status, compared without regard to case', () => {
+    expect(noTransitionOutcome('Done', 'Done')).toBe('already');
+    expect(noTransitionOutcome('CANCELLED', 'cancelled')).toBe('already');
+  });
+
+  it('answers unreachable where the issue holds a different status', () => {
+    expect(noTransitionOutcome('Ready for Design', 'Approving')).toBe('unreachable');
   });
 });
 

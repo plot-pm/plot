@@ -29,8 +29,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * both, so this entry opens no file.
  *
  * **Tab-separated out**, one line per owed write:
- * `<issue>\t<written|no-target|unaskable|failed>\t<reason>`. No line means no
- * write was owed.
+ * `<issue>\t<written|already|unreachable|no-target|unaskable|failed>\t<reason>`.
+ * No line means no write was owed.
  */
 
 /** The exit codes the caller reads. */
@@ -43,6 +43,8 @@ export const EXIT = {
 
 /** The reason printed where the connector left no sentence of its own. */
 const FALLBACK: Record<Exclude<TrackerWriteOutcome, 'written'>, string> = {
+  already: 'the issue already held this status',
+  unreachable: 'the status exists but no transition reaches it from here',
   'no-target': 'the tracker holds nowhere to put this status',
   unaskable: 'no tracker declared',
   failed: 'the write failed',

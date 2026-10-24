@@ -93,7 +93,7 @@ export const planStateWrites = (reading: PlanStateReading): readonly PlanStateWr
 };
 
 /** Why a release left an issue open instead of closing it. */
-export type ReleaseSkipReason = 'another-plan-unfinished' | 'unreadable' | 'no-target' | 'unaskable' | 'failed';
+export type ReleaseSkipReason = 'another-plan-unfinished' | 'unreadable' | 'already' | 'unreachable' | 'no-target' | 'unaskable' | 'failed';
 
 /** One issue a release either closed, or left open with a reason. */
 export interface ReleaseIssueDecision {
@@ -215,10 +215,27 @@ export const releaseIssueSummary = (outcomes: readonly ('closed' | ReleaseSkipRe
   return { closed, leftOpen, reasons };
 };
 
-/** What one owed tracker write came to — a status write or a plan-state write alike. */
-export type TrackerWriteOutcome = 'written' | 'no-target' | 'unaskable' | 'failed';
+/**
+ * What a status write came to where the tracker offered no transition to the
+ * wanted status.
+ *
+ * @param current - the issue's status before the write, as the tracker names it.
+ * @param want - the status the write asked for.
+ * @returns `already` where the issue holds the wanted status, compared without
+ *   regard to case as the transition lookup compares; `unreachable` otherwise.
+ */
+export const noTransitionOutcome = (current: string, want: string): 'already' | 'unreachable' =>
+  current.toLowerCase() === want.toLowerCase() ? 'already' : 'unreachable';
 
-const WORST_LAST: readonly TrackerWriteOutcome[] = ['written', 'no-target', 'unaskable', 'failed'];
+/** What one owed tracker write came to — a status write or a plan-state write alike. */
+export type TrackerWriteOutcome = 'written' | 'already' | 'no-target' | 'unreachable' | 'unaskable' | 'failed';
+
+// `already` ranks with `written` — the issue already held the wanted status,
+// so nothing is out of step. `unreachable` ranks worse than `no-target`: the
+// tracker holds no board at all is the ordinary case for untracked work, while
+// a status existing but unreachable from here means the tracker is behind the
+// plan, which is the fact this plan exists to surface.
+const WORST_LAST: readonly TrackerWriteOutcome[] = ['written', 'already', 'no-target', 'unreachable', 'unaskable', 'failed'];
 
 /**
  * Reduces a run's write outcomes to the one a caller reports.

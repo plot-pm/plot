@@ -7354,8 +7354,9 @@ printf '\\n%s' "\${1##*:}"
   return { dir, argvFile };
 }
 
-/** The transitions payload Jira answers a lookup with. */
+/** The issue read, with its transitions expanded, that Jira answers a lookup with. */
 const JIRA_TRANSITIONS = JSON.stringify({
+  fields: { status: { name: 'Ready for Design' } },
   transitions: [
     { id: '11', name: 'To Do', to: { name: 'To Do' } },
     { id: '21', name: 'Start Progress', to: { name: 'In Progress' } },
@@ -7399,16 +7400,28 @@ test('host: issue-status looks the transition id up rather than guessing it', ()
   assert.match(calls[1], /"id":"907"/);
 });
 
-test('host: issue-status answers no-target where the workflow offers no such move', () => {
+test('host: issue-status prints the current status and the offered transitions where none matches', () => {
   // A REPEATED WRITE IS THE ORDINARY CASE, and Jira answers it by naming no
-  // such transition — an issue already in the state has no transition to it.
-  // Reporting that as a failure would make idempotence look like an outage.
+  // such transition. So does a status no transition reaches from here. The op
+  // prints the facts that tell the two apart, and the connector tells them.
   const stub = makeJiraSequenceStub([{ body: JIRA_TRANSITIONS }]);
-  const res = runJira(['issue-status', 'PROJ-123', 'Cancelled'], stub);
+  const res = runJira(['issue-status', 'PROJ-123', 'Approving'], stub);
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout.trim(), 'no-target');
+  const [word, current, available] = res.stdout.trim().split('\t');
+  assert.equal(word, 'no-match');
+  assert.equal(current, 'Ready for Design');
+  assert.equal(available, 'To Do, Start Progress, Done');
   const calls = readFileSync(stub.argvFile, 'utf8').split('--- call').filter(Boolean);
-  assert.equal(calls.length, 1, 'nothing is written when there is nowhere to write it');
+  assert.equal(calls.length, 1, 'one read answers both the transitions and the current status');
+  assert.match(calls[0], /fields=status&expand=transitions/);
+});
+
+test('host: issue-status prints an empty current status where the read named none', () => {
+  // ABSENT IS NOT FALSE. The empty field is the connector's to refuse.
+  const stub = makeJiraSequenceStub([{ body: JSON.stringify({ transitions: [] }) }]);
+  const res = runJira(['issue-status', 'PROJ-123', 'Done'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.replace(/\n$/, ''), 'no-match\t\t');
 });
 
 test('host: issue-status exits 4 where the declared tracker is not this one', () => {

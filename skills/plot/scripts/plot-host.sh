@@ -467,11 +467,14 @@
 #                                 credentials and through a different API — the
 #                                 reason the tracker port has two connectors.
 #                                 Prints `written` where the transition was
-#                                 performed and `no-target` where the workflow
-#                                 offers no such transition from the issue's
-#                                 current state — which is also what a repeated
-#                                 write reports, because the same status twice
-#                                 is the same status.
+#                                 performed. Where none matches, prints
+#                                 `no-match<TAB>current<TAB>available`: the
+#                                 issue's current status and the names of the
+#                                 transitions offered from it, both read in the
+#                                 same lookup. The connector decides from them
+#                                 whether the issue already holds the status or
+#                                 no transition reaches it; this op decides
+#                                 nothing.
 #                                 The transition id is LOOKED UP, never guessed:
 #                                 ids are per workflow and per issue, so a
 #                                 hardcoded one writes to the wrong column.
@@ -5415,8 +5418,10 @@ case "$op" in
     #
     # IDEMPOTENT BY NATURE. The same status written twice is the same status,
     # and Jira answers a transition to the state an issue already holds by
-    # naming no such transition — which this reports as `no-target` rather than
-    # as a failure.
+    # naming no such transition. A no-match also covers the other case — the
+    # status exists but the workflow has no transition to it from here — so the
+    # no-match line carries the facts that tell the two apart, and the
+    # connector (`tracker-jira.ts`) tells them apart.
     key="${1:?issue-status needs an issue key}"; want="${2:?issue-status needs a status}"
     [ "$(tracker_scheme)" = "jira" ] || exit 4
     jira_require_config
@@ -5424,17 +5429,21 @@ case "$op" in
     # workflow and per issue: the id for "In Progress" differs between projects
     # and the transition may not be available from the issue's current state at
     # all. A hardcoded id writes a status to the wrong column silently.
-    body_json="$(jira_ask "/rest/api/2/issue/$key/transitions")" || exit $?
+    # ONE READ, TWO FACTS. The issue read with `expand=transitions` answers the
+    # same transitions as `/transitions` and the current status beside them, so
+    # a no-match costs no second call.
+    body_json="$(jira_ask "/rest/api/2/issue/$key?fields=status&expand=transitions")" || exit $?
     tid="$(printf '%s' "$body_json" | jq -r --arg want "$want" \
       '[.transitions[]? | select((.name // "" | ascii_downcase) == ($want | ascii_downcase)
                                  or ((.to.name // "" | ascii_downcase) == ($want | ascii_downcase)))]
        | .[0].id // ""')"
     if [ -z "$tid" ]; then
-      # NO SUCH TRANSITION IS AN ANSWER, not a failure. The tracker was reached
-      # and holds nowhere to put this status — either the workflow has no such
-      # state or the issue is already in it. Reporting it as a failure would
-      # make a repeated write look like an outage.
-      printf '%s\n' 'no-target'
+      # NO MATCH IS NOT YET AN ANSWER. It covers two different facts — the
+      # issue already holds the status (harmless), or the status exists but no
+      # transition from here reaches it (the tracker is behind). The current
+      # status and the offered transitions are printed as read; an absent
+      # status prints as an empty field, which the connector reads as a failure.
+      printf '%s' "$body_json" | jq -r '"no-match\t\(.fields.status.name // "")\t\([.transitions[]?.name] | join(", "))"'
       exit 0
     fi
     jira_ask "/rest/api/2/issue/$key/transitions" \

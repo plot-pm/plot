@@ -70,14 +70,18 @@ export interface StatusWrite {
 /**
  * What came of a status write.
  *
- * `written` and `no-target` are BOTH answers, and keeping them apart is the
- * point. A tracker that holds no board for this repository is configured and
- * reachable and has nowhere to put a status; a tracker that was never declared
- * never reaches this type at all, because the port answers `unaskable` for it.
+ * `written`, `already`, `unreachable` and `no-target` are ALL answers, and
+ * keeping them apart is the point. `already` is the issue holding the wanted
+ * status before the write; `unreachable` is the status existing in the
+ * workflow with no transition from the issue's current state; `no-target` is
+ * a tracker that holds no board for this repository at all, configured and
+ * reachable and with nowhere to put a status. A tracker that was never
+ * declared never reaches this type at all, because the port answers
+ * `unaskable` for it.
  *
  * A write that broke is a `PortResult` failure and is not a member here.
  */
-export type StatusOutcome = 'written' | 'no-target';
+export type StatusOutcome = 'written' | 'already' | 'unreachable' | 'no-target';
 
 /** The plan phases whose state Plot reflects on an issue. */
 export type PlanStatePhase = 'draft' | 'approved' | 'delivered' | 'released';
@@ -384,9 +388,11 @@ export interface Tracker {
    * left the machine.
    *
    * @param write - the pull request and the status to record.
-   * @returns `written` where the status reached the tracker, `no-target` where
-   *   the tracker is reachable and holds nowhere to put it; `unaskable` where
-   *   no tracker was declared.
+   * @returns `written` where the status reached the tracker; `already` where
+   *   the issue already held it; `unreachable` where the status exists but no
+   *   transition from the issue's current state reaches it; `no-target` where
+   *   the tracker is reachable and holds no board at all to put it on;
+   *   `unaskable` where no tracker was declared.
    */
   statusWrite(write: StatusWrite): Promise<PortResult<StatusOutcome>>;
 
