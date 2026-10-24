@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gatesBriefPush, pushesBriefBranch } from '../src/rules/brief-push.js';
+import { briefPushRefusal, gatesBriefPush, pushesBriefBranch } from '../src/rules/brief-push.js';
 
 const B = 'bug/the-slice';
 
@@ -34,5 +34,13 @@ describe('gatesBriefPush', () => {
   it('applies only to a brief-only run', () => {
     expect(gatesBriefPush({ PLOT_BRIEF_ONLY: '1' })).toBe(true);
     expect(gatesBriefPush({})).toBe(false);
+  });
+});
+
+describe('briefPushRefusal', () => {
+  it('names the branch and where the brief goes instead', () => {
+    const text = briefPushRefusal(B);
+    expect(text).toContain(`pushes ${B}`);
+    expect(text).toContain('default branch');
   });
 });
