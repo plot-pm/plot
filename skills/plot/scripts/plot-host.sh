@@ -1146,23 +1146,6 @@ bb_branch_query() { # $1=branch $2=adapter state; rest=global bb args → values
 # it gets the truncation report rather than a silent prefix.
 BB_BRANCH_QUERY_PAGE_CAP=20
 
-# Ask Bitbucket for ONE already-built path and print the combined `values`
-# array across every page, the same walk `bb_branch_query` makes — shared
-# because `pr-review` needs it twice (statuses, comments) and neither read
-# carries a branch filter for `bb_branch_query` to build.
-#
-# SAME CAP, SAME FAILURE RULE, SAME REASON. `BB_BRANCH_QUERY_PAGE_CAP` bounds
-# this walk too — a status or comment list has no narrower precedent to
-# measure against, and inventing a second cap for the same shape of problem
-# is the thing the header above already argues against. A page 2+ failure
-# returns the raw code with nothing on stdout, exactly as `bb_branch_query`'s
-# own header requires, because `pr-review`'s caller (`plot-jenkins-pr-checks.mjs
-# review`) must not read a partial statuses or comments array as the whole.
-bb_paged_values() { # $1=path (with leading /); rest=global bb args → values[]
-  local _path="$1"; shift
-  _bb_paged_walk "$_path" "bitbucket pr-review" "a bypass or check recorded only on a later page would be missed" "$@"
-}
-
 # Ask about EVERY tracked branch in one state, printing one combined array.
 #
 # THE SHAPE `pr_list_states` ALREADY EXPECTS. It calls its host command once
@@ -4210,7 +4193,7 @@ case "$op" in
   pr-review)
     if [ "$be" != "github" ]; then
       pr="/repositories/{ws}/{repo}/pullrequests/${1:?pr-review needs a PR number}"
-      # `bb_paged_values` walks `next` for both reads — a `review-bypass:`
+      # `_bb_paged_walk` walks `next` for both reads — a `review-bypass:`
       # comment or a status recorded only on a later page must not be missed
       # the way one page at a time missed it (#2484). Each call's own exit
       # code travels out unclassified and stops the whole arm; the node
@@ -4220,10 +4203,14 @@ case "$op" in
       # argv, which Linux caps at 128 KB (`MAX_ARG_STRLEN`) — a large enough
       # comments or statuses page would die silently and read as "no rows" on
       # CI while passing on macOS, the exact fabricated-absence bug this slice
-      # exists to remove.
+      # exists to remove. SAME CAP, SAME FAILURE RULE AS `bb_branch_query`'s
+      # walk — a status or comment list has no narrower precedent to measure
+      # against, and inventing a second cap for the same shape of problem is
+      # the thing `BB_BRANCH_QUERY_PAGE_CAP`'s own header argues against.
+      bypass_detail="a bypass or check recorded only on a later page would be missed"
       out="$(bb api "$pr")" && sha="$(jq -re '.source.commit.hash' <<<"$out")" \
-        && st="$(bb_paged_values "/repositories/{ws}/{repo}/commit/$sha/statuses?sort=-created_on&pagelen=50" | jq -c '{values: .}')" \
-        && cm="$(bb_paged_values "$pr/comments?pagelen=100" | jq -c '{values: .}')" \
+        && st="$(_bb_paged_walk "/repositories/{ws}/{repo}/commit/$sha/statuses?sort=-created_on&pagelen=50" "bitbucket pr-review" "$bypass_detail" | jq -c '{values: .}')" \
+        && cm="$(_bb_paged_walk "$pr/comments?pagelen=100" "bitbucket pr-review" "$bypass_detail" | jq -c '{values: .}')" \
         && printf '%s\n%s\n%s\n' "$sha" "$st" "$cm" | node "$here/board/plot-jenkins-pr-checks.mjs" review \
         || { echo "plot-host: pr-review: the read failed" >&2; exit 3; }
       exit 0
