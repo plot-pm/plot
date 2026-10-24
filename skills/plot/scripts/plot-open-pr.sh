@@ -48,10 +48,7 @@ usage() {
 [ -f "$bundle" ] \
   || { echo "plot-open-pr: cannot find $bundle — run 'pnpm build:board'." >&2; exit 1; }
 
-branch=""
-base=""
-draft=0
-dry_run=0
+branch=""; base=""; draft=0; dry_run=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --draft) draft=1; shift ;;
