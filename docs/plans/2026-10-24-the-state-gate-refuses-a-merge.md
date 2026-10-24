@@ -51,7 +51,7 @@ On a commit with a second parent (`MERGE_HEAD` present), a `State:` change in a 
 
 ### The gate reads the other parent
 
-- `bug/the-state-gate-refuses-a-merge` — a merge commit's `State:` change passes when the staged text equals the file in another parent; a text matching neither parent still needs a receipt. Tests: a merge staging a receipted delivery from the default branch passes; a merge that edits the `State:` line by hand is refused; a non-merge commit is unchanged; an unreadable parent refuses.
+- `bug/the-state-gate-refuses-a-merge` — a merge commit's `State:` change passes when the staged text equals the file in another parent; a text matching neither parent still needs a receipt. Tests: a merge staging a receipted delivery from the default branch passes; a merge that edits the `State:` line by hand is refused; a non-merge commit is unchanged; an unreadable parent refuses. → #2594
 
 ## Notes
 
