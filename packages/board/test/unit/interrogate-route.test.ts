@@ -11,7 +11,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
-import { spawn as spawnProcess } from 'node:child_process';
+import { execFileSync, spawn as spawnProcess } from 'node:child_process';
 import {
   INTERROGATE_COMMAND_KEY,
   composeInterrogatePrompt,
@@ -20,8 +20,10 @@ import {
   interrogateLogPath,
   interrogatePromptPath,
   interrogateStatus,
+  prepareInterrogateWorktree,
   type InterrogateDeps,
   type InterrogateRefusal,
+  type PlanPrLookup,
 } from '../../src/server/interrogate.js';
 import { agentLogPath } from '../../src/server/agent-log.js';
 import { boardRunsSettled, endHeldRuns } from '../../src/server/board-run.js';
@@ -89,13 +91,21 @@ const response = (): { res: http.ServerResponse; got: Captured } => {
   return { res, got };
 };
 
-/** Run the handler; `command` defaults to `true`, `phase` to `draft`. */
+/**
+ * Run the handler; `command` defaults to `true`, `phase` to `draft`.
+ *
+ * `resolvePlanPr` defaults to `{kind: 'none'}` — no open plan PR — so every
+ * test that does not ask about the plan-PR path exercises the main-checkout
+ * fallback exactly as before that path existed.
+ */
 const post = async (opts: {
   repoRoot: string;
   body?: unknown;
   command?: string;
   phase?: () => string | null;
   runner?: string;
+  resolvePlanPr?: () => Promise<PlanPrLookup>;
+  prepareWorktree?: () => Promise<string | null>;
 }): Promise<Captured> => {
   const { res, got } = response();
   const deps: InterrogateDeps = {
@@ -106,6 +116,8 @@ const post = async (opts: {
           ? opts.runner
           : fallback,
     phase: () => (opts.phase ? opts.phase() : 'draft'),
+    resolvePlanPr: opts.resolvePlanPr ? () => opts.resolvePlanPr!() : async () => ({ kind: 'none' }),
+    prepareWorktree: opts.prepareWorktree ? () => opts.prepareWorktree!() : async () => null,
   };
   await handleInterrogate(
     request(opts.body ?? { slug: SLUG }),
@@ -209,6 +221,77 @@ describe('the four refusals', () => {
     const remote = interrogateAvailability('0.0.0.0', opts(configured));
     assert.equal(remote.available, false);
     assert.ok(remote.reason.length > 0, 'the binding refusal carries a sentence');
+  });
+});
+
+describe('resolving the plan PR', () => {
+  it('runs in the worktree a found plan PR resolves to, not the main checkout', async () => {
+    const dir = repo();
+    // No plan on the main checkout at all: a worktree-only plan still runs.
+    const worktree = repo();
+    draftPlan(worktree);
+    const got = await post({
+      repoRoot: dir,
+      resolvePlanPr: async () => ({ kind: 'found', head: 'idea/' + SLUG }),
+      prepareWorktree: async () => worktree,
+    });
+    assert.equal(got.status, 202);
+    const prompt = fs.readFileSync(interrogatePromptPath(dir, SLUG), 'utf8');
+    assert.match(prompt, new RegExp(`^/challenge-the-plan docs/plans/${PLAN_NAME.replace(/\./g, '\\.')}$`, 'm'));
+    await boardRunsSettled();
+  });
+
+  it('refuses plan-unreadable naming the host\'s reason when the host cannot answer', async () => {
+    const dir = repo();
+    draftPlan(dir);
+    const got = await post({
+      repoRoot: dir,
+      resolvePlanPr: async () => ({ kind: 'refused', detail: 'the host rate-limited this call' }),
+    });
+    assert.equal(got.status, 409);
+    assert.equal(refusal(got), 'plan-unreadable');
+    assert.match(String(got.body.detail), /the host rate-limited this call/);
+    assert.equal(fs.existsSync(interrogatePromptPath(dir, SLUG)), false, 'nothing is written on a refusal');
+  });
+
+  it('refuses plan-unreadable when a found PR\'s worktree could not be prepared', async () => {
+    const dir = repo();
+    draftPlan(dir);
+    const got = await post({
+      repoRoot: dir,
+      resolvePlanPr: async () => ({ kind: 'found', head: 'idea/' + SLUG }),
+      prepareWorktree: async () => null,
+    });
+    assert.equal(got.status, 409);
+    assert.equal(refusal(got), 'plan-unreadable');
+    assert.match(String(got.body.detail), /idea\//);
+  });
+
+  it('falls back to the main checkout when the host answers no open plan PR', async () => {
+    const dir = repo();
+    draftPlan(dir);
+    const got = await post({ repoRoot: dir, resolvePlanPr: async () => ({ kind: 'none' }) });
+    assert.equal(got.status, 202);
+    const prompt = fs.readFileSync(interrogatePromptPath(dir, SLUG), 'utf8');
+    assert.match(prompt, new RegExp(`^/challenge-the-plan docs/plans/${PLAN_NAME.replace(/\./g, '\\.')}$`, 'm'));
+    await boardRunsSettled();
+  });
+
+  it('refuses a second POST as already-running even when the first resolves through a found plan PR', async () => {
+    const dir = repo();
+    const worktree = repo();
+    draftPlan(worktree);
+    const first = await post({
+      repoRoot: dir,
+      command: `sh -c 'sleep 1' _`,
+      resolvePlanPr: async () => ({ kind: 'found', head: 'idea/' + SLUG }),
+      prepareWorktree: async () => worktree,
+    });
+    assert.equal(first.status, 202);
+    const second = await post({ repoRoot: dir, command: `sh -c 'sleep 1' _` });
+    assert.equal(second.status, 409);
+    assert.equal(refusal(second), 'already-running');
+    await boardRunsSettled();
   });
 });
 
@@ -413,5 +496,73 @@ describe('a run records one round, and the board writes none', () => {
     assert.match(after, /^- \*\*Rounds:\*\* 3$/m, 'one round, recorded by the runner');
     assert.equal(after, before.replace('- **Rounds:** 2', '- **Rounds:** 3'),
       'the plan changed by exactly the runner\'s one line — no board-side counter');
+  });
+});
+
+describe('the plan-PR worktree', () => {
+  const HEAD = `idea/${SLUG}`;
+  const git = (cwd: string, ...args: string[]): string =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' }).trim();
+
+  /** A clone of a bare origin whose `idea/<slug>` branch holds the Draft plan. */
+  const cloned = (): { dir: string; parent: string } => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-interrogate-tree-'));
+    made.push(parent);
+    const origin = path.join(parent, 'origin.git');
+    git(parent, 'init', '-q', '--bare', '-b', 'main', origin);
+    const dir = path.join(parent, 'repo');
+    git(parent, 'clone', '-q', origin, dir);
+    fs.writeFileSync(path.join(dir, 'README.md'), 'x\n', 'utf8');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'init');
+    git(dir, 'push', '-q', 'origin', 'HEAD:main');
+    git(dir, 'checkout', '-q', '-b', HEAD);
+    fs.mkdirSync(path.join(dir, 'docs/plans'), { recursive: true });
+    draftPlan(dir);
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'plan');
+    git(dir, 'push', '-q', 'origin', HEAD);
+    git(dir, 'checkout', '-q', 'main');
+    git(dir, 'branch', '-q', '-D', HEAD);
+    return { dir, parent };
+  };
+
+  const opts = (dir: string) => ({ repoRoot: dir, scriptsDir: SCRIPTS });
+
+  it('prepares the tree again for a second run on the same slug', async () => {
+    const { dir } = cloned();
+    const first = await prepareInterrogateWorktree(opts(dir), SLUG, HEAD);
+    assert.ok(first, 'the first run gets a tree');
+    fs.writeFileSync(path.join(first, 'leftover.txt'), 'from the first run\n', 'utf8');
+    const second = await prepareInterrogateWorktree(opts(dir), SLUG, HEAD);
+    assert.equal(second, first, 'one path per slug');
+    assert.ok(fs.existsSync(path.join(second, 'docs/plans', PLAN_NAME)), 'the plan is read from the PR branch');
+    assert.equal(fs.existsSync(path.join(second, 'leftover.txt')), false, 'the earlier run\'s tree was replaced');
+    const trees = git(dir, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ') && l.includes('.plot-interrogate-'));
+    assert.equal(trees.length, 1, 'one interrogation tree, not one per run');
+  });
+
+  it('prepares the tree while the branch is checked out in another worktree', async () => {
+    const { dir, parent } = cloned();
+    const author = path.join(parent, 'author-desk');
+    git(dir, 'worktree', 'add', '-q', author, HEAD);
+    const tree = await prepareInterrogateWorktree(opts(dir), SLUG, HEAD);
+    assert.ok(tree, 'a branch checked out elsewhere does not refuse the run');
+    assert.equal(git(tree, 'rev-parse', 'HEAD'), git(dir, 'rev-parse', `origin/${HEAD}`));
+    assert.equal(git(author, 'branch', '--show-current'), HEAD, 'the author\'s desk is untouched');
+  });
+
+  it('leaves a local branch with unpushed commits where it is', async () => {
+    const { dir } = cloned();
+    git(dir, 'branch', '-q', HEAD, `origin/${HEAD}`);
+    git(dir, 'checkout', '-q', HEAD);
+    fs.writeFileSync(path.join(dir, 'unpushed.txt'), 'local\n', 'utf8');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'unpushed');
+    const local = git(dir, 'rev-parse', HEAD);
+    git(dir, 'checkout', '-q', 'main');
+    const tree = await prepareInterrogateWorktree(opts(dir), SLUG, HEAD);
+    assert.ok(tree);
+    assert.equal(git(dir, 'rev-parse', HEAD), local, 'the local branch was not reset to origin');
   });
 });
