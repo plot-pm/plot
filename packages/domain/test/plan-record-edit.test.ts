@@ -101,6 +101,15 @@ describe('flipFrontMatterPhase', () => {
     expect(lines[1]).toBe('status: Delivered');
     expect(lines[2]).toBe('status: Approved');
   });
+
+  it('skips a front-matter line that is neither status: nor phase:', () => {
+    const content = ['---', 'type: bug', 'status: Approved', '---', '', '# A plan'].join('\n');
+    const result = flipFrontMatterPhase(content, 'approved', 'Delivered');
+    expect(result.changed).toBe(true);
+    const lines = result.content.split('\n');
+    expect(lines[1]).toBe('type: bug');
+    expect(lines[2]).toBe('status: Delivered');
+  });
 });
 
 describe('insertStatusRecord', () => {
