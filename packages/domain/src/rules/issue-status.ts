@@ -93,7 +93,7 @@ export const planStateWrites = (reading: PlanStateReading): readonly PlanStateWr
 };
 
 /** Why a release left an issue open instead of closing it. */
-export type ReleaseSkipReason = 'another-plan-unfinished' | 'no-target' | 'unaskable' | 'failed';
+export type ReleaseSkipReason = 'another-plan-unfinished' | 'unreadable' | 'no-target' | 'unaskable' | 'failed';
 
 /** One issue a release either closed, or left open with a reason. */
 export interface ReleaseIssueDecision {
@@ -107,19 +107,85 @@ export interface ReleaseIssueDecision {
  * Decides which of a released plan's issues to close, ahead of any tracker write.
  *
  * An issue also named by a plan that is not yet `released` stays open: it is
- * shared, and the last plan to release is the one that closes it. Every other
- * issue is handed to the tracker, which decides `no-target`, `unaskable` or
- * `failed` on its own terms — this rule never answers those itself.
+ * shared, and the last plan to release is the one that closes it. Where the
+ * sibling read itself is `'unreadable'`, every issue stays open — an unreadable
+ * read is not the same as a read that found no sibling, and must never behave
+ * like one. Every other issue is handed to the tracker, which decides
+ * `no-target`, `unaskable` or `failed` on its own terms — this rule never
+ * answers those itself.
  *
  * @param issues - the issues the released plan names.
- * @param unfinishedIssues - issues named by any OTHER plan not yet `released`.
+ * @param unfinishedIssues - issues named by any OTHER plan not yet `released`,
+ *   or `'unreadable'` where that read could not be trusted.
  * @returns one decision per issue, in the order `issues` names them.
  */
 export const releaseIssueDecisions = (
   issues: readonly string[],
-  unfinishedIssues: ReadonlySet<string>,
+  unfinishedIssues: ReadonlySet<string> | 'unreadable',
 ): readonly ReleaseIssueDecision[] =>
-  issues.map((issue) => ({ issue, skip: unfinishedIssues.has(issue) ? 'another-plan-unfinished' : null }));
+  issues.map((issue) => ({
+    issue,
+    skip: unfinishedIssues === 'unreadable' ? 'unreadable' : unfinishedIssues.has(issue) ? 'another-plan-unfinished' : null,
+  }));
+
+/** One plan's phase and issues, as read from one `plot-plan-meta.sh` line. */
+export interface PlanSiblingRecord {
+  /** The plan's phase, lowercased as `plot-plan-meta.sh` reports it. */
+  readonly phase: string;
+  /** The issues the plan answers, as strings — `plot-plan-meta.sh` reports them as numbers. */
+  readonly issues: readonly string[];
+}
+
+/**
+ * Parses one `plot-plan-meta.sh` line into a {@link PlanSiblingRecord}.
+ *
+ * Never throws: a line that is not JSON, or JSON of no known shape, reads as
+ * `null`, which the caller must treat as unreadable rather than as holding no
+ * issues.
+ *
+ * @param line - one line of `plot-plan-meta.sh` output.
+ * @returns the phase and issues, or `null` where the line cannot be trusted.
+ */
+export const parsePlanSiblingLine = (line: string): PlanSiblingRecord | null => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const { phase, issues } = parsed as { phase?: unknown; issues?: unknown };
+  if (typeof phase !== 'string' || !Array.isArray(issues)) return null;
+  if (!issues.every((issue) => typeof issue === 'string' || typeof issue === 'number')) return null;
+  return { phase, issues: issues.map(String) };
+};
+
+/**
+ * Collects the issues every unreleased sibling plan still owes.
+ *
+ * Reads every non-blank line as a {@link PlanSiblingRecord}; a `released`
+ * sibling's issues are excluded, because that sibling no longer owes them —
+ * every other phase's issues are unioned into the result. Where any one
+ * non-blank line fails to parse, the whole read is `'unreadable'`: a partial
+ * union built from the lines that DID parse would look the same as a complete
+ * one, and the caller cannot tell "no sibling owes this" from "the read broke
+ * partway through."
+ *
+ * @param lines - one `plot-plan-meta.sh` line per sibling plan.
+ * @returns the union of unreleased siblings' issues, or `'unreadable'` where
+ *   any line could not be parsed.
+ */
+export const unfinishedIssuesOf = (lines: readonly string[]): ReadonlySet<string> | 'unreadable' => {
+  const issues = new Set<string>();
+  for (const line of lines) {
+    if (line.trim() === '') continue;
+    const record = parsePlanSiblingLine(line);
+    if (record === null) return 'unreadable';
+    if (record.phase === 'released') continue;
+    for (const issue of record.issues) issues.add(issue);
+  }
+  return issues;
+};
 
 /** How many issues a release closed, and how many it left open, with each reason. */
 export interface ReleaseIssueSummary {

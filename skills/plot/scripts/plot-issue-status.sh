@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Plot helper: write a finished plan's issue status through the tracker port.
-# Usage: plot-issue-status.sh <plan file>
-# Output: one `<issue>\t<written|no-target|unaskable|failed>\t<reason>` line per
-#         owed write, then a machine-countable summary:
+# Usage: plot-issue-status.sh <plan file> [--skip-issue <id> ...]
+# Output: one `<issue>\t<written|no-target|unaskable|failed|skipped>\t<reason>`
+#         line per owed write, then a machine-countable summary:
 #             summary: tracker=<none|written|no-target|unaskable|failed>
 #         `none` means no write was owed: the plan names no issue, its phase is
 #         not Approved, Delivered or Released, or that phase's status word is not set.
+#         A repeated `--skip-issue <id>` writes nothing for that issue and
+#         reports it `skipped`, for an issue another unfinished plan still owes.
 #         Exit 0 on every write outcome, `failed` included; 2 when the plan or
 #         the bundle cannot be read.
 #
@@ -35,7 +37,7 @@ bundle="$script_dir/board/plot-issue-status.mjs"
 
 fail_as() { echo "plot-issue-status: $1" >&2; echo "summary: tracker=failed"; exit 2; }
 
-{ [ -n "$plan_file" ] && [ -f "$plan_file" ]; } || fail_as "usage: plot-issue-status.sh <plan file>"
+{ [ -n "$plan_file" ] && [ -f "$plan_file" ]; } || fail_as "usage: plot-issue-status.sh <plan file> [--skip-issue <id> ...]"
 meta=$(bash "$script_dir/plot-plan-meta.sh" "$plan_file" 2>/dev/null) || meta=""
 [ -n "$meta" ] || fail_as "cannot parse '$plan_file'"
 
@@ -45,6 +47,6 @@ released=$(bash "$script_dir/plot-config.sh" get "Tracker released status" '' 2>
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null); [ -n "$repo_root" ] || repo_root=$(pwd)
 out=$(printf '%s' "$meta" | PLOT_SCRIPTS_DIR="$script_dir" PLOT_REPO_ROOT="$repo_root" \
-  node "$bundle" --approved "$approved" --delivered "$delivered" --released "$released") || { [ -z "$out" ] || printf '%s\n' "$out"; fail_as "the bundle failed"; }
+  node "$bundle" --approved "$approved" --delivered "$delivered" --released "$released" "${@:2}") || { [ -z "$out" ] || printf '%s\n' "$out"; fail_as "the bundle failed"; }
 printf '%s\n' "$out"
 exit 0

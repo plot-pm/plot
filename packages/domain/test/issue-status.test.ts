@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest';
 import {
   isPlanStatePhase,
   issueStatusWrites,
+  parsePlanSiblingLine,
   planStateWrites,
   releaseIssueDecisions,
   releaseIssueSummary,
   trackerReportOf,
   trackerWriteSummary,
+  unfinishedIssuesOf,
   type IssueStatusWords,
 } from '../src/rules/issue-status.js';
 
@@ -140,6 +142,100 @@ describe('a release decides which of its issues to close', () => {
 
   it('decides nothing where the plan names no issue', () => {
     expect(releaseIssueDecisions([], new Set(['7']))).toEqual([]);
+  });
+
+  // #2374 (3): a failed sibling read must never read as "no sibling" — every
+  // issue the released plan names stays open, unconditionally, rather than
+  // closing because the set that would have named it came back empty.
+  it('leaves every issue open where the sibling read is unreadable, never closing on an empty-looking set', () => {
+    expect(releaseIssueDecisions(['7', '8'], 'unreadable')).toEqual([
+      { issue: '7', skip: 'unreadable' },
+      { issue: '8', skip: 'unreadable' },
+    ]);
+  });
+
+  it('decides nothing where the plan names no issue, even where the sibling read is unreadable', () => {
+    expect(releaseIssueDecisions([], 'unreadable')).toEqual([]);
+  });
+});
+
+describe('a guarded reader parses one plot-plan-meta.sh line', () => {
+  it('reads the phase and the issues, stringifying numeric issue ids', () => {
+    expect(parsePlanSiblingLine('{"phase":"approved","issues":[2480]}')).toEqual({
+      phase: 'approved',
+      issues: ['2480'],
+    });
+  });
+
+  it('reads an empty issues array', () => {
+    expect(parsePlanSiblingLine('{"phase":"draft","issues":[]}')).toEqual({ phase: 'draft', issues: [] });
+  });
+
+  // #2374 (4): the site this guards ran a bare `JSON.parse` with no guard,
+  // after the release push had already landed — a malformed line must never
+  // throw out of a release whose commit is on main.
+  it('reads null, never throwing, where the line is not JSON', () => {
+    expect(parsePlanSiblingLine('not json')).toBeNull();
+  });
+
+  it('reads null where the line is JSON but names no issues array', () => {
+    expect(parsePlanSiblingLine('{"phase":"approved"}')).toBeNull();
+  });
+
+  it('reads null where phase is not a string', () => {
+    expect(parsePlanSiblingLine('{"phase":7,"issues":[]}')).toBeNull();
+  });
+
+  it('reads null where the parsed JSON is not an object', () => {
+    expect(parsePlanSiblingLine('"approved"')).toBeNull();
+  });
+
+  it('reads null where the parsed JSON is the literal null', () => {
+    expect(parsePlanSiblingLine('null')).toBeNull();
+  });
+
+  it('reads null where an issue is neither a string nor a number', () => {
+    expect(parsePlanSiblingLine('{"phase":"approved","issues":[null]}')).toBeNull();
+  });
+});
+
+describe('a release reads every unreleased sibling for the issues it still owes', () => {
+  it('collects issues from an Active sibling', () => {
+    const lines = ['{"phase":"approved","issues":["7"]}'];
+    expect(unfinishedIssuesOf(lines)).toEqual(new Set(['7']));
+  });
+
+  // #2374 (1): a Delivered sibling must count too — the defect was reading
+  // only the Active index, so a sibling plan already Delivered and not yet
+  // Released was invisible and its issue closed early.
+  it('collects issues from a Delivered sibling the same as an Active one', () => {
+    const lines = ['{"phase":"delivered","issues":["7"]}'];
+    expect(unfinishedIssuesOf(lines)).toEqual(new Set(['7']));
+  });
+
+  it('excludes a sibling already released — its issues do not stay open on its account', () => {
+    const lines = ['{"phase":"released","issues":["7"]}'];
+    expect(unfinishedIssuesOf(lines)).toEqual(new Set());
+  });
+
+  it('unions issues across several siblings', () => {
+    const lines = ['{"phase":"approved","issues":["7"]}', '{"phase":"delivered","issues":["8"]}'];
+    expect(unfinishedIssuesOf(lines)).toEqual(new Set(['7', '8']));
+  });
+
+  it('reads no sibling as no unfinished issue', () => {
+    expect(unfinishedIssuesOf([])).toEqual(new Set());
+  });
+
+  it('skips a blank line between records', () => {
+    const lines = ['{"phase":"approved","issues":["7"]}', '', '  '];
+    expect(unfinishedIssuesOf(lines)).toEqual(new Set(['7']));
+  });
+
+  // #2374 (4): one unparseable record must stop the whole read rather than
+  // silently dropping that line — an unreadable sibling set is not an empty one.
+  it('reads unreadable where any one line is not a guarded record, naming nothing it could not parse', () => {
+    expect(unfinishedIssuesOf(['{"phase":"approved","issues":["7"]}', 'not json'])).toBe('unreadable');
   });
 });
 
