@@ -9,4 +9,5 @@ plan: docs/plans/2026-10-24-implement-leaves-the-main-checkout-on.md
 bumps:
   skills:
     plot: patch
+    plot-implement: patch
 -->
