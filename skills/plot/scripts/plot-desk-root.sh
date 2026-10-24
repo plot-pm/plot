@@ -144,6 +144,5 @@ plot_plan_for_branch() {
   for link in $(grep -lF "$branch" "$plan_dir"*.md 2>/dev/null || true); do
     [ -e "$link" ] && metas="${metas}$(bash "$_plot_desk_root_dir/plot-plan-meta.sh" "$link" 2>/dev/null)"$'\n'
   done
-  [ -n "$metas" ] || return 1
-  printf '%s' "$metas" | node "$_plot_desk_root_dir/board/plot-plan-for-branch.mjs" "$branch"
+  [ -n "$metas" ] || return 1; printf '%s' "$metas" | node "$_plot_desk_root_dir/board/plot-plan-for-branch.mjs" "$branch"
 }
