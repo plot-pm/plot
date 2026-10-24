@@ -60,7 +60,7 @@ An unquoted heredoc body feeding `git commit -F -` is the same data, and the sam
 
 ### Gate reads message text as data
 
-- `bug/controller-gate-fires-on-a-script` — strip the message argument of `git commit` and the reason argument of the receipt call before `controllerInvocation` reads a command, and pin the five shapes in Motivation plus the invocation corpus from `a-gate-matches-an-invocation` in `test/reconcile/controller-gate.test.mjs`
+- `bug/controller-gate-fires-on-a-script` → #2518 — strip the message argument of `git commit` and the reason argument of the receipt call before `controllerInvocation` reads a command, and pin the five shapes in Motivation plus the invocation corpus from `a-gate-matches-an-invocation` in `test/reconcile/controller-gate.test.mjs`
 
 **Done when** the three refusing rows in Motivation pass, pinned by fixtures holding the reporter's own message. The single-quoted heredoc row keeps passing. Every invocation shape the #935 corpus held still refuses: a plain call, `./relative`, an absolute path, `bash <script>`, `sh -c '<script>'`, `env FOO=1 <script>`, `for`/`while`/`if` bodies, `{ }`, `( )`, `$( )`, `source`, `.`, `xargs` and `find -exec`. A commit whose message holds a `$( plot-deliver.sh … )` substitution still refuses. `pnpm run test:contracts` passes, and `node skills/plot/scripts/board/plot-local-checks.mjs` lists nothing unrun.
 
