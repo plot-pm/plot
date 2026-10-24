@@ -357,7 +357,7 @@ Add one line to the plan's `## Status` per started branch:
 Commit it where the plan lives (same branch in `same-branch` flow;
 default branch in direct flows — see `/plot-approve` step 4 for the
 exact push mechanics and the branch-protection fallback; the plan's
-branch otherwise). The board derives **Ready** (approved, no `Started:`)
+branch otherwise). **Under `--brief-only` the record goes on the default branch, never on the slice branch,** and the `brief-push` gate refuses a `git push` of the branch the run briefs. The board derives **Ready** (approved, no `Started:`)
 vs **In progress** from exactly this record.
 
 If `## Plot Config` includes a project board (`owner/number`), set each
