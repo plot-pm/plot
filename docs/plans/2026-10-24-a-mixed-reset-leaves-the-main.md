@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-10-24, Jan Wloka, plan-PR #2631 merged
 - **Started:** 2026-10-24, Jan Wloka, `bug/a-mixed-reset-leaves-the-main-gate`
+- **Started:** 2026-10-25, Jan Wloka, `bug/a-mixed-reset-leaves-the-main-brief`
 
 ## Changelog
 
