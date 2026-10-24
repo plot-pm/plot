@@ -146,7 +146,7 @@ describe('reviewPr', () => {
     const out = await reviewPr(r.deps, '7');
     expect(out.code).toBe(EXIT.ok);
     expect(r.statuses).toEqual([{
-      sha: HEAD, state: 'failure', context: 'plot/review', description: '2 HIGH findings',
+      sha: HEAD, state: 'failure', context: 'plot/review', description: `2 HIGH findings; run ${RUN}`,
       targetUrl: 'https://github.com/o/r/issues/1',
     }]);
     expect(r.issues).toHaveLength(1);
@@ -161,7 +161,7 @@ describe('reviewPr', () => {
     expect(r.issues).toHaveLength(1);
     expect(r.statuses).toHaveLength(2);
     expect(r.statuses[1]!.targetUrl).toBe(r.statuses[0]!.targetUrl);
-    expect(r.statuses[0]!.description).not.toContain('run ');
+    expect(r.statuses[0]!.description).toContain(`run ${RUN}`);
     expect(r.commented).toHaveLength(1);
     expect(r.commented[0]!.id).toBe('1');
     expect(r.commented[0]!.body).toContain(`run ${RUN}`);
@@ -197,7 +197,7 @@ describe('reviewPr', () => {
     expect(r.issues[0]!.labels).toEqual(['ai-generated']);
     expect(r.issues[0]!.body).toContain('a gap');
     expect(r.statuses).toEqual([{
-      sha: HEAD, state: 'success', context: 'plot/review', description: 'no HIGH findings',
+      sha: HEAD, state: 'success', context: 'plot/review', description: `no HIGH findings; run ${RUN}`,
       targetUrl: 'https://github.com/o/r/issues/1',
     }]);
     expect(out.lines.at(-1)).toBe(`plot-review: PR #7 ${HEAD} success, no HIGH findings, issue https://github.com/o/r/issues/1`);
@@ -687,18 +687,22 @@ describe('one follow-up issue per PR', () => {
       issueListWithTitle: async () => { lookups += 1; return answered({ issues: [issueRow('9', 'plot-review: MEDIUM 0, LOW 1 on PR #7')], complete: true, pages: 1 }); },
     });
     const files = new Map<string, string>();
+    const runs = [RUN, '2026-10-20T08:00:00Z'];
     for (let i = 0; i < 2; i += 1) {
       const r = rig('Findings: HIGH 0, MEDIUM 0, LOW 1\n', { files });
       r.deps.tracker = tracker;
+      r.deps.now = () => runs[i]!;
       await reviewPr(r.deps, '7');
     }
     expect(lookups).toBe(1);
     expect(commented).toHaveLength(2);
     expect(commented[0]!.id).toBe('9');
     expect(commented[1]!.id).toBe('9');
+    expect(commented[0]!.body).not.toBe(commented[1]!.body);
+    expect(commented[1]!.body).toContain(`run ${runs[1]}`);
   });
 
-  it('removes the issue file and names the reason when the comment fails', async () => {
+  it('keeps the found issue file and reports it as opened when the comment on it fails', async () => {
     const { tracker } = withLabelled([issueRow('9', 'plot-review: MEDIUM 0, LOW 1 on PR #7')], {
       issueComment: async () => ({ ok: false as const, why: 'failed' as const }),
       lastRefusal: () => 'plot-host: HTTP 403',
@@ -708,7 +712,12 @@ describe('one follow-up issue per PR', () => {
     const out = await reviewPr(r.deps, '7');
     expect(out.code).toBe(EXIT.issueNotOpened);
     expect(out.lines.join('\n')).toContain('could not comment on issue 9: plot-host: HTTP 403');
-    expect(r.files.has(`${REVIEWS}/7-${HEAD}.issue`)).toBe(false);
+    expect(out.lines.join('\n')).not.toContain('the follow-up issue was not opened');
+    expect(r.files.get(`${REVIEWS}/7-${HEAD}.issue`)).toBe('9');
+    expect(r.statuses).toEqual([{
+      sha: HEAD, state: 'success', context: 'plot/review', description: 'no HIGH findings; verdict not commented',
+      targetUrl: 'https://github.com/o/r/issues/9',
+    }]);
   });
 
   it('keeps the recorded issue file when a comment on it fails, and names the reason', async () => {
@@ -729,7 +738,7 @@ describe('one follow-up issue per PR', () => {
     }]);
   });
 
-  it('keeps the recorded issue as the target and exits ok when the tracker takes no comment', async () => {
+  it('names the uncommented verdict and targets the PR, not the issue, when the tracker takes no comment', async () => {
     const { tracker, opened } = withLabelled([], {
       issueListWithTitle: async () => ({ ok: false as const, why: 'unaskable' as const, reason: 'the Jira tracker cannot search issues by title' }),
       issueComment: async () => ({ ok: false as const, why: 'unaskable' as const, reason: 'the Jira tracker does not comment on issues' }),
@@ -741,8 +750,8 @@ describe('one follow-up issue per PR', () => {
     expect(out.code).toBe(EXIT.ok);
     expect(opened).toHaveLength(0);
     expect(r.statuses).toEqual([{
-      sha: HEAD, state: 'failure', context: 'plot/review', description: '1 HIGH finding',
-      targetUrl: 'https://github.com/o/r/issues/9',
+      sha: HEAD, state: 'failure', context: 'plot/review', description: '1 HIGH finding; verdict not commented',
+      targetUrl: 'https://github.com/o/r/pull/7',
     }]);
     expect(out.lines.join('\n')).toContain('could not comment on issue 9: the Jira tracker does not comment on issues');
     expect(r.files.get(`${REVIEWS}/7-${HEAD}.issue`)).toBe('9');
