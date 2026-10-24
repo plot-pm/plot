@@ -54,7 +54,7 @@ Files likely touched: `packages/fleet/src/shared/implement-run.ts`, `packages/bo
 
 ### Ref
 
-- `bug/implement-pushes-no-held-ref` — the Started record never leaves a ref the queue reads as held <!-- waits: bug/implement-restores-the-checkout -->
+- `bug/implement-pushes-no-held-ref` — the Started record never leaves a ref the queue reads as held <!-- waits: bug/implement-restores-the-checkout --> → #2646
 
 ### Release
 
