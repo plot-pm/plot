@@ -8799,6 +8799,16 @@ test('plot-pr-merged: a non-empty branch with a merged PR still reads as merged'
   );
 });
 
+// `url_encode` in `plot-host.sh`: only `[a-zA-Z0-9.~_-]` pass through, so `! ' ( ) *`
+// are percent-encoded, which `encodeURIComponent` leaves alone. Every other byte
+// becomes `%XX` per UTF-8 byte, so the result holds no bash pattern metacharacter.
+const urlEncodeLikeHost = (raw) => [...Buffer.from(raw, 'utf8')]
+  .map((b) => {
+    const c = String.fromCharCode(b);
+    return /[a-zA-Z0-9.~_-]/.test(c) ? c : `%${b.toString(16).toUpperCase().padStart(2, '0')}`;
+  })
+  .join('');
+
 // --- plot-pr-merged.sh: the Bitbucket arm, and it is asked with no `gh` on
 // `PATH` at all ---------------------------------------------------------
 //
@@ -8835,7 +8845,13 @@ function makeBbOnlyStub({ mergedBranch = null, openRows = [] } = {}) {
     author: { nickname: 'a' },
     links: { html: { href: 'u' } },
   }] : []);
-  const mergedQuery = mergedBranch ? `*MERGED*${encodeURIComponent(`"${mergedBranch}"`)}*` : '';
+  // The arm exists only when a merged branch does: with none, the pattern is
+  // empty and `[[ … == ]]` is a bash syntax error that fails every call.
+  const mergedArm = mergedBranch ? `if [[ "$*" == *"api "*"/pullrequests"* && "$*" == *MERGED*"${urlEncodeLikeHost(`"${mergedBranch}"`)}"* ]]; then
+  printf '{"values":%s}' ${JSON.stringify(mergedValues)}
+  exit 0
+fi
+` : '';
   writeFileSync(
     path.join(dir, 'bb'),
     `#!/usr/bin/env bash
@@ -8846,11 +8862,7 @@ if [[ "$*" == "pr list --state merged --json" ]]; then
   printf '%s' ${JSON.stringify(mergedRows)}
   exit 0
 fi
-if [[ -n ${JSON.stringify(mergedQuery)} && "$*" == *"api "*"/pullrequests"* && "$*" == ${mergedQuery} ]]; then
-  printf '{"values":%s}' ${JSON.stringify(mergedValues)}
-  exit 0
-fi
-if [[ "$*" == *"api "*"/pullrequests"* && "$*" == *MERGED* ]]; then
+${mergedArm}if [[ "$*" == *"api "*"/pullrequests"* && "$*" == *MERGED* ]]; then
   printf '{"values":[]}'
   exit 0
 fi
@@ -8922,6 +8934,26 @@ test('plot-pr-merged: a Bitbucket branch with no merged PR reads as not merged',
   assert.equal(
     sourcedPrMerged('pr_merged infra/x', stub.dir, { PLOT_HOST: 'bitbucket' }).code, 1,
     'no merged PR for this branch means pr_merged refuses',
+  );
+});
+
+test('plot-pr-merged: a branch name with ! \' ( ) * is encoded as url_encode does, and still reads as merged', () => {
+  const branch = "bug/it's-(a)*!";
+  const stub = makeBbOnlyStub({ mergedBranch: branch });
+  assert.equal(
+    sourcedPrMerged(`_plot_merged_lookup ${JSON.stringify(branch)}`, stub.dir, { PLOT_HOST: 'bitbucket' }).stdout.trim(),
+    'found',
+    'the stub matches the query bb_branch_query sends for the five characters encodeURIComponent leaves bare',
+  );
+});
+
+test('plot-pr-merged: a Bitbucket branch with an open PR reads as found, and one without reads as none', () => {
+  const stub = makeBbOnlyStub({ openRows: ['feature/x'] });
+  const env = { PLOT_HOST: 'bitbucket' };
+  assert.equal(sourcedPrMerged('_plot_open_lookup feature/x', stub.dir, env).stdout.trim(), 'found');
+  assert.equal(
+    sourcedPrMerged('_plot_open_lookup feature/other', stub.dir, env).stdout.trim(), 'none',
+    'a row for another branch is not an open PR on this one',
   );
 });
 
