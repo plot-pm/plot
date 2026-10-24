@@ -56,7 +56,7 @@ Naming the current status and transitions in the output makes the message action
 
 ### Distinguish already from unreachable
 
-- `feature/tracker-issue-status-no-target-hides` — read the current status on a no-match, report `already` or `unreachable`, and carry both words through the tracker port and the delivery summary <!-- builds: issue-status already/unreachable outcome -->
+- `feature/tracker-issue-status-no-target-hides` — read the current status on a no-match, report `already` or `unreachable`, and carry both words through the tracker port and the delivery summary <!-- builds: issue-status already/unreachable outcome --> → #2591
 
 ## Notes
 
