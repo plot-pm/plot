@@ -21,7 +21,7 @@ import { flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-
 import { tickSprintItem } from '@plot-pm/domain/rules/sprint-tick';
 import { indexSymlinkPlacement } from '@plot-pm/domain/rules/index-symlink';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
-import { releaseIssueDecisions, releaseIssueSummary, trackerReportOf, type ReleaseSkipReason } from '@plot-pm/domain/rules/issue-status';
+import { parsePlanSiblingLine, releaseIssueDecisions, releaseIssueSummary, trackerReportOf, unfinishedIssuesOf, type ReleaseSkipReason } from '@plot-pm/domain/rules/issue-status';
 import { deliverabilityOf, type DeliverabilityPorts } from '../controllers/deliverability.js';
 import {
   commitAndPush,
@@ -170,44 +170,38 @@ const findPlanFile = async (
 };
 
 /**
- * Reads the issues every OTHER active plan names, for the released plan's
- * tracker write to skip: an issue a not-yet-`released` plan also names is
- * shared, and closes only when the last plan naming it releases.
+ * Reads every sibling plan's `plot-plan-meta.sh` line, for
+ * {@link unfinishedIssuesOf} to decide which issues stay open.
  *
- * Reads `Active index` rather than every plan file — a plan reaches
- * `docs/plans/active/` the moment it stops being Released, so the index
- * already excludes the one case (`released`) this needs to exclude, bar the
- * plan being released itself, excluded by path.
+ * Lists the flat `Plan directory` rather than the `Active index` — the index
+ * is a symlink view holding only not-yet-released plans, so a sibling already
+ * Delivered but not yet Released, which still owes its issue, would be
+ * invisible there. The flat directory holds every plan regardless of phase,
+ * and the pure rule is what excludes `released` ones.
  *
- * @param planStore - where the active index and its plan files live.
+ * @param planStore - where the plan directory and its files live.
  * @param scripts - the `plot-plan-meta.sh` port, for a batched phase+issues read.
- * @param activeDir - the configured active index.
+ * @param planDir - the configured plan directory.
  * @param excludeFile - the plan being released, repository-relative; skipped
- *   even though its own symlink has not moved yet at the point this is read.
- * @returns the issues any other active plan still names.
+ *   so it never reads itself as its own sibling.
+ * @returns one `plot-plan-meta.sh` line per sibling, or `null` where the
+ *   directory listing or the batched read itself could not be trusted.
  */
-const unfinishedIssuesOf = async (
+const siblingLinesOf = async (
   planStore: PlanStore,
   scripts: Scripts,
-  activeDir: string,
+  planDir: string,
   excludeFile: string,
-): Promise<ReadonlySet<string>> => {
-  const listed = await planStore.listDir(activeDir);
-  const files = (listed.ok ? listed.value : [])
+): Promise<readonly string[] | null> => {
+  const listed = await planStore.listDir(planDir);
+  if (!listed.ok) return null;
+  const files = listed.value
     .filter((name) => name.endsWith('.md'))
-    .map((name) => path.join(activeDir, name))
+    .map((name) => path.join(planDir, name))
     .filter((file) => path.normalize(file) !== path.normalize(excludeFile));
-  if (files.length === 0) return new Set();
+  if (files.length === 0) return [];
   const meta = await scripts.planMeta(files);
-  if (!meta.ok) return new Set();
-  const unfinished = new Set<string>();
-  for (const line of meta.value.split('\n')) {
-    if (line.trim() === '') continue;
-    const parsed = JSON.parse(line) as { phase?: unknown; issues?: unknown };
-    if (parsed.phase === 'released' || !Array.isArray(parsed.issues)) continue;
-    for (const issue of parsed.issues) unfinished.add(String(issue));
-  }
-  return unfinished;
+  return meta.ok ? meta.value.split('\n') : null;
 };
 
 /** `git` run in the repository, discarding nothing from the caller. */
@@ -900,7 +894,34 @@ const runRelease = async (
   }
   await cleanup();
 
-  const statusTracker = await ctx.scripts.awaited('plot-issue-status.sh', [bookedPlanFile]);
+  // AN ISSUE ANOTHER UNFINISHED PLAN ALSO NAMES STAYS OPEN — shared, and the
+  // last plan to release is the one that closes it. Read BEFORE either
+  // tracker write, so one skip list reaches both: a write that ran first with
+  // no skip list is the defect this guards against (#2374 (2)). `planDirCfg`
+  // is read fresh here rather than threaded in: `runDeliver` resolves its own
+  // directory config the same way, once per arm.
+  const planDirCfg = await ctx.scripts.config('Plan directory', 'docs/plans/');
+  const planDir = planDirCfg.ok ? planDirCfg.value.trim() : 'docs/plans/';
+  const siblingLines = await siblingLinesOf(ctx.planStore, ctx.scripts, planDir, rel);
+  const unfinishedIssues = siblingLines === null ? 'unreadable' : unfinishedIssuesOf(siblingLines);
+  const releasedLine = await (async () => {
+    const releasedMeta = await ctx.scripts.planMeta([bookedPlanFile]);
+    return releasedMeta.ok ? releasedMeta.value.split('\n').map((l) => l.trim()).find(Boolean) : undefined;
+  })();
+  const releasedRecord = releasedLine === undefined ? null : parsePlanSiblingLine(releasedLine);
+  const releasedIssues: readonly string[] = releasedRecord?.issues ?? [];
+  const decisions = releaseIssueDecisions(releasedIssues, releasedRecord === null ? 'unreadable' : unfinishedIssues);
+  const skipIssues = decisions.filter((d) => d.skip !== null).map((d) => d.issue);
+  const skipFlags = skipIssues.flatMap((issue) => ['--skip-issue', issue]);
+
+  if (unfinishedIssues === 'unreadable') {
+    write(`  tracker: sibling read unreadable — could not parse a plot-plan-meta.sh line for a plan under ${planDir}; every issue this release names stays open.\n`);
+  }
+  if (releasedRecord === null) {
+    write(`  tracker: could not parse the released plan's own plot-plan-meta.sh line (${bookedPlanFile}); every issue this release names stays open.\n`);
+  }
+
+  const statusTracker = await ctx.scripts.awaited('plot-issue-status.sh', [bookedPlanFile, ...skipFlags]);
   for (const line of statusTracker.stdout.split('\n')) {
     if (line.length > 0 && !line.startsWith('summary: ')) write(`  tracker: ${line}\n`);
   }
@@ -909,21 +930,6 @@ const runRelease = async (
     const match = line.match(/^summary: tracker=([a-z-]*)/);
     if (match) trackerReport = match[1];
   }
-
-  // AN ISSUE ANOTHER UNFINISHED PLAN ALSO NAMES STAYS OPEN — shared, and the
-  // last plan to release is the one that closes it. `activeDirRelease` is
-  // read fresh here rather than threaded in: `runDeliver` resolves its own
-  // directory config the same way, once per arm.
-  const activeDirReleaseCfg = await ctx.scripts.config('Active index', 'docs/plans/active/');
-  const activeDirRelease = activeDirReleaseCfg.ok ? activeDirReleaseCfg.value.trim() : 'docs/plans/active/';
-  const unfinishedIssues = await unfinishedIssuesOf(ctx.planStore, ctx.scripts, activeDirRelease, rel);
-  const releasedMeta = await ctx.scripts.planMeta([bookedPlanFile]);
-  const releasedLine = releasedMeta.ok ? releasedMeta.value.split('\n').map((l) => l.trim()).find(Boolean) : undefined;
-  const releasedIssuesParsed: unknown = releasedLine === undefined ? undefined : (JSON.parse(releasedLine) as { issues?: unknown }).issues;
-  const releasedIssues: readonly string[] = Array.isArray(releasedIssuesParsed) ? releasedIssuesParsed.map(String) : [];
-  const decisions = releaseIssueDecisions(releasedIssues, unfinishedIssues);
-  const skipIssues = decisions.filter((d) => d.skip !== null).map((d) => d.issue);
-  const skipFlags = skipIssues.flatMap((issue) => ['--skip-issue', issue]);
 
   const planState = trackerReportOf(
     await ctx.scripts.awaited('plot-plan-state.sh', [
