@@ -189,3 +189,48 @@ test('plan-meta: a matching list item’s own annotation overrides the heading�
   assert.equal(meta.waves[0].branches[0].deferred, true);
   assert.equal(meta.waves[0].branches[0].deferred_reason, 'list item reason');
 });
+
+test('plan-meta: a list item’s PR is deferred when only the heading carries the deferral', () => {
+  const meta = parseSource(plan(
+    '### A (Branch: bug/x) <!-- deferred: heading reason -->\n\n- `bug/x` — foo → #12\n'
+  ));
+  assert.deepEqual(meta.prs, [12]);
+  assert.deepEqual(meta.deferred_prs, [12], 'a deferred branch’s PR never counts as shipped');
+});
+
+test('plan-meta: a heading’s PR is deferred when only the list item carries the deferral', () => {
+  const meta = parseSource(plan(
+    '### A (Branch: bug/x, PR: #13)\n\n- `bug/x` — foo <!-- deferred: list item reason -->\n'
+  ));
+  assert.deepEqual(meta.prs, [13]);
+  assert.deepEqual(meta.deferred_prs, [13]);
+  assert.equal(meta.waves[0].branches[0].deferred, true);
+});
+
+test('plan-meta: a non-deferred branch’s PRs on both lines stay out of deferred_prs', () => {
+  const meta = parseSource(plan('### A (Branch: bug/x, PR: #13)\n\n- `bug/x` — foo → #12\n'));
+  assert.deepEqual(meta.deferred_prs, []);
+});
+
+test('plan-meta: waits: on the heading and the list item merge, and an unreadable value on either is reported', () => {
+  const meta = parseSource(plan(
+    '### A (Branch: bug/x) <!-- waits: bug/a, nonsense-one -->\n\n- `bug/x` — foo <!-- waits: bug/b, bug/a, nonsense-two -->\n'
+  ));
+  assert.deepEqual(meta.waves[0].branches[0].waits_on, ['bug/a', 'bug/b']);
+  assert.deepEqual(meta.unread_waits, [
+    { branch: 'bug/x', value: 'nonsense-one' },
+    { branch: 'bug/x', value: 'nonsense-two' },
+  ]);
+});
+
+test('plan-meta: a list item’s commit refs merge with the heading’s', () => {
+  const meta = parseSource(plan(
+    '### A (Branch: bug/x) → commit abc1234\n\n- `bug/x` — foo → commit def5678\n'
+  ));
+  assert.deepEqual(meta.waves[0].branches[0].commits, ['abc1234', 'def5678']);
+});
+
+test('plan-meta: a list item’s commit refs are read when the heading names none', () => {
+  const meta = parseSource(plan('### A (Branch: bug/x)\n\n- `bug/x` — foo → commit def5678\n'));
+  assert.deepEqual(meta.waves[0].branches[0].commits, ['def5678']);
+});

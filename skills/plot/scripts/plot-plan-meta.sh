@@ -838,9 +838,16 @@ function note_branch_heading(   h) {
 # slice dialects at the moment each claims a branch, so a `waits:` syntax
 # example on a line with NO branch claim never drains the queue and stays
 # silent — the same rule the old single-value reading followed.
-function store_waits(n, b,   k) {
-  waits_n[n] = line_waits[0] + 0
-  for (k = 1; k <= waits_n[n]; k++) waits_of[n, k] = line_waits[k]
+#
+# OVERLAY (a heading-shape list item naming the branch of its heading) keeps what
+# the heading stored and adds the values of this line it lacks: the union, so a
+# prerequisite on either line holds the slice. The unread values drain either way.
+function store_waits(n, b, overlay,   k, j, dup) {
+  if (!overlay) waits_n[n] = 0
+  for (k = 1; k <= line_waits[0]; k++) {
+    dup = 0; for (j = 1; j <= waits_n[n]; j++) if (waits_of[n, j] == line_waits[k]) dup = 1
+    if (!dup) waits_of[n, ++waits_n[n]] = line_waits[k]
+  }
   waits_set[n] = (waits_n[n] > 0) ? 1 : 0
   for (k = 1; k <= pending_unread_n; k++) {
     unread_waits_branch[++n_unread_waits] = b
@@ -996,7 +1003,7 @@ function commit_list(s,   out, m, h) {
 # heading line claimed n first via read_notes() on itself, so only a field
 # THIS line carries may overwrite -- a deferral reason written on the heading
 # must survive a list item that carries none of its own.
-function keep_branch(n, b, overlay,   is_deferred) {
+function keep_branch(n, b, overlay,   is_deferred, c) {
   is_deferred = ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/)
   # THE FLAG accepts the bare form as well as the annotated one. It matched
   # `deferred:` only, so `<!-- deferred -->` — the annotation with nothing
@@ -1013,13 +1020,15 @@ function keep_branch(n, b, overlay,   is_deferred) {
   # The prerequisites travel with the branch, flattened as waits_of[n,1..k]
   # since this awk has no nested arrays. Presence is tracked separately so a
   # branch that declares none emits no key.
-  if (!overlay || !waits_set[n]) store_waits(n, b)
+  store_waits(n, b, overlay)
   if (!overlay || builds_note != "") builds_of[n] = builds_note
   # The kind travels with the branch, presence tracked separately so a slice
   # declaring none emits no key.
   if (!overlay || agent_note != "") agent_of[n] = agent_note
   ordered_b[n] = b
-  if (!overlay) commits_of[n] = commit_list($0)
+  # Commits merge like waits: a list item adds its own to those of the heading.
+  c = commit_list($0)
+  commits_of[n] = (overlay && commits_of[n] != "") ? commits_of[n] (c != "" ? "," c : "") : c
 }
 # `→ #N` and `→ owner/repo#N` are both annotations: /plot-deliver instructs
 # implementers to write the second for `Impl: other repo` plans, and a parser
@@ -1030,11 +1039,14 @@ function keep_branch(n, b, overlay,   is_deferred) {
 # obvious hand-typo, and treating it as absence makes the sweep advise adding
 # an annotation the plan already carries. Accepting it would widen the
 # contract on a guess; reporting it leaves the judgement with a person.
-function extract_prs(raw,   line, p) {
+#
+# DEFER (optional) files every PR on this line as deferred: a heading-shape list
+# item passes the deferral of its branch, which the heading line may carry alone.
+function extract_prs(raw, defer,   line, p) {
   line = raw
   while (match(line, /→ ([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?#[0-9]+/)) {
     p = substr(line, RSTART, RLENGTH); sub(/^.*#/, "", p)
-    prs[++n_prs] = p; if (raw ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
+    prs[++n_prs] = p; if (defer || raw ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
     line = substr(line, RSTART + RLENGTH)
   }
   line = raw
@@ -1375,7 +1387,7 @@ section == "slices" && slice_shape == "heading" {
     # The branch this heading just claimed, so a list item below can be
     # matched against it. "" until a branch is read below, so a heading with
     # no readable branch claims nothing for any list item that follows.
-    heading_branch = ""; heading_branch_n = 0
+    heading_branch = ""; heading_branch_n = 0; heading_pr = ""
 
     # The branch is the `Branch:` value, matched against the known prefixes exactly
     # as the old shape matched the backticked name. Written unquoted in the heading
@@ -1405,7 +1417,7 @@ section == "slices" && slice_shape == "heading" {
     if (match($0, /PR:[ \t]*#[0-9]+/)) {
       p = substr($0, RSTART, RLENGTH)
       sub(/^.*#/, "", p)
-      prs[++n_prs] = p; if ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
+      prs[++n_prs] = heading_pr = p; if ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) dprs[++n_dprs] = p
     }
     next
   }
@@ -1424,9 +1436,13 @@ section == "slices" && slice_shape == "heading" {
       # instead of it — the overlay=1 arm of keep_branch then leaves a field
       # this line does not carry (a deferral reason written on the `### `
       # line, say) exactly as the heading already stored it.
+      # Deferral is decided per BRANCH once both lines are read: a deferral on
+      # either line files the PR of the heading and the PRs of this line as deferred.
+      was_deferred = deferred_of[heading_branch_n]
       read_notes()
       keep_branch(heading_branch_n, heading_branch, 1)
-      extract_prs($0)
+      if (was_deferred != "true" && deferred_of[heading_branch_n] == "true" && heading_pr != "") dprs[++n_dprs] = heading_pr
+      extract_prs($0, deferred_of[heading_branch_n] == "true")
     } else {
       # Names a branch no heading in this wave claims (or there is no current
       # heading branch at all) — the parser cannot attribute it, so it is
