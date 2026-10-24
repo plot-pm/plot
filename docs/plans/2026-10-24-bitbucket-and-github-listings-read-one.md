@@ -4,8 +4,9 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
+- **Approved:** 2026-10-24, Jan Wloka, plan-PR #2522 merged
 - **Sprint:** <!-- optional -->
 - **Issue:** #2484
 - **Review:** pr
