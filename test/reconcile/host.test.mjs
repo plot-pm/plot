@@ -7502,7 +7502,7 @@ test('host: the harvested body reaches the caller unchanged', () => {
   });
   assert.deepEqual(JSON.parse(out), {
     number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '', headSha: '', base: 'main', checks: 'unknown',
-    mergeable: 'unknown',
+    mergeable: 'unknown', mergedAt: '',
   });
   assert.doesNotMatch(out, /X-Ratelimit|HTTP\//i, 'no header may reach a caller’s parse');
 });

@@ -4168,16 +4168,12 @@ case "$op" in
     # `pr-merge-dest` RUNS THE SAME QUERY and prints every merged PR instead of
     # the first sha: one `number<TAB>base<TAB>sha<TAB>mergedAt` line each, read
     # off the same payload. `plot-release-chain.mjs` asks it once per hop of a
-    # release-chain walk — a WALK's single source of truth per hop, unlike
-    # `pr-merged`'s yes/no, so under-reading here is a silent wrong hop rather
-    # than a cheap prefilter (#2238). GitHub's `--limit` is grown and the query
-    # re-asked until a page returns short of its own limit, which PROVES
-    # completeness per `pr_list_report_truncation`'s own reasoning — never one
-    # fixed limit, which would just move the threshold. Bitbucket's arm already
-    # pages in full via `_bb_paged_walk` (#2484) and is untouched here.
-    # Bitbucket names no merge time, so `mergedAt` is `updated_on`, as in
-    # `pr-list` — Bitbucket's pull-requests endpoint carries no real merge
-    # timestamp, so this is the best available rather than a bug (#2202).
+    # release-chain walk, where under-reading is a silent wrong hop rather than
+    # a cheap prefilter (#2238) — so GitHub's `--limit` grows and the query
+    # re-asks until a page returns short of it, same proof as
+    # `pr_list_report_truncation`. Bitbucket's arm already pages in full via
+    # `_bb_paged_walk` (#2484); its `mergedAt` is `updated_on` as in `pr-list`,
+    # since the endpoint carries no real merge timestamp (#2202).
     ref="${1:?$op needs a branch}"; shift || true; repo_args=()
     while [ $# -gt 0 ]; do
       case "$1" in
